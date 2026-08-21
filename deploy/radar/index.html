@@ -823,8 +823,8 @@ function resTgl(iso){ return resAktif().filter(function(r){return r.date===iso;}
 
    Dipusatkan begini setelah ketahuan 1 Agustus 2026: aturan "hanya yang pasti
    jalan" sempat cuma dipasang di tab Event, jadi event berstatus Negotiation
-   tetap muncul di dashboard Radar, di Kalender Terpadu, di papan peringatan,
-   dan di Koordinasi. Selama tiap tampilan menyaring sendiri-sendiri, yang
+   tetap muncul di dashboard Radar, di Kalender Terpadu, dan di seluruh daftar
+   acara. Selama tiap tampilan menyaring sendiri-sendiri, yang
    terlupa satu akan selalu ada. */
 function agendaTampil(){ return AGENDA.filter(agPasti); }
 function agendaTgl(iso){ return agendaTampil().filter(function(a){return a.tgl===iso;}); }
@@ -894,9 +894,10 @@ function divProgress(ev,div){
 function divStatus(ev,div){ var p=divProgress(ev,div); return p>=100?2:(p>0?1:0); }
 /* PEMBEDA PENTING: "0% karena belum dikerjakan" berbeda dari "0% karena
    jobnya belum pernah disusun". Di dev, taskTemplates kosong sama sekali —
-   artinya SETIAP event 0%, dan tanpa pembedaan ini papan peringatan langsung
-   penuh "Kesiapan rendah menjelang hari-H" untuk semua acara. Alarm yang
-   selalu menyala akan diabaikan, termasuk yang sungguhan.
+   artinya SETIAP event 0%. Papan peringatan yang dulu bergantung pada
+   pembedaan ini sudah dibuang (21 Agustus 2026), tapi aturannya tetap berlaku
+   di panel Kesiapan divisi pada halaman Detail Lengkap: "belum disusun" dan
+   "belum dikerjakan" bukan hal yang sama.
 
    adaJob() menjawab: apakah event ini punya daftar job sama sekali? Kalau
    tidak, angka kesiapannya tidak bermakna dan tidak boleh dipakai menuduh
@@ -983,7 +984,6 @@ function evBars(a){
    halaman Reservasi, dan lembar Briefing. */
 function agendaCard(a){
   var d=dDay(a.tgl), dt=pDate(a.tgl);
-  var k=a.sumber==='mkt'?kesiapan(a.mentah):null;
   return '<button type="button" class="ev" onclick="APP.detail(\'ag\',\''+a.sumber+'\',\''+esc(a.id)+'\')">'+
     '<span class="ev-date"><span class="ev-d">'+dt.getDate()+'</span><span class="ev-m">'+BLN[dt.getMonth()]+'</span>'+
       '<span class="ev-w">'+HARI[dt.getDay()].slice(0,3)+'</span></span>'+
@@ -1000,64 +1000,12 @@ function agendaCard(a){
       (a.fb?pill(a.fb,'p-teal'):'')+
       pill(dLabel(d), d<=1?'p-bad':(d<=3?'p-warn':'p-mute'))+
       (a.status?pill(a.status,'p-mute'):'')+
-      (k? (k.ada ? pill('Siap '+k.pct+'%', k.pct>=80?'p-go':(k.pct>=50?'p-warn':'p-bad'))
-                 : pill('Job belum disusun','p-mute')) : '')+
+      /* Pil "Siap X%" / "Job belum disusun" dibuang — lihat catatan di
+         drawerAgenda(). Deret garis kecil evBars() di bawah TETAP: ia tidak
+         mengklaim angka apa pun, cuma menandai divisi mana yang sudah
+         bergerak, dan tidak pernah ikut dikeluhkan. */
     '</span>'+evBars(a)+'</span></button>';
 }
-
-/* ---------- PERINGATAN ---------- */
-function peringatan(){
-  var out=[];
-  /* Hanya acara yang pasti jalan. Memperingatkan "kesiapan rendah" untuk event
-     yang masih Negotiation itu keliru dua kali: belum tentu jadi, dan memang
-     belum waktunya disiapkan. */
-  var ag=agendaTampil();
-  ag.forEach(function(a){
-    var d=dDay(a.tgl);
-    if(d<0 || d>21) return;
-    if(a.sumber==='mkt'){
-      var k=kesiapan(a.mentah);
-      if(!k.ada){
-        /* Tanpa daftar job, 0% bukan berarti tertinggal — berarti belum
-           disusun. Satu peringatan yang benar, bukan tiga yang menyesatkan. */
-        if(d<=7) out.push({p:2,a:a,j:'Job belum disusun',
-          k:a.judul+' — '+dLabel(d)+'. Belum ada daftar job untuk divisi mana pun, jadi kesiapannya belum bisa diukur. Susun Template Task di Marketing.'});
-      }else{
-        if(d<=3 && k.pct<70)
-          out.push({p:1,a:a,j:'Kesiapan rendah menjelang hari-H',k:a.judul+' — '+dLabel(d)+', kesiapan divisi baru '+k.pct+'%.'});
-        else if(d<=7 && k.pct<45)
-          out.push({p:2,a:a,j:'Kesiapan tertinggal',k:a.judul+' — '+dLabel(d)+', kesiapan '+k.pct+'%.'});
-        var kosong=evDivisi(a.mentah).filter(function(x){return tmplEvDiv(a.mentah,x).length && divProgress(a.mentah,x)===0;});
-        if(d<=5 && kosong.length>=3)
-          out.push({p:2,a:a,j:kosong.length+' divisi belum bergerak',k:a.judul+' — '+kosong.join(', ')+' masih 0%.'});
-      }
-      /* DIHAPUS: peringatan "reservasi jauh di bawah target" yang
-         membandingkan pax reservasi meja dengan target pax event Marketing.
-         Itu membandingkan dua hal yang BERBEDA:
-           - pax event Marketing datang dari kontrak klien (mis. 340 tamu
-             undangan launching) dan TIDAK dibooking lewat modul Reservasi;
-           - reservasi meja adalah tamu venue biasa yang memesan meja.
-         Angka 24 pax reservasi tidak pernah dimaksudkan untuk mengejar target
-         340 pax event, jadi peringatannya selalu menyala dan selalu salah. */
-    }
-  });
-  /* Bentrok jadwal LINTAS MODUL — inilah yang tidak bisa dilihat dari modul
-     mana pun sendirian, dan alasan utama Radar ada. */
-  var perTgl={};
-  ag.forEach(function(a){ (perTgl[a.tgl]=perTgl[a.tgl]||[]).push(a); });
-  Object.keys(perTgl).forEach(function(t){
-    var d=dDay(t); if(d<0||d>21) return;
-    var g=perTgl[t];
-    if(g.length<2) return;
-    var beda=g.some(function(x){return x.sumber!==g[0].sumber;});
-    if(!beda) return;
-    out.push({p:1,a:g[0],j:'Dua modul menjadwalkan hari yang sama',
-      k:fTglP(t)+' — '+g.map(function(x){return x.judul+' ('+(x.sumber==='mkt'?'Marketing':'Event')+')';}).join(' + ')+'. Pastikan ini memang acara yang sama, bukan dua acara bertabrakan.'});
-  });
-  out.sort(function(a,b){return a.p-b.p;});
-  return out;
-}
-
 /* ---------- TAMPILAN: RADAR ---------- */
 function stat(l,v,d,c){return '<div class="stat '+(c||'')+'"><div class="stat-l">'+esc(l)+'</div><div class="stat-v num">'+v+'</div><div class="stat-d">'+esc(d)+'</div></div>';}
 function kosong(j,k){return '<div class="card"><div class="empty"><b>'+esc(j)+'</b>'+esc(k||'')+'</div></div>';}
@@ -1293,7 +1241,6 @@ function vRadar(){
      besar-besar di atas Agenda 14 hari — yang barisnya pertama memang acara
      yang sama. Satu acara dua kali di layar yang sama, dan yang di atas
      memakan sepertiga tinggi halaman sebelum daftarnya kelihatan. */
-  var al=peringatan();
   var h=pitaGagal();
 
   /* Penyaring format F&B berlaku untuk angka Marketing/Event DAN untuk daftar
@@ -1324,8 +1271,6 @@ function vRadar(){
     stat('Total pax Reservasi', paxRes(rsPer), 'tamu meja · tanpa batal & no-show','se')+
     stat('Total pax Event', paxOf(evt), evt.length+' acara · dari modul Event','tl')+
     stat('Total pax Marketing', paxOf(mkt), mkt.length+' event · pax kontrak klien','')+
-    stat('Butuh perhatian', al.filter(function(x){return x.p===1;}).length, al.length+' item di papan peringatan',
-         al.filter(function(x){return x.p===1;}).length?'rd':'')+
   '</div>';
   h+='<div class="muted no-print" style="font-size:11.5px;margin:-6px 0 16px;line-height:1.6">'+
      'Pax Event dan pax Marketing <b>tidak dijumlahkan</b> dengan pax reservasi meja — ketiganya rombongan berbeda. '+
@@ -1363,15 +1308,14 @@ function vRadar(){
 
   /* kanan */
   h+='<div>';
-  h+='<div class="card" style="margin-bottom:14px"><div class="sec-h"><h2>Papan peringatan</h2><span class="rule"></span></div>';
-  if(!al.length) h+='<div class="muted" style="font-size:12.5px">Bersih. Tidak ada yang perlu diangkat ke rapat.</div>';
-  al.slice(0,12).forEach(function(x){
-    var cls=x.p===1?'hi':(x.p===2?'md':'lo');
-    h+='<button type="button" class="alert '+cls+'" onclick="APP.detail(\'ag\',\''+x.a.sumber+'\',\''+esc(x.a.id)+'\')">'+
-      '<span class="alert-i" style="background:rgba(42,38,32,.06)">!</span>'+
-      '<span style="flex:1;min-width:0"><b>'+esc(x.j)+'</b><p>'+esc(x.k)+'</p></span></button>';
-  });
-  h+='</div>';
+  /* PAPAN PERINGATAN DIBUANG (21 Agustus 2026, permintaan tim), bersama kartu
+     "Butuh perhatian" yang cuma menghitung isinya. Hampir seluruh isinya
+     turunan progres job di modul Marketing — "kesiapan rendah", "job belum
+     disusun", "N divisi belum bergerak" — dan itu bagian yang sama yang sudah
+     dicabut dari tab Koordinasi dan dari pil kartu: angkanya tidak bisa
+     ditindaklanjuti dari Radar, dan yang paling sering menyala adalah acara
+     yang jobnya memang belum disusun. Peringatan yang hampir selalu menyala
+     berhenti dibaca, termasuk saat ia benar. */
 
   /* Kartu "Hari ini" merangkum TANGGAL, bukan sebuah event — jadi dua modul
      boleh berdampingan di sini. Tapi masing-masing diberi judul kecilnya
@@ -1572,7 +1516,7 @@ function vDetailEvent(){
       h+='<div class="tw"><table><tbody>';
       ff.forEach(function(row){
         h+='<tr><td style="width:34%;color:var(--muted);font-size:11.5px;vertical-align:top">'+esc(row[0])+'</td>'+
-          '<td style="font-size:12.5px;white-space:pre-wrap">'+esc(row[1])+'</td></tr>';
+          '<td style="font-size:12.5px;'+(row[2]?'':'white-space:pre-wrap')+'">'+(row[2]||esc(row[1]))+'</td></tr>';
       });
       h+='</tbody></table></div>';
     }
@@ -1982,6 +1926,49 @@ function tanpaTag(s){
     .replace(/\n{3,}/g,'\n\n')
     .trim();
 }
+/* ---------- LAMPIRAN BERKAS (21 Agustus 2026) ----------
+   Bentuk tersimpannya {key,name,size,at,by}. `key` adalah kunci di penyimpanan
+   modul MARKETING, dan berkasnya disajikan endpoint yang sama yang dipakai
+   Marketing sendiri (api.php?action=receipt). Radar boleh membacanya: folder
+   tetangga, origin yang sama, dan permintaannya cuma membaca.
+
+   Jalurnya diturunkan dari SUMBER — bukan ditulis ulang sebagai string kedua.
+   Alamat backend Marketing sudah tercatat sekali di sana, dan dua salinan
+   berarti yang satu akan tertinggal saat foldernya berganti nama; gejalanya
+   seluruh lampiran jadi gambar patah tanpa satu pun galat yang menyebut
+   sebabnya. */
+function lampiranUrl(key){
+  var mkt=SUMBER.filter(function(s){return s.id==='mkt';})[0];
+  var basis=(mkt&&mkt.url)||'../marketing-api-mysql/api.php';
+  return basis+'?action=receipt&key='+encodeURIComponent(String(key==null?'':key));
+}
+function adalahLampiran(v){
+  return Array.isArray(v) && v.length && v[0] && typeof v[0]==='object'
+         && ('key' in v[0]) && ('name' in v[0]);
+}
+/* Gambar digambar sebagai GAMBAR, berkas lain jadi tautan. Pembedanya
+   ekstensi nama, bukan tipe MIME: yang tersimpan memang cuma namanya, dan
+   menebak dari `key` (yang berakhiran .png untuk semua jenis) akan membuat
+   PDF ikut dipasang sebagai <img> yang selalu patah. */
+function fmtLampiranHTML(v){
+  var isi=v.map(function(f){
+    var nama=String((f&&f.name)||'berkas');
+    var url=lampiranUrl(f&&f.key);
+    if(/\.(png|jpe?g|gif|webp|bmp|avif)$/i.test(nama)){
+      return '<figure style="margin:0">'+
+        '<a href="'+esc(url)+'" target="_blank" rel="noopener">'+
+        '<img src="'+esc(url)+'" alt="'+esc(nama)+'" loading="lazy" onerror="APP.lampiranGagal(this)" '+
+        'style="width:100%;display:block;border-radius:9px;border:1px solid var(--line-soft);background:#fff"></a>'+
+        '<figcaption class="muted" style="font-size:10.5px;margin-top:4px;word-break:break-word">'+esc(nama)+'</figcaption>'+
+      '</figure>';
+    }
+    return '<a href="'+esc(url)+'" target="_blank" rel="noopener" '+
+      'style="display:block;padding:9px 11px;border:1px solid var(--line-soft);border-radius:9px;'+
+      'font-size:12px;word-break:break-word">'+esc(nama)+'</a>';
+  });
+  return '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px">'+
+         isi.join('')+'</div>';
+}
 function fmtDetVal(v){
   if(v==null) return '';
   if(typeof v==='boolean') return v?'Ya':'Tidak';
@@ -1990,13 +1977,17 @@ function fmtDetVal(v){
   if(Array.isArray(v)){
     if(!v.length) return '';
     if(typeof v[0]==='object' && v[0]){
-      /* LAMPIRAN BERKAS — dibuang, bukan digambar (21 Agustus 2026).
-         Bentuknya {key,name,size,at,by}, dan sampai sekarang ia jatuh ke
-         JSON.stringify di ekor fungsi ini: satu baris JSON mentah lengkap
-         dengan nama berkas, ukuran byte, dan stempel waktu, di tengah tabel
-         detail. Radar juga tidak bisa membuka berkasnya — `key` itu kunci di
-         penyimpanan modul Marketing, dan papan ini memang hanya membaca. */
-      if('key' in v[0] && 'name' in v[0]) return '';
+      /* LAMPIRAN BERKAS — TIDAK dibuang, digambar sebagai gambarnya
+         (21 Agustus 2026). Sempat dijatuhkan begitu saja karena bentuknya
+         {key,name,size,at,by} jatuh ke JSON.stringify di ekor fungsi ini dan
+         tercetak mentah di tabel; tapi membuangnya berarti layout & voucher
+         yang justru dipakai menyiapkan acara ikut hilang dari papan ini.
+
+         Yang dipulangkan di sini tetap TEKS (nama berkasnya) — fungsi ini
+         dipakai juga oleh pemanggil yang meng-esc() hasilnya. Gambarnya
+         dirakit terpisah oleh fmtLampiranHTML() lewat detailFields(), yang
+         memulangkan HTML siap pakai sebagai unsur ketiga. */
+      if(adalahLampiran(v)) return v.map(function(f){return String(f&&f.name||'berkas');}).join(', ');
       /* RINCIAN TAGIHAN — dibuang. Bentuknya {desc,jumlah,harga,jenis}, dan
          nasibnya sama: JSON mentah di layar. Lagi pula Radar papan koordinasi,
          bukan papan finance (lihat catatan di bagian angka) — rincian biaya
@@ -2028,18 +2019,25 @@ function fmtDetVal(v){
 }
 /* Daftar [label, teks] untuk SEMUA field terisi milik satu event Marketing,
    urut sesuai skema (MKT_LABEL), field tak dikenal menyusul di ekor. */
+/* Barisnya [label, teks, html?]. Unsur ketiga hanya ada untuk lampiran
+   berkas — itulah satu-satunya isian yang perlu digambar, bukan ditulis.
+   Pemanggil memakai row[2] kalau ada dan meng-esc(row[1]) kalau tidak, jadi
+   penjagaan terhadap markup di isian teks tidak ikut longgar. */
 function detailFields(ev){
   var d=(ev&&ev.detail)||{}, out=[], lihat={};
+  var baris=function(k){
+    var v=d[k];
+    var t=fmtDetVal(v); if(t==='') return;
+    out.push(adalahLampiran(v) ? [detLabel(k), t, fmtLampiranHTML(v)] : [detLabel(k), t]);
+  };
   Object.keys(MKT_LABEL).forEach(function(k){
     if(DET_SKIP[k]) return; lihat[k]=1;
     if(!(k in d)) return;
-    var t=fmtDetVal(d[k]); if(t==='') return;
-    out.push([detLabel(k), t]);
+    baris(k);
   });
   Object.keys(d).forEach(function(k){
     if(lihat[k]||DET_SKIP[k]||k.charAt(0)==='_') return;
-    var t=fmtDetVal(d[k]); if(t==='') return;
-    out.push([detLabel(k), t]);
+    baris(k);
   });
   return out;
 }
@@ -2083,10 +2081,14 @@ function drawerAgenda(a){
   var d=dDay(a.tgl);
   $('#drwEye').textContent = (a.sumber==='mkt'?'Marketing · Event Klien':'Event · Jadwal Acara');
   $('#drwTitle').textContent = a.judul;
-  var k=a.sumber==='mkt'?kesiapan(a.mentah):null;
+  /* Pil "Siap X%" / "Job belum disusun" DIBUANG (21 Agustus 2026, permintaan
+     tim) — di sini dan di kartu daftar. Angkanya turunan progres job yang
+     dicentang di modul Marketing, dan dari Radar tidak ada satu pun yang bisa
+     dikerjakan atasnya; yang paling sering tampil justru "Siap 0%", yang cuma
+     berarti jobnya belum disusun. Rincian kesiapan per divisi TETAP ADA di
+     halaman Detail Lengkap, tempat ia memang dibaca saat menyiapkan acara. */
   $('#drwPills').innerHTML = badgeSumber(a.sumber)+pill(fTgl(a.tgl),'p-mute')+
-    pill(dLabel(d), d<=1?'p-bad':(d<=3?'p-warn':'p-mute'))+(a.status?pill(a.status,'p-mute'):'')+
-    (k?(k.ada?pill('Siap '+k.pct+'%',k.pct>=80?'p-go':(k.pct>=50?'p-warn':'p-bad')):pill('Job belum disusun','p-mute')):'');
+    pill(dLabel(d), d<=1?'p-bad':(d<=3?'p-warn':'p-mute'))+(a.status?pill(a.status,'p-mute'):'');
   var h='';
   if(a.sumber==='mkt'){
     var e=a.mentah, cl=klienMkt(e.clientId), byr=(e.payments||[]).length;
@@ -2136,7 +2138,13 @@ function drawerAgenda(a){
       kvRow('Co-PIC', esc(e2.co_pic||''))+
     '</div>';
     if(e2.theme) h+='<div class="kv">'+kvRow('Tema', esc(e2.theme))+kvRow('Tiketing', e2.is_ticketed?'Ya':'Tidak')+'</div>';
-    if(e2.description) h+='<div style="font-size:13px;color:var(--sand-dim);line-height:1.6;margin-bottom:14px;padding:12px 14px;background:#fff;border:1px solid var(--line-soft);border-radius:10px">'+esc(String(e2.description).slice(0,400))+'</div>';
+    /* tanpaTag() DULU, baru dipotong. Deskripsi acara diketik di editor kaya
+       modul Event, jadi isinya "<p>…</p>"; panel ini menggambarnya lewat esc()
+       sehingga TAG-nya ikut terbaca sebagai tulisan — "</p>" menggantung di
+       ujung kalimat. Urutannya penting: memotong dulu bisa memenggal sebuah
+       tag di tengah, dan sisanya justru tidak bisa dibersihkan lagi. */
+    var desc2=e2.description?tanpaTag(e2.description):'';
+    if(desc2) h+='<div style="font-size:13px;color:var(--sand-dim);line-height:1.6;margin-bottom:14px;padding:12px 14px;background:#fff;border:1px solid var(--line-soft);border-radius:10px;white-space:pre-wrap">'+esc(desc2.slice(0,400))+(desc2.length>400?'…':'')+'</div>';
     if(tal.length){
       h+='<div class="sec-h" style="margin-top:6px"><h2>Talent terjadwal</h2><span class="rule"></span></div>';
       tal.forEach(function(t){ h+='<div style="display:flex;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--line-soft)">'+
@@ -2259,6 +2267,25 @@ var APP={
   calNav:function(n){ var m=calCur.m+n,y=calCur.y; if(m<0){m=11;y--;} if(m>11){m=0;y++;} calCur={y:y,m:m}; render(); },
   calNow:function(){ var d=new Date(); calCur={y:d.getFullYear(),m:d.getMonth()}; render(); },
   detailPenuh:function(sum,id){ detailRef={sumber:sum,id:String(id)}; page='detail'; render(); },
+  /* Dipanggil dari atribut onerror sebuah <img> lampiran. HARUS lewat APP:
+     seluruh skrip modul ini terbungkus IIFE, dan penangan sebaris dicari di
+     lingkup global — `onerror="lampiranGagal(this)"` akan melempar
+     ReferenceError yang tidak terlihat siapa pun, lalu ikon gambar patah
+     bawaan peramban yang tertinggal di layar.
+
+     Berkasnya memang bisa tidak ada: yang tersimpan di data cuma kuncinya, dan
+     Marketing boleh menghapus berkasnya kapan saja. Ikon patah membuat kru
+     mengira Radar-nya rusak lalu memuat ulang berkali-kali; keterangan jujur
+     menyebut yang hilang BERKASNYA, dan catatannya masih ada. */
+  lampiranGagal:function(img){
+    var fig=img.closest?img.closest('figure'):null;
+    if(!fig || fig.dataset.hilang) return;
+    fig.dataset.hilang='1';
+    var nama=img.getAttribute('alt')||'berkas';
+    fig.innerHTML='<div style="padding:12px;border:1px dashed var(--line-soft);border-radius:9px;'+
+      'font-size:11px;color:var(--muted);text-align:center" title="'+esc(nama)+'">'+
+      '<b style="display:block;color:var(--sand-dim)">Berkas tidak ada</b>'+esc(nama)+'</div>';
+  },
   /* Pintasan dari kartu "Hari ini" — membuka Reservasi yang sudah tersaring ke
      hari ini, menggantikan tombol "lembar briefing" yang lama. */
   /* Pintasan dari kartu "Hari ini": buka Reservasi dalam mode Harian pada
@@ -2278,7 +2305,7 @@ var APP={
   fCal:function(k){ fCal[k]=!fCal[k]; render(); },
   /* Posisi gulir dikembalikan sesudah render(): render selalu melompat ke atas
      — itu benar untuk pindah halaman, salah untuk pindah nomor halaman. Di
-     Radar tabel "Reservasi hari ini" ada di bawah papan peringatan, dan
+     Radar tabel "Reservasi hari ini" duduk jauh di bawah, dan
      melompat ke puncak tiap menekan "2" membuat pagernya tidak bisa dipakai. */
   pg:function(kunci,hal){
     var y=window.scrollY||0;
