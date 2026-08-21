@@ -1885,7 +1885,13 @@ function rkHapusSetoran() { rkSetoranSemua(); rkSetor(); rkKirim(); }
 
 
 
-function rkHalInput() { rkHitung(); rkPilihTgl(); rkGeser(); todayISO(); rkKartu(); dateLabel(); rkTanpaSvcTax(); rkPanelBon(); rkSetoranHari(); rkCash(); rkSetor(); rkGantiTab(); rkKetikAkt(); rkMdrSel(); rkTanda(); rkSetTanda(); rkSimpan(); }
+function rkHalInput() { rkHitung(); rkPilihTgl(); rkGeser(); todayISO(); rkKartu(); dateLabel(); rkTanpaSvcTax(); rkPanelBon(); rkSetoranHari(); rkCash(); rkSetor(); rkGantiTab(); fmtRpInput(); rkKetikAkt(); rkMdrSel(); rkTanda(); rkSetTanda(); rkSimpan(); }
+
+
+
+
+
+
 
 
 

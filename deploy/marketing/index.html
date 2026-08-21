@@ -306,7 +306,10 @@ svg{width:16px;height:16px;flex-shrink:0;vertical-align:middle}
 /* Grafik batang sederhana — tanpa pustaka. Yang perlu dijawab cuma
    "bulan mana lebih besar", dan itu tidak menuntut sumbu, kisi, maupun
    tooltip; batang yang tingginya sebanding sudah cukup. */
-.rvchart{display:flex;align-items:flex-end;gap:10px;height:132px;padding:6px 2px 0}
+/* Tinggi dinaikkan dari 132px: label nominalnya kini angka penuh
+   ("Rp 261.748.000", bukan "Rp 261,7 jt" — lihat catatan di rpRingkas yang
+   dibuang), jadi ia boleh turun dua baris tanpa memakan tinggi batangnya. */
+.rvchart{display:flex;align-items:flex-end;gap:8px;height:158px;padding:6px 2px 0}
 .rvchart .rv{flex:1;display:flex;flex-direction:column;justify-content:flex-end;
   align-items:center;gap:6px;height:100%}
 .rvchart .rv .bar{width:100%;border-radius:6px 6px 0 0;min-height:3px;
@@ -314,7 +317,11 @@ svg{width:16px;height:16px;flex-shrink:0;vertical-align:middle}
 .rvchart .rv.kini .bar{background:linear-gradient(180deg,var(--gold),var(--gold-deep));
   box-shadow:0 0 0 2px var(--gold-glow)}
 .rvchart .rv .lb{font-size:10.5px;color:var(--muted);font-weight:600}
-.rvchart .rv .vl{font-size:10px;color:var(--gold-deep);font-weight:700;white-space:nowrap}
+/* white-space:nowrap DICABUT bersama format singkat. Angka penuh tidak akan
+   pernah muat satu baris di kolom selebar ini, dan nowrap membuatnya meluber
+   menindih batang tetangganya alih-alih turun ke baris kedua. */
+.rvchart .rv .vl{font-size:9.5px;color:var(--gold-deep);font-weight:700;line-height:1.25;
+  word-break:break-word;text-align:center;margin-bottom:3px}
 .rvchart .rv.kosong .bar{background:var(--ink-750)}
 /* Papan peringkat marketing. Baris tipis, bukan kartu: yang dibaca cuma
    urutan dan angkanya. */
@@ -322,7 +329,8 @@ svg{width:16px;height:16px;flex-shrink:0;vertical-align:middle}
 .lb-row:last-child{border-bottom:none}
 .lb-row .no{width:18px;font-size:11px;font-weight:700;color:var(--muted)}
 .lb-row .nm{flex:1;min-width:0;font-size:12.5px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.lb-row .vl{font-family:var(--ff-display);font-size:13px;font-weight:700;color:var(--gold-deep)}
+.lb-row .vl{font-family:var(--ff-display);font-size:12.5px;font-weight:700;color:var(--gold-deep);
+  white-space:nowrap;flex:none}
 .muted{color:var(--muted)}
 .mono{font-variant-numeric:tabular-nums;letter-spacing:-.01em}
 
@@ -2707,21 +2715,18 @@ const rp = n => 'Rp '+(Number(n)||0).toLocaleString('id-ID');
    yang memang punya ruang, dan memendekkannya di sana malah membuang
    ketelitian yang dibaca orang. */
 const rpShort = rp;
-/* Untuk tempat yang BENAR-BENAR sempit: satu sel strip, label batang
-   grafik. 'Rp 261,7 jt' alih-alih 'Rp 261.748.000' — lima belas karakter
-   jadi sembilan, dan di kolom selebar 120px itu bedanya antara terbaca
-   dan terpotong titik-titik.
+/* rpRingkas() DIHAPUS (21 Agustus 2026, permintaan tim), tidak sekadar
+   ditinggalkan tidak terpakai — selama fungsinya masih ada, cepat atau lambat
+   ia dipanggil lagi di tempat baru dan format singkat itu kembali merayap
+   masuk.
 
-   Satu angka di belakang koma hanya selama angkanya masih pendek; begitu
-   ratusan juta, desimalnya dibuang. 'Rp 142,0 jt' tidak lebih berguna
-   daripada 'Rp 142 jt', dan justru menambah dua karakter. */
-function rpRingkas(n){
-  const v=+n||0; const a=Math.abs(v);
-  if(a>=1e9) return 'Rp '+(v/1e9).toFixed(a>=1e10?0:1).replace('.',',')+' M';
-  if(a>=1e6) return 'Rp '+(v/1e6).toFixed(a>=1e8?0:1).replace('.',',')+' jt';
-  if(a>=1e3) return 'Rp '+Math.round(v/1e3)+' rb';
-  return rp(v);
-}
+   Ia meringkas jadi 'Rp 261,7 jt' untuk dua tempat sempit di Dashboard: label
+   batang grafik pendapatan dan angka papan closing. Alasan dibuang sama
+   dengan alasan rpShort dibuang lebih dulu: ringkasan MEMBULATKAN, jadi
+   Rp 261.748.000 dan Rp 261.651.000 sama-sama tertulis "Rp 261,7 jt" —
+   dan angka di Dashboard justru yang paling sering dibacakan di rapat.
+   Ruangnya dibereskan lewat CSS (label batang boleh turun dua baris), bukan
+   dengan membuang ketelitian. */
 // Input uang: tampil dengan titik ribuan + prefix "Rp", tapi disimpan sebagai angka murni.
 const rupiahDigits = s => String(s==null?'':s).replace(/\D/g,'');
 const rupiahGroup  = d => d.replace(/\B(?=(\d{3})+(?!\d))/g,'.');
@@ -4243,7 +4248,7 @@ function grafikPendapatan(){
        pendapatan" terbaca sama dengan "bulannya tidak ada". */
     const t=Math.round((x.nilai/maks)*100);
     return '<div class="rv'+(x.kini?' kini':'')+(x.nilai?'':' kosong')+'">'
-      +'<span class="vl">'+(x.nilai?rpRingkas(x.nilai):'\u2014')+'</span>'
+      +'<span class="vl">'+(x.nilai?rp(x.nilai):'\u2014')+'</span>'
       +'<div class="bar" style="height:'+t+'%" title="'+esc(x.label)+': '+rp(x.nilai)+'"></div>'
       +'<span class="lb">'+esc(x.label)+'</span></div>';
   }).join('')+'</div>';
@@ -4270,7 +4275,7 @@ function papanClosing(){
   return baris.slice(0,6).map(function(r,i){
     return '<div class="lb-row"><span class="no">'+(i+1)+'</span>'
       +'<span class="nm">'+esc(r.nama)+'<span class="cell-sub"> \u00b7 '+r.n+' event</span></span>'
-      +'<span class="vl">'+rpRingkas(r.v)+'</span></div>';
+      +'<span class="vl">'+rp(r.v)+'</span></div>';
   }).join('');
 }
 /* Peluang yang paling lama tidak disentuh. Inilah yang benar-benar hilang
@@ -11833,6 +11838,13 @@ function segarkanSlotInv(){
     const ev=S.events.find(x=>x.id===el.dataset.ev);
     if(ev) el.textContent=invNoTeks(ev);
   });
+  /* Slot kwitansi Reservasi VIP ikut lewat sini — cache & mesin fetch-nya
+     memang sama (MKT_INV), cuma kuncinya res_id milik modul Reservasi, bukan
+     id buatan modul ini. */
+  Array.prototype.forEach.call(document.querySelectorAll('.vipKwiSlot'),function(el){
+    const v=(S.vip||[]).find(x=>x.id===el.dataset.vip);
+    if(v) el.innerHTML=vipSlotKwiIsi(v);
+  });
 }
 function slotInv(ev,jenis){
   return '<span class="invSlot" data-ev="'+esc(ev.id)+'" data-jenis="'+jenis+'">'
@@ -13318,6 +13330,12 @@ const KOL_VIP=[
   {k:'jenis',   t:'Jenis',   v:v=>v.jenis},
   {k:'pax',     t:'Orang',   v:v=>vipPax(v), cls:'mono', turun:1},
   {k:'meja',    t:'Meja',    v:v=>(v.meja||[]).join(', ')},
+  /* Kolom PEMBAYARAN (21 Agustus 2026, permintaan tim: "kalau isi nominal,
+     statusnya DP"). Diurutkan menurut total DP-nya, bukan menurut teks
+     statusnya: yang dicari orang di kolom ini adalah "siapa yang uangnya
+     sudah paling banyak masuk", dan mengurutkan "Belum DP / DP / Lunas"
+     menurut abjad tidak menjawab itu. */
+  {k:'bayar',   t:'Pembayaran', v:v=>vipDpTotal(v), cls:'mono r', turun:1},
   {k:'nominal', t:'Nominal', v:v=>vipNominal(v), cls:'mono r', turun:1},
   {t:''}
 ];
@@ -13373,6 +13391,11 @@ function renderVIP(V){
      +'<td>'+vipChip(v)+(v.jenis==='Assisted'?'<div style="margin-top:5px">'+menuFixChip(v)+'</div>':'')+'</td>'
      +'<td class="mono">'+(v.paxMin&&v.paxMax&&v.paxMin!==v.paxMax?esc(v.paxMin+'–'+v.paxMax):vipPax(v))+'</td>'
      +'<td>'+((v.meja||[]).length?esc(v.meja.join(', ')):'<span class="cell-sub">belum dikunci</span>')+'</td>'
+     /* Chip status DI ATAS angkanya, bukan di sebelahnya: yang dibaca sekilas
+        saat menyisir daftar adalah "sudah bayar atau belum", dan angkanya
+        menyusul untuk yang memang sedang dicari. */
+     +'<td class="r">'+vipChipBayar(v)
+       +(vipDpTotal(v)?'<div class="mono cell-sub" style="margin-top:3px">'+rp(vipDpTotal(v))+'</div>':'')+'</td>'
      /* Tombolnya duduk DI KOLOM NOMINAL, bukan di kolom Aksi.
 
         Sebelumnya kolom Nominal cuma memajang label "belum diisi", dan
@@ -13507,6 +13530,149 @@ function vipChip(v){
     +'<div class="cell-sub" style="margin-top:3px">meja sudah dilepas</div>';
   return '<span class="tag" style="background:color-mix(in srgb,var('+(asst?'--ok':'--muted')+') 16%,transparent);color:var('+(asst?'--ok':'--muted')+')">'+esc(v.jenis)+'</span>'
     +(v.resId?'<div class="cell-sub" style="margin-top:3px">✓ terkunci di Reservasi</div>':'<div class="cell-sub" style="margin-top:3px">belum dikirim</div>');
+}
+
+/* ---------- STATUS PEMBAYARAN VIP (21 Agustus 2026) ----------
+   Dibaca dari BUKTI/DP yang dilampirkan (vipDpTotal), BUKAN dari v.nominal.
+   Keduanya angka yang berbeda dan pernah tertukar: `nominal` adalah omzet yang
+   diakui SESUDAH acara selesai, sementara DP adalah uang yang benar-benar
+   sudah masuk SEBELUMNYA. Reservasi yang nominalnya belum diisi bisa saja
+   DP-nya sudah penuh, dan sebaliknya.
+
+   "Lunas" hanya diklaim kalau nominalnya memang sudah diketahui — tanpa
+   angka tagihan, "sudah bayar berapa" tidak bisa dibandingkan dengan apa pun,
+   dan menebaknya lunas adalah kesalahan yang muncul sebagai uang. */
+function vipStatusBayar(v){
+  const dp=vipDpTotal(v);
+  if(!dp) return {k:'belum', t:'Belum DP', c:'--muted'};
+  const tagihan=vipNominal(v);
+  if(tagihan>0 && dp>=tagihan) return {k:'lunas', t:'Lunas', c:'--ok'};
+  return {k:'dp', t:'DP', c:'--warn'};
+}
+function vipChipBayar(v){
+  const s=vipStatusBayar(v);
+  return '<span class="tag" style="background:color-mix(in srgb,var('+s.c+') 16%,transparent);color:var('+s.c+')">'
+    +esc(s.t)+'</span>';
+}
+
+/* ---------- KWITANSI RESMI UNTUK RESERVASI VIP ----------
+   Jalurnya SAMA PERSIS dengan tombol Request Kwitansi di modul Reservasi, dan
+   itu bukan kebetulan: reservasi VIP yang sudah dikunci punya barisnya sendiri
+   di modul Reservasi (id 'vip-<id>'), jadi permintaan dari sini memakai res_id
+   yang SAMA. Hasilnya satu baris antrean di Finance, bukan dua — kalau tidak,
+   satu tamu bisa memegang dua kwitansi bernomor berbeda untuk satu pembayaran.
+
+   Karena res_id-nya sama, statusnya juga terbaca di modul Reservasi, dan
+   lembar PDF-nya dicetak di sana (sheet kwitansi hidup di modul itu; menyalin
+   sheet-nya ke sini berarti dua lembar yang pasti lambat laun berbeda).
+
+   Kalau reservasinya BELUM dikunci ke modul Reservasi, tidak ada res_id sama
+   sekali — dan kwitansi tanpa reservasi yang menaunginya tidak bisa
+   ditelusuri siapa pun. Tombolnya dijelaskan, bukan disembunyikan. */
+function vipRingkasKwi(v){
+  const arr=vipBuktiList(v);
+  return {
+    nama:v.nama||'', tanggal:v.tanggal||'', jam:v.jamMulai||'',
+    pax:vipPax(v), meja:(v.meja||[]).join(', '),
+    lunas:vipStatusBayar(v).k==='lunas', noKwitansi:'',
+    dpTotal:vipDpTotal(v),
+    /* dpVerified & dpVerifiedCount SENGAJA NOL. Verifikasi transfer dikerjakan
+       di halaman Dana Masuk modul Reservasi, dan modul ini tidak membacanya —
+       mengarang angka "terverifikasi" dari sisi Marketing berarti Finance
+       menerbitkan kwitansi atas pemeriksaan yang tidak pernah terjadi.
+       Nol membuat pita peringatan di Finance menyala, dan itu memang benar. */
+    dpVerified:0, dpCount:arr.length, dpVerifiedCount:0,
+    diinputOleh:(v.createdBy||userName(v.mktPIC)||'Marketing')+' (Marketing)',
+    dp:arr.map(function(b){
+      return {nominal:+b.nominal||0, metode:b.metode||'', bank:'', pengirim:'',
+              tanggal:String(b.at||'').slice(0,10), jam:'',
+              status:'', tanpaData:'', adaBukti:!!b.key};
+    })
+  };
+}
+function vipSlotKwi(v){
+  return '<span class="vipKwiSlot" data-vip="'+esc(v.id)+'">'+vipSlotKwiIsi(v)+'</span>';
+}
+function vipSlotKwiIsi(v){
+  if(!v.resId){
+    return '<span class="cell-sub">Kunci dulu ke modul Reservasi — kwitansi menempel pada baris reservasinya.</span>';
+  }
+  if(!vipDpTotal(v)){
+    return '<span class="cell-sub">Belum ada DP yang bisa dikwitansikan.</span>';
+  }
+  const inv=MKT_INV[v.resId];
+  if(inv===MKT_INV_MUAT) return '<span class="cell-sub">Memeriksa ke Finance…</span>';
+  if(inv===undefined){
+    return '<button class="btn sm" onclick="muatKwiVip(\''+escJs(v.id)+'\')" title="'
+      +esc(MKT_INV_ERR||'Status kwitansi belum terbaca dari modul Finance')+'">Status kwitansi '
+      +(MKT_INV_ERR?'gagal dibaca — coba lagi':'…')+'</button>';
+  }
+  if(inv && inv.status==='DIBUAT'){
+    return '<span class="chip" style="background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)">'
+      +'&#10003; Kwitansi terbit</span>'
+      +'<div class="cell-sub mono" style="margin-top:3px">'+esc(inv.no||'')+'</div>'
+      +'<div class="cell-sub" style="margin-top:3px">Lembar PDF-nya dicetak di modul Reservasi.</div>';
+  }
+  if(inv && inv.status==='MENUNGGU'){
+    /* TIDAK ADA tombol request ulang selama masih menunggu. Permintaan kedua
+       menimpa `ringkas` di Finance, dan ringkasan dari sisi Marketing tidak
+       membawa hasil verifikasi transfer — menekannya lagi justru membuat
+       Finance kehilangan angka terverifikasi yang mungkin sudah ikut terkirim
+       dari modul Reservasi. */
+    return '<span class="chip" style="background:color-mix(in srgb,var(--warn) 15%,transparent);color:var(--warn)">'
+      +'&#9203; Menunggu Finance</span>'
+      +'<div class="cell-sub" style="margin-top:3px">Diminta '+esc(inv.mintaOleh||'—')+'.</div>';
+  }
+  if(inv && inv.status==='DITOLAK'){
+    return '<span class="chip" style="background:color-mix(in srgb,var(--danger) 15%,transparent);color:var(--danger)">'
+      +'&#10007; Ditolak</span>'
+      +'<div class="cell-sub" style="margin-top:3px">'+esc(inv.catatan||'')+'</div>'
+      +(bolehMintaInvoice()?'<div style="margin-top:6px"><button class="btn sm" onclick="vipMintaKwitansi(\''+escJs(v.id)+'\')">Request ulang</button></div>':'');
+  }
+  if(!bolehMintaInvoice()) return '<span class="cell-sub">Kwitansi belum diminta.</span>';
+  return '<button class="btn sm" onclick="vipMintaKwitansi(\''+escJs(v.id)+'\')" '
+    +'title="Minta Finance menerbitkan kwitansi resmi bertanda tangan untuk DP ini">'
+    +svg(IC.invoice)+'Request Kwitansi</button>';
+}
+function muatKwiVip(id){
+  const v=(S.vip||[]).find(x=>x.id===id); if(!v||!v.resId) return;
+  if(MKT_INV[v.resId]===MKT_INV_MUAT) return;
+  MKT_INV[v.resId]=MKT_INV_MUAT; segarkanSlotInv();
+  invFetchFin('invStatus',{res:[v.resId]}).then(function(peta){
+    MKT_INV[v.resId]=(peta&&peta[v.resId])?peta[v.resId]:null;
+    MKT_INV_ERR=''; segarkanSlotInv();
+  },function(e){
+    delete MKT_INV[v.resId];
+    MKT_INV_ERR=e.message||String(e); segarkanSlotInv();
+  });
+}
+async function vipMintaKwitansi(id){
+  const v=(S.vip||[]).find(x=>x.id===id); if(!v) return;
+  if(!bolehMintaInvoice()) return toast('Akses ditolak','Kamu tidak punya izin meminta kwitansi.','err');
+  if(!v.resId) return toast('Belum terkunci di Reservasi','Kirim reservasinya ke modul Reservasi dulu — kwitansi menempel pada baris reservasinya.','err');
+  const dp=vipDpTotal(v);
+  if(!dp) return toast('Belum ada DP','Lampirkan bukti transfer & nominalnya dulu.','err');
+  const tanpaBukti=vipBuktiList(v).filter(b=>!b.key).length;
+  if(!confirm('Minta Finance menerbitkan kwitansi resmi untuk "'+v.nama+'"?\n\n'
+    +'Total DP: '+rp(dp)+'\n'
+    +'Bukti transfer: '+vipBuktiList(v).length+' berkas'
+    +(tanpaBukti?' ('+tanpaBukti+' tanpa berkas)':'')
+    +'\n\nFinance memeriksa dana masuknya dulu di halaman Dana Masuk modul Reservasi, '
+    +'lalu menerbitkan kwitansi bertanda tangan. Lembar PDF-nya dicetak dari modul Reservasi.')) return;
+  try{
+    const baris=await invFetchFin('invMinta',{
+      resId:v.resId, jenis:'KWITANSI',
+      oleh:(ME&&ME.name)||'', ringkas:vipRingkasKwi(v)
+    });
+    MKT_INV[v.resId]=baris;
+    segarkanSlotInv();
+    logAct('vip',v.id,'Request kwitansi',v.nama+' · '+rp(dp));
+    save();
+    toast(baris.status==='DIBUAT'?'Kwitansi resmi sudah terbit ✓':'Permintaan kwitansi terkirim ke Finance ✓',
+      'Statusnya juga terbaca di modul Reservasi.','ok');
+  }catch(e){
+    toast('Gagal mengirim permintaan',(e.message||String(e)),'err');
+  }
 }
 
 /* ---------- FORM ---------- */
@@ -14582,6 +14748,22 @@ function vipDetail(id){
    +'<p class="cell-sub" style="margin-bottom:8px">Satu kotak = satu kali transfer. Klik untuk membuka ukuran penuh, '
    +'tekan <b>×</b> untuk membuang. DP yang sama juga terbaca di modul Reservasi.</p>'
    +vipBuktiBacaHTML(v)
+   /* Status pembayaran ditulis TERANG-TERANGAN di bawah buktinya, bukan cuma
+      sebagai chip di daftar: yang membuka layar ini sedang mencocokkan uang,
+      dan "DP" tanpa angka tidak menjawab apa pun. Kalimat verifikasinya ikut
+      supaya jelas bahwa uang ini BELUM tentu sudah dipastikan masuk — yang
+      memastikannya halaman Dana Masuk di modul Reservasi. */
+   +'<div style="margin-top:10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap">'
+   +vipChipBayar(v)
+   +(vipDpTotal(v)?'<b class="mono" style="font-size:13px">'+rp(vipDpTotal(v))+'</b>'
+      +'<span class="cell-sub">dari '+(vipNominal(v)?rp(vipNominal(v)):'nominal yang belum diisi')+'</span>':'')
+   +'</div>'
+   +(vipDpTotal(v)?'<p class="cell-sub" style="margin-top:6px">Tiap transfer masuk ke tab <b>Dana Masuk (DP)</b> '
+      +'di modul Reservasi dan menunggu diverifikasi di sana — Marketing tidak bisa memverifikasinya sendiri.</p>':'')
+   +'<div class="divider"></div><h4 style="font-size:14px;margin-bottom:4px">Kwitansi Resmi</h4>'
+   +'<p class="cell-sub" style="margin-bottom:8px">Diterbitkan Finance, bertanda tangan &amp; bercap. '
+   +'Jalurnya sama dengan Request Kwitansi di modul Reservasi — satu tamu, satu nomor kwitansi.</p>'
+   +'<div>'+vipSlotKwi(v)+'</div>'
    +'<div class="divider"></div><h4 style="font-size:14px;margin-bottom:4px">Denah Meja yang Dikunci</h4>'
    +'<p class="cell-sub" style="margin-bottom:10px">Denah '+esc(fmtDateLong(v.tanggal))+' — meja bertanda emas dipesan atas nama ini.</p>'
    +'<div id="vip_det_denah" data-vip="'+esc(v.id)+'">'
@@ -14602,6 +14784,9 @@ function vipDetail(id){
    +'<a class="btn pri" href="../reservasi/" target="_blank" rel="noopener">Buka Modul Reservasi</a></div>'
    ,'wide');   // denah butuh ruang: sama seperti pemilih meja & dokumen brief
   vipDetailDenahAsli(v);
+  /* Status kwitansi ditanyakan ke Finance saat layar ini dibuka. Slotnya sudah
+     ada di DOM karena modal()-nya sudah dipasang di baris-baris di atas. */
+  muatKwiVip(v.id);
 }
 /* Denah yang digambar di atas baru tebakan: tanpa data server, vipDenahKey()
    hanya bisa menyimpulkan weekday/weekend dari tanggalnya. Denah yang BENAR-
