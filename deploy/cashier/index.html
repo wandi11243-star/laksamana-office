@@ -357,6 +357,12 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
       </div>
       <div class="nav-group">
         <div class="nav-label">Sistem</div>
+        <!-- Pengaturan Item Rokok duduk di grup Sistem, bukan menempel di
+             bawah Daily Stock Rokok: ia dibuka sesekali saat ada produk baru,
+             sementara dua menu di atasnya dibuka tiap malam. Menaruhnya
+             bersebelahan membuat menu yang jarang dipakai berdiri di jalur
+             yang dilewati orang setiap hari. -->
+        <a data-view="rokokset"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.9 4.9l2.9 2.9M16.2 16.2l2.9 2.9M2 12h4M18 12h4M4.9 19.1l2.9-2.9M16.2 7.8l2.9-2.9"/><circle cx="12" cy="12" r="3.2"/></svg></span> Pengaturan Item Rokok</a>
         <a data-view="akses"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2"/><path d="m16 11 2 2 4-4"/></svg></span> Kelola Akses Kru</a>
       </div>
     </nav>
@@ -629,6 +635,27 @@ function normalizeDB(d){
      menyimpan blob apa adanya. Kalau suatu saat ada yang menambah normalisasi
      bergaya "hapus kunci asing", data ini yang pertama hilang. */
   if(!d.rokok||typeof d.rokok!=='object'||Array.isArray(d.rokok)) d.rokok={};
+  /* Daftar item stock rokok yang disetel sendiri (21 Agustus 2026). SENGAJA
+     TIDAK diisi bawaan di sini: yang belum pernah menyetelnya harus tetap
+     kosong, supaya rokokItems() jatuh ke ROKOK_BAWAAN dan ikut tiap penambahan
+     bawaan berikutnya. Mengisinya di sini membekukan daftar hari ini untuk
+     SELURUH pemasangan, termasuk yang tidak pernah membuka halaman
+     pengaturannya.
+
+     Yang dibersihkan cuma bentuknya — baris tanpa kunci atau tanpa nama
+     dibuang, karena satu baris rusak membuat tabel stok punya kolom isian yang
+     tidak pernah bisa disimpan ke mana pun. Kalau sesudah dibersihkan jadi
+     kosong, kuncinya dihapus supaya kembali ke bawaan alih-alih menghasilkan
+     halaman stok tanpa satu pun baris. */
+  if(d.rokok_items!==undefined){
+    if(!Array.isArray(d.rokok_items)) delete d.rokok_items;
+    else {
+      d.rokok_items=d.rokok_items
+        .filter(it=>it&&typeof it==='object'&&String(it.k||'').trim()&&String(it.n||'').trim())
+        .map(it=>({k:String(it.k).trim(), n:String(it.n).trim(), lain:!!it.lain}));
+      if(!d.rokok_items.length) delete d.rokok_items;
+    }
+  }
   if(!Array.isArray(d.compliments)) d.compliments=[];
   /* Bon/piutang. Sama seperti rokok: ikut di blob yang sama dengan Kompas, dan
      aman karena tidak ada modul yang membuang kunci asing saat menyimpan.
@@ -876,6 +903,7 @@ const TITLES={
   compliment:['Compliment','Catatan compliment beserta alasan & PIC penanggungnya'],
   rokok:['Daily Stock Rokok','Barang masuk & keluar per hari, per item'],
   rokokrekap:['Rekap Stock Rokok','Masuk, keluar, dan sisa tiap produk sepanjang satu bulan'],
+  rokokset:['Pengaturan Item Rokok','Item apa saja yang muncul di lembar Daily Stock Rokok'],
   kasir:['Performa Kasir','Omset yang diakui tiap kasir — angka final'],
   dp:['Dana Masuk (DP)','Uang DP reservasi yang sudah masuk — dibaca dari modul Reservasi'],
   akses:['Kelola Akses Kru','Siapa saja yang bisa membuka modul Cashier']
@@ -911,7 +939,7 @@ function render(){
   syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
   ({report:viewReport,piutang:viewPiutang,compliment:viewCompliment,rokok:viewRokok,
-    rokokrekap:viewRokokRekap,kasir:viewKasir,dp:viewDp,akses:viewAkses}[CURRENT])();
+    rokokrekap:viewRokokRekap,rokokset:viewRokokSet,kasir:viewKasir,dp:viewDp,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -2134,14 +2162,26 @@ function emptyCanvas(id,msg){const c=document.getElementById(id);if(c)c.parentEl
    data yang sudah tersimpan — lihat penjagaan di tombol simpan di bawah, yang
    mempertahankan kunci tak dikenal. Jadi angka historisnya masih utuh di
    database kalau suatu saat ditanyakan, cuma tidak lagi ditampilkan dan tidak
-   lagi ikut dijumlah ke Sisa Awal. */
-const ROKOK_ITEMS=[
+   lagi ikut dijumlah ke Sisa Awal.
+
+   DJARUM MILD DIKEMBALIKAN 21 Agustus 2026 atas permintaan tim. Kuncinya
+   `djarum_mild` DIPAKAI LAGI PERSIS, bukan kunci baru: karena datanya dulu
+   tidak pernah dibuang, angka Juli-nya langsung kembali utuh dan ikut lagi ke
+   Sisa Awal. Kunci baru akan membuat riwayatnya seolah hilang, dan yang lama
+   menggantung selamanya tanpa nama di layar mana pun.
+
+   DAFTAR INI SEKARANG CUMA BAWAAN. Sejak 21 Agustus 2026 daftarnya bisa
+   dikelola sendiri di halaman Pengaturan Item (DB.rokok_items) — lihat
+   rokokItems(). Yang di bawah ini dipakai selama belum pernah disetel, dan
+   jadi isi awal saat halaman pengaturan pertama kali dibuka. */
+const ROKOK_BAWAAN=[
   {k:'la_purple',       n:'LA Purple'},
   {k:'la_mango',        n:'LA Mango'},
   {k:'la_bold',         n:'LA Bold'},
   {k:'la_ice',          n:'LA Ice'},
   {k:'la_light',        n:'LA Light'},
   {k:'djarum_super',    n:'Djarum Super'},
+  {k:'djarum_mild',     n:'Djarum Mild'},
   {k:'insta',           n:'Insta'},
   {k:'korek',           n:'Korek'},
   {k:'dos_hermanos',    n:'Dos Hermanos'},
@@ -2158,10 +2198,26 @@ const ROKOK_ITEMS=[
      yang harus dibuka. */
   {k:'eskrim',          n:'Eskrim', lain:true}
 ];
+/* DAFTAR YANG BERLAKU. `DB.rokok_items` kalau memang sudah pernah disetel di
+   halaman Pengaturan Item, kalau tidak jatuh ke bawaan di atas.
+
+   Sengaja TIDAK menyalin bawaan ke DB saat modul dibuka: selama belum pernah
+   disetel, pemasangan ini ikut tiap penambahan bawaan berikutnya. Begitu
+   disetel sekali, daftarnya jadi milik tim sepenuhnya — penambahan bawaan
+   sesudahnya tidak lagi menyusup dan mengubah lembar yang sudah mereka atur.
+
+   Dipanggil sebagai FUNGSI, bukan disimpan sebagai const saat modul dimuat:
+   daftarnya berubah begitu halaman pengaturan menekan simpan, dan const akan
+   membekukan daftar lama sampai halamannya dimuat ulang — tabel stok masih
+   memakai item lama sementara pengaturannya berkata sudah berubah. */
+function rokokItems(){
+  const d=DB&&DB.rokok_items;
+  return (Array.isArray(d)&&d.length) ? d : ROKOK_BAWAAN;
+}
 // Kunci non-rokok PERTAMA — dipakai menaruh garis pemisah SEKALI saja. Dulu
 // pemisahnya menempel di tiap item ber-`lain`, jadi dengan dua item begitu
 // tabelnya punya dua garis dan terbaca seperti tiga kelompok.
-const ROKOK_LAIN_PERTAMA=(ROKOK_ITEMS.find(it=>it.lain)||{}).k||'';
+function rokokLainPertama(){ return (rokokItems().find(it=>it.lain)||{}).k||''; }
 let rokokDate=todayISO();
 function rokokOf(date){ return (DB.rokok||{})[date]||null; }
 function rokokItem(rec,k){ const x=(rec&&rec.items&&rec.items[k])||{}; return {in:num(x.in),out:num(x.out)}; }
@@ -2170,10 +2226,10 @@ function rokokItem(rec,k){ const x=(rec&&rec.items&&rec.items[k])||{}; return {i
    pergerakan), dan mengambil "kemarin" saja akan mengembalikan 0 pada hari
    yang kemarinnya kosong — seolah stoknya habis. */
 function rokokSisaAwal(date){
-  const out={}; ROKOK_ITEMS.forEach(it=>out[it.k]=0);
+  const out={}; rokokItems().forEach(it=>out[it.k]=0);
   Object.keys(DB.rokok||{}).filter(d=>d<date).forEach(d=>{
     const rec=DB.rokok[d];
-    ROKOK_ITEMS.forEach(it=>{ const v=rokokItem(rec,it.k); out[it.k]+=v.in-v.out; });
+    rokokItems().forEach(it=>{ const v=rokokItem(rec,it.k); out[it.k]+=v.in-v.out; });
   });
   return out;
 }
@@ -2184,7 +2240,7 @@ function viewRokok(){
   const awal=rokokSisaAwal(rokokDate);
   const baris=it=>{
     const v=rokokItem(rec,it.k);
-    return `<tr${it.k===ROKOK_LAIN_PERTAMA?' style="border-top:2px solid var(--line)"':''}>
+    return `<tr${it.k===rokokLainPertama()?' style="border-top:2px solid var(--line)"':''}>
       <td><b>${esc(it.n)}</b>${it.lain?'<div class="muted" style="font-size:11px">bukan rokok — ikut dihitung di sini</div>':''}</td>
       <td class="num mono" id="rk_aw_${it.k}">${awal[it.k]}</td>
       <td class="num"><input class="rkf mono" data-k="${it.k}" data-f="in" inputmode="numeric" value="${v.in}" style="width:86px;padding:7px 9px;border:1.5px solid var(--line);border-radius:8px;text-align:right"></td>
@@ -2201,7 +2257,7 @@ function viewRokok(){
     <div class="card" style="padding:0;overflow:hidden">
       <div class="tbl-wrap"><table>
         <thead><tr><th>Item</th><th class="num">Sisa Awal</th><th class="num">Masuk</th><th class="num">Keluar</th><th class="num">Sisa Akhir</th></tr></thead>
-        <tbody>${ROKOK_ITEMS.map(baris).join('')}</tbody>
+        <tbody>${rokokItems().map(baris).join('')}</tbody>
         <tfoot><tr style="font-weight:800;border-top:2px solid var(--line)">
           <td>TOTAL</td><td class="num mono" id="rk_t_aw"></td><td class="num mono" id="rk_t_in"></td>
           <td class="num mono" id="rk_t_out"></td><td class="num mono" id="rk_t_ak"></td>
@@ -2221,7 +2277,7 @@ function viewRokok(){
   const nilai=(k,f)=>{ const e=el.querySelector(`.rkf[data-k="${k}"][data-f="${f}"]`); return e?num(e.value):0; };
   function hitung(){
     let tAw=0,tIn=0,tOut=0,tAk=0,gerak=0;
-    ROKOK_ITEMS.forEach(it=>{
+    rokokItems().forEach(it=>{
       const i=nilai(it.k,'in'), o=nilai(it.k,'out');
       const ak=awal[it.k]+i-o;
       tAw+=awal[it.k]; tIn+=i; tOut+=o; tAk+=ak;
@@ -2239,17 +2295,17 @@ function viewRokok(){
     document.getElementById('rk_t_in').textContent=tIn;
     document.getElementById('rk_t_out').textContent=tOut;
     document.getElementById('rk_t_ak').textContent=tAk;
-    document.getElementById('rk_gerak').textContent=gerak+' / '+ROKOK_ITEMS.length;
+    document.getElementById('rk_gerak').textContent=gerak+' / '+rokokItems().length;
     document.getElementById('rk_s_in').textContent=tIn;
     document.getElementById('rk_s_out').textContent=tOut;
-    const minus=ROKOK_ITEMS.filter(it=>awal[it.k]+nilai(it.k,'in')-nilai(it.k,'out')<0);
+    const minus=rokokItems().filter(it=>awal[it.k]+nilai(it.k,'in')-nilai(it.k,'out')<0);
     document.getElementById('rk_err').innerHTML = minus.length
       ? `<div class="notice warn">⚠ ${minus.length} item sisa akhirnya minus (${esc(minus.map(x=>x.n).join(', '))}). Biasanya ada hari sebelumnya yang barang masuknya belum dicatat — periksa tanggal-tanggal sebelum ini. Simpan tetap boleh.</div>`
       : '';
   }
   el.querySelectorAll('.rkf').forEach(i=>i.addEventListener('input',hitung));
   document.getElementById('rk_save').addEventListener('click',()=>{
-    /* Kunci yang TIDAK ADA lagi di ROKOK_ITEMS dipertahankan apa adanya —
+    /* Kunci yang TIDAK ADA lagi di rokokItems() dipertahankan apa adanya —
        item yang dihapus dari daftar (mis. LA Menthol & Djarum Mild, 30 Juli
        2026) meninggalkan angka di hari-hari sebelumnya, dan membangun `items`
        dari nol akan MENGHAPUSNYA begitu ada yang membuka lalu menyimpan ulang
@@ -2257,8 +2313,8 @@ function viewRokok(){
        akan ada yang menyadarinya sampai angkanya dibutuhkan. */
     const lama=(DB.rokok&&DB.rokok[rokokDate]&&DB.rokok[rokokDate].items)||{};
     const items={};
-    Object.keys(lama).forEach(k=>{ if(!ROKOK_ITEMS.some(it=>it.k===k)) items[k]=lama[k]; });
-    ROKOK_ITEMS.forEach(it=>{ items[it.k]={in:nilai(it.k,'in'),out:nilai(it.k,'out')}; });
+    Object.keys(lama).forEach(k=>{ if(!rokokItems().some(it=>it.k===k)) items[k]=lama[k]; });
+    rokokItems().forEach(it=>{ items[it.k]={in:nilai(it.k,'in'),out:nilai(it.k,'out')}; });
     DB.rokok=DB.rokok||{};
     const jejak=tambahJejak(DB.rokok[rokokDate]);
     DB.rokok[rokokDate]={items,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now(),log:jejak};
@@ -2267,6 +2323,172 @@ function viewRokok(){
     setTimeout(()=>render(),700);
   });
   hitung();
+}
+
+/* ============ 3c. PENGATURAN ITEM ROKOK (21 Agustus 2026) ============
+   Daftar item di lembar Daily Stock Rokok dulu ditulis di kode, jadi tiap ada
+   produk baru tim harus menunggu satu siklus deploy. Sekarang dikelola sendiri
+   dari sini, dan HANYA dari sini — tidak ada modul lain yang membaca atau
+   menulis DB.rokok, jadi pengaturan kedua di tempat lain cuma akan jadi pintu
+   yang bisa berbeda isinya.
+
+   KUNCI (`k`) PERMANEN dan tidak bisa diubah sesudah dibuat. Seluruh angka
+   harian tersimpan dengan kunci itu (DB.rokok[tgl].items[k]); menggantinya
+   berarti riwayat item tersebut menggantung tanpa nama sementara item "baru"
+   mulai dari nol — dan tidak ada satu pun galat yang muncul. Yang bisa diubah
+   NAMANYA, dan itu memang yang biasanya perlu (salah ketik, ganti sebutan).
+
+   MENGHAPUS TIDAK MENGHAPUS ANGKA. Item yang dibuang cuma hilang dari lembar;
+   datanya tetap tersimpan apa adanya (lihat penjagaan di tombol simpan stok
+   harian), persis seperti LA Menthol & Djarum Mild pada 30 Juli 2026 — yang
+   membuat Djarum Mild bisa dikembalikan hari ini lengkap dengan riwayatnya. */
+let RKS_PESAN='';
+/* Kunci dibuat dari namanya: huruf kecil, non-huruf/angka jadi garis bawah.
+   Bentuk yang sama dengan kunci bawaan ('gold_seal_petit'), supaya daftar
+   buatan sendiri dan bawaan tidak bisa dibedakan dari bentuk kuncinya — kalau
+   berbeda, suatu saat akan ada kode yang menyaring "yang bawaan saja". */
+function rksKunci(nama){
+  return String(nama||'').toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40);
+}
+/* Menulis daftar ke DB. Bawaan disalin dulu kalau belum pernah disetel —
+   penyuntingan pertama harus berangkat dari daftar yang SEDANG TERLIHAT di
+   lembar stok, bukan dari daftar kosong. */
+function rksDaftar(){ return rokokItems().map(it=>({k:it.k,n:it.n,lain:!!it.lain})); }
+function rksSimpan(daftar,pesan){
+  DB.rokok_items=daftar;
+  save();
+  RKS_PESAN=pesan||'';
+  render();
+}
+function rksTambah(){
+  const nama=(document.getElementById('rks_nama').value||'').trim();
+  const lain=!!document.getElementById('rks_lain').checked;
+  if(!nama){ RKS_PESAN='bad|Nama item wajib diisi.'; render(); return; }
+  const k=rksKunci(nama);
+  if(!k){ RKS_PESAN='bad|Nama itu tidak menghasilkan kunci yang sah — pakai huruf atau angka.'; render(); return; }
+  const daftar=rksDaftar();
+  /* Kunci kembar ditolak, TAPI sebutkan item mana yang sudah memakainya:
+     "Djarum Mild" dan "Djarum  Mild" menghasilkan kunci yang sama, dan tanpa
+     menyebut namanya orang akan mengira penolakannya salah. */
+  const bentrok=daftar.find(it=>it.k===k);
+  if(bentrok){ RKS_PESAN='bad|Kunci <b>'+esc(k)+'</b> sudah dipakai item <b>'+esc(bentrok.n)+'</b>. Pakai nama yang berbeda.'; render(); return; }
+  daftar.push({k,n:nama,lain});
+  rksSimpan(daftar,'ok|Item <b>'+esc(nama)+'</b> ditambahkan (kunci <span class="mono">'+esc(k)+'</span>).');
+}
+function rksHapus(k){
+  const daftar=rksDaftar();
+  const it=daftar.find(x=>x.k===k); if(!it) return;
+  if(daftar.length<=1){ RKS_PESAN='bad|Daftar tidak boleh kosong — sisakan minimal satu item.'; render(); return; }
+  /* Berapa hari yang punya angka untuk item ini — disebutkan di konfirmasi.
+     "Hapus item?" tanpa angka membuat orang mengira tidak ada yang hilang;
+     dengan angkanya, ia tahu persis apa yang akan lenyap dari lembar (dan
+     bahwa datanya sendiri tidak ikut terhapus). */
+  let hari=0;
+  Object.keys(DB.rokok||{}).forEach(d=>{
+    const v=rokokItem(DB.rokok[d],k); if(v.in||v.out) hari++;
+  });
+  if(!confirm('Buang "'+it.n+'" dari lembar Daily Stock Rokok?\n\n'
+    +(hari?hari+' hari punya angka untuk item ini. Angkanya TIDAK dihapus — tetap tersimpan '
+        +'dan kembali utuh kalau item ini ditambahkan lagi dengan nama yang sama.'
+       :'Belum ada satu hari pun yang mencatat pergerakan item ini.')
+    +'\n\nYang berubah cuma: item ini tidak lagi muncul di lembar harian dan tidak lagi ikut Sisa Awal.')) return;
+  rksSimpan(daftar.filter(x=>x.k!==k),'ok|Item <b>'+esc(it.n)+'</b> dibuang dari lembar. Angkanya tetap tersimpan.');
+}
+function rksUbahNama(k){
+  const daftar=rksDaftar();
+  const it=daftar.find(x=>x.k===k); if(!it) return;
+  const nama=prompt('Nama item (kunci <'+k+'> tidak berubah, jadi angkanya tetap):', it.n);
+  if(nama===null) return;
+  if(!nama.trim()){ RKS_PESAN='bad|Nama tidak boleh kosong.'; render(); return; }
+  it.n=nama.trim();
+  rksSimpan(daftar,'ok|Nama diperbarui jadi <b>'+esc(it.n)+'</b>.');
+}
+function rksToggleLain(k){
+  const daftar=rksDaftar();
+  const it=daftar.find(x=>x.k===k); if(!it) return;
+  it.lain=!it.lain;
+  rksSimpan(daftar,'ok|<b>'+esc(it.n)+'</b> dipindah ke kelompok '+(it.lain?'<b>Lainnya</b>':'<b>Rokok</b>')+'.');
+}
+/* Urutan di sini = urutan baris di lembar harian. Kasir menghitung fisiknya
+   berurutan sesuai susunan di rak, jadi bisa digeser sampai cocok — daftar
+   yang urutannya beda dari raknya membuat penghitungan bolak-balik. */
+function rksGeser(k,arah){
+  const daftar=rksDaftar();
+  const i=daftar.findIndex(x=>x.k===k);
+  const j=i+arah;
+  if(i<0||j<0||j>=daftar.length) return;
+  const t=daftar[i]; daftar[i]=daftar[j]; daftar[j]=t;
+  rksSimpan(daftar,'');
+}
+function rksPulihkanBawaan(){
+  if(!confirm('Kembalikan daftar ke bawaan sistem?\n\n'
+    +'Item yang kamu tambahkan sendiri akan hilang dari lembar — angkanya tetap tersimpan, '
+    +'tapi harus ditambahkan lagi kalau mau muncul lagi.')) return;
+  /* Kuncinya DIHAPUS, bukan diisi salinan bawaan: dengan begitu pemasangan ini
+     kembali ikut tiap penambahan bawaan berikutnya, sama seperti sebelum
+     pernah disetel sama sekali. */
+  delete DB.rokok_items;
+  save();
+  RKS_PESAN='ok|Daftar dikembalikan ke bawaan sistem.';
+  render();
+}
+function viewRokokSet(){
+  const el=document.getElementById('app-view');
+  const daftar=rokokItems();
+  const disetel=Array.isArray(DB.rokok_items)&&DB.rokok_items.length;
+  const pesan=RKS_PESAN; RKS_PESAN='';
+  const p=pesan?pesan.split('|'):null;
+
+  const baris=(it,i)=>`<tr>
+      <td style="width:52px;text-align:center">
+        <button class="btn btn-ghost btn-xs" title="Naikkan" ${i===0?'disabled':''} onclick="rksGeser('${esc(it.k)}',-1)">↑</button>
+        <button class="btn btn-ghost btn-xs" title="Turunkan" ${i===daftar.length-1?'disabled':''} onclick="rksGeser('${esc(it.k)}',1)">↓</button></td>
+      <td><b>${esc(it.n)}</b></td>
+      <td class="mono" style="font-size:11.5px;color:var(--muted)">${esc(it.k)}</td>
+      <td>${it.lain
+          ? '<span class="chip mute">Lainnya</span>'
+          : '<span class="chip info">Rokok</span>'}</td>
+      <td style="text-align:right;white-space:nowrap">
+        <button class="btn btn-ghost btn-xs" onclick="rksUbahNama('${esc(it.k)}')">Ubah nama</button>
+        <button class="btn btn-ghost btn-xs" title="Pindah kelompok Rokok / Lainnya" onclick="rksToggleLain('${esc(it.k)}')">${it.lain?'Jadikan Rokok':'Jadikan Lainnya'}</button>
+        <button class="btn btn-danger btn-xs" onclick="rksHapus('${esc(it.k)}')">Buang</button>
+      </td></tr>`;
+
+  el.innerHTML=
+    (p?`<div class="notice ${p[0]==='ok'?'ok':'bad'}">${p[0]==='ok'?'✓':'⚠'} <div>${p[1]}</div></div>`:'')+
+    `<div class="notice info">💡 <div>Daftar ini menentukan baris apa saja yang muncul di <b>Daily Stock Rokok</b> dan
+       <b>Rekap Stock Rokok</b>, berikut urutannya. <b>Membuang item tidak menghapus angkanya</b> — datanya tetap
+       tersimpan dan kembali utuh kalau item itu ditambahkan lagi dengan nama yang sama.
+       Kunci di kolom ketiga dibuat sekali dan tidak berubah walau namanya diganti; itu yang mengikat angka harian
+       ke itemnya.</div></div>
+    <div class="card">
+      <div style="display:flex;align-items:flex-start;gap:12px;flex-wrap:wrap">
+        <div style="flex:1;min-width:200px">
+          <h3>Item di Lembar Stock</h3>
+          <div class="card-sub" style="margin:0">${daftar.length} item · ${
+            disetel?'daftar disetel sendiri':'masih memakai daftar bawaan sistem'}</div>
+        </div>
+        ${disetel?'<button class="btn btn-ghost btn-sm" onclick="rksPulihkanBawaan()">↩ Kembalikan ke bawaan</button>':''}
+      </div>
+      <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr>
+        <th style="text-align:center">Urut</th><th style="text-align:left">Nama</th>
+        <th style="text-align:left">Kunci data</th><th style="text-align:left">Kelompok</th><th></th>
+      </tr></thead><tbody>${daftar.map(baris).join('')}</tbody></table></div>
+    </div>
+    <div class="card">
+      <h3>Tambah Item</h3>
+      <div class="card-sub">Item baru langsung muncul di lembar harian, dimulai dari sisa 0.</div>
+      <div style="display:flex;gap:8px;margin-top:12px;flex-wrap:wrap;align-items:center">
+        <input id="rks_nama" placeholder="Nama item, mis. Djarum Mild" style="flex:1;min-width:200px;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px">
+        <label style="display:flex;gap:7px;align-items:center;font-size:12.5px;cursor:pointer">
+          <input type="checkbox" id="rks_lain"> bukan rokok (Korek, Coin, Eskrim…)</label>
+        <button class="btn btn-primary btn-sm" onclick="rksTambah()">Tambah</button>
+      </div>
+      <div class="muted" style="font-size:11.5px;margin-top:7px">Item ber-tanda <b>bukan rokok</b> dikelompokkan di bawah, dipisahkan satu garis — tetap dihitung di meja yang sama.</div>
+    </div>`;
+  const kotak=document.getElementById('rks_nama');
+  if(kotak) kotak.addEventListener('keydown',e=>{ if(e.key==='Enter') rksTambah(); });
 }
 
 /* ============ 3b. REKAP STOCK ROKOK (BULANAN) ============
@@ -2287,7 +2509,7 @@ function rokokTanggalBulan(monthKey){
 function rokokRekapBulan(monthKey){
   const tgl=rokokTanggalBulan(monthKey);
   const awal=rokokSisaAwal(monthKey+'-01');
-  const baris=ROKOK_ITEMS.map(it=>{
+  const baris=rokokItems().map(it=>{
     let masuk=0,keluar=0,hariGerak=0;
     tgl.forEach(d=>{
       const v=rokokItem(DB.rokok[d],it.k);

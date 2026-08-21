@@ -436,6 +436,12 @@
 
 
 
+
+
+
+
+
+
 function pct() {  }
 
 
@@ -614,7 +620,28 @@ function seed() { tambahJejak(); }
 
 
 
-function normalizeDB() { seed(); }
+function normalizeDB() { seed(); rokokItems(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -852,6 +879,7 @@ function setViewMode() { modeHarian(); daysOfMonth(); render(); }
 
 
 function syncKendaliPeriode() { modeHarian(); }
+
 
 
 
@@ -2111,7 +2139,7 @@ function calInner() { todayISO(); calToggle(); dateLabel(); getDay(); calPickDay
 
 
 
-function emptyCanvas() { todayISO(); }
+function emptyCanvas() { rokokItems(); }
 
 
 
@@ -2162,6 +2190,34 @@ function emptyCanvas() { todayISO(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rokokItems() {  }
+
+
+
+
+
+
+function rokokLainPertama() { rokokItems(); todayISO(); }
 
 function rokokOf() {  }
 function rokokItem() {  }
@@ -2169,7 +2225,7 @@ function rokokItem() {  }
 
 
 
-function rokokSisaAwal() { rokokItem(); }
+function rokokSisaAwal() { rokokItems(); rokokItem(); }
 
 
 
@@ -2177,15 +2233,7 @@ function rokokSisaAwal() { rokokItem(); }
 
 
 
-function viewRokok() { rokokOf(); rokokSisaAwal(); rokokItem(); calInner(); jejakHtml(); }
-
-
-
-
-
-
-
-
+function viewRokok() { rokokOf(); rokokSisaAwal(); rokokItem(); rokokLainPertama(); calInner(); jejakHtml(); rokokItems(); }
 
 
 
@@ -2219,7 +2267,181 @@ function viewRokok() { rokokOf(); rokokSisaAwal(); rokokItem(); calInner(); jeja
 
 
 
-function hitung() { nilai(); daftar(); tambahJejak(); save(); dateLabel(); render(); }
+
+
+
+
+
+
+
+
+function hitung() { rokokItems(); nilai(); daftar(); tambahJejak(); save(); dateLabel(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rksKunci() {  }
+
+
+
+
+
+
+function rksDaftar() { rokokItems(); }
+function rksSimpan() { save(); render(); }
+
+
+
+
+
+function rksTambah() { render(); rksKunci(); rksDaftar(); rksSimpan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rksHapus() { rksDaftar(); render(); rokokItem(); rksSimpan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rksUbahNama() { rksDaftar(); render(); rksSimpan(); }
+
+
+
+
+
+
+
+
+function rksToggleLain() { rksDaftar(); rksSimpan(); }
+
+
+
+
+
+
+
+
+function rksGeser() { rksDaftar(); rksSimpan(); }
+
+
+
+
+
+
+
+function rksPulihkanBawaan() { save(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+function viewRokokSet() { rokokItems(); rksGeser(); rksUbahNama(); rksToggleLain(); rksHapus(); rksPulihkanBawaan(); rksTambah(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -2284,7 +2506,7 @@ function rokokTanggalBulan() { rokokSisaAwal(); }
 
 
 
-function rokokRekapBulan() { rokokTanggalBulan(); rokokSisaAwal(); rokokItem(); }
+function rokokRekapBulan() { rokokTanggalBulan(); rokokSisaAwal(); rokokItems(); rokokItem(); }
 
 
 
