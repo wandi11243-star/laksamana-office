@@ -104,8 +104,41 @@ function inv_pastikan_tabel() {
      sama sudah dipakai pada penyetuju PR di modul BD. */
   inv_pastikan_kolom('inv_kwitansi', 'penanda', '`penanda` TEXT NULL');
 
+  /* JENIS DOKUMEN (21 Agustus 2026). Sampai sekarang seluruh isi tabel ini
+     satu macam: kwitansi DP dari modul Reservasi. Sejak Marketing ikut
+     meminta INVOICE (DP & pelunasan), satu antrean memuat tiga dokumen yang
+     kop, penanda tangan, dan penomorannya berbeda.
+
+     Kolom, bukan tebakan dari prefiks res_id: yang menentukan tampilan &
+     penomoran tidak boleh bergantung pada bentuk string yang dikirim modul
+     lain — modul yang mengubah format id-nya akan membuat dokumen lama
+     berpindah jenis tanpa satu pun galat.
+
+     'KWITANSI' jadi bawaan supaya baris yang sudah ada (semuanya dari
+     Reservasi) tetap terbaca persis seperti sebelumnya. */
+  inv_pastikan_kolom('inv_kwitansi', 'jenis', "`jenis` VARCHAR(24) NOT NULL DEFAULT 'KWITANSI'");
+
   inv_migrasi_penanda_tunggal();
 }
+
+/* Tiga jenis dokumen yang dikenal, dan apa bedanya di mata berkas ini:
+
+     KWITANSI   — kwitansi DP dari modul Reservasi (yang sudah ada sejak awal)
+     INV_DP     — invoice DP dari modul Marketing
+     INV_LUNAS  — invoice pelunasan dari modul Marketing
+
+   Yang tidak dikenal jatuh ke KWITANSI, BUKAN ditolak: permintaan yang gagal
+   total karena satu string salah ketik membuat kru Marketing kehilangan
+   satu-satunya jalan meminta invoice, sementara jatuh ke jenis lama paling
+   jauh membuat kop dokumennya keliru dan itu terlihat. */
+function inv_jenis_sah($j) {
+  $j = strtoupper(trim((string)$j));
+  return in_array($j, array('KWITANSI', 'INV_DP', 'INV_LUNAS'), true) ? $j : 'KWITANSI';
+}
+/* Dokumen Marketing memakai kolam nomor & daftar penanda tangan SENDIRI.
+   Dipisahkan di satu tempat supaya penambahan jenis berikutnya tidak perlu
+   menyisir seluruh berkas mencari `=== 'KWITANSI'`. */
+function inv_jenis_invoice($j) { return $j === 'INV_DP' || $j === 'INV_LUNAS'; }
 
 /* ALTER hanya kalau kolomnya memang belum ada. Tanpa pemeriksaan ini, setiap
    permintaan melempar "Duplicate column name" dan seluruh endpoint invoice
@@ -244,7 +277,15 @@ function inv_setting_baca() {
      satu-tanda-tangan masih menyimpan nilainya, dan inv_migrasi_penanda_tunggal()
      membacanya dari sini. Tidak dibaca lagi oleh frontend. */
   $out = array('ttd' => '', 'cap' => '', 'penandaNama' => '', 'penandaJabatan' => '',
-               'prefix' => 'INV', 'penandaDefault' => '');
+               'prefix' => 'INV', 'penandaDefault' => '',
+               /* Dokumen Marketing punya penomoran & penanda tangan sendiri.
+                  Bawaan penanda tangannya SENGAJA kosong, bukan menyalin
+                  penandaDefault: invoice perusahaan ditandatangani Direktur +
+                  Finance, dan diam-diam mewarisi penanda tangan kwitansi tamu
+                  berarti lembar bertanda tangan yang salah orang justru pada
+                  dokumen yang paling resmi. Kosongnya terlihat di layar
+                  (pita peringatan di tab Antrean), jadi tidak sunyi. */
+               'prefixInvoice' => 'INV', 'penandaDefaultInvoice' => '');
   foreach (inv_setting_baca_mentah() as $k => $v) $out[$k] = $v;
   return $out;
 }
@@ -252,7 +293,14 @@ function inv_setting_baca() {
 function inv_setting_simpan($in) {
   inv_pastikan_tabel();
   if (!is_array($in)) throw new Exception('data pengaturan kosong');
-  $boleh = array('ttd', 'cap', 'penandaNama', 'penandaJabatan', 'prefix');
+  /* `penandaDefault` DULU TIDAK ADA DI DAFTAR INI, dan itu bug: tombol
+     "dipakai bawaan" di tab Pengaturan mengirimkannya lewat aksi yang sama,
+     lalu gelung di bawah melewatinya diam-diam. Layar berbunyi "Bawaan
+     penanda tangan disimpan", muat ulang berikutnya mengembalikan centangnya
+     ke keadaan semula, dan tidak ada satu pun galat yang menyebutkannya.
+     Ditemukan 21 Agustus 2026 saat menambahkan bawaan untuk invoice. */
+  $boleh = array('ttd', 'cap', 'penandaNama', 'penandaJabatan', 'prefix',
+                 'penandaDefault', 'prefixInvoice', 'penandaDefaultInvoice');
   $pdo = db();
   $q = $pdo->prepare('INSERT INTO `inv_setting` (`k`,`v`) VALUES (:k,:v)
                       ON DUPLICATE KEY UPDATE `v`=VALUES(`v`)');
@@ -271,9 +319,15 @@ function inv_setting_simpan($in) {
 /* Nomor diambil dari yang TERTINGGI di bulan berjalan, bukan dari jumlah
    baris. Kwitansi yang pernah dihapus tidak boleh membuat nomor terpakai
    ulang — dua lembar bernomor sama di arsip tidak bisa dibedakan lagi. */
-function inv_nomor_berikut() {
+function inv_nomor_berikut($jenis = 'KWITANSI') {
   $set = inv_setting_baca();
-  $prefix = $set['prefix'] !== '' ? $set['prefix'] : 'INV';
+  /* Dua kolam nomor yang terpisah, dan pemisahnya cuma awalannya — pencarian
+     di bawah memang bekerja per awalan. Kalau awalan invoice disamakan dengan
+     awalan kwitansi, keduanya otomatis kembali jadi satu deret berurutan;
+     itu pilihan yang sah dan tidak menghasilkan nomor kembar. */
+  $prefix = inv_jenis_invoice($jenis)
+    ? (isset($set['prefixInvoice']) && $set['prefixInvoice'] !== '' ? $set['prefixInvoice'] : 'INV')
+    : ($set['prefix'] !== '' ? $set['prefix'] : 'INV');
   $bulan  = gmdate('Y/m', time() + 7 * 3600);   // WIB
   $awalan = $prefix . '/' . $bulan . '/';
   $q = db()->prepare('SELECT `no_invoice` FROM `inv_kwitansi` WHERE `no_invoice` LIKE :p');
@@ -302,6 +356,11 @@ function inv_baris($row) {
     'resId'     => $row['res_id'],
     'no'        => $row['no_invoice'],
     'status'    => $row['status'],
+    /* isset() BUKAN kemewahan: baris ini juga dipanggil dari balasan yang
+       diambil sebelum ALTER sempat jalan pada pemasangan lama, dan kolom yang
+       belum ada memulangkan NULL — yang di layar akan tampil sebagai jenis
+       kosong dan menjatuhkan barisnya dari semua tab sekaligus. */
+    'jenis'     => isset($row['jenis']) && $row['jenis'] !== '' ? $row['jenis'] : 'KWITANSI',
     'ringkas'   => $ringkas,
     'penanda'   => $penanda,
     'mintaOleh' => $row['minta_oleh'],
@@ -321,6 +380,7 @@ function inv_minta($in) {
   if (!is_array($in) || empty($in['resId'])) throw new Exception('resId kosong');
   $resId   = (string)$in['resId'];
   $oleh    = isset($in['oleh']) ? (string)$in['oleh'] : '';
+  $jenis   = inv_jenis_sah(isset($in['jenis']) ? $in['jenis'] : 'KWITANSI');
   $ringkas = isset($in['ringkas']) && is_array($in['ringkas'])
              ? json_encode($in['ringkas'], JSON_UNESCAPED_UNICODE) : null;
   $pdo = db();
@@ -342,19 +402,22 @@ function inv_minta($in) {
        sebenarnya sudah diajukan ulang. */
     $u = $pdo->prepare('UPDATE `inv_kwitansi`
                         SET `status`=\'MENUNGGU\', `ringkas`=COALESCE(:g,`ringkas`),
+                            `jenis`=:j,
                             `minta_oleh`=:o, `minta_at`=:t, `catatan`=\'\',
                             `putus_oleh`=\'\', `putus_at`=0
                         WHERE `id`=:i');
-    $u->execute(array(':g' => $ringkas, ':o' => $oleh, ':t' => inv_ms(), ':i' => $ada['id']));
+    $u->execute(array(':g' => $ringkas, ':j' => $jenis, ':o' => $oleh,
+                      ':t' => inv_ms(), ':i' => $ada['id']));
     $q->execute(array(':r' => $resId));
     return inv_baris($q->fetch());
   }
 
   $id = inv_uid('inv');
   $i = $pdo->prepare('INSERT INTO `inv_kwitansi`
-      (`id`,`res_id`,`no_invoice`,`status`,`ringkas`,`minta_oleh`,`minta_at`,`catatan`)
-      VALUES (:i,:r,\'\',\'MENUNGGU\',:g,:o,:t,\'\')');
-  $i->execute(array(':i' => $id, ':r' => $resId, ':g' => $ringkas, ':o' => $oleh, ':t' => inv_ms()));
+      (`id`,`res_id`,`no_invoice`,`status`,`jenis`,`ringkas`,`minta_oleh`,`minta_at`,`catatan`)
+      VALUES (:i,:r,\'\',\'MENUNGGU\',:j,:g,:o,:t,\'\')');
+  $i->execute(array(':i' => $id, ':r' => $resId, ':j' => $jenis, ':g' => $ringkas,
+                    ':o' => $oleh, ':t' => inv_ms()));
   $q->execute(array(':r' => $resId));
   return inv_baris($q->fetch());
 }
@@ -391,6 +454,25 @@ function inv_daftar() {
   return $out;
 }
 
+/* Berapa yang menunggu — untuk LENCANA di menu, bukan untuk halamannya.
+   Endpoint sendiri, bukan inv_daftar()->count: balasan inv_daftar memuat
+   seluruh ringkasan permintaan dan daftar penanda tangan lengkap dengan
+   gambarnya (ratusan KB), dan memanggilnya di setiap boot hanya untuk satu
+   angka membuat panel Finance terasa berat justru pada pemuatan pertama. */
+function inv_antre_jumlah() {
+  inv_pastikan_tabel();
+  $st = db()->query('SELECT `jenis`, COUNT(*) AS c FROM `inv_kwitansi`
+                      WHERE `status`=\'MENUNGGU\' GROUP BY `jenis`');
+  $out = array('total' => 0, 'perJenis' => array());
+  while ($row = $st->fetch()) {
+    $j = $row['jenis'] === null || $row['jenis'] === '' ? 'KWITANSI' : $row['jenis'];
+    $n = (int)$row['c'];
+    $out['total'] += $n;
+    $out['perJenis'][$j] = $n;
+  }
+  return $out;
+}
+
 /* Keputusan Finance atas satu permintaan.
    aksi: 'buat' -> terbitkan nomor & status DIBUAT
          'tolak' -> DITOLAK, catatan WAJIB (kalau tidak, yang meminta tidak
@@ -414,8 +496,9 @@ function inv_putus($in) {
     /* Nomor hanya diberikan SEKALI. Menekan "Buat Invoice" dua kali pada
        baris yang sama tidak boleh memakan nomor kedua — lubang di
        penomoran arsip tidak bisa dijelaskan lagi setahun kemudian. */
-    $no = $row['no_invoice'] !== '' ? $row['no_invoice'] : inv_nomor_berikut();
-    $pen = json_encode(inv_snapshot_penanda(array_key_exists('penanda', $in) ? $in['penanda'] : null),
+    $jns = isset($row['jenis']) && $row['jenis'] !== '' ? $row['jenis'] : 'KWITANSI';
+    $no = $row['no_invoice'] !== '' ? $row['no_invoice'] : inv_nomor_berikut($jns);
+    $pen = json_encode(inv_snapshot_penanda(array_key_exists('penanda', $in) ? $in['penanda'] : null, $jns),
                        JSON_UNESCAPED_UNICODE);
     $u = $pdo->prepare('UPDATE `inv_kwitansi`
                         SET `status`=\'DIBUAT\', `no_invoice`=:n, `catatan`=:c, `penanda`=:p,
@@ -452,14 +535,20 @@ function inv_putus($in) {
    Konsekuensinya penanda tangan yang dihapus akan menghilangkan gambar dari
    dokumen lama — itulah sebabnya inv_penanda_hapus() menolak menghapus yang
    sudah terpakai dan menyuruh menonaktifkannya. */
-function inv_snapshot_penanda($ids) {
+function inv_snapshot_penanda($ids, $jenis = 'KWITANSI') {
   /* null (field tidak dikirim) = pakai daftar bawaan.
      array kosong = SENGAJA tanpa tanda tangan. Dua hal yang berbeda: kalau
      disamakan, Finance yang melepas semua centangnya justru mendapat lembar
      bertanda tangan bawaan — kebalikan persis dari yang ia minta. */
   if ($ids === null) {
     $set = inv_setting_baca();
-    $ids = $set['penandaDefault'] !== '' ? explode(',', $set['penandaDefault']) : array();
+    /* Bawaan DIAMBIL PER JENIS. Invoice Marketing ditandatangani Direktur +
+       Finance, kwitansi tamu cukup Finance; satu daftar untuk keduanya
+       berarti salah satunya selalu keliru — dan kekeliruan tanda tangan baru
+       ketahuan dari lembar yang sudah beredar di luar. */
+    $kunci = inv_jenis_invoice($jenis) ? 'penandaDefaultInvoice' : 'penandaDefault';
+    $csv = isset($set[$kunci]) ? (string)$set[$kunci] : '';
+    $ids = $csv !== '' ? explode(',', $csv) : array();
   }
   if (!is_array($ids)) $ids = array();
   $out = array();
@@ -504,6 +593,7 @@ function inv_berkas($resId) {
   }
   return array(
     'ada'       => true,
+    'jenis'     => $baris['jenis'],
     'no'        => $row['no_invoice'],
     'putusOleh' => $row['putus_oleh'],
     'putusAt'   => (int)$row['putus_at'],

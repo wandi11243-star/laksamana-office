@@ -11472,6 +11472,11 @@ function renderInvoices(V){
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('invoices',KOL_INVOICES)+'<tbody>';
   pInv.items.forEach(e=>{ const f=eventFinance(e); const invNo=invoiceNo(e);
     h+='<tr><td class="mono cell-strong">'+invNo+'</td><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.paid)+'<div class="cell-sub">target '+dpLabel(f)+': '+rp(f.dp)+'</div></td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
+     /* Dua dokumen dalam satu sel — DP di atas, pelunasan di bawah. Bukan dua
+        kolom: keduanya jarang hidup bersamaan (pelunasan baru ada setelah DP
+        selesai), dan dua kolom yang salah satunya hampir selalu kosong cuma
+        mempersempit kolom lain di tabel yang sudah penuh. */
+     +'<td><div>'+slotInv(e,'INV_DP')+'</div><div style="margin-top:6px">'+slotInv(e,'INV_LUNAS')+'</div></td>'
      /* Tiga tombol dicabut: ikon MATA (buka tab Finance — seluruh barisnya
         sudah bisa diklik ke sana), KIRIM INVOICE, dan REMINDER DP. Enam ikon
         berjajar melipat jadi dua baris dan membuat tiap baris tabel setinggi
@@ -11480,6 +11485,12 @@ function renderInvoices(V){
   });
   h+='</tbody></table></div>'+tblPagerHtml(pInv,'invoices')+'</div>';
   V.innerHTML=h;
+  /* SESUDAH innerHTML, bukan sebelum: muatInvMkt menyegarkan slot lewat
+     querySelectorAll('.invSlot'), dan slotnya baru ada di DOM setelah baris
+     ini. Yang dimuat cuma halaman yang sedang tampil — daftar invoice bisa
+     ratusan event, dan menanyakan seluruhnya ke Finance tiap kali halaman
+     dibuka adalah permintaan yang isinya 99% tidak akan dilihat siapa pun. */
+  muatInvMkt(pInv.items);
 }
 const KOL_INVOICES=[
   {k:'no',      t:'No. Invoice',    v:e=>invoiceNo(e), cls:'mono'},
@@ -11488,12 +11499,461 @@ const KOL_INVOICES=[
   {k:'paid',    t:'Terbayar',       v:e=>eventFinance(e).paid,      cls:'mono', turun:1},
   {k:'sisa',    t:'Sisa',           v:e=>eventFinance(e).remaining, cls:'mono', turun:1, def:1},
   {k:'status',  t:'Status',         v:e=>invStatus(e)},
+  /* Tanpa `v`, jadi kolomnya tidak bisa diurutkan — sama seperti Aksi. Isinya
+     datang dari server Finance dan belum tentu sudah terbaca saat tabel
+     digambar; mengurutkan baris menurut sesuatu yang masih "…" akan menukar
+     urutannya sendiri beberapa ratus milidetik kemudian. */
+  {t:'Invoice Resmi'},
   {t:'Aksi'}
 ];
+
+/* ============================================================
+   INVOICE RESMI — DIMINTA KE FINANCE (21 Agustus 2026)
+   ------------------------------------------------------------
+   Yang dibuat halaman ini selama ini cuma nomor invoice INTERNAL (ev.invNo)
+   dan lembar penawaran. Keduanya tidak bertanda tangan dan tidak tercatat di
+   arsip Finance, jadi tidak bisa dipakai sebagai tagihan resmi ke perusahaan
+   client — yang menagih PT butuh lembar bertanda tangan Direktur & Finance.
+
+   Alurnya sama persis dengan kwitansi di modul Reservasi, dan memang memakai
+   backend yang sama (finance-api-mysql, tabel inv_kwitansi):
+
+     DP masuk  ->  Marketing tekan "Request Invoice DP"
+               ->  antre di Finance > Invoice & Kwitansi
+               ->  Finance memeriksa bukti transfernya, memilih penanda tangan,
+                   menerbitkan nomor  ->  tombol di sini berubah jadi PDF.
+
+     Pelunasan dicatat (nominal + bukti TF di modal Catat Pembayaran)
+               ->  "Request Invoice Pelunasan"  ->  jalur yang sama, tapi
+                   lembarnya berformat pelunasan: total belanja, dikurangi DP
+                   yang sudah masuk, sisa yang ditagih.
+
+   DATANYA TIDAK DI SINI. Permintaan & nomor resmi milik backend Finance;
+   modul ini hanya MEMBACA statusnya. Alasannya ditulis panjang di
+   finance-mysql/lib_invoice.php — ringkasnya, state modul ini disimpan
+   sebagai satu blob lewat saveAll, dan Finance yang ikut menulis ke sana akan
+   menimpa event yang baru diinput marketing lain.
+
+   Kalau backend Finance mati, yang hilang cuma tombolnya — halaman Invoice &
+   Payment tetap jalan seperti sebelum fitur ini ada. Itu disengaja: tagihan
+   yang tidak bisa dipantau sama sekali jauh lebih merugikan daripada tagihan
+   tanpa lembar bertanda tangan.
+   ============================================================ */
+const API_INV_URL = '../finance-api-mysql/api.php';
+/* Yang boleh MEMINTA invoice resmi. Daftar putih, bukan daftar hitam: role
+   yang ditambahkan nanti tidak boleh diam-diam ikut bisa menagih hanya karena
+   lupa dimasukkan ke daftar larangan. */
+const ROLE_MINTA_INV = ['marketing','finance','manager','super_admin'];
+function bolehMintaInvoice(){ return ME && ROLE_MINTA_INV.includes(ME.role); }
+/* resId -> baris invoice; null = sudah ditanya & memang belum ada,
+   undefined = belum pernah ditanya. Tiga keadaan, bukan dua — kalau
+   "belum ditanya" disamakan dengan "tidak ada", tombolnya menawarkan Request
+   untuk event yang invoice-nya sudah terbit, dan yang menekannya mengira
+   permintaannya hilang. */
+let MKT_INV = {};
+let MKT_INV_ERR = '';
+/* Penanda "permintaannya sedang di jalan". Nilai tersendiri, bukan null:
+   selama fetch berlangsung, null berarti "memang belum ada permintaan" dan
+   slotnya akan menawarkan tombol Request untuk invoice yang sebetulnya sudah
+   terbit — lalu berubah sendiri sedetik kemudian. Yang sempat menekannya
+   mengira permintaannya hilang, dan menekannya lagi. */
+const MKT_INV_MUAT = {muat:true};
+/* Id dokumen di sisi Finance. Berawalan 'mkt:' supaya tidak pernah bertabrakan
+   dengan id reservasi di tabel yang sama — kolom itu UNIQUE, dan satu tabrakan
+   berarti invoice event menimpa kwitansi tamu (atau sebaliknya). */
+function invResId(evId,jenis){ return 'mkt:'+evId+':'+(jenis==='INV_LUNAS'?'lunas':'dp'); }
+function invFetchFin(action,data){
+  const ac=('AbortController' in window)?new AbortController():null;
+  const jam=setTimeout(function(){ try{ ac&&ac.abort(); }catch(e){} },20000);
+  return fetch(API_INV_URL+'?action='+encodeURIComponent(action),{
+      method:'POST',redirect:'follow',cache:'no-store',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify(Object.assign({action:action},data||{})),
+      signal:ac?ac.signal:undefined
+    })
+    .then(r=>r.text())
+    .then(teks=>{
+      let j=null; try{ j=JSON.parse(teks); }catch(e){}
+      if(!j) throw new Error('Modul Finance membalas bukan-JSON — backend invoice belum terpasang?');
+      if(!j.ok) throw new Error(j.error||'galat tidak dikenal dari modul Finance');
+      return j.data;
+    })
+    .finally(()=>clearTimeout(jam));
+}
+/* Apakah event ini sudah boleh minta invoice DP / pelunasan.
+   DP: begitu ada uang masuk — baik dari pembayaran yang dicatat maupun dari
+   centang "DP sudah dibayar" di tab Finance. Keduanya sama-sama pernyataan
+   bahwa uangnya sudah diterima, dan Finance yang memeriksanya nanti.
+   PELUNASAN: begitu ada baris pembayaran bertipe Pelunasan, atau sisanya
+   memang sudah nol. Menunggu remaining===0 saja tidak cukup — pelunasan yang
+   dibayar kurang beberapa ratus ribu tetap perlu invoice-nya. */
+function mktPunyaDP(ev){ return eventFinance(ev).paid>0; }
+/* ANGKA YANG DITAGIH DI LEMBAR PELUNASAN — dan ini bukan f.remaining.
+   Urutan di lapangan: client transfer pelunasannya, marketing mencatat
+   nominal + bukti transfernya, BARU meminta invoice pelunasan. Saat tombolnya
+   ditekan, pembayaran itu sudah masuk hitungan, jadi f.remaining sudah nol —
+   lembarnya akan menagih Rp 0 dan tidak ada satu pun galat yang menyebutkan
+   kenapa. Sudah nyaris terkirim seperti itu saat fitur ini dibuat.
+
+   Yang benar: yang ditagih di lembar pelunasan adalah sisa SEBELUM pelunasan
+   itu sendiri — total belanja dikurangi DP (dan pembayaran lain yang bukan
+   pelunasan) yang sudah masuk lebih dulu. Persis bunyi permintaannya:
+   "totalan belanja dia, ada keterangan sudah payment DP berapa, dikurangin,
+   terus sisa pembayarannya".
+
+   dpCentang dihitung ulang di sini terhadap pembayaran NON-pelunasan saja,
+   bukan memakai f.dpDiakui: f.dpDiakui menyusut jadi nol begitu ada
+   pembayaran apa pun yang melampaui DP — termasuk pelunasan yang sedang
+   ditagih — jadi DP yang cuma ditandai lewat centang akan hilang dari baris
+   pengurang, dan client ditagih penuh untuk kedua kalinya. */
+function mktPraPelunasan(ev){
+  const f=eventFinance(ev);
+  const p=ev.payments||[];
+  const jml=fn=>p.filter(fn).reduce((a,x)=>a+(+x.amount||0),0);
+  const dpRow=jml(x=>String(x.type||'')==='DP');
+  const lain =jml(x=>{const t=String(x.type||''); return t!=='DP'&&t!=='Pelunasan';});
+  const dpCentang=f.dpCentang?Math.max(0,f.dp-dpRow-lain):0;
+  const dpMasuk=dpRow+dpCentang;
+  return {dpRow,dpCentang,dpMasuk,lain,
+          praBayar:dpMasuk+lain,
+          tagih:Math.max(0,f.grand-dpMasuk-lain)};
+}
+function mktPunyaPelunasan(ev){
+  const f=eventFinance(ev);
+  if((ev.payments||[]).some(p=>String(p.type||'')==='Pelunasan')) return true;
+  return f.grand>0 && f.remaining<=0;
+}
+/* Ringkasan yang IKUT dikirim bersama permintaan. Finance perlu memutuskan
+   tanpa membuka modul Marketing, dan ia tidak punya akses ke database ini.
+   Yang dikirim secukupnya untuk memutuskan & mencetak lembarnya — bukan
+   seluruh baris event, yang memuat catatan internal dan nomor HP client. */
+function invRingkasMkt(ev,jenis){
+  const f=eventFinance(ev);
+  const pra=mktPraPelunasan(ev);
+  const c=S.clients.find(x=>x.id===ev.clientId)||{};
+  const items=((ev.detail&&ev.detail.rincianItem)||[])
+    .filter(r=>(r.jenis||'bayar')==='bayar')
+    .map(function(r){
+      /* (jumlah||1) — baris tanpa Qty adalah baris beramount tunggal, bukan
+         baris bernilai nol. Aturan yang sama dengan rinciTotalBayar(); kalau
+         berbeda, jumlah di lembar Finance tidak akan pernah cocok dengan
+         Grand Total yang dikirim bersamanya. */
+      const qty=(+r.jumlah||0)||1, harga=+r.harga||0;
+      return {desc:String(r.desc||''),qty:qty,harga:harga,total:qty*harga};
+    });
+  const bayar=(ev.payments||[]).map(p=>({
+    jenis:p.type||'', nominal:+p.amount||0, tanggal:p.at||'', metode:p.method||'',
+    no:p.no||'', adaBukti:!!p.receiptUrl, catatan:p.receipt||''
+  }));
+  return {
+    jenisDok:jenis,
+    client:(c.nama||clientName(ev.clientId)), perusahaan:c.perusahaan||'',
+    picClient:c.pic||'', event:ev.nama, jenisAcara:ev.jenis||'',
+    tanggal:ev.tanggal||'', pax:+ev.pax||0,
+    noInternal:ev.invNo||'', pic:userName(ev.mktPIC),
+    sub:f.sub, disc:f.disc, service:f.service, tax:f.tax, taxPct:f.taxPct,
+    grand:f.grand, dp:f.dp, paid:f.paid, remaining:f.remaining,
+    dpBayar:bayar.filter(p=>p.jenis==='DP').reduce((a,p)=>a+p.nominal,0),
+    /* `tagih` & `praBayar` = angka yang benar-benar tercetak di lembar
+       pelunasan (lihat mktPraPelunasan). Dikirim sebagai field TERSENDIRI,
+       bukan menimpa `remaining`: Finance juga perlu melihat sisa tagihan yang
+       sesungguhnya untuk menilai permintaannya, dan menumpuk dua arti pada
+       satu nama adalah cara paling cepat membuat dua layar tidak pernah bisa
+       dicocokkan lagi. */
+    tagih:pra.tagih, praBayar:pra.praBayar,
+    items:items, bayar:bayar
+  };
+}
+/* Satu permintaan untuk SELURUH daftar yang tampil, bukan satu per baris:
+   halaman ini menggambar sampai puluhan event sekaligus, dan satu fetch per
+   baris berarti puluhan permintaan yang datang berbarengan ke shared hosting
+   yang sama — cukup untuk membuat seluruhnya kehabisan waktu. */
+function muatInvMkt(evs){
+  const ids=[];
+  evs.forEach(function(e){
+    ['INV_DP','INV_LUNAS'].forEach(function(j){
+      const rid=invResId(e.id,j);
+      if(MKT_INV[rid]===undefined) ids.push(rid);
+    });
+  });
+  if(!ids.length) return;
+  /* Ditandai LEBIH DULU supaya tidak diminta dua kali saat halaman digambar
+     ulang selagi permintaannya masih di jalan. Kalau gagal, tandanya dilepas
+     lagi di bawah — dengan begitu tombol "coba lagi" memang mencoba lagi,
+     bukan diam. */
+  ids.forEach(function(rid){ MKT_INV[rid]=MKT_INV_MUAT; });
+  segarkanSlotInv();
+  invFetchFin('invStatus',{res:ids}).then(function(peta){
+    ids.forEach(function(rid){ MKT_INV[rid]=(peta&&peta[rid])?peta[rid]:null; });
+    MKT_INV_ERR='';
+    segarkanSlotInv();
+  },function(e){
+    ids.forEach(function(rid){ delete MKT_INV[rid]; });
+    MKT_INV_ERR=e.message||String(e);
+    segarkanSlotInv();
+  });
+}
+/* Ditandai CLASS + data-*, bukan id: satu event bisa punya slot di tabel DAN
+   di modal riwayat pembayaran pada saat yang sama, dan id kembar membuat
+   hanya yang pertama tersegarkan — slot kedua berhenti selamanya di "…". */
+function segarkanSlotInv(){
+  Array.prototype.forEach.call(document.querySelectorAll('.invSlot'),function(el){
+    const ev=S.events.find(x=>x.id===el.dataset.ev);
+    if(ev) el.innerHTML=slotInvIsi(ev,el.dataset.jenis);
+  });
+}
+function slotInv(ev,jenis){
+  return '<span class="invSlot" data-ev="'+esc(ev.id)+'" data-jenis="'+jenis+'">'
+    +slotInvIsi(ev,jenis)+'</span>';
+}
+function slotInvIsi(ev,jenis){
+  const lunas=jenis==='INV_LUNAS';
+  const label=lunas?'Pelunasan':'DP';
+  const siap=lunas?mktPunyaPelunasan(ev):mktPunyaDP(ev);
+  if(!siap){
+    return '<div class="cell-sub" style="margin:0">'+label+': '
+      +(lunas?'menunggu pelunasan dicatat':'menunggu DP masuk')+'</div>';
+  }
+  const rid=invResId(ev.id,jenis);
+  const inv=MKT_INV[rid];
+  if(inv===MKT_INV_MUAT){
+    return '<div class="cell-sub" style="margin:0">'+label+': memeriksa ke Finance…</div>';
+  }
+  if(inv===undefined){
+    return '<button class="btn sm" onclick="muatInvMkt([S.events.find(x=>x.id===\''+escJs(ev.id)+'\')])" title="'
+      +esc(MKT_INV_ERR||'Status invoice belum terbaca dari modul Finance')+'">'
+      +label+': status '+(MKT_INV_ERR?'gagal dibaca — coba lagi':'…')+'</button>';
+  }
+  if(inv && inv.status==='DIBUAT'){
+    return '<button class="btn sm pri" onclick="invoiceMktPDF(\''+escJs(ev.id)+'\',\''+jenis+'\')" '
+      +'title="Invoice resmi '+esc(inv.no||'')+' — bertanda tangan &amp; cap perusahaan">'
+      +svg(IC.print)+label+' PDF</button>'
+      +'<div class="cell-sub mono" style="margin:3px 0 0;font-size:10.5px">'+esc(inv.no||'')+'</div>';
+  }
+  if(inv && inv.status==='MENUNGGU'){
+    return '<span class="chip" style="background:color-mix(in srgb,var(--warn) 15%,transparent);color:var(--warn)">'
+      +'&#9203; '+label+' menunggu Finance</span>';
+  }
+  if(inv && inv.status==='DITOLAK'){
+    return '<span class="chip" style="background:color-mix(in srgb,var(--danger) 15%,transparent);color:var(--danger)" '
+      +'title="'+esc(inv.catatan||'')+'">&#10007; '+label+' ditolak</span>'
+      +(bolehMintaInvoice()
+        ? '<div style="margin-top:4px"><button class="btn sm" onclick="mintaInvoiceMkt(\''+escJs(ev.id)+'\',\''+jenis+'\')" '
+          +'title="Alasan: '+esc(inv.catatan||'-')+'">Request ulang</button></div>'
+        : '<div class="cell-sub" style="margin:3px 0 0">'+esc(inv.catatan||'')+'</div>');
+  }
+  if(!bolehMintaInvoice()){
+    return '<div class="cell-sub" style="margin:0">'+label+': belum diminta</div>';
+  }
+  return '<button class="btn sm" onclick="mintaInvoiceMkt(\''+escJs(ev.id)+'\',\''+jenis+'\')" '
+    +'title="Minta Finance menerbitkan invoice resmi bertanda tangan Direktur &amp; Finance">'
+    +svg(IC.invoice)+'Request Invoice '+label+'</button>';
+}
+async function mintaInvoiceMkt(evId,jenis){
+  const ev=S.events.find(e=>e.id===evId); if(!ev) return;
+  if(!bolehMintaInvoice()) return toast('Akses ditolak','Kamu tidak punya izin meminta invoice resmi.','err');
+  const lunas=jenis==='INV_LUNAS';
+  if(lunas && !mktPunyaPelunasan(ev)) return toast('Pelunasan belum dicatat','Catat pembayaran pelunasannya dulu (nominal + bukti transfer).','err');
+  if(!lunas && !mktPunyaDP(ev)) return toast('DP belum masuk','Catat pembayaran DP-nya dulu di halaman ini.','err');
+  const f=eventFinance(ev);
+  /* Nomor invoice internal DIPASTIKAN ADA sebelum permintaan dikirim. Ia ikut
+     di dalam ringkasan sebagai rujukan silang antara arsip Finance dan daftar
+     di sini; kalau dikirim kosong, satu-satunya penghubung kedua sisi adalah
+     nama event — yang bisa berubah kapan saja. */
+  ensureInvNos([ev]);
+  const tanpaBukti=(ev.payments||[]).filter(p=>!p.receiptUrl).length;
+  const pra=mktPraPelunasan(ev);
+  const rincian = lunas
+    ? 'Grand Total: '+rp(f.grand)+'\nDikurangi DP & pembayaran awal: '+rp(pra.praBayar)+
+      '\nSisa yang ditagih di lembar ini: '+rp(pra.tagih)
+    : 'Grand Total: '+rp(f.grand)+'\n'+dpLabel(f)+' yang ditagih: '+rp(f.dp)+'\nSudah masuk: '+rp(f.paid);
+  if(!confirm('Minta Finance menerbitkan invoice '+(lunas?'PELUNASAN':'DP')+' resmi untuk "'+ev.nama+'"?\n\n'
+    +rincian
+    +(tanpaBukti?'\n\n⚠ '+tanpaBukti+' pembayaran belum ada bukti transfernya — Finance bisa menolak permintaan ini.':'')
+    +'\n\nFinance memeriksa dana masuknya dulu, lalu menerbitkan lembar bertanda tangan Direktur & Finance. '
+    +'Tombol PDF muncul di sini begitu terbit.')) return;
+  try{
+    const baris=await invFetchFin('invMinta',{
+      resId:invResId(ev.id,jenis), jenis:jenis,
+      oleh:(ME&&ME.name)||'', ringkas:invRingkasMkt(ev,jenis)
+    });
+    MKT_INV[invResId(ev.id,jenis)]=baris;
+    segarkanSlotInv();
+    logAct('event',ev.id,'Request invoice '+(lunas?'pelunasan':'DP'),(ev.invNo||'')+' · '+rp(lunas?pra.tagih:f.dp));
+    save();
+    toast(baris.status==='DIBUAT'?'Invoice resmi sudah terbit ✓':'Permintaan invoice terkirim ke Finance ✓',
+      lunas?'Finance akan menerbitkan lembar pelunasannya.':'Finance akan menerbitkan lembar DP-nya.','ok');
+  }catch(e){
+    toast('Gagal mengirim permintaan',(e.message||String(e)),'err');
+  }
+}
+
+/* ---------- LEMBAR INVOICE RESMI ----------
+   Dicetak lewat mesin cetak yang sudah ada di modul ini (window._printDoc +
+   printBrief), bukan window.open: halaman ini dilindungi CSP yang memblokir
+   apa pun dari luar, dan jendela baru berisi dokumen yang dirakit di memori
+   akan kehilangan seluruh gaya cetaknya.
+
+   Nomor, tanda tangan, dan cap TIDAK disimpan di sini — semuanya diambil
+   segar dari Finance tepat sebelum dicetak (invBerkas). Menyalinnya ke state
+   Marketing berarti lembar yang dicetak minggu depan masih membawa tanda
+   tangan orang yang jabatannya sudah berganti, dan tidak ada yang tahu. */
+const INV_KOP = {
+  pt:'PT. LAKSAMANA MUDA BERSATU',
+  alamat:'Jl. Soekarno - Hatta No. 39, Labuh Baru Tim, Kec. Payung Sekaki,<br>Kota Pekanbaru, Riau 28282',
+  bank:'UOB | PT. Laksamana Muda Bersatu',
+  rek:'319-303-3588'
+};
+/* Nilai negatif ditulis "- Rp x", bukan "Rp -x". Baris pengurang di kaki
+   invoice dibaca client, dan tanda minus yang terselip di tengah angka mudah
+   terbaca sebagai bagian dari nominalnya. */
+function invBarisTotal(label,nilai,tebal){
+  const n=Number(nilai)||0;
+  const teks=(n<0?'- '+rp(-n):rp(n));
+  return '<tr><td colspan="3" style="padding:6px 12px;text-align:right;'
+    +(tebal?'font-weight:700;':'color:#555;')+'font-size:12px">'+label+'</td>'
+    +'<td style="padding:6px 12px;text-align:right;font-family:ui-monospace,monospace;'
+    +(tebal?'font-weight:700;font-size:13px;':'font-size:12px;')+'white-space:nowrap">'+teks+'</td></tr>';
+}
+function invoiceMktDoc(ev,jenis,inv){
+  const f=eventFinance(ev);
+  const c=S.clients.find(x=>x.id===ev.clientId)||{nama:'—',perusahaan:'',pic:'',hp:''};
+  const lunas=jenis==='INV_LUNAS';
+  const logo=window.LM_LOGO||'';
+  const resmi=!!(inv&&inv.ada);
+  const noDok=resmi&&inv.no?inv.no:(ev.invNo||'—');
+  const items=((ev.detail&&ev.detail.rincianItem)||[]).filter(r=>(r.jenis||'bayar')==='bayar');
+  const dpBayar=(ev.payments||[]).filter(p=>String(p.type||'')==='DP');
+
+  let h='<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #F7BB0E;padding-bottom:16px;margin-bottom:20px">'
+    +'<div style="display:flex;gap:12px;align-items:center">'
+      +(logo?'<img src="'+logo+'" alt="" style="width:46px;height:46px;object-fit:contain;flex:none">':'')
+      +'<div><div style="font-family:Georgia,serif;font-size:20px;font-weight:700;color:#0C1826">'+INV_KOP.pt+'</div>'
+      +'<div style="font-size:10px;letter-spacing:.2em;color:#C8940A">LAKSAMANA MUDA COFFEE &amp; LIVE SPACE</div>'
+      +'<div style="font-size:10.5px;color:#666;margin-top:4px;line-height:1.5">'+INV_KOP.alamat+'</div></div></div>'
+    +'<div style="text-align:right"><div style="font-size:11px;letter-spacing:.15em;color:#C8940A;font-weight:700">'
+      +(lunas?'INVOICE PELUNASAN':'INVOICE DOWN PAYMENT')+'</div>'
+      +'<div style="font-size:18px;font-family:Georgia,serif;font-weight:700;margin-top:4px">'+esc(noDok)+'</div>'
+      +'<div style="font-size:11.5px;color:#555;margin-top:2px">'+fmtDateLong(today())+'</div>'
+      +(resmi?'':'<div style="font-size:10px;color:#C0392B;margin-top:4px;font-weight:700">BELUM DITERBITKAN FINANCE</div>')
+    +'</div></div>';
+
+  h+='<div style="background:#F6F4EE;border-radius:10px;padding:14px 18px;margin-bottom:18px;display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;font-size:12.5px">'
+    +'<div><b>Kepada</b>: '+esc(c.perusahaan||c.nama)+'</div><div><b>PIC</b>: '+esc(c.pic||c.nama)+'</div>'
+    +'<div><b>Acara</b>: '+esc(ev.nama)+'</div><div><b>Tanggal acara</b>: '+(ev.tanggal?fmtDateLong(ev.tanggal):'—')+'</div>'
+    +'<div><b>Jenis</b>: '+esc(ev.jenis||'—')+'</div><div><b>Estimasi</b>: '+(ev.pax||'—')+' pax</div></div>';
+
+  h+='<table style="width:100%;border-collapse:collapse;margin-bottom:6px">'
+    +'<thead><tr style="background:#F2EFE7">'
+      +'<th style="text-align:left;padding:8px 12px;font-size:11px;border-bottom:1px solid #e5e2da">Deskripsi</th>'
+      +'<th style="text-align:right;padding:8px 12px;font-size:11px;border-bottom:1px solid #e5e2da;width:60px">Qty</th>'
+      +'<th style="text-align:right;padding:8px 12px;font-size:11px;border-bottom:1px solid #e5e2da;width:120px">Harga</th>'
+      +'<th style="text-align:right;padding:8px 12px;font-size:11px;border-bottom:1px solid #e5e2da;width:130px">Jumlah</th>'
+    +'</tr></thead><tbody>';
+  if(items.length){
+    items.forEach(function(r,i){
+      const qty=(+r.jumlah||0)||1, harga=+r.harga||0;
+      h+='<tr style="background:'+(i%2?'#fff':'#faf9f5')+'">'
+        +'<td style="padding:7px 12px;font-size:12px;border-bottom:1px solid #efece5">'+esc(r.desc||'—')+'</td>'
+        +'<td style="padding:7px 12px;font-size:12px;text-align:right;border-bottom:1px solid #efece5">'+qty+'</td>'
+        +'<td style="padding:7px 12px;font-size:12px;text-align:right;font-family:ui-monospace,monospace;border-bottom:1px solid #efece5">'+rp(harga)+'</td>'
+        +'<td style="padding:7px 12px;font-size:12px;text-align:right;font-family:ui-monospace,monospace;border-bottom:1px solid #efece5">'+rp(qty*harga)+'</td></tr>';
+    });
+  } else {
+    h+='<tr><td colspan="4" style="padding:12px;font-size:12px;color:#888;text-align:center">Rincian tagihan belum diisi di tab Finance.</td></tr>';
+  }
+  h+='</tbody><tfoot>';
+  h+=invBarisTotal('Subtotal',f.sub);
+  if(f.disc) h+=invBarisTotal('Diskon',-f.disc);
+  if(f.svcOn&&f.service) h+=invBarisTotal('Service charge',f.service);
+  if(f.tax) h+=invBarisTotal('PB1 '+f.taxPct+'%'+(f.taxInc?' (termasuk harga)':''),f.tax);
+  h+=invBarisTotal('Grand Total',f.grand,true);
+  /* INILAH BEDA KEDUA LEMBAR, dan satu-satunya alasan invoice pelunasan ada
+     sebagai jenis tersendiri: yang ditagih bukan grand total lagi, melainkan
+     sisanya — lengkap dengan berapa yang sudah masuk, supaya client tidak
+     mengira ia ditagih dua kali untuk acara yang sama. */
+  if(lunas){
+    const pra=mktPraPelunasan(ev);
+    dpBayar.forEach(function(p){
+      h+=invBarisTotal('Dikurangi pembayaran '+esc(p.type)+(p.at?' &middot; '+fmtDate(p.at):''),-(+p.amount||0));
+    });
+    /* DP yang cuma ditandai lewat centang "DP sudah dibayar" tetap muncul
+       sebagai baris pengurang. Kalau dilewati, client melihat lembar yang
+       menagih lebih besar daripada yang ia tahu masih kurang — dan yang
+       menjelaskannya nanti tetap marketing yang mengirim lembar itu. */
+    if(pra.dpCentang>0) h+=invBarisTotal('Dikurangi DP yang sudah diterima',-pra.dpCentang);
+    if(pra.lain>0) h+=invBarisTotal('Dikurangi pembayaran lain yang sudah diterima',-pra.lain);
+    h+=invBarisTotal('SISA PEMBAYARAN',pra.tagih,true);
+  } else {
+    h+=invBarisTotal(dpLabel(f)+' yang ditagih',f.dp,true);
+    if(f.paid>0) h+=invBarisTotal('Sudah diterima',f.paid);
+  }
+  h+='</tfoot></table>';
+
+  h+='<div style="background:#FBF3D8;border-radius:10px;padding:12px 18px;margin-top:16px;font-size:12px;line-height:1.7">'
+    +'<b>Pembayaran ditujukan ke</b><br>'+esc(INV_KOP.bank)+' &middot; No. Rek <b>'+esc(INV_KOP.rek)+'</b>'
+    +'<br><span style="color:#666">Mohon cantumkan nomor invoice '+esc(noDok)+' pada berita transfer.</span></div>';
+
+  /* Dua kolom tanda tangan — Direktur & Finance. Siapa persisnya ditentukan
+     Finance per lembar; kalau lembarnya belum resmi (atau sengaja terbit tanpa
+     tanda tangan), yang digambar GARIS TANDA TANGAN dengan jabatan bawaan.
+     Kotak kosong tanpa garis terbaca seperti gambar yang gagal termuat. */
+  const pen=(resmi&&Array.isArray(inv.penanda)&&inv.penanda.length)
+    ? inv.penanda
+    : [{nama:'',jabatan:'Direktur',ttd:''},{nama:'',jabatan:'Finance',ttd:''}];
+  const cap=resmi?(inv.cap||''):'';
+  h+='<div style="display:flex;justify-content:flex-end;gap:26px;margin-top:26px;font-size:12px">'
+    +pen.map(function(p,i){
+      return '<div style="text-align:center;min-width:180px;position:relative">'
+        +'<div style="color:#666">Hormat kami,</div>'
+        +(i===0&&cap?'<img src="'+esc(cap)+'" alt="" style="position:absolute;left:50%;top:14px;transform:translateX(-50%) rotate(-12deg);height:86px;opacity:.85">':'')
+        +(p.ttd?'<img src="'+esc(p.ttd)+'" alt="" style="height:56px;margin:4px 0;position:relative">'
+               :'<div style="height:56px"></div><div style="border-bottom:1px solid #bbb;margin:0 12px 5px"></div>')
+        +'<div style="font-weight:700;position:relative">'+esc(p.nama||'(...................)')+'</div>'
+        +'<div style="color:#666;position:relative">'+esc(p.jabatan||'')+'</div></div>';
+    }).join('')
+  +'</div>';
+
+  h+='<div style="margin-top:26px;padding-top:12px;border-top:1px solid #eee;font-size:10px;color:#aaa;display:flex;justify-content:space-between">'
+    +'<span>'+INV_KOP.pt+' &middot; @laksamanamuda.id</span>'
+    +'<span>Dicetak '+fmtDateLong(today())+' oleh '+esc(ME.name)+'</span></div>';
+
+  return '<div class="doc" style="max-width:800px;margin:0 auto;padding:34px 40px;font-family:Inter,sans-serif;color:#1a1a1a">'+h+'</div>';
+}
+async function invoiceMktPDF(evId,jenis){
+  const ev=S.events.find(e=>e.id===evId); if(!ev) return;
+  let inv=null;
+  try{
+    inv=await invFetchFin('invBerkas',{resId:invResId(evId,jenis)});
+  }catch(e){
+    /* Lembarnya TETAP dicetak walau Finance tak terjangkau — cuma tanpa nomor
+       resmi, tanda tangan, dan cap, dan itu ditulis besar-besar di kopnya.
+       Tombol cetak yang mati total saat jaringan terganggu membuat marketing
+       yang sedang berhadapan dengan client tidak punya apa-apa di tangan. */
+    toast('Modul Finance tak terjangkau','Lembarnya dicetak tanpa nomor resmi & tanda tangan.','err');
+  }
+  window._printDoc=invoiceMktDoc(ev,jenis,inv);
+  modal('<div class="modal-head wide" style="display:flex"><div><div class="eyebrow">Invoice Resmi</div>'
+    +'<h3 style="margin-top:5px">'+esc(ev.nama)+'</h3></div><div class="pill-row">'
+    +'<button class="btn sm pri" onclick="printBrief()">'+svg(IC.print)+'Print / PDF</button>'
+    +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div></div>'
+    +'<div class="modal-body" id="brief-body" style="background:#fff;border-radius:12px;padding:0;max-height:70vh">'
+    +window._printDoc+'</div>');
+  $('modal').classList.add('wide');
+}
 function viewPaymentHistory(evId){
   const e=S.events.find(x=>x.id===evId); if(!e)return;
   const f=eventFinance(e);
-  modal('<div class="modal-head"><div><h3>Riwayat Pembayaran</h3><p>'+esc(e.nama)+' · '+esc(clientName(e.clientId))+' · sisa '+rp(f.remaining)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'+paymentHistoryHtml(e)+'</div>');
+  /* Slot invoice resmi ikut DI SINI, bukan cuma di tabel: inilah layar tempat
+     orang berada tepat sesudah mencatat pelunasan, dan menyuruhnya menutup
+     modal lalu mencari lagi barisnya di tabel untuk menekan "Request Invoice"
+     adalah dua langkah yang paling sering tidak jadi dilakukan. */
+  modal('<div class="modal-head"><div><h3>Riwayat Pembayaran</h3><p>'+esc(e.nama)+' · '+esc(clientName(e.clientId))+' · sisa '+rp(f.remaining)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'+paymentHistoryHtml(e)
+   +'<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--line-soft)">'
+   +'<div class="cell-sub" style="margin:0 0 8px">Invoice resmi dari Finance</div>'
+   +'<div class="pill-row">'+slotInv(e,'INV_DP')+slotInv(e,'INV_LUNAS')+'</div></div>'
+   +'</div>');
+  muatInvMkt([e]);
 }
 function waInvoice(evId,invNo){
   const e=S.events.find(x=>x.id===evId); if(!e)return;

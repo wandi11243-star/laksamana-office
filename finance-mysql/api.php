@@ -158,6 +158,12 @@ try {
         'penanda' => inv_penanda_daftar(true),
       )));
 
+    /* Lencana menu. Dipanggil tiap kali panel Finance dibuka, jadi sengaja
+       sesempit mungkin — lihat inv_antre_jumlah(). */
+    case 'invAntre':
+      require_once __DIR__ . '/lib_invoice.php';
+      keluar(array('ok' => true, 'data' => inv_antre_jumlah()));
+
     case 'invPenandaSimpan':
       require_once __DIR__ . '/lib_invoice.php';
       keluar(array('ok' => true, 'data' => inv_penanda_simpan(

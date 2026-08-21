@@ -114,6 +114,13 @@ input,select,textarea{font-family:inherit}
 .nav a.active{background:var(--gold-soft);color:var(--gold-dim);font-weight:600}
 .nav a.active::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--gold)}
 .nav a .ico{width:18px;display:flex;align-items:center;justify-content:center;flex:none}
+/* Lencana antrean — pola yang sama dengan modul Daily Worker. Kosong =
+   tersembunyi lewat :empty, bukan lewat JS yang menghapus elemennya:
+   elemennya tetap ada di DOM sepanjang waktu, jadi yang memperbarui angkanya
+   tidak perlu tahu apakah ia sedang ada atau tidak. */
+.nav a .badge{margin-left:auto;background:var(--danger,#B4432E);color:#fff;border-radius:20px;
+  font-size:10px;padding:1px 6px;font-weight:700;flex:none;line-height:1.5}
+.nav a .badge:empty{display:none}
 .nav a .ico svg{width:17px;height:17px;stroke-width:1.9;opacity:.85}
 .nav a.active .ico svg{opacity:1}
 /* Ciutkan ke ikon saja (tombol ☰). Label/teks disembunyikan, ikon tetap.
@@ -124,6 +131,9 @@ input,select,textarea{font-family:inherit}
   .app.nav-mini .brand{justify-content:center;padding:6px 0 18px}
   .app.nav-mini .nav a{justify-content:center;gap:0;font-size:0;padding:9px 0}
   .app.nav-mini .nav a .ico{font-size:16px;width:auto}
+  /* Menu yang ciut cuma selebar ikon — lencana di sebelahnya akan menindih
+     ikonnya, dan angkanya pun tidak terbaca karena font-size induknya 0. */
+  .app.nav-mini .nav a .badge{display:none}
   .app.nav-mini .side-user{flex-direction:column;gap:8px;padding:10px 6px}
 }
 @media(max-width:620px){#navMiniBtn{display:none}}
@@ -527,7 +537,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
              yang dibuka orang yang sama tiap pagi. -->
         <div class="nav-label">Penjualan</div>
         <a data-view="rekap"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12M3 15h18"/></svg></span> Rekap Penjualan</a>
-        <a data-view="invoice"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 8h8M8 12h6M8 16h4"/></svg></span> Invoice &amp; Kwitansi</a>
+        <a data-view="invoice"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 8h8M8 12h6M8 16h4"/></svg></span> Invoice &amp; Kwitansi<span class="badge" id="navBadgeInv"></span></a>
       </div>
       <div class="nav-group">
         <div class="nav-label">Dashboard</div>
@@ -4392,11 +4402,43 @@ let INV=null, INV_SET={}, INV_PEN=[], INV_ERR='', INV_SIBUK=false, INV_TAB='antr
    baru yang harus ikut dirawat seluruh halaman. */
 let INV_PILIH=null;
 
+/* ---- LENCANA ANTREAN DI MENU (21 Agustus 2026) ----
+   Permintaan invoice datang dari modul lain (Reservasi, Marketing) dan tidak
+   ada satu pun tanda di panel ini bahwa ada yang menunggu. Sebelum lencana
+   ini, permintaan Sabtu bisa menganggur berhari-hari sementara orang Finance
+   membuka Buku Kas tiap pagi dan tidak pernah punya alasan mengklik menu
+   sebelahnya. Pola & bentuknya sama persis dengan modul Daily Worker.
+
+   Dipanggil dari boot() lewat endpoint SEMPIT (invAntre), bukan dengan memuat
+   seluruh antrean: balasan invDaftar memuat gambar tanda tangan, dan
+   menariknya di tiap pemuatan halaman membuat panel ini berat justru saat
+   pertama dibuka. Begitu halaman Invoice sungguh dibuka, angkanya disegarkan
+   dari daftar yang memang sudah ada di tangan (invSegarkanLencana). */
+function invPasangLencana(n){
+  const el=document.getElementById('navBadgeInv'); if(!el) return;
+  n=Number(n)||0;
+  el.textContent = n>0 ? String(n) : '';
+  el.title = n>0 ? n+' permintaan invoice/kwitansi menunggu' : '';
+}
+function invSegarkanLencana(){
+  if(!Array.isArray(INV)) return;
+  invPasangLencana(INV.filter(function(x){return x.status==='MENUNGGU';}).length);
+}
+function muatLencanaInv(){
+  /* Gagal DIABAIKAN diam-diam — ini satu-satunya tempat di modul ini yang
+     boleh begitu. Lencana yang tidak muncul cuma kehilangan petunjuk; pita
+     galat merah di atas Buku Kas gara-gara endpoint invoice belum terpasang
+     justru membuat orang mengira kas kecilnya yang rusak. */
+  return kkApi('invAntre').then(function(d){
+    invPasangLencana(d&&d.total);
+  },function(){});
+}
 function muatInv(){
   if(INV_MUAT) return Promise.resolve();
   INV_MUAT=true; INV_ERR='';
   return kkApi('invDaftar').then(function(d){
     INV=d.list||[]; INV_SET=d.setting||{}; INV_PEN=d.penanda||[]; INV_MUAT=false;
+    invSegarkanLencana();
     if(CURRENT==='invoice') render();
   },function(e){
     /* Gagal TIDAK meninggalkan INV=null: null berarti "sedang dimuat", dan
@@ -4413,20 +4455,140 @@ function invWaktu(ms){
   return p(d.getDate())+'/'+p(d.getMonth()+1)+'/'+d.getFullYear()+' '+p(d.getHours())+':'+p(d.getMinutes());
 }
 function invRing(x){ return (x&&x.ringkas)||{}; }
+/* ---- JENIS DOKUMEN (21 Agustus 2026) ----
+   Satu antrean, tiga dokumen. Yang datang dari Reservasi tetap 'KWITANSI'
+   (bawaan, supaya baris lama terbaca persis seperti dulu); Marketing mengirim
+   'INV_DP' dan 'INV_LUNAS'.
+
+   Dibaca dari kolom `jenis` milik barisnya, BUKAN ditebak dari isi ringkasan.
+   Ringkasan dikarang modul yang meminta, dan menebak jenis dari ada-tidaknya
+   sebuah field berarti modul yang menambah field diam-diam memindahkan
+   dokumennya ke jenis lain — lengkap dengan penanda tangan yang salah. */
+function invJenis(x){ return (x&&x.jenis)||'KWITANSI'; }
+function invAdalahInvoice(x){ const j=invJenis(x); return j==='INV_DP'||j==='INV_LUNAS'; }
+const INV_JENIS_LABEL={
+  KWITANSI :['Kwitansi DP','Reservasi'],
+  INV_DP   :['Invoice DP','Marketing'],
+  INV_LUNAS:['Invoice Pelunasan','Marketing']
+};
+function invChipJenis(x){
+  const j=invJenis(x), t=INV_JENIS_LABEL[j]||INV_JENIS_LABEL.KWITANSI;
+  return '<span class="chip '+(j==='KWITANSI'?'mute':'info')+'" title="Diminta dari modul '+esc(t[1])+'">'+esc(t[0])+'</span>';
+}
+/* Nilai yang jadi POKOK dokumen — beda arti per jenis, dan itu memang harus
+   berbeda: kwitansi mengakui uang yang MASUK, invoice menagih yang HARUS
+   dibayar. Menyamakan keduanya jadi satu kolom "nominal" pernah dicoba dan
+   hasilnya kolom yang artinya berganti-ganti tanpa ada yang menuliskannya. */
+function invNilaiPokok(x){
+  const g=invRing(x);
+  if(invJenis(x)==='INV_LUNAS'){
+    /* `tagih` adalah angka yang BENAR-BENAR tercetak di lembar pelunasan:
+       total belanja dikurangi DP & pembayaran awal, TIDAK dikurangi pelunasan
+       yang sedang ditagih itu sendiri. `remaining` dipakai kalau tidak ada —
+       permintaan yang dikirim sebelum 21 Agustus 2026 belum membawanya, dan
+       baris lama tidak boleh berubah jadi kosong. */
+    return g.tagih!=null ? (Number(g.tagih)||0) : (Number(g.remaining)||0);
+  }
+  if(invJenis(x)==='INV_DP')    return Number(g.dp)||Number(g.grand)||0;
+  return Number(g.dpTotal)||0;
+}
+/* Berapa yang sudah masuk SEBELUM lembar ini — pasangan invNilaiPokok untuk
+   pelunasan. Keduanya dijumlahkan harus sama dengan grand total; kalau tidak,
+   ada yang salah di ringkasan yang dikirim Marketing dan itu harus terlihat. */
+function invPraBayar(x){
+  const g=invRing(x);
+  return g.praBayar!=null ? (Number(g.praBayar)||0) : (Number(g.paid)||0);
+}
 /* Sepenuhnya terverifikasi = semua transfer sudah dicek Finance di modul
    Reservasi. Yang belum bukan penghalang menerbitkan kwitansi — kadang
    uangnya memang sudah dilihat di rekening — tapi harus TERLIHAT sebelum
    tombolnya ditekan, bukan sesudah kertasnya di tangan tamu. */
 function invPenuh(x){
   const g=invRing(x);
+  /* Untuk dokumen Marketing tidak ada "verifikasi Finance" seperti di
+     Reservasi — yang bisa diperiksa dari sini cuma apakah tiap pembayaran
+     yang dicatat MEMBAWA BUKTI TRANSFER. Itu pertanyaan yang sama bentuknya
+     ("boleh saya percaya uangnya sudah masuk?") dan jawabannya dipakai untuk
+     hal yang sama: memunculkan peringatan SEBELUM nomor invoice terbit. */
+  if(invAdalahInvoice(x)){
+    const b=Array.isArray(g.bayar)?g.bayar:[];
+    if(!b.length) return false;
+    return b.every(function(p){ return !!p.adaBukti; });
+  }
   return (g.dpCount||0)>0 && (g.dpVerifiedCount||0)>=(g.dpCount||0);
+}
+/* Berapa pembayaran yang berbukti, dari berapa. Dipakai dua tempat (kolom
+   Dana Masuk & peringatan di invBuat), jadi rumusnya cuma ada di sini. */
+function invBuktiHitung(x){
+  const b=(invRing(x).bayar)||[];
+  const ada=b.filter(function(p){return !!p.adaBukti;}).length;
+  return {ada:ada, total:b.length};
 }
 function invChipStatus(s){
   if(s==='DIBUAT')  return '<span class="chip ok">✓ Invoice terbit</span>';
   if(s==='DITOLAK') return '<span class="chip bad">✕ Ditolak</span>';
   return '<span class="chip warn">⏳ Menunggu</span>';
 }
+/* Rincian untuk dokumen MARKETING: baris tagihan + riwayat pembayaran.
+   Keduanya ikut dikirim bersama permintaan, bukan dibaca hidup ke backend
+   Marketing — Finance tidak punya akses ke sana, dan yang perlu diputuskan
+   adalah keadaan saat permintaannya diajukan. Persis alasan yang sama dengan
+   ringkasan DP dari Reservasi. */
+function invRincianInvoice(x){
+  const g=invRing(x);
+  const item=Array.isArray(g.items)?g.items:[];
+  const bayar=Array.isArray(g.bayar)?g.bayar:[];
+  let h='';
+  if(item.length){
+    h+='<div class="tbl-wrap"><table><thead><tr>'+
+        '<th style="text-align:left">Item tagihan</th><th style="text-align:right">Qty</th>'+
+        '<th style="text-align:right">Harga</th><th style="text-align:right">Jumlah</th></tr></thead><tbody>'+
+      item.map(function(it){
+        return '<tr><td>'+esc(it.desc||'—')+'</td>'+
+          '<td class="mono" style="text-align:right">'+(Number(it.qty)||1)+'</td>'+
+          '<td class="mono" style="text-align:right">'+fmtRp(it.harga)+'</td>'+
+          '<td class="mono" style="text-align:right">'+fmtRp(it.total)+'</td></tr>';
+      }).join('')+'</tbody></table></div>';
+  } else {
+    h+='<div class="muted">Tidak ada rincian tagihan yang ikut dikirim.</div>';
+  }
+  h+='<div class="muted" style="font-size:11.5px;margin-top:8px">'+
+      'Subtotal '+fmtRp(g.sub)+(g.disc?' · diskon '+fmtRp(g.disc):'')+
+      (g.service?' · service '+fmtRp(g.service):'')+(g.tax?' · pajak '+fmtRp(g.tax):'')+
+      ' · <b>Grand Total '+fmtRp(g.grand)+'</b></div>';
+  if(bayar.length){
+    h+='<div class="tbl-wrap" style="margin-top:10px"><table><thead><tr>'+
+        '<th style="text-align:left">Pembayaran</th><th style="text-align:left">Metode</th>'+
+        '<th style="text-align:right">Nominal</th><th style="text-align:left">Bukti</th></tr></thead><tbody>'+
+      bayar.map(function(p){
+        return '<tr>'+
+          '<td>'+esc(p.jenis||'—')+'<div class="muted" style="font-size:11.5px">'+esc(p.tanggal||'—')+
+            (p.no?' · '+esc(p.no):'')+'</div></td>'+
+          '<td>'+esc(p.metode||'—')+'</td>'+
+          '<td class="mono" style="text-align:right">'+fmtRp(p.nominal)+'</td>'+
+          '<td>'+(p.adaBukti
+              ? '<span class="chip ok">ada bukti</span>'
+              : '<span class="chip warn">tanpa bukti</span>')+
+            (p.catatan?'<div class="muted" style="font-size:11px">'+esc(p.catatan)+'</div>':'')+'</td>'+
+        '</tr>';
+      }).join('')+'</tbody></table></div>';
+    /* Baris DP disebut TERPISAH untuk invoice pelunasan. Itu justru angka yang
+       ditanyakan client saat menerima lembarnya ("katanya saya sudah bayar
+       20 juta, kok tertulis 50 juta?"), dan Finance harus bisa memeriksanya
+       sebelum menekan terbitkan — bukan sesudah lembarnya terkirim. */
+    if(invJenis(x)==='INV_LUNAS'){
+      h+='<div class="muted" style="font-size:11.5px;margin-top:6px">'+
+        'DP &amp; pembayaran awal '+fmtRp(invPraBayar(x))+
+        ' · <b>sisa yang ditagih di lembar ini '+fmtRp(invNilaiPokok(x))+'</b>'+
+        ' · seluruh pembayaran yang tercatat '+fmtRp(g.paid)+'</div>';
+    }
+  } else {
+    h+='<div class="muted" style="margin-top:8px">Belum ada pembayaran yang tercatat.</div>';
+  }
+  return h;
+}
 function invRincianDP(x){
+  if(invAdalahInvoice(x)) return invRincianInvoice(x);
   const g=invRing(x), dp=g.dp||[];
   if(!dp.length) return '<div class="muted">Tidak ada rincian transfer yang ikut dikirim.</div>';
   return '<div class="tbl-wrap"><table><thead><tr>'+
@@ -4446,19 +4608,56 @@ function invRincianDP(x){
       '</tr>';
     }).join('')+'</tbody></table></div>';
 }
+/* Sel identitas & sel dana masuk BEDA ISI per jenis, sisanya (diminta, status,
+   tombol) sama untuk semua. Dipisah jadi fungsi supaya invBarisHTML tidak
+   berubah jadi tiga baris `? :` bersarang yang tidak bisa dibaca lagi. */
+function invSelIdentitas(x){
+  const g=invRing(x);
+  if(invAdalahInvoice(x)){
+    return '<b>'+esc(g.client||g.nama||'(tanpa nama)')+'</b>'+
+      '<div class="muted" style="font-size:11.5px">'+esc(g.event||'—')+
+      (g.tanggal?' · '+esc(g.tanggal):'')+(g.pax?' · '+g.pax+' pax':'')+'</div>'+
+      '<div style="margin-top:4px">'+invChipJenis(x)+'</div>';
+  }
+  return '<b>'+esc(g.nama||'(tanpa nama)')+'</b>'+
+    '<div class="muted" style="font-size:11.5px">'+esc(g.tanggal||'—')+(g.jam?' · '+esc(g.jam):'')+
+    (g.pax?' · '+g.pax+' pax':'')+(g.meja?' · meja '+esc(g.meja):'')+'</div>'+
+    '<div style="margin-top:4px">'+invChipJenis(x)+'</div>';
+}
+function invSelNilai(x){
+  const g=invRing(x);
+  if(invJenis(x)==='INV_LUNAS'){
+    return fmtRp(invNilaiPokok(x))+
+      '<div class="muted" style="font-size:11.5px">sisa dari '+fmtRp(g.grand||0)+
+      ' · DP '+fmtRp(invPraBayar(x))+'</div>';
+  }
+  if(invJenis(x)==='INV_DP'){
+    return fmtRp(invNilaiPokok(x))+
+      '<div class="muted" style="font-size:11.5px">dari total '+fmtRp(g.grand||0)+'</div>';
+  }
+  return fmtRp(g.dpTotal||0)+(g.lunas?'<div><span class="chip ok">LUNAS</span></div>':'');
+}
+function invSelDana(x){
+  const g=invRing(x), penuh=invPenuh(x);
+  if(invAdalahInvoice(x)){
+    const b=invBuktiHitung(x);
+    return (penuh
+        ? '<span class="chip ok">✓ '+b.ada+'/'+b.total+' berbukti transfer</span>'
+        : '<span class="chip warn">⚠ '+b.ada+'/'+b.total+' berbukti transfer</span>')+
+      '<div class="muted" style="font-size:11.5px">'+fmtRp(g.paid||0)+' tercatat masuk'+
+      ((g.remaining||0)>0?' · sisa '+fmtRp(g.remaining||0):'')+'</div>';
+  }
+  return (penuh
+      ? '<span class="chip ok">✓ '+ (g.dpVerifiedCount||0) +'/'+ (g.dpCount||0) +' terverifikasi</span>'
+      : '<span class="chip warn">⚠ '+ (g.dpVerifiedCount||0) +'/'+ (g.dpCount||0) +' terverifikasi</span>')+
+    '<div class="muted" style="font-size:11.5px">'+fmtRp(g.dpVerified||0)+' dipastikan masuk</div>';
+}
 function invBarisHTML(x, mode){
   const g=invRing(x);
-  const penuh=invPenuh(x);
   return '<tr>'+
-    '<td><b>'+esc(g.nama||'(tanpa nama)')+'</b>'+
-      '<div class="muted" style="font-size:11.5px">'+esc(g.tanggal||'—')+(g.jam?' · '+esc(g.jam):'')+
-      (g.pax?' · '+g.pax+' pax':'')+(g.meja?' · meja '+esc(g.meja):'')+'</div></td>'+
-    '<td class="mono" style="text-align:right">'+fmtRp(g.dpTotal||0)+
-      (g.lunas?'<div><span class="chip ok">LUNAS</span></div>':'')+'</td>'+
-    '<td>'+(penuh
-        ? '<span class="chip ok">✓ '+ (g.dpVerifiedCount||0) +'/'+ (g.dpCount||0) +' terverifikasi</span>'
-        : '<span class="chip warn">⚠ '+ (g.dpVerifiedCount||0) +'/'+ (g.dpCount||0) +' terverifikasi</span>')+
-      '<div class="muted" style="font-size:11.5px">'+fmtRp(g.dpVerified||0)+' dipastikan masuk</div></td>'+
+    '<td>'+invSelIdentitas(x)+'</td>'+
+    '<td class="mono" style="text-align:right">'+invSelNilai(x)+'</td>'+
+    '<td>'+invSelDana(x)+'</td>'+
     '<td>'+esc(x.mintaOleh||'—')+'<div class="muted" style="font-size:11.5px">'+invWaktu(x.mintaAt)+'</div></td>'+
     '<td>'+(mode==='riwayat'
         ? invChipStatus(x.status)+
@@ -4470,15 +4669,20 @@ function invBarisHTML(x, mode){
       (x.status==='DIBUAT'
         ? '<button class="btn btn-ghost btn-xs" onclick="invBatal(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+
             ' title="Kembalikan ke antrean. Nomor invoice yang sudah terbit TIDAK dipakai ulang.">↩ Batalkan</button>'
-        : '<button class="btn btn-primary btn-xs" onclick="invBukaPilih(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>🧾 Buat Invoice</button> '+
+        : '<button class="btn btn-primary btn-xs" onclick="invBukaPilih(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>🧾 '+
+            (invAdalahInvoice(x)?'Terbitkan Invoice':'Buat Kwitansi')+'</button> '+
           '<button class="btn btn-danger btn-xs" onclick="invTolak(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>Tolak</button>')+
     '</td></tr>'+
     '<tr><td colspan="6" style="padding-top:0">'+
       (INV_PILIH&&INV_PILIH.id===x.id ? invPanelPilih(x) : '')+
-      '<details><summary class="muted" style="cursor:pointer;font-size:12px">Rincian transfer &amp; data reservasi</summary>'+
+      '<details><summary class="muted" style="cursor:pointer;font-size:12px">'+
+        (invAdalahInvoice(x)?'Rincian tagihan &amp; pembayaran':'Rincian transfer &amp; data reservasi')+'</summary>'+
       '<div style="margin-top:8px">'+invRincianDP(x)+
-      '<div class="muted" style="font-size:11.5px;margin-top:6px">Diinput oleh '+esc(g.diinputOleh||'—')+
-        ' · No. kwitansi internal '+esc(g.noKwitansi||'—')+'</div></div></details>'+
+      '<div class="muted" style="font-size:11.5px;margin-top:6px">'+
+        (invAdalahInvoice(x)
+          ? 'PIC Marketing '+esc(g.pic||'—')+' · No. invoice internal '+esc(g.noInternal||'—')
+          : 'Diinput oleh '+esc(g.diinputOleh||'—')+' · No. kwitansi internal '+esc(g.noKwitansi||'—'))+
+      '</div></div></details>'+
       (x.status==='DIBUAT'&&(x.penanda||[]).length
         ? '<div class="muted" style="font-size:11.5px;margin-top:6px">Ditandatangani: '+
           x.penanda.map(function(p){return esc(p.nama)+(p.jabatan?' ('+esc(p.jabatan)+')':'');}).join(', ')+'</div>'
@@ -4488,9 +4692,14 @@ function invBarisHTML(x, mode){
 /* Panel pemilih penanda tangan — muncul di dalam baris yang sedang diproses.
    Yang dipilih di sini berlaku UNTUK LEMBAR INI SAJA; bawaannya diambil dari
    tab Pengaturan supaya kasus yang paling sering tidak perlu diklik apa-apa. */
+/* Sebutan dokumennya di kalimat-kalimat konfirmasi. Satu tempat: kalimat
+   "Terbitkan kwitansi resmi" yang muncul di atas invoice perusahaan membuat
+   yang menekannya ragu apakah ia menekan tombol yang benar. */
+function invKataDok(x){ return invAdalahInvoice(x)?'invoice':'kwitansi'; }
 function invPanelPilih(x){
   const aktif=INV_PEN.filter(function(p){return p.aktif!==false;});
   const pilih=INV_PILIH.ids||[];
+  const kata=invKataDok(x);
   if(!aktif.length){
     return '<div class="notice warn" style="margin:10px 0">⚠ <div>Belum ada penanda tangan yang terdaftar. '+
       'Tambahkan dulu di tab <b>Pengaturan</b>, atau terbitkan tanpa tanda tangan.'+
@@ -4500,8 +4709,9 @@ function invPanelPilih(x){
       '</div></div></div>';
   }
   return '<div class="card" style="margin:10px 0;padding:14px">'+
-    '<b style="font-size:13px">Siapa yang menandatangani kwitansi ini?</b>'+
-    '<div class="muted" style="font-size:11.5px;margin:4px 0 10px">Boleh lebih dari satu — tanda tangannya berjajar di lembar kwitansi.</div>'+
+    '<b style="font-size:13px">Siapa yang menandatangani '+kata+' ini?</b>'+
+    '<div class="muted" style="font-size:11.5px;margin:4px 0 10px">Boleh lebih dari satu — tanda tangannya berjajar di lembar '+kata+'.'+
+      (invAdalahInvoice(x)?' Invoice Marketing biasanya <b>dua</b>: Direktur dan Finance.':'')+'</div>'+
     '<div style="display:flex;gap:14px;flex-wrap:wrap">'+
       aktif.map(function(p){
         const on=pilih.indexOf(p.id)>-1;
@@ -4515,12 +4725,23 @@ function invPanelPilih(x){
     '</div>'+
     (pilih.length?'':'<div class="muted" style="font-size:11.5px;margin-top:10px">Tidak ada yang dicentang — lembarnya terbit <b>tanpa tanda tangan</b>.</div>')+
     '<div style="margin-top:12px">'+
-      '<button class="btn btn-primary btn-sm" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>✓ Terbitkan Kwitansi</button> '+
+      '<button class="btn btn-primary btn-sm" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>✓ Terbitkan '+
+        (invAdalahInvoice(x)?'Invoice':'Kwitansi')+'</button> '+
       '<button class="btn btn-ghost btn-sm" onclick="INV_PILIH=null;render()">Batal</button>'+
     '</div></div>';
 }
+/* Kunci setting bawaan penanda tangan untuk sebuah jenis dokumen. Dua daftar,
+   bukan satu: invoice perusahaan ditandatangani Direktur + Finance, kwitansi
+   tamu cukup Finance. Sama persis dengan pembagian di server
+   (inv_snapshot_penanda) — kalau salah satu diubah, yang lain harus ikut,
+   kalau tidak layar mencentang orang yang berbeda dari yang benar-benar
+   dipakai server saat field `penanda` tidak dikirim. */
+function invKunciBawaan(jenis){
+  return (jenis==='INV_DP'||jenis==='INV_LUNAS') ? 'penandaDefaultInvoice' : 'penandaDefault';
+}
 function invBukaPilih(id){
-  const bawaan=String(INV_SET.penandaDefault||'').split(',').filter(Boolean);
+  const x=(INV||[]).find(function(v){return v.id===id;});
+  const bawaan=String(INV_SET[invKunciBawaan(invJenis(x))]||'').split(',').filter(Boolean);
   /* Bawaan disaring terhadap yang masih AKTIF: penanda tangan yang sudah
      dinonaktifkan tidak boleh diam-diam ikut tercentang, karena kotaknya
      memang tidak digambar dan orangnya tidak akan pernah melihatnya. */
@@ -4562,18 +4783,27 @@ function viewInvoice(){
         '</div></div>';
     };
     const bawaan=String(INV_SET.penandaDefault||'').split(',').filter(Boolean);
+    /* DUA daftar bawaan, satu tabel. Sengaja tidak dipecah jadi dua tabel:
+       orangnya sama, yang berbeda cuma dokumen mana yang ia tandatangani, dan
+       dua tabel berisi nama yang sama membuat orang menambah penanda tangan
+       kembar lalu bingung kenapa gambarnya harus diunggah dua kali. */
+    const bawaanInv=String(INV_SET.penandaDefaultInvoice||'').split(',').filter(Boolean);
+    const kotakBawaan=function(p,daftar,kunci,judul){
+      const on=daftar.indexOf(p.id)>-1;
+      return '<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer" title="'+esc(judul)+'">'+
+        '<input type="checkbox" '+(on?'checked':'')+' '+(p.aktif===false?'disabled':'')+
+        ' onchange="invToggleBawaan(\''+p.id+'\',\''+kunci+'\')"> '+esc(judul)+'</label>';
+    };
     const barisPen=function(p){
-      const isBawaan=bawaan.indexOf(p.id)>-1;
       return '<tr'+(p.aktif===false?' style="opacity:.55"':'')+'>'+
         '<td style="width:150px">'+(p.ttd
             ? '<img src="'+esc(p.ttd)+'" alt="" style="max-height:52px;max-width:140px">'
             : '<span class="chip mute">tanpa gambar</span>')+'</td>'+
         '<td><b>'+esc(p.nama)+'</b>'+(p.aktif===false?' <span class="chip mute">nonaktif</span>':'')+
           '<div class="muted" style="font-size:11.5px">'+esc(p.jabatan||'—')+'</div></td>'+
-        '<td style="width:150px">'+
-          '<label style="display:flex;gap:6px;align-items:center;font-size:12px;cursor:pointer">'+
-          '<input type="checkbox" '+(isBawaan?'checked':'')+' '+(p.aktif===false?'disabled':'')+
-          ' onchange="invToggleBawaan(\''+p.id+'\')"> dipakai bawaan</label></td>'+
+        '<td style="width:210px">'+
+          kotakBawaan(p,bawaan,'penandaDefault','Kwitansi Reservasi')+
+          kotakBawaan(p,bawaanInv,'penandaDefaultInvoice','Invoice Marketing')+'</td>'+
         '<td style="text-align:right;white-space:nowrap">'+
           '<label class="btn btn-ghost btn-xs" style="cursor:pointer">Ganti gambar'+
             '<input type="file" accept="image/png,image/jpeg,image/webp" style="display:none" onchange="invPenGambar(this,\''+p.id+'\')"></label> '+
@@ -4583,12 +4813,14 @@ function viewInvoice(){
           '<button class="btn btn-danger btn-xs" onclick="invPenHapus(\''+p.id+'\')" '+(INV_SIBUK?'disabled':'')+'>Hapus</button>'+
         '</td></tr>';
     };
-    isi='<div class="notice info">💡 <div>Penanda tangan boleh <b>lebih dari satu</b>. Yang dicentang <i>dipakai bawaan</i> akan tercentang sendiri saat menerbitkan kwitansi, '+
-        'tapi tiap lembar tetap bisa disetel sendiri — berapa orang dan siapa saja — di panel <b>Buat Invoice</b> pada tab Antrean. '+
+    isi='<div class="notice info">💡 <div>Penanda tangan boleh <b>lebih dari satu</b>, dan bawaannya <b>disetel per jenis dokumen</b>: '+
+        'kwitansi DP dari Reservasi biasanya cukup Finance, sementara invoice dari Marketing ditandatangani <b>Direktur dan Finance</b>. '+
+        'Yang dicentang akan tercentang sendiri saat menerbitkan, '+
+        'tapi tiap lembar tetap bisa disetel sendiri — berapa orang dan siapa saja — di panel terbit pada tab Antrean. '+
         'Pakai gambar <b>berlatar transparan (PNG)</b>; latar putih akan menutupi garis nama di lembarnya. '+
         'Ukuran wajar: tinggi 150–400 px, di bawah 300 KB.</div></div>'+
       '<div class="card">'+
-        '<h3>Penanda Tangan</h3><div class="card-sub">Tanda tangannya berjajar di lembar kwitansi, urut sesuai daftar ini</div>'+
+        '<h3>Penanda Tangan</h3><div class="card-sub">Tanda tangannya berjajar di lembar dokumen, urut sesuai daftar ini. Centang di kolom kanan menentukan dokumen mana yang ia tandatangani secara bawaan.</div>'+
         '<div class="tbl-wrap"><table><tbody>'+
           (INV_PEN.length?INV_PEN.map(barisPen).join('')
             :'<tr><td class="empty">Belum ada penanda tangan. Tambahkan di bawah.</td></tr>')+
@@ -4604,30 +4836,52 @@ function viewInvoice(){
       '<div class="grid g2">'+
         gbr('Cap Perusahaan','cap','Ditempel miring di belakang tanda tangan')+
       '<div class="card" style="margin:0">'+
-        '<h3>Penomoran</h3><div class="card-sub">Awalan nomor invoice resmi</div>'+
-        '<div style="margin-top:12px"><label class="muted" style="font-size:12px">Awalan nomor invoice</label>'+
+        '<h3>Penomoran</h3><div class="card-sub">Awalan nomor dokumen resmi — urut per bulan</div>'+
+        '<div style="margin-top:12px"><label class="muted" style="font-size:12px">Kwitansi Reservasi</label>'+
           '<input id="inv_prefix" value="'+esc(INV_SET.prefix||'INV')+'" style="width:180px;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px">'+
-          '<div class="muted" style="font-size:11.5px;margin-top:5px">Nomornya jadi <span class="mono">'+esc(INV_SET.prefix||'INV')+'/2026/08/0001</span> — urut per bulan.</div></div>'+
+          '<div class="muted" style="font-size:11.5px;margin-top:5px">Nomornya jadi <span class="mono">'+esc(INV_SET.prefix||'INV')+'/2026/08/0001</span>.</div></div>'+
+        /* Dua kolam nomor. Kalau keduanya diisi awalan yang SAMA, keduanya
+           kembali jadi satu deret berurutan — itu pilihan yang sah dan tidak
+           pernah menghasilkan nomor kembar, karena nomor berikutnya dicari
+           dari yang tertinggi PER AWALAN. */
+        '<div style="margin-top:12px"><label class="muted" style="font-size:12px">Invoice Marketing (DP &amp; pelunasan)</label>'+
+          '<input id="inv_prefix_mkt" value="'+esc(INV_SET.prefixInvoice||'INV')+'" style="width:180px;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px">'+
+          '<div class="muted" style="font-size:11.5px;margin-top:5px">Nomornya jadi <span class="mono">'+esc(INV_SET.prefixInvoice||'INV')+'/2026/08/0001</span>. '+
+            'Isi sama dengan di atas kalau ingin satu deret untuk semua dokumen.</div></div>'+
         '<div style="margin-top:14px"><button class="btn btn-primary btn-sm" onclick="invSimpanSetting()" '+(INV_SIBUK?'disabled':'')+'>Simpan Penomoran</button></div>'+
       '</div></div>';
   } else {
     const rows = INV_TAB==='riwayat' ? arsip : antre;
+    /* Judul kolom sengaja NETRAL sejak antrean ini memuat dua macam dokumen
+       (21 Agustus 2026). "Tamu & Reservasi" di atas baris invoice Marketing
+       membuat orang mengira barisnya nyasar, dan "Total DP" di atas invoice
+       pelunasan menulis arti yang justru terbalik. */
     isi='<div class="tbl-wrap"><table><thead><tr>'+
-        '<th style="text-align:left">Tamu &amp; Reservasi</th><th style="text-align:right">Total DP</th>'+
+        '<th style="text-align:left">Dokumen</th><th style="text-align:right">Nilai ditagih</th>'+
         '<th style="text-align:left">Dana Masuk</th><th style="text-align:left">Diminta</th>'+
         '<th style="text-align:left">Status</th><th></th></tr></thead><tbody>'+
       (rows.length?rows.map(function(x){return invBarisHTML(x, INV_TAB);}).join('')
         :'<tr><td colspan="6" class="empty">'+(INV_TAB==='riwayat'
-            ?'Belum ada kwitansi yang diterbitkan atau ditolak.'
-            :'Tidak ada permintaan kwitansi yang menunggu. Permintaan masuk sendiri dari modul Reservasi.')+'</td></tr>')+
+            ?'Belum ada dokumen yang diterbitkan atau ditolak.'
+            :'Tidak ada permintaan yang menunggu. Permintaan masuk sendiri dari modul Reservasi (kwitansi DP) dan Marketing (invoice DP &amp; pelunasan).')+'</td></tr>')+
       '</tbody></table></div>';
   }
   el.innerHTML=
     (INV_ERR?'<div class="notice bad">⚠ <div>'+esc(INV_ERR)+
       ' <button class="btn btn-ghost btn-xs" onclick="INV_ERR=\'\';INV=null;render()">↻ Coba lagi</button></div></div>':'')+
     ((INV_TAB!=='pengaturan'&&!INV_PEN.some(function(p){return p.aktif!==false&&p.ttd;}))
-      ? '<div class="notice warn">⚠ <div>Belum ada penanda tangan bergambar yang aktif — kwitansi yang terbit sekarang keluar <b>tanpa tanda tangan</b>. '+
+      ? '<div class="notice warn">⚠ <div>Belum ada penanda tangan bergambar yang aktif — dokumen yang terbit sekarang keluar <b>tanpa tanda tangan</b>. '+
         'Tambahkan di tab <b>Pengaturan</b>.</div></div>' : '')+
+    /* Peringatan TERPISAH untuk invoice Marketing, dan hanya muncul kalau
+       memang ada permintaannya. Bawaan penanda tangan invoice sengaja lahir
+       kosong (lihat inv_setting_baca di server); tanpa pita ini, invoice
+       pertama yang terbit keluar tanpa tanda tangan Direktur & Finance dan
+       yang menyadarinya adalah client yang menerimanya. */
+    ((INV_TAB==='antrean' && antre.some(invAdalahInvoice)
+       && !String(INV_SET.penandaDefaultInvoice||'').split(',').filter(Boolean).length)
+      ? '<div class="notice warn">⚠ <div>Ada permintaan <b>invoice Marketing</b> di antrean, tapi bawaan penanda tangannya belum disetel. '+
+        'Setel siapa <b>Direktur</b> dan <b>Finance</b>-nya di tab <b>Pengaturan</b> — kolom <i>Invoice Marketing</i> — '+
+        'atau centang sendiri tiap kali menerbitkan.</div></div>' : '')+
     '<div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap">'+
       tab('antrean','Antrean',antre.length)+tab('riwayat','Riwayat',arsip.length)+tab('pengaturan','Pengaturan')+
       '<button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="INV=null;render()">↻ Segarkan</button>'+
@@ -4649,20 +4903,37 @@ function invKirim(action, payload, pesan){
 function invBuat(id){
   const x=(INV||[]).find(function(v){return v.id===id;}); if(!x) return;
   const g=invRing(x);
+  const invo=invAdalahInvoice(x);
   let peringatan='';
   if(!invPenuh(x)){
-    peringatan='\n\n⚠ PERHATIAN: baru '+(g.dpVerifiedCount||0)+' dari '+(g.dpCount||0)+
-      ' transfer yang terverifikasi di halaman Dana Masuk. '+
-      'Kwitansi yang terbit adalah pengakuan perusahaan bahwa uangnya sudah diterima.';
+    if(invo){
+      const b=invBuktiHitung(x);
+      peringatan='\n\n⚠ PERHATIAN: baru '+b.ada+' dari '+b.total+
+        ' pembayaran yang membawa bukti transfer di modul Marketing.';
+    } else {
+      peringatan='\n\n⚠ PERHATIAN: baru '+(g.dpVerifiedCount||0)+' dari '+(g.dpCount||0)+
+        ' transfer yang terverifikasi di halaman Dana Masuk. '+
+        'Kwitansi yang terbit adalah pengakuan perusahaan bahwa uangnya sudah diterima.';
+    }
   }
   const ids=(INV_PILIH&&INV_PILIH.id===id)?INV_PILIH.ids.slice():[];
   const namaPen=ids.map(function(i){
     const p=INV_PEN.find(function(v){return v.id===i;}); return p?p.nama:'';
   }).filter(Boolean);
   if(!ids.length) peringatan+='\n\n⚠ Tidak ada penanda tangan yang dipilih — lembarnya akan keluar tanpa tanda tangan.';
-  if(!confirm('Terbitkan kwitansi resmi untuk "'+(g.nama||'-')+'"?\n\n'+
-    'Total DP: '+fmtRp(g.dpTotal||0)+'\n'+
-    'Terverifikasi: '+fmtRp(g.dpVerified||0)+'\n'+
+  /* Angka yang ditulis di konfirmasi harus angka yang TERCETAK di lembarnya.
+     Untuk invoice pelunasan itu SISA-nya, bukan grand total — kalau yang
+     ditulis di sini grand total, orang mengira ia menerbitkan tagihan penuh
+     kedua kali dan membatalkannya, atau lebih buruk: tidak mengira apa-apa. */
+  const rincianAngka = invo
+    ? (invJenis(x)==='INV_LUNAS'
+        ? 'Grand Total: '+fmtRp(g.grand||0)+'\nDP & pembayaran awal: '+fmtRp(invPraBayar(x))+
+          '\nDitagih di lembar ini: '+fmtRp(invNilaiPokok(x))
+        : 'Grand Total: '+fmtRp(g.grand||0)+'\nDP yang ditagih: '+fmtRp(invNilaiPokok(x)))
+    : 'Total DP: '+fmtRp(g.dpTotal||0)+'\nTerverifikasi: '+fmtRp(g.dpVerified||0);
+  if(!confirm('Terbitkan '+(invo?'invoice':'kwitansi')+' resmi untuk "'+
+    (invo?(g.client||g.nama||'-')+' · '+(g.event||'-'):(g.nama||'-'))+'"?\n\n'+
+    rincianAngka+'\n'+
     'Ditandatangani: '+(namaPen.join(', ')||'—')+peringatan+
     '\n\nNomor invoice diberikan sekali dan tidak bisa dipakai ulang.')) return;
   /* `penanda` dikirim eksplisit walau kosong. Kalau field-nya dihilangkan saat
@@ -4675,8 +4946,12 @@ function invTolak(id){
   /* Alasan WAJIB — dan diperiksa lagi di server. Tanpa alasan, yang meminta di
      modul Reservasi cuma melihat "ditolak" dan tidak pernah tahu harus
      membetulkan apa; ia akan menekan Request lagi dengan data yang sama. */
-  const nota=prompt('Alasan menolak permintaan kwitansi "'+(invRing(x).nama||'-')+'":\n'+
-    '(mis. DP belum terverifikasi di Dana Masuk / nominalnya tidak cocok dengan bukti)','');
+  const g=invRing(x);
+  const nama=invAdalahInvoice(x) ? (g.client||g.event||'-') : (g.nama||'-');
+  const nota=prompt('Alasan menolak permintaan '+invKataDok(x)+' "'+nama+'":\n'+
+    (invAdalahInvoice(x)
+      ? '(mis. bukti transfer belum diunggah / nominalnya tidak cocok dengan rekening)'
+      : '(mis. DP belum terverifikasi di Dana Masuk / nominalnya tidak cocok dengan bukti)'),'');
   if(nota===null) return;
   if(!nota.trim()){ alert('Alasan wajib diisi.'); return; }
   invKirim('invPutus', {id:id, aksi:'tolak', catatan:nota.trim()}, 'Permintaan ditolak');
@@ -4688,8 +4963,10 @@ function invBatal(id){
   invKirim('invPutus', {id:id, aksi:'batal'}, 'Dikembalikan ke antrean');
 }
 function invSimpanSetting(){
+  const mkt=document.getElementById('inv_prefix_mkt');
   invKirim('invSetting', {data:{
-    prefix: document.getElementById('inv_prefix').value.trim()||'INV'
+    prefix: document.getElementById('inv_prefix').value.trim()||'INV',
+    prefixInvoice: (mkt?mkt.value.trim():'')||'INV'
   }}, 'Penomoran tersimpan');
 }
 /* ---- daftar penanda tangan ---- */
@@ -4745,11 +5022,13 @@ function invPenHapus(id){
 /* Bawaan disimpan sebagai CSV id di inv_setting, bukan kolom di inv_penanda:
    yang ditanyakan bukan sifat orangnya melainkan "siapa yang biasanya
    menandatangani", dan itu satu daftar berurutan milik perusahaan. */
-function invToggleBawaan(id){
-  const kini=String(INV_SET.penandaDefault||'').split(',').filter(Boolean);
+function invToggleBawaan(id, kunci){
+  kunci=kunci||'penandaDefault';
+  const kini=String(INV_SET[kunci]||'').split(',').filter(Boolean);
   const i=kini.indexOf(id);
   if(i>-1) kini.splice(i,1); else kini.push(id);
-  invKirim('invSetting', {data:{penandaDefault:kini.join(',')}}, 'Bawaan penanda tangan disimpan');
+  const d={}; d[kunci]=kini.join(',');
+  invKirim('invSetting', {data:d}, 'Bawaan penanda tangan disimpan');
 }
 function invBacaGambar(f, lanjut){
   if(f.size>1200000){
@@ -4835,6 +5114,7 @@ function boot(){
        persis "Memuat kas kecil…" yang tidak pernah selesai, tanpa satu pun
        pesan galat di layar. Ditemukan harness 10 Agustus 2026. */
     muatKk();          // Kas Kecil datang dari backend SENDIRI, bukan blob Kompas
+    muatLencanaInv();  // angka antrean di menu Invoice & Kwitansi
   }, err=>{
     // Jaringan gagal → pakai salinan lokal kalau ada, biar tetap bisa dilihat.
     let cache=null; try{ cache=JSON.parse(localStorage.getItem(CACHE_KEY)||'null'); }catch(e){}
@@ -4848,6 +5128,7 @@ function boot(){
        baris ini, Dashboard Omset yang bermasalah membuat Buku Kas ikut kosong
        tanpa ada satu pun pesan yang menyebut Kas Kecil. */
     muatKk();
+    muatLencanaInv();   // alasan yang sama: backend invoice bukan blob Kompas
   });
 }
 boot();

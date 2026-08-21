@@ -5735,8 +5735,6 @@ function tombolPdf() { closeModal(); kwitansiPDF(); esc(); bolehKwitansiLangsung
 
 
 
-
-
 function mintaKwitansi() { bolehMintaKwitansi(); toast(); hasDP(); dpsOf(); dpVerifiedCount(); rpDot(); dpTotal(); dpVerifiedTotal(); invFetch(); invRingkas(); segarkanSlotKwi(); logAudit(); kwitansiNo(); }
 
 
@@ -5785,7 +5783,19 @@ function terbitkanKwitansiLangsung() { invFetch(); invRingkas(); }
 
 
 function kwitansiHTML() {  }
-function baris() { esc(); isLunas(); kwitansiNo(); displayPhone(); fmtDate(); todayStr(); rpDot(); dpTotal(); dpReceivedBy(); }
+function baris() { esc(); isLunas(); kwitansiNo(); dpReceivedBy(); displayPhone(); fmtDate(); todayStr(); rpDot(); dpTotal(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5929,7 +5939,35 @@ function kwitansiPDF() { bolehKwitansiLangsung(); toast(); hasDP(); siapkanBerka
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function siapkanBerkasKwi() { invFetch(); bolehKwitansiLangsung(); terbitkanKwitansiLangsung(); muatInvStatus(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
