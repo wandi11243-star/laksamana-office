@@ -765,7 +765,6 @@ function initAPI() { readLmSession(); seed(); save(); normPlatform(); refreshSna
 
 
 
-
 function PERM_DEFAULT() { getPerm(); }
 
 
@@ -1143,7 +1142,6 @@ function mkContent() { uid(); contentDetail(); }
 function getBrand() {  }
 function getUser() {  }
 function getContent() {  }
-function getCampaign() {  }
 function userName() { getUser(); }
 function brandName() { getBrand(); }
 function activeBrands() {  }
@@ -1386,15 +1384,11 @@ function notify() { uid(); save(); refreshNotifDot(); }
 
 
 
-
 function icon() {  }
 
 
 
 function autoUpdateStatuses() { todayISO(); save(); }
-
-
-
 
 
 
@@ -1439,7 +1433,6 @@ function renderSidebar() { canView(); route(); icon(); updateApprovalBadge(); }
 
 
 function updateApprovalBadge() {  }
-
 
 
 
@@ -1518,23 +1511,7 @@ function contentCard() { getBrand(); daysDiff(); openContent(); brandBadge(); pl
 
 
 
-
-function st() { esc(); fmtDate(); brandBar(); num(); fmtDateShort(); tint(); calOpenEvent(); getBrand(); openContent(); brandDot(); platformTags(); can(); route(); daysDiff(); openCampForm(); statusPill(); deadlineHTML(); openContentForm(); planF(); planReset(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function st() { esc(); fmtDate(); brandBar(); num(); fmtDateShort(); tint(); calOpenEvent(); getBrand(); openContent(); brandDot(); platformTags(); can(); route(); daysDiff(); statusPill(); deadlineHTML(); openContentForm(); planF(); planReset(); }
 
 
 
@@ -1651,9 +1628,7 @@ function renderPlanTable() { filteredContent(); pgSlice(); daysDiff(); getBrand(
 
 
 
-function openContentForm() { can(); toast(); getContent(); contentRefs(); contentPlatforms(); contentTypes(); printTypes(); esc(); drawer(); closeDrawer(); tint(); togglePlatform(); onPrintTypeChange(); printHintText(); contentDetail(); refLinkKey(); addRefLink(); addRefImages(); renderRefs(); roleShorts(); onPublishDateChange(); toggleProdNeed(); autoProdDate(); saveContent(); }
-
-
+function openContentForm() { can(); toast(); getContent(); contentRefs(); contentPlatforms(); contentTypes(); printTypes(); drawer(); closeDrawer(); esc(); tint(); togglePlatform(); onPrintTypeChange(); printHintText(); contentDetail(); refLinkKey(); addRefLink(); addRefImages(); renderRefs(); roleShorts(); onPublishDateChange(); toggleProdNeed(); autoProdDate(); saveContent(); }
 
 
 
@@ -2354,7 +2329,7 @@ function saveBrand() { toast(); getBrand(); uid(); logAct(); save(); closeDrawer
 
 
 
-function delBrand() { save(); closeDrawer(); route(); autoUpdateStatuses(); filterByBrand(); brandBar(); can(); openCampForm(); getBrand(); brandDot(); esc(); fmtDateShort(); num(); }
+function delBrand() { save(); closeDrawer(); route(); saveContent(); userRoles(); pct(); avatar(); esc(); readable(); openUserForm(); }
 
 
 
@@ -2369,35 +2344,6 @@ function delBrand() { save(); closeDrawer(); route(); autoUpdateStatuses(); filt
 
 
 
-
-
-
-
-
-
-
-function openCampForm() { getCampaign(); drawer(); closeDrawer(); esc(); delCamp(); saveCamp(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function saveCamp() { toast(); getCampaign(); uid(); logAct(); save(); closeDrawer(); route(); }
-
-
-
-
-function delCamp() { save(); closeDrawer(); route(); userRoles(); pct(); avatar(); esc(); readable(); openUserForm(); }
 
 
 
@@ -3162,6 +3108,18 @@ function rupiah() { num(); autoUpdateStatuses(); filterByBrand(); adSpendTotal()
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function adsF() { route(); }
 function adsReset() { route(); }
 
@@ -3229,7 +3187,6 @@ function _adAdd() { todayISO(); _adExpRows(); _adTotals(); }
 function _adDel() { _adExpRows(); _adTotals(); }
 function _adEdit() { _adTotals(); }
 function openAdForm() { can(); toast(); getAd(); todayISO(); drawer(); closeDrawer(); esc(); adCreatedDate(); _adExpRows(); _adAdd(); rupiah(); _adSumOut(); delAd(); saveAd(); }
-
 
 
 

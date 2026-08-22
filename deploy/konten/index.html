@@ -720,7 +720,7 @@ async function initAPI() {
 const ROLES={
   super_admin:{label:'Super Admin',short:'Nahkoda Agung',desc:'Akses penuh semua modul, brand & pengaturan',color:'#C8961F'},
   content_director:{label:'Content Director',short:'Direktur Konten',desc:'Lihat semua brand, approval final, analytics lintas brand',color:'#a98fe0'},
-  content_planner:{label:'Content Planner',short:'Perencana',desc:'Buat planning, kelola calendar, ide & campaign',color:'#5aa9e5'},
+  content_planner:{label:'Content Planner',short:'Perencana',desc:'Buat planning, kelola calendar & bank ide',color:'#5aa9e5'},
   account_manager:{label:'Account Manager',short:'AM',desc:'Handle brand, input request, approval, deadline',color:'#3fbf7f'},
   designer:{label:'Designer',short:'Desainer',desc:'Design request, upload desain, revisi',color:'#e58bbf'},
   video_editor:{label:'Video Editor',short:'Editor',desc:'Editing queue, upload video final',color:'#e8955a'},
@@ -746,13 +746,12 @@ const KONTEN_DEFAULT_ROLES = ['content_planner'];
 const PERM_NONE=0, PERM_VIEW=1, PERM_EDIT=2;
 const PERM_OPT=[['0','Tak Terlihat','None'],['1','Lihat','Lihat'],['2','Boleh Ubah','Ubah']];
 // Modul yang benar dijaga can() (bukan cuma canView) — dipakai untuk default matriks.
-const PERM_EDIT_MODULES=['brands','campaigns','content','approve','assets','publish','ads','kol'];
+const PERM_EDIT_MODULES=['brands','content','approve','assets','publish','ads','kol'];
 // PERM default (dipakai kalau DB.perms belum ada). Bisa diedit Super Admin via Pengaturan.
 // Cakupan role tiap modul sama seperti sebelumnya; role yg dulu tercantum kini
 // dapat PERM_EDIT (perilaku lama: terdaftar = boleh lihat+ubah, tak ada beda).
 const PERM_ROLES_LEGACY={
   brands:['content_director','account_manager','content_planner'],
-  campaigns:['content_director','content_planner','account_manager'],
   content:['content_director','content_planner','account_manager','designer','video_editor','photographer'],
   approve:['content_director','account_manager'],
   bank:['content_director','content_planner','account_manager','designer','video_editor','photographer','analyst'],
@@ -780,7 +779,7 @@ function modPerm(m, role){ if(role==='super_admin') return PERM_EDIT; const p=ge
 // Menu sidebar -> modul PERM yang mengatur aksesnya.
 // View yang tidak ada di map ini = boleh diakses semua role yang sudah login (mis. dashboard, profil).
 const VIEW_PERM={
-  brands:'brands', campaigns:'campaigns',
+  brands:'brands',
   planning:'content', pipeline:'content', calendar:'content',
   approval:'approve', bank:'bank', assets:'assets',
   shooting:'shooting', design:'design', editing:'editing',
@@ -1143,7 +1142,6 @@ function mkContent(o){
 function getBrand(id){return DB.brands.find(b=>b.id===id);}
 function getUser(id){return DB.users.find(u=>u.id===id);}
 function getContent(id){return DB.content.find(c=>c.id===id);}
-function getCampaign(id){return DB.campaigns.find(c=>c.id===id);}
 function userName(id){const u=getUser(id);return u?u.name:'-';}
 function brandName(id){const b=getBrand(id);return b?b.name:'-';}
 function activeBrands(){return brandFilter==='all'?DB.brands:DB.brands.filter(b=>b.id===brandFilter);}
@@ -1352,8 +1350,7 @@ const NAV=[
   {g:'Promosi',items:[
     {v:'kol',t:'KOL & Medpar Management',ic:'kol'},
     {v:'ads',t:'Ads Management',ic:'ads'},
-    {v:'chats',t:'Report Percakapan',ic:'chat'},
-    {v:'campaigns',t:'Campaigns',ic:'flag'}]},
+    {v:'chats',t:'Report Percakapan',ic:'chat'}]},
   {g:'Brand & Tim',items:[
     {v:'brands',t:'Brand Management',ic:'anchor'},
     {v:'team',t:'Team & Rangkap Kerja',ic:'users'},
@@ -1389,7 +1386,7 @@ const ICONS={
 };
 function icon(name){return `<svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICONS[name]||''}</svg>`;}
 
-// Status otomatis campaign & iklan berdasarkan tanggal:
+// Status otomatis IKLAN berdasarkan tanggal:
 // masuk tanggal mulai -> Aktif/Berjalan - tanggal lewat -> Selesai. (paused/dibatalkan = kunci manual)
 function autoUpdateStatuses(){
   const t=todayISO();let changed=false;
@@ -1401,21 +1398,18 @@ function autoUpdateStatuses(){
     else if(s&&t<s)ns='draft';
     if(ns!==a.status){a.status=ns;changed=true;}
   });
-  (DB.campaigns||[]).forEach(c=>{
-    if(c.status==='Dibatalkan')return; // dibatalkan manual
-    const s=c.start,e=c.end;let ns=c.status;
-    if(e&&t>e)ns='Selesai';
-    else if(s&&t>=s)ns='Berjalan';
-    else if(s&&t<s)ns='Draft';
-    if(ns!==c.status){c.status=ns;changed=true;}
-  });
+  /* Bagian campaign dibuang bersama modulnya. Statusnya tidak lagi terbaca di
+     mana pun, jadi memutakhirkannya cuma menandai baris sebagai berubah dan
+     memicu save() — permintaan simpan ke server tiap kali halaman dibuka,
+     untuk data yang tidak ada seorang pun melihatnya. Barisnya sendiri tetap
+     tersimpan apa adanya. */
   if(changed)save();
   return changed;
 }
 
 function bootApp(){
   const u=getUser(SES);
-  autoUpdateStatuses(); // segarkan status Aktif/Selesai campaign & iklan sesuai tanggal
+  autoUpdateStatuses(); // segarkan status Aktif/Selesai iklan sesuai tanggal
   $('#sbLogo').src=LOGO_MARK; $('#sbLogo').onerror=function(){this.style.display='none'};
   renderSidebar();
   $('#sbUser').innerHTML=`<span class="av" style="background:${avColor(u.name)}">${initials(u.name)}</span>
@@ -1458,7 +1452,6 @@ const VIEW_META={
   ads:['Ads Management','Kelola & pantau Meta / Google / TikTok Ads'],
   chats:['Report Percakapan','Rekap chat / percakapan hasil dari iklan'],
   brands:['Brand Management','Master data & pedoman brand'],
-  campaigns:['Campaigns','Payung strategi pemasaran'],
   team:['Team & Rangkap Kerja','Kru, role ganda & kapasitas'],
   workload:['Workload Analysis','Beban kerja & utilisasi tim'],
   activity:['Activity Log','Jejak audit seluruh aktivitas'],
@@ -1505,7 +1498,7 @@ const VIEWS={};
 
 /* ===== DASHBOARD ===== */
 VIEWS.dashboard=function(){
-  autoUpdateStatuses(); // pastikan status campaign/iklan terkini
+  autoUpdateStatuses(); // pastikan status iklan terkini
   const u=getUser(SES);const cs=DB.content;
   const posted=cs.filter(c=>c.status==='Posted');
   const scheduled=cs.filter(c=>c.status==='Scheduled');
@@ -1518,7 +1511,6 @@ VIEWS.dashboard=function(){
   // Jadwal hari ini (dari kalender: tayang, shoot, desain, edit, kunjungan)
   const todayEvents=collectCalEvents().filter(e=>e.date===todayISO()).sort((a,b)=>String(a.time||'').localeCompare(String(b.time||'')));
   // Campaign yang sedang berjalan saat ini
-  const runningCamps=filterByBrand(DB.campaigns).filter(c=>c.status==='Berjalan');
   const st=(lbl,val,delta,dcls,ic)=>`<div class="stat"><div class="lbl">${lbl}</div><div class="val mono">${val}</div>${delta?`<div class="delta ${dcls}">${delta}</div>`:''}</div>`;
   return `
   <div style="margin-bottom:22px"><h2 class="serif" style="font-size:26px">Selamat datang, ${esc(u.name.split(' ')[0])} 👋</h2>
@@ -1550,21 +1542,6 @@ VIEWS.dashboard=function(){
         ${can('approve')?`<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px" onclick="COMS.route('approval')">Buka Halaman Approval →</button>`:''}`
         :`<div class="empty" style="padding:30px"><div class="ei">✅</div><h4>Tidak ada yang pending</h4><p>Semua konten sudah direview.</p></div>`}
     </div>
-  </div>
-  <div class="card" style="margin-bottom:20px">
-    <div class="card-h"><h3>🚩 Current Campaign</h3><span class="sub">${runningCamps.length} sedang berjalan</span></div>
-    ${runningCamps.length?`<div class="grid g-3">${runningCamps.map(c=>{const b=getBrand(c.brand);const cc=DB.content.filter(x=>x.campaign===c.id);
-      const dLeft=daysDiff(c.end);
-      return `<div class="card" style="padding:14px;cursor:pointer;background:var(--panel-2)" onclick="COMS.openCampForm('${c.id}')">
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">${brandDot(c.brand)}<span style="font-size:11px;color:var(--txt-3)">${esc(b?b.name.split(' (')[0]:'')}</span>
-          <span class="pill" style="margin-left:auto;background:var(--ok-bg);color:var(--ok)">● Berjalan</span></div>
-        <div style="font-weight:700;font-size:15px;margin-bottom:6px">${esc(c.name)}</div>
-        <div style="display:flex;gap:14px;font-size:11.5px;color:var(--txt-2);flex-wrap:wrap">
-          <span>📅 ${fmtDateShort(c.start)} - ${fmtDateShort(c.end)}</span>
-          <span>📦 ${cc.length} konten</span>
-          ${dLeft!=null?`<span style="color:${dLeft<0?'var(--bad)':dLeft<=3?'var(--warn)':'var(--txt-3)'};font-weight:600">${dLeft<0?'Lewat '+(-dLeft)+'h':'Sisa '+dLeft+'h'}</span>`:''}
-        </div></div>`;}).join('')}</div>`
-      :`<div class="empty" style="padding:30px"><div class="ei">🚩</div><h4>Belum ada campaign berjalan</h4><p>Campaign otomatis "Berjalan" saat masuk tanggal mulai.</p></div>`}
   </div>
   <div class="grid g-2" style="align-items:start">
     <div class="card">
@@ -1662,14 +1639,12 @@ function openContentForm(id){
      pertama yang tidak pernah dilewati. */
   const curTypes=c?contentTypes(c):[];
   const curPrints=c?printTypes(c):[];
-  const campOpts=DB.campaigns.filter(x=>!c||true).map(x=>`<option value="${x.id}" ${c&&c.campaign===x.id?'selected':''}>${esc(x.name)}</option>`).join('');
   drawer(`
     <div class="drawer-h"><h3>${isEdit?'Edit Konten':'Konten Baru'}</h3><button class="x-btn" onclick="COMS.closeDrawer()">✕</button></div>
     <div class="drawer-b">
       <div class="form-grid">
         <div class="full field"><label>Judul / Hook</label><input class="ctrl" id="f_title" value="${esc(c?.title||'')}" placeholder="Judul kerja konten"></div>
         <div class="field"><label>Brand</label><select class="ctrl" id="f_brand">${DB.brands.map(b=>`<option value="${b.id}" ${c&&c.brand===b.id?'selected':(!c&&brandFilter===b.id?'selected':'')}>${esc(b.name)}</option>`).join('')}</select></div>
-        <div class="field"><label>Campaign</label><select class="ctrl" id="f_campaign"><option value="">- Tidak ada -</option>${campOpts}</select></div>
         <div class="full field"><label>Platform <span style="text-transform:none;letter-spacing:0;color:var(--txt-3);font-weight:500">- bisa pilih lebih dari satu</span></label>
           <div class="plat-pick" id="f_platforms">${Object.keys(PLATFORMS).map(p=>{const on=curPlats.includes(p);const t=tint(PLATFORMS[p].c);
             return `<label class="plat-opt ${on?'on':''}" style="${on?`background:${t.bg};border-color:${PLATFORMS[p].c};color:${t.fg}`:''}">
@@ -1858,7 +1833,7 @@ function saveContent(id){
      queue produksi, dan ekspor CSV masih membaca contentType/printType;
      berhenti menulisnya berarti kolom-kolom itu mendadak kosong di seluruh
      konten baru, tanpa satu pun galat yang menyebut sebabnya. */
-  const data={brand:g('brand'),campaign:g('campaign'),platforms,platform:platforms[0],pillar:g('pillar'),
+  const data={brand:g('brand'),platforms,platform:platforms[0],pillar:g('pillar'),
     contentTypes:ctypes,contentType:ctypes[0],printTypes:ptypes,printType:ptypes[0]||'',
     /* keyword / caption / hashtags / script TIDAK ikut ditulis lagi — dan itu
        disengaja, bukan kelalaian. Keempatnya sudah dilebur ke `detail`;
@@ -2356,48 +2331,19 @@ function saveBrand(id){const g=k=>$('#br_'+k).value;const n=g('name').trim();if(
   save();closeDrawer();route('brands');}
 function delBrand(id){if(!confirm('Hapus brand? Konten terkait tidak ikut terhapus.'))return;DB.brands=DB.brands.filter(b=>b.id!==id);save();closeDrawer();route('brands');}
 
-VIEWS.campaigns=function(){
-  autoUpdateStatuses(); // status campaign Berjalan/Selesai otomatis sesuai tanggal
-  const list=filterByBrand(DB.campaigns);
-  return `${brandBar()}
-  <div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">${list.length} campaign</p></div>
-    ${can('campaigns')?`<button class="btn btn-gold" onclick="COMS.openCampForm()">＋ Campaign Baru</button>`:''}</div>
-  <div class="grid g-2">${list.length?list.map(c=>{const b=getBrand(c.brand);const cc=DB.content.filter(x=>x.campaign===c.id);
-    const sc={Draft:'var(--txt-3)',Berjalan:'var(--ok)',Selesai:'var(--info)',Dibatalkan:'var(--bad)'}[c.status]||'var(--txt-3)';
-    return `<div class="card pad-lg" style="cursor:pointer" onclick="COMS.openCampForm('${c.id}')">
-      <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">${brandDot(c.brand)}<span style="font-size:12px;color:var(--txt-3)">${esc(b?b.name.split(' (')[0]:'')}</span>
-        <span class="pill" style="margin-left:auto;background:${sc}22;color:${sc}">${c.status}</span></div>
-      <h3 style="font-size:18px;margin-bottom:6px">${esc(c.name)}</h3>
-      <p style="font-size:12px;color:var(--txt-2);line-height:1.5;margin-bottom:12px">${esc(c.brief||'')}</p>
-      <div style="display:flex;gap:16px;font-size:12px;flex-wrap:wrap">
-        <div><span style="color:var(--txt-3)">Periode</span><br><b>${fmtDateShort(c.start)} - ${fmtDateShort(c.end)}</b></div>
-        <div><span style="color:var(--txt-3)">Budget</span><br><b class="mono">Rp ${num(c.budget)}</b></div>
-        <div><span style="color:var(--txt-3)">Konten</span><br><b>${cc.length} item</b></div>
-        <div><span style="color:var(--txt-3)">Objective</span><br><b>${esc(c.objective)}</b></div>
-      </div></div>`;}).join(''):'<div class="empty" style="grid-column:1/-1"><div class="ei">🚩</div><h4>Belum ada campaign</h4></div>'}</div>`;
-};
-function openCampForm(id){const c=id?getCampaign(id):null;
-  drawer(`<div class="drawer-h"><h3>${c?'Edit Campaign':'Campaign Baru'}</h3><button class="x-btn" onclick="COMS.closeDrawer()">✕</button></div>
-  <div class="drawer-b"><div class="form-grid">
-    <div class="full field"><label>Nama Campaign</label><input class="ctrl" id="cp_name" value="${esc(c?.name||'')}"></div>
-    <div class="field"><label>Brand</label><select class="ctrl" id="cp_brand">${DB.brands.map(b=>`<option value="${b.id}" ${c&&c.brand===b.id?'selected':''}>${esc(b.name)}</option>`).join('')}</select></div>
-    <div class="field"><label>Status</label><select class="ctrl" id="cp_status">${['Draft','Berjalan','Selesai','Dibatalkan'].map(s=>`<option ${c&&c.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
-    <div class="field"><label>Mulai</label><input type="date" class="ctrl" id="cp_start" value="${c?.start||''}"></div>
-    <div class="field"><label>Selesai</label><input type="date" class="ctrl" id="cp_end" value="${c?.end||''}"></div>
-    <div class="field"><label>Objective</label><input class="ctrl" id="cp_objective" value="${esc(c?.objective||'')}"></div>
-    <div class="field"><label>Budget (Rp)</label><input type="number" class="ctrl" id="cp_budget" value="${c?.budget||0}"></div>
-    <div class="field"><label>PIC</label><select class="ctrl" id="cp_pic">${DB.users.map(u=>`<option value="${u.id}" ${c&&c.pic===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}</select></div>
-    <div class="field"><label>Hashtag</label><input class="ctrl" id="cp_hashtag" value="${esc(c?.hashtag||'')}"></div>
-    <div class="full field"><label>CTA</label><input class="ctrl" id="cp_cta" value="${esc(c?.cta||'')}"></div>
-    <div class="full field"><label>Brief</label><textarea class="ctrl" id="cp_brief">${esc(c?.brief||'')}</textarea></div>
-  </div></div>
-  <div class="modal-f">${c?`<button class="btn btn-danger" onclick="COMS.delCamp('${id}')">Hapus</button>`:''}<button class="btn btn-ghost" onclick="COMS.closeDrawer()">Batal</button><button class="btn btn-gold" onclick="COMS.saveCamp('${id||''}')">Simpan</button></div>`);}
-function saveCamp(id){const g=k=>$('#cp_'+k).value;const n=g('name').trim();if(!n){toast('Nama wajib','err');return;}
-  const data={name:n,brand:g('brand'),status:g('status'),start:g('start'),end:g('end'),objective:g('objective'),budget:+g('budget')||0,pic:g('pic'),hashtag:g('hashtag'),cta:g('cta'),brief:g('brief')};
-  if(id){Object.assign(getCampaign(id),data);toast('Campaign diperbarui','ok');}
-  else{DB.campaigns.push(Object.assign({id:uid('c')},data));logAct('membuat campaign',n);toast('Campaign dibuat','ok');}
-  save();closeDrawer();route('campaigns');}
-function delCamp(id){if(!confirm('Hapus campaign?'))return;DB.campaigns=DB.campaigns.filter(c=>c.id!==id);save();closeDrawer();route('campaigns');}
+/* MODUL CAMPAIGN DIBUANG (Agustus 2026, atas permintaan) - menu tab, halaman,
+   formulir, kartu "Current Campaign" di Dashboard, dan kotak pilihan Campaign
+   di formulir konten. Payung strategi ini tidak pernah dipakai di lapangan:
+   yang benar-benar mengelompokkan pekerjaan di sini adalah Brand dan Content
+   Pillar, dan satu lapis pengelompokan lagi yang selalu kosong cuma menambah
+   satu kotak yang harus dilewati tiap kali membuat konten.
+
+   DATANYA TIDAK DIHAPUS. `DB.campaigns` tetap ada di seed & KT_COLS (backend
+   punya kolomnya), dan `c.campaign` tetap didaftarkan di mkContent - konten
+   lama yang terlanjur tertaut ke sebuah campaign tidak kehilangan tautannya.
+   saveContent() sengaja TIDAK menulis `campaign` lagi: menuliskannya sebagai
+   string kosong akan memutus tautan itu diam-diam pada penyimpanan pertama
+   sesudah ini di-deploy. */
 
 let formRoles=[];
 VIEWS.team=function(){
@@ -3119,7 +3065,10 @@ VIEWS.ads=function(){
         <td><span class="tag" style="background:${pt.bg};color:${pt.fg};border-color:transparent">${esc(a.platform)}</span></td>
         <td style="font-size:12px">${a.target?`<span class="tag">${esc(a.target)}</span>`:'<span style="color:var(--txt-3)">-</span>'}</td>
         <td style="font-size:12px">${esc(a.ageRange||'-')}</td>
-        <td style="font-size:12px"><span style="color:var(--info);font-weight:600">💬 ${num(a.chats||0)}</span> <span style="color:var(--txt-3)">/ 👁 ${num(a.impressions||0)}</span></td>
+        <!-- Impression dibuang bersama kotak isiannya: tidak ada lagi yang
+             mengisinya, jadi kolomnya akan menulis 0 untuk setiap iklan baru
+             dan terbaca sebagai iklan yang tidak dilihat siapa pun. -->
+        <td style="font-size:12px"><span style="color:var(--info);font-weight:600">💬 ${num(a.chats||0)}</span></td>
         <td class="mono" style="font-size:12px;font-weight:600;color:var(--bad)" title="Termasuk PPN 11%">${rupiah(adSpendTotal(a))}</td>
         <!-- Kolom Dibuat berdiri sendiri, tidak dilebur ke Periode: ia yang
              menentukan bulan pengeluarannya, dan menyembunyikannya membuat
@@ -3131,10 +3080,19 @@ VIEWS.ads=function(){
       </tr>`;}).join('');
     const pager=pgBar(pgAds,'iklan');
     body=`<div class="tbl-wrap"><table><thead><tr>
-      <th>Nama Iklan</th><th>Brand</th><th>Platform</th><th>Target</th><th>Usia Range</th><th>Hasil (Chats/Impr)</th><th>Dana Keluar</th><th>Dibuat</th><th>Periode</th><th>Status</th><th></th>
+      <th>Nama Iklan</th><th>Brand</th><th>Platform</th><th>Target</th><th>Usia Range</th><th>Hasil (Chats)</th><th>Dana Keluar</th><th>Dibuat</th><th>Periode</th><th>Status</th><th></th>
       </tr></thead><tbody>${rows}</tbody></table></div>${pager}`;
   }
-  return brandBar()+head+stats+sisaAllCard+monthCard+fundCard+filterBar+body;
+  /* URUTAN: rekap bulanan -> DANA KELUAR -> Dana Masuk.
+     Dana Keluar naik ke tepat di bawah Report per Bulan karena baris "Dana
+     Keluar" di rekap itulah yang paling sering ditanya asalnya dari mana, dan
+     jawabannya ada di daftar ini. Sebelumnya daftar itu duduk paling bawah,
+     di balik seluruh kartu Dana Masuk — jadi menelusuri satu angka berarti
+     menggulir melewati tabel yang tidak sedang dicari. */
+  const danaKeluar=`<div class="card" style="margin-bottom:16px;padding:14px 16px 4px">
+      <div class="card-h" style="margin-bottom:2px"><h3>📉 Dana Keluar (Buat Iklan)</h3><span class="sub">rincian di balik kolom Dana Keluar pada rekap di atas - sudah termasuk PPN 11%</span></div>
+    </div>${filterBar}${body}`;
+  return brandBar()+head+stats+sisaAllCard+monthCard+danaKeluar+fundCard;
 };
 // ===== REPORT PERCAKAPAN - tab tersendiri (chat hasil dari iklan) =====
 VIEWS.chats=function(){
@@ -3251,7 +3209,6 @@ function openAdForm(id){
     <div class="field"><label>Mulai</label><input type="date" class="ctrl" id="a_startDate" value="${a?.startDate||''}"></div>
     <div class="field"><label>Selesai</label><input type="date" class="ctrl" id="a_endDate" value="${a?.endDate||''}"></div>
     <div class="field"><label>Hasil - Chats</label><input type="number" min="0" class="ctrl" id="a_chats" value="${a?.chats||''}" placeholder="0"></div>
-    <div class="field"><label>Hasil - Impression</label><input type="number" min="0" class="ctrl" id="a_impressions" value="${a?.impressions||''}" placeholder="0"></div>
     <div class="full field" style="border:1px solid var(--line-soft);border-radius:12px;padding:14px;background:var(--panel-2)">
       <label>📉 Dana Keluar (Penggunaan Ads)</label>
       <div style="font-size:11.5px;color:var(--txt-3);margin:2px 0 6px">Rincian breakdown penggunaan - untuk keperluan apa saja. Pajak PPN 11% dihitung otomatis.</div>
@@ -3278,7 +3235,7 @@ function saveAd(id){
        keranjang "Tanpa tanggal" yang tidak seorang pun rutin membukanya. */
     createdDate:g('createdDate')||todayISO(),
     expenses,spendBase,tax,spend,budget:0,startDate:g('startDate'),endDate:g('endDate'),
-    chats:+g('chats')||0,impressions:+g('impressions')||0,note:g('note').trim()};
+    chats:+g('chats')||0,note:g('note').trim()};
   if(id){Object.assign(getAd(id),data);logAct('mengubah iklan',name);toast('Iklan diperbarui','ok');}
   else{DB.ads.push(Object.assign({id:uid('ad'),createdAt:Date.now()},data));logAct('membuat iklan',name);toast('Iklan dibuat','ok');}
   _adExp=[];save();closeDrawer();route('ads');
@@ -3477,7 +3434,7 @@ VIEWS.settings=function(){
 
 // Label ramah untuk tiap modul hak akses
 const MODULE_LABELS={
-  brands:'Brand', campaigns:'Campaign', content:'Konten', approve:'Approval',
+  brands:'Brand', content:'Konten', approve:'Approval',
   bank:'Content Bank', assets:'Aset', shooting:'Shooting', design:'Design',
   editing:'Editing', publish:'Publishing', ads:'Ads Management', kol:'KOL & Medpar Management', team:'Tim',
   analytics:'Analytics', reports:'Reports', activity:'Activity Log', settings:'Pengaturan'
@@ -3620,7 +3577,6 @@ const API={
   calEvDragStart,calEvDragEnd,calCellDragOver,calCellDragLeave,calCellDrop,
   openBankForm,saveBank,delBank,convertBank,
   openBrandForm,saveBrand,delBrand,
-  openCampForm,saveCamp,delCamp,
   openUserForm,toggleRole,saveUser,
   setAssetCat,openAssetForm,saveAsset,delAsset,
   approveFinal,
