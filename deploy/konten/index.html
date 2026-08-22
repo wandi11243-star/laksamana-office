@@ -880,6 +880,69 @@ function contentDetail(c){
   if(c.script) p.push('Script / Storyboard:\n'+c.script);
   return p.join('\n\n');
 }
+/* =========================================================================
+   PAGINATION BERSAMA - satu mesin untuk SELURUH tabel di modul ini
+   -------------------------------------------------------------------------
+   Sebelum ini hanya daftar Iklan yang punya halaman; sisanya menggambar
+   seluruh isinya sekaligus. Selama datanya puluhan itu tidak terasa, tapi
+   Database KOL, antrian produksi, dan Content Planning tumbuh terus - dan
+   tabel seribu baris bukan cuma lambat, ia juga membuat apa pun yang ada di
+   BAWAHNYA (kartu rekap, catatan) tidak pernah terlihat lagi.
+
+   Ditaruh di satu tempat, bukan disalin per tabel, supaya perilakunya sama di
+   mana pun: berapa baris per halaman, di mana tombolnya, dan apa yang terjadi
+   saat saringan berubah. Dua perilaku yang disengaja:
+
+   - Bar TIDAK digambar untuk tabel yang muat satu halaman, jadi tabel pendek
+     tetap bersih seperti sebelumnya.
+   - Nomor halaman DIJEPIT ke jumlah halaman yang ada. Tanpa itu, menyaring
+     dari 200 baris jadi 5 baris sementara kita di halaman 8 menghasilkan
+     tabel kosong yang terlihat persis seperti data hilang.
+
+   Keadaannya sengaja hidup di memori sesi ini saja - bukan di DB. Ini pilihan
+   tampilan satu orang; kalau ikut DB ia tersimpan ke server dan mengubah
+   tampilan semua orang.
+   ========================================================================= */
+const PG_PER_DEF=10;
+const PG_PER={};    // kunci -> baris per halaman
+const PG_HAL={};    // kunci -> halaman aktif
+const PG_SIG={};    // kunci -> sidik jari saringan terakhir
+const PG_PAINT={};  // kunci -> penggambar ulang khusus (tabel yang dicat parsial)
+function pgPer(k){return PG_PER[k]||PG_PER_DEF;}
+/* sig = sidik jari saringan (opsional). Saringan berubah -> balik ke halaman 1.
+   Kalau cuma datanya bertambah/berkurang, posisi halaman DIPERTAHANKAN. */
+function pgSlice(arr,k,sig){
+  if(sig!==undefined && PG_SIG[k]!==sig){PG_SIG[k]=sig;PG_HAL[k]=1;}
+  const per=pgPer(k),total=arr.length;
+  const maxHal=Math.max(1,Math.ceil(total/per));
+  const hal=Math.min(Math.max(1,PG_HAL[k]||1),maxHal);
+  PG_HAL[k]=hal;
+  const mulai=(hal-1)*per,akhir=Math.min(mulai+per,total);
+  return {k,hal,maxHal,total,mulai,akhir,items:arr.slice(mulai,akhir)};
+}
+function pgGambar(k){const f=PG_PAINT[k];if(f)f();else route(currentView);}
+function pgSet(k,n){PG_HAL[k]=Math.max(1,+n||1);pgGambar(k);}
+function pgPerSet(k,n){PG_PER[k]=+n||PG_PER_DEF;PG_HAL[k]=1;pgGambar(k);}
+function pgBar(p,nama){
+  // Muat satu halaman DAN belum pernah disetel lebih kecil -> tidak usah ada bar.
+  if(p.maxHal<=1 && p.total<=PG_PER_DEF) return '';
+  const nomor=[];
+  for(let i=1;i<=p.maxHal;i++){
+    if(i===1||i===p.maxHal||Math.abs(i-p.hal)<=1)nomor.push(i);
+    else if(nomor[nomor.length-1]!=='…')nomor.push('…');
+  }
+  return `<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:12px">
+    <span style="font-size:12px;color:var(--txt-3)">${p.mulai+1}–${p.akhir} dari ${p.total} ${esc(nama||'baris')}</span>
+    <div style="display:flex;align-items:center;gap:4px;flex-wrap:wrap">
+      <button class="btn btn-ghost btn-sm" ${p.hal<=1?'disabled':''} title="Halaman sebelumnya" onclick="COMS.pgSet('${esc(p.k)}',${p.hal-1})">‹</button>
+      ${nomor.map(n=>n==='…'?'<span style="color:var(--txt-3);padding:0 3px">…</span>'
+        :`<button class="btn ${n===p.hal?'btn-gold':'btn-ghost'} btn-sm" onclick="COMS.pgSet('${esc(p.k)}',${n})">${n}</button>`).join('')}
+      <button class="btn btn-ghost btn-sm" ${p.hal>=p.maxHal?'disabled':''} title="Halaman berikutnya" onclick="COMS.pgSet('${esc(p.k)}',${p.hal+1})">›</button>
+      <select class="ctrl" style="width:auto;padding:5px 8px;font-size:12px;margin-left:6px" title="Baris per halaman" onchange="COMS.pgPerSet('${esc(p.k)}',this.value)">
+        ${[10,20,50,100].map(n=>`<option value="${n}" ${pgPer(p.k)===n?'selected':''}>${n} / hal</option>`).join('')}
+      </select>
+    </div></div>`;
+}
 const PRIORITY={urgent:{label:'Urgent',cls:'p-urgent',n:4},high:{label:'Tinggi',cls:'p-high',n:3},medium:{label:'Sedang',cls:'p-med',n:2},low:{label:'Rendah',cls:'p-low',n:1}};
 const CONTENT_TYPES=['Reel','Feed / Carousel','Story','Single Image','Video Long','Short/Shorts','Live','Article','Thread','Videotron'];
 const PILLARS=['Product & Menu','Promotion','Event','Entertainment','Education','Lifestyle','BTS','Corporate','Community','Information'];
@@ -1561,9 +1624,11 @@ function filteredContent(){
 function renderPlanTable(){
   const list=filteredContent();const el=$('#planTable');if(!el)return;
   if(!list.length){el.innerHTML='<div class="empty"><div class="ei">📋</div><h4>Belum ada konten</h4><p>Mulai dengan membuat konten baru.</p></div>';return;}
+  // Sidik jari saringan: mengetik pencarian baru harus kembali ke halaman 1.
+  const p=pgSlice(list,'plan',JSON.stringify(planFilters)+'|'+brandFilter);
   el.innerHTML=`<div class="tbl-wrap"><table><thead><tr>
     <th>Konten</th><th>Brand</th><th>Platform</th><th>Pillar</th><th>PIC</th><th>Status</th><th>Prioritas</th><th>Deadline</th><th>Tayang</th></tr></thead><tbody>
-    ${list.map(c=>{const od=daysDiff(c.deadline);const over=od!=null&&od<0&&!['Posted','Cancelled'].includes(c.status);const b=getBrand(c.brand);
+    ${p.items.map(c=>{const od=daysDiff(c.deadline);const over=od!=null&&od<0&&!['Posted','Cancelled'].includes(c.status);const b=getBrand(c.brand);
       return `<tr class="row-click" onclick="COMS.openContent('${c.id}')">
       <td><div style="font-weight:600">${esc(c.title||'(tanpa judul)')}</div><div style="font-size:11px;color:var(--txt-3)">${esc(contentTypeLabel(c))}${printTypeLabel(c)?' - 🖨 '+esc(printTypeLabel(c)):''}</div></td>
       <td><span style="display:flex;align-items:center;gap:6px">${brandDot(c.brand)}${esc(b?b.name.split(' (')[0]:'')}</span></td>
@@ -1572,8 +1637,12 @@ function renderPlanTable(){
       <td>${statusPill(c.status)}</td><td>${prioBadge(c.priority)}</td>
       <td>${deadlineHTML(c.deadline,['Posted','Cancelled'].includes(c.status))}</td>
       <td><span class="mono" style="font-size:12px">${fmtDateShort(c.publishDate)||'-'}</span></td></tr>`;}).join('')}
-    </tbody></table></div>`;
+    </tbody></table></div>${pgBar(p,'konten')}`;
 }
+// Tabel ini dicat parsial (#planTable), bukan lewat route() - pindah halaman
+// harus memanggil penggambarnya sendiri, kalau tidak seluruh halaman digambar
+// ulang dan kotak pencarian di atasnya kehilangan fokus.
+PG_PAINT.plan=renderPlanTable;
 
 /* Referensi yang sedang disusun di formulir, ditaruh di luar DOM: daftarnya
    digambar ulang tiap kali ada yang ditambah/dibuang, jadi ia tidak bisa hidup
@@ -2419,15 +2488,15 @@ VIEWS.workload=function(){
         <div style="width:130px;text-align:right;font-size:11px;color:var(--txt-3);flex:0 0 auto">${r.active}/${r.u.capacity} task ${r.util>100?'<b style="color:var(--bad)">⚠ overload</b>':r.util<40?'<span style="color:var(--info)">under</span>':''}</div>
       </div>`;}).join('')}</div>
   </div>
-  <div class="tbl-wrap"><table><thead><tr><th>Kru</th><th>Role</th><th>Task Aktif</th><th>Overdue</th><th>Selesai</th><th>Revisi</th><th>Utilisasi</th><th>Status</th></tr></thead><tbody>
-    ${rows.map(r=>{const uc=r.util>100?'var(--bad)':r.util>80?'var(--warn)':'var(--ok)';
+  ${(()=>{const p=pgSlice(rows,'workload');return `<div class="tbl-wrap"><table><thead><tr><th>Kru</th><th>Role</th><th>Task Aktif</th><th>Overdue</th><th>Selesai</th><th>Revisi</th><th>Utilisasi</th><th>Status</th></tr></thead><tbody>
+    ${p.items.map(r=>{const uc=r.util>100?'var(--bad)':r.util>80?'var(--warn)':'var(--ok)';
       return `<tr><td><span style="display:flex;align-items:center;gap:8px">${avatar(r.u.name,'sm')}${esc(r.u.name)}</span></td>
       <td style="font-size:11px;color:var(--txt-3)">${esc(roleShorts(r.u))}</td>
       <td class="mono">${r.active}</td><td class="mono" style="color:${r.overdue?'var(--bad)':'inherit'}">${r.overdue}</td>
       <td class="mono">${r.done}</td><td class="mono">${r.rev}</td>
       <td><span class="mono" style="color:${uc};font-weight:700">${r.util}%</span></td>
       <td>${r.util>100?'<span class="pill" style="background:var(--bad-bg);color:var(--bad)">Overload</span>':r.util<40?'<span class="pill" style="background:var(--info-bg);color:var(--info)">Under</span>':'<span class="pill" style="background:var(--ok-bg);color:var(--ok)">Normal</span>'}</td></tr>`;}).join('')}
-  </tbody></table></div>`;
+  </tbody></table></div>${pgBar(p,'kru')}`;})()}`;
 };
 
 // ===== QUEUE PRODUKSI TERPADU (design / edit / shoot) =====
@@ -2490,8 +2559,13 @@ function prodQueue(kind,title,roleNote){
   return `${brandBar()}
   <div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">${p.emoji} ${roleNote}</p></div>${addBtn}</div>
   ${filterBar}
-  ${list.length?`<div class="tbl-wrap"><table><thead><tr>${qHead(kind,'priority','Prioritas')}${qHead(kind,'title','Pekerjaan')}${qHead(kind,'brand','Brand')}<th>${kind==='shoot'?'Talent/Platform':'Platform'}</th>${qHead(kind,'pic','PIC')}${qHead(kind,'date','Deadline '+p.short)}${qHead(kind,'status','Status')}<th></th></tr></thead><tbody>
-    ${list.map(r=>{const done=r.done;const b=getBrand(r.brand);
+  ${list.length?(()=>{
+    /* `p` di lingkup ini sudah dipakai PROD_TYPES[kind] — halamannya dinamai
+       `pg` supaya tidak menimpanya. Kalau tertimpa, seluruh kepala kolom
+       (Deadline ${p.short}) dan pesan kosongnya ikut salah. */
+    const pg=pgSlice(list,'q_'+kind,JSON.stringify(st)+'|'+brandFilter);
+    return `<div class="tbl-wrap"><table><thead><tr>${qHead(kind,'priority','Prioritas')}${qHead(kind,'title','Pekerjaan')}${qHead(kind,'brand','Brand')}<th>${kind==='shoot'?'Talent/Platform':'Platform'}</th>${qHead(kind,'pic','PIC')}${qHead(kind,'date','Deadline '+p.short)}${qHead(kind,'status','Status')}<th></th></tr></thead><tbody>
+    ${pg.items.map(r=>{const done=r.done;const b=getBrand(r.brand);
       const openFn=r.src==='content'?`COMS.openContent('${r.cid}')`:`COMS.openTaskForm('${kind}','${r.tid}')`;
       const toggleFn=r.src==='content'?`COMS.toggleProdDone('${r.cid}','${kind}')`:`COMS.toggleTaskDone('${r.tid}')`;
       return `<tr><td>${prioBadge(r.priority)}</td>
@@ -2502,7 +2576,7 @@ function prodQueue(kind,title,roleNote){
       <td>${deadlineHTML(r.date,done)}</td>
       <td><span class="pill" style="background:${done?tint(PUBLISH_COLOR).bg:t.bg};color:${done?tint(PUBLISH_COLOR).fg:t.fg}"><span class="pd" style="background:${done?tint(PUBLISH_COLOR).fg:t.fg}"></span>${done?'Selesai':'Dikerjakan'}</span></td>
       <td>${can(p.view)?`<button class="btn ${done?'btn-ghost':'btn-gold'} btn-sm" onclick="${toggleFn}">${done?'↺ Buka':'✓ Selesai'}</button>`:''}</td></tr>`;}).join('')}
-  </tbody></table></div>`:`<div class="empty"><div class="ei">${p.emoji}</div><h4>${total>0?'Tidak ada yang cocok':'Antrian kosong'}</h4><p>${total>0?'Ubah / reset filter untuk melihat pekerjaan lain.':'Belum ada pekerjaan '+p.label.toLowerCase()+'. Tambahkan lewat konten atau tombol di atas.'}</p></div>`}`;
+  </tbody></table></div>${pgBar(pg,'pekerjaan')}`;})():`<div class="empty"><div class="ei">${p.emoji}</div><h4>${total>0?'Tidak ada yang cocok':'Antrian kosong'}</h4><p>${total>0?'Ubah / reset filter untuk melihat pekerjaan lain.':'Belum ada pekerjaan '+p.label.toLowerCase()+'. Tambahkan lewat konten atau tombol di atas.'}</p></div>`}`;
 }
 function toggleProdDone(cid,kind){const c=getContent(cid);if(!c||!c.prod||!c.prod[kind])return;
   c.prod[kind].status=c.prod[kind].status==='done'?'todo':'done';
@@ -2537,20 +2611,11 @@ function toggleTaskDone(id){const x=DB.prodTasks.find(t=>t.id===id);if(!x)return
 
 VIEWS.shooting=()=>prodQueue('shoot','Shooting Schedule','Jadwal rekam - dari kebutuhan konten & jadwal mandiri. Tandai selesai bila sudah dieksekusi.');
 
-function queueView(statusKeys,title,emoji,roleNote){
-  const list=filterByBrand(DB.content).filter(c=>statusKeys.includes(c.status)).sort((a,b)=>PRIORITY[b.priority].n-PRIORITY[a.priority].n||new Date(a.deadline||'2099')-new Date(b.deadline||'2099'));
-  return `${brandBar()}
-  <div class="card" style="padding:12px;margin-bottom:16px;font-size:12px;color:var(--txt-2)">${emoji} ${roleNote}</div>
-  ${list.length?`<div class="tbl-wrap"><table><thead><tr><th>Prioritas</th><th>Konten</th><th>Brand</th><th>Platform</th><th>PIC</th><th>Deadline</th><th>Status</th><th></th></tr></thead><tbody>
-    ${list.map(c=>{const b=getBrand(c.brand);
-      return `<tr class="row-click" onclick="COMS.openContent('${c.id}')"><td>${prioBadge(c.priority)}</td>
-      <td><div style="font-weight:600">${esc(c.title)}</div><div style="font-size:11px;color:var(--txt-3)">${esc(contentTypeLabel(c))}${printTypeLabel(c)?' - 🖨 '+esc(printTypeLabel(c)):''}</div></td>
-      <td><span style="display:flex;align-items:center;gap:6px">${brandDot(c.brand)}${esc(b?b.name.split(' (')[0]:'')}</span></td>
-      <td><span style="display:flex;gap:4px;flex-wrap:wrap">${platformTags(c,3)}</span></td><td>${c.pic?avatar(userName(c.pic),'sm'):'-'}</td>
-      <td>${deadlineHTML(c.deadline,['Posted','Cancelled'].includes(c.status))}</td>
-      <td>${statusPill(c.status)}</td><td><span style="color:var(--gold)">→</span></td></tr>`;}).join('')}
-  </tbody></table></div>`:`<div class="empty"><div class="ei">${emoji}</div><h4>Antrian kosong</h4><p>Tidak ada pekerjaan di antrian ini.</p></div>`}`;
-}
+/* queueView() DIBUANG (Agustus 2026). Ia tidak pernah dipanggil satu kali pun
+   sejak VIEWS.shooting / .design / .editing pindah ke prodQueue(), tapi masih
+   memuat tabelnya sendiri - dan tabel yang tidak bisa dicapai siapa pun akan
+   selalu tertinggal saat ada perubahan menyeluruh (mis. pagination ini),
+   lalu terbaca sebagai kelalaian oleh yang membacanya berikutnya. */
 VIEWS.design=()=>prodQueue('design','Design Queue','Antrian desain - konten yang ditandai butuh desain. Tandai selesai bila sudah dikerjakan.');
 VIEWS.editing=()=>prodQueue('edit','Editing Queue','Antrian video - konten yang ditandai butuh editing. Tandai selesai bila video final siap.');
 
@@ -2649,7 +2714,8 @@ function kolDatabaseView(){
       <span style="margin-left:auto;font-size:12px;color:var(--txt-3)">${list.length} ditampilkan</span>
     </div></div>`;
   if(!list.length)return head+filterBar+`<div class="empty"><div class="ei">📇</div><h4>${(DB.kols||[]).length?'Tidak ada yang cocok':'Belum ada KOL / Medpar'}</h4><p>${(DB.kols||[]).length?'Ubah / reset filter.':'Tambahkan KOL / Media Partner pertama ke database.'}</p></div>`;
-  const rows=list.map(k=>{const t=tint(VISIT_COLOR);const wl=waLink(k.whatsapp);const cats=kolCats(k);const isMp=kolType(k)==='Media Partner';const tt=tint(isMp?'#2f7fc4':'#A9791F');
+  const pg=pgSlice(list,'kol',JSON.stringify(kolFilters));
+  const rows=pg.items.map(k=>{const t=tint(VISIT_COLOR);const wl=waLink(k.whatsapp);const cats=kolCats(k);const isMp=kolType(k)==='Media Partner';const tt=tint(isMp?'#2f7fc4':'#A9791F');
     return `<tr>
       <td class="row-click" onclick="COMS.openKolForm('${k.id}')"><div style="display:flex;align-items:center;gap:8px">${avatar(k.name,'sm')}<span style="font-weight:600">${esc(k.name)}</span></div></td>
       <td><span class="pill" style="background:${tt.bg};color:${tt.fg}">${isMp?'📰':'🧑‍🎤'} ${esc(kolType(k))}</span></td>
@@ -2663,7 +2729,7 @@ function kolDatabaseView(){
     </tr>`;}).join('');
   return head+filterBar+`<div class="tbl-wrap"><table><thead><tr>
     <th>Nama</th><th>Tipe</th><th>WhatsApp</th><th>Instagram</th><th>TikTok</th><th>Rate Card</th><th>Starting Price</th><th>Niche</th><th></th>
-    </tr></thead><tbody>${rows}</tbody></table></div>`;
+    </tr></thead><tbody>${rows}</tbody></table></div>${pgBar(pg,'partner')}`;
 }
 function kolF(k,v){kolFilters[k]=v;route('kol');}
 function kolReset(){kolFilters={q:'',category:'',type:''};route('kol');}
@@ -2833,7 +2899,8 @@ function kolVisitView(){
       <span style="margin-left:auto;font-size:12px;color:var(--txt-3)">${list.length} ditampilkan</span>
     </div></div>`;
   if(!list.length)return brandBar()+head+filterBar+`<div class="empty"><div class="ei">📅</div><h4>${(DB.visits||[]).length?'Tidak ada yang cocok':'Belum ada event kunjungan'}</h4><p>${(DB.visits||[]).length?'Ubah / reset filter.':'Buat event activity & undang KOL / Medpar - otomatis masuk Kalender.'}</p></div>`;
-  const rows=list.map(v=>{const s=VISIT_STATUS[v.status]||VISIT_STATUS.planned;const ts=tint(s.c);const b=getBrand(v.brand);
+  const pg=pgSlice(list,'visit',JSON.stringify(visitFilters)+'|'+brandFilter);
+  const rows=pg.items.map(v=>{const s=VISIT_STATUS[v.status]||VISIT_STATUS.planned;const ts=tint(s.c);const b=getBrand(v.brand);
     const od=daysDiff(v.date);const isDay=od===0;const inv=visitInvitees(v);const invTxt=inv.map(kolName).filter(x=>x&&x!=='-').join(', ');
     return `<tr>
       <td class="row-click" onclick="COMS.openVisitForm('${v.id}')"><div style="font-weight:600">${esc(v.title||'Event Activity')}</div><div style="font-size:11px;color:var(--txt-3)">👥 ${inv.length} undangan${invTxt?': '+esc(invTxt):''}</div></td>
@@ -2846,7 +2913,7 @@ function kolVisitView(){
     </tr>`;}).join('');
   return brandBar()+head+filterBar+`<div class="tbl-wrap"><table><thead><tr>
     <th>Event / Undangan</th><th>Brand</th><th>Tanggal</th><th>Lokasi</th><th>PIC</th><th>Status Kehadiran</th><th></th>
-    </tr></thead><tbody>${rows}</tbody></table></div>`;
+    </tr></thead><tbody>${rows}</tbody></table></div>${pgBar(pg,'event')}`;
 }
 function visitF(k,v){visitFilters[k]=v;route('kol');}
 function visitReset(){visitFilters={q:'',status:'',brand:'',kol:''};route('kol');}
@@ -2921,19 +2988,54 @@ function setVisitStatus(id,status){const v=(DB.visits||[]).find(x=>x.id===id);if
    ADS MANAGEMENT - kelola & pantau Meta / Google / TikTok Ads
    ========================================================================= */
 let adsFilters={q:'',platform:'',status:''};
-let adsPerPage=25,adsPage=1;
 // Rekap dana masuk & keluar (incl. pajak 11%) per bulan (YYYY-MM -> {in,out})
+/* TANGGAL IKLAN DIBUAT — inilah yang menentukan iklan masuk pengeluaran bulan
+   mana. Sebelumnya rekap bulanan memakai tanggal tiap baris rincian, dan kalau
+   itu kosong jatuh ke `startDate`; kalau ITU juga kosong, barisnya DIBUANG
+   diam-diam (`if(!d)return;`). Akibatnya dua hal yang sama-sama tidak
+   mengeluarkan galat apa pun:
+
+   - Iklan yang dibuat akhir Agustus untuk kampanye yang jalan September
+     tercatat sebagai pengeluaran September, padahal uangnya keluar Agustus.
+   - Iklan yang tanggal rinciannya lupa diisi tidak pernah muncul di rekap
+     bulan mana pun. Angka "Dana Keluar" lebih kecil dari kenyataan, dan tidak
+     ada tempat yang bisa menunjukkan yang hilang.
+
+   Sekarang satu aturan: bulan pembuatan iklan. Berjenjang supaya data lama
+   tidak ada yang jatuh — `createdDate` (kolom baru, bisa disunting), lalu cap
+   waktu `createdAt`, lalu tanggal rincian pertama, lalu `startDate`. Yang
+   benar-benar tidak punya tanggal apa pun dikumpulkan di keranjang
+   ADS_TANPA_TGL supaya tetap terlihat dan bisa diperbaiki — bukan dihilangkan.
+   Baris yang tidak pernah dijumlahkan adalah baris yang tidak pernah
+   diperbaiki. */
+const ADS_TANPA_TGL='0000-00';
+function adCreatedDate(a){
+  if(!a)return '';
+  if(a.createdDate)return String(a.createdDate).slice(0,10);
+  if(a.createdAt){const d=new Date(+a.createdAt);if(!isNaN(d))return d.toISOString().slice(0,10);}
+  const e=(a.expenses||[]).find(x=>x&&x.date);
+  if(e)return String(e.date).slice(0,10);
+  return a.startDate?String(a.startDate).slice(0,10):'';
+}
+function adBulan(a){const d=adCreatedDate(a);return d?d.slice(0,7):ADS_TANPA_TGL;}
 function adsMonthly(brandScoped){
   const funds=brandScoped?filterByBrand(DB.adFunds||[]):(DB.adFunds||[]);
   const ads=brandScoped?filterByBrand(DB.ads||[]):(DB.ads||[]);
   const m={};const ensure=ym=>{if(!m[ym])m[ym]={in:0,out:0};return m[ym];};
   funds.forEach(f=>{if(!f.date)return;ensure(String(f.date).slice(0,7)).in+=(+f.amount||0);});
-  ads.forEach(a=>{const exps=a.expenses||[];
-    if(exps.length){exps.forEach(e=>{const d=e.date||a.startDate;if(!d)return;ensure(String(d).slice(0,7)).out+=(+e.amount||0)*(1+ADS_TAX);});}
-    else if(+a.spend){if(a.startDate)ensure(String(a.startDate).slice(0,7)).out+=(+a.spend||0);}});
+  /* Seluruh dana keluar satu iklan masuk ke SATU bulan — bulan iklan itu
+     dibuat — termasuk rincian yang tanggalnya berbeda. Tanggal per rincian
+     tetap tersimpan dan tetap tercetak di berkas ekspor; ia menjawab "kapan
+     dipakai", bukan "masuk pengeluaran bulan mana". */
+  ads.forEach(a=>{const t=adSpendTotal(a);if(t)ensure(adBulan(a)).out+=t;});
   return m;
 }
-function ymLabel(ym){const p=String(ym).split('-');return new Date(+p[0],+p[1]-1,1).toLocaleDateString('id-ID',{month:'long',year:'numeric'});}
+function ymLabel(ym){
+  // Keranjang tanpa tanggal punya namanya sendiri. Tanpa cabang ini ia
+  // dirender sebagai "Invalid Date" — terbaca seperti modulnya rusak, bukan
+  // seperti data yang perlu dilengkapi.
+  if(ym===ADS_TANPA_TGL)return 'Tanpa tanggal';
+  const p=String(ym).split('-');return new Date(+p[0],+p[1]-1,1).toLocaleDateString('id-ID',{month:'long',year:'numeric'});}
 function getAd(id){return (DB.ads||[]).find(a=>a.id===id);}
 function rupiah(n){return 'Rp '+num(Math.round(n||0));}
 VIEWS.ads=function(){
@@ -2966,7 +3068,8 @@ VIEWS.ads=function(){
     <div class="mono serif" style="font-size:30px;font-weight:800;color:${sisaAll<0?'var(--bad)':'var(--gold-dim)'}">${rupiah(sisaAll)}</div></div>`;
   // ===== REPORT PER BULAN (dana masuk & keluar) + export =====
   const monthly=adsMonthly(true);const yms=Object.keys(monthly).sort().reverse();
-  const monthRows=yms.map(ym=>{const d=monthly[ym];const sisa=d.in-d.out;return `<tr>
+  const pgMonth=pgSlice(yms,'admonth',brandFilter);
+  const monthRows=pgMonth.items.map(ym=>{const d=monthly[ym];const sisa=d.in-d.out;return `<tr>
       <td style="font-weight:600">${ymLabel(ym)}</td>
       <td class="mono" style="color:var(--ok)">${rupiah(d.in)}</td>
       <td class="mono" style="color:var(--bad)">${rupiah(d.out)}</td>
@@ -2975,10 +3078,12 @@ VIEWS.ads=function(){
     </tr>`;}).join('');
   const monthCard=`<div class="card" style="margin-bottom:16px">
     <div class="card-h"><h3>📆 Report Dana Masuk & Keluar per Bulan</h3><span class="sub">Dana keluar sudah termasuk PPN 11%</span></div>
-    ${yms.length?`<div class="tbl-wrap"><table><thead><tr><th>Bulan</th><th>Dana Masuk</th><th>Dana Keluar</th><th>Sisa (bulan)</th><th style="text-align:right">Reporting</th></tr></thead><tbody>${monthRows}</tbody></table></div>`:'<p style="font-size:12.5px;color:var(--txt-3)">Belum ada data untuk direkap.</p>'}</div>`;
+    <p style="font-size:11.5px;color:var(--txt-3);margin:-4px 0 10px">Sebuah iklan masuk ke bulan <b>tanggal iklan itu dibuat</b> - seluruh rinciannya sekaligus, berapa pun tanggal masing-masing rincian.</p>
+    ${yms.length?`<div class="tbl-wrap"><table><thead><tr><th>Bulan</th><th>Dana Masuk</th><th>Dana Keluar</th><th>Sisa (bulan)</th><th style="text-align:right">Reporting</th></tr></thead><tbody>${monthRows}</tbody></table></div>${pgBar(pgMonth,'bulan')}`:'<p style="font-size:12.5px;color:var(--txt-3)">Belum ada data untuk direkap.</p>'}</div>`;
   // ===== Panel DANA MASUK (terpisah dari pembuatan iklan) =====
   const funds=fundScope.slice().sort((a,b)=>new Date(b.date||'1970')-new Date(a.date||'1970'));
-  const fundRows=funds.map(x=>{const b=getBrand(x.brand);return `<tr>
+  const pgFund=pgSlice(funds,'fund',brandFilter);
+  const fundRows=pgFund.items.map(x=>{const b=getBrand(x.brand);return `<tr>
       <td style="font-size:12px">${fmtDate(x.date)}</td>
       <td><span style="display:flex;align-items:center;gap:6px">${brandDot(x.brand)}${esc(b?b.name.split(' (')[0]:'-')}</span></td>
       <td class="mono" style="font-weight:600;color:var(--ok)">${rupiah(x.amount)}</td>
@@ -2987,25 +3092,25 @@ VIEWS.ads=function(){
     </tr>`;}).join('');
   const fundCard=`<div class="card" style="margin-bottom:16px">
     <div class="card-h"><h3>💰 Dana Masuk (Budget)</h3><span class="sub">Total: <b class="mono" style="color:var(--ok)">${rupiah(totIn)}</b></span></div>
-    ${funds.length?`<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Brand</th><th>Nominal</th><th>Sumber / Catatan</th><th></th></tr></thead><tbody>${fundRows}</tbody></table></div>`:'<p style="font-size:12.5px;color:var(--txt-3)">Belum ada dana masuk. Klik "Tambah Dana Masuk" untuk mencatat budget.</p>'}</div>`;
-  // ===== FILTER + PAGINATION (list Buat Iklan) =====
-  const totalPages=Math.max(1,Math.ceil(list.length/adsPerPage));
-  if(adsPage>totalPages)adsPage=totalPages;
-  const pageList=list.slice((adsPage-1)*adsPerPage,adsPage*adsPerPage);
+    ${funds.length?`<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Brand</th><th>Nominal</th><th>Sumber / Catatan</th><th></th></tr></thead><tbody>${fundRows}</tbody></table></div>${pgBar(pgFund,'dana masuk')}`:'<p style="font-size:12.5px;color:var(--txt-3)">Belum ada dana masuk. Klik "Tambah Dana Masuk" untuk mencatat budget.</p>'}</div>`;
+  /* Daftar iklan dulu punya mesin halamannya SENDIRI (adsPage/adsPerPage).
+     Sekarang memakai pgSlice/pgBar yang sama dengan seluruh tabel lain —
+     kotak "Per halaman" ikut pindah ke bar bawah bersama nomornya, jadi
+     pengaturan yang sama tidak lagi berdiri di dua tempat berbeda. */
+  const pgAds=pgSlice(list,'ads',JSON.stringify(f)+'|'+brandFilter);
   const filterBar=`<div class="card" style="padding:12px;margin-bottom:16px">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <input class="ctrl" style="max-width:230px" placeholder="Cari nama iklan / objective / target..." value="${esc(f.q)}" oninput="COMS.adsF('q',this.value)">
       <select class="ctrl" style="max-width:170px" onchange="COMS.adsF('platform',this.value)"><option value="">Semua Platform</option>${Object.keys(ADS_PLATFORMS).map(p=>`<option ${f.platform===p?'selected':''}>${p}</option>`).join('')}</select>
       <select class="ctrl" style="max-width:150px" onchange="COMS.adsF('status',this.value)"><option value="">Semua Status</option>${Object.keys(ADS_STATUS).map(s=>`<option value="${s}" ${f.status===s?'selected':''}>${ADS_STATUS[s].label}</option>`).join('')}</select>
       <button class="btn btn-ghost btn-sm" onclick="COMS.adsReset()">Reset</button>
-      <span style="margin-left:auto;display:flex;align-items:center;gap:6px;font-size:12px;color:var(--txt-3)">Per halaman
-        <select class="ctrl" style="padding:5px 8px;font-size:12px;width:auto" onchange="COMS.adsPerPageSet(this.value)">${[10,20,50,100].map(n=>`<option value="${n}" ${adsPerPage===n?'selected':''}>${n}</option>`).join('')}</select></span>
+      <span style="margin-left:auto;font-size:12px;color:var(--txt-3)">${list.length} iklan</span>
     </div></div>`;
   const head=`<div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">📢 Dana Masuk = budget - Buat Iklan = rincian dana keluar (incl. PPN 11%)</p></div><div style="display:flex;gap:8px;flex-wrap:wrap">${addFundBtn}${addBtn}</div></div>`;
   let body;
   if(!list.length){body=`<div class="empty"><div class="ei">📢</div><h4>${scope.length?'Tidak ada yang cocok':'Belum ada iklan'}</h4><p>${scope.length?'Ubah / reset filter.':'Klik "Buat Iklan" untuk mencatat rincian dana keluar.'}</p></div>`;}
   else{
-    const rows=pageList.map(a=>{const pl=ADS_PLATFORMS[a.platform]||{c:'#888'};const pt=tint(pl.c);
+    const rows=pgAds.items.map(a=>{const pl=ADS_PLATFORMS[a.platform]||{c:'#888'};const pt=tint(pl.c);
       const s=ADS_STATUS[a.status]||ADS_STATUS.draft;const ss=tint(s.c);const b=getBrand(a.brand);
       const nItem=(a.expenses||[]).length;
       return `<tr>
@@ -3016,17 +3121,17 @@ VIEWS.ads=function(){
         <td style="font-size:12px">${esc(a.ageRange||'-')}</td>
         <td style="font-size:12px"><span style="color:var(--info);font-weight:600">💬 ${num(a.chats||0)}</span> <span style="color:var(--txt-3)">/ 👁 ${num(a.impressions||0)}</span></td>
         <td class="mono" style="font-size:12px;font-weight:600;color:var(--bad)" title="Termasuk PPN 11%">${rupiah(adSpendTotal(a))}</td>
+        <!-- Kolom Dibuat berdiri sendiri, tidak dilebur ke Periode: ia yang
+             menentukan bulan pengeluarannya, dan menyembunyikannya membuat
+             angka di Report per Bulan tidak bisa ditelusuri dari mana. -->
+        <td style="font-size:11px;color:var(--txt-2)" title="Menentukan bulan pengeluaran">${fmtDateShort(adCreatedDate(a))||'<span style="color:var(--bad)">belum diisi</span>'}</td>
         <td style="font-size:11px;color:var(--txt-2)">${fmtDateShort(a.startDate)||'-'} - ${fmtDateShort(a.endDate)||'-'}</td>
         <td>${can('ads')?`<select class="ctrl" style="padding:6px 8px;font-size:12px;min-width:120px" onchange="COMS.setAdStatus('${a.id}',this.value)">${Object.keys(ADS_STATUS).map(k=>`<option value="${k}" ${a.status===k?'selected':''}>${ADS_STATUS[k].label}</option>`).join('')}</select>`:`<span class="pill" style="background:${ss.bg};color:${ss.fg}">${s.label}</span>`}</td>
         <td style="text-align:right;white-space:nowrap">${can('ads')?`<button class="btn btn-ghost btn-sm" onclick="COMS.openAdForm('${a.id}')">✎</button> <button class="btn btn-danger btn-sm" onclick="COMS.delAd('${a.id}')">🗑</button>`:''}</td>
       </tr>`;}).join('');
-    const pager=totalPages>1?`<div style="display:flex;align-items:center;justify-content:center;gap:10px;margin-top:14px">
-      <button class="btn btn-ghost btn-sm" ${adsPage<=1?'disabled':''} onclick="COMS.adsPageSet(${adsPage-1})">‹ Sebelumnya</button>
-      <span style="font-size:12.5px;color:var(--txt-2)">Halaman <b>${adsPage}</b> / ${totalPages} - ${list.length} iklan</span>
-      <button class="btn btn-ghost btn-sm" ${adsPage>=totalPages?'disabled':''} onclick="COMS.adsPageSet(${adsPage+1})">Berikutnya ›</button>
-    </div>`:'';
+    const pager=pgBar(pgAds,'iklan');
     body=`<div class="tbl-wrap"><table><thead><tr>
-      <th>Nama Iklan</th><th>Brand</th><th>Platform</th><th>Target</th><th>Usia Range</th><th>Hasil (Chats/Impr)</th><th>Dana Keluar</th><th>Periode</th><th>Status</th><th></th>
+      <th>Nama Iklan</th><th>Brand</th><th>Platform</th><th>Target</th><th>Usia Range</th><th>Hasil (Chats/Impr)</th><th>Dana Keluar</th><th>Dibuat</th><th>Periode</th><th>Status</th><th></th>
       </tr></thead><tbody>${rows}</tbody></table></div>${pager}`;
   }
   return brandBar()+head+stats+sisaAllCard+monthCard+fundCard+filterBar+body;
@@ -3040,7 +3145,8 @@ VIEWS.chats=function(){
   const byPlat={};scope.forEach(a=>{if(+a.chats>0){byPlat[a.platform]=(byPlat[a.platform]||0)+(+a.chats||0);}});
   const platRows=Object.keys(byPlat).sort((a,b)=>byPlat[b]-byPlat[a]).map(p=>{const pl=ADS_PLATFORMS[p]||{c:'#888'};const t=tint(pl.c);
     return `<span class="tag" style="background:${t.bg};color:${t.fg};border-color:transparent;font-size:12px">${esc(p)}: <b>${num(byPlat[p])}</b></span>`;}).join(' ');
-  const chatRows=chatAds.map(a=>{const b=getBrand(a.brand);const pl=ADS_PLATFORMS[a.platform]||{c:'#888'};const pt=tint(pl.c);return `<tr>
+  const pgChat=pgSlice(chatAds,'chat',brandFilter);
+  const chatRows=pgChat.items.map(a=>{const b=getBrand(a.brand);const pl=ADS_PLATFORMS[a.platform]||{c:'#888'};const pt=tint(pl.c);return `<tr>
       <td class="row-click" style="font-weight:600" onclick="COMS.openAdForm('${a.id}')">${esc(a.name||'(tanpa nama)')}</td>
       <td><span class="tag" style="background:${pt.bg};color:${pt.fg};border-color:transparent">${esc(a.platform||'-')}</span></td>
       <td><span style="display:flex;align-items:center;gap:6px">${brandDot(a.brand)}${esc(b?b.name.split(' (')[0]:'-')}</span></td>
@@ -3054,19 +3160,29 @@ VIEWS.chats=function(){
   ${platRows?`<div class="card" style="margin-bottom:16px;padding:14px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--txt-3);font-weight:700;margin-bottom:8px">Percakapan per Platform</div><div style="display:flex;gap:7px;flex-wrap:wrap">${platRows}</div></div>`:''}
   <div class="card">
     <div class="card-h"><h3>💬 Report Percakapan (Chat dari Iklan)</h3><span class="sub">Total: <b class="mono" style="color:var(--info)">${num(totChats)} chat</b></span></div>
-    ${chatAds.length?`<div class="tbl-wrap"><table><thead><tr><th>Nama Iklan</th><th>Platform</th><th>Brand</th><th>Target</th><th>Chats</th></tr></thead><tbody>${chatRows}</tbody></table></div>`:'<div class="empty"><div class="ei">💬</div><h4>Belum ada percakapan</h4><p>Isi kolom "Hasil - Chats" saat Buat Iklan agar tercatat di sini.</p></div>'}</div>`;
+    ${chatAds.length?`<div class="tbl-wrap"><table><thead><tr><th>Nama Iklan</th><th>Platform</th><th>Brand</th><th>Target</th><th>Chats</th></tr></thead><tbody>${chatRows}</tbody></table></div>${pgBar(pgChat,'iklan')}`:'<div class="empty"><div class="ei">💬</div><h4>Belum ada percakapan</h4><p>Isi kolom "Hasil - Chats" saat Buat Iklan agar tercatat di sini.</p></div>'}</div>`;
 };
-function adsF(k,v){adsFilters[k]=v;adsPage=1;route('ads');}
-function adsReset(){adsFilters={q:'',platform:'',status:''};adsPage=1;route('ads');}
-function adsPerPageSet(n){adsPerPage=+n||25;adsPage=1;route('ads');}
-function adsPageSet(n){adsPage=Math.max(1,+n||1);route('ads');}
+function adsF(k,v){adsFilters[k]=v;route('ads');}
+function adsReset(){adsFilters={q:'',platform:'',status:''};route('ads');}
 // Export data ads (dana masuk & keluar) untuk 1 bulan → CSV reporting
 function exportAdsMonth(ym){
   const rows=[['Tipe','Tanggal','Brand','Nama / Sumber','Keperluan','Nominal','Pajak 11%','Total']];
   (DB.adFunds||[]).filter(x=>String(x.date||'').slice(0,7)===ym).sort((a,b)=>new Date(a.date)-new Date(b.date))
     .forEach(x=>rows.push(['Dana Masuk',x.date||'',brandName(x.brand),x.note||'','',x.amount||0,0,x.amount||0]));
-  (DB.ads||[]).forEach(a=>{(a.expenses||[]).filter(e=>String(e.date||a.startDate||'').slice(0,7)===ym)
-    .forEach(e=>{const base=+e.amount||0;const tax=Math.round(base*ADS_TAX);rows.push(['Dana Keluar',e.date||a.startDate||'',brandName(a.brand),a.name||'',e.purpose||'',base,tax,base+tax]);});});
+  /* Penyaring bulannya IKUT adBulan() — aturan yang sama persis dengan rekap
+     di layar. Dulu di sini memakai tanggal tiap rincian, jadi angka di berkas
+     ekspor bisa berbeda dari angka di tabel yang tombolnya baru saja ditekan,
+     dan yang membandingkannya tidak punya cara tahu mana yang benar.
+     Tanggal per rincian tetap dicetak di kolom Tanggal: ia menjawab "kapan
+     dipakai", dan itu memang yang dicari saat membuka berkasnya. */
+  (DB.ads||[]).filter(a=>adBulan(a)===ym).forEach(a=>{
+    const exps=(a.expenses||[]).filter(e=>+e.amount>0);
+    if(exps.length){
+      exps.forEach(e=>{const base=+e.amount||0;const tax=Math.round(base*ADS_TAX);
+        rows.push(['Dana Keluar',e.date||adCreatedDate(a)||'',brandName(a.brand),a.name||'',e.purpose||'',base,tax,base+tax]);});
+    } else if(+a.spend){
+      rows.push(['Dana Keluar',adCreatedDate(a)||'',brandName(a.brand),a.name||'','',+a.spend||0,0,+a.spend||0]);
+    }});
   if(rows.length<=1){toast('Tidak ada data pada bulan ini','err');return;}
   downloadFile('COMS_ads_'+ym+'.csv',rows.map(r=>r.map(csvSafe).join(',')).join('\n'),'text/csv');
   logAct('ekspor laporan ads',ymLabel(ym));
@@ -3130,6 +3246,8 @@ function openAdForm(id){
     <div class="field"><label>Usia Range <span style="color:var(--txt-3);font-weight:400">(pilih / ketik manual)</span></label>
       <input class="ctrl" id="a_ageRange" list="a_ageList" value="${esc(a?.ageRange||'')}" placeholder="mis. 25-34">
       <datalist id="a_ageList">${ADS_AGE_RANGES.map(t=>`<option value="${esc(t)}"></option>`).join('')}</datalist></div>
+    <div class="field"><label>Tanggal Dibuat *</label><input type="date" class="ctrl" id="a_createdDate" value="${adCreatedDate(a)||todayISO()}">
+      <div style="font-size:11px;color:var(--txt-3);margin-top:4px">Inilah yang menentukan iklan ini masuk <b>pengeluaran bulan mana</b> di Report per Bulan - bukan tanggal mulai/selesai kampanyenya.</div></div>
     <div class="field"><label>Mulai</label><input type="date" class="ctrl" id="a_startDate" value="${a?.startDate||''}"></div>
     <div class="field"><label>Selesai</label><input type="date" class="ctrl" id="a_endDate" value="${a?.endDate||''}"></div>
     <div class="field"><label>Hasil - Chats</label><input type="number" min="0" class="ctrl" id="a_chats" value="${a?.chats||''}" placeholder="0"></div>
@@ -3155,6 +3273,10 @@ function saveAd(id){
   const tax=Math.round(spendBase*ADS_TAX);const spend=spendBase+tax;
   const data={name,brand:g('brand'),platform:g('platform'),objective:g('objective'),status:g('status')||'draft',
     target:g('target').trim(),ageRange:g('ageRange').trim(),
+    /* Kosong dijatuhkan ke hari ini, bukan dibiarkan kosong: kolom ini
+       menentukan bulan pengeluarannya, dan yang kosong akan menumpuk di
+       keranjang "Tanpa tanggal" yang tidak seorang pun rutin membukanya. */
+    createdDate:g('createdDate')||todayISO(),
     expenses,spendBase,tax,spend,budget:0,startDate:g('startDate'),endDate:g('endDate'),
     chats:+g('chats')||0,impressions:+g('impressions')||0,note:g('note').trim()};
   if(id){Object.assign(getAd(id),data);logAct('mengubah iklan',name);toast('Iklan diperbarui','ok');}
@@ -3281,13 +3403,14 @@ VIEWS.analytics=function(){
     <div class="card"><div class="card-h"><h3>Follower Growth</h3><span class="sub">dari konten</span></div>
       <div style="text-align:center;padding:20px"><div class="serif" style="font-size:44px;color:var(--ok)">+${num(agg.followers)}</div><div style="color:var(--txt-3);font-size:12px">total pertambahan follower dari ${posted.length} konten</div></div></div>
   </div>
+  ${(()=>{const pgTop=pgSlice(top,'anaTop',brandFilter);return `
   <div class="card"><div class="card-h"><h3>Ranking Konten</h3><span class="sub">by reach</span></div>
     <div class="tbl-wrap"><table><thead><tr><th>#</th><th>Konten</th><th>Brand</th><th>Platform</th><th>Reach</th><th>Views</th><th>ER</th><th>Follows</th></tr></thead><tbody>
-    ${top.map((c,i)=>`<tr class="row-click" onclick="COMS.openContent('${c.id}')"><td class="serif" style="color:var(--gold);font-size:16px">${i+1}</td>
+    ${pgTop.items.map((c,i)=>`<tr class="row-click" onclick="COMS.openContent('${c.id}')"><td class="serif" style="color:var(--gold);font-size:16px">${pgTop.mulai+i+1}</td>
       <td style="font-weight:600">${esc(c.title)}</td><td>${brandDot(c.brand)} ${esc(getBrand(c.brand)?.name.split(' (')[0]||'')}</td>
       <td><span style="display:flex;gap:4px;flex-wrap:wrap">${platformTags(c,3)}</span></td><td class="mono" style="color:var(--gold);font-weight:700">${num(c.metrics.reach)}</td>
       <td class="mono">${num(c.metrics.views)}</td><td class="mono">${c.metrics.er}%</td><td class="mono">+${c.metrics.followers}</td></tr>`).join('')}
-    </tbody></table></div></div>`;
+    </tbody></table></div>${pgBar(pgTop,'konten')}</div>`;})()}`;
 };
 
 VIEWS.activity=function(){
@@ -3314,12 +3437,13 @@ VIEWS.reports=function(){
       <button class="btn btn-ghost" onclick="COMS.backupJSON()">💾 Backup Semua Data (JSON)</button>
     </div>
   </div>
+  ${(()=>{const pgBr=pgSlice(DB.brands,'repBrand');return `
   <div class="card" style="margin-top:16px"><div class="card-h"><h3>Rekap per Brand</h3></div>
     <div class="tbl-wrap"><table><thead><tr><th>Brand</th><th>Total Konten</th><th>Tayang</th><th>Reach</th><th>Avg ER</th><th>Follower Growth</th></tr></thead><tbody>
-    ${DB.brands.map(b=>{const bc=DB.content.filter(c=>c.brand===b.id);const bp=bc.filter(c=>c.status==='Posted'&&c.metrics);
+    ${pgBr.items.map(b=>{const bc=DB.content.filter(c=>c.brand===b.id);const bp=bc.filter(c=>c.status==='Posted'&&c.metrics);
       const reach=bp.reduce((s,c)=>s+c.metrics.reach,0);const er=bp.length?(bp.reduce((s,c)=>s+c.metrics.er,0)/bp.length).toFixed(1):0;const fol=bp.reduce((s,c)=>s+c.metrics.followers,0);
       return `<tr><td><span style="display:flex;align-items:center;gap:6px">${brandDot(b.id)}${esc(b.name)}</span></td><td class="mono">${bc.length}</td><td class="mono">${bp.length}</td><td class="mono">${num(reach)}</td><td class="mono">${er}%</td><td class="mono" style="color:var(--ok)">+${num(fol)}</td></tr>`;}).join('')}
-    </tbody></table></div></div>`;
+    </tbody></table></div>${pgBar(pgBr,'brand')}</div>`;})()}`;
 };
 function csvSafe(v){v=String(v==null?'':v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
 function downloadFile(name,content,type){const blob=new Blob([content],{type});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;a.click();URL.revokeObjectURL(u);toast('File diunduh: '+name,'ok');}
@@ -3364,14 +3488,15 @@ function moduleLabel(m){ return MODULE_LABELS[m]||m; }
 // ---- Kartu KATALOG (read-only, untuk non-super-admin) ----
 function permCatalogCard(){
   return `<div class="card" style="grid-column:1/-1"><div class="card-h"><h3>Katalog Role & Hak Akses</h3><span class="sub">rangkap kerja: akses digabung</span></div>
+    ${(()=>{const pgRole=pgSlice(ROLE_KEYS,'role');return `
     <div class="tbl-wrap"><table><thead><tr><th>Role</th><th>Tanggung Jawab</th><th>Boleh Ubah</th><th>Lihat Saja</th></tr></thead><tbody>
-    ${ROLE_KEYS.map(r=>{const ro=ROLES[r];
+    ${pgRole.items.map(r=>{const ro=ROLES[r];
       const edit=r==='super_admin'?['SEMUA MODUL']:permModuleKeys().filter(m=>modPerm(m,r)>=PERM_EDIT);
       const view=r==='super_admin'?[]:permModuleKeys().filter(m=>modPerm(m,r)===PERM_VIEW);
       return `<tr><td><span style="color:${readable(ro.color)};font-weight:700">${ro.label}</span></td><td style="font-size:12px;color:var(--txt-2)">${ro.desc}</td>
       <td>${edit.map(m=>`<span class="tag" style="font-size:10px">${moduleLabel(m)}</span>`).join(' ')}</td>
       <td>${view.map(m=>`<span class="tag" style="font-size:10px;opacity:.7">${moduleLabel(m)}</span>`).join(' ')}</td></tr>`;}).join('')}
-    </tbody></table></div></div>`;
+    </tbody></table></div>${pgBar(pgRole,'role')}`;})()}</div>`;
 }
 
 // ---- Kartu EDITOR (interaktif, khusus Super Admin) ----
@@ -3474,6 +3599,7 @@ function clearSearch(){const box=$('#searchResults');if(box){box.innerHTML='';bo
 // EXPOSE PUBLIC API KE WINDOW / DOM
 const API={
   route,setBrand,pickLogin,logout,
+  pgSet,pgPerSet,
   openContentForm,saveContent,openContent,
   togglePlatform,onPrintTypeChange,
   addRefLink,addRefImages,rmRef,refLinkKey,
@@ -3487,7 +3613,7 @@ const API={
   visitF,visitReset,openVisitForm,saveVisit,delVisit,setVisitStatus,dmInvitee,
   visitPick,visitInvToggle,
   adsF,adsReset,openAdForm,saveAd,delAd,setAdStatus,_adAdd,_adDel,_adEdit,
-  adsPerPageSet,adsPageSet,exportAdsMonth,
+  exportAdsMonth,
   openFundForm,saveFund,delFund,
   kDragOver,kDragLeave,kDrop,
   calNav,calToday,calDay,calToggle,calOpenEvent,
