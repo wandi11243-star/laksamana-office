@@ -4077,7 +4077,7 @@ function pendingApprovals(){ return S.approvals.filter(a=>a.status==='Pending');
 function pendingPenawaran(){ return S.events.filter(e=>penStatus(e)==='Menunggu Approval'); }
 
 /* ---------- ROUTER ---------- */
-const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline & Event','Papan peluang, tabel peluang & daftar seluruh event — satu tempat'],events:['Sales Pipeline & Event','Papan peluang, tabel peluang & daftar seluruh event — satu tempat'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan negosiasi harga / diskon khusus'],purchasing:['Purchase Order','Kirim kebutuhan pembelian ke papan Purchasing BD OS'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],staff:['Pegawai & Akses','Satu daftar: data pegawai (otomatis dari database user Office) sekaligus role & hak aksesnya'],menudb:['Database Menu','Daftar menu per jenis — jadi sumber pilihan di Menu Final & Menu Bar'],kalkulator:['Menu Kalkulator','Hitung harga jual per pax & diskon dari harga deal customer'],vip:['Reservasi VIP','Booking ruang VIP — langsung mengunci meja di modul Reservasi'],katalog:['Katalog','Materi presentasi venue — gambar & deskripsi, bisa dijalankan layar penuh seperti PPT'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
+const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline & Event','Papan peluang & daftar seluruh event — satu tempat'],events:['Sales Pipeline & Event','Papan peluang & daftar seluruh event — satu tempat'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan negosiasi harga / diskon khusus'],purchasing:['Purchase Order','Kirim kebutuhan pembelian ke papan Purchasing BD OS'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],staff:['Pegawai & Akses','Satu daftar: data pegawai (otomatis dari database user Office) sekaligus role & hak aksesnya'],menudb:['Database Menu','Daftar menu per jenis — jadi sumber pilihan di Menu Final & Menu Bar'],kalkulator:['Menu Kalkulator','Hitung harga jual per pax & diskon dari harga deal customer'],vip:['Reservasi VIP','Booking ruang VIP — langsung mengunci meja di modul Reservasi'],katalog:['Katalog','Materi presentasi venue — gambar & deskripsi, bisa dijalankan layar penuh seperti PPT'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
 /* Buka halaman sesuai alamat saat aplikasi baru dimuat.
    SATU definisi dipakai kedua jalur masuk (login manual & SSO). Dulu baris
    ini digandakan di dua tempat dan KEDUANYA hanya memakai bagian [0] dari
@@ -5321,14 +5321,27 @@ let pipeTab='kanban';
    "Devani lagi pegang apa saja?" — yang dulu tidak ada jalannya sama
    sekali kecuali membaca satu per satu tag di tiap kartu.
 
-   '' = semua. Isinya nama orang yang BENAR-BENAR punya kartu di papan,
-   bukan seluruh daftar pegawai: tombol untuk orang yang tidak pernah
-   memegang event hanya membuat barisnya panjang dan tiap kali ditekan
-   menghasilkan papan kosong. */
+   '' = semua.
+
+   ISINYA SELURUH MEMBER TIM MARKETING YANG AKTIF, bukan cuma yang kebetulan
+   sedang memegang event. Versi sebelumnya menyaring dari S.events, dan itu
+   terlihat rapi sampai dipakai: member yang baru masuk — atau yang eventnya
+   baru saja selesai semua — TIDAK PUNYA CHIP SAMA SEKALI, jadi pertanyaan
+   "Devani lagi pegang apa?" dijawab dengan tidak adanya tombol untuk Devani.
+   Yang terbaca orang bukan "dia sedang kosong", melainkan "namanya belum
+   terdaftar", dan itu dua kesimpulan yang sangat berbeda.
+
+   Siapa pun yang MEMEGANG event tetap ikut walau timnya tertulis lain atau
+   akunnya sudah dinonaktifkan — pengaman yang sama dipakai Marketing
+   Performance. Tanpa itu, satu salah ketik di kolom Tim membuat event
+   seseorang tidak bisa disaring sama sekali padahal barisnya jelas ada di
+   daftar. */
 let pipePIC='';
 let pipeBuka='';   // id kartu yang sedang dibuka; '' = semua tertutup
 function pipeDaftarPIC(){
   const ada={};
+  (S.users||[]).forEach(function(u){
+    if(u && u.active!==false && timMarketing(u)) ada[u.id]=1; });
   (S.events||[]).forEach(function(e){ if(e&&e.mktPIC) ada[e.mktPIC]=1; });
   return Object.keys(ada).sort(function(a,b){ return userName(a).localeCompare(userName(b)); });
 }
@@ -5360,29 +5373,38 @@ function renderPipeline(V){
      'Follow Up Harian' dicabut: antrian follow up itu pekerjaan harian per
      orang, sedangkan papan ini dibuka untuk melihat posisi seluruh
      peluang. */
-  /* TIGA tab atas DATA YANG SAMA, bukan tiga isi berbeda. Kanban dan Tabel
-     Peluang memuat event yang MASIH di pipeline; Daftar Event memuat
-     seluruhnya, termasuk yang sudah 'Event Done'. Yang berbeda cuma
-     pertanyaan yang dijawab: kanban "posisinya di mana", tabel peluang "apa
-     saja yang menggantung dan di tahap apa", daftar event "acara mana yang
-     jalan pada periode ini". Tab ketiga ini dulu halaman terpisah bernama
-     Input & Event.
+  /* DUA tab atas DATA YANG SAMA, bukan dua isi berbeda. Kanban menjawab
+     "peluangnya ada di tahap mana", Daftar Event menjawab "acara apa saja
+     yang ada, punya siapa, kapan". Tab kedua ini dulu halaman terpisah
+     bernama Input & Event.
 
-     'Follow Up Harian' dicabut: antrian follow up itu pekerjaan harian per
-     orang, sedangkan papan ini dibuka untuk melihat posisi seluruh
-     peluang. */
-  let h=pageHead('Modul C & D','Sales Pipeline & Event','Papan peluang, tabel peluang, dan daftar seluruh event — satu tempat, satu penyaring orang.',
+     'Tabel Peluang' DIBUANG. Ia tab ketiga yang isinya himpunan bagian dari
+     Daftar Event — event yang belum selesai — dengan kolom yang hampir sama
+     persis. Yang terjadi: orang membuka Daftar Event, tidak menemukan
+     eventnya, lalu mencarinya lagi di Tabel Peluang, dan tidak ada satu pun
+     penanda di layar yang menjelaskan mana isi mana. Pekerjaannya sekarang
+     diambil alih penyaring status di Daftar Event, yang bawaannya memang
+     menyembunyikan event selesai.
+
+     'Follow Up Harian' sudah dicabut sebelumnya: antrian follow up itu
+     pekerjaan harian per orang, sedangkan papan ini dibuka untuk melihat
+     posisi seluruh peluang. */
+  if(pipeTab!=='kanban' && pipeTab!=='events') pipeTab='kanban';   // 'tabel' lama
+  let h=pageHead('Modul C & D','Sales Pipeline & Event','Papan peluang dan daftar seluruh event — satu tempat, satu penyaring orang.',
     '<div class="seg"><button class="'+(pipeTab==='kanban'?'on':'')+'" onclick="pipeSetTab(\'kanban\')">Kanban</button>'
-    +'<button class="'+(pipeTab==='tabel'?'on':'')+'" onclick="pipeSetTab(\'tabel\')">Tabel Peluang</button>'
     +'<button class="'+(pipeTab==='events'?'on':'')+'" onclick="pipeSetTab(\'events\')">Daftar Event</button></div>'
     +(canEdit?'<button class="btn pri" onclick="newEvent()">'+svg(IC.plus)+'Event Baru</button>':''));
   h+=barisPIC;
-  if(pipeTab==='events'){ V.innerHTML=h+pipeIsiEvents(); paintEvents(); return; }
+  /* Strip ringkasan tahap tampil di KEDUA tab. Ia menjawab pertanyaan yang
+     tidak berhenti berlaku begitu orang pindah ke daftar — "peluang aktif
+     berapa, menumpuk di tahap mana" — dan menyembunyikannya di satu tab
+     berarti angka itu cuma bisa dilihat kalau kebetulan sedang di tab yang
+     benar. */
   h+=pipeRingkas();
-  if(pipeTab==='tabel') h+=pipeTabel();
-  else { pipeTab='kanban'; h+='<div id="kanban-box">'+pipeKanban()+'</div>'; }
+  if(pipeTab==='events'){ V.innerHTML=h+pipeIsiEvents(); paintEvents(); return; }
+  h+='<div id="kanban-box">'+pipeKanban()+'</div>';
   V.innerHTML=h;
-  if(pipeTab==='kanban')bindKanban();
+  bindKanban();
 }
 /* Pindah tab lewat satu pintu, bukan tiga baris onclick yang masing-masing
    ingat sendiri apa yang harus dibereskan. pipeBuka WAJIB dikosongkan: kartu
@@ -5568,57 +5590,18 @@ function pipeRingkas(){
          ada di mana", dan angka uang di tiap sel membuat mata menyisir dua
          deret angka yang tidak sebanding — jumlah orang dan jumlah rupiah —
          dalam satu baris. Nilainya tetap terbaca di tooltip tiap sel, dan
-         lengkap per baris di tab Tabel Event. */
+         lengkap per baris di tab Daftar Event. */
       +'<div class="v" style="color:var(--muted);font-weight:500">peluang</div>'
     +'</div>';
   });
   return h+'</div>';
 }
-/* Isi yang SAMA dengan kanban — seluruh event yang masih berjalan di
-   pipeline — tapi dibaca sebagai daftar. Yang tidak bisa diberikan kanban
-   dan justru paling sering ditanya: satu kolom Status yang bisa diurutkan,
-   dan seluruh peluang terlihat sekaligus tanpa menggulir lima kolom.
-
-   Yang sudah 'Event Done' tetap tidak ikut, sama seperti di kanban: acara
-   yang sudah jalan bukan lagi peluang, dan mencampurnya membuat angka
-   "peluang aktif" di atas tidak lagi berarti apa-apa. */
-function pipeTabel(){
-  const urutTahap={};
-  PIPE_COLS.forEach(function(k,i){ urutTahap[k]=i; });
-  const list=pipeAktif().slice()
-    .sort(function(a,b){
-      const ta=urutTahap[pipeStatusOfEv(a)], tb=urutTahap[pipeStatusOfEv(b)];
-      if(ta!==tb) return (ta==null?99:ta)-(tb==null?99:tb);
-      return String(a.tanggal||'9999').localeCompare(String(b.tanggal||'9999'));
-    });
-  if(!list.length) return empty('Tidak ada peluang di pipeline',
-    pipePIC?('Tidak ada event yang dipegang '+esc(userName(pipePIC))+'. Pilih PIC lain atau Semua.')
-           :'Buat peluang baru lewat Input & Event.','pipe');
-  /* Kartu angka TIDAK diulang di sini — pipeRingkas() sudah menggambarnya
-     di atas, untuk kedua tab. */
-  let h='<div class="card pad0"><div class="tbl-wrap"><table class="tbl"><thead><tr>'
-    +'<th>Event</th><th>Tahap</th><th>Jenis Event</th><th>Tanggal</th><th>Pax</th>'
-    +'<th>Marketing</th><th>Nilai</th><th></th></tr></thead><tbody>';
-  list.forEach(function(e){
-    const tahap=pipeStatusOfEv(e);
-    h+='<tr class="row-click" onclick="go(\'event\',\''+e.id+'\')">'
-      +'<td><div class="cell-strong">'+esc(e.nama)+'</div>'
-        +'<div class="cell-sub">'+esc(clientName(e.clientId))+' · '+esc(jenisEvent(e))+'</div></td>'
-      /* Dulu di sini ada DUA kolom: Tahap dan Status Event. Sejak
-         moveEventPipe() menyetel keduanya sekaligus, isinya praktis selalu
-         sama — dan dua kolom yang selalu berbunyi sama membuat orang
-         mencari-cari bedanya, lalu menyimpulkan salah satunya salah.
-         Gantinya jenis event, keterangan yang benar-benar berbeda. */
-      +'<td>'+statusChip(tahap)+'</td>'
-      +'<td>'+esc(jenisEvent(e))+'</td>'
-      +'<td class="mono">'+esc(fmtRentang(e))+'</td>'
-      +'<td class="mono">'+(e.pax||'\u2014')+'</td>'
-      +'<td>'+esc(e.mktPIC?userName(e.mktPIC):'\u2014')+'</td>'
-      +'<td class="mono">'+rp(eventFinance(e).grand)+'</td>'
-      +'<td>'+svg(IC.chevR,'')+'</td></tr>';
-  });
-  return h+'</tbody></table></div></div>';
-}
+/* pipeTabel() DIBUANG (Agustus 2026) bersama tab "Tabel Peluang".
+   Isinya himpunan bagian dari Daftar Event — peluang yang belum selesai —
+   dengan kolom yang hampir sama persis, jadi dua tab itu memaksa orang
+   menebak daftar mana yang sedang dilihatnya. Pekerjaannya diambil alih
+   penyaring status di Daftar Event, yang bawaannya menyembunyikan event
+   selesai dan bisa dilonggarkan lewat satu pilihan. */
 let dragId=null;
 function bindKanban(){
   document.querySelectorAll('.kcard').forEach(card=>{
@@ -5863,7 +5846,30 @@ function saveFollowUp(clientId){
    MODUL D — INPUT EVENT & EVENT DETAILING
    ============================================================ */
 let evFilter='';
-let evStatus='';        // '' = semua status
+/* BAWAANNYA MENYEMBUNYIKAN EVENT SELESAI, bukan menampilkan semuanya.
+
+   Nilai sentinel `'__aktif__'`, dibedakan dari `''` yang berarti benar-benar
+   semua status. Alasannya: daftar ini sekarang satu-satunya daftar event di
+   modul (tab Tabel Peluang dibuang), dan yang dibuka orang tiap hari adalah
+   acara yang masih dikerjakan. Kalau bawaannya "semua", event tahun lalu ikut
+   menumpuk di halaman pertama dan yang sedang digarap terdorong ke halaman
+   tiga — daftar yang harus disaring dulu sebelum berguna.
+
+   Yang selesai TIDAK hilang: satu pilihan di kotak status memunculkannya
+   lagi, dan tombol Reset mengembalikan seluruh saringan ke bawaan. Dua-duanya
+   ada karena "kenapa event saya tidak ada" hampir selalu berarti saringan,
+   bukan data — dan jalan keluarnya harus terlihat di layar yang sama. */
+let evStatus='__aktif__';   // '__aktif__' = semua kecuali Event Done; '' = benar-benar semua
+const EV_STATUS_AKTIF='__aktif__';
+/* Bawaan seluruh saringan Daftar Event. Satu tempat, dipakai tombol Reset DAN
+   pemeriksaan "sedang tersaring atau tidak" — dua daftar terpisah akan bikin
+   tombol Reset muncul padahal tidak ada yang perlu direset, atau lebih buruk,
+   tidak muncul justru saat dibutuhkan. */
+function evSaringanBawaan(){ return briefPeriode==='' && evStatus===EV_STATUS_AKTIF && !evFilter && !pipePIC; }
+function evResetSaringan(){
+  briefPeriode=''; briefBulan=''; evStatus=EV_STATUS_AKTIF; evFilter=''; pipePIC='';
+  go('pipeline');
+}
 /* Dulu renderEvents(V) — halaman Input & Event yang berdiri sendiri. Sekarang
    ia memulangkan HTML saja, tanpa pageHead dan tanpa menyentuh V, karena
    kepalanya sudah digambar renderPipeline() bersama tab dan penyaring PIC.
@@ -5901,12 +5907,24 @@ function pipeIsiEvents(){
       empat tombol periode + kotak pencarian itu pasti melipat jadi dua
       baris. Periode cuma empat dan dipakai jauh lebih sering, jadi yang
       itu yang pantas memakan lebar. */
+   /* Dua pilihan teratas BUKAN status, melainkan dua cara membaca daftar
+      ini: yang masih dikerjakan (bawaan) dan benar-benar semuanya. Ditaruh
+      di kotak yang sama dengan status supaya jalan keluar dari "kenapa event
+      selesai saya tidak ada" berada persis di tempat yang menyembunyikannya
+      — bukan di sudut lain layar yang harus ditemukan dulu. */
    +'<select class="inp" style="width:auto" onchange="evStatus=this.value;paintEvents()">'
-   +'<option value=""'+(evStatus===''?' selected':'')+'>Semua status</option>'
+   +'<option value="'+EV_STATUS_AKTIF+'"'+(evStatus===EV_STATUS_AKTIF?' selected':'')+'>Semua kecuali selesai</option>'
+   +'<option value=""'+(evStatus===''?' selected':'')+'>Semua status (termasuk selesai)</option>'
    +EV_STATUSES.map(function(x){
        return '<option value="'+esc(x)+'"'+(evStatus===x?' selected':'')+'>'+esc(x)+'</option>'; }).join('')
    +'</select>'
-   +'<div class="searchbar">'+svg(IC.search)+'<input placeholder="Cari event / client..." oninput="evFilter=this.value;paintEvents()"></div>'
+   +'<div class="searchbar">'+svg(IC.search)+'<input placeholder="Cari event / client..." value="'+esc(evFilter)+'" oninput="evFilter=this.value;paintEvents()"></div>'
+   /* Tombol Reset selalu ada di DOM, cuma disembunyikan saat tidak ada yang
+      perlu direset — paintEvents() menyalakannya di tempat. Kalau ia ikut
+      dibangun ulang, kotak pencarian di sebelahnya kehilangan fokus tiap
+      huruf yang diketik. */
+   +'<button class="btn sm" id="ev-reset" style="display:none" onclick="evResetSaringan()" '
+     +'title="Kembalikan periode, status, PIC & pencarian ke bawaan">Reset filter</button>'
    +'<span class="cell-sub" id="ev-hitung"></span>';
   return h+'</div><div class="card pad0"><div id="ev-table"></div></div>';
 }
@@ -5920,6 +5938,13 @@ const KOL_EVENTS=[
   {k:'tanggal', t:'Tanggal',     v:e=>e.tanggal, cls:'mono', turun:1, def:1},
   {k:'pax',     t:'Pax',         v:e=>+e.pax||0, cls:'mono', turun:1},
   {k:'status',  t:'Status',      v:e=>e.status},
+  /* PIC Marketing punya kolom sendiri, dan sengaja BISA DIURUTKAN: itulah
+     satu-satunya cara mengumpulkan seluruh event satu orang tanpa memakai
+     chip penyaring di atas — berguna justru saat yang dicari perbandingan
+     antar orang, bukan daftar satu orang. Diurutkan lewat userName(), bukan
+     e.mktPIC: mengurutkan menurut id internal menghasilkan urutan acak yang
+     terlihat seperti tabelnya rusak. */
+  {k:'pic',     t:'PIC Marketing', v:e=>e.mktPIC?userName(e.mktPIC):''},
   {k:'grand',   t:'Grand Total', v:e=>eventFinance(e).grand, cls:'mono', turun:1},
   /* Dulu kolom ini berisi status invoice (Draft/Sent/Pending/Paid/Overdue).
      Status itu sudah punya rumahnya sendiri di menu Invoice & Payment, dan
@@ -5960,7 +5985,12 @@ function paintEvents(){
      periode ini", jadi menyaring status ke Deal harus terbaca "3 dari 40"
      — itulah yang memberi tahu bahwa 37 lainnya berstatus lain, bukan
      bahwa datanya hilang. */
-  if(evStatus) evs=evs.filter(function(e){ return e.status===evStatus; });
+  /* '__aktif__' = semua KECUALI yang sudah selesai. Ini bawaannya, jadi
+     cabang inilah yang paling sering dilalui — lihat keterangan di deklarasi
+     evStatus. '' = benar-benar semua, termasuk Event Done. */
+  const nSelesai=seperiode.filter(function(e){ return e.status==='Event Done'; }).length;
+  if(evStatus===EV_STATUS_AKTIF) evs=evs.filter(function(e){ return e.status!=='Event Done'; });
+  else if(evStatus) evs=evs.filter(function(e){ return e.status===evStatus; });
   if(evFilter){ const q=evFilter.toLowerCase(); evs=evs.filter(e=>(e.nama+' '+clientName(e.clientId)).toLowerCase().includes(q)); }
   evs=tblUrut(evs,'events',KOL_EVENTS);
   /* Tombol periode hidup di kepala halaman yang TIDAK digambar ulang oleh
@@ -5987,20 +6017,36 @@ function paintEvents(){
       } else if(briefPeriode!=='pilih' && adaPulang){ pulang.remove(); }
     }
   }
+  /* Tombol Reset cuma menyala kalau memang ada yang berbeda dari bawaan.
+     Tombol yang selalu ada tapi seringnya tidak melakukan apa pun akan
+     berhenti dibaca justru saat ia dibutuhkan. */
+  const btnReset=$('ev-reset');
+  if(btnReset) btnReset.style.display=evSaringanBawaan()?'none':'';
   const hit=$('ev-hitung');
   if(hit) hit.textContent=evs.length+' dari '+seperiode.length+' event'
-    +(r?' · '+fmtDate(r.a)+(r.a!==r.b?' – '+fmtDate(r.b):''):'');
+    +(r?' · '+fmtDate(r.a)+(r.a!==r.b?' – '+fmtDate(r.b):''):'')
+    /* Jumlah yang DISEMBUNYIKAN disebutkan terang-terangan. Tanpa ini,
+       daftar yang bawaannya sudah tersaring terbaca sebagai daftar lengkap,
+       dan orang menyimpulkan event selesainya hilang dari sistem. */
+    +((evStatus===EV_STATUS_AKTIF && nSelesai)?' · '+nSelesai+' selesai disembunyikan':'');
   if(!evs.length){
     /* pipePIC ikut dihitung sebagai saringan. Kalau tidak, memilih satu nama
        yang belum punya event pada periode itu menghasilkan "Belum ada event"
        — kalimat yang menuduh datanya kosong padahal yang menyaring justru
        chip yang sedang menyala di atas layar. */
-    const adaSaringan=briefPeriode||evStatus||evFilter||pipePIC;
+    const adaSaringan=!evSaringanBawaan();
+    /* Kalau yang menyembunyikan justru saringan BAWAAN — semuanya sudah
+       selesai — kalimatnya harus menyebut itu, bukan menyuruh "longgarkan
+       saringan" pada layar yang saringannya terlihat kosong. */
+    const cumaSelesai=!adaSaringan && nSelesai>0;
     return $('ev-table').innerHTML=empty(
-      adaSaringan?'Tidak ada yang cocok':'Belum ada event',
-      adaSaringan?('Longgarkan saringan periode/status, kosongkan pencariannya'
-                  +(pipePIC?(', atau pilih PIC <b>Semua</b> — sekarang tersaring ke '+esc(userName(pipePIC))):'')+'.')
-                 :'Buat event dari client yang sudah Deal.','event');
+      cumaSelesai?'Semua event di sini sudah selesai'
+                 :(adaSaringan?'Tidak ada yang cocok':'Belum ada event'),
+      cumaSelesai?(nSelesai+' event selesai disembunyikan. Pilih <b>Semua status (termasuk selesai)</b> di kotak status untuk melihatnya.')
+       :(adaSaringan?('Longgarkan saringan periode/status, kosongkan pencariannya'
+                  +(pipePIC?(', atau pilih PIC <b>Semua</b> — sekarang tersaring ke '+esc(userName(pipePIC))):'')
+                  +' — atau tekan <b>Reset filter</b>.')
+                 :'Buat event dari client yang sudah Deal.'),'event');
   }
   const p=tblPage(evs,'events',evFilter||'');
   let h='<div class="tbl-wrap"><table class="tbl">'+tblHead('events',KOL_EVENTS)+'<tbody>';
@@ -6010,6 +6056,15 @@ function paintEvents(){
      +' <span class="chip" style="background:color-mix(in srgb,var('+wj+') 15%,transparent);color:var('+wj+')"><span class="cd" style="background:var('+wj+')"></span>'+esc(jenisEvent(e))+'</span></div>'
      +'<div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td>'
      +'<td class="mono">'+fmtRentang(e)+'<div class="cell-sub">'+(rd>=0?(rd===0?'Hari ini':'H-'+rd):'lewat')+'</div></td><td class="mono">'+(e.pax||'—')+'</td><td>'+statusChip(e.status)+'</td>'
+     /* Avatar inisial + nama depan, bentuk yang sama dengan chip PIC di
+        papan kanban — orang yang sama terbaca sama di kedua tempat. Yang
+        kosong ditulis sebagai tanda hubung dan BUKAN dibiarkan userName()
+        yang memulangkan '—' sendiri: baris tanpa PIC memang perlu terlihat,
+        itu event yang belum ada yang memegang. */
+     +'<td>'+(e.mktPIC
+        ? '<div style="display:flex;align-items:center;gap:7px"><div class="avatar" style="width:24px;height:24px;font-size:10px">'
+          +esc(inisial(userName(e.mktPIC)))+'</div>'+esc(userName(e.mktPIC).split(' ')[0])+'</div>'
+        : '<span class="cell-sub">belum ada PIC</span>')+'</td>'
      +'<td class="mono">'+rp(f.grand)+'</td>'
      /* stopPropagation: seluruh barisnya row-click ke detail event, jadi
         tanpa ini menekan Internal membuka halaman event alih-alih
@@ -13148,39 +13203,29 @@ const KOMPAS_API='../kompas-api-mysql/api.php';
    yang bisa dibuat tanpa sengaja. */
 let perfPeriode=today().slice(0,7);
 let PERF_BD={key:null,st:'idle',pic:[],total:null,hariAda:0,hariIsi:0,galat:''};
-/* ---------- TIM di Marketing Performance ----------
-   Kolom "Tim / Keterangan" di Office adalah TEKS BEBAS: "Marketing",
-   "Marketing & Digital", "Sales & Partnership" semuanya beredar di data yang
-   sama. Mengelompokkan menurut teks apa adanya melahirkan tiga tim untuk satu
-   tim yang sama, dan tiap orang duduk sendirian di timnya.
+/* ---------- PENYARING PER PIC MARKETING ----------
+   Sempat dikelompokkan per TIM (Marketing / Office / Tanpa Tim), dan itu
+   salah untuk papan ini. Sumber timnya kolom "Tim / Keterangan" di Office —
+   teks bebas, isinya keterangan kepegawaian, bukan pembagian kerja marketing
+   — sehingga kelompok yang lahir ("Office", "Tanpa Tim") bukan tim yang
+   benar-benar ada dan tidak seorang pun mengukur dirinya terhadapnya.
 
-   Pelajaran yang sudah mahal di modul DW (19 Agustus 2026): memakai isi kolom
-   bebas sebagai KUNCI PENGELOMPOKAN membuat orang lenyap dari daftar tanpa
-   satu pun galat. Jadi di sini apa pun yang terbaca sebagai
-   marketing/sales/penjualan — timMarketing(), pencocokan KATA UTUH, bukan
-   'contains' — dilebur jadi satu tim 'Marketing'.
+   Yang diukur di sini memang per ORANG: tiap event punya satu Marketing PIC,
+   dan itulah satuan yang dipakai membagi omzet, membaca leaderboard, dan
+   menjawab "punya siapa". Jadi penyaringnya per PIC, dan rekapnya per PIC.
 
-   Sisanya dipakai apa adanya, dan itu disengaja: manager, BD, atau siapa pun
-   dari tim lain yang kebetulan memegang event harus tetap terlihat sebagai
-   timnya sendiri, bukan dibuang dari papan. Kolom kosong -> 'Tanpa Tim';
-   event yang tidak punya PIC sama sekali -> 'Tanpa PIC'. Dua keranjang
-   terakhir itu wajib ada supaya jumlah seluruh tim SELALU sama dengan Total
-   Omzet — baris yang tidak pernah dijumlahkan adalah baris yang tidak pernah
-   diperbaiki. */
-const PERF_TIM_KOSONG='Tanpa Tim';
-const PERF_TIM_NOPIC='Tanpa PIC';
-function perfTimUser(u){
-  if(!u) return PERF_TIM_NOPIC;
-  if(timMarketing(u)) return 'Marketing';
-  return timUser(u).trim()||PERF_TIM_KOSONG;
-}
-function perfTimDari(id){
-  if(!id) return PERF_TIM_NOPIC;
-  const u=(S.users||[]).find(function(x){ return x.id===id; });
-  return u?perfTimUser(u):PERF_TIM_NOPIC;
-}
-let perfTim='';                       // '' = seluruh tim
-function perfSetTim(t){ perfTim=(perfTim===t)?'':t; go('performance'); }
+   '' = semua orang. Keranjang PERF_TANPA_PIC wajib ada: event yang belum ada
+   pemegangnya tetap punya nilai, dan membuangnya diam-diam membuat jumlah
+   seluruh baris lebih kecil daripada Total Omzet — selisih tanpa sebab yang
+   akan dikejar orang. Baris yang tidak pernah dijumlahkan adalah baris yang
+   tidak pernah diperbaiki. */
+const PERF_TANPA_PIC='__nopic__';
+let perfPIC='';                       // '' = seluruh PIC
+function perfSetPIC(id){ perfPIC=(perfPIC===id)?'':id; go('performance'); }
+/* Nama untuk ditampilkan. userName() memulangkan '—' untuk id yang tidak
+   dikenal, dan tanda hubung sebagai judul kolom terbaca seperti data yang
+   terpotong, bukan seperti "belum ada PIC". */
+function perfNamaPIC(id){ return id===PERF_TANPA_PIC?'Belum ada PIC':userName(id); }
 /* OMZET DIAKUI = acara yang HARINYA SUDAH LEWAT.
    Pemisahnya `<` hari ini, bukan `<=`: acara hari ini belum selesai, tamunya
    belum tentu datang, dan tagihannya belum tentu penuh. Mengakuinya hari itu
@@ -13433,29 +13478,32 @@ function renderPerformance(V){
   const vipSemua=(S.vip||[]).filter(v=>v.jenis==='Assisted'&&!v.batalAt&&perfDalam(v.tanggal));
   const punyaKontribusi=id=>evSemua.some(e=>e.mktPIC===id) || vipSemua.some(v=>v.mktPIC===id);
   const mktSemua=S.users.filter(u=>u.active!==false && (timMarketing(u) || punyaKontribusi(u.id)));
-  /* Daftar tim untuk chip di atas. Tim yang sedang dipilih SELALU ikut walau
-     anggotanya habis pada periode ini — kalau chipnya menghilang, orang yang
-     menggeser bulan ke periode kosong kehilangan satu-satunya jalan untuk
-     kembali ke "Semua", dan yang terlihat cuma papan kosong tanpa sebab. */
-  const timAda=[...new Set(mktSemua.map(perfTimUser).concat(perfTim?[perfTim]:[]))].sort();
-  const evPer=perfTim?evSemua.filter(e=>perfTimDari(e.mktPIC)===perfTim):evSemua;
-  const vipPer=perfTim?vipSemua.filter(v=>perfTimDari(v.mktPIC)===perfTim):vipSemua;
+  /* PIC yang sedang dipilih SELALU ikut di daftar chip walau eventnya habis
+     pada periode ini — kalau chipnya menghilang, orang yang menggeser bulan
+     ke periode kosong kehilangan satu-satunya jalan kembali ke "Semua", dan
+     yang terlihat cuma papan kosong tanpa sebab. */
+  const picAda=mktSemua.map(u=>u.id);
+  if(perfPIC && picAda.indexOf(perfPIC)<0) picAda.push(perfPIC);
+  const cocokPIC=id=>!perfPIC || (perfPIC===PERF_TANPA_PIC ? !id : id===perfPIC);
+  const evPer=perfPIC?evSemua.filter(e=>cocokPIC(e.mktPIC)):evSemua;
+  const vipPer=perfPIC?vipSemua.filter(v=>cocokPIC(v.mktPIC)):vipSemua;
   const vipPicPer=uid=>vipPer.filter(v=>v.mktPIC===uid).reduce((a,v)=>a+vipNominal(v),0);
-  const mkt=perfTim?mktSemua.filter(u=>perfTimUser(u)===perfTim):mktSemua;
-  /* Baris chip TIM, bentuk yang sama dengan penyaring PIC di Sales Pipeline.
-     Cuma digambar kalau timnya memang lebih dari satu: satu tombol "Semua"
-     berdampingan dengan satu tombol "Marketing" tidak menyaring apa pun dan
-     hanya menambah baris yang harus dilewati mata. */
-  if(timAda.length>1){
+  const mkt=perfPIC?mktSemua.filter(u=>u.id===perfPIC):mktSemua;
+  /* Baris chip PIC MARKETING, bentuk yang sama dengan penyaring di Sales
+     Pipeline — orang yang sama disaring dengan tombol yang sama rupanya di
+     dua halaman. Cuma digambar kalau orangnya memang lebih dari satu. */
+  if(picAda.length>1){
     h+='<div class="picpick" style="margin:-4px 0 16px">'
-     +'<span class="lbl">'+svg(IC.orang)+'Tim</span>'
-     +'<button type="button" class="picchip semua'+(perfTim?'':' on')+'" onclick="perfSetTim(\'\')">Semua</button>'
-     +timAda.map(function(t){
-        return '<button type="button" class="picchip'+(perfTim===t?' on':'')+'" '
-          +'onclick="perfSetTim(\''+escJs(t)+'\')">'+esc(t)+'</button>'; }).join('')
+     +'<span class="lbl">'+svg(IC.orang)+'PIC</span>'
+     +'<button type="button" class="picchip semua'+(perfPIC?'':' on')+'" onclick="perfSetPIC(\'\')">Semua</button>'
+     +picAda.map(function(id){
+        const n=userName(id);
+        return '<button type="button" class="picchip'+(perfPIC===id?' on':'')+'" '
+          +'onclick="perfSetPIC(\''+escJs(id)+'\')" title="'+esc(n)+'">'
+          +'<span class="av">'+esc(inisial(n))+'</span>'+esc(n.split(' ')[0])+'</button>'; }).join('')
      +'</div>';
   }
-  // team totals
+  // totalan periode (sudah ikut penyaring PIC di atas)
   const closed=evPer.filter(e=>['Confirmed','Deal','Event Done'].includes(e.status));
   // Omzet tim = event closing + seluruh Reservasi VIP Assisted.
   const omzetEvent=closed.reduce((a,e)=>a+eventFinance(e).grand,0);
@@ -13519,38 +13567,55 @@ function renderPerformance(V){
      +'<div class="cell-sub" style="margin-top:6px">'+pct+'% dari omzet '+esc(perfLabelPeriode())+' sudah diakui.</div>'
      +'</div>';
   }
-  /* ---- OMZET PER TIM ----
-     Sengaja memakai evSemua/vipSemua — bukan evPer/vipPer. Rekap yang ikut
-     tersaring tim hanya memantulkan chip yang barusan ditekan, dan tabel yang
-     cuma memantulkan pilihan sendiri tidak pernah memberi tahu apa pun.
-     Kolom di sini adalah pembanding ANTAR tim, jadi ia harus tetap lengkap
-     berapa pun chip yang menyala. */
-  if(timAda.length>1){
-    const timRekap={};
+  /* ---- OMZET PER PIC MARKETING ----
+     Menggantikan rekap per TIM, yang mengelompokkan orang menurut kolom
+     keterangan kepegawaian di Office dan melahirkan kelompok yang tidak
+     pernah ada di lapangan ("Office", "Tanpa Tim"). Satuan yang benar di
+     modul ini adalah Marketing PIC: tiap event punya tepat satu, dan itulah
+     yang dipakai membagi omzet di seluruh halaman ini.
+
+     Sengaja memakai evSemua/vipSemua — BUKAN evPer/vipPer. Rekap yang ikut
+     tersaring hanya memantulkan chip yang barusan ditekan, dan tabel yang
+     cuma memantulkan pilihan sendiri tidak memberi tahu apa pun. Kolom di
+     sini adalah pembanding ANTAR orang, jadi ia tetap lengkap berapa pun
+     chip yang menyala.
+
+     Kartu batang "Omzet per Marketing" DIBUANG bersama lahirnya tabel ini:
+     isinya angka yang sama persis dengan kolom Omzet + Porsi di bawah, cuma
+     tanpa jumlah event dan tanpa bisa ditekan. Dua gambar untuk satu angka di
+     satu halaman membuat orang mencari-cari bedanya. */
+  {
+    const picRekap={};
     const tambah=function(id,nilai,jenis){
-      const t=perfTimDari(id);
-      const r=timRekap[t]||(timRekap[t]={tim:t,om:0,ev:0,vip:0,orang:{}});
+      const k=id||PERF_TANPA_PIC;
+      const r=picRekap[k]||(picRekap[k]={id:k,om:0,ev:0,vip:0});
       r.om+=nilai; if(jenis==='ev') r.ev++; else r.vip++;
-      if(id) r.orang[id]=1;
     };
     evSemua.filter(function(e){ return ['Confirmed','Deal','Event Done'].includes(e.status); })
       .forEach(function(e){ tambah(e.mktPIC,eventFinance(e).grand,'ev'); });
     vipSemua.forEach(function(v){ tambah(v.mktPIC,vipNominal(v),'vip'); });
-    const timBaris=Object.keys(timRekap).map(function(k){ return timRekap[k]; })
-      .sort(function(a,b){ return b.om-a.om; });
-    const totalTim=timBaris.reduce(function(a,r){ return a+r.om; },0);
+    /* Anggota tim yang periode ini TIDAK menghasilkan apa pun tetap dapat
+       baris bernilai nol. Menghilangkannya membuat papan terbaca seolah
+       timnya cuma berisi orang-orang yang sedang bagus bulan ini, dan nol
+       yang tidak tertulis tidak pernah ditanyakan siapa pun. */
+    mktSemua.forEach(function(u){ if(!picRekap[u.id]) picRekap[u.id]={id:u.id,om:0,ev:0,vip:0}; });
+    const picBaris=Object.keys(picRekap).map(function(k){ return picRekap[k]; })
+      .sort(function(a,b){ return b.om-a.om || perfNamaPIC(a.id).localeCompare(perfNamaPIC(b.id)); });
+    const totalPic=picBaris.reduce(function(a,r){ return a+r.om; },0);
     h+='<div class="card pad0" style="margin-bottom:18px">'
      +'<div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)">'
-     +'<h3 style="font-size:15px">Omzet per Tim · '+esc(perfLabelPeriode())+'</h3>'
-     +'<div class="cell-sub">Tekan satu baris untuk menyaring seluruh halaman ke tim itu. Jumlah seluruh baris = Total Omzet periode ini.</div></div>'
-     +'<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tim</th><th>Orang</th>'
+     +'<h3 style="font-size:15px">Omzet per PIC Marketing · '+esc(perfLabelPeriode())+'</h3>'
+     +'<div class="cell-sub">Tekan satu baris untuk menyaring seluruh halaman ke orang itu. Jumlah seluruh baris = Total Omzet periode ini.</div></div>'
+     +'<div class="tbl-wrap"><table class="tbl"><thead><tr><th>PIC Marketing</th>'
      +'<th>Event Closing</th><th>Reservasi VIP</th><th>Omzet</th><th>Porsi</th></tr></thead><tbody>';
-    timBaris.forEach(function(r){
-      const pct=totalTim?Math.round(r.om/totalTim*100):0;
-      h+='<tr class="row-click"'+(perfTim===r.tim?' style="background:color-mix(in srgb,var(--gold) 10%,transparent)"':'')
-       +' onclick="perfSetTim(\''+escJs(r.tim)+'\')">'
-       +'<td class="cell-strong">'+esc(r.tim)+'</td>'
-       +'<td class="mono">'+Object.keys(r.orang).length+'</td>'
+    picBaris.forEach(function(r){
+      const pct=totalPic?Math.round(r.om/totalPic*100):0;
+      const nama=perfNamaPIC(r.id);
+      h+='<tr class="row-click"'+(perfPIC===r.id?' style="background:color-mix(in srgb,var(--gold) 10%,transparent)"':'')
+       +' onclick="perfSetPIC(\''+escJs(r.id)+'\')">'
+       +'<td><div style="display:flex;align-items:center;gap:9px">'
+         +(r.id===PERF_TANPA_PIC?'':'<div class="avatar" style="width:26px;height:26px;font-size:11px">'+esc(inisial(nama))+'</div>')
+         +'<span class="cell-strong">'+esc(nama)+'</span></div></td>'
        +'<td class="mono">'+r.ev+'</td><td class="mono">'+r.vip+'</td>'
        +'<td class="mono" style="color:var(--gold-deep);font-weight:600">'+rp(r.om)+'</td>'
        +'<td><div class="progress" style="height:9px;min-width:80px"><div class="bar" style="width:'+pct+'%"></div></div>'
@@ -13563,22 +13628,35 @@ function renderPerformance(V){
      Ditaruh langsung di bawah kartu omzet, sebelum apa pun yang lain: inilah
      pertanyaan yang membuat halaman ini direvisi, dan menaruhnya di bawah
      grafik berarti tidak akan pernah dilihat. */
-  /* HANYA saat seluruh tim tampil. Angka Breakdown Finance yang dibaca
-     PERF_BD adalah alokasi SATU VENUE — tidak ada pemilahan per tim di sana,
-     dan tidak bisa ada, karena finance membreakdown per hari bukan per tim.
-     Menyandingkannya dengan omzet yang sudah tersaring satu tim menghasilkan
-     "Selisih" raksasa yang seluruhnya palsu, dan yang membacanya akan
-     mengejar selisih yang tidak pernah ada. */
-  if(!perfTim){
-    const sel=(bdTotal===null)?null:(bdTotal-omzet);
-    const nilaiBd=(bdTotal===null)
+  /* Angka pembandingnya IKUT penyaring PIC, dan itu bisa dilakukan karena
+     Finance memang membreakdown omset PER PIC (PERF_BD.pic) — beda dengan
+     rekap per tim, yang tidak punya pasangan di sisi Finance sama sekali.
+     Jadi menyaring ke satu orang tetap menyandingkan dua angka yang setara:
+     omzet yang ia sepakati vs yang dialokasikan finance atas namanya.
+
+     'Belum ada PIC' adalah satu-satunya keadaan tanpa pasangan — Finance
+     tidak punya baris untuk "tidak ada siapa-siapa" — jadi di sana kartunya
+     tidak digambar, bukan digambar dengan nol yang akan terbaca sebagai
+     selisih sebesar seluruh omzetnya. */
+  const bdPilih=(function(){
+    if(!perfPIC) return bdTotal;
+    if(perfPIC===PERF_TANPA_PIC) return undefined;      // tak punya pasangan
+    if(PERF_BD.st!=='ok') return null;
+    const u=(S.users||[]).find(function(x){ return x.id===perfPIC; });
+    const row=u?perfBdUntuk(u):null;
+    return row?(+row.diakui||0):0;
+  })();
+  if(bdPilih!==undefined){
+    const sel=(bdPilih===null)?null:(bdPilih-omzet);
+    const nilaiBd=(bdPilih===null)
       ? '<span class="cell-sub">'+(PERF_BD.st==='muat'?'menunggu Finance…':'tidak terbaca')+'</span>'
-      : '<b class="mono" style="font-size:20px">'+rp(bdTotal)+'</b>';
+      : '<b class="mono" style="font-size:20px">'+rp(bdPilih)+'</b>';
     const nilaiSel=(sel===null)?'<span class="cell-sub">—</span>'
       : '<b class="mono" style="font-size:20px;color:'+(sel===0?'var(--muted)':(sel<0?'var(--danger)':'var(--gold-deep)'))+'">'
         +(sel>0?'+':'')+rp(sel)+'</b>';
     h+='<div class="card" style="margin-bottom:18px">'
-     +'<h3 style="font-size:15px;margin-bottom:4px">Dua Sumber Angka · '+esc(perfLabelPeriode())+'</h3>'
+     +'<h3 style="font-size:15px;margin-bottom:4px">Dua Sumber Angka · '
+       +(perfPIC?esc(perfNamaPIC(perfPIC))+' · ':'')+esc(perfLabelPeriode())+'</h3>'
      +'<p class="cell-sub" style="margin-bottom:14px">Kiri: yang <b>disepakati</b> — dari isian modul ini. Kanan: yang <b>dialokasikan</b> finance di Breakdown Sumber Omset. Keduanya tidak harus sama.</p>'
      +'<div class="grid g-3">'
      +'<div><div class="cell-sub">Menurut Marketing</div><b class="mono" style="font-size:20px">'+rp(omzet)+'</b>'
@@ -13601,9 +13679,9 @@ function renderPerformance(V){
      +'</div>';
   } else {
     h+='<div class="tbl-note" style="margin-bottom:18px">'+svg(IC.alert)
-     +'<span>Pembanding <em>Breakdown Finance</em> disembunyikan selama halaman disaring ke satu tim. '
-     +'Finance membreakdown omset <em>per hari</em>, bukan per tim, jadi angkanya tidak punya pasangan yang setara di sini. '
-     +'Pilih <b>Semua</b> di baris Tim untuk melihatnya.</span></div>';
+     +'<span>Pembanding <em>Breakdown Finance</em> tidak ada untuk <em>Belum ada PIC</em>: '
+     +'finance mengalokasikan omset atas nama orang, jadi tidak ada baris yang bisa disandingkan dengan event yang belum ada pemegangnya. '
+     +'Pilih <b>Semua</b> atau satu nama di baris PIC untuk melihatnya.</span></div>';
   }
   /* Baris kedua: dua angka yang sebelumnya berdesakan di baris pertama.
      Tidak dibuang — keduanya tetap dipakai, hanya bukan yang pertama
@@ -13620,33 +13698,20 @@ function renderPerformance(V){
   if(closed.length && !omzet) h+='<div class="tbl-note" style="margin-top:-6px;margin-bottom:16px">'+svg(IC.alert)+'<span>Ada <em>'+closed.length+' event closing</em> tapi omzet masih Rp0 — nilai event dihitung dari biaya <em>Sewa Venue, F&amp;B, Sound/Lighting, Lain-lain</em> di tab Event Brief &amp; Quotation. Isi di sana agar omzet terhitung.</span></div>';
   // funnel
   const funnel=[['Lead',atStage('Lead')],['Prospect',atStage('Prospect')],['Quotation Terkirim',atStage('Quotation Terkirim')],['Deal',deals],['Lost',atStage('Lost')]];
-  h+='<div class="grid" style="grid-template-columns:1fr 1fr;align-items:start"><div class="card"><h3 style="font-size:15px;margin-bottom:4px">Distribusi Peluang per Tahap</h3><p class="cell-sub" style="margin-bottom:14px">Tiap event dihitung sekali, di tahapnya saat ini. Total = '+leads+' peluang dengan tanggal acara di '+esc(perfLabelPeriode())+'.</p>';
+  /* Selebar halaman, bukan setengah baris. Sisi kanannya dulu ditempati
+     kartu batang "Omzet per Marketing", yang dibuang begitu tabel Omzet per
+     PIC Marketing lahir — angkanya sama persis, dan grid dua kolom yang satu
+     selnya kosong menyisakan lubang yang terbaca seperti ada yang gagal
+     dimuat. */
+  h+='<div class="card"><h3 style="font-size:15px;margin-bottom:4px">Distribusi Peluang per Tahap</h3><p class="cell-sub" style="margin-bottom:14px">Tiap event dihitung sekali, di tahapnya saat ini. Total = '+leads+' peluang dengan tanggal acara di '+esc(perfLabelPeriode())+'.</p>';
   const maxF=Math.max(1,...funnel.map(f=>f[1]));
   funnel.forEach(([l,n])=>{ const w=Math.round(n/maxF*100); h+='<div style="margin-bottom:12px"><div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px"><span>'+l+'</span><span class="mono">'+n+'</span></div><div class="progress" style="height:12px"><div class="bar" style="width:'+w+'%"></div></div></div>'; });
   h+='</div>';
-  // per marketing bars
-  h+='<div class="card"><h3 style="font-size:15px;margin-bottom:16px">Omzet per Orang'+(perfTim?' &middot; '+esc(perfTim):'')+'</h3>';
-  if(!mkt.length) h+=empty(
-    perfTim?('Tidak ada anggota '+esc(perfTim)+' yang aktif'):'Belum ada anggota Tim Marketing',
-    perfTim?'Tekan <b>Semua</b> di baris Tim untuk melihat seluruh orang.'
-           :'Grafik ini per orang. Isi kolom <b>Tim / Keterangan</b> orang itu dengan <b>Marketing</b> di Office &rarr; Kelola User supaya muncul di sini.','crm');
-  else{
-    h+='<div class="bars">';
-    /* Omzet per orang = event closing + Reservasi VIP ASSISTED miliknya.
-       VIP Regular tidak pernah ikut: itu bantuan booking, bukan pencapaian. */
-    const perM=mkt.map(u=>({u,
-      v:closed.filter(e=>e.mktPIC===u.id).reduce((a,e)=>a+eventFinance(e).grand,0)
-        + vipPicPer(u.id)}));
-    const maxM=Math.max(1,...perM.map(x=>x.v));
-    perM.forEach(x=>{ const hp=Math.round(x.v/maxM*100); h+='<div class="bcol"><div class="mono" style="font-size:9.5px;color:var(--gold-deep);white-space:nowrap">'+rp(x.v)+'</div><div class="bfill" style="height:'+hp+'%"></div><div class="blbl">'+esc(x.u.name.split(' ')[0])+'</div></div>'; });
-    h+='</div>';
-  }
-  h+='</div></div>';
   // leaderboard + detail per marketing (digabung: diurutkan omzet terbesar, juara 1 dapat bintang)
-  h+='<div class="card pad0" style="margin-top:16px"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Leaderboard '+(perfTim?esc(perfTim):'Marketing')+' · '+esc(perfLabelPeriode())+'</h3><div class="cell-sub">Diurutkan dari omzet terbesar. <b>Omzet (Marketing)</b> = nilai yang disepakati di modul ini; <b>Omzet (Breakdown)</b> = yang dialokasikan finance atas nama orang ini di Finance → Breakdown Sumber Omset.</div></div>';
+  h+='<div class="card pad0" style="margin-top:16px"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Leaderboard '+(perfPIC?esc(perfNamaPIC(perfPIC)):'Marketing')+' · '+esc(perfLabelPeriode())+'</h3><div class="cell-sub">Diurutkan dari omzet terbesar. <b>Omzet (Marketing)</b> = nilai yang disepakati di modul ini; <b>Omzet (Breakdown)</b> = yang dialokasikan finance atas nama orang ini di Finance → Breakdown Sumber Omset.</div></div>';
   if(!mkt.length){ h+='<div style="padding:8px 20px 20px">'+empty(
-    perfTim?('Tidak ada anggota '+esc(perfTim)+' yang aktif'):'Belum ada anggota Tim Marketing',
-    perfTim?'Tekan <b>Semua</b> di baris Tim untuk melihat seluruh orang.'
+    perfPIC?('Tidak ada data untuk '+esc(perfNamaPIC(perfPIC))):'Belum ada anggota Tim Marketing',
+    perfPIC?'Tekan <b>Semua</b> di baris PIC untuk melihat seluruh orang.'
            :'Tabel ini merinci performa tiap anggota Tim Marketing. Timnya diatur di Office &rarr; Kelola User, kolom <b>Tim / Keterangan</b>.','crm')+'</div>'; V.innerHTML=h+'</div>'; return; }
   const rows=mkt.map(u=>{
     const ev=closed.filter(e=>e.mktPIC===u.id);

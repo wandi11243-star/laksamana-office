@@ -5327,14 +5327,36 @@ function doDelClient() { can(); toast(); $(); namaCocok(); closeModal(); logAct(
 
 
 
-function pipeDaftarPIC() { userName(); }
+
+
+
+
+
+
+
+
+
+
+
+function pipeDaftarPIC() { timMarketing(); userName(); }
+
+
 
 
 
 
 function pipeSetPIC() { go(); }
 function pipeCocokPIC() {  }
-function renderPipeline() { pipeDaftarPIC(); can(); svg(); pipeSetPIC(); userName(); esc(); inisial(); pageHead(); pipeSetTab(); newEvent(); pipeIsiEvents(); paintEvents(); pipeRingkas(); pipeTabel(); pipeKanban(); bindKanban(); }
+function renderPipeline() { pipeDaftarPIC(); can(); svg(); pipeSetPIC(); userName(); esc(); inisial(); pageHead(); pipeSetTab(); newEvent(); pipeRingkas(); pipeIsiEvents(); paintEvents(); pipeKanban(); bindKanban(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -5581,45 +5603,6 @@ function pipeRingkas() { pipeAktif(); eventFinance(); esc(); userName(); pipeSta
 
 
 
-
-function pipeTabel() { pipeAktif(); pipeStatusOfEv(); empty(); esc(); userName(); pipeRingkas(); go(); clientName(); jenisEvent(); moveEventPipe(); statusChip(); fmtRentang(); eventFinance(); svg(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 function bindKanban() { moveEventPipe(); }
 
 
@@ -5820,7 +5803,7 @@ function logFollowUp() { clientOpenEvents(); modal(); esc(); closeModal(); svg()
 function fuEventChange() { $(); }
 
 
-function saveFollowUp() { $(); toast(); uid(); today(); logAct(); ingatkanStage(); genTasks(); nextFUDate(); save(); closeModal(); esc(); go(); renderPipeline(); paintEvents(); }
+function saveFollowUp() { $(); toast(); uid(); today(); logAct(); ingatkanStage(); genTasks(); nextFUDate(); save(); closeModal(); esc(); go(); }
 
 
 
@@ -5869,7 +5852,6 @@ function saveFollowUp() { $(); toast(); uid(); today(); logAct(); ingatkanStage(
 
 
 
-function pipeIsiEvents() { paintEvents(); briefSetPeriode(); esc(); briefGeserBulan(); briefLabelBulan(); briefBulanIni(); svg(); eventFinance(); }
 
 
 
@@ -5883,6 +5865,8 @@ function pipeIsiEvents() { paintEvents(); briefSetPeriode(); esc(); briefGeserBu
 
 
 
+function evSaringanBawaan() {  }
+function evResetSaringan() { go(); renderPipeline(); paintEvents(); }
 
 
 
@@ -5891,6 +5875,7 @@ function pipeIsiEvents() { paintEvents(); briefSetPeriode(); esc(); briefGeserBu
 
 
 
+function pipeIsiEvents() { paintEvents(); briefSetPeriode(); esc(); briefGeserBulan(); briefLabelBulan(); briefBulanIni(); svg(); evResetSaringan(); userName(); eventFinance(); }
 
 
 
@@ -5932,7 +5917,77 @@ function pipeIsiEvents() { paintEvents(); briefSetPeriode(); esc(); briefGeserBu
 
 
 
-function paintEvents() { $(); briefRentang(); clientName(); tblUrut(); call(); briefLabelBulan(); briefBulanIni(); fmtDate(); empty(); esc(); userName(); tblPage(); tblHead(); eventFinance(); daysTo(); go(); jenisEvent(); fmtRentang(); statusChip(); genBriefFor(); draftNegotiation(); svg(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function paintEvents() { $(); briefRentang(); clientName(); tblUrut(); call(); briefLabelBulan(); briefBulanIni(); evSaringanBawaan(); fmtDate(); empty(); esc(); userName(); tblPage(); tblHead(); eventFinance(); daysTo(); go(); jenisEvent(); fmtRentang(); statusChip(); inisial(); genBriefFor(); draftNegotiation(); svg(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -13091,7 +13146,7 @@ function renderApprovals() { bisaPutusPenawaran(); can(); approvalRows(); pageHe
 
 
 
-function decideApproval() { logAct(); pushNotif(); save(); buildNav(); toast(); go(); today(); timMarketing(); }
+function decideApproval() { logAct(); pushNotif(); save(); buildNav(); toast(); go(); today(); }
 
 
 
@@ -13166,21 +13221,11 @@ function decideApproval() { logAct(); pushNotif(); save(); buildNav(); toast(); 
 
 
 
+function perfSetPIC() { go(); userName(); }
 
 
 
-function perfTimUser() { timMarketing(); timUser(); }
-
-
-
-
-function perfTimDari() { perfTimUser(); }
-
-
-
-
-
-function perfSetTim() { go(); }
+function perfNamaPIC() { userName(); }
 
 
 
@@ -13370,7 +13415,7 @@ function perfPitaBD() { esc(); perfLabelPeriode(); svg(); muatPerfBD(); }
 
 
 
-function renderPerformance() { muatPerfBD(); pageHead(); perfMode(); perfSetMode(); esc(); perfGeser(); perfBisaGeser(); perfLabelPilihHTML(); timMarketing(); perfDalam(); perfTimDari(); vipNominal(); perfTimUser(); svg(); perfSetTim(); escJs(); eventFinance(); stat(); perfLabelPeriode(); perfSudahLewat(); }
+function renderPerformance() { muatPerfBD(); pageHead(); perfMode(); perfSetMode(); esc(); perfGeser(); perfBisaGeser(); perfLabelPilihHTML(); timMarketing(); perfDalam(); vipNominal(); svg(); perfSetPIC(); userName(); escJs(); inisial(); eventFinance(); stat(); perfLabelPeriode(); perfSudahLewat(); }
 
 
 
@@ -13527,7 +13572,27 @@ function renderPerformance() { muatPerfBD(); pageHead(); perfMode(); perfSetMode
 
 
 
-function tambah() { perfTimDari(); eventFinance(); vipNominal(); esc(); perfLabelPeriode(); perfSetTim(); escJs(); perfPitaBD(); svg(); stat(); clientEventCount(); empty(); perfBdUntuk(); tblUrut(); tblPage(); tblHead(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tambah() { eventFinance(); vipNominal(); perfNamaPIC(); esc(); perfLabelPeriode(); perfSetPIC(); escJs(); inisial(); perfPitaBD(); perfBdUntuk(); svg(); stat(); clientEventCount(); empty(); tblUrut(); tblPage(); tblHead(); tblPagerHtml(); }
+
+
+
+
+
+
 
 
 
