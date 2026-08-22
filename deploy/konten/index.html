@@ -821,6 +821,38 @@ function contentPlatforms(c){
   const list=(c.platforms&&c.platforms.length?c.platforms:(c.platform?[c.platform]:[])).map(normPlatform);
   return [...new Set(list.filter(Boolean))];
 }
+/* Content Type & Print Type BISA LEBIH DARI SATU (Agustus 2026). Satu materi
+   dipakai ulang sebagai Reel sekaligus Story, dan satu desain dicetak sebagai
+   A4 sekaligus X Banner — dulu itu harus dibuat sebagai dua entri konten yang
+   judul, caption, dan deadline-nya digandakan, lalu berselisih begitu salah
+   satunya direvisi.
+
+   Data lama menyimpan SATU string (`contentType` / `printType`). Kedua fungsi
+   di bawah membaca bentuk lama maupun baru, jadi tidak ada migrasi yang harus
+   jalan lebih dulu dan tidak ada konten lama yang kehilangan tipenya di layar
+   sebelum sempat dibuka & disimpan ulang. Bentuk lama TETAP ikut ditulis saat
+   menyimpan (isi pertama) — kalender, queue, dan ekspor CSV lama membacanya,
+   dan mencabutnya sekaligus berarti mencari semua pembacanya dalam satu
+   napas. */
+function contentTypes(c){
+  if(!c)return [];
+  const l=(c.contentTypes&&c.contentTypes.length)?c.contentTypes:(c.contentType?[c.contentType]:[]);
+  return [...new Set(l.filter(Boolean))];
+}
+function printTypes(c){
+  if(!c)return [];
+  const l=(c.printTypes&&c.printTypes.length)?c.printTypes:(c.printType?[c.printType]:[]);
+  return [...new Set(l.filter(Boolean))];
+}
+// Label ringkas untuk baris tabel & kartu kalender. '-' hanya kalau memang kosong.
+function contentTypeLabel(c){const l=contentTypes(c);return l.length?l.join(' + '):'-';}
+function printTypeLabel(c){return printTypes(c).join(' + ');}
+/* Referensi konten: campuran tautan & gambar, satu larik.
+   Bentuknya {t:'link'|'img', v:<url atau data URI>, n:<label>}. Disatukan
+   dalam satu larik, bukan dua, supaya urutan yang dikirim orang tetap utuh —
+   "lihat linknya dulu, baru fotonya" adalah keterangan yang hilang kalau
+   keduanya dipisah jadi dua daftar. */
+function contentRefs(c){return (c&&Array.isArray(c.refs))?c.refs:[];}
 const PRIORITY={urgent:{label:'Urgent',cls:'p-urgent',n:4},high:{label:'Tinggi',cls:'p-high',n:3},medium:{label:'Sedang',cls:'p-med',n:2},low:{label:'Rendah',cls:'p-low',n:1}};
 const CONTENT_TYPES=['Reel','Feed / Carousel','Story','Single Image','Video Long','Short/Shorts','Live','Article','Thread','Videotron'];
 const PILLARS=['Product & Menu','Promotion','Event','Entertainment','Education','Lifestyle','BTS','Corporate','Community','Information'];
@@ -997,8 +1029,16 @@ function seed(){
 function mkContent(o){
   return Object.assign({
     id:uid('ct'),brand:'b_lm',campaign:'',platform:'IG',platforms:['IG'],pillar:PILLARS[0],series:'',
-    title:'',hook:'',objective:'',cta:'',audience:'',keyword:'',contentType:'Reel',printType:'',duration:'',lang:'ID',
-    caption:'',hashtags:[],script:'',shotList:'',reference:'',thumbnail:'',
+    /* hook / objective / cta / audience DIBUANG dari formulir & tampilan
+       (Agustus 2026) — empat kotak isian yang di lapangan hampir selalu
+       kosong atau mengulang isi Caption, sementara keduanya berdesakan di
+       layar yang sama dengan Script. Bidangnya SENGAJA masih didaftarkan di
+       sini: konten lama yang terlanjur terisi tidak dihapus datanya, jadi
+       kalau suatu saat salah satunya dibutuhkan lagi isinya masih ada.
+       Yang hilang cuma kotak isian dan kartu tampilannya. */
+    title:'',hook:'',objective:'',cta:'',audience:'',keyword:'',
+    contentType:'Reel',contentTypes:['Reel'],printType:'',printTypes:[],duration:'',lang:'ID',
+    caption:'',hashtags:[],script:'',shotList:'',reference:'',refs:[],thumbnail:'',
     deadline:'',publishDate:'',publishTime:'20:00',pic:'',priority:'medium',status:'Idea',
     checklist:[],comments:[],revisions:[],approvals:[],publishRecord:null,metrics:null,assets:[],prod:{},
     createdBy:'u_admin',createdAt:Date.now()
@@ -1483,7 +1523,7 @@ function filteredContent(){
   if(f.platform)list=list.filter(c=>contentPlatforms(c).includes(f.platform));
   if(f.pillar)list=list.filter(c=>c.pillar===f.pillar);
   if(f.pic)list=list.filter(c=>c.pic===f.pic);
-  if(f.q){const q=f.q.toLowerCase();list=list.filter(c=>(c.title+c.caption+c.hook).toLowerCase().includes(q));}
+  if(f.q){const q=f.q.toLowerCase();list=list.filter(c=>(c.title+c.caption+(c.script||'')).toLowerCase().includes(q));}
   return list.sort((a,b)=>new Date(a.deadline||'2099')-new Date(b.deadline||'2099'));
 }
 function renderPlanTable(){
@@ -1493,7 +1533,7 @@ function renderPlanTable(){
     <th>Konten</th><th>Brand</th><th>Platform</th><th>Pillar</th><th>PIC</th><th>Status</th><th>Prioritas</th><th>Deadline</th><th>Tayang</th></tr></thead><tbody>
     ${list.map(c=>{const od=daysDiff(c.deadline);const over=od!=null&&od<0&&!['Posted','Cancelled'].includes(c.status);const b=getBrand(c.brand);
       return `<tr class="row-click" onclick="COMS.openContent('${c.id}')">
-      <td><div style="font-weight:600">${esc(c.title||'(tanpa judul)')}</div><div style="font-size:11px;color:var(--txt-3)">${esc(c.contentType)}${c.printType?' - 🖨 '+esc(c.printType):''}</div></td>
+      <td><div style="font-weight:600">${esc(c.title||'(tanpa judul)')}</div><div style="font-size:11px;color:var(--txt-3)">${esc(contentTypeLabel(c))}${printTypeLabel(c)?' - 🖨 '+esc(printTypeLabel(c)):''}</div></td>
       <td><span style="display:flex;align-items:center;gap:6px">${brandDot(c.brand)}${esc(b?b.name.split(' (')[0]:'')}</span></td>
       <td><span style="display:flex;gap:4px;flex-wrap:wrap">${platformTags(c,3)}</span></td><td><span class="tag">${esc(c.pillar)}</span></td>
       <td>${c.pic?`<span style="display:flex;align-items:center;gap:6px">${avatar(userName(c.pic),'sm')}<span style="font-size:12px">${esc(userName(c.pic).split(' ')[0])}</span></span>`:'<span class="tag">-</span>'}</td>
@@ -1504,11 +1544,26 @@ function renderPlanTable(){
 }
 
 let formChips=[];
+/* Referensi yang sedang disusun di formulir. Ditaruh di luar seperti
+   formChips, dan alasannya sama: daftarnya digambar ulang tiap kali ada yang
+   ditambah/dibuang, jadi ia tidak bisa hidup di dalam DOM saja — innerHTML
+   yang ditulis ulang akan membuang <input type=file> beserta berkas yang
+   sudah terbaca. */
+let formRefs=[];
+const REF_IMG_MB=3;        // batas per foto
+const REF_TOTAL_MB=9;      // batas seluruh foto pada satu konten
 function openContentForm(id){
   if(!can('content')){toast('Kamu tidak punya akses membuat/mengubah konten','err');return;}
   const c=id?getContent(id):null;const isEdit=!!c;
   formChips=c?[...(c.hashtags||[])]:[];
+  formRefs=c?contentRefs(c).map(r=>Object.assign({},r)):[];
   const curPlats=c?contentPlatforms(c):['IG'];
+  /* Konten BARU tidak memilih tipe apa pun lebih dulu. Dulu <select> selalu
+     tersorot 'Reel' walau tidak ada yang menyentuhnya, jadi konten cetakan
+     pun tersimpan sebagai Reel — bukan salah ketik siapa pun, cuma pilihan
+     pertama yang tidak pernah dilewati. */
+  const curTypes=c?contentTypes(c):[];
+  const curPrints=c?printTypes(c):[];
   const campOpts=DB.campaigns.filter(x=>!c||true).map(x=>`<option value="${x.id}" ${c&&c.campaign===x.id?'selected':''}>${esc(x.name)}</option>`).join('');
   drawer(`
     <div class="drawer-h"><h3>${isEdit?'Edit Konten':'Konten Baru'}</h3><button class="x-btn" onclick="COMS.closeDrawer()">✕</button></div>
@@ -1522,21 +1577,30 @@ function openContentForm(id){
             return `<label class="plat-opt ${on?'on':''}" style="${on?`background:${t.bg};border-color:${PLATFORMS[p].c};color:${t.fg}`:''}">
               <input type="checkbox" class="plat-chk" value="${p}" ${on?'checked':''} onchange="COMS.togglePlatform(this)" style="accent-color:${PLATFORMS[p].c}">${p}</label>`;}).join('')}</div></div>
         <div class="field"><label>Content Pillar</label><select class="ctrl" id="f_pillar">${PILLARS.map(p=>`<option ${c&&c.pillar===p?'selected':''}>${p}</option>`).join('')}</select></div>
-        <div class="field"><label>Content Type</label><select class="ctrl" id="f_type">${CONTENT_TYPES.map(t=>`<option ${c&&c.contentType===t?'selected':''}>${t}</option>`).join('')}</select></div>
-        <div class="full field"><label>Print Type</label>
-          <select class="ctrl" id="f_printType" onchange="COMS.onPrintTypeChange()">
-            <option value="">- Tidak dicetak -</option>
-            ${Object.keys(PRINT_TYPES).map(r=>`<option ${c&&c.printType===r?'selected':''}>${r}</option>`).join('')}
-          </select>
-          <div id="printHint" style="font-size:11.5px;color:var(--txt-3);margin-top:6px">${c&&PRINT_TYPES[c.printType]?'📐 Ukuran: '+PRINT_TYPES[c.printType]:'Pilih jenis cetakan bila konten ini perlu dicetak.'}</div></div>
-        <div class="full field"><label>Hook Pembuka</label><input class="ctrl" id="f_hook" value="${esc(c?.hook||'')}" placeholder="Kalimat pembuka yang menarik"></div>
-        <div class="field"><label>Objective</label><input class="ctrl" id="f_objective" value="${esc(c?.objective||'')}" placeholder="Sasaran komunikasi"></div>
-        <div class="field"><label>CTA</label><input class="ctrl" id="f_cta" value="${esc(c?.cta||'')}" placeholder="Call-to-action"></div>
-        <div class="field"><label>Target Audience</label><input class="ctrl" id="f_audience" value="${esc(c?.audience||'')}"></div>
-        <div class="field"><label>Keyword</label><input class="ctrl" id="f_keyword" value="${esc(c?.keyword||'')}"></div>
-        <div class="full field"><label>Caption</label><textarea class="ctrl" id="f_caption" placeholder="Tulis caption...">${esc(c?.caption||'')}</textarea></div>
-        <div class="full field"><label>Hashtag</label><div class="chip-input" id="f_chips">${renderChips()}<input placeholder="Ketik + Enter" onkeydown="COMS.chipKey(event)"></div></div>
-        <div class="full field"><label>Script / Storyboard</label><textarea class="ctrl" id="f_script" placeholder="Naskah / shot list...">${esc(c?.script||'')}</textarea></div>
+        <div class="full field"><label>Content Type <span style="text-transform:none;letter-spacing:0;color:var(--txt-3);font-weight:500">- bisa pilih lebih dari satu</span></label>
+          <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:2px">${CONTENT_TYPES.map(t=>`<label class="chk-row" style="width:auto;padding:7px 10px"><input type="checkbox" class="f_ctype" value="${esc(t)}" ${curTypes.includes(t)?'checked':''} style="accent-color:var(--gold);width:16px;height:16px"> ${esc(t)}</label>`).join('')}</div></div>
+        <div class="full field"><label>Print Type <span style="text-transform:none;letter-spacing:0;color:var(--txt-3);font-weight:500">- bisa pilih lebih dari satu, kosongkan bila tidak dicetak</span></label>
+          <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:2px">${Object.keys(PRINT_TYPES).map(r=>`<label class="chk-row" style="width:auto;padding:7px 10px" title="${esc(PRINT_TYPES[r])}"><input type="checkbox" class="f_ptype" value="${esc(r)}" ${curPrints.includes(r)?'checked':''} onchange="COMS.onPrintTypeChange()" style="accent-color:var(--gold);width:16px;height:16px"> ${esc(r)}</label>`).join('')}</div>
+          <div id="printHint" style="font-size:11.5px;color:var(--txt-3);margin-top:8px">${printHintText(curPrints)}</div></div>
+        <div class="full field" style="margin-top:4px">
+          <label>Detailing Konten</label>
+          <div style="font-size:11.5px;color:var(--txt-3);margin:-2px 0 10px">Keyword, caption, hashtag &amp; script dalam satu kolom - semuanya ditulis oleh orang yang sama dalam satu duduk.</div>
+          <div style="display:flex;flex-direction:column;gap:12px;border:1px solid var(--line-soft);border-radius:12px;padding:12px;background:var(--panel-2)">
+            <div class="field" style="margin:0"><label>Keyword</label><input class="ctrl" id="f_keyword" value="${esc(c?.keyword||'')}" placeholder="Kata kunci pencarian / SEO"></div>
+            <div class="field" style="margin:0"><label>Caption</label><textarea class="ctrl" id="f_caption" placeholder="Tulis caption...">${esc(c?.caption||'')}</textarea></div>
+            <div class="field" style="margin:0"><label>Hashtag</label><div class="chip-input" id="f_chips">${renderChips()}<input placeholder="Ketik + Enter" onkeydown="COMS.chipKey(event)"></div></div>
+            <div class="field" style="margin:0"><label>Script / Storyboard</label><textarea class="ctrl" id="f_script" placeholder="Naskah / shot list..." style="min-height:120px">${esc(c?.script||'')}</textarea></div>
+          </div></div>
+        <div class="full field" style="margin-top:4px">
+          <label>Referensi</label>
+          <div style="font-size:11.5px;color:var(--txt-3);margin:-2px 0 10px">Tautan (Drive, IG, TikTok, Pinterest) &amp; foto contoh. Foto ikut tersimpan di dalam data modul, jadi pakai yang seperlunya - maks ${REF_IMG_MB} MB per foto.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+            <input class="ctrl" id="f_refLink" placeholder="Tempel link lalu Enter" style="flex:1;min-width:180px" onkeydown="COMS.refLinkKey(event)">
+            <button type="button" class="btn btn-ghost btn-sm" onclick="COMS.addRefLink()">🔗 Tambah Link</button>
+            <label class="btn btn-ghost btn-sm" style="margin:0;cursor:pointer">🖼 Tambah Foto
+              <input type="file" accept="image/*" multiple style="display:none" onchange="COMS.addRefImages(this)"></label>
+          </div>
+          <div id="f_refs">${renderRefs()}</div></div>
         <div class="field"><label>PIC</label><select class="ctrl" id="f_pic"><option value="">- Belum ditentukan -</option>${DB.users.map(u=>`<option value="${u.id}" ${c&&c.pic===u.id?'selected':''}>${esc(u.name)} (${esc(roleShorts(u))})</option>`).join('')}</select></div>
         <div class="field"><label>Prioritas</label><select class="ctrl" id="f_priority">${Object.keys(PRIORITY).map(p=>`<option value="${p}" ${c&&c.priority===p?'selected':(!c&&p==='medium'?'selected':'')}>${PRIORITY[p].label}</option>`).join('')}</select></div>
         <div class="field"><label>Status</label><select class="ctrl" id="f_status">${Object.keys(STATUS).map(s=>`<option ${c&&c.status===s?'selected':(!c&&s==='Idea'?'selected':'')}>${s}</option>`).join('')}</select></div>
@@ -1579,11 +1643,73 @@ function togglePlatform(chk){
   box.style.cssText=chk.checked?`background:${t.bg};border-color:${pl.c};color:${t.fg}`:'';
 }
 function selectedPlatforms(){return [...document.querySelectorAll('.plat-chk')].filter(x=>x.checked).map(x=>x.value);}
-// Tampilkan catatan ukuran cetak sesuai Print Type yang dipilih
-function onPrintTypeChange(){
-  const sel=$('#f_printType'),hint=$('#printHint');if(!sel||!hint)return;
-  hint.textContent=PRINT_TYPES[sel.value]?'📐 Ukuran: '+PRINT_TYPES[sel.value]:'Pilih jenis cetakan bila konten ini perlu dicetak.';
+function selectedContentTypes(){return [...document.querySelectorAll('.f_ctype')].filter(x=>x.checked).map(x=>x.value);}
+function selectedPrintTypes(){return [...document.querySelectorAll('.f_ptype')].filter(x=>x.checked).map(x=>x.value);}
+/* Catatan ukuran cetak. Sejak Print Type bisa lebih dari satu, ia menyebut
+   ukuran SETIAP yang dicentang — bukan cuma yang terakhir. Ukuran adalah satu-
+   satunya alasan kolom ini ada, dan yang menyebut satu dari tiga membuat dua
+   sisanya dikira ikut ukuran yang tertulis. */
+function printHintText(list){
+  if(!list||!list.length)return 'Centang jenis cetakan bila konten ini perlu dicetak.';
+  return '📐 '+list.map(r=>r+': '+(PRINT_TYPES[r]||'ukuran belum tercatat')).join('  •  ');
 }
+function onPrintTypeChange(){
+  const hint=$('#printHint');if(!hint)return;
+  hint.textContent=printHintText(selectedPrintTypes());
+}
+/* ---- REFERENSI: tautan & foto ---- */
+function renderRefs(){
+  if(!formRefs.length)return '<div style="color:var(--txt-3);font-size:12px">Belum ada referensi.</div>';
+  return '<div style="display:flex;flex-wrap:wrap;gap:10px">'+formRefs.map((r,i)=>{
+    if(r.t==='img')return `<div style="position:relative"><img src="${esc(r.v)}" style="width:88px;height:88px;object-fit:cover;border-radius:10px;border:1px solid var(--line-soft);cursor:zoom-in" title="${esc(r.n||'')}" onclick="COMS.viewImage('${escJsAttr(r.v)}','${escJsAttr(r.n||'Referensi')}')">
+      <b onclick="COMS.rmRef(${i})" title="Hapus" style="position:absolute;top:-6px;right:-6px;background:var(--bad);color:#fff;width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;cursor:pointer">✕</b></div>`;
+    return `<span class="mini-tag" style="max-width:100%"><a href="${esc(r.v)}" target="_blank" rel="noopener" style="color:var(--info);text-decoration:none;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:230px;display:inline-block;vertical-align:bottom">🔗 ${esc(r.n||r.v)}</a><b onclick="COMS.rmRef(${i})">✕</b></span>`;
+  }).join('')+'</div>';
+}
+function paintRefs(){const el=$('#f_refs');if(el)el.innerHTML=renderRefs();}
+function rmRef(i){formRefs.splice(i,1);paintRefs();}
+function refLinkKey(e){if(e.key==='Enter'){e.preventDefault();addRefLink();}}
+function addRefLink(){
+  const inp=$('#f_refLink');if(!inp)return;
+  let v=inp.value.trim();if(!v){toast('Tempel dulu linknya','err');return;}
+  /* Awalan https:// dipasang sendiri kalau belum ada. Tanpa itu, href="ig.com/x"
+     dibaca peramban sebagai jalur RELATIF — tautannya membuka modul konten
+     lagi, dan yang menekannya menyimpulkan linknya rusak, bukan salah tulis. */
+  if(!/^https?:\/\//i.test(v)&&!/^mailto:/i.test(v))v='https://'+v.replace(/^\/+/,'');
+  if(formRefs.some(r=>r.t==='link'&&r.v===v)){toast('Link itu sudah ada di daftar','err');inp.value='';return;}
+  formRefs.push({t:'link',v,n:v.replace(/^https?:\/\//i,'').slice(0,60)});
+  inp.value='';paintRefs();
+}
+function addRefImages(input){
+  const files=[...(input.files||[])];input.value='';
+  if(!files.length)return;
+  /* Batas TOTAL diperiksa, bukan cuma per berkas. Seluruh isi modul ini
+     dikirim ke server sebagai satu muatan tiap kali save(); sepuluh foto 3 MB
+     lolos satu per satu lalu membuat penyimpanan berikutnya gagal — dan
+     gagalnya terjadi saat orang menekan Simpan, jauh dari tempat fotonya
+     ditambahkan. */
+  const terpakai=()=>formRefs.filter(r=>r.t==='img').reduce((s,r)=>s+(r.v?r.v.length:0),0);
+  let ditolak=0;
+  files.forEach(f=>{
+    if(!/^image\//.test(f.type)){ditolak++;return;}
+    if(f.size>REF_IMG_MB*1024*1024){toast(`"${f.name}" lebih dari ${REF_IMG_MB} MB - dilewati`,'err');return;}
+    const r=new FileReader();
+    r.onload=e=>{
+      const data=e.target.result;
+      if(terpakai()+data.length>REF_TOTAL_MB*1024*1024*1.37){   // 1.37 = pengembangan base64
+        toast(`Total foto referensi sudah mendekati ${REF_TOTAL_MB} MB - "${f.name}" tidak ditambahkan`,'err');return;
+      }
+      formRefs.push({t:'img',v:data,n:f.name});paintRefs();
+    };
+    r.readAsDataURL(f);
+  });
+  if(ditolak)toast(ditolak+' berkas dilewati karena bukan gambar','err');
+}
+/* Kutip untuk atribut onclick="...('...')". Data URI gambar memuat tanda
+   kutip tunggal? tidak — tapi NAMA BERKAS bisa ("foto'ku.jpg"), dan satu
+   kutip di sana memutus atributnya sehingga seluruh baris referensi berhenti
+   bisa diklik tanpa satu pun galat. */
+function escJsAttr(s){return String(s==null?'':s).replace(/\\/g,'\\\\').replace(/'/g,"\\'").replace(/"/g,'&quot;').replace(/[\r\n]+/g,' ');}
 
 // Buka/tutup detail tanggal saat kebutuhan produksi dicentang
 function toggleProdNeed(k){
@@ -1630,9 +1756,17 @@ function saveContent(id){
   document.querySelectorAll('.prod-chk').forEach(chk=>{
     if(chk.checked){const k=chk.dataset.k;const dInp=$('#pd_'+k);prod[k]={date:dInp?dInp.value:'',status:'todo'};}
   });
-  const data={brand:g('brand'),campaign:g('campaign'),platforms,platform:platforms[0],pillar:g('pillar'),contentType:g('type'),printType:g('printType'),
-    title,hook:g('hook'),objective:g('objective'),cta:g('cta'),audience:g('audience'),keyword:g('keyword'),caption:g('caption'),
-    hashtags:[...formChips],script:g('script'),pic:g('pic'),priority:g('priority'),status:g('status'),
+  const ctypes=selectedContentTypes();
+  if(!ctypes.length){toast('Pilih minimal satu Content Type','err');return;}
+  const ptypes=selectedPrintTypes();
+  /* Bentuk TUNGGAL yang lama ikut ditulis, isinya yang pertama. Kalender,
+     queue produksi, dan ekspor CSV masih membaca contentType/printType;
+     berhenti menulisnya berarti kolom-kolom itu mendadak kosong di seluruh
+     konten baru, tanpa satu pun galat yang menyebut sebabnya. */
+  const data={brand:g('brand'),campaign:g('campaign'),platforms,platform:platforms[0],pillar:g('pillar'),
+    contentTypes:ctypes,contentType:ctypes[0],printTypes:ptypes,printType:ptypes[0]||'',
+    title,keyword:g('keyword'),caption:g('caption'),
+    hashtags:[...formChips],script:g('script'),refs:[...formRefs],pic:g('pic'),priority:g('priority'),status:g('status'),
     deadline:g('deadline'),publishDate:g('publishDate'),publishTime:g('publishTime'),prod};
   let cRef;
   if(id){const c=getContent(id);const oldProd=c.prod||{};Object.assign(c,data);
@@ -1674,8 +1808,8 @@ function openContent(id){
         ${statusPill(c.status)}${prioBadge(c.priority)}
         <span class="tag" style="${isOverdue(c.deadline,['Posted','Cancelled'].includes(c.status))?'background:var(--bad-bg);color:var(--bad);border-color:transparent':''}">📅 Deadline ${fmtDate(c.deadline)}</span>
         <span class="tag">🚀 Tayang ${fmtDate(c.publishDate)} ${c.publishTime||''}</span>
-        <span class="tag">🎞 ${esc(c.contentType||'-')}</span>
-        ${c.printType?`<span class="tag" title="${esc(PRINT_TYPES[c.printType]||'')}">🖨 ${esc(c.printType)}${PRINT_TYPES[c.printType]?' - '+esc(PRINT_TYPES[c.printType]):''}</span>`:''}
+        ${contentTypes(c).map(t=>`<span class="tag">🎞 ${esc(t)}</span>`).join('')||'<span class="tag">🎞 -</span>'}
+        ${printTypes(c).map(r=>`<span class="tag" title="${esc(PRINT_TYPES[r]||'')}">🖨 ${esc(r)}${PRINT_TYPES[r]?' - '+esc(PRINT_TYPES[r]):''}</span>`).join('')}
       </div>
     </div>
     <div class="drawer-b">
@@ -1689,11 +1823,13 @@ function openContent(id){
           <button class="btn btn-danger btn-sm" onclick="COMS.cancelContent('${id}')">Batalkan</button>
         </div>`:''}
       </div>
-      ${c.hook||c.objective||c.cta?`<div class="grid g-3" style="margin-bottom:16px;gap:12px">
-        ${c.hook?`<div class="card" style="padding:12px"><div style="font-size:10px;color:var(--txt-3);text-transform:uppercase;font-weight:700;margin-bottom:4px">Hook</div><div style="font-size:13px">${esc(c.hook)}</div></div>`:''}
-        ${c.objective?`<div class="card" style="padding:12px"><div style="font-size:10px;color:var(--txt-3);text-transform:uppercase;font-weight:700;margin-bottom:4px">Objective</div><div style="font-size:13px">${esc(c.objective)}</div></div>`:''}
-        ${c.cta?`<div class="card" style="padding:12px"><div style="font-size:10px;color:var(--txt-3);text-transform:uppercase;font-weight:700;margin-bottom:4px">CTA</div><div style="font-size:13px">${esc(c.cta)}</div></div>`:''}
-      </div>`:''}
+      ${(()=>{const rf=contentRefs(c);if(!rf.length)return '';
+        const imgs=rf.filter(r=>r.t==='img'),links=rf.filter(r=>r.t!=='img');
+        return `<div class="card" style="margin-bottom:16px">
+          <div class="card-h"><h3 style="font-size:14px">Referensi</h3><span class="sub">${links.length} link - ${imgs.length} foto</span></div>
+          ${links.length?`<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:${imgs.length?'12px':'0'}">${links.map(r=>`<a href="${esc(r.v)}" target="_blank" rel="noopener" style="font-size:12.5px;color:var(--info);text-decoration:none;word-break:break-all">🔗 ${esc(r.n||r.v)}</a>`).join('')}</div>`:''}
+          ${imgs.length?`<div style="display:flex;flex-wrap:wrap;gap:8px">${imgs.map(r=>`<img src="${esc(r.v)}" title="${esc(r.n||'')}" onclick="COMS.viewImage('${escJsAttr(r.v)}','${escJsAttr(r.n||'Referensi')}')" style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid var(--line-soft);cursor:zoom-in">`).join('')}</div>`:''}
+        </div>`;})()}
       ${c.caption?`<div class="card" style="margin-bottom:16px"><div class="card-h"><h3 style="font-size:14px">Caption</h3><button class="btn btn-ghost btn-sm" onclick="COMS.copyText(\`${(c.caption+' '+(c.hashtags||[]).join(' ')).replace(/`/g,'')}\`)">Salin</button></div>
         <div style="font-size:13px;white-space:pre-wrap;line-height:1.6">${esc(c.caption)}</div>
         ${c.hashtags.length?`<div style="margin-top:10px;display:flex;gap:5px;flex-wrap:wrap">${c.hashtags.map(h=>`<span class="tag" style="color:var(--info)">${esc(h)}</span>`).join('')}</div>`:''}</div>`:''}
@@ -2289,7 +2425,7 @@ function prodQueue(kind,title,roleNote){
   const p=PROD_TYPES[kind];const t=tint(p.color);const st=queueState[kind];
   // tugas dari konten
   const fromContent=filterByBrand(DB.content).filter(c=>c.prod&&c.prod[kind]).map(c=>({
-    src:'content',cid:c.id,title:c.title,sub:c.contentType+(c.printType?' - 🖨 '+c.printType:''),brand:c.brand,
+    src:'content',cid:c.id,title:c.title,sub:contentTypeLabel(c)+(printTypeLabel(c)?' - 🖨 '+printTypeLabel(c):''),brand:c.brand,
     platforms:contentPlatforms(c),platform:c.platform,pic:c.pic,
     priority:c.priority,date:c.prod[kind].date,done:c.prod[kind].status==='done'}));
   // tugas mandiri
@@ -2373,7 +2509,7 @@ function queueView(statusKeys,title,emoji,roleNote){
   ${list.length?`<div class="tbl-wrap"><table><thead><tr><th>Prioritas</th><th>Konten</th><th>Brand</th><th>Platform</th><th>PIC</th><th>Deadline</th><th>Status</th><th></th></tr></thead><tbody>
     ${list.map(c=>{const b=getBrand(c.brand);
       return `<tr class="row-click" onclick="COMS.openContent('${c.id}')"><td>${prioBadge(c.priority)}</td>
-      <td><div style="font-weight:600">${esc(c.title)}</div><div style="font-size:11px;color:var(--txt-3)">${esc(c.contentType)}${c.printType?' - 🖨 '+esc(c.printType):''}</div></td>
+      <td><div style="font-weight:600">${esc(c.title)}</div><div style="font-size:11px;color:var(--txt-3)">${esc(contentTypeLabel(c))}${printTypeLabel(c)?' - 🖨 '+esc(printTypeLabel(c)):''}</div></td>
       <td><span style="display:flex;align-items:center;gap:6px">${brandDot(c.brand)}${esc(b?b.name.split(' (')[0]:'')}</span></td>
       <td><span style="display:flex;gap:4px;flex-wrap:wrap">${platformTags(c,3)}</span></td><td>${c.pic?avatar(userName(c.pic),'sm'):'-'}</td>
       <td>${deadlineHTML(c.deadline,['Posted','Cancelled'].includes(c.status))}</td>
@@ -2551,6 +2687,82 @@ function delKol(id){const k=getKol(id);if(!k)return;if(!confirm('Hapus "'+k.name
 
 /* ---------- Sub-tab: PLANNING KUNJUNGAN (EVENT ACTIVITY) ---------- */
 // Daftar undangan (dukung data lama single kolId)
+/* ---- PEMILIH UNDANGAN di form kunjungan ----
+   Dulu satu daftar datar berisi SELURUH isi database KOL & Medpar. Begitu
+   databasenya lewat dua puluh nama, "undang media partnernya siapa saja"
+   dijawab dengan menggulir sambil membaca satu per satu tag di ujung kanan
+   tiap baris — dan niche-nya tidak tertulis sama sekali di sana, jadi
+   "undang yang Food & Beverage" tidak punya jalan selain membuka Database
+   KOL di tab lain lalu mencocokkan namanya dari ingatan.
+
+   Sekarang dua penyaring di atas daftarnya. Keduanya menyebutkan JUMLAH di
+   tombolnya sendiri: menekan "Media Partner" harus langsung menjawab ada
+   berapa, bukan menghasilkan daftar yang masih perlu dihitung. */
+let _visitInvSel=[];                       // id tercentang, bertahan lintas penyaringan
+let visitPickFilter={type:'',cat:''};
+function visitPickList(){
+  const f=visitPickFilter;
+  return (DB.kols||[]).filter(k=>
+    (!f.type||kolType(k)===f.type) && (!f.cat||kolCats(k).includes(f.cat)));
+}
+/* Niche yang BENAR-BENAR dipakai di database, bukan seluruh KOL_CATEGORIES.
+   Menawarkan niche yang tidak dipegang siapa pun berarti menawarkan tombol
+   yang pasti menghasilkan daftar kosong. Niche buatan sendiri (di luar daftar
+   bawaan) ikut, kalau tidak ia tak akan pernah bisa disaring. */
+function visitNicheOpsi(){
+  const ada={};
+  (DB.kols||[]).forEach(k=>kolCats(k).forEach(c=>{if(c)ada[c]=(ada[c]||0)+1;}));
+  return Object.keys(ada).sort((a,b)=>a.localeCompare(b,'id')).map(c=>({c,n:ada[c]}));
+}
+function visitPickBarHTML(){
+  const f=visitPickFilter;
+  const nType=t=>(DB.kols||[]).filter(k=>kolType(k)===t).length;
+  const btn=(val,label,n)=>`<button type="button" class="btn btn-sm ${f.type===val?'btn-gold':'btn-ghost'}" onclick="COMS.visitPick('type','${escJsAttr(val)}')">${label} (${n})</button>`;
+  const niche=visitNicheOpsi();
+  return `<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:8px">
+    ${btn('','Semua',(DB.kols||[]).length)}
+    ${KOL_TYPES.map(t=>btn(t,(t==='Media Partner'?'📰 ':'🧑‍🎤 ')+t,nType(t))).join('')}
+    <select class="ctrl" style="width:auto;min-width:190px;padding:7px 10px" onchange="COMS.visitPick('cat',this.value)">
+      <option value="">Semua Kategori Konten / Niche</option>
+      ${niche.map(x=>`<option value="${esc(x.c)}" ${f.cat===x.c?'selected':''}>${esc(x.c)} (${x.n})</option>`).join('')}
+    </select>
+  </div>`;
+}
+function visitInvHTML(){
+  const list=visitPickList();
+  if(!list.length){
+    const f=visitPickFilter;
+    return `<div style="color:var(--txt-3);font-size:12px;padding:6px">${(DB.kols||[]).length
+      ? 'Tidak ada yang cocok dengan penyaring ini'+(f.cat?' - belum ada '+(f.type||'partner')+' berkategori <b>'+esc(f.cat)+'</b>':'')+'. Longgarkan penyaringnya, atau tambahkan datanya di Database KOL.'
+      : 'Belum ada KOL / Medpar di database.'}</div>`;
+  }
+  return list.map(k=>{
+    const cats=kolCats(k);
+    return `<label class="chk-row"><input type="checkbox" class="v_inv" value="${k.id}" ${_visitInvSel.includes(k.id)?'checked':''} onchange="COMS.visitInvToggle(this)" style="accent-color:var(--gold);width:16px;height:16px">
+      <span style="flex:1;min-width:0"><span style="font-weight:600">${esc(k.name)}</span>
+        ${cats.length?`<span style="display:block;font-size:10.5px;color:var(--txt-3)">${esc(cats.join(' - '))}</span>`:''}</span>
+      <span class="tag">${kolType(k)==='Media Partner'?'📰':'🧑‍🎤'} ${esc(kolType(k))}</span></label>`;
+  }).join('');
+}
+function visitInvCountText(){
+  const n=_visitInvSel.length;
+  return n?(n+' dipilih: '+_visitInvSel.map(kolName).join(', ')):'Belum ada yang dicentang.';
+}
+function visitPick(k,v){
+  visitPickFilter[k]=v;
+  const box=$('#v_invBox');if(box)box.innerHTML=visitInvHTML();
+  /* Baris tombol ikut digambar ulang supaya tombol yang aktif berpindah.
+     Kalau tidak, penyaringnya bekerja tapi tidak ada satu pun penanda di
+     layar soal penyaring mana yang sedang menyala. */
+  const bar=box&&box.previousElementSibling;
+  if(bar)bar.outerHTML=visitPickBarHTML();
+}
+function visitInvToggle(chk){
+  const id=chk.value;
+  if(chk.checked){if(!_visitInvSel.includes(id))_visitInvSel.push(id);}
+  else _visitInvSel=_visitInvSel.filter(x=>x!==id);
+  const el=$('#v_invCount');if(el)el.textContent=visitInvCountText();
+}
 function visitInvitees(v){return v?(v.invitees&&v.invitees.length?v.invitees:(v.kolId?[v.kolId]:[])):[];}
 function visitLabel(v){const names=visitInvitees(v).map(kolName).filter(x=>x&&x!=='-');return v.title||names[0]||'Event';}
 // Template pesan undangan otomatis dari detail event
@@ -2609,6 +2821,13 @@ function openVisitForm(id){
   if(!(DB.kols||[]).length){toast('Tambahkan KOL / Medpar di Database dulu','err');setKolTab('db');return;}
   const defDate=v?v.date:(()=>{const d=new Date();d.setDate(d.getDate()+3);return d.toISOString().slice(0,10);})();
   const inv=visitInvitees(v);const loc=v?.location||'';
+  /* Centangan disimpan di LUAR DOM. Daftarnya digambar ulang tiap kali
+     penyaring tipe/niche diganti, dan checkbox yang keluar dari layar akan
+     kehilangan status centangnya — orang memilih tiga KOL Food & Beverage,
+     pindah ke niche Musik, lalu menyimpan dan mendapati tiga pilihan
+     pertamanya hilang tanpa satu pun peringatan. */
+  _visitInvSel=inv.slice();
+  visitPickFilter={type:'',cat:''};
   // Bagian Direct Message - hanya muncul saat event sudah dibuat (mode edit/view)
   let dmBlock='';
   if(isEdit){
@@ -2630,10 +2849,11 @@ function openVisitForm(id){
     <div class="field"><label>Lokasi</label><select class="ctrl" id="v_location">${VISIT_LOCATIONS.map(l=>`<option ${loc===l?'selected':''}>${esc(l)}</option>`).join('')}${loc&&!VISIT_LOCATIONS.includes(loc)?`<option selected>${esc(loc)}</option>`:''}</select></div>
     <div class="field"><label>Brand</label><select class="ctrl" id="v_brand">${DB.brands.map(b=>`<option value="${b.id}" ${v&&v.brand===b.id?'selected':(!v&&brandFilter===b.id?'selected':'')}>${esc(b.name)}</option>`).join('')}</select></div>
     <div class="full field"><label>Deskripsi Event</label><textarea class="ctrl" id="v_desc" placeholder="Rangkaian acara, dress code, brief, deliverables...">${esc(v?.desc||v?.note||'')}</textarea></div>
-    <div class="full field"><label>Undang KOL & Media Partner (centang)</label>
-      <div style="max-height:230px;overflow:auto;display:flex;flex-direction:column;gap:6px;border:1px solid var(--line-soft);border-radius:10px;padding:8px;background:var(--panel-2)">
-        ${(DB.kols||[]).map(k=>`<label class="chk-row"><input type="checkbox" class="v_inv" value="${k.id}" ${inv.includes(k.id)?'checked':''} style="accent-color:var(--gold);width:16px;height:16px"><span style="flex:1">${esc(k.name)}</span><span class="tag">${kolType(k)==='Media Partner'?'📰':'🧑‍🎤'} ${esc(kolType(k))}</span></label>`).join('')||'<div style="color:var(--txt-3);font-size:12px">Belum ada KOL / Medpar di database.</div>'}
-      </div></div>
+    <div class="full field"><label>Undang KOL &amp; Media Partner</label>
+      <div style="font-size:11.5px;color:var(--txt-3);margin:-2px 0 8px">Tekan <b>Media Partner</b> untuk langsung melihat daftar medpar, atau pilih satu <b>Kategori Konten / Niche</b> untuk melihat KOL yang disetel di niche itu. Centangan yang sudah dibuat <b>tetap tersimpan</b> saat penyaringnya diganti.</div>
+      ${visitPickBarHTML()}
+      <div id="v_invBox" style="max-height:260px;overflow:auto;display:flex;flex-direction:column;gap:6px;border:1px solid var(--line-soft);border-radius:10px;padding:8px;background:var(--panel-2)">${visitInvHTML()}</div>
+      <div id="v_invCount" style="font-size:11.5px;color:var(--txt-3);margin-top:6px">${visitInvCountText()}</div></div>
     <div class="field"><label>PIC Pendamping</label><select class="ctrl" id="v_pic"><option value="">- Belum ditentukan -</option>${DB.users.map(u=>`<option value="${u.id}" ${v&&v.pic===u.id?'selected':''}>${esc(u.name)} (${esc(roleShorts(u))})</option>`).join('')}</select></div>
     <div class="field"><label>Status Kehadiran</label><select class="ctrl" id="v_status">${Object.keys(VISIT_STATUS).map(s=>`<option value="${s}" ${v&&v.status===s?'selected':(!v&&s==='planned'?'selected':'')}>${VISIT_STATUS[s].label}</option>`).join('')}</select></div>
     <div class="full field"><label>Objective / Deliverables</label><input class="ctrl" id="v_objective" value="${esc(v?.objective||'')}" placeholder="mis. 1 Reels + 3 Story per undangan"></div>
@@ -2644,7 +2864,12 @@ function openVisitForm(id){
 function saveVisit(id){
   const g=k=>{const el=$('#v_'+k);return el?el.value:'';};
   const title=g('title').trim();if(!title){toast('Event / Campaign wajib diisi','err');return;}
-  const invitees=[...document.querySelectorAll('.v_inv:checked')].map(x=>x.value);
+  /* Dibaca dari _visitInvSel, BUKAN dari .v_inv:checked. Sejak daftarnya bisa
+     disaring, yang tercentang tapi sedang tidak lolos penyaring tidak ada di
+     DOM sama sekali — membacanya dari DOM berarti menyimpan hanya yang
+     kebetulan terlihat saat Simpan ditekan, dan undangan yang hilang itu baru
+     ketahuan pada hari-H. */
+  const invitees=_visitInvSel.slice();
   const data={title,brand:g('brand'),date:g('date'),time:g('time'),location:g('location'),
     desc:g('desc').trim(),invitees,kolId:invitees[0]||'',pic:g('pic'),status:g('status')||'planned',objective:g('objective').trim(),note:g('desc').trim()};
   if(id){Object.assign((DB.visits||[]).find(x=>x.id===id),data);logAct('mengubah event kunjungan',title);toast('Event kunjungan diperbarui','ok');}
@@ -2956,7 +3181,11 @@ VIEWS.approval=function(){
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">${brandDot(c.brand)}<span style="font-size:11px;color:var(--txt-3)">${esc(b?b.name.split(' (')[0]:'')}</span>${platformTags(c,3)}
         <span class="pill" style="margin-left:auto;background:var(--purple-bg);color:var(--purple)">Menunggu Approval</span></div>
       <h3 style="font-size:16px;margin-bottom:6px;cursor:pointer" onclick="COMS.openContent('${c.id}')">${esc(c.title)}</h3>
-      <div style="font-size:12px;color:var(--txt-2);margin-bottom:8px">${esc(c.hook||'')}</div>
+      <!-- Dulu c.hook. Kolom Hook sudah dibuang dari formulir, jadi kartu ini
+           memakai awal Caption — satu-satunya teks yang pasti terisi pada
+           konten yang sudah sampai meja approval. Tanpa penggantinya, tiap
+           kartu di halaman ini kehilangan barisnya dan tinggal judul saja. -->
+      <div style="font-size:12px;color:var(--txt-2);margin-bottom:8px">${esc(String(c.caption||'').slice(0,140))}${String(c.caption||'').length>140?'…':''}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
         <span class="tag">📅 Tayang ${fmtDate(c.publishDate)}${c.publishTime?' '+c.publishTime:''}</span>
         ${c.pic?`<span class="tag">PIC ${esc(userName(c.pic).split(' ')[0])}</span>`:''}
@@ -3060,7 +3289,7 @@ function csvSafe(v){v=String(v==null?'':v);return /[",\n]/.test(v)?'"'+v.replace
 function downloadFile(name,content,type){const blob=new Blob([content],{type});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;a.click();URL.revokeObjectURL(u);toast('File diunduh: '+name,'ok');}
 function exportCSV(kind){let rows=[],name='';
   if(kind==='content'){name='COMS_konten.csv';rows.push(['Judul','Brand','Platform','Pillar','Tipe','Print Type','PIC','Status','Prioritas','Deadline','Tayang']);
-    DB.content.forEach(c=>rows.push([c.title,brandName(c.brand),contentPlatforms(c).join(' + '),c.pillar,c.contentType,c.printType||'',userName(c.pic),c.status,c.priority,c.deadline,c.publishDate]));}
+    DB.content.forEach(c=>rows.push([c.title,brandName(c.brand),contentPlatforms(c).join(' + '),c.pillar,contentTypeLabel(c),printTypeLabel(c),userName(c.pic),c.status,c.priority,c.deadline,c.publishDate]));}
   else if(kind==='performance'){name='COMS_performa.csv';rows.push(['Judul','Brand','Platform','Reach','Views','Likes','Comments','Shares','Saves','ER%','Follows']);
     DB.content.filter(c=>c.metrics).forEach(c=>{const m=c.metrics;rows.push([c.title,brandName(c.brand),contentPlatforms(c).join(' + '),m.reach,m.views,m.likes,m.comments,m.shares,m.saves,m.er,m.followers]);});}
   else{name='COMS_tim.csv';rows.push(['Nama','Divisi','Role','Kapasitas','Skill','Email']);
@@ -3211,6 +3440,7 @@ const API={
   route,setBrand,pickLogin,logout,
   openContentForm,saveContent,openContent,chipKey,rmChip,
   togglePlatform,onPrintTypeChange,
+  addRefLink,addRefImages,rmRef,refLinkKey,
   toggleProdNeed,autoProdDate,onPublishDateChange,toggleProdDone,
   openTaskForm,saveTask,delTask,toggleTaskDone,
   moveStatus,toggleChk,addChk,rmChk,addComment,reqRevision,submitRevision,cancelContent,markPublished,submitPublish,deleteContent,copyText,
@@ -3219,6 +3449,7 @@ const API={
   queueF,queueSort,queueReset,
   setKolTab,kolF,kolReset,openKolForm,saveKol,delKol,onKolRateFile,viewImage,viewKolRate,viewKolRateHist,
   visitF,visitReset,openVisitForm,saveVisit,delVisit,setVisitStatus,dmInvitee,
+  visitPick,visitInvToggle,
   adsF,adsReset,openAdForm,saveAd,delAd,setAdStatus,_adAdd,_adDel,_adEdit,
   adsPerPageSet,adsPageSet,exportAdsMonth,
   openFundForm,saveFund,delFund,

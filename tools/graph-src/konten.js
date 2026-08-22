@@ -834,6 +834,38 @@ function contentPlatforms() {  }
 
 
 
+function contentTypes() {  }
+
+
+
+
+function printTypes() {  }
+
+
+
+
+
+function contentTypeLabel() { contentTypes(); }
+function printTypeLabel() { printTypes(); }
+
+
+
+
+
+function contentRefs() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -995,6 +1027,14 @@ function seed() {  }
 
 
 function mkContent() { uid(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -1486,7 +1526,7 @@ function filteredContent() { filterByBrand(); contentPlatforms(); }
 
 
 
-function renderPlanTable() { filteredContent(); daysDiff(); getBrand(); openContent(); esc(); brandDot(); platformTags(); avatar(); userName(); statusPill(); prioBadge(); deadlineHTML(); fmtDateShort(); }
+function renderPlanTable() { filteredContent(); daysDiff(); getBrand(); openContent(); esc(); contentTypeLabel(); printTypeLabel(); brandDot(); platformTags(); avatar(); userName(); statusPill(); prioBadge(); deadlineHTML(); fmtDateShort(); }
 
 
 
@@ -1504,7 +1544,31 @@ function renderPlanTable() { filteredContent(); daysDiff(); getBrand(); openCont
 
 
 
-function openContentForm() { can(); toast(); getContent(); contentPlatforms(); esc(); drawer(); closeDrawer(); tint(); togglePlatform(); onPrintTypeChange(); renderChips(); chipKey(); roleShorts(); onPublishDateChange(); toggleProdNeed(); autoProdDate(); saveContent(); }
+
+
+
+
+
+
+
+
+function openContentForm() { can(); toast(); getContent(); contentRefs(); contentPlatforms(); contentTypes(); printTypes(); esc(); drawer(); closeDrawer(); tint(); togglePlatform(); onPrintTypeChange(); printHintText(); renderChips(); chipKey(); refLinkKey(); addRefLink(); addRefImages(); renderRefs(); roleShorts(); onPublishDateChange(); toggleProdNeed(); autoProdDate(); saveContent(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1579,11 +1643,73 @@ function togglePlatform() { tint(); }
 
 
 function selectedPlatforms() {  }
+function selectedContentTypes() {  }
+function selectedPrintTypes() {  }
 
-function onPrintTypeChange() {  }
 
 
 
+function printHintText() {  }
+
+
+
+function onPrintTypeChange() { printHintText(); selectedPrintTypes(); }
+
+
+
+
+function renderRefs() { esc(); viewImage(); escJsAttr(); rmRef(); }
+
+
+
+
+
+
+
+function paintRefs() { renderRefs(); }
+function rmRef() { paintRefs(); }
+function refLinkKey() { addRefLink(); }
+function addRefLink() { toast(); paintRefs(); }
+
+
+
+
+
+
+
+
+
+
+function addRefImages() { save(); }
+
+
+
+
+
+
+
+function terpakai() { toast(); paintRefs(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function escJsAttr() {  }
 
 
 function toggleProdNeed() { tint(); autoProdDate(); }
@@ -1620,7 +1746,15 @@ function onPublishDateChange() { autoProdDate(); }
 
 
 
-function saveContent() { toast(); selectedPlatforms(); getContent(); logAct(); mkContent(); notify(); syncProdTasks(); save(); closeDrawer(); updateApprovalBadge(); route(); }
+function saveContent() { toast(); selectedPlatforms(); selectedContentTypes(); selectedPrintTypes(); getContent(); logAct(); mkContent(); notify(); syncProdTasks(); save(); closeDrawer(); updateApprovalBadge(); route(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -1651,7 +1785,9 @@ function syncProdTasks() {  }
 
 
 
-function openContent() { getContent(); getBrand(); textOn(); tint(); can(); drawer(); brandBadge(); platformTags(); esc(); closeDrawer(); statusPill(); prioBadge(); isOverdue(); fmtDate(); moveStatus(); reqRevision(); cancelContent(); copyText(); deadlineHTML(); toggleProdDone(); pct(); toggleChk(); rmChk(); addChk(); renderMetricsBlock(); fmtDT(); userName(); markPublished(); timeAgo(); renderComments(); mentionScan(); cmtKey(); mentionClose(); addComment(); deleteContent(); openContentForm(); }
+function openContent() { getContent(); getBrand(); textOn(); tint(); can(); drawer(); brandBadge(); platformTags(); esc(); closeDrawer(); statusPill(); prioBadge(); isOverdue(); fmtDate(); contentTypes(); printTypes(); moveStatus(); reqRevision(); cancelContent(); contentRefs(); viewImage(); escJsAttr(); copyText(); deadlineHTML(); toggleProdDone(); pct(); toggleChk(); rmChk(); addChk(); renderMetricsBlock(); fmtDT(); userName(); markPublished(); timeAgo(); renderComments(); mentionScan(); cmtKey(); mentionClose(); addComment(); deleteContent(); openContentForm(); }
+
+
 
 
 
@@ -2285,7 +2421,7 @@ function qHead() { queueSort(); }
 
 
 
-function prodQueue() { tint(); filterByBrand(); contentPlatforms(); queueSortVal(); can(); openTaskForm(); esc(); queueF(); queueReset(); brandBar(); qHead(); getBrand(); openContent(); toggleProdDone(); toggleTaskDone(); prioBadge(); brandDot(); avatar(); userName(); deadlineHTML(); }
+function prodQueue() { tint(); filterByBrand(); contentTypeLabel(); printTypeLabel(); contentPlatforms(); queueSortVal(); can(); openTaskForm(); esc(); queueF(); queueReset(); brandBar(); qHead(); getBrand(); openContent(); toggleProdDone(); toggleTaskDone(); prioBadge(); brandDot(); avatar(); userName(); deadlineHTML(); }
 
 
 
@@ -2366,7 +2502,7 @@ function toggleTaskDone() { save(); route(); prodQueue(); }
 
 
 
-function queueView() { filterByBrand(); brandBar(); getBrand(); openContent(); prioBadge(); esc(); brandDot(); platformTags(); avatar(); userName(); deadlineHTML(); statusPill(); prodQueue(); }
+function queueView() { filterByBrand(); brandBar(); getBrand(); openContent(); prioBadge(); esc(); contentTypeLabel(); printTypeLabel(); brandDot(); platformTags(); avatar(); userName(); deadlineHTML(); statusPill(); prodQueue(); }
 
 
 
@@ -2551,6 +2687,82 @@ function delKol() { getKol(); logAct(); kolType(); save(); closeDrawer(); route(
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+function visitPickList() { kolType(); kolCats(); }
+
+
+
+
+
+
+
+
+function visitNicheOpsi() { kolCats(); }
+
+
+
+
+function visitPickBarHTML() { kolType(); }
+
+
+function btn() { visitPick(); escJsAttr(); visitNicheOpsi(); esc(); }
+
+
+
+
+
+
+
+
+
+
+function visitInvHTML() { visitPickList(); esc(); kolCats(); visitInvToggle(); kolType(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function visitInvCountText() {  }
+
+
+
+function visitPick() { visitInvHTML(); visitPickBarHTML(); }
+
+
+
+
+
+
+
+
+function visitInvToggle() { visitInvCountText(); }
+
+
+
+
+
 function visitInvitees() {  }
 function visitLabel() { visitInvitees(); }
 
@@ -2603,7 +2815,15 @@ function kolVisitView() { filterByBrand(); visitInvitees(); can(); openVisitForm
 
 function visitF() { route(); }
 function visitReset() { route(); }
-function openVisitForm() { can(); toast(); setKolTab(); visitInvitees(); getKol(); esc(); kolType(); dmInvitee(); drawer(); closeDrawer(); roleShorts(); delVisit(); saveVisit(); }
+function openVisitForm() { can(); toast(); setKolTab(); visitInvitees(); getKol(); esc(); kolType(); dmInvitee(); drawer(); closeDrawer(); visitPickBarHTML(); visitInvHTML(); visitInvCountText(); roleShorts(); delVisit(); saveVisit(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -2642,6 +2862,11 @@ function openVisitForm() { can(); toast(); setKolTab(); visitInvitees(); getKol(
 
 
 function saveVisit() { toast(); logAct(); uid(); save(); closeDrawer(); route(); }
+
+
+
+
+
 
 
 
@@ -2968,6 +3193,10 @@ function delAsset() { save(); closeDrawer(); route(); filterByBrand(); can(); br
 
 
 
+
+
+
+
 function approveFinal() { getContent(); logAct(); notify(); save(); updateApprovalBadge(); route(); toast(); filterByBrand(); brandBar(); daysDiff(); openContent(); esc(); brandDot(); platformTags(); fmtDate(); relDay(); can(); markPublished(); fmtDT(); num(); }
 
 
@@ -3058,7 +3287,7 @@ function avgEr() { contentPlatforms(); num(); brandBar(); st(); esc(); pct(); op
 
 function csvSafe() {  }
 function downloadFile() { toast(); }
-function exportCSV() { brandName(); contentPlatforms(); userName(); roleLabels(); downloadFile(); logAct(); }
+function exportCSV() { brandName(); contentPlatforms(); contentTypeLabel(); printTypeLabel(); userName(); roleLabels(); downloadFile(); logAct(); }
 
 
 
