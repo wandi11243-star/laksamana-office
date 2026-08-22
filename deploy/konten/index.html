@@ -853,6 +853,33 @@ function printTypeLabel(c){return printTypes(c).join(' + ');}
    "lihat linknya dulu, baru fotonya" adalah keterangan yang hilang kalau
    keduanya dipisah jadi dua daftar. */
 function contentRefs(c){return (c&&Array.isArray(c.refs))?c.refs:[];}
+/* DETAILING — satu kolom, menggantikan Keyword + Caption + Hashtag +
+   Script/Storyboard yang dulu empat kotak terpisah.
+
+   Empatnya ditulis orang yang sama dalam satu duduk dan isinya saling
+   menyambung: hashtag adalah ekor caption, keyword hampir selalu sudah ada di
+   dalamnya, dan script menjelaskan caption yang mana untuk adegan yang mana.
+   Memecahnya jadi empat kotak memaksa penulisnya memutus kalimat lalu
+   menempelkannya kembali di kepala pembaca — dan yang paling sering terjadi:
+   tiga kotak dibiarkan kosong, semuanya ditulis di satu kotak yang kebetulan
+   paling besar.
+
+   BACAAN DUA ARAH untuk data lama. Konten yang sudah terlanjur mengisi empat
+   kolom itu TIDAK kehilangan isinya: kalau `detail` masih kosong, teksnya
+   disusun ulang dari keempatnya, lengkap dengan judul bagiannya, jadi yang
+   membuka konten lama melihat tulisannya utuh dan bisa langsung menyunting.
+   Keempat kolom lama tidak pernah ditimpa maupun dihapus — ia tetap ada
+   sebagai arsip kalau suatu saat perlu dibaca ulang. */
+function contentDetail(c){
+  if(!c)return '';
+  if(c.detail)return c.detail;
+  const p=[];
+  if(c.keyword) p.push('Keyword: '+c.keyword);
+  if(c.caption) p.push('Caption:\n'+c.caption);
+  if(c.hashtags&&c.hashtags.length) p.push('Hashtag: '+c.hashtags.join(' '));
+  if(c.script) p.push('Script / Storyboard:\n'+c.script);
+  return p.join('\n\n');
+}
 const PRIORITY={urgent:{label:'Urgent',cls:'p-urgent',n:4},high:{label:'Tinggi',cls:'p-high',n:3},medium:{label:'Sedang',cls:'p-med',n:2},low:{label:'Rendah',cls:'p-low',n:1}};
 const CONTENT_TYPES=['Reel','Feed / Carousel','Story','Single Image','Video Long','Short/Shorts','Live','Article','Thread','Videotron'];
 const PILLARS=['Product & Menu','Promotion','Event','Entertainment','Education','Lifestyle','BTS','Corporate','Community','Information'];
@@ -1038,7 +1065,12 @@ function mkContent(o){
        Yang hilang cuma kotak isian dan kartu tampilannya. */
     title:'',hook:'',objective:'',cta:'',audience:'',keyword:'',
     contentType:'Reel',contentTypes:['Reel'],printType:'',printTypes:[],duration:'',lang:'ID',
-    caption:'',hashtags:[],script:'',shotList:'',reference:'',refs:[],thumbnail:'',
+    /* caption / hashtags / script SENGAJA masih didaftarkan, dengan alasan
+       yang sama seperti hook/objective/cta di atas: keempatnya (bersama
+       keyword) sudah dilebur jadi satu kolom `detail`, tapi konten lama yang
+       terlanjur mengisinya tidak dibuang datanya — contentDetail() membacanya
+       balik selama `detail` masih kosong. */
+    detail:'',caption:'',hashtags:[],script:'',shotList:'',reference:'',refs:[],thumbnail:'',
     deadline:'',publishDate:'',publishTime:'20:00',pic:'',priority:'medium',status:'Idea',
     checklist:[],comments:[],revisions:[],approvals:[],publishRecord:null,metrics:null,assets:[],prod:{},
     createdBy:'u_admin',createdAt:Date.now()
@@ -1523,7 +1555,7 @@ function filteredContent(){
   if(f.platform)list=list.filter(c=>contentPlatforms(c).includes(f.platform));
   if(f.pillar)list=list.filter(c=>c.pillar===f.pillar);
   if(f.pic)list=list.filter(c=>c.pic===f.pic);
-  if(f.q){const q=f.q.toLowerCase();list=list.filter(c=>(c.title+c.caption+(c.script||'')).toLowerCase().includes(q));}
+  if(f.q){const q=f.q.toLowerCase();list=list.filter(c=>(c.title+' '+contentDetail(c)).toLowerCase().includes(q));}
   return list.sort((a,b)=>new Date(a.deadline||'2099')-new Date(b.deadline||'2099'));
 }
 function renderPlanTable(){
@@ -1543,19 +1575,16 @@ function renderPlanTable(){
     </tbody></table></div>`;
 }
 
-let formChips=[];
-/* Referensi yang sedang disusun di formulir. Ditaruh di luar seperti
-   formChips, dan alasannya sama: daftarnya digambar ulang tiap kali ada yang
-   ditambah/dibuang, jadi ia tidak bisa hidup di dalam DOM saja — innerHTML
-   yang ditulis ulang akan membuang <input type=file> beserta berkas yang
-   sudah terbaca. */
+/* Referensi yang sedang disusun di formulir, ditaruh di luar DOM: daftarnya
+   digambar ulang tiap kali ada yang ditambah/dibuang, jadi ia tidak bisa hidup
+   di dalam DOM saja — innerHTML yang ditulis ulang akan membuang
+   <input type=file> beserta berkas yang sudah terbaca. */
 let formRefs=[];
 const REF_IMG_MB=3;        // batas per foto
 const REF_TOTAL_MB=9;      // batas seluruh foto pada satu konten
 function openContentForm(id){
   if(!can('content')){toast('Kamu tidak punya akses membuat/mengubah konten','err');return;}
   const c=id?getContent(id):null;const isEdit=!!c;
-  formChips=c?[...(c.hashtags||[])]:[];
   formRefs=c?contentRefs(c).map(r=>Object.assign({},r)):[];
   const curPlats=c?contentPlatforms(c):['IG'];
   /* Konten BARU tidak memilih tipe apa pun lebih dulu. Dulu <select> selalu
@@ -1583,14 +1612,9 @@ function openContentForm(id){
           <div style="display:flex;flex-wrap:wrap;gap:7px;margin-top:2px">${Object.keys(PRINT_TYPES).map(r=>`<label class="chk-row" style="width:auto;padding:7px 10px" title="${esc(PRINT_TYPES[r])}"><input type="checkbox" class="f_ptype" value="${esc(r)}" ${curPrints.includes(r)?'checked':''} onchange="COMS.onPrintTypeChange()" style="accent-color:var(--gold);width:16px;height:16px"> ${esc(r)}</label>`).join('')}</div>
           <div id="printHint" style="font-size:11.5px;color:var(--txt-3);margin-top:8px">${printHintText(curPrints)}</div></div>
         <div class="full field" style="margin-top:4px">
-          <label>Detailing Konten</label>
-          <div style="font-size:11.5px;color:var(--txt-3);margin:-2px 0 10px">Keyword, caption, hashtag &amp; script dalam satu kolom - semuanya ditulis oleh orang yang sama dalam satu duduk.</div>
-          <div style="display:flex;flex-direction:column;gap:12px;border:1px solid var(--line-soft);border-radius:12px;padding:12px;background:var(--panel-2)">
-            <div class="field" style="margin:0"><label>Keyword</label><input class="ctrl" id="f_keyword" value="${esc(c?.keyword||'')}" placeholder="Kata kunci pencarian / SEO"></div>
-            <div class="field" style="margin:0"><label>Caption</label><textarea class="ctrl" id="f_caption" placeholder="Tulis caption...">${esc(c?.caption||'')}</textarea></div>
-            <div class="field" style="margin:0"><label>Hashtag</label><div class="chip-input" id="f_chips">${renderChips()}<input placeholder="Ketik + Enter" onkeydown="COMS.chipKey(event)"></div></div>
-            <div class="field" style="margin:0"><label>Script / Storyboard</label><textarea class="ctrl" id="f_script" placeholder="Naskah / shot list..." style="min-height:120px">${esc(c?.script||'')}</textarea></div>
-          </div></div>
+          <label>Detailing</label>
+          <div style="font-size:11.5px;color:var(--txt-3);margin:-2px 0 8px">Satu kolom untuk seluruh isi konten - caption, hashtag, keyword, sampai script / storyboard. Tulis apa adanya seperti di catatan sendiri.</div>
+          <textarea class="ctrl" id="f_detail" style="min-height:260px;line-height:1.6" placeholder="Caption...&#10;&#10;#hashtag #laksamanamuda&#10;&#10;Script / storyboard:&#10;1. ...">${esc(contentDetail(c))}</textarea></div>
         <div class="full field" style="margin-top:4px">
           <label>Referensi</label>
           <div style="font-size:11.5px;color:var(--txt-3);margin:-2px 0 10px">Tautan (Drive, IG, TikTok, Pinterest) &amp; foto contoh. Foto ikut tersimpan di dalam data modul, jadi pakai yang seperlunya - maks ${REF_IMG_MB} MB per foto.</div>
@@ -1631,9 +1655,11 @@ function openContentForm(id){
     <div class="modal-f"><button class="btn btn-ghost" onclick="COMS.closeDrawer()">Batal</button>
       <button class="btn btn-gold" onclick="COMS.saveContent('${id||''}')">${isEdit?'Simpan Perubahan':'⚓ Buat Konten'}</button></div>`);
 }
-function renderChips(){return formChips.map((h,i)=>`<span class="mini-tag">${esc(h)}<b onclick="COMS.rmChip(${i})">✕</b></span>`).join('');}
-function chipKey(e){if(e.key==='Enter'){e.preventDefault();let v=e.target.value.trim();if(v){if(!v.startsWith('#'))v='#'+v;formChips.push(v);e.target.value='';$('#f_chips').innerHTML=renderChips()+'<input placeholder="Ketik + Enter" onkeydown="COMS.chipKey(event)">';$('#f_chips input').focus();}}}
-function rmChip(i){formChips.splice(i,1);$('#f_chips').innerHTML=renderChips()+'<input placeholder="Ketik + Enter" onkeydown="COMS.chipKey(event)">';}
+/* renderChips / chipKey / rmChip DIBUANG bersama kotak Hashtag. Hashtag kini
+   diketik apa adanya di dalam Detailing, seperti saat orang menulisnya di
+   catatan atau langsung di aplikasi sosmed — chip yang menuntut Enter tiap
+   satu tag justru memperlambat bagian yang paling cepat ditulis. Larik
+   c.hashtags pada konten lama tetap terbaca lewat contentDetail(). */
 
 // Platform multi-pilih: beri warna pada pilihan yang aktif
 function togglePlatform(chk){
@@ -1765,8 +1791,13 @@ function saveContent(id){
      konten baru, tanpa satu pun galat yang menyebut sebabnya. */
   const data={brand:g('brand'),campaign:g('campaign'),platforms,platform:platforms[0],pillar:g('pillar'),
     contentTypes:ctypes,contentType:ctypes[0],printTypes:ptypes,printType:ptypes[0]||'',
-    title,keyword:g('keyword'),caption:g('caption'),
-    hashtags:[...formChips],script:g('script'),refs:[...formRefs],pic:g('pic'),priority:g('priority'),status:g('status'),
+    /* keyword / caption / hashtags / script TIDAK ikut ditulis lagi — dan itu
+       disengaja, bukan kelalaian. Keempatnya sudah dilebur ke `detail`;
+       menuliskannya sebagai string kosong akan MENGHAPUS isi konten lama pada
+       penyimpanan pertama sesudah ini di-deploy, diam-diam, karena
+       Object.assign menimpanya. Dengan tidak disebut di sini, nilai lamanya
+       tetap utuh sebagai arsip dan contentDetail() masih bisa membacanya. */
+    title,detail:g('detail'),refs:[...formRefs],pic:g('pic'),priority:g('priority'),status:g('status'),
     deadline:g('deadline'),publishDate:g('publishDate'),publishTime:g('publishTime'),prod};
   let cRef;
   if(id){const c=getContent(id);const oldProd=c.prod||{};Object.assign(c,data);
@@ -1830,10 +1861,14 @@ function openContent(id){
           ${links.length?`<div style="display:flex;flex-direction:column;gap:6px;margin-bottom:${imgs.length?'12px':'0'}">${links.map(r=>`<a href="${esc(r.v)}" target="_blank" rel="noopener" style="font-size:12.5px;color:var(--info);text-decoration:none;word-break:break-all">🔗 ${esc(r.n||r.v)}</a>`).join('')}</div>`:''}
           ${imgs.length?`<div style="display:flex;flex-wrap:wrap;gap:8px">${imgs.map(r=>`<img src="${esc(r.v)}" title="${esc(r.n||'')}" onclick="COMS.viewImage('${escJsAttr(r.v)}','${escJsAttr(r.n||'Referensi')}')" style="width:96px;height:96px;object-fit:cover;border-radius:10px;border:1px solid var(--line-soft);cursor:zoom-in">`).join('')}</div>`:''}
         </div>`;})()}
-      ${c.caption?`<div class="card" style="margin-bottom:16px"><div class="card-h"><h3 style="font-size:14px">Caption</h3><button class="btn btn-ghost btn-sm" onclick="COMS.copyText(\`${(c.caption+' '+(c.hashtags||[]).join(' ')).replace(/`/g,'')}\`)">Salin</button></div>
-        <div style="font-size:13px;white-space:pre-wrap;line-height:1.6">${esc(c.caption)}</div>
-        ${c.hashtags.length?`<div style="margin-top:10px;display:flex;gap:5px;flex-wrap:wrap">${c.hashtags.map(h=>`<span class="tag" style="color:var(--info)">${esc(h)}</span>`).join('')}</div>`:''}</div>`:''}
-      ${c.script?`<div class="card" style="margin-bottom:16px"><h3 style="font-size:14px;margin-bottom:8px">Script / Storyboard</h3><div style="font-size:13px;white-space:pre-wrap;line-height:1.6;color:var(--txt-2)">${esc(c.script)}</div></div>`:''}
+      ${(()=>{const d=contentDetail(c);if(!d)return '';
+        /* Backtick di dalam teks dibuang sebelum masuk ke argumen copyText —
+           argumennya sendiri template literal, dan satu backtick di tengah
+           caption memutusnya sehingga seluruh tombol Salin berhenti bekerja
+           tanpa satu pun galat yang menyebut sebabnya. */
+        return `<div class="card" style="margin-bottom:16px">
+          <div class="card-h"><h3 style="font-size:14px">Detailing</h3><button class="btn btn-ghost btn-sm" onclick="COMS.copyText(\`${d.replace(/`/g,'').replace(/\$\{/g,'')}\`)">Salin</button></div>
+          <div style="font-size:13px;white-space:pre-wrap;line-height:1.6">${esc(d)}</div></div>`;})()}
 
       ${c.prod&&Object.keys(c.prod).length?`<div class="card" style="margin-bottom:16px">
         <div class="card-h"><h3 style="font-size:14px">Kebutuhan Produksi</h3><span class="sub">shoot - desain - editing</span></div>
@@ -2195,7 +2230,7 @@ function saveBank(id){const g=k=>$('#bk_'+k).value;const t=g('title').trim();if(
 function delBank(id){if(!confirm('Hapus ide ini?'))return;DB.bank=DB.bank.filter(x=>x.id!==id);save();closeDrawer();route('bank');}
 function convertBank(id){const b=DB.bank.find(x=>x.id===id);
   const plat=normPlatform(b.platform);
-  const c=mkContent({brand:b.brand,platform:plat,platforms:plat?[plat]:[],pillar:PILLARS.includes(b.category)?b.category:PILLARS[0],title:b.title,priority:b.priority==='high'?'high':'medium',keyword:b.keyword,status:'Idea',createdBy:SES,createdAt:Date.now(),deadline:dISO(7),publishDate:dISO(10)});
+  const c=mkContent({brand:b.brand,platform:plat,platforms:plat?[plat]:[],pillar:PILLARS.includes(b.category)?b.category:PILLARS[0],title:b.title,priority:b.priority==='high'?'high':'medium',detail:b.keyword?('Keyword: '+b.keyword):'',status:'Idea',createdBy:SES,createdAt:Date.now(),deadline:dISO(7),publishDate:dISO(10)});
   DB.content.push(c);b.status='converted';logAct('mengubah ide jadi konten',b.title);save();toast('Ide → Content Planning ⚓','ok');route('bank');}
 
 VIEWS.brands=function(){
@@ -3181,11 +3216,12 @@ VIEWS.approval=function(){
       <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;flex-wrap:wrap">${brandDot(c.brand)}<span style="font-size:11px;color:var(--txt-3)">${esc(b?b.name.split(' (')[0]:'')}</span>${platformTags(c,3)}
         <span class="pill" style="margin-left:auto;background:var(--purple-bg);color:var(--purple)">Menunggu Approval</span></div>
       <h3 style="font-size:16px;margin-bottom:6px;cursor:pointer" onclick="COMS.openContent('${c.id}')">${esc(c.title)}</h3>
-      <!-- Dulu c.hook. Kolom Hook sudah dibuang dari formulir, jadi kartu ini
-           memakai awal Caption — satu-satunya teks yang pasti terisi pada
-           konten yang sudah sampai meja approval. Tanpa penggantinya, tiap
-           kartu di halaman ini kehilangan barisnya dan tinggal judul saja. -->
-      <div style="font-size:12px;color:var(--txt-2);margin-bottom:8px">${esc(String(c.caption||'').slice(0,140))}${String(c.caption||'').length>140?'…':''}</div>
+      <!-- Dulu c.hook, lalu c.caption. Keduanya sudah dibuang dari formulir,
+           jadi kartu ini memakai awal Detailing — satu-satunya teks yang pasti
+           terisi pada konten yang sudah sampai meja approval. Tanpa
+           penggantinya, tiap kartu di halaman ini kehilangan barisnya dan
+           tinggal judul saja. -->
+      <div style="font-size:12px;color:var(--txt-2);margin-bottom:8px">${esc(contentDetail(c).slice(0,140))}${contentDetail(c).length>140?'…':''}</div>
       <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px">
         <span class="tag">📅 Tayang ${fmtDate(c.publishDate)}${c.publishTime?' '+c.publishTime:''}</span>
         ${c.pic?`<span class="tag">PIC ${esc(userName(c.pic).split(' ')[0])}</span>`:''}
@@ -3424,7 +3460,7 @@ function markAllRead(){DB.notifs.forEach(n=>n.read=true);save();refreshNotifDot(
 function initSearch(){const inp=$('#globalSearch');const box=$('#searchResults');
   inp.addEventListener('input',()=>{const q=inp.value.trim().toLowerCase();if(!q){box.innerHTML='';box.style.display='none';return;}
     const res=[];
-    DB.content.filter(c=>(c.title+c.caption+(c.hashtags||[]).join(' ')).toLowerCase().includes(q)).slice(0,5).forEach(c=>res.push({t:c.title,s:'Konten - '+(contentPlatforms(c).join(' + ')||'-'),fn:`COMS.openContent('${c.id}')`}));
+    DB.content.filter(c=>(c.title+' '+contentDetail(c)).toLowerCase().includes(q)).slice(0,5).forEach(c=>res.push({t:c.title,s:'Konten - '+(contentPlatforms(c).join(' + ')||'-'),fn:`COMS.openContent('${c.id}')`}));
     DB.brands.filter(b=>b.name.toLowerCase().includes(q)).slice(0,3).forEach(b=>res.push({t:b.name,s:'Brand',fn:`COMS.route('brands')`}));
     DB.bank.filter(b=>b.title.toLowerCase().includes(q)).slice(0,3).forEach(b=>res.push({t:b.title,s:'Ide',fn:`COMS.openBankForm('${b.id}')`}));
     DB.users.filter(u=>u.name.toLowerCase().includes(q)).slice(0,3).forEach(u=>res.push({t:u.name,s:'Kru - '+roleShorts(u),fn:`COMS.route('team')`}));
@@ -3438,7 +3474,7 @@ function clearSearch(){const box=$('#searchResults');if(box){box.innerHTML='';bo
 // EXPOSE PUBLIC API KE WINDOW / DOM
 const API={
   route,setBrand,pickLogin,logout,
-  openContentForm,saveContent,openContent,chipKey,rmChip,
+  openContentForm,saveContent,openContent,
   togglePlatform,onPrintTypeChange,
   addRefLink,addRefImages,rmRef,refLinkKey,
   toggleProdNeed,autoProdDate,onPublishDateChange,toggleProdDone,

@@ -870,6 +870,33 @@ function contentRefs() {  }
 
 
 
+function contentDetail() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1026,7 +1053,12 @@ function seed() {  }
 
 
 
-function mkContent() { uid(); }
+function mkContent() { uid(); contentDetail(); }
+
+
+
+
+
 
 
 
@@ -1516,7 +1548,7 @@ function st() { esc(); fmtDate(); brandBar(); num(); fmtDateShort(); tint(); cal
 
 function planF() { renderPlanTable(); }
 function planReset() { route(); }
-function filteredContent() { filterByBrand(); contentPlatforms(); }
+function filteredContent() { filterByBrand(); contentPlatforms(); contentDetail(); }
 
 
 
@@ -1550,9 +1582,9 @@ function renderPlanTable() { filteredContent(); daysDiff(); getBrand(); openCont
 
 
 
+function openContentForm() { can(); toast(); getContent(); contentRefs(); contentPlatforms(); contentTypes(); printTypes(); esc(); drawer(); closeDrawer(); tint(); togglePlatform(); onPrintTypeChange(); printHintText(); contentDetail(); refLinkKey(); addRefLink(); addRefImages(); renderRefs(); roleShorts(); onPublishDateChange(); toggleProdNeed(); autoProdDate(); saveContent(); }
 
 
-function openContentForm() { can(); toast(); getContent(); contentRefs(); contentPlatforms(); contentTypes(); printTypes(); esc(); drawer(); closeDrawer(); tint(); togglePlatform(); onPrintTypeChange(); printHintText(); renderChips(); chipKey(); refLinkKey(); addRefLink(); addRefImages(); renderRefs(); roleShorts(); onPublishDateChange(); toggleProdNeed(); autoProdDate(); saveContent(); }
 
 
 
@@ -1628,12 +1660,6 @@ function openContentForm() { can(); toast(); getContent(); contentRefs(); conten
 
 
 
-
-
-
-function renderChips() { esc(); rmChip(); }
-function chipKey() { renderChips(); }
-function rmChip() { renderChips(); chipKey(); }
 
 
 function togglePlatform() { tint(); }
@@ -1746,7 +1772,12 @@ function onPublishDateChange() { autoProdDate(); }
 
 
 
-function saveContent() { toast(); selectedPlatforms(); selectedContentTypes(); selectedPrintTypes(); getContent(); logAct(); mkContent(); notify(); syncProdTasks(); save(); closeDrawer(); updateApprovalBadge(); route(); }
+function saveContent() { toast(); selectedPlatforms(); selectedContentTypes(); selectedPrintTypes(); contentDetail(); getContent(); logAct(); mkContent(); notify(); syncProdTasks(); save(); closeDrawer(); updateApprovalBadge(); route(); }
+
+
+
+
+
 
 
 
@@ -1785,7 +1816,11 @@ function syncProdTasks() {  }
 
 
 
-function openContent() { getContent(); getBrand(); textOn(); tint(); can(); drawer(); brandBadge(); platformTags(); esc(); closeDrawer(); statusPill(); prioBadge(); isOverdue(); fmtDate(); contentTypes(); printTypes(); moveStatus(); reqRevision(); cancelContent(); contentRefs(); viewImage(); escJsAttr(); copyText(); deadlineHTML(); toggleProdDone(); pct(); toggleChk(); rmChk(); addChk(); renderMetricsBlock(); fmtDT(); userName(); markPublished(); timeAgo(); renderComments(); mentionScan(); cmtKey(); mentionClose(); addComment(); deleteContent(); openContentForm(); }
+function openContent() { getContent(); getBrand(); textOn(); tint(); can(); drawer(); brandBadge(); platformTags(); esc(); closeDrawer(); statusPill(); prioBadge(); isOverdue(); fmtDate(); contentTypes(); printTypes(); moveStatus(); reqRevision(); cancelContent(); contentRefs(); viewImage(); escJsAttr(); contentDetail(); copyText(); deadlineHTML(); toggleProdDone(); pct(); toggleChk(); rmChk(); addChk(); renderMetricsBlock(); fmtDT(); userName(); markPublished(); timeAgo(); renderComments(); mentionScan(); cmtKey(); mentionClose(); addComment(); deleteContent(); openContentForm(); }
+
+
+
+
 
 
 
@@ -3169,7 +3204,8 @@ function saveAsset() { toast(); uid(); logAct(); save(); closeDrawer(); route();
 
 
 
-function delAsset() { save(); closeDrawer(); route(); filterByBrand(); can(); brandBar(); getBrand(); brandDot(); esc(); platformTags(); openContent(); fmtDate(); userName(); approveFinal(); reqRevision(); }
+function delAsset() { save(); closeDrawer(); route(); filterByBrand(); can(); brandBar(); getBrand(); brandDot(); esc(); platformTags(); openContent(); contentDetail(); fmtDate(); userName(); approveFinal(); reqRevision(); }
+
 
 
 
@@ -3421,7 +3457,7 @@ function toggleNotif() { markAllRead(); esc(); timeAgo(); save(); refreshNotifDo
 
 function markAllRead() { save(); refreshNotifDot(); toggleNotif(); }
 
-function initSearch() { contentPlatforms(); openContent(); route(); openBankForm(); roleShorts(); clearSearch(); esc(); }
+function initSearch() { contentDetail(); contentPlatforms(); openContent(); route(); openBankForm(); roleShorts(); clearSearch(); esc(); }
 
 
 
