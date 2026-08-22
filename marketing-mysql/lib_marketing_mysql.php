@@ -1020,3 +1020,86 @@ function stats() {
   $out['ts'] = gmdate('c');
   return $out;
 }
+
+/* ==================== REQUEST DESIGN & VIDEO ====================
+   Marketing mengajukan kebutuhan desain / video; modul Konten membacanya di
+   Design Queue & Editing Queue. Dibaca lewat DUA endpoint sempit
+   (designReqs / designReqSet), BUKAN getAll — getAll di modul ini memulangkan
+   seluruh client, event, dan aktivitas, dan halaman antrian di Konten membukanya
+   tiap kali orang menekan tombol.
+
+   SATU SUMBER KEBENARAN, DUA PENULIS YANG TIDAK PERNAH BERTABRAKAN:
+
+   - Isi permintaannya (judul, brief, deadline) ada di `extra:designreqs` —
+     itu `S.designreqs` milik modul Marketing, ditulis lewat saveAll biasa.
+     Konten tidak pernah menulis ke sana.
+   - Kemajuannya (sudah dikerjakan / siapa yang pegang) ada di kunci TERPISAH
+     `extra:designreqprog`, dan HANYA design_req_set() yang menulisnya.
+
+   Dipisah karena kalau keduanya satu blob, urutan ini akan terjadi dan tidak
+   mengeluarkan galat apa pun: desainer menandai selesai jam 10, seorang
+   marketing yang membuka halamannya sejak jam 9 menekan Simpan jam 11, dan
+   seluruh blob-nya — termasuk status "selesai" — tertimpa oleh salinan lama
+   yang ada di layarnya. Yang hilang justru satu-satunya kabar yang ditunggu.
+
+   Sisi Marketing ikut menjaga pemisahan itu: buildPayload() di
+   deploy/marketing/index.html membuang `designreqprog` sebelum mengirim,
+   persis seperti `_versi`. Kalau baris itu dihapus, perlindungan di sini
+   ikut hilang — server tidak punya cara membedakan "tidak dikirim" dari
+   "dikirim kosong". */
+function design_req_blob($pdo, $k) {
+  $q = $pdo->prepare('SELECT v FROM settings WHERE k = :k');
+  $q->execute(array(':k' => $k));
+  $v = json_decode((string)$q->fetchColumn(), true);
+  return is_array($v) ? $v : array();
+}
+
+/* $hanyaAktif = true -> yang sudah selesai tidak ikut. Dipakai antrian di
+   modul Konten, yang memang cuma mengurus pekerjaan yang belum kelar.
+   Yang dibatalkan marketing (`batalAt`) tidak pernah ikut, apa pun nilainya. */
+function design_reqs($hanyaAktif) {
+  $pdo  = db();
+  $reqs = design_req_blob($pdo, 'extra:designreqs');
+  $prog = design_req_blob($pdo, 'extra:designreqprog');
+  $out  = array();
+  foreach ($reqs as $r) {
+    if (!is_array($r) || empty($r['id'])) continue;
+    if (!empty($r['batalAt'])) continue;
+    $id = (string)$r['id'];
+    $p  = (isset($prog[$id]) && is_array($prog[$id])) ? $prog[$id] : array();
+    $st = (isset($p['status']) && $p['status'] === 'done') ? 'done' : 'todo';
+    if ($hanyaAktif && $st === 'done') continue;
+    $out[] = array(
+      'id'        => $id,
+      'jenis'     => (isset($r['jenis']) && $r['jenis'] === 'edit') ? 'edit' : 'design',
+      'judul'     => isset($r['judul'])     ? (string)$r['judul']     : '',
+      'brief'     => isset($r['brief'])     ? (string)$r['brief']     : '',
+      'acara'     => isset($r['acara'])     ? (string)$r['acara']     : '',
+      'deadline'  => tanggal_valid(isset($r['deadline']) ? $r['deadline'] : ''),
+      'prioritas' => isset($r['prioritas']) ? (string)$r['prioritas'] : 'medium',
+      'pemohon'   => isset($r['byNama'])    ? (string)$r['byNama']    : '',
+      'at'        => isset($r['at'])        ? (string)$r['at']        : '',
+      'status'    => $st,
+      'pic'       => isset($p['picNama'])   ? (string)$p['picNama']   : '',
+      'doneAt'    => isset($p['at'])        ? (string)$p['at']        : '',
+    );
+  }
+  return array('reqs' => $out);
+}
+
+/* Menandai satu permintaan selesai / dibuka lagi. Ditulis dari modul Konten.
+   Baris permintaannya sendiri TIDAK disentuh — lihat keterangan di atas. */
+function design_req_set($id, $status, $picNama) {
+  $id = trim((string)$id);
+  if ($id === '') throw new Exception('id permintaan kosong');
+  $status = ($status === 'done') ? 'done' : 'todo';
+  $pdo  = db();
+  $prog = design_req_blob($pdo, 'extra:designreqprog');
+  $prog[$id] = array(
+    'status'  => $status,
+    'picNama' => (string)$picNama,
+    'at'      => gmdate('c'),
+  );
+  put_setting($pdo, 'extra:designreqprog', $prog);
+  return array('id' => $id, 'status' => $status);
+}

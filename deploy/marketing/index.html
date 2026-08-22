@@ -2055,7 +2055,7 @@ let API_READY = false;
 /* ---- bentuk state: pastikan default & array selalu ada ----
    DB kosong balas settings {} — tanpa ini, DEFAULT_SETTINGS (mis. serviceCharge,
    dpPercent) hilang dan perhitungan finance jadi kacau. */
-const MKT_COLS=['clients','events','followups','approvals','users','staff',
+const MKT_COLS=['clients','events','followups','approvals','users','staff','designreqs',
                 'taskTemplates','taskCategories','categories','notifs','activities','vip'];
 // Data LAMA (sebelum matriks None/Lihat/Ubah): s.roleNav[role]=[view,...],
 // s.rolePerms[role]=[action,...], keduanya array terpisah. Naikkan jadi
@@ -2406,6 +2406,15 @@ function buildPayload(){
   /* `_versi` milik server, bukan bagian data kita — jangan dipantulkan balik
      supaya ia tidak tersimpan sebagai setelan 'extra:'. */
   delete p._versi;
+  /* `designreqprog` (kemajuan Request Design & Video) DITULIS MODUL KONTEN,
+     bukan di sini. Ia ikut terbaca saat getAll, jadi tanpa baris ini ia akan
+     dipantulkan balik apa adanya — dan urutan ini terjadi tanpa satu pun
+     galat: desainer menandai selesai jam 10, seorang marketing yang membuka
+     halamannya sejak jam 9 menekan Simpan jam 11, dan status "selesai"
+     tertimpa salinan lama yang ada di layarnya. Yang hilang justru
+     satu-satunya kabar yang ditunggu. Lihat design_req_set() di
+     marketing-mysql/lib_marketing_mysql.php. */
+  delete p.designreqprog;
   return p;
 }
 /* ---------- Selamatkan perubahan yang belum sampai ke server ----------
@@ -3137,6 +3146,7 @@ const ACTION_VIEW={
   verify_payment:'invoices', approve:'approvals', manage_users:'users',
   edit_task:'tasks', edit_template:'templates', edit_staff:'staff',
   edit_vip:'vip',
+  edit_designreq:'designreq',
   edit_katalog:'katalog'
 };
 function permViewKeys(){ return NAV_DEF.filter(x=>x.k).map(x=>x.k); }
@@ -3160,6 +3170,8 @@ function roleDefaultPerm(role, view){
     edit_staff:['marketing','manager'].includes(role),
     // Reservasi VIP dikerjakan tim marketing; manager ikut supaya bisa mengoreksi.
     edit_vip:['marketing','manager'].includes(role),
+    // Request Design & Video: yang mengajukan marketing; manager ikut supaya bisa mengoreksi.
+    edit_designreq:['marketing','manager'].includes(role),
     // Katalog = materi jualan; yang menyusunnya marketing, manager mengoreksi.
     edit_katalog:['marketing','manager'].includes(role)
   };
@@ -4009,6 +4021,10 @@ const NAV_DEF=[
      buildNav() melewatinya, permViewKeys() tetap menghitungnya. */
   {k:'brief',t:'Event Brief & Quotation',i:'brief',hidden:1},
   {k:'vip',t:'Reservasi VIP',i:'star'},
+  /* Request Design & Video duduk di kelompok Event, bukan Sistem: ia bagian
+     dari menggarap SATU acara — brief desainnya lahir saat eventnya disusun,
+     bukan sebagai data induk yang jarang disentuh. */
+  {k:'designreq',t:'Request Design & Video',i:'brief'},
   {g:'Finance & Kontrol'},
   // Kalkulator dipindah ke sini: keluarannya angka harga, bukan pekerjaan event.
   {k:'kalkulator',t:'Menu Kalkulator',i:'calc'},
@@ -4077,7 +4093,7 @@ function pendingApprovals(){ return S.approvals.filter(a=>a.status==='Pending');
 function pendingPenawaran(){ return S.events.filter(e=>penStatus(e)==='Menunggu Approval'); }
 
 /* ---------- ROUTER ---------- */
-const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline & Event','Papan peluang & daftar seluruh event — satu tempat'],events:['Sales Pipeline & Event','Papan peluang & daftar seluruh event — satu tempat'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan negosiasi harga / diskon khusus'],purchasing:['Purchase Order','Kirim kebutuhan pembelian ke papan Purchasing BD OS'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],staff:['Pegawai & Akses','Satu daftar: data pegawai (otomatis dari database user Office) sekaligus role & hak aksesnya'],menudb:['Database Menu','Daftar menu per jenis — jadi sumber pilihan di Menu Final & Menu Bar'],kalkulator:['Menu Kalkulator','Hitung harga jual per pax & diskon dari harga deal customer'],vip:['Reservasi VIP','Booking ruang VIP — langsung mengunci meja di modul Reservasi'],katalog:['Katalog','Materi presentasi venue — gambar & deskripsi, bisa dijalankan layar penuh seperti PPT'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
+const TITLES={dashboard:['Dashboard','Ringkasan aktivitas & target hari ini'],crm:['Database Client','CRM — semua klien dari Lead sampai repeat customer'],pipeline:['Sales Pipeline & Event','Papan peluang & daftar seluruh event — satu tempat'],events:['Sales Pipeline & Event','Papan peluang & daftar seluruh event — satu tempat'],templates:['Template Task','Template job per divisi — Task, PIC, Deadline, Catatan'],brief:['Event Brief & Quotation','Generate briefing internal, versi client & penawaran'],calendar:['Kalender','Satu jadwal untuk seluruh venue'],tasks:['Task Divisi','Operational handover & kesiapan per divisi'],invoices:['Invoice & Payment','Siklus invoice & tracking pembayaran'],approvals:['Approval Flow','Persetujuan negosiasi harga / diskon khusus'],purchasing:['Purchase Order','Kirim kebutuhan pembelian ke papan Purchasing BD OS'],performance:['Marketing Performance','Ukur performa marketing secara objektif'],reports:['Reporting & Analytics','Laporan revenue, pax & atribusi'],timeline:['Timeline & Audit Log','Jejak seluruh perubahan data'],notifications:['Notification Center','Semua pengingat penting'],staff:['Pegawai & Akses','Satu daftar: data pegawai (otomatis dari database user Office) sekaligus role & hak aksesnya'],menudb:['Database Menu','Daftar menu per jenis — jadi sumber pilihan di Menu Final & Menu Bar'],kalkulator:['Menu Kalkulator','Hitung harga jual per pax & diskon dari harga deal customer'],designreq:['Request Design & Video','Ajukan kebutuhan desain & video - masuk ke antrian modul Konten'],vip:['Reservasi VIP','Booking ruang VIP — langsung mengunci meja di modul Reservasi'],katalog:['Katalog','Materi presentasi venue — gambar & deskripsi, bisa dijalankan layar penuh seperti PPT'],users:['User Management','Kelola akun & hak akses'],settings:['Pengaturan','Aturan bisnis, tarif & data']};
 /* Buka halaman sesuai alamat saat aplikasi baru dimuat.
    SATU definisi dipakai kedua jalur masuk (login manual & SSO). Dulu baris
    ini digandakan di dua tempat dan KEDUANYA hanya memakai bagian [0] dari
@@ -4145,7 +4161,7 @@ function go(view,param){
      memang tempat yang benar. */
   const pulih=_gulirUlang; _gulirUlang=null;
   const V=$('view'); V.scrollTop = pulih?pulih.view:0; paintStaffDatalist(); paintMenuDatalist();
-  const R={dashboard:renderDashboard,crm:renderCRM,pipeline:renderPipeline,events:renderPipeline,event:renderEventForm,brief:renderBrief,calendar:renderCalendar,tasks:renderTasks,templates:renderTemplates,invoices:renderInvoices,approvals:renderApprovals,purchasing:renderPurchasingBD,performance:renderPerformance,reports:renderReports,timeline:renderTimeline,notifications:renderNotifications,staff:renderStaff,menudb:renderMenuDb,kalkulator:renderKalkulator,vip:renderVIP,katalog:renderKatalog,settings:renderSettings};
+  const R={dashboard:renderDashboard,crm:renderCRM,pipeline:renderPipeline,events:renderPipeline,event:renderEventForm,brief:renderBrief,calendar:renderCalendar,tasks:renderTasks,templates:renderTemplates,invoices:renderInvoices,approvals:renderApprovals,purchasing:renderPurchasingBD,performance:renderPerformance,designreq:renderDesignReq,reports:renderReports,timeline:renderTimeline,notifications:renderNotifications,staff:renderStaff,menudb:renderMenuDb,kalkulator:renderKalkulator,vip:renderVIP,katalog:renderKatalog,settings:renderSettings};
   (R[view]||renderDashboard)(V,param);
   if(pulih){
     /* Tinggi isi baru terhitung pada frame berikutnya setelah innerHTML
@@ -14012,6 +14028,247 @@ const KOL_VIP=[
   {k:'nominal', t:'Nominal', v:v=>vipNominal(v), cls:'mono r', turun:1},
   {t:''}
 ];
+
+/* ============================================================
+   REQUEST DESIGN & VIDEO
+   ------------------------------------------------------------
+   Marketing mengajukan kebutuhan desain / video; permintaannya muncul sebagai
+   to-do di Design Queue & Editing Queue modul Konten.
+
+   PERMINTAANNYA TIDAK DISALIN KE MODUL KONTEN. Ia tetap tinggal di sini
+   (`S.designreqs`, disimpan lewat save() biasa), dan Konten MEMBACANYA lewat
+   endpoint sempit `designReqs`. Pola yang sama dipakai Absensi terhadap Jadwal
+   Shift, dan alasannya sama: satu permintaan yang disalin jadi dua baris di
+   dua database akan berselisih begitu salah satunya disunting, dan tidak ada
+   tempat yang bisa memberi tahu yang mana yang benar.
+
+   Kemajuannya (`S.designreqprog`) berjalan ke arah SEBALIKNYA: ditulis modul
+   Konten lewat `designReqSet`, dibaca di sini. Ia sengaja kunci terpisah dan
+   dibuang dari buildPayload() — lihat keterangannya di sana.
+   ============================================================ */
+const DR_JENIS={design:{t:'Desain',e:'🎨',q:'Design Queue'},edit:{t:'Video / Editing',e:'🎬',q:'Editing Queue'}};
+const DR_PRIO=[['urgent','Urgent'],['high','Tinggi'],['medium','Sedang'],['low','Rendah']];
+let drFilter={q:'',jenis:'',status:''};
+function drProg(id){
+  const p=S.designreqprog;
+  return (p&&typeof p==='object'&&p[id]&&typeof p[id]==='object')?p[id]:null;
+}
+function drSelesai(r){ const p=drProg(r.id); return !!(p&&p.status==='done'); }
+function drStatusText(r){
+  if(r.batalAt) return 'Dibatalkan';
+  return drSelesai(r)?'Selesai':'Menunggu dikerjakan';
+}
+function drStatusChip(r){
+  if(r.batalAt) return '<span class="chip" style="background:color-mix(in srgb,var(--muted) 15%,transparent);color:var(--muted)"><span class="cd" style="background:var(--muted)"></span>Dibatalkan</span>';
+  const p=drProg(r.id);
+  if(p&&p.status==='done')
+    return '<span class="chip" style="background:color-mix(in srgb,var(--ok) 15%,transparent);color:var(--ok)"><span class="cd" style="background:var(--ok)"></span>Selesai'
+      +(p.picNama?' · '+esc(p.picNama):'')+'</span>';
+  return '<span class="chip" style="background:color-mix(in srgb,var(--warn) 15%,transparent);color:var(--warn)"><span class="cd" style="background:var(--warn)"></span>Menunggu</span>';
+}
+function drData(){
+  return (S.designreqs||[]).filter(function(r){
+    if(drFilter.jenis && r.jenis!==drFilter.jenis) return false;
+    if(drFilter.status==='open'   && (r.batalAt||drSelesai(r))) return false;
+    if(drFilter.status==='done'   && !drSelesai(r)) return false;
+    if(drFilter.status==='batal'  && !r.batalAt) return false;
+    if(drFilter.q){
+      const q=drFilter.q.toLowerCase();
+      if(!((r.judul||'')+' '+(r.brief||'')+' '+(r.acara||'')).toLowerCase().includes(q)) return false;
+    }
+    return true;
+  });
+}
+const KOL_DESIGNREQ=[
+  {k:'judul', t:'Permintaan', v:r=>r.judul},
+  {k:'jenis', t:'Jenis',      v:r=>(DR_JENIS[r.jenis]||{}).t||r.jenis},
+  {k:'acara', t:'Untuk Acara',v:r=>r.acara},
+  {k:'dl',    t:'Deadline',   v:r=>r.deadline, cls:'mono'},
+  {k:'prio',  t:'Prioritas',  v:r=>r.prioritas},
+  {k:'oleh',  t:'Diajukan',   v:r=>r.byNama},
+  {k:'status',t:'Status',     v:r=>drStatusText(r)},
+  {t:''}
+];
+function renderDesignReq(V){
+  const canEdit=can('edit_designreq');
+  let h=pageHead('Modul N','Request Design & Video',
+    'Ajukan kebutuhan desain atau video. Permintaannya langsung muncul sebagai to-do di Design Queue / Editing Queue modul Konten.',
+    canEdit?'<button class="btn pri" onclick="drForm()">'+svg(IC.plus)+'Request Baru</button>':'');
+  const semua=(S.designreqs||[]);
+  const belum=semua.filter(function(r){ return !r.batalAt && !drSelesai(r); });
+  h+='<div class="grid g-3" style="margin-bottom:16px">'
+   +stat('Menunggu Dikerjakan',belum.length,'ada di antrian modul Konten','task')
+   +stat('Permintaan Desain',semua.filter(function(r){return r.jenis==='design'&&!r.batalAt;}).length,'masuk Design Queue','brief')
+   +stat('Permintaan Video',semua.filter(function(r){return r.jenis==='edit'&&!r.batalAt;}).length,'masuk Editing Queue','event')
+   +'</div>';
+  h+='<div class="card" style="margin-bottom:16px;display:flex;gap:10px;flex-wrap:wrap;align-items:center">'
+   +'<select class="inp" style="width:auto" onchange="drFilter.jenis=this.value;go(\'designreq\')">'
+     +'<option value="">Semua jenis</option>'
+     +Object.keys(DR_JENIS).map(function(k){ return '<option value="'+k+'"'+(drFilter.jenis===k?' selected':'')+'>'+DR_JENIS[k].e+' '+DR_JENIS[k].t+'</option>'; }).join('')
+   +'</select>'
+   +'<select class="inp" style="width:auto" onchange="drFilter.status=this.value;go(\'designreq\')">'
+     +[['','Semua status'],['open','Belum dikerjakan'],['done','Sudah selesai'],['batal','Dibatalkan']]
+        .map(function(x){ return '<option value="'+x[0]+'"'+(drFilter.status===x[0]?' selected':'')+'>'+x[1]+'</option>'; }).join('')
+   +'</select>'
+   +'<div class="searchbar">'+svg(IC.search)+'<input placeholder="Cari permintaan / acara..." value="'+esc(drFilter.q)+'" oninput="drFilter.q=this.value;paintDesignReq()"></div>'
+   +'<span class="cell-sub" id="dr-hitung"></span>'
+   +'</div><div class="card pad0"><div id="dr-table"></div></div>';
+  /* Kabar kemajuannya datang dari server, bukan dari S yang ada di layar:
+     yang menandai selesai orang di modul lain, jadi tanpa penyegaran ini
+     kolom Status baru berubah kalau halamannya dibuka ulang besok. */
+  h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Kolom <em>Status</em> diisi tim Konten lewat Design Queue / Editing Queue — bukan dari sini. Halaman ini menyegarkannya sendiri tiap kali dibuka.</span></div>';
+  V.innerHTML=h; paintDesignReq(); drSegarkanProgres();
+}
+function paintDesignReq(){
+  if(!$('dr-table')) return;
+  const semua=tblUrut(drData(),'designreq',KOL_DESIGNREQ);
+  const hit=$('dr-hitung');
+  if(hit) hit.textContent=semua.length+' dari '+(S.designreqs||[]).length+' permintaan';
+  if(!semua.length){
+    const adaSaringan=drFilter.q||drFilter.jenis||drFilter.status;
+    return $('dr-table').innerHTML=empty(
+      adaSaringan?'Tidak ada yang cocok':'Belum ada request',
+      adaSaringan?'Longgarkan saringannya, atau kosongkan pencarian.'
+                 :'Tekan <b>Request Baru</b> untuk mengajukan kebutuhan desain atau video ke tim Konten.','brief');
+  }
+  const p=tblPage(semua,'designreq',drFilter.q+'|'+drFilter.jenis+'|'+drFilter.status);
+  let h='<div class="tbl-wrap"><table class="tbl">'+tblHead('designreq',KOL_DESIGNREQ)+'<tbody>';
+  p.items.forEach(function(r){
+    const j=DR_JENIS[r.jenis]||{t:r.jenis,e:'📄'};
+    const rd=daysTo(r.deadline);
+    h+='<tr class="row-click" onclick="drLihat(\''+r.id+'\')">'
+     +'<td><div class="cell-strong">'+esc(r.judul)+'</div>'
+       +'<div class="cell-sub">'+esc(String(r.brief||'').slice(0,80))+(String(r.brief||'').length>80?'…':'')+'</div></td>'
+     +'<td><span class="tag">'+j.e+' '+esc(j.t)+'</span></td>'
+     +'<td>'+esc(r.acara||'—')+'</td>'
+     +'<td class="mono">'+(r.deadline?fmtDate(r.deadline):'—')
+       +(r.deadline&&!r.batalAt&&!drSelesai(r)?'<div class="cell-sub">'+(rd>=0?(rd===0?'Hari ini':'H-'+rd):'lewat '+(-rd)+'h')+'</div>':'')+'</td>'
+     +'<td>'+esc((DR_PRIO.find(function(x){return x[0]===r.prioritas;})||['','Sedang'])[1])+'</td>'
+     +'<td>'+esc(r.byNama||'—')+'</td>'
+     +'<td>'+drStatusChip(r)+'</td>'
+     +'<td>'+svg(IC.chevR,'')+'</td></tr>';
+  });
+  h+='</tbody></table></div>'+tblPagerHtml(p,'designreq');
+  $('dr-table').innerHTML=h;
+}
+TBL_RENDER.designreq=paintDesignReq;
+/* Tarik kemajuan terbaru dari server. TIDAK PERNAH MELEMPAR dan tidak pernah
+   mengosongkan apa yang sudah ada di layar: kalau backendnya belum diperbarui
+   (endpoint `designReqs` baru), halaman ini harus tetap bisa dipakai untuk
+   mengajukan — yang gagal cuma kolom Status. Pola yang sama dengan muatDW()
+   di modul Jadwal Shift. */
+let _drMuat=false;
+function drSegarkanProgres(){
+  /* Satu permintaan pada satu waktu. Halaman ini digambar ulang tiap kali
+     saringannya diubah, dan tanpa penahan ini tiap ketukan menembakkan satu
+     permintaan lagi ke server — menumpuk, dan yang datang belakangan belum
+     tentu yang terbaru. */
+  if(_drMuat) return;
+  _drMuat=true;
+  const stop=new AbortController(); const jam=setTimeout(function(){ stop.abort(); },9000);
+  fetch(API_URL+'?action=designReqs&t='+Date.now(),{method:'GET',redirect:'follow',signal:stop.signal})
+    .then(function(res){ clearTimeout(jam); return res.text(); })
+    .then(function(t){
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!j||!j.ok||!j.data||!Array.isArray(j.data.reqs)) return;
+      const prog={};
+      j.data.reqs.forEach(function(x){
+        if(x&&x.id&&x.status==='done') prog[x.id]={status:'done',picNama:x.pic||'',at:x.doneAt||''};
+      });
+      S.designreqprog=prog;
+      if($('dr-table')) paintDesignReq();
+    })
+    .catch(function(){ clearTimeout(jam); })
+    .then(function(){ _drMuat=false; });
+}
+function drForm(id){
+  if(!can('edit_designreq')) return toast('Akses ditolak','Kamu tidak punya izin mengajukan request design/video.','err');
+  const r=id?(S.designreqs||[]).find(function(x){ return x.id===id; }):null;
+  /* Daftar acara diambil dari event yang belum lewat. Permintaan desain hampir
+     selalu untuk acara yang akan datang, dan menawarkan seluruh riwayat event
+     membuat kotaknya panjang tanpa menambah satu pun pilihan yang dipakai. */
+  const evOpsi=(S.events||[]).filter(function(e){ return !e.tanggal || daysTo(e.tanggal)>=-7; })
+    .sort(function(a,b){ return String(a.tanggal||'9999').localeCompare(String(b.tanggal||'9999')); });
+  modal('<div class="modal-head"><div><h3>'+(r?'Edit Request':'Request Design & Video')+'</h3>'
+   +'<p>Permintaan ini muncul sebagai to-do di modul Konten.</p></div>'
+   +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +'<div class="form-grid">'
+   +'<div class="field"><label>Jenis<span class="req">*</span></label><select class="inp" id="dr_jenis">'
+     +Object.keys(DR_JENIS).map(function(k){ return '<option value="'+k+'"'+((r&&r.jenis===k)||(!r&&k==='design')?' selected':'')+'>'+DR_JENIS[k].e+' '+DR_JENIS[k].t+' — masuk '+DR_JENIS[k].q+'</option>'; }).join('')
+   +'</select></div>'
+   +'<div class="field"><label>Prioritas</label><select class="inp" id="dr_prioritas">'
+     +DR_PRIO.map(function(x){ return '<option value="'+x[0]+'"'+((r&&r.prioritas===x[0])||(!r&&x[0]==='medium')?' selected':'')+'>'+x[1]+'</option>'; }).join('')
+   +'</select></div>'
+   +ff('Judul Permintaan','dr_judul',r?r.judul:'','text',1)
+   +'<div class="field"><label>Deadline</label><input class="inp" type="date" id="dr_deadline" value="'+esc(r?r.deadline||'':'')+'"></div>'
+   +'<div class="field full"><label>Untuk Acara</label><select class="inp" id="dr_acara">'
+     +'<option value="">— tidak terkait acara tertentu —</option>'
+     +evOpsi.map(function(e){ const n=e.nama+(e.tanggal?' · '+fmtDate(e.tanggal):''); return '<option'+((r&&r.acara===n)?' selected':'')+'>'+esc(n)+'</option>'; }).join('')
+     +((r&&r.acara&&!evOpsi.some(function(e){ return (e.nama+(e.tanggal?' · '+fmtDate(e.tanggal):''))===r.acara; }))
+        ? '<option selected>'+esc(r.acara)+'</option>' : '')
+   +'</select></div>'
+   +'<div class="field full"><label>Brief<span class="req">*</span></label>'
+     +'<textarea class="inp" id="dr_brief" style="min-height:130px" placeholder="Apa yang dibutuhkan, ukuran/durasi, referensi, teks yang harus muncul...">'+esc(r?r.brief||'':'')+'</textarea>'
+     +'<div class="fh">Tulis selengkap mungkin — tim Konten membacanya dari antrian mereka, tanpa bisa bertanya balik di layar itu.</div></div>'
+   +'</div></div><div class="modal-foot">'
+   +(r&&!r.batalAt?'<button class="btn danger-solid" onclick="drBatal(\''+r.id+'\')">'+svg(IC.trash)+'Batalkan</button>':'')
+   +'<button class="btn" onclick="closeModal()">Batal</button>'
+   +'<button class="btn pri" onclick="drSimpan(\''+(id||'')+'\')">'+(r?'Simpan Perubahan':'Kirim ke Tim Konten')+'</button></div>');
+}
+function drSimpan(id){
+  if(!can('edit_designreq')) return toast('Akses ditolak','Kamu tidak punya izin mengajukan request design/video.','err');
+  const g=function(k){ const el=$('dr_'+k); return el?el.value.trim():''; };
+  const judul=g('judul'), brief=g('brief');
+  if(!judul||!brief) return toast('Lengkapi data','Judul & Brief wajib diisi — tim Konten mengerjakannya dari brief ini.','err');
+  const isi={jenis:g('jenis')||'design',judul,brief,acara:g('acara'),
+             deadline:g('deadline'),prioritas:g('prioritas')||'medium'};
+  if(!Array.isArray(S.designreqs)) S.designreqs=[];
+  if(id){
+    const r=S.designreqs.find(function(x){ return x.id===id; }); if(!r) return;
+    Object.assign(r,isi);
+    logAct('event','-','Request '+(DR_JENIS[isi.jenis]||{}).t+' diubah',judul);
+    toast('Request diperbarui',judul,'ok');
+  } else {
+    S.designreqs.unshift(Object.assign({id:uid('dr'),by:ME.id,byNama:ME.name,
+      at:new Date().toISOString().slice(0,16),batalAt:''},isi));
+    logAct('event','-','Request '+(DR_JENIS[isi.jenis]||{}).t+' diajukan',judul);
+    toast('Request terkirim',judul+' masuk ke '+((DR_JENIS[isi.jenis]||{}).q||'antrian')+' modul Konten.','ok');
+  }
+  save(); closeModal(); go('designreq');
+}
+/* DIBATALKAN, BUKAN DIHAPUS. Permintaan yang sudah terlanjur dibaca tim Konten
+   dan hilang begitu saja dari daftar tidak bisa dijelaskan oleh siapa pun —
+   yang mengerjakan cuma tahu pekerjaannya raib. `batalAt` membuatnya hilang
+   dari antrian mereka sambil tetap ada jejaknya di sini. */
+function drBatal(id){
+  const r=(S.designreqs||[]).find(function(x){ return x.id===id; }); if(!r) return;
+  confirmUI({title:'Batalkan request?',sub:r.judul,danger:1,ok:'Batalkan request',
+    body:'<b>'+esc(r.judul)+'</b> akan hilang dari antrian modul Konten. Riwayatnya tetap tersimpan di daftar ini.',
+    onYes:function(){
+      r.batalAt=new Date().toISOString().slice(0,16);
+      logAct('event','-','Request '+(DR_JENIS[r.jenis]||{}).t+' dibatalkan',r.judul);
+      save(); toast('Request dibatalkan',r.judul,'ok'); go('designreq');
+    }});
+}
+function drLihat(id){
+  const r=(S.designreqs||[]).find(function(x){ return x.id===id; }); if(!r) return;
+  const j=DR_JENIS[r.jenis]||{t:r.jenis,e:'📄',q:'antrian'};
+  const p=drProg(r.id);
+  modal('<div class="modal-head"><div><h3>'+esc(r.judul)+'</h3><p>'+j.e+' '+esc(j.t)+' · '+esc(j.q)+' modul Konten</p></div>'
+   +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">'
+   +'<dl class="kv-list" style="margin-top:0">'
+     +'<dt>Status</dt><dd>'+drStatusChip(r)+'</dd>'
+     +'<dt>Untuk acara</dt><dd>'+esc(r.acara||'—')+'</dd>'
+     +'<dt>Deadline</dt><dd class="mono">'+(r.deadline?fmtDate(r.deadline):'—')+'</dd>'
+     +'<dt>Prioritas</dt><dd>'+esc((DR_PRIO.find(function(x){return x[0]===r.prioritas;})||['','Sedang'])[1])+'</dd>'
+     +'<dt>Diajukan</dt><dd>'+esc(r.byNama||'—')+(r.at?' · '+esc(r.at.replace('T',' ')):'')+'</dd>'
+     +(p&&p.status==='done'?'<dt>Dikerjakan</dt><dd>'+esc(p.picNama||'tim Konten')+(p.at?' · '+esc(String(p.at).slice(0,10)):'')+'</dd>':'')
+   +'</dl>'
+   +'<div class="field" style="margin-top:14px"><label>Brief</label>'
+     +'<div class="card" style="white-space:pre-wrap;line-height:1.6;font-size:13px">'+esc(r.brief||'')+'</div></div>'
+   +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button>'
+   +(can('edit_designreq')&&!r.batalAt?'<button class="btn pri" onclick="closeModal();drForm(\''+r.id+'\')">Ubah</button>':'')+'</div>');
+}
 
 function renderVIP(V){
   const bolehUbah=can('edit_vip');

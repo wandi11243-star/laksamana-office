@@ -11,6 +11,9 @@
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved:true,bentrok:[...]}}
  *   GET  ?action=eventsHari&tgl=YYYY-MM-DD
  *                                       -> {ok,data:{events:[...],vip:[...],settings:{...}}}
+ *   GET  ?action=designReqs[&aktif=1]   -> {ok,data:{reqs:[...]}}
+ *   POST {action:"designReqSet",id,status,picNama}
+ *                                       -> {ok,data:{id,status}}
  *
  * Catatan: `bentrok` berisi baris yang ditolak karena orang lain menyimpan
  * duluan. saveAll TETAP ok:true — perubahan lain yang tidak bertabrakan
@@ -74,6 +77,25 @@ try {
     // Event 'Deal'/'Event Done' pada SATU tanggal — dibaca Finance > Omset >
     // Breakdown Sumber. Sengaja sempit; jangan diarahkan ke getAll.
     keluar(array('ok' => true, 'data' => events_hari(isset($_GET['tgl']) ? $_GET['tgl'] : '')));
+
+  } else if ($action === 'designReqs') {
+    // Request Design & Video dari modul Marketing — dibaca modul Konten untuk
+    // Design Queue & Editing Queue. Sengaja sempit; jangan diarahkan ke getAll.
+    // ?aktif=1 -> yang sudah selesai tidak ikut.
+    keluar(array('ok' => true, 'data' =>
+      design_reqs(isset($_GET['aktif']) && $_GET['aktif'] === '1')));
+
+  } else if ($action === 'designReqSet') {
+    // Modul Konten menandai satu permintaan selesai / membukanya lagi.
+    // Hanya menyentuh kunci kemajuan; isi permintaannya tetap milik Marketing.
+    $lock = db_lock();
+    try {
+      $out = design_req_set(
+        isset($body['id'])      ? $body['id']      : '',
+        isset($body['status'])  ? $body['status']  : '',
+        isset($body['picNama']) ? $body['picNama'] : '');
+    } finally { db_unlock($lock); }
+    keluar(array('ok' => true, 'data' => $out));
 
   } else if ($action === 'receipt') {
     // Sajikan file bukti transfer langsung ke browser (gambar/PDF).

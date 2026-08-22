@@ -2471,8 +2471,116 @@ function qHead(kind,key,label){const st=queueState[kind];const active=st.sort===
   const arrow=active?(st.dir>0?' ▲':' ▼'):' ↕';
   return `<th class="q-sort" style="cursor:pointer;user-select:none;color:${active?'var(--gold-dim)':''}" onclick="COMS.queueSort('${kind}','${key}')" title="Urutkan berdasarkan ${label}">${label}<span style="opacity:${active?'1':'.35'};font-size:9px">${arrow}</span></th>`;
 }
+/* =========================================================================
+   REQUEST DESIGN & VIDEO DARI MODUL MARKETING
+   -------------------------------------------------------------------------
+   Marketing mengajukan kebutuhan desain / video di modulnya sendiri; di sini
+   permintaannya muncul sebagai baris to-do di Design Queue & Editing Queue.
+
+   DIBACA, TIDAK DISALIN. Permintaannya tetap tinggal di modul Marketing dan
+   ditarik lewat endpoint sempit `designReqs`. Kalau disalin jadi prodTask di
+   sini, satu permintaan hidup sebagai dua baris di dua database — dan begitu
+   marketing menyunting briefnya, yang dikerjakan desainer adalah salinan lama
+   tanpa ada tempat yang bisa memberi tahu mana yang benar. Pola yang sama
+   dipakai modul Jadwal Shift terhadap Daily Worker.
+
+   Yang ditulis balik cuma KEMAJUANNYA (`designReqSet`), ke kunci terpisah yang
+   tidak pernah disentuh saveAll milik marketing.
+
+   TIGA ATURAN YANG HARUS DIJAGA:
+   - muatReqMkt() TIDAK PERNAH MELEMPAR. Backend marketing yang mati tidak
+     boleh membuat antrian produksi ikut blank — paling jauh satu baris
+     peringatan. Ini pelajaran yang sudah dibayar muatDW() di Jadwal Shift.
+   - Hanya 'design' dan 'edit'. Antrian Shooting tidak menerima permintaan ini;
+     marketing tidak pernah memintanya, dan menampilkannya di sana cuma
+     memanjangkan daftar yang tidak seorang pun bisa kerjakan.
+   - Baris permintaan READ-ONLY di sini kecuali tombol Selesai. Yang mengubah
+     judul/brief/deadline adalah marketing, di modulnya.
+   ========================================================================= */
+const MKT_API='../marketing-api-mysql/api.php';
+let REQ_MKT={st:'idle',rows:[],galat:''};
+function muatReqMkt(){
+  /* 'galat' IKUT MENAHAN, dan ini bukan kerapian — tanpanya modulnya
+     menggantung total. Urutannya: fetch gagal -> catch memanggil route()
+     supaya pita peringatannya muncul -> route menggambar prodQueue ->
+     prodQueue memanggil muatReqMkt() lagi -> fetch gagal lagi, selamanya.
+     Halamannya tidak pernah selesai digambar dan tabnya membeku; tidak ada
+     satu pun galat yang menyebutkan sebabnya. Sudah kejadian saat fitur ini
+     dibuat, tertangkap smoke test. Yang membersihkan 'galat' hanya
+     reqMktUlang(), yaitu tombol "Coba lagi" — satu percobaan per ketukan. */
+  if(REQ_MKT.st==='muat'||REQ_MKT.st==='ok'||REQ_MKT.st==='galat') return;
+  REQ_MKT={st:'muat',rows:[],galat:''};
+  const stop=new AbortController(); const jam=setTimeout(function(){ stop.abort(); },9000);
+  fetch(MKT_API+'?action=designReqs&aktif=1&t='+Date.now(),{method:'GET',redirect:'follow',signal:stop.signal})
+    .then(function(res){ clearTimeout(jam); return res.text(); })
+    .then(function(txt){
+      let j=null; try{ j=JSON.parse(txt); }catch(e){}
+      if(!j) throw new Error('balasan bukan JSON (marketing-api-mysql belum diperbarui?)');
+      if(!j.ok) throw new Error(j.error||'ditolak');
+      REQ_MKT={st:'ok',rows:(j.data&&Array.isArray(j.data.reqs))?j.data.reqs:[],galat:''};
+      if(currentView==='design'||currentView==='editing') route(currentView);
+    })
+    .catch(function(err){
+      clearTimeout(jam);
+      REQ_MKT={st:'galat',rows:[],galat:(err&&err.name==='AbortError')
+        ?'Modul Marketing tidak menjawab dalam 9 detik.':((err&&err.message)||'gagal')};
+      if(currentView==='design'||currentView==='editing') route(currentView);
+    });
+}
+// Baris permintaan marketing yang cocok untuk satu antrian, dalam bentuk yang
+// sama dengan sumber lain supaya penyaring & pengurutan di bawah tidak perlu
+// tahu asalnya.
+function reqMktUntuk(kind){
+  if(kind!=='design'&&kind!=='edit') return [];
+  return REQ_MKT.rows.filter(function(r){ return r&&r.jenis===kind; }).map(function(r){
+    return {src:'mkt',rid:r.id,title:r.judul||'(tanpa judul)',
+      sub:'Request Marketing'+(r.acara?' · '+r.acara:'')+(r.pemohon?' · '+r.pemohon:''),
+      brief:r.brief||'',brand:'',platforms:[],platform:null,pic:'',
+      priority:PRIORITY[r.prioritas]?r.prioritas:'medium',date:r.deadline||'',done:false};
+  });
+}
+function reqMktLihat(id){
+  const r=REQ_MKT.rows.filter(function(x){ return x.id===id; })[0]; if(!r) return;
+  const j=r.jenis==='edit'?'🎬 Video / Editing':'🎨 Desain';
+  modal(`<div class="modal-h"><h3>${esc(r.judul||'Request')}</h3><button class="x-btn" onclick="COMS.closeModal()">✕</button></div>
+   <div class="modal-b">
+     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
+       <span class="tag">${j}</span><span class="tag">dari Marketing</span>
+       ${r.pemohon?`<span class="tag">👤 ${esc(r.pemohon)}</span>`:''}
+       ${r.deadline?`<span class="tag">📅 ${fmtDate(r.deadline)}</span>`:''}</div>
+     ${r.acara?`<div style="font-size:12.5px;color:var(--txt-3);margin-bottom:10px">Untuk acara: <b style="color:var(--txt-2)">${esc(r.acara)}</b></div>`:''}
+     <div class="card" style="white-space:pre-wrap;line-height:1.6;font-size:13px">${esc(r.brief||'(brief kosong)')}</div>
+     <div style="font-size:11.5px;color:var(--txt-3);margin-top:10px">Judul, brief &amp; deadline diubah dari modul Marketing - halaman ini hanya menandai selesai.</div>
+   </div>
+   <div class="modal-f"><button class="btn btn-ghost" onclick="COMS.closeModal()">Tutup</button>
+     <button class="btn btn-gold" onclick="COMS.reqMktSelesai('${escJsAttr(r.id)}')">✓ Tandai Selesai</button></div>`,true);
+}
+/* Menandai selesai = menulis ke modal Marketing, bukan ke DB sini. Barisnya
+   dibuang dari daftar lokal LEBIH DULU supaya layarnya langsung berubah;
+   kalau kirimannya gagal, daftarnya ditarik ulang sehingga barisnya kembali —
+   lebih baik muncul lagi daripada terlihat selesai padahal tidak tercatat. */
+function reqMktSelesai(id){
+  if(!can('design')&&!can('editing')&&!can('content')){toast('Kamu tidak punya akses menandai pekerjaan ini','err');return;}
+  const nama=(getUser(SES)||{}).name||'';
+  REQ_MKT.rows=REQ_MKT.rows.filter(function(x){ return x.id!==id; });
+  closeModal(); route(currentView);
+  fetch(MKT_API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({action:'designReqSet',id:id,status:'done',picNama:nama}),redirect:'follow'})
+    .then(function(res){ return res.text(); })
+    .then(function(txt){
+      let j=null; try{ j=JSON.parse(txt); }catch(e){}
+      if(!j||!j.ok) throw new Error((j&&j.error)||'ditolak');
+      toast('Ditandai selesai - marketing sudah bisa melihatnya','ok');
+    })
+    .catch(function(err){
+      toast('Gagal mengabari Marketing: '+((err&&err.message)||'')+' - permintaannya dimunculkan lagi','err');
+      REQ_MKT={st:'idle',rows:REQ_MKT.rows,galat:''}; muatReqMkt();
+    });
+}
+function reqMktUlang(){ REQ_MKT={st:'idle',rows:[],galat:''}; muatReqMkt(); route(currentView); }
 function prodQueue(kind,title,roleNote){
   const p=PROD_TYPES[kind];const t=tint(p.color);const st=queueState[kind];
+  if(kind==='design'||kind==='edit') muatReqMkt();
   // tugas dari konten
   const fromContent=filterByBrand(DB.content).filter(c=>c.prod&&c.prod[kind]).map(c=>({
     src:'content',cid:c.id,title:c.title,sub:contentTypeLabel(c)+(printTypeLabel(c)?' - 🖨 '+printTypeLabel(c):''),brand:c.brand,
@@ -2482,7 +2590,9 @@ function prodQueue(kind,title,roleNote){
   const standalone=filterByBrand(DB.prodTasks.filter(x=>x.kind===kind)).map(x=>({
     src:'task',tid:x.id,title:x.title,sub:x.note||'Tugas mandiri',brand:x.brand,platforms:[],platform:null,pic:x.pic,
     priority:x.priority||'medium',date:x.date,done:x.status==='done'}));
-  let list=[...fromContent,...standalone];
+  // sumber ketiga: request dari modul Marketing (dibaca, bukan disalin)
+  const fromMkt=reqMktUntuk(kind);
+  let list=[...fromContent,...standalone,...fromMkt];
   // --- Filter per kolom ---
   if(st.q){const q=st.q.toLowerCase();list=list.filter(r=>((r.title||'')+(r.sub||'')).toLowerCase().includes(q));}
   if(st.status)list=list.filter(r=>st.status==='done'?r.done:!r.done);
@@ -2492,7 +2602,7 @@ function prodQueue(kind,title,roleNote){
     if(va<vb)return -1*st.dir;if(va>vb)return 1*st.dir;
     // tie-breaker: prioritas lalu tanggal
     return (PRIORITY[b.priority].n-PRIORITY[a.priority].n)||(new Date(a.date||'2099')-new Date(b.date||'2099'));});
-  const total=fromContent.length+standalone.length;
+  const total=fromContent.length+standalone.length+fromMkt.length;
   const addBtn=can(p.view)?`<button class="btn btn-gold" onclick="COMS.openTaskForm('${kind}')">＋ Tambah ${p.short}</button>`:'';
   const filterBar=`<div class="card" style="padding:12px;margin-bottom:16px">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
@@ -2502,9 +2612,18 @@ function prodQueue(kind,title,roleNote){
       <button class="btn btn-ghost btn-sm" onclick="COMS.queueReset('${kind}')">Reset</button>
       <span style="margin-left:auto;font-size:12px;color:var(--txt-3)">${list.length} / ${total} pekerjaan</span>
     </div></div>`;
+  /* Peringatan, BUKAN halaman kosong. Kalau modul Marketing tidak terbaca,
+     antrian dari konten & tugas mandiri tetap harus bisa dikerjakan — yang
+     hilang cuma satu sumber, dan itu disebutkan terang-terangan supaya tidak
+     terbaca sebagai "tidak ada request masuk". */
+  const pitaMkt=(kind==='design'||kind==='edit')&&REQ_MKT.st==='galat'
+    ? `<div class="card" style="padding:11px 14px;margin-bottom:16px;border-color:var(--bad);font-size:12.5px;color:var(--bad)">
+         ⚠ Request dari modul Marketing tidak terbaca (${esc(REQ_MKT.galat)}). Antrian di bawah hanya berisi pekerjaan dari modul ini.
+         <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="COMS.reqMktUlang()">Coba lagi</button></div>`
+    : '';
   return `${brandBar()}
   <div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">${p.emoji} ${roleNote}</p></div>${addBtn}</div>
-  ${filterBar}
+  ${pitaMkt}${filterBar}
   ${list.length?(()=>{
     /* `p` di lingkup ini sudah dipakai PROD_TYPES[kind] — halamannya dinamai
        `pg` supaya tidak menimpanya. Kalau tertimpa, seluruh kepala kolom
@@ -2512,10 +2631,17 @@ function prodQueue(kind,title,roleNote){
     const pg=pgSlice(list,'q_'+kind,JSON.stringify(st)+'|'+brandFilter);
     return `<div class="tbl-wrap"><table><thead><tr>${qHead(kind,'priority','Prioritas')}${qHead(kind,'title','Pekerjaan')}${qHead(kind,'brand','Brand')}<th>${kind==='shoot'?'Talent/Platform':'Platform'}</th>${qHead(kind,'pic','PIC')}${qHead(kind,'date','Deadline '+p.short)}${qHead(kind,'status','Status')}<th></th></tr></thead><tbody>
     ${pg.items.map(r=>{const done=r.done;const b=getBrand(r.brand);
-      const openFn=r.src==='content'?`COMS.openContent('${r.cid}')`:`COMS.openTaskForm('${kind}','${r.tid}')`;
-      const toggleFn=r.src==='content'?`COMS.toggleProdDone('${r.cid}','${kind}')`:`COMS.toggleTaskDone('${r.tid}')`;
+      const openFn=r.src==='content'?`COMS.openContent('${r.cid}')`
+                  :r.src==='mkt'?`COMS.reqMktLihat('${escJsAttr(r.rid)}')`
+                  :`COMS.openTaskForm('${kind}','${r.tid}')`;
+      const toggleFn=r.src==='content'?`COMS.toggleProdDone('${r.cid}','${kind}')`
+                  :r.src==='mkt'?`COMS.reqMktSelesai('${escJsAttr(r.rid)}')`
+                  :`COMS.toggleTaskDone('${r.tid}')`;
       return `<tr><td>${prioBadge(r.priority)}</td>
-      <td class="row-click" onclick="${openFn}"><div style="font-weight:600">${esc(r.title)}${r.src==='task'?' <span class="tag" style="font-size:9px">mandiri</span>':''}</div><div style="font-size:11px;color:var(--txt-3)">${esc(r.sub||'')}</div></td>
+      <td class="row-click" onclick="${openFn}"><div style="font-weight:600">${esc(r.title)}${
+        r.src==='task'?' <span class="tag" style="font-size:9px">mandiri</span>'
+        :r.src==='mkt'?' <span class="tag" style="font-size:9px;color:var(--gold);border-color:var(--gold)">dari Marketing</span>'
+        :''}</div><div style="font-size:11px;color:var(--txt-3)">${esc(r.sub||'')}</div></td>
       <td><span style="display:flex;align-items:center;gap:6px">${brandDot(r.brand)}${esc(b?b.name.split(' (')[0]:'')}</span></td>
       <td>${r.platforms&&r.platforms.length?`<span style="display:flex;gap:4px;flex-wrap:wrap">${r.platforms.map(platformTag).join('')}</span>`:'<span style="font-size:11px;color:var(--txt-3)">-</span>'}</td>
       <td>${r.pic?avatar(userName(r.pic),'sm'):'-'}</td>
@@ -3579,6 +3705,7 @@ const API={
   mentionScan,mentionClose,pickMention,cmtKey,
   planF,planReset,
   queueF,queueSort,queueReset,
+  reqMktLihat,reqMktSelesai,reqMktUlang,
   setKolTab,kolF,kolReset,openKolForm,saveKol,delKol,onKolRateFile,viewImage,viewKolRate,viewKolRateHist,
   visitF,visitReset,openVisitForm,saveVisit,delVisit,setVisitStatus,dmInvitee,
   visitPick,visitInvToggle,

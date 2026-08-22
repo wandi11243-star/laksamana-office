@@ -2467,11 +2467,137 @@ function queueSortVal() { brandName(); userName(); }
 
 
 
-function qHead() { queueSort(); }
+function qHead() { queueSort(); muatReqMkt(); }
 
 
 
-function prodQueue() { tint(); filterByBrand(); contentTypeLabel(); printTypeLabel(); contentPlatforms(); queueSortVal(); can(); openTaskForm(); esc(); queueF(); queueReset(); brandBar(); pgSlice(); qHead(); getBrand(); openContent(); toggleProdDone(); toggleTaskDone(); prioBadge(); brandDot(); avatar(); userName(); deadlineHTML(); pgBar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatReqMkt() { route(); reqMktUlang(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function reqMktUntuk() {  }
+
+
+
+
+
+
+
+
+function reqMktLihat() { modal(); esc(); closeModal(); fmtDate(); reqMktSelesai(); escJsAttr(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function reqMktSelesai() { can(); toast(); getUser(); closeModal(); route(); muatReqMkt(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function reqMktUlang() { muatReqMkt(); route(); }
+function prodQueue() { tint(); muatReqMkt(); filterByBrand(); contentTypeLabel(); printTypeLabel(); contentPlatforms(); reqMktUntuk(); queueSortVal(); can(); openTaskForm(); esc(); queueF(); queueReset(); reqMktUlang(); brandBar(); pgSlice(); qHead(); getBrand(); openContent(); reqMktLihat(); escJsAttr(); toggleProdDone(); reqMktSelesai(); toggleTaskDone(); prioBadge(); brandDot(); avatar(); userName(); deadlineHTML(); pgBar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

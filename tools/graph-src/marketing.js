@@ -2424,6 +2424,15 @@ function buildPayload() { _eachRow(); _dirty(); }
 
 
 
+
+
+
+
+
+
+
+
+
 function pulihkanBelumNaik() { tandaiSudahNaik(); normalizeState(); _eachRow(); _sig(); showSaveConflict(); kirimPemulihan(); save(); stampChanges(); }
 
 
@@ -3139,6 +3148,7 @@ function autoSyncOfficeRoster() { ambilOffice(); segarkanStaff(); roleDariJabata
 
 
 
+
 function permViewKeys() {  }
 
 
@@ -3146,6 +3156,8 @@ function permViewKeys() {  }
 
 
 function roleDefaultPerm() {  }
+
+
 
 
 
@@ -3959,6 +3971,10 @@ function doLogin() { $(); buildNav(); updateTopUser(); bootRoute(); }
 
 
 function updateTopUser() { $(); can(); go(); buildNav(); permViewKeys(); }
+
+
+
+
 
 
 
@@ -13995,7 +14011,248 @@ function vipClientDariLabel() { vipClientLabel(); }
 
 
 
-function vipJam() { vipPax(); vipDpTotal(); vipNominal(); }
+function vipJam() { vipPax(); vipDpTotal(); vipNominal(); save(); buildPayload(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drProg() {  }
+
+
+
+function drSelesai() { drProg(); }
+function drStatusText() { drSelesai(); }
+
+
+
+function drStatusChip() { drProg(); esc(); }
+
+
+
+
+
+
+
+function drData() { drSelesai(); drStatusText(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderDesignReq() { can(); pageHead(); drForm(); svg(); drSelesai(); stat(); go(); esc(); paintDesignReq(); drSegarkanProgres(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function paintDesignReq() { $(); tblUrut(); drData(); empty(); tblPage(); tblHead(); daysTo(); drLihat(); esc(); fmtDate(); drSelesai(); drStatusChip(); svg(); tblPagerHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drSegarkanProgres() { $(); paintDesignReq(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drForm() { can(); toast(); daysTo(); modal(); closeModal(); svg(); ff(); esc(); fmtDate(); drBatal(); drSimpan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drSimpan() { can(); toast(); $(); g(); logAct(); uid(); save(); closeModal(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drBatal() { confirmUI(); esc(); logAct(); save(); toast(); go(); }
+
+
+
+
+
+
+
+
+
+function drLihat() { drProg(); modal(); esc(); closeModal(); svg(); drStatusChip(); fmtDate(); can(); drForm(); }
+
+
 
 
 
