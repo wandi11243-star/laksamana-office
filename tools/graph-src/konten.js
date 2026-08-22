@@ -2926,7 +2926,7 @@ function saveVisit() { toast(); logAct(); uid(); save(); closeDrawer(); route();
 
 function delVisit() { save(); closeDrawer(); route(); toast(); }
 
-function setVisitStatus() { logAct(); visitLabel(); save(); toast(); route(); }
+function setVisitStatus() { logAct(); visitLabel(); save(); toast(); route(); adPakaiCadangan(); }
 
 
 
@@ -2955,7 +2955,9 @@ function setVisitStatus() { logAct(); visitLabel(); save(); toast(); route(); }
 
 
 
-function adCreatedDate() {  }
+
+
+function adTglDana() {  }
 
 
 
@@ -2963,7 +2965,8 @@ function adCreatedDate() {  }
 
 
 
-function adBulan() { adCreatedDate(); }
+function adPakaiCadangan() { adTglDana(); }
+function adBulan() { adTglDana(); }
 function adsMonthly() { filterByBrand(); adSpendTotal(); adBulan(); }
 
 
@@ -2983,7 +2986,13 @@ function ymLabel() {  }
 
 
 function getAd() {  }
-function rupiah() { num(); autoUpdateStatuses(); filterByBrand(); adSpendTotal(); can(); openFundForm(); openAdForm(); st(); adsMonthly(); pgSlice(); ymLabel(); exportAdsMonth(); pgBar(); getBrand(); fmtDate(); brandDot(); esc(); delFund(); adsF(); adsReset(); tint(); fmtDateShort(); adCreatedDate(); setAdStatus(); delAd(); brandBar(); }
+function rupiah() { num(); autoUpdateStatuses(); filterByBrand(); adSpendTotal(); can(); openFundForm(); openAdForm(); st(); adsMonthly(); pgSlice(); ymLabel(); exportAdsMonth(); pgBar(); getBrand(); fmtDate(); brandDot(); esc(); delFund(); adsF(); adsReset(); tint(); fmtDateShort(); adTglDana(); setAdStatus(); delAd(); brandBar(); }
+
+
+
+
+
+
 
 
 
@@ -3123,7 +3132,7 @@ function rupiah() { num(); autoUpdateStatuses(); filterByBrand(); adSpendTotal()
 function adsF() { route(); }
 function adsReset() { route(); }
 
-function exportAdsMonth() { brandName(); adBulan(); adCreatedDate(); toast(); downloadFile(); logAct(); ymLabel(); }
+function exportAdsMonth() { brandName(); adBulan(); adTglDana(); toast(); downloadFile(); logAct(); ymLabel(); }
 
 
 
@@ -3186,7 +3195,7 @@ function _adTotals() { _adSumOut(); rupiah(); }
 function _adAdd() { todayISO(); _adExpRows(); _adTotals(); }
 function _adDel() { _adExpRows(); _adTotals(); }
 function _adEdit() { _adTotals(); }
-function openAdForm() { can(); toast(); getAd(); todayISO(); drawer(); closeDrawer(); esc(); adCreatedDate(); _adExpRows(); _adAdd(); rupiah(); _adSumOut(); delAd(); saveAd(); }
+function openAdForm() { can(); toast(); getAd(); todayISO(); drawer(); closeDrawer(); esc(); _adExpRows(); _adAdd(); rupiah(); _adSumOut(); delAd(); saveAd(); }
 
 
 
@@ -3222,8 +3231,12 @@ function openAdForm() { can(); toast(); getAd(); todayISO(); drawer(); closeDraw
 
 
 
+function saveAd() { toast(); adTglDana(); todayISO(); getAd(); logAct(); uid(); save(); closeDrawer(); route(); }
 
-function saveAd() { toast(); todayISO(); getAd(); logAct(); uid(); save(); closeDrawer(); route(); }
+
+
+
+
 
 
 

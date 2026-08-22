@@ -2935,35 +2935,38 @@ function setVisitStatus(id,status){const v=(DB.visits||[]).find(x=>x.id===id);if
    ========================================================================= */
 let adsFilters={q:'',platform:'',status:''};
 // Rekap dana masuk & keluar (incl. pajak 11%) per bulan (YYYY-MM -> {in,out})
-/* TANGGAL IKLAN DIBUAT — inilah yang menentukan iklan masuk pengeluaran bulan
-   mana. Sebelumnya rekap bulanan memakai tanggal tiap baris rincian, dan kalau
-   itu kosong jatuh ke `startDate`; kalau ITU juga kosong, barisnya DIBUANG
-   diam-diam (`if(!d)return;`). Akibatnya dua hal yang sama-sama tidak
-   mengeluarkan galat apa pun:
+/* TANGGAL IKLAN MULAI — inilah yang menentukan iklan masuk pengeluaran bulan
+   mana. (Dikoreksi Agustus 2026: sempat memakai tanggal iklan DIBUAT, dan itu
+   keliru — uang iklan terpakai saat iklannya jalan, bukan saat entrinya
+   diketik. Kotak "Tanggal Dibuat" yang lahir bersama aturan lama ikut dicabut;
+   yang menentukan sekarang kolom "Mulai" yang memang sudah ada sejak awal.)
 
-   - Iklan yang dibuat akhir Agustus untuk kampanye yang jalan September
-     tercatat sebagai pengeluaran September, padahal uangnya keluar Agustus.
-   - Iklan yang tanggal rinciannya lupa diisi tidak pernah muncul di rekap
-     bulan mana pun. Angka "Dana Keluar" lebih kecil dari kenyataan, dan tidak
-     ada tempat yang bisa menunjukkan yang hilang.
+   Sebelum keduanya, rekap bulanan memakai tanggal tiap baris rincian, dan
+   kalau itu kosong barisnya DIBUANG diam-diam (`if(!d)return;`) — angka Dana
+   Keluar lebih kecil dari kenyataan tanpa satu pun tempat yang bisa
+   menunjukkan yang hilang. Itu yang paling penting untuk tidak diulang.
 
-   Sekarang satu aturan: bulan pembuatan iklan. Berjenjang supaya data lama
-   tidak ada yang jatuh — `createdDate` (kolom baru, bisa disunting), lalu cap
-   waktu `createdAt`, lalu tanggal rincian pertama, lalu `startDate`. Yang
-   benar-benar tidak punya tanggal apa pun dikumpulkan di keranjang
-   ADS_TANPA_TGL supaya tetap terlihat dan bisa diperbaiki — bukan dihilangkan.
-   Baris yang tidak pernah dijumlahkan adalah baris yang tidak pernah
-   diperbaiki. */
+   Berjenjang supaya tidak ada rupiah yang jatuh: `startDate` (aturannya),
+   lalu `createdDate` milik data yang terlanjur diisi dengan aturan lama, lalu
+   cap waktu `createdAt`, lalu tanggal rincian pertama. Yang benar-benar tidak
+   punya tanggal apa pun dikumpulkan di keranjang ADS_TANPA_TGL supaya tetap
+   terlihat dan bisa diperbaiki — bukan dihilangkan. Baris yang tidak pernah
+   dijumlahkan adalah baris yang tidak pernah diperbaiki.
+
+   `adPakaiCadangan()` menandai iklan yang bulannya BUKAN dari tanggal mulai,
+   supaya barisnya bisa diberi penanda di tabel. Angka rekap yang tidak bisa
+   dijelaskan dari baris datanya sendiri akan selalu dicurigai salah. */
 const ADS_TANPA_TGL='0000-00';
-function adCreatedDate(a){
+function adTglDana(a){
   if(!a)return '';
+  if(a.startDate)return String(a.startDate).slice(0,10);
   if(a.createdDate)return String(a.createdDate).slice(0,10);
   if(a.createdAt){const d=new Date(+a.createdAt);if(!isNaN(d))return d.toISOString().slice(0,10);}
   const e=(a.expenses||[]).find(x=>x&&x.date);
-  if(e)return String(e.date).slice(0,10);
-  return a.startDate?String(a.startDate).slice(0,10):'';
+  return e?String(e.date).slice(0,10):'';
 }
-function adBulan(a){const d=adCreatedDate(a);return d?d.slice(0,7):ADS_TANPA_TGL;}
+function adPakaiCadangan(a){return !!(a&&!a.startDate&&adTglDana(a));}
+function adBulan(a){const d=adTglDana(a);return d?d.slice(0,7):ADS_TANPA_TGL;}
 function adsMonthly(brandScoped){
   const funds=brandScoped?filterByBrand(DB.adFunds||[]):(DB.adFunds||[]);
   const ads=brandScoped?filterByBrand(DB.ads||[]):(DB.ads||[]);
@@ -2980,7 +2983,7 @@ function ymLabel(ym){
   // Keranjang tanpa tanggal punya namanya sendiri. Tanpa cabang ini ia
   // dirender sebagai "Invalid Date" — terbaca seperti modulnya rusak, bukan
   // seperti data yang perlu dilengkapi.
-  if(ym===ADS_TANPA_TGL)return 'Tanpa tanggal';
+  if(ym===ADS_TANPA_TGL)return 'Belum ada tanggal mulai';
   const p=String(ym).split('-');return new Date(+p[0],+p[1]-1,1).toLocaleDateString('id-ID',{month:'long',year:'numeric'});}
 function getAd(id){return (DB.ads||[]).find(a=>a.id===id);}
 function rupiah(n){return 'Rp '+num(Math.round(n||0));}
@@ -3024,7 +3027,7 @@ VIEWS.ads=function(){
     </tr>`;}).join('');
   const monthCard=`<div class="card" style="margin-bottom:16px">
     <div class="card-h"><h3>📆 Report Dana Masuk & Keluar per Bulan</h3><span class="sub">Dana keluar sudah termasuk PPN 11%</span></div>
-    <p style="font-size:11.5px;color:var(--txt-3);margin:-4px 0 10px">Sebuah iklan masuk ke bulan <b>tanggal iklan itu dibuat</b> - seluruh rinciannya sekaligus, berapa pun tanggal masing-masing rincian.</p>
+    <p style="font-size:11.5px;color:var(--txt-3);margin:-4px 0 10px">Sebuah iklan masuk ke bulan <b>tanggal iklan itu mulai jalan</b> - seluruh rinciannya sekaligus, berapa pun tanggal masing-masing rincian.</p>
     ${yms.length?`<div class="tbl-wrap"><table><thead><tr><th>Bulan</th><th>Dana Masuk</th><th>Dana Keluar</th><th>Sisa (bulan)</th><th style="text-align:right">Reporting</th></tr></thead><tbody>${monthRows}</tbody></table></div>${pgBar(pgMonth,'bulan')}`:'<p style="font-size:12.5px;color:var(--txt-3)">Belum ada data untuk direkap.</p>'}</div>`;
   // ===== Panel DANA MASUK (terpisah dari pembuatan iklan) =====
   const funds=fundScope.slice().sort((a,b)=>new Date(b.date||'1970')-new Date(a.date||'1970'));
@@ -3070,17 +3073,23 @@ VIEWS.ads=function(){
              dan terbaca sebagai iklan yang tidak dilihat siapa pun. -->
         <td style="font-size:12px"><span style="color:var(--info);font-weight:600">💬 ${num(a.chats||0)}</span></td>
         <td class="mono" style="font-size:12px;font-weight:600;color:var(--bad)" title="Termasuk PPN 11%">${rupiah(adSpendTotal(a))}</td>
-        <!-- Kolom Dibuat berdiri sendiri, tidak dilebur ke Periode: ia yang
-             menentukan bulan pengeluarannya, dan menyembunyikannya membuat
-             angka di Report per Bulan tidak bisa ditelusuri dari mana. -->
-        <td style="font-size:11px;color:var(--txt-2)" title="Menentukan bulan pengeluaran">${fmtDateShort(adCreatedDate(a))||'<span style="color:var(--bad)">belum diisi</span>'}</td>
-        <td style="font-size:11px;color:var(--txt-2)">${fmtDateShort(a.startDate)||'-'} - ${fmtDateShort(a.endDate)||'-'}</td>
+        <!-- Kolom "Dibuat" dibuang bersama aturan lama: yang menentukan bulan
+             pengeluaran sekarang tanggal MULAI, dan itu sudah tercetak di
+             kolom Periode ini. Dua kolom tanggal berdampingan yang isinya
+             hampir selalu sama membuat orang mencari-cari bedanya.
+             Iklan yang tanggal mulainya kosong ditandai di sini — bulannya
+             diambil dari cadangan (lihat adTglDana), dan angka rekap yang
+             tidak bisa dijelaskan dari barisnya sendiri akan selalu
+             dicurigai salah. -->
+        <td style="font-size:11px;color:var(--txt-2)">${a.startDate
+          ? fmtDateShort(a.startDate)+' - '+(fmtDateShort(a.endDate)||'?')
+          : `<span style="color:var(--bad)" title="Tanggal mulai belum diisi - bulan pengeluarannya diambil dari ${esc(fmtDateShort(adTglDana(a))||'tanggal lain yang ada')}">mulai belum diisi</span>`}</td>
         <td>${can('ads')?`<select class="ctrl" style="padding:6px 8px;font-size:12px;min-width:120px" onchange="COMS.setAdStatus('${a.id}',this.value)">${Object.keys(ADS_STATUS).map(k=>`<option value="${k}" ${a.status===k?'selected':''}>${ADS_STATUS[k].label}</option>`).join('')}</select>`:`<span class="pill" style="background:${ss.bg};color:${ss.fg}">${s.label}</span>`}</td>
         <td style="text-align:right;white-space:nowrap">${can('ads')?`<button class="btn btn-ghost btn-sm" onclick="COMS.openAdForm('${a.id}')">✎</button> <button class="btn btn-danger btn-sm" onclick="COMS.delAd('${a.id}')">🗑</button>`:''}</td>
       </tr>`;}).join('');
     const pager=pgBar(pgAds,'iklan');
     body=`<div class="tbl-wrap"><table><thead><tr>
-      <th>Nama Iklan</th><th>Brand</th><th>Platform</th><th>Target</th><th>Usia Range</th><th>Hasil (Chats)</th><th>Dana Keluar</th><th>Dibuat</th><th>Periode</th><th>Status</th><th></th>
+      <th>Nama Iklan</th><th>Brand</th><th>Platform</th><th>Target</th><th>Usia Range</th><th>Hasil (Chats)</th><th>Dana Keluar</th><th>Periode</th><th>Status</th><th></th>
       </tr></thead><tbody>${rows}</tbody></table></div>${pager}`;
   }
   /* URUTAN: rekap bulanan -> DANA KELUAR -> Dana Masuk.
@@ -3137,9 +3146,9 @@ function exportAdsMonth(ym){
     const exps=(a.expenses||[]).filter(e=>+e.amount>0);
     if(exps.length){
       exps.forEach(e=>{const base=+e.amount||0;const tax=Math.round(base*ADS_TAX);
-        rows.push(['Dana Keluar',e.date||adCreatedDate(a)||'',brandName(a.brand),a.name||'',e.purpose||'',base,tax,base+tax]);});
+        rows.push(['Dana Keluar',e.date||adTglDana(a)||'',brandName(a.brand),a.name||'',e.purpose||'',base,tax,base+tax]);});
     } else if(+a.spend){
-      rows.push(['Dana Keluar',adCreatedDate(a)||'',brandName(a.brand),a.name||'','',+a.spend||0,0,+a.spend||0]);
+      rows.push(['Dana Keluar',adTglDana(a)||'',brandName(a.brand),a.name||'','',+a.spend||0,0,+a.spend||0]);
     }});
   if(rows.length<=1){toast('Tidak ada data pada bulan ini','err');return;}
   downloadFile('COMS_ads_'+ym+'.csv',rows.map(r=>r.map(csvSafe).join(',')).join('\n'),'text/csv');
@@ -3204,9 +3213,8 @@ function openAdForm(id){
     <div class="field"><label>Usia Range <span style="color:var(--txt-3);font-weight:400">(pilih / ketik manual)</span></label>
       <input class="ctrl" id="a_ageRange" list="a_ageList" value="${esc(a?.ageRange||'')}" placeholder="mis. 25-34">
       <datalist id="a_ageList">${ADS_AGE_RANGES.map(t=>`<option value="${esc(t)}"></option>`).join('')}</datalist></div>
-    <div class="field"><label>Tanggal Dibuat *</label><input type="date" class="ctrl" id="a_createdDate" value="${adCreatedDate(a)||todayISO()}">
-      <div style="font-size:11px;color:var(--txt-3);margin-top:4px">Inilah yang menentukan iklan ini masuk <b>pengeluaran bulan mana</b> di Report per Bulan - bukan tanggal mulai/selesai kampanyenya.</div></div>
-    <div class="field"><label>Mulai</label><input type="date" class="ctrl" id="a_startDate" value="${a?.startDate||''}"></div>
+    <div class="field"><label>Mulai *</label><input type="date" class="ctrl" id="a_startDate" value="${a?.startDate||''}">
+      <div style="font-size:11px;color:var(--txt-3);margin-top:4px">Tanggal iklan ini <b>mulai jalan</b> - inilah yang menentukan dananya masuk <b>pengeluaran bulan mana</b> di Report per Bulan.</div></div>
     <div class="field"><label>Selesai</label><input type="date" class="ctrl" id="a_endDate" value="${a?.endDate||''}"></div>
     <div class="field"><label>Hasil - Chats</label><input type="number" min="0" class="ctrl" id="a_chats" value="${a?.chats||''}" placeholder="0"></div>
     <div class="full field" style="border:1px solid var(--line-soft);border-radius:12px;padding:14px;background:var(--panel-2)">
@@ -3230,11 +3238,16 @@ function saveAd(id){
   const tax=Math.round(spendBase*ADS_TAX);const spend=spendBase+tax;
   const data={name,brand:g('brand'),platform:g('platform'),objective:g('objective'),status:g('status')||'draft',
     target:g('target').trim(),ageRange:g('ageRange').trim(),
-    /* Kosong dijatuhkan ke hari ini, bukan dibiarkan kosong: kolom ini
-       menentukan bulan pengeluarannya, dan yang kosong akan menumpuk di
-       keranjang "Tanpa tanggal" yang tidak seorang pun rutin membukanya. */
-    createdDate:g('createdDate')||todayISO(),
-    expenses,spendBase,tax,spend,budget:0,startDate:g('startDate'),endDate:g('endDate'),
+    /* `createdDate` TIDAK ditulis lagi — kotaknya sudah dicabut bersama aturan
+       lama. Sengaja juga tidak ditulis sebagai string kosong: nilai yang
+       terlanjur tersimpan masih dipakai adTglDana() sebagai cadangan untuk
+       iklan lama yang tanggal mulainya belum diisi, dan mengosongkannya akan
+       melempar uang mereka ke keranjang "Tanpa tanggal".
+
+       `startDate` kosong dijatuhkan ke hari ini: kolom inilah yang menentukan
+       bulan pengeluarannya, dan yang dibiarkan kosong menumpuk di keranjang
+       yang tidak seorang pun rutin membukanya. */
+    expenses,spendBase,tax,spend,budget:0,startDate:g('startDate')||todayISO(),endDate:g('endDate'),
     chats:+g('chats')||0,note:g('note').trim()};
   if(id){Object.assign(getAd(id),data);logAct('mengubah iklan',name);toast('Iklan diperbarui','ok');}
   else{DB.ads.push(Object.assign({id:uid('ad'),createdAt:Date.now()},data));logAct('membuat iklan',name);toast('Iklan dibuat','ok');}
