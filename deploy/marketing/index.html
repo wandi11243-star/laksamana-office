@@ -2101,6 +2101,8 @@ function normalizeState(s){
        bPIC        (PIC Konsumsi versi Bar)      -> kPIC
        picKonsumsi (PIC Konsumsi versi internal) -> kPIC
        picBayar    (PIC Pembayaran internal)     -> refundPIC
+       picTamu     (PIC Tamu internal)           -> fPIC
+       picRegis    (PIC Registrasi internal)     -> fPIC
 
      `bPIC` judulnya sama kata demi kata dengan `kPIC`; dua yang lain adalah
      peran yang sama ditanyakan dari dua sisi. Yang benar-benar dipakai saat
@@ -2117,7 +2119,8 @@ function normalizeState(s){
      yang benar, dan tidak ada di sini yang bisa tahu mana yang benar.
      Kunci lamanya TIDAK dihapus dari detail — ia tinggal sebagai jejak asalnya,
      dan tidak ikut terhitung karena kelengkapan dihitung dari EVENT_SCHEMA. */
-  const LEBUR_PIC=[['bPIC','kPIC'],['picKonsumsi','kPIC'],['picBayar','refundPIC']];
+  const LEBUR_PIC=[['bPIC','kPIC'],['picKonsumsi','kPIC'],['picBayar','refundPIC'],
+                   ['picTamu','fPIC'],['picRegis','fPIC']];
   (s.events||[]).forEach(function(e){
     if(!e || !e.detail || typeof e.detail!=='object') return;
     const d=e.detail;
@@ -3468,7 +3471,7 @@ const EVENT_SCHEMA = [
   {k:'m_layout',l:'Catatan Layout & Seating (dari D.1)',t:'mirror',from:'layoutFile',full:1},
   {k:'m_decorLM',l:'Catatan Dekor Laksamana Muda (dari D.1)',t:'mirror',from:'decorLMNote',full:1},
 
-  {k:'m_fPIC',l:'PIC Floor & Guest Handling (dari D.11)',t:'mirror',from:'fPIC'}
+  {k:'m_fPIC',l:'PIC Floor, Tamu & Registrasi (dari D.11)',t:'mirror',from:'fPIC'}
   // DIHAPUS atas permintaan: meja, flow, seatPlan, jenisService,
   // penyajianMeja, welcomeDrink, serviceKhusus (lebur ke floorNote).
 ]},
@@ -3628,7 +3631,19 @@ const EVENT_SCHEMA = [
      kru dapur saat hari-H cuma satu nomor yang bisa ditelepon. */
   {k:'kPIC',l:'PIC Konsumsi — Kitchen & Bar (Client)',t:'text',req:1,
    help:'Satu nama untuk seluruh urusan F&B. Kalau yang memegang justru kru kita, tulis saja namanya di sini — kotak internal terpisah sudah tidak ada.'},
-  {k:'fPIC',l:'PIC Floor & Guest Handling — Client',t:'text',req:1},
+  /* SATU KOTAK UNTUK FLOOR, TAMU & REGISTRASI.
+     Ketiganya dulu kotak sendiri-sendiri (`fPIC` client, `picTamu` dan
+     `picRegis` internal), dan di lapangan hampir selalu diisi orang yang sama:
+     yang berdiri di pintu menyambut tamu itu juga yang memegang daftar hadir
+     dan yang dicari kalau ada apa-apa di lantai. Tiga kotak untuk satu orang
+     berarti dua di antaranya dibiarkan kosong, lalu terbaca sebagai "belum
+     ditentukan" oleh yang membaca rangkumannya.
+
+     Memakai `src:'staff'` — daftar pegawai TETAP bisa diketik bebas
+     (comboHTML: "pilih / ketik nama"), jadi satu kotak ini sanggup memuat kru
+     kita maupun orang client tanpa memaksa memilih salah satu sisi. */
+  {k:'fPIC',l:'PIC Floor, Tamu & Registrasi',t:'text',src:'staff',req:1,
+   help:'Boleh kru kita (pilih dari daftar) atau orang client (ketik namanya). Melebur tiga kotak lama: Floor & Guest Handling, PIC Tamu, dan PIC Registrasi.'},
   {k:'refundPIC',l:'PIC Pembayaran — Client + No. WA',t:'text',req:1,
    help:'Yang mengurus pembayaran di hari-H, beserta nomornya — kasir menghubunginya langsung. Melebur kotak "PIC Pembayaran" internal yang dulu terpisah.'},
 
@@ -3638,13 +3653,19 @@ const EVENT_SCHEMA = [
      di hari-H. */
   {k:'picKoordinator',l:'Koordinator Event (internal)',t:'text',src:'staff',req:1},
   {k:'picMOD',l:'Manager On Duty (internal)',t:'text',src:'staff',req:1},
-  // Dulu satu kotak untuk lima peran sekaligus, jadi tidak jelas siapa
-  // memegang apa. Sekarang dipisah, dan "Regis" dipecah jadi Tamu & Registrasi.
-  {k:'picOperator',l:'PIC Operator (internal)',t:'text',src:'staff'},
-  {k:'picTamu',l:'PIC Tamu (internal)',t:'text',src:'staff',
-   help:'Kru kita yang menyambut tamu. Beda orang dengan PIC Floor client di atas — itu sebabnya keduanya tetap punya kotak sendiri.'},
-  {k:'picRegis',l:'PIC Registrasi (internal)',t:'text',src:'staff'},
-  {k:'picDokumentasi',l:'PIC Dokumentasi (internal)',t:'text',src:'staff'},
+  /* TIDAK LAGI DITANDAI "(internal)". Operator & Dokumentasi memang sering
+     dipegang orang client — vendor dokumentasi yang dibawa sendiri, atau
+     operator dari vendor sound — dan label "(internal)" membuat orang ragu
+     menuliskannya lalu mengosongkannya. Kotaknya sendiri tidak berubah:
+     comboHTML sudah menerima ketikan bebas sejak awal, yang berubah cuma
+     penjelasan bahwa itu memang boleh.
+
+     Koordinator & MOD di atas tetap bertanda internal — dua peran itu memang
+     mustahil dipegang pihak client. */
+  {k:'picOperator',l:'PIC Operator',t:'text',src:'staff',
+   help:'Boleh kru kita (pilih dari daftar) atau orang client / vendor (ketik namanya).'},
+  {k:'picDokumentasi',l:'PIC Dokumentasi',t:'text',src:'staff',
+   help:'Boleh kru kita (pilih dari daftar) atau fotografer/videografer bawaan client (ketik namanya).'},
   {k:'picTalent',l:'PIC Talent (jika ada)',t:'text'},
   {k:'picDekor',l:'PIC Dekorasi (jika ada)',t:'text'},
   {k:'picParkir',l:'Area Parkir PIC',t:'text'}
@@ -3670,7 +3691,7 @@ const SEC_PIC={
   // Kitchen & Bar: SATU nama, dan itu nama yang sama untuk keduanya.
   kitchen: [['PIC Konsumsi','kPIC']],
   bar:     [['PIC Konsumsi','kPIC']],
-  floor:   [['PIC Floor','fPIC'],['PIC Tamu','picTamu'],['PIC Registrasi','picRegis']],
+  floor:   [['PIC Floor & Tamu','fPIC']],
   security:[['MOD','picMOD'],['Area Parkir','picParkir']],
   brief:   [['Koordinator','picKoordinator'],['MOD','picMOD']],
   design:  [['PIC Dokumentasi','picDokumentasi'],['PIC Marketing Client','mktPIC']],
