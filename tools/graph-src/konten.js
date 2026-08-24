@@ -1407,7 +1407,11 @@ function autoUpdateStatuses() { todayISO(); save(); }
 
 
 
-function bootApp() { getUser(); autoUpdateStatuses(); renderSidebar(); avColor(); initials(); esc(); roleShorts(); refreshNotifDot(); canView(); route(); }
+function bootApp() { getUser(); autoUpdateStatuses(); renderSidebar(); avColor(); initials(); esc(); roleShorts(); refreshNotifDot(); kirimOpsiMkt(); canView(); route(); }
+
+
+
+
 
 
 
@@ -2542,7 +2546,18 @@ function muatReqMkt() { route(); reqMktUlang(); kirimOpsiMkt(); }
 
 
 
-function kirimOpsiMkt() { userRoles(); roleShorts(); }
+
+
+
+
+
+function kirimOpsiMkt() { roleShorts(); userRoles(); }
+
+
+
+
+
+
 
 
 

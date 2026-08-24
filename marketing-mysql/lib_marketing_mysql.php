@@ -1149,10 +1149,17 @@ function design_req_opsi_set($opsi) {
   if (isset($opsi['pics']) && is_array($opsi['pics'])) {
     foreach ($opsi['pics'] as $u) {
       if (!is_array($u) || empty($u['id'])) continue;
+      /* `prod` = kru yang memang mengerjakan desain/video/foto. Formulir
+         request MENDAHULUKAN mereka di dropdown PIC, tidak menyembunyikan
+         sisanya — kru yang rangkap kerja ikut ditawarkan di kelompok kedua.
+         Kalau penanda ini dibuang dari daftar putih di bawah, seluruh kru
+         jatuh ke kelompok "lainnya": tidak ada galat, cuma urutan yang
+         membuat nama yang paling sering dipilih tenggelam di tengah daftar. */
       $bersih['pics'][] = array(
         'id'   => (string)$u['id'],
         'name' => isset($u['name']) ? (string)$u['name'] : '',
         'peran'=> isset($u['peran']) ? (string)$u['peran'] : '',
+        'prod' => (!empty($u['prod'])) ? 1 : 0,
       );
     }
   }

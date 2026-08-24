@@ -1415,6 +1415,10 @@ function bootApp(){
   $('#sbUser').innerHTML=`<span class="av" style="background:${avColor(u.name)}">${initials(u.name)}</span>
     <div style="min-width:0"><div class="un">${esc(u.name)}</div><div class="ur">${esc(roleShorts(u))}</div></div>`;
   refreshNotifDot();
+  /* Titipan daftar brand & kru ke modul Marketing dikirim di sini, bukan cuma
+     saat Design/Editing Queue dibuka — lihat keterangan di kirimOpsiMkt().
+     Tidak menahan apa pun: gagalnya diabaikan dan tidak pernah melempar. */
+  try{ kirimOpsiMkt(); }catch(e){}
   // Arahkan ke dashboard, atau menu pertama yang boleh diakses kalau dashboard terlarang
   if(canView('dashboard')){ route('dashboard'); }
   else{
@@ -2528,36 +2532,47 @@ function muatReqMkt(){
       if(currentView==='design'||currentView==='editing') route(currentView);
     });
 }
-/* MENITIPKAN daftar brand / kru / platform ke modul Marketing supaya formulir
-   requestnya bisa memilih, bukan mengetik bebas.
+/* MENITIPKAN daftar brand & kru ke modul Marketing supaya formulir requestnya
+   bisa memilih, bukan mengetik bebas.
 
-   Arahnya sengaja dari SINI, bukan Marketing yang menarik: ketiganya data milik
+   Arahnya sengaja dari SINI, bukan Marketing yang menarik: keduanya data milik
    modul ini, dan backend modul ini TIDAK ikut ter-deploy otomatis (konten-mysql
    tidak ada di kedua workflow). Menaruh endpointnya di sini berarti satu
    langkah unggah manual tiap kali ia disentuh — dan endpoint yang lupa
    diunggah gagal tanpa satu pun pesan yang menyebut sebabnya.
 
-   Dikirim membonceng pemuatan antrian yang memang sudah terjadi, sekali per
-   sesi (`_opsiTerkirim`). Kegagalannya DIABAIKAN diam-diam: ini titipan
-   kenyamanan, bukan pekerjaan siapa pun — formulir di sana sudah punya jalan
-   turun ke isian bebas. */
+   Dikirim sekali per sesi (`_opsiTerkirim`), dan dari DUA tempat: saat modul
+   ini dibuka (bootApp) dan saat antrian produksinya dimuat. Dulu cuma yang
+   kedua — dan akibatnya formulir request di Marketing tetap berupa isian bebas
+   selama tidak ada satu pun orang yang membuka Design/Editing Queue, padahal
+   brand & krunya sudah lengkap di sini. Kru desain memang jarang membuka
+   antriannya lewat modul ini; yang membuka modul ini tiap hari orang lain.
+
+   Kegagalannya DIABAIKAN diam-diam: ini titipan kenyamanan, bukan pekerjaan
+   siapa pun — formulir di sana sudah punya jalan turun ke isian bebas. */
 let _opsiTerkirim=false;
 function kirimOpsiMkt(){
   if(_opsiTerkirim) return;
-  _opsiTerkirim=true;
-  // PIC yang ditawarkan = kru yang memang mengerjakan desain/video, plus
-  // pengarah kontennya. Menawarkan seluruh kru membuat daftarnya panjang
-  // dengan nama yang tidak pernah dipilih siapa pun.
-  const peranPakai=['designer','video_editor','photographer','content_director','content_planner'];
-  const pics=(DB.users||[]).filter(function(u){
-    return u && userRoles(u).some(function(r){ return peranPakai.indexOf(r)>=0; }); })
-    .map(function(u){ return {id:u.id,name:u.name||'',peran:roleShorts(u)||''}; });
+  if(!DB||!Array.isArray(DB.users)) return;   // belum ada data — jangan tandai terkirim
+  /* SELURUH kru aktif ditawarkan, bukan cuma lima peran produksi. Penyaringan
+     itu membuang justru orang yang RANGKAP KERJA — peran utamanya bukan
+     desainer tapi dialah yang mengerjakan desainnya — dan hilangnya tanpa
+     satu pun keterangan, jadi marketing kembali mengetik nama bebas dan idnya
+     kosong. Yang produksi ditandai `prod` supaya formulir di sana bisa
+     mendahulukannya, bukan menyembunyikan sisanya. */
+  const peranProd=['designer','video_editor','photographer','content_director','content_planner'];
+  const pics=(DB.users||[]).filter(function(u){ return u&&u.id&&u.active!==false; })
+    .map(function(u){
+      return {id:u.id,name:u.name||'',peran:roleShorts(u)||'',
+              prod:userRoles(u).some(function(r){ return peranProd.indexOf(r)>=0; })?1:0}; })
+    .sort(function(a,b){ return (b.prod-a.prod)||String(a.name).localeCompare(String(b.name)); });
   const opsi={
     brands:(DB.brands||[]).map(function(b){ return {id:b.id,name:b.name||''}; }),
     pics:pics,
     platforms:Object.keys(PLATFORMS)
   };
   if(!opsi.brands.length&&!opsi.pics.length&&!opsi.platforms.length) return;
+  _opsiTerkirim=true;
   fetch(MKT_API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
     body:JSON.stringify({action:'designReqOpsi',opsi:opsi}),redirect:'follow'})
     .catch(function(){ /* titipan kenyamanan — diamkan */ });

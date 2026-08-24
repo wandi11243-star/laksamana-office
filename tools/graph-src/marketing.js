@@ -14055,6 +14055,19 @@ function vipJam() { vipPax(); vipDpTotal(); vipNominal(); save(); buildPayload()
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+function drPlatLabel() {  }
+
 function drProg() {  }
 
 
@@ -14126,7 +14139,7 @@ function renderDesignReq() { can(); pageHead(); drForm(); svg(); drSelesai(); st
 
 
 
-function paintDesignReq() { $(); tblUrut(); drData(); empty(); tblPage(); tblHead(); daysTo(); drLihat(); esc(); fmtDate(); drSelesai(); drStatusChip(); svg(); tblPagerHtml(); }
+function paintDesignReq() { $(); tblUrut(); drData(); empty(); tblPage(); tblHead(); daysTo(); drLihat(); esc(); drPlatLabel(); fmtDate(); drSelesai(); drStatusChip(); svg(); tblPagerHtml(); }
 
 
 
@@ -14212,8 +14225,18 @@ function drSegarkanProgres() { $(); paintDesignReq(); }
 
 
 
+
+
+
 function drOpsi() {  }
 function drOpsiDaftar() { drOpsi(); }
+
+
+
+
+
+
+
 function drOpsiField() { drOpsiDaftar(); esc(); }
 
 
@@ -14224,17 +14247,7 @@ function drOpsiField() { drOpsiDaftar(); esc(); }
 
 
 
-
-
-
-
-
-
-
-
-
-function drPlatformField() { drOpsiDaftar(); esc(); }
-
+function opt() { esc(); }
 
 
 
@@ -14246,6 +14259,66 @@ function drPlatformField() { drOpsiDaftar(); esc(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drPlatSet() {  }
+
+
+
+
+
+
+
+
+
+function drPlatSemua() { drOpsiDaftar(); }
+
+
+
+
+
+
+function drPlatOpsiHTML() { drPlatSemua(); esc(); drPlatLabel(); }
+
+
+
+
+function drPlatChipHTML() { esc(); drPlatLabel(); drPlatHapus(); }
+
+
+
+
+
+function drPlatPaint() { $(); drPlatChipHTML(); drPlatOpsiHTML(); }
+
+
+
+function drPlatTambah() { drPlatPaint(); }
+
+
+
+
+function drPlatHapus() { drPlatPaint(); }
+function drPlatformField() { drPlatTambah(); drPlatOpsiHTML(); drPlatChipHTML(); }
 
 
 
@@ -14301,7 +14374,8 @@ function terpakai() { toast(); drRefPaint(); }
 
 
 
-function drForm() { can(); toast(); daysTo(); modal(); closeModal(); svg(); ff(); esc(); drOpsiField(); drPlatformField(); fmtDate(); drRefKey(); drRefLink(); drRefFoto(); drRefHTML(); drBatal(); drSimpan(); }
+function drForm() { can(); toast(); drPlatSet(); daysTo(); modal(); closeModal(); svg(); ff(); esc(); drOpsiField(); drPlatformField(); fmtDate(); drRefKey(); drRefLink(); drRefFoto(); drRefHTML(); drBatal(); drSimpan(); }
+
 
 
 
@@ -14360,11 +14434,7 @@ function drSimpan() { can(); toast(); $(); g(); }
 
 
 
-function namaDari() { $(); g(); call(); logAct(); toast(); uid(); save(); closeModal(); go(); }
-
-
-
-
+function namaDari() { $(); g(); logAct(); toast(); uid(); save(); closeModal(); go(); }
 
 
 

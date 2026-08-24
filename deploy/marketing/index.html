@@ -14054,6 +14054,19 @@ const KOL_VIP=[
    ============================================================ */
 const DR_JENIS={design:{t:'Desain',e:'🎨',q:'Design Queue'},edit:{t:'Video / Editing',e:'🎬',q:'Editing Queue'}};
 const DR_PRIO=[['urgent','Urgent'],['high','Tinggi'],['medium','Sedang'],['low','Rendah']];
+/* Daftar platform DIPASANG DI SINI, tidak lagi menunggu titipan modul Konten.
+   Bedanya dengan brand & PIC: `PLATFORMS` di modul Konten adalah KONSTANTA di
+   dalam kodenya, bukan data yang diisi orang — jadi tidak ada yang bisa
+   berubah di sana tanpa kode ini ikut disunting. Selama ia ikut menunggu
+   titipan, kotak Platform turun jadi isian bebas hanya karena modul Konten
+   belum dibuka — padahal jawabannya sudah pasti sejak awal.
+   Yang DISIMPAN adalah kodenya ('IG'), bukan labelnya: kode itulah yang dibaca
+   normPlatform() di modul Konten, dan menyimpan 'Instagram' membuat platformnya
+   tergambar tanpa warna di antrian produksi. */
+const DR_PLATFORM=['IG','TT','YT','FB','Website','Threads','Google'];
+const DR_PLATFORM_LABEL={IG:'Instagram',TT:'TikTok',YT:'YouTube',FB:'Facebook',
+  Website:'Website',Threads:'Threads',Google:'Google Business'};
+function drPlatLabel(p){ return DR_PLATFORM_LABEL[p]||p; }
 let drFilter={q:'',jenis:'',status:''};
 function drProg(id){
   const p=S.designreqprog;
@@ -14147,7 +14160,7 @@ function paintDesignReq(){
      +'<td><div class="cell-strong">'+esc(r.judul)+'</div>'
        +'<div class="cell-sub">'+esc(String(r.brief||'').slice(0,80))+(String(r.brief||'').length>80?'…':'')+'</div></td>'
      +'<td><span class="tag">'+j.e+' '+esc(j.t)+'</span>'
-       +((r.platforms||[]).length?'<div class="pill-row" style="margin-top:4px">'+r.platforms.map(function(p){ return '<span class="tag">'+esc(p)+'</span>'; }).join('')+'</div>':'')
+       +((r.platforms||[]).length?'<div class="pill-row" style="margin-top:4px">'+r.platforms.map(function(p){ return '<span class="tag">'+esc(drPlatLabel(p))+'</span>'; }).join('')+'</div>':'')
        +((r.refs||[]).length?'<div class="cell-sub">📎 '+r.refs.length+' referensi</div>':'')+'</td>'
      +'<td>'+esc(r.brandNama||'—')+'</td>'
      +'<td>'+esc(r.acara||'—')+'</td>'
@@ -14199,12 +14212,15 @@ function drSegarkanProgres(){
     .catch(function(){ clearTimeout(jam); })
     .then(function(){ _drMuat=false; });
 }
-/* ---------- PILIHAN BRAND / PIC / PLATFORM ----------
-   Ketiganya data milik MODUL KONTEN, dan modul ini tidak punya cara
-   membacanya: backend Konten tidak ikut ter-deploy otomatis, jadi endpoint di
-   sana berarti satu langkah unggah manual tiap kali. Arahnya dibalik — modul
-   Konten menitipkan daftarnya tiap kali antrian produksinya dibuka, dan
-   `drSegarkanProgres()` menariknya bersama status.
+/* ---------- PILIHAN BRAND / PIC ----------
+   Keduanya data milik MODUL KONTEN (Brand Management & Team/Rangkap Kerja),
+   dan modul ini tidak punya cara membacanya: backend Konten tidak ikut
+   ter-deploy otomatis, jadi endpoint di sana berarti satu langkah unggah
+   manual tiap kali. Arahnya dibalik — modul Konten menitipkan daftarnya
+   SETIAP KALI ia dibuka siapa pun (bukan lagi cuma saat antrian produksinya
+   dibuka), dan `drSegarkanProgres()` menariknya bersama status.
+
+   Platform TIDAK lagi ikut menunggu titipan — lihat `DR_PLATFORM` di atas.
 
    SELALU ADA JALAN KELUAR. Kalau titipannya belum pernah datang (modul Konten
    belum dibuka sejak fitur ini terpasang), kotaknya turun jadi isian bebas —
@@ -14214,6 +14230,13 @@ function drSegarkanProgres(){
    menekan Simpan tidak boleh diam-diam mengganti isian ke pilihan pertama. */
 function drOpsi(){ const o=S.designreqopsi; return (o&&typeof o==='object')?o:{}; }
 function drOpsiDaftar(k){ const l=drOpsi()[k]; return Array.isArray(l)?l:[]; }
+/* Asal daftarnya disebutkan di layar. Yang membuka form ini lalu tidak
+   menemukan brand/kru barunya perlu tahu HALAMAN MANA yang harus diisi di
+   modul Konten — tanpa itu, yang terjadi orangnya menyerah lalu mengetik
+   bebas, dan idnya kosong sehingga barisnya tidak pernah cocok dengan brand
+   mana pun di antrian produksi. */
+const DR_ASAL={brand:'Daftar brand ikut dari <b>Brand Management</b> modul Konten.',
+  pic:'Daftar kru ikut dari <b>Team &amp; Rangkap Kerja</b> modul Konten — kru produksi didahulukan.'};
 function drOpsiField(k,label,r){
   const daftar=drOpsiDaftar(k==='brand'?'brands':'pics');
   const idLama=r?(r[k]||''):'', namaLama=r?(r[k+'Nama']||''):'';
@@ -14221,34 +14244,84 @@ function drOpsiField(k,label,r){
     return '<div class="field"><label>'+esc(label)+'</label>'
       +'<input class="inp" id="dr_'+k+'Nama" value="'+esc(namaLama)+'" placeholder="Ketik '+esc(label.toLowerCase())+'">'
       +'<input type="hidden" id="dr_'+k+'" value="'+esc(idLama)+'">'
-      +'<div class="fh">Daftar pilihan belum diterima dari modul Konten — ketik saja namanya. Daftarnya muncul sendiri setelah antrian produksi di Konten dibuka sekali.</div></div>';
+      +'<div class="fh">Daftar pilihan belum diterima dari modul Konten — ketik saja namanya. Daftarnya muncul sendiri setelah modul Konten dibuka sekali oleh krunya.</div></div>';
   }
   const adaDiDaftar=daftar.some(function(x){ return x.id===idLama; });
+  const opt=function(x){
+    return '<option value="'+esc(x.id)+'"'+(idLama===x.id?' selected':'')+'>'+esc(x.name)
+      +(x.peran?' ('+esc(x.peran)+')':'')+'</option>'; };
+  /* PIC dikelompokkan: kru yang memang mengerjakan desain/video/foto di atas,
+     kru Konten lainnya di bawah. Dulu daftarnya DISARING hanya lima peran itu
+     — dan kru yang rangkap kerja (peran utamanya bukan produksi tapi ia yang
+     mengerjakan) hilang dari pilihan tanpa satu pun keterangan, jadi
+     marketing kembali mengetik namanya bebas. Menyembunyikan lebih buruk
+     daripada menaruhnya di kelompok kedua. */
+  let isi='';
+  if(k==='pic'){
+    isi=[['Kru produksi (desain / video / foto)',daftar.filter(function(x){ return x.prod; })],
+         ['Kru Konten lainnya',              daftar.filter(function(x){ return !x.prod; })]]
+      .map(function(g){ return g[1].length?'<optgroup label="'+esc(g[0])+'">'+g[1].map(opt).join('')+'</optgroup>':''; }).join('');
+  } else isi=daftar.map(opt).join('');
   return '<div class="field"><label>'+esc(label)+'</label>'
    +'<select class="inp" id="dr_'+k+'">'
-     +'<option value="">— belum ditentukan —</option>'
-     +daftar.map(function(x){
-        return '<option value="'+esc(x.id)+'"'+(idLama===x.id?' selected':'')+'>'+esc(x.name)
-          +(x.peran?' ('+esc(x.peran)+')':'')+'</option>'; }).join('')
+     +'<option value="">— belum ditentukan —</option>'+isi
      +((idLama&&!adaDiDaftar)?'<option value="'+esc(idLama)+'" selected>'+esc(namaLama||idLama)+' (lama)</option>':'')
-   +'</select></div>';
+   +'</select>'
+   +(DR_ASAL[k]?'<div class="fh">'+DR_ASAL[k]+'</div>':'')
+   +'</div>';
 }
-function drPlatformField(r){
-  const daftar=drOpsiDaftar('platforms');
-  const dipilih=(r&&Array.isArray(r.platforms))?r.platforms:[];
-  // Nilai lama yang tidak ada di daftar tetap ikut, dengan alasan yang sama.
-  const semua=daftar.concat(dipilih.filter(function(p){ return daftar.indexOf(p)<0; }));
-  if(!semua.length){
-    return '<div class="field full"><label>Platform</label>'
-      +'<input class="inp" id="dr_platformTeks" value="'+esc(dipilih.join(', '))+'" placeholder="mis. IG, TikTok">'
-      +'<div class="fh">Daftar platform belum diterima dari modul Konten — tulis dipisah koma.</div></div>';
-  }
+/* ---------- PLATFORM: satu dropdown, hasilnya bisa banyak ----------
+   Dulu deretan centang. Daftarnya tujuh dan bertambah, dan deretan centang
+   selebar formulir membuat kotak Brief terdorong ke bawah lipatan di HP —
+   padahal Brief itulah bagian yang benar-benar harus diisi. Sekarang satu
+   dropdown "tambah", hasilnya berderet sebagai chip yang bisa dibuang.
+
+   Pilihannya disimpan di variabel modul (`drPlat`), bukan dibaca dari DOM saat
+   Simpan: chip yang sudah dibuang tidak boleh punya sisa <input> tersembunyi
+   yang ikut terkirim. */
+let drPlat=[];
+function drPlatSet(r){
+  drPlat=[];
+  ((r&&Array.isArray(r.platforms))?r.platforms:[]).forEach(function(p){
+    p=String(p||'').trim(); if(p&&drPlat.indexOf(p)<0) drPlat.push(p);
+  });
+}
+/* Bawaan + titipan Konten + nilai yang sudah tersimpan di request ini. Yang
+   terakhir wajib ikut: nilai lama yang tidak ada di daftar harus tetap bisa
+   digambar, kalau tidak membuka form lalu menekan Simpan membuang platform
+   yang dulu dipilih tanpa satu pun galat. */
+function drPlatSemua(){
+  const out=[];
+  DR_PLATFORM.concat(drOpsiDaftar('platforms')).concat(drPlat).forEach(function(p){
+    p=String(p||'').trim(); if(p&&out.indexOf(p)<0) out.push(p);
+  });
+  return out;
+}
+function drPlatOpsiHTML(){
+  const sisa=drPlatSemua().filter(function(p){ return drPlat.indexOf(p)<0; });
+  return '<option value="">'+(sisa.length?'— tambah platform —':'— semua platform sudah dipilih —')+'</option>'
+   +sisa.map(function(p){ return '<option value="'+esc(p)+'">'+esc(drPlatLabel(p))+'</option>'; }).join('');
+}
+function drPlatChipHTML(){
+  if(!drPlat.length) return '<span class="cell-sub">Belum ada platform dipilih.</span>';
+  return drPlat.map(function(p,i){
+    return '<span class="tag">'+esc(drPlatLabel(p))
+      +' <b onclick="drPlatHapus('+i+')" title="Buang" style="cursor:pointer;color:var(--danger)">✕</b></span>'; }).join('');
+}
+function drPlatPaint(){
+  const chip=$('dr_platChip'); if(chip) chip.innerHTML=drPlatChipHTML();
+  const sel=$('dr_platSel');   if(sel)  sel.innerHTML=drPlatOpsiHTML();
+}
+function drPlatTambah(sel){
+  const v=sel.value; sel.value='';
+  if(v&&drPlat.indexOf(v)<0) drPlat.push(v);
+  drPlatPaint();
+}
+function drPlatHapus(i){ drPlat.splice(i,1); drPlatPaint(); }
+function drPlatformField(){
   return '<div class="field full"><label>Platform <span style="text-transform:none;letter-spacing:0;color:var(--muted);font-weight:500">— bisa pilih lebih dari satu</span></label>'
-   +'<div class="pill-row" style="margin-top:2px">'
-   +semua.map(function(p){
-      return '<label class="chip" style="cursor:pointer;gap:6px"><input type="checkbox" class="dr_plat" value="'+esc(p)+'"'
-        +(dipilih.indexOf(p)>=0?' checked':'')+' style="accent-color:var(--gold);width:15px;height:15px">'+esc(p)+'</label>'; }).join('')
-   +'</div></div>';
+   +'<select class="inp" id="dr_platSel" onchange="drPlatTambah(this)">'+drPlatOpsiHTML()+'</select>'
+   +'<div class="pill-row" id="dr_platChip" style="margin-top:8px">'+drPlatChipHTML()+'</div></div>';
 }
 /* ---------- REFERENSI: tautan & foto ---------- */
 const DR_IMG_MB=2;      // batas per foto
@@ -14305,6 +14378,7 @@ function drForm(id){
   if(!can('edit_designreq')) return toast('Akses ditolak','Kamu tidak punya izin mengajukan request design/video.','err');
   const r=id?(S.designreqs||[]).find(function(x){ return x.id===id; }):null;
   drRefs=r?(Array.isArray(r.refs)?r.refs.map(function(x){ return Object.assign({},x); }):[]):[];
+  drPlatSet(r);
   /* Daftar acara diambil dari event yang belum lewat. Permintaan desain hampir
      selalu untuk acara yang akan datang, dan menawarkan seluruh riwayat event
      membuat kotaknya panjang tanpa menambah satu pun pilihan yang dipakai. */
@@ -14328,7 +14402,7 @@ function drForm(id){
      +'<div class="fh">Kapan hasilnya harus siap — bukan tanggal tayang.</div></div>'
    +drOpsiField('brand','Brand',r)
    +drOpsiField('pic','PIC yang Diminta',r)
-   +drPlatformField(r)
+   +drPlatformField()
    +'<div class="field full"><label>Untuk Acara</label><select class="inp" id="dr_acara">'
      +'<option value="">— tidak terkait acara tertentu —</option>'
      +evOpsi.map(function(e){ const n=e.nama+(e.tanggal?' · '+fmtDate(e.tanggal):''); return '<option'+((r&&r.acara===n)?' selected':'')+'>'+esc(n)+'</option>'; }).join('')
@@ -14368,11 +14442,7 @@ function drSimpan(id){
     return o?String(o.textContent||'').replace(/\s*\((lama|.*?)\)\s*$/,'').trim():'';
   };
   const brand=g('brand'), pic=g('pic');
-  const platTeks=$('dr_platformTeks');
-  const platforms=platTeks
-    ? platTeks.value.split(',').map(function(x){ return x.trim(); }).filter(Boolean)
-    : [].slice.call(document.querySelectorAll('.dr_plat')).filter(function(x){ return x.checked; })
-        .map(function(x){ return x.value; });
+  const platforms=drPlat.slice();
   const isi={jenis:g('jenis')||'design',judul,brief,acara:g('acara'),
              deadline:g('deadline'),prioritas:g('prioritas')||'medium',
              brand,brandNama:namaDari('brand',brand)||g('brandNama'),
@@ -14415,7 +14485,7 @@ function drLihat(id){
    +'<dl class="kv-list" style="margin-top:0">'
      +'<dt>Status</dt><dd>'+drStatusChip(r)+'</dd>'
      +'<dt>Brand</dt><dd>'+esc(r.brandNama||'—')+'</dd>'
-     +'<dt>Platform</dt><dd>'+((r.platforms||[]).length?esc(r.platforms.join(', ')):'—')+'</dd>'
+     +'<dt>Platform</dt><dd>'+((r.platforms||[]).length?esc(r.platforms.map(drPlatLabel).join(', ')):'—')+'</dd>'
      +'<dt>PIC diminta</dt><dd>'+esc(r.picNama||'— belum ditentukan —')+'</dd>'
      +'<dt>Untuk acara</dt><dd>'+esc(r.acara||'—')+'</dd>'
      +'<dt>Deadline pengerjaan</dt><dd class="mono">'+(r.deadline?fmtDate(r.deadline):'—')+'</dd>'
