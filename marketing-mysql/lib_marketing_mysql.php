@@ -1079,12 +1079,100 @@ function design_reqs($hanyaAktif) {
       'prioritas' => isset($r['prioritas']) ? (string)$r['prioritas'] : 'medium',
       'pemohon'   => isset($r['byNama'])    ? (string)$r['byNama']    : '',
       'at'        => isset($r['at'])        ? (string)$r['at']        : '',
+      'brand'     => isset($r['brand'])     ? (string)$r['brand']     : '',
+      'brandNama' => isset($r['brandNama']) ? (string)$r['brandNama'] : '',
+      'platforms' => (isset($r['platforms']) && is_array($r['platforms'])) ? array_values($r['platforms']) : array(),
+      'picMinta'  => isset($r['picNama'])   ? (string)$r['picNama']   : '',
+      'picId'     => isset($r['pic'])       ? (string)$r['pic']       : '',
+      'nRef'      => (isset($r['refs']) && is_array($r['refs'])) ? count($r['refs']) : 0,
       'status'    => $st,
       'pic'       => isset($p['picNama'])   ? (string)$p['picNama']   : '',
       'doneAt'    => isset($p['at'])        ? (string)$p['at']        : '',
     );
   }
-  return array('reqs' => $out);
+  /* `opsi` menempel di balasan yang sama, bukan endpoint sendiri: modul
+     Marketing membutuhkannya tepat saat halaman requestnya dibuka — yaitu saat
+     ia memanggil ini juga. Satu perjalanan, bukan dua. */
+  return array('reqs' => $out, 'opsi' => design_req_blob(db(), 'extra:designreqopsi'));
+}
+
+/* SATU permintaan, LENGKAP dengan referensinya (termasuk data gambar).
+   Dipisah dari daftar dengan sengaja: referensi gambar tersimpan sebagai data
+   URI base64, dan mengikutkannya di daftar berarti antrian produksi di modul
+   Konten menarik belasan megabyte tiap kali halamannya dibuka — untuk gambar
+   yang belum tentu ada yang membukanya. Daftar cuma membawa jumlahnya
+   (`nRef`); isinya diambil saat briefnya benar-benar dibuka. */
+function design_req_satu($id) {
+  $id   = trim((string)$id);
+  if ($id === '') throw new Exception('id permintaan kosong');
+  $pdo  = db();
+  $reqs = design_req_blob($pdo, 'extra:designreqs');
+  foreach ($reqs as $r) {
+    if (!is_array($r) || (string)(isset($r['id']) ? $r['id'] : '') !== $id) continue;
+    $prog = design_req_blob($pdo, 'extra:designreqprog');
+    $p = (isset($prog[$id]) && is_array($prog[$id])) ? $prog[$id] : array();
+    $r['status']  = (isset($p['status']) && $p['status'] === 'done') ? 'done' : 'todo';
+    $r['picDone'] = isset($p['picNama']) ? (string)$p['picNama'] : '';
+    return array('req' => $r);
+  }
+  return array('req' => null);
+}
+
+/* PILIHAN BRAND / PIC / PLATFORM — dicerminkan DARI modul Konten.
+   Brand dan daftar kru adalah data milik modul Konten, dan modul Marketing
+   tidak punya cara membacanya: backend Konten tidak ikut ter-deploy otomatis,
+   jadi menambahkan endpoint di sana berarti satu langkah unggah manual tiap
+   kali. Jadi arahnya dibalik — modul Konten MENITIPKAN daftar pilihannya ke
+   sini tiap kali antrian produksinya dibuka, dan formulir request memakainya.
+
+   Konsekuensinya jujur dan disebutkan di layar: kalau modul Konten belum
+   pernah dibuka sejak fitur ini terpasang, daftarnya kosong dan formulirnya
+   jatuh ke isian bebas. Itu memperbaiki dirinya sendiri pada pembukaan
+   pertama — bukan keadaan yang perlu diperbaiki manual. */
+function design_req_opsi_set($opsi) {
+  if (!is_array($opsi)) throw new Exception('opsi kosong/invalid');
+  $bersih = array(
+    'brands'    => array(),
+    'pics'      => array(),
+    'platforms' => array(),
+    'at'        => gmdate('c'),
+  );
+  if (isset($opsi['brands']) && is_array($opsi['brands'])) {
+    foreach ($opsi['brands'] as $b) {
+      if (!is_array($b) || empty($b['id'])) continue;
+      $bersih['brands'][] = array(
+        'id'   => (string)$b['id'],
+        'name' => isset($b['name']) ? (string)$b['name'] : '',
+      );
+    }
+  }
+  if (isset($opsi['pics']) && is_array($opsi['pics'])) {
+    foreach ($opsi['pics'] as $u) {
+      if (!is_array($u) || empty($u['id'])) continue;
+      $bersih['pics'][] = array(
+        'id'   => (string)$u['id'],
+        'name' => isset($u['name']) ? (string)$u['name'] : '',
+        'peran'=> isset($u['peran']) ? (string)$u['peran'] : '',
+      );
+    }
+  }
+  if (isset($opsi['platforms']) && is_array($opsi['platforms'])) {
+    foreach ($opsi['platforms'] as $p) {
+      if (is_string($p) && $p !== '') $bersih['platforms'][] = $p;
+    }
+  }
+  /* Titipan KOSONG tidak pernah menghapus daftar yang sudah ada. Modul Konten
+     yang gagal memuat datanya lalu tetap mengirim akan mengosongkan seluruh
+     pilihan di formulir request — dan yang membukanya cuma melihat dropdown
+     yang tiba-tiba kosong, tanpa sebab yang bisa ditelusuri. */
+  if (!$bersih['brands'] && !$bersih['pics'] && !$bersih['platforms']) {
+    return array('disimpan' => false, 'sebab' => 'titipan kosong diabaikan');
+  }
+  put_setting(db(), 'extra:designreqopsi', $bersih);
+  return array('disimpan' => true,
+               'brands' => count($bersih['brands']),
+               'pics' => count($bersih['pics']),
+               'platforms' => count($bersih['platforms']));
 }
 
 /* Menandai satu permintaan selesai / dibuka lagi. Ditulis dari modul Konten.

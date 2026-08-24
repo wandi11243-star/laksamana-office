@@ -2433,6 +2433,12 @@ function buildPayload() { _eachRow(); _dirty(); }
 
 
 
+
+
+
+
+
+
 function pulihkanBelumNaik() { tandaiSudahNaik(); normalizeState(); _eachRow(); _sig(); showSaveConflict(); kirimPemulihan(); save(); stampChanges(); }
 
 
@@ -14089,6 +14095,7 @@ function drData() { drSelesai(); drStatusText(); }
 
 
 
+
 function renderDesignReq() { can(); pageHead(); drForm(); svg(); drSelesai(); stat(); go(); esc(); paintDesignReq(); drSegarkanProgres(); }
 
 
@@ -14158,6 +14165,9 @@ function paintDesignReq() { $(); tblUrut(); drData(); empty(); tblPage(); tblHea
 
 
 
+
+
+
 function drSegarkanProgres() { $(); paintDesignReq(); }
 
 
@@ -14181,7 +14191,117 @@ function drSegarkanProgres() { $(); paintDesignReq(); }
 
 
 
-function drForm() { can(); toast(); daysTo(); modal(); closeModal(); svg(); ff(); esc(); fmtDate(); drBatal(); drSimpan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drOpsi() {  }
+function drOpsiDaftar() { drOpsi(); }
+function drOpsiField() { drOpsiDaftar(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drPlatformField() { drOpsiDaftar(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drRefHTML() { esc(); drRefLihat(); drRefHapus(); }
+
+
+
+
+
+
+
+
+
+function drRefPaint() { $(); drRefHTML(); }
+function drRefHapus() { drRefPaint(); }
+function drRefLihat() {  }
+function drRefKey() { drRefLink(); }
+function drRefLink() { $(); toast(); drRefPaint(); }
+
+
+
+
+
+
+
+
+
+
+function drRefFoto() { call(); save(); }
+
+
+
+
+
+
+function terpakai() { toast(); drRefPaint(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drForm() { can(); toast(); daysTo(); modal(); closeModal(); svg(); ff(); esc(); drOpsiField(); drPlatformField(); fmtDate(); drRefKey(); drRefLink(); drRefFoto(); drRefHTML(); drBatal(); drSimpan(); }
 
 
 
@@ -14215,7 +14335,43 @@ function drForm() { can(); toast(); daysTo(); modal(); closeModal(); svg(); ff()
 
 
 
-function drSimpan() { can(); toast(); $(); g(); logAct(); uid(); save(); closeModal(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drSimpan() { can(); toast(); $(); g(); }
+
+
+
+
+
+
+
+
+function namaDari() { $(); g(); call(); logAct(); toast(); uid(); save(); closeModal(); go(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -14251,6 +14407,15 @@ function drBatal() { confirmUI(); esc(); logAct(); save(); toast(); go(); }
 
 
 function drLihat() { drProg(); modal(); esc(); closeModal(); svg(); drStatusChip(); fmtDate(); can(); drForm(); }
+
+
+
+
+
+
+
+
+
 
 
 

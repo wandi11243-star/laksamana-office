@@ -2499,7 +2499,7 @@ function qHead() { queueSort(); muatReqMkt(); }
 
 
 
-function muatReqMkt() { route(); reqMktUlang(); }
+function muatReqMkt() { route(); reqMktUlang(); kirimOpsiMkt(); }
 
 
 
@@ -2530,7 +2530,6 @@ function muatReqMkt() { route(); reqMktUlang(); }
 
 
 
-function reqMktUntuk() {  }
 
 
 
@@ -2539,7 +2538,91 @@ function reqMktUntuk() {  }
 
 
 
-function reqMktLihat() { modal(); esc(); closeModal(); fmtDate(); reqMktSelesai(); escJsAttr(); }
+
+
+
+
+function kirimOpsiMkt() { userRoles(); roleShorts(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function reqMktUntuk() { brandDot(); avatar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function reqMktLihat() { modal(); esc(); closeModal(); fmtDate(); reqMktSelesai(); escJsAttr(); muatRefMkt(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatRefMkt() { esc(); viewImage(); escJsAttr(); }
+
+
+
+
+
 
 
 

@@ -11,9 +11,12 @@
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved:true,bentrok:[...]}}
  *   GET  ?action=eventsHari&tgl=YYYY-MM-DD
  *                                       -> {ok,data:{events:[...],vip:[...],settings:{...}}}
- *   GET  ?action=designReqs[&aktif=1]   -> {ok,data:{reqs:[...]}}
+ *   GET  ?action=designReqs[&aktif=1]   -> {ok,data:{reqs:[...],opsi:{...}}}
+ *   GET  ?action=designReq&id=...       -> {ok,data:{req:{...lengkap dgn refs}}}
  *   POST {action:"designReqSet",id,status,picNama}
  *                                       -> {ok,data:{id,status}}
+ *   POST {action:"designReqOpsi",opsi:{brands,pics,platforms}}
+ *                                       -> {ok,data:{disimpan,...}}
  *
  * Catatan: `bentrok` berisi baris yang ditolak karena orang lain menyimpan
  * duluan. saveAll TETAP ok:true — perubahan lain yang tidak bertabrakan
@@ -84,6 +87,20 @@ try {
     // ?aktif=1 -> yang sudah selesai tidak ikut.
     keluar(array('ok' => true, 'data' =>
       design_reqs(isset($_GET['aktif']) && $_GET['aktif'] === '1')));
+
+  } else if ($action === 'designReq') {
+    // SATU permintaan lengkap dengan referensinya. Dipisah dari daftar karena
+    // referensi gambar berupa data URI — lihat design_req_satu().
+    keluar(array('ok' => true, 'data' =>
+      design_req_satu(isset($_GET['id']) ? $_GET['id'] : '')));
+
+  } else if ($action === 'designReqOpsi') {
+    // Modul Konten menitipkan daftar brand / kru / platform miliknya supaya
+    // formulir request di Marketing bisa memilihnya. Lihat design_req_opsi_set().
+    $lock = db_lock();
+    try { $out = design_req_opsi_set(isset($body['opsi']) ? $body['opsi'] : null); }
+    finally { db_unlock($lock); }
+    keluar(array('ok' => true, 'data' => $out));
 
   } else if ($action === 'designReqSet') {
     // Modul Konten menandai satu permintaan selesai / membukanya lagi.

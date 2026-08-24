@@ -2518,6 +2518,7 @@ function muatReqMkt(){
       if(!j) throw new Error('balasan bukan JSON (marketing-api-mysql belum diperbarui?)');
       if(!j.ok) throw new Error(j.error||'ditolak');
       REQ_MKT={st:'ok',rows:(j.data&&Array.isArray(j.data.reqs))?j.data.reqs:[],galat:''};
+      kirimOpsiMkt();
       if(currentView==='design'||currentView==='editing') route(currentView);
     })
     .catch(function(err){
@@ -2527,15 +2528,65 @@ function muatReqMkt(){
       if(currentView==='design'||currentView==='editing') route(currentView);
     });
 }
+/* MENITIPKAN daftar brand / kru / platform ke modul Marketing supaya formulir
+   requestnya bisa memilih, bukan mengetik bebas.
+
+   Arahnya sengaja dari SINI, bukan Marketing yang menarik: ketiganya data milik
+   modul ini, dan backend modul ini TIDAK ikut ter-deploy otomatis (konten-mysql
+   tidak ada di kedua workflow). Menaruh endpointnya di sini berarti satu
+   langkah unggah manual tiap kali ia disentuh — dan endpoint yang lupa
+   diunggah gagal tanpa satu pun pesan yang menyebut sebabnya.
+
+   Dikirim membonceng pemuatan antrian yang memang sudah terjadi, sekali per
+   sesi (`_opsiTerkirim`). Kegagalannya DIABAIKAN diam-diam: ini titipan
+   kenyamanan, bukan pekerjaan siapa pun — formulir di sana sudah punya jalan
+   turun ke isian bebas. */
+let _opsiTerkirim=false;
+function kirimOpsiMkt(){
+  if(_opsiTerkirim) return;
+  _opsiTerkirim=true;
+  // PIC yang ditawarkan = kru yang memang mengerjakan desain/video, plus
+  // pengarah kontennya. Menawarkan seluruh kru membuat daftarnya panjang
+  // dengan nama yang tidak pernah dipilih siapa pun.
+  const peranPakai=['designer','video_editor','photographer','content_director','content_planner'];
+  const pics=(DB.users||[]).filter(function(u){
+    return u && userRoles(u).some(function(r){ return peranPakai.indexOf(r)>=0; }); })
+    .map(function(u){ return {id:u.id,name:u.name||'',peran:roleShorts(u)||''}; });
+  const opsi={
+    brands:(DB.brands||[]).map(function(b){ return {id:b.id,name:b.name||''}; }),
+    pics:pics,
+    platforms:Object.keys(PLATFORMS)
+  };
+  if(!opsi.brands.length&&!opsi.pics.length&&!opsi.platforms.length) return;
+  fetch(MKT_API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+    body:JSON.stringify({action:'designReqOpsi',opsi:opsi}),redirect:'follow'})
+    .catch(function(){ /* titipan kenyamanan — diamkan */ });
+}
 // Baris permintaan marketing yang cocok untuk satu antrian, dalam bentuk yang
 // sama dengan sumber lain supaya penyaring & pengurutan di bawah tidak perlu
 // tahu asalnya.
 function reqMktUntuk(kind){
   if(kind!=='design'&&kind!=='edit') return [];
   return REQ_MKT.rows.filter(function(r){ return r&&r.jenis===kind; }).map(function(r){
+    /* Brand & PIC dipakai APA ADANYA kalau idnya masih dikenal di sini, dan
+       DIABAIKAN kalau tidak. Marketing memilihnya dari daftar titipan modul
+       ini, tapi brand bisa saja sudah dihapus sejak titipan terakhir — id
+       basi yang diteruskan begitu saja membuat brandDot() menggambar warna
+       brand yang salah, dan avatar() memajang nama orang yang keliru.
+       Namanya tetap terbaca di baris keterangan, jadi tidak ada yang hilang. */
+    const adaBrand=(DB.brands||[]).some(function(b){ return b.id===r.brand; });
+    const adaPic=(DB.users||[]).some(function(u){ return u.id===r.picId; });
+    const ket=['Request Marketing'];
+    if(r.acara) ket.push(r.acara);
+    if(r.brandNama&&!adaBrand) ket.push(r.brandNama);
+    if(r.picMinta) ket.push('diminta: '+r.picMinta);
+    if(r.pemohon) ket.push('oleh '+r.pemohon);
+    if(r.nRef) ket.push('📎 '+r.nRef+' referensi');
     return {src:'mkt',rid:r.id,title:r.judul||'(tanpa judul)',
-      sub:'Request Marketing'+(r.acara?' · '+r.acara:'')+(r.pemohon?' · '+r.pemohon:''),
-      brief:r.brief||'',brand:'',platforms:[],platform:null,pic:'',
+      sub:ket.join(' · '),
+      brief:r.brief||'',brand:adaBrand?r.brand:'',
+      platforms:Array.isArray(r.platforms)?r.platforms.map(normPlatform).filter(Boolean):[],
+      platform:null,pic:adaPic?r.picId:'',
       priority:PRIORITY[r.prioritas]?r.prioritas:'medium',date:r.deadline||'',done:false};
   });
 }
@@ -2546,14 +2597,46 @@ function reqMktLihat(id){
    <div class="modal-b">
      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px">
        <span class="tag">${j}</span><span class="tag">dari Marketing</span>
+       ${r.brandNama?`<span class="tag">🏷 ${esc(r.brandNama)}</span>`:''}
+       ${(r.platforms||[]).map(p=>`<span class="tag">${esc(p)}</span>`).join('')}
        ${r.pemohon?`<span class="tag">👤 ${esc(r.pemohon)}</span>`:''}
+       ${r.picMinta?`<span class="tag">diminta: ${esc(r.picMinta)}</span>`:''}
        ${r.deadline?`<span class="tag">📅 ${fmtDate(r.deadline)}</span>`:''}</div>
      ${r.acara?`<div style="font-size:12.5px;color:var(--txt-3);margin-bottom:10px">Untuk acara: <b style="color:var(--txt-2)">${esc(r.acara)}</b></div>`:''}
      <div class="card" style="white-space:pre-wrap;line-height:1.6;font-size:13px">${esc(r.brief||'(brief kosong)')}</div>
+     ${r.nRef?`<div id="reqRef" style="margin-top:12px"><div style="font-size:11.5px;color:var(--txt-3)">Memuat ${r.nRef} referensi&#8230;</div></div>`:''}
      <div style="font-size:11.5px;color:var(--txt-3);margin-top:10px">Judul, brief &amp; deadline diubah dari modul Marketing - halaman ini hanya menandai selesai.</div>
    </div>
    <div class="modal-f"><button class="btn btn-ghost" onclick="COMS.closeModal()">Tutup</button>
      <button class="btn btn-gold" onclick="COMS.reqMktSelesai('${escJsAttr(r.id)}')">✓ Tandai Selesai</button></div>`,true);
+  if(r.nRef) muatRefMkt(id);
+}
+/* Referensi diambil BELAKANGAN, hanya saat briefnya dibuka. Foto tersimpan
+   sebagai data URI base64 di sisi Marketing; mengikutkannya di daftar antrian
+   berarti menarik belasan megabyte tiap kali halaman ini dibuka, untuk gambar
+   yang belum tentu ada yang melihatnya. Daftar cuma membawa jumlahnya
+   (`nRef`). Gagal memuat tidak mengosongkan modalnya — briefnya sudah
+   terbaca, dan itu bagian yang benar-benar dibutuhkan untuk mulai bekerja. */
+function muatRefMkt(id){
+  fetch(MKT_API+'?action=designReq&id='+encodeURIComponent(id)+'&t='+Date.now(),
+        {method:'GET',redirect:'follow'})
+    .then(function(res){ return res.text(); })
+    .then(function(txt){
+      const box=document.getElementById('reqRef'); if(!box) return;   // modal sudah ditutup
+      let j=null; try{ j=JSON.parse(txt); }catch(e){}
+      const refs=(j&&j.ok&&j.data&&j.data.req&&Array.isArray(j.data.req.refs))?j.data.req.refs:null;
+      if(!refs||!refs.length){ box.innerHTML='<div style="font-size:11.5px;color:var(--txt-3)">Referensi tidak terbaca - buka di modul Marketing.</div>'; return; }
+      box.innerHTML='<div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--txt-3);font-weight:700;margin-bottom:6px">Referensi</div>'
+        +'<div style="display:flex;gap:8px;flex-wrap:wrap">'+refs.map(function(x){
+            return x.t==='img'
+              ? `<img src="${esc(x.v)}" title="${esc(x.n||'')}" onclick="COMS.viewImage('${escJsAttr(x.v)}','${escJsAttr(x.n||'Referensi')}')" style="width:92px;height:92px;object-fit:cover;border-radius:9px;border:1px solid var(--line-soft);cursor:zoom-in">`
+              : `<a href="${esc(x.v)}" target="_blank" rel="noopener" class="tag" style="color:var(--info)">🔗 ${esc(x.n||x.v)}</a>`;
+          }).join('')+'</div>';
+    })
+    .catch(function(){
+      const box=document.getElementById('reqRef');
+      if(box) box.innerHTML='<div style="font-size:11.5px;color:var(--bad)">Referensi gagal dimuat - buka di modul Marketing.</div>';
+    });
 }
 /* Menandai selesai = menulis ke modal Marketing, bukan ke DB sini. Barisnya
    dibuang dari daftar lokal LEBIH DULU supaya layarnya langsung berubah;
