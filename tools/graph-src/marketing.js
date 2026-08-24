@@ -2380,6 +2380,19 @@ function normalizeState() { ynBool(); rincianPenawaran(); eventFbCost(); fbHarga
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function _sig() {  }
 function _eachRow() {  }
 function _dirty() { _sig(); buildPayload(); }
@@ -3287,6 +3300,16 @@ function userPerms() { viewPerm(); }
 
 function hasCustomAccess() {  }
 function can() { userPerms(); getFbFormats(); collectField(); menuGroupsOf(); financeTab(); }
+
+
+
+
+
+
+
+
+
+
 
 
 

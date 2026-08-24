@@ -2095,26 +2095,39 @@ function normalizeState(s){
     if(e.pipeCol==='Negotiation') e.pipeCol='Quotation Terkirim';
     if(e.status==='Negotiation')  e.status='Quotation Terkirim';
   });
-  /* MIGRASI: PIC Client pindah ke Matriks PIC (D.11), dan `bPIC` (PIC Konsumsi
-     versi Bar) dipensiunkan karena judulnya sama kata demi kata dengan `kPIC`
-     di Kitchen — satu pertanyaan yang kebetulan punya dua kotak.
+  /* MIGRASI: PIC pindah ke Matriks PIC (D.11), dan peran yang KEMBAR dilebur
+     jadi satu kotak. Tiga kotak dipensiunkan:
 
-     Tanpa langkah ini, event yang hanya mengisi kotak Bar kehilangan nama itu
-     dari layar: kotaknya sudah tidak ada, dan D.11 membacanya dari kPIC yang
-     kosong. Bukan hilang dari datanya — hilang dari pandangan, yang justru
-     lebih berbahaya karena terlihat seperti isian yang belum pernah diisi.
+       bPIC        (PIC Konsumsi versi Bar)      -> kPIC
+       picKonsumsi (PIC Konsumsi versi internal) -> kPIC
+       picBayar    (PIC Pembayaran internal)     -> refundPIC
+
+     `bPIC` judulnya sama kata demi kata dengan `kPIC`; dua yang lain adalah
+     peran yang sama ditanyakan dari dua sisi. Yang benar-benar dipakai saat
+     hari-H cuma satu nama yang bisa ditelepon.
+
+     Tanpa langkah ini, event yang hanya mengisi kotak yang dipensiunkan
+     kehilangan namanya DARI LAYAR: kotaknya sudah tidak ada, dan kotak
+     penggantinya masih kosong. Bukan hilang dari datanya — hilang dari
+     pandangan, yang justru lebih berbahaya karena terbaca sebagai isian yang
+     memang belum pernah diisi.
 
      Kalau KEDUANYA terisi dan BERBEDA, dua-duanya dipertahankan dalam satu
-     baris. Memilih salah satu berarti membuang nomor orang yang mungkin justru
+     baris. Memilih salah satu berarti membuang nama orang yang mungkin justru
      yang benar, dan tidak ada di sini yang bisa tahu mana yang benar.
-     `bPIC` tidak dihapus dari detail — ia tinggal sebagai jejak asalnya. */
+     Kunci lamanya TIDAK dihapus dari detail — ia tinggal sebagai jejak asalnya,
+     dan tidak ikut terhitung karena kelengkapan dihitung dari EVENT_SCHEMA. */
+  const LEBUR_PIC=[['bPIC','kPIC'],['picKonsumsi','kPIC'],['picBayar','refundPIC']];
   (s.events||[]).forEach(function(e){
     if(!e || !e.detail || typeof e.detail!=='object') return;
     const d=e.detail;
-    const k=String(d.kPIC==null?'':d.kPIC).trim(), b=String(d.bPIC==null?'':d.bPIC).trim();
-    if(!b) return;
-    if(!k) d.kPIC=b;
-    else if(k!==b && k.indexOf(b)<0) d.kPIC=k+' / '+b;
+    LEBUR_PIC.forEach(function(pas){
+      const lama=String(d[pas[0]]==null?'':d[pas[0]]).trim();
+      if(!lama) return;
+      const baru=String(d[pas[1]]==null?'':d[pas[1]]).trim();
+      if(!baru) d[pas[1]]=lama;
+      else if(baru!==lama && baru.indexOf(lama)<0) d[pas[1]]=baru+' / '+lama;
+    });
   });
   /* MIGRASI: tabel Rincian kini SATU-SATUNYA sumber baris tagihan, termasuk
      F&B. Sebelumnya F&B dijumlahkan di luar tabel (eventSubtotal = fbCost +
@@ -3403,7 +3416,7 @@ const EVENT_SCHEMA = [
      berkali-kali, lalu berselisih begitu nomornya berganti dan cuma satu yang
      dibetulkan. Kuncinya (`kPIC`) SENGAJA tidak diubah supaya isian yang sudah
      ada tetap terbaca di tempat baru tanpa migrasi apa pun. */
-  {k:'m_kPIC',l:'PIC Client — Konsumsi (dari D.11)',t:'mirror',from:'kPIC'}
+  {k:'m_kPIC',l:'PIC Konsumsi — Kitchen & Bar (dari D.11)',t:'mirror',from:'kPIC'}
   // DIHAPUS atas permintaan: menuSpesial, porsi, penyajianWaktu,
   // jenisPenyajian, bahanKhusus, leftoverK. "Standar Plating" pindah ke Bar.
 ]},
@@ -3420,7 +3433,7 @@ const EVENT_SCHEMA = [
      `bPIC` dipensiunkan: judulnya dulu sama kata demi kata dengan yang di D.2,
      jadi dua kotak itu memang satu pertanyaan. Nilai lamanya dipindahkan ke
      kPIC oleh migrasi di normalizeState — tidak ada yang hilang. */
-  {k:'m_bPIC',l:'PIC Client — Konsumsi (dari D.11)',t:'mirror',from:'kPIC'}
+  {k:'m_bPIC',l:'PIC Konsumsi — Kitchen & Bar (dari D.11)',t:'mirror',from:'kPIC'}
   // DIHAPUS atas permintaan: signature, barEstimasi, ice, barEquip,
   // garnish (Garnish & Ingredient Khusus), leftoverB (Handling Leftover).
   // "Standar Plating" pindah ke sini dari Kitchen, jadi dropdown.
@@ -3455,7 +3468,7 @@ const EVENT_SCHEMA = [
   {k:'m_layout',l:'Catatan Layout & Seating (dari D.1)',t:'mirror',from:'layoutFile',full:1},
   {k:'m_decorLM',l:'Catatan Dekor Laksamana Muda (dari D.1)',t:'mirror',from:'decorLMNote',full:1},
 
-  {k:'m_fPIC',l:'PIC Client — Floor & Guest Handling (dari D.11)',t:'mirror',from:'fPIC'}
+  {k:'m_fPIC',l:'PIC Floor & Guest Handling (dari D.11)',t:'mirror',from:'fPIC'}
   // DIHAPUS atas permintaan: meja, flow, seatPlan, jenisService,
   // penyajianMeja, welcomeDrink, serviceKhusus (lebur ke floorNote).
 ]},
@@ -3532,7 +3545,7 @@ const EVENT_SCHEMA = [
      benar-benar dibutuhkan kasir cuma satu: siapa DARI PIHAK CLIENT yang
      mengurus pembayaran, beserta nomornya. Yang satu dibuang, yang tersisa
      diberi judul yang menyebutkan keduanya. */
-  {k:'m_refundPIC',l:'PIC Client — Pembayaran + No. WA (dari D.11)',t:'mirror',from:'refundPIC'},
+  {k:'m_refundPIC',l:'PIC Pembayaran + No. WA (dari D.11)',t:'mirror',from:'refundPIC'},
   {k:'jamOrder',l:'Jam Operasional & Mulai Boleh Order',t:'timerange',req:1},
   {k:'kasirTambah',l:'Request Tambahan Kasir',t:'ta',help:'Struk rangkap, laporan harian, invoicing spesial.'},
   {k:'noteInvoice',l:'Note Invoice',t:'ta',full:1},
@@ -3600,32 +3613,41 @@ const EVENT_SCHEMA = [
    isian seluruh event yang sudah jalan langsung terbaca di tempat barunya,
    tanpa migrasi yang bisa gagal separuh jalan. */
 { id:'pic', n:'D.11', title:'Matriks PIC Hari-H', div:['all'], desc:'Siapa PIC yang bertanggung jawab untuk tiap peran di hari-H — dari sisi kita maupun dari sisi client? (wajib lengkap sebelum Confirmed)', fields:[
-  {k:'_hPicInt',l:'PIC Internal — Laksamana Muda',t:'head',desc:'Kru kita yang memegang tiap peran.'},
-  {k:'picKoordinator',l:'Koordinator Event Internal',t:'text',src:'staff',req:1},
-  {k:'picMOD',l:'Manager On Duty',t:'text',src:'staff',req:1},
+  /* SATU DAFTAR, TANPA KELOMPOK INTERNAL/CLIENT.
+     Sempat dipisah jadi dua kepala ("PIC Internal" & "PIC dari Pihak Client"),
+     dan pemisahan itu justru melahirkan kembar: satu peran yang sama punya
+     kotak di dua kelompok. Isian matriks ini di lapangan didominasi orang
+     CLIENT — yang internal cuma menumpang di daftar yang sama — jadi
+     kelompoknya dibubarkan dan peran yang kembar dilebur jadi satu kotak.
+     Yang tersisa berdiri sendiri karena memang tidak punya lawan: Koordinator,
+     MOD, Operator, Registrasi, Dokumentasi tidak ada versi client-nya. */
+  {k:'picAcara',l:'PIC Acara — Client',t:'text',req:1},
+  /* SATU KOTAK UNTUK KITCHEN & BAR SEKALIGUS, dan isinya orang client.
+     Dulu tiga kotak untuk satu urusan: `kPIC` di D.2, `bPIC` di D.3 (judulnya
+     sama kata demi kata), dan `picKonsumsi` internal di sini. Yang dipakai
+     kru dapur saat hari-H cuma satu nomor yang bisa ditelepon. */
+  {k:'kPIC',l:'PIC Konsumsi — Kitchen & Bar (Client)',t:'text',req:1,
+   help:'Satu nama untuk seluruh urusan F&B. Kalau yang memegang justru kru kita, tulis saja namanya di sini — kotak internal terpisah sudah tidak ada.'},
+  {k:'fPIC',l:'PIC Floor & Guest Handling — Client',t:'text',req:1},
+  {k:'refundPIC',l:'PIC Pembayaran — Client + No. WA',t:'text',req:1,
+   help:'Yang mengurus pembayaran di hari-H, beserta nomornya — kasir menghubunginya langsung. Melebur kotak "PIC Pembayaran" internal yang dulu terpisah.'},
+
+  /* `src:'staff'` = combo daftar pegawai. Peran client di atas SENGAJA tidak
+     memakainya: menawarkan daftar pegawai untuk mengisi nama tamu membuat
+     orang menekan nama kru yang ejaannya mirip, dan salahnya baru ketahuan
+     di hari-H. */
+  {k:'picKoordinator',l:'Koordinator Event (internal)',t:'text',src:'staff',req:1},
+  {k:'picMOD',l:'Manager On Duty (internal)',t:'text',src:'staff',req:1},
   // Dulu satu kotak untuk lima peran sekaligus, jadi tidak jelas siapa
   // memegang apa. Sekarang dipisah, dan "Regis" dipecah jadi Tamu & Registrasi.
-  {k:'picOperator',l:'PIC Operator',t:'text',src:'staff'},
-  {k:'picKonsumsi',l:'PIC Konsumsi',t:'text',src:'staff'},
-  {k:'picTamu',l:'PIC Tamu',t:'text',src:'staff'},
-  {k:'picRegis',l:'PIC Registrasi',t:'text',src:'staff'},
-  {k:'picDokumentasi',l:'PIC Dokumentasi',t:'text',src:'staff'},
-  {k:'picBayar',l:'PIC Pembayaran',t:'text',src:'staff'},
+  {k:'picOperator',l:'PIC Operator (internal)',t:'text',src:'staff'},
+  {k:'picTamu',l:'PIC Tamu (internal)',t:'text',src:'staff',
+   help:'Kru kita yang menyambut tamu. Beda orang dengan PIC Floor client di atas — itu sebabnya keduanya tetap punya kotak sendiri.'},
+  {k:'picRegis',l:'PIC Registrasi (internal)',t:'text',src:'staff'},
+  {k:'picDokumentasi',l:'PIC Dokumentasi (internal)',t:'text',src:'staff'},
   {k:'picTalent',l:'PIC Talent (jika ada)',t:'text'},
   {k:'picDekor',l:'PIC Dekorasi (jika ada)',t:'text'},
-  {k:'picParkir',l:'Area Parkir PIC',t:'text'},
-
-  /* Pindahan dari D.2/D.3/D.4/D.8. Ini orang PIHAK CLIENT, bukan kru kita —
-     karena itu kelompoknya dipisah dan tidak memakai `src:'staff'`: menawarkan
-     daftar pegawai untuk nama tamu membuat orang menekan nama kru yang mirip
-     dan salahnya baru terlihat di hari-H. */
-  {k:'_hPicClient',l:'PIC dari Pihak Client',t:'head',desc:'Siapa yang kita hubungi di hari-H untuk tiap urusan. Ikut tampil (baca-saja) di seksi operasionalnya masing-masing.'},
-  {k:'picAcara',l:'PIC Acara Klien',t:'text',req:1},
-  {k:'kPIC',l:'PIC Client — Konsumsi (Kitchen & Bar)',t:'text',req:1,
-   help:'Satu nama untuk F&B. Dulu ditanyakan dua kali — di D.2 dan D.3 — dengan judul yang sama.'},
-  {k:'fPIC',l:'PIC Client — Floor & Guest Handling',t:'text',req:1},
-  {k:'refundPIC',l:'PIC Client — Pembayaran + No. WA',t:'text',req:1,
-   help:'Yang mengurus pembayaran di hari-H. Nomornya ikut ditulis di sini — kasir menghubunginya langsung.'}
+  {k:'picParkir',l:'Area Parkir PIC',t:'text'}
 ]}
 ];
 const SEC_BY_ID = Object.fromEntries(EVENT_SCHEMA.map(s=>[s.id,s]));
@@ -3644,15 +3666,16 @@ const SEC_BY_ID = Object.fromEntries(EVENT_SCHEMA.map(s=>[s.id,s]));
    Kitchen dan Bar sekaligus, dan menyembunyikannya di salah satu tidak membuat
    kenyataan itu berubah. */
 const SEC_PIC={
-  basic:   [['Koordinator','picKoordinator'],['MOD','picMOD'],['PIC Client','picAcara']],
-  kitchen: [['PIC Konsumsi','picKonsumsi'],['PIC Client','kPIC']],
-  bar:     [['PIC Konsumsi','picKonsumsi'],['PIC Client','kPIC']],
-  floor:   [['PIC Tamu','picTamu'],['PIC Registrasi','picRegis'],['PIC Client','fPIC']],
+  basic:   [['Koordinator','picKoordinator'],['MOD','picMOD'],['PIC Acara','picAcara']],
+  // Kitchen & Bar: SATU nama, dan itu nama yang sama untuk keduanya.
+  kitchen: [['PIC Konsumsi','kPIC']],
+  bar:     [['PIC Konsumsi','kPIC']],
+  floor:   [['PIC Floor','fPIC'],['PIC Tamu','picTamu'],['PIC Registrasi','picRegis']],
   security:[['MOD','picMOD'],['Area Parkir','picParkir']],
   brief:   [['Koordinator','picKoordinator'],['MOD','picMOD']],
   design:  [['PIC Dokumentasi','picDokumentasi'],['PIC Marketing Client','mktPIC']],
-  cashier: [['PIC Pembayaran','picBayar'],['PIC Client','refundPIC']],
-  finance: [['PIC Pembayaran','picBayar'],['PIC Client','refundPIC']],
+  cashier: [['PIC Pembayaran','refundPIC']],
+  finance: [['PIC Pembayaran','refundPIC']],
   attach:  [['Koordinator','picKoordinator']]
   /* `pic` (D.11) sengaja TIDAK ada di sini: seksi itu isinya persis daftar ini,
      jadi barisnya akan menggandakan dirinya sendiri di atas tabelnya. */
