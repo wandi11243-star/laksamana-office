@@ -651,6 +651,16 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
 .ov-no{flex:none;min-width:40px;height:26px;padding:0 9px;border-radius:7px;
   background:linear-gradient(135deg,var(--gold),var(--gold-deep));color:#fff;
   font-size:11.5px;font-weight:700;display:flex;align-items:center;justify-content:center}
+/* Baris PIC di bawah judul seksi. Sengaja bukan baris tabel: yang dicari orang
+   di sini satu nama, dan mencampurnya dengan puluhan baris isian membuatnya
+   harus dicari dulu. */
+.ov-pic-row{display:flex;flex-wrap:wrap;gap:6px;margin:-2px 0 9px 49px}
+@media(max-width:640px){.ov-pic-row{margin-left:0}}
+.ov-pic{display:inline-flex;align-items:baseline;gap:5px;background:var(--gold-glow);
+  border:1px solid color-mix(in srgb,var(--gold) 35%,transparent);border-radius:999px;
+  padding:2px 10px;font-size:11.5px;font-weight:600;color:#0C1826}
+.ov-pic i{font-style:normal;font-size:9.5px;letter-spacing:.08em;text-transform:uppercase;
+  font-weight:700;color:var(--gold-deep)}
 .ov-imgs{display:flex;flex-wrap:wrap;gap:10px;margin:4px 0}
 /* Ukuran gambar TIDAK diatur di sini. Dulu baris ini memaksa height:96px,
    dan `max-height` inline dari pdfGambar() tidak bisa menimpanya karena
@@ -2085,6 +2095,27 @@ function normalizeState(s){
     if(e.pipeCol==='Negotiation') e.pipeCol='Quotation Terkirim';
     if(e.status==='Negotiation')  e.status='Quotation Terkirim';
   });
+  /* MIGRASI: PIC Client pindah ke Matriks PIC (D.11), dan `bPIC` (PIC Konsumsi
+     versi Bar) dipensiunkan karena judulnya sama kata demi kata dengan `kPIC`
+     di Kitchen — satu pertanyaan yang kebetulan punya dua kotak.
+
+     Tanpa langkah ini, event yang hanya mengisi kotak Bar kehilangan nama itu
+     dari layar: kotaknya sudah tidak ada, dan D.11 membacanya dari kPIC yang
+     kosong. Bukan hilang dari datanya — hilang dari pandangan, yang justru
+     lebih berbahaya karena terlihat seperti isian yang belum pernah diisi.
+
+     Kalau KEDUANYA terisi dan BERBEDA, dua-duanya dipertahankan dalam satu
+     baris. Memilih salah satu berarti membuang nomor orang yang mungkin justru
+     yang benar, dan tidak ada di sini yang bisa tahu mana yang benar.
+     `bPIC` tidak dihapus dari detail — ia tinggal sebagai jejak asalnya. */
+  (s.events||[]).forEach(function(e){
+    if(!e || !e.detail || typeof e.detail!=='object') return;
+    const d=e.detail;
+    const k=String(d.kPIC==null?'':d.kPIC).trim(), b=String(d.bPIC==null?'':d.bPIC).trim();
+    if(!b) return;
+    if(!k) d.kPIC=b;
+    else if(k!==b && k.indexOf(b)<0) d.kPIC=k+' / '+b;
+  });
   /* MIGRASI: tabel Rincian kini SATU-SATUNYA sumber baris tagihan, termasuk
      F&B. Sebelumnya F&B dijumlahkan di luar tabel (eventSubtotal = fbCost +
      isi tabel), jadi event yang tabelnya sudah menyala tidak punya baris
@@ -3324,6 +3355,18 @@ const EVENT_SCHEMA = [
   {k:'_salinLayout',l:'Ambil Layout dari Event Lain',t:'salinlayout',full:1,
    help:'Menyalin catatan layout beserta gambarnya dari event yang sudah pernah dibuat.'},
   {k:'layoutImgs',l:'Gambar Layout',t:'files',full:1,help:'Boleh lebih dari satu. Gambar langsung tampil di bawah.'},
+  /* MEJA YANG DIKUNCI DI RESERVASI (24 Agustus 2026).
+     Sebelum ini satu-satunya cara mengunci meja dari modul Marketing adalah
+     Reservasi VIP — dan event besar justru yang paling butuh: tamu walk-in
+     dipersilakan duduk di meja yang malam itu sudah dijanjikan ke acara,
+     karena di modul Reservasi tidak ada apa pun yang menandainya terpakai.
+     Sekarang mejanya benar-benar dipesan atas nama event ini di sana.
+
+     `mejalock` bukan isian biasa: nilainya ditulis saat mejanya dikunci
+     (yang juga menulis ke database modul Reservasi), bukan saat tombol Simpan
+     tab ini ditekan — lihat collectField(). */
+  {k:'mejaKunci',l:'Meja yang Dikunci di Reservasi',t:'mejalock',full:1,
+   help:'Pilih meja di denah — mejanya langsung dipesan atas nama acara ini di modul Reservasi, jadi tidak bisa diambil tamu lain.'},
   {k:'areaPakai',l:'Area yang Dipakai untuk Seating dan Dekor',t:'multi',o:['Main Hall','Lobby','Lantai 2','VIP','Outdoor','Seluruh Area','Lainnya'],req:1},
   {k:'areaPakaiLain',l:'Area — tulis sendiri',t:'text',cond:{k:'areaPakai',v:'Lainnya'}},
   {k:'areaImgs',l:'Gambar Area',t:'files',full:1,help:'Boleh lebih dari satu. Gambar langsung tampil di bawah.'},
@@ -3352,7 +3395,15 @@ const EVENT_SCHEMA = [
   {k:'dietary',l:'Dietary Requirement',t:'multi',o:['Halal','Vegetarian','Vegan','Non Spicy','Food Allergy'],req:1},
   {k:'menuFinal',l:'Menu Final',t:'menutbl',src:'komponen',req:1,full:1,help:'Tabelnya ikut komponen menu yang dicentang di atas. Jam di judul kelompok mengisi semua barisnya, dan tiap baris masih bisa diubah sendiri.'},
   {k:'kNote',l:'Catatan Kitchen',t:'ta'},
-  {k:'kPIC',l:'PIC Client untuk Konsumsi',t:'text',req:1}
+  /* PIC PINDAH KE MATRIKS PIC (D.11) — di sini tinggal cerminnya.
+     Kotaknya dulu ada di sini, di D.3, di D.4 dan di D.8 sekaligus: empat
+     tempat untuk pertanyaan yang sama ("siapa orang client yang dihubungi"),
+     dan Kitchen & Bar bahkan memakai judul yang persis sama. Yang terjadi di
+     lapangan bukan empat jawaban berbeda — yang terjadi satu jawaban diketik
+     berkali-kali, lalu berselisih begitu nomornya berganti dan cuma satu yang
+     dibetulkan. Kuncinya (`kPIC`) SENGAJA tidak diubah supaya isian yang sudah
+     ada tetap terbaca di tempat baru tanpa migrasi apa pun. */
+  {k:'m_kPIC',l:'PIC Client — Konsumsi (dari D.11)',t:'mirror',from:'kPIC'}
   // DIHAPUS atas permintaan: menuSpesial, porsi, penyajianWaktu,
   // jenisPenyajian, bahanKhusus, leftoverK. "Standar Plating" pindah ke Bar.
 ]},
@@ -3365,7 +3416,11 @@ const EVENT_SCHEMA = [
   {k:'platingLain',l:'Standar Plating — tulis sendiri',t:'text',cond:{k:'plating',v:'Lainnya'}},
   {k:'barVIP',l:'Special Handling VIP',t:'ta'},
   {k:'barNote',l:'Bar Note',t:'ta'},
-  {k:'bPIC',l:'PIC Client untuk Konsumsi',t:'text',req:1}
+  /* Cermin dari kunci YANG SAMA dengan Kitchen (`kPIC`), bukan kunci sendiri.
+     `bPIC` dipensiunkan: judulnya dulu sama kata demi kata dengan yang di D.2,
+     jadi dua kotak itu memang satu pertanyaan. Nilai lamanya dipindahkan ke
+     kPIC oleh migrasi di normalizeState — tidak ada yang hilang. */
+  {k:'m_bPIC',l:'PIC Client — Konsumsi (dari D.11)',t:'mirror',from:'kPIC'}
   // DIHAPUS atas permintaan: signature, barEstimasi, ice, barEquip,
   // garnish (Garnish & Ingredient Khusus), leftoverB (Handling Leftover).
   // "Standar Plating" pindah ke sini dari Kitchen, jadi dropdown.
@@ -3400,7 +3455,7 @@ const EVENT_SCHEMA = [
   {k:'m_layout',l:'Catatan Layout & Seating (dari D.1)',t:'mirror',from:'layoutFile',full:1},
   {k:'m_decorLM',l:'Catatan Dekor Laksamana Muda (dari D.1)',t:'mirror',from:'decorLMNote',full:1},
 
-  {k:'fPIC',l:'PIC Client untuk Floor (Hari-H)',t:'text',req:1}
+  {k:'m_fPIC',l:'PIC Client — Floor & Guest Handling (dari D.11)',t:'mirror',from:'fPIC'}
   // DIHAPUS atas permintaan: meja, flow, seatPlan, jenisService,
   // penyajianMeja, welcomeDrink, serviceKhusus (lebur ke floorNote).
 ]},
@@ -3477,7 +3532,7 @@ const EVENT_SCHEMA = [
      benar-benar dibutuhkan kasir cuma satu: siapa DARI PIHAK CLIENT yang
      mengurus pembayaran, beserta nomornya. Yang satu dibuang, yang tersisa
      diberi judul yang menyebutkan keduanya. */
-  {k:'refundPIC',l:'PIC Pembayaran (Client) + No. WA',t:'text',req:1},
+  {k:'m_refundPIC',l:'PIC Client — Pembayaran + No. WA (dari D.11)',t:'mirror',from:'refundPIC'},
   {k:'jamOrder',l:'Jam Operasional & Mulai Boleh Order',t:'timerange',req:1},
   {k:'kasirTambah',l:'Request Tambahan Kasir',t:'ta',help:'Struk rangkap, laporan harian, invoicing spesial.'},
   {k:'noteInvoice',l:'Note Invoice',t:'ta',full:1},
@@ -3527,10 +3582,27 @@ const EVENT_SCHEMA = [
   {k:'attachNote',l:'Catatan Dokumen',t:'ta',help:'Keterangan tambahan soal berkas di atas (mis. versi mana yang dipakai).'},
   {k:'internalNote',l:'Internal Note',t:'ta',help:'Tidak tampil di versi client.',full:1}
 ]},
-{ id:'pic', n:'D.11', title:'Matriks PIC Hari-H', div:['all'], desc:'Siapa PIC yang bertanggung jawab untuk tiap peran di hari-H? (wajib lengkap sebelum Confirmed)', fields:[
+/* SATU-SATUNYA TEMPAT PIC DIISI (sejak 24 Agustus 2026).
+   Sebelumnya PIC dari pihak client diketik di seksi operasionalnya
+   masing-masing — Konsumsi di D.2 DAN D.3 dengan judul yang sama kata demi
+   kata, Floor di D.4, Pembayaran di D.8 — sementara matriks ini cuma memuat
+   PIC internal. Empat kotak untuk satu pertanyaan berarti satu nama diketik
+   berkali-kali lalu berselisih begitu nomornya berganti dan hanya satu yang
+   dibetulkan; dan tidak ada satu layar pun yang bisa menjawab "siapa saja
+   orang client yang kita hubungi di hari-H".
+
+   Kotak di seksi asalnya sekarang CERMIN baca-saja (`m_kPIC`, `m_bPIC`,
+   `m_fPIC`, `m_refundPIC`) — kru operasional tetap melihatnya tanpa membuka
+   tab lain, tapi yang mengubahnya cuma satu tempat.
+
+   KUNCINYA TIDAK DIGANTI saat dipindahkan (`kPIC`, `fPIC`, `refundPIC` tetap
+   seperti sebelumnya). Itu bukan kelalaian rapi-rapi: kunci yang sama berarti
+   isian seluruh event yang sudah jalan langsung terbaca di tempat barunya,
+   tanpa migrasi yang bisa gagal separuh jalan. */
+{ id:'pic', n:'D.11', title:'Matriks PIC Hari-H', div:['all'], desc:'Siapa PIC yang bertanggung jawab untuk tiap peran di hari-H — dari sisi kita maupun dari sisi client? (wajib lengkap sebelum Confirmed)', fields:[
+  {k:'_hPicInt',l:'PIC Internal — Laksamana Muda',t:'head',desc:'Kru kita yang memegang tiap peran.'},
   {k:'picKoordinator',l:'Koordinator Event Internal',t:'text',src:'staff',req:1},
   {k:'picMOD',l:'Manager On Duty',t:'text',src:'staff',req:1},
-  {k:'picAcara',l:'PIC Acara Klien',t:'text',req:1},
   // Dulu satu kotak untuk lima peran sekaligus, jadi tidak jelas siapa
   // memegang apa. Sekarang dipisah, dan "Regis" dipecah jadi Tamu & Registrasi.
   {k:'picOperator',l:'PIC Operator',t:'text',src:'staff'},
@@ -3541,10 +3613,76 @@ const EVENT_SCHEMA = [
   {k:'picBayar',l:'PIC Pembayaran',t:'text',src:'staff'},
   {k:'picTalent',l:'PIC Talent (jika ada)',t:'text'},
   {k:'picDekor',l:'PIC Dekorasi (jika ada)',t:'text'},
-  {k:'picParkir',l:'Area Parkir PIC',t:'text'}
+  {k:'picParkir',l:'Area Parkir PIC',t:'text'},
+
+  /* Pindahan dari D.2/D.3/D.4/D.8. Ini orang PIHAK CLIENT, bukan kru kita —
+     karena itu kelompoknya dipisah dan tidak memakai `src:'staff'`: menawarkan
+     daftar pegawai untuk nama tamu membuat orang menekan nama kru yang mirip
+     dan salahnya baru terlihat di hari-H. */
+  {k:'_hPicClient',l:'PIC dari Pihak Client',t:'head',desc:'Siapa yang kita hubungi di hari-H untuk tiap urusan. Ikut tampil (baca-saja) di seksi operasionalnya masing-masing.'},
+  {k:'picAcara',l:'PIC Acara Klien',t:'text',req:1},
+  {k:'kPIC',l:'PIC Client — Konsumsi (Kitchen & Bar)',t:'text',req:1,
+   help:'Satu nama untuk F&B. Dulu ditanyakan dua kali — di D.2 dan D.3 — dengan judul yang sama.'},
+  {k:'fPIC',l:'PIC Client — Floor & Guest Handling',t:'text',req:1},
+  {k:'refundPIC',l:'PIC Client — Pembayaran + No. WA',t:'text',req:1,
+   help:'Yang mengurus pembayaran di hari-H. Nomornya ikut ditulis di sini — kasir menghubunginya langsung.'}
 ]}
 ];
 const SEC_BY_ID = Object.fromEntries(EVENT_SCHEMA.map(s=>[s.id,s]));
+
+/* ---------- SIAPA PIC SEKSI INI ----------
+   Semua PIC diisi di satu tempat (D.11), tapi yang MEMBACA rangkuman bekerja
+   per seksi: kru dapur membuka Overview untuk tahu jam keluar makanan, dan
+   pertanyaan berikutnya selalu "ini siapa yang dihubungi". Selama namanya cuma
+   ada di seksi paling bawah, orang menggulir ke D.11, mencatatnya di kertas,
+   lalu menggulir kembali — atau tidak menghubungi siapa pun.
+
+   Jadi tiap seksi di Overview memajang PIC-nya sendiri di bawah judulnya.
+   Nilainya tetap SATU sumber (detail D.11); ini penempatan, bukan salinan.
+
+   Kuncinya boleh muncul di beberapa seksi — PIC Konsumsi memang mengurus
+   Kitchen dan Bar sekaligus, dan menyembunyikannya di salah satu tidak membuat
+   kenyataan itu berubah. */
+const SEC_PIC={
+  basic:   [['Koordinator','picKoordinator'],['MOD','picMOD'],['PIC Client','picAcara']],
+  kitchen: [['PIC Konsumsi','picKonsumsi'],['PIC Client','kPIC']],
+  bar:     [['PIC Konsumsi','picKonsumsi'],['PIC Client','kPIC']],
+  floor:   [['PIC Tamu','picTamu'],['PIC Registrasi','picRegis'],['PIC Client','fPIC']],
+  security:[['MOD','picMOD'],['Area Parkir','picParkir']],
+  brief:   [['Koordinator','picKoordinator'],['MOD','picMOD']],
+  design:  [['PIC Dokumentasi','picDokumentasi'],['PIC Marketing Client','mktPIC']],
+  cashier: [['PIC Pembayaran','picBayar'],['PIC Client','refundPIC']],
+  finance: [['PIC Pembayaran','picBayar'],['PIC Client','refundPIC']],
+  attach:  [['Koordinator','picKoordinator']]
+  /* `pic` (D.11) sengaja TIDAK ada di sini: seksi itu isinya persis daftar ini,
+     jadi barisnya akan menggandakan dirinya sendiri di atas tabelnya. */
+};
+/* Chip PIC untuk satu seksi. Yang kosong DILEWATI, bukan ditulis "—":
+   deretan tanda pisah tidak memberi tahu apa pun dan cuma membuat kepala
+   seksinya ramai. Kalau seluruhnya kosong, barisnya tidak muncul sama sekali. */
+function secPicHTML(ev,secId){
+  const daftar=SEC_PIC[secId]; if(!daftar) return '';
+  const d=(ev&&ev.detail)||{};
+  const isi=daftar.map(function(x){
+    const v=String(d[x[1]]==null?'':d[x[1]]).trim();
+    return v?'<span class="ov-pic"><i>'+esc(x[0])+'</i>'+esc(v)+'</span>':'';
+  }).filter(Boolean);
+  return isi.length?'<div class="ov-pic-row">'+isi.join('')+'</div>':'';
+}
+/* Versi untuk lembar cetak. Dipisah karena dokumen brief TIDAK memuat CSS
+   halaman ini — kelas `.ov-pic` di sana tidak menghasilkan apa pun, jadi
+   gayanya harus inline. Sudah pernah kejadian pada gambar Overview: satu
+   perender dipakai dua tempat, dan yang di PDF tampil gepeng tanpa ada yang
+   sadar. */
+function secPicPdfHTML(ev,secId){
+  const daftar=SEC_PIC[secId]; if(!daftar) return '';
+  const d=(ev&&ev.detail)||{};
+  const isi=daftar.map(function(x){
+    const v=String(d[x[1]]==null?'':d[x[1]]).trim();
+    return v?'<span style="font-weight:400;color:#555">'+esc(x[0])+':</span> <b>'+esc(v)+'</b>':'';
+  }).filter(Boolean);
+  return isi.length?'<div style="font-size:10.5px;font-family:Inter,sans-serif;font-weight:400;color:#333;margin-top:4px">'+isi.join(' &nbsp;·&nbsp; ')+'</div>':'';
+}
 
 /* ============================================================
    TAB = pengelompokan section (11 section D.1-D.11 -> 3 tab)
@@ -5691,6 +5829,22 @@ function doDelEvent(id){
   if(!can('del_event'))return toast('Akses ditolak','Kamu tidak punya izin menghapus event.','err');
   const el=$('del_confirm');
   if(!el||!namaCocok(el.value,e.nama))return toast('Nama tidak cocok','Ketik nama event persis seperti tertulis.','err');
+  /* MEJANYA DILEPAS LEBIH DULU, dan baris ini tidak boleh hilang kalau alur
+     hapus kelak dirapikan: baris reservasi 'ev-<id>' tidak punya siapa pun lagi
+     yang bisa membuangnya begitu eventnya lenyap dari sini. Yang tertinggal
+     adalah reservasi Confirmed atas nama acara yang sudah tidak ada, memblokir
+     mejanya setiap kali tanggal itu dibuka — dan kru Reservasi tidak punya cara
+     tahu bahwa acaranya dibatalkan.
+
+     Sengaja TIDAK ditunggu (await): penghapusan di sini tidak boleh menggantung
+     karena modul Reservasi lambat. Gagalnya dilaporkan lewat toast beserta
+     daftar mejanya, supaya masih ada yang bisa dibersihkan manual di sana. */
+  const mejaSisa=evmMeja(e), resIdSisa=(e.detail&&e.detail.mejaResId)||('ev-'+id);
+  if(mejaSisa.length){
+    rsvUbahBaris(resIdSisa,function(){ return null; })
+      .then(function(){ toast('Meja dilepas',mejaSisa.join(', ')+' bebas lagi di modul Reservasi.','ok'); })
+      .catch(function(err){ toast('Meja MASIH terkunci','Event sudah dihapus, tapi '+mejaSisa.join(', ')+' belum lepas di Reservasi ('+err.message+'). Hapus reservasi "'+resIdSisa+'" di sana.','err'); });
+  }
   S.events=S.events.filter(x=>x.id!==id);
   S.followups=S.followups.filter(f=>f.eventId!==id);
   S.approvals=S.approvals.filter(a=>a.eventId!==id);
@@ -6558,6 +6712,8 @@ function renderField(ev,fl,canEdit){
     const v=fmtFieldVal(fl, detailVal(ev,fl));
     inp='<div class="mirror" id="'+id+'">'+(v?esc(v):'<span class="cell-sub">— belum diisi di seksi asalnya —</span>')
       +(fl.jadwal?jadwalKeluarHTML(ev):'')+'</div>';
+  } else if(fl.t==='mejalock'){
+    inp='<div id="'+id+'">'+evmFieldHTML(ev,canEdit)+'</div>';
   } else if(fl.t==='itemtbl'){
     // Dulu satu baris teks bebas. Isian lama dipakai sebagai nama item baris
     // pertama supaya tidak hilang begitu tabel ini menggantikannya.
@@ -8479,6 +8635,13 @@ function collectField(fl){
   // Lampiran disimpan saat diunggah/dihapus, bukan saat tombol Simpan ditekan.
   // Tanpa penjaga ini, `return el.value` di bawah akan menimpa daftar berkas.
   if(fl.t==='files') return undefined;
+  /* Meja terkunci sama: yang menulisnya evmSimpan(), berbarengan dengan
+     menulis barisnya ke modul Reservasi. Kalau ikut dibaca di sini, `el.value`
+     sebuah <div> (undefined... lalu String kosong) akan MENGHAPUS daftar meja
+     begitu ada orang menekan Simpan di tab Informasi Dasar — sementara
+     barisnya tetap hidup di modul Reservasi, jadi mejanya terkunci selamanya
+     tanpa ada satu pun tempat di sini yang bisa melepaskannya. */
+  if(fl.t==='mejalock') return undefined;
   const el=$('efd_'+fl.k); if(!el)return undefined;
   if(fl.t==='multi'){ return [...el.querySelectorAll('input[type="checkbox"]')].filter(i=>i.checked).map(i=>i.dataset.v); }
   if(fl.t==='tog'){ return el.classList.contains('on'); }
@@ -10172,6 +10335,13 @@ function fmtFieldVal(fl,val){
     return baris.length?baris.join('\n'):null;
   }
   if(fl.t==='multi')return val.join(', ');
+  /* Meja terkunci: jumlahnya ikut ditulis. Deretan "M12, M13, M14, M15, M16"
+     harus dihitung sendiri oleh yang membacanya, dan jumlah meja itulah yang
+     dicocokkan dengan jumlah tamu saat setup. */
+  if(fl.t==='mejalock'){
+    const m=Array.isArray(val)?val.filter(Boolean):[];
+    return m.length?m.join(', ')+' ('+m.length+' meja)':null;
+  }
   if(fl.t==='tog')return (val===true||(val&&val.v))?'Ya':null;
   if(fl.t==='yn'){ const v=val&&val.v!==undefined?val.v:val; return v===true?'Ya':v===false?'Tidak':null; }
   if(fl.t==='cur')return rp(val);
@@ -10224,6 +10394,7 @@ function renderOverview(ev){
     });
     if(!baris.length) return;                            // section kosong tidak usah ditampilkan
     h += '<section class="ov-sec"><h3 class="ov-sec-t"><span class="ov-no">'+esc(sec.n)+'</span>'+esc(sec.title)+'</h3>'
+       + secPicHTML(ev,sec.id)                           // PIC seksi ini, di seksinya sendiri
        + '<table class="ov-tbl">'+baris.join('')+'</table></section>';
   });
 
@@ -10894,7 +11065,14 @@ function buildBriefDoc(id,mode){
       });
       if(!rows.length)return;
       body+='<table style="width:100%;border-collapse:collapse;margin-bottom:14px;border:1px solid #e5e2da">'
-        +'<thead><tr><th colspan="2" style="text-align:left;font-family:Georgia,serif;font-weight:700;font-size:13px;color:#0C1826;background:#F2EFE7;padding:9px 12px;border-bottom:1px solid #e5e2da">'+(mode==='internal'?sec.n+' · ':'')+esc(sec.title)+'</th></tr></thead>'
+        +'<thead><tr><th colspan="2" style="text-align:left;font-family:Georgia,serif;font-weight:700;font-size:13px;color:#0C1826;background:#F2EFE7;padding:9px 12px;border-bottom:1px solid #e5e2da">'+(mode==='internal'?sec.n+' · ':'')+esc(sec.title)
+        /* PIC seksi ini ikut tercetak, di kepala seksinya. Lembar inilah yang
+           dibaca kru di hari-H — dan sampai sekarang nama PIC-nya cuma ada di
+           tabel D.11 di halaman terakhir. Versi CLIENT sengaja tidak ikut:
+           isinya disaring CLIENT_FIELDS, dan menambahkan baris di luar
+           saringan itu membocorkan nama kru internal ke dokumen luar. */
+        +(mode==='internal'?secPicPdfHTML(ev,sec.id):'')
+        +'</th></tr></thead>'
         +'<tbody>'+rows.join('')+'</tbody></table>';
     });
     if(mode==='internal'){
@@ -15725,11 +15903,19 @@ function vipSegarkanRingkas(){
                    melihat reservasi lama; menggambar ulang denah yang bisa
                    diklik di sana akan mengundang orang mengubah kunciannya dari
                    layar yang niatnya cuma membaca. */
+/* opts.klik  — nama fungsi yang dipanggil saat meja diklik (bawaan
+                 vipToggleMeja). Ada supaya pemilih meja EVENT bisa memakai
+                 penggambar yang SAMA tanpa menulis ke VIP_FORM: dua pintu
+                 menuju satu denah, bukan dua denah yang harus dijaga sepakat.
+   opts.layout — denah mana yang digambar, mengabaikan VIP_LAYOUT (milik
+                 pemilih VIP). Tanpa ini, berpindah lantai di satu pemilih
+                 ikut memindahkan lantai di pemilih yang lain. */
 function vipDenahHTML(d,terpakai,dipilih,opts){
   opts=opts||{};
   const tgl=opts.tanggal||(VIP_FORM&&VIP_FORM.tanggal)||today();
   const bacaSaja=!!opts.bacaSaja;
-  const kunci=bacaSaja?vipDenahKunci(d,tgl,dipilih):vipDenahKey(d,tgl);
+  const kunci=opts.layout?(vipDenah(d,opts.layout)?opts.layout:vipDenahKeyOtomatis(d,tgl))
+            :(bacaSaja?vipDenahKunci(d,tgl,dipilih):vipDenahKey(d,tgl));
   const L=vipDenah(d,kunci);
   if(!L||!Array.isArray(L.tables)||!L.tables.length) return '';
   /* VIP_CAP milik pemilih meja. Denah baca-saja (panel Detail) TIDAK boleh
@@ -15771,7 +15957,7 @@ function vipDenahHTML(d,terpakai,dipilih,opts){
     }
     h+='<button type="button" class="dn-meja'+(on?' on':'')+(off?' off':'')+'" style="'+st+'" data-meja="'+esc(t.id)+'" '
       +(off?'disabled title="Dipesan '+esc(terpakai[t.id])+'"'
-           :'onclick="vipToggleMeja(this,\''+escJs(t.id)+'\')" title="'+esc(t.id+(t.cap?' · '+t.cap+' pax':''))+'"')
+           :'onclick="'+(opts.klik||'vipToggleMeja')+'(this,\''+escJs(t.id)+'\')" title="'+esc(t.id+(t.cap?' · '+t.cap+' pax':''))+'"')
       +'><span>'+esc(t.id)+'</span>'+(t.cap?'<span class="dn-cap">'+esc(t.cap)+'</span>':'')+'</button>';
   });
   h+='</div></div>';
@@ -16056,6 +16242,280 @@ async function vipSimpanNominal(id){
     try{ await vipSyncDp(v); }
     catch(e){ toast('DP belum sampai ke Reservasi',e.message+' — simpan lagi untuk mengulang.','err'); }
   }
+}
+/* ============================================================
+   MEJA EVENT → DIKUNCI DI MODUL RESERVASI
+   ------------------------------------------------------------
+   Event yang sudah Deal memakai meja yang sama dengan tamu walk-in, dan
+   sampai sekarang tidak ada apa pun di modul Reservasi yang menandainya:
+   kru di sana melihat denah kosong pada malam yang sebetulnya sudah penuh,
+   lalu mempersilakan tamu duduk di meja yang sudah dijanjikan ke acara.
+   Yang menyelesaikannya bukan catatan di Marketing — mejanya harus benar-benar
+   dipesan di sana.
+
+   MENULIS SATU BARIS RESERVASI, ber-id `ev-<id event>`. Idnya tetap supaya
+   menyimpan lagi (menambah meja, mengganti tanggal) MENGUBAH baris yang sama,
+   bukan melahirkan baris kedua — pelajaran yang sudah dibayar Reservasi VIP:
+   satu acara muncul dua kali di denah dan mejanya terhitung dobel.
+
+   Seluruh disiplin menulisnya dipinjam dari jalur VIP (rsvSisipkan /
+   rsvUbahBaris): baca ulang + baseVer + ulangi saat bentrok, dan jejak
+   kedatangan tamu yang dicatat kru Reservasi TIDAK pernah ditimpa.
+
+   Yang TIDAK dikirim: DP. Uang event hidup di Finance modul ini dengan aturan
+   termin sendiri, dan menuliskannya sebagai DP reservasi berarti satu
+   pembayaran tercatat di dua tempat dengan dua aturan.
+   ============================================================ */
+let EVM=null;   // {evId, tgl, meja:[], layout:'', rsv:null}
+function evmMeja(ev){
+  const v=ev&&ev.detail&&ev.detail.mejaKunci;
+  return Array.isArray(v)?v.filter(Boolean):[];
+}
+function evmResId(evId){ return 'ev-'+evId; }
+/* Kotak di formulir. Digambar ulang sendiri (evmSegarkanField) sesudah mengunci
+   atau melepas — BUKAN lewat go('event',id): tab ini punya isian lain yang
+   mungkin belum disimpan, dan menggambar ulang seluruh halaman membuang
+   ketikan orang tanpa satu pun peringatan. */
+function evmFieldHTML(ev,canEdit){
+  const meja=evmMeja(ev);
+  const tglKunci=(ev.detail&&ev.detail.mejaKunciTgl)||'';
+  let h='';
+  if(!meja.length){
+    h+='<div class="cell-sub">Belum ada meja dikunci. Tamu walk-in masih bisa mengambil meja mana pun di modul Reservasi pada tanggal ini.</div>';
+  }else{
+    h+='<div class="pill-row">'+meja.map(function(m){ return '<span class="tag">'+esc(m)+'</span>'; }).join('')+'</div>'
+     +'<div class="cell-sub" style="margin-top:5px">'+meja.length+' meja terkunci di modul Reservasi'
+     +(tglKunci?' untuk '+fmtDate(tglKunci):'')+'.</div>';
+    /* Tanggal event yang bergerak SESUDAH mejanya dikunci adalah satu-satunya
+       cara kunci ini jadi salah tanpa kelihatan: barisnya tetap hidup di
+       tanggal lama, jadi malam acara yang sebenarnya tidak terkunci sama
+       sekali sementara malam yang sudah berlalu terkunci untuk selamanya.
+       Tidak dipindahkan sendiri — memindahkan meja ke tanggal baru bisa
+       menabrak tamu yang sudah memesan di sana, dan itu keputusan orang. */
+    if(tglKunci && ev.tanggal && tglKunci!==ev.tanggal){
+      h+='<div class="tbl-note" style="border-color:var(--danger);color:var(--danger)">'+svg(IC.alert)
+       +'<span>Tanggal event sekarang <b>'+fmtDate(ev.tanggal)+'</b>, tapi mejanya masih terkunci di <b>'+fmtDate(tglKunci)+'</b>. Kunci ulang supaya pindah — mejanya di tanggal baru bisa saja sudah dipesan tamu lain.</span></div>';
+    }
+  }
+  if(!canEdit) return h;
+  h+='<div class="pill-row" style="margin-top:9px">'
+   +'<button type="button" class="btn sm" onclick="evmBuka(\''+escJs(ev.id)+'\')">'+svg(IC.brief)
+     +(meja.length?'Ubah / Kunci Ulang':'Pilih &amp; Kunci Meja')+'</button>'
+   +(meja.length?'<button type="button" class="btn sm ghost" onclick="evmLepas(\''+escJs(ev.id)+'\')">'+svg(IC.trash)+'Lepas Kunci</button>':'')
+   +'</div>';
+  return h;
+}
+function evmSegarkanField(evId){
+  const el=$('efd_mejaKunci'); if(!el) return;
+  const ev=S.events.find(function(x){ return x.id===evId; }); if(!ev) return;
+  el.innerHTML=evmFieldHTML(ev,can('edit_event'));
+}
+async function evmBuka(evId){
+  const ev=S.events.find(function(x){ return x.id===evId; }); if(!ev) return;
+  if(!can('edit_event')) return toast('Akses ditolak','Kamu tidak punya izin mengubah event.','err');
+  /* Tanggal dibaca dari kotak yang SEDANG diketik kalau ada — orang biasanya
+     baru mengganti tanggalnya lalu langsung ingin mengunci mejanya, dan
+     memakai tanggal tersimpan berarti mengunci malam yang salah. */
+  const inp=$('efd_tanggal');
+  const tgl=((inp&&inp.value)||ev.tanggal||'').slice(0,10);
+  if(!tgl) return toast('Tanggal belum diisi','Isi Tanggal Event dulu — meja dikunci per tanggal.','err');
+  EVM={evId:evId,tgl:tgl,meja:evmMeja(ev).slice(),layout:'',rsv:null};
+  modal('<div class="modal-head"><div><h3>Memuat denah…</h3><p>Menghubungi modul Reservasi</p></div></div>'
+    +'<div class="modal-body"><div class="cell-sub">Melihat meja yang sudah dipesan pada '+fmtDate(tgl)+'.</div></div>');
+  let d;
+  try{ d=await rsvAmbil(); }
+  catch(e){
+    return modal('<div class="modal-head"><div><h3>Reservasi tidak terjangkau</h3></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+      +'<div class="modal-body"><div class="tbl-note">'+svg(IC.alert)+'<span>'+esc(e.message)+'</span></div>'
+      +'<div class="cell-sub" style="margin-top:10px">Belum ada yang berubah. Meja hanya bisa dikunci kalau modul Reservasi menjawab — kalau tidak, kuncinya cuma catatan di sini dan kru di sana tetap tidak melihatnya.</div></div>'
+      +'<div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button>'
+      +'<button class="btn pri" onclick="evmBuka(\''+escJs(evId)+'\')">Coba Lagi</button></div>');
+  }
+  EVM.rsv=d;
+  evmUI();
+}
+function evmUI(){
+  if(!EVM) return;
+  const ev=S.events.find(function(x){ return x.id===EVM.evId; }); if(!ev) return;
+  const d=EVM.rsv||{};
+  const terpakai=rsvMejaTerpakai(d,EVM.tgl,evmResId(EVM.evId));
+  let h='<div class="modal-head"><div><h3>Pilih &amp; Kunci Meja</h3><p>'+esc(ev.nama||'Event')+' · '+fmtDate(EVM.tgl)+' · '+(+ev.pax||0)+' pax</p></div>'
+   +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">';
+  const denah=vipDenahHTML(d,terpakai,EVM.meja,{tanggal:EVM.tgl,klik:'evmToggle',layout:EVM.layout});
+  if(denah){
+    h+='<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Denah yang sama dengan modul Reservasi. Klik meja untuk mengunci — boleh lebih dari satu, dan boleh lintas lantai.</span></div>'
+     +vipTerpakaiHTML(terpakai)
+     +'<div class="vip-lantai" id="evm_lantai">'+evmBarHTML()+'</div>'
+     +denah;
+  }else{
+    /* Denah tidak terbaca — jangan buntu. Sama seperti pemilih VIP: daftar meja
+       dari master Reservasi tetap bisa dipakai mengunci. */
+    const semua=rsvDaftarMeja(d);
+    VIP_CAP={};
+    if(!semua.length){
+      h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Modul Reservasi belum punya daftar meja. Isi dulu di sana.</span></div>';
+    }else{
+      h+='<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Denah tidak terbaca, jadi mejanya ditampilkan sebagai daftar. Meja abu-abu sudah dipesan tamu lain.</span></div>'
+       +'<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">';
+      semua.forEach(function(m){
+        const off=!!terpakai[m] && EVM.meja.indexOf(m)<0;
+        const on=EVM.meja.indexOf(m)>=0;
+        h+='<button type="button" class="btn sm'+(on?' pri':'')+'" '
+          +(off?'disabled title="Dipesan '+esc(terpakai[m])+'"':'onclick="evmToggle(this,\''+escJs(m)+'\')"')
+          +' data-meja="'+esc(m)+'" style="min-width:78px'+(off?';opacity:.45':'')+'">'+esc(m)+'</button>';
+      });
+      h+='</div>';
+    }
+  }
+  h+='<div class="vip-ringkas" id="evm_ringkas">'+evmRingkasHTML(ev)+'</div>';
+  h+='</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button>'
+   +'<button class="btn pri" id="evm_btn" onclick="evmSimpan()">'+svg(IC.check)+'Simpan &amp; Kunci di Reservasi</button></div>';
+  modal(h);
+  $('modal').classList.add('wide');
+}
+/* Pindah lantai tanpa mengambil ulang data Reservasi — pilihan yang sudah
+   dibuat di denah sebelumnya TIDAK hilang, karena yang berubah cuma yang
+   digambar. Satu acara memang boleh meluber ke lantai atas. */
+function evmSetDenah(k){ if(!EVM) return; EVM.layout=k; evmUI(); }
+function evmBarHTML(){
+  if(!EVM) return '';
+  const d=EVM.rsv||{};
+  const otomatis=vipDenahKeyOtomatis(d,EVM.tgl);
+  const aktif=(EVM.layout&&vipDenah(d,EVM.layout))?EVM.layout:otomatis;
+  return vipDenahKeys(d).map(function(k){
+    const L=vipDenah(d,k);
+    const id={}; ((L&&L.tables)||[]).forEach(function(t){ id[t.id]=1; });
+    const n=EVM.meja.filter(function(m){ return id[m]; }).length;
+    return '<button type="button" class="'+(k===aktif?'on':'')+'" onclick="evmSetDenah(\''+escJs(k)+'\')">'
+      +esc(vipDenahLabel(d,k))
+      +(k===otomatis?'<span class="mini">hari ini</span>':'')
+      +(n?' <i>'+n+' dipilih</i>':'')+'</button>';
+  }).join('');
+}
+function evmToggle(btn,m){
+  if(!EVM) return;
+  const i=EVM.meja.indexOf(m);
+  const kelas=btn.classList.contains('dn-meja')?'on':'pri';
+  if(i>=0){ EVM.meja.splice(i,1); btn.classList.remove(kelas); }
+  else { EVM.meja.push(m); btn.classList.add(kelas); }
+  const bar=$('evm_lantai'); if(bar) bar.innerHTML=evmBarHTML();
+  const rk=$('evm_ringkas');
+  if(rk){ const ev=S.events.find(function(x){ return x.id===EVM.evId; }); if(ev) rk.innerHTML=evmRingkasHTML(ev); }
+}
+/* Kapasitas terpilih vs jumlah tamu. Tanpa ini orang menjumlah sendiri di
+   kepala, dan baru sadar mejanya kurang saat tamunya sudah berdiri. */
+function evmRingkasHTML(ev){
+  if(!EVM) return '';
+  if(!EVM.meja.length) return '<span class="cell-sub">Belum ada meja dipilih — klik meja di denah. Menyimpan tanpa meja akan MELEPAS kunci yang ada.</span>';
+  const butuh=+ev.pax||0;
+  const total=EVM.meja.reduce(function(a,m){ return a+(VIP_CAP[m]||0); },0);
+  let h='<div class="vip-slot-chips">';
+  EVM.meja.forEach(function(m){
+    const c=VIP_CAP[m]||0, lt=VIP_MEJA_LT[m];
+    // Kelasnya SAMA dengan chip pemilih VIP (.vip-chip): satu tampilan untuk
+    // satu benda. Kelas karangan sendiri di sini tidak punya CSS sama sekali
+    // dan tergambar sebagai teks polos tanpa ada yang tahu sebabnya.
+    h+='<span class="vip-chip">'+esc(m)+(lt?'<i>Lt.'+lt+'</i>':'')+'<i>'+(c?c+' org':'? org')+'</i></span>';
+  });
+  h+='</div>';
+  const kurang=butuh&&total<butuh;
+  h+='<div class="vip-slot-total'+(kurang?' kurang':'')+'">'
+   +'<b>'+EVM.meja.length+' meja</b>'+(total?' · kapasitas '+total+' orang':'')
+   +(butuh?' · estimasi tamu '+butuh+(kurang?' — <b>kurang '+(butuh-total)+' kursi</b>':' · cukup'):'')
+   +'</div>';
+  return h;
+}
+async function evmSimpan(){
+  if(!EVM) return;
+  const ev=S.events.find(function(x){ return x.id===EVM.evId; }); if(!ev) return;
+  /* Menyimpan TANPA meja berarti melepas kunci, bukan menyimpan daftar kosong.
+     Kalau tidak, barisnya tetap hidup di modul Reservasi dengan kolom meja
+     kosong: sebuah reservasi Confirmed tanpa meja, yang tidak bisa dijelaskan
+     siapa pun di sana dan tidak bisa dihapus dari sini. */
+  if(!EVM.meja.length){
+    if(!evmMeja(ev).length) return toast('Belum ada meja','Klik meja di denah dulu.','err');
+    return evmLepas(EVM.evId,{dariPemilih:true});
+  }
+  const btn=$('evm_btn'); if(btn){ btn.disabled=true; btn.textContent='Menyimpan…'; }
+  try{
+    const c=S.clients.find(function(x){ return x.id===ev.clientId; });
+    const hasil=await rsvSisipkan(function(d){
+      // Diperiksa ULANG di dalam putaran simpan: meja bisa baru diambil orang
+      // lain di sela-sela kita memilih. Kuncian sendiri tidak dihitung bentrok.
+      const terpakai=rsvMejaTerpakai(d,EVM.tgl,evmResId(EVM.evId));
+      const bentrok=EVM.meja.filter(function(m){ return terpakai[m]; });
+      if(bentrok.length) return {__batal:true,bentrok:bentrok};
+      const now=Date.now();
+      const dt=ev.detail||{};
+      const jam=(dt.tamuDatang||dt.mulaiSetup||'').slice(0,5);
+      const catatan=['EVENT — '+(jenisEvent(ev)||'acara'),
+        c?('Client: '+c.nama+(c.perusahaan?' ('+c.perusahaan+')':'')):'',
+        dt.area?('Area: '+(dt.area==='Lainnya'?(dt.areaLain||'Lainnya'):dt.area)):'',
+        dt.mulaiSetup?('Setup mulai '+dt.mulaiSetup):'',
+        dt.picAcara?('PIC client: '+dt.picAcara):'',
+        'Dari modul Marketing — PIC '+userName(ev.mktPIC),
+        'Detail lengkap ada di Event Brief; jangan diubah dari sini.'].filter(Boolean).join('\n');
+      return {
+        id:evmResId(EVM.evId), name:ev.nama||'Event', phone:(c&&c.hp)||'',
+        date:EVM.tgl, time:jam, pax:+ev.pax||0, table:EVM.meja.join(', '), sharing:false,
+        /* Kategori & status memakai kosakata modul Reservasi apa adanya.
+           Nilai di luar daftarnya tidak punya warna di denah, tidak pernah
+           cocok dengan penyaring, dan tidak terhitung benar di rekap —
+           pelajaran yang sudah dibayar jalur VIP dengan status 'Booking'. */
+        category:'Corporate / Gathering', foodReq:'', drinkReq:'',
+        dps:[], docReqData:'', docReqName:'',
+        source:'Marketing', picType:'Marketing', picName:userName(ev.mktPIC),
+        member:false, memberNo:'', notes:catatan, vip:false, status:'Confirmed',
+        actualPax:0, checkinAt:0, leftAt:0, arrivals:[],
+        createdBy:(ME?ME.name:'Marketing'), createdAt:now, updatedAt:now, followups:[]
+      };
+    });
+    if(hasil&&hasil.__batal){
+      if(btn){ btn.disabled=false; btn.innerHTML=svg(IC.check)+'Simpan &amp; Kunci di Reservasi'; }
+      return toast('Meja keburu diambil','Meja '+hasil.bentrok.join(', ')+' baru saja dipesan tamu lain. Pilih meja lain.','err');
+    }
+    ev.detail=ev.detail||{};
+    ev.detail.mejaKunci=EVM.meja.slice();
+    ev.detail.mejaKunciTgl=EVM.tgl;
+    ev.detail.mejaKunciAt=new Date().toISOString();
+    ev.detail.mejaResId=evmResId(EVM.evId);
+    logAct('event',ev.id,'Meja dikunci di Reservasi',fmtDate(EVM.tgl)+' · '+EVM.meja.join(', '));
+    save(); closeModal(); evmSegarkanField(ev.id);
+    toast('Terkunci di Reservasi ⚓',EVM.meja.length+' meja dipesan atas nama '+(ev.nama||'event ini')+' pada '+fmtDate(EVM.tgl)+'.','ok');
+  }catch(e){
+    if(btn){ btn.disabled=false; btn.innerHTML=svg(IC.check)+'Simpan &amp; Kunci di Reservasi'; }
+    toast('Gagal menyimpan',e.message,'err');
+  }
+}
+/* Melepas kunci = MEMBUANG barisnya di modul Reservasi, bukan sekadar
+   mengosongkan daftar di sini. Baris yang tertinggal memblokir mejanya untuk
+   selamanya, dan kru Reservasi tidak punya cara tahu bahwa acaranya sudah
+   tidak jadi.
+
+   `opts.diam` — dipakai saat eventnya dihapus: tidak ada layar yang bisa
+   menampung konfirmasi kedua, dan gagalnya dilaporkan lewat toast saja. */
+async function evmLepas(evId,opts){
+  opts=opts||{};
+  const ev=S.events.find(function(x){ return x.id===evId; });
+  if(!ev) return;
+  if(!can('edit_event')) return toast('Akses ditolak','Kamu tidak punya izin mengubah event.','err');
+  const meja=evmMeja(ev);
+  const jalan=async function(){
+    try{
+      await rsvUbahBaris((ev.detail&&ev.detail.mejaResId)||evmResId(evId),function(){ return null; });
+      delete ev.detail.mejaKunci; delete ev.detail.mejaKunciTgl;
+      delete ev.detail.mejaKunciAt; delete ev.detail.mejaResId;
+      logAct('event',evId,'Kunci meja dilepas',meja.join(', ')||'—');
+      save(); closeModal(); evmSegarkanField(evId);
+      toast('Kunci dilepas',(meja.length?meja.join(', ')+' ':'Meja ')+'bebas lagi di modul Reservasi.','ok');
+    }catch(e){
+      toast('Gagal melepas',e.message+' — mejanya masih terkunci di Reservasi.','err');
+    }
+  };
+  if(opts.dariPemilih) return jalan();
+  confirmUI({title:'Lepas kunci meja?',sub:(ev.nama||'')+' · '+meja.join(', '),danger:1,ok:'Lepas kunci',
+    body:'Barisnya <b>dihapus dari modul Reservasi</b>, jadi meja '+esc(meja.join(', ')||'itu')+' bisa dipesan tamu lain lagi.',
+    onYes:jalan});
 }
 function vipDetail(id){
   const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;

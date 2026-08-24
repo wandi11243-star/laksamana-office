@@ -2009,6 +2009,16 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -2073,6 +2083,27 @@ function migrateRoleAcc() { permViewKeys(); }
 
 
 function normalizeState() { ynBool(); rincianPenawaran(); eventFbCost(); fbHargaPax(); fbPax(); fbDitimpa(); uid(); MENU_DB_AWAL(); getFbFormats(); rinciSeedRows(); rinciTotalBayar(); eventSubtotal(); migrateRoleAcc(); viewPerm(); permViewKeys(); roleDefaultPerm(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3255,7 +3286,7 @@ function userPerms() { viewPerm(); }
 
 
 function hasCustomAccess() {  }
-function can() { userPerms(); getFbFormats(); menuGroupsOf(); financeTab(); visibleTabs(); }
+function can() { userPerms(); getFbFormats(); collectField(); menuGroupsOf(); financeTab(); }
 
 
 
@@ -3537,6 +3568,113 @@ function can() { userPerms(); getFbFormats(); menuGroupsOf(); financeTab(); visi
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function secPicHTML() { esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function secPicPdfHTML() { esc(); visibleTabs(); }
 
 
 
@@ -5686,7 +5824,23 @@ function delEvent() { can(); toast(); eventFinance(); modal(); esc(); clientName
 
 
 
-function doDelEvent() { can(); toast(); $(); namaCocok(); logAct(); save(); closeModal(); buildNav(); go(); }
+function doDelEvent() { can(); toast(); $(); namaCocok(); evmMeja(); rsvUbahBaris(); logAct(); save(); closeModal(); buildNav(); go(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6475,7 +6629,9 @@ function fieldOpts() {  }
 
 
 
-function renderField() { syncConds(); fieldVisible(); esc(); comboHTML(); staffList(); hariHint(); fmtDateLong(); rupiahInputHTML(); bulletOtomatis(); fieldOpts(); segPick(); ynnoteVal(); tumbuhkan(); rundownRows(); rundownJamAwal(); rundownRowHTML(); rundownAddRow(); svg(); fmtFieldVal(); detailVal(); jadwalKeluarHTML(); itemRowHTML(); itemAddRow(); rinciTblHTML(); dealTblHTML(); barangRowHTML(); barangAddRow(); salinLayout(); syncMenuTbl(); menuGroupsOf(); menuTblHTML(); attachListHTML(); uploadAttach(); }
+function renderField() { syncConds(); fieldVisible(); esc(); comboHTML(); staffList(); hariHint(); fmtDateLong(); rupiahInputHTML(); bulletOtomatis(); fieldOpts(); segPick(); ynnoteVal(); tumbuhkan(); rundownRows(); rundownJamAwal(); rundownRowHTML(); rundownAddRow(); svg(); fmtFieldVal(); detailVal(); jadwalKeluarHTML(); evmFieldHTML(); itemRowHTML(); itemAddRow(); rinciTblHTML(); dealTblHTML(); barangRowHTML(); barangAddRow(); salinLayout(); syncMenuTbl(); menuGroupsOf(); menuTblHTML(); attachListHTML(); uploadAttach(); }
+
+
 
 
 
@@ -8474,7 +8630,14 @@ function syncConds() { $(); condMetLive(); }
 
 
 
-function collectField() { $(); collectMenuTbl(); rinciBaca(); dealBaca(); g(); }
+function collectField() { evmSimpan(); $(); collectMenuTbl(); rinciBaca(); dealBaca(); g(); }
+
+
+
+
+
+
+
 
 
 
@@ -10197,7 +10360,15 @@ function fmtFieldVal() { fieldByKey(); fmtMenuTbl(); rundownRows(); ynnoteVal();
 
 
 
-function renderOverview() { visibleSections(); pdfLewati(); fieldVisible(); pdfNilai(); pdfAdaGambar(); detailVal(); esc(); fmtDateLong(); userName(); }
+
+
+
+
+
+
+
+function renderOverview() { visibleSections(); pdfLewati(); fieldVisible(); pdfNilai(); pdfAdaGambar(); detailVal(); esc(); secPicHTML(); fmtDateLong(); userName(); }
+
 
 
 
@@ -10850,7 +11021,14 @@ function namaTtd() { userName(); fmtDateLong(); }
 
 
 
-function sigBlock() { esc(); pdfSecOn(); pdfLewati(); pdfNilai(); pdfAdaGambar(); detailVal(); dpLabel(); fmtDateLong(); today(); fmtDate(); penFile(); attachUrl(); svg(); modal(); waLink(); printBrief(); closeModal(); $(); }
+function sigBlock() { esc(); pdfSecOn(); pdfLewati(); pdfNilai(); pdfAdaGambar(); detailVal(); secPicPdfHTML(); dpLabel(); fmtDateLong(); today(); fmtDate(); penFile(); attachUrl(); svg(); modal(); waLink(); printBrief(); closeModal(); $(); }
+
+
+
+
+
+
+
 
 
 
@@ -15725,7 +15903,15 @@ function vipSegarkanRingkas() { $(); vipRingkasSlotHTML(); vipDenahBarHTML(); }
 
 
 
-function vipDenahHTML() { today(); vipDenahKunci(); vipDenahKey(); vipDenah(); vipDenahKeys(); vipDenahLantai(); mejaKapasitas(); esc(); vipToggleMeja(); escJs(); }
+
+
+
+
+
+
+
+function vipDenahHTML() { today(); vipDenah(); vipDenahKeyOtomatis(); vipDenahKunci(); vipDenahKey(); vipDenahKeys(); vipDenahLantai(); mejaKapasitas(); esc(); escJs(); }
+
 
 
 
@@ -16041,6 +16227,280 @@ function vipLepasForm() {  }
 function vipSimpanNominal() { $(); logAct(); vipNominal(); vipDpTotal(); vipLepasForm(); save(); closeModal(); toast(); userName(); go(); vipSyncDp(); }
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function evmMeja() {  }
+
+
+
+function evmResId() { go(); }
+
+
+
+
+function evmFieldHTML() { evmMeja(); esc(); fmtDate(); svg(); evmBuka(); escJs(); evmLepas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function evmSegarkanField() { $(); evmFieldHTML(); can(); }
+
+
+
+
+function evmBuka() { can(); toast(); $(); evmMeja(); modal(); fmtDate(); rsvAmbil(); closeModal(); svg(); esc(); escJs(); evmUI(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function evmUI() { rsvMejaTerpakai(); evmResId(); esc(); fmtDate(); closeModal(); svg(); vipDenahHTML(); vipTerpakaiHTML(); evmBarHTML(); rsvDaftarMeja(); evmToggle(); escJs(); evmRingkasHTML(); evmSimpan(); modal(); $(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function evmSetDenah() { evmUI(); }
+function evmBarHTML() { vipDenahKeyOtomatis(); vipDenah(); vipDenahKeys(); evmSetDenah(); escJs(); esc(); vipDenahLabel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function evmToggle() { $(); evmBarHTML(); evmRingkasHTML(); }
+
+
+
+
+
+
+
+
+
+
+
+function evmRingkasHTML() { esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function evmSimpan() { evmMeja(); toast(); evmLepas(); $(); rsvSisipkan(); rsvMejaTerpakai(); evmResId(); jenisEvent(); userName(); svg(); logAct(); fmtDate(); save(); closeModal(); evmSegarkanField(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function evmLepas() { can(); toast(); evmMeja(); }
+
+
+
+
+
+function jalan() { rsvUbahBaris(); evmResId(); logAct(); save(); closeModal(); evmSegarkanField(); toast(); confirmUI(); esc(); }
 
 
 
