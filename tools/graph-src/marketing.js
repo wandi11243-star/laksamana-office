@@ -14109,7 +14109,7 @@ function drData() { drSelesai(); drStatusText(); }
 
 
 
-function renderDesignReq() { can(); pageHead(); drForm(); svg(); drSelesai(); stat(); go(); esc(); paintDesignReq(); drSegarkanProgres(); }
+function renderDesignReq() { can(); pageHead(); drForm(); svg(); drSelesai(); stat(); go(); esc(); paintDesignReq(); drSegarkanProgres(); drMuatKonten(); }
 
 
 
@@ -14181,7 +14181,20 @@ function paintDesignReq() { $(); tblUrut(); drData(); empty(); tblPage(); tblHea
 
 
 
-function drSegarkanProgres() { $(); paintDesignReq(); }
+function drSegarkanProgres() { drOpsi(); $(); paintDesignReq(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -14237,7 +14250,86 @@ function drOpsiDaftar() { drOpsi(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function drMuatKonten() { drOpsi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function drOpsiField() { drOpsiDaftar(); esc(); }
+
+
+
+
+
+
+
+
 
 
 

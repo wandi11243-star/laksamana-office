@@ -14137,7 +14137,7 @@ function renderDesignReq(V){
      yang menandai selesai orang di modul lain, jadi tanpa penyegaran ini
      kolom Status baru berubah kalau halamannya dibuka ulang besok. */
   h+='<div class="tbl-note">'+svg(IC.alert)+'<span>Kolom <em>Status</em> diisi tim Konten lewat Design Queue / Editing Queue — bukan dari sini. Halaman ini menyegarkannya sendiri tiap kali dibuka.</span></div>';
-  V.innerHTML=h; paintDesignReq(); drSegarkanProgres();
+  V.innerHTML=h; paintDesignReq(); drSegarkanProgres(); drMuatKonten();
 }
 function paintDesignReq(){
   if(!$('dr-table')) return;
@@ -14204,9 +14204,22 @@ function drSegarkanProgres(){
          kosong (Konten belum pernah dibuka) tidak boleh menghapus daftar yang
          sudah pernah diterima, karena formulirnya lalu turun ke isian bebas
          tanpa sebab yang bisa dilihat siapa pun. */
+      /* TITIPAN TIDAK PERNAH MENIMPA yang sudah dibaca langsung dari backend
+         Konten (`_drKontenSt==='ok'`). Dua sumber datang dari dua fetch yang
+         berlomba, dan titipan bisa jauh lebih tua: ia tersimpan di server
+         sejak terakhir ada orang membuka modul Konten. Kalau ia menang,
+         daftar krunya mundur ke keadaan lama — brand yang baru dibuat lenyap
+         dari pilihan, dan tidak ada satu pun galat yang menyebutkannya. */
       const o=j.data.opsi;
-      if(o&&typeof o==='object'&&((o.brands||[]).length||(o.pics||[]).length||(o.platforms||[]).length))
-        S.designreqopsi=o;
+      if(o&&typeof o==='object'&&((o.brands||[]).length||(o.pics||[]).length||(o.platforms||[]).length)){
+        if(_drKontenSt==='ok'){
+          const kini=Object.assign({},drOpsi());
+          if(!(kini.brands||[]).length&&(o.brands||[]).length) kini.brands=o.brands;
+          if(!(kini.pics||[]).length  &&(o.pics||[]).length)   kini.pics=o.pics;
+          if((o.platforms||[]).length) kini.platforms=o.platforms;
+          S.designreqopsi=kini;
+        } else S.designreqopsi=o;
+      }
       if($('dr-table')) paintDesignReq();
     })
     .catch(function(){ clearTimeout(jam); })
@@ -14230,6 +14243,77 @@ function drSegarkanProgres(){
    menekan Simpan tidak boleh diam-diam mengganti isian ke pilihan pertama. */
 function drOpsi(){ const o=S.designreqopsi; return (o&&typeof o==='object')?o:{}; }
 function drOpsiDaftar(k){ const l=drOpsi()[k]; return Array.isArray(l)?l:[]; }
+/* ---------- MEMBACA LANGSUNG DARI BACKEND KONTEN ----------
+   Titipan di atas ternyata tidak cukup: ia baru sampai kalau ada orang yang
+   membuka modul Konten sesudah versi barunya terpasang, dan sampai itu terjadi
+   kotak Brand & PIC tetap berupa isian bebas — yang justru diminta hilang.
+   Jadi modul ini sekarang MEMBACA SENDIRI, dan titipan tinggal cadangan.
+
+   Yang dipakai `getAll` milik konten-api-mysql. Bukan endpoint sempit khusus,
+   dengan sengaja: konten-mysql TIDAK ikut ter-deploy otomatis (tidak ada di
+   kedua workflow), jadi endpoint baru di sana berarti satu langkah unggah
+   manual — dan endpoint yang lupa diunggah gagal tanpa satu pun pesan yang
+   menyebut sebabnya. `getAll` sudah ada di server sejak modul Konten hidup.
+
+   Harganya jujur: balasannya seluruh state modul Konten. Karena itu ia ditarik
+   PALING BANYAK SEKALI per sesi, dan hanya saat halaman ini dibuka — bukan
+   saat modul marketing boot.
+
+   TIDAK PERNAH MELEMPAR dan tidak pernah mengosongkan daftar yang sudah ada:
+   backend Konten yang mati harus tetap menyisakan formulir yang bisa dipakai
+   (titipan, lalu isian bebas). Gagal sekali TIDAK dikunci — statusnya kembali
+   'idle' supaya membuka halaman ini lagi mencoba lagi. Aman dari lingkaran
+   render: kegagalannya tidak menggambar ulang apa pun. */
+const KONTEN_API='../konten-api-mysql/api.php';
+/* Peran Konten -> label pendek. SALINAN dari `ROLES` di deploy/konten/index.html
+   — modul ini tidak punya cara membacanya, dan peran itu konstanta di sana,
+   bukan data yang diisi orang. Kalau di sana lahir peran baru dan di sini lupa
+   ditambah, yang terjadi cuma labelnya jatuh ke kunci mentahnya
+   ('ads_specialist'), BUKAN orangnya hilang dari pilihan. */
+const DR_PERAN={super_admin:'Nahkoda Agung',content_director:'Direktur Konten',
+  content_planner:'Perencana',account_manager:'AM',designer:'Desainer',
+  video_editor:'Editor',photographer:'Produksi',ads_specialist:'Ads',analyst:'Analis'};
+// Yang benar-benar mengerjakan desain/video/foto — didahulukan di dropdown PIC,
+// bukan menyaring sisanya (kru rangkap kerja tetap ikut, di kelompok kedua).
+const DR_PERAN_PROD=['designer','video_editor','photographer','content_director','content_planner'];
+let _drKontenSt='idle';
+function drMuatKonten(){
+  if(_drKontenSt!=='idle') return;
+  _drKontenSt='muat';
+  const stop=new AbortController(); const jam=setTimeout(function(){ stop.abort(); },12000);
+  fetch(KONTEN_API+'?action=getAll&t='+Date.now(),{method:'GET',redirect:'follow',signal:stop.signal})
+    .then(function(res){ clearTimeout(jam); return res.text(); })
+    .then(function(t){
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      const d=(j&&j.ok&&j.data&&typeof j.data==='object')?j.data:null;
+      if(!d) throw new Error('balasan bukan state Konten');
+      const brands=(Array.isArray(d.brands)?d.brands:[])
+        .filter(function(b){ return b&&b.id; })
+        .map(function(b){ return {id:String(b.id),name:String(b.name||'')}; });
+      /* Kru NONAKTIF dibuang. Mereka masih ada di data Konten supaya pekerjaan
+         lamanya tetap bernama — tapi menawarkannya di sini berarti request
+         ditujukan ke orang yang sudah keluar, dan yang membuka antriannya di
+         Konten tidak melihat apa pun yang menandai itu. */
+      const pics=(Array.isArray(d.users)?d.users:[])
+        .filter(function(u){ return u&&u.id&&u.active!==false; })
+        .map(function(u){
+          const rs=Array.isArray(u.roles)?u.roles:[];
+          return {id:String(u.id),name:String(u.name||''),
+                  peran:rs.map(function(r){ return DR_PERAN[r]||r; }).join(' + '),
+                  prod:rs.some(function(r){ return DR_PERAN_PROD.indexOf(r)>=0; })?1:0};
+        })
+        .sort(function(a,b){ return (b.prod-a.prod)||String(a.name).localeCompare(String(b.name)); });
+      if(!brands.length&&!pics.length) throw new Error('state Konten tanpa brand & kru');
+      /* Ditumpuk di atas titipan, bukan menggantinya seluruhnya: `platforms`
+         yang mungkin sudah ada di sana tidak boleh ikut terhapus. */
+      const o=Object.assign({},drOpsi());
+      if(brands.length) o.brands=brands;
+      if(pics.length)   o.pics=pics;
+      S.designreqopsi=o;
+      _drKontenSt='ok';
+    })
+    .catch(function(){ clearTimeout(jam); _drKontenSt='idle'; });
+}
 /* Asal daftarnya disebutkan di layar. Yang membuka form ini lalu tidak
    menemukan brand/kru barunya perlu tahu HALAMAN MANA yang harus diisi di
    modul Konten — tanpa itu, yang terjadi orangnya menyerah lalu mengetik
@@ -14244,7 +14328,15 @@ function drOpsiField(k,label,r){
     return '<div class="field"><label>'+esc(label)+'</label>'
       +'<input class="inp" id="dr_'+k+'Nama" value="'+esc(namaLama)+'" placeholder="Ketik '+esc(label.toLowerCase())+'">'
       +'<input type="hidden" id="dr_'+k+'" value="'+esc(idLama)+'">'
-      +'<div class="fh">Daftar pilihan belum diterima dari modul Konten — ketik saja namanya. Daftarnya muncul sendiri setelah modul Konten dibuka sekali oleh krunya.</div></div>';
+      /* Sebabnya DIBEDAKAN. "Masih diambil" selesai sendiri dalam beberapa
+         detik dan jalan keluarnya menutup lalu membuka formulir ini lagi;
+         "tidak menjawab" tidak akan selesai sendiri dan yang bisa dilakukan
+         cuma mengetik. Satu pesan untuk dua keadaan membuat orang menunggu
+         sesuatu yang tidak akan datang, atau mengetik padahal cukup menunggu. */
+      +'<div class="fh">'+(_drKontenSt==='muat'
+        ? 'Daftar pilihan masih diambil dari modul Konten — tutup lalu buka lagi formulir ini sebentar, atau ketik saja namanya.'
+        : 'Daftar pilihan tidak terbaca dari modul Konten — ketik saja namanya. Nama yang diketik tetap terkirim, cuma tidak terhubung ke datanya di sana.')
+      +'</div></div>';
   }
   const adaDiDaftar=daftar.some(function(x){ return x.id===idLama; });
   const opt=function(x){
