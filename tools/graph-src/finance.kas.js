@@ -648,6 +648,29 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pct() {  }
 
 
@@ -738,12 +761,7 @@ function bacaSesi() {  }
 
 
 
-function sayaAdmin() { go(); }
-
-
-
-
-function bolehLihat() { sayaAdmin(); }
+function sayaAdmin() { bacaSesi(); }
 
 
 
@@ -756,7 +774,122 @@ function bolehLihat() { sayaAdmin(); }
 
 
 
-function pasangMenu() { sayaAdmin(); bolehLihat(); go(); save(); boot(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function aksKunci() { pasangMenu(); muatKk(); }
+
+
+
+
+
+
+
+
+function aksPeta() {  }
+
+
+
+
+
+
+function aksBawaan() {  }
+function aksTingkat() { aksBawaan(); aksPeta(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tingkatSaya() { aksTingkat(); aksKunci(); sayaAdmin(); go(); }
+
+
+
+
+
+
+function bolehLihat() { tingkatSaya(); }
+function bolehUbah() { tingkatSaya(); }
+
+
+
+function bolehAksi() { bolehUbah(); tingkatSaya(); }
+
+
+
+
+
+
+
+
+
+function halPertamaBoleh() { bolehLihat(); }
+
+
+
+
+
+function pasangMenu() { sayaAdmin(); bolehLihat(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function terapkanKunci() { bolehUbah(); save(); boot(); }
+
+
+
+
 
 
 
@@ -821,7 +954,8 @@ function divCardTarget() {  }
 
 
 
-function simpanTarget() { fetchTimeout(); daftar(); render(); }
+function simpanTarget() { bolehAksi(); fetchTimeout(); daftar(); render(); }
+
 
 
 
@@ -2087,7 +2221,7 @@ function rkSimpan() { rkAdaUbah(); rkKirim(); }
 
 
 
-function rkKirim() { fetchTimeout(); render(); }
+function rkKirim() { bolehAksi(); fetchTimeout(); render(); }
 
 
 
@@ -2174,7 +2308,8 @@ function rkKirim() { fetchTimeout(); render(); }
 
 
 
-function go() { bolehLihat(); render(); }
+
+function go() { bolehLihat(); halPertamaBoleh(); render(); }
 
 
 
@@ -2200,7 +2335,8 @@ function go() { bolehLihat(); render(); }
 
 function clearCharts() {  }
 
-function render() { clearCharts(); syncKendaliPeriode(); viewPerforma(); formatAllRp(); todayISO(); kasirMurni(); }
+function render() { clearCharts(); syncKendaliPeriode(); viewPerforma(); terapkanKunci(); formatAllRp(); todayISO(); kasirMurni(); }
+
 
 
 
@@ -3757,7 +3893,109 @@ function muatAkses() { viewAkses(); }
 
 
 
-function viewAkses() { muatAkses(); save(); }
+function viewAkses() { muatAkses(); sayaAdmin(); aksKunci(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sel() { aksTingkat(); cyclePerm(); viewAkses(); simpanAkses(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function cyclePerm() {  }
+
+
+
+
+
+
+
+
+function simpanAkses() { sayaAdmin(); aksTingkat(); aksBawaan(); kkApi(); pasangMenu(); bolehLihat(); go(); halPertamaBoleh(); viewAkses(); save(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3864,7 +4102,7 @@ function kkApi() {  }
 
 
 
-function muatKk() { kkApi(); render(); }
+function muatKk() { kkApi(); go(); pasangMenu(); bolehLihat(); halPertamaBoleh(); render(); }
 
 
 
@@ -3881,7 +4119,22 @@ function muatKk() { kkApi(); render(); }
 
 
 
-function kkKirim() { render(); kkApi(); muatKk(); }
+
+
+
+
+
+
+
+
+
+function kkKirim() { bolehAksi(); render(); kkApi(); muatKk(); }
+
+
+
+
+
+
 
 
 
@@ -3987,7 +4240,11 @@ function nilaiTrx() { kkNilai(); }
 
 
 
-function kotakLengkap() { kkSaldoPos(); kkSetFilter(); labelRentang(); kkPosNama(); go(); render(); kkKatAktif(); kkNilai(); kkKatNama(); kkTandai(); kkEdit(); kkHapus(); }
+function kotakLengkap() { kkSaldoPos(); kkSetFilter(); labelRentang(); kkPosNama(); go(); terapkanKunci(); render(); kkKatAktif(); kkNilai(); kkKatNama(); kkTandai(); kkEdit(); kkHapus(); }
+
+
+
+
 
 
 
@@ -4307,7 +4564,10 @@ function kkHitungGrand() { kkPosAktif(); }
 
 
 
-function kkSimpanSemua() { kkBacaDraft(); kkPosAktif(); render(); kkUrut(); kkApi(); kkDraftBaru(); muatKk(); }
+function kkSimpanSemua() { kkKirim(); bolehAksi(); kkBacaDraft(); kkPosAktif(); render(); kkUrut(); kkApi(); kkDraftBaru(); muatKk(); }
+
+
+
 
 
 
@@ -4992,7 +5252,8 @@ function barisPen() { kotakBawaan(); invPenGambar(); invPenUbah(); invPenAktif()
 
 
 
-function invKirim() { render(); kkApi(); setSync(); }
+function invKirim() { bolehAksi(); render(); kkApi(); setSync(); }
+
 
 
 
@@ -5185,7 +5446,7 @@ function pieOpts() {  }
 
 
 
-function halamanAwal() { bolehLihat(); }
+function halamanAwal() { bolehLihat(); halPertamaBoleh(); }
 
 
 

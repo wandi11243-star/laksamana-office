@@ -180,6 +180,12 @@ try {
       require_once __DIR__ . '/lib_invoice.php';
       keluar(array('ok' => true, 'data' => inv_putus($body)));
 
+    /* Matriks hak akses sub-menu per kru. Dibacanya ikut getAll (satu
+       permintaan, bukan dua — halaman mana pun butuh matriksnya sejak render
+       pertama untuk tahu menu apa yang boleh tampil). */
+    case 'simpanAkses':
+      keluar(array('ok' => true, 'data' => akses_simpan($body)));
+
     case 'invSetting':
       require_once __DIR__ . '/lib_invoice.php';
       keluar(array('ok' => true, 'data' => inv_setting_simpan(

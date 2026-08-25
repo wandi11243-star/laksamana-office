@@ -102,6 +102,27 @@ function pastikan_tabel() {
          REFERENCES `kk_pos`(`id`)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 
+  /* Hak akses per sub-menu per kru (25 Agustus 2026). Barisnya SELISIH dari
+     bawaan — yang tidak disetel khusus tidak punya baris di sini sama sekali,
+     jadi halaman yang lahir besok otomatis terbuka untuk semua orang alih-alih
+     tertinggal terkunci di pemasangan yang matriksnya pernah disimpan.
+
+     `kunci` = id user Office ('#<id>'), bukan namanya: HRD membetulkan ejaan
+     nama tanpa memberi tahu siapa pun, dan matriks yang terikat nama akan
+     diam-diam berhenti berlaku untuk orang yang namanya diperbaiki.
+
+     UNIQUE (kunci,halaman) menahan bug diam-diam: dua baris untuk sel yang
+     sama akan terbaca bergantian tergantung urutan baris, dan tidak ada layar
+     yang bisa melaporkannya. */
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `kk_akses` (
+       `id`      INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       `kunci`   VARCHAR(80)  NOT NULL,
+       `halaman` VARCHAR(40)  NOT NULL,
+       `tingkat` TINYINT      NOT NULL DEFAULT 2,
+       UNIQUE KEY `uq_akses` (`kunci`,`halaman`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+
   seed_awal();
 }
 
@@ -170,7 +191,62 @@ function baca_semua() {
   foreach ($pos as $i => $p) { $pos[$i]['id'] = (int)$p['id']; $pos[$i]['urut'] = (int)$p['urut']; $pos[$i]['aktif'] = ((int)$p['aktif']) === 1; }
   foreach ($kat as $i => $k) { $kat[$i]['id'] = (int)$k['id']; $kat[$i]['urut'] = (int)$k['urut']; $kat[$i]['aktif'] = ((int)$k['aktif']) === 1; }
 
-  return array('pos' => $pos, 'kategori' => $kat, 'trx' => array_values($trx));
+  return array('pos' => $pos, 'kategori' => $kat, 'trx' => array_values($trx),
+               'akses' => akses_baca());
+}
+
+/* ------------------------------------------------- hak akses sub-menu */
+/* Dipulangkan sebagai OBJEK, bukan array. json_encode(array()) menghasilkan
+   `[]`, dan frontend yang menerima array kosong lalu membacanya sebagai peta
+   akan diam-diam menganggap tidak ada satu pun setelan — persis sama dengan
+   "semua bawaan", jadi salahnya tidak kelihatan sampai ada yang bertanya
+   kenapa setelannya hilang. */
+function akses_baca() {
+  $out = array();
+  $st = db()->query('SELECT `kunci`,`halaman`,`tingkat` FROM `kk_akses`');
+  foreach ($st->fetchAll() as $r) {
+    $k = (string)$r['kunci'];
+    if (!isset($out[$k])) $out[$k] = array();
+    $out[$k][(string)$r['halaman']] = (int)$r['tingkat'];
+  }
+  return (object)$out;
+}
+
+/* Seluruh matriks ditulis sekali jalan (hapus lalu isi ulang), bukan per sel.
+   Boleh begitu di sini — beda dengan jadwal & dw yang sengaja granular —
+   karena yang menyunting halaman ini cuma admin modul finance, jumlahnya satu
+   dua orang, dan mereka tidak pernah menyetel matriks yang sama di menit yang
+   sama. Yang WAJIB dijaga sebagai gantinya: frontend harus selalu mengirim
+   peta LENGKAP hasil pembacaan seluruh tombol, tidak pernah sepotong.
+   Mengirim sepotong berarti sisanya terhapus tanpa ada pesan apa pun. */
+function akses_simpan($in) {
+  pastikan_tabel();
+  $peta = (isset($in['peta']) && is_array($in['peta'])) ? $in['peta'] : array();
+  $pdo  = db();
+  $pdo->beginTransaction();
+  try {
+    $pdo->exec('DELETE FROM `kk_akses`');
+    $q = $pdo->prepare('INSERT INTO `kk_akses` (`kunci`,`halaman`,`tingkat`)
+                        VALUES (:kunci,:halaman,:tingkat)');
+    foreach ($peta as $kunci => $baris) {
+      if (!is_array($baris)) continue;
+      $kunci = substr((string)$kunci, 0, 80);
+      if ($kunci === '') continue;
+      foreach ($baris as $hal => $tk) {
+        $hal = substr((string)$hal, 0, 40);
+        if ($hal === '') continue;
+        $tk = (int)$tk;
+        if ($tk < 0) $tk = 0;
+        if ($tk > 2) $tk = 2;
+        $q->execute(array(':kunci' => $kunci, ':halaman' => $hal, ':tingkat' => $tk));
+      }
+    }
+    $pdo->commit();
+  } catch (Throwable $e) {
+    $pdo->rollBack();
+    throw $e;
+  }
+  return akses_baca();
 }
 
 /* -------------------------------------------------------------- tulis */

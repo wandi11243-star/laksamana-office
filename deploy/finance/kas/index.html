@@ -505,6 +505,29 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
     border-top:1px solid #E3DFD5;margin-top:11px;padding-top:6px;
     font-size:7.5px;color:#8A8A8A}
 }
+/* Matriks hak akses. Tombol satu-klik bersiklus dengan warna + legenda di
+   atasnya, DISALIN PERSIS dari deploy/reservasi/index.html — orang yang sama
+   mengatur akses di dua modul, dan dua matriks tiga-tingkat dengan warna
+   berbeda memaksanya belajar dua kali untuk hal yang sama. */
+.perm-btn{width:52px;height:26px;border-radius:7px;border:1.5px solid transparent;cursor:pointer;
+  font-size:10px;font-weight:800;letter-spacing:.02em;transition:transform .08s}
+.perm-btn:active{transform:scale(.92)}
+.perm-btn:disabled{cursor:not-allowed;opacity:.55}
+.perm-btn[data-v="0"]{background:var(--danger-bg);color:var(--danger);border-color:var(--danger)}
+.perm-btn[data-v="1"]{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
+.perm-btn[data-v="2"]{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
+.perm-legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:12px;font-size:12.5px}
+.perm-legend .lg-item{display:flex;align-items:center;gap:7px}
+.perm-legend .lg-dot{width:15px;height:15px;border-radius:5px;border:1.5px solid transparent;flex:none}
+.perm-legend .lg-dot.n0{background:var(--danger-bg);border-color:var(--danger)}
+.perm-legend .lg-dot.n1{background:var(--warn-bg);border-color:var(--warn)}
+.perm-legend .lg-dot.n2{background:var(--ok-bg);border-color:var(--ok)}
+.perm-matrix{width:100%;border-collapse:collapse;font-size:13px}
+.perm-matrix th,.perm-matrix td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
+.perm-matrix th:first-child,.perm-matrix td:first-child{text-align:left;font-weight:600}
+.perm-matrix thead th{background:var(--paper);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+.perm-matrix tbody tr:hover{background:var(--gold-soft)}
+.perm-lock{color:var(--muted);font-weight:500;font-size:11.5px}
 </style>
 </head>
 <body>
@@ -739,32 +762,142 @@ function bacaSesi(){
   }catch(e){ return null; }
 }
 function sayaAdmin(){ return !!(CURRENT_USER&&CURRENT_USER.isAdmin); }
-/* Satu-satunya gerbang: view yang terdaftar di TITLES bisa dibuka, yang tidak
-   terdaftar tidak. Dipakai router juga, bukan cuma sidebar — menyembunyikan
-   menu saja tidak pernah cukup karena go() bisa dipanggil dari tombol mana
-   pun di halaman lain. */
-function bolehLihat(view){
-  /* SATU pengecualian: Pengaturan Target hanya untuk admin modul. Di panel
-     sebelah ia duduk di grup 'Sistem' yang memang cuma terbuka untuk level
-     penuh, dan memindahkannya ke sini tanpa gerbang berarti setiap pemegang
-     kunci 'finance' bisa menulis ulang target — angka yang menentukan bonus
-     seluruh kru. Pemindahan halaman tidak boleh diam-diam jadi pelonggaran
-     hak akses. */
-  if(view==='target') return sayaAdmin();
-  return !!TITLES[view];
+/* ============ HAK AKSES PER SUB-MENU (25 Agustus 2026, permintaan user) ====
+
+   Sampai hari ini modul ini sengaja tidak punya level sama sekali; halaman
+   Kelola Kru bahkan menuliskannya terang-terangan ("semua pemegang akses
+   melihat halaman yang sama", dengan alasan seluruh isinya angka uang
+   perusahaan). Alasan itu masuk akal selama modul ini cuma berisi omset —
+   tapi sejak Kas Kecil, Rekap Penjualan, dan Invoice masuk ke sini, ia memuat
+   pekerjaan HARIAN yang orangnya tidak dengan sendirinya berhak mengubah
+   target perusahaan atau menerbitkan kwitansi.
+
+   Bentuknya sengaja SAMA PERSIS dengan matriks hak akses modul Reservasi —
+   tiga tingkat: None / Lihat / Ubah, satu tombol bersiklus per sel. Bukan
+   kemiripan yang kebetulan: dua matriks dengan tiga tingkat tapi label & warna
+   berbeda memaksa orang yang sama belajar dua kali, dan itu satu-satunya
+   layar di repo ini yang salahnya tidak kelihatan dari layar.
+
+   Bedanya dengan Reservasi cuma SUMBU-nya: Reservasi punya tabel user sendiri
+   sehingga matriksnya per ROLE; modul ini identitasnya dari Office dan tidak
+   punya role, jadi kolomnya per ORANG.
+
+   Gerbang modul tetap satu tempat: Kelola Akses milik Office. Matriks ini
+   hanya MEMPERSEMPIT apa yang sudah dipegang orangnya — yang tidak punya
+   kunci 'finance' ditolak bacaSesi() dan tidak pernah sampai ke sini. */
+const PERM_NONE=0, PERM_VIEW=1, PERM_EDIT=2;
+/* [nilai, label lengkap (legenda/tooltip), label pendek (isi tombol)] —
+   urutan & kata-katanya disalin dari deploy/reservasi/index.html. */
+const PERM_OPT=[['0','Tak Terlihat','None'],['1','Lihat','Lihat'],['2','Boleh Ubah','Ubah']];
+/* Halaman yang PUNYA isian. Di luar daftar ini "Ubah" tidak berarti apa-apa —
+   halamannya murni informasi — jadi nilainya dijepit ke Lihat saat dibaca,
+   persis seperti perlakuan Reservasi terhadap dashboard/riwayat/analitik. */
+const AKS_HAL_ISI=['kk_input','kk_buku','kk_pos','rekap','invoice','target'];
+/* Halaman yang tidak boleh disembunyikan dari siapa pun: yang bisa membuka
+   'akses' bisa mengubah matriksnya sendiri, dan menyembunyikannya dari admin
+   modul terakhir mengunci semua orang keluar tanpa pintu kedua. */
+const AKS_KUNCI=['akses'];
+/* Kunci baris matriks: id user Office, bukan namanya. Lihat alasannya di
+   kk_akses (finance-mysql/lib_finance_mysql.php). '@nama' cuma cadangan untuk
+   sesi lama yang belum menyimpan userId. */
+function aksKunci(u){
+  const id=String((u&&u.id)||'').trim();
+  return id?('#'+id):('@'+String((u&&u.name)||'').trim().toLowerCase());
 }
-/* Sidebar hampir tidak perlu disaring (semua pemegang modul melihat semua
-   halaman); yang tersisa lencana peran di pojok bawah dan satu menu yang
-   memang khusus admin. */
+/* Matriksnya ikut balasan getAll milik backend Kas Kecil, jadi ia BELUM ADA
+   selama beberapa ratus milidetik pertama. Selama itu semua halaman dianggap
+   terbuka — kebalikannya (semua tertutup) akan membuat sidebar berkedip dari
+   kosong ke penuh tiap kali halaman dibuka. pasangMenu() dipanggil sekali lagi
+   begitu KK datang; lihat muatKk(). */
+function aksPeta(){
+  const p=KK&&KK.akses;
+  return (p&&typeof p==='object'&&!Array.isArray(p))?p:{};
+}
+/* Bawaan = keadaan modul ini SEBELUM matriks ada: semua pemegang akses boleh
+   segalanya. Wajib begitu — bawaan yang lebih sempit mencabut hak seluruh kru
+   finance begitu pembaruan ini mendarat, tanpa ada yang memintanya. */
+function aksBawaan(view){ return AKS_HAL_ISI.indexOf(view)>=0?PERM_EDIT:PERM_VIEW; }
+function aksTingkat(view,kunci,adm){
+  /* Admin modul selalu penuh dan tidak bisa diturunkan. Kalau bisa, satu klik
+     salah pada kolom sendiri membuat modul ini tidak punya siapa pun yang bisa
+     membetulkannya lagi. */
+  if(adm) return aksBawaan(view);
+  /* Pengaturan Target TETAP admin-modul-saja, terlepas dari matriks. Ia
+     menulis angka yang menentukan bonus seluruh kru, dan halaman ini tidak
+     boleh jadi jalan memutar untuk membukanya. */
+  if(view==='target') return PERM_NONE;
+  const baris=aksPeta()[kunci];
+  let t=(baris&&baris[view]!==undefined)?parseInt(baris[view],10):aksBawaan(view);
+  if(isNaN(t)) t=aksBawaan(view);
+  t=Math.max(PERM_NONE,Math.min(PERM_EDIT,t));
+  if(AKS_HAL_ISI.indexOf(view)<0 && t>PERM_VIEW) t=PERM_VIEW;
+  if(AKS_KUNCI.indexOf(view)>=0 && t<PERM_VIEW) t=PERM_VIEW;
+  return t;
+}
+function tingkatSaya(view){
+  if(!TITLES[view]) return PERM_NONE;
+  return aksTingkat(view,aksKunci(CURRENT_USER),sayaAdmin());
+}
+/* Dipakai router juga, bukan cuma sidebar — menyembunyikan menu saja tidak
+   pernah cukup karena go() bisa dipanggil dari tombol mana pun di halaman
+   lain, dan alamat #/<halaman> tetap bisa diketik. */
+function bolehLihat(view){ return tingkatSaya(view)>=PERM_VIEW; }
+function bolehUbah(view){ return tingkatSaya(view)>=PERM_EDIT; }
+/* Penjaga sungguhan, dipanggil di awal tiap jalur yang menulis. Menyembunyikan
+   tombolnya saja tidak cukup: fungsi-fungsi ini global dan tetap bisa dipanggil
+   dari console, dan tombolnya sempat tergambar sebelum matriks datang. */
+function bolehAksi(view){
+  if(bolehUbah(view)) return true;
+  alert('Tidak bisa dilakukan.\n\nHak akses kamu di halaman "'+(TITLES[view]?TITLES[view][0]:view)+
+        '" cuma "'+PERM_OPT[tingkatSaya(view)][1]+'". Minta admin modul mengubahnya di Kelola Kru.');
+  return false;
+}
+/* Halaman pertama yang boleh dilihat orang ini. Buku Kas tetap yang pertama
+   dicoba — pertanyaan pertama orang finance tiap pagi "saldonya berapa" —
+   tapi ia sekarang bisa disembunyikan, dan jatuh ke halaman yang justru
+   disembunyikan darinya akan memulangkan layar kosong tanpa penjelasan. */
+function halPertamaBoleh(){
+  if(bolehLihat('kk_buku')) return 'kk_buku';
+  const urut=Object.keys(TITLES);
+  for(let i=0;i<urut.length;i++) if(bolehLihat(urut[i])) return urut[i];
+  return 'akses';   // AKS_KUNCI menjamin ini selalu terbuka
+}
 function pasangMenu(){
   const badge=document.querySelector('.su-info span');
   if(badge) badge.textContent = sayaAdmin()?'admin finance':'finance';
-  /* Menu disembunyikan DAN bolehLihat() menolaknya — dua-duanya, bukan salah
-     satu. Menyembunyikan menu saja tidak pernah cukup: go() bisa dipanggil
-     dari tombol halaman lain, dan alamat lama tetap bisa dibuka. */
+  /* Dua arah, bukan cuma menyembunyikan: pasangMenu() dipanggil lagi sesudah
+     matriks datang, dan menu yang sempat disembunyikan saat matriks belum
+     terbaca harus bisa muncul kembali. */
   document.querySelectorAll('.nav a').forEach(a=>{
-    if(a.dataset.view && !bolehLihat(a.dataset.view)) a.style.display='none';
+    if(!a.dataset.view) return;
+    a.style.display=bolehLihat(a.dataset.view)?'':'none';
   });
+  /* Label grup yang seluruh isinya hilang ikut disembunyikan — "Sistem" yang
+     berdiri sendiri tanpa satu pun menu di bawahnya terbaca sebagai modul
+     yang rusak. */
+  document.querySelectorAll('.nav-group').forEach(g=>{
+    const ada=[...g.querySelectorAll('a')].some(a=>a.style.display!=='none');
+    g.style.display=ada?'':'none';
+  });
+}
+/* Dijalankan SESUDAH view menggambar dirinya: tombol beraksi dibuang, dan di
+   halaman berisian yang cuma boleh dilihat seluruh kotak isiannya dimatikan.
+   Tanpa yang kedua, orangnya mengisi satu tabel penuh lalu baru tahu tombol
+   simpannya tidak ada. Kendali yang cuma untuk MELIHAT (pemilih tanggal, tab,
+   pencarian) dikecualikan lewat class "nokunci". */
+function terapkanKunci(){
+  const el=document.getElementById('app-view'); if(!el) return;
+  if(bolehUbah(CURRENT)) return;
+  el.querySelectorAll('[data-aks]').forEach(n=>n.remove());
+  if(AKS_HAL_ISI.indexOf(CURRENT)>=0){
+    el.querySelectorAll('input,select,textarea').forEach(i=>{
+      if(!i.classList.contains('nokunci') && !i.closest('.nokunci')) i.disabled=true;
+    });
+    el.insertAdjacentHTML('afterbegin',
+      '<div class="notice info">👁 <div><b>Kamu hanya bisa melihat halaman ini.</b> '+
+      'Kotak isian dimatikan dan tombol simpannya disembunyikan. Kalau seharusnya boleh mengisi, '+
+      'minta admin modul mengubahnya di <b>Kelola Kru</b>.</div></div>');
+  }
 }
 
 /* ============ PENGATURAN TARGET ============
@@ -822,6 +955,7 @@ function divCardTarget(divi,label,cls){
   </div>`;
 }
 function simpanTarget(){
+  if(!bolehAksi('target')) return;
   if(targetSimpanJalan) return;
   const btn=document.getElementById('t_save_all');
   const box=document.getElementById('t_pesan');
@@ -1971,7 +2105,7 @@ function rkHalInput(){
     <div class="bnums"><div class="bi" id="rk-ket">${n
       ? `<b style="color:var(--warn)">${n} hari punya perubahan yang belum disimpan.</b>`
       : 'Yang disimpan dari layar ini hanya Aktual masuk, Setor, dan centang Input POS.'}</div></div>
-    <button class="btn btn-primary" id="rk-simpan" onclick="rkSimpan()"${(n&&!RK_JALAN)?'':' disabled'}>💾 Simpan Perubahan</button>
+    <button class="btn btn-primary" id="rk-simpan" data-aks="ubah" onclick="rkSimpan()"${(n&&!RK_JALAN)?'':' disabled'}>💾 Simpan Perubahan</button>
   </div>`;
   return html;
 }
@@ -2088,6 +2222,7 @@ function rkSimpan(){ if(rkAdaUbah()) rkKirim({}); }
    yang ditekan: dua permintaan terpisah ke endpoint yang membaca-lalu-menulis
    satu blob berarti yang belakangan menimpa hasil yang duluan. */
 function rkKirim(extra,sesudah){
+  if(!bolehAksi('rekap')) return;
   if(RK_JALAN) return;
   RK_JALAN=true;
   const tombol=['rk-simpan','rk-st-simpan'].map(i=>document.getElementById(i)).filter(Boolean);
@@ -2179,7 +2314,7 @@ function go(view){
      tombol di halaman lain. Jatuhnya ke Buku Kas — halaman yang menjawab
      pertanyaan pertama orang finance tiap pagi ("saldonya berapa"), bukan ke
      form input yang menuntut orang mengisi sesuatu sebelum melihat apa pun. */
-  if(!bolehLihat(view)) view='kk_buku';
+  if(!bolehLihat(view)) view=halPertamaBoleh();
   CURRENT=view;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
   document.getElementById('pageTitle').textContent=TITLES[view][0];
@@ -2207,6 +2342,7 @@ function render(){
   syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
   ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,rekap:viewRekap,invoice:viewInvoice,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,target:viewTarget,akses:viewAkses}[CURRENT])();
+  terapkanKunci();   // buang tombol & matikan isian yang tidak boleh dipakai
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -3741,7 +3877,7 @@ function viewKasir(){
 }
 
 /* ============ 7. SUMMARY / RANKING ============ */
-let AKSES_ROSTER=null, AKSES_ERR='';
+let AKSES_ROSTER=null, AKSES_ERR='', AKSES_BARIS=[];
 async function muatAkses(){
   const stop=new AbortController(); const jam=setTimeout(()=>stop.abort(),8000);
   try{
@@ -3766,31 +3902,133 @@ function viewAkses(){
     muatAkses(); return;
   }
   const rows=(AKSES_ROSTER||[]).slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
+  const aku=sayaAdmin();
+  /* Kolom = orang, baris = halaman. Kebalikan sumbu Reservasi (di sana kolom =
+     role), karena modul ini tidak punya role sama sekali — identitasnya datang
+     dari Office. Bentuk selnya tetap sama persis supaya yang mengatur akses di
+     dua modul tidak perlu belajar dua kali. */
+  AKSES_BARIS=rows.map(m=>({
+    kunci:aksKunci({id:m.id,name:m.name}),
+    nama:String(m.name||'(tanpa nama)'),
+    adm:!!m.isModuleAdmin
+  }));
+  const HAL=Object.keys(TITLES);
+  const legend=`<div class="perm-legend">${PERM_OPT.map(o=>`<span class="lg-item"><span class="lg-dot n${o[0]}"></span>${o[1]}</span>`).join('')}
+    <span class="muted" style="font-size:11.5px">Klik sel untuk geser status${aku?' — tersimpan saat tombol Simpan ditekan':''}</span></div>`;
+  const sel=(i,view)=>{
+    const b=AKSES_BARIS[i];
+    /* Dua baris terkunci, dan keduanya bukan kerapian:
+       - Pengaturan Target milik admin modul saja (menulis angka bonus semua
+         kru), jadi matriks ini tidak boleh jadi jalan memutar untuk membukanya.
+       - Kelola Kru tidak boleh disembunyikan dari siapa pun: yang bisa
+         membukanya bisa mengubah matriksnya sendiri, dan menutupnya dari admin
+         terakhir mengunci semua orang keluar tanpa pintu kedua. */
+    if(view==='target') return `<span class="perm-lock" title="Pengaturan Target selalu admin modul saja">${b.adm?'Ubah':'None'}</span>`;
+    if(AKS_KUNCI.indexOf(view)>=0) return `<span class="perm-lock" title="Halaman ini tidak bisa disembunyikan dari siapa pun">Lihat</span>`;
+    const t=aksTingkat(view,b.kunci,b.adm);
+    if(b.adm||!aku){
+      const judul=b.adm?'Admin modul selalu penuh — tidak bisa diturunkan dari sini'
+                       :'Hanya admin modul yang bisa mengubah matriks ini';
+      return `<button type="button" class="perm-btn" data-v="${t}" disabled title="${esc(judul)}">${PERM_OPT[t][2]}</button>`;
+    }
+    /* Halaman tanpa isian berputar DUA keadaan saja (None ↔ Lihat). "Boleh
+       Ubah" di sana tidak mengubah apa pun, dan pilihan yang tidak berlaku
+       membuat yang memilihnya mengira sudah menyetel sesuatu. */
+    const putaran=AKS_HAL_ISI.indexOf(view)>=0?3:2;
+    return `<button type="button" class="perm-btn" data-p="${view}" data-i="${i}" data-c="${putaran}" data-v="${t}"
+      title="${PERM_OPT[t][1]} — klik untuk ubah" onclick="cyclePerm(this)">${PERM_OPT[t][2]}</button>`;
+  };
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
-      <div><h3>Kru Pemegang Akses Finance</h3><div class="card-sub" style="margin:0">Ditarik dari database Office. Menambah dan mencabut akses dilakukan di <b>Kelola Akses</b> milik Office, bukan di sini.</div></div>
+      <div><h3>Hak Akses Sub-Menu per Kru</h3><div class="card-sub" style="margin:0">Daftar orangnya ditarik dari database Office. Menambah dan mencabut akses <b>modul</b> tetap dilakukan di <b>Kelola Akses</b> milik Office; yang disetel di sini hanya apa yang boleh ia lakukan setelah masuk.</div></div>
       <button class="btn btn-ghost btn-sm" onclick="AKSES_ROSTER=null;AKSES_ERR='';viewAkses()">↻ Segarkan</button>
     </div>
-    <div class="notice info">🔑 <div><b>Semua pemegang akses melihat halaman yang sama.</b>
-      Kas Kecil, Dashboard Omset, dan Performa Marketing/Event/Kasir — tidak ada level tampilan di modul ini.
-      Seluruh isinya angka uang perusahaan, jadi orang yang boleh membuka Kas Kecil sudah dengan sendirinya boleh melihat omset.
-      Kalau seseorang tidak boleh melihat salah satunya, yang benar adalah <b>tidak memberinya modul ini</b> — bukan menambah gerbang kedua di dalam sini.
-      <b>Admin modul</b> hanya menentukan siapa yang boleh mengatur akses lewat konsol Office.</div></div>
+    ${aku?'':`<div class="notice warn">👁 <div><b>Kamu bukan admin modul Finance</b>, jadi matriks ini hanya bisa dibaca.
+      Halaman ini tetap terbuka untuk semua orang supaya jelas kenapa sebuah menu atau tombol tidak ada di layarmu —
+      minta admin modul mengubahnya kalau seharusnya kamu bisa.</div></div>`}
     ${AKSES_ERR?`<div class="notice bad">⚠ Gagal memuat: ${esc(AKSES_ERR)}</div>`:`
-    <div class="card" style="padding:0;overflow:hidden">
-      <div class="tbl-wrap"><table>
-        <thead><tr><th>Nama</th><th>Tim / Keterangan</th><th>Status Akun</th><th>Admin Modul</th></tr></thead>
-        <tbody>${rows.length?rows.map(m=>{const penuh=!!m.isModuleAdmin;return `<tr>
-          <td><div style="display:flex;align-items:center;gap:10px">
-            <span style="width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;font-weight:800;font-size:11px">${esc(initial(m.name))}</span>
-            <b>${esc(m.name||'(tanpa nama)')}</b>${meNama&&String(m.name||'').toLowerCase()===meNama.toLowerCase()?' <span class="chip info" style="margin-left:4px">kamu</span>':''}</div></td>
-          <td class="muted" style="font-size:12.5px">${esc(m.keterangan||'—')}</td>
-          <td>${m.active===false?'<span class="chip warn">nonaktif</span>':'<span class="muted" style="font-size:12px">—</span>'}</td>
-          <td>${penuh?'<span class="chip ok">admin modul</span>':'<span class="muted" style="font-size:12px">—</span>'}</td>
-        </tr>`;}).join(''):`<tr><td colspan="4" class="empty">Belum ada kru dengan akses modul Finance. Beri akses lewat Kelola Akses di Office.</td></tr>`}</tbody>
+    <div class="card">
+      ${legend}
+      <div class="tbl-wrap"><table class="perm-matrix">
+        <thead><tr><th style="min-width:170px">Halaman</th>${AKSES_BARIS.map((b,i)=>{
+          const m=rows[i];
+          return `<th><div style="display:flex;flex-direction:column;align-items:center;gap:3px">
+            <span style="width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;font-weight:800;font-size:10px">${esc(initial(b.nama))}</span>
+            <span style="text-transform:none;font-size:11.5px;color:var(--ink);font-weight:700">${esc(b.nama.split(/\s+/)[0])}</span>
+            <span style="text-transform:none;font-size:10px;font-weight:500">${b.adm?'admin modul':esc(m.keterangan||'—')}</span>
+            ${meNama&&b.nama.toLowerCase()===meNama.toLowerCase()?'<span class="chip info" style="font-size:9px">kamu</span>':''}
+            ${m.active===false?'<span class="chip warn" style="font-size:9px">nonaktif</span>':''}
+          </div></th>`;}).join('')}</tr></thead>
+        <tbody>${AKSES_BARIS.length?HAL.map(v=>`<tr>
+          <td>${esc(TITLES[v][0])}${AKS_HAL_ISI.indexOf(v)<0?' <span class="muted" style="font-weight:500;font-size:11px">(baca saja)</span>':''}</td>
+          ${AKSES_BARIS.map((b,i)=>`<td>${sel(i,v)}</td>`).join('')}
+        </tr>`).join(''):`<tr><td class="empty">Belum ada kru dengan akses modul Finance. Beri akses lewat Kelola Akses di Office.</td></tr>`}</tbody>
       </table></div>
+      ${aku&&AKSES_BARIS.length?`<div id="aks_pesan" style="margin-top:12px"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+        <button class="btn btn-primary" id="aks_simpan" onclick="simpanAkses()">Simpan Hak Akses</button>
+        <span class="muted" style="font-size:11.5px">Perubahan sel belum tersimpan sampai tombol ini ditekan.</span>
+      </div>`:''}
     </div>
     <div class="foot" style="font-size:12px;color:var(--muted);margin-top:2px">${rows.length} kru memegang akses Finance · ${rows.filter(m=>m.isModuleAdmin).length} di antaranya admin modul.</div>`}`;
+}
+/* Klik sel: geser None(0) → Lihat(1) → Ubah(2) → None. Cuma mengubah tampilan
+   tombol; tersimpan sungguhan saat "Simpan Hak Akses" ditekan — sama persis
+   dengan perilaku matriks Reservasi, supaya salah klik bisa dibatalkan dengan
+   pindah halaman alih-alih dengan mengingat nilai semula. */
+function cyclePerm(btn){
+  /* Menulis dataset.v SEKALIGUS mengganti warnanya: CSS .perm-btn[data-v="n"]
+     di atas membaca atribut yang sama. */
+  const putaran=Number(btn.dataset.c)||3;
+  const next=(Number(btn.dataset.v)+1)%putaran;
+  btn.dataset.v=String(next);
+  btn.textContent=PERM_OPT[next][2];
+  btn.title=PERM_OPT[next][1]+' — klik untuk ubah';
+}
+function simpanAkses(){
+  if(!sayaAdmin()){ alert('Hanya admin modul Finance yang bisa mengubah matriks ini.'); return; }
+  const btn=document.getElementById('aks_simpan'), box=document.getElementById('aks_pesan');
+  /* Peta dibaca dari SELURUH tombol yang ada di layar, bukan dari perubahan
+     saja: backend mengganti isi tabelnya sekaligus, jadi peta yang sepotong
+     berarti sisanya terhapus tanpa satu pun pesan. Lihat akses_simpan(). */
+  const peta={};
+  document.querySelectorAll('#app-view .perm-btn:not([disabled])').forEach(b=>{
+    const i=Number(b.dataset.i), view=b.dataset.p;
+    const baris=AKSES_BARIS[i]; if(!baris||!TITLES[view]) return;
+    /* Dijepit ke batas halamannya sebelum disimpan, bukan cuma saat dibaca.
+       aksTingkat() memang menjepitnya lagi, jadi tidak ada akibat di layar —
+       tapi menyimpan "Boleh Ubah" untuk halaman yang tidak punya isian berarti
+       menaruh data yang bertentangan dengan namanya sendiri, dan siapa pun
+       yang membacanya nanti (modul lain, laporan, migrasi) akan salah
+       menyimpulkan. */
+    const maks=AKS_HAL_ISI.indexOf(view)>=0?PERM_EDIT:PERM_VIEW;
+    const t=Math.max(PERM_NONE,Math.min(maks,Number(b.dataset.v)||0));
+    /* Disimpan sebagai SELISIH: yang sama dengan bawaan tidak ditulis. Salinan
+       penuh membekukan daftar halaman hari ini — halaman yang lahir besok
+       tidak akan pernah terbuka di pemasangan yang matriksnya pernah disimpan,
+       dan tidak ada layar yang melaporkan halaman yang hilang itu. */
+    if(t===aksBawaan(view)) return;
+    (peta[baris.kunci]=peta[baris.kunci]||{})[view]=t;
+  });
+  if(btn){ btn.disabled=true; btn.textContent='Menyimpan…'; }
+  if(box) box.innerHTML='';
+  kkApi('simpanAkses',{peta:peta}).then(function(d){
+    KK=KK||{pos:[],kategori:[],trx:[]};
+    KK.akses=(d&&typeof d==='object'&&!Array.isArray(d))?d:{};
+    pasangMenu();
+    /* Kalau admin menyempitkan haknya SENDIRI, halaman yang sedang dibuka bisa
+       jadi sudah tidak boleh ia lihat. Tidak mungkin untuk Kelola Kru (AKS_KUNCI
+       menguncinya), tapi pemeriksaannya tetap ada supaya tetap benar kalau
+       daftar terkunci itu berubah. */
+    if(!bolehLihat(CURRENT)){ go(halPertamaBoleh()); return; }
+    viewAkses();
+    const b2=document.getElementById('aks_pesan');
+    if(b2) b2.innerHTML='<div class="notice ok">✓ Hak akses tersimpan. Kru yang sedang membuka modul ini akan ikut berubah setelah memuat ulang halamannya.</div>';
+  },function(e){
+    if(btn){ btn.disabled=false; btn.textContent='Simpan Hak Akses'; }
+    if(box) box.innerHTML='<div class="notice bad">⚠ Gagal menyimpan: '+esc(String(e&&e.message||e))+
+      '<br><span style="font-size:11.5px;opacity:.85">Matriks di layar belum tersimpan — jangan tutup halaman sebelum berhasil.</span></div>';
+  });
 }
 
 /* ============ KAS KECIL ============
@@ -3867,8 +4105,17 @@ function kkApi(action,payload){
 function muatKk(){
   KK_ERR='';
   return kkApi('getAll').then(function(d){
-    KK={pos:d.pos||[],kategori:d.kategori||[],trx:d.trx||[]};
-    if(CURRENT.indexOf('kk_')===0) render();
+    /* Matriks hak akses ikut di balasan yang sama (lihat baca_semua di
+       finance-mysql). Backend lama yang belum diperbarui tidak mengirimnya —
+       {} berarti "semua bawaan", jadi modul tetap jalan penuh alih-alih
+       mengunci semua orang karena satu berkas PHP tertinggal saat deploy. */
+    KK={pos:d.pos||[],kategori:d.kategori||[],trx:d.trx||[],akses:d.akses||{}};
+    /* Menu & halaman aktif dihitung ULANG di sini, bukan cuma saat boot:
+       sampai baris ini matriksnya belum terbaca, jadi go() sempat mendaratkan
+       orangnya di halaman yang justru disembunyikan darinya. */
+    pasangMenu();
+    if(!bolehLihat(CURRENT)){ go(halPertamaBoleh()); return; }
+    render();
   },function(e){
     /* KK tetap null, dan itu yang membedakan "belum termuat" dari "kosong".
        Halaman kas kecil menampilkan galatnya apa adanya — jangan diganti
@@ -3882,6 +4129,12 @@ function muatKk(){
    lokal berarti layar menampilkan keadaan yang belum tentu tersimpan — dan
    untuk kas, yang benar adalah apa yang ada di server. */
 function kkKirim(action,payload,pesanGagal){
+  /* Penjaga hak akses dipasang di CORONG-nya, bukan di tiap tombol: tiga
+     halaman kas kecil (Input, Buku, Pos & Kategori) semua menulis lewat sini,
+     dan penjaga per tombol berarti tombol berikutnya yang lahir akan lolos
+     tanpa ada yang menyadarinya. CURRENT dipakai sebagai halamannya karena
+     orangnya memang sedang berdiri di halaman itu saat menekan. */
+  if(!bolehAksi(CURRENT)) return;
   if(KK_SIBUK) return;
   KK_SIBUK=true; render();
   kkApi(action,payload).then(function(){
@@ -4043,7 +4296,11 @@ function viewKkBuku(){
         '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
           '<button class="btn btn-primary btn-sm" onclick="KK_EDIT=null;go(\'kk_input\')">+ Transaksi</button>'+
         '</div></div>'+
-      '<div class="grid g4" style="margin-top:14px">'+
+      /* nokunci: pencarian & penyaring adalah kendali untuk MELIHAT, bukan
+         untuk mengubah. Tanpa penanda ini terapkanKunci() ikut mematikannya
+         pada kru yang haknya cuma Lihat — dan buku kas setahun tanpa kotak
+         cari praktis tidak bisa dibaca. */
+      '<div class="grid g4 nokunci" style="margin-top:14px">'+
         '<div class="field" style="margin:0"><label>Cari keterangan</label>'+
           '<input id="kkQ" value="'+esc(KK_FILTER.q)+'" placeholder="mis. bensin" oninput="KK_FILTER.q=this.value" onchange="render()"></div>'+
         '<div class="field" style="margin:0"><label>Pos</label>'+
@@ -4097,8 +4354,8 @@ function viewKkBuku(){
           '<td style="text-align:center;background:'+(t.bon?'var(--info-bg)':'var(--warn-bg)')+'"><input type="checkbox" '+(t.bon?'checked':'')+' '+(KK_SIBUK?'disabled':'')+
             ' onchange="kkTandai('+t.id+',\'bon\',this.checked?1:0)" title="'+(t.bon?'Nota fisik sudah ada':'Nota fisik BELUM ada')+'"></td>'+
           '<td style="white-space:nowrap;text-align:right">'+
-            '<button class="btn btn-ghost btn-xs" onclick="kkEdit('+t.id+')">Ubah</button> '+
-            '<button class="btn btn-danger btn-xs" onclick="kkHapus('+t.id+')">Hapus</button></td></tr>';
+            '<button class="btn btn-ghost btn-xs" data-aks="ubah" onclick="kkEdit('+t.id+')">Ubah</button> '+
+            '<button class="btn btn-danger btn-xs" data-aks="ubah" onclick="kkHapus('+t.id+')">Hapus</button></td></tr>';
       }).join('')
       :'<tr><td colspan="10" class="empty"><div class="big">🧾</div>Belum ada transaksi pada '+esc(labelRentang())+
         ((KK_FILTER.q||KK_FILTER.pos||KK_FILTER.kat||KK_FILTER.status)?' dengan saringan ini':'')+'.</td></tr>')+
@@ -4162,7 +4419,7 @@ function viewKkInput(){
       (edit?'':'<div style="margin-top:12px"><button class="btn btn-ghost btn-sm" onclick="kkTambahBaris()">+ Tambah baris</button></div>')+
       '<div class="notice info" id="kkd_grandBox" style="margin-top:12px">Σ <div id="kkd_grand"></div></div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap">'+
-        '<button class="btn btn-primary" id="kk_simpan" onclick="kkSimpanSemua()" '+(KK_SIBUK?'disabled':'')+'>'+
+        '<button class="btn btn-primary" id="kk_simpan" data-aks="ubah" onclick="kkSimpanSemua()" '+(KK_SIBUK?'disabled':'')+'>'+
           (KK_SIBUK?'Menyimpan…':(edit?'Simpan perubahan':'Simpan semua baris'))+'</button>'+
         '<button class="btn btn-ghost" onclick="KK_EDIT=null;go(\'kk_buku\')">Ke Buku Kas Kecil</button>'+
       '</div>'+
@@ -4308,6 +4565,9 @@ function kkHitungGrand(){
   if(w) w.className='notice '+(isi?'info':'warn');
 }
 function kkSimpanSemua(){
+  /* Tidak lewat kkKirim() — ia mengirim baris satu per satu lewat kkApi
+     langsung, jadi penjaganya harus dipasang sendiri di sini. */
+  if(!bolehAksi('kk_input')) return;
   if(KK_SIBUK) return;
   kkBacaDraft();
   const pos=kkPosAktif();
@@ -4809,7 +5069,7 @@ function invPanelPilih(x){
     return '<div class="notice warn" style="margin:10px 0">⚠ <div>Belum ada penanda tangan yang terdaftar. '+
       'Tambahkan dulu di tab <b>Pengaturan</b>, atau terbitkan tanpa tanda tangan.'+
       '<div style="margin-top:8px">'+
-        '<button class="btn btn-primary btn-xs" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>Terbitkan tanpa tanda tangan</button> '+
+        '<button class="btn btn-primary btn-xs" data-aks="ubah" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>Terbitkan tanpa tanda tangan</button> '+
         '<button class="btn btn-ghost btn-xs" onclick="INV_PILIH=null;render()">Batal</button>'+
       '</div></div></div>';
   }
@@ -4830,7 +5090,7 @@ function invPanelPilih(x){
     '</div>'+
     (pilih.length?'':'<div class="muted" style="font-size:11.5px;margin-top:10px">Tidak ada yang dicentang — lembarnya terbit <b>tanpa tanda tangan</b>.</div>')+
     '<div style="margin-top:12px">'+
-      '<button class="btn btn-primary btn-sm" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>✓ Terbitkan '+
+      '<button class="btn btn-primary btn-sm" data-aks="ubah" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>✓ Terbitkan '+
         (invAdalahInvoice(x)?'Invoice':'Kwitansi')+'</button> '+
       '<button class="btn btn-ghost btn-sm" onclick="INV_PILIH=null;render()">Batal</button>'+
     '</div></div>';
@@ -4993,6 +5253,7 @@ function viewInvoice(){
     '</div>'+isi;
 }
 function invKirim(action, payload, pesan){
+  if(!bolehAksi('invoice')) return;
   if(INV_SIBUK) return;
   INV_SIBUK=true; render();
   kkApi(action, payload).then(function(){
@@ -5187,7 +5448,7 @@ function pieOpts(){return{responsive:true,maintainAspectRatio:false,plugins:{leg
    dan orangnya harus mencari sendiri menu yang tadinya satu klik. */
 function halamanAwal(){
   const h=String(location.hash||'').replace(/^#\/?/,'');
-  return (h && bolehLihat(h)) ? h : 'kk_buku';
+  return (h && bolehLihat(h)) ? h : halPertamaBoleh();
 }
 function boot(){
   CURRENT_USER=bacaSesi();
