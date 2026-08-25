@@ -442,9 +442,6 @@
 
 
 
-
-
-
 function pct() {  }
 
 
@@ -506,6 +503,14 @@ function toggleNav() {  }
 
 
 
+
+
+
+
+
+
+
+
 function bacaSesi() {  }
 
 
@@ -515,126 +520,7 @@ function bacaSesi() {  }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function aksBawaan() {  }
-
-
-function aksKunci() {  }
-
-
-
-function aksPeta() {  }
-
-
-
-
-
-
-function aksTingkat() { aksPeta(); aksBawaan(); }
-
-
-
-
-
-
-
-
-
-function tingkatSaya() { aksTingkat(); aksKunci(); aksBawaan(); }
-
-
-
-function bolehLihat() { tingkatSaya(); }
-function bolehUbah() { tingkatSaya(); }
-function bolehHapus() { tingkatSaya(); }
-
-
-
-
-function bolehAksi() { tingkatSaya(); go(); }
-
-
-
-
-
-
-
-
-
-
-function halPertamaBoleh() { bolehLihat(); }
-
-
-
-
-
-
-
-function terapkanNav() { bolehLihat(); }
-
-
-
-
-
-
-
-
-
-
-
-
-function terapkanKunci() { tingkatSaya(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function bolehLihat() {  }
 
 
 
@@ -734,37 +620,7 @@ function seed() { tambahJejak(); }
 
 
 
-function normalizeDB() { seed(); aksBawaan(); rokokItems(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function normalizeDB() { seed(); rokokItems(); }
 
 
 
@@ -1052,9 +908,7 @@ function syncKendaliPeriode() { modeHarian(); }
 
 
 
-function go() { bolehLihat(); halPertamaBoleh(); render(); }
-
-
+function go() { bolehLihat(); render(); }
 
 
 
@@ -1078,8 +932,7 @@ function go() { bolehLihat(); halPertamaBoleh(); render(); }
 
 function clearCharts() {  }
 
-function render() { clearCharts(); syncKendaliPeriode(); terapkanKunci(); formatAllRp(); todayISO(); }
-
+function render() { clearCharts(); syncKendaliPeriode(); formatAllRp(); todayISO(); }
 
 
 
@@ -1247,8 +1100,7 @@ function viewReport() { repOf(); penjelasHari(); calInner(); jejakHtml(); repPay
 
 
 
-function inputVal() { bolehAksi(); hitung(); tambahJejak(); save(); dateLabel(); render(); }
-
+function inputVal() { hitung(); tambahJejak(); save(); dateLabel(); render(); }
 
 
 
@@ -1504,8 +1356,7 @@ function setBonTab() { render(); }
 
 
 
-function editBon() { bolehAksi(); render(); }
-
+function editBon() { render(); }
 
 
 
@@ -1659,8 +1510,7 @@ function pilih() { hapusOwner(); bonSemua(); editBon(); hapusBon(); todayISO(); 
 
 
 function tampil() {  }
-function syncTipe() { tampil(); bolehAksi(); daftar(); save(); render(); ambilRoster(); }
-
+function syncTipe() { tampil(); daftar(); save(); render(); ambilRoster(); }
 
 
 
@@ -1748,7 +1598,7 @@ function hitungGrup() { lunasiGrup(); }
 
 
 
-function lunasiGrup() { bolehAksi(); todayISO(); dateLabel(); save(); render(); }
+function lunasiGrup() { todayISO(); dateLabel(); save(); render(); }
 
 
 
@@ -1772,9 +1622,7 @@ function lunasiGrup() { bolehAksi(); todayISO(); dateLabel(); save(); render(); 
 
 
 
-
-function batalLunas() { bolehAksi(); save(); render(); }
-
+function batalLunas() { save(); render(); }
 
 
 
@@ -1782,7 +1630,7 @@ function batalLunas() { bolehAksi(); save(); render(); }
 
 
 
-function hapusBon() { bolehAksi(); save(); render(); }
+function hapusBon() { save(); render(); }
 
 
 
@@ -1792,9 +1640,7 @@ function hapusBon() { bolehAksi(); save(); render(); }
 
 
 
-
-function hapusOwner() { bolehAksi(); save(); render(); todayISO(); kasirMurni(); }
-
+function hapusOwner() { save(); render(); todayISO(); kasirMurni(); }
 
 
 
@@ -1879,8 +1725,7 @@ function compStatusPemberi() {  }
 
 
 function compById() {  }
-function editCompliment() { bolehAksi(); compById(); render(); }
-
+function editCompliment() { compById(); render(); }
 
 
 
@@ -2007,7 +1852,7 @@ function selTamu() { calInner(); nilai(); dateLabel(); kartuCocokRD(); compStatu
 
 
 
-function hitungTotal() { bolehAksi(); compPotong(); divPemberi(); compById(); save(); render(); ambilRoster(); }
+function hitungTotal() { compPotong(); divPemberi(); compById(); save(); render(); ambilRoster(); }
 
 
 
@@ -2078,9 +1923,7 @@ function hitungTotal() { bolehAksi(); compPotong(); divPemberi(); compById(); sa
 
 
 
-
-function hapusCompliment() { bolehAksi(); save(); render(); }
-
+function hapusCompliment() { save(); render(); }
 
 
 
@@ -2432,8 +2275,7 @@ function viewRokok() { rokokOf(); rokokSisaAwal(); rokokItem(); rokokLainPertama
 
 
 
-function hitung() { rokokItems(); nilai(); bolehAksi(); daftar(); tambahJejak(); save(); dateLabel(); render(); }
-
+function hitung() { rokokItems(); nilai(); daftar(); tambahJejak(); save(); dateLabel(); render(); }
 
 
 
@@ -2519,7 +2361,7 @@ function rksSimpan() { save(); render(); }
 
 
 
-function rksTambah() { bolehAksi(); render(); rksKunci(); rksDaftar(); rksSimpan(); }
+function rksTambah() { render(); rksKunci(); rksDaftar(); rksSimpan(); }
 
 
 
@@ -2534,11 +2376,7 @@ function rksTambah() { bolehAksi(); render(); rksKunci(); rksDaftar(); rksSimpan
 
 
 
-
-function rksHapus() { bolehAksi(); rksDaftar(); render(); rokokItem(); rksSimpan(); }
-
-
-
+function rksHapus() { rksDaftar(); render(); rokokItem(); rksSimpan(); }
 
 
 
@@ -2555,7 +2393,9 @@ function rksHapus() { bolehAksi(); rksDaftar(); render(); rokokItem(); rksSimpan
 
 
 
-function rksUbahNama() { bolehAksi(); rksDaftar(); render(); rksSimpan(); }
+
+
+function rksUbahNama() { rksDaftar(); render(); rksSimpan(); }
 
 
 
@@ -2564,9 +2404,7 @@ function rksUbahNama() { bolehAksi(); rksDaftar(); render(); rksSimpan(); }
 
 
 
-
-function rksToggleLain() { bolehAksi(); rksDaftar(); rksSimpan(); }
-
+function rksToggleLain() { rksDaftar(); rksSimpan(); }
 
 
 
@@ -2575,7 +2413,7 @@ function rksToggleLain() { bolehAksi(); rksDaftar(); rksSimpan(); }
 
 
 
-function rksGeser() { bolehAksi(); rksDaftar(); rksSimpan(); }
+function rksGeser() { rksDaftar(); rksSimpan(); }
 
 
 
@@ -2583,9 +2421,7 @@ function rksGeser() { bolehAksi(); rksDaftar(); rksSimpan(); }
 
 
 
-
-function rksPulihkanBawaan() { bolehAksi(); save(); render(); }
-
+function rksPulihkanBawaan() { save(); render(); }
 
 
 
@@ -3151,54 +2987,6 @@ function muatUlangDp() {  }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-function aksOpsi() { hapusOwner(); }
-
-
-
-
-
-
-
-
-
-function aksSetIdx() { viewAkses(); normalizeDB(); aksBawaan(); save(); terapkanNav(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function aksReset() { save(); terapkanNav(); viewAkses(); }
-
-
-
-
-
-
-
-
 function muatAkses() { viewAkses(); }
 
 
@@ -3214,37 +3002,7 @@ function muatAkses() { viewAkses(); }
 
 
 
-function viewAkses() { muatAkses(); aksKunci(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function sel() { aksTingkat(); aksSetIdx(); aksOpsi(); viewAkses(); aksReset(); }
-
-
-
-
-
-
-
-
-
+function viewAkses() { muatAkses(); }
 
 
 
@@ -3287,4 +3045,4 @@ function barOpts() {  }
 function pieOpts() {  }
 
 
-function boot() { bacaSesi(); setSync(); render(); apiGet(); normalizeDB(); todayISO(); purgeSeedKasir(); terapkanNav(); go(); halPertamaBoleh(); save(); syncPicOffice(); seed(); }
+function boot() { bacaSesi(); setSync(); render(); apiGet(); normalizeDB(); todayISO(); purgeSeedKasir(); go(); save(); syncPicOffice(); seed(); }

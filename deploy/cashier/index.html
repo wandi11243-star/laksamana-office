@@ -421,11 +421,8 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
    dua halaman itu, sunting KEDUANYA (deploy/kompas/index.html dan berkas ini).
 
    Yang TIDAK dibawa ke sini: Input Omset, Breakdown, Dashboard, Ranking,
-   Performa Marketing/Event, Pengaturan Target. Itu semua pekerjaan admin, dan
-   justru karena halaman-halaman itulah modul ini dipisah. ("Kelola Akses Kru"
-   dulu ikut disebut di baris ini; sejak halaman itu lahir di sini — dan sejak
-   25 Agustus 2026 dipakai menyetel hak akses sub-menu — penyebutannya sudah
-   salah, jadi dibuang alih-alih dibiarkan menyesatkan pembaca berikutnya.)
+   Performa Marketing/Event, Pengaturan Target, Kelola Akses Kru. Itu semua
+   pekerjaan admin, dan justru karena halaman-halaman itulah modul ini dipisah.
 
    Omset (net) = Food + Beverage + Lainnya − Discount
    Service Charge & Tax = di luar omset, TAPI ikut ditagihkan ke tamu → jadi
@@ -504,7 +501,15 @@ function toggleNav(){
 }
 (function(){ try{ if(localStorage.getItem('lm_cashier_navmini')==='1') document.querySelector('.app').classList.add('nav-mini'); }catch(e){} })();
 
-/* Identitas dari Office (lm_session). */
+/* Identitas dari Office (lm_session).
+
+   TIDAK ADA LEVEL di modul ini — sengaja. Kompas punya dua level ('ops' dan
+   'full') karena satu modul itu memuat pekerjaan kasir SEKALIGUS angka
+   perusahaan. Di sini pemisahannya sudah terjadi di lapisan modul: siapa pun
+   yang boleh membuka Cashier boleh membuka keempat halamannya, dan yang tidak
+   boleh tidak diberi modulnya di Kelola Akses. Menambahkan level di sini cuma
+   akan jadi gerbang kedua yang diam-diam bertentangan dengan yang pertama —
+   persis bug yang memakan satu sesi pelacakan di Kompas pada 28 Juli 2026. */
 let CURRENT_USER=null;
 function bacaSesi(){
   try{
@@ -512,129 +517,10 @@ function bacaSesi(){
     if(!s||!s.expiry||Date.now()>=s.expiry) return null;
     const m=s.modules||[];
     if(m.indexOf('*')<0 && m.indexOf('cashier')<0) return null;
-    const a=s.adminModules||[];
-    return {id:s.userId,name:s.name,keterangan:s.keterangan||'',
-            admin:(a.indexOf('*')>=0 || a.indexOf('cashier')>=0)};
+    return {id:s.userId,name:s.name,keterangan:s.keterangan||''};
   }catch(e){ return null; }
 }
-
-/* ============ HAK AKSES PER SUB-MENU (25 Agustus 2026, permintaan user) ====
-
-   Sampai hari ini modul ini SENGAJA tidak punya level, dan alasannya masih
-   berlaku: Kompas pernah memakan satu sesi pelacakan penuh (28 Juli 2026)
-   karena gerbang keduanya diam-diam BERTENTANGAN dengan gerbang modul —
-   orangnya diberi modul, lalu ditolak lagi di dalam, tanpa satu pun layar yang
-   menyebutkan siapa yang menolak.
-
-   Alasan itu tidak dibatalkan di sini, ia dipenuhi. Yang menentukan SIAPA yang
-   boleh membuka modul tetap satu tempat: Kelola Akses milik Office. Matriks di
-   bawah cuma MEMPERSEMPIT apa yang sudah dipegang orangnya — ia tidak pernah
-   bisa memberi yang tidak diberikan Office, karena yang tidak punya modul
-   cashier ditolak bacaSesi() dan tidak pernah sampai ke baris ini. Satu arah,
-   jadi dua gerbangnya tidak mungkin saling bertentangan.
-
-   Empat tingkat, BERTANGGA — 'hapus' selalu membawa 'ubah', 'ubah' membawa
-   'lihat'. Tangga, bukan tiga centang bebas, karena kombinasi seperti "boleh
-   hapus tapi tidak boleh lihat" tidak punya arti di layar mana pun dan cuma
-   melahirkan keadaan yang harus dijaga di sepuluh tempat sekaligus. */
-const AKS_TAK=0, AKS_LIHAT=1, AKS_UBAH=2, AKS_HAPUS=3;
-const AKS_NAMA={0:'Tak terlihat',1:'Lihat saja',2:'Boleh ubah',3:'Ubah & hapus'};
-/* Halaman yang PUNYA isian. Di luar daftar ini tidak ada apa pun yang bisa
-   diubah atau dihapus, jadi tingkat 2 & 3 di sana tidak berarti apa-apa dan
-   tidak ditawarkan — pilihan yang tidak mengubah apa pun adalah pilihan yang
-   membuat orang mengira sudah menyetel sesuatu. */
-const AKS_HAL_ISI=['report','piutang','compliment','rokok','rokokset'];
-/* Halaman yang tidak boleh disembunyikan dari siapa pun. Yang bisa membuka
-   'akses' bisa mengubah matriksnya sendiri; menyembunyikannya dari admin modul
-   terakhir mengunci SEMUA orang keluar dari halaman ini selamanya, dan tidak
-   ada pintu kedua untuk memperbaikinya dari dalam modul. */
-const AKS_KUNCI=['akses'];
-/* Bawaan = keadaan modul ini SEBELUM matriks ini ada: semua pemegang akses
-   boleh segalanya. Wajib begitu. Kalau bawaannya lebih sempit, memasang
-   pembaruan ini mencabut hak belasan kasir sekaligus tanpa ada yang
-   memintanya — dan mereka baru tahu saat menutup shift malam itu. */
-function aksBawaan(view){ return AKS_HAL_ISI.indexOf(view)>=0?AKS_HAPUS:AKS_LIHAT; }
-/* Kunci baris matriks. Pakai id Office (stabil walau namanya diperbaiki HRD);
-   '@nama' cuma cadangan untuk sesi lama yang belum menyimpan userId. */
-function aksKunci(u){
-  const id=String((u&&u.id)||'').trim();
-  return id?('#'+id):('@'+String((u&&u.name)||'').trim().toLowerCase());
-}
-function aksPeta(){
-  const p=DB&&DB.akses_cashier;
-  return (p&&typeof p==='object'&&!Array.isArray(p))?p:{};
-}
-/* Tingkat akhir seseorang di satu halaman. Admin modul SELALU penuh dan tidak
-   bisa diturunkan — kalau bisa, satu klik salah pada baris sendiri membuat
-   modul ini tidak punya siapa pun yang bisa membetulkannya lagi. */
-function aksTingkat(view,kunci,adm){
-  if(adm) return AKS_HAL_ISI.indexOf(view)>=0?AKS_HAPUS:AKS_LIHAT;
-  const baris=aksPeta()[kunci];
-  let t=(baris&&baris[view]!==undefined)?parseInt(baris[view],10):aksBawaan(view);
-  if(isNaN(t)) t=aksBawaan(view);
-  t=Math.max(AKS_TAK,Math.min(AKS_HAPUS,t));
-  if(AKS_HAL_ISI.indexOf(view)<0 && t>AKS_LIHAT) t=AKS_LIHAT;   // halaman baca saja
-  if(AKS_KUNCI.indexOf(view)>=0 && t<AKS_LIHAT) t=AKS_LIHAT;    // tidak bisa dikunci keluar
-  return t;
-}
-function tingkatSaya(view){
-  if(!TITLES[view]) return AKS_TAK;
-  return CURRENT_USER?aksTingkat(view,aksKunci(CURRENT_USER),!!CURRENT_USER.admin):aksBawaan(view);
-}
-function bolehLihat(view){ return tingkatSaya(view)>=AKS_LIHAT; }
-function bolehUbah(view){ return tingkatSaya(view)>=AKS_UBAH; }
-function bolehHapus(view){ return tingkatSaya(view)>=AKS_HAPUS; }
-/* Penjaga sungguhan, dipanggil di AWAL tiap fungsi yang menulis. Menyembunyikan
-   tombolnya saja tidak cukup: fungsi-fungsi ini global dan tetap bisa dipanggil
-   dari console, dan yang lebih sering terjadi — tombolnya sempat tergambar
-   sebelum matriks tersimpan sampai ke layar ini. */
-function bolehAksi(view,jenis){
-  const perlu=(jenis==='hapus')?AKS_HAPUS:AKS_UBAH;
-  const t=tingkatSaya(view);
-  if(t>=perlu) return true;
-  alert('Tidak bisa dilakukan.\n\nHak akses kamu di halaman "'+(TITLES[view]?TITLES[view][0]:view)+
-        '" cuma "'+AKS_NAMA[t]+'". Minta admin modul mengubahnya di Kelola Akses Kru.');
-  return false;
-}
-/* Halaman pertama yang boleh dilihat orang ini. Dulu go() selalu jatuh ke
-   'report'; sejak halaman bisa disembunyikan, jatuh ke halaman yang justru
-   disembunyikan darinya akan memulangkan layar kosong tanpa penjelasan. */
-function halPertamaBoleh(){
-  const urut=Object.keys(TITLES);
-  for(let i=0;i<urut.length;i++) if(bolehLihat(urut[i])) return urut[i];
-  return 'akses';   // AKS_KUNCI menjamin ini selalu terbuka
-}
-/* Menu yang tidak boleh dilihat dibuang dari sidebar, berikut label grupnya
-   kalau seluruh isinya ikut hilang — label "Sistem" yang berdiri sendiri tanpa
-   satu pun menu di bawahnya terbaca seperti modul yang rusak. */
-function terapkanNav(){
-  document.querySelectorAll('.nav a').forEach(a=>{
-    a.style.display=bolehLihat(a.dataset.view)?'':'none';
-  });
-  document.querySelectorAll('.nav-group').forEach(g=>{
-    const ada=[...g.querySelectorAll('a')].some(a=>a.style.display!=='none');
-    g.style.display=ada?'':'none';
-  });
-}
-/* Dijalankan SESUDAH view menggambar dirinya. Tombol beratribut data-aks
-   dibuang, dan di halaman berisian yang cuma boleh dilihat seluruh kotak
-   isiannya dimatikan — kalau tidak, orangnya mengisi satu tabel penuh lalu
-   baru tahu tidak ada tombol simpannya. */
-function terapkanKunci(){
-  const el=document.getElementById('app-view'); if(!el) return;
-  const t=tingkatSaya(CURRENT);
-  el.querySelectorAll('[data-aks]').forEach(n=>{
-    const perlu=(n.getAttribute('data-aks')==='hapus')?AKS_HAPUS:AKS_UBAH;
-    if(t<perlu) n.remove();
-  });
-  if(AKS_HAL_ISI.indexOf(CURRENT)>=0 && t<AKS_UBAH){
-    el.querySelectorAll('input,select,textarea').forEach(i=>{ i.disabled=true; });
-    el.insertAdjacentHTML('afterbegin',
-      '<div class="notice info">👁 <div><b>Kamu hanya bisa melihat halaman ini.</b> '+
-      'Kotak isian dimatikan dan tombol simpannya disembunyikan. Kalau seharusnya boleh mengisi, '+
-      'minta admin modul mengubahnya di <b>Kelola Akses Kru</b>.</div></div>');
-  }
-}
+function bolehLihat(view){ return !!TITLES[view]; }
 
 /* Metode pembayaran Report Daily. Urutannya sengaja alfabetis seperti yang
    dipakai kasir di POS supaya mudah dicocokkan baris per baris.
@@ -749,36 +635,6 @@ function normalizeDB(d){
      menyimpan blob apa adanya. Kalau suatu saat ada yang menambah normalisasi
      bergaya "hapus kunci asing", data ini yang pertama hilang. */
   if(!d.rokok||typeof d.rokok!=='object'||Array.isArray(d.rokok)) d.rokok={};
-  /* Matriks hak akses per sub-menu (25 Agustus 2026). Disimpan sebagai
-     SELISIH dari aksBawaan() — hanya orang & halaman yang memang disetel
-     berbeda yang punya baris di sini. Salinan penuh akan membekukan daftar
-     halaman hari ini: halaman yang lahir besok tidak akan pernah sampai ke
-     pemasangan yang matriksnya sudah pernah disimpan, dan tidak ada layar yang
-     melaporkan halaman yang hilang itu.
-
-     Bentuknya dibersihkan, bukan dipercaya: nilai di luar 0..3 dan nama
-     halaman yang sudah tidak ada dibuang. Baris yang jadi kosong ikut dibuang
-     supaya matriks tidak menumpuk kunci mati orang yang aksesnya sudah dicabut
-     di Office. */
-  if(d.akses_cashier!==undefined){
-    if(!d.akses_cashier||typeof d.akses_cashier!=='object'||Array.isArray(d.akses_cashier)) delete d.akses_cashier;
-    else {
-      const bersih={};
-      Object.keys(d.akses_cashier).forEach(kunci=>{
-        const baris=d.akses_cashier[kunci];
-        if(!baris||typeof baris!=='object'||Array.isArray(baris)) return;
-        const b={};
-        Object.keys(baris).forEach(v=>{
-          if(!TITLES[v]) return;
-          let t=parseInt(baris[v],10);
-          if(isNaN(t)) return;
-          b[v]=Math.max(0,Math.min(3,t));
-        });
-        if(Object.keys(b).length) bersih[kunci]=b;
-      });
-      if(Object.keys(bersih).length) d.akses_cashier=bersih; else delete d.akses_cashier;
-    }
-  }
   /* Daftar item stock rokok yang disetel sendiri (21 Agustus 2026). SENGAJA
      TIDAK diisi bawaan di sini: yang belum pernah menyetelnya harus tetap
      kosong, supaya rokokItems() jatuh ke ROKOK_BAWAAN dan ikut tiap penambahan
@@ -1054,10 +910,8 @@ const TITLES={
 };
 function go(view){
   // View yang tidak ada di TITLES tidak bisa dicapai, termasuk lewat go() dari
-  // kode lain. Begitu juga halaman yang disembunyikan dari orang ini lewat
-  // matriks Kelola Akses Kru — jatuhnya ke halaman pertama yang BOLEH ia buka,
-  // bukan ke Report Daily, yang justru bisa jadi halaman yang disembunyikan.
-  if(!bolehLihat(view)) view=halPertamaBoleh();
+  // kode lain. Jatuhnya ke Report Daily, halaman pertama pekerjaan kasir.
+  if(!bolehLihat(view)) view='report';
   CURRENT=view;
   document.querySelectorAll('.nav a').forEach(a=>a.classList.toggle('active',a.dataset.view===view));
   document.getElementById('pageTitle').textContent=TITLES[view][0];
@@ -1086,7 +940,6 @@ function render(){
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
   ({report:viewReport,piutang:viewPiutang,compliment:viewCompliment,rokok:viewRokok,
     rokokrekap:viewRokokRekap,rokokset:viewRokokSet,kasir:viewKasir,dp:viewDp,akses:viewAkses}[CURRENT])();
-  terapkanKunci();   // buang tombol & matikan isian yang tidak boleh dipakai
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -1161,7 +1014,7 @@ function viewReport(){
     </div>
     <div id="rp_err"></div>
     <div style="display:flex;gap:10px;align-items:center;margin-top:6px;flex-wrap:wrap">
-      <button class="btn btn-primary" id="rp_save" data-aks="ubah">${rec&&rec.submitted?'Update Report':'Submit Report'}</button>
+      <button class="btn btn-primary" id="rp_save">${rec&&rec.submitted?'Update Report':'Submit Report'}</button>
       <div class="helper" style="margin:0">Submit atas nama <b>${esc(CURRENT_USER?CURRENT_USER.name:'—')}</b> — nama dan jamnya ikut tercatat di laporan ini.</div>
     </div>`;
 
@@ -1250,7 +1103,6 @@ function viewReport(){
   function inputVal(k,f){ const e=el.querySelector(`.rf[data-k="${k}"][data-f="${f}"]`); return e?e.value:0; }
   el.querySelectorAll('.rf').forEach(i=>i.addEventListener('input',hitung));
   document.getElementById('rp_save').addEventListener('click',()=>{
-    if(!bolehAksi('report','ubah')) return;
     const h=hitung();
     const box=document.getElementById('rp_err');
     const pay={};
@@ -1505,7 +1357,6 @@ function setBonTab(t){ BON_TAB=t; render(); }
    kalau tidak, menyimpan tanpa menyentuh kalender akan diam-diam memindahkan
    bonnya ke tanggal yang sedang dilihat. */
 function editBon(id){
-  if(!bolehAksi('piutang','ubah')) return;
   const b=(DB.piutang||[]).find(x=>x.id===id);
   if(!b) return;
   BON_EDIT=id; bonDate=b.date; PERIOD=monthKeyOf(b.date);
@@ -1542,7 +1393,7 @@ function viewPiutang(){
   if(edit && edit.tipe==='owner' && edit.nama && !ownerOpsi.some(n=>n.toLowerCase()===String(edit.nama).toLowerCase())) ownerOpsi.push(edit.nama);
   const optOwner=ownerOpsi.map(n=>`<option value="${esc(n)}"${pilih(edit?edit.nama:'',n)}>${esc(n)}</option>`).join('');
   const chipOwner=(DB.owners||[]).length
-    ? (DB.owners||[]).map((n,i)=>`<span class="chip mute" style="margin:2px 3px 0 0">${esc(n)} <a href="javascript:void(0)" data-aks="hapus" onclick="hapusOwner(${i})" style="color:var(--danger);font-weight:800;text-decoration:none">✕</a></span>`).join('')
+    ? (DB.owners||[]).map((n,i)=>`<span class="chip mute" style="margin:2px 3px 0 0">${esc(n)} <a href="javascript:void(0)" onclick="hapusOwner(${i})" style="color:var(--danger);font-weight:800;text-decoration:none">✕</a></span>`).join('')
     : 'Belum ada nama owner — pilih "+ nama lain…" untuk menambah yang pertama.';
   /* PIC penghandle tamu ditarik dari roster Office yang sama dengan PIC
      compliment (kasir/marketing/event/office). Satu sumber, supaya tidak ada
@@ -1575,8 +1426,8 @@ function viewPiutang(){
           <td><span class="chip warn">${esc(payName(b.payKey))}</span></td>
           <td class="num mono" style="font-weight:700">${fmtRp(num(b.nominal))}</td>
           <td class="muted" style="font-size:12px">${esc(b.by||'—')}</td>
-          <td style="white-space:nowrap"><button class="btn btn-xs btn-ghost" data-aks="ubah" onclick="editBon('${esc(b.id)}')">Ubah</button>
-            <button class="btn btn-xs btn-danger" data-aks="hapus" onclick="hapusBon('${esc(b.id)}')">✕</button></td>
+          <td style="white-space:nowrap"><button class="btn btn-xs btn-ghost" onclick="editBon('${esc(b.id)}')">Ubah</button>
+            <button class="btn btn-xs btn-danger" onclick="hapusBon('${esc(b.id)}')">✕</button></td>
         </tr>`).join('')}</tbody>
       </table></div>
       <div id="bnerr_${gid}"></div>
@@ -1586,7 +1437,7 @@ function viewPiutang(){
         <div class="field" style="margin:0"><label>Metode Pembayaran Pelunasan</label>
           <select class="bn-pay" data-g="${gid}">${optPay}</select></div>
         <div class="field" style="margin:0"><label>&nbsp;</label>
-          <button class="btn btn-primary btn-block bn-lunas" data-aks="ubah" data-g="${gid}">Lunasi Terpilih · <span id="bnsum_${gid}">Rp0</span></button></div>
+          <button class="btn btn-primary btn-block bn-lunas" data-g="${gid}">Lunasi Terpilih · <span id="bnsum_${gid}">Rp0</span></button></div>
       </div>
       <div class="helper" style="margin:8px 0 0">Uang dicatat masuk pada tanggal di atas, bukan tanggal billnya.</div>
     </div>`;
@@ -1620,7 +1471,7 @@ function viewPiutang(){
       </div>
       <div id="bn_err"></div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
-        <button class="btn btn-primary" id="bn_add" data-aks="ubah">${edit?'Simpan Perubahan':'+ Tambah Bon'}</button>
+        <button class="btn btn-primary" id="bn_add">${edit?'Simpan Perubahan':'+ Tambah Bon'}</button>
         ${edit?'<button class="btn btn-ghost" onclick="batalEditBon()">Batal</button>':''}
       </div>
     </div>
@@ -1649,8 +1500,8 @@ function viewPiutang(){
               <td class="mono"><span class="chip ok">${esc(b.lunasDate||'—')}</span></td>
               <td>${esc(payName(b.lunasPayKey))}</td>
               <td class="muted" style="font-size:12px">${esc(b.lunasBy||'—')}</td>
-              <td style="white-space:nowrap"><button class="btn btn-xs btn-ghost" data-aks="ubah" onclick="editBon('${esc(b.id)}')">Ubah</button>
-                <button class="btn btn-xs btn-ghost" data-aks="ubah" onclick="batalLunas('${esc(b.id)}')">Batal Lunas</button></td>
+              <td style="white-space:nowrap"><button class="btn btn-xs btn-ghost" onclick="editBon('${esc(b.id)}')">Ubah</button>
+                <button class="btn btn-xs btn-ghost" onclick="batalLunas('${esc(b.id)}')">Batal Lunas</button></td>
             </tr>`).join(''):'<tr><td colspan="8" class="empty">Belum ada pelunasan tercatat.</td></tr>'}</tbody>
           </table></div>
         </div>`}`;
@@ -1672,7 +1523,6 @@ function viewPiutang(){
   syncTipe();
 
   document.getElementById('bn_add').addEventListener('click',()=>{
-    if(!bolehAksi('piutang','ubah')) return;
     const tipe=document.getElementById('bn_tipe').value;
     const bill=(document.getElementById('bn_bill').value||'').trim();
     const nominal=num(document.getElementById('bn_nominal').value);
@@ -1749,7 +1599,6 @@ function viewPiutang(){
 /* Lunasi bon yang dicentang dalam satu grup sekaligus — kasus "3 bill satu
    orang, dibayar barengan" memang bentuk normalnya, bukan pengecualian. */
 function lunasiGrup(gid){
-  if(!bolehAksi('piutang','ubah')) return;
   const el=document.getElementById('app-view');
   const g=BON_GRUP[parseInt(String(gid).slice(1),10)];
   if(!g) return;
@@ -1774,7 +1623,6 @@ function lunasiGrup(gid){
    belum lunas lalu melunasi ulang — bukan dengan menyunting diam-diam, supaya
    report hari yang salah ikut kembali benar. */
 function batalLunas(id){
-  if(!bolehAksi('piutang','ubah')) return;
   if(!confirm('Kembalikan bon ini ke status BELUM LUNAS?\n\nPelunasannya akan hilang dari Report Daily tanggal tersebut.')) return;
   (DB.piutang||[]).forEach(b=>{
     if(b.id!==id) return;
@@ -1783,7 +1631,6 @@ function batalLunas(id){
   save(); render();
 }
 function hapusBon(id){
-  if(!bolehAksi('piutang','hapus')) return;
   if(!confirm('Hapus catatan bon ini?\n\nSelisih Report Daily tanggal billnya akan kembali tidak terjelaskan.')) return;
   DB.piutang=(DB.piutang||[]).filter(b=>b.id!==id);
   if(BON_EDIT===id) BON_EDIT=null;   // jangan tinggalkan form menunjuk bon yang sudah tidak ada
@@ -1794,7 +1641,6 @@ function hapusBon(id){
    dipakai lagi untuk input baru. Dirujuk lewat indeks, bukan nama, supaya
    tanda kutip pada nama tidak pernah bisa merusak atribut onclick. */
 function hapusOwner(i){
-  if(!bolehAksi('piutang','hapus')) return;
   const nama=(DB.owners||[])[i];
   if(!nama) return;
   if(!confirm('Hapus "'+nama+'" dari daftar owner?\n\nBon yang sudah terlanjur atas nama itu TIDAK ikut terhapus.')) return;
@@ -1880,7 +1726,6 @@ function compStatusPemberi(c){
 let COMP_EDIT='';   // id catatan yang sedang diubah; '' = sedang menambah baru
 function compById(id){ return (DB.compliments||[]).find(c=>c.id===id)||null; }
 function editCompliment(id){
-  if(!bolehAksi('compliment','ubah')) return;
   const c=compById(id); if(!c) return;
   // Catatan tanggal lain: pindahkan dulu tanggal aktifnya, kalau tidak formnya
   // terisi tapi daftarnya menampilkan hari yang berbeda.
@@ -1974,7 +1819,7 @@ function viewCompliment(){
            harus bisa mencocokkannya dengan bill di tangan. -->
       <div class="notice" id="c_total" style="margin-top:6px"></div>
       <div id="c_err"></div>
-      <button class="btn btn-primary" id="c_add" data-aks="ubah">${edit?'💾 Simpan Perubahan':'+ Tambah'}</button>
+      <button class="btn btn-primary" id="c_add">${edit?'💾 Simpan Perubahan':'+ Tambah'}</button>
       ${edit?'<button class="btn" id="c_batal" style="margin-left:8px">Batal</button>':''}
     </div>
     <div class="grid g3">
@@ -2000,8 +1845,8 @@ function viewCompliment(){
             :'<span class="chip">Menunggu keputusan</span>'}</div>`}</td>
           <td class="muted" style="font-size:12px">${esc(c.by||'—')}</td>
           <td><div class="mini-actions">
-            <button class="btn btn-xs" data-aks="ubah" onclick="editCompliment('${esc(c.id)}')" title="Ubah catatan ini">✏️</button>
-            <button class="btn btn-xs btn-danger" data-aks="hapus" onclick="hapusCompliment('${esc(c.id)}')">✕</button>
+            <button class="btn btn-xs" onclick="editCompliment('${esc(c.id)}')" title="Ubah catatan ini">✏️</button>
+            <button class="btn btn-xs btn-danger" onclick="hapusCompliment('${esc(c.id)}')">✕</button>
           </div></td>
         </tr>`).join(''):`<tr><td colspan="${adaRincian?9:6}" class="empty">Belum ada compliment pada tanggal ini.</td></tr>`}</tbody>
       </table></div>
@@ -2022,7 +1867,6 @@ function viewCompliment(){
   const batal=document.getElementById('c_batal');
   if(batal) batal.addEventListener('click',batalEditCompliment);
   document.getElementById('c_add').addEventListener('click',()=>{
-    if(!bolehAksi('compliment','ubah')) return;
     const nama=(document.getElementById('c_nama').value||'').trim();
     const subTotal=num(document.getElementById('c_sub').value);
     const tax=num(document.getElementById('c_tax').value);
@@ -2080,7 +1924,6 @@ function viewCompliment(){
   if(COMP_ROSTER===null) ambilRoster().then(()=>{ if(CURRENT==='compliment') render(); });
 }
 function hapusCompliment(id){
-  if(!bolehAksi('compliment','hapus')) return;
   if(!confirm('Hapus catatan compliment ini?')) return;
   if(COMP_EDIT===id) COMP_EDIT='';   // jangan tinggalkan form menunjuk baris yang sudah tiada
   DB.compliments=(DB.compliments||[]).filter(c=>c.id!==id);
@@ -2428,7 +2271,7 @@ function viewRokok(){
         <div class="bi">Total Masuk<b class="mono" id="rk_s_in">0</b></div>
         <div class="bi">Total Keluar<b class="mono" id="rk_s_out">0</b></div>
       </div>
-      <button class="btn btn-primary" id="rk_save" data-aks="ubah">Simpan Stock Harian</button>
+      <button class="btn btn-primary" id="rk_save">Simpan Stock Harian</button>
     </div>`;
 
   const nilai=(k,f)=>{ const e=el.querySelector(`.rkf[data-k="${k}"][data-f="${f}"]`); return e?num(e.value):0; };
@@ -2462,7 +2305,6 @@ function viewRokok(){
   }
   el.querySelectorAll('.rkf').forEach(i=>i.addEventListener('input',hitung));
   document.getElementById('rk_save').addEventListener('click',()=>{
-    if(!bolehAksi('rokok','ubah')) return;
     /* Kunci yang TIDAK ADA lagi di rokokItems() dipertahankan apa adanya —
        item yang dihapus dari daftar (mis. LA Menthol & Djarum Mild, 30 Juli
        2026) meninggalkan angka di hari-hari sebelumnya, dan membangun `items`
@@ -2520,7 +2362,6 @@ function rksSimpan(daftar,pesan){
   render();
 }
 function rksTambah(){
-  if(!bolehAksi('rokokset','ubah')) return;
   const nama=(document.getElementById('rks_nama').value||'').trim();
   const lain=!!document.getElementById('rks_lain').checked;
   if(!nama){ RKS_PESAN='bad|Nama item wajib diisi.'; render(); return; }
@@ -2536,7 +2377,6 @@ function rksTambah(){
   rksSimpan(daftar,'ok|Item <b>'+esc(nama)+'</b> ditambahkan (kunci <span class="mono">'+esc(k)+'</span>).');
 }
 function rksHapus(k){
-  if(!bolehAksi('rokokset','hapus')) return;
   const daftar=rksDaftar();
   const it=daftar.find(x=>x.k===k); if(!it) return;
   if(daftar.length<=1){ RKS_PESAN='bad|Daftar tidak boleh kosong — sisakan minimal satu item.'; render(); return; }
@@ -2556,7 +2396,6 @@ function rksHapus(k){
   rksSimpan(daftar.filter(x=>x.k!==k),'ok|Item <b>'+esc(it.n)+'</b> dibuang dari lembar. Angkanya tetap tersimpan.');
 }
 function rksUbahNama(k){
-  if(!bolehAksi('rokokset','ubah')) return;
   const daftar=rksDaftar();
   const it=daftar.find(x=>x.k===k); if(!it) return;
   const nama=prompt('Nama item (kunci <'+k+'> tidak berubah, jadi angkanya tetap):', it.n);
@@ -2566,7 +2405,6 @@ function rksUbahNama(k){
   rksSimpan(daftar,'ok|Nama diperbarui jadi <b>'+esc(it.n)+'</b>.');
 }
 function rksToggleLain(k){
-  if(!bolehAksi('rokokset','ubah')) return;
   const daftar=rksDaftar();
   const it=daftar.find(x=>x.k===k); if(!it) return;
   it.lain=!it.lain;
@@ -2576,7 +2414,6 @@ function rksToggleLain(k){
    berurutan sesuai susunan di rak, jadi bisa digeser sampai cocok — daftar
    yang urutannya beda dari raknya membuat penghitungan bolak-balik. */
 function rksGeser(k,arah){
-  if(!bolehAksi('rokokset','ubah')) return;
   const daftar=rksDaftar();
   const i=daftar.findIndex(x=>x.k===k);
   const j=i+arah;
@@ -2585,7 +2422,6 @@ function rksGeser(k,arah){
   rksSimpan(daftar,'');
 }
 function rksPulihkanBawaan(){
-  if(!bolehAksi('rokokset','hapus')) return;
   if(!confirm('Kembalikan daftar ke bawaan sistem?\n\n'
     +'Item yang kamu tambahkan sendiri akan hilang dari lembar — angkanya tetap tersimpan, '
     +'tapi harus ditambahkan lagi kalau mau muncul lagi.')) return;
@@ -2606,17 +2442,17 @@ function viewRokokSet(){
 
   const baris=(it,i)=>`<tr>
       <td style="width:52px;text-align:center">
-        <button class="btn btn-ghost btn-xs" title="Naikkan" data-aks="ubah" ${i===0?'disabled':''} onclick="rksGeser('${esc(it.k)}',-1)">↑</button>
-        <button class="btn btn-ghost btn-xs" title="Turunkan" data-aks="ubah" ${i===daftar.length-1?'disabled':''} onclick="rksGeser('${esc(it.k)}',1)">↓</button></td>
+        <button class="btn btn-ghost btn-xs" title="Naikkan" ${i===0?'disabled':''} onclick="rksGeser('${esc(it.k)}',-1)">↑</button>
+        <button class="btn btn-ghost btn-xs" title="Turunkan" ${i===daftar.length-1?'disabled':''} onclick="rksGeser('${esc(it.k)}',1)">↓</button></td>
       <td><b>${esc(it.n)}</b></td>
       <td class="mono" style="font-size:11.5px;color:var(--muted)">${esc(it.k)}</td>
       <td>${it.lain
           ? '<span class="chip mute">Lainnya</span>'
           : '<span class="chip info">Rokok</span>'}</td>
       <td style="text-align:right;white-space:nowrap">
-        <button class="btn btn-ghost btn-xs" data-aks="ubah" onclick="rksUbahNama('${esc(it.k)}')">Ubah nama</button>
-        <button class="btn btn-ghost btn-xs" title="Pindah kelompok Rokok / Lainnya" data-aks="ubah" onclick="rksToggleLain('${esc(it.k)}')">${it.lain?'Jadikan Rokok':'Jadikan Lainnya'}</button>
-        <button class="btn btn-danger btn-xs" data-aks="hapus" onclick="rksHapus('${esc(it.k)}')">Buang</button>
+        <button class="btn btn-ghost btn-xs" onclick="rksUbahNama('${esc(it.k)}')">Ubah nama</button>
+        <button class="btn btn-ghost btn-xs" title="Pindah kelompok Rokok / Lainnya" onclick="rksToggleLain('${esc(it.k)}')">${it.lain?'Jadikan Rokok':'Jadikan Lainnya'}</button>
+        <button class="btn btn-danger btn-xs" onclick="rksHapus('${esc(it.k)}')">Buang</button>
       </td></tr>`;
 
   el.innerHTML=
@@ -2633,7 +2469,7 @@ function viewRokokSet(){
           <div class="card-sub" style="margin:0">${daftar.length} item · ${
             disetel?'daftar disetel sendiri':'masih memakai daftar bawaan sistem'}</div>
         </div>
-        ${disetel?'<button class="btn btn-ghost btn-sm" data-aks="hapus" onclick="rksPulihkanBawaan()">↩ Kembalikan ke bawaan</button>':''}
+        ${disetel?'<button class="btn btn-ghost btn-sm" onclick="rksPulihkanBawaan()">↩ Kembalikan ke bawaan</button>':''}
       </div>
       <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr>
         <th style="text-align:center">Urut</th><th style="text-align:left">Nama</th>
@@ -2647,7 +2483,7 @@ function viewRokokSet(){
         <input id="rks_nama" placeholder="Nama item, mis. Djarum Mild" style="flex:1;min-width:200px;padding:9px 11px;border:1.5px solid var(--line);border-radius:8px">
         <label style="display:flex;gap:7px;align-items:center;font-size:12.5px;cursor:pointer">
           <input type="checkbox" id="rks_lain"> bukan rokok (Korek, Coin, Eskrim…)</label>
-        <button class="btn btn-primary btn-sm" data-aks="ubah" onclick="rksTambah()">Tambah</button>
+        <button class="btn btn-primary btn-sm" onclick="rksTambah()">Tambah</button>
       </div>
       <div class="muted" style="font-size:11.5px;margin-top:7px">Item ber-tanda <b>bukan rokok</b> dikelompokkan di bawah, dipisahkan satu garis — tetap dihitung di meja yang sama.</div>
     </div>`;
@@ -3143,62 +2979,14 @@ function muatUlangDp(){
 /* ============ 6. KELOLA AKSES KRU ============
    Daftar siapa saja yang PUNYA akses modul cashier, ditarik dari database
    account lewat `listModuleRoster` — endpoint TANPA gerbang PIN (identitas
-   sudah dijamin sesi Office). Menambah & mencabut akses modul tetap di
-   "Kelola Akses" milik Office, bukan di sini.
+   sudah dijamin sesi Office). Read-only: menambah dan menghapus akses tetap
+   dilakukan di "Kelola Akses" milik Office, bukan di sini.
 
-   SEJAK 25 AGUSTUS 2026 halaman ini tidak lagi read-only: admin modul menyetel
-   di sini sub-menu mana yang boleh dilihat, diubah, dan dihapus tiap kru.
-   Sebelumnya halaman ini justru menuliskan kebalikannya ("semua pemegang akses
-   melihat halaman yang sama") — kalimat itu sekarang salah dan sudah dibuang,
-   bukan dibiarkan berdiri sebagai keterangan yang membohongi pembacanya.
-
-   Pembagian yang harus dijaga, dan ini alasan halaman ini boleh ada tanpa
-   mengulang bug gerbang-ganda Kompas: SIAPA yang boleh masuk modul diputuskan
-   Office; halaman ini cuma mempersempit apa yang bisa ia lakukan setelah masuk.
-   Ia tidak pernah bisa memberi akses, jadi tidak ada keadaan di mana dua
-   gerbang menjawab berbeda untuk pertanyaan yang sama. */
-let AKSES_ROSTER=null, AKSES_ERR='', AKSES_BARIS=[];
-/* Pilihan tingkat untuk satu sel. Halaman baca-saja cuma sampai "Lihat saja",
-   dan halaman terkunci tidak menawarkan "Tak terlihat" sama sekali — pilihan
-   yang tidak akan pernah berlaku lebih buruk daripada tidak ada pilihan: yang
-   memilihnya mengira sudah menyetel sesuatu. */
-function aksOpsi(view,nilai){
-  const maks=AKS_HAL_ISI.indexOf(view)>=0?AKS_HAPUS:AKS_LIHAT;
-  const min=AKS_KUNCI.indexOf(view)>=0?AKS_LIHAT:AKS_TAK;
-  let o='';
-  for(let t=min;t<=maks;t++) o+=`<option value="${t}"${t===nilai?' selected':''}>${AKS_NAMA[t]}</option>`;
-  return o;
-}
-/* Dirujuk lewat INDEKS baris, bukan nama/kunci — sama seperti hapusOwner().
-   Nama kru bisa memuat tanda kutip, dan kunci matriks memuat '#'/'@'; keduanya
-   merusak atribut onclick tanpa memberi galat yang menyebut sebabnya. */
-function aksSetIdx(i,view,nilai){
-  const b=AKSES_BARIS[i]; if(!b) return;
-  if(!CURRENT_USER||!CURRENT_USER.admin){
-    alert('Hanya admin modul Cashier yang bisa mengubah matriks ini.');
-    viewAkses(); return;
-  }
-  const t=Math.max(AKS_TAK,Math.min(AKS_HAPUS,parseInt(nilai,10)||0));
-  const peta=DB.akses_cashier||{};
-  const baris=peta[b.kunci]||{};
-  /* Disimpan sebagai SELISIH: yang sama dengan bawaan dihapus dari matriks,
-     bukan ditulis sama nilainya. Lihat alasannya di normalizeDB(). */
-  if(t===aksBawaan(view)) delete baris[view]; else baris[view]=t;
-  if(Object.keys(baris).length) peta[b.kunci]=baris; else delete peta[b.kunci];
-  if(Object.keys(peta).length) DB.akses_cashier=peta; else delete DB.akses_cashier;
-  save();
-  terapkanNav();   // kalau yang disetel barisnya sendiri, sidebar ikut berubah
-  viewAkses();
-}
-function aksReset(i){
-  const b=AKSES_BARIS[i]; if(!b) return;
-  if(!CURRENT_USER||!CURRENT_USER.admin){ alert('Hanya admin modul Cashier yang bisa mengubah matriks ini.'); return; }
-  if(!(DB.akses_cashier&&DB.akses_cashier[b.kunci])) return;
-  if(!confirm('Kembalikan hak akses '+b.nama+' ke bawaan?\n\nIa akan bisa membuka dan mengubah semua sub-menu lagi.')) return;
-  delete DB.akses_cashier[b.kunci];
-  if(!Object.keys(DB.akses_cashier).length) delete DB.akses_cashier;
-  save(); terapkanNav(); viewAkses();
-}
+   Beda dari halaman serupa di Kompas: DI SINI TIDAK ADA KOLOM LEVEL. Kompas
+   punya dua level tampilan ('ops'/'full'); modul ini tidak, karena semua
+   halamannya memang pekerjaan kasir. Yang ditampilkan cuma siapa pemegang
+   aksesnya — kalau kolom level ikut disalin, isinya akan berbohong. */
+let AKSES_ROSTER=null, AKSES_ERR='';
 async function muatAkses(){
   const stop=new AbortController(); const jam=setTimeout(()=>stop.abort(),8000);
   try{
@@ -3223,61 +3011,31 @@ function viewAkses(){
     muatAkses(); return;
   }
   const rows=(AKSES_ROSTER||[]).slice().sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
-  const HAL=Object.keys(TITLES);
-  const aku=!!(CURRENT_USER&&CURRENT_USER.admin);
-  /* Baris disimpan di lingkup modul supaya sel-selnya bisa merujuk lewat
-     indeks. Kunci matriks dihitung DI SINI, satu kali, dari bentuk yang sama
-     dengan aksKunci() — kalau dua tempat menghitungnya sendiri-sendiri, yang
-     disetel admin dan yang dibaca kru bisa jadi dua baris berbeda dan salahnya
-     tidak muncul sebagai galat, cuma sebagai "setelannya tidak berpengaruh". */
-  AKSES_BARIS=rows.map(m=>({
-    kunci:aksKunci({id:m.id,name:m.name}),
-    nama:String(m.name||'(tanpa nama)'),
-    adm:!!m.isModuleAdmin
-  }));
-  const sel=(i,view)=>{
-    const b=AKSES_BARIS[i];
-    const t=aksTingkat(view,b.kunci,b.adm);
-    const mati=(b.adm||!aku);
-    const judul=b.adm?'Admin modul selalu penuh — tidak bisa diturunkan dari sini'
-                     :(aku?'':'Hanya admin modul yang bisa mengubah');
-    return `<select style="padding:5px 6px;border:1.5px solid var(--line);border-radius:7px;font-size:11.5px;width:100%"
-      title="${esc(judul)}" ${mati?'disabled':''} onchange="aksSetIdx(${i},'${view}',this.value)">${aksOpsi(view,t)}</select>`;
-  };
-  const disetel=i=>!!(DB.akses_cashier&&DB.akses_cashier[AKSES_BARIS[i].kunci]);
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
-      <div><h3>Hak Akses Sub-Menu per Kru</h3><div class="card-sub" style="margin:0">Daftar orangnya ditarik dari database Office. Menambah dan mencabut akses <b>modul</b> tetap dilakukan di <b>Kelola Akses</b> milik Office; yang disetel di sini hanya apa yang boleh ia lakukan di dalam modul.</div></div>
+      <div><h3>Pemegang Akses Modul Cashier</h3><div class="card-sub" style="margin:0">Ditarik dari database Office. Menambah dan menghapus akses dilakukan di <b>Kelola Akses</b> milik Office, bukan di sini.</div></div>
       <button class="btn btn-ghost btn-sm" onclick="AKSES_ROSTER=null;AKSES_ERR='';viewAkses()">↻ Segarkan</button>
     </div>
-    ${aku?`<div class="notice info">🔑 <div><b>Empat tingkat, bertangga.</b>
-      <b>Tak terlihat</b> — menunya hilang dari sidebar orang itu ·
-      <b>Lihat saja</b> — bisa dibuka, kotak isian mati, tombol simpan hilang ·
-      <b>Boleh ubah</b> — bisa mengisi & menyimpan ·
-      <b>Ubah &amp; hapus</b> — ditambah tombol hapus.
-      Halaman yang isinya cuma dibaca (Rekap Stock Rokok, Performa Kasir, Dana Masuk, halaman ini)
-      berhenti di "Lihat saja" — tidak ada apa pun di sana yang bisa diubah.
-      <b>Admin modul selalu penuh</b> dan tidak bisa diturunkan dari sini: kalau bisa, satu klik salah
-      pada baris sendiri membuat modul ini tidak punya siapa pun yang bisa membetulkannya lagi.</div></div>`
-    :`<div class="notice warn">👁 <div><b>Kamu bukan admin modul Cashier</b>, jadi matriks ini hanya bisa dibaca.
-      Halaman ini tetap dibuka untuk semua orang supaya jelas kenapa sebuah tombol tidak ada di layarmu —
-      minta admin modul mengubahnya kalau seharusnya kamu bisa.</div></div>`}
+    <div class="notice info">🔑 <div><b>Semua pemegang akses melihat halaman yang sama.</b>
+      Report Daily, Compliment, Performa Kasir, dan Dana Masuk — tidak ada level tampilan di modul ini.
+      Kalau seseorang tidak boleh melihat salah satunya, yang benar adalah tidak memberinya modul ini sama sekali,
+      bukan menambah gerbang kedua di dalam sini.
+      <b>Admin modul</b> hanya menentukan siapa yang boleh mengelola akses lewat konsol Office.</div></div>
     ${AKSES_ERR?`<div class="notice bad">⚠ Gagal memuat: ${esc(AKSES_ERR)}</div>`:`
     <div class="card" style="padding:0;overflow:hidden">
       <div class="tbl-wrap"><table>
-        <thead><tr><th style="min-width:190px">Nama</th>${HAL.map(v=>`<th style="min-width:118px;font-size:11px">${esc(TITLES[v][0])}</th>`).join('')}<th></th></tr></thead>
-        <tbody>${rows.length?rows.map((m,i)=>{const b=AKSES_BARIS[i];return `<tr>
+        <thead><tr><th>Nama</th><th>Tim / Keterangan</th><th>Status Akun</th><th>Admin Modul</th></tr></thead>
+        <tbody>${rows.length?rows.map(m=>{const adm=!!m.isModuleAdmin;return `<tr>
           <td><div style="display:flex;align-items:center;gap:10px">
             <span style="width:30px;height:30px;border-radius:8px;flex:none;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;font-weight:800;font-size:11px">${esc(initial(m.name))}</span>
-            <div><b>${esc(b.nama)}</b>${meNama&&String(m.name||'').toLowerCase()===meNama.toLowerCase()?' <span class="chip info" style="margin-left:4px">kamu</span>':''}
-              <div class="muted" style="font-size:11px">${esc(m.keterangan||'—')}${m.active===false?' · <span style="color:var(--warn)">nonaktif</span>':''}${b.adm?' · <span style="color:var(--ok)">admin modul</span>':''}</div></div>
-          </div></td>
-          ${HAL.map(v=>`<td>${sel(i,v)}</td>`).join('')}
-          <td style="white-space:nowrap">${(aku&&!b.adm&&disetel(i))?`<button class="btn btn-xs btn-ghost" onclick="aksReset(${i})" title="Kembalikan seluruh baris ini ke bawaan">↩</button>`:''}</td>
-        </tr>`;}).join(''):`<tr><td colspan="${HAL.length+2}" class="empty">Belum ada kru dengan akses modul Cashier. Beri akses lewat Kelola Akses di Office.</td></tr>`}</tbody>
+            <b>${esc(m.name||'(tanpa nama)')}</b>${meNama&&String(m.name||'').toLowerCase()===meNama.toLowerCase()?' <span class="chip info" style="margin-left:4px">kamu</span>':''}</div></td>
+          <td class="muted" style="font-size:12.5px">${esc(m.keterangan||'—')}</td>
+          <td>${m.active===false?'<span class="chip warn">nonaktif</span>':'<span class="chip ok">aktif</span>'}</td>
+          <td>${adm?'<span class="chip ok">admin modul</span>':'<span class="muted" style="font-size:12px">—</span>'}</td>
+        </tr>`;}).join(''):`<tr><td colspan="4" class="empty">Belum ada kru dengan akses modul Cashier. Beri akses lewat Kelola Akses di Office.</td></tr>`}</tbody>
       </table></div>
     </div>
-    <div class="foot" style="font-size:12px;color:var(--muted);margin-top:2px">${rows.length} kru memegang akses Cashier · ${rows.filter(m=>m.isModuleAdmin).length} di antaranya admin modul · ${AKSES_BARIS.filter((b,i)=>disetel(i)).length} disetel berbeda dari bawaan.</div>`}`;
+    <div class="foot" style="font-size:12px;color:var(--muted);margin-top:2px">${rows.length} kru memegang akses Cashier · ${rows.filter(m=>m.isModuleAdmin).length} di antaranya admin modul.</div>`}`;
 }
 
 /* ---- chart option factories ---- */
@@ -3300,8 +3058,7 @@ function boot(){
     setSync('ok');
     PERIOD=DB.daily.length?monthKeyOf(DB.daily[DB.daily.length-1].date):monthKeyOf(todayISO());
     const dibersihkan=purgeSeedKasir(DB);   // buang PIC contoh "Kasir 1/2/3"
-    terapkanNav();       // matriks baru terbaca sesudah DB datang
-    go(halPertamaBoleh());
+    go('report');
     if(dibersihkan) save();
     syncPicOffice();   // tarik PIC per divisi dari Office (otomatis, tanpa PIN)
   }, err=>{
@@ -3311,8 +3068,7 @@ function boot(){
     setSync('err','Offline — memakai salinan lokal, perubahan akan disinkronkan saat online');
     PERIOD=DB.daily.length?monthKeyOf(DB.daily[DB.daily.length-1].date):monthKeyOf(todayISO());
     purgeSeedKasir(DB);   // rapikan tampilan; simpannya nanti saat online
-    terapkanNav();
-    go(halPertamaBoleh());
+    go('report');
   });
 }
 boot();
