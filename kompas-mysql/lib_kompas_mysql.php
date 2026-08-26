@@ -424,11 +424,22 @@ function simpan_rekap($data) {
         $r['aktual'][$b] = $baru;
       }
     }
-    /* DANA LEBIH (25 Agustus 2026, permintaan user). Nominal yang masuk
-       rekening MELEBIHI yang tercatat di Report Daily — biasanya karena input
-       kasirnya kurang, bukan karena bank memberi lebih. Sebelum ini keadaan
-       itu cuma terlihat sebagai MDR negatif tanpa tempat untuk menuliskan
-       berapa lebihnya maupun bahwa lebihnya sudah diperiksa orang.
+    /* MDR YANG DIKETIK SAAT DANA BERLEBIH (26 Agustus 2026, permintaan user).
+
+       Pada hari biasa MDR tidak perlu — dan tidak boleh — diketik: ia pasti
+       sebesar `aktual kotor − aktual masuk`, dan itulah keputusan 21 Agustus
+       2026 yang tidak dibatalkan di sini. Yang ditangani kunci ini cuma satu
+       keadaan: aktual masuk MELEBIHI aktual kotor. Di situ angka tidak bisa
+       memberi tahu berapa yang potongan bank dan berapa yang input kasirnya
+       kurang; salah satunya harus disebut manusia, dan yang dipegang orang
+       finance adalah MDR-nya (tertulis di mutasi). Dana lebihnya DIHITUNG
+       frontend dari situ — tidak ada kunci `lebih` yang disimpan.
+
+       Kunci `lebih` versi 25 Agustus 2026 (arahnya kebalikan: dana lebih yang
+       diketik) hidup kurang dari sehari, tidak pernah sampai produksi, dan
+       SUDAH TIDAK DITERIMA lagi. Sengaja tidak dibaca sebagai cadangan:
+       artinya berbeda, dan membacanya sebagai MDR akan mengarang angka yang
+       kelihatan masuk akal.
 
        Memakai daftar $bank yang sama dengan `aktual`: kelebihan hanya bisa
        terbaca pada kelompok yang punya sisi "aktual masuk" — cash & transfer
@@ -436,21 +447,20 @@ function simpan_rekap($data) {
        dibandingkan.
 
        STRING KOSONG = HAPUS, bukan nol — alasan yang sama persis dengan
-       `aktual` di atas: nol berarti "sudah diperiksa dan lebihnya nol", dan
-       itu arti yang berbeda dari "belum pernah diisi". */
-    if (isset($isi['lebih']) && is_array($isi['lebih'])) {
-      if (!isset($r['lebih']) || !is_array($r['lebih'])) $r['lebih'] = array();
+       `aktual` di atas. */
+    if (isset($isi['mdrManual']) && is_array($isi['mdrManual'])) {
+      if (!isset($r['mdrManual']) || !is_array($r['mdrManual'])) $r['mdrManual'] = array();
       foreach ($bank as $b) {
-        if (!array_key_exists($b, $isi['lebih'])) continue;
-        $v = $isi['lebih'][$b];
+        if (!array_key_exists($b, $isi['mdrManual'])) continue;
+        $v = $isi['mdrManual'][$b];
         if ($v === '' || $v === null) {
-          if (array_key_exists($b, $r['lebih'])) { unset($r['lebih'][$b]); $ubah++; }
+          if (array_key_exists($b, $r['mdrManual'])) { unset($r['mdrManual'][$b]); $ubah++; }
           continue;
         }
         $baru = kp_num($v);
-        $ada  = array_key_exists($b, $r['lebih']);
-        if (!$ada || kp_num($r['lebih'][$b]) !== $baru) $ubah++;
-        $r['lebih'][$b] = $baru;
+        $ada  = array_key_exists($b, $r['mdrManual']);
+        if (!$ada || kp_num($r['mdrManual'][$b]) !== $baru) $ubah++;
+        $r['mdrManual'][$b] = $baru;
       }
     }
     if (isset($isi['esb']) && is_array($isi['esb'])) {

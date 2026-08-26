@@ -17,7 +17,7 @@
  *                           Kas Kecil & Performa, yang memang tidak boleh
  *                           menulis blob ini utuh.
  *   POST {action:"simpanRekap", data:{hari:{"YYYY-MM-DD":{setor,mdr:{kunci:n},
- *         aktual:{kunci:n|''}, lebih:{kunci:n|''}, esb:{grup:bool}}},
+ *         aktual:{kunci:n|''}, mdrManual:{kunci:n|''}, esb:{grup:bool}}},
  *         setoran:{tambah:[{tgl,tujuan,catatan,hari:[...]}],
  *         hapus:[id]}, by}}
  *                        -> {ok,data:{saved,ubah,hari,takDikenal:[...],setoran:[...]}}

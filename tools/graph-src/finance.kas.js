@@ -1702,7 +1702,13 @@ function rkAktInput() { rkRec(); }
 
 
 
-function rkLebih() { rkRec(); }
+
+
+
+
+
+
+function rkMdrManual() { rkRec(); }
 
 
 
@@ -1741,12 +1747,7 @@ function rkAdaUbah() {  }
 
 function rkHitung() { rkRec(); }
 
-function sisi() { rkPay(); rkAktInput(); rkMdr(); rkLebih(); rkJual(); rkBon(); }
-
-
-
-
-
+function sisi() { rkPay(); rkAktInput(); rkMdr(); rkMdrManual(); rkJual(); rkBon(); }
 
 
 
@@ -2310,7 +2311,18 @@ function rkSetTanda() { rkUbah(); rkSegarSimpan(); }
 
 
 
-function rkMdrSel() {  }
+
+
+
+
+
+
+
+
+
+
+
+function rkMdrSel() { fmtRpInput(); rkKetikMdr(); }
 
 
 
@@ -2332,28 +2344,13 @@ function rkMdrSel() {  }
 
 
 
+function rkLebihSel() {  }
 
 
 
 
 
-
-
-
-
-
-
-
-
-function rkLebihSel() { fmtRpInput(); rkKetikLebih(); }
-
-
-
-
-
-
-
-function rkKetikLebih() { rkUbah(); rkSegarTurunan(); }
+function rkKetikMdr() { rkUbah(); rkSegarTurunan(); }
 
 
 
@@ -2380,6 +2377,9 @@ function rkSegarTurunan() { rkHitung(); }
 
 
 function set() { rkMdrSel(); rkLebihSel(); rkSegarSimpan(); }
+
+
+
 
 
 
