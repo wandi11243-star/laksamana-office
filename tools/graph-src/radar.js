@@ -633,6 +633,13 @@
 
 
 
+
+
+
+
+
+
+
 function $() {  }
 function esc() {  }
 
@@ -680,6 +687,7 @@ function toggleNav() {  }
 
 
 function ico() {  }
+
 
 
 
@@ -2210,7 +2218,56 @@ function bukaDrw() { $(); }
 
 
 
-function render() { muat(); $(); ico(); sesi(); initial(); vRadar(); vKalender(); vAgendaList(); vResList(); vDetailEvent(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoTipe() {  }
+function promoHari() {  }
+function promoTgl() {  }
+function promoStatus() { promoHari(); promoTgl(); }
+
+
+
+
+
+
+function promoSisa() { promoHari(); promoTgl(); promoStatus(); }
+
+
+
+
+
+function promoTglPendek() { promoTgl(); }
+
+
+
+function promoSemua() {  }
+
+
+
+
+function vPromo() { pitaGagal(); promoSemua(); promoStatus(); stat(); esc(); promoTipe(); promoTglPendek(); promoSisa(); baris(); }
 
 
 
@@ -2254,7 +2311,111 @@ function render() { muat(); $(); ico(); sesi(); initial(); vRadar(); vKalender()
 
 
 
-function segarSenyap() { muat(); render(); esc(); todayISO(); pgReset(); setPeriode(); toast(); drawerAgenda(); drawerRes(); $(); agendaTgl(); resTgl(); fTgl(); paxRes(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function render() { muat(); $(); ico(); sesi(); initial(); vRadar(); vKalender(); vAgendaList(); vResList(); vDetailEvent(); vPromo(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function segarSenyap() { muat(); render(); $(); vPromo(); esc(); todayISO(); pgReset(); setPeriode(); toast(); drawerAgenda(); drawerRes(); agendaTgl(); resTgl(); fTgl(); paxRes(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

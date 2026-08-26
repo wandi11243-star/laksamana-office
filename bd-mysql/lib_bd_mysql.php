@@ -292,6 +292,19 @@ function baca_state() {
      Array.isArray(). */
   $out['approverSets'] = get_setting('approverSets', array());
 
+  /* Daftar promo (25 Agustus 2026). Di `settings` dengan alasan yang sama
+     persis dengan approverSets di atas: daftarnya pendek, dan tabel sendiri
+     berarti satu migrasi SQL yang harus dijalankan manual di dua database.
+
+     Dibaca juga oleh modul RADAR lewat getAll — di sana isinya cuma
+     ditampilkan (promo yang berlangsung & akan datang) untuk seluruh kru,
+     tidak pernah ditulis balik. Jadi bentuk objeknya sudah dipakai di luar
+     modul BD; jangan ganti nama field tanpa menyunting radar juga.
+
+     Bawaannya array kosong, bukan objek: frontend membacanya dengan
+     Array.isArray(). */
+  $out['promos'] = get_setting('promos', array());
+
   /* Jam SERVER saat state ini dibaca. Klien menyimpannya lalu mengirimkannya
      balik sebagai `sinceTs` waktu menyimpan — itulah yang menentukan baris
      mana yang boleh dihapus (lihat hapus_yang_hilang).
@@ -445,6 +458,11 @@ function save_all($state, $sinceTs = 0) {
        dihapus) benar-benar tersimpan sebagai kosong, bukan diabaikan sehingga
        daftar lama hidup lagi di muat berikutnya. */
     if (array_key_exists('approverSets', $state)) put_setting($pdo, 'approverSets', $state['approverSets']);
+    /* array_key_exists, bukan isset — sama seperti approverSets di atas:
+       daftar promo yang sengaja dikosongkan (promo terakhir dihapus) harus
+       benar-benar tersimpan kosong, bukan diabaikan sehingga daftar lamanya
+       hidup lagi di muat berikutnya. */
+    if (array_key_exists('promos', $state)) put_setting($pdo, 'promos', $state['promos']);
 
     $pdo->commit();
   } catch (Throwable $e) {

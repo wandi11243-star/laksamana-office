@@ -818,6 +818,7 @@ function bacaRpEl() {  }
 
 
 
+
 function ic() {  }
 
 function toast() { $(); }
@@ -905,6 +906,20 @@ function apiPost() { antre(); _post(); }
 
 
 function normalize() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1246,6 +1261,8 @@ function lewat() { selesai(); sisaHari(); }
 
 
 
+
+
 function renderNav() { tasksTerlihat(); $(); go(); ic(); }
 
 
@@ -1261,6 +1278,7 @@ function renderNav() { tasksTerlihat(); $(); go(); ic(); }
 
 
 function render() { renderNav(); $(); pasangFokus(); }
+
 
 
 
@@ -2154,7 +2172,260 @@ function simpanRoutine() { g(); toast(); uid(); save(); render(); }
 
 
 
-function hapusRoutine() { save(); render(); toast(); }
+function hapusRoutine() { save(); render(); toast(); approverSets(); vPromo(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoTipe() {  }
+
+
+
+
+
+
+
+function promoHari() {  }
+function promoTgl() {  }
+function promoStatus() { promoHari(); promoTgl(); }
+
+
+
+
+
+
+function promoSisa() { promoHari(); promoTgl(); promoStatus(); }
+
+
+
+
+
+
+
+function promoPeriode() {  }
+function f() { promoTgl(); }
+
+
+
+
+
+
+
+function promoSort() { promoStatus(); }
+
+
+
+
+
+function promoTerlihat() { promoStatus(); }
+
+
+
+
+
+
+
+
+
+function vPromo() { promoStatus(); promoTerlihat(); }
+
+
+function filChip() { esc(); head(); promoModal(); ic(); stat(); promoStatus(); promoTipe(); promoDetail(); promoPeriode(); promoSisa(); pill(); hapusPromo(); kosong(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoDetail() { promoStatus(); promoTipe(); }
+
+
+function baris() { esc(); showModal(); ic(); pill(); promoSisa(); promoPeriode(); togglePromo(); promoModal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoModal() { sesi(); esc(); showModal(); ic(); f(); hapusPromo(); simpanPromo(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanPromo() { g(); toast(); promoStatus(); uid(); sesi(); save(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function togglePromo() { save(); render(); $(); promoDetail(); toast(); }
+
+
+
+
+
+function hapusPromo() { save(); render(); toast(); }
+
 
 
 
@@ -3679,7 +3950,23 @@ function cari() { bukaProject(); taskModal(); poModal(); coordModal(); $(); }
 
 
 
-function showModal() { $(); taskModal(); render(); barisRequest(); nomoriBarisReq(); ic(); adminModul(); toast(); approverSets(); uid(); save(); sinkronRoster(); cetakIdentitas(); }
+function showModal() { $(); taskModal(); render(); vPromo(); barisRequest(); nomoriBarisReq(); ic(); adminModul(); toast(); approverSets(); uid(); save(); sinkronRoster(); cetakIdentitas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

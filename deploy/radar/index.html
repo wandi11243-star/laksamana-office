@@ -597,7 +597,14 @@ select.finp{cursor:pointer;appearance:none;padding-right:30px;
 var SUMBER = [
   {id:'mkt', nama:'Marketing',  url:'../marketing-api-mysql/api.php', href:'../marketing/'},
   {id:'evt', nama:'Event',      url:'../event-api-mysql/api.php',     href:'../event/'},
-  {id:'rsv', nama:'Reservasi',  url:'../reservasi-api-mysql/api.php', href:'../reservasi/'}
+  {id:'rsv', nama:'Reservasi',  url:'../reservasi-api-mysql/api.php', href:'../reservasi/'},
+  /* BD OS — dipakai HANYA untuk daftar promo (tab Promo). Sengaja tidak ikut
+     satukan(): BD tidak punya acara bertanggal yang setara event/reservasi,
+     dan memaksanya masuk AGENDA akan mencemari kalender terpadu dengan baris
+     yang bukan acara. Kalau backend BD mati, yang kosong cuma tab Promo —
+     pita merahnya sudah menyebutkan namanya, dan tiga sumber lain tetap
+     jalan seperti biasa (lihat muat()). */
+  {id:'bd',  nama:'BD OS',      url:'../bd-api-mysql/api.php',        href:'../bd/'}
 ];
 /* PENDEK{} dan pendek() DIHAPUS, tidak sekadar tidak dipakai. Selama masih
    ada, cepat atau lambat ia akan dipanggil lagi di tempat baru dan
@@ -625,7 +632,7 @@ var SUMBER = [
    lihat fbFormats() di bawah. */
 var FB_FORMATS_DEFAULT = ['Prasmanan','Set Menu','Coffee Break','Nasi Kotak'];
 
-var D = {mkt:null, evt:null, rsv:null};     // data mentah per sumber
+var D = {mkt:null, evt:null, rsv:null, bd:null};   // data mentah per sumber
 var GAGAL = [];                              // sumber yang tidak bisa dihubungi
 var AGENDA = [];                             // hasil penyatuan
 var page = 'radar';
@@ -694,7 +701,8 @@ function ico(n){
     star:'<path d="M12 3l2.6 5.5 6 .8-4.3 4.2 1 6-5.3-2.9L6.7 19.5l1-6L3.4 9.3l6-.8z"/>',
     book:'<path d="M4 5a2 2 0 012-2h13v18H6a2 2 0 01-2-2z"/><path d="M8 7h8M8 11h6"/>',
     // Dipakai saklar grid/tabel di tab Event & Reservasi.
-    list:'<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>'
+    list:'<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/>',
+    tag:'<path d="M20.6 13.4 12 22l-9-9V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.4"/>'
   };
   return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">'+(p[n]||'')+'</svg>';
 }
@@ -2205,11 +2213,150 @@ function bukaDrw(){ $('#drw').classList.add('on'); $('#scrim').classList.add('on
    memang dibaca saat menyiapkan satu acara.
 
    Alamat lama '#koordinasi' otomatis jatuh ke Radar lewat penjaga di go(). */
+/* ---------- PROMO (baca dari modul BD OS) ----------
+   Radar hanya MEMBACA, seperti seluruh isi modul ini. Yang mendaftarkan dan
+   menyunting promo adalah BD OS → Promotion; di sini isinya cuma ditampilkan
+   supaya seluruh kru tahu promo apa yang sedang dan akan berjalan tanpa perlu
+   diberi akses ke modul BD.
+
+   Yang ditampilkan SENGAJA hanya "Berlangsung" dan "Akan Datang". Promo yang
+   sudah berakhir maupun yang sedang dijeda tidak berlaku hari ini, dan
+   menampilkannya di papan yang dibaca sekilas oleh kru lantai akan membuat
+   tamu dijanjikan promo yang tidak bisa ditebus. Jumlahnya tetap disebut di
+   kaki daftar supaya daftar yang pendek tidak terbaca sebagai data yang hilang.
+
+   Status DIHITUNG di sini dari tanggal, tidak dibaca dari field tersimpan —
+   sama seperti di BD. Status yang tersimpan akan basi tiap tengah malam, dan
+   tidak ada penjadwal di hosting ini yang bisa diandalkan memperbaruinya.
+
+   Peta label di bawah HARUS sepadan dengan PROMO_TIPE di deploy/bd/index.html.
+   Kalau ada tipe baru di sana yang belum ada di sini, barisnya TETAP tampil
+   dengan kunci mentahnya — bukan hilang. Promo yang lenyap dari papan tanpa
+   satu pun pesan adalah kegagalan yang tidak terlihat dari layar, dan itu
+   kelas bug yang paling mahal di repo ini. */
+var PROMO_TIPE={
+  partner_kartu:  {l:'Kartu / Komunitas',    i:'💳'},
+  partner_sekolah:{l:'Sekolah / Organisasi', i:'🎓'},
+  tiktok:         {l:'TikTok / Voucher',     i:'🎵'},
+  in_house:       {l:'Promo Laksamana',      i:'🍽️'},
+  happy_hour:     {l:'Happy Hour',           i:'🕒'},
+  event:          {l:'Event / Musiman',      i:'🎉'}
+};
+function promoTipe(k){ return PROMO_TIPE[k]||{l:String(k||'Lainnya'),i:'🏷️'}; }
+function promoHari(){ var d=new Date(); d.setHours(0,0,0,0); return d; }
+function promoTgl(s){ if(!s) return null; var d=new Date(s+'T00:00:00'); return isNaN(d)?null:d; }
+function promoStatus(p){
+  if(p.paused) return 'paused';
+  var t=promoHari(), a=promoTgl(p.mulai), b=promoTgl(p.selesai);
+  if(a && t<a) return 'upcoming';
+  if(b && t>b) return 'ended';
+  return 'running';
+}
+function promoSisa(p){
+  var t=promoHari(), a=promoTgl(p.mulai), b=promoTgl(p.selesai), st=promoStatus(p), H=86400000;
+  if(st==='upcoming'){ var n=Math.ceil((a-t)/H); return n<=1?'Mulai besok':'Mulai dalam '+n+' hari'; }
+  if(st==='running'&&b){ var m=Math.ceil((b-t)/H); return m<=0?'Berakhir hari ini':'Sisa '+m+' hari'; }
+  return '';
+}
+function promoTglPendek(s){
+  var d=promoTgl(s); if(!d) return '—';
+  return d.getDate()+' '+BULAN[d.getMonth()].slice(0,3);
+}
+function promoSemua(){
+  var v=D.bd&&D.bd.promos;
+  return Array.isArray(v)?v:[];
+}
+var fPromo={q:'',tipe:''};
+function vPromo(){
+  var h=pitaGagal();
+  var semua=promoSemua();
+  var aktif=semua.filter(function(p){var s=promoStatus(p);return s==='running'||s==='upcoming';});
+  var arsip=semua.length-aktif.length;
+
+  var list=aktif.slice();
+  if(fPromo.tipe) list=list.filter(function(p){return (p.tipe||'')===fPromo.tipe;});
+  var q=fPromo.q.trim().toLowerCase();
+  if(q) list=list.filter(function(p){
+    return [p.nama,p.benefit,p.partner,p.kode,p.deskripsi,p.outlet].join(' ').toLowerCase().indexOf(q)>-1;
+  });
+  /* Berlangsung dulu, lalu yang paling dekat mulainya. Urutan yang sama
+     dengan daftar di BD — dua papan yang menampilkan data sama dengan urutan
+     berbeda membuat orang mengira salah satunya belum tersegarkan. */
+  list.sort(function(a,b){
+    var sa=promoStatus(a)==='running'?0:1, sb=promoStatus(b)==='running'?0:1;
+    if(sa!==sb) return sa-sb;
+    return String(a.mulai||'').localeCompare(String(b.mulai||''));
+  });
+
+  var nRun=aktif.filter(function(p){return promoStatus(p)==='running';}).length;
+  var nUp=aktif.length-nRun;
+
+  h+='<div class="grid g3" style="margin-bottom:15px">'+
+    stat('Berlangsung', nRun, 'bisa ditawarkan hari ini','')+
+    stat('Akan datang', nUp, 'sudah dijadwalkan','tl')+
+    stat('Tipe promo', (function(){var s={};aktif.forEach(function(p){s[p.tipe||'?']=1;});return Object.keys(s).length;})(),
+         'kategori berbeda sedang aktif','se')+
+  '</div>';
+
+  h+='<div class="filters">'+
+    '<input class="finp" placeholder="Cari promo, partner, kode…" value="'+esc(fPromo.q)+
+      '" oninput="APP.fPromo(\'q\',this.value)" style="min-width:220px">'+
+    '<select class="finp" onchange="APP.fPromo(\'tipe\',this.value)"><option value="">Semua tipe</option>'+
+      Object.keys(PROMO_TIPE).map(function(k){
+        return '<option value="'+k+'"'+(fPromo.tipe===k?' selected':'')+'>'+PROMO_TIPE[k].i+' '+esc(PROMO_TIPE[k].l)+'</option>';
+      }).join('')+'</select>'+
+  '</div>';
+
+  if(!list.length){
+    h+='<div class="card"><div class="empty">'+
+      (semua.length
+        ? (aktif.length ? '<b>Tidak ada promo yang cocok</b>Ubah kata pencarian atau penyaring tipenya.'
+                        : '<b>Tidak ada promo yang berlaku saat ini</b>Semua promo yang terdaftar sudah berakhir atau sedang dijeda.')
+        : '<b>Belum ada promo terdaftar</b>Promo didaftarkan tim BD di modul BD OS → Promotion, dan langsung muncul di sini.')+
+      '</div></div>';
+  } else {
+    h+='<div class="grid g3">'+list.map(function(p){
+      var st=promoStatus(p), tp=promoTipe(p.tipe);
+      var lbl=st==='running'?['Berlangsung','p-go']:['Akan Datang','p-teal'];
+      var jam=(p.jamMulai||p.jamSelesai)?((p.jamMulai||'—')+'–'+(p.jamSelesai||'—')):'';
+      var kuota=(+p.kuota>0)?((+p.terpakai||0)+'/'+(+p.kuota)+' terpakai'):'';
+      var baris=function(ik,v){ return v?'<div class="kv"><span>'+ik+'</span><b>'+esc(v)+'</b></div>':''; };
+      return '<div class="card" style="padding:15px 17px">'+
+        '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:8px">'+
+          '<div style="font-size:15px;font-weight:700;line-height:1.3">'+tp.i+' '+esc(p.nama)+'</div>'+
+          '<span class="pill '+lbl[1]+'">'+lbl[0]+'</span></div>'+
+        (p.benefit?'<div style="font-weight:600;margin-bottom:6px">'+esc(p.benefit)+'</div>':'')+
+        (p.deskripsi?'<div class="muted" style="font-size:12.5px;margin-bottom:9px">'+esc(p.deskripsi)+'</div>':'')+
+        '<div class="pill-row" style="margin-bottom:8px">'+
+          '<span class="chip">'+esc(promoTglPendek(p.mulai))+' → '+esc(promoTglPendek(p.selesai))+'</span>'+
+          '<span class="chip">'+esc(promoSisa(p))+'</span>'+
+          (p.kode?'<span class="chip">kode '+esc(p.kode)+'</span>':'')+
+        '</div>'+
+        baris('🏷️',esc(tp.l))+
+        baris('🕒',jam+(p.hari?(jam?' · ':'')+p.hari:''))+
+        baris('📍',p.outlet)+
+        baris('🤝',p.partner)+
+        baris('👤',p.lmPIC)+
+        baris('🎟️',kuota)+
+        (p.ketentuan?'<details style="margin-top:9px"><summary class="muted" style="cursor:pointer;font-size:12px">Ketentuan</summary>'+
+          '<div class="muted" style="font-size:12px;white-space:pre-wrap;margin-top:6px">'+esc(p.ketentuan)+'</div></details>':'')+
+      '</div>';
+    }).join('')+'</div>';
+  }
+
+  h+='<div class="muted" style="font-size:12px;margin-top:12px">'+
+     'Menampilkan promo yang <b>berlangsung</b> dan <b>akan datang</b> saja'+
+     (arsip?' · '+arsip+' promo lain sudah berakhir atau sedang dijeda':'')+
+     ' · didaftarkan tim BD di <b>BD OS → Promotion</b>.</div>';
+  return h;
+}
 var NAV=[['radar','Radar','radar'],['kalender','Kalender Terpadu','cal'],
-         ['agenda','Event','star'],['reservasi','Reservasi','book']];
+         ['agenda','Event','star'],['reservasi','Reservasi','book'],
+         ['promo','Promo','tag']];
 var JUDUL={radar:['Pusat Koordinasi','Radar'],kalender:['Tiga Modul, Satu Jadwal','Kalender Terpadu'],
            agenda:['Marketing + Event','Daftar Event'],reservasi:['Dari Modul Reservasi','Reservasi'],
-           detail:['Detail Lengkap Event','Detail Event']};
+           detail:['Detail Lengkap Event','Detail Event'],
+           promo:['Dari BD OS','Promo Berjalan & Akan Datang']};
 function render(){
   /* Bagian "Modul Sumber" (tautan keluar ke Marketing/Event/Reservasi) DIHAPUS.
      Radar berdiri sendiri — semua detail dibaca di sini, tidak melempar kru ke
@@ -2236,6 +2383,7 @@ function render(){
   else if(page==='agenda') v.innerHTML=vAgendaList();
   else if(page==='reservasi') v.innerHTML=vResList();
   else if(page==='detail') v.innerHTML=vDetailEvent();
+  else if(page==='promo') v.innerHTML=vPromo();
   /* Halaman tak dikenal jatuh ke Radar, tidak dibiarkan kosong. Sejak tab
      Koordinasi dibuang, '#koordinasi' yang masih tersimpan sebagai pintasan
      di peramban orang akan mendarat di sini — dan layar putih tanpa satu pun
@@ -2264,6 +2412,19 @@ function segarSenyap(){
 /* ---------- APP ---------- */
 var APP={
   go:function(p){ page=p; render(); },
+  /* Penyaring tab Promo. Kotak pencarian TIDAK menggambar ulang lewat
+     render() penuh: render() membangun ulang seluruh halaman termasuk kotak
+     itu sendiri, dan fokus kursor lompat keluar pada huruf pertama yang
+     diketik. Hanya isi #view yang diganti, dan fokus dikembalikan ke kotaknya
+     berikut posisi kursornya. */
+  fPromo:function(k,v){
+    fPromo[k]=v;
+    if(k!=='q'){ render(); return; }
+    var el=document.activeElement, pos=el&&el.selectionStart;
+    $('#view').innerHTML=vPromo();
+    var baru=$('#view').querySelector('.finp');
+    if(baru){ baru.focus(); try{ baru.setSelectionRange(pos,pos); }catch(e){} }
+  },
   calNav:function(n){ var m=calCur.m+n,y=calCur.y; if(m<0){m=11;y--;} if(m>11){m=0;y++;} calCur={y:y,m:m}; render(); },
   calNow:function(){ var d=new Date(); calCur={y:d.getFullYear(),m:d.getMonth()}; render(); },
   detailPenuh:function(sum,id){ detailRef={sumber:sum,id:String(id)}; page='detail'; render(); },
