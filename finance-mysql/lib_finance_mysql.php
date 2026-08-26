@@ -102,14 +102,15 @@ function pastikan_tabel() {
          REFERENCES `kk_pos`(`id`)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 
-  /* Hak akses per sub-menu per kru (25 Agustus 2026). Barisnya SELISIH dari
-     bawaan — yang tidak disetel khusus tidak punya baris di sini sama sekali,
-     jadi halaman yang lahir besok otomatis terbuka untuk semua orang alih-alih
-     tertinggal terkunci di pemasangan yang matriksnya pernah disimpan.
+  /* Hak akses per sub-menu (25 Agustus 2026). `kunci` = ROLE ('staf',
+     'manajemen', 'viewer'), bukan orang: hak yang ditempel ke orang harus
+     disetel ulang tiap ada kru baru, dan tidak ada satu tempat pun yang bisa
+     menjawab "apa sebenarnya beda hak staf dan manajemen".
 
-     `kunci` = id user Office ('#<id>'), bukan namanya: HRD membetulkan ejaan
-     nama tanpa memberi tahu siapa pun, dan matriks yang terikat nama akan
-     diam-diam berhenti berlaku untuk orang yang namanya diperbaiki.
+     Barisnya SELISIH dari bawaan — yang tidak disetel khusus tidak punya baris
+     di sini sama sekali, jadi halaman yang lahir besok otomatis memakai bawaan
+     barunya alih-alih tertinggal terkunci di pemasangan yang matriksnya pernah
+     disimpan.
 
      UNIQUE (kunci,halaman) menahan bug diam-diam: dua baris untuk sel yang
      sama akan terbaca bergantian tergantung urutan baris, dan tidak ada layar
@@ -121,6 +122,24 @@ function pastikan_tabel() {
        `halaman` VARCHAR(40)  NOT NULL,
        `tingkat` TINYINT      NOT NULL DEFAULT 2,
        UNIQUE KEY `uq_akses` (`kunci`,`halaman`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  /* Versi pertama matriks ini (yang hidup satu sore pada 25 Agustus 2026)
+     memakai kunci per ORANG: '#<id user>' atau '@<nama>'. Barisnya dibuang di
+     sini, bukan lewat berkas migrasi — migrasi tidak ikut ter-deploy dan
+     produksi rutin tertinggal. Kalau dibiarkan, isinya tidak pernah terbaca
+     lagi (frontend mencarinya per role) tapi tetap duduk di tabel dan akan
+     membingungkan siapa pun yang membacanya lewat phpMyAdmin. */
+  $pdo->exec("DELETE FROM `kk_akses` WHERE `kunci` LIKE '#%' OR `kunci` LIKE '@%'");
+
+  /* Role tiap kru. Satu baris per orang, dan HANYA untuk yang rolenya pernah
+     ditentukan — yang tidak ada di sini dihitung sebagai role bawaan ('staf'
+     di frontend). Menyimpan baris untuk semua orang berarti kru yang baru
+     diberi akses modul di Office tidak punya baris, dan perilakunya jadi
+     bergantung pada apakah ada yang ingat membuka halaman ini. */
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `kk_peran` (
+       `kunci` VARCHAR(80) NOT NULL PRIMARY KEY,
+       `peran` VARCHAR(24) NOT NULL
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
 
   seed_awal();
@@ -192,7 +211,7 @@ function baca_semua() {
   foreach ($kat as $i => $k) { $kat[$i]['id'] = (int)$k['id']; $kat[$i]['urut'] = (int)$k['urut']; $kat[$i]['aktif'] = ((int)$k['aktif']) === 1; }
 
   return array('pos' => $pos, 'kategori' => $kat, 'trx' => array_values($trx),
-               'akses' => akses_baca());
+               'akses' => akses_baca(), 'peran' => peran_baca());
 }
 
 /* ------------------------------------------------- hak akses sub-menu */
@@ -210,6 +229,44 @@ function akses_baca() {
     $out[$k][(string)$r['halaman']] = (int)$r['tingkat'];
   }
   return (object)$out;
+}
+
+/* Role tiap kru: {'#<id user>': 'staf'|'manajemen'|'viewer'}. Objek, bukan
+   array — alasannya sama dengan akses_baca(). */
+function peran_baca() {
+  $out = array();
+  $st = db()->query('SELECT `kunci`,`peran` FROM `kk_peran`');
+  foreach ($st->fetchAll() as $r) $out[(string)$r['kunci']] = (string)$r['peran'];
+  return (object)$out;
+}
+
+/* SATU orang sekali panggil, bukan seluruh daftar sekaligus. Penetapan role
+   adalah keputusan tentang satu orang; mengirimnya bersama seluruh daftar
+   membuat dua admin yang menyetel dua orang berbeda di menit yang sama saling
+   menghapus, dan tidak ada satu pun pesan yang menyebutkannya.
+
+   Nama role TIDAK diperiksa di sini terhadap daftar tertentu: daftarnya milik
+   frontend, dan menyalinnya ke PHP berarti menambah role baru harus menyunting
+   dua tempat — yang kelupaan akan menolak penyimpanan dengan galat yang tidak
+   menyebut sebabnya. Yang dijaga cuma bentuknya. Nilai yang tidak dikenal
+   dibaca frontend sebagai role bawaan, jadi gagalnya aman. */
+function peran_simpan($in) {
+  pastikan_tabel();
+  $kunci = isset($in['kunci']) ? substr(trim((string)$in['kunci']), 0, 80) : '';
+  $peran = isset($in['peran']) ? substr(trim((string)$in['peran']), 0, 24) : '';
+  if ($kunci === '') throw new Exception('kunci kru kosong');
+  if ($peran === '') {
+    /* Role kosong = kembalikan ke bawaan. Barisnya DIHAPUS, bukan diisi
+       'staf': baris yang ada berarti "pernah ditentukan", dan itu bedanya
+       dengan kru yang memang belum pernah disentuh. */
+    $d = db()->prepare('DELETE FROM `kk_peran` WHERE `kunci`=:kunci');
+    $d->execute(array(':kunci' => $kunci));
+  } else {
+    $q = db()->prepare('INSERT INTO `kk_peran` (`kunci`,`peran`) VALUES (:kunci,:peran)
+                        ON DUPLICATE KEY UPDATE `peran`=VALUES(`peran`)');
+    $q->execute(array(':kunci' => $kunci, ':peran' => $peran));
+  }
+  return peran_baca();
 }
 
 /* Seluruh matriks ditulis sekali jalan (hapus lalu isi ulang), bukan per sel.

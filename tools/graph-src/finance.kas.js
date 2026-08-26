@@ -761,7 +761,53 @@ function bacaSesi() {  }
 
 
 
-function sayaAdmin() { bacaSesi(); }
+function sayaAdmin() { bacaSesi(); simpanAkses(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -813,11 +859,24 @@ function aksPeta() {  }
 
 
 
+function peranPeta() {  }
 
 
 
+function peranUser() { peranPeta(); }
+
+
+
+
+
+
+function peranSaya() { sayaAdmin(); peranUser(); aksKunci(); }
 function aksBawaan() {  }
-function aksTingkat() { aksBawaan(); aksPeta(); }
+
+
+
+
+function aksTingkat() { aksPeta(); aksBawaan(); }
 
 
 
@@ -834,7 +893,12 @@ function aksTingkat() { aksBawaan(); aksPeta(); }
 
 
 
-function tingkatSaya() { aksTingkat(); aksKunci(); sayaAdmin(); go(); }
+
+
+
+
+
+function tingkatSaya() { aksTingkat(); peranSaya(); go(); }
 
 
 
@@ -3893,7 +3957,25 @@ function muatAkses() { viewAkses(); }
 
 
 
-function viewAkses() { muatAkses(); sayaAdmin(); aksKunci(); }
+function viewAkses() { muatAkses(); sayaAdmin(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sel() { aksTingkat(); cyclePerm(); }
 
 
 
@@ -3915,7 +3997,17 @@ function viewAkses() { muatAkses(); sayaAdmin(); aksKunci(); }
 
 
 
-function sel() { aksTingkat(); cyclePerm(); viewAkses(); simpanAkses(); }
+
+
+
+function opsiPeran() { viewAkses(); peranSaya(); sel(); simpanAkses(); aksKunci(); peranUser(); setPeran(); }
+
+
+
+
+
+
+
 
 
 
@@ -3985,11 +4077,40 @@ function cyclePerm() {  }
 
 
 
+
+
+
+
+function setPeran() { sayaAdmin(); viewAkses(); peranSaya(); kkApi(); pasangMenu(); bolehLihat(); go(); halPertamaBoleh(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function simpanAkses() { sayaAdmin(); aksTingkat(); aksBawaan(); kkApi(); pasangMenu(); bolehLihat(); go(); halPertamaBoleh(); viewAkses(); save(); }
-
-
-
-
 
 
 

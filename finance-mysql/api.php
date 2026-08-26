@@ -186,6 +186,13 @@ try {
     case 'simpanAkses':
       keluar(array('ok' => true, 'data' => akses_simpan($body)));
 
+    /* Role satu kru. Sengaja terpisah dari simpanAkses: yang satu mengubah
+       aturan untuk semua orang di role itu, yang lain memindahkan satu orang
+       dari satu role ke role lain. Menggabungkannya berarti memindahkan satu
+       orang ikut mengirim ulang seluruh matriks. */
+    case 'simpanPeran':
+      keluar(array('ok' => true, 'data' => peran_simpan($body)));
+
     case 'invSetting':
       require_once __DIR__ . '/lib_invoice.php';
       keluar(array('ok' => true, 'data' => inv_setting_simpan(
