@@ -457,7 +457,12 @@ function simpan_rekap($data) {
           if (array_key_exists($b, $r['mdrManual'])) { unset($r['mdrManual'][$b]); $ubah++; }
           continue;
         }
+        /* Dijepit ke >= 0, sama seperti di layar. MDR adalah POTONGAN; nilai
+           negatif tidak punya arti, dan seluruh tampilannya memakai bentuk
+           «−Rp <angka positif>» — angka negatif yang lolos ke sini akan
+           membuat bentuk itu berbohong di setiap layar yang membacanya. */
         $baru = kp_num($v);
+        if ($baru < 0) $baru = 0;
         $ada  = array_key_exists($b, $r['mdrManual']);
         if (!$ada || kp_num($r['mdrManual'][$b]) !== $baru) $ubah++;
         $r['mdrManual'][$b] = $baru;

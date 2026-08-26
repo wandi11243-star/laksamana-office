@@ -1849,6 +1849,23 @@ function rkRingkas() { rkHariBulan(); rkHitung(); rkTanpaSvcTax(); rkTanda(); rk
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function rkKartu() {  }
 
 
@@ -2322,7 +2339,16 @@ function rkSetTanda() { rkUbah(); rkSegarSimpan(); }
 
 
 
+
+
+
+
+
 function rkMdrSel() { fmtRpInput(); rkKetikMdr(); }
+
+
+
+
 
 
 
@@ -2351,6 +2377,10 @@ function rkLebihSel() {  }
 
 
 function rkKetikMdr() { rkUbah(); rkSegarTurunan(); }
+
+
+
+
 
 
 
