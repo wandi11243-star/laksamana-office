@@ -1745,12 +1745,28 @@ function rkHitung(tgl){
   const g={};
   RK_GRUP.forEach(x=>{
     const pos=sisi(x.pos,'pos'), kotor=sisi(x.akt,'actual');
-    let akt=kotor, mdr=0, diketik=false;
+    let akt=kotor, mdr=0, diketik=false, lebih=null;
     if(x.mdr){
       const ketik=rkAktInput(tgl,x.mdr);
       diketik = ketik!==null;
       akt = diketik ? ketik : (kotor - rkMdr(tgl,x.mdr));
-      mdr = kotor - akt;
+      lebih = rkLebih(tgl,x.mdr);
+      /* HUBUNGAN YANG BERLAKU DI SELURUH PANEL (26 Agustus 2026):
+             aktual masuk = aktual kotor + dana lebih − MDR
+         jadi MDR = kotor + lebih − akt.
+
+         Sebelum ada dana lebih, sukunya nol dan rumusnya persis seperti dulu
+         (kotor − akt), jadi tidak ada satu hari lama pun yang angkanya
+         bergeser. Yang berubah cuma: kelebihan sekarang BISA DIBAGI antara
+         "input kasir kurang" (dana lebih) dan "potongan bank" (MDR), alih-alih
+         seluruhnya jatuh ke MDR sebagai angka negatif yang tidak punya arti.
+
+         Mengisi dana lebih SEBAGIAN memang menyisakan MDR negatif — dan itu
+         benar, bukan bug: sisanya memang belum dijelaskan. Dulu MDR-nya
+         dipaksa jadi '—' begitu kotak dana lebih terisi, dan itu menyembunyikan
+         justru bagian yang belum ada penjelasannya (dilaporkan user
+         26 Agustus 2026). */
+      mdr = kotor + (lebih||0) - akt;
     }
     /* Kelompok tanpa sisi POS tidak punya selisih — bukan "selisih nol".
        Menulisnya nol membuat kolomnya terlihat sudah dicocokkan padahal tidak
@@ -1761,7 +1777,7 @@ function rkHitung(tgl){
        angka yang diketik orang (lihat rkLebih). */
     const lebihOto = x.mdr ? Math.max(0, akt-kotor) : 0;
     g[x.k]={pos,kotor,mdr,akt,diketik,punyaPos:x.pos.length>0,
-            lebihOto, lebih:(x.mdr?rkLebih(tgl,x.mdr):null),
+            lebihOto, lebih,
             selisih:x.pos.length?pos-akt:null,
             adjust:x.pos.length?pos-akt:akt};
   });
@@ -1770,11 +1786,20 @@ function rkHitung(tgl){
      "Total MDR" bisa tidak cocok dengan jumlah kolom di bawahnya — dan yang
      mencari sebabnya akan mengira uangnya yang hilang. */
   const mdrTotal=RK_GRUP.reduce((s,x)=>s+(x.mdr?g[x.k].mdr:0),0);
+  const lebihTotal=RK_GRUP.reduce((s,x)=>s+(x.mdr?(g[x.k].lebih||0):0),0);
   const setoran=RK_PAY.reduce((s,k)=>s+rkPay(r,k,'actual'),0);
   const totPos=RK_PAY.reduce((s,k)=>s+rkPay(r,k,'pos'),0);
-  const rekapAkt=setoran-mdrTotal;
+  /* Dana lebih DITAMBAHKAN kembali di sini, dan itu bukan koreksi tambal:
+     tanpa suku ini, mengisi kotak Dana Lebih akan MENURUNKAN Rekap Aktual
+     sebesar angka yang baru saja diisi — padahal uangnya justru ada di
+     rekening. Dengan suku ini, rekapAkt selalu sama dengan jumlah aktual yang
+     benar-benar masuk, BERAPA PUN pembagian antara MDR dan dana lebih:
+       setoran − (kotor+lebih−akt) + lebih  =  akt
+     Artinya kotak Dana Lebih murni menjelaskan, tidak pernah menggeser uang —
+     dan Selisih harian pun tidak ikut berubah karenanya. */
+  const rekapAkt=setoran-mdrTotal+lebihTotal;
   const j=rkJual(tgl), bon=rkBon(tgl);
-  return {r,g,j,bon,mdrTotal,setoran,totPos,rekapAkt,jual:j.tagihan,
+  return {r,g,j,bon,mdrTotal,lebihTotal,setoran,totPos,rekapAkt,jual:j.tagihan,
           selisihTotal:j.tagihan-rekapAkt+bon.koreksi,
           comp:rkPay(r,'compliment','actual'), mdep:rkPay(r,'member_dep','actual'),
           vou:rkPay(r,'voucher','actual'), errCust:rkPay(r,'error_customer','actual'),
@@ -2143,8 +2168,11 @@ function rkHalInput(){
   </div>`;
   html+=`<div class="row-in">`
     +rkKartu('Dibayar Tamu',fmtRp(h.jual),`after tax &amp; service · ${esc(dateLabel(RK_TGL))}`,'accent')
-    +rkKartu('Rekap Aktual',`<span id="rk-akt">${fmtRp(h.rekapAkt)}</span>`,`setoran ${fmtRp(h.setoran)} − MDR`,'')
-    +rkKartu('Total MDR',`<span id="rk-mdr">${fmtRp(h.mdrTotal)}</span>`,'hitungan: Aktual kotor − Aktual masuk','')
+    /* Keterangan kartu ditulis sebagai RUMUS, bukan angka yang ikut berubah:
+       rkSegarTurunan() cuma mengganti isi <span> nominalnya, jadi keterangan
+       yang memuat angka lain akan basi begitu ada yang mengetik. */
+    +rkKartu('Rekap Aktual',`<span id="rk-akt">${fmtRp(h.rekapAkt)}</span>`,`setoran ${fmtRp(h.setoran)} − MDR + dana lebih`,'')
+    +rkKartu('Total MDR',`<span id="rk-mdr">${fmtRp(h.mdrTotal)}</span>`,'hitungan: Aktual kotor + Dana lebih − Aktual masuk','')
     +rkKartu('Selisih',`<span id="rk-sel">${fmtRp(h.selisihTotal)}</span>`,
         'Dibayar Tamu − Rekap Aktual'+(h.bon.ada?` + koreksi bon ${fmtSel(h.bon.koreksi)}`:''),'')
     +`</div>`;
@@ -2181,7 +2209,11 @@ function rkHalInput(){
       "pas" per kelompok — barangnya keluar dan omsetnya diakui, tapi uangnya belum masuk — sehingga angka di kolom itu terbaca seolah
       MDR-nya yang salah. Pencocokan hari tetap ada di kartu <b>Selisih</b> di atas, yang sudah memperhitungkan koreksi bon.
       <br><b>Dana lebih</b> muncul hanya kalau uang yang masuk rekening melampaui yang tercatat di Report Daily — isi berapa lebihnya
-      supaya kelebihan itu punya catatan, bukan cuma jadi MDR merah tanpa keterangan.</div>
+      supaya kelebihan itu punya catatan, bukan cuma jadi MDR merah tanpa keterangan.
+      Kelebihannya <b>boleh dibagi</b>: yang berlaku adalah
+      <b>Aktual masuk = Aktual kotor + Dana lebih − MDR</b>, jadi mengisi Dana lebih sebagian akan menyisakan MDR merah sebesar yang
+      <em>belum</em> dijelaskan — dan itu memang benar, bukan galat. Berapa pun pembagiannya, <b>Rekap Aktual &amp; Selisih tidak bergeser
+      sepeser pun</b>: kotak ini menjelaskan uang, tidak memindahkannya.</div>
     <div class="tbl-wrap kkd"><table><thead><tr>
       <th>Kelompok</th><th class="num">POS</th><th class="num">Aktual (kotor)</th>
       <th class="num" style="width:140px">Aktual masuk</th><th class="num">MDR (hitungan)</th>
@@ -2289,8 +2321,16 @@ function rkMdrSel(g,x){
      Membuatnya netral tanpa syarat akan menghapus satu-satunya tanda salah
      ketik yang dipunyai layar ini. */
   if(x.mdr<0){
-    if(x.lebih!==null) return '<span style="color:var(--muted-2)" title="Kelebihannya sudah dicatat di kolom Dana lebih">—</span>';
-    return '<span style="color:var(--danger)" title="Aktual lebih besar daripada Aktual kotor — periksa angkanya, atau catat kelebihannya di kolom Dana lebih">+'+rkRp0(-x.mdr)+'</span>';
+    /* Sisa yang BELUM dijelaskan. Sebelum 26 Agustus 2026 sel ini dipaksa jadi
+       '—' begitu kotak Dana Lebih terisi — walau isinya cuma sebagian — dan
+       itu justru menyembunyikan bagian yang belum ada penjelasannya.
+       Dilaporkan user: "dana lebihnya aku isi cuma dikit, tapi MDR-nya malah
+       '—'". Sekarang selalu angka: yang tersisa merah sampai benar-benar habis
+       dibagi antara dana lebih dan potongan bank. */
+    const ket=(x.lebih!==null)
+      ? 'Masih ada '+fmtRp(-x.mdr)+' yang belum dijelaskan — tambahkan ke Dana lebih, atau betulkan Aktual masuk'
+      : 'Aktual lebih besar daripada Aktual kotor — periksa angkanya, atau catat kelebihannya di kolom Dana lebih';
+    return '<span style="color:var(--danger)" title="'+esc(ket)+'">+'+rkRp0(-x.mdr)+'</span>';
   }
   return '−'+rkRp0(x.mdr);
 }

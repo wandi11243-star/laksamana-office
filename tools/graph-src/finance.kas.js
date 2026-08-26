@@ -1786,6 +1786,31 @@ function sisi() { rkPay(); rkAktInput(); rkMdr(); rkLebih(); rkJual(); rkBon(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function rkTanpaSvcTax() {  }
 
 function rkHariBulan() { daysInMonth(); }
@@ -2128,7 +2153,14 @@ function rkHapusSetoran() { rkSetoranSemua(); rkSetor(); rkKirim(); }
 
 
 
-function rkHalInput() { rkHitung(); rkPilihTgl(); rkGeser(); todayISO(); rkKartu(); dateLabel(); rkTanpaSvcTax(); rkPanelBon(); rkSetoranHari(); rkCash(); rkSetor(); rkGantiTab(); fmtRpInput(); rkKetikAkt(); rkMdrSel(); rkLebihSel(); rkTanda(); rkSetTanda(); rkSimpan(); }
+function rkHalInput() { rkHitung(); rkPilihTgl(); rkGeser(); todayISO(); rkKartu(); dateLabel(); rkSegarTurunan(); rkTanpaSvcTax(); rkPanelBon(); rkSetoranHari(); rkCash(); rkSetor(); rkGantiTab(); fmtRpInput(); rkKetikAkt(); rkMdrSel(); rkLebihSel(); rkTanda(); rkSetTanda(); rkSimpan(); }
+
+
+
+
+
+
+
 
 
 
@@ -2279,6 +2311,14 @@ function rkSetTanda() { rkUbah(); rkSegarSimpan(); }
 
 
 function rkMdrSel() {  }
+
+
+
+
+
+
+
+
 
 
 
