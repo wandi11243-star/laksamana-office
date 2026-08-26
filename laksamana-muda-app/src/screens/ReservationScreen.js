@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable, Modal } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -11,19 +11,53 @@ import { timeSlots, rupiah } from '../data/mockData';
 import { layout, SEAT_W, SEAT_H, ZONE, FIXTURE_STYLE, takenTables } from '../data/venueLayout';
 import ScreenHeader from '../components/ScreenHeader';
 
-// Buat 7 hari ke depan mulai hari ini.
+/*
+  Deret tanggal untuk pemilih di atas layar.
+
+  DULU: 7 hari mulai dari `new Date(2026, 7, 20)` — tanggal prototype yang
+  dipatok mati. Akibatnya, begitu tanggal sungguhan melewatinya, seluruh
+  pilihan berada di MASA LALU dan hari ini tidak ada di daftar sama sekali.
+  Itu yang dilaporkan user sebagai "masih terbatas" (26 Agustus 2026): pada
+  27 Agustus, yang tampil cuma 20–26 Agustus.
+
+  SEKARANG: dihitung dari tanggal perangkat, dan sengaja MEMBENTANG KE DUA
+  ARAH — hari-hari sebelumnya ikut bisa dipilih, sesuai permintaan user.
+  Hari lampau dibiarkan bisa ditekan (bukan dimatikan) tapi ditandai redup;
+  yang mengisikan reservasi susulan memang perlu memilihnya, dan mematikannya
+  akan membuat kolom itu tidak bisa dipakai sama sekali untuk pencatatan
+  belakangan.
+*/
+const HARI_MUNDUR = 14;   // seberapa jauh ke belakang boleh dipilih
+const HARI_MAJU = 45;     // seberapa jauh ke depan
 function buildDays() {
   const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
   const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
   const out = [];
-  const base = new Date(2026, 7, 20); // 20 Agu 2026 (tanggal prototype)
-  for (let i = 0; i < 7; i++) {
-    const d = new Date(base);
-    d.setDate(base.getDate() + i);
-    out.push({ key: i, dow: days[d.getDay()], day: d.getDate(), mon: months[d.getMonth()], label: `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]}` });
+  const hariIni = new Date();
+  hariIni.setHours(0, 0, 0, 0);
+  for (let off = -HARI_MUNDUR; off <= HARI_MAJU; off++) {
+    const d = new Date(hariIni);
+    d.setDate(hariIni.getDate() + off);
+    out.push({
+      key: out.length,          // indeks array — dipakai sebagai dayIdx
+      off,                      // jarak hari dari hari ini (negatif = lampau)
+      lampau: off < 0,
+      iniHari: off === 0,
+      dow: days[d.getDay()],
+      day: d.getDate(),
+      mon: months[d.getMonth()],
+      // ISO dipakai kalau nanti layar ini menulis ke server; label untuk tampilan.
+      iso: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`,
+      label: `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`,
+    });
   }
   return out;
 }
+// Lebar satu kartu tanggal + jarak antarkartu — dipakai menggeser deret ke
+// posisi hari ini saat layar dibuka. Harus sama dengan styles.day.width dan
+// gap ScrollView-nya; kalau salah satu diubah, yang lain ikut.
+const DAY_W = 60;
+const DAY_GAP = 10;
 
 // Lebar kanvas denah (px). Koordinat asli 1600x1160 diskalakan ke lebar ini.
 // Kanvas lebih lebar dari layar HP -> di-scroll mendatar. Sama seperti modul
@@ -37,13 +71,28 @@ const takenSet = new Set(takenTables);
 
 export default function ReservationScreen({ navigation }) {
   const days = useMemo(buildDays, []);
+  // Pilihan awal = HARI INI, bukan elemen pertama: elemen pertama sekarang
+  // 14 hari yang lalu, dan membuka layar reservasi dengan tanggal lampau
+  // terpilih adalah cara paling mudah menghasilkan booking bertanggal salah.
+  const idxHariIni = useMemo(() => Math.max(0, days.findIndex((d) => d.iniHari)), [days]);
   const { addReservation } = useApp();
-  const [dayIdx, setDayIdx] = useState(0);
+  const [dayIdx, setDayIdx] = useState(idxHariIni);
+  const dayScroll = useRef(null);
   const [time, setTime] = useState('19:00');
   const [pax, setPax] = useState(2);
   const [tables, setTables] = useState([]); // id meja terpilih
   const [confirm, setConfirm] = useState(false);
   const [done, setDone] = useState(false);
+
+  // Geser deret ke hari ini saat layar dibuka. Tanpa ini, yang tampil pertama
+  // adalah 14 hari yang lalu — orangnya harus menggeser dulu sebelum bisa
+  // memilih tanggal yang wajar, dan itu persis keluhan "terbatas" versi lain.
+  const geserKeHari = (idx, animated) => {
+    const x = Math.max(0, idx * (DAY_W + DAY_GAP));
+    dayScroll.current?.scrollTo({ x, animated: !!animated });
+  };
+  useEffect(() => { const t = setTimeout(() => geserKeHari(idxHariIni, false), 0); return () => clearTimeout(t); }, [idxHariIni]);
+  const pilihHari = (idx) => { setDayIdx(idx); geserKeHari(idx, true); };
 
   const tableById = useMemo(() => {
     const m = {};
@@ -81,16 +130,49 @@ export default function ReservationScreen({ navigation }) {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 160 }}>
         {/* Tanggal */}
         <View style={styles.section}>
-          <Text style={styles.label}>Tanggal</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10 }}>
-            {days.map((d) => (
-              <Pressable key={d.key} style={[styles.day, dayIdx === d.key && styles.dayOn]} onPress={() => setDayIdx(d.key)}>
-                <Text style={[styles.dayDow, dayIdx === d.key && { color: colors.onGold }]}>{d.dow}</Text>
-                <Text style={[styles.dayNum, dayIdx === d.key && { color: colors.onGold }]}>{d.day}</Text>
-                <Text style={[styles.dayMon, dayIdx === d.key && { color: colors.onGold }]}>{d.mon}</Text>
+          <View style={styles.tglHead}>
+            <Text style={styles.label}>Tanggal</Text>
+            {/* Jalan pulang. Tanpa ini, orang yang sudah menggeser jauh ke
+                belakang harus menggeser balik dengan jari — dan deretnya
+                sekarang 60 hari. */}
+            {dayIdx !== idxHariIni ? (
+              <Pressable onPress={() => pilihHari(idxHariIni)} hitSlop={8}>
+                <Text style={styles.tglKini}>Hari ini</Text>
               </Pressable>
-            ))}
+            ) : null}
+          </View>
+          <ScrollView
+            ref={dayScroll}
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={{ gap: DAY_GAP }}
+          >
+            {days.map((d) => {
+              const aktif = dayIdx === d.key;
+              return (
+                <Pressable
+                  key={d.key}
+                  style={[styles.day, d.lampau && styles.dayLampau, aktif && styles.dayOn]}
+                  onPress={() => setDayIdx(d.key)}
+                >
+                  <Text style={[styles.dayDow, d.lampau && styles.dayTeksLampau, aktif && { color: colors.onGold }]}>{d.dow}</Text>
+                  <Text style={[styles.dayNum, d.lampau && styles.dayTeksLampau, aktif && { color: colors.onGold }]}>{d.day}</Text>
+                  <Text style={[styles.dayMon, d.lampau && styles.dayTeksLampau, aktif && { color: colors.onGold }]}>{d.mon}</Text>
+                  {/* Titik penanda hari ini — tetap terlihat walau kartunya
+                      sedang tidak terpilih, supaya "hari ini yang mana"
+                      terjawab tanpa menghitung mundur. */}
+                  {d.iniHari ? <View style={[styles.dayDot, aktif && { backgroundColor: colors.onGold }]} /> : null}
+                </Pressable>
+              );
+            })}
           </ScrollView>
+          {/* Tanggal terpilih ditulis lengkap berikut tahunnya. Deret kartu
+              cuma memuat tanggal & bulan, dan pada rentang 60 hari itu bisa
+              melewati pergantian tahun tanpa satu pun petunjuk di layar. */}
+          <Text style={styles.tglPilih}>
+            {days[dayIdx]?.label}
+            {days[dayIdx]?.lampau ? '  ·  tanggal yang sudah lewat' : ''}
+          </Text>
         </View>
 
         {/* Jam */}
@@ -265,9 +347,17 @@ const styles = StyleSheet.create({
   label: { color: colors.text, fontSize: 15, fontWeight: '800', marginBottom: 12 },
   day: { width: 60, alignItems: 'center', paddingVertical: 12, borderRadius: radius.md, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, gap: 2 },
   dayOn: { backgroundColor: colors.gold, borderColor: colors.gold },
+  // Hari lampau tetap BISA ditekan — cuma diredupkan. Lihat buildDays().
+  dayLampau: { opacity: 0.45 },
+  dayTeksLampau: { color: colors.muted },
+  dayDot: { width: 5, height: 5, borderRadius: 3, backgroundColor: colors.gold, marginTop: 2 },
   dayDow: { color: colors.muted, fontSize: 12, fontWeight: '700' },
   dayNum: { color: colors.text, fontSize: 20, fontWeight: '900' },
   dayMon: { color: colors.muted, fontSize: 11, fontWeight: '600' },
+  // Tanpa marginBottom sendiri: styles.label di dalamnya sudah menyumbang 12.
+  tglHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  tglKini: { color: colors.gold, fontSize: 12.5, fontWeight: '800' },
+  tglPilih: { color: colors.muted, fontSize: 12.5, fontWeight: '600', marginTop: 10 },
   slotWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   slot: { width: '30%', alignItems: 'center', paddingVertical: 13, borderRadius: radius.sm, backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.line },
   slotOn: { borderColor: colors.gold, backgroundColor: colors.goldSoft },
