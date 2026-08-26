@@ -80,6 +80,6 @@ export const layout = {
   ],
 };
 
-// Meja yang sudah terisi (contoh, supaya denah terasa nyata). Di produksi ini
-// datang dari server. Dipilih tetap (bukan acak) agar tidak berubah tiap render.
-export const takenTables = ['U2', '22', '31', '33', 'R3', '12', '15', '3', '7', 'VIP 2', '44'];
+// Meja yang sudah terisi. Dikosongkan (dulu contoh dummy). Di produksi diisi
+// dari server: meja yang punya reservasi pada tanggal + jam terpilih.
+export const takenTables = [];

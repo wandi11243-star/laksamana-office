@@ -27,6 +27,9 @@ export default function ItemDetailScreen({ route, navigation }) {
   const [extras, setExtras] = useState([]);
   const [qty, setQty] = useState(1);
 
+  // Menu tidak ketemu (mis. data kosong). Jaga-jaga supaya tidak crash.
+  if (!item) return null;
+
   const sizeAdd = SIZES.find((s) => s.key === size)?.add || 0;
   const extraAdd = extras.reduce((s, e) => s + (EXTRAS.find((x) => x.key === e)?.add || 0), 0);
   const unit = item.price + sizeAdd + extraAdd;

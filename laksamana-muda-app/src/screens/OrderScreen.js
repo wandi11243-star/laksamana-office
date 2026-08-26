@@ -59,7 +59,7 @@ export default function OrderScreen({ navigation }) {
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: cartCount ? 160 : 110 }}>
         {/* Promo strip */}
-        {cat === 'Signature' && (
+        {cat === 'Signature' && promos.length > 0 && (
           <Pressable style={styles.promoStrip} onPress={() => navigation.navigate('Vouchers')}>
             <LinearGradient colors={gradients.goldDeep} start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }} style={styles.promoStripInner}>
               <Ionicons name="ticket" size={20} color="#fff" />
@@ -70,6 +70,14 @@ export default function OrderScreen({ navigation }) {
               <Ionicons name="chevron-forward" size={18} color="#fff" />
             </LinearGradient>
           </Pressable>
+        )}
+
+        {list.length === 0 && (
+          <View style={styles.emptyMenu}>
+            <Ionicons name="cafe-outline" size={40} color={colors.muted2} />
+            <Text style={styles.emptyMenuText}>Belum ada menu</Text>
+            <Text style={styles.emptyMenuHint}>Menu akan tampil di sini setelah tersambung ke data server.</Text>
+          </View>
         )}
 
         <View style={styles.list}>
@@ -131,6 +139,9 @@ const styles = StyleSheet.create({
   promoStripSub: { color: 'rgba(255,255,255,0.85)', fontSize: 11.5, marginTop: 2 },
 
   list: { paddingHorizontal: 20, marginTop: 14, gap: 12 },
+  emptyMenu: { alignItems: 'center', paddingVertical: 40, gap: 8 },
+  emptyMenuText: { color: colors.text, fontSize: 15, fontWeight: '800' },
+  emptyMenuHint: { color: colors.muted, fontSize: 12.5, textAlign: 'center', paddingHorizontal: 30, lineHeight: 18 },
   item: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line, borderRadius: radius.lg, padding: 12 },
   itemEmoji: { width: 64, height: 64, borderRadius: 16, backgroundColor: colors.surface2, alignItems: 'center', justifyContent: 'center' },
   itemName: { color: colors.text, fontSize: 15.5, fontWeight: '800' },

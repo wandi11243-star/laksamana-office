@@ -17,6 +17,10 @@ export default function EventDetailScreen({ route, navigation }) {
   const [qty, setQty] = useState(1);
   const [done, setDone] = useState(false);
 
+  // Event tidak ketemu (mis. data kosong). Tak bisa dibuka dari layar mana pun
+  // sekarang, tapi jaga-jaga supaya tidak crash membaca ev.price.
+  if (!ev) return null;
+
   const isFree = ev.price === 0;
   const isMember = user.tier === 'Gold' || user.tier === 'Platinum';
   const unit = isMember ? ev.memberPrice : ev.price;

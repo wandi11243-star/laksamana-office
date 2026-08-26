@@ -71,7 +71,8 @@ export default function HomeScreen({ navigation }) {
           ))}
         </View>
 
-        {/* Promo berlangsung */}
+        {/* Promo berlangsung (sembunyi kalau belum ada) */}
+        {promos.length > 0 && (
         <View style={styles.section}>
           <SectionHeader title="Promo Berlangsung" actionLabel="Lihat semua" onAction={() => navigation.navigate('Vouchers')} />
           <FlatList
@@ -83,8 +84,10 @@ export default function HomeScreen({ navigation }) {
             renderItem={({ item }) => <PromoCard item={item} />}
           />
         </View>
+        )}
 
-        {/* Event terdekat */}
+        {/* Event terdekat (sembunyi kalau belum ada) */}
+        {events.length > 0 && (
         <View style={styles.section}>
           <SectionHeader title="Event Terdekat" actionLabel="Lihat semua" onAction={() => navigation.navigate('Tabs', { screen: 'Event' })} />
           {events.slice(0, 2).map((ev) => (
@@ -101,6 +104,7 @@ export default function HomeScreen({ navigation }) {
             </Pressable>
           ))}
         </View>
+        )}
       </ScrollView>
     </SafeAreaView>
   );

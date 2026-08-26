@@ -25,7 +25,8 @@ export default function EventScreen({ navigation }) {
       </View>
 
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 110 }}>
-        {/* Featured */}
+        {/* Featured (hanya kalau ada event) */}
+        {events.length > 0 && (
         <Pressable style={styles.section} onPress={() => navigation.navigate('EventDetail', { id: events[0].id })}>
           <LinearGradient colors={['#3A2E5E', '#1A1330']} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.featured}>
             <View style={styles.featuredTop}>
@@ -46,10 +47,18 @@ export default function EventScreen({ navigation }) {
             </View>
           </LinearGradient>
         </Pressable>
+        )}
 
         {/* Upcoming list */}
         <View style={[styles.section, { marginTop: 22 }]}>
           <Text style={styles.secTitle}>Upcoming</Text>
+          {events.length === 0 && (
+            <View style={styles.empty}>
+              <Ionicons name="calendar-outline" size={40} color={colors.muted2} />
+              <Text style={styles.emptyText}>Belum ada event</Text>
+              <Text style={styles.emptyHint}>Event akan tampil di sini setelah tersambung ke data server.</Text>
+            </View>
+          )}
           {events.map((ev) => {
             const soldPct = Math.round(((ev.seats - ev.left) / ev.seats) * 100);
             return (
@@ -114,4 +123,7 @@ const styles = StyleSheet.create({
   cardFoot: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 8 },
   priceText: { color: colors.text, fontSize: 14, fontWeight: '800' },
   leftText: { color: colors.muted, fontSize: 12, fontWeight: '600' },
+  empty: { alignItems: 'center', paddingVertical: 40, gap: 8 },
+  emptyText: { color: colors.text, fontSize: 15, fontWeight: '800' },
+  emptyHint: { color: colors.muted, fontSize: 12.5, textAlign: 'center', paddingHorizontal: 30, lineHeight: 18 },
 });
