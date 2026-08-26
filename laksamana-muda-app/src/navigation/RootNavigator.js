@@ -20,6 +20,7 @@ import ReservationScreen from '../screens/ReservationScreen';
 import RewardCatalogScreen from '../screens/RewardCatalogScreen';
 import VouchersScreen from '../screens/VouchersScreen';
 import ConnectionsScreen from '../screens/ConnectionsScreen';
+import ServerReservationsScreen from '../screens/ServerReservationsScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator();
@@ -87,6 +88,7 @@ export default function RootNavigator() {
           <Stack.Screen name="RewardCatalog" component={RewardCatalogScreen} />
           <Stack.Screen name="Vouchers" component={VouchersScreen} />
           <Stack.Screen name="Connections" component={ConnectionsScreen} />
+          <Stack.Screen name="ServerReservations" component={ServerReservationsScreen} />
         </>
       )}
     </Stack.Navigator>

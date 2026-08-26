@@ -12,6 +12,7 @@ const MENU = [
   { key: 'connections', icon: 'link', label: 'Koneksi Akun', sub: 'TikTok, GoFood, Instagram', to: 'Connections' },
   { key: 'vouchers', icon: 'pricetag', label: 'Voucher Saya', sub: 'Voucher aktif & terpakai', to: 'Vouchers' },
   { key: 'rewards', icon: 'gift', label: 'Tukar Poin', sub: 'Katalog reward', to: 'RewardCatalog' },
+  { key: 'srvresv', icon: 'server', label: 'Reservasi (Server)', sub: 'Data asli dari database Office', to: 'ServerReservations' },
 ];
 
 export default function ProfileScreen({ navigation }) {
