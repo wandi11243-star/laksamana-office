@@ -671,6 +671,10 @@
 
 
 
+
+
+
+
 function pct() {  }
 
 
@@ -761,7 +765,18 @@ function bacaSesi() {  }
 
 
 
-function sayaAdmin() { bacaSesi(); simpanAkses(); }
+function sayaAdmin() { bacaSesi(); aksTingkat(); simpanAkses(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -893,11 +908,6 @@ function aksTingkat() { aksPeta(); aksBawaan(); }
 
 
 
-
-
-
-
-
 function tingkatSaya() { aksTingkat(); peranSaya(); go(); }
 
 
@@ -920,7 +930,14 @@ function bolehAksi() { bolehUbah(); tingkatSaya(); }
 
 
 
-function halPertamaBoleh() { bolehLihat(); }
+function halPertamaBoleh() { bolehLihat(); render(); }
+
+
+
+
+
+
+
 
 
 
@@ -2397,9 +2414,25 @@ function go() { bolehLihat(); halPertamaBoleh(); render(); }
 
 
 
+
+
+
+
+
 function clearCharts() {  }
 
-function render() { clearCharts(); syncKendaliPeriode(); viewPerforma(); terapkanKunci(); formatAllRp(); todayISO(); kasirMurni(); }
+function render() { bolehLihat(); peranSaya(); clearCharts(); syncKendaliPeriode(); viewPerforma(); terapkanKunci(); formatAllRp(); todayISO(); kasirMurni(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3957,7 +3990,12 @@ function muatAkses() { viewAkses(); }
 
 
 
-function viewAkses() { muatAkses(); sayaAdmin(); }
+function viewAkses() { muatAkses(); aksTingkat(); bolehUbah(); }
+
+
+
+
+
 
 
 
@@ -3976,10 +4014,6 @@ function viewAkses() { muatAkses(); sayaAdmin(); }
 
 
 function sel() { aksTingkat(); cyclePerm(); }
-
-
-
-
 
 
 
@@ -4068,6 +4102,11 @@ function opsiPeran() { viewAkses(); peranSaya(); sel(); simpanAkses(); aksKunci(
 
 
 
+
+
+
+
+
 function cyclePerm() {  }
 
 
@@ -4081,7 +4120,7 @@ function cyclePerm() {  }
 
 
 
-function setPeran() { sayaAdmin(); viewAkses(); peranSaya(); kkApi(); pasangMenu(); bolehLihat(); go(); halPertamaBoleh(); }
+function setPeran() { bolehUbah(); viewAkses(); peranSaya(); kkApi(); pasangMenu(); bolehLihat(); go(); halPertamaBoleh(); }
 
 
 
@@ -4110,7 +4149,7 @@ function setPeran() { sayaAdmin(); viewAkses(); peranSaya(); kkApi(); pasangMenu
 
 
 
-function simpanAkses() { sayaAdmin(); aksTingkat(); aksBawaan(); kkApi(); pasangMenu(); bolehLihat(); go(); halPertamaBoleh(); viewAkses(); save(); }
+function simpanAkses() { bolehUbah(); aksTingkat(); aksBawaan(); kkApi(); pasangMenu(); bolehLihat(); go(); halPertamaBoleh(); viewAkses(); save(); }
 
 
 
