@@ -7,4 +7,4 @@
   Di produksi, alamat ini diganti domain produksi. Tidak ada rahasia di sini
   (cuma URL), jadi aman masuk git.
 */
-export const API_BASE = 'https://dev.laksamanamuda.id/app-api';
+export const API_BASE = 'https://laksamanamuda.id/app-api';
