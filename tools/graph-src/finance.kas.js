@@ -1687,6 +1687,28 @@ function rkAktInput() { rkRec(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rkLebih() { rkRec(); }
+
+
+
+
+
+
 function rkSetor() { rkSetoranHari(); rkRec(); }
 
 
@@ -1719,7 +1741,13 @@ function rkAdaUbah() {  }
 
 function rkHitung() { rkRec(); }
 
-function sisi() { rkPay(); rkAktInput(); rkMdr(); rkJual(); rkBon(); }
+function sisi() { rkPay(); rkAktInput(); rkMdr(); rkLebih(); rkJual(); rkBon(); }
+
+
+
+
+
+
 
 
 
@@ -2100,7 +2128,12 @@ function rkHapusSetoran() { rkSetoranSemua(); rkSetor(); rkKirim(); }
 
 
 
-function rkHalInput() { rkHitung(); rkPilihTgl(); rkGeser(); todayISO(); rkKartu(); dateLabel(); rkTanpaSvcTax(); rkPanelBon(); rkSetoranHari(); rkCash(); rkSetor(); rkGantiTab(); fmtRpInput(); rkKetikAkt(); rkMdrSel(); rkTanda(); rkSetTanda(); rkSimpan(); }
+function rkHalInput() { rkHitung(); rkPilihTgl(); rkGeser(); todayISO(); rkKartu(); dateLabel(); rkTanpaSvcTax(); rkPanelBon(); rkSetoranHari(); rkCash(); rkSetor(); rkGantiTab(); fmtRpInput(); rkKetikAkt(); rkMdrSel(); rkLebihSel(); rkTanda(); rkSetTanda(); rkSimpan(); }
+
+
+
+
+
 
 
 
@@ -2254,6 +2287,42 @@ function rkMdrSel() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rkLebihSel() { fmtRpInput(); rkKetikLebih(); }
+
+
+
+
+
+
+
+function rkKetikLebih() { rkUbah(); rkSegarTurunan(); }
+
+
+
+
+
+
+
+
+
 function rkKetikAkt() { rkUbah(); rkSegarTurunan(); render(); }
 
 
@@ -2270,7 +2339,9 @@ function rkKetikAkt() { rkUbah(); rkSegarTurunan(); render(); }
 function rkSegarTurunan() { rkHitung(); }
 
 
-function set() { rkMdrSel(); rkSegarSimpan(); }
+function set() { rkMdrSel(); rkLebihSel(); rkSegarSimpan(); }
+
+
 
 
 
@@ -2303,6 +2374,7 @@ function rkSimpan() { rkAdaUbah(); rkKirim(); }
 
 
 function rkKirim() { bolehAksi(); fetchTimeout(); render(); }
+
 
 
 

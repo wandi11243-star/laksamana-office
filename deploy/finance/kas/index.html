@@ -1687,6 +1687,28 @@ function rkAktInput(tgl,bank){
   if(a[bank]!==undefined && a[bank]!=='') return num(a[bank]);
   return null;
 }
+/* DANA LEBIH (25 Agustus 2026, permintaan user). Kadang yang masuk rekening
+   LEBIH BESAR daripada yang tercatat di Report Daily — bukan karena bank
+   memberi bonus, tapi karena input kasirnya kurang. Sebelum ini keadaan itu
+   cuma muncul sebagai MDR negatif berwarna merah, dan tidak ada tempat untuk
+   menuliskan berapa lebihnya maupun bahwa lebihnya memang sudah diperiksa.
+
+   Angkanya DIKETIK, bukan sekadar dihitung (akt − kotor), walaupun placeholder
+   kotaknya menawarkan hitungan itu. Sebabnya: selisih hitungan bisa saja
+   gabungan dari beberapa hal, dan yang perlu tercatat adalah angka yang sudah
+   DIPUTUSKAN orang finance sesudah memeriksa mutasi — bukan tebakan layar.
+   Kotak terisi juga berarti "sudah diperiksa manusia", yang tidak bisa
+   disimpulkan dari angka mana pun.
+
+   `null` = belum pernah diketik. '' = sengaja dikosongkan (server menghapus
+   kuncinya), BUKAN nol — nol berarti "diperiksa, dan lebihnya nol". */
+function rkLebih(tgl,bank){
+  const u=RK_UBAH[tgl];
+  if(u&&u.lebih&&u.lebih[bank]!==undefined) return u.lebih[bank]===''?null:num(u.lebih[bank]);
+  const r=rkRec(tgl), l=(r&&r.lebih)||{};
+  if(l[bank]!==undefined && l[bank]!=='') return num(l[bank]);
+  return null;
+}
 function rkSetor(tgl){
   const u=RK_UBAH[tgl]; if(u&&u.setor!==undefined) return !!u.setor;
   /* Riwayat setoran adalah kebenarannya; boolean `setor` di report cuma
@@ -1733,7 +1755,13 @@ function rkHitung(tgl){
     /* Kelompok tanpa sisi POS tidak punya selisih — bukan "selisih nol".
        Menulisnya nol membuat kolomnya terlihat sudah dicocokkan padahal tidak
        ada yang dicocokkan. */
+    /* `lebihOto` = kelebihan yang terbaca dari angka: aktual masuk melampaui
+       aktual kotor. Cuma dipakai sebagai TAWARAN di placeholder kotak Dana
+       Lebih dan sebagai syarat munculnya kotak itu — yang tersimpan tetap
+       angka yang diketik orang (lihat rkLebih). */
+    const lebihOto = x.mdr ? Math.max(0, akt-kotor) : 0;
     g[x.k]={pos,kotor,mdr,akt,diketik,punyaPos:x.pos.length>0,
+            lebihOto, lebih:(x.mdr?rkLebih(tgl,x.mdr):null),
             selisih:x.pos.length?pos-akt:null,
             adjust:x.pos.length?pos-akt:akt};
   });
@@ -2148,11 +2176,16 @@ function rkHalInput(){
     <h3>Aktual Masuk &amp; Penanda Input POS</h3>
     <div class="card-sub">Isi <b>Aktual</b> — nominal yang benar-benar masuk rekening menurut mutasi bank / laporan ojol.
       MDR di sebelahnya <b>dihitung sendiri</b> sebagai selisihnya terhadap Aktual kotor, tidak perlu diketik.
-      Kosongkan kalau memang tidak ada potongan. Centang <b>Input POS</b> berarti nominal <em>adjust</em> kelompok itu sudah dikunci di POS.</div>
+      Kosongkan kalau memang tidak ada potongan. Centang <b>Input POS</b> berarti nominal <em>adjust</em> kelompok itu sudah dikunci di POS.
+      <br><b>Kolom Selisih per kelompok dibuang</b> (25 Agustus 2026, permintaan user): hari yang ada piutang atau hutang tidak akan pernah
+      "pas" per kelompok — barangnya keluar dan omsetnya diakui, tapi uangnya belum masuk — sehingga angka di kolom itu terbaca seolah
+      MDR-nya yang salah. Pencocokan hari tetap ada di kartu <b>Selisih</b> di atas, yang sudah memperhitungkan koreksi bon.
+      <br><b>Dana lebih</b> muncul hanya kalau uang yang masuk rekening melampaui yang tercatat di Report Daily — isi berapa lebihnya
+      supaya kelebihan itu punya catatan, bukan cuma jadi MDR merah tanpa keterangan.</div>
     <div class="tbl-wrap kkd"><table><thead><tr>
       <th>Kelompok</th><th class="num">POS</th><th class="num">Aktual (kotor)</th>
       <th class="num" style="width:140px">Aktual masuk</th><th class="num">MDR (hitungan)</th>
-      <th class="num">Selisih</th><th class="num">Adjust</th><th style="text-align:center">Input POS</th>
+      <th class="num" style="width:150px">Dana lebih</th><th class="num">Adjust</th><th style="text-align:center">Input POS</th>
     </tr></thead><tbody>`;
   RK_GRUP.forEach(g=>{
     const x=h.g[g.k];
@@ -2176,7 +2209,7 @@ function rkHalInput(){
           ? `<input class="rp" inputmode="numeric" value="${x.diketik?fmtRpInput(x.akt):''}" placeholder="${fmtRpInput(x.akt||0)}" aria-label="Aktual masuk ${esc(g.n)}" oninput="rkKetikAkt('${g.mdr}',this.value)">`
           : '<span style="color:var(--muted-2)">—</span>'}</td>
       <td class="num mono" id="rk-mdr-${g.k}">${rkMdrSel(g,x)}</td>
-      <td class="num mono ${x.selisih===null?'':rkKls(x.selisih)}" id="rk-sel-${g.k}">${x.selisih===null?'<span style="color:var(--muted-2)">—</span>':rkRp0(x.selisih)}</td>
+      <td class="num" id="rk-lebih-${g.k}">${rkLebihSel(g,x)}</td>
       <td class="num mono" id="rk-adj-${g.k}">${rkRp0(x.adjust)}</td>
       <td style="text-align:center"><input type="checkbox" ${rkTanda(RK_TGL,g.k)?'checked':''} onchange="rkSetTanda('${g.k}',this.checked)" style="width:16px;height:16px;accent-color:var(--gold);cursor:pointer"></td>
     </tr>`;
@@ -2185,7 +2218,7 @@ function rkHalInput(){
   html+=`<div class="balance-bar">
     <div class="bnums"><div class="bi" id="rk-ket">${n
       ? `<b style="color:var(--warn)">${n} hari punya perubahan yang belum disimpan.</b>`
-      : 'Yang disimpan dari layar ini hanya Aktual masuk, Setor, dan centang Input POS.'}</div></div>
+      : 'Yang disimpan dari layar ini hanya Aktual masuk, Dana lebih, Setor, dan centang Input POS.'}</div></div>
     <button class="btn btn-primary" id="rk-simpan" data-aks="ubah" onclick="rkSimpan()"${(n&&!RK_JALAN)?'':' disabled'}>💾 Simpan Perubahan</button>
   </div>`;
   return html;
@@ -2248,8 +2281,44 @@ function rkSetTanda(g,v){ rkUbah(RK_TGL,['tanda',g],!!v); rkSegarSimpan(); }
 function rkMdrSel(g,x){
   if(!g.mdr) return '<span style="color:var(--muted-2)">—</span>';
   if(!x.mdr) return rkRp0(0);
-  if(x.mdr<0) return '<span style="color:var(--danger)" title="Aktual lebih besar daripada Aktual kotor — periksa angkanya atau Report Daily hari ini">+'+rkRp0(-x.mdr)+'</span>';
+  /* MDR negatif = aktual masuk melampaui aktual kotor. DULU selalu merah.
+     Sejak ada kotak Dana Lebih (25 Agustus 2026) warnanya bergantung pada
+     apakah sudah ada manusia yang menjelaskannya:
+       belum diisi → tetap MERAH, karena masih mungkin salah ketik;
+       sudah diisi → netral, dan angkanya pindah ke kolom Dana Lebih.
+     Membuatnya netral tanpa syarat akan menghapus satu-satunya tanda salah
+     ketik yang dipunyai layar ini. */
+  if(x.mdr<0){
+    if(x.lebih!==null) return '<span style="color:var(--muted-2)" title="Kelebihannya sudah dicatat di kolom Dana lebih">—</span>';
+    return '<span style="color:var(--danger)" title="Aktual lebih besar daripada Aktual kotor — periksa angkanya, atau catat kelebihannya di kolom Dana lebih">+'+rkRp0(-x.mdr)+'</span>';
+  }
   return '−'+rkRp0(x.mdr);
+}
+/* Kotak Dana Lebih hanya MUNCUL saat dananya memang berlebih — permintaan
+   user, dan bukan sekadar kerapian: kotak yang selalu ada di dua belas baris
+   mengundang diisi pada hari yang tidak punya kelebihan sama sekali, dan angka
+   yang terlanjur diketik di sana tidak akan pernah cocok dengan mutasi mana
+   pun.
+
+   "Berlebih" diukur dari aktual masuk > aktual kotor. Nilai yang SUDAH pernah
+   diketik tetap ditampilkan walau kelebihannya sudah tidak terbaca lagi
+   (mis. Report Daily-nya dibetulkan belakangan) — kalau kotaknya ikut hilang,
+   angka yang tersimpan di server jadi tidak bisa dilihat maupun dihapus dari
+   layar mana pun. */
+function rkLebihSel(g,x){
+  if(!g.mdr) return '<span style="color:var(--muted-2)">—</span>';
+  if(x.lebihOto<=0 && x.lebih===null) return '<span style="color:var(--muted-2)">—</span>';
+  return '<input class="rp" inputmode="numeric" value="'+(x.lebih!==null?fmtRpInput(x.lebih):'')+
+    '" placeholder="'+fmtRpInput(x.lebihOto||0)+'" aria-label="Dana lebih '+esc(g.n)+
+    '" title="Dana yang masuk rekening melebihi yang tercatat di Report Daily" '+
+    'oninput="rkKetikLebih(\''+g.mdr+'\',this.value)">';
+}
+function rkKetikLebih(bank,v){
+  /* String kosong dikirim apa adanya — alasannya sama dengan rkKetikAkt:
+     kalau cuma dihapus dari daftar perubahan, nilai lama di server tetap
+     berlaku dan kotaknya terisi lagi saat halaman dimuat ulang. */
+  rkUbah(RK_TGL,['lebih',bank], String(v).trim()===''?'':num(v));
+  rkSegarTurunan();
 }
 /* Yang diketik AKTUAL, bukan MDR (21 Agustus 2026). Kotak kosong = "belum
    diketik" dan HARUS menghapus isiannya, bukan menyimpan nol: nol berarti
@@ -2276,11 +2345,13 @@ function rkSegarTurunan(){
     const x=h.g[g.k];
     set('rk-mdr-'+g.k,rkMdrSel(g,x));
     set('rk-adj-'+g.k,rkRp0(x.adjust));
-    const s=document.getElementById('rk-sel-'+g.k);
-    if(s){
-      s.innerHTML=(x.selisih===null?'<span style="color:var(--muted-2)">—</span>':rkRp0(x.selisih));
-      s.className='num mono '+(x.selisih===null?'':rkKls(x.selisih));
-    }
+    /* Sel Dana Lebih digambar ulang HANYA kalau kotaknya tidak sedang diketik.
+       Mengetik Aktual bisa memunculkan atau menghilangkan kotak ini, jadi ia
+       harus ikut disegarkan — tapi menggambar ulang kotak yang sedang dipegang
+       kursor akan membuang fokus pada karakter pertama, persis alasan seluruh
+       tabel tidak di-render ulang di sini. */
+    const sel=document.getElementById('rk-lebih-'+g.k);
+    if(sel && !sel.contains(document.activeElement)) sel.innerHTML=rkLebihSel(g,x);
   });
   rkSegarSimpan();
 }
@@ -2290,7 +2361,7 @@ function rkSegarSimpan(){
   const k=document.getElementById('rk-ket'); if(!k) return;
   k.innerHTML = n
     ? `<b style="color:var(--warn)">${n} hari punya perubahan yang belum disimpan.</b>`
-    : 'Yang disimpan dari layar ini hanya Aktual masuk, Setor, dan centang Input POS.';
+    : 'Yang disimpan dari layar ini hanya Aktual masuk, Dana lebih, Setor, dan centang Input POS.';
 }
 /* MENYIMPAN LEWAT ENDPOINT SEMPIT `simpanRekap`, bukan saveAll: saveAll
    mengirim SELURUH state, jadi satu penyimpanan dari layar yang salinannya
@@ -2316,6 +2387,7 @@ function rkKirim(extra,sesudah){
     if(u.setor!==undefined) o.setor=u.setor;
     if(u.mdr) o.mdr=u.mdr;        // warisan; tidak diketik lagi dari layar ini
     if(u.aktual) o.aktual=u.aktual;
+    if(u.lebih)  o.lebih=u.lebih;      // dana yang masuk melebihi Report Daily
     if(u.tanda) o[RK_TANDA]=u.tanda;   // `tanda` di layar → `esb` di kawat
     badan[tgl]=o;
   });

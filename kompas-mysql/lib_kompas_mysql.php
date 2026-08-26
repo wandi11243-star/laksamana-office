@@ -424,6 +424,35 @@ function simpan_rekap($data) {
         $r['aktual'][$b] = $baru;
       }
     }
+    /* DANA LEBIH (25 Agustus 2026, permintaan user). Nominal yang masuk
+       rekening MELEBIHI yang tercatat di Report Daily — biasanya karena input
+       kasirnya kurang, bukan karena bank memberi lebih. Sebelum ini keadaan
+       itu cuma terlihat sebagai MDR negatif tanpa tempat untuk menuliskan
+       berapa lebihnya maupun bahwa lebihnya sudah diperiksa orang.
+
+       Memakai daftar $bank yang sama dengan `aktual`: kelebihan hanya bisa
+       terbaca pada kelompok yang punya sisi "aktual masuk" — cash & transfer
+       angkanya datang langsung dari Report Daily, tidak ada mutasi bank yang
+       dibandingkan.
+
+       STRING KOSONG = HAPUS, bukan nol — alasan yang sama persis dengan
+       `aktual` di atas: nol berarti "sudah diperiksa dan lebihnya nol", dan
+       itu arti yang berbeda dari "belum pernah diisi". */
+    if (isset($isi['lebih']) && is_array($isi['lebih'])) {
+      if (!isset($r['lebih']) || !is_array($r['lebih'])) $r['lebih'] = array();
+      foreach ($bank as $b) {
+        if (!array_key_exists($b, $isi['lebih'])) continue;
+        $v = $isi['lebih'][$b];
+        if ($v === '' || $v === null) {
+          if (array_key_exists($b, $r['lebih'])) { unset($r['lebih'][$b]); $ubah++; }
+          continue;
+        }
+        $baru = kp_num($v);
+        $ada  = array_key_exists($b, $r['lebih']);
+        if (!$ada || kp_num($r['lebih'][$b]) !== $baru) $ubah++;
+        $r['lebih'][$b] = $baru;
+      }
+    }
     if (isset($isi['esb']) && is_array($isi['esb'])) {
       if (!isset($r['esb']) || !is_array($r['esb'])) $r['esb'] = array();
       foreach ($isi['esb'] as $g => $v) {

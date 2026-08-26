@@ -17,7 +17,8 @@
  *                           Kas Kecil & Performa, yang memang tidak boleh
  *                           menulis blob ini utuh.
  *   POST {action:"simpanRekap", data:{hari:{"YYYY-MM-DD":{setor,mdr:{kunci:n},
- *         esb:{grup:bool}}}, setoran:{tambah:[{tgl,tujuan,catatan,hari:[...]}],
+ *         aktual:{kunci:n|''}, lebih:{kunci:n|''}, esb:{grup:bool}}},
+ *         setoran:{tambah:[{tgl,tujuan,catatan,hari:[...]}],
  *         hapus:[id]}, by}}
  *                        -> {ok,data:{saved,ubah,hari,takDikenal:[...],setoran:[...]}}
  *                           Tulis SEMPIT juga. Dipakai menu Rekap Penjualan di
