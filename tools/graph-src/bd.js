@@ -963,6 +963,38 @@ function normalize() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pics() {  }
 function punyaPic() { pics(); }
 
@@ -2213,7 +2245,51 @@ function hapusRoutine() { save(); render(); toast(); approverSets(); vPromo(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function promoTipe() {  }
+function promoKat() {  }
+
+
+
+
+
+
+function promoHariArr() {  }
+function promoHariTeks() { promoHariArr(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoOutletOpsi() {  }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2242,6 +2318,7 @@ function promoPeriode() {  }
 function f() { promoTgl(); }
 
 
+function promoJam() {  }
 
 
 
@@ -2266,7 +2343,7 @@ function promoTerlihat() { promoStatus(); }
 function vPromo() { promoStatus(); promoTerlihat(); }
 
 
-function filChip() { esc(); head(); promoModal(); ic(); stat(); promoStatus(); promoTipe(); promoDetail(); promoPeriode(); promoSisa(); pill(); hapusPromo(); kosong(); }
+function filChip() { esc(); head(); promoModal(); ic(); stat(); promoStatus(); promoTipe(); promoKat(); promoHariTeks(); promoJam(); promoDetail(); promoPeriode(); promoSisa(); pill(); hapusPromo(); kosong(); }
 
 
 
@@ -2314,13 +2391,13 @@ function filChip() { esc(); head(); promoModal(); ic(); stat(); promoStatus(); p
 
 
 
+function promoDetail() { promoStatus(); promoTipe(); promoKat(); }
 
 
+function baris() { esc(); showModal(); ic(); pill(); promoSisa(); promoPeriode(); promoJam(); promoHariTeks(); togglePromo(); promoModal(); }
 
-function promoDetail() { promoStatus(); promoTipe(); }
 
 
-function baris() { esc(); showModal(); ic(); pill(); promoSisa(); promoPeriode(); togglePromo(); promoModal(); }
 
 
 
@@ -2346,8 +2423,8 @@ function baris() { esc(); showModal(); ic(); pill(); promoSisa(); promoPeriode()
 
 
 
-function promoModal() { sesi(); esc(); showModal(); ic(); f(); hapusPromo(); simpanPromo(); }
 
+function promoModal() { sesi(); promoHariArr(); esc(); promoOutletOpsi(); showModal(); ic(); f(); promoToggleJam(); promoHariUbah(); promoSemuaHari(); promoOutletLain(); promoPoster(); promoHapusPoster(); promoPosterPrevHTML(); hapusPromo(); simpanPromo(); }
 
 
 
@@ -2389,7 +2466,153 @@ function promoModal() { sesi(); esc(); showModal(); ic(); f(); hapusPromo(); sim
 
 
 
-function simpanPromo() { g(); toast(); promoStatus(); uid(); sesi(); save(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoToggleJam() {  }
+
+
+
+
+
+
+
+
+
+function promoHariUbah() { promoHariTerpilih(); }
+
+
+
+
+
+
+
+function promoHariTerpilih() {  }
+
+
+
+
+
+
+function promoSemuaHari() { promoHariTerpilih(); promoHariUbah(); }
+
+
+
+
+function promoOutletLain() {  }
+
+
+
+
+
+function promoPosterPrevHTML() {  }
+
+
+
+
+function promoPosterPrev() { promoPosterPrevHTML(); }
+
+
+function promoHapusPoster() { promoPosterPrev(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function promoPoster() { toast(); promoPosterPrev(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanPromo() { g(); toast(); promoStatus(); promoHariTerpilih(); uid(); sesi(); save(); render(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3951,6 +4174,8 @@ function cari() { bukaProject(); taskModal(); poModal(); coordModal(); $(); }
 
 
 function showModal() { $(); taskModal(); render(); vPromo(); barisRequest(); nomoriBarisReq(); ic(); adminModul(); toast(); approverSets(); uid(); save(); sinkronRoster(); cetakIdentitas(); }
+
+
 
 
 

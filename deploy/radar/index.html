@@ -2243,6 +2243,25 @@ var PROMO_TIPE={
   event:          {l:'Event / Musiman',      i:'🎉'}
 };
 function promoTipe(k){ return PROMO_TIPE[k]||{l:String(k||'Lainnya'),i:'🏷️'}; }
+/* Kategori & hari berlaku — bentuk baru sejak 26 Agustus 2026. Sama seperti
+   PROMO_TIPE di atas: petanya disalin dari BD, dan nilai yang tidak dikenal
+   TETAP tampil apa adanya alih-alih hilang. */
+var PROMO_KAT={diskon:{l:'Diskon',i:'🏷️'},free_item:{l:'Free Item',i:'🎁'}};
+function promoKat(k){ return k?(PROMO_KAT[k]||{l:String(k),i:'🏷️'}):null; }
+var PROMO_HARI=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+/* `hari` sekarang array indeks 0–6; versi pertama menyimpannya sebagai teks
+   bebas ("Senin-Jumat"). Yang berbentuk teks tetap digambar apa adanya —
+   promo lama tidak boleh kehilangan keterangannya cuma karena bentuknya
+   berubah. */
+function promoHariTeks(h){
+  if(Array.isArray(h)){
+    var a=h.map(Number).filter(function(n){return n>=0&&n<=6;});
+    if(!a.length) return 'Setiap hari';
+    if(a.length===7) return 'Setiap hari';
+    return a.slice().sort(function(x,y){return x-y;}).map(function(i){return PROMO_HARI[i];}).join(', ');
+  }
+  return String(h||'')||'Setiap hari';
+}
 function promoHari(){ var d=new Date(); d.setHours(0,0,0,0); return d; }
 function promoTgl(s){ if(!s) return null; var d=new Date(s+'T00:00:00'); return isNaN(d)?null:d; }
 function promoStatus(p){
@@ -2277,7 +2296,7 @@ function vPromo(){
   if(fPromo.tipe) list=list.filter(function(p){return (p.tipe||'')===fPromo.tipe;});
   var q=fPromo.q.trim().toLowerCase();
   if(q) list=list.filter(function(p){
-    return [p.nama,p.benefit,p.partner,p.kode,p.deskripsi,p.outlet].join(' ').toLowerCase().indexOf(q)>-1;
+    return [p.nama,p.benefit,p.partner,p.kode,p.ketentuan,p.outlet].join(' ').toLowerCase().indexOf(q)>-1;
   });
   /* Berlangsung dulu, lalu yang paling dekat mulainya. Urutan yang sama
      dengan daftar di BD — dua papan yang menampilkan data sama dengan urutan
@@ -2316,24 +2335,32 @@ function vPromo(){
       '</div></div>';
   } else {
     h+='<div class="grid g3">'+list.map(function(p){
-      var st=promoStatus(p), tp=promoTipe(p.tipe);
+      var st=promoStatus(p), tp=promoTipe(p.tipe), kt=promoKat(p.kategori);
       var lbl=st==='running'?['Berlangsung','p-go']:['Akan Datang','p-teal'];
-      var jam=(p.jamMulai||p.jamSelesai)?((p.jamMulai||'—')+'–'+(p.jamSelesai||'—')):'';
-      var kuota=(+p.kuota>0)?((+p.terpakai||0)+'/'+(+p.kuota)+' terpakai'):'';
+      var jam=(p.jamMulai||p.jamSelesai)?((p.jamMulai||'—')+'–'+(p.jamSelesai||'—')):'Sepanjang jam buka';
+      var kuota=(+p.kuota>0)?((+p.kuota)+' pemakaian'):'';
       var baris=function(ik,v){ return v?'<div class="kv"><span>'+ik+'</span><b>'+esc(v)+'</b></div>':''; };
       return '<div class="card" style="padding:15px 17px">'+
         '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:8px">'+
           '<div style="font-size:15px;font-weight:700;line-height:1.3">'+tp.i+' '+esc(p.nama)+'</div>'+
           '<span class="pill '+lbl[1]+'">'+lbl[0]+'</span></div>'+
+        /* Poster ditaruh di ATAS keterangan: itulah yang dicari kru lantai
+           saat tamu bertanya, dan yang paling cepat dibaca sekilas. Dibungkus
+           <a> supaya bisa dibuka besar di tab sendiri — di kartu selebar
+           sepertiga layar, huruf kecil di poster tidak terbaca. */
+        (p.poster?'<a href="'+p.poster+'" target="_blank" rel="noopener" title="Buka poster ukuran penuh">'+
+          '<img src="'+p.poster+'" alt="Poster '+esc(p.nama)+'" loading="lazy" '+
+          'style="width:100%;border-radius:9px;border:1px solid var(--line);margin-bottom:9px;display:block"></a>':'')+
         (p.benefit?'<div style="font-weight:600;margin-bottom:6px">'+esc(p.benefit)+'</div>':'')+
-        (p.deskripsi?'<div class="muted" style="font-size:12.5px;margin-bottom:9px">'+esc(p.deskripsi)+'</div>':'')+
         '<div class="pill-row" style="margin-bottom:8px">'+
           '<span class="chip">'+esc(promoTglPendek(p.mulai))+' → '+esc(promoTglPendek(p.selesai))+'</span>'+
           '<span class="chip">'+esc(promoSisa(p))+'</span>'+
+          (kt?'<span class="chip">'+kt.i+' '+esc(kt.l)+'</span>':'')+
           (p.kode?'<span class="chip">kode '+esc(p.kode)+'</span>':'')+
         '</div>'+
         baris('🏷️',esc(tp.l))+
-        baris('🕒',jam+(p.hari?(jam?' · ':'')+p.hari:''))+
+        baris('📅',promoHariTeks(p.hari))+
+        baris('🕒',jam)+
         baris('📍',p.outlet)+
         baris('🤝',p.partner)+
         baris('👤',p.lmPIC)+

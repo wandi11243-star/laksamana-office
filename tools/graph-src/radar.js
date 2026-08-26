@@ -2243,6 +2243,25 @@ function bukaDrw() { $(); }
 
 
 function promoTipe() {  }
+
+
+
+
+function promoKat() {  }
+
+
+
+
+
+function promoHariTeks() {  }
+
+
+
+
+
+
+
+
 function promoHari() {  }
 function promoTgl() {  }
 function promoStatus() { promoHari(); promoTgl(); }
@@ -2267,7 +2286,15 @@ function promoSemua() {  }
 
 
 
-function vPromo() { pitaGagal(); promoSemua(); promoStatus(); stat(); esc(); promoTipe(); promoTglPendek(); promoSisa(); baris(); }
+function vPromo() { pitaGagal(); promoSemua(); promoStatus(); stat(); esc(); promoTipe(); promoKat(); promoTglPendek(); promoSisa(); baris(); promoHariTeks(); }
+
+
+
+
+
+
+
+
 
 
 
