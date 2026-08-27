@@ -791,6 +791,40 @@ dianggap beres. Jangan `git checkout main`, jangan merge ke `main`, jangan
 wajar, dan walaupun pekerjaannya sudah selesai. Cukup laporkan bahwa develop
 sudah di-push dan tunggu.
 
+### HAK AKSES TIDAK IKUT MERGE
+
+Kode ada di git; **centang Kelola Akses ada di database**, dan dev memakai
+`lakk5493_db_dev_account` sementara produksi memakai `lakk5493_db_account`.
+Dua database, dua isi. Merge `develop` → `main` menyalin berkas, bukan baris
+`grants`/`admins`.
+
+Gejalanya selalu sama dan selalu membingungkan: modul barunya jalan mulus di
+dev, lalu di produksi **tidak seorang pun bisa membukanya** — tanpa satu pun
+galat, karena memang tidak ada yang rusak. Sudah kejadian 27 Agustus 2026 saat
+modul `investor` naik: dev 6 pemegang, produksi 0.
+
+Dua langkah yang keduanya perlu, dan yang kedua sering dikira sudah otomatis:
+
+1. **Kunci modulnya didaftarkan.** `syncModules` cuma jalan saat superadmin
+   MEMBUKA panel Kelola Akses (`openAdminPanel`) — bukan saat portal dimuat.
+   Jadi di server yang panelnya belum pernah dibuka sejak modulnya lahir,
+   kotak centangnya memang belum ada.
+2. **Orangnya dicentang**, di server itu, satu per satu.
+
+Untuk langkah 2 ada alat penyalin:
+
+```bash
+node tools/samakan-akses.js investor                 # lihat rencananya (tidak menulis)
+LM_ADMIN="Admin" LM_PIN="…" node tools/samakan-akses.js investor --terapkan
+```
+
+PIN dibaca dari environment, **tidak pernah dari argumen** — argumen tercatat
+di riwayat shell dan daftar proses. Secara bawaan alat ini **hanya menambah**:
+akses yang ada di produksi tapi tidak di dev cuma dilaporkan. Dev itu tempat
+main-main dan isinya rutin tertinggal; menjadikannya sumber kebenaran untuk
+pencabutan berarti satu percobaan di dev bisa memutus akses orang yang sedang
+bekerja. `--cabut` ada, tapi bacalah daftarnya dulu.
+
 **Push otomatis men-deploy.** `main` → **`team.laksamanamuda.id`** (produksi),
 `develop` → `dev.laksamanamuda.id`. Berkas ini sempat menulis
 `office.laksamanamuda.id`; nama itu **tidak ada di DNS** dan tidak pernah ada —
