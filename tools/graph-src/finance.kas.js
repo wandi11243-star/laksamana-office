@@ -4693,7 +4693,176 @@ function kkHapus() { kkTrxById(); kkKirim(); }
 
 function kkTandai() { kkKirim(); }
 
-function viewKkInput() { kkPosAktif(); kkKatAktif(); go(); kkSiapkanDraft(); kkBatalEdit(); kkTambahBaris(); kkSimpanSemua(); kkGambarDraft(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function poBdMuat() { render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function poBelumInput() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function poDipakaiDraft() {  }
+
+
+
+
+function poPanel() { poBdMuat(); poBelumInput(); poDipakaiDraft(); dateLabel(); poPakai(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function poPakai() { kkBacaDraft(); kkDraftBaru(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function poLepas() { kkBacaDraft(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+function poTulisRealisasi() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function viewKkInput() { kkPosAktif(); kkKatAktif(); go(); kkSiapkanDraft(); poPanel(); kkBatalEdit(); kkTambahBaris(); kkSimpanSemua(); kkGambarDraft(); kkBacaDraft(); }
+
+
+
+
+
 
 
 
@@ -4789,7 +4958,18 @@ function teks() { el(); }
 
 
 
-function kkBarisHtml() { kkHitungBaris(); kkHapusBaris(); }
+function kkBarisHtml() { poLepas(); kkHitungBaris(); kkHapusBaris(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4874,7 +5054,44 @@ function kkHitungGrand() { kkPosAktif(); }
 
 
 
-function kkSimpanSemua() { kkKirim(); bolehAksi(); kkBacaDraft(); kkPosAktif(); render(); kkUrut(); kkApi(); kkDraftBaru(); muatKk(); }
+function kkSimpanSemua() { kkKirim(); bolehAksi(); kkBacaDraft(); kkPosAktif(); render(); kkUrut(); kkApi(); poTulisRealisasi(); kkDraftBaru(); muatKk(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -9,6 +9,14 @@
  *   GET  ?action=stats                  -> {ok,data:{...jumlah per tabel}}
  *   GET  ?action=ping                   -> {ok,data:{pong,env,db,versi,ts}}
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved:true,jumlah:{...}}}
+ *   POST {action:"addPo", items:[...]}  -> {ok,data:{added,ts}}        (sisip saja)
+ *   POST {action:"setRealisasi", id, realisasi}
+ *                                       -> {ok,data:{id,item,realisasi,sebelum,ts}}
+ *                        Satu bidang di satu baris PO. Dipakai Finance →
+ *                        Kas Kecil. Keduanya SENGAJA bukan saveAll: saveAll
+ *                        merekonsiliasi dan menghapus baris yang tidak ikut
+ *                        di kiriman, sementara modul lain tidak pernah
+ *                        memegang state BD seutuhnya.
  ************************************************************************/
 
 require __DIR__ . '/lib_bd_mysql.php';
@@ -57,6 +65,17 @@ try {
        di kiriman, dan modul lain tidak pernah memegang state BD seutuhnya. */
     $lock = db_lock();
     try { $out = tambah_po(isset($body['items']) ? $body['items'] : null); }
+    finally { db_unlock($lock); }
+    keluar(array('ok' => true, 'data' => $out));
+
+  } else if ($action === 'setRealisasi') {
+    /* Satu bidang, satu baris. Dipakai Finance → Kas Kecil untuk menulis
+       balik nominal belanja sebuah PO. Alasan kenapa BUKAN saveAll ada di
+       set_realisasi(); ringkasnya sama dengan addPo: saveAll menghapus baris
+       yang tidak ikut di kiriman. */
+    $lock = db_lock();
+    try { $out = set_realisasi(isset($body['id']) ? $body['id'] : '',
+                               array_key_exists('realisasi', $body) ? $body['realisasi'] : ''); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
 

@@ -3695,7 +3695,12 @@ function overbudget() { realisasiNum(); }
 
 
 
-function selRealisasi() { realisasiNum(); esc(); isiRealisasi(); fRpPenuh(); }
+function selRealisasi() { realisasiNum(); RIBUAN(); isiRealisasi(); esc(); rzFormat(); fRpPenuh(); }
+
+
+
+
+
 
 
 
@@ -3720,7 +3725,23 @@ function selOverbudget() { overbudget(); fRpPenuh(); }
 
 
 
-function isiRealisasi() { selOverbudget(); save(); }
+
+
+
+function rzFormat() {  }
+
+
+
+function isiRealisasi() { rzFormat(); selOverbudget(); save(); }
+
+
+
+
+
+
+
+
+
 
 
 

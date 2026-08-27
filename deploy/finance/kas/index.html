@@ -4693,6 +4693,170 @@ function kkHapus(id){
 }
 function kkTandai(id,field,nilai){ kkKirim('tandai',{id:id,field:field,nilai:nilai},'Gagal menyimpan centang'); }
 
+/* ============ PURCHASE ORDER BELUM DIINPUT (27 Agustus 2026) ============
+   Permintaan user: saat mencatat belanja di Kas Kecil, munculkan daftar item
+   Purchase Order dari BD OS yang BELUM diinput — berikut nominal
+   pengajuannya — dan begitu nominalnya diisi di sini, kolom Realisasi di
+   modul BD ikut terisi sendiri.
+
+   APA YANG MENENTUKAN "SUDAH DIINPUT". Bukan tabel penghubung baru, melainkan
+   `realisasi` di baris PO-nya sendiri: terisi = sudah dibeli & dicatat, kosong
+   = belum. Sengaja begitu, dan bukan demi hemat kerja — purchasing SUDAH bisa
+   mengisi realisasi langsung di lembar PR, dan kalau daftar ini memakai
+   penghubungnya sendiri maka PO yang diisi di sana akan tetap nongkrong di
+   sini seolah belum dibeli. Satu sumber kebenaran, dua pintu masuk.
+
+   Konsekuensinya yang harus disadari: menghapus angka realisasi di BD
+   memunculkan PO-nya kembali di daftar ini. Itu benar — ia memang kembali
+   jadi "belum dicatat".
+
+   MEMBACANYA TIDAK PERNAH MENJATUHKAN HALAMAN. Backend BD mati tidak boleh
+   membuat orang tidak bisa mencatat kas kecil sama sekali; paling jauh satu
+   pita peringatan, dan tabel isian tetap jalan seperti biasa. */
+const PO_BD_URL='../../bd-api-mysql/api.php';
+let PO_BD=null, PO_BD_ERR='', PO_BD_JALAN=false;
+function poBdMuat(paksa){
+  if(PO_BD_JALAN) return;
+  if(PO_BD!==null && !paksa) return;
+  PO_BD_JALAN=true; PO_BD_ERR='';
+  const stop=new AbortController(); const jam=setTimeout(function(){ stop.abort(); },12000);
+  fetch(PO_BD_URL+'?action=getAll&_='+Date.now(),{cache:'no-store',signal:stop.signal})
+    .then(function(r){ if(!r.ok) throw new Error('HTTP '+r.status); return r.text(); })
+    .then(function(t){
+      /* Dibaca sebagai TEKS dulu, baru diurai — alasan yang sama dengan
+         kkApi: backend yang mati sebelum sempat membalas JSON mengirim
+         halaman HTML server, dan r.json() akan menyembunyikan penyebabnya
+         di balik "Unexpected token <". */
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!j) throw new Error('balasan bukan JSON (bd-api-mysql belum terpasang?)');
+      if(!j.ok) throw new Error(j.error||'ditolak');
+      PO_BD=Array.isArray(j.data&&j.data.po)?j.data.po:[];
+    })
+    .catch(function(e){ PO_BD=[]; PO_BD_ERR=(e&&e.name==='AbortError')?'BD OS tidak menjawab dalam 12 detik':(e&&e.message||'gagal'); })
+    .then(function(){
+      clearTimeout(jam); PO_BD_JALAN=false;
+      if(CURRENT==='kk_input') render();
+    });
+}
+/* Realisasi kosong = belum dicatat. Sama persis dengan realisasiNum() di
+   modul BD; kalau salah satunya diubah, yang lain harus ikut — dua modul
+   memutuskan hal yang sama dari bidang yang sama. */
+function poBelumInput(){
+  return (PO_BD||[]).filter(function(p){
+    if(!p||!p.item) return false;
+    const v=p.realisasi;
+    return v===''||v===null||v===undefined;
+  }).sort(function(a,b){
+    /* Yang paling mendesak di atas: tanggal butuh terdekat dulu, yang tanpa
+       tanggal di belakang. Daftar berurut acak memaksa orang membaca
+       seluruhnya tiap kali. */
+    const x=String(a.needBy||'9999'), y=String(b.needBy||'9999');
+    if(x!==y) return x<y?-1:1;
+    return String(a.item||'').localeCompare(String(b.item||''));
+  });
+}
+function poDipakaiDraft(){
+  const s={};
+  KK_DRAFT.forEach(function(d){ if(d.poId) s[d.poId]=true; });
+  return s;
+}
+function poPanel(){
+  if(KK_EDIT) return '';   // saat menyunting satu transaksi lama, daftar ini cuma mengganggu
+  if(PO_BD===null){ poBdMuat(); return '<div class="notice info">⏳ <div>Memuat daftar Purchase Order dari BD OS…</div></div>'; }
+  if(PO_BD_ERR){
+    return '<div class="notice warn">⚠ <div><b>Daftar Purchase Order tidak bisa dibaca</b> — '+esc(PO_BD_ERR)+'. '+
+      'Kas kecil tetap bisa diisi seperti biasa; yang tidak ada cuma daftar bantunya. '+
+      '<button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="poBdMuat(true)">Coba lagi</button></div></div>';
+  }
+  const list=poBelumInput(), dipakai=poDipakaiDraft();
+  const sisa=list.filter(function(p){ return !dipakai[p.id]; });
+  if(!list.length){
+    return '<div class="notice ok">✓ <div>Semua Purchase Order dari BD OS sudah dicatat realisasinya. Tidak ada yang menunggu.</div></div>';
+  }
+  return '<div class="card">'+
+    '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">'+
+      '<div><h3>Purchase Order belum diinput <span class="chip warn">'+sisa.length+'</span></h3>'+
+        '<div class="card-sub" style="margin:0">Dari papan Purchasing BD OS. Tekan salah satu untuk menyalinnya jadi baris transaksi; '+
+        'begitu disimpan dengan nominal, kolom <b>Realisasi</b> di BD OS ikut terisi dan barisnya hilang dari sini.</div></div>'+
+      '<button class="btn btn-ghost btn-sm" onclick="poBdMuat(true)">↻ Segarkan</button>'+
+    '</div>'+
+    '<div class="tbl-wrap" style="margin-top:12px;max-height:260px;overflow:auto"><table><thead><tr>'+
+      '<th>Item</th><th>Vendor</th><th>Divisi</th><th>Butuh</th>'+
+      '<th class="num">Pengajuan</th><th></th>'+
+    '</tr></thead><tbody>'+
+    list.map(function(p){
+      const sudah=!!dipakai[p.id];
+      const bayar=String(p.payment||'').toUpperCase();
+      return '<tr'+(sudah?' style="opacity:.45"':'')+'>'+
+        '<td><b>'+esc(p.item)+'</b>'+
+          ((+p.qty>0)?'<span class="muted" style="font-size:11.5px"> · '+(+p.qty)+' '+esc(p.unit||'')+'</span>':'')+
+          (bayar?'<div><span class="chip mute" style="font-size:10px">'+esc(bayar)+'</span></div>':'')+'</td>'+
+        '<td class="muted" style="font-size:12.5px">'+esc(p.vendor||'—')+'</td>'+
+        '<td class="muted" style="font-size:12.5px">'+esc(p.div||'—')+'</td>'+
+        '<td class="muted" style="font-size:12.5px">'+esc(p.needBy?dateLabel(p.needBy):'—')+'</td>'+
+        /* NOMINAL PENGAJUAN — permintaan user. Inilah angka yang dipakai orang
+           untuk mengenali PO mana yang sedang dipegangnya; tanpa itu daftar
+           berisi lima "Beli galon" tidak bisa dibedakan satu sama lain. */
+        '<td class="num mono">'+(+p.amount>0?fmtRp(+p.amount):'<span class="muted">—</span>')+'</td>'+
+        '<td style="white-space:nowrap">'+(sudah
+          ? '<span class="chip ok">sudah di baris</span>'
+          : '<button class="btn btn-ghost btn-xs" onclick="poPakai(\''+esc(String(p.id))+'\')">+ Input</button>')+'</td>'+
+      '</tr>';
+    }).join('')+
+    '</tbody></table></div></div>';
+}
+/* Menyalin satu PO jadi baris draf. Nominalnya SENGAJA TIDAK diisikan dari
+   pengajuan: yang dicatat di buku kas adalah uang yang benar-benar keluar,
+   dan angka pengajuan yang sudah terisi di kotak akan ditekan Simpan begitu
+   saja oleh yang sedang buru-buru. Pengajuannya tetap terbaca di daftar
+   sebelah sebagai pembanding. */
+function poPakai(id){
+  const p=(PO_BD||[]).find(function(x){return String(x.id)===String(id);});
+  if(!p) return;
+  kkBacaDraft();
+  const ket=[p.item,p.vendor].filter(Boolean).join(' — ');
+  /* Baris kosong yang belum disentuh dipakai ulang, bukan ditambah baris
+     baru: tabel ini selalu menyisakan satu baris kosong di bawah, dan
+     menambah terus membuat daftar penuh baris hampa yang harus dilewati. */
+  let idx=KK_DRAFT.findIndex(function(d){
+    return !d.poId && !String(d.ket||'').trim() && !Object.keys(d.nilai||{}).some(function(k){ return num(d.nilai[k])>0; });
+  });
+  if(idx<0){ KK_DRAFT.push(kkDraftBaru()); idx=KK_DRAFT.length-1; }
+  KK_DRAFT[idx].ket=ket;
+  KK_DRAFT[idx].poId=String(p.id);
+  KK_DRAFT[idx].poItem=p.item;
+  KK_DRAFT[idx].poAmount=+p.amount||0;
+  render();
+  setTimeout(function(){
+    const e=document.querySelector('#kkd_body tr:nth-child('+(idx+1)+') input.rp');
+    if(e){ e.focus(); e.select&&e.select(); }
+  },60);
+}
+function poLepas(i){
+  kkBacaDraft();
+  if(KK_DRAFT[i]){ KK_DRAFT[i].poId=''; KK_DRAFT[i].poItem=''; KK_DRAFT[i].poAmount=0; }
+  render();
+}
+/* Menulis realisasi balik ke BD. Dipanggil SESUDAH transaksinya benar-benar
+   tersimpan di kas kecil — kalau urutannya dibalik, PO bisa tertandai sudah
+   dibeli untuk transaksi yang ternyata gagal disimpan.
+
+   Gagalnya TIDAK ditelan: kas kecilnya sudah benar, tapi orang perlu tahu
+   bahwa kolom Realisasi di BD masih kosong — kalau tidak, ia akan mengira
+   pekerjaannya sudah selesai dan angka itu tidak pernah muncul di lembar PR. */
+function poTulisRealisasi(id,nominal){
+  return fetch(PO_BD_URL,{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'setRealisasi',id:String(id),realisasi:nominal})})
+    .then(function(r){ return r.text(); })
+    .then(function(t){
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!j) throw new Error('balasan bukan JSON (bd-api-mysql belum diperbarui?)');
+      if(!j.ok) throw new Error(j.error||'ditolak');
+      return j.data;
+    });
+}
+
 function viewKkInput(){
   const el=document.getElementById('app-view');
   if(KK===null){ el.innerHTML='<div class="card"><div class="empty"><div class="big">⏳</div>Memuat kas kecil…</div></div>'; return; }
@@ -4707,6 +4871,7 @@ function viewKkInput(){
   const edit=!!KK_EDIT;
   el.innerHTML=
     (KK_ERR?'<div class="notice bad">⚠ <div>'+esc(KK_ERR)+'</div></div>':'')+
+    poPanel()+
     '<div class="card'+(edit?' edit-on':'')+'">'+
       '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">'+
         '<div><h3>'+(edit?'Ubah Transaksi':'Transaksi Baru')+'</h3>'+
@@ -4744,7 +4909,11 @@ function viewKkInput(){
    memperlakukan 3 dan "3" sebagai kunci yang SAMA hanya karena keduanya
    distringkan; yang tidak sama adalah pembandingan `===` di tempat lain. Satu
    bentuk saja, di semua tempat. */
-function kkDraftBaru(){ return {id:null,tgl:todayISO(),ket:'',kat:'',arah:'kredit',input:false,bon:false,nilai:{}}; }
+/* `poId` menandai baris ini berasal dari sebuah Purchase Order BD OS. Ia
+   TIDAK punya kotak isian sendiri — nilainya datang dari tombol "+ Input" di
+   daftar PO — jadi kkBacaDraft() tidak menyentuhnya dan ia ikut apa adanya
+   selama objek draf-nya hidup. poItem/poAmount cuma untuk ditampilkan. */
+function kkDraftBaru(){ return {id:null,tgl:todayISO(),ket:'',kat:'',arah:'kredit',input:false,bon:false,nilai:{},poId:'',poItem:'',poAmount:0}; }
 function kkDraftDari(t){
   const d=kkDraftBaru();
   if(!t) return d;
@@ -4792,7 +4961,18 @@ function kkBacaDraft(){
 function kkBarisHtml(d,i,pos,kat){
   return '<tr>'+
     '<td><input type="date" id="kkd_'+i+'_tgl" value="'+esc(d.tgl||'')+'"></td>'+
-    '<td><input id="kkd_'+i+'_ket" value="'+esc(d.ket||'')+'" placeholder="mis. Pembelian Mie Kwetiau 2kg"></td>'+
+    '<td><input id="kkd_'+i+'_ket" value="'+esc(d.ket||'')+'" placeholder="mis. Pembelian Mie Kwetiau 2kg">'+
+      /* Baris yang berasal dari PO menyebutkan asalnya BERIKUT nominal
+         pengajuannya, tepat di bawah keterangannya — itulah pembanding yang
+         dipakai saat mengetik nominal sungguhannya, dan menaruhnya di panel
+         terpisah berarti mata harus bolak-balik. Tombol ✕ melepas kaitannya
+         tanpa menghapus barisnya: kadang belanjanya jadi tapi bukan untuk PO
+         itu. */
+      (d.poId?'<div class="muted" style="font-size:11px;margin-top:3px;display:flex;align-items:center;gap:6px;flex-wrap:wrap">'+
+        '<span class="chip info" style="font-size:10px">PO</span>'+
+        (d.poAmount>0?'<span>diajukan '+fmtRp(d.poAmount)+'</span>':'<span>tanpa nominal pengajuan</span>')+
+        '<a href="javascript:void(0)" onclick="poLepas('+i+')" style="color:var(--danger);text-decoration:none;font-weight:800" title="Lepas kaitan ke PO ini">✕</a>'+
+      '</div>':'')+'</td>'+
     '<td><select id="kkd_'+i+'_kat"><option value="">— tanpa kategori —</option>'+
       kat.map(function(k){return '<option value="'+esc(String(k.id))+'"'+(String(d.kat)===String(k.id)?' selected':'')+'>'+esc(k.nama)+'</option>';}).join('')+
     '</select></td>'+
@@ -4898,7 +5078,12 @@ function kkSimpanSemua(){
     if(!d.tgl){ salah.push('Baris '+(i+1)+': tanggal belum diisi'); return; }
     if(!ket){ salah.push('Baris '+(i+1)+': keterangan belum diisi — buku kas tanpa keterangan tidak bisa diperiksa siapa pun'); return; }
     if(!isi.length){ salah.push('Baris '+(i+1)+' ("'+ket+'"): belum ada nominal di satu pos pun'); return; }
-    kirim.push({idx:i,ok:false,data:{
+    kirim.push({idx:i,ok:false,
+      /* Ikut dibawa supaya realisasinya bisa ditulis balik ke BD SESUDAH
+         transaksinya benar-benar tersimpan. Nominalnya jumlah seluruh pos —
+         itulah uang yang keluar untuk PO ini, berapa pun pembagiannya. */
+      poId:d.poId||'', poNominal:isi.reduce(function(a,x){return a+x.n;},0),
+      data:{
       id:d.id||null, tgl:d.tgl, keterangan:ket, kategori_id:d.kat||null,
       input:d.input?1:0, bon:d.bon?1:0,
       baris:isi.map(function(x){ return {pos_id:x.pos_id,debet:d.arah==='debet'?x.n:0,kredit:d.arah==='debet'?0:x.n}; })
@@ -4921,8 +5106,39 @@ function kkSimpanSemua(){
       });
     });
   });
+  /* Realisasi ditulis balik ke BD SESUDAH seluruh transaksi selesai dikirim,
+     dan HANYA untuk baris yang berhasil. Urutan terbalik akan menandai PO
+     sudah dibeli untuk transaksi yang ternyata gagal disimpan.
+
+     Gagalnya tidak ditelan tapi juga TIDAK membatalkan apa pun: kas kecilnya
+     sudah benar dan tidak boleh dibatalkan gara-gara modul tetangga sedang
+     bermasalah. Yang terjadi cuma satu kalimat peringatan — kolom Realisasi
+     di BD masih kosong dan perlu diisi manual. Menelannya berarti orangnya
+     mengira pekerjaannya selesai, dan angka itu tidak pernah muncul di
+     lembar PR. */
+  const poGagal=[];
+  rantai=rantai.then(function(){
+    let rantaiPo=Promise.resolve();
+    kirim.forEach(function(k){
+      if(!k.ok || !k.poId) return;
+      rantaiPo=rantaiPo.then(function(){
+        return poTulisRealisasi(k.poId,k.poNominal).catch(function(e){
+          poGagal.push('Baris '+(k.idx+1)+': '+String(e&&e.message||e));
+        });
+      });
+    });
+    return rantaiPo;
+  });
   rantai.then(function(){
     KK_SIBUK=false;
+    PO_BD=null;   // daftar PO ditarik ulang: yang baru terisi realisasinya harus hilang dari sana
+    /* Disiapkan sebagai TAMBAHAN, bukan ditulis langsung ke KK_ERR: cabang
+       "ada transaksi yang gagal" di bawah menimpa KK_ERR, dan peringatan PO
+       yang tertimpa berarti orangnya tidak pernah tahu realisasinya belum
+       masuk. */
+    const pesanPo=poGagal.length
+      ? ' Kolom Realisasi di BD OS GAGAL diisi ('+poGagal.join(' · ')+') — isi manual di BD OS → Purchasing.'
+      : '';
     if(gagal.length){
       /* Yang sudah masuk DIBUANG dari draf, yang gagal ditinggal apa adanya.
          Kalau seluruh draf dipertahankan, menekan Simpan sekali lagi akan
@@ -4932,9 +5148,10 @@ function kkSimpanSemua(){
       kirim.forEach(function(k){ if(!k.ok) sisa.push(KK_DRAFT[k.idx]); });
       KK_DRAFT=sisa.length?sisa:[kkDraftBaru()];
       KK_ERR=gagal.length+' baris gagal disimpan: '+gagal.join(' · ')+
-        '. Baris yang berhasil sudah dibuang dari tabel; yang tertinggal di bawah tinggal dicoba lagi.';
+        '. Baris yang berhasil sudah dibuang dari tabel; yang tertinggal di bawah tinggal dicoba lagi.'+pesanPo;
       return muatKk();
     }
+    KK_ERR=pesanPo?('Transaksi kas kecil tersimpan.'+pesanPo):'';
     KK_EDIT=null; KK_DRAFT=[kkDraftBaru()]; KK_DRAFT_KUNCI='baru';
     CURRENT='kk_buku';
     document.querySelectorAll('.nav a').forEach(function(a){ a.classList.toggle('active',a.dataset.view==='kk_buku'); });

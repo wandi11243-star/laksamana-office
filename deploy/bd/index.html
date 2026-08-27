@@ -3700,9 +3700,14 @@ function selRealisasi(p){
      saat barangnya dibeli. no-print di kotaknya saja — nilainya tetap
      tercetak lewat span di sebelahnya. */
   var r=realisasiNum(p);
+  /* Angkanya BERTITIK RIBUAN (27 Agustus 2026, permintaan user). Nilai di
+     lembar ini jutaan rupiah, dan "1985000" tanpa pemisah adalah bentuk yang
+     paling mudah salah dibaca satu digit — di lembar yang justru dipakai
+     mencocokkan uang. isiRealisasi() membuang titiknya lagi saat menyimpan,
+     jadi yang tersimpan tetap angka murni. */
   return '<input class="rz-inp" inputmode="numeric" data-rz="'+esc(p.id)+'" '+
            'oninput="APP.isiRealisasi(this.dataset.rz,this.value)" '+
-           'value="'+(r===null?'':esc(String(r)))+'" placeholder="belum dibeli" '+
+           'value="'+(r===null?'':esc(rzFormat(r)))+'" placeholder="belum dibeli" '+
            'style="width:110px;text-align:right;padding:5px 7px;border:1.5px solid var(--line);border-radius:7px;font:inherit;font-variant-numeric:tabular-nums">'+
          '<span class="only-print">'+(r===null?'—':fRpPenuh(r))+'</span>';
 }
@@ -3720,6 +3725,13 @@ function selOverbudget(p){
    orang sedang mengetik akan merebut fokus dari kotaknya. Kolom overbudget
    di baris yang sama ditambal di tempat. */
 var _rzTimer=null;
+/* Angka murni → "1.985.000". Dipakai saat menggambar kotak DAN saat mengetik,
+   supaya bentuk yang muncul pertama kali tidak pernah berbeda dari bentuk
+   sesudah disentuh. */
+function rzFormat(v){
+  var d=String(v==null?'':v).replace(/[^0-9]/g,'');
+  return d?Number(d).toLocaleString('id-ID'):'';
+}
 function isiRealisasi(id,nilai){
   var p=DB.po.find(function(x){return x.id===id;});
   if(!p) return;
@@ -3727,6 +3739,15 @@ function isiRealisasi(id,nilai){
   p.realisasi = t===''?'':(+t);
   var sel=document.querySelector('[data-rz="'+id+'"]');
   if(sel){
+    /* Titik ribuan dipasang ulang SAMBIL mengetik, dan kursornya digeser
+       sebanyak titik yang bertambah/berkurang. Tanpa penggeseran itu, kursor
+       melompat ke ujung kanan tiap kali sebuah titik lahir — dan yang sedang
+       membetulkan digit di tengah angka akan mengetik sisanya di tempat yang
+       salah tanpa sadar. */
+    var sebelum=sel.value.length, caret=sel.selectionStart;
+    sel.value=rzFormat(t);
+    var geser=sel.value.length-sebelum;
+    try{ sel.setSelectionRange(Math.max(0,caret+geser), Math.max(0,caret+geser)); }catch(e){}
     var td=sel.closest('td');
     if(td&&td.nextElementSibling) td.nextElementSibling.innerHTML=selOverbudget(p);
   }

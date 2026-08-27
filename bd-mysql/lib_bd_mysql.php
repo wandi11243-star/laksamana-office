@@ -538,6 +538,64 @@ function tambah_po($rows) {
   return array('added' => $n, 'ts' => gmdate('c'));
 }
 
+/* ==================== REALISASI SATU PO DARI MODUL LAIN ====================
+   Dipakai Finance → Kas Kecil: begitu belanja sebuah PO dicatat di buku kas,
+   nominalnya ditulis balik ke baris PO-nya sebagai `realisasi`, jadi
+   purchasing tidak perlu mengetik angka yang sama dua kali di dua modul.
+
+   TIDAK boleh lewat saveAll, alasan yang sama persis dengan tambah_po di atas:
+   saveAll MEREKONSILIASI — baris yang tidak ada di kiriman akan DIHAPUS — dan
+   Finance tidak memegang state BD. Satu panggilan salah cukup untuk
+   mengosongkan seluruh papan purchasing.
+
+   Yang disentuh HANYA satu bidang di dalam `data`. Kolom SQL-nya tidak ikut
+   ditulis: `realisasi` memang tidak punya kolom sendiri (lihat collections()),
+   ia hidup di dalam JSON — dan menyentuh kolom lain dari sini berarti modul
+   tetangga bisa mengubah nama barang atau nominal pengajuannya.
+
+   String kosong = HAPUS realisasinya (kembali ke "belum dibeli"), bukan nol.
+   Nol berarti "dibeli seharga nol rupiah", arti yang sangat berbeda — dan
+   overbudget()-nya akan melaporkan seluruh nilai pengajuan sebagai penghematan. */
+function set_realisasi($id, $nilai) {
+  $id = trim((string)$id);
+  if ($id === '') throw new Exception('id PO kosong');
+
+  $pdo = db();
+  $c = collections();
+  $tabel = q($c['po']['table']);
+
+  $st = $pdo->prepare('SELECT `data` FROM ' . $tabel . ' WHERE `id` = :id LIMIT 1');
+  $st->execute(array(':id' => $id));
+  $row = $st->fetch();
+  if (!$row) throw new Exception('PO tidak ditemukan: ' . $id);
+
+  $data = json_decode($row['data'], true);
+  if (!is_array($data)) $data = array('id' => $id);
+
+  $lama = isset($data['realisasi']) ? $data['realisasi'] : '';
+  if ($nilai === '' || $nilai === null) {
+    unset($data['realisasi']);
+    $baru = '';
+  } else {
+    $baru = (int)preg_replace('/[^0-9]/', '', (string)$nilai);
+    if ($baru < 0) $baru = 0;
+    $data['realisasi'] = $baru;
+  }
+  $now = (int)round(microtime(true) * 1000);
+  $data['updatedAt'] = $now;
+
+  $up = $pdo->prepare('UPDATE ' . $tabel . ' SET `data` = :data, `updated_at` = :ts WHERE `id` = :id');
+  $up->execute(array(':data' => json_enc($data), ':ts' => $now, ':id' => $id));
+
+  return array(
+    'id'        => $id,
+    'item'      => isset($data['item']) ? $data['item'] : '',
+    'realisasi' => $baru,
+    'sebelum'   => $lama,
+    'ts'        => gmdate('c'),
+  );
+}
+
 /* ==================== DIAGNOSTIK ==================== */
 function stats() {
   $pdo = db();
