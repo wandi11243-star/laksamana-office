@@ -10,9 +10,10 @@
  *   GET  ?action=ping                   -> {ok,data:{pong,env,db,versi,ts}}
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved:true,jumlah:{...}}}
  *   POST {action:"addPo", items:[...]}  -> {ok,data:{added,ts}}        (sisip saja)
- *   POST {action:"setRealisasi", id, realisasi}
- *                                       -> {ok,data:{id,item,realisasi,sebelum,ts}}
- *                        Satu bidang di satu baris PO. Dipakai Finance →
+ *   POST {action:"setRealisasi", id, realisasi, oleh}
+ *                                       -> {ok,data:{id,item,realisasi,sebelum,proses,status,ts}}
+ *                        Realisasi + penanda "sudah diproses" (status pindah
+ *                        ke tahap terakhir) di satu baris PO. Dipakai Finance →
  *                        Kas Kecil. Keduanya SENGAJA bukan saveAll: saveAll
  *                        merekonsiliasi dan menghapus baris yang tidak ikut
  *                        di kiriman, sementara modul lain tidak pernah
@@ -75,7 +76,8 @@ try {
        yang tidak ikut di kiriman. */
     $lock = db_lock();
     try { $out = set_realisasi(isset($body['id']) ? $body['id'] : '',
-                               array_key_exists('realisasi', $body) ? $body['realisasi'] : ''); }
+                               array_key_exists('realisasi', $body) ? $body['realisasi'] : '',
+                               isset($body['oleh']) ? $body['oleh'] : ''); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
 

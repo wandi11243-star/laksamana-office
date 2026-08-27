@@ -556,7 +556,13 @@ function tambah_po($rows) {
    String kosong = HAPUS realisasinya (kembali ke "belum dibeli"), bukan nol.
    Nol berarti "dibeli seharga nol rupiah", arti yang sangat berbeda — dan
    overbudget()-nya akan melaporkan seluruh nilai pengajuan sebagai penghematan. */
-function set_realisasi($id, $nilai) {
+/* Tahap terakhir alur pembelian. HARUS sama persis dengan PO_SELESAI di
+   deploy/bd/index.html — kalau salah satunya berubah dan yang lain tertinggal,
+   tidak ada yang melempar: barisnya cuma diam-diam berhenti dihitung selesai
+   di salah satu layar. */
+define('PO_SELESAI_PHP', 'Diterima');
+
+function set_realisasi($id, $nilai, $oleh = '') {
   $id = trim((string)$id);
   if ($id === '') throw new Exception('id PO kosong');
 
@@ -573,25 +579,65 @@ function set_realisasi($id, $nilai) {
   if (!is_array($data)) $data = array('id' => $id);
 
   $lama = isset($data['realisasi']) ? $data['realisasi'] : '';
+  $now  = (int)round(microtime(true) * 1000);
+
+  /* PENANDA "SUDAH DIPROSES" IKUT DIGERAKKAN (27 Agustus 2026, permintaan
+     user): realisasi yang masuk dari Kas Kecil berarti barangnya memang sudah
+     diurus sampai uangnya keluar, jadi kolom Proses di lembar PR langsung
+     jadi "✓ Done" dan statusnya pindah ke tahap terakhir.
+
+     Ditiru PERSIS dari togglePoProses() di deploy/bd/index.html, termasuk
+     `statusSebelum` — tanpa itu, membatalkan penandanya akan mengembalikan
+     barang ke 'Draft' dan menghapus fakta bahwa ia sudah pernah di-approve.
+     Kalau logika di sana diubah, yang di sini harus ikut; dua tempat
+     memutuskan hal yang sama tentang baris yang sama. */
   if ($nilai === '' || $nilai === null) {
     unset($data['realisasi']);
     $baru = '';
+    /* Realisasi dihapus = kembali "belum dibeli", jadi penandanya ikut
+       dilepas. Jejak siapa/kapan ikut dibuang — meninggalkan nama pada baris
+       yang statusnya "Belum" membuat tooltipnya berbohong. */
+    unset($data['proses'], $data['prosesAt'], $data['prosesBy']);
+    /* Statusnya dikembalikan HANYA kalau masih yang kita pasang. Kalau
+       sesudahnya ada yang mengubah status sendiri lewat papan purchasing,
+       pilihan orang itu yang menang. */
+    if (isset($data['status']) && $data['status'] === PO_SELESAI_PHP && !empty($data['statusSebelum'])) {
+      $data['status'] = $data['statusSebelum'];
+    }
+    unset($data['statusSebelum']);
   } else {
     $baru = (int)preg_replace('/[^0-9]/', '', (string)$nilai);
     if ($baru < 0) $baru = 0;
     $data['realisasi'] = $baru;
+    $data['proses']    = true;
+    $data['prosesAt']  = $now;
+    $data['prosesBy']  = substr(trim((string)$oleh), 0, 120);
+    if (!isset($data['status']) || $data['status'] !== PO_SELESAI_PHP) {
+      if (isset($data['status']) && $data['status'] !== '') $data['statusSebelum'] = $data['status'];
+      $data['status'] = PO_SELESAI_PHP;
+    }
   }
-  $now = (int)round(microtime(true) * 1000);
   $data['updatedAt'] = $now;
 
-  $up = $pdo->prepare('UPDATE ' . $tabel . ' SET `data` = :data, `updated_at` = :ts WHERE `id` = :id');
-  $up->execute(array(':data' => json_enc($data), ':ts' => $now, ':id' => $id));
+  /* Kolom `status` ikut ditulis, bukan cuma JSON-nya. Frontend memang membaca
+     dari `data`, tapi kolom SQL yang tertinggal adalah data yang berbohong
+     bagi siapa pun yang bertanya lewat SQL — dan itulah yang dibaca laporan
+     maupun pemeriksaan manual di phpMyAdmin. */
+  $up = $pdo->prepare('UPDATE ' . $tabel . ' SET `data` = :data, `status` = :status, `updated_at` = :ts WHERE `id` = :id');
+  $up->execute(array(
+    ':data'   => json_enc($data),
+    ':status' => isset($data['status']) ? (string)$data['status'] : '',
+    ':ts'     => $now,
+    ':id'     => $id,
+  ));
 
   return array(
     'id'        => $id,
     'item'      => isset($data['item']) ? $data['item'] : '',
     'realisasi' => $baru,
     'sebelum'   => $lama,
+    'proses'    => !empty($data['proses']),
+    'status'    => isset($data['status']) ? $data['status'] : '',
     'ts'        => gmdate('c'),
   );
 }

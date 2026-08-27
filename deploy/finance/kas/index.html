@@ -4744,6 +4744,11 @@ function poBdMuat(paksa){
 function poBelumInput(){
   return (PO_BD||[]).filter(function(p){
     if(!p||!p.item) return false;
+    /* Yang sudah ditandai "✓ Done" di papan purchasing ikut hilang dari sini,
+       walau realisasinya belum diisi. Sama dengan poBeres() di modul BD: dua
+       modul harus memutuskan "sudah beres" dari bidang yang sama, kalau tidak
+       barang yang sudah diurus tetap nongkrong di daftar ini seolah menunggu. */
+    if(p.proses||p.status==='Diterima') return false;
     const v=p.realisasi;
     return v===''||v===null||v===undefined;
   }).sort(function(a,b){
@@ -4777,7 +4782,8 @@ function poPanel(){
     '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">'+
       '<div><h3>Purchase Order belum diinput <span class="chip warn">'+sisa.length+'</span></h3>'+
         '<div class="card-sub" style="margin:0">Dari papan Purchasing BD OS. Tekan salah satu untuk menyalinnya jadi baris transaksi; '+
-        'begitu disimpan dengan nominal, kolom <b>Realisasi</b> di BD OS ikut terisi dan barisnya hilang dari sini.</div></div>'+
+        'begitu disimpan dengan nominal, kolom <b>Realisasi</b> di BD OS ikut terisi, kolom <b>Proses</b>-nya jadi '+
+        '<b>✓ Done</b>, dan barisnya hilang dari sini.</div></div>'+
       '<button class="btn btn-ghost btn-sm" onclick="poBdMuat(true)">↻ Segarkan</button>'+
     '</div>'+
     '<div class="tbl-wrap" style="margin-top:12px;max-height:260px;overflow:auto"><table><thead><tr>'+
@@ -4847,7 +4853,12 @@ function poLepas(i){
 function poTulisRealisasi(id,nominal){
   return fetch(PO_BD_URL,{method:'POST',redirect:'follow',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:'setRealisasi',id:String(id),realisasi:nominal})})
+      /* `oleh` ikut dikirim supaya penanda "✓ Done" di lembar PR menyebut
+         siapa yang mencatatnya — di BD OS nama itu diambil dari orang yang
+         menekan centangnya, dan baris yang datang dari sini tidak punya
+         siapa-siapa kalau tidak disebutkan. */
+      body:JSON.stringify({action:'setRealisasi',id:String(id),realisasi:nominal,
+                           oleh:((CURRENT_USER&&CURRENT_USER.name)||'')+' (Kas Kecil)'})})
     .then(function(r){ return r.text(); })
     .then(function(t){
       let j=null; try{ j=JSON.parse(t); }catch(e){}
