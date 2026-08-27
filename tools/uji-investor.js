@@ -323,6 +323,26 @@ async function jalankan(nama, opt) {
     }
   });
 
+  // ---- 14. backend masih versi lama (labaRugi belum ada di balasan) ----
+  //  Halaman & API naik lewat dua workflow terpisah, jadi jeda ini nyata.
+  await jalankan('Backend belum diperbarui', {
+    sesiTersimpan: { token:'T12', nama:'Uji' },
+    api: b => {
+      if (b.action !== 'investorRingkas') return { ok:false };
+      const d = buatRingkas();
+      delete d.labaRugi;                 // persis seperti balasan versi lama
+      return { ok:true, data: d };
+    },
+    periksa(w) {
+      const lp = $(w,'laporanBox').innerHTML;
+      cek('menyebut server belum diperbarui', lp.includes('Bagian server belum diperbarui'), lp.slice(0,220));
+      cek('menyuruh muat ulang', lp.includes('Ctrl+F5'));
+      cek('TIDAK bilang belum ada omset', !lp.includes('Belum ada omset'), lp.slice(0,220));
+      // sisa halaman tetap jalan — KPI tidak boleh ikut mati
+      cek('KPI tetap terisi', $(w,'kpis').innerHTML.includes('Rp '), $(w,'kpis').innerHTML.slice(0,150));
+    }
+  });
+
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);

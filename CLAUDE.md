@@ -556,7 +556,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 83 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 87 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:
