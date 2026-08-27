@@ -4715,7 +4715,31 @@ function kkTandai() { kkKirim(); }
 
 
 
-function poBdMuat() { render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function poSudahDiajukan() {  }
+
+
+
+
+
+
+
+
+
+
+function poBdMuat() { poSudahDiajukan(); render(); }
 
 
 
@@ -4741,7 +4765,12 @@ function poBdMuat() { render(); }
 
 
 
-function poBelumInput() {  }
+
+
+
+
+function poBelumInput() { poSudahDiajukan(); }
+
 
 
 
@@ -4765,7 +4794,25 @@ function poDipakaiDraft() {  }
 
 
 
-function poPanel() { poBdMuat(); poBelumInput(); poDipakaiDraft(); dateLabel(); poPakai(); }
+function poPanel() { poBdMuat(); poBelumInput(); poDipakaiDraft(); poSudahDiajukan(); dateLabel(); poPakai(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

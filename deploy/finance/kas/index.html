@@ -4714,7 +4714,31 @@ function kkTandai(id,field,nilai){ kkKirim('tandai',{id:id,field:field,nilai:nil
    membuat orang tidak bisa mencatat kas kecil sama sekali; paling jauh satu
    pita peringatan, dan tabel isian tetap jalan seperti biasa. */
 const PO_BD_URL='../../bd-api-mysql/api.php';
-let PO_BD=null, PO_BD_ERR='', PO_BD_JALAN=false;
+let PO_BD=null, PR_BD=[], PO_BD_ERR='', PO_BD_JALAN=false;
+/* SUDAH DIAJUKAN ATAU BELUM (27 Agustus 2026, permintaan user).
+   Yang belum ditekan "Kunci & ajukan" di BD OS TIDAK boleh muncul di sini:
+   isinya masih bisa berubah — nama barang, jumlah, bahkan barisnya dibuang —
+   dan mencatat uang keluar untuk baris yang belum disepakati siapa pun berarti
+   buku kas mendahului keputusan yang belum diambil.
+
+   Yang memutuskan adalah status DOKUMEN PR-nya, bukan status barisnya:
+   "Kunci & ajukan" di BD menggerakkan pr.status dari 'Draft' ke 'Diajukan',
+   dan itulah satu-satunya tombol yang berarti "sudah diajukan" bagi orangnya.
+
+   Baris yang tidak menempel di lembar PR mana pun (mis. request yang dikirim
+   modul Marketing dan belum dimasukkan ke lembar) dinilai dari status barisnya
+   sendiri — kalau masih 'Draft', ia juga belum diajukan. */
+function poSudahDiajukan(p){
+  if(!p) return false;
+  if(p.prId){
+    const pr=(PR_BD||[]).find(function(x){ return x && x.id===p.prId; });
+    /* Lembar yang tidak ketemu dianggap BELUM diajukan. Menganggapnya sudah
+       berarti satu id yang menggantung membuka jalan mencatat uang untuk
+       dokumen yang tidak bisa dibuka siapa pun. */
+    return !!pr && String(pr.status||'Draft')!=='Draft';
+  }
+  return String(p.status||'Draft')!=='Draft';
+}
 function poBdMuat(paksa){
   if(PO_BD_JALAN) return;
   if(PO_BD!==null && !paksa) return;
@@ -4731,6 +4755,10 @@ function poBdMuat(paksa){
       if(!j) throw new Error('balasan bukan JSON (bd-api-mysql belum terpasang?)');
       if(!j.ok) throw new Error(j.error||'ditolak');
       PO_BD=Array.isArray(j.data&&j.data.po)?j.data.po:[];
+      /* Lembar PR ikut ditarik: yang menentukan sebuah item "sudah diajukan"
+         adalah status DOKUMENNYA, bukan status item itu sendiri. Lihat
+         poSudahDiajukan(). */
+      PR_BD=Array.isArray(j.data&&j.data.pr)?j.data.pr:[];
     })
     .catch(function(e){ PO_BD=[]; PO_BD_ERR=(e&&e.name==='AbortError')?'BD OS tidak menjawab dalam 12 detik':(e&&e.message||'gagal'); })
     .then(function(){
@@ -4749,6 +4777,7 @@ function poBelumInput(){
        modul harus memutuskan "sudah beres" dari bidang yang sama, kalau tidak
        barang yang sudah diurus tetap nongkrong di daftar ini seolah menunggu. */
     if(p.proses||p.status==='Diterima') return false;
+    if(!poSudahDiajukan(p)) return false;
     const v=p.realisasi;
     return v===''||v===null||v===undefined;
   }).sort(function(a,b){
@@ -4775,8 +4804,26 @@ function poPanel(){
   }
   const list=poBelumInput(), dipakai=poDipakaiDraft();
   const sisa=list.filter(function(p){ return !dipakai[p.id]; });
+  /* Yang disembunyikan karena belum diajukan DIHITUNG dan disebut. Daftar yang
+     diam-diam lebih pendek dari yang diingat orang akan dibaca sebagai "PO
+     saya hilang" — dan yang dicari berjam-jam adalah barang yang sebenarnya
+     cuma belum ditekan Ajukan. */
+  const belumAju=(PO_BD||[]).filter(function(p){
+    if(!p||!p.item) return false;
+    if(p.proses||p.status==='Diterima') return false;
+    const v=p.realisasi;
+    if(!(v===''||v===null||v===undefined)) return false;
+    return !poSudahDiajukan(p);
+  }).length;
+  const catatanAju=belumAju
+    ? '<div class="notice warn" style="margin-top:12px;margin-bottom:0">📝 <div><b>'+belumAju+' item lain belum muncul di sini</b> karena lembar PR-nya masih '+
+      '<b>Draft</b>. Buka BD OS → Purchasing, lalu tekan <b>Kunci &amp; ajukan</b> di lembarnya — isinya masih bisa berubah selama masih draft, '+
+      'dan uang yang dicatat untuk baris yang belum disepakati akan mendahului keputusan yang belum diambil.</div></div>'
+    : '';
   if(!list.length){
-    return '<div class="notice ok">✓ <div>Semua Purchase Order dari BD OS sudah dicatat realisasinya. Tidak ada yang menunggu.</div></div>';
+    return (belumAju
+      ? catatanAju.replace(' style="margin-top:12px;margin-bottom:0"','')
+      : '<div class="notice ok">✓ <div>Semua Purchase Order dari BD OS sudah dicatat realisasinya. Tidak ada yang menunggu.</div></div>');
   }
   return '<div class="card">'+
     '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">'+
@@ -4809,7 +4856,7 @@ function poPanel(){
           : '<button class="btn btn-ghost btn-xs" onclick="poPakai(\''+esc(String(p.id))+'\')">+ Input</button>')+'</td>'+
       '</tr>';
     }).join('')+
-    '</tbody></table></div></div>';
+    '</tbody></table></div>'+catatanAju+'</div>';
 }
 /* Menyalin satu PO jadi baris draf. Nominalnya SENGAJA TIDAK diisikan dari
    pengajuan: yang dicatat di buku kas adalah uang yang benar-benar keluar,
