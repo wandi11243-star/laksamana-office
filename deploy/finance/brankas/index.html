@@ -1,0 +1,1527 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#F7F6F4">
+<title>BRANKAS · Finance · Laksamana Muda</title>
+<link rel="icon" href="../../assets/LaksamanaMudaLogo.jpeg">
+
+<!-- Guard SSO: kuncinya `brankas`, TERPISAH dari `finance` (panel Kas Kecil)
+     dan `kompas` (panel Omset). Tiga panel, tiga kunci — yang memegang kas
+     kecil tidak dengan sendirinya melihat posisi kas seluruh perusahaan,
+     dan itu justru alasan panel ini ada.
+
+     Dijaga di sini
+     supaya halaman tidak sempat tergambar sedikit pun bagi yang tidak berhak.
+     Penjaga sebenarnya tetap di sisi Office: `modules`/`adminModules` dibuat
+     server saat login, bukan diketik browser.
+
+     Syaratnya HARUS SAMA PERSIS dengan bacaSesi() di bawah; kalau salah satu
+     diubah, ubah keduanya. Di modul Kompas — asal salinan berkas ini — kedua
+     tempat itu pernah tidak sinkron, dan akibatnya orang yang sudah diberi
+     akses di Kelola Akses tetap dilempar balik ke Office sebelum satu baris
+     pun sempat jalan, tanpa satu pun gejala yang bisa dilihat dari Office. -->
+<script>
+(function(){try{
+  var s=JSON.parse(localStorage.getItem('lm_session')||'null');
+  var hidup=s&&s.expiry&&Date.now()<s.expiry;
+  var punyaModul=hidup&&(s.modules||[]).some(function(m){return m==='*'||m==='brankas';});
+  if(!punyaModul)location.replace('../../');
+}catch(e){location.replace('../../');}})();
+</script>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+/* ===== TEMA OFFICE LAKSAMANA (emas di atas krem/putih, tanpa hitam) ===== */
+:root{
+  --ink:#2A2620; --ink-2:#3A3428; --ink-3:#4A4234;
+  --gold:#A9791F; --gold-2:#C8961F; --gold-dim:#7A560F;
+  --gold-soft:#F2E9D3; --gold-glow:rgba(169,121,31,.13);
+  --paper:#F7F6F4; --surface:#FFFFFF; --line:#E7E1D3;
+  --line-soft:rgba(60,55,45,.10); --line-hard:rgba(60,55,45,.18);
+  --text:#2A2620; --muted:#5C574D; --muted-2:#928C80;
+  --ok:#1F9D5F; --ok-bg:#E4F5EC; --ok-bg-t:rgba(31,157,95,.12);
+  --warn:#B5831A; --warn-bg:#F7EFDB; --warn-bg-t:rgba(181,131,26,.14);
+  --danger:#C9432B; --danger-bg:#F8E4DF; --danger-bg-t:rgba(201,67,43,.12);
+  --info:#2F7FC4; --info-bg:#E4EFF8; --info-bg-t:rgba(47,127,196,.12);
+  --violet:#7C5FC0; --violet-bg:#ECE6F7; --violet-bg-t:rgba(124,95,192,.12);
+  --teal:#1F9D8F; --teal-bg:#E2F4F2; --teal-bg-t:rgba(31,157,143,.12);
+  --radius:16px; --radius-sm:10px; --radius-lg:20px;
+  --shadow:0 4px 18px rgba(50,42,28,.06); --shadow-lg:0 18px 48px rgba(50,42,28,.12);
+  --ring:0 0 0 3px rgba(227,160,8,.18); --ease:cubic-bezier(.16,1,.3,1);
+  --font-display:'Plus Jakarta Sans',system-ui,sans-serif;
+  --font-body:'Inter',system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  --serif:var(--font-display); --sans:var(--font-body); --sidebar-w:248px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{-webkit-text-size-adjust:100%}
+body{
+  font-family:var(--sans);
+  background:radial-gradient(900px 480px at 50% -12%, rgba(227,160,8,.09), transparent 60%),var(--paper);
+  color:var(--text); font-size:14px; line-height:1.55; -webkit-font-smoothing:antialiased; min-height:100vh;
+}
+h1,h2,h3,h4{font-family:var(--serif); font-weight:700; letter-spacing:-.02em; line-height:1.18; color:var(--ink)}
+a{color:var(--info)}
+button{font-family:inherit; cursor:pointer}
+input,select,textarea{font-family:inherit}
+.mono{font-variant-numeric:tabular-nums; font-feature-settings:"tnum"}
+.hidden{display:none !important}
+@keyframes lm-rise{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+.rise{animation:lm-rise .5s var(--ease) both}
+.btn{border:none;border-radius:var(--radius-sm);padding:11px 17px;font-weight:600;font-size:14px;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:filter .15s var(--ease),transform .1s var(--ease)}
+.btn:active{transform:translateY(1px)}
+.btn:focus-visible{outline:none;box-shadow:var(--ring)}
+.btn-block{width:100%}
+.btn-sm{padding:8px 12px;font-size:13px}
+.btn-xs{padding:5px 9px;font-size:12px;border-radius:8px}
+.btn-primary{background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;box-shadow:0 3px 12px rgba(122,86,15,.28)}
+.btn-primary:hover{filter:brightness(1.06)}
+.btn-primary:disabled{opacity:.5;cursor:not-allowed;filter:none}
+.btn-ghost{background:var(--surface);border:1.5px solid var(--line);color:var(--ink)}
+.btn-ghost:hover{border-color:var(--gold-2);background:var(--gold-soft)}
+.btn-danger{background:var(--danger-bg);color:var(--danger);border:1.5px solid rgba(201,67,43,.25)}
+.btn-danger:hover{filter:brightness(.98)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:600;color:var(--ink-2);background:var(--gold-soft);border:1px solid var(--line);border-radius:20px;padding:3px 9px}
+.pill .dot{width:5px;height:5px;border-radius:50%;background:var(--gold);flex:none}
+.field{text-align:left;margin-bottom:14px}
+.field label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px}
+.field input,.field select,.field textarea{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:15px;transition:border-color .15s,box-shadow .15s}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
+/* Tabel input Kas Kecil (halaman Input Transaksi). Kotak isian di dalam sel
+   tabel TIDAK kena aturan ".field input" di atas — tanpa blok ini bentuknya
+   jadi kotak bawaan peramban dan satu-satunya tabel di modul ini yang tidak
+   sebentuk dengan sisanya. Ukurannya sengaja lebih kecil dari .field: satu
+   baris memuat 9 kolom, dan padding 11px membuatnya tidak muat di layar 13". */
+.kkd input,.kkd select{width:100%;padding:8px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-size:13.5px}
+.kkd input:focus,.kkd select:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
+.kkd input[type=checkbox]{width:auto;padding:0}
+.kkd td{vertical-align:middle;padding:7px 8px}
+.kkd .num input{text-align:right}
+
+/* ===== LAYOUT ===== */
+.app{display:flex;min-height:100vh}
+.sidebar{width:var(--sidebar-w);flex:none;background:var(--surface);border-right:1px solid var(--line);padding:20px 14px;position:sticky;top:0;height:100vh;overflow-y:auto;display:flex;flex-direction:column}
+.brand{display:flex;align-items:center;gap:11px;padding:6px 8px 18px}
+.brand .logo{width:38px;height:38px;border-radius:10px;background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));display:flex;align-items:center;justify-content:center;font-family:var(--serif);font-weight:800;color:#fff;font-size:18px;flex:none}
+.brand .bt{font-family:var(--serif);font-weight:800;font-size:16px;color:var(--ink);letter-spacing:-.02em;line-height:1.1}
+.brand .bs{font-size:10.5px;color:var(--muted-2);letter-spacing:.5px;margin-top:2px}
+.nav{flex:1}
+.nav-group{margin-top:14px}
+.nav-label{font-size:10px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:var(--muted-2);padding:0 10px 7px}
+.nav a{position:relative;display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:9px;color:var(--muted);text-decoration:none;font-size:13.5px;font-weight:500;margin-bottom:2px;transition:background .13s,color .13s}
+.nav a:hover{background:var(--paper);color:var(--ink)}
+/* Menu aktif: latar krem lembut + garis emas di kiri (samakan dgn Reservasi/
+   BD OS), BUKAN blok kuning penuh. */
+.nav a.active{background:var(--gold-soft);color:var(--gold-dim);font-weight:600}
+.nav a.active::before{content:"";position:absolute;left:0;top:8px;bottom:8px;width:3px;border-radius:0 3px 3px 0;background:var(--gold)}
+.nav a .ico{width:18px;display:flex;align-items:center;justify-content:center;flex:none}
+/* Lencana antrean — pola yang sama dengan modul Daily Worker. Kosong =
+   tersembunyi lewat :empty, bukan lewat JS yang menghapus elemennya:
+   elemennya tetap ada di DOM sepanjang waktu, jadi yang memperbarui angkanya
+   tidak perlu tahu apakah ia sedang ada atau tidak. */
+.nav a .badge{margin-left:auto;background:var(--danger,#B4432E);color:#fff;border-radius:20px;
+  font-size:10px;padding:1px 6px;font-weight:700;flex:none;line-height:1.5}
+.nav a .badge:empty{display:none}
+.nav a .ico svg{width:17px;height:17px;stroke-width:1.9;opacity:.85}
+.nav a.active .ico svg{opacity:1}
+/* Ciutkan ke ikon saja (tombol ☰). Label/teks disembunyikan, ikon tetap.
+   Hanya di desktop — di layar sempit sidebar sudah off-canvas. */
+@media(min-width:621px){
+  .app.nav-mini .sidebar{width:72px}
+  .app.nav-mini .brand .bt,.app.nav-mini .brand .bs,.app.nav-mini .nav-label,.app.nav-mini .su-info{display:none}
+  .app.nav-mini .brand{justify-content:center;padding:6px 0 18px}
+  .app.nav-mini .nav a{justify-content:center;gap:0;font-size:0;padding:9px 0}
+  .app.nav-mini .nav a .ico{font-size:16px;width:auto}
+  /* Menu yang ciut cuma selebar ikon — lencana di sebelahnya akan menindih
+     ikonnya, dan angkanya pun tidak terbaca karena font-size induknya 0. */
+  .app.nav-mini .nav a .badge{display:none}
+  .app.nav-mini .side-user{flex-direction:column;gap:8px;padding:10px 6px}
+}
+@media(max-width:620px){#navMiniBtn{display:none}}
+/* kartu user + tombol keluar di kaki sidebar — pola sama seperti modul lain */
+.side-user{display:flex;align-items:center;gap:9px;margin-top:12px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--paper)}
+.su-avatar{width:32px;height:32px;border-radius:9px;flex:none;display:flex;align-items:center;justify-content:center;background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;font-family:var(--serif);font-weight:800;font-size:14px}
+.su-info{min-width:0;flex:1}
+.su-info b{display:block;font-size:12.5px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.su-info span{font-size:10.5px;color:var(--muted-2)}
+.logout-x{background:var(--surface);border:1px solid var(--line);color:var(--muted);width:32px;height:32px;border-radius:9px;display:inline-flex;align-items:center;justify-content:center;flex:none;transition:.16s}
+.logout-x:hover{background:var(--danger-bg);color:var(--danger);border-color:var(--danger)}
+.logout-x svg{width:16px;height:16px}
+.main{flex:1;min-width:0;padding:26px 30px 60px}
+.topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:22px;flex-wrap:wrap}
+.topbar h1{font-size:23px}
+.topbar .sub{font-size:13px;color:var(--muted);margin-top:3px}
+.month-pick{display:flex;align-items:center;gap:10px}
+.month-pick input{padding:9px 11px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);font-size:14px;font-weight:600;color:var(--ink)}
+/* Saklar Harian / Bulanan. Bentuk segmented supaya terbaca sebagai DUA
+   keadaan dari satu hal, bukan dua tombol aksi yang berdiri sendiri. */
+.modesw{display:inline-flex;gap:3px;background:var(--paper);border:1.5px solid var(--line);border-radius:var(--radius-sm);padding:3px}
+.modesw button{border:none;background:transparent;padding:6px 12px;border-radius:8px;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;transition:background .15s,color .15s}
+.modesw button:hover{color:var(--ink)}
+.modesw button.on{background:var(--surface);color:var(--gold-dim);box-shadow:0 1px 4px rgba(50,42,28,.12)}
+/* Pesan galat simpan sekarang membawa sebab asli dari server (bisa sepanjang
+   "SQLSTATE[HY000] [1044] Access denied..."), jadi span-nya harus boleh
+   membungkus dan memotong kata panjang, bukan melebarkan header. */
+.sync{font-size:11.5px;font-weight:600;color:var(--muted-2);display:inline-block;max-width:340px;line-height:1.45;text-align:right;overflow-wrap:anywhere}
+.sync.ok{color:var(--ok)} .sync.err{color:var(--danger)} .sync.saving{color:var(--warn)}
+.view{max-width:1180px}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);padding:20px 22px;margin-bottom:18px}
+.card h3{font-size:16px;margin-bottom:4px}
+.card .card-sub{font-size:12.5px;color:var(--muted);margin-bottom:16px}
+.grid{display:grid;gap:16px}
+.g2{grid-template-columns:repeat(2,1fr)}
+.g3{grid-template-columns:repeat(3,1fr)}
+.g4{grid-template-columns:repeat(4,1fr)}
+/* g5 dipakai baris ringkasan Performa Kasir: target, omset diakui,
+   achievement, bonus, dan jarak ke level berikutnya dibaca sebagai SATU
+   cerita, jadi dipajang satu baris — bukan dipecah ke dua kartu yang
+   masing-masing mengulang "Omset Diakui". */
+.g5{grid-template-columns:repeat(5,1fr)}
+@media(max-width:1200px){.g5{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:900px){.g2,.g3,.g4,.g5{grid-template-columns:1fr 1fr}}
+@media(max-width:620px){.g2,.g3,.g4,.g5{grid-template-columns:1fr}.sidebar{position:fixed;z-index:50;transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:none}.main{padding:18px}}
+.row-in{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
+
+/* stat cards — pita emas tipis di tepi atas (gaya Marketing) */
+.stat{position:relative;overflow:hidden;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);padding:17px 18px;box-shadow:var(--shadow)}
+.stat::before{content:'';position:absolute;inset:0 0 auto 0;height:3px;background:linear-gradient(90deg,var(--gold-2),var(--gold-dim))}
+.stat .lab{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;display:flex;align-items:center;gap:6px}
+.stat .val{font-family:var(--serif);font-weight:700;font-size:26px;color:var(--ink);margin-top:8px;letter-spacing:-.02em;line-height:1}
+.stat .val.sm{font-size:19px}
+.stat .foot{font-size:12px;color:var(--muted);margin-top:8px}
+.stat.accent{background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff;border:none}
+.stat.accent::before{display:none}
+.stat.accent .lab{color:rgba(255,255,255,.72)}
+.stat.accent .val{color:#fff}
+.stat.accent .foot{color:rgba(255,255,255,.72)}
+.chip{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-weight:700;border-radius:20px;padding:3px 9px}
+.chip.ok{background:var(--ok-bg);color:var(--ok)}
+.chip.bad{background:var(--danger-bg);color:var(--danger)}
+.chip.warn{background:var(--warn-bg);color:var(--warn)}
+.chip.info{background:var(--info-bg);color:var(--info)}
+/* Netral — untuk label yang bukan status baik/buruk, mis. Non-Free Entry.
+   .chip polos tidak punya background sama sekali, jadi jangan dipakai telanjang. */
+.chip.mute{background:var(--paper);color:var(--muted);border:1px solid var(--line)}
+
+/* ===== REKAP PENJUALAN =====
+   Halaman berlapis, BUKAN lembar Excel 51 kolom (permintaan user 12 Agustus
+   2026: "jangan fully table, buat lebih page UX friendly"). Tiga lapis, dari
+   yang paling sering ditanya ke yang paling jarang: kartu bulan → kartu per
+   metode bayar → daftar harian yang dikembangkan saat diklik. Tidak ada satu
+   pun gulir mendatar. */
+.sel-ok{color:var(--muted-2)}
+.sel-beda{color:var(--danger);font-weight:700}
+.gwrap{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(232px,1fr))}
+.gcard{position:relative;overflow:hidden;border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:14px 15px}
+.gcard::before{content:'';position:absolute;inset:0 0 auto 0;height:3px;background:var(--c,var(--gold))}
+.gcard .gh{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:10px}
+.gcard .gh b{font-family:var(--serif);font-size:14.5px;color:var(--c,var(--ink))}
+.gr{display:flex;align-items:baseline;justify-content:space-between;gap:10px;font-size:12.5px;padding:3px 0}
+.gr span{color:var(--muted)}
+.gr b{font-variant-numeric:tabular-nums;font-weight:700;color:var(--ink)}
+.gr.tepi{border-top:1px dashed var(--line);margin-top:6px;padding-top:7px}
+.gbar{height:6px;border-radius:20px;background:var(--gold-soft);overflow:hidden;margin-top:10px}
+.gbar>i{display:block;height:100%;border-radius:20px;background:var(--c,var(--gold))}
+.gnote{font-size:11px;color:var(--muted-2);margin-top:6px}
+.hlist{display:flex;flex-direction:column;gap:8px}
+.hrow{display:grid;gap:10px;align-items:center;width:100%;text-align:left;
+  grid-template-columns:88px repeat(4,minmax(88px,1fr)) auto 18px;
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);
+  padding:11px 13px;transition:border-color .13s,background .13s;font-family:inherit}
+.hrow:hover{border-color:var(--gold-2);background:var(--gold-soft)}
+.hrow.buka{border-color:var(--gold);background:var(--gold-soft)}
+.hrow .hd b{display:block;font-family:var(--serif);font-size:14px;color:var(--ink);line-height:1.15}
+.hrow .hd span{font-size:11px;color:var(--muted-2)}
+.hn .lab{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted-2)}
+.hn b{font-size:13.5px;font-variant-numeric:tabular-nums;color:var(--ink);font-weight:700}
+.hb{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.hch{font-size:15px;color:var(--muted-2);transition:transform .16s var(--ease);justify-self:end}
+.hrow.buka .hch{transform:rotate(180deg);color:var(--gold-dim)}
+.hdet{border:1px solid var(--gold-2);border-top:none;border-radius:0 0 var(--radius-sm) var(--radius-sm);
+  background:var(--paper);padding:14px;margin-top:-9px}
+.hdet .dg{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(198px,1fr))}
+.dtile{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--c,var(--gold));
+  border-radius:var(--radius-sm);padding:10px 12px}
+.dtile .dh{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:6px}
+.dtile .dh b{font-size:13px;color:var(--c,var(--ink))}
+.dtile .dr{display:flex;justify-content:space-between;gap:10px;font-size:12px;padding:2px 0;color:var(--muted)}
+.dtile .dr b{color:var(--ink);font-variant-numeric:tabular-nums}
+.dlain{display:flex;gap:16px;flex-wrap:wrap;margin-top:12px;padding-top:11px;border-top:1px dashed var(--line);font-size:12px;color:var(--muted);align-items:center}
+.dlain b{display:block;color:var(--ink);font-variant-numeric:tabular-nums;font-size:13px}
+/* Bilah pencocokan: rumus "dibayar tamu vs setoran" ditulis mendatar sebagai
+   kalimat, bukan tabel dua kolom — yang dicari orang adalah "sukunya apa
+   saja", dan tanda + − = di antaranya yang menjawab itu. */
+.hitung{display:flex;align-items:flex-end;gap:9px;flex-wrap:wrap;background:var(--surface);
+  border:1px solid var(--line);border-radius:var(--radius-sm);padding:11px 13px;margin-bottom:12px}
+.hitung .hs{min-width:74px}
+.hitung .hs span{display:block;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted-2)}
+.hitung .hs b{font-size:13.5px;font-variant-numeric:tabular-nums;color:var(--ink)}
+.hitung .hs.kuat b{font-family:var(--serif);font-size:15px}
+.hitung .op{font-size:14px;font-weight:700;color:var(--muted-2);padding-bottom:1px}
+.hitung .hsket{flex-basis:100%;font-size:11.5px;color:var(--muted);margin-top:2px}
+@media(max-width:900px){
+  .hrow{grid-template-columns:1fr 1fr;row-gap:8px}
+  .hrow .hd{grid-column:1/-1}
+  .hb{grid-column:1/-1;justify-content:flex-start}
+  .hch{display:none}
+}
+
+/* progress */
+.prog{height:9px;border-radius:20px;background:var(--gold-soft);overflow:hidden;margin-top:9px}
+.prog>i{display:block;height:100%;border-radius:20px;background:linear-gradient(90deg,var(--gold-2),var(--gold-dim));transition:width .5s var(--ease)}
+.prog.ok>i{background:linear-gradient(90deg,#28b06e,var(--ok))}
+
+/* table */
+table{width:100%;border-collapse:collapse;font-size:13.5px}
+th{text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);padding:10px 12px;border-bottom:2px solid var(--line);white-space:nowrap}
+td{padding:10px 12px;border-bottom:1px solid var(--line);color:var(--text)}
+tr:last-child td{border-bottom:none}
+td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+.tbl-wrap{overflow-x:auto}
+tbody tr:hover{background:var(--gold-soft)}
+
+/* status badge */
+.status{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;font-weight:600}
+.status .d{width:9px;height:9px;border-radius:50%;flex:none}
+.status.ok .d{background:var(--ok)}
+.status.ok{color:var(--ok)}
+.status.bad .d{background:var(--danger)}
+.status.bad{color:var(--danger)}
+
+/* breakdown row */
+.brow{display:grid;gap:10px;align-items:end;margin-bottom:10px}
+.brow.mk{grid-template-columns:1.1fr 1.3fr .9fr auto auto auto}
+.brow.ks{grid-template-columns:1.2fr .9fr 1fr auto}
+.brow.so{grid-template-columns:1.2fr .9fr auto}
+.brow .field{margin-bottom:0}
+@media(max-width:760px){.brow.mk,.brow.ks,.brow.so{grid-template-columns:1fr}}
+/* Centang Free Entry (dulu "Ticketing") di baris breakdown. Dibuat setinggi field di sebelahnya
+   supaya tidak melayang saat baris ikut memanjang. */
+.tkbox{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;padding-bottom:9px}
+.tkbox input{cursor:pointer}
+.tkbox.on{color:var(--gold-dim)}
+/* Tombol ringkasan potongan di baris breakdown. Merah kalau shift-nya belum
+   diisi — tanpa itu potongannya tidak dibebankan ke siapa pun dan omset yang
+   sama diam-diam terhitung dua kali. */
+.bhbtn{border:1px dashed var(--line);background:var(--surface);border-radius:9px;padding:7px 10px;font-size:11.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;margin-bottom:9px;line-height:1.35;text-align:left}
+.bhbtn:hover{border-color:var(--gold);color:var(--gold-dim)}
+.bhbtn.kosong{border-color:var(--danger);color:var(--danger)}
+.bhbtn b{display:block;font-size:12.5px;color:var(--text)}
+.bhbtn.kosong b{color:var(--danger)}
+
+/* ---- Modal ---- */
+.ovl{position:fixed;inset:0;background:rgba(15,18,24,.55);display:flex;align-items:center;justify-content:center;padding:20px;z-index:80}
+.mdl{background:var(--surface);border-radius:var(--radius);max-width:560px;width:100%;max-height:88vh;overflow:auto;box-shadow:0 24px 60px rgba(0,0,0,.3)}
+.mdl-h{padding:18px 22px 12px;border-bottom:1px solid var(--line)}
+.mdl-h h3{font-size:16px;margin:0}
+.mdl-h .sub{font-size:12.5px;color:var(--muted);margin-top:4px}
+.mdl-b{padding:18px 22px}
+.mdl-f{padding:14px 22px 18px;display:flex;gap:9px;justify-content:flex-end;flex-wrap:wrap;border-top:1px solid var(--line)}
+.kslist{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px;margin-top:8px}
+.kschip{display:flex;align-items:center;gap:9px;border:1.5px solid var(--line);border-radius:10px;padding:9px 11px;font-size:13px;font-weight:600;cursor:pointer}
+.kschip:hover{border-color:var(--gold)}
+.kschip.on{border-color:var(--gold);background:var(--gold-soft);color:var(--gold-dim)}
+.mini-lab{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);margin-bottom:8px}
+/* Mode UBAH catatan compliment. Kartu form dan barisnya di daftar ditandai
+   bersamaan — tanpa itu, form yang sudah terisi terlihat persis seperti form
+   tambah-baru, dan orang menekan Simpan mengira sedang menambah. */
+.card.edit-on{border-color:var(--accent,#C9A227);box-shadow:0 0 0 2px rgba(201,162,39,.16)}
+tr.baris-edit{background:rgba(201,162,39,.10)}
+.mini-actions{display:inline-flex;gap:5px;align-items:center}
+.balance-bar{position:sticky;bottom:0;background:var(--surface);border:1.5px solid var(--line);border-radius:var(--radius);padding:14px 18px;display:flex;align-items:center;justify-content:space-between;gap:16px;box-shadow:var(--shadow-lg);flex-wrap:wrap;margin-top:8px}
+.balance-bar .bnums{display:flex;gap:26px;flex-wrap:wrap}
+.balance-bar .bnums .bi{font-size:12px;color:var(--muted)}
+.balance-bar .bnums .bi b{display:block;font-family:var(--serif);font-size:16px;color:var(--ink);font-weight:800;margin-top:2px}
+.notice{padding:11px 14px;border-radius:var(--radius-sm);font-size:13px;font-weight:500;margin-bottom:14px;display:flex;gap:9px;align-items:flex-start}
+.notice.ok{background:var(--ok-bg);color:#146c42}
+.notice.bad{background:var(--danger-bg);color:#8f2718}
+.notice.info{background:var(--info-bg);color:#1a5a91}
+.notice.warn{background:var(--warn-bg);color:#7a5a10}
+.empty{text-align:center;padding:40px 20px;color:var(--muted-2)}
+.empty .big{font-size:34px;margin-bottom:8px}
+.seg{display:inline-flex;background:var(--gold-soft);border-radius:10px;padding:3px;gap:2px;margin-bottom:16px;flex-wrap:wrap}
+.seg button{border:none;background:transparent;padding:7px 15px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted)}
+.seg button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+.divlabel{display:inline-block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:3px 9px;border-radius:6px;margin-bottom:12px}
+.divlabel.mk{background:var(--info-bg);color:var(--info)}
+.divlabel.ev{background:var(--violet-bg);color:var(--violet)}
+.divlabel.ks{background:var(--teal-bg);color:var(--teal)}
+.divlabel.so{background:var(--gold-soft);color:var(--gold)}
+.hamb{display:none}
+@media(max-width:620px){.hamb{display:inline-flex}}
+.chart-box{position:relative;height:280px}
+.chart-box.sm{height:230px}
+.helper{font-size:11.5px;color:var(--muted-2);margin-top:4px}
+.tax-note{background:var(--warn-bg-t);border:1px dashed rgba(181,131,26,.4);border-radius:var(--radius-sm);padding:10px 13px;font-size:12.5px;color:#7a5a10;margin-top:6px}
+.leader{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:var(--radius-sm);border:1px solid var(--line);margin-bottom:9px;background:var(--surface)}
+.leader .rank{width:30px;height:30px;border-radius:50%;background:var(--gold-soft);color:var(--gold-dim);font-weight:800;display:flex;align-items:center;justify-content:center;font-size:14px;flex:none}
+.leader.top1 .rank{background:linear-gradient(135deg,#f4c752,#c8961f);color:#fff}
+.leader .ln{font-weight:700;font-size:14px}
+.leader .lm{font-size:11.5px;color:var(--muted)}
+.leader .lspace{flex:1}
+
+/* ===== Kalender kustom (bukan date picker bawaan browser) ===== */
+.calwrap{position:relative}
+.calbtn{width:100%;padding:11px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:15px;font-weight:600;text-align:left;cursor:pointer;display:flex;align-items:center;justify-content:space-between;gap:8px;min-width:220px}
+.calbtn:hover{border-color:var(--gold)}
+/* di dalam grid form (row-in) tombolnya ikut lebar kolom, jangan memaksa 220px */
+.row-in .calbtn{min-width:0}
+.row-in .calpop{left:0;right:auto;max-width:min(300px,86vw)}
+.calback{position:fixed;inset:0;z-index:55}
+.calpop{position:absolute;z-index:60;top:calc(100% + 6px);right:0;background:var(--surface);border:1px solid var(--line);border-radius:16px;box-shadow:var(--shadow-lg);padding:14px;width:300px}
+.calhead{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px}
+.calhead b{font-family:var(--serif);font-size:15px;color:var(--ink)}
+.calnav{width:30px;height:30px;border-radius:9px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:16px;display:grid;place-items:center;color:var(--muted)}
+.calnav:hover{border-color:var(--gold);color:var(--gold-dim)}
+.calgrid{display:grid;grid-template-columns:repeat(7,1fr);gap:2px;text-align:center}
+.caldow{font-size:10px;font-weight:700;color:var(--muted-2);text-transform:uppercase;padding:5px 0;letter-spacing:.4px}
+.calday{aspect-ratio:1;display:flex;align-items:center;justify-content:center;border-radius:9px;font-size:13px;font-weight:600;cursor:pointer;border:none;background:none;color:var(--text);position:relative}
+.calday:hover{background:var(--gold-soft)}
+.calday.off{color:var(--muted-2);opacity:.45;cursor:default}
+.calday.off:hover{background:none}
+.calday.today{color:var(--gold-dim);font-weight:800}
+.calday.sel{background:linear-gradient(135deg,var(--gold-2),var(--gold-dim));color:#fff}
+.calday.caldata::after{content:'';position:absolute;bottom:5px;left:50%;transform:translateX(-50%);width:4px;height:4px;border-radius:50%;background:var(--gold)}
+.calday.sel.caldata::after{background:#fff}
+.calquick{display:flex;gap:6px;margin-top:10px}
+.calquick button{flex:1;padding:7px;border:1px solid var(--line);border-radius:9px;background:var(--surface);font-size:12px;font-weight:600;cursor:pointer;color:var(--text)}
+.calquick button:hover{background:var(--gold-soft);border-color:var(--gold)}
+
+/* ---- Lembar cetak (Dashboard Omset & Report Achievement) ----
+   WAJIB display:none di layar. Isinya diisi tepat sebelum window.print(), dan
+   tanpa aturan ini lembarnya ikut menempel di bawah halaman sesudah dialog
+   cetak ditutup. Ditampilkan hanya di dalam @media print.
+
+   GAYA DOKUMEN LAKSAMANA (7 Agustus 2026, permintaan user berikut contoh
+   lembarnya). Sebelum ini lembar kompas memakai gaya generik: garis hitam,
+   kotak abu berbingkai, tanpa kop. Sekarang bentuknya sama dengan lembar
+   Konfirmasi Detail Acara yang sudah dipakai Marketing dan lembar PR di BD —
+   kop berlogo, nama serif, pita emas, kartu meta krem, seksi bertajuk.
+   Yang menerima laporan ini orang yang sama yang menerima lembar-lembar itu;
+   dokumen yang tiba dengan tata letak asing memaksa mereka membaca ulang dari
+   nol. Rujukan gaya: buildBriefDoc() di deploy/marketing/index.html dan blok
+   .doc-* di deploy/bd/index.html.
+
+   print-color-adjust:exact WAJIB ada. Tanpa itu Chrome membuang SEMUA warna
+   latar saat mencetak kecuali user sendiri mencentang "Background graphics" —
+   dan yang keluar adalah lembar putih polos tanpa kartu meta, tanpa pita
+   emas, tanpa seksi: persis gaya lama yang sedang diganti. Pita emas dan
+   bingkai seksi sengaja dibuat dari `border` (border selalu tercetak), jadi
+   sekalipun aturan ini diabaikan peramban lain, kerangka dokumennya tetap
+   berdiri. */
+#printSheet{display:none}
+@media print{
+  /* Sembunyikan aplikasi, sisakan lembar. visibility saja tidak cukup —
+     sidebar tetap memesan ruang dan lembarnya terdorong ke halaman 2. */
+  .app,.topbar{display:none!important}
+  /* SATU HALAMAN (permintaan user 7 Agustus 2026). Lembar versi pertama
+     menumpuk enam seksi satu kolom lalu 31 baris rincian harian di bawahnya —
+     hampir tiga halaman untuk laporan yang isinya dua puluhan angka.
+
+     Tiga hal yang membuatnya muat sekarang: ukuran diturunkan menyeluruh,
+     seksi disusun DUA KOLOM (.kolom2), dan tabel rincian harian dipecah jadi
+     tiga kolom berdampingan (.kolom3) — 31 baris bertumpuk memakan ~450px
+     sedangkan yang tersisa di bawah seksi cuma ~250px.
+
+     Ini pengetatan tata letak, BUKAN jaminan. Bulan 31 hari dengan seluruh
+     seksi terisi muat; PIC dengan puluhan event di Report Achievement tetap
+     bisa tumpah ke halaman kedua. Yang dijaga di sana: barisnya tidak
+     terbelah di tengah (page-break-inside pada tr). */
+  @page{size:A4 portrait;margin:10mm}
+  #printSheet{display:block!important;color:#0C1826;
+    font-family:Inter,-apple-system,'Segoe UI',system-ui,sans-serif;
+    font-size:9.5px;line-height:1.5;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact}
+
+  /* --- KOP --- */
+  #printSheet .ph{display:flex;justify-content:space-between;align-items:flex-start;gap:18px;
+    border-bottom:2.5px solid #F7BB0E;padding-bottom:10px;margin-bottom:11px}
+  #printSheet .ph-l{display:flex;gap:11px;align-items:center;min-width:0}
+  #printSheet .ph-logo{width:52px;height:52px;object-fit:contain;flex:none}
+  #printSheet .ph-nama{font-family:Georgia,'Times New Roman',serif;font-size:17px;font-weight:700;
+    line-height:1.15;letter-spacing:-.01em}
+  #printSheet .ph-sub{font-size:7px;letter-spacing:.2em;color:#C8940A;font-weight:700;margin-top:2px}
+  #printSheet .ph-alamat{font-size:8px;color:#666;margin-top:3px;line-height:1.45;max-width:200px}
+  #printSheet .ph-r{text-align:right;max-width:56%}
+  #printSheet .ph-label{font-size:7.5px;letter-spacing:.16em;color:#C8940A;font-weight:700;text-transform:uppercase}
+  #printSheet .ph-judul{font-family:Georgia,'Times New Roman',serif;font-size:15.5px;font-weight:700;
+    margin-top:3px;line-height:1.2}
+  #printSheet .ph-tgl{font-size:8.5px;color:#555;margin-top:2px}
+
+  /* --- KARTU META (krem, empat kolom satu baris) --- */
+  #printSheet .meta{background:#F6F4EE;border:1px solid #EAE5D9;border-radius:8px;
+    padding:8px 13px;margin-bottom:10px;display:grid;
+    grid-template-columns:repeat(4,1fr);gap:3px 16px;font-size:8.5px}
+  #printSheet .meta b{font-weight:700}
+
+  /* --- PITA KPI (angka utama, empat kotak sebaris) --- */
+  #printSheet .kpi{display:grid;grid-template-columns:repeat(4,1fr);gap:7px;margin-bottom:10px}
+  #printSheet .kpi>div{border:1px solid #E3DFD5;border-radius:8px;padding:6px 10px}
+  #printSheet .kpi .l{font-size:7px;text-transform:uppercase;letter-spacing:.08em;color:#777}
+  #printSheet .kpi .v{font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.25}
+  #printSheet .kpi .f{font-size:7.5px;color:#888}
+  #printSheet .kpi>div.em{background:#FBF3D8;border-color:#EBD9A2}
+
+  /* --- SEKSI BERTAJUK --- */
+  #printSheet .kolom2{display:grid;grid-template-columns:1fr 1fr;gap:9px;align-items:start}
+  #printSheet .sect{border:1px solid #E3DFD5;border-radius:8px;overflow:hidden;
+    margin-bottom:9px;page-break-inside:avoid}
+  #printSheet .kolom2>div>.sect:last-child{margin-bottom:0}
+  #printSheet .sect-h{background:#F1EEE7;padding:6px 11px;font-weight:700;font-size:9.5px;
+    border-bottom:1px solid #E3DFD5}
+  #printSheet table{width:100%;border-collapse:collapse;font-size:9px}
+  #printSheet .sect td{padding:4.5px 11px;border-bottom:1px solid #EFECE4;vertical-align:top}
+  #printSheet .sect tr:last-child td{border-bottom:none}
+  #printSheet .sect td.k{color:#6B6B6B;width:52%}
+  #printSheet .sect td.v{font-weight:700;font-variant-numeric:tabular-nums;text-align:right}
+  /* Keterangan kecil di bawah label. Kelasnya menempel di div DI DALAM td,
+     jadi selektornya tidak boleh `td.n` — itu tidak pernah cocok. */
+  #printSheet .sect .n{color:#888;font-weight:400;font-size:8px;margin-top:1px}
+  /* Baris yang menutup satu seksi (TOTAL / GRAND) diberi latar emas tipis. */
+  #printSheet .sect tr.sum td{background:#FBF3D8;font-weight:700;border-top:1px solid #EBD9A2}
+
+  /* --- TABEL DATA, boleh dipecah beberapa kolom berdampingan --- */
+  #printSheet .sect thead th{background:#F1EEE7;font-size:7px;text-transform:uppercase;
+    letter-spacing:.07em;color:#555;padding:5px 9px;text-align:left;
+    border-bottom:1px solid #E3DFD5;white-space:nowrap}
+  #printSheet .sect th.num,#printSheet .sect td.num{text-align:right;font-variant-numeric:tabular-nums}
+  #printSheet .sect tfoot td{background:#F6F4EE;font-weight:700;border-top:1px solid #E3DFD5}
+  #printSheet .sect.data{page-break-inside:auto}
+  #printSheet .sect.data tr{page-break-inside:avoid}
+  #printSheet .kolomN{display:grid}
+  #printSheet .kolomN.n2{grid-template-columns:1fr 1fr}
+  #printSheet .kolomN.n3{grid-template-columns:1fr 1fr 1fr}
+  /* Garis pemisah antar kolom tabel — tanpa ini tiga kolom angka berdempetan
+     terbaca sebagai satu tabel enam kolom yang urutannya kacau. */
+  #printSheet .kolomN>table+table{border-left:1px solid #E3DFD5}
+  #printSheet .kolomN td{padding:3.5px 9px}
+
+  /* --- PITA CATATAN KUNING (satu baris saja) --- */
+  #printSheet .note{background:#FBF3D8;border:1px solid #EBD9A2;border-radius:8px;
+    padding:7px 12px;margin-bottom:9px;font-size:8.5px;line-height:1.55}
+  #printSheet .note b{color:#8A6A12}
+
+  /* --- KAKI --- */
+  #printSheet .kaki{display:flex;justify-content:space-between;gap:18px;
+    border-top:1px solid #E3DFD5;margin-top:11px;padding-top:6px;
+    font-size:7.5px;color:#8A8A8A}
+}
+/* Matriks hak akses. Tombol satu-klik bersiklus dengan warna + legenda di
+   atasnya, DISALIN PERSIS dari deploy/reservasi/index.html — orang yang sama
+   mengatur akses di dua modul, dan dua matriks tiga-tingkat dengan warna
+   berbeda memaksanya belajar dua kali untuk hal yang sama. */
+.perm-btn{width:52px;height:26px;border-radius:7px;border:1.5px solid transparent;cursor:pointer;
+  font-size:10px;font-weight:800;letter-spacing:.02em;transition:transform .08s}
+.perm-btn:active{transform:scale(.92)}
+.perm-btn:disabled{cursor:not-allowed;opacity:.55}
+.perm-btn[data-v="0"]{background:var(--danger-bg);color:var(--danger);border-color:var(--danger)}
+.perm-btn[data-v="1"]{background:var(--warn-bg);color:var(--warn);border-color:var(--warn)}
+.perm-btn[data-v="2"]{background:var(--ok-bg);color:var(--ok);border-color:var(--ok)}
+.perm-legend{display:flex;gap:16px;flex-wrap:wrap;align-items:center;margin-bottom:12px;font-size:12.5px}
+.perm-legend .lg-item{display:flex;align-items:center;gap:7px}
+.perm-legend .lg-dot{width:15px;height:15px;border-radius:5px;border:1.5px solid transparent;flex:none}
+.perm-legend .lg-dot.n0{background:var(--danger-bg);border-color:var(--danger)}
+.perm-legend .lg-dot.n1{background:var(--warn-bg);border-color:var(--warn)}
+.perm-legend .lg-dot.n2{background:var(--ok-bg);border-color:var(--ok)}
+.perm-matrix{width:100%;border-collapse:collapse;font-size:13px}
+.perm-matrix th,.perm-matrix td{padding:9px 8px;border-bottom:1px solid var(--line);text-align:center;white-space:nowrap}
+.perm-matrix th:first-child,.perm-matrix td:first-child{text-align:left;font-weight:600}
+.perm-matrix thead th{background:var(--paper);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.4px}
+.perm-matrix tbody tr:hover{background:var(--gold-soft)}
+/* .perm-lock dipakai untuk sel matriks yang tidak bisa disetel. Sejak 25
+   Agustus 2026 tidak ada lagi barisnya (Pengaturan Target & Kelola Kru ikut
+   dibuka), tapi kelasnya DIBIARKAN: baris terkunci berikutnya pasti ada, dan
+   menghapus lalu menulis ulang aturan yang sama itu pekerjaan dua kali. */
+.perm-lock{color:var(--muted);font-weight:500;font-size:11.5px}
+/* ---- BRANKAS ---- */
+.card-sub{font-size:12.5px;color:var(--muted);margin-bottom:12px;line-height:1.5}
+.helper{display:block;font-size:11.5px;color:var(--muted-2);margin-top:2px;font-weight:400}
+.chip{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;
+  background:var(--paper);border:1px solid var(--line);color:var(--muted)}
+.perm-matrix td:first-child{max-width:320px}
+.stat .val.mono{font-variant-numeric:tabular-nums}
+</style>
+<body>
+<div class="app">
+  <aside class="sidebar" id="sidebar">
+    <div class="brand">
+      <div class="logo">F</div>
+      <div><div class="bt">BRANKAS</div><div class="bs">FINANCE · LAKSAMANA MUDA</div></div>
+    </div>
+    <nav class="nav">
+      <div class="nav-group">
+        <div class="nav-label">Brankas</div>
+        <a data-view="ringkasan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg></span> Ringkasan Brankas</a>
+        <a data-view="saldo"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg></span> Saldo &amp; Rekening</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">Kewajiban</div>
+        <a data-view="pending"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span> Uang Pending / Piutang</a>
+        <a data-view="bayar"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/><path d="m9 16 2 2 4-4"/></svg></span> Planning Pembayaran</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">Investor</div>
+        <a data-view="modal"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 3 6 6 .9-4.5 4.2 1.1 6.4L12 17.6 6.4 20.5l1.1-6.4L3 9.9 9 9Z"/></svg></span> Pengembalian Modal</a>
+      </div>
+      <div class="nav-group">
+        <div class="nav-label">Sistem</div>
+        <a data-view="pengaturan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.6 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6h.09A1.65 1.65 0 0 0 10.6 3.09V3a2 2 0 1 1 4 0v.09A1.65 1.65 0 0 0 16.11 4.6a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 20.4 9v.09A1.65 1.65 0 0 0 21.91 10.6H22a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg></span> Pengaturan</a>
+        <a data-view="akses"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2"/><path d="m16 11 2 2 4-4"/></svg></span> Kelola Akses</a>
+      </div>
+    </nav>
+    <div class="side-user">
+      <div class="su-avatar" id="suAvatar">?</div>
+      <div class="su-info"><b id="suName">—</b><span>brankas</span></div>
+      <button class="logout-x" title="Keluar ke Office" aria-label="Keluar ke Office" onclick="location.replace('../../')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2v10"/><path d="M18.36 6.64a9 9 0 1 1-12.73 0"/></svg>
+      </button>
+    </div>
+  </aside>
+
+  <main class="main">
+    <div class="topbar">
+      <div>
+        <h1 id="pageTitle">Ringkasan Brankas</h1>
+        <div class="sub" id="pageSub">Posisi kas perusahaan dan keputusan terdekat</div>
+      </div>
+      <div class="sync" id="syncMsg"></div>
+    </div>
+    <div id="app-view" class="view"></div>
+  </main>
+</div>
+
+<script>
+/* =========================================================================
+   BRANKAS — panel ketiga modul Finance
+   -------------------------------------------------------------------------
+   Asalnya berkas mandiri `Laksamana_Muda_BRANKAS.html`: localStorage, PIN
+   CFO/CEO, dan seluruh isinya angka karangan. Ketiganya dicabut saat masuk ke
+   sini (27 Agustus 2026, permintaan user), dan alasan mencabutnya perlu
+   diingat sebelum ada yang "mengembalikannya biar cepat":
+
+   - PIN di dalam HTML dipegang siapa pun yang menekan View Source, dan modul
+     ini sudah berada di balik gerbang Office. Gerbang kedua yang lebih lemah
+     daripada gerbang pertama bukan pengamanan, cuma satu layar tambahan.
+   - localStorage berarti angka brankas cuma ada di satu peramban. Yang
+     membukanya dari laptop lain melihat modul kosong dan menyimpulkan datanya
+     hilang.
+   - Angka contoh di layar keuangan adalah kesalahan paling mahal di repo ini:
+     tidak ada satu pun tanda yang membedakannya dari angka sungguhan.
+
+   SALDO REKENING TIDAK PERNAH DIKETIK. Ia dihitung dari Rekap Penjualan —
+   lihat saldoSemua(). Yang disimpan di database cuma yang memang tidak punya
+   sumber: saldo awal, piutang, rencana pembayaran, investor, dan pemetaan
+   metode pembayaran ke bank.
+   ========================================================================= */
+
+const SESSION_KEY = 'lm_session';
+/* Brankas menumpang backend Kas Kecil (tabel bk_*), dan membaca angka
+   penjualan dari backend Kompas. Dua alamat, dua peran — jangan ditukar. */
+const API_BK = '../../finance-api-mysql/api.php';
+const API_KP = '../../kompas-api-mysql/api.php';
+
+/* ---------- format ----------
+   Sama persis dengan panel Kas Kecil & Omset. Modul yang menuliskan rupiah
+   dengan gaya berbeda di tiap panel membuat orang mengira angkanya juga
+   dihitung berbeda. */
+const num = v => { const n = parseInt(String(v).replace(/[^0-9-]/g, ''), 10); return isNaN(n) ? 0 : n; };
+const fmtRp = n => 'Rp' + Math.round(n || 0).toLocaleString('id-ID');
+const fmtRpShort = n => { n = n || 0; const s = n < 0 ? '-' : ''; n = Math.abs(n);
+  if (n >= 1e9) return s + 'Rp' + (n / 1e9).toFixed(1).replace('.0', '') + 'M';
+  if (n >= 1e6) return s + 'Rp' + (n / 1e6).toFixed(1).replace('.0', '') + 'jt';
+  if (n >= 1e3) return s + 'Rp' + Math.round(n / 1e3) + 'rb';
+  return s + 'Rp' + Math.round(n); };
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[c]));
+const uid = p => p + Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-3);
+const BULAN = ['Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des'];
+const todayISO = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0'); };
+function fmtTgl(iso) { if (!iso) return '—'; const p = String(iso).split('-'); if (p.length !== 3) return iso;
+  return Number(p[2]) + ' ' + BULAN[Number(p[1]) - 1] + ' ' + p[0]; }
+function hariKe(iso) { if (!iso) return null; return Math.round((new Date(iso + 'T00:00:00') - new Date(todayISO() + 'T00:00:00')) / 86400000); }
+/* Kotak rupiah berformat sambil diketik. Titik ribuan bukan kosmetik di layar
+   ini: "15000000" dan "150000000" beda satu digit dan beda sepuluh kali
+   lipat, dan mata tidak menangkapnya tanpa pemisah. */
+function fmtRpInput(v) { const d = String(v == null ? '' : v).replace(/[^0-9]/g, ''); return d ? Number(d).toLocaleString('id-ID') : ''; }
+function ketikRp(el) { const p = el.selectionStart, l = el.value.length; el.value = fmtRpInput(el.value);
+  const b = el.value.length; try { el.setSelectionRange(Math.max(0, p + (b - l)), Math.max(0, p + (b - l))); } catch (e) {} }
+
+/* ---------- BANK ----------
+   Empat bank yang dipakai perusahaan (permintaan user). Kunci internalnya
+   tidak boleh diganti setelah ada data: ia dipakai sebagai kunci saldo awal
+   dan pemetaan metode, dan mengganti kunci membuat keduanya lepas tanpa satu
+   pun galat — saldonya cuma kembali ke nol. */
+const BANKS = [
+  { k:'bri',     n:'BRI' },
+  { k:'mandiri', n:'Mandiri' },
+  { k:'bca',     n:'BCA' },
+  { k:'uob',     n:'UOB' }
+];
+const KAS_K = 'cash';
+const namaBank = k => k === KAS_K ? 'Cash / Brankas Fisik' : ((BANKS.find(b => b.k === k) || {}).n || k);
+const SEMUA_WADAH = () => BANKS.map(b => b.k).concat([KAS_K]);
+
+/* Kelompok metode pembayaran di Rekap Penjualan.
+   ---------------------------------------------------------------------
+   BERKAS KEMBAR: salinan RK_GRUP di deploy/finance/kas/index.html. Kalau di
+   sana ditambah kelompok baru, yang di sini HARUS ikut — kelompok yang tidak
+   dikenal di sini uangnya tidak masuk ke bank mana pun, dan tidak ada satu
+   layar pun yang melaporkannya. Karena itu petaBelum() menghitung dan
+   memajang kelompok yang belum dipetakan; itulah jaringnya.
+
+   `mdr:true` artinya kelompok itu dipotong bank/ojol, jadi aktual masuknya
+   BEDA dari aktual kotor. Yang tanpa mdr — cash, transfer, error — aktual
+   masuknya SAMA dengan kotor. Itu persis yang diminta user: "cash yang aktual
+   masuknya emang sama dengan aktual kotor, maka tetap ambil aktual kotor". */
+const RK_GRUP = [
+  { k:'cash',         n:'Cash',         akt:['cash'],           mdr:'' },
+  { k:'qr_order',     n:'QR Order',     akt:['qris_esb'],       mdr:'qr_order' },
+  { k:'edc_bri',      n:'EDC BRI',      akt:['edc_bri'],        mdr:'edc_bri' },
+  { k:'qris_bri',     n:'QRIS BRI',     akt:['qris_bri'],       mdr:'qris_bri' },
+  { k:'edc_mandiri',  n:'EDC Mandiri',  akt:['edc_mandiri'],    mdr:'edc_mandiri' },
+  { k:'qris_mandiri', n:'QRIS Mandiri', akt:['qris_mandiri'],   mdr:'qris_mandiri' },
+  { k:'edc_bca',      n:'EDC BCA',      akt:['edc_bca'],        mdr:'edc_bca' },
+  { k:'qris_bca',     n:'QRIS BCA',     akt:['qris_bca'],       mdr:'qris_bca' },
+  { k:'transfer',     n:'Transfer',     akt:['transfer_uob'],   mdr:'' },
+  { k:'gofood',       n:'Gofood',       akt:['gofood'],         mdr:'gofood' },
+  { k:'grabfood',     n:'Grabfood',     akt:['grabfood'],       mdr:'grabfood' }
+];
+/* `error` SENGAJA TIDAK ADA di daftar atas. Ia bukan uang yang masuk ke
+   rekening mana pun — ia catatan salah input. Memasukkannya berarti
+   menambahkan uang yang tidak pernah ada ke saldo bank. */
+
+/* Pemetaan bawaan. Yang namanya sudah menyebut banknya dipetakan; yang tidak
+   — QR Order, Gofood, Grabfood — DIBIARKAN KOSONG dan dilaporkan di layar.
+   Menebaknya berarti menaruh puluhan juta di bank yang salah, dan tebakan
+   yang tidak pernah ditanyakan tidak akan pernah dibetulkan. */
+const MAP_BAWAAN = {
+  cash:KAS_K, edc_bri:'bri', qris_bri:'bri', edc_mandiri:'mandiri', qris_mandiri:'mandiri',
+  edc_bca:'bca', qris_bca:'bca', transfer:'uob', qr_order:'', gofood:'', grabfood:''
+};
+
+/* ---------- state ---------- */
+let CURRENT_USER = null;
+let BK = null;                 // {data:{rekening,piutang,bayar,investor,setting}, akses, peran}
+let KP = null;                 // blob kompas (reports, rekap_*, rekap_setoran)
+let KP_ERR = '';
+let CURRENT = 'ringkasan';
+let CHARTS = [];
+
+function setSync(kelas, teks) { const e = document.getElementById('syncMsg'); if (!e) return;
+  e.className = 'sync ' + (kelas || ''); e.innerHTML = teks || ''; }
+function toast(t) { setSync('ok', esc(t)); setTimeout(() => { if (document.getElementById('syncMsg')) setSync('', ''); }, 3200); }
+
+/* ---------- sesi ----------
+   Syaratnya HARUS SAMA PERSIS dengan penjaga di <head>. Di panel Kompas —
+   asal salinan pola ini — kedua tempat itu pernah tidak sinkron, dan orang
+   yang sudah diberi akses tetap dilempar balik ke Office sebelum satu baris
+   pun sempat jalan. */
+function bacaSesi() {
+  try {
+    const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null');
+    if (!s || !s.expiry || Date.now() >= s.expiry) return null;
+    const m = s.modules || [];
+    if (m.indexOf('*') < 0 && m.indexOf('brankas') < 0) return null;
+    const adm = s.adminModules || [];
+    return { id:s.userId, name:s.name, keterangan:s.keterangan || '',
+             isAdmin:(adm.indexOf('*') > -1 || adm.indexOf('brankas') > -1 || adm.indexOf('finance') > -1) };
+  } catch (e) { return null; }
+}
+const sayaAdmin = () => !!(CURRENT_USER && CURRENT_USER.isAdmin);
+
+/* ============ HAK AKSES PER SUB-MENU ============
+   Bentuknya SAMA PERSIS dengan matriks di panel Kas Kecil dan modul
+   Reservasi: tiga tingkat None / Lihat / Ubah, satu tombol bersiklus per sel,
+   kolom = role, baris = halaman. Bukan kemiripan kebetulan — dua matriks
+   dengan tiga tingkat tapi label & warna berbeda memaksa orang yang sama
+   belajar dua kali.
+
+   Yang diminta user: "ketika masuk langsung full akses dulu, tapi buatkan ada
+   kelola akses berdasarkan role". Karena itu ROLE_BAWAAN dan seluruh kolom
+   bawaannya PENUH — orang yang belum pernah ditentukan rolenya berperilaku
+   seperti hari ini, dan yang mempersempit adalah admin, satu per satu. */
+const PERM_NONE = 0, PERM_VIEW = 1, PERM_EDIT = 2;
+const PERM_OPT = [['0','Tak Terlihat','None'], ['1','Lihat','Lihat'], ['2','Boleh Ubah','Ubah']];
+/* Halaman yang PUNYA isian. Di luar daftar ini "Ubah" tidak berarti apa-apa —
+   halamannya murni informasi — jadi nilainya dijepit ke Lihat saat dibaca. */
+const AKS_HAL_ISI = ['saldo','pending','bayar','modal','pengaturan','akses'];
+
+const ROLE_KEYS = ['staf','manajemen','viewer'];
+const ROLE_LABEL = { staf:'Staf Finance', manajemen:'Manajemen', viewer:'View Only', admin:'Admin Modul' };
+const ROLE_KET = {
+  staf:'Kerja harian: mencatat piutang, rencana bayar, dan pengembalian modal.',
+  manajemen:'Membaca posisi kas & keputusan besar; tidak mengetik isian harian.',
+  viewer:'Membaca saja — tidak pernah bisa mengubah apa pun.'
+};
+const ROLE_BAWAAN = 'staf';
+/* Bawaan PENUH untuk staf, sesuai permintaan "masuk langsung full akses".
+   Yang tersimpan di database cuma SELISIH dari tabel ini — lihat simpanAkses().
+   Menyimpan salinan penuh membekukan aturan hari ini, sehingga halaman baru
+   tidak pernah sampai ke pemasangan yang sudah jalan. */
+const DEFAULT_PERMS = {
+  ringkasan :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
+  saldo     :{ staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_VIEW },
+  pending   :{ staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_VIEW },
+  bayar     :{ staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_VIEW },
+  modal     :{ staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_VIEW },
+  pengaturan:{ staf:PERM_EDIT, manajemen:PERM_NONE, viewer:PERM_NONE },
+  akses     :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW }
+};
+/* Kunci baris penetapan role: id user Office, bukan namanya. HRD membetulkan
+   ejaan nama tanpa memberi tahu siapa pun, dan penetapan yang terikat nama
+   akan diam-diam berhenti berlaku untuk orang yang namanya diperbaiki. */
+function aksKunci(u) { const id = String((u && u.id) || '').trim();
+  return id ? ('#' + id) : ('@' + String((u && u.name) || '').trim().toLowerCase()); }
+function aksPeta()  { const p = BK && BK.akses; return (p && typeof p === 'object' && !Array.isArray(p)) ? p : {}; }
+function peranPeta(){ const p = BK && BK.peran; return (p && typeof p === 'object' && !Array.isArray(p)) ? p : {}; }
+function peranUser(kunci) { const r = peranPeta()[kunci]; return ROLE_KEYS.indexOf(r) >= 0 ? r : ROLE_BAWAAN; }
+function peranSaya() { return sayaAdmin() ? 'admin' : peranUser(aksKunci(CURRENT_USER)); }
+function aksBawaan(view, role) { const b = DEFAULT_PERMS[view];
+  if (!b) return AKS_HAL_ISI.indexOf(view) >= 0 ? PERM_EDIT : PERM_VIEW;
+  return b[role] !== undefined ? b[role] : PERM_VIEW; }
+function aksTingkat(view, role) {
+  /* Admin modul selalu penuh dan tidak bisa diturunkan. Kalau bisa, satu klik
+     salah pada kolomnya sendiri membuat modul ini tidak punya siapa pun yang
+     bisa membetulkannya lagi. */
+  if (role === 'admin') return AKS_HAL_ISI.indexOf(view) >= 0 ? PERM_EDIT : PERM_VIEW;
+  const baris = aksPeta()[role];
+  let t = (baris && baris[view] !== undefined) ? parseInt(baris[view], 10) : aksBawaan(view, role);
+  if (isNaN(t)) t = aksBawaan(view, role);
+  t = Math.max(PERM_NONE, Math.min(PERM_EDIT, t));
+  if (AKS_HAL_ISI.indexOf(view) < 0 && t > PERM_VIEW) t = PERM_VIEW;
+  /* View Only tidak pernah melebihi "Lihat" — itu yang membuat nama rolenya
+     berarti, dan tanpa jepitan ini satu klik salah membuat role bernama
+     "View Only" bisa menghapus rencana pembayaran. */
+  if (role === 'viewer' && t > PERM_VIEW) t = PERM_VIEW;
+  return t;
+}
+function tingkatSaya(view) { return TITLES[view] ? aksTingkat(view, peranSaya()) : PERM_NONE; }
+function bolehLihat(view) { return tingkatSaya(view) >= PERM_VIEW; }
+function bolehUbah(view)  { return tingkatSaya(view) >= PERM_EDIT; }
+/* Penjaga sungguhan, dipanggil di awal tiap jalur yang menulis. Menyembunyikan
+   tombolnya saja tidak cukup: fungsi-fungsi ini global dan tetap bisa dipanggil
+   dari console, dan tombolnya sempat tergambar sebelum matriks datang. */
+function bolehAksi(view) {
+  if (bolehUbah(view)) return true;
+  alert('Tidak bisa dilakukan.\n\nHak akses kamu di halaman "' + (TITLES[view] ? TITLES[view][0] : view) +
+        '" cuma "' + PERM_OPT[tingkatSaya(view)][1] + '". Minta admin modul mengubahnya di Kelola Akses.');
+  return false;
+}
+function halPertamaBoleh() {
+  if (bolehLihat('ringkasan')) return 'ringkasan';
+  const urut = Object.keys(TITLES);
+  for (let i = 0; i < urut.length; i++) if (bolehLihat(urut[i])) return urut[i];
+  return '';
+}
+function pasangMenu() {
+  const badge = document.querySelector('.su-info span');
+  if (badge) badge.textContent = sayaAdmin() ? 'admin brankas' : ROLE_LABEL[peranSaya()].toLowerCase();
+  document.querySelectorAll('.nav a').forEach(a => {
+    if (!a.dataset.view) return;
+    a.style.display = bolehLihat(a.dataset.view) ? '' : 'none';
+  });
+  document.querySelectorAll('.nav-group').forEach(g => {
+    const ada = [...g.querySelectorAll('a')].some(a => a.style.display !== 'none');
+    g.style.display = ada ? '' : 'none';
+  });
+}
+function terapkanKunci() {
+  const el = document.getElementById('app-view'); if (!el) return;
+  if (bolehUbah(CURRENT)) return;
+  el.querySelectorAll('[data-aks]').forEach(n => n.remove());
+  if (AKS_HAL_ISI.indexOf(CURRENT) >= 0) {
+    el.querySelectorAll('input,select,textarea').forEach(i => {
+      if (!i.classList.contains('nokunci') && !i.closest('.nokunci')) i.disabled = true;
+    });
+    el.insertAdjacentHTML('afterbegin',
+      '<div class="notice info">👁 <div><b>Kamu hanya bisa melihat halaman ini.</b> ' +
+      'Kotak isian dimatikan dan tombol simpannya disembunyikan. Kalau seharusnya boleh mengisi, ' +
+      'minta admin modul mengubahnya di <b>Kelola Akses</b>.</div></div>');
+  }
+}
+
+/* ============ DATA ============ */
+async function postJson(url, data) {
+  const r = await fetch(url, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body:JSON.stringify(data) });
+  return await r.json();
+}
+async function muatSemua() {
+  setSync('saving', 'Memuat…');
+  const [a, b] = await Promise.allSettled([
+    postJson(API_BK, { action:'brankasGet' }),
+    fetch(API_KP + '?action=getAll&cb=' + Date.now()).then(r => r.json())
+  ]);
+  if (a.status === 'fulfilled' && a.value && a.value.ok) BK = a.value.data;
+  else throw new Error('Brankas: ' + ((a.reason && a.reason.message) || (a.value && a.value.error) || 'gagal dibaca'));
+  if (!BK.data) BK.data = {};
+  ['rekening','piutang','bayar','investor'].forEach(k => { if (!Array.isArray(BK.data[k])) BK.data[k] = []; });
+  if (!BK.data.setting || typeof BK.data.setting !== 'object') BK.data.setting = {};
+
+  /* Kompas boleh gagal tanpa mematikan modul: yang bergantung padanya cuma
+     halaman Saldo. Kalau seluruh modul ikut mati, piutang & rencana bayar
+     yang sudah diketik jadi tidak bisa dibaca gara-gara panel lain. */
+  if (b.status === 'fulfilled' && b.value && b.value.ok) { KP = b.value.data || {}; KP_ERR = ''; }
+  else { KP = null; KP_ERR = 'Data Rekap Penjualan tidak terbaca, jadi saldo rekening belum bisa dihitung.'; }
+  setSync('ok', '✓ Tersimpan');
+}
+/* State dikirim UTUH. Backend menulis blob sekali jalan, jadi mengirim
+   sepotong berarti sisanya lenyap tanpa satu pun pesan. */
+async function simpan() {
+  setSync('saving', 'Menyimpan…');
+  try {
+    const r = await postJson(API_BK, { action:'brankasSave', data:BK.data, oleh:(CURRENT_USER && CURRENT_USER.name) || '' });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'gagal');
+    setSync('ok', '✓ Tersimpan');
+    return true;
+  } catch (e) {
+    /* Gagal simpan HARUS terlihat dan HARUS menahan layar. Modul asalnya
+       menulis localStorage dan selalu berhasil; di sini uangnya ada di server,
+       dan "tersimpan" yang bohong adalah kegagalan paling mahal di repo ini. */
+    setSync('err', '⚠ Gagal menyimpan: ' + esc(e.message || e));
+    alert('Gagal menyimpan ke server.\n\n' + (e.message || e) + '\n\nPerubahan TIDAK tersimpan. Coba lagi.');
+    return false;
+  }
+}
+
+/* ============ SALDO DARI REKAP PENJUALAN ============
+   Inilah inti modul ini, dan satu-satunya bagian yang angkanya tidak diketik
+   siapa pun.
+
+   AKTUAL MASUK per kelompok per hari — BERKAS KEMBAR dengan rkHitung() di
+   deploy/finance/kas/index.html. Aturannya:
+
+     kotor  = Σ reports[tgl].pay[k].actual
+     akt    = kalau aktualnya diketik  -> angka itu
+              kalau tidak              -> kotor − MDR tersimpan
+     tanpa MDR (cash, transfer)        -> akt = kotor
+
+   Yang terakhir itu yang diminta user: cash aktual masuknya memang sama
+   dengan aktual kotor, jadi tetap ambil kotor. Tidak perlu pengecualian —
+   rumusnya sudah menghasilkan itu sendiri.
+
+   Kalau rkHitung() di panel Kas berubah, YANG DI SINI HARUS IKUT. Dua rumus
+   untuk satu angka berarti Saldo & Rekening bisa menyebut angka lain daripada
+   Rekap Penjualan untuk hari yang sama, dan yang mencari sebabnya akan
+   mengira uangnya yang hilang. */
+function kpRec(tgl) { const r = KP && KP.reports; return (r && r[tgl]) || null; }
+function kpPay(rec, k, f) { const p = (rec && rec.pay && rec.pay[k]) || {}; return num(p[f]); }
+/* MDR & aktual yang diketik disimpan DI DALAM reports[tgl] sendiri
+   (`reports[tgl].mdr` / `.aktual`), bukan di kunci terpisah. Sempat saya
+   kira ada tabel `rekap_hari`; kalau itu yang dibaca, seluruh saldo keluar
+   NOL tanpa satu pun galat — kotor − 0 tetap kotor, dan angkanya kelihatan
+   masuk akal. */
+function kpAktKetik(tgl, grup) {
+  const r = kpRec(tgl), a = (r && r.aktual) || {};
+  /* '' = sengaja dikosongkan orang di panel Rekap -> kembali ke hitungan lama,
+     BUKAN nol. Menganggapnya nol membuat aktual masuk hari itu jadi nol
+     padahal uangnya masuk. */
+  if (a[grup] !== undefined && a[grup] !== '') return num(a[grup]);
+  return null;
+}
+/* WARISAN sebelum EDC/QRIS dipecah per bank (12 Agustus 2026). MDR yang
+   tersimpan hari itu memakai kunci gabungan; dibaca sebagai cadangan supaya
+   riwayatnya tidak berubah angkanya sendiri. Salinan dari RK_MDR_LAMA di
+   panel Kas — ikut kalau di sana berubah. */
+const RK_MDR_LAMA = { edc_bri:'bri', edc_mandiri:'mandiri', edc_bca:'bca' };
+function kpMdr(tgl, grup) {
+  const r = kpRec(tgl), m = (r && r.mdr) || {};
+  if (m[grup] !== undefined) return num(m[grup]);
+  const lama = RK_MDR_LAMA[grup];
+  return lama !== undefined ? num(m[lama]) : 0;
+}
+function aktGrup(tgl, g) {
+  const rec = kpRec(tgl);
+  const kotor = g.akt.reduce((s, k) => s + kpPay(rec, k, 'actual'), 0);
+  if (!g.mdr) return kotor;
+  const ketik = kpAktKetik(tgl, g.mdr);
+  return ketik !== null ? ketik : (kotor - kpMdr(tgl, g.mdr));
+}
+function tglRekap() {
+  const r = (KP && KP.reports) || {};
+  return Object.keys(r).filter(t => /^\d{4}-\d{2}-\d{2}$/.test(t)).sort();
+}
+function petaGrup() {
+  const s = (BK && BK.data && BK.data.setting && BK.data.setting.peta) || {};
+  const out = {};
+  RK_GRUP.forEach(g => {
+    const v = s[g.k];
+    out[g.k] = (v === undefined) ? (MAP_BAWAAN[g.k] || '') : String(v || '');
+  });
+  return out;
+}
+/* Kelompok yang belum punya tujuan. Dipajang di layar, bukan didiamkan:
+   uangnya nyata dan sedang tidak masuk ke bank mana pun, jadi total brankas
+   lebih kecil daripada yang sebenarnya. */
+function petaBelum() {
+  const p = petaGrup();
+  return RK_GRUP.filter(g => !p[g.k] || SEMUA_WADAH().indexOf(p[g.k]) < 0);
+}
+function saldoAwal(k) { const s = (BK && BK.data && BK.data.setting && BK.data.setting.awal) || {}; return num(s[k]); }
+
+/* Tujuan setoran dicocokkan dengan nama bank. `tujuan` di Rekap Penjualan
+   teks bebas, jadi yang tidak cocok DILAPORKAN — bukan dijatuhkan ke bank
+   pertama, dan bukan dibuang diam-diam. */
+function bankDariTujuan(t) {
+  const s = String(t || '').toLowerCase();
+  if (!s) return '';
+  const b = BANKS.find(x => s.indexOf(x.n.toLowerCase()) > -1);
+  return b ? b.k : '';
+}
+function setoranSemua() { const v = KP && KP.rekap_setoran; return Array.isArray(v) ? v : []; }
+
+/* Saldo tiap wadah. SATU tempat, dipakai Ringkasan dan Saldo & Rekening —
+   dua layar yang menghitung sendiri-sendiri pasti berselisih suatu hari. */
+function saldoSemua() {
+  const peta = petaGrup();
+  const out = {}; SEMUA_WADAH().forEach(k => out[k] = {
+    awal:saldoAwal(k), masuk:0, setorMasuk:0, setorKeluar:0, keluar:0, saldo:0 });
+
+  if (KP) {
+    tglRekap().forEach(tgl => {
+      RK_GRUP.forEach(g => {
+        const w = peta[g.k];
+        if (!w || !out[w]) return;                 // belum dipetakan → dilaporkan terpisah
+        out[w].masuk += aktGrup(tgl, g);
+      });
+    });
+    /* SETORAN: uang fisik pindah dari brankas ke bank. Bank bertambah, cash
+       berkurang — persis yang diminta user. Nominalnya dihitung server dari
+       cash actual hari-hari yang dicakup, jadi tidak dihitung ulang di sini. */
+    setoranSemua().forEach(st => {
+      const n = num(st.nominal); if (!n) return;
+      const b = bankDariTujuan(st.tujuan);
+      if (b && out[b]) out[b].setorMasuk += n;
+      if (out[KAS_K]) out[KAS_K].setorKeluar += n;
+    });
+  }
+  /* Pembayaran yang SUDAH dibayar mengurangi wadah sumbernya. Yang masih
+     terjadwal tidak — itu rencana, bukan uang yang sudah pergi. */
+  (BK.data.bayar || []).forEach(p => {
+    if (p.status !== 'paid') return;
+    const w = p.dari && out[p.dari] ? p.dari : null;
+    if (w) out[w].keluar += num(p.amount);
+  });
+
+  SEMUA_WADAH().forEach(k => {
+    const o = out[k];
+    o.saldo = o.awal + o.masuk + o.setorMasuk - o.setorKeluar - o.keluar;
+  });
+  return out;
+}
+const totalLikuid = () => SEMUA_WADAH().reduce((s, k) => s + saldoSemua()[k].saldo, 0);
+
+/* ============ ROUTER ============ */
+const TITLES = {
+  ringkasan :['Ringkasan Brankas','Posisi kas perusahaan dan keputusan terdekat'],
+  saldo     :['Saldo & Rekening','Dihitung dari Aktual Masuk di Rekap Penjualan'],
+  pending   :['Uang Pending / Piutang','Uang yang sudah jadi hak perusahaan tapi belum masuk'],
+  bayar     :['Planning Pembayaran','Kewajiban terjadwal dan yang sudah dibayar'],
+  modal     :['Pengembalian Modal','Progres pengembalian modal per investor'],
+  pengaturan:['Pengaturan','Saldo awal, pemetaan metode pembayaran, dan biaya bulanan'],
+  akses     :['Kelola Akses','Siapa boleh membuka dan mengubah halaman mana']
+};
+function go(view) {
+  if (!TITLES[view] || !bolehLihat(view)) { const p = halPertamaBoleh(); if (!p) { CURRENT = ''; render(); return; } view = p; }
+  CURRENT = view;
+  if (location.hash !== '#/' + view) location.hash = '#/' + view;
+  render();
+}
+function bersihkanChart() { CHARTS.forEach(c => { try { c.destroy(); } catch (e) {} }); CHARTS = []; }
+function render() {
+  bersihkanChart();
+  document.querySelectorAll('.nav a').forEach(a => a.classList.toggle('active', a.dataset.view === CURRENT));
+  const t = TITLES[CURRENT];
+  document.getElementById('pageTitle').textContent = t ? t[0] : 'Brankas';
+  document.getElementById('pageSub').textContent   = t ? t[1] : '';
+  const V = document.getElementById('app-view');
+  if (!CURRENT) {
+    V.innerHTML = '<div class="card"><div class="empty"><div class="big">🔒</div>' +
+      '<b>Belum ada halaman yang boleh kamu buka.</b><div style="margin-top:8px">' +
+      'Akun kamu punya kunci modul Brankas, tapi seluruh halamannya disembunyikan untuk role ' +
+      '<b>' + esc(ROLE_LABEL[peranSaya()]) + '</b>. Minta admin modul membukanya di Kelola Akses.</div></div></div>';
+    return;
+  }
+  ({ ringkasan:vRingkasan, saldo:vSaldo, pending:vPending, bayar:vBayar,
+     modal:vModal, pengaturan:vPengaturan, akses:vAkses }[CURRENT] || vRingkasan)();
+  terapkanKunci();
+}
+
+/* ============ HALAMAN: RINGKASAN ============ */
+function vRingkasan() {
+  const s = saldoSemua();
+  const likuid = SEMUA_WADAH().reduce((a, k) => a + s[k].saldo, 0);
+  const piutang = (BK.data.piutang || []).filter(r => r.status !== 'lunas').reduce((a, r) => a + num(r.amount), 0);
+  const jadwal = (BK.data.bayar || []).filter(p => p.status === 'scheduled');
+  const wajib30 = jadwal.filter(p => { const d = hariKe(p.dueDate); return d !== null && d >= 0 && d <= 30; })
+                        .reduce((a, p) => a + num(p.amount), 0);
+  const burn = num(BK.data.setting.burn);
+  const runway = burn > 0 ? (likuid / burn) : null;
+
+  const V = document.getElementById('app-view');
+  let h = '';
+  if (KP_ERR) h += '<div class="notice warn">⚠ <div>' + esc(KP_ERR) + '</div></div>';
+  h += '<div class="grid g4" style="margin-bottom:18px">'
+    + kartu('Total Kas Likuid', fmtRp(likuid), SEMUA_WADAH().length + ' wadah (4 bank + brankas fisik)')
+    + kartu('Uang Pending / Piutang', fmtRp(piutang), (BK.data.piutang || []).filter(r => r.status !== 'lunas').length + ' catatan belum masuk')
+    + kartu('Kewajiban 30 Hari', fmtRp(wajib30), jadwal.length + ' pembayaran terjadwal')
+    + kartu('Runway', runway === null ? '—' : (runway.toFixed(1) + ' bulan'),
+            burn > 0 ? ('biaya bulanan ' + fmtRp(burn)) : 'isi biaya bulanan di Pengaturan')
+    + '</div>';
+
+  h += '<div class="grid g2">';
+  h += '<div class="card"><h3>Posisi per Wadah</h3><div class="card-sub">Saldo berjalan tiap bank dan brankas fisik</div>'
+     + '<div class="tbl-wrap"><table><thead><tr><th>Wadah</th><th class="num">Saldo</th></tr></thead><tbody>'
+     + SEMUA_WADAH().map(k => '<tr><td>' + esc(namaBank(k)) + '</td><td class="num mono"><b>' + fmtRp(s[k].saldo) + '</b></td></tr>').join('')
+     + '<tr><td><b>Total</b></td><td class="num mono"><b>' + fmtRp(likuid) + '</b></td></tr>'
+     + '</tbody></table></div></div>';
+
+  const dekat = jadwal.slice().sort((a, b) => String(a.dueDate) < String(b.dueDate) ? -1 : 1).slice(0, 6);
+  h += '<div class="card"><h3>Jatuh Tempo Terdekat</h3><div class="card-sub">Enam kewajiban paling dekat</div>'
+     + (dekat.length ? '<div class="tbl-wrap"><table><thead><tr><th>Kewajiban</th><th>Jatuh Tempo</th><th class="num">Nominal</th></tr></thead><tbody>'
+        + dekat.map(p => { const d = hariKe(p.dueDate);
+            return '<tr><td>' + esc(p.name) + '</td><td>' + esc(fmtTgl(p.dueDate))
+              + '<span class="helper">' + (d === null ? '' : d < 0 ? 'lewat ' + (-d) + ' hari' : d === 0 ? 'hari ini' : d + ' hari lagi') + '</span></td>'
+              + '<td class="num mono">' + fmtRp(p.amount) + '</td></tr>'; }).join('')
+        + '</tbody></table></div>'
+        : '<div class="empty"><div class="big">◔</div>Belum ada pembayaran terjadwal.</div>')
+     + '</div>';
+  h += '</div>';
+  V.innerHTML = h;
+}
+function kartu(lab, val, foot) {
+  return '<div class="stat"><div class="lab">' + esc(lab) + '</div><div class="val mono">' + val + '</div>'
+       + '<div class="foot">' + esc(foot || '') + '</div></div>';
+}
+
+/* ============ HALAMAN: SALDO & REKENING ============ */
+function vSaldo() {
+  const V = document.getElementById('app-view');
+  if (!KP) { V.innerHTML = '<div class="notice bad">⚠ <div>' + esc(KP_ERR) + '</div></div>'; return; }
+  const s = saldoSemua(), peta = petaGrup(), belum = petaBelum();
+  const tgl = tglRekap();
+
+  let h = '';
+  h += '<div class="notice info">ℹ <div><b>Saldo di halaman ini tidak diketik siapa pun.</b> '
+     + 'Ia dihitung dari <b>Aktual Masuk</b> tiap metode pembayaran di Rekap Penjualan '
+     + '(' + tgl.length + ' hari tercatat), ditambah saldo awal, lalu digeser oleh setoran cash ke bank '
+     + 'dan pembayaran yang sudah dibayar. Aktual masuk untuk Cash memang sama dengan aktual kotor — '
+     + 'cash tidak dipotong MDR.</div></div>';
+
+  if (belum.length) {
+    h += '<div class="notice warn">⚠ <div><b>' + belum.length + ' metode pembayaran belum punya tujuan bank.</b> '
+       + 'Uangnya nyata tapi belum masuk ke wadah mana pun, jadi total di bawah lebih kecil daripada yang sebenarnya: <b>'
+       + esc(belum.map(g => g.n).join(', ')) + '</b>. Petakan di <b>Pengaturan</b>.</div></div>';
+  }
+
+  h += '<div class="tbl-wrap card"><h3>Saldo per Wadah</h3>'
+     + '<div class="card-sub">Saldo awal + aktual masuk + setoran − keluar</div>'
+     + '<table><thead><tr><th>Wadah</th><th class="num">Saldo Awal</th><th class="num">Aktual Masuk</th>'
+     + '<th class="num">Setoran Masuk</th><th class="num">Setoran Keluar</th><th class="num">Pembayaran</th>'
+     + '<th class="num">Saldo</th></tr></thead><tbody>';
+  SEMUA_WADAH().forEach(k => { const o = s[k];
+    h += '<tr><td><b>' + esc(namaBank(k)) + '</b></td>'
+       + '<td class="num mono">' + fmtRp(o.awal) + '</td>'
+       + '<td class="num mono">' + fmtRp(o.masuk) + '</td>'
+       + '<td class="num mono">' + (o.setorMasuk ? fmtRp(o.setorMasuk) : '<span style="color:var(--muted-2)">—</span>') + '</td>'
+       + '<td class="num mono">' + (o.setorKeluar ? fmtRp(o.setorKeluar) : '<span style="color:var(--muted-2)">—</span>') + '</td>'
+       + '<td class="num mono">' + (o.keluar ? fmtRp(o.keluar) : '<span style="color:var(--muted-2)">—</span>') + '</td>'
+       + '<td class="num mono"><b>' + fmtRp(o.saldo) + '</b></td></tr>';
+  });
+  const tot = SEMUA_WADAH().reduce((a, k) => a + s[k].saldo, 0);
+  h += '<tr><td><b>Total</b></td><td colspan="5"></td><td class="num mono"><b>' + fmtRp(tot) + '</b></td></tr>';
+  h += '</tbody></table></div>';
+
+  /* Rincian per metode: inilah yang membuat angka di atas bisa dicocokkan
+     dengan Rekap Penjualan baris demi baris. Tanpa ini, saldo yang tidak
+     sesuai dugaan tidak punya satu pun tempat untuk diperiksa. */
+  h += '<div class="tbl-wrap card"><h3>Aktual Masuk per Metode</h3>'
+     + '<div class="card-sub">Seluruh hari yang tercatat di Rekap Penjualan, dijumlahkan</div>'
+     + '<table><thead><tr><th>Metode</th><th>Masuk ke</th><th class="num">Aktual Masuk</th></tr></thead><tbody>';
+  RK_GRUP.forEach(g => {
+    let jml = 0; tgl.forEach(t => jml += aktGrup(t, g));
+    const w = peta[g.k];
+    h += '<tr><td>' + esc(g.n) + (g.mdr ? '' : '<span class="helper">tanpa MDR — aktual masuk = aktual kotor</span>') + '</td>'
+       + '<td>' + (w && SEMUA_WADAH().indexOf(w) >= 0 ? esc(namaBank(w))
+                  : '<span class="chip" style="background:var(--warn-bg);color:var(--warn)">belum dipetakan</span>') + '</td>'
+       + '<td class="num mono">' + fmtRp(jml) + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+
+  const st = setoranSemua();
+  const stTakDikenal = st.filter(x => !bankDariTujuan(x.tujuan));
+  h += '<div class="tbl-wrap card"><h3>Setoran Cash ke Bank</h3>'
+     + '<div class="card-sub">Dicatat di Rekap Penjualan. Bank bertambah, brankas fisik berkurang.</div>'
+     + (stTakDikenal.length ? '<div class="notice warn">⚠ <div><b>' + stTakDikenal.length + ' setoran tujuannya tidak dikenali</b> '
+        + 'sebagai BRI / Mandiri / BCA / UOB, jadi uangnya keluar dari brankas fisik tapi tidak masuk ke bank mana pun. '
+        + 'Betulkan tujuannya di <b>Rekap Penjualan → Setoran Cash</b>.</div></div>' : '')
+     + (st.length ? '<table><thead><tr><th>Tanggal</th><th>Tujuan</th><th>Hari Dicakup</th><th class="num">Nominal</th></tr></thead><tbody>'
+        + st.slice().sort((a, b) => String(b.tgl) < String(a.tgl) ? -1 : 1).map(x => {
+            const b = bankDariTujuan(x.tujuan);
+            return '<tr><td>' + esc(fmtTgl(x.tgl)) + '</td>'
+              + '<td>' + esc(x.tujuan || '—') + (b ? '' : ' <span class="chip" style="background:var(--warn-bg);color:var(--warn)">tak dikenal</span>') + '</td>'
+              + '<td>' + ((x.hari || []).length) + ' hari</td>'
+              + '<td class="num mono">' + fmtRp(x.nominal) + '</td></tr>'; }).join('')
+        + '</tbody></table>'
+        : '<div class="empty"><div class="big">◔</div>Belum ada setoran cash yang tercatat.</div>')
+     + '</div>';
+  V.innerHTML = h;
+}
+
+/* ============ HALAMAN BERISIAN: PIUTANG / BAYAR / INVESTOR ============
+   Ketiganya bentuk yang sama: form di atas, daftar di bawah, simpan langsung
+   ke server. Form dipisah ke kartunya sendiri, bukan ditumpuk ke atas
+   tabelnya — daftar yang panjang membuat orang menggulir melewati form yang
+   sama tiap kali ingin memeriksa satu angka. */
+function baris(id, arr) { return (arr || []).find(x => x.id === id) || null; }
+async function simpanBaris(kunci, obj, view) {
+  if (!bolehAksi(view)) return;
+  const arr = BK.data[kunci];
+  const i = arr.findIndex(x => x.id === obj.id);
+  if (i >= 0) arr[i] = obj; else arr.push(obj);
+  if (await simpan()) { toast('Tersimpan.'); render(); }
+}
+async function hapusBaris(kunci, id, view, tanya) {
+  if (!bolehAksi(view)) return;
+  if (!confirm(tanya || 'Hapus baris ini?')) return;
+  BK.data[kunci] = BK.data[kunci].filter(x => x.id !== id);
+  if (await simpan()) { toast('Dihapus.'); render(); }
+}
+
+const PIUTANG_ST = { pending:'Belum masuk', lunas:'Sudah masuk' };
+function vPending() {
+  const V = document.getElementById('app-view');
+  const arr = (BK.data.piutang || []).slice().sort((a, b) => String(a.dueDate) < String(b.dueDate) ? -1 : 1);
+  const belum = arr.filter(r => r.status !== 'lunas');
+  let h = '<div class="grid g3" style="margin-bottom:18px">'
+    + kartu('Belum Masuk', fmtRp(belum.reduce((a, r) => a + num(r.amount), 0)), belum.length + ' catatan')
+    + kartu('Sudah Masuk', fmtRp(arr.filter(r => r.status === 'lunas').reduce((a, r) => a + num(r.amount), 0)), 'total sepanjang catatan')
+    + kartu('Lewat Jatuh Tempo', fmtRp(belum.filter(r => { const d = hariKe(r.dueDate); return d !== null && d < 0; }).reduce((a, r) => a + num(r.amount), 0)), 'perlu ditagih')
+    + '</div>';
+
+  h += '<div class="card" data-aks><h3>Catat Piutang</h3><div class="card-sub">Uang yang sudah jadi hak perusahaan tapi belum masuk rekening</div>'
+    + '<div class="grid g3">'
+    + fld('Sumber / Dari siapa', '<input id="pi_src" placeholder="mis. Corporate Event PT ABC">')
+    + fld('Nominal', '<input class="mono" id="pi_amt" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
+    + fld('Perkiraan Masuk', '<input type="date" id="pi_due">')
+    + '</div>'
+    + fld('Catatan', '<input id="pi_note" placeholder="opsional">')
+    + '<button class="btn btn-primary" onclick="pdSimpan()">Simpan Piutang</button></div>';
+
+  h += '<div class="tbl-wrap card"><h3>Daftar Piutang</h3>'
+    + (arr.length ? '<table><thead><tr><th>Sumber</th><th>Perkiraan Masuk</th><th class="num">Nominal</th><th>Status</th><th></th></tr></thead><tbody>'
+      + arr.map(r => { const d = hariKe(r.dueDate);
+          return '<tr><td><b>' + esc(r.source) + '</b>' + (r.note ? '<span class="helper">' + esc(r.note) + '</span>' : '') + '</td>'
+            + '<td>' + esc(fmtTgl(r.dueDate)) + (r.status !== 'lunas' && d !== null && d < 0 ? '<span class="helper" style="color:var(--danger)">lewat ' + (-d) + ' hari</span>' : '') + '</td>'
+            + '<td class="num mono">' + fmtRp(r.amount) + '</td>'
+            + '<td><span class="chip">' + esc(PIUTANG_ST[r.status] || 'Belum masuk') + '</span></td>'
+            + '<td data-aks><button class="btn btn-ghost btn-xs" onclick="pdToggle(\'' + r.id + '\')">'
+            + (r.status === 'lunas' ? 'Tandai belum' : 'Tandai masuk') + '</button> '
+            + '<button class="btn btn-danger btn-xs" onclick="hapusBaris(\'piutang\',\'' + r.id + '\',\'pending\',\'Hapus piutang ini?\')">Hapus</button></td></tr>'; }).join('')
+      + '</tbody></table>'
+      : '<div class="empty"><div class="big">◔</div>Belum ada piutang yang dicatat.</div>')
+    + '</div>';
+  V.innerHTML = h;
+}
+function pdSimpan() {
+  const g = id => (document.getElementById(id) || {}).value || '';
+  if (!g('pi_src').trim()) { alert('Sumber piutang wajib diisi.'); return; }
+  simpanBaris('piutang', { id:uid('pi'), source:g('pi_src').trim(), amount:num(g('pi_amt')),
+    dueDate:g('pi_due'), note:g('pi_note').trim(), status:'pending' }, 'pending');
+}
+function pdToggle(id) {
+  const r = baris(id, BK.data.piutang); if (!r) return;
+  r.status = r.status === 'lunas' ? 'pending' : 'lunas';
+  simpanBaris('piutang', r, 'pending');
+}
+
+const BAYAR_KAT = ['Sewa','Gaji','Pajak','Vendor','Utilitas','Cicilan','Investor','Operasional','Lainnya'];
+function vBayar() {
+  const V = document.getElementById('app-view');
+  const arr = (BK.data.bayar || []).slice().sort((a, b) => String(a.dueDate) < String(b.dueDate) ? -1 : 1);
+  const jadwal = arr.filter(p => p.status === 'scheduled');
+  const s = saldoSemua();
+  const likuid = SEMUA_WADAH().reduce((a, k) => a + s[k].saldo, 0);
+  const total = jadwal.reduce((a, p) => a + num(p.amount), 0);
+
+  let h = '<div class="grid g3" style="margin-bottom:18px">'
+    + kartu('Terjadwal', fmtRp(total), jadwal.length + ' kewajiban belum dibayar')
+    + kartu('Sudah Dibayar', fmtRp(arr.filter(p => p.status === 'paid').reduce((a, p) => a + num(p.amount), 0)), 'sepanjang catatan')
+    + kartu('Sisa Kas Sesudah Semua', fmtRp(likuid - total), likuid - total < 0 ? 'kas tidak cukup' : 'kalau semuanya dibayar')
+    + '</div>';
+  if (likuid - total < 0) h = '<div class="notice bad">⚠ <div><b>Kas tidak cukup untuk seluruh kewajiban terjadwal.</b> '
+    + 'Kurang ' + fmtRp(total - likuid) + '.</div></div>' + h;
+
+  h += '<div class="card" data-aks><h3>Catat Rencana Pembayaran</h3><div class="card-sub">Kewajiban yang sudah pasti, berikut tanggal jatuh temponya</div>'
+    + '<div class="grid g3">'
+    + fld('Nama Kewajiban', '<input id="by_name" placeholder="mis. Sewa Gedung Q3">')
+    + fld('Kategori', '<select id="by_cat">' + BAYAR_KAT.map(c => '<option>' + c + '</option>').join('') + '</select>')
+    + fld('Nominal', '<input class="mono" id="by_amt" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
+    + '</div><div class="grid g3">'
+    + fld('Jatuh Tempo', '<input type="date" id="by_due">')
+    + fld('Dibayar Dari', '<select id="by_dari">' + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + '</option>').join('') + '</select>')
+    + fld('Catatan', '<input id="by_note" placeholder="opsional">')
+    + '</div>'
+    + '<button class="btn btn-primary" onclick="bySimpan()">Simpan Rencana</button></div>';
+
+  h += '<div class="tbl-wrap card"><h3>Daftar Kewajiban</h3>'
+    + (arr.length ? '<table><thead><tr><th>Kewajiban</th><th>Kategori</th><th>Jatuh Tempo</th><th>Dari</th><th class="num">Nominal</th><th>Status</th><th></th></tr></thead><tbody>'
+      + arr.map(p => { const d = hariKe(p.dueDate);
+          return '<tr><td><b>' + esc(p.name) + '</b>' + (p.note ? '<span class="helper">' + esc(p.note) + '</span>' : '') + '</td>'
+            + '<td>' + esc(p.cat || '—') + '</td>'
+            + '<td>' + esc(fmtTgl(p.dueDate)) + (p.status === 'scheduled' && d !== null && d < 0 ? '<span class="helper" style="color:var(--danger)">lewat ' + (-d) + ' hari</span>' : '') + '</td>'
+            + '<td>' + esc(namaBank(p.dari || KAS_K)) + '</td>'
+            + '<td class="num mono">' + fmtRp(p.amount) + '</td>'
+            + '<td><span class="chip">' + (p.status === 'paid' ? 'Dibayar' : 'Terjadwal') + '</span></td>'
+            + '<td data-aks><button class="btn btn-ghost btn-xs" onclick="byToggle(\'' + p.id + '\')">'
+            + (p.status === 'paid' ? 'Batalkan bayar' : 'Tandai dibayar') + '</button> '
+            + '<button class="btn btn-danger btn-xs" onclick="hapusBaris(\'bayar\',\'' + p.id + '\',\'bayar\',\'Hapus kewajiban ini?\')">Hapus</button></td></tr>'; }).join('')
+      + '</tbody></table>'
+      : '<div class="empty"><div class="big">◫</div>Belum ada rencana pembayaran.</div>')
+    + '</div>';
+  V.innerHTML = h;
+}
+function bySimpan() {
+  const g = id => (document.getElementById(id) || {}).value || '';
+  if (!g('by_name').trim()) { alert('Nama kewajiban wajib diisi.'); return; }
+  simpanBaris('bayar', { id:uid('by'), name:g('by_name').trim(), cat:g('by_cat'), amount:num(g('by_amt')),
+    dueDate:g('by_due'), dari:g('by_dari') || KAS_K, note:g('by_note').trim(), status:'scheduled' }, 'bayar');
+}
+function byToggle(id) {
+  const p = baris(id, BK.data.bayar); if (!p) return;
+  p.status = p.status === 'paid' ? 'scheduled' : 'paid';
+  simpanBaris('bayar', p, 'bayar');
+}
+
+function vModal() {
+  const V = document.getElementById('app-view');
+  const arr = (BK.data.investor || []).slice();
+  const modal = arr.reduce((a, i) => a + num(i.capital), 0);
+  const kembali = arr.reduce((a, i) => a + (i.returns || []).reduce((x, r) => x + num(r.amount), 0), 0);
+  let h = '<div class="grid g3" style="margin-bottom:18px">'
+    + kartu('Modal Masuk', fmtRp(modal), arr.length + ' investor')
+    + kartu('Sudah Dikembalikan', fmtRp(kembali), modal > 0 ? (kembali / modal * 100).toFixed(1) + '% dari modal' : '—')
+    + kartu('Sisa Kewajiban', fmtRp(Math.max(modal - kembali, 0)), 'belum dikembalikan')
+    + '</div>';
+
+  h += '<div class="card" data-aks><h3>Catat Investor</h3><div class="card-sub">Modal yang masuk dan target pengembaliannya</div>'
+    + '<div class="grid g4">'
+    + fld('Nama', '<input id="iv_name" placeholder="Nama investor">')
+    + fld('Modal', '<input class="mono" id="iv_cap" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
+    + fld('Kepemilikan (%)', '<input class="mono" id="iv_own" inputmode="numeric" placeholder="0">')
+    + fld('Target Selesai', '<input type="date" id="iv_tgt">')
+    + '</div><button class="btn btn-primary" onclick="ivSimpan()">Simpan Investor</button></div>';
+
+  h += arr.length ? arr.map(i => {
+      const ret = (i.returns || []).reduce((a, r) => a + num(r.amount), 0);
+      const sisa = Math.max(num(i.capital) - ret, 0);
+      const p = num(i.capital) > 0 ? Math.min(ret / num(i.capital) * 100, 100) : 0;
+      return '<div class="card"><h3>' + esc(i.name) + '</h3>'
+        + '<div class="card-sub">Modal ' + fmtRp(i.capital) + ' · kepemilikan ' + esc(String(i.ownership || 0)) + '%'
+        + (i.targetDate ? ' · target ' + esc(fmtTgl(i.targetDate)) : '') + '</div>'
+        + '<div class="grid g3" style="margin:12px 0">'
+        + kartu('Dikembalikan', fmtRp(ret), p.toFixed(1) + '% dari modal')
+        + kartu('Sisa', fmtRp(sisa), '')
+        + kartu('Jumlah Pembayaran', String((i.returns || []).length) + '×', '')
+        + '</div>'
+        + '<div data-aks class="grid g3">'
+        + fld('Tanggal Bayar', '<input type="date" id="rv_d_' + i.id + '">')
+        + fld('Nominal', '<input class="mono" id="rv_a_' + i.id + '" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
+        + fld('&nbsp;', '<button class="btn btn-primary btn-block" onclick="rvTambah(\'' + i.id + '\')">Catat Pengembalian</button>')
+        + '</div>'
+        + ((i.returns || []).length ? '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Nominal</th><th></th></tr></thead><tbody>'
+            + i.returns.slice().sort((a, b) => String(b.date) < String(a.date) ? -1 : 1).map((r, ix) =>
+              '<tr><td>' + esc(fmtTgl(r.date)) + '</td><td class="num mono">' + fmtRp(r.amount) + '</td>'
+              + '<td data-aks><button class="btn btn-danger btn-xs" onclick="rvHapus(\'' + i.id + '\',' + ix + ')">Hapus</button></td></tr>').join('')
+            + '</tbody></table></div>' : '')
+        + '<div style="margin-top:12px" data-aks><button class="btn btn-danger btn-sm" onclick="hapusBaris(\'investor\',\'' + i.id + '\',\'modal\',\'Hapus investor ini beserta riwayat pengembaliannya?\')">Hapus Investor</button></div>'
+        + '</div>';
+    }).join('')
+    : '<div class="card"><div class="empty"><div class="big">♦</div>Belum ada investor yang dicatat.</div></div>';
+  V.innerHTML = h;
+}
+function ivSimpan() {
+  const g = id => (document.getElementById(id) || {}).value || '';
+  if (!g('iv_name').trim()) { alert('Nama investor wajib diisi.'); return; }
+  simpanBaris('investor', { id:uid('iv'), name:g('iv_name').trim(), capital:num(g('iv_cap')),
+    ownership:num(g('iv_own')), targetDate:g('iv_tgt'), returns:[] }, 'modal');
+}
+function rvTambah(id) {
+  const i = baris(id, BK.data.investor); if (!i) return;
+  const d = (document.getElementById('rv_d_' + id) || {}).value || '';
+  const a = num((document.getElementById('rv_a_' + id) || {}).value);
+  if (!d || !a) { alert('Tanggal dan nominal pengembalian wajib diisi.'); return; }
+  if (!Array.isArray(i.returns)) i.returns = [];
+  i.returns.push({ date:d, amount:a });
+  simpanBaris('investor', i, 'modal');
+}
+function rvHapus(id, ix) {
+  const i = baris(id, BK.data.investor); if (!i || !i.returns) return;
+  if (!confirm('Hapus catatan pengembalian ini?')) return;
+  const urut = i.returns.slice().sort((a, b) => String(b.date) < String(a.date) ? -1 : 1);
+  const target = urut[ix]; if (!target) return;
+  i.returns.splice(i.returns.indexOf(target), 1);
+  simpanBaris('investor', i, 'modal');
+}
+function fld(label, isi) { return '<div class="field"><label>' + label + '</label>' + isi + '</div>'; }
+
+/* ============ HALAMAN: PENGATURAN ============ */
+function vPengaturan() {
+  const V = document.getElementById('app-view');
+  const peta = petaGrup();
+  let h = '<div class="card" data-aks><h3>Saldo Awal Tiap Wadah</h3>'
+    + '<div class="card-sub">Uang yang sudah ada SEBELUM hari pertama yang tercatat di Rekap Penjualan. '
+    + 'Tanpa ini saldo brankas dimulai dari nol dan selalu lebih kecil daripada kenyataan.</div>'
+    + '<div class="grid g3">'
+    + SEMUA_WADAH().map(k => fld(esc(namaBank(k)),
+        '<input class="mono" id="aw_' + k + '" inputmode="numeric" oninput="ketikRp(this)" value="' + fmtRpInput(saldoAwal(k)) + '">')).join('')
+    + '</div></div>';
+
+  h += '<div class="card" data-aks><h3>Metode Pembayaran Masuk ke Bank Mana</h3>'
+    + '<div class="card-sub">Menentukan ke wadah mana Aktual Masuk tiap metode dijumlahkan. '
+    + 'Yang dibiarkan kosong uangnya tidak masuk ke wadah mana pun — dan itu dilaporkan di halaman Saldo, bukan didiamkan.</div>'
+    + '<div class="grid g3">'
+    + RK_GRUP.map(g => fld(esc(g.n),
+        '<select id="pt_' + g.k + '"><option value="">— belum dipetakan —</option>'
+        + SEMUA_WADAH().map(k => '<option value="' + k + '"' + (peta[g.k] === k ? ' selected' : '') + '>' + esc(namaBank(k)) + '</option>').join('')
+        + '</select>')).join('')
+    + '</div></div>';
+
+  h += '<div class="card" data-aks><h3>Biaya Operasional Bulanan</h3>'
+    + '<div class="card-sub">Dipakai menghitung runway di Ringkasan. Kosong = runway tidak ditampilkan, bukan ditampilkan nol.</div>'
+    + fld('Biaya per bulan', '<input class="mono" id="st_burn" inputmode="numeric" oninput="ketikRp(this)" value="' + fmtRpInput(num(BK.data.setting.burn)) + '">')
+    + '</div>';
+
+  h += '<div data-aks><button class="btn btn-primary" onclick="ptSimpan()">Simpan Pengaturan</button></div>';
+  V.innerHTML = h;
+}
+async function ptSimpan() {
+  if (!bolehAksi('pengaturan')) return;
+  const awal = {}; SEMUA_WADAH().forEach(k => awal[k] = num((document.getElementById('aw_' + k) || {}).value));
+  const peta = {}; RK_GRUP.forEach(g => peta[g.k] = (document.getElementById('pt_' + g.k) || {}).value || '');
+  BK.data.setting = Object.assign({}, BK.data.setting, { awal, peta, burn:num((document.getElementById('st_burn') || {}).value) });
+  if (await simpan()) { toast('Pengaturan tersimpan.'); render(); }
+}
+
+/* ============ HALAMAN: KELOLA AKSES ============ */
+let ROSTER = [];
+async function muatRoster() {
+  try {
+    const r = await postJson('../../account-api-mysql/api.php', { action:'listModuleRoster', module:'brankas' });
+    ROSTER = (r && r.ok && Array.isArray(r.members)) ? r.members : [];
+  } catch (e) { ROSTER = []; }
+}
+function vAkses() {
+  const V = document.getElementById('app-view');
+  const bisa = bolehUbah('akses') && sayaAdmin();
+  let h = '';
+  if (!sayaAdmin()) h += '<div class="notice info">ℹ <div>Matriks di bawah cuma bisa diubah <b>admin modul</b>. '
+    + 'Kamu tetap bisa melihatnya supaya tahu hak akses role kamu sendiri.</div></div>';
+
+  h += '<div class="card"><h3>Hak Akses per Halaman</h3>'
+    + '<div class="card-sub">Klik selnya untuk memutar None → Lihat → Ubah. Kolom <b>Admin Modul</b> selalu penuh dan tidak bisa diturunkan — '
+    + 'kalau bisa, satu klik salah membuat modul ini tidak punya siapa pun yang bisa membetulkannya lagi.</div>'
+    + '<div class="perm-legend">'
+    + PERM_OPT.map((o, i) => '<div class="lg-item"><span class="lg-dot" style="background:' +
+        ['var(--danger-bg)','var(--warn-bg)','var(--ok-bg)'][i] + ';border-color:' +
+        ['var(--danger)','var(--warn)','var(--ok)'][i] + '"></span>' + o[1] + '</div>').join('')
+    + '</div>'
+    + '<div class="tbl-wrap"><table class="perm-matrix"><thead><tr><th>Halaman</th>'
+    + ROLE_KEYS.map(r => '<th class="num">' + esc(ROLE_LABEL[r]) + '</th>').join('')
+    + '<th class="num">' + esc(ROLE_LABEL.admin) + '</th></tr></thead><tbody>';
+  Object.keys(TITLES).forEach(v => {
+    h += '<tr><td><b>' + esc(TITLES[v][0]) + '</b>'
+       + (AKS_HAL_ISI.indexOf(v) < 0 ? '<span class="helper">halaman informasi — "Ubah" tidak berlaku</span>' : '') + '</td>';
+    ROLE_KEYS.forEach(r => { const t = aksTingkat(v, r);
+      h += '<td class="num"><button class="perm-btn" data-v="' + t + '" data-hal="' + v + '" data-role="' + r + '"'
+         + (bisa ? '' : ' disabled') + ' onclick="permKlik(this)">' + PERM_OPT[t][2] + '</button></td>'; });
+    const ta = aksTingkat(v, 'admin');
+    h += '<td class="num"><button class="perm-btn perm-lock" data-v="' + ta + '" disabled>' + PERM_OPT[ta][2] + '</button></td>';
+    h += '</tr>';
+  });
+  h += '</tbody></table></div>'
+    + (bisa ? '<div style="margin-top:14px" data-aks><button class="btn btn-primary" onclick="simpanAkses()">Simpan Matriks</button></div>' : '')
+    + '</div>';
+
+  h += '<div class="card"><h3>Role Tiap Kru</h3>'
+    + '<div class="card-sub">Kru yang belum pernah ditentukan rolenya dihitung sebagai <b>' + esc(ROLE_LABEL[ROLE_BAWAAN]) + '</b>. '
+    + ROLE_KEYS.map(r => '<b>' + esc(ROLE_LABEL[r]) + '</b>: ' + esc(ROLE_KET[r])).join(' ') + '</div>'
+    + (ROSTER.length ? '<div class="tbl-wrap"><table><thead><tr><th>Nama</th><th>Tim</th><th>Role</th></tr></thead><tbody>'
+      + ROSTER.map(u => { const k = aksKunci(u); const cur = peranUser(k);
+          return '<tr><td><b>' + esc(u.name) + '</b>' + (u.isModuleAdmin ? ' <span class="chip">admin modul</span>' : '') + '</td>'
+            + '<td>' + esc(u.keterangan || '—') + '</td>'
+            + '<td>' + (u.isModuleAdmin
+                ? '<span class="helper">Admin modul — selalu akses penuh</span>'
+                : '<select ' + (bisa ? '' : 'disabled') + ' onchange="setPeran(\'' + k + '\',this.value)">'
+                  + ROLE_KEYS.map(r => '<option value="' + r + '"' + (cur === r ? ' selected' : '') + '>' + esc(ROLE_LABEL[r]) + '</option>').join('')
+                  + '</select>') + '</td></tr>'; }).join('')
+      + '</tbody></table></div>'
+      : '<div class="empty"><div class="big">◔</div>Belum ada kru yang diberi kunci modul <b>brankas</b> di Kelola Akses Office.</div>')
+    + '</div>';
+  V.innerHTML = h;
+}
+function permKlik(btn) {
+  const t = (parseInt(btn.dataset.v, 10) + 1) % 3;
+  btn.dataset.v = t; btn.textContent = PERM_OPT[t][2];
+}
+/* Yang dikirim ke server cuma SELISIH dari DEFAULT_PERMS. Menyimpan salinan
+   penuh membekukan aturan hari ini, sehingga halaman yang lahir besok tidak
+   pernah mendapat bawaannya di pemasangan yang sudah jalan. */
+async function simpanAkses() {
+  if (!bolehAksi('akses') || !sayaAdmin()) return;
+  const peta = {};
+  document.querySelectorAll('.perm-btn[data-hal]').forEach(b => {
+    const v = parseInt(b.dataset.v, 10), hal = b.dataset.hal, role = b.dataset.role;
+    if (v === aksBawaan(hal, role)) return;
+    if (!peta[role]) peta[role] = {};
+    peta[role][hal] = v;
+  });
+  setSync('saving', 'Menyimpan…');
+  try {
+    const r = await postJson(API_BK, { action:'brankasAkses', peta });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'gagal');
+    BK.akses = r.data.akses; setSync('ok', '✓ Tersimpan'); toast('Matriks tersimpan.');
+    pasangMenu(); render();
+  } catch (e) { setSync('err', '⚠ Gagal: ' + esc(e.message || e)); alert('Gagal menyimpan matriks.\n\n' + (e.message || e)); }
+}
+async function setPeran(kunci, peran) {
+  if (!bolehAksi('akses') || !sayaAdmin()) return;
+  setSync('saving', 'Menyimpan…');
+  try {
+    const r = await postJson(API_BK, { action:'brankasPeran', kunci, peran });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'gagal');
+    BK.peran = r.data.peran; setSync('ok', '✓ Tersimpan'); toast('Role tersimpan.');
+    pasangMenu();
+  } catch (e) { setSync('err', '⚠ Gagal: ' + esc(e.message || e)); alert('Gagal menyimpan role.\n\n' + (e.message || e)); }
+}
+
+/* ============ BOOT ============ */
+document.querySelectorAll('.nav a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); go(a.dataset.view); }));
+window.addEventListener('hashchange', () => { const v = (location.hash || '').replace('#/', ''); if (v && v !== CURRENT) go(v); });
+
+(async function boot() {
+  CURRENT_USER = bacaSesi();
+  if (!CURRENT_USER) { location.replace('../../'); return; }
+  document.getElementById('suName').textContent = CURRENT_USER.name || '—';
+  document.getElementById('suAvatar').textContent =
+    String(CURRENT_USER.name || '?').split(/\s+/).filter(Boolean).slice(0, 2).map(x => x[0]).join('').toUpperCase() || '?';
+  try {
+    await muatSemua();
+  } catch (e) {
+    setSync('err', '⚠ ' + esc(e.message || e));
+    document.getElementById('app-view').innerHTML =
+      '<div class="notice bad">⚠ <div><b>Data brankas tidak terbaca.</b> ' + esc(e.message || e) +
+      '<br>Muat ulang halaman (Ctrl+F5). Kalau tetap begini, backend Finance-nya yang belum terpasang.</div></div>';
+    return;
+  }
+  await muatRoster();
+  pasangMenu();
+  const awal = (location.hash || '').replace('#/', '');
+  go(TITLES[awal] ? awal : halPertamaBoleh());
+})();
+
+</script>
+</body>
+</html>

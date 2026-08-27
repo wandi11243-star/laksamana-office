@@ -478,3 +478,167 @@ function stats() {
     'baris'    => (int)$pdo->query('SELECT COUNT(*) AS n FROM `kk_trx_pos`')->fetch()['n'],
   );
 }
+
+/* ======================================================================
+   BRANKAS — panel ketiga modul Finance (deploy/finance/brankas/)
+   ----------------------------------------------------------------------
+   MENUMPANG DI BACKEND INI, BUKAN BIKIN BACKEND SENDIRI, dan itu keputusan
+   sadar: backend baru berarti database baru yang harus dibuat manual di
+   cPanel, config.php yang cuma bisa disunting di sana, dan dua job FTP baru
+   di dua workflow. Di sini tabelnya lahir sendiri lewat pastikan_tabel()
+   pada permintaan pertama — tidak ada satu pun langkah manual, dan tidak
+   ada berkas migrasi yang bisa tertinggal di produksi.
+
+   Datanya blob satu baris (`bk_state`), BEDA dari kk_trx yang relasional.
+   Boleh begitu di sini karena yang menyunting brankas cuma CFO — satu dua
+   orang, tidak pernah menyimpan di detik yang sama. Kalau suatu hari
+   dibuka untuk banyak orang, ini yang pertama harus dipecah: blob yang
+   disimpan dua orang bersamaan membuat yang belakangan menghapus kerja
+   yang duluan tanpa satu pun galat.
+
+   SALDO REKENING TIDAK DISIMPAN DI SINI. Ia dihitung layar dari Rekap
+   Penjualan (kompas) — lihat komentar di deploy/finance/brankas/index.html.
+   Yang disimpan cuma yang memang tidak ada sumbernya: saldo awal, piutang,
+   rencana pembayaran, investor, dan pemetaan metode ke bank.
+   ====================================================================== */
+
+function brankas_pastikan() {
+  $pdo = db();
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `bk_state` (
+       `id`         TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+       `data`       LONGTEXT NOT NULL,
+       `updated_at` BIGINT NOT NULL DEFAULT 0,
+       `updated_by` VARCHAR(80) NOT NULL DEFAULT \'\'
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  /* Matriks halaman x role, bentuknya sama persis dengan kk_akses supaya
+     yang membaca salah satunya langsung mengerti yang lain. Tabel TERPISAH,
+     bukan kk_akses dengan awalan nama halaman: halaman brankas dan halaman
+     kas kecil kebetulan bisa bernama sama, dan satu tabel berarti mengganti
+     nama halaman di satu panel diam-diam menggeser izin di panel lain. */
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `bk_akses` (
+       `id`      INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       `kunci`   VARCHAR(80)  NOT NULL,
+       `halaman` VARCHAR(40)  NOT NULL,
+       `tingkat` TINYINT      NOT NULL DEFAULT 2,
+       UNIQUE KEY `uq_bk_akses` (`kunci`,`halaman`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `bk_peran` (
+       `kunci` VARCHAR(80) NOT NULL PRIMARY KEY,
+       `peran` VARCHAR(24) NOT NULL
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+}
+
+function brankas_baca() {
+  brankas_pastikan();
+  $pdo = db();
+
+  $data = null; $ts = 0;
+  $row = $pdo->query('SELECT `data`,`updated_at` FROM `bk_state` WHERE `id`=1')->fetch();
+  if ($row && isset($row['data']) && $row['data'] !== '') {
+    $d = json_decode((string)$row['data'], true);
+    if (is_array($d)) { $data = $d; $ts = (int)$row['updated_at']; }
+  }
+  /* Bentuk kosong yang LENGKAP, bukan null. Frontend yang menerima null harus
+     menuliskan bentuk bawaannya sendiri, dan begitu dua tempat memegang
+     bentuk yang sama salah satunya pasti tertinggal saat ada field baru. */
+  if ($data === null) {
+    $data = array('rekening' => array(), 'piutang' => array(),
+                  'bayar' => array(), 'investor' => array(),
+                  'setting' => new stdClass());
+  }
+
+  $akses = array();
+  foreach ($pdo->query('SELECT `kunci`,`halaman`,`tingkat` FROM `bk_akses`')->fetchAll() as $r) {
+    $k = (string)$r['kunci'];
+    if (!isset($akses[$k])) $akses[$k] = array();
+    $akses[$k][(string)$r['halaman']] = (int)$r['tingkat'];
+  }
+  $peran = array();
+  foreach ($pdo->query('SELECT `kunci`,`peran` FROM `bk_peran`')->fetchAll() as $r)
+    $peran[(string)$r['kunci']] = (string)$r['peran'];
+
+  /* (object) supaya peta kosong terkirim sebagai {} dan bukan []. Frontend
+     yang menerima [] lalu membacanya sebagai peta akan menganggap "tidak ada
+     satu pun setelan" — persis sama dengan "semua bawaan", jadi salahnya
+     tidak kelihatan sampai ada yang bertanya kenapa setelannya hilang.
+     Alasan yang sama persis dengan akses_baca() di atas. */
+  return array('data' => $data, 'akses' => (object)$akses, 'peran' => (object)$peran,
+               'updated_at' => $ts);
+}
+
+/* Seluruh state ditulis sekali jalan. Yang WAJIB dijaga sebagai gantinya:
+   frontend harus mengirim state UTUH, tidak pernah sepotong — mengirim
+   sepotong berarti sisanya lenyap tanpa satu pun pesan. */
+function brankas_simpan($in) {
+  brankas_pastikan();
+  $data = (isset($in['data']) && is_array($in['data'])) ? $in['data'] : null;
+  if ($data === null) throw new Exception('data brankas kosong');
+  /* Kunci yang dikenal saja yang ditulis. Blob yang menerima apa saja akan
+     menumbuhkan field yang tidak pernah dibaca siapa pun, dan yang membacanya
+     lewat phpMyAdmin tidak punya cara tahu mana yang masih dipakai. */
+  $bersih = array();
+  foreach (array('rekening', 'piutang', 'bayar', 'investor') as $k)
+    $bersih[$k] = (isset($data[$k]) && is_array($data[$k])) ? array_values($data[$k]) : array();
+  $bersih['setting'] = (isset($data['setting']) && is_array($data['setting']))
+                     ? $data['setting'] : new stdClass();
+
+  $json = json_encode($bersih, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+  $oleh = isset($in['oleh']) ? substr(trim((string)$in['oleh']), 0, 80) : '';
+  $ts   = (int)round(microtime(true) * 1000);
+  $q = db()->prepare(
+    'INSERT INTO `bk_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:t,:o)
+     ON DUPLICATE KEY UPDATE `data`=VALUES(`data`),`updated_at`=VALUES(`updated_at`),`updated_by`=VALUES(`updated_by`)');
+  $q->execute(array(':d' => $json, ':t' => $ts, ':o' => $oleh));
+  return array('saved' => true, 'updated_at' => $ts);
+}
+
+/* Matriks ditulis sekali jalan (hapus lalu isi ulang) — alasan dan syaratnya
+   sama persis dengan akses_simpan() di atas. */
+function brankas_akses_simpan($in) {
+  brankas_pastikan();
+  $peta = (isset($in['peta']) && is_array($in['peta'])) ? $in['peta'] : array();
+  $pdo  = db();
+  $pdo->beginTransaction();
+  try {
+    $pdo->exec('DELETE FROM `bk_akses`');
+    $q = $pdo->prepare('INSERT INTO `bk_akses` (`kunci`,`halaman`,`tingkat`) VALUES (:k,:h,:t)');
+    foreach ($peta as $kunci => $baris) {
+      if (!is_array($baris)) continue;
+      $kunci = substr((string)$kunci, 0, 80);
+      if ($kunci === '') continue;
+      foreach ($baris as $hal => $tk) {
+        $hal = substr((string)$hal, 0, 40);
+        if ($hal === '') continue;
+        $tk = (int)$tk; if ($tk < 0) $tk = 0; if ($tk > 2) $tk = 2;
+        $q->execute(array(':k' => $kunci, ':h' => $hal, ':t' => $tk));
+      }
+    }
+    $pdo->commit();
+  } catch (Throwable $e) { $pdo->rollBack(); throw $e; }
+  $b = brankas_baca();
+  return array('akses' => $b['akses']);
+}
+
+/* SATU orang sekali panggil — sama seperti peran_simpan(). Mengirim seluruh
+   daftar membuat dua admin yang menyetel dua orang di menit yang sama saling
+   menghapus, tanpa satu pun pesan. */
+function brankas_peran_simpan($in) {
+  brankas_pastikan();
+  $kunci = isset($in['kunci']) ? substr(trim((string)$in['kunci']), 0, 80) : '';
+  $peran = isset($in['peran']) ? substr(trim((string)$in['peran']), 0, 24) : '';
+  if ($kunci === '') throw new Exception('kunci kru kosong');
+  if ($peran === '') {
+    $d = db()->prepare('DELETE FROM `bk_peran` WHERE `kunci`=:k');
+    $d->execute(array(':k' => $kunci));
+  } else {
+    $q = db()->prepare('INSERT INTO `bk_peran` (`kunci`,`peran`) VALUES (:k,:p)
+                        ON DUPLICATE KEY UPDATE `peran`=VALUES(`peran`)');
+    $q->execute(array(':k' => $kunci, ':p' => $peran));
+  }
+  $b = brankas_baca();
+  return array('peran' => $b['peran']);
+}
+

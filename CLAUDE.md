@@ -39,6 +39,69 @@ deploy/finance/omset/index.html  BEKAS deploy/kompas/  (izin 'kompas')
 deploy/finance/kas/index.html    BEKAS deploy/finance/ (izin 'finance')
 ```
 
+### Modul berpanel `finance` sekarang TIGA panel
+
+```
+deploy/finance/index.html          pemilih  →  omset/ kas/ brankas/
+deploy/finance/omset/index.html    BEKAS deploy/kompas/  (izin 'kompas')
+deploy/finance/kas/index.html      BEKAS deploy/finance/ (izin 'finance')
+deploy/finance/brankas/index.html  BARU 27 Agu 2026      (izin 'brankas')
+```
+
+**Brankas** — posisi kas perusahaan per bank, piutang, rencana pembayaran, dan
+pengembalian modal investor. Asalnya berkas mandiri `Laksamana_Muda_BRANKAS.html`
+(localStorage + PIN CFO/CEO + seluruh angkanya karangan); ketiganya dicabut saat
+masuk ke sini.
+
+**Kunci izinnya `brankas`, SENGAJA tidak dilebur ke `finance`.** Yang memegang
+kas kecil tidak dengan sendirinya melihat posisi kas seluruh perusahaan dan
+pengembalian modal investor — dan justru itu alasan panel ini berdiri sendiri.
+Kuncinya harus disebut di **empat** tempat, dan yang terlewat gagal diam-diam:
+penjaga `<head>` pemilih, `sesiOffice()` di badan pemilih, `panelBoleh()`, dan
+`PANEL_URL`.
+
+**SALDO REKENING TIDAK PERNAH DIKETIK.** Ia dihitung dari **Aktual Masuk** tiap
+metode pembayaran di Rekap Penjualan:
+
+```
+kotor = Σ reports[tgl].pay[k].actual
+akt   = aktual yang DIKETIK (reports[tgl].aktual[grup])   kalau ada
+      = kotor − MDR tersimpan (reports[tgl].mdr[grup])    kalau tidak
+tanpa MDR (cash, transfer) → akt = kotor
+```
+
+- `aktGrup()` adalah **BERKAS KEMBAR** `rkHitung()` di `deploy/finance/kas/`.
+  Kalau di sana berubah, di sini HARUS ikut — dua rumus untuk satu angka berarti
+  Saldo & Rekening bisa menyebut angka lain daripada Rekap Penjualan untuk hari
+  yang sama, dan yang mencari sebabnya akan mengira uangnya hilang.
+- MDR & aktual tersimpan **di dalam `reports[tgl]` sendiri**, bukan di kunci
+  terpisah. Membaca kunci yang salah memulangkan saldo NOL tanpa satu pun galat
+  — `kotor − 0` tetap kotor, dan angkanya kelihatan masuk akal.
+- Kelompok `error_*` **tidak ada** di daftar: ia catatan salah input, bukan uang.
+- **Setoran cash** (`rekap_setoran`) menambah bank tujuan dan mengurangi brankas
+  fisik. `tujuan` teks bebas, jadi yang tidak cocok dengan BRI/Mandiri/BCA/UOB
+  **dilaporkan di layar**, bukan dijatuhkan ke bank pertama.
+- QR Order, Gofood, dan Grabfood **sengaja tidak dipetakan** secara bawaan —
+  tidak ada yang bisa menebak ke bank mana settlement-nya masuk. Halaman Saldo
+  memajang berapa metode yang belum dipetakan; itulah jaringnya.
+
+**Backend menumpang `finance-mysql`** (tabel `bk_state`, `bk_akses`, `bk_peran`),
+bukan backend sendiri: tabelnya lahir sendiri lewat `brankas_pastikan()`, jadi
+tidak ada database baru yang harus dibuat manual di cPanel dan tidak ada berkas
+migrasi yang bisa tertinggal di produksi. Datanya blob satu baris — boleh karena
+yang menyunting cuma CFO; kalau suatu hari dibuka untuk banyak orang, inilah yang
+pertama harus dipecah.
+
+Hak aksesnya matriks halaman × role yang **sama persis** dengan panel Kas Kecil
+dan modul Reservasi (None/Lihat/Ubah). Bawaannya PENUH untuk `staf` — permintaan
+user "masuk langsung full akses dulu, tapi ada kelola akses per role".
+
+Ujinya:
+
+```bash
+node tools/uji-brankas.js    # 53 pemeriksaan, jsdom + finance/kompas/account tiruan
+```
+
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`
 sebagai panel `omset`; `deploy/kompas/index.html` tinggal halaman pengalih
 (alamat lama sudah tersebar sebagai pintasan di HP kasir). Kunci izinnya tetap

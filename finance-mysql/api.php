@@ -207,6 +207,23 @@ try {
       if (isset($pg['db']) && $pg['db'] !== 'ok') $pg['db'] = petunjuk_galat($pg['db']);
       keluar(array('ok' => true, 'data' => $pg));
     case 'stats':            keluar(array('ok' => true, 'data' => stats()));
+    /* ---- BRANKAS (panel ketiga modul Finance) ----
+       Menumpang di backend ini, bukan backend sendiri: tabelnya lahir
+       sendiri lewat brankas_pastikan(), jadi tidak ada database baru yang
+       harus dibuat manual di cPanel dan tidak ada berkas migrasi yang bisa
+       tertinggal di produksi. Alasan lengkapnya di lib_finance_mysql.php. */
+    case 'brankasGet':
+      keluar(array('ok' => true, 'data' => brankas_baca()));
+
+    case 'brankasSave':
+      keluar(array('ok' => true, 'data' => brankas_simpan($body)));
+
+    case 'brankasAkses':
+      keluar(array('ok' => true, 'data' => brankas_akses_simpan($body)));
+
+    case 'brankasPeran':
+      keluar(array('ok' => true, 'data' => brankas_peran_simpan($body)));
+
 
     default:
       keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
