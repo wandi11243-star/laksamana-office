@@ -791,8 +791,11 @@ dianggap beres. Jangan `git checkout main`, jangan merge ke `main`, jangan
 wajar, dan walaupun pekerjaannya sudah selesai. Cukup laporkan bahwa develop
 sudah di-push dan tunggu.
 
-**Push otomatis men-deploy.** `main` → `office.laksamanamuda.id` (produksi),
-`develop` → server dev. Keduanya lewat FTP dengan verifikasi isi berkas
+**Push otomatis men-deploy.** `main` → **`team.laksamanamuda.id`** (produksi),
+`develop` → `dev.laksamanamuda.id`. Berkas ini sempat menulis
+`office.laksamanamuda.id`; nama itu **tidak ada di DNS** dan tidak pernah ada —
+mencarinya di situ memakan satu putaran penuh pada 27 Agustus 2026 waktu
+halaman investor perlu tahu ke mana harus meminta angka omset. Keduanya lewat FTP dengan verifikasi isi berkas
 (transfer ke Rumahweb pernah putus di tengah dan melaporkan "sukses", sehingga
 modul mati tanpa ada yang sadar — itu sebab ada 3× percobaan + langkah
 Verifikasi di workflow). Jangan push kalau belum yakin.
