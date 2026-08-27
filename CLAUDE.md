@@ -411,7 +411,7 @@ absensi-mysql/              ← BACKEND         -> /public_html/absensi/api/
 investor/                   ← Investor Compass, SATU berkas HTML mandiri
                                -> /public_html/investor.laksamanamuda.id/
                                = investor.laksamanamuda.id
-                               (dev: /dev.investor.laksamanamuda.id/
+                               (dev: /public_html/dev.investor.laksamanamuda.id/
                                      = dev.investor.laksamanamuda.id)
                                TIDAK punya backend: tidak memanggil API mana
                                pun dan tidak membaca sesi Office.
@@ -422,6 +422,23 @@ Perhatikan bedanya penamaan folder di server: `absensi` memakai nama pendek,
 dan menyamakannya "biar rapi" akan membuat deploy mendarat di folder yang tidak
 dilayani siapa pun. Salahnya tidak melempar apa pun; yang membuka alamatnya
 cuma melihat 404.
+
+**Job investor di `deploy-dev.yml` memakai secret `FTP_*` (produksi), bukan
+`DEV_FTP_*`** — satu-satunya di berkas itu, dan bukan salah ketik. Susunannya:
+
+```
+/public_html/
+├── dev.laksamanamuda.id/            ← rumah akun FTP dev; "/" baginya
+├── dev.investor.laksamanamuda.id/   ← docroot dev.investor, SEJAJAR
+└── investor.laksamanamuda.id/       ← docroot investor (produksi)
+```
+
+Akun FTP dev terkurung di docroot-nya sendiri, jadi folder sejajar mustahil
+dicapai olehnya (`../` ditolak server). Akun produksi rumahnya di home akun —
+itu sebabnya seluruh job di `deploy.yml` berawalan `/public_html/` — jadi ia
+bisa menulis ke kedua tempat. Percobaan pertama memakai `DEV_FTP_*` dan
+BERHASIL tanpa satu pun galat, tapi foldernya lahir DI DALAM docroot dev
+sementara subdomainnya tetap 403.
 
 Gerbang kata sandi di `investor/index.html` ADA DI DALAM HTML-nya
 (`CONFIG.password`), jadi siapa pun yang membuka View Source bisa membacanya
