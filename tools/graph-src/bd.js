@@ -730,6 +730,31 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function $() {  }
 function esc() {  }
 
@@ -2343,7 +2368,19 @@ function promoTerlihat() { promoStatus(); }
 function vPromo() { promoStatus(); promoTerlihat(); }
 
 
-function filChip() { esc(); head(); promoModal(); ic(); stat(); promoStatus(); promoTipe(); promoKat(); promoHariTeks(); promoJam(); promoDetail(); promoPeriode(); promoSisa(); pill(); hapusPromo(); kosong(); }
+function filChip() { esc(); head(); promoExport(); promoImportPilih(); promoModal(); ic(); stat(); promoStatus(); promoTipe(); promoKat(); promoHariTeks(); promoJam(); promoDetail(); promoPeriode(); promoSisa(); pill(); hapusPromo(); kosong(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2647,7 +2684,301 @@ function togglePromo() { save(); render(); $(); promoDetail(); toast(); }
 
 
 
-function hapusPromo() { save(); render(); toast(); }
+function hapusPromo() { save(); render(); toast(); kosong(); promoTipe(); promoKat(); promoStatus(); promoHariTeks(); promoJam(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoCsvKunci() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoCsvTgl() { pad(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoCsvDiskon() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoUnduhCsv() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function promoParseCsv() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoExport() { promoTerlihat(); toast(); promoUnduhCsv(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoImportPilih() { promoImportBaca(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoImportBaca() { promoParseCsv(); toast(); promoCsvKunci(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ambil() { promoCsvKunci(); promoCsvTgl(); promoCsvDiskon(); toast(); promoImportPratinjau(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoImportPratinjau() {  }
+
+function tabel() { esc(); showModal(); ic(); promoImportTerapkan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function promoImportTerapkan() { uid(); sesi(); save(); render(); toast(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4173,7 +4504,7 @@ function cari() { bukaProject(); taskModal(); poModal(); coordModal(); $(); }
 
 
 
-function showModal() { $(); taskModal(); render(); vPromo(); barisRequest(); nomoriBarisReq(); ic(); adminModul(); toast(); approverSets(); uid(); save(); sinkronRoster(); cetakIdentitas(); }
+function showModal() { $(); taskModal(); render(); vPromo(); barisRequest(); nomoriBarisReq(); ic(); adminModul(); toast(); approverSets(); uid(); save(); }
 
 
 
@@ -4340,6 +4671,33 @@ function showModal() { $(); taskModal(); render(); vPromo(); barisRequest(); nom
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pulih() { render(); toast(); sinkronRoster(); cetakIdentitas(); }
 
 
 

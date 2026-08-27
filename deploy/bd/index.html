@@ -2371,6 +2371,8 @@ function vPromo(){
   var filChip=function(k,l){ return '<button class="pill p-filter'+(promoFil===k?' on':'')+
     '" onclick="APP.promoFil(\''+k+'\')">'+esc(l)+'</button>'; };
   return head('Promotion',SUB.promo[2],
+      '<button class="btn" onclick="APP.promoExport()" title="Unduh promo yang sedang tampil sebagai berkas Excel (CSV)">⬇ Export Excel</button>'+
+      '<button class="btn" onclick="APP.promoImportPilih()" title="Tambah / perbarui promo dari berkas Excel (CSV)">⬆ Import Excel</button>'+
       '<button class="btn pri" onclick="APP.promoModal()">'+ic('plus')+'Promo</button>')+
     '<div class="stats">'+
       stat('Berlangsung',n('running'),'aktif hari ini',n('running')?'gr':'')+
@@ -2687,6 +2689,300 @@ function hapusPromo(id){
   if(!confirm('Hapus promo "'+p.nama+'"?\n\nIa juga akan hilang dari modul Radar untuk seluruh kru.')) return;
   DB.promos=DB.promos.filter(function(x){return x.id!==id;});
   save(); closeModal(); render(); toast('Promo dihapus');
+}
+
+/* ============ PROMO: EXPORT & IMPORT EXCEL ============
+   Permintaan user 27 Agustus 2026: daftar promo yang sudah berjalan ada di
+   sistem POS, dan mengetiknya ulang satu per satu ke sini tidak masuk akal.
+
+   KENAPA CSV, BUKAN .xlsx. Alasannya sama persis dengan Database Client di
+   modul Marketing (lihat komentar panjang di crmExport sana): berkas ini
+   BOLAK-BALIK — diekspor dari POS, disunting di Excel, lalu diimpor ke sini —
+   dan MEMBACA .xlsx berarti membongkar ZIP lalu mengurai XML-nya di peramban.
+   Ekspor .xlsx yang tidak bisa diimpor balik adalah perjalanan satu arah yang
+   menipu. Excel membuka CSV dengan dobel-klik seperti berkas Excel lain; dari
+   POS tinggal Save As → CSV.
+
+   Dua hal yang membuat CSV-nya terbuka rapi di Excel, dan keduanya sering
+   dilupakan: `﻿` di depan (tanpa itu huruf beraksen jadi mojibake di
+   Excel Windows) dan baris `sep=,` (Excel berbahasa Indonesia memakai titik
+   koma sebagai pemisah daftar, jadi CSV berkoma masuk seluruhnya ke KOLOM
+   PERTAMA — yang terlihat orang bukan galat, melainkan lembar berisi satu
+   kolom panjang, dan kesimpulannya "eksporannya rusak"). */
+
+/* SATU daftar kolom, dipakai MENULIS berkas dan MEMBACANYA kembali. Dua daftar
+   terpisah pasti bergeser lambat laun, dan yang bergeser diam-diam adalah isi
+   kolom mana masuk ke bidang mana.
+
+   `b`     = bidang di data. Kolom TANPA `b` adalah keterangan sekali baca:
+             ikut ditulis supaya lembarnya berguna dibaca manusia, dan
+             diabaikan sepenuhnya saat impor.
+   `alias` = nama kolom LAIN yang dianggap sama. Inilah yang membuat berkas
+             mentah dari POS bisa langsung diimpor tanpa disunting judulnya —
+             pemetaan yang diminta user: Promotion Notes → Nama Promo,
+             Start/End Date → tanggal, Discount → benefit. */
+const PROMO_CSV_KOL=[
+  /* ID ikut ditulis, dan inilah yang membuat impor bisa MEMPERBARUI alih-alih
+     selalu menambah. Boleh kosong (baris baru dari POS yang tidak punya id
+     kita) — pencocokannya lalu jatuh ke nama promonya. */
+  {k:'ID',b:'id'},
+  {k:'Nama Promo',b:'nama',alias:['Promotion Notes','Promotion Master Code','Nama','Promo','Nama Promosi']},
+  {k:'Tanggal Mulai',b:'mulai',alias:['Start Date','Mulai','Tgl Mulai'],baca:promoCsvTgl},
+  {k:'Tanggal Selesai',b:'selesai',alias:['End Date','Selesai','Tgl Selesai'],baca:promoCsvTgl},
+  {k:'Benefit / nilai diskon',b:'benefit',alias:['Discount','Diskon','Benefit','Nilai Diskon'],baca:promoCsvDiskon},
+  /* --- di bawah ini KETERANGAN saja: ditulis, tidak pernah dibaca --- */
+  {k:'Tipe',tulis:function(p){ return promoTipe(p.tipe).l; }},
+  {k:'Kategori',tulis:function(p){ var k=promoKat(p.kategori); return k?k.l:''; }},
+  {k:'Status',tulis:function(p){ return PROMO_ST[promoStatus(p)][0]; }},
+  {k:'Hari Berlaku',tulis:function(p){ return promoHariTeks(p.hari)||'Setiap hari'; }},
+  {k:'Jam',tulis:function(p){ return promoJam(p); }},
+  {k:'Outlet',tulis:function(p){ return p.outlet||''; }},
+  {k:'Kode',tulis:function(p){ return p.kode||''; }},
+  {k:'Kuota',tulis:function(p){ return +p.kuota||0; }},
+  {k:'PIC Laksamana',tulis:function(p){ return p.lmPIC||''; }},
+  {k:'Syarat & Ketentuan',tulis:function(p){ return p.ketentuan||''; }}
+];
+function promoCsvKunci(s){ return String(s==null?'':s).replace(/\s+/g,' ').trim().toLowerCase(); }
+
+/* Tanggal dari POS berbentuk "17-08-2026 02:30". Yang disimpan modul ini
+   "YYYY-MM-DD"; jamnya dibuang — promo berjam khusus diatur lewat centang jam
+   di formulir, dan jam dari kolom tanggal POS itu jam pembuatan datanya,
+   bukan jam berlakunya.
+
+   HARI-DULU atau BULAN-DULU tidak bisa selalu dipastikan dari angkanya
+   ("03-05-2026" sah dibaca dua-duanya). Yang bisa dipastikan dipakai lebih
+   dulu: angka > 12 hanya mungkin hari. Sisanya dianggap HARI-DULU, karena
+   itulah bentuk yang dipakai POS ini dan cara orang Indonesia menulis
+   tanggal. Disebutkan di layar pratinjau supaya bisa diperiksa sebelum
+   diterapkan — tanggal yang tertukar tidak melempar apa pun, ia cuma
+   memindahkan promo ke bulan lain. */
+function promoCsvTgl(v){
+  var s=String(v==null?'':v).trim();
+  if(!s||s==='-') return '';
+  var pad=function(n){ return String(n).padStart(2,'0'); };
+  var m=/^(\d{4})-(\d{1,2})-(\d{1,2})/.exec(s);
+  if(m) return m[1]+'-'+pad(m[2])+'-'+pad(m[3]);
+  m=/^(\d{1,2})[-\/.](\d{1,2})[-\/.](\d{4})/.exec(s);
+  if(m){
+    var a=+m[1], b=+m[2];
+    if(b>12 && a<=12) return m[3]+'-'+pad(a)+'-'+pad(b);   // pasti bulan-dulu
+    return m[3]+'-'+pad(b)+'-'+pad(a);                     // hari-dulu (bawaan)
+  }
+  return '';
+}
+/* "17,00 %" → "17%", "Rp 30.000" dibiarkan, "-" jadi kosong. Dirapikan
+   seperlunya saja: yang di kolom Discount adalah nilai promonya, dan
+   menerjemahkannya jadi kalimat ("Diskon 17%") berarti mengarang kata yang
+   tidak ada di sumbernya. */
+function promoCsvDiskon(v){
+  var s=String(v==null?'':v).trim();
+  if(!s||s==='-'||s==='—') return '';
+  /* "17,00 %" → "17%". Dua langkah, dan yang kedua bukan kerapian: desimal
+     nolnya dibuang lebih dulu, lalu SPASI SEBELUM % ikut dirapatkan. Versi
+     pertama menyimpan spasinya di dalam tangkapan dan memulangkan "17 %" —
+     benar isinya, tapi di kartu promo terbaca sebagai dua hal. Tarif berkoma
+     yang bukan nol ("17,5 %") sengaja dibiarkan apa adanya selain spasinya. */
+  s=s.replace(/(\d)[,.]00\s*%/,'$1%').replace(/\s+%/,'%');
+  return s.replace(/\s+/g,' ').trim();
+}
+
+/* Penulis & pengurai CSV. Disalin sepadan dari modul Marketing — bukan
+   di-import, karena modul di repo ini berdiri sendiri-sendiri sebagai satu
+   berkas HTML. Kalau salah satunya diperbaiki, yang lain perlu ikut. */
+function promoUnduhCsv(baris,namaBerkas){
+  var csv=baris.map(function(r){
+    return r.map(function(sel){ return '"'+String(sel==null?'':sel).replace(/"/g,'""')+'"'; }).join(',');
+  }).join('\r\n');
+  var blob=new Blob(['﻿sep=,\r\n'+csv],{type:'text/csv;charset=utf-8'});
+  var a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=namaBerkas; a.click();
+  setTimeout(function(){ URL.revokeObjectURL(a.href); },2000);
+}
+/* Pengurai yang menghormati tanda kutip. Bukan split(','): kolom Syarat &
+   Ketentuan hampir selalu memuat koma, dan pemisahan naif memotong satu promo
+   jadi beberapa kolom melenceng — seluruh sisa barisnya masuk ke bidang yang
+   salah tanpa satu pun galat. */
+function promoParseCsv(teks){
+  var t=String(teks||'').replace(/^﻿/,''), pisah='';
+  var m=/^sep=(.)\r?\n/i.exec(t);
+  if(m){ pisah=m[1]; t=t.slice(m[0].length); }
+  if(!pisah){
+    /* Ditebak dari baris judul: pemisah yang paling banyak muncul DI LUAR
+       tanda kutip menang. Excel berbahasa Indonesia menyimpan dengan titik
+       koma, yang berbahasa Inggris dengan koma, dan berkas yang sama
+       bolak-balik antara keduanya di satu kantor. */
+    var kepala=t.split(/\r?\n/)[0]||'', hit={',':0,';':0,'\t':0}, luar=true;
+    for(var i=0;i<kepala.length;i++){
+      var ch=kepala[i];
+      if(ch==='"') luar=!luar;
+      else if(luar && hit[ch]!==undefined) hit[ch]++;
+    }
+    pisah=[',',';','\t'].sort(function(a,b){ return hit[b]-hit[a]; })[0];
+    if(!hit[pisah]) pisah=',';
+  }
+  var baris=[], sel='', row=[], dalam=false;
+  for(var j=0;j<t.length;j++){
+    var c=t[j];
+    if(dalam){
+      if(c==='"'){ if(t[j+1]==='"'){ sel+='"'; j++; } else dalam=false; }
+      else sel+=c;
+    }
+    else if(c==='"') dalam=true;
+    else if(c===pisah){ row.push(sel); sel=''; }
+    else if(c==='\n'){ row.push(sel); baris.push(row); row=[]; sel=''; }
+    else if(c!=='\r') sel+=c;
+  }
+  if(sel!=='' || row.length){ row.push(sel); baris.push(row); }
+  return baris.filter(function(r){ return r.some(function(x){ return String(x).trim()!==''; }); });
+}
+
+function promoExport(){
+  var data=promoTerlihat();
+  if(!data.length){ toast('Tidak ada yang diekspor — longgarkan dulu penyaringnya.'); return; }
+  var baris=[PROMO_CSV_KOL.map(function(k){ return k.k; })];
+  data.forEach(function(p){
+    baris.push(PROMO_CSV_KOL.map(function(kol){
+      if(kol.tulis) return kol.tulis(p);
+      return p[kol.b]==null?'':p[kol.b];
+    }));
+  });
+  var hariIni=new Date();
+  var iso=hariIni.getFullYear()+'-'+String(hariIni.getMonth()+1).padStart(2,'0')+'-'+String(hariIni.getDate()).padStart(2,'0');
+  promoUnduhCsv(baris,'promo_'+iso+'.csv');
+  toast(data.length+' promo diunduh — buka di Excel, sunting, lalu Import untuk mengembalikannya.');
+}
+function promoImportPilih(){
+  var inp=document.createElement('input');
+  inp.type='file'; inp.accept='.csv,.txt,text/csv';
+  inp.onchange=function(){
+    var f=inp.files&&inp.files[0]; if(!f) return;
+    var fr=new FileReader();
+    fr.onload=function(){ promoImportBaca(String(fr.result||''),f.name); };
+    fr.onerror=function(){ toast('Berkasnya tidak bisa dibuka. Dari Excel: Save As → CSV UTF-8.'); };
+    fr.readAsText(f,'utf-8');
+  };
+  inp.click();
+}
+/* Rencana impor yang sedang menunggu keputusan di layar pratinjau. Disimpan
+   di luar modal karena tombol Terapkan ada di modal itu, dan membangun ulang
+   rencananya dari berkas berarti membaca berkasnya dua kali — yang kedua bisa
+   berbeda kalau orangnya menyunting sambil menunggu. */
+var PROMO_IMPOR=null;
+function promoImportBaca(teks,namaBerkas){
+  var baris=promoParseCsv(teks);
+  if(baris.length<2){ toast('Tidak ada satu baris data pun di bawah baris judul.'); return; }
+  var kepala=baris[0].map(promoCsvKunci);
+  /* Kolom dicari lewat namanya sendiri LALU alias-aliasnya, berurutan. Urutan
+     itu penting: berkas POS punya "Promotion Notes" DAN "Promotion Master
+     Code", dan yang diminta user adalah yang pertama. */
+  var idx={};
+  PROMO_CSV_KOL.forEach(function(kol){
+    if(!kol.b) return;
+    var calon=[kol.k].concat(kol.alias||[]);
+    for(var i=0;i<calon.length;i++){
+      var p=kepala.indexOf(promoCsvKunci(calon[i]));
+      if(p>=0){ idx[kol.b]=p; break; }
+    }
+  });
+  if(idx.nama===undefined){
+    toast('Kolom nama promo tidak ketemu. Judulnya harus "Nama Promo" atau "Promotion Notes".');
+    return;
+  }
+  var ambil=function(r,b){ return idx[b]===undefined?'':String(r[idx[b]]==null?'':r[idx[b]]).trim(); };
+  var baru=[], ubah=[], lewat=[];
+  var petaNama={};
+  DB.promos.forEach(function(p){ petaNama[promoCsvKunci(p.nama)]=p; });
+
+  baris.slice(1).forEach(function(r,i){
+    var nama=ambil(r,'nama');
+    if(!nama){ lewat.push({no:i+2,nama:'(kosong)',sebab:'Nama promo kosong'}); return; }
+    var mulai=promoCsvTgl(ambil(r,'mulai')), selesai=promoCsvTgl(ambil(r,'selesai'));
+    if(!mulai||!selesai){ lewat.push({no:i+2,nama:nama,sebab:'Tanggal mulai/selesai tidak terbaca'}); return; }
+    /* Tanggal terbalik ditolak di sini, bukan diperbaiki diam-diam: promo
+       yang selesainya sebelum mulai akan dihitung 'ended' dan lenyap dari
+       Radar tanpa satu pun pesan. */
+    if(selesai<mulai){ lewat.push({no:i+2,nama:nama,sebab:'Tanggal selesai sebelum tanggal mulai'}); return; }
+    var benefit=promoCsvDiskon(ambil(r,'benefit'));
+    var id=ambil(r,'id');
+    var lama=(id && DB.promos.find(function(p){return p.id===id;})) || petaNama[promoCsvKunci(nama)] || null;
+    var isi={nama:nama,mulai:mulai,selesai:selesai,benefit:benefit};
+    if(lama) ubah.push({id:lama.id,lamaNama:lama.nama,isi:isi});
+    else baru.push(isi);
+  });
+
+  if(!baru.length && !ubah.length){
+    toast('Tidak ada baris yang bisa dipakai — '+lewat.length+' dilewati.');
+  }
+  PROMO_IMPOR={baru:baru,ubah:ubah,lewat:lewat,berkas:namaBerkas};
+  promoImportPratinjau();
+}
+function promoImportPratinjau(){
+  var r=PROMO_IMPOR; if(!r) return;
+  var tabel=function(judul,rows,isi){
+    if(!rows.length) return '';
+    return '<div class="field"><label>'+esc(judul)+' ('+rows.length+')</label>'+
+      '<div class="tw" style="max-height:210px;overflow:auto"><table><tbody>'+
+      rows.slice(0,80).map(isi).join('')+
+      (rows.length>80?'<tr><td colspan="4" class="mut">…dan '+(rows.length-80)+' baris lagi</td></tr>':'')+
+      '</tbody></table></div></div>';
+  };
+  showModal(
+    '<div class="modal-h"><h3>Pratinjau Import</h3>'+
+      '<button class="x" onclick="closeModal()">'+ic('x')+'</button></div>'+
+    '<div class="modal-b">'+
+      '<div class="mut" style="font-size:12.5px;margin-bottom:10px">Berkas <b>'+esc(r.berkas)+'</b>. '+
+        'Yang diambil dari berkas hanya <b>nama promo, tanggal mulai, tanggal selesai, dan benefit/diskon</b> — '+
+        'kolom lain diabaikan. Promo yang sudah ada dicocokkan lewat ID, lalu lewat namanya.</div>'+
+      '<div class="notice warn" style="margin-bottom:12px">📅 Tanggal berbentuk <b>17-08-2026</b> dibaca sebagai '+
+        '<b>hari-bulan-tahun</b>. Periksa sekilas di daftar bawah sebelum menerapkan — tanggal yang tertukar tidak '+
+        'menimbulkan galat, ia cuma memindahkan promonya ke bulan lain.</div>'+
+      tabel('Promo baru',r.baru,function(x){
+        return '<tr><td><b>'+esc(x.nama)+'</b></td><td class="mut">'+esc(x.mulai)+' → '+esc(x.selesai)+'</td>'+
+          '<td class="mut">'+esc(x.benefit||'—')+'</td></tr>';
+      })+
+      tabel('Diperbarui',r.ubah,function(x){
+        return '<tr><td><b>'+esc(x.isi.nama)+'</b></td><td class="mut">'+esc(x.isi.mulai)+' → '+esc(x.isi.selesai)+'</td>'+
+          '<td class="mut">'+esc(x.isi.benefit||'—')+'</td></tr>';
+      })+
+      tabel('Dilewati',r.lewat,function(x){
+        return '<tr><td class="mut">baris '+x.no+'</td><td>'+esc(x.nama)+'</td><td class="mut">'+esc(x.sebab)+'</td></tr>';
+      })+
+      /* Disebut TERANG-TERANGAN: promo baru dari POS lahir tanpa tipe,
+         kategori, hari, outlet, maupun ketentuan — dan tanpa kalimat ini
+         orang akan mengira impornya gagal separuh. */
+      (r.baru.length?'<div class="notice info">Promo baru masuk sebagai <b>Promo Laksamana</b>, berlaku setiap hari, '+
+        'di <b>'+esc(PROMO_OUTLET_BAWAAN)+'</b>, tanpa kategori & ketentuan. Lengkapi lewat tombol Ubah sesudah ini.</div>':'')+
+    '</div>'+
+    '<div class="modal-f">'+
+      '<button class="btn" onclick="closeModal()">Batal</button>'+
+      ((r.baru.length||r.ubah.length)
+        ? '<button class="btn pri" onclick="APP.promoImportTerapkan()">Terapkan '+(r.baru.length+r.ubah.length)+' baris</button>'
+        : '')+
+    '</div>',true);
+}
+function promoImportTerapkan(){
+  var r=PROMO_IMPOR; if(!r) return;
+  r.ubah.forEach(function(x){
+    var p=DB.promos.find(function(y){return y.id===x.id;});
+    /* HANYA empat bidang yang ditimpa. Promo yang sudah dilengkapi di sini —
+       poster, ketentuan, hari, kategori — tidak boleh hilang cuma karena
+       berkas POS tidak punya kolomnya. */
+    if(p) Object.assign(p,x.isi);
+  });
+  r.baru.forEach(function(x){
+    DB.promos.unshift({
+      id:uid('pr'), nama:x.nama, tipe:'in_house', kategori:'', benefit:x.benefit,
+      mulai:x.mulai, selesai:x.selesai, jamMulai:'', jamSelesai:'', hari:[],
+      outlet:PROMO_OUTLET_BAWAAN, partner:'', partnerPIC:'', partnerKontak:'',
+      lmPIC:(AKU&&AKU.name)||((sesi()||{}).name)||'', kode:'', kuota:0,
+      ketentuan:'', poster:'', paused:false,
+      dibuatOleh:((sesi()||{}).name||''), dibuatAt:Date.now()
+    });
+  });
+  var n=r.baru.length, u=r.ubah.length;
+  PROMO_IMPOR=null;
+  save(); closeModal(); render();
+  toast('Import selesai — '+n+' promo baru, '+u+' diperbarui.');
 }
 
 /* ============ PURCHASING ============
@@ -4270,6 +4566,7 @@ window.APP={
   hapusPromo:hapusPromo, togglePromo:togglePromo,
   promoToggleJam:promoToggleJam, promoHariUbah:promoHariUbah, promoSemuaHari:promoSemuaHari,
   promoOutletLain:promoOutletLain, promoPoster:promoPoster, promoHapusPoster:promoHapusPoster,
+  promoExport:promoExport, promoImportPilih:promoImportPilih, promoImportTerapkan:promoImportTerapkan,
   promoFil:function(k){ promoFil=k; render(); },
   promoTipeFil:function(v){ promoTipeFil=v; render(); },
   /* Pencarian TIDAK memanggil render(): render() menggambar ulang seluruh
@@ -4381,7 +4678,33 @@ window.APP={
   /* Cetak dipanggil setelah satu putaran render selesai. Tanpa jeda, Chrome
      kadang membuka dialog cetak sebelum gambar kop selesai dimuat, dan
      lembarnya tercetak tanpa logo. */
-  cetakPr:function(){ setTimeout(function(){ window.print(); }, 120); },
+  /* Nama berkas PDF-nya diambil peramban dari <title> halaman — tidak ada
+     jalan lain, tidak ada parameter di window.print() untuk itu. Jadi judulnya
+     ditukar sebentar lalu dikembalikan. Sebelumnya PDF-nya lahir bernama
+     "BD OS — Laksamana Muda.pdf" untuk SETIAP PR, dan folder unduhan finance
+     penuh berkas bernama sama yang harus dibuka satu per satu untuk tahu isinya.
+
+     Dikembalikan lewat DUA jalur: `afterprint` (yang benar) dan satu timer
+     cadangan. Sebagian peramban tidak pernah membangkitkan afterprint kalau
+     dialog cetaknya dibatalkan — dan judul yang tidak pernah pulih membuat
+     seluruh tab tetap bernama "Purchase Order PR-012" sampai halaman dimuat
+     ulang. */
+  cetakPr:function(){
+    var pr=DB.pr.find(function(x){return x.id===prAktif;});
+    var judulLama=document.title;
+    var no=String((pr&&pr.no)||'').trim();
+    /* Karakter yang dilarang di nama berkas Windows dibuang, bukan diganti
+       garis bawah: nomor PR isinya angka & strip, dan yang aneh-aneh di sana
+       hampir pasti salah ketik. */
+    document.title='Purchase Order '+(no?('PR-'+no):'(tanpa nomor)').replace(/[\\/:*?"<>|]/g,'');
+    var pulih=function(){
+      document.title=judulLama;
+      window.removeEventListener('afterprint',pulih);
+    };
+    window.addEventListener('afterprint',pulih);
+    setTimeout(function(){ window.print(); }, 120);
+    setTimeout(pulih, 60000);   // cadangan: dialog cetak yang dibatalkan
+  },
   setPoMode:function(m){poMode=m;render();},
   geserMingguPo:function(n){ poMinggu = n===0 ? 0 : poMinggu+n; render(); },
   pilihMinggu:function(i){ poMinggu=i; render(); },
