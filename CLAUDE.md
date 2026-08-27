@@ -795,7 +795,9 @@ sudah di-push dan tunggu.
 `develop` → `dev.laksamanamuda.id`. Berkas ini sempat menulis
 `office.laksamanamuda.id`; nama itu **tidak ada di DNS** dan tidak pernah ada —
 mencarinya di situ memakan satu putaran penuh pada 27 Agustus 2026 waktu
-halaman investor perlu tahu ke mana harus meminta angka omset. Keduanya lewat FTP dengan verifikasi isi berkas
+halaman investor perlu tahu ke mana harus meminta angka omset.
+
+Keduanya lewat FTP dengan verifikasi isi berkas
 (transfer ke Rumahweb pernah putus di tengah dan melaporkan "sukses", sehingga
 modul mati tanpa ada yang sadar — itu sebab ada 3× percobaan + langkah
 Verifikasi di workflow). Jangan push kalau belum yakin.
