@@ -537,8 +537,13 @@ investor/index.html  →  POST kompas-api-mysql/api.php {action:'investorRingkas
   atas grafik konvensi lain membuat yang menjumlahkan batangnya mendapat
   angka lain daripada yang tertulis besar di atasnya.
 
-  Baris keterangan kecil di bawah kartu menyebut service, pajak, dan
-  compliment — tidak digambar kalau ketiganya nol.
+  Baris keterangan kecil di bawah kartu menyebut service, pajak, compliment,
+  **dan angka tagihan POS-nya utuh** — itulah jembatan ke kartu Dibayar Tamu
+  di Rekap Penjualan. Kedua layar itu MEMANG harus beda sebesar compliment:
+  Rekap mencocokkan POS dengan setoran bank dan `compliment` adalah salah satu
+  METODE PEMBAYARAN di daftarnya, jadi mengeluarkannya membuat jumlah metode
+  tidak lagi sama dengan totalnya. Barisnya tidak digambar kalau service,
+  pajak, dan compliment ketiganya nol.
 **Satu berkas HTML, dua situs.** Alamat Office diturunkan dari host yang
 membuka (`dev.` → `https://dev.laksamanamuda.id`, selain itu
 `https://team.laksamanamuda.id` — **bukan** `office.laksamanamuda.id`, yang
@@ -582,7 +587,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 94 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 97 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:

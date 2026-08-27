@@ -126,6 +126,7 @@ async function jalankan(nama, opt) {
       cek('rata-rata/transaksi Rp 225.000 (atas netSales)', kp.includes('Rp 225.000'));
       cek('90% dari target (450jt/500jt)', kp.includes('90% dari target'), kp.slice(0, 700));
       cek('keterangan menyebut compliment', kp.includes('dipotong compliment'), kp.slice(0, 900));
+      cek('keterangan menyebut tagihan POS', kp.includes('tagihan POS Rp 460.000.000'), kp.slice(0, 1000));
       cek('catatan tanggal data terakhir', $(w,'sumberNote').innerHTML.includes('26 Agu 2026'), $(w,'sumberNote').innerHTML);
       cek('catatan menyebut Net Sales', $(w,'sumberNote').innerHTML.includes('Net Sales'), $(w,'sumberNote').innerHTML);
       cek('catatan menunjuk tab Laba Rugi', $(w,'sumberNote').innerHTML.includes('Laporan Laba Rugi'), $(w,'sumberNote').innerHTML);
@@ -239,10 +240,17 @@ async function jalankan(nama, opt) {
     periksa(w) {
       const kp = $(w,'kpis').innerHTML;
       cek('angka besar = Net Sales', kp.includes('Rp 610.400.022'), kp.slice(0,600));
-      cek('BUKAN dibayar tamu Rp 622.035.872', !kp.includes('Rp 622.035.872'), kp.slice(0,600));
+      // Angka 622.035.872 SEKARANG SENGAJA DISEBUT di baris keterangan (jembatan
+      // ke Rekap Penjualan), jadi yang diperiksa nilai KARTUNYA, bukan ada atau
+      // tidaknya angka itu di mana pun.
+      cek('nilai kartu BUKAN tagihan POS',
+          !kp.includes('<div class="value mono">Rp 622.035.872</div>'), kp.slice(0,600));
       cek('menyebut service', kp.includes('service Rp 26 jt'), kp.slice(0,600));
       cek('menyebut pajak', kp.includes('pajak Rp 50 jt'), kp.slice(0,600));
       cek('menyebut compliment Rp 12 jt', kp.includes('dipotong compliment Rp 12 jt'), kp.slice(0,900));
+      // JEMBATAN KE REKAP PENJUALAN: angka tagihan POS disebut UTUH, supaya
+      // selisih Rp 11,6 jt itu tidak perlu dihitung sendiri. Ditanyakan 3x.
+      cek('menyebut tagihan POS utuh', kp.includes('tagihan POS Rp 622.035.872'), kp.slice(0,1000));
       cek('61% dari target (610jt/1M)', kp.includes('61% dari target'), kp.slice(0,700));
       // INI YANG DIKELUHKAN USER: dua tab harus menyebut angka yang sama.
       const lp = $(w,'laporanBox').innerHTML;
@@ -268,6 +276,7 @@ async function jalankan(nama, opt) {
       const kp = $(w,'kpis').innerHTML;
       cek('tidak ada baris net-ket', !kp.includes('net-ket'), kp.slice(0,400));
       cek('tidak menulis "omset net"', !kp.includes('omset net'));
+      cek('tidak menulis "tagihan POS"', !kp.includes('tagihan POS'), kp.slice(0,400));
       cek('angka omset tetap tampil', kp.includes('Rp 400.000.000'));
     }
   });
