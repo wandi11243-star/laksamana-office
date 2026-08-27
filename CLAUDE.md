@@ -505,7 +505,13 @@ investor/index.html  →  POST kompas-api-mysql/api.php {action:'investorRingkas
   `netOf()` di Dashboard Omset. Tax & service **tidak ikut** — keduanya
   ditagihkan ke tamu tapi bukan pendapatan, dan memasukkannya membuat angka di
   halaman investor lebih besar daripada angka di layar Finance untuk hari yang
-  sama.
+  sama. Tapi keduanya IKUT DIBALAS (`svc`, `pajak`, `dibayarTamu`) dan
+  dipajang sebagai baris keterangan kecil di bawah kartu Omset — tanpa itu
+  angka net terlihat "kurang" dibanding kartu **Dibayar Tamu** di Rekap
+  Penjualan, dan investor tidak punya Rekap Penjualan untuk mencocokkannya
+  sendiri. Sudah ditanyakan 27 Agustus 2026 oleh orang yang PUNYA kedua layar.
+  Barisnya tidak digambar kalau service+pajaknya nol: keterangan tentang nol
+  membingungkan tanpa menjelaskan apa pun.
 
 **Satu berkas HTML, dua situs.** Alamat Office diturunkan dari host yang
 membuka (`dev.` → `https://dev.laksamanamuda.id`, selain itu
@@ -522,7 +528,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 47 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 56 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:

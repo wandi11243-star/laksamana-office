@@ -618,8 +618,15 @@ function ringkas_investor() {
   $s = kp_state_assoc();
   $rows = (isset($s['daily']) && is_array($s['daily'])) ? $s['daily'] : array();
 
-  /* tgl => array(omset, transaksi). Baris ganda untuk tanggal yang sama
-     dijumlahkan, bukan ditimpa — blob-nya tidak menjamin keunikan tanggal. */
+  /* tgl => array(omset, transaksi, service, pajak). Baris ganda untuk tanggal
+     yang sama dijumlahkan, bukan ditimpa — blob-nya tidak menjamin keunikan
+     tanggal.
+
+     SERVICE & PAJAK ikut dihitung tapi TIDAK PERNAH masuk `omset`. Keduanya
+     dibalas terpisah supaya halaman investor bisa menyebutkannya sebagai
+     keterangan. Tanpa itu, angka net di halaman investor terlihat "kurang"
+     dibanding kartu Dibayar Tamu di Rekap Penjualan, dan tidak ada satu pun
+     tempat yang menjelaskan selisihnya — sudah ditanyakan 27 Agustus 2026. */
   $peta = array();
   $terakhir = null;
   foreach ($rows as $d) {
@@ -631,9 +638,13 @@ function ringkas_investor() {
            + kp_num(isset($d['lainnya']) ? $d['lainnya'] : 0)
            - kp_num(isset($d['discount'])? $d['discount']: 0);
     $bill = kp_num(isset($d['bill']) ? $d['bill'] : 0);
-    if (!isset($peta[$t])) $peta[$t] = array(0, 0);
+    $svc  = kp_num(isset($d['service_charge']) ? $d['service_charge'] : 0);
+    $tax  = kp_num(isset($d['tax']) ? $d['tax'] : 0);
+    if (!isset($peta[$t])) $peta[$t] = array(0, 0, 0, 0);
     $peta[$t][0] += $omset;
     $peta[$t][1] += $bill;
+    $peta[$t][2] += $svc;
+    $peta[$t][3] += $tax;
     if ($terakhir === null || strcmp($t, $terakhir) > 0) $terakhir = $t;
   }
 
@@ -643,17 +654,19 @@ function ringkas_investor() {
   $blnLalu = gmdate('Y-m', strtotime($blnIni . '-01 -1 month'));
 
   /* Rekap per bulan sekali jalan — dipakai KPI bulan ini, bulan lalu, dan
-     grafik tahunan sekaligus. */
-  $bulan = array();                     // 'YYYY-MM' => array(omset, transaksi, jumlahHari)
+     grafik tahunan sekaligus. [omset, transaksi, jumlahHari, service, pajak] */
+  $bulan = array();
   foreach ($peta as $t => $v) {
     $k = substr($t, 0, 7);
-    if (!isset($bulan[$k])) $bulan[$k] = array(0, 0, 0);
+    if (!isset($bulan[$k])) $bulan[$k] = array(0, 0, 0, 0, 0);
     $bulan[$k][0] += $v[0];
     $bulan[$k][1] += $v[1];
     $bulan[$k][2] += 1;
+    $bulan[$k][3] += $v[2];
+    $bulan[$k][4] += $v[3];
   }
   $ambilBulan = function ($k) use ($bulan) {
-    return isset($bulan[$k]) ? $bulan[$k] : array(0, 0, 0);
+    return isset($bulan[$k]) ? $bulan[$k] : array(0, 0, 0, 0, 0);
   };
 
   /* Grafik year-over-year. HANYA tahun yang benar-benar punya data yang
@@ -685,16 +698,23 @@ function ringkas_investor() {
 
   $bi = $ambilBulan($blnIni);
   $bl = $ambilBulan($blnLalu);
+  $adaHariIni = isset($peta[$hariIni]);
 
   return array(
     'ts'       => gmdate('c'),
     'hariIni'  => array('tgl' => $hariIni,
-                        'omset' => isset($peta[$hariIni]) ? $peta[$hariIni][0] : null,
-                        'transaksi' => isset($peta[$hariIni]) ? $peta[$hariIni][1] : null),
+                        'omset'      => $adaHariIni ? $peta[$hariIni][0] : null,
+                        'transaksi'  => $adaHariIni ? $peta[$hariIni][1] : null,
+                        'svc'        => $adaHariIni ? $peta[$hariIni][2] : null,
+                        'pajak'      => $adaHariIni ? $peta[$hariIni][3] : null,
+                        /* Sama dengan kartu "Dibayar Tamu" di Rekap Penjualan. */
+                        'dibayarTamu'=> $adaHariIni ? ($peta[$hariIni][0] + $peta[$hariIni][2] + $peta[$hariIni][3]) : null),
     'kemarin'  => array('tgl' => $kemarin,
                         'omset' => isset($peta[$kemarin]) ? $peta[$kemarin][0] : null),
     'bulanIni' => array('kunci' => $blnIni, 'omset' => $bi[0],
                         'transaksi' => $bi[1], 'hariTerisi' => $bi[2],
+                        'svc' => $bi[3], 'pajak' => $bi[4],
+                        'dibayarTamu' => $bi[0] + $bi[3] + $bi[4],
                         'target' => kp_num(isset($st['companyMonthlyTarget']) ? $st['companyMonthlyTarget'] : 0)),
     'bulanLalu'=> array('kunci' => $blnLalu, 'omset' => $bl[0], 'hariTerisi' => $bl[2]),
     'tahunan'  => $tahunan,

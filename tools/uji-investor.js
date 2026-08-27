@@ -202,6 +202,46 @@ async function jalankan(nama, opt) {
     }
   });
 
+  // ---- 9. keterangan NET vs Dibayar Tamu ----
+  //  Angka aslinya 27 Agu 2026: net 546.005.454 + svc 26.180.768 + tax
+  //  49.849.650 = dibayar tamu 622.035.872 (kartu Rekap Penjualan).
+  await jalankan('Keterangan net vs dibayar tamu', {
+    sesiTersimpan: { token:'T7', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({
+          bulanIni:{ kunci:'2026-08', omset:546005454, transaksi:3996, hariTerisi:26,
+                     svc:26180768, pajak:49849650, dibayarTamu:622035872, target:1000000000 },
+          hariIni: { tgl:'2026-08-27', omset:null, transaksi:null, svc:null, pajak:null, dibayarTamu:null } }) }
+      : { ok:false },
+    periksa(w) {
+      const kp = $(w,'kpis').innerHTML;
+      cek('angka besar tetap net', kp.includes('Rp 546.005.454'));
+      cek('menyebut dibayar tamu', kp.includes('Rp 622.035.872'), kp.slice(0,600));
+      cek('menyebut service', kp.includes('service Rp 26 jt'), kp.slice(0,600));
+      cek('menyebut pajak', kp.includes('pajak Rp 50 jt'), kp.slice(0,600));
+      cek('55% dari target', kp.includes('55% dari target'));
+      // hari ini kosong -> tidak ada keterangan net yang membingungkan
+      const kartuHariIni = kp.split('<div class="kpi rise">')[1] || '';
+      cek('kartu hari ini tanpa keterangan net', !kartuHariIni.includes('dibayar tamu'), kartuHariIni.slice(0,300));
+    }
+  });
+
+  // ---- 10. service & pajak nol -> baris keterangan TIDAK digambar ----
+  await jalankan('Service & pajak belum diisi', {
+    sesiTersimpan: { token:'T8', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({
+          bulanIni:{ kunci:'2026-08', omset:400000000, transaksi:2000, hariTerisi:26,
+                     svc:0, pajak:0, dibayarTamu:400000000, target:500000000 } }) }
+      : { ok:false },
+    periksa(w) {
+      const kp = $(w,'kpis').innerHTML;
+      cek('tidak ada baris net-ket', !kp.includes('net-ket'), kp.slice(0,400));
+      cek('tidak menulis "dibayar tamu"', !kp.includes('dibayar tamu'));
+      cek('angka omset tetap tampil', kp.includes('Rp 400.000.000'));
+    }
+  });
+
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);

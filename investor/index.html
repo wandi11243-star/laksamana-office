@@ -212,6 +212,9 @@ button{font-family:inherit; cursor:pointer}
 .kosong p{margin:0;max-width:440px;font-size:13px;line-height:1.6;color:var(--muted)}
 .kosong p b{font-family:var(--font-body);font-size:13px;color:var(--ink-2)}
 .grid.kpis .kosong{grid-column:1/-1;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius)}
+/* Baris keterangan net di bawah kartu KPI. Sengaja lebih kecil dan lebih
+   redup daripada .foot: ia menjelaskan, bukan mengumumkan. */
+.kpi .foot.net-ket{margin-top:3px;font-size:11px;line-height:1.45;color:var(--muted-2)}
 </style>
 </head>
 <body>
@@ -599,13 +602,37 @@ function renderKPIs() {
   const rataLalu = (bl.hariTerisi >= AMBANG_HARI) ? bl.omset / bl.hariTerisi : null;
 
   const trx = Number(bi.transaksi || 0);
+
+  /* KETERANGAN NET — kenapa angka di sini lebih kecil daripada kartu
+     "Dibayar Tamu" di Rekap Penjualan.
+     ---------------------------------------------------------------------
+     Omset di halaman ini net: food + bev + lainnya − diskon. Service charge
+     dan pajak lewat kasir tapi bukan pendapatan perusahaan — service ke kru,
+     pajak ke negara — jadi keduanya tidak pernah ditambahkan.
+
+     Baris ini ada karena selisihnya SUDAH ditanyakan (27 Agustus 2026),
+     dan yang bertanya punya Rekap Penjualan untuk mencocokkan. Investor
+     tidak punya: buat dia, angka yang lebih kecil tanpa keterangan cuma
+     terlihat seperti angka yang salah. Kalau service+pajaknya belum diisi,
+     barisnya tidak digambar sama sekali — keterangan tentang nol adalah
+     keterangan yang membingungkan tanpa menjelaskan apa pun. */
+  function ketNet(x) {
+    if (!x) return '';
+    const s = Number(x.svc || 0), p = Number(x.pajak || 0);
+    if (s + p <= 0) return '';
+    return 'net · di luar service ' + rpShort(s) + ' & pajak ' + rpShort(p)
+         + ' — dibayar tamu ' + rp(x.dibayarTamu);
+  }
+
   const k = [
     { label:"Omset Hari Ini", val: rp(D.hariIni && D.hariIni.omset),
       delta: delta(D.hariIni && D.hariIni.omset, D.kemarin && D.kemarin.omset), deltaKet:"vs kemarin",
-      foot: (D.hariIni && D.hariIni.omset != null) ? tglPanjang(D.hariIni.tgl) : 'Belum diisi hari ini' },
+      foot: (D.hariIni && D.hariIni.omset != null) ? tglPanjang(D.hariIni.tgl) : 'Belum diisi hari ini',
+      foot2: ketNet(D.hariIni) },
     { label:"Omset " + blnPanjang(bi.kunci), val: rp(bi.omset),
       delta: delta(rataIni, rataLalu), deltaKet:"rata-rata/hari vs " + blnPanjang(bl.kunci),
-      foot: target > 0 ? (pct + "% dari target " + rpShort(target)) : "Target bulanan belum disetel" },
+      foot: target > 0 ? (pct + "% dari target " + rpShort(target)) : "Target bulanan belum disetel",
+      foot2: ketNet(bi) },
     { label:"Transaksi " + blnPanjang(bi.kunci), val: trx ? trx.toLocaleString("id-ID") : "—",
       delta: null, foot: trx ? "struk terhitung" : "Jumlah bill belum diisi" },
     { label:"Rata-rata / Transaksi", val: trx > 0 ? rp(bi.omset / trx) : "—",
@@ -617,7 +644,9 @@ function renderKPIs() {
     + (x.delta != null
         ? '<div class="delta ' + (x.delta >= 0 ? 'up' : 'down') + '">' + (x.delta >= 0 ? '▲' : '▼') + ' ' + Math.abs(x.delta).toFixed(1) + '% <span style="color:var(--muted-2);font-weight:600">' + esc(x.deltaKet || '') + '</span></div>'
         : '')
-    + '<div class="foot">' + esc(x.foot) + '</div></div>').join('');
+    + '<div class="foot">' + esc(x.foot) + '</div>'
+    + (x.foot2 ? '<div class="foot net-ket">' + esc(x.foot2) + '</div>' : '')
+    + '</div>').join('');
 
   /* Tanggal data terakhir dipajang terang-terangan. Tanpa itu, omset hari
      ini yang masih kosong karena kasir belum menutup buku terbaca sebagai
