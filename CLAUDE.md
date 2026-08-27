@@ -501,35 +501,44 @@ investor/index.html  →  POST kompas-api-mysql/api.php {action:'investorRingkas
 - `investorRingkas` adalah **satu-satunya** aksi berpagar di kompas-api. Aksi
   lain sengaja dibiarkan terbuka: semuanya dipanggil dari dalam Office, dan
   memasang gerbang di sana sekarang akan mematikan panel Finance.
-- **DUA KONVENSI PENJUALAN HIDUP BERDAMPINGAN DI OFFICE, dan keduanya sah.**
-  Ini sumber salah paham yang paling mahal di sekitar angka omset:
+- **TIGA KONVENSI PENJUALAN HIDUP BERDAMPINGAN DI OFFICE, dan ketiganya sah.**
+  Ini sumber salah paham paling mahal di sekitar angka omset — dua kali
+  ditanyakan dalam satu hari (27 Agustus 2026):
 
-  | layar | yang dipajang |
-  |---|---|
-  | **Dashboard Omset** | `netOf()` = `food + bev + lainnya − discount`. Tax & service **tidak ikut**. Judulnya harfiah "Total Omset Hari Ini (net)" |
-  | **Rekap Penjualan** | `tagihanOf()` = net + service + pajak. Subjudulnya harfiah "angka penjualannya after tax & service" |
+  | | rumus | dipajang di | Agustus 2026 |
+  |---|---|---|---|
+  | **net** | `food+bev+lainnya−discount` | Dashboard Omset ("Total Omset Hari Ini (net)") | Rp 546.005.454 |
+  | **tagihan** | net + service + pajak | Rekap Penjualan ("after tax & service") | Rp 622.035.872 |
+  | **netSales** | tagihan − compliment | Laporan CFO, **dan halaman investor** | Rp 610.400.022 |
 
-  Untuk Agustus 2026 bedanya Rp 76 juta: net Rp 546.005.454 vs dibayar tamu
-  Rp 622.035.872. Menyebut "angka omset" tanpa menyebut layarnya karena itu
-  selalu ambigu — sudah menghabiskan satu putaran pada 27 Agustus 2026.
+  Menyebut "angka omset" tanpa menyebut layarnya karena itu selalu ambigu.
 
-  `ringkas_investor()` MEMULANGKAN DUA-DUANYA (`omset` = net, `dibayarTamu` =
-  tagihan, plus `svc`/`pajak`) dan tidak memilih salah satu. Yang memilih
-  adalah layar, jadi konvensinya bisa dibalik tanpa menyentuh server.
+  **Compliment adalah selisih ketiga↔kedua.** Di Office ia METODE PEMBAYARAN
+  (`reports[].pay.compliment`): barangnya tetap ditagihkan lalu "dibayar"
+  pakai compliment, jadi ia ADA di dalam tagihan. Di laporan CFO ia baris
+  diskon yang memotong penjualan, karena tamunya memang tidak membayar.
+  `daily.discount` TIDAK memuatnya — itu cuma bill discount — jadi
+  mengurangkannya aman. Kalau suatu hari compliment ikut dimasukkan ke kolom
+  Discount di Input Omset Harian, pengurangannya WAJIB dicabut di
+  `kp_netsales_hari()` DAN di `laba_rugi_bulanan()`.
 
-  **Halaman investor memakai TAGIHAN** (keputusan user, 27 Agustus 2026) —
-  seluruh tab Ringkasan: kartu KPI, grafik tahunan, grafik harian, sorotan,
-  rata-rata per transaksi, dan persentase target. Seragam, dan itu yang
-  penting: kartu bertagihan di atas grafik bernet membuat orang yang
-  menjumlahkan batangnya mendapat angka lain daripada yang tertulis besar di
-  atasnya, tanpa satu pun tempat yang menjelaskannya.
+  **`kp_peta_harian()` adalah satu-satunya tempat blob dibaca**, dan kedua tab
+  halaman investor dihitung darinya. Sebelumnya masing-masing punya loop
+  sendiri dengan aturan compliment yang beda tipis, sehingga kartu "Omset"
+  bisa menyebut angka lain daripada "Net Sales" di tab sebelahnya — persis
+  yang dikeluhkan user. Selisih semacam itu sekarang mustahil secara
+  konstruksi, bukan karena dijaga. Jangan pisahkan lagi.
 
-  Net tetap disebut di baris keterangan kecil di bawah kartu ("termasuk
-  service … & pajak … — omset net …"). Barisnya tidak digambar kalau
-  service+pajaknya nol: keterangan tentang selisih nol cuma menambah satu
-  baris untuk dibaca. Target bulanan pun dihitung atas tagihan — dasarnya
-  ditetapkan user, dan mengubahnya menggeser persentase capaian.
+  Balasan API memuat KETIGANYA (`omset`, `dibayarTamu`, `netSales`) dan tidak
+  memilih. Yang memilih adalah layar, jadi konvensinya bisa diganti tanpa
+  menyentuh server. Halaman investor memakai `netSales` di SELURUH tab
+  Ringkasan — kartu, grafik tahunan, grafik harian, sorotan, rata-rata per
+  transaksi, dan persentase target. Seragam, karena kartu satu konvensi di
+  atas grafik konvensi lain membuat yang menjumlahkan batangnya mendapat
+  angka lain daripada yang tertulis besar di atasnya.
 
+  Baris keterangan kecil di bawah kartu menyebut service, pajak, dan
+  compliment — tidak digambar kalau ketiganya nol.
 **Satu berkas HTML, dua situs.** Alamat Office diturunkan dari host yang
 membuka (`dev.` → `https://dev.laksamanamuda.id`, selain itu
 `https://team.laksamanamuda.id` — **bukan** `office.laksamanamuda.id`, yang
@@ -573,7 +582,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 90 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 94 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:

@@ -588,7 +588,6 @@ function simpan_rekap($data) {
   );
 }
 
-/* ==================== DIAGNOSTIK ==================== */
 /* ==================== RINGKASAN UNTUK HALAMAN INVESTOR ====================
    Dipakai investor.laksamanamuda.id — situs terpisah, di luar Office.
 
@@ -606,13 +605,111 @@ function simpan_rekap($data) {
    tidak ada breakdown per kasir, tidak ada piutang. Kalaupun bocor, yang
    bocor adalah angka yang memang boleh dilihat investor.
 
-   Omset satu hari = food + bev + lainnya − discount, sama persis dengan
-   netOf() di Dashboard Omset. Tax & service sengaja TIDAK ikut: keduanya
-   ditagihkan ke tamu tapi bukan pendapatan perusahaan, dan memasukkannya
-   akan membuat angka di halaman investor lebih besar daripada angka di
-   layar Finance untuk hari yang sama.
+   Konvensi angka penjualannya TIDAK diputuskan di sini — balasan memuat
+   ketiganya (net / dibayarTamu / netSales) dan layar yang memilih. Lihat
+   kp_net_hari() dkk di bawah untuk apa bedanya dan kenapa ada tiga.
    ====================================================================== */
 function kp_hari_ini_wib() { return gmdate('Y-m-d', time() + 7 * 3600); }
+
+/* ==================== SATU PETA HARIAN UNTUK SEMUA ANGKA =================
+   Baik tab Ringkasan maupun tab Laporan Laba Rugi di halaman investor
+   dihitung dari fungsi ini, dan itu bukan sekadar kerapian.
+
+   Sebelumnya keduanya punya loop sendiri-sendiri. Aturan compliment-nya
+   beda tipis — yang satu melewati compliment yang jatuh di hari tanpa baris
+   omset, yang satu menghitungnya — dan akibatnya kartu "Omset Agu 2026"
+   bisa menyebut angka lain daripada "Net Sales" di tab sebelahnya untuk
+   bulan yang sama. Bedanya cuma muncul kalau ada compliment yatim, jadi ia
+   akan lolos dari pemeriksaan apa pun sampai suatu hari kasir mencatat
+   compliment sebelum menutup buku.
+
+   Sekarang keduanya membaca peta yang sama, jadi selisih semacam itu
+   mustahil secara konstruksi, bukan karena dijaga.
+
+   Isi tiap hari: array(food, bev, lainnya, diskon, service, pajak, bill,
+   compliment). Semua angka mentah — yang menyusunnya jadi net / tagihan /
+   netSales adalah pemanggilnya.
+
+   HARI YANG HANYA PUNYA COMPLIMENT TETAP DIBUAT. Barang yang keluar tetap
+   kejadian, dan hari yang dibuang diam-diam adalah tepat jenis kesalahan
+   yang membuat dua layar berselisih. Kalau omsetnya memang belum diinput,
+   hari itu akan tergambar minus — dan itu jujur: barang keluar, penjualan
+   belum tercatat.
+   ====================================================================== */
+function kp_peta_harian() {
+  $s = kp_state_assoc();
+  $rows  = (isset($s['daily']) && is_array($s['daily'])) ? $s['daily'] : array();
+  $comps = (isset($s['compliments']) && is_array($s['compliments'])) ? $s['compliments'] : array();
+
+  $peta = array();
+  $baru = array(0, 0, 0, 0, 0, 0, 0, 0);
+  foreach ($rows as $d) {
+    if (!is_array($d)) continue;
+    $t = kp_tgl(isset($d['date']) ? $d['date'] : '');
+    if (!$t) continue;
+    if (!isset($peta[$t])) $peta[$t] = $baru;
+    $peta[$t][0] += kp_num(isset($d['food'])     ? $d['food']     : 0);
+    $peta[$t][1] += kp_num(isset($d['bev'])      ? $d['bev']      : 0);
+    $peta[$t][2] += kp_num(isset($d['lainnya'])  ? $d['lainnya']  : 0);
+    $peta[$t][3] += kp_num(isset($d['discount']) ? $d['discount'] : 0);
+    $peta[$t][4] += kp_num(isset($d['service_charge']) ? $d['service_charge'] : 0);
+    $peta[$t][5] += kp_num(isset($d['tax'])      ? $d['tax']      : 0);
+    $peta[$t][6] += kp_num(isset($d['bill'])     ? $d['bill']     : 0);
+  }
+  foreach ($comps as $c) {
+    if (!is_array($c)) continue;
+    $t = kp_tgl(isset($c['date']) ? $c['date'] : '');
+    if (!$t) continue;
+    if (!isset($peta[$t])) $peta[$t] = $baru;
+    $peta[$t][7] += kp_num(isset($c['nominal']) ? $c['nominal'] : 0);
+  }
+  return $peta;
+}
+
+/* TIGA ANGKA PENJUALAN HIDUP DI OFFICE, DAN KETIGANYA SAH. Ini sumber salah
+   paham paling mahal di sekitar omset, jadi ditulis sekali di sini:
+
+     net       = food + bev + lainnya − discount     -> Dashboard Omset
+     tagihan   = net + service + pajak               -> Rekap Penjualan
+     netSales  = tagihan − compliment                -> Laporan CFO
+
+   Agustus 2026 berturut-turut: Rp 546.005.454, Rp 622.035.872,
+   Rp 610.400.022. Menyebut "angka omset" tanpa menyebut layarnya selalu
+   ambigu.
+
+   COMPLIMENT ADALAH SELISIH KETIGA-KEDUA. Di Office ia METODE PEMBAYARAN
+   (reports[].pay.compliment): barangnya tetap ditagihkan lalu "dibayar"
+   pakai compliment, jadi ia ADA di dalam tagihan. Di laporan CFO ia baris
+   diskon yang memotong penjualan, karena tamunya memang tidak membayar.
+   `daily.discount` TIDAK memuatnya — itu cuma bill discount — jadi
+   mengurangkannya aman, tidak ada yang terpotong dua kali. Kalau suatu hari
+   compliment ikut dimasukkan ke kolom Discount di Input Omset Harian,
+   pengurangan ini WAJIB dicabut. */
+function kp_net_hari($v)      { return $v[0] + $v[1] + $v[2] - $v[3]; }
+function kp_tagihan_hari($v)  { return kp_net_hari($v) + $v[4] + $v[5]; }
+function kp_netsales_hari($v) { return kp_tagihan_hari($v) - $v[7]; }
+
+/* Rekap per bulan. [net, bill, hari, service, pajak, compliment,
+   food, bev, lainnya, diskon] — dipakai KPI, grafik tahunan, dan susunan
+   laba rugi sekaligus, semuanya dari peta yang sama. */
+function kp_peta_bulanan($peta) {
+  $b = array();
+  foreach ($peta as $t => $v) {
+    $k = substr($t, 0, 7);
+    if (!isset($b[$k])) $b[$k] = array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    $b[$k][0] += kp_net_hari($v);
+    $b[$k][1] += $v[6];
+    $b[$k][2] += 1;
+    $b[$k][3] += $v[4];
+    $b[$k][4] += $v[5];
+    $b[$k][5] += $v[7];
+    $b[$k][6] += $v[0];
+    $b[$k][7] += $v[1];
+    $b[$k][8] += $v[2];
+    $b[$k][9] += $v[3];
+  }
+  return $b;
+}
 
 /* ==================== LABA RUGI BULANAN (untuk halaman investor) ==========
    Meniru bentuk "Profit Loss Report" yang disiapkan CFO tiap bulan, supaya
@@ -630,16 +727,6 @@ function kp_hari_ini_wib() { return gmdate('Y-m-d', time() + 7 * 3600); }
      Compliment                <- compliments[].nominal
      Total Sales / Net Sales   <- dihitung dari yang di atas
 
-   COMPLIMENT SENGAJA JADI BARIS SENDIRI, DAN ITU BUKAN KOSMETIK.
-   Di Dashboard Omset compliment adalah METODE PEMBAYARAN (reports[].pay
-   .compliment) dengan register terpisah, sementara `daily.discount` cuma
-   bill discount. Di laporan CFO keduanya sama-sama baris pengurang Total
-   Sales. Karena di sini terpisah, menjumlahkannya AMAN — tidak ada yang
-   terhitung dua kali. Kalau suatu saat compliment ikut dimasukkan ke kolom
-   Discount di Input Omset Harian, baris ini WAJIB dicabut: kalau tidak,
-   Net Sales di halaman investor menyusut dua kali lipat dari seharusnya dan
-   tidak ada satu pun galat yang menyebutkannya.
-
    YANG TIDAK ADA DI SISTEM INI: COGS, Operational Expense, Other Income &
    Expense, dan Depreciation. Semuanya dicatat di pembukuan CFO, tidak ada
    satu pun layar Office yang menginputnya. Karena itu fungsi ini TIDAK
@@ -647,155 +734,83 @@ function kp_hari_ini_wib() { return gmdate('Y-m-d', time() + 7 * 3600); }
    yang dihitung dari nol yang dianggap nol adalah angka yang salah, dan di
    halaman investor angka salah lebih mahal daripada kolom kosong.
    Layar yang menggambarnya menandai baris-baris itu "belum ada inputnya".
+
+   `netSales` di sini SAMA PERSIS dengan `netSales` di ringkas_investor():
+     totalSales − totalDiskon
+       = (food+bev+lainnya+pajak+service) − (diskon+compliment)
+       = net + service + pajak − compliment
+   Bukan kebetulan — keduanya dihitung dari kp_peta_harian() yang sama.
    ====================================================================== */
-function laba_rugi_bulanan() {
-  $s = kp_state_assoc();
-  $rows = (isset($s['daily']) && is_array($s['daily'])) ? $s['daily'] : array();
-  $comps = (isset($s['compliments']) && is_array($s['compliments'])) ? $s['compliments'] : array();
-
-  $b = array();   // 'YYYY-MM' => komponen
-  $kosong = array('food' => 0, 'bev' => 0, 'lainnya' => 0, 'pb1' => 0, 'service' => 0,
-                  'diskon' => 0, 'compliment' => 0, 'hariTerisi' => 0);
-
-  foreach ($rows as $d) {
-    if (!is_array($d)) continue;
-    $t = kp_tgl(isset($d['date']) ? $d['date'] : '');
-    if (!$t) continue;
-    $k = substr($t, 0, 7);
-    if (!isset($b[$k])) $b[$k] = $kosong;
-    $b[$k]['food']    += kp_num(isset($d['food'])    ? $d['food']    : 0);
-    $b[$k]['bev']     += kp_num(isset($d['bev'])     ? $d['bev']     : 0);
-    $b[$k]['lainnya'] += kp_num(isset($d['lainnya']) ? $d['lainnya'] : 0);
-    $b[$k]['pb1']     += kp_num(isset($d['tax'])     ? $d['tax']     : 0);
-    $b[$k]['service'] += kp_num(isset($d['service_charge']) ? $d['service_charge'] : 0);
-    $b[$k]['diskon']  += kp_num(isset($d['discount'])? $d['discount']: 0);
-    $b[$k]['hariTerisi'] += 1;
-  }
-
-  /* Compliment bisa jatuh di bulan yang SATU PUN harinya belum diisi di Input
-     Omset Harian. Bulannya tetap dibuat — barang yang keluar tetap kejadian,
-     dan bulan yang hilang dari daftar terbaca sebagai "tidak ada apa-apa". */
-  foreach ($comps as $c) {
-    if (!is_array($c)) continue;
-    $t = kp_tgl(isset($c['date']) ? $c['date'] : '');
-    if (!$t) continue;
-    $k = substr($t, 0, 7);
-    if (!isset($b[$k])) $b[$k] = $kosong;
-    $b[$k]['compliment'] += kp_num(isset($c['nominal']) ? $c['nominal'] : 0);
-  }
-
+function laba_rugi_bulanan($peta = null) {
+  if ($peta === null) $peta = kp_peta_harian();
+  $b = kp_peta_bulanan($peta);
   krsort($b);        // bulan terbaru lebih dulu — itu yang dibuka orang duluan
 
   $out = array();
   foreach ($b as $k => $v) {
-    $totalSales  = $v['food'] + $v['bev'] + $v['lainnya'] + $v['pb1'] + $v['service'];
-    $totalDiskon = $v['diskon'] + $v['compliment'];
+    $totalSales  = $v[6] + $v[7] + $v[8] + $v[4] + $v[3];   // food+bev+lainnya+pajak+service
+    $totalDiskon = $v[9] + $v[5];                            // bill discount + compliment
     $out[] = array(
       'kunci'       => $k,
-      'food'        => $v['food'],
-      'bev'         => $v['bev'],
-      'lainnya'     => $v['lainnya'],
-      'pb1'         => $v['pb1'],
-      'service'     => $v['service'],
+      'food'        => $v[6],
+      'bev'         => $v[7],
+      'lainnya'     => $v[8],
+      'pb1'         => $v[4],
+      'service'     => $v[3],
       'totalSales'  => $totalSales,
-      'diskon'      => $v['diskon'],
-      'compliment'  => $v['compliment'],
+      'diskon'      => $v[9],
+      'compliment'  => $v[5],
       'totalDiskon' => $totalDiskon,
       'netSales'    => $totalSales - $totalDiskon,
-      'hariTerisi'  => $v['hariTerisi']
+      'hariTerisi'  => $v[2]
     );
   }
   return $out;
 }
 
 function ringkas_investor() {
-  $s = kp_state_assoc();
-  $rows = (isset($s['daily']) && is_array($s['daily'])) ? $s['daily'] : array();
+  $peta = kp_peta_harian();
+  $b    = kp_peta_bulanan($peta);
 
-  /* tgl => array(net, transaksi, service, pajak).
-     ---------------------------------------------------------------------
-     DUA ANGKA PENJUALAN, DAN KEDUANYA DIPAKAI DI TEMPAT BERBEDA:
-
-       net     = food + bev + lainnya − discount     (Dashboard Omset)
-       tagihan = net + service + pajak               (Rekap Penjualan)
-
-     Keduanya sah dan keduanya dipakai orang yang sama di layar berbeda —
-     Dashboard Omset menulis "Total Omset Hari Ini (net)", Rekap Penjualan
-     menulis "angka penjualannya after tax & service". Karena itu FUNGSI INI
-     MEMULANGKAN DUA-DUANYA, bukan memilih satu: yang memilih adalah layar,
-     dan pilihan itu bisa berubah tanpa menyentuh server.
-
-     Halaman investor memakai TAGIHAN sejak 27 Agustus 2026 (keputusan user),
-     dengan net tetap disebut sebagai keterangan. */
-  $peta = array();
   $terakhir = null;
-  foreach ($rows as $d) {
-    if (!is_array($d)) continue;
-    $t = kp_tgl(isset($d['date']) ? $d['date'] : '');
-    if (!$t) continue;
-    $net  = kp_num(isset($d['food'])    ? $d['food']    : 0)
-          + kp_num(isset($d['bev'])     ? $d['bev']     : 0)
-          + kp_num(isset($d['lainnya']) ? $d['lainnya'] : 0)
-          - kp_num(isset($d['discount'])? $d['discount']: 0);
-    $bill = kp_num(isset($d['bill']) ? $d['bill'] : 0);
-    $svc  = kp_num(isset($d['service_charge']) ? $d['service_charge'] : 0);
-    $tax  = kp_num(isset($d['tax']) ? $d['tax'] : 0);
-    if (!isset($peta[$t])) $peta[$t] = array(0, 0, 0, 0);
-    $peta[$t][0] += $net;
-    $peta[$t][1] += $bill;
-    $peta[$t][2] += $svc;
-    $peta[$t][3] += $tax;
+  foreach ($peta as $t => $v) {
     if ($terakhir === null || strcmp($t, $terakhir) > 0) $terakhir = $t;
   }
-  $tagihanHari = function ($v) { return $v[0] + $v[2] + $v[3]; };
 
   $hariIni = kp_hari_ini_wib();
   $kemarin = gmdate('Y-m-d', strtotime($hariIni . ' -1 day'));
   $blnIni  = substr($hariIni, 0, 7);
   $blnLalu = gmdate('Y-m', strtotime($blnIni . '-01 -1 month'));
 
-  /* Rekap per bulan sekali jalan — dipakai KPI bulan ini, bulan lalu, dan
-     grafik tahunan sekaligus. [net, transaksi, jumlahHari, service, pajak] */
-  $bulan = array();
-  foreach ($peta as $t => $v) {
-    $k = substr($t, 0, 7);
-    if (!isset($bulan[$k])) $bulan[$k] = array(0, 0, 0, 0, 0);
-    $bulan[$k][0] += $v[0];
-    $bulan[$k][1] += $v[1];
-    $bulan[$k][2] += 1;
-    $bulan[$k][3] += $v[2];
-    $bulan[$k][4] += $v[3];
-  }
-  $ambilBulan = function ($k) use ($bulan) {
-    return isset($bulan[$k]) ? $bulan[$k] : array(0, 0, 0, 0, 0);
-  };
-  /* Satu bulan jadi satu blok balasan. Ditulis sekali di sini supaya bulan
-     ini dan bulan lalu tidak pernah tersusun beda — sempat begitu, dan
-     akibatnya bulan lalu tidak punya `dibayarTamu` sehingga perbandingannya
-     diam-diam membandingkan tagihan melawan net. */
-  $blokBulan = function ($k) use ($ambilBulan) {
-    $v = $ambilBulan($k);
+  /* Satu bulan jadi satu blok balasan. Ditulis sekali supaya bulan ini dan
+     bulan lalu tidak pernah tersusun beda — sempat begitu, dan akibatnya
+     bulan lalu tidak punya angka pembanding yang sejenis sehingga deltanya
+     diam-diam mengadu dua konvensi berbeda. */
+  $blokBulan = function ($k) use ($b) {
+    $v = isset($b[$k]) ? $b[$k] : array(0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+    $tagihan = $v[0] + $v[3] + $v[4];
     return array('kunci' => $k,
                  'omset' => $v[0], 'transaksi' => $v[1], 'hariTerisi' => $v[2],
-                 'svc' => $v[3], 'pajak' => $v[4],
-                 'dibayarTamu' => $v[0] + $v[3] + $v[4]);
+                 'svc' => $v[3], 'pajak' => $v[4], 'compliment' => $v[5],
+                 'dibayarTamu' => $tagihan,
+                 'netSales'    => $tagihan - $v[5]);
   };
 
-  /* Grafik year-over-year memakai TAGIHAN — sama dengan kartu KPI di atasnya.
-     Kalau kartunya tagihan dan grafiknya net, orang yang menjumlahkan
-     batang-batangnya akan mendapat angka lain daripada yang tertulis besar
-     di atas, dan tidak ada satu pun tempat yang menjelaskannya.
+  /* Grafik year-over-year memakai NET SALES — sama dengan kartu KPI di
+     atasnya dan sama dengan tab Laba Rugi. Kalau kartunya satu konvensi dan
+     grafiknya konvensi lain, orang yang menjumlahkan batangnya mendapat
+     angka lain daripada yang tertulis besar di atas.
 
      HANYA tahun yang benar-benar punya data yang ikut — tahun kosong yang
-     tetap digambar menghasilkan garis rata nol, dan garis nol terbaca sebagai
-     "tahun itu tidak jualan", bukan "datanya belum diisi". Bulan tanpa data
-     dipulangkan null (bukan 0) dengan alasan yang sama. */
+     tetap digambar menghasilkan garis rata nol, dan garis nol terbaca
+     sebagai "tahun itu tidak jualan", bukan "datanya belum diisi". Bulan
+     tanpa data dipulangkan null (bukan 0) dengan alasan yang sama. */
   $tahunan = array();
-  foreach ($bulan as $k => $v) {
+  foreach ($b as $k => $v) {
     $th = substr($k, 0, 4);
     $bl = (int)substr($k, 5, 2) - 1;
     if (!isset($tahunan[$th])) $tahunan[$th] = array_fill(0, 12, null);
-    $tahunan[$th][$bl] = $v[0] + $v[3] + $v[4];
+    $tahunan[$th][$bl] = $v[0] + $v[3] + $v[4] - $v[5];
   }
   ksort($tahunan);
 
@@ -804,17 +819,20 @@ function ringkas_investor() {
      sumbu dan grafiknya jadi berbohong: dua batang bersebelahan bisa
      berjarak seminggu tanpa ada yang menyebutkannya.
 
-     `omset` di sini TAGIHAN, seragam dengan kartu dan grafik tahunan;
-     `net` ikut supaya layar bisa berpindah konvensi tanpa menyentuh server. */
+     `omset` di sini NET SALES, seragam dengan kartu dan grafik tahunan;
+     `net` dan `tagihan` ikut supaya layar bisa berpindah konvensi tanpa
+     menyentuh server. */
   $harian = array();
   for ($i = 29; $i >= 0; $i--) {
     $t = gmdate('Y-m-d', strtotime($hariIni . ' -' . $i . ' day'));
     $ada = isset($peta[$t]);
     $harian[] = array('tgl' => $t,
-                      'omset' => $ada ? $tagihanHari($peta[$t]) : null,
-                      'net'   => $ada ? $peta[$t][0] : null);
+                      'omset'   => $ada ? kp_netsales_hari($peta[$t]) : null,
+                      'tagihan' => $ada ? kp_tagihan_hari($peta[$t])  : null,
+                      'net'     => $ada ? kp_net_hari($peta[$t])      : null);
   }
 
+  $s  = kp_state_assoc();
   $st = (isset($s['settings']) && is_array($s['settings'])) ? $s['settings'] : array();
   $adaHariIni = isset($peta[$hariIni]);
   $adaKemarin = isset($peta[$kemarin]);
@@ -825,24 +843,28 @@ function ringkas_investor() {
   return array(
     'ts'       => gmdate('c'),
     'hariIni'  => array('tgl' => $hariIni,
-                        'omset'      => $adaHariIni ? $peta[$hariIni][0] : null,
-                        'transaksi'  => $adaHariIni ? $peta[$hariIni][1] : null,
-                        'svc'        => $adaHariIni ? $peta[$hariIni][2] : null,
-                        'pajak'      => $adaHariIni ? $peta[$hariIni][3] : null,
+                        'omset'      => $adaHariIni ? kp_net_hari($peta[$hariIni]) : null,
+                        'transaksi'  => $adaHariIni ? $peta[$hariIni][6] : null,
+                        'svc'        => $adaHariIni ? $peta[$hariIni][4] : null,
+                        'pajak'      => $adaHariIni ? $peta[$hariIni][5] : null,
+                        'compliment' => $adaHariIni ? $peta[$hariIni][7] : null,
                         /* Sama dengan kartu "Dibayar Tamu" di Rekap Penjualan. */
-                        'dibayarTamu'=> $adaHariIni ? $tagihanHari($peta[$hariIni]) : null),
+                        'dibayarTamu'=> $adaHariIni ? kp_tagihan_hari($peta[$hariIni])  : null,
+                        /* Sama dengan "Net Sales" di Laporan Laba Rugi. */
+                        'netSales'   => $adaHariIni ? kp_netsales_hari($peta[$hariIni]) : null),
     'kemarin'  => array('tgl' => $kemarin,
-                        'omset'       => $adaKemarin ? $peta[$kemarin][0] : null,
-                        'dibayarTamu' => $adaKemarin ? $tagihanHari($peta[$kemarin]) : null),
+                        'omset'       => $adaKemarin ? kp_net_hari($peta[$kemarin]) : null,
+                        'dibayarTamu' => $adaKemarin ? kp_tagihan_hari($peta[$kemarin])  : null,
+                        'netSales'    => $adaKemarin ? kp_netsales_hari($peta[$kemarin]) : null),
     'bulanIni' => $bi,
     'bulanLalu'=> $blokBulan($blnLalu),
     'tahunan'  => $tahunan,
     'harian'   => $harian,
     /* Susunan Profit Loss Report per bulan. Ikut di balasan ini, bukan
        endpoint sendiri: bulannya cuma belasan, dan satu perjalanan lebih
-       murah daripada dua. Lihat laba_rugi_bulanan() untuk apa yang TIDAK
-       ada di dalamnya, dan kenapa. */
-    'labaRugi' => laba_rugi_bulanan(),
+       murah daripada dua. PETANYA DIOPER, bukan dibaca ulang — sekali baca
+       blob, dan dijamin dua tab menghitung dari angka yang sama persis. */
+    'labaRugi' => laba_rugi_bulanan($peta),
     /* Tanggal data terakhir yang benar-benar diisi. Halaman investor
        memajangnya apa adanya — tanpa itu, omset hari ini yang kosong karena
        kasir belum menutup buku terbaca sebagai omset nol. */
@@ -851,6 +873,7 @@ function ringkas_investor() {
   );
 }
 
+/* ==================== DIAGNOSTIK ==================== */
 function ping() {
   return array('pong' => true, 'backend' => 'php-mysql',
                'env' => defined('ENV_LABEL') ? ENV_LABEL : '?',
