@@ -461,10 +461,69 @@ mencoba `http` dulu sebelum menyerah: SSL yang belum siap bukan tanda deploy
 gagal, dan menggagalkan run karenanya cuma melatih orang mengabaikan tanda
 merah.
 
-Gerbang kata sandi di `investor/index.html` ADA DI DALAM HTML-nya
-(`CONFIG.password`), jadi siapa pun yang membuka View Source bisa membacanya
-berikut seluruh angkanya. Itu penghalang sopan-santun, bukan pengamanan —
-jangan menaruh apa pun di sana yang benar-benar tidak boleh bocor.
+### Investor Compass: SSO Office, dan tidak satu pun angka contoh
+
+Sampai 27 Agustus 2026 halaman ini dijaga **satu kata sandi yang tertulis di
+dalam HTML** (`CONFIG.password`) dan seluruh isinya — omset, dividen, laporan,
+program, event, buku — adalah **angka karangan di objek `CONFIG`**. Keduanya
+sudah dicabut, dan alasan mencabutnya perlu diingat sebelum ada yang
+"mengembalikannya biar cepat":
+
+- Kata sandi di dalam HTML dipegang siapa pun yang menekan View Source, dan
+  satu kata sandi untuk semua orang berarti mencabut akses **satu** investor
+  mengharuskan mengganti kata sandi **semua** orang.
+- Angka contoh yang tampil rapi di halaman investor adalah kesalahan yang
+  paling mahal di repo ini: tidak ada satu pun tanda di layar yang
+  membedakannya dari angka sungguhan.
+
+Sekarang gerbangnya **akun Office yang sama** (`account-api?action=login`,
+nama/username + PIN), dan yang lolos hanya pemegang kunci modul **`investor`**.
+Kuncinya terdaftar lewat kartu `key:'investor'` di `BRANCHES`
+(`deploy/index.html`) — tanpa baris itu kotak centangnya tidak pernah muncul di
+Kelola Akses dan tidak ada seorang pun yang bisa masuk, tanpa satu layar pun
+yang menyebutkan sebabnya.
+
+**Omsetnya nyata, lewat endpoint berpagar sendiri:**
+
+```
+investor/index.html  →  POST kompas-api-mysql/api.php {action:'investorRingkas', sesi:<token>}
+                     →  lib_sesi.php  →  account-api?action=whoami  (server-ke-server)
+                     →  ringkas_investor()  →  angka yang SUDAH dijumlahkan
+```
+
+- **Bukan `getAll`.** getAll memulangkan seluruh blob omset — pegawai, 222
+  baris compliment berikut pemberinya, piutang, pemilik, breakdown per kasir —
+  dan ia **tidak menanyakan siapa pun**. Menyuruh halaman investor
+  memanggilnya berarti menuliskan alamat blob itu di HTML yang dibuka orang
+  luar perusahaan.
+- `kompas-mysql/lib_sesi.php` adalah **salinan KETIGA** berkas kembar
+  (dw-mysql, jadwal-mysql). Menyunting satu berarti menyunting tiga.
+- `investorRingkas` adalah **satu-satunya** aksi berpagar di kompas-api. Aksi
+  lain sengaja dibiarkan terbuka: semuanya dipanggil dari dalam Office, dan
+  memasang gerbang di sana sekarang akan mematikan panel Finance.
+- Omset satu hari = `food + bev + lainnya − discount`, sama persis dengan
+  `netOf()` di Dashboard Omset. Tax & service **tidak ikut** — keduanya
+  ditagihkan ke tamu tapi bukan pendapatan, dan memasukkannya membuat angka di
+  halaman investor lebih besar daripada angka di layar Finance untuk hari yang
+  sama.
+
+**Satu berkas HTML, dua situs.** Alamat Office diturunkan dari host yang
+membuka (`dev.` → `https://dev.laksamanamuda.id`, selain itu
+`https://team.laksamanamuda.id` — **bukan** `office.laksamanamuda.id`, yang
+tidak ada di DNS). Kalau dipatok satu, halaman dev akan memajang omset
+PRODUKSI dengan angka yang kelihatan wajar.
+
+**Tab yang masih kosong itu disengaja.** Dividen, laporan keuangan, program,
+event, dan desain buku tidak punya sumber data di Office mana pun. Yang tampil
+adalah keadaan kosong yang menyebutkan apa yang kurang. Tabnya **tidak
+dihapus**: kalau dihapus, tidak ada satu pun tempat yang mengingatkan bahwa
+lima hal itu pernah dijanjikan ada di sana.
+
+Ujinya:
+
+```bash
+node tools/uji-investor.js   # 43 pemeriksaan, jsdom + account-api/kompas-api tiruan
+```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:
 

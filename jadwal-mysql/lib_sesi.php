@@ -2,9 +2,15 @@
 /************************************************************************
  * IDENTITAS PEMANGGIL — siapa yang sedang memanggil API ini
  * ---------------------------------------------------------------------
- * BERKAS KEMBAR. Salinan yang sama persis ada di jadwal-mysql/lib_sesi.php.
- * Kalau salah satunya diperbaiki, yang satunya HARUS ikut — keduanya menjaga
- * pintu yang sama untuk dua modul yang dipakai orang yang sama.
+ * BERKAS KEMBAR — TIGA SALINAN yang isinya sama persis:
+ *   dw-mysql/lib_sesi.php  jadwal-mysql/lib_sesi.php  kompas-mysql/lib_sesi.php
+ * Kalau salah satunya diperbaiki, DUA yang lain HARUS ikut — ketiganya
+ * menjaga pintu yang sama.
+ *
+ * Salinan di kompas-mysql dipakai SATU endpoint saja (investorRingkas).
+ * Halaman investor.laksamanamuda.id berdiri di domain sendiri, jadi
+ * localStorage Office tidak terbaca dari sana dan ia tidak punya cara lain
+ * membuktikan siapa yang sedang melihat angka omset perusahaan.
  *
  * MASALAH YANG DIPECAHKAN BERKAS INI
  * ---------------------------------------------------------------------

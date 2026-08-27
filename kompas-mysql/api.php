@@ -6,7 +6,14 @@
  *   GET  ?action=omsetPic&dari=YYYY-MM-DD&sampai=YYYY-MM-DD
  *                        -> {ok,data:{dari,sampai,hariAda,hariIsi,pic:[...],total:{...}}}
  *                           Read-only, dipakai modul Marketing > Performance.
- *   GET  ?action=stats   -> {ok,data:{...jumlah per tabel}}
+ *   GET  ?action=investorRingkas&sesi=<token>
+                        -> {ok,data:{hariIni,kemarin,bulanIni,bulanLalu,
+                            tahunan,harian,terakhir,adaData}}
+                           Angka omset yang SUDAH DIJUMLAHKAN, untuk situs
+                           investor.laksamanamuda.id. Satu-satunya aksi di
+                           berkas ini yang berpagar: wajib token sesi Office
+                           + kunci modul 'investor'. Alasannya di badan file.
+   GET  ?action=stats   -> {ok,data:{...jumlah per tabel}}
  *   GET  ?action=ping    -> {ok,data:{pong,env,db}}
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved,jumlah}}
  *   POST {action:"simpanTarget", data:{companyMonthlyTarget,useWorkingDays,
@@ -83,6 +90,28 @@ try {
     try { $out = simpan_rekap(isset($body['data']) ? $body['data'] : null); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
+  }
+  /* SATU-SATUNYA aksi di berkas ini yang MENANYAKAN SIAPA PEMANGGILNYA.
+     Dipanggil investor.laksamanamuda.id — situs di luar Office, dibuka orang
+     di luar perusahaan.
+
+     Gerbangnya token sesi Office, diverifikasi server-ke-server ke
+     account-api (lihat lib_sesi.php), bukan nama yang dikirim peramban:
+     nama bisa diketik siapa saja. Kuncinya 'investor', dicentang lewat
+     Kelola Akses — jadi memberi dan mencabut akses investor tidak perlu
+     menyentuh berkas ini sama sekali.
+
+     Aksi lain di berkas ini sengaja dibiarkan terbuka seperti semula:
+     semuanya dipanggil dari dalam Office dan mengubah gerbangnya sekarang
+     akan mematikan panel Finance tanpa satu pun pesan yang menyebut
+     sebabnya. Yang dijaga di sini cuma pintu yang menghadap ke luar. */
+  else if ($action === 'investorRingkas') {
+    require_once __DIR__ . '/lib_sesi.php';
+    $u = sesi_user($body);
+    if (!$u) sesi_tolak_tak_dikenal();
+    if (!sesi_punya_modul($u, 'investor')) sesi_tolak_tanpa_modul('Investor Compass');
+    keluar(array('ok' => true, 'data' => ringkas_investor(),
+                 'user' => array('nama' => isset($u['name']) ? $u['name'] : '')));
   }
   else keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
 } catch (Throwable $e) {

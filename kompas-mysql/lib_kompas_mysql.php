@@ -589,6 +589,124 @@ function simpan_rekap($data) {
 }
 
 /* ==================== DIAGNOSTIK ==================== */
+/* ==================== RINGKASAN UNTUK HALAMAN INVESTOR ====================
+   Dipakai investor.laksamanamuda.id — situs terpisah, di luar Office.
+
+   KENAPA ENDPOINT SENDIRI, BUKAN getAll
+   ---------------------------------------------------------------------
+   getAll memulangkan SELURUH blob omset: daftar pegawai, 222 baris
+   compliment berikut siapa yang memberi, piutang, pemilik, dan breakdown
+   omset per kasir. Halaman investor cuma perlu angka totalnya. Menyuruhnya
+   memanggil getAll berarti menuliskan alamat blob itu di dalam HTML yang
+   dibuka orang luar perusahaan — dan getAll tidak menanyakan siapa pun,
+   jadi yang membacanya tidak harus investor, cukup siapa saja yang pernah
+   melihat halamannya.
+
+   Yang dipulangkan di sini SUDAH DIJUMLAHKAN. Tidak ada satu pun nama orang,
+   tidak ada breakdown per kasir, tidak ada piutang. Kalaupun bocor, yang
+   bocor adalah angka yang memang boleh dilihat investor.
+
+   Omset satu hari = food + bev + lainnya − discount, sama persis dengan
+   netOf() di Dashboard Omset. Tax & service sengaja TIDAK ikut: keduanya
+   ditagihkan ke tamu tapi bukan pendapatan perusahaan, dan memasukkannya
+   akan membuat angka di halaman investor lebih besar daripada angka di
+   layar Finance untuk hari yang sama.
+   ====================================================================== */
+function kp_hari_ini_wib() { return gmdate('Y-m-d', time() + 7 * 3600); }
+
+function ringkas_investor() {
+  $s = kp_state_assoc();
+  $rows = (isset($s['daily']) && is_array($s['daily'])) ? $s['daily'] : array();
+
+  /* tgl => array(omset, transaksi). Baris ganda untuk tanggal yang sama
+     dijumlahkan, bukan ditimpa — blob-nya tidak menjamin keunikan tanggal. */
+  $peta = array();
+  $terakhir = null;
+  foreach ($rows as $d) {
+    if (!is_array($d)) continue;
+    $t = kp_tgl(isset($d['date']) ? $d['date'] : '');
+    if (!$t) continue;
+    $omset = kp_num(isset($d['food'])    ? $d['food']    : 0)
+           + kp_num(isset($d['bev'])     ? $d['bev']     : 0)
+           + kp_num(isset($d['lainnya']) ? $d['lainnya'] : 0)
+           - kp_num(isset($d['discount'])? $d['discount']: 0);
+    $bill = kp_num(isset($d['bill']) ? $d['bill'] : 0);
+    if (!isset($peta[$t])) $peta[$t] = array(0, 0);
+    $peta[$t][0] += $omset;
+    $peta[$t][1] += $bill;
+    if ($terakhir === null || strcmp($t, $terakhir) > 0) $terakhir = $t;
+  }
+
+  $hariIni = kp_hari_ini_wib();
+  $kemarin = gmdate('Y-m-d', strtotime($hariIni . ' -1 day'));
+  $blnIni  = substr($hariIni, 0, 7);
+  $blnLalu = gmdate('Y-m', strtotime($blnIni . '-01 -1 month'));
+
+  /* Rekap per bulan sekali jalan — dipakai KPI bulan ini, bulan lalu, dan
+     grafik tahunan sekaligus. */
+  $bulan = array();                     // 'YYYY-MM' => array(omset, transaksi, jumlahHari)
+  foreach ($peta as $t => $v) {
+    $k = substr($t, 0, 7);
+    if (!isset($bulan[$k])) $bulan[$k] = array(0, 0, 0);
+    $bulan[$k][0] += $v[0];
+    $bulan[$k][1] += $v[1];
+    $bulan[$k][2] += 1;
+  }
+  $ambilBulan = function ($k) use ($bulan) {
+    return isset($bulan[$k]) ? $bulan[$k] : array(0, 0, 0);
+  };
+
+  /* Grafik year-over-year. HANYA tahun yang benar-benar punya data yang
+     ikut — tahun kosong yang tetap digambar menghasilkan garis rata nol,
+     dan garis nol terbaca sebagai "tahun itu tidak jualan", bukan sebagai
+     "datanya belum diisi". Bulan tanpa data dipulangkan null (bukan 0)
+     dengan alasan yang sama. */
+  $tahunan = array();
+  foreach ($bulan as $k => $v) {
+    $th = substr($k, 0, 4);
+    $bl = (int)substr($k, 5, 2) - 1;
+    if (!isset($tahunan[$th])) $tahunan[$th] = array_fill(0, 12, null);
+    $tahunan[$th][$bl] = $v[0];
+  }
+  ksort($tahunan);
+
+  /* 30 hari kalender terakhir sampai hari ini — bukan "30 baris terakhir".
+     Kalau yang diambil 30 baris, hari yang belum diisi menghilang dari
+     sumbu dan grafiknya jadi berbohong: dua batang bersebelahan bisa
+     berjarak seminggu tanpa ada yang menyebutkannya. */
+  $harian = array();
+  for ($i = 29; $i >= 0; $i--) {
+    $t = gmdate('Y-m-d', strtotime($hariIni . ' -' . $i . ' day'));
+    $harian[] = array('tgl' => $t,
+                      'omset' => isset($peta[$t]) ? $peta[$t][0] : null);
+  }
+
+  $st = (isset($s['settings']) && is_array($s['settings'])) ? $s['settings'] : array();
+
+  $bi = $ambilBulan($blnIni);
+  $bl = $ambilBulan($blnLalu);
+
+  return array(
+    'ts'       => gmdate('c'),
+    'hariIni'  => array('tgl' => $hariIni,
+                        'omset' => isset($peta[$hariIni]) ? $peta[$hariIni][0] : null,
+                        'transaksi' => isset($peta[$hariIni]) ? $peta[$hariIni][1] : null),
+    'kemarin'  => array('tgl' => $kemarin,
+                        'omset' => isset($peta[$kemarin]) ? $peta[$kemarin][0] : null),
+    'bulanIni' => array('kunci' => $blnIni, 'omset' => $bi[0],
+                        'transaksi' => $bi[1], 'hariTerisi' => $bi[2],
+                        'target' => kp_num(isset($st['companyMonthlyTarget']) ? $st['companyMonthlyTarget'] : 0)),
+    'bulanLalu'=> array('kunci' => $blnLalu, 'omset' => $bl[0], 'hariTerisi' => $bl[2]),
+    'tahunan'  => $tahunan,
+    'harian'   => $harian,
+    /* Tanggal data terakhir yang benar-benar diisi. Halaman investor
+       memajangnya apa adanya — tanpa itu, omset hari ini yang kosong karena
+       kasir belum menutup buku terbaca sebagai omset nol. */
+    'terakhir' => $terakhir,
+    'adaData'  => count($peta) > 0
+  );
+}
+
 function ping() {
   return array('pong' => true, 'backend' => 'php-mysql',
                'env' => defined('ENV_LABEL') ? ENV_LABEL : '?',
