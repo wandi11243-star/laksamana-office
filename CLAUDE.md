@@ -613,7 +613,19 @@ Yang perlu dijaga:
   peringatan. Daftar kosong yang sebenarnya berarti "servernya mati" terbaca
   sebagai "memang tidak ada acara" — dan yang kedua tidak membuat siapa pun
   memeriksa apa pun.
-- Batas 20 baris per daftar, dan yang terpotong disebutkan jumlahnya.
+- Batas **200 event / 50 promo**, dan yang terpotong disebutkan jumlahnya.
+  Event dibatasi longgar karena kalendernya butuh SELURUH acara di bulan yang
+  sedang dilihat — potongan 20 baris membuat bulan berikutnya tergambar kosong
+  padahal acaranya ada.
+- **Upcoming Event punya dua bentuk**: tabel berhalaman (10 baris) dan
+  kalender bulanan. Keduanya menggambar dari `AG.event` yang SAMA — datanya
+  tidak diambil dua kali. Kalendernya mulai hari **Minggu**, sama dengan Radar:
+  dua kalender di satu perusahaan yang kolom pertamanya berbeda hari membuat
+  orang salah baca tanggal saat berpindah layar.
+- Nomor halaman dipangkas jadi jendela 5 di sekitar yang aktif, dan `EV_HAL`
+  dijepit ke rentang sah tiap kali digambar — daftar yang menyusut
+  meninggalkan halaman 4 yang sudah tidak ada, dan tabelnya tergambar kosong
+  padahal datanya ada.
 
 **Tab yang masih kosong itu disengaja.** Dividen, laporan keuangan, program,
 event, dan desain buku tidak punya sumber data di Office mana pun. Yang tampil
@@ -624,7 +636,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 138 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 164 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:

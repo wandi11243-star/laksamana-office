@@ -445,12 +445,16 @@ async function jalankan(nama, opt) {
 
       const ev = $(w,'eventBox').innerHTML;
       cek('event: judul tampil', ev.includes('Grand Tasting Menu'), ev.slice(0,200));
-      cek('event: tanggal 27 Agu', ev.includes('>27<') && ev.includes('>Agu<'), ev.slice(0,300));
+      cek('event: bentuk tabel', ev.includes('<table class="tbl"'), ev.slice(0,300));
+      cek('event: tanggal penuh di kolom', ev.includes('27 Agu 2026'), ev.slice(0,600));
+      cek('event: tombol Tabel/Kalender', ev.includes(">Tabel<") && ev.includes(">Kalender<"));
+      cek('event: Tabel aktif secara bawaan', /class="on"[^>]*onclick="evMode\('tabel'\)"/.test(ev), ev.slice(0,200));
       cek('event: "hari ini" untuk 27 Agu', ev.includes('hari ini'), ev.slice(0,400));
       cek('event: "besok" untuk 28 Agu', ev.includes('besok'), ev.slice(0,900));
       cek('event: tempat tampil', ev.includes('Main Hall'));
-      cek('event: pax tampil', ev.includes('80 pax'));
-      cek('event: acara tanpa jam tidak menampilkan jam kosong', !ev.includes('🕐 </span>'));
+      cek('event: pax tampil di kolomnya', ev.includes('>80<'), ev.slice(0,900));
+      cek('event: keterangan jumlah', ev.includes('1–3 dari 3 acara'), ev.slice(-400));
+      cek('event: jam kosong jadi tanda hubung', ev.includes('kosong-sel'), ev.slice(0,900));
       cek('event: sisa dilaporkan', ev.includes('+ 4 acara lagi'), ev.slice(-200));
 
       const pr = $(w,'promoBox').innerHTML;
@@ -503,6 +507,75 @@ async function jalankan(nama, opt) {
           $(w,'eventBox').innerHTML.slice(0,200));
       cek('KPI Ringkasan tetap terisi', $(w,'kpis').innerHTML.includes('Rp '), $(w,'kpis').innerHTML.slice(0,150));
       cek('tidak dilempar ke layar masuk', !terlihat(w, 'login'));
+    }
+  });
+
+  // ---- 18. Event: tabel berhalaman & kalender ----
+  //  25 acara supaya paginasinya benar-benar terpakai (10 per halaman).
+  const BANYAK = Array.from({ length: 25 }, (_, i) => {
+    const d = new Date(2026, 7, 27); d.setDate(d.getDate() + i);   // 27 Agu + i
+    const iso = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0')
+              + '-' + String(d.getDate()).padStart(2, '0');
+    return { tgl: iso, jam: '19:00', judul: 'Acara ke-' + (i + 1), tempat: 'Hall', jenis: '', pax: 10 };
+  });
+  await jalankan('Event: tabel berhalaman & kalender', {
+    sesiTersimpan: { token:'TD', nama:'Uji' },
+    api: b => {
+      if (b.action === 'investorRingkas') return { ok:true, data: buatRingkas() };
+      if (b.action === 'investorAgenda')
+        return { ok:true, data:{ ts:'x', hariIni:'2026-08-27', event: BANYAK, eventLebih:0,
+                                 promo:[], promoLebih:0, gagal:[] } };
+      return { ok:false };
+    },
+    async aksi(w) { w.switchTab('event'); await tunggu(80); },
+    periksa(w) {
+      const $$ = () => $(w,'eventBox').innerHTML;
+      // --- halaman 1 ---
+      let ev = $$();
+      cek('tabel: 10 baris per halaman',
+          w.document.querySelectorAll('#eventBox .tbl tbody tr').length === 10,
+          String(w.document.querySelectorAll('#eventBox .tbl tbody tr').length));
+      cek('tabel: keterangan 1–10 dari 25', ev.includes('1–10 dari 25 acara'), ev.slice(-400));
+      cek('tabel: baris pertama acara ke-1', ev.includes('Acara ke-1<'));
+      cek('tabel: acara ke-11 belum tampil', !ev.includes('Acara ke-11<'));
+      cek('tabel: tombol mundur mati di halaman 1',
+          /onclick="evKeHal\(0\)" disabled/.test(ev), ev.slice(-500));
+
+      // --- halaman 3 (terakhir) ---
+      w.evKeHal(3); ev = $$();
+      cek('tabel: halaman 3 berisi 5 baris',
+          w.document.querySelectorAll('#eventBox .tbl tbody tr').length === 5);
+      cek('tabel: keterangan 21–25 dari 25', ev.includes('21–25 dari 25 acara'), ev.slice(-400));
+      cek('tabel: tombol maju mati di halaman terakhir',
+          /onclick="evKeHal\(4\)" disabled/.test(ev), ev.slice(-500));
+      cek('tabel: halaman 3 ditandai aktif', /class="on" onclick="evKeHal\(3\)"/.test(ev));
+
+      // --- kalender ---
+      w.evMode('kalender'); ev = $$();
+      cek('kalender: 7 nama hari', w.document.querySelectorAll('#eventBox .cal-hd').length === 7);
+      cek('kalender: mulai hari Minggu',
+          w.document.querySelector('#eventBox .cal-hd').textContent === 'Min');
+      cek('kalender: 42 sel', w.document.querySelectorAll('#eventBox .cal-sel').length === 42);
+      cek('kalender: judul bulan Agu 2026', ev.includes('Agu 2026'), ev.slice(0,400));
+      cek('kalender: hari ini ditandai', w.document.querySelectorAll('#eventBox .cal-sel.kini').length === 1);
+      cek('kalender: acara tergambar di selnya', ev.includes('Acara ke-1<'), ev.slice(0,900));
+      cek('kalender: menyebut jumlah acara bulan itu', /\d+ acara di Agu 2026/.test(ev), ev.slice(-300));
+      cek('kalender: halaman tabel tidak ikut tergambar', !ev.includes('<table class="tbl"'));
+
+      // --- geser bulan ---
+      w.evGeserBln(1); ev = $$();
+      cek('kalender: pindah ke Sep 2026', ev.includes('Sep 2026'), ev.slice(0,400));
+      cek('kalender: hari ini tidak lagi ditandai',
+          w.document.querySelectorAll('#eventBox .cal-sel.kini').length === 0);
+      w.evGeserBln(-2); ev = $$();
+      cek('kalender: bisa mundur ke bulan tanpa acara', ev.includes('Jul 2026'), ev.slice(0,400));
+      cek('kalender: bulan kosong menyebutkan dirinya kosong',
+          ev.includes('Tidak ada acara di Jul 2026'), ev.slice(-300));
+
+      // --- balik ke tabel: halaman TIDAK boleh nyangkut di luar rentang ---
+      w.evMode('tabel'); ev = $$();
+      cek('tabel: kembali dari kalender tetap terisi',
+          w.document.querySelectorAll('#eventBox .tbl tbody tr').length > 0);
     }
   });
 

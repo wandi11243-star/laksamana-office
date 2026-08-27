@@ -967,7 +967,13 @@ function kp_teks($v, $maks = 120) {
    mengatakannya terbaca sebagai "cuma segitu acaranya". */
 function agenda_investor() {
   $hariIni = kp_hari_ini_wib();
-  $BATAS = 20;
+  /* Event dibatasi jauh lebih longgar daripada promo sejak halaman
+     investor punya kalender: tampilan bulanan butuh SELURUH acara di bulan
+     yang sedang dilihat, dan potongan 20 baris membuat bulan-bulan berikutnya
+     tergambar kosong padahal acaranya ada. Balasannya tetap kecil — satu
+     acara ~150 byte. */
+  $BATAS_EVENT = 200;
+  $BATAS_PROMO = 50;
   $gagal = array();
 
   /* ---------- EVENT: Marketing + Event ---------- */
@@ -1017,8 +1023,8 @@ function agenda_investor() {
     $jb = $b['jam'] === '' ? '99:99' : $b['jam'];
     return strcmp($ja, $jb);
   });
-  $evLebih = count($ev) > $BATAS ? count($ev) - $BATAS : 0;
-  $ev = array_slice($ev, 0, $BATAS);
+  $evLebih = count($ev) > $BATAS_EVENT ? count($ev) - $BATAS_EVENT : 0;
+  $ev = array_slice($ev, 0, $BATAS_EVENT);
 
   /* ---------- PROMO: BD OS ---------- */
   $pr = array();
@@ -1051,8 +1057,8 @@ function agenda_investor() {
       if ($sx !== $sy) return $sx - $sy;
       return strcmp($x['mulai'], $y['mulai']);
     });
-    $prLebih = count($pr) > $BATAS ? count($pr) - $BATAS : 0;
-    $pr = array_slice($pr, 0, $BATAS);
+    $prLebih = count($pr) > $BATAS_PROMO ? count($pr) - $BATAS_PROMO : 0;
+    $pr = array_slice($pr, 0, $BATAS_PROMO);
   }
 
   return array(
