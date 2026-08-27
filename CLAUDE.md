@@ -578,6 +578,18 @@ Yang perlu dijaga:
 - Berkas PDF laporan CFO **jangan di-commit**: isinya bertanda "PRIBADI DAN
   RAHASIA" dan memuat neraca serta gaji.
 
+**Kerangkanya menyalin modul Reservasi** (27 Agustus 2026): menu di kiri
+(`aside.sidebar` + `.side-nav`), tombol Keluar berupa ikon kecil di kaki sidebar
+bersama avatar & nama pemakainya (`.side-user > .logout-x`). CSS-nya SALINAN,
+bukan berkas bersama — mengubah sidebar Reservasi tidak ikut mengubah yang di
+sini.
+
+Tab **Desain Buku** dan blok **Yang Baru & Akan Launching** DIHAPUS di tanggal
+yang sama atas permintaan user; keduanya tidak punya sumber data dan cuma
+memajang keadaan kosong. Sisa tab lama "Program & Event" tinggal agendanya,
+jadi namanya jadi **Upcoming Event** — menu bernama "Program & Event" yang
+isinya cuma event adalah janji yang tidak ditepati tiap kali dibuka.
+
 **Tab yang masih kosong itu disengaja.** Dividen, laporan keuangan, program,
 event, dan desain buku tidak punya sumber data di Office mana pun. Yang tampil
 adalah keadaan kosong yang menyebutkan apa yang kurang. Tabnya **tidak
@@ -587,7 +599,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 97 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 111 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:

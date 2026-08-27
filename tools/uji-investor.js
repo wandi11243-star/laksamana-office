@@ -113,6 +113,7 @@ async function jalankan(nama, opt) {
     periksa(w, p) {
       cek('aplikasi tampil', terlihat(w, 'app'));
       cek('nama investor dari server', $(w,'invName').textContent === 'Bpk. Andi', $(w,'invName').textContent);
+      cek('nama tampil di kaki sidebar', !!w.document.querySelector('.side-user #invName'));
       cek('token ikut dikirim ke kompas-api',
           p.some(x => x.body.action === 'investorRingkas' && x.body.sesi === 'T2'));
       const kp = $(w,'kpis').innerHTML;
@@ -137,10 +138,36 @@ async function jalankan(nama, opt) {
       cek('grafik harian 30 titik', bar && bar.data.labels.length === 30);
       cek('hari kosong jadi null, bukan 0', bar && bar.data.datasets[0].data[29] === null);
       cek('sorotan hari terbaik ada', $(w,'highlights').innerHTML.includes('Hari terbaik'));
-      // tab yang belum punya sumber
-      ['dividenBox','laporanBox','programBox','eventBox','bukuBox'].forEach(id =>
+      // tab yang belum punya sumber (programBox & bukuBox sudah dihapus)
+      ['dividenBox','laporanBox','eventBox'].forEach(id =>
         cek(id + ' berisi keadaan kosong', $(w,id).innerHTML.includes('kosong'), $(w,id).innerHTML.slice(0,80)));
       cek('tidak ada angka dividen karangan', !$(w,'dividenBox').innerHTML.includes('Rp'));
+
+      // ---- KERANGKA SIDEBAR (ala modul Reservasi) ----
+      cek('sidebar ada', !!w.document.querySelector('aside.sidebar'));
+      cek('menu di dalam sidebar', !!w.document.querySelector('.sidebar .side-nav#nav'));
+      const menu = w.document.querySelectorAll('.side-nav button');
+      cek('4 menu', menu.length === 4, String(menu.length));
+      cek('urutan menu benar',
+          [...menu].map(b => b.dataset.t).join(',') === 'ringkasan,laporan,dividen,event',
+          [...menu].map(b => b.dataset.t).join(','));
+      cek('tiap menu punya ikon', [...menu].every(b => b.querySelector('.ico svg')));
+      cek('menu pertama aktif', menu[0].classList.contains('active'));
+      cek('ada judul kelompok', w.document.querySelectorAll('.side-nav .nav-section').length === 3,
+          String(w.document.querySelectorAll('.side-nav .nav-section').length));
+      // tab & tombol yang dihapus tidak boleh tersisa DI LAYAR (komentar boleh)
+      const layar = w.document.body.innerText || '';
+      cek('tidak ada menu Desain Buku', !layar.includes('Desain Buku'), layar.slice(0,200));
+      cek('tidak ada "Akan Launching"', !layar.includes('Akan Launching'));
+      cek('tidak ada #bukuBox', !$(w,'bukuBox'));
+      cek('tidak ada #programBox', !$(w,'programBox'));
+      // tombol keluar sama seperti modul lain: ikon kecil di kaki sidebar
+      const keluar = w.document.querySelector('.sidebar .side-user .logout-x');
+      cek('tombol Keluar di kaki sidebar', !!keluar);
+      cek('tombol Keluar memanggil logout()', keluar && /logout\(\)/.test(keluar.getAttribute('onclick') || ''));
+      cek('tidak ada topbar lama', !w.document.querySelector('.topbar'));
+      // avatar berisi inisial
+      cek('avatar inisial "BA"', $(w,'userAvatar').textContent === 'BA', $(w,'userAvatar').textContent);
     }
   });
 
