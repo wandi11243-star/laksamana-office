@@ -242,6 +242,87 @@ async function jalankan(nama, opt) {
     }
   });
 
+  // ---- 11. Laporan Laba Rugi: blok pendapatan terisi, sisanya kosong ----
+  //  Angka contoh diambil dari Profit Loss Report Juni 2026 milik CFO supaya
+  //  susunannya bisa dibandingkan baris demi baris dengan laporan aslinya.
+  const LR_JUNI = {
+    kunci:'2026-06', food:351332881, bev:299223830, lainnya:16494108,
+    pb1:67180225, service:33590113, totalSales:767821157,
+    diskon:6629174, compliment:17953321, totalDiskon:24582495,
+    netSales:743238662, hariTerisi:30
+  };
+  await jalankan('Laporan laba rugi', {
+    sesiTersimpan: { token:'T9', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ labaRugi:[ LR_JUNI,
+            { kunci:'2026-05', food:1, bev:0, lainnya:0, pb1:0, service:0, totalSales:1,
+              diskon:0, compliment:0, totalDiskon:0, netSales:1, hariTerisi:1 } ] }) }
+      : { ok:false },
+    periksa(w) {
+      const lp = $(w,'laporanBox').innerHTML;
+      cek('Sales - Food terisi', lp.includes('Rp 351.332.881'), lp.slice(0,300));
+      cek('Sales - Beverage terisi', lp.includes('Rp 299.223.830'));
+      cek('Income PB 1 terisi', lp.includes('Rp 67.180.225'));
+      cek('Income Service Charge terisi', lp.includes('Rp 33.590.113'));
+      cek('Total Sales terisi', lp.includes('Rp 767.821.157'));
+      cek('Compliment jadi baris sendiri', lp.includes('Compliment') && lp.includes('Rp 17.953.321'));
+      cek('diskon digambar dalam kurung', lp.includes('(Rp 24.582.495)'), lp.slice(0,900));
+      cek('Net Sales terisi', lp.includes('Rp 743.238.662'));
+
+      // baris tanpa sumber HARUS kosong, bukan nol
+      ['Total Cost of Goods Sold','Gross Profit','Total Operational Expense',
+       'Operational Profit/Loss','Earning Before Interest & Tax','Earning Before Tax',
+       'Net Profit / (Net Loss)'].forEach(n =>
+        cek('"' + n + '" ada di susunan', lp.includes(n.replace(/&/g,'&amp;'))));
+      // Dihitung dari penanda BARIS (span.lr-belum), bukan dari teksnya:
+      // kalimat catatan di bawah tabel memakai frasa yang sama, dan menghitung
+      // teks polos membuat assertion ini melaporkan 11 untuk 10 baris.
+      const jml = (lp.match(/class="lr-belum"/g) || []).length;
+      cek('10 baris ditandai belum ada inputnya', jml === 10, 'ketemu ' + jml);
+      cek('tidak ada Rp 0 palsu di blok beban', !lp.includes('Rp 0'), lp.slice(-900));
+
+      cek('peringatan Net Sales bukan laba', lp.includes('Net Sales bukan laba'));
+      cek('menyebut jumlah hari terisi', lp.includes('30 hari yang terisi'), lp.slice(-500));
+
+      const opt = $(w,'lrBulan').querySelectorAll('option');
+      cek('pemilih bulan berisi 2 bulan', opt.length === 2, String(opt.length));
+      cek('bulan terbaru terpilih duluan', $(w,'lrBulan').value === '2026-06', $(w,'lrBulan').value);
+    }
+  });
+
+  // ---- 12. ganti bulan ----
+  await jalankan('Ganti bulan di laporan', {
+    sesiTersimpan: { token:'T10', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ labaRugi:[
+            { kunci:'2026-08', food:100, bev:0, lainnya:0, pb1:0, service:0, totalSales:100,
+              diskon:0, compliment:0, totalDiskon:0, netSales:100, hariTerisi:26 },
+            { kunci:'2026-07', food:70000000, bev:0, lainnya:0, pb1:0, service:0, totalSales:70000000,
+              diskon:0, compliment:0, totalDiskon:0, netSales:70000000, hariTerisi:1 } ] }) }
+      : { ok:false },
+    async aksi(w) { w.lrGanti('2026-07'); },
+    periksa(w) {
+      const lp = $(w,'laporanBox').innerHTML;
+      cek('pindah ke Juli', lp.includes('Rp 70.000.000'), lp.slice(0,300));
+      cek('angka Agustus tidak ikut', !lp.includes('Rp 100<'), lp.slice(0,300));
+      cek('catatan ikut berganti', lp.includes('1 hari yang terisi'), lp.slice(-400));
+    }
+  });
+
+  // ---- 13. belum ada omset sama sekali ----
+  await jalankan('Laporan tanpa data omset', {
+    sesiTersimpan: { token:'T11', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ labaRugi: [] }) }
+      : { ok:false },
+    periksa(w) {
+      const lp = $(w,'laporanBox').innerHTML;
+      cek('keadaan kosong tampil', lp.includes('Belum ada omset yang bisa disusun'), lp.slice(0,200));
+      cek('menyebut Input Omset Harian', lp.includes('Input Omset Harian'));
+      cek('pemilih bulan dikosongkan', $(w,'lrBulan').innerHTML === '');
+    }
+  });
+
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);

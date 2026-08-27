@@ -519,6 +519,34 @@ membuka (`dev.` → `https://dev.laksamanamuda.id`, selain itu
 tidak ada di DNS). Kalau dipatok satu, halaman dev akan memajang omset
 PRODUKSI dengan angka yang kelihatan wajar.
 
+**Tab Laporan Keuangan = Profit Loss Report, tapi separuh** (27 Agustus 2026).
+Susunannya disalin persis dari laporan bulanan CFO — urutan dan nama barisnya
+sama — supaya investor tidak perlu mencocokkan dua penyusunan yang berbeda.
+Yang perlu dijaga:
+
+- **Hanya blok Pendapatan yang punya sumber.** COGS, Operational Expense,
+  Other Income & Expense, dan Depreciation dicatat di pembukuan Finance dan
+  tidak ada satu pun layar Office yang menginputnya. Barisnya tetap digambar,
+  ditandai `belum ada inputnya`. Menghapusnya membuat halaman terbaca seolah
+  Net Sales itu laba; mengisinya nol membuat Gross Profit = Net Sales dan Net
+  Profit = Net Sales — dua angka salah yang terlihat sangat meyakinkan.
+- **Compliment adalah baris pengurang TERSENDIRI**, dan itu bukan kosmetik.
+  Di Office ia metode pembayaran (`reports[].pay.compliment`) dengan register
+  sendiri (`compliments[]`), sementara `daily.discount` cuma bill discount.
+  Karena terpisah, menjumlahkan keduanya aman. Kalau suatu hari compliment
+  ikut dimasukkan ke kolom Discount di Input Omset Harian, baris ini WAJIB
+  dicabut — kalau tidak Net Sales menyusut dua kali lipat tanpa satu pun galat.
+- **`Income Pb 1` itu `daily.tax`, `Income service charge` itu
+  `daily.service_charge`.** Keduanya IKUT di Total Sales di sini — beda dari
+  KPI Ringkasan yang memakai net. Itu memang bentuk laporan CFO, dan itulah
+  sebabnya angka di tab Laporan lebih besar daripada angka di tab Ringkasan
+  untuk bulan yang sama.
+- **Juni 2026 tidak bisa ditampilkan.** `daily` produksi baru mulai
+  2026-07-31, jadi laporan PDF Juni tidak punya pasangan di sistem. Bulan yang
+  tidak ada datanya memang tidak muncul di pemilih — bukan digambar nol.
+- Berkas PDF laporan CFO **jangan di-commit**: isinya bertanda "PRIBADI DAN
+  RAHASIA" dan memuat neraca serta gaji.
+
 **Tab yang masih kosong itu disengaja.** Dividen, laporan keuangan, program,
 event, dan desain buku tidak punya sumber data di Office mana pun. Yang tampil
 adalah keadaan kosong yang menyebutkan apa yang kurang. Tabnya **tidak
@@ -528,7 +556,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 56 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 83 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:

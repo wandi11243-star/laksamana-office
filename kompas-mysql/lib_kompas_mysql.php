@@ -614,6 +614,100 @@ function simpan_rekap($data) {
    ====================================================================== */
 function kp_hari_ini_wib() { return gmdate('Y-m-d', time() + 7 * 3600); }
 
+/* ==================== LABA RUGI BULANAN (untuk halaman investor) ==========
+   Meniru bentuk "Profit Loss Report" yang disiapkan CFO tiap bulan, supaya
+   investor melihat susunan yang sama dengan laporan resminya — bukan bentuk
+   karangan sendiri yang harus dicocokkan manual tiap kali.
+
+   YANG BISA DIISI DARI SISTEM INI, dan hanya ini:
+
+     Sales - Food              <- daily.food
+     Sales - Beverage          <- daily.bev
+     Sales - Other             <- daily.lainnya
+     Income Pb 1               <- daily.tax             (pajak restoran)
+     Income service charge     <- daily.service_charge
+     Bill Discount             <- daily.discount
+     Compliment                <- compliments[].nominal
+     Total Sales / Net Sales   <- dihitung dari yang di atas
+
+   COMPLIMENT SENGAJA JADI BARIS SENDIRI, DAN ITU BUKAN KOSMETIK.
+   Di Dashboard Omset compliment adalah METODE PEMBAYARAN (reports[].pay
+   .compliment) dengan register terpisah, sementara `daily.discount` cuma
+   bill discount. Di laporan CFO keduanya sama-sama baris pengurang Total
+   Sales. Karena di sini terpisah, menjumlahkannya AMAN — tidak ada yang
+   terhitung dua kali. Kalau suatu saat compliment ikut dimasukkan ke kolom
+   Discount di Input Omset Harian, baris ini WAJIB dicabut: kalau tidak,
+   Net Sales di halaman investor menyusut dua kali lipat dari seharusnya dan
+   tidak ada satu pun galat yang menyebutkannya.
+
+   YANG TIDAK ADA DI SISTEM INI: COGS, Operational Expense, Other Income &
+   Expense, dan Depreciation. Semuanya dicatat di pembukuan CFO, tidak ada
+   satu pun layar Office yang menginputnya. Karena itu fungsi ini TIDAK
+   memulangkan Gross Profit, EBITDA, EBIT, EBT, maupun Net Profit — angka
+   yang dihitung dari nol yang dianggap nol adalah angka yang salah, dan di
+   halaman investor angka salah lebih mahal daripada kolom kosong.
+   Layar yang menggambarnya menandai baris-baris itu "belum ada inputnya".
+   ====================================================================== */
+function laba_rugi_bulanan() {
+  $s = kp_state_assoc();
+  $rows = (isset($s['daily']) && is_array($s['daily'])) ? $s['daily'] : array();
+  $comps = (isset($s['compliments']) && is_array($s['compliments'])) ? $s['compliments'] : array();
+
+  $b = array();   // 'YYYY-MM' => komponen
+  $kosong = array('food' => 0, 'bev' => 0, 'lainnya' => 0, 'pb1' => 0, 'service' => 0,
+                  'diskon' => 0, 'compliment' => 0, 'hariTerisi' => 0);
+
+  foreach ($rows as $d) {
+    if (!is_array($d)) continue;
+    $t = kp_tgl(isset($d['date']) ? $d['date'] : '');
+    if (!$t) continue;
+    $k = substr($t, 0, 7);
+    if (!isset($b[$k])) $b[$k] = $kosong;
+    $b[$k]['food']    += kp_num(isset($d['food'])    ? $d['food']    : 0);
+    $b[$k]['bev']     += kp_num(isset($d['bev'])     ? $d['bev']     : 0);
+    $b[$k]['lainnya'] += kp_num(isset($d['lainnya']) ? $d['lainnya'] : 0);
+    $b[$k]['pb1']     += kp_num(isset($d['tax'])     ? $d['tax']     : 0);
+    $b[$k]['service'] += kp_num(isset($d['service_charge']) ? $d['service_charge'] : 0);
+    $b[$k]['diskon']  += kp_num(isset($d['discount'])? $d['discount']: 0);
+    $b[$k]['hariTerisi'] += 1;
+  }
+
+  /* Compliment bisa jatuh di bulan yang SATU PUN harinya belum diisi di Input
+     Omset Harian. Bulannya tetap dibuat — barang yang keluar tetap kejadian,
+     dan bulan yang hilang dari daftar terbaca sebagai "tidak ada apa-apa". */
+  foreach ($comps as $c) {
+    if (!is_array($c)) continue;
+    $t = kp_tgl(isset($c['date']) ? $c['date'] : '');
+    if (!$t) continue;
+    $k = substr($t, 0, 7);
+    if (!isset($b[$k])) $b[$k] = $kosong;
+    $b[$k]['compliment'] += kp_num(isset($c['nominal']) ? $c['nominal'] : 0);
+  }
+
+  krsort($b);        // bulan terbaru lebih dulu — itu yang dibuka orang duluan
+
+  $out = array();
+  foreach ($b as $k => $v) {
+    $totalSales  = $v['food'] + $v['bev'] + $v['lainnya'] + $v['pb1'] + $v['service'];
+    $totalDiskon = $v['diskon'] + $v['compliment'];
+    $out[] = array(
+      'kunci'       => $k,
+      'food'        => $v['food'],
+      'bev'         => $v['bev'],
+      'lainnya'     => $v['lainnya'],
+      'pb1'         => $v['pb1'],
+      'service'     => $v['service'],
+      'totalSales'  => $totalSales,
+      'diskon'      => $v['diskon'],
+      'compliment'  => $v['compliment'],
+      'totalDiskon' => $totalDiskon,
+      'netSales'    => $totalSales - $totalDiskon,
+      'hariTerisi'  => $v['hariTerisi']
+    );
+  }
+  return $out;
+}
+
 function ringkas_investor() {
   $s = kp_state_assoc();
   $rows = (isset($s['daily']) && is_array($s['daily'])) ? $s['daily'] : array();
@@ -722,6 +816,11 @@ function ringkas_investor() {
     /* Tanggal data terakhir yang benar-benar diisi. Halaman investor
        memajangnya apa adanya — tanpa itu, omset hari ini yang kosong karena
        kasir belum menutup buku terbaca sebagai omset nol. */
+    /* Susunan Profit Loss Report per bulan. Ikut di balasan ini, bukan
+       endpoint sendiri: bulannya cuma belasan, dan satu perjalanan lebih
+       murah daripada dua. Lihat laba_rugi_bulanan() untuk apa yang TIDAK
+       ada di dalamnya, dan kenapa. */
+    'labaRugi' => laba_rugi_bulanan(),
     'terakhir' => $terakhir,
     'adaData'  => count($peta) > 0
   );

@@ -215,6 +215,39 @@ button{font-family:inherit; cursor:pointer}
 /* Baris keterangan net di bawah kartu KPI. Sengaja lebih kecil dan lebih
    redup daripada .foot: ia menjelaskan, bukan mengumumkan. */
 .kpi .foot.net-ket{margin-top:3px;font-size:11px;line-height:1.45;color:var(--muted-2)}
+/* ---- Laporan laba rugi ----
+   Dua kolom rata kiri-kanan, bukan <table>: susunannya daftar baris, dan
+   tabel HTML memaksa lebar kolom yang sama untuk baris judul maupun baris
+   angka. Angka pakai tabular-nums supaya digitnya sejajar ke bawah — laporan
+   keuangan dibaca dengan menyusuri kolom, bukan membaca satu baris. */
+.lr{display:flex;flex-direction:column}
+.lr-judul{font-family:var(--font-display);font-weight:800;font-size:12px;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--gold-dim);padding:18px 0 8px}
+.lr-judul:first-child{padding-top:2px}
+.lr-judul span{font-family:var(--font-body);font-weight:600;font-size:11px;letter-spacing:0;
+  text-transform:none;color:var(--muted-2)}
+.lr-judul-mati{color:var(--muted)}
+.lr-row{display:flex;align-items:baseline;justify-content:space-between;gap:16px;
+  padding:7px 0;border-bottom:1px dashed var(--line);font-size:13px}
+.lr-nama{color:var(--muted);min-width:0}
+.lr-nilai{color:var(--ink);white-space:nowrap;font-variant-numeric:tabular-nums}
+.lr-tebal .lr-nama{color:var(--ink);font-weight:700}
+.lr-tebal .lr-nilai{font-weight:800}
+.lr-garis{border-top:1px solid var(--line-hard)}
+.lr-sorot{background:var(--gold-soft);margin:6px -12px 0;padding:11px 12px;border-radius:var(--radius-sm);
+  border-bottom:none}
+.lr-sorot .lr-nilai{color:var(--gold-dim);font-size:16px}
+.lr-mati .lr-nama{color:var(--muted-2)}
+.lr-belum{font-size:11px;color:var(--muted-2);font-style:italic;font-weight:600}
+.lr-pilih{font-family:var(--font-body);font-size:13px;font-weight:600;color:var(--ink);
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);
+  padding:7px 11px;cursor:pointer}
+.lr-pilih:focus{outline:none;box-shadow:var(--ring)}
+.lr-nota{margin-top:18px;padding:13px 15px;background:var(--paper);border:1px solid var(--line);
+  border-radius:var(--radius-sm);font-size:12px;line-height:1.65;color:var(--muted)}
+.lr-nota b{color:var(--ink)}
+.lr-nota-kecil{margin-top:7px;font-size:11px;color:var(--muted-2)}
+
 </style>
 </head>
 <body>
@@ -316,7 +349,8 @@ button{font-family:inherit; cursor:pointer}
   <div class="tab hidden" data-tab="laporan">
     <div class="section">
       <div class="section-head">
-        <div><h2>Laporan Keuangan</h2><div class="desc">Neraca, laba rugi, dan arus kas</div></div>
+        <div><h2>Laporan Laba Rugi</h2><div class="desc">Susunan yang sama dengan Profit Loss Report bulanan</div></div>
+        <select id="lrBulan" class="lr-pilih" onchange="lrGanti(this.value)"></select>
       </div>
       <div class="card" id="laporanBox"></div>
     </div>
@@ -538,6 +572,8 @@ function gagalData(pesan) {
   document.getElementById('revBox').innerHTML   = kosong('📈', 'Grafik belum bisa digambar', 'Angkanya belum terbaca.');
   document.getElementById('dailyBox').innerHTML = kosong('📊', 'Grafik belum bisa digambar', 'Angkanya belum terbaca.');
   document.getElementById('highlights').innerHTML = '';
+  document.getElementById('laporanBox').innerHTML = kosong('📄', 'Laporan belum bisa disusun', 'Angka pendapatannya belum terbaca.');
+  document.getElementById('lrBulan').innerHTML = '';
   renderKosongLain();
 }
 
@@ -570,6 +606,7 @@ function switchTab(id) {
 function render() {
   renderKPIs();
   renderHighlights();
+  renderLaporan();
   renderKosongLain();
   buildYearToggle();
   setTimeout(drawCharts, 60);
@@ -689,6 +726,116 @@ function renderHighlights() {
     + '<div style="font-size:12px;color:var(--muted)">' + esc(x.s) + '</div></div></div>').join('');
 }
 
+/* ---- LAPORAN LABA RUGI ----
+   Susunannya SENGAJA sama persis dengan "Profit Loss Report" yang disiapkan
+   CFO tiap bulan, termasuk urutan dan nama barisnya. Bentuk karangan sendiri
+   memaksa investor mencocokkan dua susunan berbeda tiap kali laporan resmi
+   keluar — dan yang tidak cocok akan dikira selisih, padahal cuma beda
+   penyusunan.
+
+   Hanya blok PENDAPATAN yang punya sumber di Office. Sisanya — COGS,
+   Operational Expense, Other Income & Expense, Depreciation — dicatat di
+   pembukuan CFO dan tidak ada satu pun layar Office yang menginputnya.
+   Baris-barisnya tetap DIGAMBAR, ditandai "belum ada inputnya":
+
+   - kalau dihapus, halaman ini terbaca seolah Net Sales itu laba, dan itu
+     kesimpulan yang salah dengan selisih ratusan juta;
+   - kalau diisi nol, Gross Profit = Net Sales dan Net Profit = Net Sales —
+     dua angka salah yang terlihat sangat meyakinkan.
+
+   Yang kosong harus KELIHATAN kosong. */
+let LR_BULAN = null;      // 'YYYY-MM' yang sedang dilihat
+
+function lrDaftar() { return (D && Array.isArray(D.labaRugi)) ? D.labaRugi : []; }
+function lrAktif() {
+  const d = lrDaftar();
+  if (!d.length) return null;
+  return d.find(x => x.kunci === LR_BULAN) || d[0];
+}
+function lrGanti(k) { LR_BULAN = k; renderLaporan(); }
+
+/* Baris tanpa sumber data. `rp(null)` sudah memulangkan "—", tapi tanda hubung
+   sendirian terbaca sebagai "nol" atau "tidak ada" — dua arti yang berbeda
+   jauh di laporan keuangan. Karena itu ada keterangannya. */
+const LR_BELUM = '<span class="lr-belum">belum ada inputnya</span>';
+
+function lrBaris(nama, nilai, opt) {
+  opt = opt || {};
+  const cls = ['lr-row'];
+  if (opt.tebal) cls.push('lr-tebal');
+  if (opt.garis) cls.push('lr-garis');
+  if (opt.sorot) cls.push('lr-sorot');
+  if (opt.kosong) cls.push('lr-mati');
+  const val = opt.kosong ? LR_BELUM
+            : (opt.negatif ? '(' + rp(Math.abs(nilai)).replace('Rp ', 'Rp ') + ')' : rp(nilai));
+  return '<div class="' + cls.join(' ') + '">'
+       + '<div class="lr-nama">' + esc(nama) + '</div>'
+       + '<div class="lr-nilai mono">' + val + '</div></div>';
+}
+
+function renderLaporan() {
+  const box = document.getElementById('laporanBox');
+  const pil = document.getElementById('lrBulan');
+  const d = lrDaftar();
+
+  if (!d.length) {
+    if (pil) pil.innerHTML = '';
+    box.innerHTML = kosong('📄', 'Belum ada omset yang bisa disusun',
+      'Blok Pendapatan disusun dari <b>Input Omset Harian</b> di modul Finance — Dashboard Omset. Begitu satu hari diisi, laporannya muncul di sini.');
+    return;
+  }
+
+  const r = lrAktif();
+  LR_BULAN = r.kunci;
+  if (pil) {
+    pil.innerHTML = d.map(x => '<option value="' + x.kunci + '"' + (x.kunci === r.kunci ? ' selected' : '') + '>'
+      + blnPanjang(x.kunci) + '</option>').join('');
+  }
+
+  const H = [];
+  H.push('<div class="lr">');
+
+  H.push('<div class="lr-judul">Pendapatan</div>');
+  H.push(lrBaris('Sales - Food',          r.food));
+  H.push(lrBaris('Sales - Beverage',      r.bev));
+  H.push(lrBaris('Sales - Other',         r.lainnya));
+  H.push(lrBaris('Income PB 1',           r.pb1));
+  H.push(lrBaris('Income Service Charge', r.service));
+  H.push(lrBaris('Total Sales',           r.totalSales, { tebal:1, garis:1 }));
+  H.push(lrBaris('Bill Discount',         r.diskon,     { negatif:1 }));
+  H.push(lrBaris('Compliment',            r.compliment, { negatif:1 }));
+  H.push(lrBaris('Total Discount',        r.totalDiskon,{ tebal:1, garis:1, negatif:1 }));
+  H.push(lrBaris('Net Sales',             r.netSales,   { tebal:1, sorot:1 }));
+
+  H.push('<div class="lr-judul lr-judul-mati">Beban &amp; Laba <span>— dicatat di pembukuan Finance, belum masuk sistem Office</span></div>');
+  H.push(lrBaris('Total Cost of Goods Sold', null, { kosong:1 }));
+  H.push(lrBaris('Gross Profit',             null, { kosong:1, tebal:1, garis:1 }));
+  H.push(lrBaris('Total Operational Expense',null, { kosong:1 }));
+  H.push(lrBaris('Operational Profit/Loss',  null, { kosong:1, tebal:1, garis:1 }));
+  H.push(lrBaris('Total Other Income & Expense', null, { kosong:1 }));
+  H.push(lrBaris('Earning Before Interest, Tax, Depreciation & Amortization', null, { kosong:1, tebal:1, garis:1 }));
+  H.push(lrBaris('Total Depreciation & Amortization', null, { kosong:1 }));
+  H.push(lrBaris('Earning Before Interest & Tax', null, { kosong:1, tebal:1, garis:1 }));
+  H.push(lrBaris('Earning Before Tax',            null, { kosong:1, tebal:1 }));
+  H.push(lrBaris('Net Profit / (Net Loss)',       null, { kosong:1, tebal:1, sorot:1 }));
+
+  H.push('</div>');
+
+  /* Dua kalimat ini yang mencegah salah baca terbesar halaman ini: Net Sales
+     BUKAN laba, dan yang berwenang tetap laporan CFO. Tanpa keduanya, angka
+     ratusan juta di baris paling menonjol akan dibaca sebagai keuntungan. */
+  H.push('<div class="lr-nota">');
+  H.push('<b>Net Sales bukan laba.</b> Ia pendapatan sebelum dipotong harga pokok, beban operasional, dan penyusutan — '
+       + 'dan ketiganya belum ada inputnya di Office, jadi baris di bawahnya sengaja dibiarkan kosong. '
+       + 'Laporan laba rugi yang berwenang tetap yang disiapkan Finance tiap bulan.');
+  H.push('<div class="lr-nota-kecil">Pendapatan disusun dari ' + r.hariTerisi + ' hari yang terisi di '
+       + esc(blnPanjang(r.kunci)) + ' · sumber: Input Omset Harian &amp; register Compliment'
+       + (DEV ? ' <b>(server dev)</b>' : '') + '</div>');
+  H.push('</div>');
+
+  box.innerHTML = H.join('');
+}
+
 /* ---- Tab yang BELUM punya sumber data ----
    Dividen, laporan, program, event, dan desain buku tidak ada di database
    mana pun di Laksamana Office — dulu isinya diketik langsung di CONFIG
@@ -700,8 +847,6 @@ function renderHighlights() {
 function renderKosongLain() {
   document.getElementById('dividenBox').innerHTML = kosong('💰', 'Belum ada riwayat dividen',
     'Pembagian dividen belum dicatat di sistem mana pun di Laksamana Office. Angka yang dulu tampil di sini adalah contoh, dan sudah dihapus.');
-  document.getElementById('laporanBox').innerHTML = kosong('📄', 'Belum ada laporan yang diunggah',
-    'Laporan keuangan (neraca, laba rugi, arus kas) diekspor dari ESB sebagai PDF. Tempat menyimpannya belum dibuat, jadi belum ada yang bisa dibuka di sini.');
   document.getElementById('programBox').innerHTML = kosong('🚀', 'Belum ada program yang dipublikasikan',
     'Program dan inisiatif baru belum punya tempat penyimpanan yang bisa dibaca halaman ini.');
   document.getElementById('eventBox').innerHTML = kosong('🗓️', 'Belum ada agenda yang dipublikasikan',
