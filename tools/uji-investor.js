@@ -186,6 +186,22 @@ async function jalankan(nama, opt) {
     }
   });
 
+  // ---- 8. bulan lalu cuma 1 hari terisi -> delta bulan TIDAK digambar ----
+  //  Data produksi 27 Agu 2026 memang begitu: Juli punya satu baris uji.
+  await jalankan('Pembanding bulan lalu terlalu sedikit', {
+    sesiTersimpan: { token:'T6', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ bulanLalu:{ kunci:'2026-07', omset: 70000000, hariTerisi: 1 } }) }
+      : { ok:false },
+    periksa(w) {
+      const kp = $(w,'kpis').innerHTML;
+      cek('delta hari ini tetap digambar', kp.includes('25.0%'));
+      cek('delta bulan TIDAK digambar', !kp.includes('rata-rata/hari vs'), kp.slice(0,400));
+      cek('tidak menulis turun 70%', !kp.includes('70.0%'));
+      cek('total bulan tetap tampil', kp.includes('Rp 400.000.000'));
+    }
+  });
+
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);
