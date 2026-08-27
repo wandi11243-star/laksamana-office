@@ -873,6 +873,202 @@ function ringkas_investor() {
   );
 }
 
+/* ==================== AGENDA & PROMO UNTUK HALAMAN INVESTOR ==============
+   Dipakai investor.laksamanamuda.id, tab Upcoming Event & Promo.
+
+   KENAPA DIKUMPULKAN DI SINI, BUKAN DIPANGGIL LANGSUNG DARI PERAMBAN
+   ---------------------------------------------------------------------
+   Sumbernya tiga modul lain: Marketing, Event, dan BD OS. Ketiganya punya
+   `getAll` yang TIDAK menanyakan siapa pun dan memulangkan seluruh blob —
+   marketing membawa CRM klien, pipeline, dan invoice; bd membawa purchase
+   order berikut harganya. Menyuruh halaman investor memanggilnya berarti
+   menuliskan tiga alamat itu di dalam HTML yang dibuka orang luar
+   perusahaan, dan siapa pun yang membuka View Source memegangnya.
+
+   Jadi peramban cuma bicara ke SATU pintu berpagar (investorAgenda di
+   kompas-api), dan server yang mengambil ketiganya SERVER-KE-SERVER lalu
+   memulangkan daftar pendek berisi judul, tanggal, tempat. Tidak ada nama
+   klien, tidak ada nilai rupiah, tidak ada nomor telepon.
+
+   Kenapa di kompas-api dan bukan modul masing-masing: lib_sesi.php sudah ada
+   di sini. Menaruh gerbang di tiga modul berarti tiga salinan baru berkas
+   kembar itu — sekarang tiga, akan jadi enam — dan berkas kembar yang
+   terlalu banyak adalah berkas kembar yang salah satunya pasti tertinggal.
+
+   `poster` promo SENGAJA tidak ikut. Isinya data URI hasil unggahan, bisa
+   400 KB per promo; sepuluh promo berarti balasan 4 MB untuk halaman yang
+   cuma perlu tahu ada promo apa.
+   ====================================================================== */
+
+/* Alamat modul tetangga di host yang SAMA. SERVER_NAME, bukan HTTP_HOST —
+   HTTP_HOST datang dari permintaan dan bisa dipalsukan, dan alamat yang bisa
+   dialihkan berarti data yang bisa dialihkan. Alasan yang sama persis dengan
+   sesi_akun_url() di lib_sesi.php. */
+function kp_url_modul($folder) {
+  $host = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME']
+        : (isset($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : '');
+  if ($host === '') return '';
+  $skema = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
+  return $skema . '://' . $host . '/' . $folder . '/api.php?action=getAll';
+}
+
+/* GET JSON server-ke-server. Gagal = array kosong, TIDAK melempar: satu modul
+   yang sedang mati tidak boleh mengosongkan seluruh tab. Yang gagal dicatat
+   dan dilaporkan ke layar sebagai satu baris peringatan — pola yang sama
+   dengan muatDW() di modul Jadwal. */
+function kp_ambil_modul($folder) {
+  $url = kp_url_modul($folder);
+  if ($url === '') return null;
+  $jawab = null;
+  if (function_exists('curl_init')) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, array(
+      CURLOPT_RETURNTRANSFER => true,
+      CURLOPT_TIMEOUT        => 8,
+      CURLOPT_FOLLOWLOCATION => true,
+    ));
+    $jawab = curl_exec($ch);
+    curl_close($ch);
+  } else {
+    $ctx = stream_context_create(array('http' => array('method' => 'GET', 'timeout' => 8)));
+    $jawab = @file_get_contents($url, false, $ctx);
+  }
+  if (!is_string($jawab) || $jawab === '') return null;
+  $d = json_decode($jawab, true);
+  if (!is_array($d) || empty($d['ok']) || !isset($d['data']) || !is_array($d['data'])) return null;
+  return $d['data'];
+}
+
+/* "YYYY-MM-DD HH:MM" atau "YYYY-MM-DDTHH:MM" -> array(tgl, jam).
+   Modul Event menyimpan tanggal+jam dalam satu kolom, Marketing memisahnya. */
+function kp_pecah_waktu($v) {
+  $v = trim((string)$v);
+  if ($v === '') return null;
+  if (!preg_match('/^(\d{4}-\d{2}-\d{2})(?:[ T](\d{2}:\d{2}))?/', $v, $m)) return null;
+  return array('tgl' => $m[1], 'jam' => isset($m[2]) ? $m[2] : '');
+}
+
+function kp_teks($v, $maks = 120) {
+  $s = trim((string)$v);
+  if ($s === '') return '';
+  return function_exists('mb_substr') ? mb_substr($s, 0, $maks, 'UTF-8') : substr($s, 0, $maks);
+}
+
+/* Agenda & promo yang MASIH RELEVAN saja.
+   ---------------------------------------------------------------------
+   Event: dari hari ini ke depan, diurut paling dekat dulu.
+   Promo: yang sedang berjalan dan yang akan datang — persis seperti Radar.
+          Yang sudah berakhir tidak ikut; halaman investor bukan arsip.
+
+   Batas 20 baris per daftar bukan kosmetik: tanpa batas, satu modul yang
+   berisi ratusan event lama membuat balasan ini membengkak untuk halaman
+   yang cuma menampilkan agenda terdekat. Yang terpotong DILAPORKAN
+   (`lebih`), bukan dibuang diam-diam — daftar yang memotong tanpa
+   mengatakannya terbaca sebagai "cuma segitu acaranya". */
+function agenda_investor() {
+  $hariIni = kp_hari_ini_wib();
+  $BATAS = 20;
+  $gagal = array();
+
+  /* ---------- EVENT: Marketing + Event ---------- */
+  $ev = array();
+
+  $mkt = kp_ambil_modul('marketing-api-mysql');
+  if ($mkt === null) $gagal[] = 'Marketing';
+  else foreach ((isset($mkt['events']) && is_array($mkt['events'])) ? $mkt['events'] : array() as $e) {
+    if (!is_array($e)) continue;
+    $t = kp_tgl(isset($e['tanggal']) ? $e['tanggal'] : '');
+    if (!$t || strcmp($t, $hariIni) < 0) continue;
+    $d = (isset($e['detail']) && is_array($e['detail'])) ? $e['detail'] : array();
+    $ev[] = array(
+      'tgl'    => $t,
+      'jam'    => kp_teks(isset($d['tamuDatang']) ? $d['tamuDatang'] : '', 5),
+      'judul'  => kp_teks(isset($e['nama']) ? $e['nama'] : '') ?: '(tanpa nama)',
+      'tempat' => kp_teks(isset($d['area']) ? $d['area'] : '', 60),
+      'jenis'  => kp_teks(isset($e['jenis']) ? $e['jenis'] : '', 40),
+      'pax'    => kp_num(isset($e['pax']) ? $e['pax'] : 0),
+      'sumber' => 'Marketing');
+  }
+
+  $evt = kp_ambil_modul('event-api-mysql');
+  if ($evt === null) $gagal[] = 'Event';
+  else foreach ((isset($evt['events']) && is_array($evt['events'])) ? $evt['events'] : array() as $e) {
+    if (!is_array($e)) continue;
+    $m = kp_pecah_waktu(isset($e['start_datetime']) ? $e['start_datetime']
+                       : (isset($e['tanggal']) ? $e['tanggal'] : ''));
+    if (!$m || strcmp($m['tgl'], $hariIni) < 0) continue;
+    $ev[] = array(
+      'tgl'    => $m['tgl'],
+      'jam'    => $m['jam'],
+      'judul'  => kp_teks(isset($e['title']) ? $e['title'] : '') ?: '(tanpa judul)',
+      'tempat' => kp_teks(isset($e['venue']) ? $e['venue'] : '', 60),
+      'jenis'  => kp_teks(isset($e['category']) ? $e['category'] : '', 40),
+      'pax'    => kp_num(isset($e['capacity']) ? $e['capacity'] : 0),
+      'sumber' => 'Event');
+  }
+
+  /* Terdekat dulu. Agenda tanpa jam ditaruh di AKHIR harinya, bukan awal:
+     string kosong secara alami terurut paling kecil, sehingga acara
+     berjam-tidak-diketahui akan naik ke puncak dan terbaca seolah paling
+     pagi. Sudah jadi masalah di Radar. */
+  usort($ev, function ($a, $b) {
+    if ($a['tgl'] !== $b['tgl']) return strcmp($a['tgl'], $b['tgl']);
+    $ja = $a['jam'] === '' ? '99:99' : $a['jam'];
+    $jb = $b['jam'] === '' ? '99:99' : $b['jam'];
+    return strcmp($ja, $jb);
+  });
+  $evLebih = count($ev) > $BATAS ? count($ev) - $BATAS : 0;
+  $ev = array_slice($ev, 0, $BATAS);
+
+  /* ---------- PROMO: BD OS ---------- */
+  $pr = array();
+  $prLebih = 0;
+  $bd = kp_ambil_modul('bd-api-mysql');
+  if ($bd === null) $gagal[] = 'BD OS';
+  else {
+    foreach ((isset($bd['promos']) && is_array($bd['promos'])) ? $bd['promos'] : array() as $p) {
+      if (!is_array($p)) continue;
+      if (!empty($p['paused'])) continue;              // dijeda = tidak berlaku
+      $a = kp_tgl(isset($p['mulai']) ? $p['mulai'] : '');
+      $b = kp_tgl(isset($p['selesai']) ? $p['selesai'] : '');
+      if ($b && strcmp($b, $hariIni) < 0) continue;    // sudah berakhir
+      $pr[] = array(
+        'nama'     => kp_teks(isset($p['nama']) ? $p['nama'] : '') ?: '(tanpa nama)',
+        'kategori' => kp_teks(isset($p['kategori']) ? $p['kategori'] : '', 20),
+        'benefit'  => kp_teks(isset($p['benefit']) ? $p['benefit'] : '', 80),
+        'outlet'   => kp_teks(isset($p['outlet']) ? $p['outlet'] : '', 60),
+        'mulai'    => $a ? $a : '',
+        'selesai'  => $b ? $b : '',
+        'status'   => ($a && strcmp($hariIni, $a) < 0) ? 'upcoming' : 'running');
+    }
+    /* Yang berjalan dulu, lalu yang paling dekat mulainya — urutan yang sama
+       dengan papan Promo di BD dan Radar. Dua layar yang menampilkan data
+       sama dengan urutan berbeda membuat orang mengira salah satunya belum
+       tersegarkan. */
+    usort($pr, function ($x, $y) {
+      $sx = $x['status'] === 'running' ? 0 : 1;
+      $sy = $y['status'] === 'running' ? 0 : 1;
+      if ($sx !== $sy) return $sx - $sy;
+      return strcmp($x['mulai'], $y['mulai']);
+    });
+    $prLebih = count($pr) > $BATAS ? count($pr) - $BATAS : 0;
+    $pr = array_slice($pr, 0, $BATAS);
+  }
+
+  return array(
+    'ts'         => gmdate('c'),
+    'hariIni'    => $hariIni,
+    'event'      => $ev,
+    'eventLebih' => $evLebih,
+    'promo'      => $pr,
+    'promoLebih' => $prLebih,
+    /* Modul yang tidak menjawab. Dilaporkan apa adanya ke layar — daftar
+       kosong yang sebenarnya berarti "servernya mati" terbaca sebagai
+       "memang tidak ada acara", dan itu dua hal yang sangat berbeda. */
+    'gagal'      => $gagal
+  );
+}
+
 /* ==================== DIAGNOSTIK ==================== */
 function ping() {
   return array('pong' => true, 'backend' => 'php-mysql',

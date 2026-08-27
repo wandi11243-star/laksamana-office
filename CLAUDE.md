@@ -590,6 +590,31 @@ memajang keadaan kosong. Sisa tab lama "Program & Event" tinggal agendanya,
 jadi namanya jadi **Upcoming Event** — menu bernama "Program & Event" yang
 isinya cuma event adalah janji yang tidak ditepati tiap kali dibuka.
 
+**Upcoming Event & Promo lewat SATU pintu berpagar** (27 Agustus 2026).
+`kompas-api?action=investorAgenda` mengumpulkan agenda dari Marketing, Event,
+dan BD OS **server-ke-server**, lalu memulangkan daftar pendek berisi judul,
+tanggal, tempat. Peramban tidak pernah memegang alamat `getAll` ketiganya —
+marketing membawa CRM klien, pipeline, dan invoice; bd membawa purchase order
+berikut harganya, dan ketiganya tidak menanyakan siapa pun.
+
+Ditaruh di kompas-api karena `lib_sesi.php` sudah ada di sana. Menaruh gerbang
+di tiga modul berarti tiga salinan baru berkas kembar itu — dari tiga jadi
+enam — dan berkas kembar yang terlalu banyak adalah yang salah satunya pasti
+tertinggal.
+
+Yang perlu dijaga:
+
+- **Aksi TERPISAH dari `investorRingkas`**, dan dimuat MALAS di layar (hanya
+  saat tab Event/Promo dibuka, hanya sekali). Ia memicu tiga permintaan HTTP;
+  tab Ringkasan yang paling sering dibuka tidak perlu membayar itu.
+- **`poster` promo sengaja tidak ikut.** Isinya data URI hasil unggahan, bisa
+  400 KB per promo.
+- Modul yang tidak menjawab **dilaporkan** (`gagal`) dan digambar sebagai pita
+  peringatan. Daftar kosong yang sebenarnya berarti "servernya mati" terbaca
+  sebagai "memang tidak ada acara" — dan yang kedua tidak membuat siapa pun
+  memeriksa apa pun.
+- Batas 20 baris per daftar, dan yang terpotong disebutkan jumlahnya.
+
 **Tab yang masih kosong itu disengaja.** Dividen, laporan keuangan, program,
 event, dan desain buku tidak punya sumber data di Office mana pun. Yang tampil
 adalah keadaan kosong yang menyebutkan apa yang kurang. Tabnya **tidak
@@ -599,7 +624,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 111 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 138 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:

@@ -13,6 +13,13 @@
                            investor.laksamanamuda.id. Satu-satunya aksi di
                            berkas ini yang berpagar: wajib token sesi Office
                            + kunci modul 'investor'. Alasannya di badan file.
+   POST {action:"investorAgenda", sesi:<token>}
+                        -> {ok,data:{event:[...],promo:[...],gagal:[...]}}
+                           Agenda event & promo yang masih relevan, untuk
+                           situs investor. Berpagar sama seperti
+                           investorRingkas. Dikumpulkan server-ke-server
+                           dari Marketing/Event/BD — peramban tidak pernah
+                           memegang alamat getAll ketiganya.
    GET  ?action=stats   -> {ok,data:{...jumlah per tabel}}
  *   GET  ?action=ping    -> {ok,data:{pong,env,db}}
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved,jumlah}}
@@ -112,6 +119,22 @@ try {
     if (!sesi_punya_modul($u, 'investor')) sesi_tolak_tanpa_modul('Investor Compass');
     keluar(array('ok' => true, 'data' => ringkas_investor(),
                  'user' => array('nama' => isset($u['name']) ? $u['name'] : '')));
+  }
+  /* Pintu kedua untuk halaman investor: agenda event & promo, dikumpulkan
+     dari Marketing / Event / BD OS server-ke-server. Gerbangnya sama persis
+     dengan investorRingkas, dan alasannya ada di agenda_investor():
+     ketiga modul itu punya getAll yang tidak menanyakan siapa pun.
+
+     Aksi TERPISAH, bukan digabung ke investorRingkas: ia memicu tiga
+     permintaan HTTP ke modul lain, dan halaman Ringkasan yang dibuka
+     paling sering tidak perlu membayar itu. Dipanggil layar hanya saat
+     tab Event atau Promo dibuka. */
+  else if ($action === 'investorAgenda') {
+    require_once __DIR__ . '/lib_sesi.php';
+    $u = sesi_user($body);
+    if (!$u) sesi_tolak_tak_dikenal();
+    if (!sesi_punya_modul($u, 'investor')) sesi_tolak_tanpa_modul('Investor Compass');
+    keluar(array('ok' => true, 'data' => agenda_investor()));
   }
   else keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
 } catch (Throwable $e) {

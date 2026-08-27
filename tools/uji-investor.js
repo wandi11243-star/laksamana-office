@@ -139,17 +139,22 @@ async function jalankan(nama, opt) {
       cek('hari kosong jadi null, bukan 0', bar && bar.data.datasets[0].data[29] === null);
       cek('sorotan hari terbaik ada', $(w,'highlights').innerHTML.includes('Hari terbaik'));
       // tab yang belum punya sumber (programBox & bukuBox sudah dihapus)
-      ['dividenBox','laporanBox','eventBox'].forEach(id =>
+      ['dividenBox','laporanBox'].forEach(id =>
         cek(id + ' berisi keadaan kosong', $(w,id).innerHTML.includes('kosong'), $(w,id).innerHTML.slice(0,80)));
+      // eventBox & promoBox DIMUAT MALAS: kosong sampai tabnya dibuka, dan itu
+      // tidak terlihat karena keduanya di dalam tab yang masih tersembunyi.
+      cek('eventBox belum diisi sebelum tabnya dibuka', $(w,'eventBox').innerHTML === '', $(w,'eventBox').innerHTML.slice(0,80));
+      cek('promoBox belum diisi sebelum tabnya dibuka', $(w,'promoBox').innerHTML === '');
+      cek('belum memanggil investorAgenda', !p.some(x => x.body.action === 'investorAgenda'));
       cek('tidak ada angka dividen karangan', !$(w,'dividenBox').innerHTML.includes('Rp'));
 
       // ---- KERANGKA SIDEBAR (ala modul Reservasi) ----
       cek('sidebar ada', !!w.document.querySelector('aside.sidebar'));
       cek('menu di dalam sidebar', !!w.document.querySelector('.sidebar .side-nav#nav'));
       const menu = w.document.querySelectorAll('.side-nav button');
-      cek('4 menu', menu.length === 4, String(menu.length));
+      cek('5 menu', menu.length === 5, String(menu.length));
       cek('urutan menu benar',
-          [...menu].map(b => b.dataset.t).join(',') === 'ringkasan,laporan,dividen,event',
+          [...menu].map(b => b.dataset.t).join(',') === 'ringkasan,laporan,dividen,event,promo',
           [...menu].map(b => b.dataset.t).join(','));
       cek('tiap menu punya ikon', [...menu].every(b => b.querySelector('.ico svg')));
       cek('menu pertama aktif', menu[0].classList.contains('active'));
@@ -406,6 +411,98 @@ async function jalankan(nama, opt) {
       cek('TIDAK bilang belum ada omset', !lp.includes('Belum ada omset'), lp.slice(0,220));
       // sisa halaman tetap jalan — KPI tidak boleh ikut mati
       cek('KPI tetap terisi', $(w,'kpis').innerHTML.includes('Rp '), $(w,'kpis').innerHTML.slice(0,150));
+    }
+  });
+
+  // ---- 15. Upcoming Event & Promo: dimuat MALAS, hanya saat tabnya dibuka ----
+  const AGENDA_OK = {
+    ts:'2026-08-27T09:00:00+00:00', hariIni:'2026-08-27',
+    event:[
+      { tgl:'2026-08-27', jam:'18:00', judul:'Grand Tasting Menu', tempat:'Main Hall', jenis:'Gathering', pax:80,  sumber:'Marketing' },
+      { tgl:'2026-08-28', jam:'',      judul:'Investor Gathering', tempat:'Private Room', jenis:'', pax:0,        sumber:'Event' },
+      { tgl:'2026-09-12', jam:'17:00', judul:'Anniversary LM',     tempat:'Outdoor',   jenis:'Anniversary', pax:200, sumber:'Event' }
+    ], eventLebih: 4,
+    promo:[
+      { nama:'Happy Hour Bar', kategori:'diskon',    benefit:'Diskon 30% all drinks', outlet:'Laksamana Muda', mulai:'2026-08-01', selesai:'2026-09-30', status:'running' },
+      { nama:'Brunch Weekend', kategori:'free_item', benefit:'Gratis 1 dessert',      outlet:'Laksamana Muda', mulai:'2026-09-05', selesai:'2026-10-05', status:'upcoming' }
+    ], promoLebih: 0,
+    gagal: []
+  };
+  await jalankan('Agenda: event & promo', {
+    sesiTersimpan: { token:'TA', nama:'Uji Agenda' },
+    api: b => {
+      if (b.action === 'investorRingkas') return { ok:true, data: buatRingkas() };
+      if (b.action === 'investorAgenda')  return { ok:true, data: AGENDA_OK };
+      return { ok:false };
+    },
+    async aksi(w) { w.switchTab('event'); await tunggu(80); w.switchTab('promo'); },
+    periksa(w, p) {
+      // MALAS: agenda tidak boleh dipanggil sebelum tabnya dibuka, dan tidak
+      // boleh dipanggil dua kali walau dua tab memakainya.
+      const n = p.filter(x => x.body.action === 'investorAgenda').length;
+      cek('investorAgenda dipanggil tepat sekali', n === 1, String(n));
+      cek('token ikut dikirim', p.some(x => x.body.action === 'investorAgenda' && x.body.sesi === 'TA'));
+
+      const ev = $(w,'eventBox').innerHTML;
+      cek('event: judul tampil', ev.includes('Grand Tasting Menu'), ev.slice(0,200));
+      cek('event: tanggal 27 Agu', ev.includes('>27<') && ev.includes('>Agu<'), ev.slice(0,300));
+      cek('event: "hari ini" untuk 27 Agu', ev.includes('hari ini'), ev.slice(0,400));
+      cek('event: "besok" untuk 28 Agu', ev.includes('besok'), ev.slice(0,900));
+      cek('event: tempat tampil', ev.includes('Main Hall'));
+      cek('event: pax tampil', ev.includes('80 pax'));
+      cek('event: acara tanpa jam tidak menampilkan jam kosong', !ev.includes('🕐 </span>'));
+      cek('event: sisa dilaporkan', ev.includes('+ 4 acara lagi'), ev.slice(-200));
+
+      const pr = $(w,'promoBox').innerHTML;
+      cek('promo: nama tampil', pr.includes('Happy Hour Bar'), pr.slice(0,200));
+      cek('promo: benefit tampil', pr.includes('Diskon 30% all drinks'));
+      cek('promo: chip Berjalan', pr.includes('Berjalan'));
+      cek('promo: chip Akan datang', pr.includes('Akan datang'));
+      cek('promo: kategori diterjemahkan', pr.includes('Free Item') && pr.includes('Diskon'), pr.slice(0,600));
+      cek('promo: periode tampil', pr.includes('1 Agu 2026'), pr.slice(0,600));
+      cek('promo: tidak ada sisa palsu', !pr.includes('promo lagi'));
+      // yang berjalan harus di ATAS yang akan datang
+      cek('promo: berjalan lebih dulu',
+          pr.indexOf('Happy Hour Bar') < pr.indexOf('Brunch Weekend'));
+    }
+  });
+
+  // ---- 16. satu modul mati -> daftarnya tetap tampil + ada peringatan ----
+  await jalankan('Agenda: satu modul tidak menjawab', {
+    sesiTersimpan: { token:'TB', nama:'Uji' },
+    api: b => {
+      if (b.action === 'investorRingkas') return { ok:true, data: buatRingkas() };
+      if (b.action === 'investorAgenda')
+        return { ok:true, data: Object.assign({}, AGENDA_OK, { promo:[], promoLebih:0, gagal:['BD OS'] }) };
+      return { ok:false };
+    },
+    async aksi(w) { w.switchTab('promo'); },
+    periksa(w) {
+      const pr = $(w,'promoBox').innerHTML;
+      cek('ada pita peringatan', pr.includes('ag-pita'), pr.slice(0,300));
+      cek('menyebut modul yang mati', pr.includes('BD OS'), pr.slice(0,300));
+      // BEDANYA PENTING: kosong karena server mati != memang tidak ada promo
+      cek('tidak bilang "tidak ada promo" tanpa peringatan',
+          pr.indexOf('ag-pita') < pr.indexOf('Tidak ada promo'), pr.slice(0,400));
+      const ev = $(w,'eventBox').innerHTML;
+      cek('event tetap tampil walau BD mati', ev.includes('Grand Tasting Menu'));
+    }
+  });
+
+  // ---- 17. agenda gagal total -> tab lain tidak ikut mati ----
+  await jalankan('Agenda: server menolak', {
+    sesiTersimpan: { token:'TC', nama:'Uji' },
+    api: b => {
+      if (b.action === 'investorRingkas') return { ok:true, data: buatRingkas() };
+      if (b.action === 'investorAgenda')  return { ok:false, error:'tanpa_modul: Akun Anda belum diberi akses modul ini.' };
+      return { ok:false };
+    },
+    async aksi(w) { w.switchTab('event'); },
+    periksa(w) {
+      cek('event menjelaskan sebabnya', $(w,'eventBox').innerHTML.includes('belum diberi akses'),
+          $(w,'eventBox').innerHTML.slice(0,200));
+      cek('KPI Ringkasan tetap terisi', $(w,'kpis').innerHTML.includes('Rp '), $(w,'kpis').innerHTML.slice(0,150));
+      cek('tidak dilempar ke layar masuk', !terlihat(w, 'login'));
     }
   });
 
