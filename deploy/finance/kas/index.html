@@ -4721,23 +4721,38 @@ let PO_BD=null, PR_BD=[], PO_BD_ERR='', PO_BD_JALAN=false;
    dan mencatat uang keluar untuk baris yang belum disepakati siapa pun berarti
    buku kas mendahului keputusan yang belum diambil.
 
-   Yang memutuskan adalah status DOKUMEN PR-nya, bukan status barisnya:
-   "Kunci & ajukan" di BD menggerakkan pr.status dari 'Draft' ke 'Diajukan',
-   dan itulah satu-satunya tombol yang berarti "sudah diajukan" bagi orangnya.
+   SYARATNYA DUA, dan keduanya wajib:
+     1. barisnya sudah masuk sebuah lembar PR (`prId` terisi & lembarnya ada);
+     2. lembar itu sudah keluar dari 'Draft'.
 
-   Baris yang tidak menempel di lembar PR mana pun (mis. request yang dikirim
-   modul Marketing dan belum dimasukkan ke lembar) dinilai dari status barisnya
-   sendiri — kalau masih 'Draft', ia juga belum diajukan. */
+   Versi pertama fungsi ini menilai baris TANPA lembar dari status barisnya
+   sendiri, dengan pikiran "request dari modul tetangga tidak akan pernah bisa
+   dicatat kalau tidak begitu". Itu salah, dan dilaporkan user beberapa menit
+   sesudahnya: request yang baru diketik di papan Purchasing sudah lahir
+   berstatus 'Diajukan', jadi seluruh isi kotak "menunggu dijadikan lembar PR"
+   bocor ke daftar ini — padahal justru itu yang belum diajukan ke siapa pun.
+
+   `status` pada baris PO menandai posisi BARANGNYA di alur pembelian, bukan
+   apakah permintaannya sudah dikirim. Yang menandai "sudah dikirim" hanya
+   status dokumen PR-nya. Jadi request lepas: TIDAK PERNAH tampil sampai ia
+   dijadikan lembar dan lembarnya diajukan. */
 function poSudahDiajukan(p){
-  if(!p) return false;
-  if(p.prId){
-    const pr=(PR_BD||[]).find(function(x){ return x && x.id===p.prId; });
-    /* Lembar yang tidak ketemu dianggap BELUM diajukan. Menganggapnya sudah
-       berarti satu id yang menggantung membuka jalan mencatat uang untuk
-       dokumen yang tidak bisa dibuka siapa pun. */
-    return !!pr && String(pr.status||'Draft')!=='Draft';
-  }
-  return String(p.status||'Draft')!=='Draft';
+  if(!p||!p.prId) return false;
+  const pr=(PR_BD||[]).find(function(x){ return x && x.id===p.prId; });
+  /* Lembar yang tidak ketemu dianggap BELUM diajukan. Menganggapnya sudah
+     berarti satu id yang menggantung membuka jalan mencatat uang untuk
+     dokumen yang tidak bisa dibuka siapa pun. */
+  return !!pr && String(pr.status||'Draft')!=='Draft';
+}
+/* Kenapa sebuah baris belum tampil — dipakai menyusun kalimat di layar.
+   Dua sebab yang berbeda butuh dua tindakan yang berbeda, jadi tidak boleh
+   dilebur jadi satu kalimat "belum diajukan": yang satu perlu dibuatkan
+   lembar, yang satu lagi tinggal ditekan tombolnya. */
+function poSebabBelum(p){
+  if(!p||!p.prId) return 'lembar';                       // belum dijadikan lembar PR
+  const pr=(PR_BD||[]).find(function(x){ return x && x.id===p.prId; });
+  if(!pr) return 'lembar';                               // lembarnya sudah tidak ada
+  return String(pr.status||'Draft')==='Draft' ? 'draft' : '';
 }
 function poBdMuat(paksa){
   if(PO_BD_JALAN) return;
@@ -4808,17 +4823,23 @@ function poPanel(){
      diam-diam lebih pendek dari yang diingat orang akan dibaca sebagai "PO
      saya hilang" — dan yang dicari berjam-jam adalah barang yang sebenarnya
      cuma belum ditekan Ajukan. */
-  const belumAju=(PO_BD||[]).filter(function(p){
-    if(!p||!p.item) return false;
-    if(p.proses||p.status==='Diterima') return false;
+  const tertahan={lembar:0,draft:0};
+  (PO_BD||[]).forEach(function(p){
+    if(!p||!p.item) return;
+    if(p.proses||p.status==='Diterima') return;
     const v=p.realisasi;
-    if(!(v===''||v===null||v===undefined)) return false;
-    return !poSudahDiajukan(p);
-  }).length;
+    if(!(v===''||v===null||v===undefined)) return;
+    const sebab=poSebabBelum(p);
+    if(sebab) tertahan[sebab]++;
+  });
+  const belumAju=tertahan.lembar+tertahan.draft;
+  const langkah=[];
+  if(tertahan.lembar) langkah.push('<b>'+tertahan.lembar+'</b> masih di kotak <b>request menunggu dijadikan lembar PR</b> — tekan <b>Buat PR</b> dulu');
+  if(tertahan.draft)  langkah.push('<b>'+tertahan.draft+'</b> sudah punya lembar PR tapi lembarnya masih <b>Draft</b> — tekan <b>Kunci &amp; ajukan</b> di halaman dokumennya');
   const catatanAju=belumAju
-    ? '<div class="notice warn" style="margin-top:12px;margin-bottom:0">📝 <div><b>'+belumAju+' item lain belum muncul di sini</b> karena lembar PR-nya masih '+
-      '<b>Draft</b>. Buka BD OS → Purchasing, lalu tekan <b>Kunci &amp; ajukan</b> di lembarnya — isinya masih bisa berubah selama masih draft, '+
-      'dan uang yang dicatat untuk baris yang belum disepakati akan mendahului keputusan yang belum diambil.</div></div>'
+    ? '<div class="notice warn" style="margin-top:12px;margin-bottom:0">📝 <div><b>'+belumAju+' item lain belum muncul di sini.</b> '+
+      langkah.join('; ')+'. Semuanya di <b>BD OS → Purchasing</b>. '+
+      'Selama belum diajukan isinya masih bisa berubah, dan uang yang dicatat untuk baris yang belum disepakati akan mendahului keputusan yang belum diambil.</div></div>'
     : '';
   if(!list.length){
     return (belumAju
