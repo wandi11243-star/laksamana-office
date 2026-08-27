@@ -623,12 +623,11 @@ function renderKPIs() {
   }
   const bi = D.bulanIni || {}, bl = D.bulanLalu || {};
   const target = Number(bi.target || 0);
-  const pct = target > 0 ? Math.round(bi.omset / target * 100) : null;
 
   /* Bulan berjalan dibandingkan bulan lalu lewat RATA-RATA PER HARI TERISI,
      bukan totalnya. Tanggal 3 melawan sebulan penuh selalu terbaca "turun
      90%" — angka yang benar secara aritmetika dan menyesatkan sepenuhnya. */
-  const rataIni  = bi.hariTerisi ? bi.omset / bi.hariTerisi : null;
+  const rataIni  = bi.hariTerisi ? Number(bi.dibayarTamu || 0) / bi.hariTerisi : null;
   /* Bulan lalu ikut membandingkan HANYA kalau isinya cukup untuk disebut
      bulan. Data produksi per 27 Agustus 2026 punya SATU hari di Juli (baris
      uji Rp 70 jt); membaginya jadi "rata-rata Juli" menghasilkan ▼ 70%
@@ -636,43 +635,52 @@ function renderKPIs() {
      di halaman investor adalah jenis angka yang memicu telepon. Di bawah
      ambang ini deltanya tidak digambar sama sekali, bukan digambar kecil. */
   const AMBANG_HARI = 7;
-  const rataLalu = (bl.hariTerisi >= AMBANG_HARI) ? bl.omset / bl.hariTerisi : null;
+  const rataLalu = (bl.hariTerisi >= AMBANG_HARI) ? Number(bl.dibayarTamu || 0) / bl.hariTerisi : null;
 
   const trx = Number(bi.transaksi || 0);
 
-  /* KETERANGAN NET — kenapa angka di sini lebih kecil daripada kartu
-     "Dibayar Tamu" di Rekap Penjualan.
+  /* KETERANGAN — apa yang termasuk di dalam angka besar itu.
      ---------------------------------------------------------------------
-     Omset di halaman ini net: food + bev + lainnya − diskon. Service charge
-     dan pajak lewat kasir tapi bukan pendapatan perusahaan — service ke kru,
-     pajak ke negara — jadi keduanya tidak pernah ditambahkan.
+     Halaman ini memakai TAGIHAN (after tax & service), sama dengan kartu
+     "Dibayar Tamu" di Rekap Penjualan — layar yang dibuka tiap hari.
 
-     Baris ini ada karena selisihnya SUDAH ditanyakan (27 Agustus 2026),
-     dan yang bertanya punya Rekap Penjualan untuk mencocokkan. Investor
-     tidak punya: buat dia, angka yang lebih kecil tanpa keterangan cuma
-     terlihat seperti angka yang salah. Kalau service+pajaknya belum diisi,
-     barisnya tidak digambar sama sekali — keterangan tentang nol adalah
-     keterangan yang membingungkan tanpa menjelaskan apa pun. */
-  function ketNet(x) {
+     Net tetap disebut, dan itu bukan basa-basi: Dashboard Omset menulis
+     "Total Omset Hari Ini (net)" dengan angka yang LEBIH KECIL untuk hari
+     yang sama. Dua layar, dua konvensi, keduanya sah. Yang tidak boleh
+     terjadi adalah halaman investor memajang salah satunya tanpa
+     menyebutkan yang lain — selisihnya puluhan juta, dan sudah ditanyakan
+     sekali (27 Agustus 2026).
+
+     Kalau service+pajaknya belum diisi, tagihan = net dan barisnya tidak
+     digambar sama sekali: keterangan yang mengaku menjelaskan selisih nol
+     cuma menambah satu baris untuk dibaca. */
+  function ketPajak(x) {
     if (!x) return '';
     const s = Number(x.svc || 0), p = Number(x.pajak || 0);
     if (s + p <= 0) return '';
-    return 'net · di luar service ' + rpShort(s) + ' & pajak ' + rpShort(p)
-         + ' — dibayar tamu ' + rp(x.dibayarTamu);
+    return 'termasuk service ' + rpShort(s) + ' & pajak ' + rpShort(p)
+         + ' — omset net ' + rp(x.omset);
   }
+  /* Angka yang dipajang. Satu tempat, dipakai kartu, grafik, dan sorotan —
+     sempat tersebar dan itulah yang membuat kartu dan grafiknya bisa
+     memajang dua konvensi berbeda tanpa ada yang menyadarinya. */
+  const nilai = x => (x && x.dibayarTamu != null) ? x.dibayarTamu : null;
+
+  const bulanIniNilai = nilai(bi) != null ? bi.dibayarTamu : 0;
+  const pctTagihan = target > 0 ? Math.round(bulanIniNilai / target * 100) : null;
 
   const k = [
-    { label:"Omset Hari Ini", val: rp(D.hariIni && D.hariIni.omset),
-      delta: delta(D.hariIni && D.hariIni.omset, D.kemarin && D.kemarin.omset), deltaKet:"vs kemarin",
-      foot: (D.hariIni && D.hariIni.omset != null) ? tglPanjang(D.hariIni.tgl) : 'Belum diisi hari ini',
-      foot2: ketNet(D.hariIni) },
-    { label:"Omset " + blnPanjang(bi.kunci), val: rp(bi.omset),
+    { label:"Omset Hari Ini", val: rp(nilai(D.hariIni)),
+      delta: delta(nilai(D.hariIni), nilai(D.kemarin)), deltaKet:"vs kemarin",
+      foot: (nilai(D.hariIni) != null) ? tglPanjang(D.hariIni.tgl) : 'Belum diisi hari ini',
+      foot2: ketPajak(D.hariIni) },
+    { label:"Omset " + blnPanjang(bi.kunci), val: rp(bulanIniNilai),
       delta: delta(rataIni, rataLalu), deltaKet:"rata-rata/hari vs " + blnPanjang(bl.kunci),
-      foot: target > 0 ? (pct + "% dari target " + rpShort(target)) : "Target bulanan belum disetel",
-      foot2: ketNet(bi) },
+      foot: target > 0 ? (pctTagihan + "% dari target " + rpShort(target)) : "Target bulanan belum disetel",
+      foot2: ketPajak(bi) },
     { label:"Transaksi " + blnPanjang(bi.kunci), val: trx ? trx.toLocaleString("id-ID") : "—",
       delta: null, foot: trx ? "struk terhitung" : "Jumlah bill belum diisi" },
-    { label:"Rata-rata / Transaksi", val: trx > 0 ? rp(bi.omset / trx) : "—",
+    { label:"Rata-rata / Transaksi", val: trx > 0 ? rp(bulanIniNilai / trx) : "—",
       delta: null, foot: trx > 0 ? "bulan berjalan" : "butuh jumlah bill" }
   ];
   box.innerHTML = k.map(x => '<div class="kpi rise">'
@@ -688,7 +696,8 @@ function renderKPIs() {
   /* Tanggal data terakhir dipajang terang-terangan. Tanpa itu, omset hari
      ini yang masih kosong karena kasir belum menutup buku terbaca sebagai
      "hari ini sepi", bukan sebagai "belum diinput". */
-  note.innerHTML = 'Sumber: Dashboard Omset Laksamana Office' + (DEV ? ' <b>(server dev)</b>' : '')
+  note.innerHTML = 'Angka <b>after tax &amp; service</b> — sama dengan Rekap Penjualan di Laksamana Office'
+                 + (DEV ? ' <b>(server dev)</b>' : '')
                  + ' · data terakhir diisi <b>' + esc(tglPanjang(D.terakhir)) + '</b>';
 }
 
@@ -697,6 +706,10 @@ function renderHighlights() {
   if (!D || !D.adaData) { el.innerHTML = kosong('✨', 'Belum ada sorotan', 'Sorotan dihitung dari omset yang sudah tercatat.'); return; }
   const bi = D.bulanIni || {};
   const target = Number(bi.target || 0);
+  /* Semuanya atas TAGIHAN, seragam dengan kartu KPI di sebelahnya —
+     "kurang sekian dari target" yang dihitung atas net akan menyebut angka
+     yang tidak cocok dengan persentase di kartu, untuk bulan yang sama. */
+  const bulanNilai = Number(bi.dibayarTamu || 0);
   const items = [];
 
   /* Hari terbaik DALAM 30 hari terakhir — bukan sepanjang sejarah. Rekor
@@ -710,7 +723,7 @@ function renderHighlights() {
     items.push({ ic:"📊", t:"Rata-rata " + rpShort(rata) + " / hari", s:isi.length + " hari terisi dari 30 hari terakhir" });
   }
   if (target > 0) {
-    const sisa = target - Number(bi.omset || 0);
+    const sisa = target - bulanNilai;
     items.push(sisa > 0
       ? { ic:"🎯", t:"Kurang " + rpShort(sisa) + " dari target", s:"target " + blnPanjang(bi.kunci) + " " + rpShort(target) }
       : { ic:"🎉", t:"Target " + blnPanjang(bi.kunci) + " tercapai", s:"lebih " + rpShort(-sisa) + " dari target" });

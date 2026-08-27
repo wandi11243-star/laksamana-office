@@ -712,35 +712,42 @@ function ringkas_investor() {
   $s = kp_state_assoc();
   $rows = (isset($s['daily']) && is_array($s['daily'])) ? $s['daily'] : array();
 
-  /* tgl => array(omset, transaksi, service, pajak). Baris ganda untuk tanggal
-     yang sama dijumlahkan, bukan ditimpa — blob-nya tidak menjamin keunikan
-     tanggal.
+  /* tgl => array(net, transaksi, service, pajak).
+     ---------------------------------------------------------------------
+     DUA ANGKA PENJUALAN, DAN KEDUANYA DIPAKAI DI TEMPAT BERBEDA:
 
-     SERVICE & PAJAK ikut dihitung tapi TIDAK PERNAH masuk `omset`. Keduanya
-     dibalas terpisah supaya halaman investor bisa menyebutkannya sebagai
-     keterangan. Tanpa itu, angka net di halaman investor terlihat "kurang"
-     dibanding kartu Dibayar Tamu di Rekap Penjualan, dan tidak ada satu pun
-     tempat yang menjelaskan selisihnya — sudah ditanyakan 27 Agustus 2026. */
+       net     = food + bev + lainnya − discount     (Dashboard Omset)
+       tagihan = net + service + pajak               (Rekap Penjualan)
+
+     Keduanya sah dan keduanya dipakai orang yang sama di layar berbeda —
+     Dashboard Omset menulis "Total Omset Hari Ini (net)", Rekap Penjualan
+     menulis "angka penjualannya after tax & service". Karena itu FUNGSI INI
+     MEMULANGKAN DUA-DUANYA, bukan memilih satu: yang memilih adalah layar,
+     dan pilihan itu bisa berubah tanpa menyentuh server.
+
+     Halaman investor memakai TAGIHAN sejak 27 Agustus 2026 (keputusan user),
+     dengan net tetap disebut sebagai keterangan. */
   $peta = array();
   $terakhir = null;
   foreach ($rows as $d) {
     if (!is_array($d)) continue;
     $t = kp_tgl(isset($d['date']) ? $d['date'] : '');
     if (!$t) continue;
-    $omset = kp_num(isset($d['food'])    ? $d['food']    : 0)
-           + kp_num(isset($d['bev'])     ? $d['bev']     : 0)
-           + kp_num(isset($d['lainnya']) ? $d['lainnya'] : 0)
-           - kp_num(isset($d['discount'])? $d['discount']: 0);
+    $net  = kp_num(isset($d['food'])    ? $d['food']    : 0)
+          + kp_num(isset($d['bev'])     ? $d['bev']     : 0)
+          + kp_num(isset($d['lainnya']) ? $d['lainnya'] : 0)
+          - kp_num(isset($d['discount'])? $d['discount']: 0);
     $bill = kp_num(isset($d['bill']) ? $d['bill'] : 0);
     $svc  = kp_num(isset($d['service_charge']) ? $d['service_charge'] : 0);
     $tax  = kp_num(isset($d['tax']) ? $d['tax'] : 0);
     if (!isset($peta[$t])) $peta[$t] = array(0, 0, 0, 0);
-    $peta[$t][0] += $omset;
+    $peta[$t][0] += $net;
     $peta[$t][1] += $bill;
     $peta[$t][2] += $svc;
     $peta[$t][3] += $tax;
     if ($terakhir === null || strcmp($t, $terakhir) > 0) $terakhir = $t;
   }
+  $tagihanHari = function ($v) { return $v[0] + $v[2] + $v[3]; };
 
   $hariIni = kp_hari_ini_wib();
   $kemarin = gmdate('Y-m-d', strtotime($hariIni . ' -1 day'));
@@ -748,7 +755,7 @@ function ringkas_investor() {
   $blnLalu = gmdate('Y-m', strtotime($blnIni . '-01 -1 month'));
 
   /* Rekap per bulan sekali jalan — dipakai KPI bulan ini, bulan lalu, dan
-     grafik tahunan sekaligus. [omset, transaksi, jumlahHari, service, pajak] */
+     grafik tahunan sekaligus. [net, transaksi, jumlahHari, service, pajak] */
   $bulan = array();
   foreach ($peta as $t => $v) {
     $k = substr($t, 0, 7);
@@ -762,37 +769,58 @@ function ringkas_investor() {
   $ambilBulan = function ($k) use ($bulan) {
     return isset($bulan[$k]) ? $bulan[$k] : array(0, 0, 0, 0, 0);
   };
+  /* Satu bulan jadi satu blok balasan. Ditulis sekali di sini supaya bulan
+     ini dan bulan lalu tidak pernah tersusun beda — sempat begitu, dan
+     akibatnya bulan lalu tidak punya `dibayarTamu` sehingga perbandingannya
+     diam-diam membandingkan tagihan melawan net. */
+  $blokBulan = function ($k) use ($ambilBulan) {
+    $v = $ambilBulan($k);
+    return array('kunci' => $k,
+                 'omset' => $v[0], 'transaksi' => $v[1], 'hariTerisi' => $v[2],
+                 'svc' => $v[3], 'pajak' => $v[4],
+                 'dibayarTamu' => $v[0] + $v[3] + $v[4]);
+  };
 
-  /* Grafik year-over-year. HANYA tahun yang benar-benar punya data yang
-     ikut — tahun kosong yang tetap digambar menghasilkan garis rata nol,
-     dan garis nol terbaca sebagai "tahun itu tidak jualan", bukan sebagai
-     "datanya belum diisi". Bulan tanpa data dipulangkan null (bukan 0)
-     dengan alasan yang sama. */
+  /* Grafik year-over-year memakai TAGIHAN — sama dengan kartu KPI di atasnya.
+     Kalau kartunya tagihan dan grafiknya net, orang yang menjumlahkan
+     batang-batangnya akan mendapat angka lain daripada yang tertulis besar
+     di atas, dan tidak ada satu pun tempat yang menjelaskannya.
+
+     HANYA tahun yang benar-benar punya data yang ikut — tahun kosong yang
+     tetap digambar menghasilkan garis rata nol, dan garis nol terbaca sebagai
+     "tahun itu tidak jualan", bukan "datanya belum diisi". Bulan tanpa data
+     dipulangkan null (bukan 0) dengan alasan yang sama. */
   $tahunan = array();
   foreach ($bulan as $k => $v) {
     $th = substr($k, 0, 4);
     $bl = (int)substr($k, 5, 2) - 1;
     if (!isset($tahunan[$th])) $tahunan[$th] = array_fill(0, 12, null);
-    $tahunan[$th][$bl] = $v[0];
+    $tahunan[$th][$bl] = $v[0] + $v[3] + $v[4];
   }
   ksort($tahunan);
 
   /* 30 hari kalender terakhir sampai hari ini — bukan "30 baris terakhir".
      Kalau yang diambil 30 baris, hari yang belum diisi menghilang dari
      sumbu dan grafiknya jadi berbohong: dua batang bersebelahan bisa
-     berjarak seminggu tanpa ada yang menyebutkannya. */
+     berjarak seminggu tanpa ada yang menyebutkannya.
+
+     `omset` di sini TAGIHAN, seragam dengan kartu dan grafik tahunan;
+     `net` ikut supaya layar bisa berpindah konvensi tanpa menyentuh server. */
   $harian = array();
   for ($i = 29; $i >= 0; $i--) {
     $t = gmdate('Y-m-d', strtotime($hariIni . ' -' . $i . ' day'));
+    $ada = isset($peta[$t]);
     $harian[] = array('tgl' => $t,
-                      'omset' => isset($peta[$t]) ? $peta[$t][0] : null);
+                      'omset' => $ada ? $tagihanHari($peta[$t]) : null,
+                      'net'   => $ada ? $peta[$t][0] : null);
   }
 
   $st = (isset($s['settings']) && is_array($s['settings'])) ? $s['settings'] : array();
-
-  $bi = $ambilBulan($blnIni);
-  $bl = $ambilBulan($blnLalu);
   $adaHariIni = isset($peta[$hariIni]);
+  $adaKemarin = isset($peta[$kemarin]);
+
+  $bi = $blokBulan($blnIni);
+  $bi['target'] = kp_num(isset($st['companyMonthlyTarget']) ? $st['companyMonthlyTarget'] : 0);
 
   return array(
     'ts'       => gmdate('c'),
@@ -802,25 +830,22 @@ function ringkas_investor() {
                         'svc'        => $adaHariIni ? $peta[$hariIni][2] : null,
                         'pajak'      => $adaHariIni ? $peta[$hariIni][3] : null,
                         /* Sama dengan kartu "Dibayar Tamu" di Rekap Penjualan. */
-                        'dibayarTamu'=> $adaHariIni ? ($peta[$hariIni][0] + $peta[$hariIni][2] + $peta[$hariIni][3]) : null),
+                        'dibayarTamu'=> $adaHariIni ? $tagihanHari($peta[$hariIni]) : null),
     'kemarin'  => array('tgl' => $kemarin,
-                        'omset' => isset($peta[$kemarin]) ? $peta[$kemarin][0] : null),
-    'bulanIni' => array('kunci' => $blnIni, 'omset' => $bi[0],
-                        'transaksi' => $bi[1], 'hariTerisi' => $bi[2],
-                        'svc' => $bi[3], 'pajak' => $bi[4],
-                        'dibayarTamu' => $bi[0] + $bi[3] + $bi[4],
-                        'target' => kp_num(isset($st['companyMonthlyTarget']) ? $st['companyMonthlyTarget'] : 0)),
-    'bulanLalu'=> array('kunci' => $blnLalu, 'omset' => $bl[0], 'hariTerisi' => $bl[2]),
+                        'omset'       => $adaKemarin ? $peta[$kemarin][0] : null,
+                        'dibayarTamu' => $adaKemarin ? $tagihanHari($peta[$kemarin]) : null),
+    'bulanIni' => $bi,
+    'bulanLalu'=> $blokBulan($blnLalu),
     'tahunan'  => $tahunan,
     'harian'   => $harian,
-    /* Tanggal data terakhir yang benar-benar diisi. Halaman investor
-       memajangnya apa adanya — tanpa itu, omset hari ini yang kosong karena
-       kasir belum menutup buku terbaca sebagai omset nol. */
     /* Susunan Profit Loss Report per bulan. Ikut di balasan ini, bukan
        endpoint sendiri: bulannya cuma belasan, dan satu perjalanan lebih
        murah daripada dua. Lihat laba_rugi_bulanan() untuk apa yang TIDAK
        ada di dalamnya, dan kenapa. */
     'labaRugi' => laba_rugi_bulanan(),
+    /* Tanggal data terakhir yang benar-benar diisi. Halaman investor
+       memajangnya apa adanya — tanpa itu, omset hari ini yang kosong karena
+       kasir belum menutup buku terbaca sebagai omset nol. */
     'terakhir' => $terakhir,
     'adaData'  => count($peta) > 0
   );

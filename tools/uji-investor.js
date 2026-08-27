@@ -17,10 +17,14 @@ const tunggu = ms => new Promise(r => setTimeout(r, ms));
 function buatRingkas(over) {
   return Object.assign({
     ts: '2026-08-27T09:00:00+00:00',
-    hariIni:  { tgl:'2026-08-27', omset: 20000000, transaksi: 120 },
-    kemarin:  { tgl:'2026-08-26', omset: 16000000 },
-    bulanIni: { kunci:'2026-08', omset: 400000000, transaksi: 2000, hariTerisi: 26, target: 500000000 },
-    bulanLalu:{ kunci:'2026-07', omset: 310000000, hariTerisi: 31 },
+    // omset = net; dibayarTamu = net + svc + pajak. Halaman memajang yang kedua.
+    hariIni:  { tgl:'2026-08-27', omset: 20000000, transaksi: 120,
+                svc: 1000000, pajak: 2000000, dibayarTamu: 23000000 },
+    kemarin:  { tgl:'2026-08-26', omset: 16000000, dibayarTamu: 18400000 },
+    bulanIni: { kunci:'2026-08', omset: 400000000, transaksi: 2000, hariTerisi: 26,
+                svc: 20000000, pajak: 40000000, dibayarTamu: 460000000, target: 500000000 },
+    bulanLalu:{ kunci:'2026-07', omset: 310000000, hariTerisi: 31,
+                svc: 15000000, pajak: 30000000, dibayarTamu: 355000000 },
     tahunan:  { '2025': new Array(12).fill(25000000), '2026': [1,2,3,4,5,6,7,8].map(n=>n*1e7).concat([null,null,null,null]) },
     harian:   Array.from({length:30}, (_,i) => ({ tgl:'2026-08-' + String(i+1).padStart(2,'0'), omset: i < 26 ? (10 + i) * 1e6 : null })),
     terakhir: '2026-08-26',
@@ -107,14 +111,17 @@ async function jalankan(nama, opt) {
       cek('token ikut dikirim ke kompas-api',
           p.some(x => x.body.action === 'investorRingkas' && x.body.sesi === 'T2'));
       const kp = $(w,'kpis').innerHTML;
-      cek('KPI omset hari ini Rp 20.000.000', kp.includes('Rp 20.000.000'), kp.slice(0, 200));
-      cek('delta hari ini +25.0%', kp.includes('25.0%'));
-      // rata-rata/hari: 400jt/26 = 15,38jt ; bulan lalu 310jt/31 = 10jt -> +53.8%
-      cek('delta bulan pakai rata-rata harian (53.8%)', kp.includes('53.8%'), 'harus 53.8, bukan 29.0');
+      cek('KPI hari ini pakai tagihan Rp 23.000.000', kp.includes('Rp 23.000.000'), kp.slice(0, 200));
+      cek('BUKAN angka net Rp 20.000.000', !kp.includes('>Rp 20.000.000<'), kp.slice(0, 200));
+      cek('delta hari ini +25.0% (23jt vs 18,4jt)', kp.includes('25.0%'));
+      // rata-rata/hari atas TAGIHAN: 460jt/26 = 17,69jt ; bulan lalu 355jt/31 = 11,45jt -> +54.5%
+      cek('delta bulan pakai rata-rata harian (54.5%)', kp.includes('54.5%'), 'harus 54.5');
       cek('KPI transaksi 2.000', kp.includes('2.000'));
-      cek('rata-rata/transaksi Rp 200.000', kp.includes('Rp 200.000'));
-      cek('80% dari target', kp.includes('80% dari target'));
+      cek('rata-rata/transaksi Rp 230.000 (atas tagihan)', kp.includes('Rp 230.000'));
+      cek('92% dari target (460jt/500jt)', kp.includes('92% dari target'), kp.slice(0, 700));
+      cek('keterangan menyebut omset net', kp.includes('omset net Rp 400.000.000'), kp.slice(0, 900));
       cek('catatan tanggal data terakhir', $(w,'sumberNote').innerHTML.includes('26 Agu 2026'), $(w,'sumberNote').innerHTML);
+      cek('catatan menyebut after tax & service', $(w,'sumberNote').innerHTML.includes('after tax'), $(w,'sumberNote').innerHTML);
       cek('bukan label server dev di domain produksi', !$(w,'sumberNote').innerHTML.includes('server dev'));
       cek('tombol tahun terbangun', $(w,'yearToggle').querySelectorAll('button').length === 2);
       cek('grafik digambar', (w.__charts || []).length === 2, String((w.__charts || []).length));
@@ -191,14 +198,15 @@ async function jalankan(nama, opt) {
   await jalankan('Pembanding bulan lalu terlalu sedikit', {
     sesiTersimpan: { token:'T6', nama:'Uji' },
     api: b => b.action === 'investorRingkas'
-      ? { ok:true, data: buatRingkas({ bulanLalu:{ kunci:'2026-07', omset: 70000000, hariTerisi: 1 } }) }
+      ? { ok:true, data: buatRingkas({ bulanLalu:{ kunci:'2026-07', omset: 70000000, hariTerisi: 1,
+                                                   svc: 0, pajak: 0, dibayarTamu: 70000000 } }) }
       : { ok:false },
     periksa(w) {
       const kp = $(w,'kpis').innerHTML;
       cek('delta hari ini tetap digambar', kp.includes('25.0%'));
       cek('delta bulan TIDAK digambar', !kp.includes('rata-rata/hari vs'), kp.slice(0,400));
       cek('tidak menulis turun 70%', !kp.includes('70.0%'));
-      cek('total bulan tetap tampil', kp.includes('Rp 400.000.000'));
+      cek('total bulan tetap tampil', kp.includes('Rp 460.000.000'));
     }
   });
 
@@ -215,11 +223,11 @@ async function jalankan(nama, opt) {
       : { ok:false },
     periksa(w) {
       const kp = $(w,'kpis').innerHTML;
-      cek('angka besar tetap net', kp.includes('Rp 546.005.454'));
-      cek('menyebut dibayar tamu', kp.includes('Rp 622.035.872'), kp.slice(0,600));
+      cek('angka besar = dibayar tamu', kp.includes('Rp 622.035.872'), kp.slice(0,600));
+      cek('keterangan menyebut omset net', kp.includes('omset net Rp 546.005.454'), kp.slice(0,900));
       cek('menyebut service', kp.includes('service Rp 26 jt'), kp.slice(0,600));
       cek('menyebut pajak', kp.includes('pajak Rp 50 jt'), kp.slice(0,600));
-      cek('55% dari target', kp.includes('55% dari target'));
+      cek('62% dari target (622jt/1M)', kp.includes('62% dari target'), kp.slice(0,700));
       // hari ini kosong -> tidak ada keterangan net yang membingungkan
       const kartuHariIni = kp.split('<div class="kpi rise">')[1] || '';
       cek('kartu hari ini tanpa keterangan net', !kartuHariIni.includes('dibayar tamu'), kartuHariIni.slice(0,300));
@@ -231,13 +239,14 @@ async function jalankan(nama, opt) {
     sesiTersimpan: { token:'T8', nama:'Uji' },
     api: b => b.action === 'investorRingkas'
       ? { ok:true, data: buatRingkas({
+          hariIni: { tgl:'2026-08-27', omset:null, transaksi:null, svc:0, pajak:0, dibayarTamu:null },
           bulanIni:{ kunci:'2026-08', omset:400000000, transaksi:2000, hariTerisi:26,
                      svc:0, pajak:0, dibayarTamu:400000000, target:500000000 } }) }
       : { ok:false },
     periksa(w) {
       const kp = $(w,'kpis').innerHTML;
       cek('tidak ada baris net-ket', !kp.includes('net-ket'), kp.slice(0,400));
-      cek('tidak menulis "dibayar tamu"', !kp.includes('dibayar tamu'));
+      cek('tidak menulis "omset net"', !kp.includes('omset net'));
       cek('angka omset tetap tampil', kp.includes('Rp 400.000.000'));
     }
   });

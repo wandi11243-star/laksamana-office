@@ -501,17 +501,34 @@ investor/index.html  →  POST kompas-api-mysql/api.php {action:'investorRingkas
 - `investorRingkas` adalah **satu-satunya** aksi berpagar di kompas-api. Aksi
   lain sengaja dibiarkan terbuka: semuanya dipanggil dari dalam Office, dan
   memasang gerbang di sana sekarang akan mematikan panel Finance.
-- Omset satu hari = `food + bev + lainnya − discount`, sama persis dengan
-  `netOf()` di Dashboard Omset. Tax & service **tidak ikut** — keduanya
-  ditagihkan ke tamu tapi bukan pendapatan, dan memasukkannya membuat angka di
-  halaman investor lebih besar daripada angka di layar Finance untuk hari yang
-  sama. Tapi keduanya IKUT DIBALAS (`svc`, `pajak`, `dibayarTamu`) dan
-  dipajang sebagai baris keterangan kecil di bawah kartu Omset — tanpa itu
-  angka net terlihat "kurang" dibanding kartu **Dibayar Tamu** di Rekap
-  Penjualan, dan investor tidak punya Rekap Penjualan untuk mencocokkannya
-  sendiri. Sudah ditanyakan 27 Agustus 2026 oleh orang yang PUNYA kedua layar.
-  Barisnya tidak digambar kalau service+pajaknya nol: keterangan tentang nol
-  membingungkan tanpa menjelaskan apa pun.
+- **DUA KONVENSI PENJUALAN HIDUP BERDAMPINGAN DI OFFICE, dan keduanya sah.**
+  Ini sumber salah paham yang paling mahal di sekitar angka omset:
+
+  | layar | yang dipajang |
+  |---|---|
+  | **Dashboard Omset** | `netOf()` = `food + bev + lainnya − discount`. Tax & service **tidak ikut**. Judulnya harfiah "Total Omset Hari Ini (net)" |
+  | **Rekap Penjualan** | `tagihanOf()` = net + service + pajak. Subjudulnya harfiah "angka penjualannya after tax & service" |
+
+  Untuk Agustus 2026 bedanya Rp 76 juta: net Rp 546.005.454 vs dibayar tamu
+  Rp 622.035.872. Menyebut "angka omset" tanpa menyebut layarnya karena itu
+  selalu ambigu — sudah menghabiskan satu putaran pada 27 Agustus 2026.
+
+  `ringkas_investor()` MEMULANGKAN DUA-DUANYA (`omset` = net, `dibayarTamu` =
+  tagihan, plus `svc`/`pajak`) dan tidak memilih salah satu. Yang memilih
+  adalah layar, jadi konvensinya bisa dibalik tanpa menyentuh server.
+
+  **Halaman investor memakai TAGIHAN** (keputusan user, 27 Agustus 2026) —
+  seluruh tab Ringkasan: kartu KPI, grafik tahunan, grafik harian, sorotan,
+  rata-rata per transaksi, dan persentase target. Seragam, dan itu yang
+  penting: kartu bertagihan di atas grafik bernet membuat orang yang
+  menjumlahkan batangnya mendapat angka lain daripada yang tertulis besar di
+  atasnya, tanpa satu pun tempat yang menjelaskannya.
+
+  Net tetap disebut di baris keterangan kecil di bawah kartu ("termasuk
+  service … & pajak … — omset net …"). Barisnya tidak digambar kalau
+  service+pajaknya nol: keterangan tentang selisih nol cuma menambah satu
+  baris untuk dibaca. Target bulanan pun dihitung atas tagihan — dasarnya
+  ditetapkan user, dan mengubahnya menggeser persentase capaian.
 
 **Satu berkas HTML, dua situs.** Alamat Office diturunkan dari host yang
 membuka (`dev.` → `https://dev.laksamanamuda.id`, selain itu
@@ -556,7 +573,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 87 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 90 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:
