@@ -423,8 +423,16 @@ dan menyamakannya "biar rapi" akan membuat deploy mendarat di folder yang tidak
 dilayani siapa pun. Salahnya tidak melempar apa pun; yang membuka alamatnya
 cuma melihat 404.
 
-**Job investor di `deploy-dev.yml` memakai secret `FTP_*` (produksi), bukan
-`DEV_FTP_*`** — satu-satunya di berkas itu, dan bukan salah ketik. Susunannya:
+**Investor punya workflow SENDIRI: `.github/workflows/deploy-investor.yml`.**
+Ia tidak ada di `deploy.yml` maupun `deploy-dev.yml` — jadi kalau menambah
+sesuatu di kedua berkas itu, investor memang tidak perlu ikut. Cabangnya tetap
+sama (`develop` → dev, `main` → produksi); yang membedakan cuma penyaring
+`paths: investor/**`, supaya menyunting satu berkas HTML tidak memicu 40-an
+langkah FTP milik seluruh modul Office. Berkas workflow-nya sendiri ikut di
+`paths` — tanpa itu, memperbaiki workflow-nya tidak pernah bisa diuji.
+
+**Kedua targetnya memakai secret `FTP_*` (produksi), termasuk yang dev** —
+bukan salah ketik. Susunannya:
 
 ```
 /public_html/
@@ -439,6 +447,19 @@ itu sebabnya seluruh job di `deploy.yml` berawalan `/public_html/` — jadi ia
 bisa menulis ke kedua tempat. Percobaan pertama memakai `DEV_FTP_*` dan
 BERHASIL tanpa satu pun galat, tapi foldernya lahir DI DALAM docroot dev
 sementara subdomainnya tetap 403.
+
+Yang paling sering disalahpahami soal jalur ini: **merge `develop` → `main`
+TIDAK menyalin apa pun dari server dev ke server produksi.** Keduanya diisi
+dari isi folder `investor/` di repo. Berkas yang disunting langsung di server
+lewat cPanel karena itu akan tertimpa pada deploy berikutnya, tanpa satu pun
+peringatan.
+
+Workflow-nya punya langkah **Verifikasi** yang membuka alamat situsnya lalu
+membandingkan isinya dengan repo (sesudah CRLF dibuang — FTP mengubah akhir
+baris). Kalau `https` gagal karena sertifikat subdomainnya belum terbit, ia
+mencoba `http` dulu sebelum menyerah: SSL yang belum siap bukan tanda deploy
+gagal, dan menggagalkan run karenanya cuma melatih orang mengabaikan tanda
+merah.
 
 Gerbang kata sandi di `investor/index.html` ADA DI DALAM HTML-nya
 (`CONFIG.password`), jadi siapa pun yang membuka View Source bisa membacanya

@@ -1,0 +1,140 @@
+name: Deploy Investor Compass
+
+# =====================================================================
+# JALUR TERSENDIRI UNTUK SATU SITUS: investor/ (Investor Compass).
+#
+# Dipisah dari deploy.yml & deploy-dev.yml (27 Agustus 2026, permintaan
+# user) karena isinya SATU berkas HTML mandiri, sementara kedua workflow
+# itu menjalankan 40-an langkah FTP untuk seluruh modul Office. Mengubah
+# satu baris di halaman investor tidak ada alasannya memicu semua itu —
+# dan sebaliknya, menyunting modul Office tidak perlu menyentuh situs
+# investor sama sekali.
+#
+# CABANGNYA TETAP SAMA dengan yang lain, dan itu disengaja: tidak ada
+# kebiasaan baru yang harus dihafal.
+#     push ke develop  -> dev.investor.laksamanamuda.id
+#     merge ke main    -> investor.laksamanamuda.id
+#
+# SUMBERNYA SELALU FOLDER investor/ DI REPO INI, bukan server dev.
+# Merge develop -> main TIDAK menyalin apa pun dari dev.investor ke
+# investor; keduanya diisi dari isi repo. Berkas yang disunting langsung
+# di server lewat cPanel karena itu akan tertimpa pada deploy berikutnya
+# tanpa satu pun peringatan.
+#
+# KEDUA TARGET MEMAKAI SECRET FTP_* (akun produksi), termasuk yang dev.
+# Bukan salah ketik — susunannya di cPanel:
+#     /public_html/
+#     |- dev.laksamanamuda.id/            <- rumah akun FTP dev; "/" baginya
+#     |- dev.investor.laksamanamuda.id/   <- docroot dev.investor, SEJAJAR
+#     |- investor.laksamanamuda.id/       <- docroot investor (produksi)
+# Akun FTP dev terkurung di docroot-nya sendiri, jadi folder sejajar
+# mustahil dicapai olehnya ("../" ditolak server). Akun produksi rumahnya
+# di home akun, jadi ia bisa menulis ke kedua tempat.
+#
+# `paths` memuat berkas workflow ini sendiri: tanpa itu, memperbaiki
+# workflow-nya tidak pernah bisa diuji karena perubahannya tidak memicu
+# apa pun.
+# =====================================================================
+
+on:
+  push:
+    branches: [develop, main]
+    paths:
+      - 'investor/**'
+      - '.github/workflows/deploy-investor.yml'
+  # Tombol "Run workflow" di tab Actions — untuk memicu ulang saat FTP
+  # Rumahweb sedang rewel, tanpa perlu membuat commit kosong.
+  workflow_dispatch:
+
+jobs:
+  investor:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Tentukan tujuan
+        id: target
+        run: |
+          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+            echo "dir=/public_html/investor.laksamanamuda.id/" >> "$GITHUB_OUTPUT"
+            echo "situs=investor.laksamanamuda.id" >> "$GITHUB_OUTPUT"
+          else
+            echo "dir=/public_html/dev.investor.laksamanamuda.id/" >> "$GITHUB_OUTPUT"
+            echo "situs=dev.investor.laksamanamuda.id" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Deploy situs investor
+        id: ftpinv
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./investor/
+          server-dir: ${{ steps.target.outputs.dir }}
+          timeout: 300000
+
+      # Jeda sebelum percobaan kedua: FTP Rumahweb pernah menolak sambungan
+      # yang datang beruntun, dan mencoba lagi seketika hampir selalu gagal
+      # dengan galat yang sama.
+      - name: Jeda sebelum percobaan 2
+        if: steps.ftpinv.outcome == 'failure'
+        run: sleep 30
+
+      - name: Deploy situs investor (percobaan 2)
+        id: ftpinv2
+        if: steps.ftpinv.outcome == 'failure'
+        continue-on-error: true
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          local-dir: ./investor/
+          server-dir: ${{ steps.target.outputs.dir }}
+          timeout: 300000
+
+      # VERIFIKASI ISI, bukan sekadar status langkah FTP. Transfer ke
+      # Rumahweb pernah putus di tengah dan tetap melaporkan sukses,
+      # meninggalkan berkas terpotong separuh — dan halaman rusak yang
+      # dilaporkan "berhasil" jauh lebih mahal daripada deploy yang gagal
+      # terang-terangan.
+      #
+      # Dibandingkan SESUDAH CRLF dibuang: FTP mengubah akhir baris, jadi
+      # ukuran byte di server selalu lebih kecil sebanyak jumlah barisnya.
+      - name: Verifikasi halaman di server
+        if: always()
+        run: |
+          set +e
+          URL="https://${{ steps.target.outputs.situs }}/?cb=$RANDOM"
+          echo "Memeriksa $URL"
+          curl -sS --max-time 60 -o /tmp/live.html "$URL"
+          RC=$?
+          {
+            echo "## Investor Compass -> ${{ steps.target.outputs.situs }}"
+            echo ""
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ $RC -ne 0 ]; then
+            # https bisa gagal karena sertifikat subdomainnya belum terbit —
+            # itu urusan AutoSSL, bukan tanda deploy-nya gagal. Dicoba lagi
+            # lewat http supaya isinya tetap bisa diperiksa.
+            echo "- https gagal (curl $RC) - mencoba http" >> "$GITHUB_STEP_SUMMARY"
+            curl -sS --max-time 60 -o /tmp/live.html "http://${{ steps.target.outputs.situs }}/?cb=$RANDOM"
+            RC=$?
+          fi
+          if [ $RC -ne 0 ]; then
+            echo "- **GAGAL dihubungi** (curl $RC). Situsnya tidak bisa dibuka dari runner." >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          tr -d '\r' < investor/index.html > /tmp/a
+          tr -d '\r' < /tmp/live.html      > /tmp/b
+          if cmp -s /tmp/a /tmp/b; then
+            echo "- **UTUH** - isi di server identik dengan repo ($(wc -c < /tmp/a) byte)." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "- **BEDA** - repo $(wc -c < /tmp/a) byte, server $(wc -c < /tmp/b) byte." >> "$GITHUB_STEP_SUMMARY"
+            echo "  Kemungkinan transfer terpotong, atau server-dir menunjuk folder yang salah." >> "$GITHUB_STEP_SUMMARY"
+            head -c 300 /tmp/live.html >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
