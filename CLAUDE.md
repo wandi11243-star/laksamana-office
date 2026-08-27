@@ -398,7 +398,7 @@ sehari pun sama saja. Bukan `DITOLAK`: tidak ada manusia yang menolaknya.
 Hari ini dihitung **WIB**, kalau UTC maka setiap sore lewat 17.00 permintaan
 untuk HARI INI ikut tertutup.
 
-### `absensi` — SATU-SATUNYA modul yang TIDAK di bawah `deploy/`
+### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
 ```
 absensi/                    ← FRONTEND (PWA)  -> /public_html/absensi/
@@ -407,7 +407,26 @@ absensi/                    ← FRONTEND (PWA)  -> /public_html/absensi/
 absensi-mysql/              ← BACKEND         -> /public_html/absensi/api/
                                dipanggil sebagai 'api/api.php' — DI DALAM,
                                bukan folder tetangga
+
+investor/                   ← Investor Compass, SATU berkas HTML mandiri
+                               -> /public_html/investor.laksamanamuda.id/
+                               = investor.laksamanamuda.id
+                               (dev: /dev.investor.laksamanamuda.id/
+                                     = dev.investor.laksamanamuda.id)
+                               TIDAK punya backend: tidak memanggil API mana
+                               pun dan tidak membaca sesi Office.
 ```
+
+Perhatikan bedanya penamaan folder di server: `absensi` memakai nama pendek,
+`investor` memakai NAMA DOMAIN PENUH — begitulah subdomainnya dibuat di cPanel,
+dan menyamakannya "biar rapi" akan membuat deploy mendarat di folder yang tidak
+dilayani siapa pun. Salahnya tidak melempar apa pun; yang membuka alamatnya
+cuma melihat 404.
+
+Gerbang kata sandi di `investor/index.html` ADA DI DALAM HTML-nya
+(`CONFIG.password`), jadi siapa pun yang membuka View Source bisa membacanya
+berikut seluruh angkanya. Itu penghalang sopan-santun, bukan pengamanan —
+jangan menaruh apa pun di sana yang benar-benar tidak boleh bocor.
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:
 
