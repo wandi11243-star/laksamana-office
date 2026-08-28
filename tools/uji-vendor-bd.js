@@ -18,7 +18,7 @@ const ASLI = fs.readFileSync(path.join(ROOT, 'deploy', 'bd', 'index.html'), 'utf
 const JEMBATAN = [
   "",
   "window.__uji={get DB(){return DB;},set DB(v){DB=v;},",
-  "vVendor:vVendor,vendorAktif:vendorAktif,vendorSemua:vendorSemua,norekBersih:norekBersih,",
+  "vVendor:vVendor,vendorAktif:vendorAktif,vendorSemua:vendorSemua,norekBersih:norekBersih,opsiVendor:opsiVendor,",
   "setArsipLihat:function(v){vendorLihatArsip=v;},",
   "HALAMAN_ALAMAT:HALAMAN_ALAMAT,SUB:SUB};",
   ""
@@ -247,6 +247,35 @@ function buatDom(state) {
         [...d.querySelectorAll('.nl')].map(e => e.textContent.trim()).join(','));
     cek('vendor terdaftar sebagai alamat', w.__uji.HALAMAN_ALAMAT.indexOf('vendor') > -1);
     cek('vendor punya judul & keterangan', !!(w.__uji.SUB.vendor && w.__uji.SUB.vendor[2]));
+    dom.window.close();
+  }
+
+  /* ================= 9. kolom Vendor di Purchase Order ================= */
+  console.log('\n== Vendor di form Purchase Order ==');
+  {
+    const { dom } = buatDom({});
+    await siapDB(dom.window);
+    const w = dom.window;
+    w.__uji.DB.vendors = [
+      {id:'v1',nama:'Toffin',penerima:'CV. Toffin Riau Jaya',bank:'BCA',norek:'034-2928-828',kategori:'',catatan:'',arsip:false},
+      {id:'v2',nama:'Djarum',penerima:'',bank:'',norek:'',kategori:'',catatan:'',arsip:false},
+      {id:'v3',nama:'Arsip',penerima:'',bank:'',norek:'',kategori:'',catatan:'',arsip:true}
+    ];
+    const kosong = w.__uji.opsiVendor('');
+    cek('pilihan dibangun dari master', kosong.indexOf('Toffin') > -1 && kosong.indexOf('Djarum') > -1);
+    cek('vendor arsip tidak ditawarkan', kosong.indexOf('Arsip') < 0);
+    cek('ada pilihan kosong', kosong.indexOf('pilih vendor') > -1);
+    cek('urut abjad', kosong.indexOf('Djarum') < kosong.indexOf('Toffin'));
+
+    const dipilih = w.__uji.opsiVendor('Toffin');
+    cek('yang tersimpan ikut terpilih', /<option selected>Toffin<\/option>/.test(dipilih), dipilih);
+
+    /* PO lama memakai NAMA vendor, dan nama yang sudah tidak ada di master
+       tetap harus digambar — kalau tidak, membuka PO lama diam-diam mengganti
+       vendornya ke pilihan pertama begitu Simpan ditekan. */
+    const lama = w.__uji.opsiVendor('Vendor Sudah Hilang');
+    cek('nama lama di luar master tetap digambar', lama.indexOf('Vendor Sudah Hilang') > -1, lama);
+    cek('ditandai sebagai lama', lama.indexOf('(lama') > -1);
     dom.window.close();
   }
 

@@ -157,7 +157,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 120 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 136 pemeriksaan, jsdom + finance/kompas/account tiruan
 ```
 
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`
@@ -204,11 +204,19 @@ Empat hal yang menahan bug diam-diam:
 - **Arsip, bukan hapus.** Vendor yang dihapus membuat pembayaran lama di Brankas
   kehilangan nama penerimanya.
 
+**Kolom Vendor di form Purchase Order memakai master ini** (dropdown, bukan
+teks bebas lagi). Yang TERSIMPAN tetap **nama** vendor, bukan id: PO lama
+memakai nama, dan mengganti bentuknya jadi id membuat seluruh riwayat kehilangan
+vendornya tanpa satu pun galat. Nama tersimpan yang sudah tidak ada di master
+tetap digambar sebagai pilihan, ditandai `(lama)` — tanpa itu, membuka PO lama
+diam-diam mengganti vendornya ke pilihan pertama begitu Simpan ditekan.
+Penandanya dibuang lagi saat menyimpan, kalau tidak ia menular jadi bagian nama.
+
 Saat lahir, kolom `vendor` di 51 baris PO produksi **kosong seluruhnya** —
 belum pernah diisi sekali pun. Jadi daftarnya memang mulai dari nol.
 
 ```bash
-node tools/uji-vendor-bd.js   # 38 pemeriksaan
+node tools/uji-vendor-bd.js   # 45 pemeriksaan
 ```
 
 Ujinya menyuntikkan jembatan **DI DALAM IIFE** modul BD (`DB` tidak ada di

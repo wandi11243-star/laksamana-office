@@ -2412,6 +2412,29 @@ function vendorById(id){ return vendorSemua().find(function(v){return v.id===id;
    peringatan rekening kembar tidak pernah menyala. */
 function norekBersih(s){ return String(s==null?'':s).replace(/[^0-9]/g,''); }
 
+/* Pilihan vendor untuk form Purchase Order.
+   ---------------------------------------------------------------------
+   Sampai 28 Agustus 2026 kolom Vendor di PO adalah teks bebas, dan hasilnya
+   terlihat di data produksi: KOSONG di seluruh 51 baris. Kolom yang harus
+   diketik ulang tiap kali memang tidak pernah diisi.
+
+   Sekarang ia memilih dari master. Nilai yang TERSIMPAN tetap NAMA vendor,
+   bukan id — PO lama memakai nama, dan mengganti bentuknya jadi id membuat
+   seluruh riwayat kehilangan vendornya tanpa satu pun galat.
+
+   Nama tersimpan yang sudah tidak ada di master tetap digambar sebagai
+   pilihan, ditandai "(lama)". Tanpa itu, membuka PO lama akan diam-diam
+   mengganti vendornya ke pilihan pertama begitu Simpan ditekan. */
+function opsiVendor(terpilih){
+  var l=vendorAktif().slice().sort(function(a,b){ return String(a.nama).localeCompare(String(b.nama)); });
+  var ada=l.some(function(v){ return v.nama===terpilih; });
+  var h='<option value="">— pilih vendor —</option>';
+  h+=l.map(function(v){
+    return '<option'+(v.nama===terpilih?' selected':'')+'>'+esc(v.nama)+'</option>'; }).join('');
+  if(terpilih && !ada) h+='<option selected>'+esc(terpilih)+' (lama — belum ada di master)</option>';
+  return h;
+}
+
 function vendorTerlihat(){
   var q=vendorCari.trim().toLowerCase();
   var l=vendorLihatArsip?vendorSemua():vendorAktif();
@@ -4303,7 +4326,10 @@ function poModal(id){
         (p.at?' · '+Math.max(0,-sisaHari(p.at))+' hari lalu':'')+'</div>':'')+
       '<div class="field"><label>Item / barang</label><input id="o_item" value="'+esc(p.item)+'"></div>'+
       '<div class="frow">'+
-        '<div class="field"><label>Vendor</label><input id="o_vendor" value="'+esc(p.vendor)+'" placeholder="Nama supplier"></div>'+
+        '<div class="field"><label>Vendor</label><select id="o_vendor">'+opsiVendor(p.vendor)+'</select>'+
+          (vendorAktif().length?'':'<div class="muted" style="font-size:11.5px;margin-top:4px">'+
+            'Belum ada vendor di master. Tambahkan di menu <b>Vendor</b> — nama penerima, bank, dan nomor '+
+            'rekeningnya dipakai lembar pembayaran di Finance.</div>')+'</div>'+
         '<div class="field"><label>Nilai total</label>'+rpInput('o_amount',p.amount)+'</div></div>'+
       '<div class="frow3">'+
         '<div class="field"><label>Qty</label><input type="number" id="o_qty" value="'+(+p.qty||1)+'"></div>'+
@@ -4328,7 +4354,9 @@ function simpanPo(id){
   var g=function(x){return document.getElementById(x).value;};
   var item=g('o_item').trim();
   if(!item){ toast('Nama item wajib diisi.'); return; }
-  var data={item:item,vendor:g('o_vendor').trim(),amount:bacaRp('o_amount'),
+  /* Penanda "(lama …)" cuma label di layar — dibuang sebelum disimpan,
+     kalau tidak ia ikut jadi bagian nama vendor dan menular ke PO berikutnya. */
+  var data={item:item,vendor:g('o_vendor').replace(/\s*\(lama[^)]*\)\s*$/,'').trim(),amount:bacaRp('o_amount'),
     qty:+g('o_qty')||1,unit:g('o_unit').trim()||'unit',needBy:g('o_need'),div:g('o_div'),pic:g('o_pic'),
     status:g('o_status'),project:g('o_proj')||null,note:g('o_note').trim()};
   if(id) Object.assign(DB.po.find(function(x){return x.id===id;}),data);

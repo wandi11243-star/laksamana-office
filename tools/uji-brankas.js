@@ -563,6 +563,63 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     dom.window.close();
   }
 
+  /* ================= 15. form batch: bagian & kotak terkunci ================= */
+  console.log('\n== Form batch pembayaran ==');
+  {
+    const { dom } = domBrankas({
+      bd: { vendors: [
+        { id:'v1', nama:'Toffin',  penerima:'CV. Toffin Riau Jaya', bank:'BCA', norek:'034-2928-828', arsip:false },
+        { id:'v2', nama:'Ecocare', penerima:'PT. Ecocare Indo Pasifik', bank:'BCA', norek:'', arsip:false }
+      ] },
+      bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], bayar:[], setting:{} }, akses:{}, peran:{} }
+    });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('bayar'); await tunggu(80);
+    const v = d.getElementById('app-view').innerHTML;
+
+    cek('form dibagi tiga bagian berjudul', (v.match(/by-sec-h/g) || []).length === 3,
+        String((v.match(/by-sec-h/g) || []).length));
+    cek('urutannya kapan → siapa → berapa',
+        v.indexOf('Kapan') < v.indexOf('Ditransfer ke siapa') &&
+        v.indexOf('Ditransfer ke siapa') < v.indexOf('Untuk apa'));
+    cek('rekening menyebut saldonya', v.indexOf('saldo Rp') > -1);
+    cek('ada pilihan "tanpa vendor"', v.indexOf('tanpa vendor') > -1);
+
+    /* Penerima / bank / norek digambar sebagai kotak TERKUNCI, bukan kalimat:
+       bentuknya sama dengan kolom di lembar bawah, jadi yang mengisi melihat
+       persis apa yang akan tercetak. */
+    ['by_penerima','by_bank','by_norek'].forEach(id =>
+      cek('kotak ' + id + ' ada dan terkunci', !!d.getElementById(id) && d.getElementById(id).disabled));
+
+    /* memilih vendor lengkap -> kotak terisi, TANPA pita peringatan */
+    d.getElementById('by_vendor').value = 'v1';
+    w.byVendorPilih();
+    cek('penerima terisi otomatis', d.getElementById('by_penerima').value === 'CV. Toffin Riau Jaya',
+        d.getElementById('by_penerima').value);
+    cek('bank terisi otomatis', d.getElementById('by_bank').value === 'BCA');
+    cek('nomor rekening terisi otomatis', d.getElementById('by_norek').value === '034-2928-828');
+    cek('vendor lengkap TIDAK memunculkan peringatan',
+        d.getElementById('by_infoVendor').style.display === 'none');
+
+    /* vendor tanpa rekening -> peringatan, karena inilah yang menghalangi transfer */
+    d.getElementById('by_vendor').value = 'v2';
+    w.byVendorPilih();
+    cek('vendor tanpa rekening diperingatkan',
+        d.getElementById('by_infoVendor').style.display !== 'none');
+    cek('peringatannya menyebut nama vendornya',
+        d.getElementById('by_infoVendor').innerHTML.indexOf('Ecocare') > -1);
+    cek('menunjuk tempat melengkapinya',
+        d.getElementById('by_infoVendor').innerHTML.indexOf('BD OS') > -1);
+
+    /* kembali ke tanpa vendor -> kotak dikosongkan lagi */
+    d.getElementById('by_vendor').value = '';
+    w.byVendorPilih();
+    cek('kotak dikosongkan saat vendor dilepas', d.getElementById('by_penerima').value === '');
+    cek('peringatan ikut hilang', d.getElementById('by_infoVendor').style.display === 'none');
+    dom.window.close();
+  }
+
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);

@@ -544,6 +544,22 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
   background:var(--paper);border:1px solid var(--line);color:var(--muted)}
 .perm-matrix td:first-child{max-width:320px}
 .stat .val.mono{font-variant-numeric:tabular-nums}
+
+/* ---- Form batch pembayaran ----
+   Dibagi bagian berjudul karena isiannya enam dan urutannya bercerita:
+   kapan & dari mana -> ke siapa -> untuk apa & berapa. Enam kotak
+   berderet tanpa pengelompokan memaksa mata membaca labelnya satu per
+   satu tiap kali form dibuka. */
+.by-sec{border-top:1px solid var(--line);padding-top:14px;margin-top:16px}
+.by-sec:first-of-type{border-top:none;padding-top:0;margin-top:12px}
+.by-sec-h{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted-2);margin-bottom:10px}
+/* Kotak terkunci: isinya datang dari master vendor, bukan diketik. Warnanya
+   dibedakan supaya bedanya kelihatan sebelum orang mencoba mengetiknya. */
+#by_detail input:disabled{background:var(--paper);color:var(--muted);cursor:not-allowed;
+  border-style:dashed}
+.by-aksi{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:16px;
+  padding-top:14px;border-top:1px solid var(--line)}
 </style>
 <body>
 <div class="app">
@@ -1562,24 +1578,50 @@ function vBayar() {
   /* ---- form ---- */
   const vOpt = vendorAktif().slice().sort((a, b) => String(a.nama).localeCompare(String(b.nama)))
     .map(v => '<option value="' + v.id + '">' + esc(v.nama) + (v.norek ? '' : ' (tanpa rekening)') + '</option>').join('');
+  /* FORM DIBAGI TIGA BAGIAN BERJUDUL, bukan enam kotak berderet.
+     Urutannya mengikuti cara orang mengisinya: kapan & dari mana dulu, lalu
+     ke siapa, baru untuk apa dan berapa. Deretan kotak tanpa pengelompokan
+     memaksa mata membaca labelnya satu per satu tiap kali. */
   h += '<div class="card" data-aks><h3>Tambah Baris Pembayaran</h3>'
     + '<div class="card-sub">Penerima, bank, dan nomor rekening terisi sendiri dari master Vendor di BD OS — '
     + 'tidak diketik ulang tiap minggu.</div>'
-    + '<div class="grid g3">'
+
+    + '<div class="by-sec"><div class="by-sec-h">1 · Kapan &amp; dari rekening mana</div>'
+    + '<div class="grid g2">'
     + fld('Tanggal bayar (batch)', '<input type="date" id="by_batch" value="' + esc(BATCH_AKTIF || todayISO()) + '">')
-    + fld('Dibayar dari', '<select id="by_dari">'
-        + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + ' — saldo ' + fmtRp(s[k].saldo) + '</option>').join('')
+    + fld('Dibayar dari', '<select id="by_dari" onchange="byVendorPilih()">'
+        + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + ' · saldo ' + fmtRp(s[k].saldo) + '</option>').join('')
         + '</select>')
+    + '</div></div>'
+
+    + '<div class="by-sec"><div class="by-sec-h">2 · Ditransfer ke siapa</div>'
     + fld('Vendor', '<select id="by_vendor" onchange="byVendorPilih()">'
-        + '<option value="">— tanpa vendor —</option>' + vOpt + '</select>')
+        + '<option value="">— tanpa vendor (mis. isi kas kecil, biaya admin) —</option>' + vOpt + '</select>')
+    /* Penerima / bank / nomor rekening digambar sebagai KOTAK TERKUNCI, bukan
+       satu baris kalimat. Bentuknya sama dengan kolom di lembar pembayaran di
+       bawah, jadi yang mengisi melihat persis apa yang akan tercetak — dan
+       kotak terkunci mengatakan sendiri bahwa isinya bukan untuk diketik. */
+    + '<div class="grid g3" id="by_detail">'
+    + fld('Penerima', '<input id="by_penerima" class="nokunci" disabled placeholder="terisi dari master vendor">')
+    + fld('Bank', '<input id="by_bank" class="nokunci" disabled placeholder="—">')
+    + fld('No. rekening', '<input id="by_norek" class="mono nokunci" disabled placeholder="—">')
     + '</div>'
-    + '<div id="by_infoVendor" class="notice info" style="display:none"></div>'
+    + '<div id="by_infoVendor" class="notice warn" style="display:none"></div>'
+    + '</div>'
+
+    + '<div class="by-sec"><div class="by-sec-h">3 · Untuk apa &amp; berapa</div>'
     + '<div class="grid g3">'
-    + fld('Keterangan', '<input id="by_name" placeholder="mis. Pembayaran bahan baku tgl 21 Agustus 2026">')
-    + fld('Kategori', '<select id="by_cat">' + BAYAR_KAT.map(c => '<option>' + c + '</option>').join('') + '</select>')
+    + '<div class="field" style="grid-column:span 2"><label>Keterangan</label>'
+      + '<input id="by_name" placeholder="mis. Pembayaran pembelian bahan baku tgl 21 Agustus 2026"></div>'
     + fld('Nominal', '<input class="mono" id="by_amt" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
     + '</div>'
-    + '<button class="btn btn-primary" onclick="bySimpan()">Tambah ke Batch</button></div>';
+    + '<div class="grid g3">'
+    + fld('Kategori', '<select id="by_cat">' + BAYAR_KAT.map(c => '<option>' + c + '</option>').join('') + '</select>')
+    + '</div></div>'
+
+    + '<div class="by-aksi"><button class="btn btn-primary" onclick="bySimpan()">Tambah ke Batch</button>'
+    + '<span class="helper" style="margin:0">Barisnya masuk ke lembar di bawah, di kelompok rekening yang dipilih.</span>'
+    + '</div></div>';
 
   /* ---- lembar batch ---- */
   const judul = BATCH_AKTIF ? ('Pembayaran tgl ' + fmtTgl(BATCH_AKTIF)) : 'Belum Masuk Batch';
@@ -1646,15 +1688,24 @@ function vBayar() {
    Tanpa ini orang baru tahu nomor rekeningnya kosong sesudah barisnya masuk
    lembar — dan lembar pembayaran yang nomornya kosong tidak bisa dieksekusi. */
 function byVendorPilih() {
-  const sel = document.getElementById('by_vendor'), box = document.getElementById('by_infoVendor');
-  if (!sel || !box) return;
+  const sel = document.getElementById('by_vendor');
+  const box = document.getElementById('by_infoVendor');
+  const set = (id, val) => { const e = document.getElementById(id); if (e) e.value = val || ''; };
+  if (!sel) return;
   const v = vendorById(sel.value);
-  if (!v) { box.style.display = 'none'; box.innerHTML = ''; return; }
-  box.style.display = '';
-  box.innerHTML = 'ℹ <div>Transfer ke <b>' + esc(vendorPenerima(v)) + '</b>'
-    + (v.bank ? ' · ' + esc(v.bank) : '')
-    + (v.norek ? ' · <span class="mono">' + esc(v.norek) + '</span>'
-               : ' · <b style="color:var(--warn)">nomor rekening belum diisi di master Vendor</b>') + '</div>';
+  set('by_penerima', v ? vendorPenerima(v) : '');
+  set('by_bank',     v ? v.bank : '');
+  set('by_norek',    v ? v.norek : '');
+  if (!box) return;
+  /* Peringatan hanya untuk keadaan yang MENGHALANGI transfer. Vendor yang
+     lengkap tidak perlu pita apa pun — kotak terkuncinya sudah menunjukkan
+     isinya, dan pita yang selalu muncul berhenti dibaca. */
+  if (v && !v.norek) {
+    box.style.display = '';
+    box.innerHTML = '⚠ <div>Vendor <b>' + esc(v.nama) + '</b> belum punya nomor rekening di master. '
+      + 'Barisnya tetap bisa dicatat, tapi yang mentransfer harus mencari nomornya sendiri. '
+      + 'Lengkapi di <b>BD OS → Vendor</b>.</div>';
+  } else { box.style.display = 'none'; box.innerHTML = ''; }
 }
 
 function bySimpan() {
