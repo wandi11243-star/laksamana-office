@@ -128,9 +128,10 @@ dikelompokkan per rekening pembayar, dengan subtotal tiap kelompok.
 
 - **Kelompok rekening DIHITUNG dari kolom `dari`, bukan diketik.** Di Excel judul
   kelompok cuma teks; baris yang nyasar ke kelompok salah tidak pernah ketahuan.
-- **Penerima / bank / nomor rekening DIBACA dari master Vendor di BD OS**, tidak
-  disalin. Nomor yang dibetulkan di sana harus langsung berlaku di sini —
-  salinan berarti yang mentransfer memakai nomor lama tanpa satu pun tanda.
+- **Penerima / bank / nomor rekening DIBACA dari Daftar Kontak Vendor di modul
+  Purchasing**, tidak disalin. Nomor yang dibetulkan di sana harus langsung
+  berlaku di sini — salinan berarti yang mentransfer memakai nomor lama tanpa
+  satu pun tanda.
 - **`bukti` menyimpan `{ok, at, by}`**, bukan boolean. Centang tanpa jejak tidak
   bisa diaudit, padahal justru kolom itu yang membuktikan uang keluar.
 - **`byBayarGrup()` menandai satu kelompok rekening sekaligus** dan menyebut saldo
@@ -179,50 +180,84 @@ jadi blob satu baris membuat head yang menyimpan belakangan menghapus kerja head
 lain tanpa error. Penulisannya granular per baris — `simpanSel` di jadwal,
 `simpanAjuan`/`putusAjuan` di dw. Jangan "rapikan" kembali jadi `saveAll`.
 
-### Master Vendor: di BD OS, dibaca Finance (28 Agustus 2026)
+### Master Vendor: di PURCHASING, dibaca Finance & BD (28 Agustus 2026)
 
-`deploy/bd/` → menu **Vendor**. Isinya nama pendek, **nama penerima sesuai buku
-rekening**, bank, nomor rekening, kategori. Disimpan lewat pola `settings`
-(`get_setting`/`put_setting`), sama seperti `promos` — bukan tabel sendiri, jadi
-tidak ada berkas migrasi yang bisa tertinggal di produksi.
+`deploy/stock/purchasing/` → tab **Database & Vendor** → *Daftar Kontak Vendor*.
+Sudah ada sejak lama berisi nama, WhatsApp, jadwal jemput, hari tutup, dan barang
+apa saja yang dipasoknya. Yang **ditambahkan** 28 Agustus 2026 cuma tiga kolom:
+`penerima` (nama sesuai buku rekening), `bank`, `norek` — disimpan di dalam blob
+`data` tabel `vendors` yang sudah ada, jadi tidak ada berkas migrasi yang bisa
+tertinggal di produksi.
 
-**Ditaruh di BD, bukan di Brankas.** Vendor milik Purchasing — merekalah yang
-berhubungan dengannya. Kalau masternya di Finance, kolom `vendor` di Purchase
-Order tetap teks bebas dan dua daftar itu pasti berbeda ejaan dalam sebulan.
+**Sempat salah tempat.** Percobaan pertama pagi itu membuat master vendor BARU di
+BD OS; dicabut hari yang sama atas koreksi user. Alasannya bukan selera: dua
+daftar vendor untuk perusahaan yang sama pasti berbeda ejaan dalam sebulan, dan
+yang mentransfer tidak punya cara tahu mana yang lebih baru. Jangan dibuat lagi —
+kalau butuh kolom baru tentang vendor, tambahkan di Purchasing.
 
-Empat hal yang menahan bug diam-diam:
+Yang menahan bug diam-diam:
 
 - **Nama pendek ≠ nama penerima.** Yang diketik sehari-hari "Toffin"; yang harus
   sama persis dengan buku rekening "CV. Toffin Riau Jaya". Beda satu huruf
   membuat transfer ditolak bank — baru ketahuan sesudah uangnya dikirim.
-- **Nomor rekening disimpan apa adanya** (boleh bertanda hubung), tapi
+  `penerima` kosong berarti "sama dengan nama vendor".
+- **Nomor rekening disimpan apa adanya** (boleh bertanda hubung — begitulah
+  tertulis di buku rekening dan begitu pula yang dicocokkan mata), tapi
   DIBANDINGKAN lewat `norekBersih()`. Tanpa itu `034-2928-828` dan `0342928828`
-  terbaca sebagai dua rekening berbeda.
-- **Nama kembar DITOLAK, rekening kembar cuma DIPERINGATKAN.** Nama kembar
-  membuat pemilih di Brankas menampilkan dua baris identik; rekening kembar
-  wajar — satu perusahaan bisa punya beberapa nama dagang.
-- **Arsip, bukan hapus.** Vendor yang dihapus membuat pembayaran lama di Brankas
-  kehilangan nama penerimanya.
+  terbaca sebagai dua rekening berbeda. Impor Excel **tidak** membakukannya
+  seperti nomor WhatsApp.
+- **`preserve-if-null` WAJIB mencakup ketiga kolom** di `pur_vendor_simpan()`.
+  Impor Excel mengirim baris yang cuma punya nama + WhatsApp; tanpa itu satu kali
+  impor MENGOSONGKAN nomor rekening seluruh vendor, dan yang menyadarinya adalah
+  orang yang mentransfer minggu depan.
+- **Ketiganya ikut di ekspor–impor** (`KOL_VENDOR`). Kalau tidak, satu putaran
+  ekspor–sunting–impor mengembalikan seluruh vendor tanpa rekening.
+- **Rekening kembar cuma DIPERINGATKAN.** Satu perusahaan wajar punya beberapa
+  nama dagang yang setor ke rekening yang sama; yang tidak wajar adalah tidak
+  menyadarinya.
+- **Bank daftar tertutup, tapi nilai lama tetap digambar** ditandai `(lama)` lewat
+  `opsiBank()` — pola yang sama dengan `opsiPosisi()` di DW. Tanpa itu, membuka
+  vendor yang banknya diimpor dengan ejaan lain menggantinya ke pilihan pertama
+  begitu Simpan ditekan, dan transfernya nyasar.
 
-**Kolom Vendor di form Purchase Order memakai master ini** (dropdown, bukan
-teks bebas lagi). Yang TERSIMPAN tetap **nama** vendor, bukan id: PO lama
-memakai nama, dan mengganti bentuknya jadi id membuat seluruh riwayat kehilangan
-vendornya tanpa satu pun galat. Nama tersimpan yang sudah tidak ada di master
-tetap digambar sebagai pilihan, ditandai `(lama)` — tanpa itu, membuka PO lama
-diam-diam mengganti vendornya ke pilihan pertama begitu Simpan ditekan.
-Penandanya dibuang lagi saat menyimpan, kalau tidak ia menular jadi bagian nama.
+**Kuncinya NAMA, bukan id** — Purchasing memang tidak punya id vendor, nama itulah
+kunci tabelnya. Karena itu baris pembayaran di Brankas menyimpan `vendor` (nama),
+dan justru itu lebih tahan: vendor yang dihapus dari master tetap meninggalkan
+namanya di lembar pembayaran lama, ditandai `tak ada di master`. Bentuk lama
+`vendorId` masih dibaca (`vendorBaris()`) untuk baris percobaan di dev.
 
-Saat lahir, kolom `vendor` di 51 baris PO produksi **kosong seluruhnya** —
-belum pernah diisi sekali pun. Jadi daftarnya memang mulai dari nol.
+**Dua pembaca, keduanya read-only:**
+
+| pembaca | jalur | kalau Purchasing mati |
+|---|---|---|
+| Brankas → lembar pembayaran | `../../stock-api-mysql/vendors.php` | pita peringatan, nominal tetap terbaca |
+| BD OS → kolom Vendor di Purchase Order | `../stock-api-mysql/vendors.php` | kotaknya bilang "belum terbaca"; nilai tersimpan tetap terpilih |
+
+`vendors.php` membalas `{vendors:{…}}` **TANPA kunci `ok`** — beda dari
+finance-api & kompas-api. Memeriksa `.ok` membuang balasan yang sebenarnya
+baik-baik saja, dan gejalanya cuma kolom penerima yang selalu kosong tanpa satu
+pun galat.
+
+`muatVendorPur()` di BD dipanggil **saat form PO digambar**, bukan saat boot:
+daftarnya cuma dipakai satu form. Idempoten, dan kegagalannya tidak pernah
+dilempar.
+
+Kolom `vendor` di 51 baris PO produksi **kosong seluruhnya** — belum pernah diisi
+sekali pun, karena selama ini teks bebas. Nama tersimpan yang tidak ada di master
+tetap digambar ditandai `(lama)`, dan penandanya dibuang lagi saat menyimpan —
+kalau tidak ia menular jadi bagian nama.
 
 ```bash
-node tools/uji-vendor-bd.js   # 45 pemeriksaan
+node tools/uji-vendor.js   # 98 pemeriksaan
 ```
 
-Ujinya menyuntikkan jembatan **DI DALAM IIFE** modul BD (`DB` tidak ada di
-`window`), dan stub `fetch`-nya wajib menyediakan `text()` — `bacaJawaban()`
-membaca respons sebagai teks dulu, dan stub yang cuma punya `json()` membuat
-boot menggantung tanpa satu pun galat.
+Ujinya tiga bagian: fungsi Purchasing **dipotong dari sumbernya** saat uji jalan
+(modul itu memuat Tailwind & FontAwesome dari CDN, jadi merendernya utuh di jsdom
+bukan yang diuji), modul BD dirender penuh dengan jembatan **DI DALAM IIFE**
+(`DB` tidak ada di `window`), dan Brankas diperiksa sumbernya saja — isi lembarnya
+sudah diuji `tools/uji-brankas.js`. Stub `fetch` untuk BD wajib menyediakan
+`text()`: `bacaJawaban()` membaca respons sebagai teks dulu, dan stub yang cuma
+punya `json()` membuat boot menggantung tanpa satu pun galat.
 
 ### `dw` ↔ `jadwal`: satu arah, dan sengaja begitu
 

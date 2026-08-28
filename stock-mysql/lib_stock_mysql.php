@@ -682,7 +682,8 @@ function pur_vendors_impor($pdo, $rows) {
     $k = mb_strtolower($nm);
     $sebelum = isset($ada[$k]);
     $res = pur_vendor_simpan($pdo, $nm, $r->whatsapp ?? '', '',
-                             $r->perluJadwalJemput ?? null, $r->tutupHari ?? null);
+                             $r->perluJadwalJemput ?? null, $r->tutupHari ?? null,
+                             $r->penerima ?? null, $r->bank ?? null, $r->norek ?? null);
     if (is_array($res) && ($res['status'] ?? '') === 'error') { $galat[] = $nm; continue; }
     if ($sebelum) $ubah++; else { $baru++; $ada[$k] = true; }
   }
@@ -735,6 +736,18 @@ function pur_vendors_ambil($pdo) {
        vendor alternatif yang buka pada tanggal kedatangannya. [] = buka tiap
        hari, dan itulah keadaan seluruh vendor lama yang belum punya kunci ini. */
     $v->tutupHari = pur_hari_normal($v->tutupHari ?? null);
+    /* REKENING TRANSFER (28 Agustus 2026). Dipakai panel Brankas saat menyusun
+       lembar pembayaran mingguan. `penerima` adalah nama SESUAI BUKU REKENING,
+       yang sering berbeda dari nama pendek yang diketik sehari-hari — "Toffin"
+       vs "CV. Toffin Riau Jaya". Beda satu huruf membuat transfer ditolak bank,
+       dan itu baru ketahuan sesudah uangnya dikirim.
+
+       Dinormalkan ke string DI SINI, alasan yang sama dengan perluJadwalJemput:
+       35 vendor lama tidak punya kunci ini sama sekali, dan `undefined` di sisi
+       JS tergambar sebagai kata "undefined" di kolom lembar pembayaran. */
+    $v->penerima = isset($v->penerima) ? (string)$v->penerima : '';
+    $v->bank     = isset($v->bank)     ? (string)$v->bank     : '';
+    $v->norek    = isset($v->norek)    ? (string)$v->norek    : '';
     $out[$r['nama']] = $v;
   }
   // (object) supaya peta kosong terkirim sebagai {} bukan [] — lihat
@@ -742,7 +755,8 @@ function pur_vendors_ambil($pdo) {
   return (object)$out;
 }
 
-function pur_vendor_simpan($pdo, $nama, $telp, $namaLama = '', $perluJadwalJemput = null, $tutupHari = null) {
+function pur_vendor_simpan($pdo, $nama, $telp, $namaLama = '', $perluJadwalJemput = null,
+                            $tutupHari = null, $penerima = null, $bank = null, $norek = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama vendor kosong'];
 
@@ -752,22 +766,37 @@ function pur_vendor_simpan($pdo, $nama, $telp, $namaLama = '', $perluJadwalJempu
      perluJadwalJemput akan diam-diam mematikan penandanya — dan akibatnya
      tidak terlihat sampai ada order yang lolos diarsipkan tanpa jadwal
      penjemputan. */
-  if ($perluJadwalJemput === null || $tutupHari === null) {
+  /* Aturan yang sama berlaku untuk KETIGA kolom rekening. Ini bukan
+     kehati-hatian berlebih: jalur impor Excel mengirim baris yang cuma punya
+     nama + WhatsApp, dan tanpa preserve-if-null satu kali impor akan
+     MENGOSONGKAN nomor rekening seluruh vendor. Yang menyadarinya adalah
+     orang yang mentransfer minggu depan, saat kolomnya sudah kosong di
+     lembar pembayaran Brankas dan tidak ada satu pun catatan kenapa. */
+  if ($perluJadwalJemput === null || $tutupHari === null ||
+      $penerima === null || $bank === null || $norek === null) {
     $st = $pdo->prepare("SELECT `data` FROM `vendors` WHERE `nama`=?");
     $st->execute([$namaLama !== '' ? $namaLama : $nama]);
     $row = $st->fetch();
-    $pjLama = false; $thLama = [];
+    $pjLama = false; $thLama = []; $peLama = ''; $bkLama = ''; $noLama = '';
     if ($row) {
       $lama = json_decode($row['data']);
       if (is_object($lama) && isset($lama->perluJadwalJemput)) $pjLama = (bool)$lama->perluJadwalJemput;
       if (is_object($lama) && isset($lama->tutupHari)) $thLama = pur_hari_normal($lama->tutupHari);
+      if (is_object($lama) && isset($lama->penerima)) $peLama = (string)$lama->penerima;
+      if (is_object($lama) && isset($lama->bank))     $bkLama = (string)$lama->bank;
+      if (is_object($lama) && isset($lama->norek))    $noLama = (string)$lama->norek;
     }
     if ($perluJadwalJemput === null) $perluJadwalJemput = $pjLama;
     if ($tutupHari === null)         $tutupHari = $thLama;
+    if ($penerima === null)          $penerima = $peLama;
+    if ($bank === null)              $bank = $bkLama;
+    if ($norek === null)             $norek = $noLama;
   }
 
   $rec = (object)['whatsapp' => (string)$telp, 'perluJadwalJemput' => (bool)$perluJadwalJemput,
-                  'tutupHari' => pur_hari_normal($tutupHari)];
+                  'tutupHari' => pur_hari_normal($tutupHari),
+                  'penerima' => trim((string)$penerima), 'bank' => trim((string)$bank),
+                  'norek' => trim((string)$norek)];
 
   $pdo->beginTransaction();
   try {

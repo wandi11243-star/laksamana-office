@@ -640,10 +640,18 @@ const SESSION_KEY = 'lm_session';
    penjualan dari backend Kompas. Dua alamat, dua peran — jangan ditukar. */
 const API_BK = '../../finance-api-mysql/api.php';
 const API_KP = '../../kompas-api-mysql/api.php';
-/* Master vendor. DIBACA dari BD OS, tidak pernah disalin ke sini — nomor
-   rekening yang dibetulkan di sana harus langsung berlaku di lembar
-   pembayaran, kalau tidak yang mentransfer memakai nomor lama tanpa tanda. */
-const API_BD = '../../bd-api-mysql/api.php';
+/* Master vendor. DIBACA dari modul Purchasing, tidak pernah disalin ke sini
+   — nomor rekening yang dibetulkan di sana harus langsung berlaku di lembar
+   pembayaran, kalau tidak yang mentransfer memakai nomor lama tanpa tanda.
+
+   PURCHASING, BUKAN DAFTAR SENDIRI (28 Agustus 2026, dibetulkan user).
+   Sempat dibuatkan master vendor baru di BD OS — padahal Purchasing sudah
+   punya Daftar Kontak Vendor berisi 35+ vendor lengkap dengan WhatsApp dan
+   hari tutupnya. Dua daftar vendor untuk perusahaan yang sama akan berbeda
+   ejaan dalam sebulan, dan yang mentransfer tidak punya cara tahu mana yang
+   lebih baru. Yang ditambahkan ke master itu cuma tiga kolom: nama
+   penerima, bank, nomor rekening. */
+const API_VENDOR = '../../stock-api-mysql/vendors.php';
 
 /* ---------- format ----------
    Sama persis dengan panel Kas Kecil & Omset. Modul yang menuliskan rupiah
@@ -735,7 +743,7 @@ const MAP_BAWAAN = {
 let CURRENT_USER = null;
 let BK = null;                 // {data:{rekening,piutang,bayar,investor,setting}, akses, peran}
 let KP = null;                 // blob kompas (reports, rekap_*, rekap_setoran)
-let BD = null;                 // blob BD OS — yang dipakai cuma .vendors
+let VD = null;                 // master vendor Purchasing: {"Nama": {penerima,bank,norek,…}}
 let KP_ERR = '';
 let CURRENT = 'ringkasan';
 let CHARTS = [];
@@ -888,7 +896,7 @@ async function muatSemua() {
   const [a, b, c] = await Promise.allSettled([
     postJson(API_BK, { action:'brankasGet' }),
     fetch(API_KP + '?action=getAll&cb=' + Date.now()).then(r => r.json()),
-    fetch(API_BD + '?action=getAll&cb=' + Date.now()).then(r => r.json())
+    fetch(API_VENDOR + '?cb=' + Date.now()).then(r => r.json())
   ]);
   if (a.status === 'fulfilled' && a.value && a.value.ok) BK = a.value.data;
   else throw new Error('Brankas: ' + ((a.reason && a.reason.message) || (a.value && a.value.error) || 'gagal dibaca'));
@@ -902,10 +910,17 @@ async function muatSemua() {
   if (b.status === 'fulfilled' && b.value && b.value.ok) { KP = b.value.data || {}; KP_ERR = ''; }
   else { KP = null; KP_ERR = 'Data Rekap Penjualan tidak terbaca, jadi saldo rekening belum bisa dihitung.'; }
 
-  /* BD boleh gagal tanpa mematikan modul — yang bergantung padanya cuma nama
-     penerima di lembar pembayaran. Halaman yang mogok total gara-gara modul
-     lain sedang batuk lebih merugikan daripada satu kolom yang kosong. */
-  BD = (c.status === 'fulfilled' && c.value && c.value.ok) ? (c.value.data || {}) : null;
+  /* Master vendor boleh gagal tanpa mematikan modul — yang bergantung padanya
+     cuma nama penerima di lembar pembayaran. Halaman yang mogok total
+     gara-gara modul lain sedang batuk lebih merugikan daripada satu kolom
+     yang kosong.
+
+     vendors.php membalas {vendors:{…}} TANPA kunci `ok` — beda dari
+     finance-api & kompas-api. Memeriksa `.ok` di sini akan membuang balasan
+     yang sebenarnya baik-baik saja, dan gejalanya cuma kolom penerima yang
+     selalu kosong tanpa satu pun galat. */
+  VD = (c.status === 'fulfilled' && c.value && c.value.vendors && typeof c.value.vendors === 'object')
+       ? c.value.vendors : null;
   setSync('ok', '✓ Tersimpan');
 }
 /* State dikirim UTUH. Backend menulis blob sekali jalan, jadi mengirim
@@ -1504,8 +1519,9 @@ async function muSimpan() {
       yang bisa melaporkannya. Di sini kelompoknya dihitung dari kolom
       "Dibayar dari", jadi salah taruh mustahil.
    2. Penerima, bank, dan nomor rekening TIDAK diketik ulang tiap baris. Ia
-      dibaca dari master Vendor di BD OS. Mengetik ulang nomor rekening tiap
-      minggu adalah cara paling pasti untuk suatu hari mengetiknya salah.
+      dibaca dari Daftar Kontak Vendor di modul Purchasing. Mengetik ulang
+      nomor rekening tiap minggu adalah cara paling pasti untuk suatu hari
+      mengetiknya salah.
    3. "Bukti TF" menyimpan SIAPA dan KAPAN, bukan cuma centang. Centang tanpa
       jejak tidak bisa diaudit — padahal justru kolom itu yang membuktikan
       uang benar-benar keluar.
@@ -1518,16 +1534,33 @@ async function muSimpan() {
 const BAYAR_KAT = ['Bahan baku','Minuman','Rokok','Gas & Utilitas','Jasa & Langganan',
                    'Sewa','Gaji','Pajak','Cicilan','Bagi hasil','Kas kecil','Lainnya'];
 
-/* Master vendor DIBACA dari BD OS, tidak disalin. Kalau disalin, nomor
+/* Master vendor DIBACA dari Purchasing, tidak disalin. Kalau disalin, nomor
    rekening yang dibetulkan di sana tidak pernah sampai ke sini — dan yang
-   mentransfer memakai nomor lama tanpa satu pun tanda. */
-function vendorSemua() { const v = BD && BD.vendors; return Array.isArray(v) ? v : []; }
-function vendorAktif() { return vendorSemua().filter(v => !v.arsip); }
-function vendorById(id) { return vendorSemua().find(v => v.id === id) || null; }
-function vendorNama(id) { const v = vendorById(id); return v ? v.nama : ''; }
-/* Penerima kosong berarti "sama dengan nama pendek" — begitu master vendor
-   menyimpannya, dan menyalin aturannya ke sini menjaga dua layar menulis nama
-   yang sama. */
+   mentransfer memakai nomor lama tanpa satu pun tanda.
+
+   Bentuk aslinya PETA BERKUNCI NAMA, bukan array berisi id. Diratakan jadi
+   array di sini supaya sisa halaman tidak perlu tahu bedanya. */
+function vendorSemua() {
+  if (!VD) return [];
+  return Object.keys(VD).map(nm => Object.assign({ nama: nm }, VD[nm] || {}))
+    .sort((a, b) => String(a.nama).localeCompare(String(b.nama), 'id'));
+}
+/* KUNCINYA NAMA, bukan id — Purchasing memang tidak punya id vendor, nama
+   itulah kunci tabelnya. Karena itu yang tersimpan di baris pembayaran juga
+   nama, dan itu justru lebih tahan: vendor yang dihapus dari master tetap
+   meninggalkan nama penerimanya di lembar pembayaran lama, sementara id yang
+   sudah tidak ada memulangkan baris kosong tanpa satu pun keterangan. */
+function vendorByNama(nama) {
+  const t = String(nama == null ? '' : nama).trim().toLowerCase();
+  if (!t) return null;
+  return vendorSemua().find(v => String(v.nama).trim().toLowerCase() === t) || null;
+}
+/* Baris pembayaran menyimpan `vendor` (nama). `vendorId` adalah bentuk lama
+   dari percobaan pertama yang masternya di BD OS; dibaca supaya baris yang
+   sudah terlanjur dicatat di dev tidak kehilangan vendornya. */
+function vendorBaris(p) { return (p && (p.vendor || p.vendorId)) || ''; }
+/* Penerima kosong berarti "sama dengan nama vendor" — itu pula yang tertulis
+   di keterangan form Purchasing, jadi dua layar menulis nama yang sama. */
 function vendorPenerima(v) { return v ? (v.penerima || v.nama) : ''; }
 
 function batchTgl() {
@@ -1548,7 +1581,7 @@ function vBayar() {
   const s = saldoSemua();
 
   let h = '';
-  if (!BD) h += '<div class="notice warn">⚠ <div><b>Master vendor dari BD OS tidak terbaca.</b> '
+  if (!VD) h += '<div class="notice warn">⚠ <div><b>Master vendor dari Purchasing tidak terbaca.</b> '
     + 'Baris tetap bisa dicatat, tapi nama penerima dan nomor rekeningnya tidak akan tampil.</div></div>';
 
   /* ---- ringkasan ---- */
@@ -1576,14 +1609,17 @@ function vBayar() {
     + '</div></div>';
 
   /* ---- form ---- */
-  const vOpt = vendorAktif().slice().sort((a, b) => String(a.nama).localeCompare(String(b.nama)))
-    .map(v => '<option value="' + v.id + '">' + esc(v.nama) + (v.norek ? '' : ' (tanpa rekening)') + '</option>').join('');
+  /* value = NAMA vendor. Purchasing tidak punya id; nama itulah kunci
+     tabelnya, dan itu pula yang tersimpan di baris pembayaran. */
+  const vOpt = vendorSemua()
+    .map(v => '<option value="' + esc(v.nama) + '">' + esc(v.nama)
+      + (v.norek ? '' : ' (tanpa rekening)') + '</option>').join('');
   /* FORM DIBAGI TIGA BAGIAN BERJUDUL, bukan enam kotak berderet.
      Urutannya mengikuti cara orang mengisinya: kapan & dari mana dulu, lalu
      ke siapa, baru untuk apa dan berapa. Deretan kotak tanpa pengelompokan
      memaksa mata membaca labelnya satu per satu tiap kali. */
   h += '<div class="card" data-aks><h3>Tambah Baris Pembayaran</h3>'
-    + '<div class="card-sub">Penerima, bank, dan nomor rekening terisi sendiri dari master Vendor di BD OS — '
+    + '<div class="card-sub">Penerima, bank, dan nomor rekening terisi sendiri dari <b>Daftar Kontak Vendor</b> di modul Purchasing — '
     + 'tidak diketik ulang tiap minggu.</div>'
 
     + '<div class="by-sec"><div class="by-sec-h">1 · Kapan &amp; dari rekening mana</div>'
@@ -1650,12 +1686,17 @@ function vBayar() {
         + '<th class="num">Nominal</th><th>Penerima</th><th>Bank</th><th>No. Rekening</th>'
         + '<th>Bukti TF</th><th></th></tr></thead><tbody>';
       g.forEach((p, i) => {
-        const v = vendorById(p.vendorId);
+        const v = vendorByNama(vendorBaris(p));
         h += '<tr' + (p.status === 'paid' ? ' style="opacity:.6"' : '') + '>'
           + '<td>' + (i + 1) + '</td>'
           + '<td><b>' + esc(p.name) + '</b>'
             + (p.cat ? '<span class="helper">' + esc(p.cat) + '</span>' : '') + '</td>'
-          + '<td>' + (v ? esc(v.nama) : '<span style="color:var(--muted-2)">—</span>') + '</td>'
+          /* Nama yang tersimpan tetap ditulis walau vendornya sudah tidak ada di
+             master — baris pembayaran lama tidak boleh kehilangan ke siapa uang
+             itu dikirim hanya karena vendornya dihapus belakangan. */
+          + '<td>' + (vendorBaris(p)
+              ? esc(vendorBaris(p)) + (v ? '' : ' <span class="chip" style="background:var(--warn-bg);color:var(--warn)">tak ada di master</span>')
+              : '<span style="color:var(--muted-2)">—</span>') + '</td>'
           + '<td class="num mono">' + fmtRp(p.amount) + '</td>'
           + '<td>' + (v ? esc(vendorPenerima(v)) : (p.penerima ? esc(p.penerima) : '<span style="color:var(--muted-2)">—</span>')) + '</td>'
           + '<td>' + (v && v.bank ? esc(v.bank) : '<span style="color:var(--muted-2)">—</span>') + '</td>'
@@ -1692,7 +1733,7 @@ function byVendorPilih() {
   const box = document.getElementById('by_infoVendor');
   const set = (id, val) => { const e = document.getElementById(id); if (e) e.value = val || ''; };
   if (!sel) return;
-  const v = vendorById(sel.value);
+  const v = vendorByNama(sel.value);
   set('by_penerima', v ? vendorPenerima(v) : '');
   set('by_bank',     v ? v.bank : '');
   set('by_norek',    v ? v.norek : '');
@@ -1704,7 +1745,7 @@ function byVendorPilih() {
     box.style.display = '';
     box.innerHTML = '⚠ <div>Vendor <b>' + esc(v.nama) + '</b> belum punya nomor rekening di master. '
       + 'Barisnya tetap bisa dicatat, tapi yang mentransfer harus mencari nomornya sendiri. '
-      + 'Lengkapi di <b>BD OS → Vendor</b>.</div>';
+      + 'Lengkapi di <b>Purchasing → Database &amp; Vendor</b>.</div>';
   } else { box.style.display = 'none'; box.innerHTML = ''; }
 }
 
@@ -1716,7 +1757,7 @@ function bySimpan() {
   const b = g('by_batch');
   BATCH_AKTIF = b;
   simpanBaris('bayar', { id:uid('by'), name:g('by_name').trim(), cat:g('by_cat'),
-    amount:num(g('by_amt')), dari:g('by_dari') || KAS_K, vendorId:g('by_vendor'),
+    amount:num(g('by_amt')), dari:g('by_dari') || KAS_K, vendor:g('by_vendor'),
     batch:b, dueDate:b, note:'', status:'scheduled', bukti:null }, 'bayar');
 }
 function byToggle(id) {

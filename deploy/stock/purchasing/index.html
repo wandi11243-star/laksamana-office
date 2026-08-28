@@ -1157,6 +1157,35 @@
                     </span>
                 </label>
 
+                <!-- REKENING TRANSFER (28 Agustus 2026, permintaan user).
+                     Dipakai panel Brankas untuk menyusun lembar pembayaran
+                     mingguan. Dikelompokkan dalam satu kotak berlatar supaya
+                     terbaca sebagai satu hal — form ini sudah punya enam kotak
+                     berderet, dan tiga kotak lagi tanpa pengelompokan membuat
+                     matanya harus membaca label satu per satu tiap kali dibuka. -->
+                <div class="rounded-xl border border-slate-200 bg-slate-50/60 p-3 space-y-3">
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs font-black text-slate-700">Rekening Transfer</span>
+                        <span class="text-[10px] text-slate-400 font-semibold">opsional — dipakai lembar pembayaran Brankas</span>
+                    </div>
+                    <div>
+                        <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Nama Penerima</label>
+                        <input type="text" id="vend-penerima" placeholder="Contoh: CV. Toffin Riau Jaya" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                        <span class="text-[10px] text-slate-400 mt-1 block font-medium">Tulis <b>persis seperti di buku rekening</b>, bukan nama pendek yang dipakai sehari-hari. Beda satu huruf membuat transfer ditolak bank — dan itu baru ketahuan sesudah uangnya dikirim. Dikosongkan = dianggap sama dengan nama vendor.</span>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2">
+                        <div>
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">Bank</label>
+                            <select id="vend-bank" class="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white"></select>
+                        </div>
+                        <div class="col-span-2">
+                            <label class="block text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-1">No. Rekening</label>
+                            <input type="text" id="vend-norek" placeholder="034-2928-828" oninput="cekNorekKembar()" class="w-full border border-slate-200 rounded-xl px-4 py-2.5 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-indigo-500 bg-white">
+                        </div>
+                    </div>
+                    <div id="vend-rek-info" class="hidden text-[11px] leading-relaxed rounded-lg px-3 py-2 bg-amber-50 border border-amber-200 text-amber-900"></div>
+                </div>
+
                 <!-- HARI TUTUP (15 Agustus 2026, permintaan user). Ada vendor
                      yang libur di hari tertentu; pesanan yang kedatangannya
                      jatuh di hari itu harus diarahkan ke vendor alternatif yang
@@ -3732,6 +3761,48 @@
             return { hal, mulai, akhir };
         }
 
+        /* ====== REKENING TRANSFER VENDOR (28 Agustus 2026, permintaan user) ======
+           Master vendor sudah ada di sini — nama, WhatsApp, hari tutup, dan
+           barang apa saja yang dipasoknya. Yang belum ada cuma ke mana uangnya
+           dikirim, dan itu satu-satunya alasan lembar pembayaran mingguan masih
+           disalin manual dari Excel.
+
+           Ditaruh di master yang SUDAH ADA, bukan di daftar vendor kedua milik
+           Finance. Dua daftar vendor untuk perusahaan yang sama akan berbeda
+           ejaan dalam sebulan, dan yang mentransfer tidak punya cara tahu mana
+           yang lebih baru.
+
+           Dibaca panel Brankas lewat vendors.php yang sama. Yang dibetulkan di
+           layar ini langsung berlaku di sana — tidak ada penyalinan. */
+
+        const VENDOR_BANK = ['BCA', 'Mandiri', 'BRI', 'BNI', 'UOB', 'CIMB Niaga',
+                             'Permata', 'Danamon', 'BSI', 'Lainnya'];
+
+        /* Nomor rekening DISIMPAN apa adanya (boleh bertanda hubung — begitulah
+           tertulis di buku rekening dan begitu pula yang dicocokkan mata), tapi
+           DIBANDINGKAN lewat fungsi ini. Tanpa itu '034-2928-828' dan
+           '0342928828' terbaca sebagai dua rekening yang berbeda. */
+        function norekBersih(x) { return String(x == null ? '' : x).replace(/[^0-9]/g, ''); }
+
+        /* Satu sel, tiga baris: penerima / bank + nomor. Bukan tiga kolom —
+           tabel ini sudah punya tujuh, dan tiga kolom lagi membuatnya harus
+           digulir mendatar terus-menerus di layar mana pun.
+
+           Vendor tanpa nomor rekening ditandai TERANG, bukan dikosongkan:
+           kosong terbaca sebagai 'belum sempat diisi', padahal artinya vendor
+           ini tidak bisa masuk lembar pembayaran sama sekali. */
+        function selRekening(v) {
+            v = v || {};
+            const no = String(v.norek || '').trim();
+            if (!no) return `<span class="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-slate-100 text-slate-500 border border-slate-200 whitespace-nowrap" title="Vendor ini belum bisa dipilih saat mencatat pembayaran di Brankas">belum ada rekening</span>`;
+            const pe = String(v.penerima || '').trim();
+            const bk = String(v.bank || '').trim();
+            return `<div class="leading-tight">
+                <div class="text-xs font-semibold text-slate-700">${pe || '<span class="text-slate-300 font-normal italic">nama penerima belum diisi</span>'}</div>
+                <div class="text-[11px] text-slate-500 font-mono mt-0.5">${bk ? bk + ' · ' : ''}${no}</div>
+            </div>`;
+        }
+
         /* ====== BARANG APA SAJA YANG MENUNJUK VENDOR INI (15 Agustus 2026) ======
            Kaitannya selama ini cuma bisa dibaca SATU ARAH: buka bahan baku,
            lihat vendornya. Pertanyaan sebaliknya — "kalau vendor ini berhenti,
@@ -3902,12 +3973,21 @@
         const pisahSub = v => String(v || '').split(CSV_SUB).map(x => x.trim()).filter(Boolean);
 
         // ---------- VENDOR ----------
-        const KOL_VENDOR = ['Nama Vendor', 'WhatsApp', 'Perlu Jadwal Jemput', 'Hari Tutup'];
+        /* Kolom rekening IKUT di ekspor–impor. Kalau tidak, satu putaran
+           ekspor–sunting–impor akan mengembalikan seluruh vendor tanpa nomor
+           rekening — dan bukan sebagai galat, melainkan sebagai kolom yang
+           tiba-tiba kosong di lembar pembayaran minggu depan. (Server sudah
+           preserve-if-null, jadi berkas lama yang belum punya kolom ini tetap
+           aman; yang berbahaya justru berkas BARU dengan kolomnya dikosongkan
+           di Excel.) */
+        const KOL_VENDOR = ['Nama Vendor', 'WhatsApp', 'Perlu Jadwal Jemput', 'Hari Tutup',
+                            'Nama Penerima', 'Bank', 'No. Rekening'];
         function barisEksporVendor() {
             return Object.keys(appState.vendors || {}).sort().map(n => {
                 const v = appState.vendors[n] || {};
                 return [n, v.whatsapp || '', capYa(v.perluJadwalJemput),
-                        tutupHariOf(n).map(h => HARI_SINGKAT[h]).join(CSV_SUB)];
+                        tutupHariOf(n).map(h => HARI_SINGKAT[h]).join(CSV_SUB),
+                        v.penerima || '', v.bank || '', v.norek || ''];
             });
         }
         function exportVendorCsv() {
@@ -3952,6 +4032,16 @@
                         return HARI_SINGKAT.findIndex(x => x.toLowerCase() === k);
                     }).filter(n2 => n2 >= 0).join(',');
                 }
+                /* Ketiganya dibaca APA ADANYA. Nomor rekening TIDAK dibersihkan
+                   seperti nomor WhatsApp: tanda hubungnya memang bagian dari cara
+                   nomor itu tertulis di buku rekening, dan itulah bentuk yang
+                   dicocokkan mata orang sebelum menekan kirim. Pembandingannya
+                   yang mengabaikan tanda hubung, bukan penyimpanannya. */
+                ['Nama Penerima:penerima', 'Bank:bank', 'No. Rekening:norek'].forEach(pair => {
+                    const [kol, kunci] = pair.split(':');
+                    const x = amb(b, kol);
+                    if (x !== undefined) rec[kunci] = String(x).trim();
+                });
                 out.push(rec);
             });
             return { rows: out, bolong };
@@ -4195,13 +4285,20 @@
                 const v = appState.vendors[n] || {};
                 const p = barangVendor(n);
                 return [n, v.whatsapp || '', v.perluJadwalJemput ? 'perlu jadwal jemput' : 'hari yang sama',
-                        labelTutup(n) || 'buka tiap hari', p.utama.join(' '), p.cadangan.join(' ')]
+                        labelTutup(n) || 'buka tiap hari', p.utama.join(' '), p.cadangan.join(' '),
+                        /* Nomor rekening dicari DUA BENTUK: apa adanya dan tanpa tanda hubung.
+                           Yang tersimpan boleh '034-2928-828', tapi yang disalin orang dari
+                           m-banking hampir selalu '0342928828' — dan pencarian yang cuma
+                           mengenal satu bentuk memulangkan nol untuk vendor yang jelas ada. */
+                        v.penerima || '', v.bank || '', v.norek || '', norekBersih(v.norek),
+                        norekBersih(v.norek) ? '' : 'belum ada rekening']
                        .join(' ').toLowerCase();
             };
             const kepalaV = document.getElementById('vendor-head');
             if (kepalaV) kepalaV.innerHTML =
                 thPur('vendor', 'nama', 'Nama Vendor') + thPur('vendor', 'wa', 'WhatsApp') +
                 thPur('vendor', 'jemput', 'Jadwal Jemput') + thPur('vendor', 'tutup', 'Hari Tutup') +
+                thPur('vendor', 'rek', 'Rekening Transfer') +
                 thPur('vendor', 'utama', 'Vendor Utama Untuk') + thPur('vendor', 'cadangan', 'Alternatif Untuk') +
                 '<th class="py-3 px-3 text-right">Aksi</th>';
 
@@ -4215,6 +4312,12 @@
                     // Diurut menurut BERAPA hari tutupnya, bukan tulisannya:
                     // "Min, Sen" vs "Sab" sebagai teks tidak menjawab apa pun.
                     tutup: n => tutupHariOf(n).length,
+                    /* Diurut menurut ADA-TIDAKNYA rekening, bukan menurut nomornya.
+                       Pertanyaan yang dibawa ke kolom ini cuma satu: siapa yang belum
+                       bisa ditransfer. Mengurut nomor rekening secara alfabet tidak
+                       menjawab apa pun — tidak ada yang mencari 'rekening yang
+                       angkanya paling kecil'. */
+                    rek: n => norekBersih((appState.vendors[n] || {}).norek) ? 1 : 0,
                     utama: n => barangVendor(n).utama.length,
                     cadangan: n => barangVendor(n).cadangan.length
                 });
@@ -4223,7 +4326,7 @@
             vendorHal = pv.hal;
 
             if (namaVendor.length === 0) {
-                vendorList.innerHTML = `<tr><td colspan="7" class="text-center py-6 text-xs text-slate-400 italic">${vendorQuery
+                vendorList.innerHTML = `<tr><td colspan="8" class="text-center py-6 text-xs text-slate-400 italic">${vendorQuery
                     ? `Tidak ada vendor yang cocok dengan "${vendorQuery}".`
                     : 'Database Vendor masih kosong / Belum tersambung.'}</td></tr>`;
             }
@@ -4243,6 +4346,7 @@
                     <td class="py-3 px-3">${labelTutup(name)
                         ? `<span class="inline-flex items-center px-2 py-0.5 rounded-lg text-[10px] font-bold bg-rose-50 text-rose-700 border border-rose-200 whitespace-nowrap" title="Pesanan yang kedatangannya jatuh di hari ini dialihkan ke vendor alternatif yang buka">🚫 ${labelTutup(name)}</span>`
                         : `<span class="text-[10px] text-slate-400 font-medium italic whitespace-nowrap">buka tiap hari</span>`}</td>
+                    <td class="py-3 px-3">${selRekening(item)}</td>
                     <td class="py-3 px-3">${chipBarang(pakai.utama, 'bg-indigo-50 text-indigo-700 border-indigo-100', name)}</td>
                     <td class="py-3 px-3">${chipBarang(pakai.cadangan, 'bg-amber-50 text-amber-800 border-amber-200', name)}</td>
                     <td class="py-3 px-3 text-right whitespace-nowrap">
@@ -6630,7 +6734,14 @@
                    jalur lain yang meneruskannya apa adanya akan menyimpan kata
                    "Array". Teks koma mendarat utuh di kedua versi. */
                 const tutupHari = bacaTutupHari();
-                const result = await sendPostRequest({ action: 'addVendor', vendorName: name, vendorPhone: phone, oldVendorName: editKey, perluJadwalJemput: perluJadwalJemput, tutupHari: tutupHari.join(',') }, 'vendors');
+                /* Rekening transfer. Dikirim SELALU (walau kosong) supaya
+                   mengosongkannya lewat form memang mengosongkannya —
+                   preserve-if-null di server hanya untuk pemanggil yang tidak
+                   punya field ini sama sekali, mis. impor Excel lama. */
+                const penerima = document.getElementById('vend-penerima').value.trim();
+                const bank = document.getElementById('vend-bank').value.trim();
+                const norek = document.getElementById('vend-norek').value.trim();
+                const result = await sendPostRequest({ action: 'addVendor', vendorName: name, vendorPhone: phone, oldVendorName: editKey, perluJadwalJemput: perluJadwalJemput, tutupHari: tutupHari.join(','), penerima: penerima, bank: bank, norek: norek }, 'vendors');
                 if (result && result.status === 'success') {
                     showToast("Berhasil Disinkronkan", `Vendor "${name}" berhasil tersimpan langsung di Google Sheet.`, "success");
                     catatLog(editKey ? "vendor_ubah" : "vendor_tambah",
@@ -7378,6 +7489,41 @@
         }
 
 
+        /* Bank sebagai daftar tertutup, tapi nilai tersimpan yang tidak ada di
+           daftar TETAP DIGAMBAR dan ditandai (lama) — pola yang sama dengan
+           opsiPosisi() di modul DW. Tanpa itu, membuka vendor yang banknya
+           diimpor dengan ejaan lain ("CIMB" vs "CIMB Niaga") akan diam-diam
+           menggantinya ke pilihan pertama begitu Simpan ditekan, tanpa satu pun
+           galat — dan transfernya nyasar ke bank yang salah. */
+        function opsiBank(terpilih) {
+            const t = String(terpilih || '').trim();
+            let h = `<option value="">—</option>`;
+            let ada = false;
+            VENDOR_BANK.forEach(b => {
+                if (b === t) ada = true;
+                h += `<option value="${b}"${b === t ? ' selected' : ''}>${b}</option>`;
+            });
+            if (t && !ada) h += `<option value="${t}" selected>${t} (lama)</option>`;
+            return h;
+        }
+
+        /* Rekening kembar cuma DIPERINGATKAN, tidak ditolak: satu perusahaan
+           wajar punya beberapa nama dagang yang setor ke rekening yang sama.
+           Yang tidak wajar adalah tidak menyadarinya. */
+        function cekNorekKembar() {
+            const box = document.getElementById('vend-rek-info');
+            if (!box) return;
+            const no = norekBersih((document.getElementById('vend-norek') || {}).value);
+            const kunci = (document.getElementById('vend-edit-key') || {}).value || '';
+            if (!no) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+            const sama = Object.keys(appState.vendors || {}).filter(nm =>
+                nm !== kunci && norekBersih((appState.vendors[nm] || {}).norek) === no);
+            if (!sama.length) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+            box.classList.remove('hidden');
+            box.innerHTML = `Nomor ini sudah dipakai <b>${sama.join('</b>, <b>')}</b>. ` +
+                `Boleh saja kalau memang satu perusahaan dengan beberapa nama dagang — tapi kalau bukan, salah satunya salah ketik.`;
+        }
+
         function openAddVendorModal() {
             document.getElementById('vendor-modal-title').innerText = "Tambah Vendor Baru (Live Sheets)";
             document.getElementById('vend-edit-key').value = "";
@@ -7385,6 +7531,10 @@
             document.getElementById('vend-name').removeAttribute('readonly');
             document.getElementById('vend-phone').value = "";
             document.getElementById('vend-jadwal-jemput').checked = false;
+            document.getElementById('vend-penerima').value = "";
+            document.getElementById('vend-bank').innerHTML = opsiBank('');
+            document.getElementById('vend-norek').value = "";
+            cekNorekKembar();
             renderTutupHari([]);              // vendor baru: dianggap buka tiap hari
             toggleModal('modal-vendor', true);
         }
@@ -7426,6 +7576,10 @@
             document.getElementById('vend-name').removeAttribute('readonly'); 
             document.getElementById('vend-phone').value = appState.vendors[name].whatsapp;
             document.getElementById('vend-jadwal-jemput').checked = !!appState.vendors[name].perluJadwalJemput;
+            document.getElementById('vend-penerima').value = appState.vendors[name].penerima || "";
+            document.getElementById('vend-bank').innerHTML = opsiBank(appState.vendors[name].bank);
+            document.getElementById('vend-norek').value = appState.vendors[name].norek || "";
+            cekNorekKembar();
             renderTutupHari(tutupHariOf(name));
             toggleModal('modal-vendor', true);
         }

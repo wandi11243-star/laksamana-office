@@ -14,7 +14,18 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const ROOT = path.resolve(__dirname, '..');
-const { JSDOM } = require(path.join(ROOT, 'node_modules', 'jsdom'));
+/* jsdom dicari di node_modules repo dulu, lalu lewat resolusi biasa. Mesin
+   yang node_modules repo-nya belum dipasang bisa memakai JSDOM_PATH atau
+   NODE_PATH — sebelumnya jalurnya dipatok, jadi ujinya mati sebelum satu pun
+   pemeriksaan jalan dan yang terbaca cuma MODULE_NOT_FOUND. */
+const { JSDOM } = (() => {
+  for (const p of [process.env.JSDOM_PATH, path.join(ROOT, 'node_modules', 'jsdom'), 'jsdom']) {
+    if (!p) continue;
+    try { return require(p); } catch (e) { /* coba berikutnya */ }
+  }
+  console.error('jsdom tidak ketemu. Pasang `npm i jsdom`, atau setel JSDOM_PATH ke foldernya.');
+  process.exit(2);
+})();
 
 /* Teks uji sengaja mencakup rentang panjang yang bikin versi QR-nya berbeda
    (1, 2, 5, 10) plus bentuk token yang benar-benar dipakai — token tiket dan

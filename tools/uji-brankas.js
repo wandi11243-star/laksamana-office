@@ -7,7 +7,18 @@
 const fs = require('fs');
 const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
-const { JSDOM } = require(path.join(ROOT, 'node_modules', 'jsdom'));
+/* jsdom dicari di node_modules repo dulu, lalu lewat resolusi biasa. Mesin
+   yang node_modules repo-nya belum dipasang bisa memakai JSDOM_PATH atau
+   NODE_PATH — sebelumnya jalurnya dipatok, jadi ujinya mati sebelum satu pun
+   pemeriksaan jalan dan yang terbaca cuma MODULE_NOT_FOUND. */
+const { JSDOM } = (() => {
+  for (const p of [process.env.JSDOM_PATH, path.join(ROOT, 'node_modules', 'jsdom'), 'jsdom']) {
+    if (!p) continue;
+    try { return require(p); } catch (e) { /* coba berikutnya */ }
+  }
+  console.error('jsdom tidak ketemu. Pasang `npm i jsdom`, atau setel JSDOM_PATH ke foldernya.');
+  process.exit(2);
+})();
 
 const HTML = fs.readFileSync(path.join(ROOT, 'deploy', 'finance', 'brankas', 'index.html'), 'utf8');
 
@@ -72,9 +83,13 @@ function domBrankas(opt) {
       w.fetch = async (url, init) => {
         const body = init && init.body ? JSON.parse(init.body) : {};
         panggilan.push({ url, body });
-        if (String(url).indexOf('bd-api') > -1)
-          return { json: async () => (opt.bdGagal ? { ok:false, error:'x' }
-                                                  : { ok:true, data: opt.bd || { vendors: [] } }) };
+        /* Master vendor Purchasing. Balasannya {vendors:{…}} TANPA kunci `ok`
+           — beda dari finance-api & kompas-api, dan itulah yang paling mudah
+           salah dibaca: memeriksa .ok akan membuang balasan yang baik-baik
+           saja, dan gejalanya cuma kolom penerima yang selalu kosong. */
+        if (String(url).indexOf('stock-api-mysql/vendors.php') > -1)
+          return { json: async () => (opt.vendorGagal ? { status:'error' }
+                                                      : { vendors: opt.vendors || {} }) };
         if (String(url).indexOf('kompas-api') > -1)
           return { json: async () => (opt.kompasGagal ? { ok:false, error:'x' } : { ok:true, data: KOMPAS }) };
         if (String(url).indexOf('account-api') > -1)
@@ -460,22 +475,21 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
   {
     /* Meniru lembar Excel: satu tanggal, tiga rekening pembayar. */
     const { dom, panggilan } = domBrankas({
-      bd: { vendors: [
-        { id:'v1', nama:'Toffin',  penerima:'CV. Toffin Riau Jaya', bank:'BCA', norek:'034-2928-828', arsip:false },
-        { id:'v2', nama:'Ecocare', penerima:'PT. Ecocare Indo Pasifik', bank:'BCA', norek:'', arsip:false },
-        { id:'v3', nama:'Lama',    penerima:'', bank:'', norek:'', arsip:true }
-      ] },
+      vendors: {
+        'Toffin':  { penerima:'CV. Toffin Riau Jaya', bank:'BCA', norek:'034-2928-828' },
+        'Ecocare': { penerima:'PT. Ecocare Indo Pasifik', bank:'BCA', norek:'' }
+      },
       bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], setting:{}, bayar:[
         { id:'p1', name:'Bahan baku 21 Agu', cat:'Bahan baku', amount:885000, dari:'uob',
-          vendorId:'v1', batch:'2026-08-27', status:'scheduled', bukti:null },
+          vendor:'Toffin', batch:'2026-08-27', status:'scheduled', bukti:null },
         { id:'p2', name:'Air refreshner',    cat:'Jasa & Langganan', amount:518000, dari:'uob',
-          vendorId:'v2', batch:'2026-08-27', status:'scheduled', bukti:null },
+          vendor:'Ecocare', batch:'2026-08-27', status:'scheduled', bukti:null },
         { id:'p3', name:'Bagi hasil cake',   cat:'Bagi hasil', amount:2518100, dari:'mandiri',
-          vendorId:'', batch:'2026-08-27', status:'scheduled', bukti:null },
+          vendor:'', batch:'2026-08-27', status:'scheduled', bukti:null },
         { id:'p4', name:'Bahan baku 20-25',  cat:'Bahan baku', amount:1996000, dari:'bri',
-          vendorId:'', batch:'2026-08-27', status:'scheduled', bukti:null },
+          vendor:'', batch:'2026-08-27', status:'scheduled', bukti:null },
         { id:'p5', name:'Belum dijadwalkan', cat:'Lainnya', amount:100000, dari:'bca',
-          vendorId:'', batch:'', status:'scheduled', bukti:null }
+          vendor:'', batch:'', status:'scheduled', bukti:null }
       ] }, akses:{}, peran:{} }
     });
     await tunggu(400);
@@ -517,11 +531,11 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
   console.log('\n== Tandai satu rekening terbayar ==');
   {
     const { dom, panggilan } = domBrankas({
-      bd: { vendors: [] },
+      vendors: {},
       bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], setting:{}, bayar:[
-        { id:'p1', name:'A', cat:'', amount:1000000, dari:'uob', vendorId:'', batch:'2026-08-27', status:'scheduled', bukti:null },
-        { id:'p2', name:'B', cat:'', amount:2000000, dari:'uob', vendorId:'', batch:'2026-08-27', status:'scheduled', bukti:null },
-        { id:'p3', name:'C', cat:'', amount:5000000, dari:'bri', vendorId:'', batch:'2026-08-27', status:'scheduled', bukti:null }
+        { id:'p1', name:'A', cat:'', amount:1000000, dari:'uob', vendor:'', batch:'2026-08-27', status:'scheduled', bukti:null },
+        { id:'p2', name:'B', cat:'', amount:2000000, dari:'uob', vendor:'', batch:'2026-08-27', status:'scheduled', bukti:null },
+        { id:'p3', name:'C', cat:'', amount:5000000, dari:'bri', vendor:'', batch:'2026-08-27', status:'scheduled', bukti:null }
       ] }, akses:{}, peran:{} }
     });
     await tunggu(400);
@@ -547,9 +561,9 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
   console.log('\n== Master vendor tidak terbaca ==');
   {
     const { dom } = domBrankas({
-      bdGagal: true,
+      vendorGagal: true,
       bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], setting:{}, bayar:[
-        { id:'p1', name:'Bahan baku', cat:'', amount:885000, dari:'uob', vendorId:'v1',
+        { id:'p1', name:'Bahan baku', cat:'', amount:885000, dari:'uob', vendor:'Toffin',
           batch:'2026-08-27', status:'scheduled', bukti:null }
       ] }, akses:{}, peran:{} }
     });
@@ -567,10 +581,10 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
   console.log('\n== Form batch pembayaran ==');
   {
     const { dom } = domBrankas({
-      bd: { vendors: [
-        { id:'v1', nama:'Toffin',  penerima:'CV. Toffin Riau Jaya', bank:'BCA', norek:'034-2928-828', arsip:false },
-        { id:'v2', nama:'Ecocare', penerima:'PT. Ecocare Indo Pasifik', bank:'BCA', norek:'', arsip:false }
-      ] },
+      vendors: {
+        'Toffin':  { penerima:'CV. Toffin Riau Jaya', bank:'BCA', norek:'034-2928-828' },
+        'Ecocare': { penerima:'PT. Ecocare Indo Pasifik', bank:'BCA', norek:'' }
+      },
       bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], bayar:[], setting:{} }, akses:{}, peran:{} }
     });
     await tunggu(400);
@@ -593,7 +607,7 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
       cek('kotak ' + id + ' ada dan terkunci', !!d.getElementById(id) && d.getElementById(id).disabled));
 
     /* memilih vendor lengkap -> kotak terisi, TANPA pita peringatan */
-    d.getElementById('by_vendor').value = 'v1';
+    d.getElementById('by_vendor').value = 'Toffin';
     w.byVendorPilih();
     cek('penerima terisi otomatis', d.getElementById('by_penerima').value === 'CV. Toffin Riau Jaya',
         d.getElementById('by_penerima').value);
@@ -603,14 +617,14 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
         d.getElementById('by_infoVendor').style.display === 'none');
 
     /* vendor tanpa rekening -> peringatan, karena inilah yang menghalangi transfer */
-    d.getElementById('by_vendor').value = 'v2';
+    d.getElementById('by_vendor').value = 'Ecocare';
     w.byVendorPilih();
     cek('vendor tanpa rekening diperingatkan',
         d.getElementById('by_infoVendor').style.display !== 'none');
     cek('peringatannya menyebut nama vendornya',
         d.getElementById('by_infoVendor').innerHTML.indexOf('Ecocare') > -1);
     cek('menunjuk tempat melengkapinya',
-        d.getElementById('by_infoVendor').innerHTML.indexOf('BD OS') > -1);
+        d.getElementById('by_infoVendor').innerHTML.indexOf('Purchasing') > -1);
 
     /* kembali ke tanpa vendor -> kotak dikosongkan lagi */
     d.getElementById('by_vendor').value = '';

@@ -304,11 +304,17 @@ function baca_state() {
      Bawaannya array kosong, bukan objek: frontend membacanya dengan
      Array.isArray(). */
   $out['promos'] = get_setting('promos', array());
-  /* Master vendor. Daftar pendek (puluhan baris), jadi ikut pola promos:
-     satu baris di tabel `settings`, bukan tabel sendiri — tidak ada berkas
-     migrasi yang bisa tertinggal di produksi. Dibaca juga oleh panel
-     Brankas di modul Finance lewat getAll. */
-  $out['vendors'] = get_setting('vendors', array());
+  /* `vendors` SENGAJA TIDAK ADA DI SINI. Master vendor perusahaan ada di
+     modul Purchasing (stock-mysql/vendors.php) — sudah berisi 35+ vendor
+     dengan WhatsApp dan hari tutupnya sejak lama. Percobaan pertama sempat
+     membuat daftar kedua di modul ini; dua daftar vendor untuk perusahaan
+     yang sama pasti berbeda ejaan dalam sebulan, dan yang mentransfer tidak
+     punya cara tahu mana yang lebih baru.
+
+     Baris `settings` bernama 'vendors' yang mungkin masih tertinggal di dev
+     tidak dihapus dari sini — menghapus baris orang lain lewat kode yang
+     kebetulan lewat adalah cara paling pasti untuk suatu hari menghapus
+     yang salah. Ia cuma berhenti dibaca. */
 
   /* Jam SERVER saat state ini dibaca. Klien menyimpannya lalu mengirimkannya
      balik sebagai `sinceTs` waktu menyimpan — itulah yang menentukan baris
@@ -468,7 +474,6 @@ function save_all($state, $sinceTs = 0) {
        benar-benar tersimpan kosong, bukan diabaikan sehingga daftar lamanya
        hidup lagi di muat berikutnya. */
     if (array_key_exists('promos', $state)) put_setting($pdo, 'promos', $state['promos']);
-    if (array_key_exists('vendors', $state)) put_setting($pdo, 'vendors', $state['vendors']);
 
     $pdo->commit();
   } catch (Throwable $e) {

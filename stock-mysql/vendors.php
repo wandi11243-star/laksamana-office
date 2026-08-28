@@ -1,6 +1,6 @@
 <?php
 /* STOCK — endpoint VENDORS.
- * GET  -> {vendors: {"Nama Vendor": {whatsapp}}}   (peta, berkunci NAMA)
+ * GET  -> {vendors: {"Nama Vendor": {whatsapp, penerima, bank, norek, …}}}  (peta, berkunci NAMA)
  * POST {action:'addVendor', vendorName, vendorPhone, oldVendorName}
  * POST {action:'deleteVendor', vendorName}
  */
@@ -24,8 +24,11 @@ try {
       // sama seperti field opsional di items.php.
       // tutupHari: daftar hari vendor tutup (0 Minggu … 6 Sabtu), aturan
       // preserve-if-null yang sama.
+      // penerima/bank/norek: rekening transfer, dipakai lembar pembayaran
+      // Brankas. Aturan preserve-if-null yang sama.
       pur_json(pur_vendor_simpan($pdo, $b->vendorName ?? '', $b->vendorPhone ?? '', $b->oldVendorName ?? '',
-                                 $b->perluJadwalJemput ?? null, $b->tutupHari ?? null));
+                                 $b->perluJadwalJemput ?? null, $b->tutupHari ?? null,
+                                 $b->penerima ?? null, $b->bank ?? null, $b->norek ?? null));
     }
     // Impor massal dari Excel/CSV. Upsert berdasarkan NAMA; tidak ada yang
     // dihapus. Lihat catatan panjang di pur_vendors_impor.
