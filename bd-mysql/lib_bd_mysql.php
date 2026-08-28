@@ -304,6 +304,11 @@ function baca_state() {
      Bawaannya array kosong, bukan objek: frontend membacanya dengan
      Array.isArray(). */
   $out['promos'] = get_setting('promos', array());
+  /* Master vendor. Daftar pendek (puluhan baris), jadi ikut pola promos:
+     satu baris di tabel `settings`, bukan tabel sendiri — tidak ada berkas
+     migrasi yang bisa tertinggal di produksi. Dibaca juga oleh panel
+     Brankas di modul Finance lewat getAll. */
+  $out['vendors'] = get_setting('vendors', array());
 
   /* Jam SERVER saat state ini dibaca. Klien menyimpannya lalu mengirimkannya
      balik sebagai `sinceTs` waktu menyimpan — itulah yang menentukan baris
@@ -463,6 +468,7 @@ function save_all($state, $sinceTs = 0) {
        benar-benar tersimpan kosong, bukan diabaikan sehingga daftar lamanya
        hidup lagi di muat berikutnya. */
     if (array_key_exists('promos', $state)) put_setting($pdo, 'promos', $state['promos']);
+    if (array_key_exists('vendors', $state)) put_setting($pdo, 'vendors', $state['vendors']);
 
     $pdo->commit();
   } catch (Throwable $e) {

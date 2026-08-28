@@ -158,6 +158,43 @@ jadi blob satu baris membuat head yang menyimpan belakangan menghapus kerja head
 lain tanpa error. Penulisannya granular per baris — `simpanSel` di jadwal,
 `simpanAjuan`/`putusAjuan` di dw. Jangan "rapikan" kembali jadi `saveAll`.
 
+### Master Vendor: di BD OS, dibaca Finance (28 Agustus 2026)
+
+`deploy/bd/` → menu **Vendor**. Isinya nama pendek, **nama penerima sesuai buku
+rekening**, bank, nomor rekening, kategori. Disimpan lewat pola `settings`
+(`get_setting`/`put_setting`), sama seperti `promos` — bukan tabel sendiri, jadi
+tidak ada berkas migrasi yang bisa tertinggal di produksi.
+
+**Ditaruh di BD, bukan di Brankas.** Vendor milik Purchasing — merekalah yang
+berhubungan dengannya. Kalau masternya di Finance, kolom `vendor` di Purchase
+Order tetap teks bebas dan dua daftar itu pasti berbeda ejaan dalam sebulan.
+
+Empat hal yang menahan bug diam-diam:
+
+- **Nama pendek ≠ nama penerima.** Yang diketik sehari-hari "Toffin"; yang harus
+  sama persis dengan buku rekening "CV. Toffin Riau Jaya". Beda satu huruf
+  membuat transfer ditolak bank — baru ketahuan sesudah uangnya dikirim.
+- **Nomor rekening disimpan apa adanya** (boleh bertanda hubung), tapi
+  DIBANDINGKAN lewat `norekBersih()`. Tanpa itu `034-2928-828` dan `0342928828`
+  terbaca sebagai dua rekening berbeda.
+- **Nama kembar DITOLAK, rekening kembar cuma DIPERINGATKAN.** Nama kembar
+  membuat pemilih di Brankas menampilkan dua baris identik; rekening kembar
+  wajar — satu perusahaan bisa punya beberapa nama dagang.
+- **Arsip, bukan hapus.** Vendor yang dihapus membuat pembayaran lama di Brankas
+  kehilangan nama penerimanya.
+
+Saat lahir, kolom `vendor` di 51 baris PO produksi **kosong seluruhnya** —
+belum pernah diisi sekali pun. Jadi daftarnya memang mulai dari nol.
+
+```bash
+node tools/uji-vendor-bd.js   # 38 pemeriksaan
+```
+
+Ujinya menyuntikkan jembatan **DI DALAM IIFE** modul BD (`DB` tidak ada di
+`window`), dan stub `fetch`-nya wajib menyediakan `text()` — `bacaJawaban()`
+membaca respons sebagai teks dulu, dan stub yang cuma punya `json()` membuat
+boot menggantung tanpa satu pun galat.
+
 ### `dw` ↔ `jadwal`: satu arah, dan sengaja begitu
 
 `dw` menyimpan pekerja harian (part time). Mereka **bukan** user Office — tidak

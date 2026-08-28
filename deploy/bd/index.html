@@ -834,6 +834,7 @@ const ICON={
   handoff:'<path d="M4 12h11M11 8l4 4-4 4"/><path d="M20 5v14"/>',
   routine:'<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v4h-4"/>',
   cart:'<path d="M6 6h15l-1.5 9h-12z"/><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M6 6 5 3H3"/>',
+  truck:'<path d="M10 17h4V5H2v12h3"/><path d="M20 17h2v-3.34a4 4 0 0 0-1.17-2.83L19 9h-5v8h1"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
   cal:'<rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/>',
   users:'<circle cx="9" cy="8" r="3.2"/><path d="M3 20c0-3.3 2.7-5 6-5s6 1.7 6 5"/><path d="M16 5.2a3.2 3.2 0 0 1 0 6M21 20c0-2.6-1.5-4.2-3.8-4.8"/>',
   plus:'<path d="M12 5v14M5 12h14"/>', check:'<path d="M20 6 9 17l-5-5"/>',
@@ -963,6 +964,16 @@ function normalize(s){
      galat; yang menyelamatkan datanya adalah lib_bd_mysql.php yang sudah
      memuat 'promos' di baca_state() dan save_all(). */
   if(!Array.isArray(s.promos)) s.promos=[];
+  /* Master vendor — lihat catatan di atas vVendor(). Baris tanpa nama dibuang:
+     ia tidak bisa dipilih di mana pun dan cuma menambah baris kosong di daftar. */
+  if(!Array.isArray(s.vendors)) s.vendors=[];
+  s.vendors=s.vendors.filter(function(v){ return v && String(v.nama||'').trim(); });
+  s.vendors.forEach(function(v){
+    if(!v.id) v.id=uid('vd');
+    ['nama','penerima','bank','norek','kategori','catatan'].forEach(function(k){
+      v[k]=String(v[k]==null?'':v[k]).trim(); });
+    v.arsip=!!v.arsip;
+  });
   /* MIGRASI BENTUK PROMO (26 Agustus 2026). Formulirnya dirapikan atas
      permintaan user dan empat field lama dilebur/dibuang. Dikerjakan di sini,
      bukan lewat skrip sekali jalan: promo lama baru ikut berubah bentuk saat
@@ -1303,11 +1314,13 @@ const NAV=[
     {id:'coord',      l:'Koordinasi', i:'handoff'},
     {id:'routine',    l:'Routine',    i:'routine'},
     {id:'promo',      l:'Promotion',  i:'tag'},
-    {id:'purchasing', l:'Purchasing', i:'cart'}]},
+    {id:'purchasing', l:'Purchasing', i:'cart'},
+    {id:'vendor',     l:'Vendor',     i:'truck'}]},
   {sec:'Tim',items:[
     {id:'tim', l:'Kru BD', i:'users'}]}
 ];
 const SUB={dashboard:['Workspace','Dashboard','Kondisi hari ini — BD, Project & Purchasing'],
+  vendor:['Operasi','Vendor','Nama penerima, bank & nomor rekening — dipakai Purchase Order dan panel Brankas'],
   tasks:['Workspace','Tasks','Prioritas ala Eisenhower — Penting × Mendesak'],
   projects:['Workspace','Projects','Pekerjaan besar berjangka + milestone'],
   projectDetail:['Workspace','Project','Detail project'],
@@ -1339,7 +1352,7 @@ function render(){
   var s=SUB[view]||SUB.dashboard;
   $('#tbSub').textContent=s[0]; $('#tbTitle').textContent=s[1];
   var peta={dashboard:vDashboard,tasks:vTasks,projects:vProjects,projectDetail:vProjectDetail,
-            coord:vCoord,routine:vRoutine,promo:vPromo,purchasing:vPurchasing,prDetail:vPrDetail,
+            coord:vCoord,routine:vRoutine,promo:vPromo,purchasing:vPurchasing,vendor:vVendor,prDetail:vPrDetail,
             calendar:vCalendar,tim:vTim};
   $('#view').innerHTML=(peta[view]||vDashboard)();
   if(view==='dashboard') pasangFokus();
@@ -1353,7 +1366,7 @@ function render(){
    Hanya halaman yang punya menu sendiri yang boleh dituju. prDetail sengaja
    tidak: ia butuh prAktif, dan alamat yang menyebut dokumen yang sudah
    dihapus akan membuka layar kosong tanpa keterangan. */
-var HALAMAN_ALAMAT=['dashboard','tasks','projects','calendar','coord','routine','promo','purchasing','tim'];
+var HALAMAN_ALAMAT=['dashboard','tasks','projects','calendar','coord','routine','promo','purchasing','vendor','tim'];
 function bacaAlamat(){
   var h=(location.hash||'').replace(/^#\/?/,'').split('/')[0];
   return HALAMAN_ALAMAT.indexOf(h)>-1 ? h : '';
@@ -2365,6 +2378,158 @@ function promoTerlihat(){
   });
   return out.sort(promoSort);
 }
+/* ==================== MASTER VENDOR ====================
+   Lahir 28 Agustus 2026. Sampai hari itu kolom `vendor` di Purchase Order
+   cuma TEKS BEBAS — dan kosong di seluruh 51 baris PO produksi, jadi tidak
+   ada satu pun nama vendor yang tercatat di sistem mana pun.
+
+   Yang memicu: panel Brankas di Finance perlu tahu ke rekening mana sebuah
+   pembayaran ditransfer (nama penerima, bank, nomor rekening). Data itu
+   selama ini cuma ada di lembar Excel pembayaran mingguan.
+
+   DITARUH DI SINI, BUKAN DI BRANKAS, dan itu keputusan sadar: vendor adalah
+   milik Purchasing — merekalah yang berhubungan dengannya. Kalau masternya
+   di Finance, kolom vendor di PO tetap teks bebas, dan dua daftar itu pasti
+   berbeda ejaan dalam sebulan. Brankas MEMBACA daftar ini, sama seperti ia
+   membaca piutang dari Cashier.
+
+   NAMA PENERIMA SENGAJA TERPISAH DARI NAMA PENDEK. Yang diketik orang
+   sehari-hari "Toffin"; yang harus sama persis dengan buku rekening
+   "CV. Toffin Riau Jaya". Menyatukannya memaksa orang mengetik nama panjang
+   tiap kali, dan salah satu huruf di nama penerima membuat transfer ditolak
+   bank — kesalahan yang baru ketahuan sesudah uangnya dikirim. */
+var VENDOR_BANK=['BCA','Mandiri','BRI','BNI','UOB','CIMB','Permata','Danamon','Lainnya'];
+var VENDOR_KAT=['Bahan baku','Minuman','Rokok','Gas & Utilitas','Jasa & Langganan',
+                'Perlengkapan','Bagi hasil','Lainnya'];
+var vendorCari='', vendorLihatArsip=false;
+
+function vendorSemua(){ return Array.isArray(DB.vendors)?DB.vendors:[]; }
+function vendorAktif(){ return vendorSemua().filter(function(v){return !v.arsip;}); }
+function vendorById(id){ return vendorSemua().find(function(v){return v.id===id;})||null; }
+/* Nomor rekening ditulis apa adanya (boleh bertanda hubung — begitulah orang
+   menyalinnya dari buku bank), tapi DIBANDINGKAN tanpa pemisah. Tanpa ini
+   "034-2928-828" dan "0342928828" terbaca sebagai dua rekening berbeda, dan
+   peringatan rekening kembar tidak pernah menyala. */
+function norekBersih(s){ return String(s==null?'':s).replace(/[^0-9]/g,''); }
+
+function vendorTerlihat(){
+  var q=vendorCari.trim().toLowerCase();
+  var l=vendorLihatArsip?vendorSemua():vendorAktif();
+  if(q) l=l.filter(function(v){
+    return [v.nama,v.penerima,v.bank,v.norek,v.kategori,v.catatan].join(' ').toLowerCase().indexOf(q)>-1;
+  });
+  return l.slice().sort(function(a,b){ return String(a.nama||'').localeCompare(String(b.nama||'')); });
+}
+
+function vVendor(){
+  var list=vendorTerlihat(), semua=vendorSemua();
+  var arsip=semua.filter(function(v){return v.arsip;}).length;
+  var tanpaRek=vendorAktif().filter(function(v){return !norekBersih(v.norek);}).length;
+  return head('Vendor',SUB.vendor[2],
+      '<button class="btn pri" onclick="APP.vendorModal()">'+ic('plus')+'Vendor</button>')+
+    '<div class="stats">'+
+      stat('Vendor aktif',vendorAktif().length,'bisa dipilih saat bayar','')+
+      stat('Belum ada rekening',tanpaRek,'tidak bisa ditransfer',tanpaRek?'wa':'')+
+      stat('Diarsipkan',arsip,'tidak muncul di pilihan','')+
+    '</div>'+
+    (tanpaRek?'<div class="notice warn">⚠ <div><b>'+tanpaRek+' vendor belum punya nomor rekening.</b> '+
+      'Ia tetap bisa dipilih saat mencatat pembayaran, tapi kolom rekeningnya kosong — '+
+      'dan yang mentransfer harus mencarinya sendiri di luar sistem.</div></div>':'')+
+    '<div class="filters">'+
+      '<input class="rz-i" style="max-width:280px" placeholder="Cari nama, penerima, bank, no. rekening…" '+
+        'value="'+esc(vendorCari)+'" oninput="APP.vendorCari(this.value)">'+
+      '<label class="cek-baris"><input type="checkbox"'+(vendorLihatArsip?' checked':'')+
+        ' onchange="APP.vendorArsipToggle(this.checked)"> Tampilkan yang diarsipkan</label>'+
+    '</div>'+
+    (list.length?
+      '<div class="tw"><table><thead><tr>'+
+        '<th>Nama</th><th>Penerima (sesuai rekening)</th><th>Bank</th><th>No. Rekening</th>'+
+        '<th>Kategori</th><th></th></tr></thead><tbody>'+
+      list.map(function(v){
+        return '<tr'+(v.arsip?' style="opacity:.55"':'')+'>'+
+          '<td><b>'+esc(v.nama)+'</b>'+(v.arsip?' <span class="pill p-mute">arsip</span>':'')+
+            (v.catatan?'<div class="muted" style="font-size:11.5px">'+esc(v.catatan)+'</div>':'')+'</td>'+
+          '<td>'+(v.penerima?esc(v.penerima):'<span class="muted">— sama dengan nama —</span>')+'</td>'+
+          '<td>'+(v.bank?esc(v.bank):'<span class="muted">—</span>')+'</td>'+
+          '<td class="num">'+(v.norek?esc(v.norek):'<span class="muted">belum diisi</span>')+'</td>'+
+          '<td>'+(v.kategori?'<span class="pill">'+esc(v.kategori)+'</span>':'<span class="muted">—</span>')+'</td>'+
+          '<td style="white-space:nowrap">'+
+            '<button class="btn sm" onclick="APP.vendorModal(\''+v.id+'\')">Ubah</button> '+
+            '<button class="btn sm" onclick="APP.vendorArsip(\''+v.id+'\')">'+(v.arsip?'Aktifkan':'Arsipkan')+'</button>'+
+          '</td></tr>';
+      }).join('')+'</tbody></table></div>'
+      :'<div class="empty">'+(vendorCari?'Tidak ada vendor yang cocok dengan pencarian.'
+        :'Belum ada vendor. Tambahkan lewat tombol <b>+ Vendor</b> — nama, penerima, bank, dan nomor rekeningnya dipakai panel Brankas saat mencatat pembayaran.')+'</div>');
+}
+
+function vendorModal(id){
+  var v=id?vendorById(id):null, baru=!v;
+  if(!v) v={nama:'',penerima:'',bank:'',norek:'',kategori:'',catatan:'',arsip:false};
+  var opt=function(arr,pilih){ return '<option value=""></option>'+arr.map(function(x){
+    return '<option'+(x===pilih?' selected':'')+'>'+esc(x)+'</option>'; }).join(''); };
+  showModal(
+    '<div class="modal-h"><h3>'+(baru?'Vendor Baru':'Ubah Vendor')+'</h3>'+
+      '<button class="x" onclick="closeModal()">'+ic('x')+'</button></div>'+
+    '<div class="modal-b">'+
+    '<div class="frow">'+
+      '<div class="field"><label>Nama pendek *</label><input id="v_nama" value="'+esc(v.nama)+'" placeholder="mis. Toffin">'+
+        '<div class="muted" style="font-size:11.5px;margin-top:4px">Yang diketik sehari-hari saat memilih vendor.</div></div>'+
+      '<div class="field"><label>Kategori</label><select id="v_kat">'+opt(VENDOR_KAT,v.kategori)+'</select></div>'+
+    '</div>'+
+    '<div class="field"><label>Nama penerima — sesuai buku rekening</label>'+
+      '<input id="v_penerima" value="'+esc(v.penerima)+'" placeholder="mis. CV. Toffin Riau Jaya">'+
+      '<div class="muted" style="font-size:11.5px;margin-top:4px">Harus sama persis dengan nama di rekening. '+
+      'Beda satu huruf membuat transfer ditolak bank, dan itu baru ketahuan sesudah uangnya dikirim. '+
+      'Kosongkan kalau memang sama dengan nama pendek.</div></div>'+
+    '<div class="frow">'+
+      '<div class="field"><label>Bank</label><select id="v_bank">'+opt(VENDOR_BANK,v.bank)+'</select></div>'+
+      '<div class="field"><label>No. rekening</label><input id="v_norek" value="'+esc(v.norek)+'" placeholder="034-2928-828">'+
+        '<div class="muted" style="font-size:11.5px;margin-top:4px">Boleh pakai tanda hubung; disalin apa adanya.</div></div>'+
+    '</div>'+
+    '<div class="field"><label>Catatan</label><input id="v_catatan" value="'+esc(v.catatan)+'" placeholder="opsional — mis. termin 14 hari"></div>'+
+    '</div>'+
+    '<div class="modal-f"><button class="btn" onclick="closeModal()">Batal</button>'+
+      '<button class="btn pri" onclick="APP.vendorSimpan('+(id?"'"+id+"'":'null')+')">Simpan</button></div>');
+}
+
+function vendorSimpan(id){
+  var g=function(x){var e=document.getElementById(x);return e?String(e.value).trim():'';};
+  var nama=g('v_nama');
+  if(!nama){ toast('Nama vendor wajib diisi.'); return; }
+  /* Nama kembar ditolak DI SINI. Dua vendor bernama sama membuat pemilih di
+     Brankas menampilkan dua baris identik, dan yang memilih tidak punya cara
+     tahu mana yang rekeningnya benar. */
+  var bentrok=vendorSemua().find(function(x){
+    return x.id!==id && String(x.nama||'').toLowerCase()===nama.toLowerCase(); });
+  if(bentrok){ toast('Sudah ada vendor bernama "'+nama+'".'); return; }
+
+  var norek=g('v_norek');
+  /* Rekening kembar TIDAK ditolak, cuma diperingatkan: satu perusahaan
+     memang bisa punya beberapa nama dagang dengan satu rekening, dan
+     menolaknya akan memaksa orang mengarang nomor. */
+  var samaRek=norek?vendorSemua().find(function(x){
+    return x.id!==id && norekBersih(x.norek) && norekBersih(x.norek)===norekBersih(norek); }):null;
+
+  var data={nama:nama, penerima:g('v_penerima'), bank:g('v_bank'), norek:norek,
+            kategori:g('v_kat'), catatan:g('v_catatan')};
+  if(id){ var v=vendorById(id); if(v) Object.assign(v,data); }
+  else { if(!Array.isArray(DB.vendors)) DB.vendors=[];
+         DB.vendors.push(Object.assign({id:uid('vd'), arsip:false}, data)); }
+  save(); closeModal(); render();
+  toast(samaRek?('Tersimpan. Catatan: nomor rekening ini sama dengan vendor "'+samaRek.nama+'".')
+               :'Vendor tersimpan.');
+}
+
+/* ARSIP, BUKAN HAPUS. Vendor yang dihapus akan membuat pembayaran lama di
+   Brankas kehilangan nama penerimanya — dan riwayat pembayaran yang tidak
+   bisa dibaca lagi lebih buruk daripada satu baris tambahan di daftar. */
+function vendorArsip(id){
+  var v=vendorById(id); if(!v) return;
+  v.arsip=!v.arsip; save(); render();
+  toast(v.arsip?'Vendor diarsipkan — tidak lagi muncul di pilihan pembayaran.'
+               :'Vendor diaktifkan lagi.');
+}
+
 function vPromo(){
   var semua=DB.promos, n=function(st){return semua.filter(function(p){return promoStatus(p)===st;}).length;};
   var list=promoTerlihat();
@@ -4584,6 +4749,9 @@ window.APP={
   dragCoord:dragCoord, dropCoord:dropCoord, setCoordMode:function(m){coordMode=m;render();},
   routineModal:routineModal, simpanRoutine:simpanRoutine, hapusRoutine:hapusRoutine,
   promoModal:promoModal, promoDetail:promoDetail, simpanPromo:simpanPromo,
+  vendorModal:vendorModal, vendorSimpan:vendorSimpan, vendorArsip:vendorArsip,
+  vendorCari:function(q){ vendorCari=q; render(); },
+  vendorArsipToggle:function(v){ vendorLihatArsip=!!v; render(); },
   hapusPromo:hapusPromo, togglePromo:togglePromo,
   promoToggleJam:promoToggleJam, promoHariUbah:promoHariUbah, promoSemuaHari:promoSemuaHari,
   promoOutletLain:promoOutletLain, promoPoster:promoPoster, promoHapusPoster:promoHapusPoster,
