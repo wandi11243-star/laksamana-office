@@ -608,21 +608,34 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
        tinggi daripada lembar Excel yang sedang disalin, dan tiap baris menuntut
        satu gulir turun lalu naik lagi. Sekarang satu strip. */
     cek('form tidak lagi dibagi bagian berjudul', v.indexOf('by-sec-h') < 0);
-    cek('digambar sebagai satu baris cepat', v.indexOf('class="qa"') > -1, v.slice(0, 400));
+    cek('digambar sebagai satu lembar isian', v.indexOf('class="qa-sheet"') > -1, v.slice(0, 400));
     ['by_vendor', 'by_name', 'by_cat', 'by_dari', 'by_amt'].forEach(id =>
       cek('kotak ' + id + ' ada di baris cepat', !!d.getElementById(id)));
 
-    /* Kepala kolom kecil, bukan label per kotak: strip ini dibaca bersama tabel
-       draf di bawahnya, dan dua deret kotak tanpa judul kolom membuat mata harus
-       mencocokkan lebar untuk tahu kolom mana yang mana. */
-    const kepala = [...d.querySelectorAll('.qa-h span')].map(x => x.textContent).filter(Boolean);
-    cek('kolomnya berjudul', kepala.length === 5, kepala.join('|'));
+    /* SATU grid untuk kepala kolom, baris ketik, dan baris draf. Sebelumnya
+       tiga wadah terpisah dengan lebar yang disalin tangan ke masing-masing —
+       dan lebar yang disalin pasti melenceng suatu hari, sehingga judul kolom
+       tidak lagi berada di atas kotak yang dimaksudnya. */
+    const sheet = d.querySelector('.qa-sheet');
+    const kepala = [...sheet.querySelectorAll('.hd')].map(x => x.textContent);
+    cek('kolomnya berjudul', kepala.filter(Boolean).length === 5, kepala.join('|'));
     cek('judulnya urut seperti kotaknya',
-        kepala.join('|') === 'Vendor|Keterangan|Kategori|Dibayar dari|Nominal', kepala.join('|'));
+        kepala.filter(Boolean).join('|') === 'Vendor|Keterangan|Kategori|Dibayar dari|Nominal',
+        kepala.join('|'));
+    cek('kepala kolom & kotaknya di grid yang sama',
+        sheet.contains(d.getElementById('by_vendor')) && kepala.length === 6, String(kepala.length));
     /* Rp menempel di kotak nominal, bukan di placeholder: placeholder hilang
        begitu diketik, padahal justru saat mengetik angka satuannya perlu ada. */
+    const selRp = d.getElementById('by_amt').parentNode;
     cek('nominal bertanda Rp yang tidak hilang saat diketik',
-        v.indexOf('class="qa-a qa-rp"') > -1 && /<span>Rp<\/span>/.test(v));
+        selRp.className.indexOf('rp') > -1 && selRp.querySelector('span').textContent === 'Rp',
+        selRp.outerHTML.slice(0, 120));
+    /* Kotaknya sendiri tidak bergaris — yang memisahkan kolom adalah garis
+       lembarnya. Deretan kotak bergaris masing-masing membaca sebagai enam benda
+       terpisah, padahal yang sedang diisi satu baris. */
+    cek('keterangan vendor membentang selebar lembar',
+        d.getElementById('by_infoVendor').className.indexOf('qa-note') > -1,
+        d.getElementById('by_infoVendor').className);
 
     /* Vendor DIKETIK, bukan dipilih dari dropdown: 36 vendor berarti menggulir
        untuk satu nama yang sudah diketahui sebelum kotaknya dibuka. */
@@ -691,12 +704,12 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     await tunggu(120);
     cek('Enter tidak diteruskan ke peramban', dicegah);
     cek('Enter menambah ke draf, tidak ke server', simpanKe().length === 0, String(simpanKe().length));
-    cek('draf tergambar', !!d.querySelector('.draf'));
+    cek('draf tergambar', !!d.querySelector('.qa-sel'));
     cek('draf mengatakan belum tersimpan',
-        d.querySelector('.draf').textContent.indexOf('belum disimpan') > -1);
+        d.querySelector('.draf-kaki').textContent.indexOf('belum disimpan') > -1);
     cek('draf menyebut jumlah barisnya',
-        d.querySelectorAll('.draf tbody tr').length === 1,
-        String(d.querySelectorAll('.draf tbody tr').length));
+        Math.round(d.querySelectorAll('.qa-sel').length / 6) === 1,
+        String(Math.round(d.querySelectorAll('.qa-sel').length / 6)));
 
     /* Yang BERULANG dalam satu lembar tidak dikosongkan. */
     cek('rekening diingat untuk baris berikutnya', d.getElementById('by_dari').value === 'uob');
@@ -708,21 +721,21 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
 
     isi('Ecocare', 'Air refreshner', '518.000');
     w.byTambahDraf(); await tunggu(120);
-    cek('baris kedua masuk draf', d.querySelectorAll('.draf tbody tr').length === 2);
+    cek('baris kedua masuk draf', Math.round(d.querySelectorAll('.qa-sel').length / 6) === 2);
     cek('total draf dijumlahkan',
-        d.querySelector('.draf-h').textContent.indexOf('Rp1.403.000') > -1,
-        d.querySelector('.draf-h').textContent);
+        d.querySelector('.draf-kaki').textContent.indexOf('Rp1.403.000') > -1,
+        d.querySelector('.draf-kaki').textContent);
     /* Vendor yang belum ada di master ditandai di tabel draf juga — di sinilah
        barisnya berjajar dan salah ketik paling mudah terlihat. */
     cek('vendor di luar master ditandai di tabel draf',
-        d.querySelector('.draf tbody').innerHTML.indexOf('baru') > -1);
+        d.querySelector('.qa-sheet').innerHTML.indexOf('baru') > -1);
     cek('masih belum ada yang dikirim', simpanKe().length === 0);
 
     /* Baris draf bisa dibuang satu-satu sebelum disimpan. */
     w.byHapusDraf(0); await tunggu(100);
-    cek('baris draf bisa dibuang', d.querySelectorAll('.draf tbody tr').length === 1);
+    cek('baris draf bisa dibuang', Math.round(d.querySelectorAll('.qa-sel').length / 6) === 1);
     cek('yang tersisa adalah baris kedua',
-        d.querySelector('.draf tbody').textContent.indexOf('Air refreshner') > -1);
+        d.querySelector('.qa-sheet').textContent.indexOf('Air refreshner') > -1);
 
     /* SATU penulisan untuk seluruh draf. Menyimpan per baris berarti 20
        penulisan blob penuh untuk satu lembar Excel — dan kalau yang kesepuluh
@@ -741,7 +754,7 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     cek('rekening tiap baris ikut tersimpan',
         rows.some(r => r.dari === 'mandiri') && rows.some(r => r.dari === 'uob'),
         JSON.stringify(rows.map(r => r.dari)));
-    cek('draf kosong sesudah disimpan', !d.querySelector('.draf'));
+    cek('draf kosong sesudah disimpan', !d.querySelector('.qa-sel'));
     dom.window.close();
   }
 
@@ -766,8 +779,8 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
        membacanya mengira sudah tercatat padahal server tidak pernah menerimanya. */
     cek('baris tidak tertinggal di lembar', (w.eval('BK.data.bayar')).length === 0,
         JSON.stringify(w.eval('BK.data.bayar')));
-    cek('draf dikembalikan supaya bisa dicoba lagi', !!d.querySelector('.draf'));
-    cek('isinya utuh', d.querySelectorAll('.draf tbody tr').length === 1);
+    cek('draf dikembalikan supaya bisa dicoba lagi', !!d.querySelector('.qa-sel'));
+    cek('isinya utuh', Math.round(d.querySelectorAll('.qa-sel').length / 6) === 1);
     dom.window.close();
   }
 

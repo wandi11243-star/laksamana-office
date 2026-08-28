@@ -137,11 +137,19 @@ dikelompokkan per rekening pembayar, dengan subtotal tiap kelompok.
 - **`byBayarGrup()` menandai satu kelompok rekening sekaligus** dan menyebut saldo
   sesudahnya. Orang menekan kirim di m-banking sekali untuk beberapa transfer;
   menandainya satu per satu membuat sebagian tertinggal tanpa disadari.
-- **Baris cepat + DRAF, bukan form berlabel** (28 Agustus 2026, permintaan user).
-  Satu strip `.qa` berkepala kolom `.qa-h`: Vendor · Keterangan · Kategori · Dari
-  · Nominal · + Baris, dan **Enter menambah ke draf**. Bentuk sebelumnya punya
-  tiga bagian berjudul dan enam kotak berlabel — lebih tinggi daripada lembar
-  Excel yang sedang disalin, jadi tiap baris menuntut satu gulir turun lalu naik.
+- **Satu lembar isian `.qa-sheet`, bukan form berlabel** (28 Agustus 2026,
+  permintaan user). Kepala kolom (`.hd`), baris yang diketik (`.cel`), keterangan
+  vendor (`.qa-note`, membentang `1/-1`), dan baris draf (`.qa-sel`) adalah sel di
+  **grid yang sama** — jadi kolomnya tidak bisa melenceng satu sama lain.
+  Percobaan sebelumnya memakai tiga wadah terpisah dengan lebar disalin tangan,
+  dan lebar yang disalin pasti melenceng: judul kolomnya berhenti berada di atas
+  kotak yang dimaksudnya. **Enter menambah ke draf.**
+- **Kotaknya tidak bergaris sendiri** — yang memisahkan kolom adalah garis
+  lembarnya, seperti Excel. Enam kotak bergaris masing-masing membaca sebagai
+  enam benda terpisah, padahal yang sedang diisi satu baris ("terlalu kaku",
+  koreksi user). Di bawah 860px grid jadi satu kolom dan tiap sel draf menulis
+  judul kolomnya sendiri lewat `data-l` — tanpa itu barisnya menumpuk jadi
+  deretan angka tanpa keterangan.
 - **`DRAF` dikumpulkan dulu, disimpan SEKALI** (`bySimpanDraf`). Menyimpan per
   baris berarti 20 penulisan blob penuh + 20 gambar ulang halaman untuk satu
   lembar; dan kalau yang kesepuluh gagal, sembilan sudah masuk sementara sebelas
@@ -203,7 +211,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 182 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 184 pemeriksaan, jsdom + finance/kompas/account tiruan
 ```
 
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`
