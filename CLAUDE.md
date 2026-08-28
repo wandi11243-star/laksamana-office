@@ -137,8 +137,28 @@ dikelompokkan per rekening pembayar, dengan subtotal tiap kelompok.
 - **`byBayarGrup()` menandai satu kelompok rekening sekaligus** dan menyebut saldo
   sesudahnya. Orang menekan kirim di m-banking sekali untuk beberapa transfer;
   menandainya satu per satu membuat sebagian tertinggal tanpa disadari.
-- BD yang mati **tidak mematikan halaman** — nominalnya tetap terbaca, cuma kolom
-  penerima yang kosong, dan itu dikatakan.
+- **Baris cepat, bukan form berlabel** (28 Agustus 2026, permintaan user). Satu
+  strip `.qa`: Vendor · Keterangan · Kategori · Dari · Nominal · Tambah, dan
+  **Enter menambahkan barisnya**. Bentuk sebelumnya punya tiga bagian berjudul
+  dan enam kotak berlabel — lebih tinggi daripada lembar Excel yang sedang
+  disalin, jadi tiap baris menuntut satu gulir turun lalu naik lagi.
+- **Kategori & rekening TIDAK dikosongkan sesudah baris masuk** (`QA.cat`,
+  `QA.dari`), dan kursor kembali ke kotak Vendor (`QA.fokus`). Keduanya di luar
+  DOM karena render di modul ini TOTAL — halaman digambar ulang tiap simpan,
+  jadi apa pun yang cuma ada di DOM ikut hilang. Tanpa keduanya, menuangkan 20
+  baris berarti dua pilihan + satu klik yang diulang 20 kali.
+- **Vendor DIKETIK lewat `<datalist>`**, bukan dipilih dari `<select>`. 36 vendor
+  di dropdown berarti menggulir untuk nama yang sudah diketahui sebelum kotaknya
+  dibuka. Nama di luar master **tidak ditolak** — baris tanpa vendor memang ada
+  di lembar Excel — tapi **dikatakan** di baris bawahnya, supaya salah ketik satu
+  huruf tidak lolos diam-diam sebagai vendor baru. Yang tersimpan adalah yang
+  DIKETIK; mencocokkannya ke master lalu menimpanya berarti ejaan yang beda tipis
+  diganti tanpa yang mengetiknya tahu.
+- **Tanggal lembar = tujuan baris berikutnya**, satu kendali. Sempat dua (dropdown
+  batch di satu kartu, kotak tanggal di form), dan yang mengisi harus menebak mana
+  yang menentukan. Lembar lain dijangkau lewat chip di sebelahnya.
+- Master vendor yang mati **tidak mematikan halaman** — nominalnya tetap terbaca,
+  cuma kolom penerima yang kosong, dan itu dikatakan.
 
 "Rekening Pribadi - Mandiri" di lembar Excel adalah **rekening Mandiri yang sama**
 (ditegaskan user 28 Agustus 2026), bukan wadah terpisah — jadi tidak ada wadah
@@ -158,7 +178,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 136 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 149 pemeriksaan, jsdom + finance/kompas/account tiruan
 ```
 
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`
@@ -231,7 +251,7 @@ namanya di lembar pembayaran lama, ditandai `tak ada di master`. Bentuk lama
 | pembaca | jalur | kalau Purchasing mati |
 |---|---|---|
 | Brankas → lembar pembayaran | `../../stock-api-mysql/vendors.php` | pita peringatan, nominal tetap terbaca |
-| BD OS → kolom Vendor di Purchase Order | `../stock-api-mysql/vendors.php` | kotaknya bilang "belum terbaca"; nilai tersimpan tetap terpilih |
+| BD OS → kolom Vendor di Purchase Order | `../stock-api-mysql/vendors.php` | kotaknya tetap bisa diketik, dan dikatakan daftarnya belum terbaca |
 
 `vendors.php` membalas `{vendors:{…}}` **TANPA kunci `ok`** — beda dari
 finance-api & kompas-api. Memeriksa `.ok` membuang balasan yang sebenarnya
@@ -248,13 +268,14 @@ tetap digambar ditandai `(lama)`, dan penandanya dibuang lagi saat menyimpan —
 kalau tidak ia menular jadi bagian nama.
 
 ```bash
-node tools/uji-vendor.js   # 98 pemeriksaan
+node tools/uji-vendor.js   # 103 pemeriksaan
 ```
 
 Ujinya tiga bagian: fungsi Purchasing **dipotong dari sumbernya** saat uji jalan
 (modul itu memuat Tailwind & FontAwesome dari CDN, jadi merendernya utuh di jsdom
 bukan yang diuji), modul BD dirender penuh dengan jembatan **DI DALAM IIFE**
-(`DB` tidak ada di `window`), dan Brankas diperiksa sumbernya saja — isi lembarnya
+(`DB` tidak ada di `window`) termasuk form PO-nya lewat `APP.poModal()`, dan
+Brankas diperiksa sumbernya saja — isi lembarnya
 sudah diuji `tools/uji-brankas.js`. Stub `fetch` untuk BD wajib menyediakan
 `text()`: `bacaJawaban()` membaca respons sebagai teks dulu, dan stub yang cuma
 punya `json()` membuat boot menggantung tanpa satu pun galat.

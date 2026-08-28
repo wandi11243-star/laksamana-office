@@ -577,10 +577,10 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     dom.window.close();
   }
 
-  /* ================= 15. form batch: bagian & kotak terkunci ================= */
-  console.log('\n== Form batch pembayaran ==');
+  /* ================= 15. baris cepat: ketik, Enter, ketik ================= */
+  console.log('\n== Baris cepat pembayaran ==');
   {
-    const { dom } = domBrankas({
+    const { dom, panggilan } = domBrankas({
       vendors: {
         'Toffin':  { penerima:'CV. Toffin Riau Jaya', bank:'BCA', norek:'034-2928-828' },
         'Ecocare': { penerima:'PT. Ecocare Indo Pasifik', bank:'BCA', norek:'' }
@@ -592,47 +592,88 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     w.go('bayar'); await tunggu(80);
     const v = d.getElementById('app-view').innerHTML;
 
-    cek('form dibagi tiga bagian berjudul', (v.match(/by-sec-h/g) || []).length === 3,
-        String((v.match(/by-sec-h/g) || []).length));
-    cek('urutannya kapan → siapa → berapa',
-        v.indexOf('Kapan') < v.indexOf('Ditransfer ke siapa') &&
-        v.indexOf('Ditransfer ke siapa') < v.indexOf('Untuk apa'));
-    cek('rekening menyebut saldonya', v.indexOf('saldo Rp') > -1);
-    cek('ada pilihan "tanpa vendor"', v.indexOf('tanpa vendor') > -1);
+    /* Form lama punya tiga bagian berjudul dan enam kotak berlabel — lebih
+       tinggi daripada lembar Excel yang sedang disalin, dan tiap baris menuntut
+       satu gulir turun lalu naik lagi. Sekarang satu strip. */
+    cek('form tidak lagi dibagi bagian berjudul', v.indexOf('by-sec-h') < 0);
+    cek('digambar sebagai satu baris cepat', v.indexOf('class="qa"') > -1, v.slice(0, 400));
+    ['by_vendor', 'by_name', 'by_cat', 'by_dari', 'by_amt'].forEach(id =>
+      cek('kotak ' + id + ' ada di baris cepat', !!d.getElementById(id)));
 
-    /* Penerima / bank / norek digambar sebagai kotak TERKUNCI, bukan kalimat:
-       bentuknya sama dengan kolom di lembar bawah, jadi yang mengisi melihat
-       persis apa yang akan tercetak. */
-    ['by_penerima','by_bank','by_norek'].forEach(id =>
-      cek('kotak ' + id + ' ada dan terkunci', !!d.getElementById(id) && d.getElementById(id).disabled));
+    /* Vendor DIKETIK, bukan dipilih dari dropdown: 36 vendor berarti menggulir
+       untuk satu nama yang sudah diketahui sebelum kotaknya dibuka. */
+    const box = d.getElementById('by_vendor');
+    cek('kotak vendor bisa diketik', box.tagName === 'INPUT', box.tagName);
+    cek('kotak vendor punya daftar saran', box.getAttribute('list') === 'by_vlist');
+    const dl = d.getElementById('by_vlist');
+    cek('daftar sarannya berisi vendor', !!dl && dl.querySelectorAll('option').length === 2,
+        dl && String(dl.querySelectorAll('option').length));
+    cek('sarannya memakai nama vendor',
+        !!dl && dl.innerHTML.indexOf('value="Toffin"') > -1, dl && dl.innerHTML);
 
-    /* memilih vendor lengkap -> kotak terisi, TANPA pita peringatan */
+    /* Tanggal lembar dan tujuan baris baru jadi SATU kendali. Dua kendali untuk
+       satu maksud membuat yang mengisi harus menebak mana yang menentukan. */
+    cek('tanggal lembar sekaligus tujuan baris baru',
+        !!d.getElementById('by_batch') && d.getElementById('by_batch').type === 'date');
+    cek('kotak terkunci penerima/bank/norek dibuang',
+        !d.getElementById('by_penerima') && !d.getElementById('by_norek'));
+
+    /* Keterangan hidup: dikenal / belum ada di master / tanpa vendor. */
+    const info = () => d.getElementById('by_infoVendor').innerHTML;
+    const kelas = () => d.getElementById('by_infoVendor').className;
+    box.value = 'Toffin'; w.byVendorPilih();
+    cek('vendor dikenal: penerima disebut', info().indexOf('CV. Toffin Riau Jaya') > -1, info());
+    cek('vendor dikenal: rekening disebut', info().indexOf('034-2928-828') > -1);
+    cek('vendor dikenal tidak diberi peringatan', kelas().indexOf('warn') < 0, kelas());
+
+    box.value = 'Ecocare'; w.byVendorPilih();
+    cek('vendor tanpa rekening diperingatkan', kelas().indexOf('warn') > -1, info());
+    cek('peringatannya menunjuk tempat melengkapinya', info().indexOf('Purchasing') > -1);
+
+    /* Nama di luar master TIDAK ditolak — baris tanpa vendor memang ada di
+       lembar Excel (isi kas kecil, biaya admin) — tapi DIKATAKAN, supaya salah
+       ketik satu huruf tidak lolos diam-diam sebagai vendor baru. */
+    box.value = 'Toffn'; w.byVendorPilih();
+    cek('salah ketik dikatakan, bukan ditolak',
+        info().indexOf('belum ada di master') > -1, info());
+    box.value = ''; w.byVendorPilih();
+    cek('kosong dijelaskan sebagai tanpa vendor', info().indexOf('Tanpa vendor') > -1, info());
+    cek('kosong bukan peringatan', kelas().indexOf('warn') < 0);
+
+    /* Enter = tambah baris. Inilah yang membuat penuangan 20 baris terasa
+       seperti mengetik di Excel: tangan tidak pindah ke tetikus tiap baris. */
     d.getElementById('by_vendor').value = 'Toffin';
-    w.byVendorPilih();
-    cek('penerima terisi otomatis', d.getElementById('by_penerima').value === 'CV. Toffin Riau Jaya',
-        d.getElementById('by_penerima').value);
-    cek('bank terisi otomatis', d.getElementById('by_bank').value === 'BCA');
-    cek('nomor rekening terisi otomatis', d.getElementById('by_norek').value === '034-2928-828');
-    cek('vendor lengkap TIDAK memunculkan peringatan',
-        d.getElementById('by_infoVendor').style.display === 'none');
+    d.getElementById('by_name').value = 'Bahan baku 21 Agu';
+    d.getElementById('by_amt').value = '885.000';
+    d.getElementById('by_cat').value = 'Bahan baku';
+    d.getElementById('by_dari').value = 'uob';
+    let dicegah = false;
+    w.byEnter({ key: 'Enter', preventDefault: () => { dicegah = true; } });
+    await tunggu(200);
+    cek('Enter tidak diteruskan ke peramban', dicegah);
+    const kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    const row = kirim && (kirim.body.data.bayar || [])[0];
+    cek('Enter menambahkan barisnya', !!row, JSON.stringify(kirim && kirim.body.data.bayar));
+    cek('nama vendor tersimpan apa adanya', row && row.vendor === 'Toffin', row && row.vendor);
+    cek('nominal terbaca dari teks berformat', row && row.amount === 885000, row && String(row.amount));
+    cek('rekening pembayar ikut tersimpan', row && row.dari === 'uob', row && row.dari);
 
-    /* vendor tanpa rekening -> peringatan, karena inilah yang menghalangi transfer */
-    d.getElementById('by_vendor').value = 'Ecocare';
-    w.byVendorPilih();
-    cek('vendor tanpa rekening diperingatkan',
-        d.getElementById('by_infoVendor').style.display !== 'none');
-    cek('peringatannya menyebut nama vendornya',
-        d.getElementById('by_infoVendor').innerHTML.indexOf('Ecocare') > -1);
-    cek('menunjuk tempat melengkapinya',
-        d.getElementById('by_infoVendor').innerHTML.indexOf('Purchasing') > -1);
-
-    /* kembali ke tanpa vendor -> kotak dikosongkan lagi */
-    d.getElementById('by_vendor').value = '';
-    w.byVendorPilih();
-    cek('kotak dikosongkan saat vendor dilepas', d.getElementById('by_penerima').value === '');
-    cek('peringatan ikut hilang', d.getElementById('by_infoVendor').style.display === 'none');
+    /* Yang BERULANG dalam satu lembar tidak dikosongkan: satu batch biasanya
+       dibayar dari rekening yang sama untuk beberapa baris berturut-turut, dan
+       mengulang dua pilihan itu 20 kali adalah 40 klik yang tidak menambah satu
+       pun keterangan. */
+    cek('rekening diingat untuk baris berikutnya',
+        d.getElementById('by_dari').value === 'uob', d.getElementById('by_dari').value);
+    cek('kategori diingat untuk baris berikutnya',
+        d.getElementById('by_cat').value === 'Bahan baku', d.getElementById('by_cat').value);
+    /* Kursor kembali ke kotak Vendor — render di modul ini TOTAL, jadi fokus
+       hilang sendiri, dan tanpa langkah ini tiap baris menuntut satu klik. */
+    cek('kursor kembali ke kotak vendor',
+        d.activeElement && d.activeElement.id === 'by_vendor',
+        d.activeElement && d.activeElement.id);
     dom.window.close();
   }
+
 
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);

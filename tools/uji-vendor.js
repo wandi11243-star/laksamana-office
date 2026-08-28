@@ -331,19 +331,13 @@ function buatDom(opt) {
     dom.window.close();
   }
 
-  console.log('\n== BD OS: pilihan vendor di form Purchase Order ==');
+  console.log('\n== BD OS: kotak vendor di form Purchase Order ==');
   {
     const { dom, pesan } = buatDom({
       vendors: { Toffin: { norek: '034-2928-828' }, Ecocare: { norek: '' }, Alisan: { norek: '1' } }
     });
     await siapDB(dom.window);
-    const u = dom.window.__uji;
-
-    /* Sebelum daftarnya datang, kotaknya TIDAK boleh diam-diam kosong: yang
-       membukanya harus tahu bedanya "belum terbaca" dari "memang tidak ada". */
-    u.VENDOR_PUR = null;
-    const belum = u.opsiVendor('');
-    cek('sebelum terbaca: dikatakan belum terbaca', belum.indexOf('belum terbaca') > -1, belum);
+    const w = dom.window, d = w.document, u = w.__uji;
 
     u.muatVendorPur();
     for (let i = 0; i < 60 && !Array.isArray(u.VENDOR_PUR); i++) await tunggu(30);
@@ -354,31 +348,45 @@ function buatDom(opt) {
     cek('daftarnya berisi nama vendor', (u.VENDOR_PUR || []).indexOf('Toffin') > -1);
     cek('diurutkan menurut abjad', (u.VENDOR_PUR || [])[0] === 'Alisan', String(u.VENDOR_PUR));
 
-    const h = u.opsiVendor('');
-    cek('semua vendor jadi pilihan',
-        ['Toffin', 'Ecocare', 'Alisan'].every(n => h.indexOf('>' + n + '<') > -1), h);
-    cek('ada pilihan kosong', h.indexOf('pilih vendor') > -1);
-    /* Vendor tanpa rekening TETAP bisa dipilih di PO: purchase order bukan
-       perintah transfer, dan rekeningnya baru dibutuhkan di Brankas. */
-    cek('vendor tanpa rekening tetap bisa dipilih di PO', h.indexOf('>Ecocare<') > -1);
+    /* DIKETIK, bukan dipilih (28 Agustus 2026, permintaan user). 36 vendor di
+       dropdown berarti menggulir untuk satu nama yang sudah diketahui sebelum
+       kotaknya dibuka. */
+    const saran = u.opsiVendor();
+    cek('daftar saran berisi seluruh vendor',
+        ['Toffin', 'Ecocare', 'Alisan'].every(n => saran.indexOf('value="' + n + '"') > -1), saran);
+    cek('sarannya <option> untuk datalist, bukan pilihan <select>',
+        saran.indexOf('selected') < 0 && saran.indexOf('</option>') < 0, saran);
+    /* Vendor tanpa rekening TETAP disarankan: purchase order bukan perintah
+       transfer, dan rekeningnya baru dibutuhkan di Brankas. */
+    cek('vendor tanpa rekening tetap disarankan', saran.indexOf('value="Ecocare"') > -1);
 
-    const dipilih = u.opsiVendor('Toffin');
-    cek('nilai tersimpan ditandai terpilih', dipilih.indexOf('selected>Toffin<') > -1, dipilih);
+    /* Formnya sungguhan digambar, bukan cuma fungsinya dipanggil — kotak yang
+       tidak tersambung ke datalist tidak akan pernah menyaring apa pun. */
+    w.APP.poModal();
+    await tunggu(120);
+    const box = d.getElementById('o_vendor');
+    cek('kotak vendor ada di form PO', !!box);
+    cek('kotak vendor bisa diketik', box && box.tagName === 'INPUT', box && box.tagName);
+    cek('kotak vendor tersambung ke daftar saran',
+        box && box.getAttribute('list') === 'o_vlist', box && box.getAttribute('list'));
+    cek('daftar sarannya ikut digambar', !!d.getElementById('o_vlist'));
 
-    /* Nama tersimpan yang tidak ada di master TETAP digambar. Tanpa itu,
-       membuka PO lama akan diam-diam mengganti vendornya ke pilihan pertama
-       begitu Simpan ditekan — tanpa satu pun galat. */
-    const lawas = u.opsiVendor('Vendor Yang Sudah Hilang');
-    cek('nama lama di luar master tetap digambar', lawas.indexOf('Vendor Yang Sudah Hilang') > -1, lawas);
-    cek('nama lama ditandai (lama)', lawas.indexOf('(lama') > -1);
-    cek('nama lama tetap terpilih', /selected>Vendor Yang Sudah Hilang/.test(lawas));
-    cek('nama lama tidak menghapus pilihan lain', lawas.indexOf('>Toffin<') > -1);
+    /* Tiga keadaan yang perlu dibedakan, dan bedanya menentukan apa yang
+       dikerjakan orangnya: dikenal, belum ada di master, atau daftarnya memang
+       belum terbaca. */
+    const info = () => (d.getElementById('o_vendorInfo') || {}).innerHTML || '';
+    box.value = 'Toffin'; w.APP.infoVendorPO();
+    cek('nama dikenal ditandai', info().indexOf('ada di master') > -1, info());
+    cek('nama dikenal bukan peringatan', info().indexOf('belum ada') < 0, info());
 
-    /* Daftar kosong dibedakan dari daftar yang gagal dibaca — dua masalah
-       dengan dua jalan keluar yang berbeda. */
-    u.VENDOR_PUR = [];
-    cek('master kosong dibedakan dari gagal terbaca',
-        u.opsiVendor('').indexOf('belum ada vendor di Purchasing') > -1, u.opsiVendor(''));
+    /* Nama di luar master TIDAK ditolak: PO untuk vendor baru sering dibuat
+       sebelum vendornya sempat didaftarkan. Yang dilakukan cuma
+       mengatakannya, supaya salah ketik tidak lolos diam-diam. */
+    box.value = 'Toffn'; w.APP.infoVendorPO();
+    cek('salah ketik dikatakan, bukan ditolak', info().indexOf('belum ada di master') > -1, info());
+    cek('dan tetap boleh disimpan', info().indexOf('Tetap bisa disimpan') > -1);
+    box.value = ''; w.APP.infoVendorPO();
+    cek('kosong menunjuk tempat daftarnya', info().indexOf('Purchasing') > -1, info());
 
     /* Idempoten: dipanggil lagi tidak menembak ulang. Form PO bisa digambar
        ulang belasan kali dalam satu sesi. */
@@ -394,37 +402,50 @@ function buatDom(opt) {
   {
     const { dom } = buatDom({ vendorGagal: true });
     await siapDB(dom.window);
-    const u = dom.window.__uji;
+    const w = dom.window, d = w.document, u = w.__uji;
     u.muatVendorPur();
     await tunggu(250);
-    /* Purchasing yang mati TIDAK boleh mematikan form PO. Paling jauh kolom
-       vendornya kehilangan pilihan, dan itu dikatakan. */
+    /* Purchasing yang mati TIDAK boleh mematikan form PO. Paling jauh kotaknya
+       kehilangan saran, dan itu dikatakan. */
     cek('modul BD tetap hidup', !!u.DB);
     cek('daftar tetap null, bukan array kosong palsu', u.VENDOR_PUR === null, String(u.VENDOR_PUR));
-    cek('kotaknya mengatakan daftarnya belum terbaca',
-        u.opsiVendor('').indexOf('belum terbaca') > -1);
-    /* Nilai yang SUDAH tersimpan tetap terbaca walau masternya tidak datang —
-       kalau tidak, membuka PO lama saat Purchasing batuk akan mengosongkan
-       vendornya begitu Simpan ditekan. */
-    const h = u.opsiVendor('Toffin');
-    cek('vendor tersimpan tetap terbaca saat master mati', h.indexOf('Toffin') > -1, h);
-    cek('dan tetap terpilih', /selected>Toffin/.test(h));
+    cek('tanpa daftar, sarannya kosong — bukan melempar', u.opsiVendor() === '');
+
+    w.APP.poModal();
+    await tunggu(120);
+    const box = d.getElementById('o_vendor');
+    /* Nama tetap BISA DIKETIK walau masternya tidak datang. Inilah keuntungan
+       kotak ketik atas dropdown: dropdown yang daftarnya gagal dibaca tidak
+       punya satu pun pilihan, jadi PO-nya tidak bisa dicatat sama sekali. */
+    cek('kotaknya tetap bisa diketik', !!box && box.tagName === 'INPUT');
+    w.APP.infoVendorPO();
+    const info = (d.getElementById('o_vendorInfo') || {}).innerHTML || '';
+    cek('dikatakan daftarnya belum terbaca', info.indexOf('belum terbaca') > -1, info);
+    /* Dan yang penting: TIDAK menuduh nama yang tersimpan salah. Selama
+       daftarnya belum ada, tidak ada dasar untuk mengatakan apa pun tentangnya. */
+    box.value = 'Toffin'; w.APP.infoVendorPO();
+    const info2 = (d.getElementById('o_vendorInfo') || {}).innerHTML || '';
+    cek('nama tersimpan tidak dituduh salah', info2.indexOf('belum ada di master') < 0, info2);
     dom.window.close();
   }
 
   console.log('\n== BD OS: yang disimpan form PO ==');
   {
-    /* Penanda "(lama)" WAJIB dibuang saat menyimpan, kalau tidak ia menular
-       jadi bagian nama vendor dan PO berikutnya menyimpan "Toffin (lama — …)". */
     const simpan = ASLI.match(/vendor:\s*g\('o_vendor'\)[^,]*/);
-    cek('penanda (lama) dibuang saat menyimpan',
-        !!simpan && simpan[0].indexOf('replace(') > -1, simpan && simpan[0]);
-    cek('kotak vendor sudah dropdown, bukan teks bebas',
-        ASLI.indexOf('<select id="o_vendor">') > -1);
+    /* Yang tersimpan NAMA vendor apa adanya (spasinya saja dirapikan). Penanda
+       "(lama)" milik versi dropdown sudah tidak ada — kotak ketik menyimpan apa
+       yang diketik, jadi tidak ada teks hiasan yang bisa ikut tersimpan. */
+    cek('nama disimpan apa adanya, cuma dirapikan spasinya',
+        !!simpan && /vendor:\s*g\('o_vendor'\)\.trim\(\)/.test(simpan[0]), simpan && simpan[0]);
+    cek('tidak ada penanda tampilan yang ikut tersimpan',
+        !!simpan && simpan[0].indexOf('lama') < 0, simpan && simpan[0]);
+    cek('kotak vendor bukan <select> lagi', ASLI.indexOf('<select id="o_vendor">') < 0);
+    cek('kotak vendor tersambung datalist', ASLI.indexOf('list="o_vlist"') > -1);
     cek('daftarnya ditarik saat form PO digambar', ASLI.indexOf("(muatVendorPur(),'')+") > -1);
     cek('menunjuk tempat menambah vendor',
         ASLI.indexOf('Purchasing → Database &amp; Vendor') > -1);
   }
+
 
   console.log('\n== BD OS: backend berhenti menyimpan vendor ==');
   {

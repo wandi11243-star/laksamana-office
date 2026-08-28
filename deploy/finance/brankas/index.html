@@ -550,6 +550,31 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
    kapan & dari mana -> ke siapa -> untuk apa & berapa. Enam kotak
    berderet tanpa pengelompokan memaksa mata membaca labelnya satu per
    satu tiap kali form dibuka. */
+/* BARIS CEPAT. Form lama punya tiga bagian berjudul dan enam kotak berlabel;
+   untuk menuangkan 20-an baris dari satu lembar Excel, tinggi form itu sendiri
+   lebih besar daripada lembar yang sedang disalin — dan tiap baris menuntut
+   satu gulir turun lalu naik lagi. Sekarang satu strip: ketik, Enter, ketik,
+   Enter. Yang berulang dalam satu lembar (rekening & kategori) TIDAK dikosongkan
+   sesudah baris masuk. */
+.qa{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.qa input,.qa select{height:38px;font-size:13px}
+.qa .qa-v{flex:1 1 190px;min-width:150px}
+.qa .qa-n{flex:2 1 260px;min-width:180px}
+.qa .qa-k{flex:0 0 150px}
+.qa .qa-d{flex:0 0 165px}
+.qa .qa-a{flex:0 0 130px;text-align:right}
+.qa .btn{height:38px;padding:0 16px}
+/* Satu baris keterangan, bukan tiga kotak terkunci: yang perlu dilihat saat
+   mengetik cuma "vendornya kekenal atau tidak". Rinciannya sudah tercetak di
+   lembar di bawah. */
+.qa-info{font-size:11.5px;margin-top:6px;min-height:16px;color:var(--muted)}
+.qa-info b{color:var(--ink)}
+.qa-info.warn{color:var(--warn)}
+.qa-chip{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:999px;
+  border:1px solid var(--line);font-size:12px;font-weight:600;
+  cursor:pointer;color:var(--muted);background:var(--surface)}
+.qa-chip:hover{border-color:var(--gold);color:var(--ink)}
+.qa-chip.on{background:var(--gold);border-color:var(--gold);color:#fff}
 .by-sec{border-top:1px solid var(--line);padding-top:14px;margin-top:16px}
 .by-sec:first-of-type{border-top:none;padding-top:0;margin-top:12px}
 .by-sec-h{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
@@ -1569,6 +1594,13 @@ function batchTgl() {
   return Object.keys(t).sort((a, b) => a < b ? 1 : -1);      // terbaru dulu
 }
 let BATCH_AKTIF = null;
+/* Yang BERULANG dalam satu lembar tidak dikosongkan sesudah baris masuk:
+   satu batch biasanya dibayar dari rekening yang sama untuk beberapa baris
+   berturut-turut, dan mengulang dua pilihan itu 20 kali adalah 40 klik yang
+   tidak menambah satu pun keterangan. Disimpan di luar render karena render
+   di modul ini TOTAL — seluruh halaman digambar ulang tiap simpan, jadi apa
+   pun yang cuma ada di DOM ikut hilang. */
+let QA = { cat: BAYAR_KAT[0], dari: KAS_K, fokus: false };
 function batchPilih(t) { BATCH_AKTIF = t; render(); }
 
 function vBayar() {
@@ -1595,68 +1627,56 @@ function vBayar() {
     + kartu('Belum Masuk Batch', String(lepas.length), lepas.length ? 'perlu dijadwalkan' : 'semua sudah terjadwal')
     + '</div>';
 
-  /* ---- pemilih batch ---- */
-  h += '<div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
-    + '<b style="font-size:13px">Batch pembayaran</b>'
-    + '<select class="nokunci" style="max-width:230px" onchange="batchPilih(this.value)">'
-    + (tglAda.length ? '' : '<option value="">— belum ada batch —</option>')
-    + tglAda.map(t => '<option value="' + t + '"' + (t === BATCH_AKTIF ? ' selected' : '') + '>'
-        + esc(fmtTgl(t)) + '</option>').join('')
-    + (lepas.length ? '<option value=""' + (BATCH_AKTIF === '' ? ' selected' : '') + '>— belum masuk batch (' + lepas.length + ') —</option>' : '')
-    + '</select>'
-    + '<span style="flex:1"></span>'
-    + '<span class="helper" style="margin:0">Satu tanggal = satu lembar pembayaran, persis seperti lembar Excel.</span>'
-    + '</div></div>';
+  /* ---- satu bar: pilih lembar + tambah baris ----
+     Dulu dua kartu terpisah: kartu pemilih batch, lalu kartu form setinggi
+     layar. Keduanya menyangkut hal yang sama — lembar mana yang sedang diisi —
+     jadi dijadikan satu. */
+  const chip = (t, label, aktif) =>
+    '<span class="qa-chip' + (aktif ? ' on' : '') + '" data-tgl="' + esc(t)
+    + '" onclick="batchPilih(this.dataset.tgl)">' + esc(label) + '</span>';
 
-  /* ---- form ---- */
-  /* value = NAMA vendor. Purchasing tidak punya id; nama itulah kunci
-     tabelnya, dan itu pula yang tersimpan di baris pembayaran. */
-  const vOpt = vendorSemua()
-    .map(v => '<option value="' + esc(v.nama) + '">' + esc(v.nama)
-      + (v.norek ? '' : ' (tanpa rekening)') + '</option>').join('');
-  /* FORM DIBAGI TIGA BAGIAN BERJUDUL, bukan enam kotak berderet.
-     Urutannya mengikuti cara orang mengisinya: kapan & dari mana dulu, lalu
-     ke siapa, baru untuk apa dan berapa. Deretan kotak tanpa pengelompokan
-     memaksa mata membaca labelnya satu per satu tiap kali. */
-  h += '<div class="card" data-aks><h3>Tambah Baris Pembayaran</h3>'
-    + '<div class="card-sub">Penerima, bank, dan nomor rekening terisi sendiri dari <b>Daftar Kontak Vendor</b> di modul Purchasing — '
-    + 'tidak diketik ulang tiap minggu.</div>'
+  h += '<div class="card" style="padding:16px 18px">'
+    + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+    + '<b style="font-size:13px">Lembar</b>'
+    /* Tanggalnya SATU kendali yang sekaligus memilih lembar dan menjadi tujuan
+       baris berikutnya. Dulu dua: dropdown batch di kartu ini dan kotak tanggal
+       di form — dua kendali untuk satu maksud, dan yang mengisi harus menebak
+       mana yang menentukan. */
+    + '<input type="date" class="nokunci" style="max-width:165px" id="by_batch"'
+      + ' value="' + esc(BATCH_AKTIF || todayISO()) + '" onchange="batchPilih(this.value)">'
+    + tglAda.filter(t => t !== BATCH_AKTIF).slice(0, 6).map(t => chip(t, fmtTgl(t), false)).join('')
+    + (lepas.length ? chip('', 'belum masuk batch (' + lepas.length + ')', BATCH_AKTIF === '') : '')
+    + '</div>';
 
-    + '<div class="by-sec"><div class="by-sec-h">1 · Kapan &amp; dari rekening mana</div>'
-    + '<div class="grid g2">'
-    + fld('Tanggal bayar (batch)', '<input type="date" id="by_batch" value="' + esc(BATCH_AKTIF || todayISO()) + '">')
-    + fld('Dibayar dari', '<select id="by_dari" onchange="byVendorPilih()">'
-        + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + ' · saldo ' + fmtRp(s[k].saldo) + '</option>').join('')
-        + '</select>')
-    + '</div></div>'
+  /* ---- baris cepat ----
+     Vendor DIKETIK, bukan dipilih dari dropdown: 36 vendor di daftar berarti
+     menggulir untuk mencari satu nama, dan yang menyalin lembar Excel sudah tahu
+     namanya sebelum kotaknya dibuka. <datalist> menyaring sambil mengetik dan
+     tetap menerima nama yang belum ada di master — itu memang perlu (isi kas
+     kecil, biaya admin), dan yang tidak dikenal DIKATAKAN di baris bawahnya
+     alih-alih ditolak. */
+  const vList = vendorSemua()
+    .map(v => '<option value="' + esc(v.nama) + '">' + esc(v.norek ? (v.bank || '') + ' ' + v.norek : 'belum ada rekening') + '</option>')
+    .join('');
 
-    + '<div class="by-sec"><div class="by-sec-h">2 · Ditransfer ke siapa</div>'
-    + fld('Vendor', '<select id="by_vendor" onchange="byVendorPilih()">'
-        + '<option value="">— tanpa vendor (mis. isi kas kecil, biaya admin) —</option>' + vOpt + '</select>')
-    /* Penerima / bank / nomor rekening digambar sebagai KOTAK TERKUNCI, bukan
-       satu baris kalimat. Bentuknya sama dengan kolom di lembar pembayaran di
-       bawah, jadi yang mengisi melihat persis apa yang akan tercetak — dan
-       kotak terkunci mengatakan sendiri bahwa isinya bukan untuk diketik. */
-    + '<div class="grid g3" id="by_detail">'
-    + fld('Penerima', '<input id="by_penerima" class="nokunci" disabled placeholder="terisi dari master vendor">')
-    + fld('Bank', '<input id="by_bank" class="nokunci" disabled placeholder="—">')
-    + fld('No. rekening', '<input id="by_norek" class="mono nokunci" disabled placeholder="—">')
+  h += '<div data-aks>'
+    + '<datalist id="by_vlist">' + vList + '</datalist>'
+    + '<div class="qa">'
+    + '<input class="qa-v" id="by_vendor" list="by_vlist" autocomplete="off"'
+      + ' placeholder="Vendor — ketik namanya" oninput="byVendorPilih()" onkeydown="byEnter(event)">'
+    + '<input class="qa-n" id="by_name" placeholder="Keterangan — mis. bahan baku 21 Agu" onkeydown="byEnter(event)">'
+    + '<select class="qa-k" id="by_cat">'
+      + BAYAR_KAT.map(c => '<option' + (c === QA.cat ? ' selected' : '') + '>' + c + '</option>').join('')
+      + '</select>'
+    + '<select class="qa-d" id="by_dari">'
+      + SEMUA_WADAH().map(k => '<option value="' + k + '"' + (k === QA.dari ? ' selected' : '') + '>'
+          + esc(namaBank(k)) + '</option>').join('')
+      + '</select>'
+    + '<input class="qa-a mono" id="by_amt" inputmode="numeric" placeholder="Nominal"'
+      + ' oninput="ketikRp(this)" onkeydown="byEnter(event)">'
+    + '<button class="btn btn-primary" onclick="bySimpan()">Tambah</button>'
     + '</div>'
-    + '<div id="by_infoVendor" class="notice warn" style="display:none"></div>'
-    + '</div>'
-
-    + '<div class="by-sec"><div class="by-sec-h">3 · Untuk apa &amp; berapa</div>'
-    + '<div class="grid g3">'
-    + '<div class="field" style="grid-column:span 2"><label>Keterangan</label>'
-      + '<input id="by_name" placeholder="mis. Pembayaran pembelian bahan baku tgl 21 Agustus 2026"></div>'
-    + fld('Nominal', '<input class="mono" id="by_amt" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
-    + '</div>'
-    + '<div class="grid g3">'
-    + fld('Kategori', '<select id="by_cat">' + BAYAR_KAT.map(c => '<option>' + c + '</option>').join('') + '</select>')
-    + '</div></div>'
-
-    + '<div class="by-aksi"><button class="btn btn-primary" onclick="bySimpan()">Tambah ke Batch</button>'
-    + '<span class="helper" style="margin:0">Barisnya masuk ke lembar di bawah, di kelompok rekening yang dipilih.</span>'
+    + '<div class="qa-info" id="by_infoVendor"></div>'
     + '</div></div>';
 
   /* ---- lembar batch ---- */
@@ -1723,31 +1743,54 @@ function vBayar() {
   h += '</div>';
   V.innerHTML = h;
   byVendorPilih();
+  /* Kursor kembali ke kotak Vendor sesudah satu baris masuk. Render di modul
+     ini TOTAL — halaman digambar ulang dari nol tiap simpan, jadi fokus
+     hilang dengan sendirinya, dan tanpa langkah ini setiap baris menuntut satu
+     klik untuk kembali ke tempat mengetik. Dipasang HANYA sesudah menyimpan
+     (QA.fokus), bukan tiap render: membuka halaman ini lalu mendapati layar
+     melompat ke form adalah gangguan bagi yang cuma ingin membaca lembarnya. */
+  if (QA.fokus) {
+    QA.fokus = false;
+    const v = document.getElementById('by_vendor');
+    if (v && !v.disabled) v.focus();
+  }
 }
 
-/* Memilih vendor memunculkan penerima/bank/rekeningnya SEBELUM disimpan.
-   Tanpa ini orang baru tahu nomor rekeningnya kosong sesudah barisnya masuk
-   lembar — dan lembar pembayaran yang nomornya kosong tidak bisa dieksekusi. */
+/* Baris keterangan di bawah kotak vendor. Yang ditunjukkan cuma yang perlu
+   diketahui SEBELUM barisnya masuk: vendornya dikenal atau tidak, dan kalau
+   dikenal — ke rekening mana uangnya pergi. Rinciannya sudah tercetak di lembar
+   di bawah, jadi mengulangnya di sini cuma menambah tinggi.
+
+   Nama yang tidak dikenal TIDAK ditolak: baris tanpa vendor memang ada di
+   lembar Excel (isi kas kecil, biaya admin). Yang dilakukan cuma MENGATAKANNYA,
+   supaya salah ketik satu huruf tidak lolos diam-diam sebagai vendor baru. */
 function byVendorPilih() {
-  const sel = document.getElementById('by_vendor');
   const box = document.getElementById('by_infoVendor');
-  const set = (id, val) => { const e = document.getElementById(id); if (e) e.value = val || ''; };
-  if (!sel) return;
-  const v = vendorByNama(sel.value);
-  set('by_penerima', v ? vendorPenerima(v) : '');
-  set('by_bank',     v ? v.bank : '');
-  set('by_norek',    v ? v.norek : '');
-  if (!box) return;
-  /* Peringatan hanya untuk keadaan yang MENGHALANGI transfer. Vendor yang
-     lengkap tidak perlu pita apa pun — kotak terkuncinya sudah menunjukkan
-     isinya, dan pita yang selalu muncul berhenti dibaca. */
-  if (v && !v.norek) {
-    box.style.display = '';
-    box.innerHTML = '⚠ <div>Vendor <b>' + esc(v.nama) + '</b> belum punya nomor rekening di master. '
-      + 'Barisnya tetap bisa dicatat, tapi yang mentransfer harus mencari nomornya sendiri. '
-      + 'Lengkapi di <b>Purchasing → Database &amp; Vendor</b>.</div>';
-  } else { box.style.display = 'none'; box.innerHTML = ''; }
+  const el = document.getElementById('by_vendor');
+  if (!box || !el) return;
+  const t = el.value.trim();
+  if (!t) { box.className = 'qa-info';
+    box.innerHTML = 'Tanpa vendor — mis. isi kas kecil atau biaya admin.'; return; }
+  const v = vendorByNama(t);
+  if (!v) {
+    box.className = 'qa-info warn';
+    box.innerHTML = '⚠ <b>' + esc(t) + '</b> belum ada di master Purchasing. '
+      + 'Barisnya tetap bisa dicatat, tapi yang mentransfer harus mencari rekeningnya sendiri.';
+    return;
+  }
+  if (!v.norek) {
+    box.className = 'qa-info warn';
+    box.innerHTML = '⚠ <b>' + esc(v.nama) + '</b> belum punya nomor rekening. '
+      + 'Lengkapi di Purchasing → Database &amp; Vendor.';
+    return;
+  }
+  box.className = 'qa-info';
+  box.innerHTML = '✓ <b>' + esc(vendorPenerima(v)) + '</b> · ' + esc(v.bank || '—') + ' ' + esc(v.norek);
 }
+
+/* Enter = tambah baris. Inilah yang membuatnya terasa seperti mengetik di
+   Excel: tangan tidak perlu pindah ke tetikus tiap baris. */
+function byEnter(e) { if (e && e.key === 'Enter') { e.preventDefault(); bySimpan(); } }
 
 function bySimpan() {
   const g = id => (document.getElementById(id) || {}).value || '';
@@ -1756,8 +1799,16 @@ function bySimpan() {
   if (!g('by_batch')) { alert('Tanggal bayar wajib diisi.'); return; }
   const b = g('by_batch');
   BATCH_AKTIF = b;
+  /* Kategori & rekening diingat untuk baris berikutnya, dan kursor kembali ke
+     kotak Vendor sesudah render. Tanpa keduanya, menuangkan satu lembar Excel
+     berarti mengulang dua pilihan dan satu klik untuk TIAP baris. */
+  QA.cat = g('by_cat'); QA.dari = g('by_dari') || KAS_K; QA.fokus = true;
+  /* Nama vendor disimpan APA ADANYA yang diketik (spasinya saja dirapikan).
+     Kalau dicocokkan ke master lalu ditimpa, ejaan yang beda tipis akan
+     diam-diam diganti — dan yang mengetiknya tidak pernah tahu barisnya
+     berubah. Yang tidak dikenal sudah dikatakan di baris keterangan. */
   simpanBaris('bayar', { id:uid('by'), name:g('by_name').trim(), cat:g('by_cat'),
-    amount:num(g('by_amt')), dari:g('by_dari') || KAS_K, vendor:g('by_vendor'),
+    amount:num(g('by_amt')), dari:g('by_dari') || KAS_K, vendor:g('by_vendor').trim(),
     batch:b, dueDate:b, note:'', status:'scheduled', bukti:null }, 'bayar');
 }
 function byToggle(id) {

@@ -2399,10 +2399,8 @@ function muatVendorPur(){
     /* Digambar ulang HANYA kalau form PO-nya memang sedang terbuka. Render
        penuh saat orang sedang mengetik di halaman lain akan membuang isian
        yang belum disimpan. */
-    if(document.getElementById('o_vendor')) {
-      var el=document.getElementById('o_vendor'), pilih=el.value;
-      el.innerHTML=opsiVendor(pilih);
-    }
+    var dl=document.getElementById('o_vlist');
+    if(dl){ dl.innerHTML=opsiVendor(); infoVendorPO(); }
   }).catch(function(){ /* diam: ditangani opsiVendor() */ });
 }
 
@@ -2419,16 +2417,38 @@ function muatVendorPur(){
    Nama tersimpan yang tidak ada di master tetap digambar sebagai pilihan,
    ditandai "(lama)". Tanpa itu, membuka PO lama akan diam-diam mengganti
    vendornya ke pilihan pertama begitu Simpan ditekan. */
-function opsiVendor(terpilih){
+/* DIKETIK, bukan dipilih dari dropdown (28 Agustus 2026, permintaan user).
+   Ada 36 vendor; menggulir daftar sepanjang itu untuk satu nama yang sudah
+   diketahui lebih lambat daripada mengetik tiga huruf pertamanya. <datalist>
+   menyaring sambil mengetik, dan tetap menerima nama yang belum ada di master
+   — itu memang perlu, PO untuk vendor baru sering dibuat sebelum vendornya
+   sempat didaftarkan. Yang tidak dikenal DIKATAKAN lewat infoVendorPO(),
+   bukan ditolak: menolak berarti PO-nya tidak bisa dicatat sama sekali. */
+function opsiVendor(){
   var l=Array.isArray(VENDOR_PUR)?VENDOR_PUR:[];
-  var ada=l.indexOf(terpilih)>-1;
-  var h='<option value="">'+(VENDOR_PUR===null
-      ? '— daftar vendor Purchasing belum terbaca —'
-      : (l.length?'— pilih vendor —':'— belum ada vendor di Purchasing —'))+'</option>';
-  h+=l.map(function(nm){
-    return '<option'+(nm===terpilih?' selected':'')+'>'+esc(nm)+'</option>'; }).join('');
-  if(terpilih && !ada) h+='<option selected>'+esc(terpilih)+' (lama — tidak ada di master Purchasing)</option>';
-  return h;
+  return l.map(function(nm){ return '<option value="'+esc(nm)+'">'; }).join('');
+}
+
+/* Baris kecil di bawah kotak Vendor. Tiga keadaan, dan ketiganya perlu
+   dibedakan: daftarnya belum terbaca (masalah jaringan), namanya dikenal, dan
+   namanya belum ada di master (mungkin salah ketik, mungkin vendor baru). */
+function infoVendorPO(){
+  var box=document.getElementById('o_vendorInfo');
+  var el=document.getElementById('o_vendor');
+  if(!box||!el) return;
+  var t=String(el.value||'').trim();
+  if(VENDOR_PUR===null){
+    box.style.color='';
+    box.innerHTML='Daftar vendor Purchasing belum terbaca — namanya tetap bisa diketik.';
+    return;
+  }
+  if(!t){ box.style.color='';
+    box.innerHTML='Ketik namanya — daftarnya dari <b>Purchasing → Database &amp; Vendor</b>.'; return; }
+  var ada=VENDOR_PUR.some(function(nm){
+    return nm.trim().toLowerCase()===t.toLowerCase(); });
+  box.style.color=ada?'':'#b45309';
+  box.innerHTML=ada ? '✓ ada di master Purchasing'
+    : '⚠ <b>'+esc(t)+'</b> belum ada di master Purchasing. Tetap bisa disimpan.';
 }
 
 function vPromo(){
@@ -4210,10 +4230,11 @@ function poModal(id){
            lain untuk kotak yang mungkin tidak pernah ia buka. Fungsinya
            idempoten dan menggambar ulang kotaknya sendiri saat datang. */
         (muatVendorPur(),'')+
-        '<div class="field"><label>Vendor</label><select id="o_vendor">'+opsiVendor(p.vendor)+'</select>'+
-          (Array.isArray(VENDOR_PUR)&&VENDOR_PUR.length?'':'<div class="muted" style="font-size:11.5px;margin-top:4px">'+
-            'Daftarnya dibaca dari <b>Purchasing → Database &amp; Vendor</b>. '+
-            'Vendor baru ditambahkan di sana, bukan di sini.</div>')+'</div>'+
+        '<div class="field"><label>Vendor</label>'+
+          '<datalist id="o_vlist">'+opsiVendor()+'</datalist>'+
+          '<input id="o_vendor" list="o_vlist" autocomplete="off" placeholder="Ketik nama vendor…" '+
+            'value="'+esc(p.vendor)+'" oninput="APP.infoVendorPO()">'+
+          '<div id="o_vendorInfo" class="muted" style="font-size:11.5px;margin-top:4px"></div></div>'+
         '<div class="field"><label>Nilai total</label>'+rpInput('o_amount',p.amount)+'</div></div>'+
       '<div class="frow3">'+
         '<div class="field"><label>Qty</label><input type="number" id="o_qty" value="'+(+p.qty||1)+'"></div>'+
@@ -4240,7 +4261,7 @@ function simpanPo(id){
   if(!item){ toast('Nama item wajib diisi.'); return; }
   /* Penanda "(lama …)" cuma label di layar — dibuang sebelum disimpan,
      kalau tidak ia ikut jadi bagian nama vendor dan menular ke PO berikutnya. */
-  var data={item:item,vendor:g('o_vendor').replace(/\s*\(lama[^)]*\)\s*$/,'').trim(),amount:bacaRp('o_amount'),
+  var data={item:item,vendor:g('o_vendor').trim(),amount:bacaRp('o_amount'),
     qty:+g('o_qty')||1,unit:g('o_unit').trim()||'unit',needBy:g('o_need'),div:g('o_div'),pic:g('o_pic'),
     status:g('o_status'),project:g('o_proj')||null,note:g('o_note').trim()};
   if(id) Object.assign(DB.po.find(function(x){return x.id===id;}),data);
@@ -4614,6 +4635,7 @@ document.addEventListener('keydown',function(e){ if(e.key==='Escape') closeModal
    Semua onclick di markup memanggil lewat APP.*, jadi seluruh modul tetap di
    dalam IIFE dan tidak menaburkan nama global yang bisa bertabrakan. */
 window.APP={
+  infoVendorPO:infoVendorPO,
   go:go, cari:cari, qprev:qprev,
   taskModal:function(id,proj){ _presetProject=proj||null; taskModal(id); },
   simpanTask:simpanTask, hapusTask:hapusTask, toggleTask:toggleTask,
