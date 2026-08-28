@@ -104,6 +104,19 @@ console.log('\n== Papan reward, tangga bawaan (30 / 40 / 70 / 100) ==');
       h.indexOf('syarat minimal 30 review') > -1, h.slice(-800));
   cek('menjelaskan "satu tangga tertinggi"', h.indexOf('satu tangga tertinggi') > -1);
   cek('menyebut tempat mengaturnya', h.indexOf('Kontrol') > -1);
+
+  /* Keduanya TABEL sejak 27 Agu 2026 (permintaan user). Deret baris yang lama
+     terbaca sebagai paragraf berulang begitu seluruh tim di angka yang sama. */
+  cek('dua tabel digambar', (h.match(/<table>/g) || []).length === 2,
+      String((h.match(/<table>/g) || []).length));
+  cek('tabel "sudah dapat" berkolom Kru/Review/Tangga/Reward',
+      h.indexOf('<th>Kru</th><th>Review</th><th>Tangga</th>') > -1);
+  cek('tabel "paling dekat" berkolom Menuju & Kurang',
+      h.indexOf('<th>Menuju</th>') > -1 && h.indexOf('Kurang</th>') > -1);
+  cek('ada baris Total di kaki tabel reward',
+      h.indexOf('<tfoot>') > -1 && h.slice(h.indexOf('<tfoot>')).indexOf('Rp. 310.000') > -1,
+      h.slice(h.indexOf('<tfoot>'), h.indexOf('<tfoot>') + 200));
+  cek('kelas daftar lama sudah tidak dipakai', h.indexOf('rw-row') < 0 && h.indexOf('rw-list') < 0);
 }
 
 /* ================= 2. bukan master: tidak diberi tahu cara mengaturnya ====== */
@@ -151,6 +164,27 @@ console.log('\n== Tangga disetel tidak urut ==');
   cek('tangga tergambar urut naik',
       h.indexOf('>40<') < h.indexOf('>70<') && h.indexOf('>70<') < h.indexOf('>100<'));
   setCfg({ reward: null });
+}
+
+/* ================= 6. seluruh tim masih nol ================= */
+/* Keadaan nyata di awal bulan, dan yang membuat user minta bentuk tabel:
+   puluhan kru sama-sama 0 review, barisnya identik kecuali namanya. */
+console.log('\n== Seluruh tim masih 0 review ==');
+{
+  const nama = ['Arif','Cindy','Andi','Cecillia A. Wulan Aprilla','Erni Miani Angela Purba',
+                'Fajar','Gita','Hendra','Indah','Joko','Kiki','Lina','Maya'];
+  const baris = nama.map(n => kru(n, 0));
+  const h = rewardPapanHtml(baris);
+  cek('total nol', h.indexOf('Rp. 0') > -1);
+  cek('semua ditandai belum memenuhi', /Belum Memenuhi<\/div>\s*<div class="val">13</.test(h));
+  cek('daftar "paling dekat" berbentuk tabel', h.indexOf('<th>Menuju</th>') > -1);
+  /* Dipotong 10, dan sisanya DISEBUTKAN. Daftar yang memotong tanpa
+     mengatakannya terbaca sebagai "cuma segini yang sedang menuju". */
+  const trAntre = (h.slice(h.indexOf('Paling Dekat Naik')).match(/<tr><td><div class="name">/g) || []).length;
+  cek('dipotong 10 baris', trAntre === 10, String(trAntre));
+  cek('sisanya disebutkan (3 kru)', h.indexOf('+ 3 kru lagi') > -1, h.slice(-400));
+  cek('tidak ada tangga yang terisi', (h.match(/rw-step on/g) || []).length === 0);
+  cek('tangga menyebut jumlah yang menuju', h.indexOf('sedang menuju') > -1);
 }
 
 console.log('\n---------------------------------------');

@@ -996,7 +996,7 @@ yang menghitung reward sendiri-sendiri akan berselisih suatu hari, dan yang
 selisih itu uang.
 
 ```bash
-node tools/uji-reward-se.js   # 30 pemeriksaan, fungsinya dipotong dari sumber
+node tools/uji-reward-se.js   # 42 pemeriksaan, fungsinya dipotong dari sumber
 ```
 
 Ujinya sengaja TERISOLASI, bukan merender seluruh modul: halaman itu memuat

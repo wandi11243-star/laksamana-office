@@ -5692,13 +5692,19 @@ function kwitansiHTML(r){
 .rw-arrow{display:flex;align-items:center;color:var(--line);font-size:18px;flex:none}
 .rw-split{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-top:6px}
 .rw-h{font-weight:700;font-size:13px;color:var(--ink);margin-bottom:8px}
-.rw-list{display:flex;flex-direction:column}
-.rw-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:9px 0;border-bottom:1px dashed var(--line)}
-.rw-row:last-child{border-bottom:none}
-.rw-nm{font-size:13px;font-weight:600;color:var(--ink);line-height:1.3;min-width:0}
-.rw-nm span{display:block;font-size:11.5px;font-weight:400;color:var(--muted)}
-.rw-amt{text-align:right;font-weight:700;font-size:14px;color:var(--ok);white-space:nowrap}
-.rw-amt span{display:block;font-size:11px;font-weight:500;color:var(--muted)}
+/* Kedua daftar jadi TABEL 27 Agustus 2026. Kelas .rw-list/.rw-row/.rw-nm/
+   .rw-amt dibuang bersamanya — CSS mati yang ditinggal akan dipakai lagi
+   oleh yang mengira ia masih hidup. */
+.rw-split table{width:100%;border-collapse:collapse;font-size:13px}
+.rw-split th{text-align:left;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;
+  color:var(--muted);padding:0 8px 7px;border-bottom:1.5px solid var(--line);white-space:nowrap}
+.rw-split td{padding:8px;border-bottom:1px dashed var(--line);color:var(--muted);vertical-align:middle}
+.rw-split tbody tr:last-child td{border-bottom:none}
+.rw-split td .name{font-weight:600;color:var(--ink);font-size:13px}
+.rw-split td b{color:var(--ink)}
+.rw-num{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.rw-split tfoot td{border-top:1.5px solid var(--line);border-bottom:none;padding-top:9px}
+.rw-split tfoot b{color:var(--ok)}
 @media(max-width:820px){ .rw-split{grid-template-columns:1fr} .rw-arrow{display:none} }
 </style></head><body>
   <div class="kop">
@@ -7663,19 +7669,31 @@ function rewardPapanHtml(baris){
       if(!w.layak) return {nama:o.nama, sah:w.n, kurang:w.min-w.n, tujuan:'syarat minimal ' + w.min + ' review', nilai:null};
       if(w.berikut) return {nama:o.nama, sah:w.n, kurang:w.kurang, tujuan:'tangga ' + w.berikut.rv, nilai:w.berikut.bonus};
       return null;
-    }).filter(x=>x && x.kurang>0).sort((a,b)=>a.kurang-b.kurang).slice(0,5);
+    }).filter(x=>x && x.kurang>0).sort((a,b)=>a.kurang-b.kurang||a.nama.localeCompare(b.nama));
+  /* Dipotong SESUDAH diurut, dan sisanya disebutkan jumlahnya. Daftar yang
+     memotong tanpa mengatakannya terbaca sebagai "cuma segini yang sedang
+     menuju" — padahal di awal bulan hampir seluruh tim ada di sini. */
+  const antreLebih = Math.max(0, antre.length - 10);
+  const antre10 = antre.slice(0, 10);
 
+  /* TABEL, bukan deret baris (permintaan user 27 Agustus 2026). Bedanya nyata
+     saat seluruh tim masih di angka yang sama: dua puluh baris "0 review ·
+     menuju syarat minimal 30 review" terbaca sebagai satu paragraf berulang,
+     sementara di tabel kolomnya sejajar dan mata langsung menangkap bahwa yang
+     berbeda cuma namanya. */
   const barisDapat = dapat.slice().sort((a,b)=>b.reward.bonus-a.reward.bonus||b.sah-a.sah).map(function(o){
-    return '<div class="rw-row"><div class="rw-nm">' + esc(o.nama)
-      + '<span>' + o.sah + ' review terverifikasi</span></div>'
-      + '<div class="rw-amt">' + esc(rpDot(o.reward.bonus)) + '<span>tangga ' + o.reward.tier.rv + '</span></div></div>';
+    return '<tr><td><div class="name">' + esc(o.nama) + '</div></td>'
+      + '<td><b>' + o.sah + '</b></td>'
+      + '<td>tangga ' + o.reward.tier.rv + '</td>'
+      + '<td class="rw-num">' + esc(rpDot(o.reward.bonus)) + '</td></tr>';
   }).join('');
 
-  const barisAntre = antre.map(function(x){
-    return '<div class="rw-row"><div class="rw-nm">' + esc(x.nama)
-      + '<span>' + x.sah + ' review · menuju ' + esc(x.tujuan) + '</span></div>'
-      + '<div class="rw-amt">' + x.kurang + '<span>review lagi'
-      + (x.nilai ? ' → ' + esc(rpDot(x.nilai)) : '') + '</span></div></div>';
+  const barisAntre = antre10.map(function(x){
+    return '<tr><td><div class="name">' + esc(x.nama) + '</div></td>'
+      + '<td><b>' + x.sah + '</b></td>'
+      + '<td>' + esc(x.tujuan) + '</td>'
+      + '<td class="rw-num"><b>' + x.kurang + '</b> lagi</td>'
+      + '<td class="rw-num">' + (x.nilai ? esc(rpDot(x.nilai)) : '<span class="muted">—</span>') + '</td></tr>';
   }).join('');
 
   const puncak = r.tiers[r.tiers.length-1];
@@ -7696,12 +7714,19 @@ function rewardPapanHtml(baris){
     + '<div class="rw-ladder">' + anak + '</div>'
     + '<div class="rw-split">'
     + '<div><div class="rw-h">🥇 Yang Sudah Dapat</div>'
-    + (dapat.length ? '<div class="rw-list">' + barisDapat + '</div>'
-                    : '<div class="empty" style="padding:24px 10px">Belum ada kru yang mencapai tangga bonus.</div>')
+    + (dapat.length
+        ? '<div class="table-wrap"><table><thead><tr><th>Kru</th><th>Review</th><th>Tangga</th><th class="rw-num">Reward</th></tr></thead>'
+          + '<tbody>' + barisDapat + '</tbody>'
+          + '<tfoot><tr><td colspan="3"><b>Total</b></td><td class="rw-num"><b>' + esc(rpDot(total)) + '</b></td></tr></tfoot>'
+          + '</table></div>'
+        : '<div class="empty" style="padding:24px 10px">Belum ada kru yang mencapai tangga bonus.</div>')
     + '</div>'
     + '<div><div class="rw-h">🔜 Paling Dekat Naik</div>'
-    + (antre.length ? '<div class="rw-list">' + barisAntre + '</div>'
-                    : '<div class="empty" style="padding:24px 10px">Tidak ada yang sedang menuju tangga berikutnya.</div>')
+    + (antre10.length
+        ? '<div class="table-wrap"><table><thead><tr><th>Kru</th><th>Review</th><th>Menuju</th><th class="rw-num">Kurang</th><th class="rw-num">Nilainya</th></tr></thead>'
+          + '<tbody>' + barisAntre + '</tbody></table></div>'
+          + (antreLebih ? '<div class="hint" style="margin-top:8px">+ ' + antreLebih + ' kru lagi tidak ditampilkan.</div>' : '')
+        : '<div class="empty" style="padding:24px 10px">Tidak ada yang sedang menuju tangga berikutnya.</div>')
     + '</div></div>'
     + '<div class="hint" style="margin-top:14px">Dibayar <b>satu tangga tertinggi</b> yang dilewati, bukan dijumlahkan — '
     + 'kru dengan ' + puncak.rv + '+ review menerima ' + esc(rpDot(puncak.bonus)) + ', bukan totalnya. '
