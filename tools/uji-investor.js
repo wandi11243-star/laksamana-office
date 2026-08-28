@@ -117,10 +117,13 @@ async function jalankan(nama, opt) {
       cek('token ikut dikirim ke kompas-api',
           p.some(x => x.body.action === 'investorRingkas' && x.body.sesi === 'T2'));
       const kp = $(w,'kpis').innerHTML;
-      cek('KPI hari ini pakai netSales Rp 22.000.000', kp.includes('Rp 22.000.000'), kp.slice(0, 200));
-      cek('BUKAN net POS Rp 20.000.000', !kp.includes('>Rp 20.000.000<'), kp.slice(0, 200));
-      cek('BUKAN tagihan Rp 23.000.000', !kp.includes('>Rp 23.000.000<'), kp.slice(0, 200));
-      cek('delta hari ini +25.0% (22jt vs 17,6jt)', kp.includes('25.0%'));
+      /* Kartu "Omset Hari Ini" dihapus 27 Agu 2026: isinya hampir selalu
+         "belum diisi hari ini" karena omset baru masuk keesokan paginya. */
+      cek('kartu Omset Hari Ini SUDAH TIDAK ADA', !kp.includes('Omset Hari Ini'), kp.slice(0, 300));
+      cek('tidak ada lagi "Belum diisi hari ini"', !kp.includes('Belum diisi hari ini'));
+      cek('angka harian tidak ikut tergambar', !kp.includes('Rp 22.000.000'), kp.slice(0, 300));
+      cek('tinggal 3 kartu', (kp.match(/class="kpi rise"/g) || []).length === 3,
+          String((kp.match(/class="kpi rise"/g) || []).length));
       // rata-rata/hari atas NET SALES: 450jt/26 = 17,31jt ; bulan lalu 350jt/31 = 11,29jt -> +53.3%
       cek('delta bulan pakai rata-rata harian (53.3%)', kp.includes('53.3%'), 'harus 53.3');
       cek('KPI transaksi 2.000', kp.includes('2.000'));
@@ -244,7 +247,6 @@ async function jalankan(nama, opt) {
       : { ok:false },
     periksa(w) {
       const kp = $(w,'kpis').innerHTML;
-      cek('delta hari ini tetap digambar', kp.includes('25.0%'));
       cek('delta bulan TIDAK digambar', !kp.includes('rata-rata/hari vs'), kp.slice(0,400));
       cek('tidak menulis turun 70%', !kp.includes('70.0%'));
       cek('total bulan tetap tampil', kp.includes('Rp 450.000.000'));
@@ -280,6 +282,7 @@ async function jalankan(nama, opt) {
       cek('menyebut service', kp.includes('service Rp 26 jt'), kp.slice(0,600));
       cek('menyebut pajak', kp.includes('pajak Rp 50 jt'), kp.slice(0,600));
       cek('menyebut compliment Rp 12 jt', kp.includes('dipotong compliment Rp 12 jt'), kp.slice(0,900));
+      cek('kartu Omset Hari Ini tidak ada', !kp.includes('Omset Hari Ini'));
       // JEMBATAN KE REKAP PENJUALAN: angka tagihan POS disebut UTUH, supaya
       // selisih Rp 11,6 jt itu tidak perlu dihitung sendiri. Ditanyakan 3x.
       cek('menyebut tagihan POS utuh', kp.includes('tagihan POS Rp 622.035.872'), kp.slice(0,1000));
@@ -287,9 +290,7 @@ async function jalankan(nama, opt) {
       // INI YANG DIKELUHKAN USER: dua tab harus menyebut angka yang sama.
       const lp = $(w,'laporanBox').innerHTML;
       cek('tab Laba Rugi menyebut angka yang SAMA', lp.includes('Rp 610.400.022'), lp.slice(-600));
-      // hari ini kosong -> tidak ada keterangan net yang membingungkan
-      const kartuHariIni = kp.split('<div class="kpi rise">')[1] || '';
-      cek('kartu hari ini tanpa keterangan net', !kartuHariIni.includes('dibayar tamu'), kartuHariIni.slice(0,300));
+
     }
   });
 

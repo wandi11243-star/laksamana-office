@@ -114,7 +114,15 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     cek('cash masuk 18.000.000', s.cash.masuk === 18000000, String(s.cash.masuk));
     cek('BRI masuk 8.820.000 (kotor − MDR)', s.bri.masuk === 8820000, String(s.bri.masuk));
     cek('Mandiri masuk 3.940.000 (aktual diketik menang)', s.mandiri.masuk === 3940000, String(s.mandiri.masuk));
+    /* UOB kini menampung transfer DAN ojol DAN QR Order. Data uji tidak punya
+       ojol, jadi angkanya tetap 2 juta — yang diuji di bawah pemetaannya. */
     cek('UOB masuk 2.000.000 (transfer, tanpa MDR)', s.uob.masuk === 2000000, String(s.uob.masuk));
+    const pmap = w.petaGrup();
+    cek('QR Order dipetakan ke UOB', pmap.qr_order === 'uob', pmap.qr_order);
+    cek('Gofood dipetakan ke UOB', pmap.gofood === 'uob', pmap.gofood);
+    cek('Grabfood dipetakan ke UOB', pmap.grabfood === 'uob', pmap.grabfood);
+    cek('tidak ada metode tanpa tujuan', w.petaBelum().length === 0,
+        w.petaBelum().map(g => g.n).join(','));
     cek('BCA masuk 0', s.bca.masuk === 0, String(s.bca.masuk));
     /* error_kasir 9.999.999 ada di Report Daily tapi BUKAN uang yang masuk
        rekening — ia catatan salah input. Diperiksa lewat TOTAL, bukan ambang
@@ -136,7 +144,11 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     const v = d.getElementById('app-view').innerHTML;
     cek('saldo: format Rp dengan titik ribuan', v.indexOf('Rp19.820.000') > -1, v.slice(0, 300));
     cek('saldo: menyebut cash = aktual kotor', v.indexOf('aktual masuk = aktual kotor') > -1);
-    cek('saldo: melaporkan metode belum dipetakan', v.indexOf('belum punya tujuan bank') > -1, v.slice(0, 900));
+    /* Sejak QR Order/Gofood/Grabfood dipetakan ke UOB (27 Agu 2026), tidak ada
+       lagi metode yang menggantung — jadi pita peringatannya justru TIDAK boleh
+       muncul. Yang diuji sekarang kebalikannya. */
+    cek('saldo: tidak ada metode yang menggantung', v.indexOf('belum punya tujuan bank') < 0, v.slice(0, 900));
+    cek('saldo: tidak ada label "belum dipetakan"', v.indexOf('belum dipetakan') < 0);
     cek('saldo: menyebut QR Order/Gofood/Grabfood',
         v.indexOf('QR Order') > -1 && v.indexOf('Gofood') > -1 && v.indexOf('Grabfood') > -1);
     cek('saldo: memperingatkan setoran tak dikenal', v.indexOf('tujuannya tidak dikenali') > -1);

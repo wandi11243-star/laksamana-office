@@ -81,9 +81,13 @@ tanpa MDR (cash, transfer) → akt = kotor
 - **Setoran cash** (`rekap_setoran`) menambah bank tujuan dan mengurangi brankas
   fisik. `tujuan` teks bebas, jadi yang tidak cocok dengan BRI/Mandiri/BCA/UOB
   **dilaporkan di layar**, bukan dijatuhkan ke bank pertama.
-- QR Order, Gofood, dan Grabfood **sengaja tidak dipetakan** secara bawaan —
-  tidak ada yang bisa menebak ke bank mana settlement-nya masuk. Halaman Saldo
-  memajang berapa metode yang belum dipetakan; itulah jaringnya.
+- QR Order, Gofood, dan Grabfood bawaannya **UOB**, sama dengan Transfer
+  (ditetapkan user 27 Agustus 2026). Sempat dibiarkan kosong karena tidak ada
+  yang bisa MENEBAK ke rekening mana settlement ojol masuk — tapi jawaban dari
+  yang memegang rekeningnya bukan tebakan. Ini bawaan, bukan kunci mati:
+  `setting.peta` menimpanya, jadi kalau settlement pindah bank yang diubah
+  setelan di Pengaturan. Metode yang tidak punya tujuan tetap **dilaporkan di
+  halaman Saldo**; itulah jaringnya kalau suatu hari ada metode baru.
 
 **Backend menumpang `finance-mysql`** (tabel `bk_state`, `bk_akses`, `bk_peran`),
 bukan backend sendiri: tabelnya lahir sendiri lewat `brankas_pastikan()`, jadi
@@ -99,7 +103,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 53 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 58 pemeriksaan, jsdom + finance/kompas/account tiruan
 ```
 
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`
@@ -699,7 +703,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 164 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 163 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:
