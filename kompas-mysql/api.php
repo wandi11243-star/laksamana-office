@@ -136,6 +136,26 @@ try {
     if (!sesi_punya_modul($u, 'investor')) sesi_tolak_tanpa_modul('Investor Compass');
     keluar(array('ok' => true, 'data' => agenda_investor()));
   }
+  /* ---------- ANALYTICS ----------
+     Modul internal Office: dibuka dari dalam, dan seluruh aksi kompas lain
+     memang terbuka. Tidak diberi gerbang sesi seperti investorRingkas —
+     memasangnya di sini sekarang akan mematikan panel Finance yang memanggil
+     tetangganya tanpa token. Yang menahan siapa boleh membuka apa adalah
+     kunci modul `analytics` di Kelola Akses, sama seperti modul lain. */
+  else if ($action === 'analyticsGet') keluar(array('ok' => true, 'data' => an_baca()));
+  else if ($action === 'analyticsSave') {
+    $r = an_simpan(isset($body['data']) ? $body['data'] : null,
+                   isset($body['oleh']) ? $body['oleh'] : '');
+    keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
+  }
+  else if ($action === 'analyticsAkses') {
+    $r = an_akses_simpan(isset($body['akses']) ? $body['akses'] : null);
+    keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
+  }
+  else if ($action === 'analyticsPeran') {
+    $r = an_peran_simpan(isset($body['peran']) ? $body['peran'] : null);
+    keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
+  }
   else keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
 } catch (Throwable $e) {
   keluar(array('ok' => false, 'error' => $e->getMessage()));

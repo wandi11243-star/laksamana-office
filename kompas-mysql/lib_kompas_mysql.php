@@ -1168,3 +1168,135 @@ function stats() {
   $out['ts'] = gmdate('c');
   return $out;
 }
+
+/* =====================================================================
+   ANALYTICS — ringkasan laporan POS yang diunggah (28 Agustus 2026)
+   ---------------------------------------------------------------------
+   MENUMPANG kompas-mysql, bukan backend sendiri. Backend baru berarti
+   config.php baru yang harus disunting manual di cPanel, dan langkah manual
+   di repo ini rutin tertinggal — modulnya jalan di dev lalu 500 di produksi
+   tanpa satu pun galat yang menyebut sebabnya. Di sini ia numpang koneksi
+   yang sudah ada, dan tabelnya lahir sendiri lewat an_pastikan().
+
+   Ditaruh di kompas karena yang dianalisis adalah PENJUALAN, dan Rekap
+   Penjualan tinggal di sini. Halaman Analytics membandingkan angka POS
+   dengan angka Kompas untuk hari yang sama — dua sumber di dua database
+   berbeda akan membuat perbandingan itu menyeberang jaringan tanpa alasan.
+
+   TABEL SENDIRI, BUKAN blob `settings` milik saveAll. Modul Omset mengirim
+   SELURUH state-nya tiap kali menyimpan; menaruh analytics di dalamnya
+   berarti satu simpan dari layar Omset menghapus seluruh riwayat unggahan
+   tanpa ada yang menyadarinya. Bahaya yang sama sudah tercatat untuk
+   jadwal & dw di CLAUDE.md.
+
+   YANG DISIMPAN RINGKASANNYA, BUKAN BARISNYA. Satu bulan = 4.000-an bill;
+   setahun 50.000 baris, dan blob sebesar itu harus dibaca utuh tiap kali
+   halaman dibuka. Yang disimpan: per tanggal, per jam, dan per menu —
+   cukup untuk seluruh pertanyaan yang dijawab halaman ini, dan tetap di
+   bawah 100 KB per bulan.
+   ===================================================================== */
+function an_pastikan() {
+  $pdo = db();
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `an_state` (
+       `id`         TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+       `data`       LONGTEXT NOT NULL,
+       `updated_at` BIGINT NOT NULL DEFAULT 0,
+       `updated_by` VARCHAR(80) NOT NULL DEFAULT \'\'
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  /* Matriks halaman x role, bentuknya sama persis dengan bk_akses & kk_akses
+     supaya yang membaca salah satunya langsung mengerti yang lain. */
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `an_akses` (
+       `id`      INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       `kunci`   VARCHAR(80)  NOT NULL,
+       `halaman` VARCHAR(40)  NOT NULL,
+       `tingkat` TINYINT      NOT NULL DEFAULT 2,
+       UNIQUE KEY `uq_an_akses` (`kunci`,`halaman`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `an_peran` (
+       `kunci` VARCHAR(80) NOT NULL PRIMARY KEY,
+       `peran` VARCHAR(20) NOT NULL DEFAULT \'staf\'
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+}
+
+function an_baca() {
+  an_pastikan();
+  $pdo = db();
+
+  $data = null; $ts = 0;
+  $row = $pdo->query('SELECT `data`,`updated_at` FROM `an_state` WHERE `id`=1')->fetch();
+  if ($row && isset($row['data']) && $row['data'] !== '') {
+    $d = json_decode((string)$row['data'], true);
+    if (is_array($d)) { $data = $d; $ts = (int)$row['updated_at']; }
+  }
+  /* Bentuk kosong yang LENGKAP, bukan null. Frontend yang menerima null harus
+     menuliskan bentuk bawaannya sendiri, dan begitu dua tempat memegang bentuk
+     yang sama salah satunya pasti tertinggal saat ada field baru. */
+  if ($data === null) $data = array('laporan' => new stdClass(), 'setting' => new stdClass());
+
+  $akses = array();
+  foreach ($pdo->query('SELECT `kunci`,`halaman`,`tingkat` FROM `an_akses`')->fetchAll() as $r) {
+    $k = (string)$r['kunci'];
+    if (!isset($akses[$k])) $akses[$k] = array();
+    $akses[$k][(string)$r['halaman']] = (int)$r['tingkat'];
+  }
+  $peran = array();
+  foreach ($pdo->query('SELECT `kunci`,`peran` FROM `an_peran`')->fetchAll() as $r) {
+    $peran[(string)$r['kunci']] = (string)$r['peran'];
+  }
+  return array('data' => $data, 'akses' => (object)$akses, 'peran' => (object)$peran, 'ts' => $ts);
+}
+
+function an_simpan($data, $oleh) {
+  an_pastikan();
+  if (!is_array($data)) return array('ok' => false, 'error' => 'data bukan objek');
+  $pdo = db();
+  $st = $pdo->prepare(
+    'INSERT INTO `an_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:t,:b)
+     ON DUPLICATE KEY UPDATE `data`=VALUES(`data`), `updated_at`=VALUES(`updated_at`),
+                             `updated_by`=VALUES(`updated_by`)');
+  $st->execute(array(':d' => json_encode($data, JSON_UNESCAPED_UNICODE),
+                     ':t' => (int)(microtime(true) * 1000),
+                     ':b' => mb_substr((string)$oleh, 0, 80)));
+  return array('ok' => true, 'saved' => true);
+}
+
+function an_akses_simpan($peta) {
+  an_pastikan();
+  if (!is_array($peta)) return array('ok' => false, 'error' => 'akses bukan objek');
+  $pdo = db();
+  $pdo->beginTransaction();
+  try {
+    $pdo->exec('DELETE FROM `an_akses`');
+    $st = $pdo->prepare('INSERT INTO `an_akses` (`kunci`,`halaman`,`tingkat`) VALUES (:k,:h,:t)');
+    foreach ($peta as $kunci => $baris) {
+      if (!is_array($baris)) continue;
+      foreach ($baris as $hal => $tk) {
+        $st->execute(array(':k' => mb_substr((string)$kunci, 0, 80),
+                           ':h' => mb_substr((string)$hal, 0, 40),
+                           ':t' => max(0, min(2, (int)$tk))));
+      }
+    }
+    $pdo->commit();
+  } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+  return array('ok' => true, 'saved' => true);
+}
+
+function an_peran_simpan($peta) {
+  an_pastikan();
+  if (!is_array($peta)) return array('ok' => false, 'error' => 'peran bukan objek');
+  $pdo = db();
+  $pdo->beginTransaction();
+  try {
+    $pdo->exec('DELETE FROM `an_peran`');
+    $st = $pdo->prepare('INSERT INTO `an_peran` (`kunci`,`peran`) VALUES (:k,:p)');
+    foreach ($peta as $kunci => $p) {
+      $st->execute(array(':k' => mb_substr((string)$kunci, 0, 80),
+                         ':p' => mb_substr((string)$p, 0, 20)));
+    }
+    $pdo->commit();
+  } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
+  return array('ok' => true, 'saved' => true);
+}

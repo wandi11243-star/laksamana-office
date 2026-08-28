@@ -23,6 +23,7 @@ docs/                       ← Apps Script lama + catatan Office (arsip/rujukan
 ```
 
 Modul: `marketing` `reservasi` `event` `bd` `konten` `hr` `akademi` `finance`
+`analytics`
 `radar` `stock` `howandi_life` `jadwal` `dw` — plus `absensi`, yang letaknya
 BERBEDA (lihat di bawah).
 
@@ -232,6 +233,88 @@ divisi punya head sendiri yang menyusun jadwal minggu depan di waktu berdekatan,
 jadi blob satu baris membuat head yang menyimpan belakangan menghapus kerja head
 lain tanpa error. Penulisannya granular per baris — `simpanSel` di jadwal,
 `simpanAjuan`/`putusAjuan` di dw. Jangan "rapikan" kembali jadi `saveAll`.
+
+### Modul `analytics`: laporan POS diurai DI PERAMBAN (29 Agustus 2026)
+
+`deploy/analytics/index.html`, kunci izin `analytics`. Alurnya: unggah berkas
+*Sales Recapitulation* dari POS → diurai di peramban → yang dikirim ke server
+cuma **ringkasannya**.
+
+**Backend MENUMPANG `kompas-mysql`** (tabel `an_state`, `an_akses`, `an_peran`,
+lahir sendiri lewat `an_pastikan()`), aksi `analyticsGet/Save/Akses/Peran`.
+Ditaruh di kompas karena yang dianalisis penjualan, dan halaman ini
+membandingkan angka POS dengan Rekap Penjualan untuk hari yang sama.
+**TABEL SENDIRI, bukan blob `settings` milik `saveAll`** — modul Omset mengirim
+seluruh state-nya tiap menyimpan, jadi menaruh analytics di dalamnya berarti
+satu simpan dari layar Omset menghapus seluruh riwayat unggahan.
+
+**Diurai tanpa satu pun pustaka.** `.xlsx` adalah ZIP berisi XML, dan peramban
+modern sudah punya `DecompressionStream('deflate-raw')` — yang perlu ditulis
+cuma pembaca daftar isi ZIP-nya (~60 baris). Alternatifnya SheetJS ~900 KB dari
+CDN, untuk satu berkas per bulan, dan CDN yang mati berarti modulnya ikut mati.
+Berkas 9,4 MB terurai **~280 ms**. Yang perambannya terlalu tua DIKATAKAN, dan
+jalur **CSV** tetap tersedia.
+
+Yang menahan bug diam-diam:
+
+- **KOLOM DICARI MENURUT NAMANYA** (`KOL_CARI`), bukan posisinya. POS mengubah
+  urutan kolom antar versi tanpa memberi tahu siapa pun, dan pembaca yang
+  menghitung kolom ke-41 akan membaca Tax sebagai Grand Total — salah yang
+  muncul sebagai uang, bukan sebagai galat.
+- **Baris kepala DICARI**, bukan dianggap baris pertama: berkas POS punya 10
+  baris judul & penyaring di atasnya.
+- **`isoDari()` satu pembaca untuk tiga bentuk tanggal** — serial Excel (46235),
+  ISO, dan dd-mm-yyyy. Serialnya dihitung **UTC**; dibaca lokal, zona di timur
+  menggeser tanggalnya satu hari. Rentangnya dijepit 20000–80000 supaya nomor
+  meja tidak diam-diam jadi tanggal tahun 1900-an.
+- **`dowDari()` pakai `getUTCDay`**, alasan yang sama. Salahnya cuma muncul
+  sebagai "Sabtu ternyata sepi".
+- **Hari dalam seminggu dibanding RATA-RATA, bukan jumlah.** Bulan dengan lima
+  Sabtu dan empat Senin akan selalu menunjukkan Sabtu lebih besar kalau yang
+  dibandingkan jumlahnya.
+- **Jam di luar kedua shift TETAP dihitung** dan ditampilkan. Kalau dibuang,
+  jumlah kedua shift tidak sama dengan total di Ringkasan.
+- **Shift boleh melewati tengah malam** (`diRentang()` melingkar). Perbandingan
+  lurus `a<=j&&j<b` memulangkan kosong untuk seluruh shift 18–02.
+- **Rata-rata per TAMU disembunyikan kalau kolom Pax jarang terisi** — di data
+  produksi cuma 318 dari 4.087 bill. Membaginya memberi angka belasan kali
+  lipat dari kenyataan, dan angka semacam itu terlihat sangat meyakinkan.
+
+**DUA BENTUK LAPORAN, dan bedanya menentukan apa yang bisa dijawab:**
+
+| | isinya | menjawab |
+|---|---|---|
+| **Bill Report** | satu baris per bill | omset/hari, rata-rata per bill, sebaran jam |
+| **Menu Report** | satu baris per menu terjual | menu terlaris + perkiraan bahan baku |
+
+Berkas yang diunggah user pertama kali **Bill Report**, dan di dalamnya TIDAK
+ada satu pun nama menu. Halaman Menu & Bahan Baku karena itu **mengatakan
+laporan mana yang kurang**, bukan menggambar tabel kosong — tabel kosong
+terbaca sebagai "tidak ada yang terjual".
+
+**Perkiraan bahan baku = qty menu × resep HPP**, dan resepnya **bertingkat**
+(`uraiResep()`): resep boleh memakai resep lain, `yield_qty` dibagi, base tidak
+ikut jadi baris bahan. Kedalaman dibatasi 6 dan resep yang menunjuk dirinya
+sendiri DILAPORKAN. Menu yang namanya tidak ada di HPP **disebutkan berikut
+persentase nilainya** — tanpa itu perkiraan terlihat lengkap padahal separuh
+menunya tidak ikut dihitung, dan selisih di lapangan akan dikira barang hilang.
+
+**Pengaruh event TIDAK disajikan sebagai sebab-akibat.** Event hampir selalu di
+akhir pekan, dan akhir pekan memang lebih ramai tanpa event apa pun — jadi tiap
+hari berevent dibandingkan dengan **rata-rata hari yang SAMA tanpa event**, dan
+jumlah harinya selalu disebutkan. Peringatannya jangan dihapus supaya
+halamannya terlihat lebih tegas.
+
+Berkas POS **jangan di-commit** (sudah di `.gitignore`): satu berkas memuat
+seluruh transaksi sebulan.
+
+```bash
+node tools/uji-analytics.js   # 95 pemeriksaan
+```
+
+Ujinya memakai **berkas POS asli** di root repo kalau ada (kalau tidak, bagian
+itu MELEWAT dengan jelas). `DecompressionStream`/`Blob`/`Response` ada di Node
+18+, jadi jalur yang dipakai peramban benar-benar dijalankan — bukan ditiru.
 
 ### Master Vendor: di PURCHASING, dibaca Finance & BD (28 Agustus 2026)
 
