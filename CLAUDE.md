@@ -973,6 +973,38 @@ node tools/uji-qr.js        # butuh `php` di PATH; kalau tidak ada, ia melewat, 
 
 ---
 
+### Service Excellent: papan Reward (27 Agustus 2026)
+
+Aturan reward dulu cuma SATU BARIS teks di atas tabel Perolehan per Kru
+(`rewardAturanTeks`, sudah dibuang). Sekarang punya papannya sendiri —
+`rewardPapanHtml()` — berisi total cair, deret tangga berikut jumlah kru di
+tiap tangga, daftar yang sudah dapat, dan daftar yang paling dekat naik.
+
+Dua hal yang harus dijaga saat menyentuhnya:
+
+- **Tiap kru dihitung di SATU tangga saja**, yaitu yang dibayarkan. Kru dengan
+  120 review ada di tangga 100; menghitungnya juga di tangga 40 dan 70 membuat
+  jumlah ketiganya lebih besar daripada jumlah kru yang dapat — dan angka yang
+  tidak bisa dijumlahkan adalah angka yang berhenti dipercaya.
+- **Yang belum lolos syarat minimum diukur jaraknya ke SYARAT, bukan ke
+  tangga.** Syarat menang atas tangga di `rewardOf()`, jadi menulis "kurang 2
+  ke tangga 40" untuk orang yang belum lolos minimum adalah janji yang tidak
+  akan ditepati.
+
+Papannya dihitung dari `baris` yang SAMA dengan tabel di bawahnya — dua tempat
+yang menghitung reward sendiri-sendiri akan berselisih suatu hari, dan yang
+selisih itu uang.
+
+```bash
+node tools/uji-reward-se.js   # 30 pemeriksaan, fungsinya dipotong dari sumber
+```
+
+Ujinya sengaja TERISOLASI, bukan merender seluruh modul: halaman itu memuat
+`assets/venue-layouts.js` yang tidak ada di jsdom, jadi boot-nya selalu gagal
+dan uji apa pun di sana akan gagal karena sebab yang tidak ada hubungannya
+dengan reward. Fungsinya DIPOTONG dari berkas aslinya saat uji jalan, bukan
+disalin — supaya ujinya ikut basi kalau fungsinya berubah.
+
 ## 5. Git & deploy
 
 **Alur baku — berhenti di `develop`, jangan pernah menyentuh `main`:**
