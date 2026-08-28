@@ -396,6 +396,62 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     dom.window.close();
   }
 
+  /* ================= 10. setoran cash muncul di Riwayat Mutasi ================= */
+  console.log('\n== Setoran cash ikut tercatat sebagai mutasi ==');
+  {
+    /* KOMPAS punya dua setoran: st1 ke BRI (dikenali), st2 "brankas kantor"
+       (tidak dikenali). Keduanya harus muncul di riwayat, dan yang kedua
+       harus ditandai. */
+    const { dom, panggilan } = domBrankas({
+      bk: { data:{ rekening:[], piutang:[], bayar:[], investor:[], mutasi:[
+              { id:'m1', tgl:'2026-08-09', jenis:'pindah', dari:'bca', ke:'uob', nominal:1000000, ket:'manual' }
+            ], setting:{} }, akses:{}, peran:{} }
+    });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('mutasi'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+
+    cek('setoran ikut di riwayat', v.indexOf('Setoran cash') > -1, v.slice(0, 400));
+    cek('ditandai berasal dari Rekap Penjualan', v.indexOf('Rekap Penjualan</span>') > -1);
+    cek('mutasi manual tetap ada', v.indexOf('manual') > -1);
+    cek('tiga baris di riwayat (1 manual + 2 setoran)',
+        (v.match(/<tr><td>\d+ Agu 2026<\/td>/g) || []).length === 3,
+        String((v.match(/<tr><td>\d+ Agu 2026<\/td>/g) || []).length));
+
+    /* Baris otomatis TIDAK boleh punya tombol hapus: yang memegangnya Rekap
+       Penjualan, dan menghapusnya di sini cuma membuang baris yang muncul
+       lagi begitu halaman dimuat ulang. */
+    cek('cuma baris manual yang punya tombol hapus',
+        (v.match(/btn-danger btn-xs/g) || []).length === 1,
+        String((v.match(/btn-danger btn-xs/g) || []).length));
+    cek('baris otomatis menjelaskan kenapa tak bisa dihapus', v.indexOf('dari Rekap Penjualan') > -1);
+
+    cek('total setoran disebutkan', v.indexOf('Rp18.000.000') > -1, v.slice(0, 700));
+    cek('setoran tujuan tak dikenal diperingatkan', v.indexOf('tidak dikenali') > -1);
+    cek('tujuan mentahnya ditulis apa adanya', v.indexOf('brankas kantor') > -1);
+    cek('menyebut berapa hari yang dicakup', v.indexOf('mencakup 1 hari') > -1);
+
+    /* Saldo dan riwayat harus bercerita hal yang sama: yang menjumlahkan
+       daftar tidak boleh mendapat angka lain daripada kartu di atasnya. */
+    const s2 = w.saldoSemua();
+    cek('setoran BRI di riwayat = setorMasuk BRI di saldo', s2.bri.setorMasuk === 10000000, String(s2.bri.setorMasuk));
+    dom.window.close();
+  }
+
+  /* ================= 11. Kompas mati: daftar tidak lengkap, dan bilang ======= */
+  console.log('\n== Setoran tak terbaca ==');
+  {
+    const { dom } = domBrankas({ kompasGagal:true });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('mutasi'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    cek('halaman tetap jalan', v.indexOf('Catat Mutasi') > -1);
+    cek('mengatakan daftarnya belum lengkap', v.indexOf('belum lengkap') > -1, v.slice(0, 400));
+    dom.window.close();
+  }
+
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);

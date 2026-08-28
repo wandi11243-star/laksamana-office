@@ -100,6 +100,15 @@ yang menyentuh dua wadah — bukan dua baris (keluar dari A, masuk ke B). Dua
 baris yang salah satunya terhapus membuat uang perusahaan bertambah atau
 hilang tanpa ada yang menyadarinya.
 
+**Setoran cash dari Rekap Penjualan IKUT di Riwayat Mutasi** — dibaca, bukan
+disalin. Uangnya memang berpindah wallet, jadi ia mutasi; saldonya sudah
+bergeser sejak awal, tapi jejaknya sempat tidak ada di daftar perpindahan
+wallet — sehingga perpindahan yang PALING SERING terjadi justru tidak
+kelihatan di sana, dan yang menjumlahkan daftarnya mendapat angka yang tidak
+cocok dengan saldo. Barisnya **tidak bisa dihapus dari Brankas**: yang
+memegang setoran adalah Rekap Penjualan, dan menyalinnya ke `bk_state` berarti
+setoran yang dibatalkan di sana meninggalkan mutasi hantu di sini.
+
 **Pengembalian modal menyebut wallet asalnya** (`returns[].dari`). Tanpa itu
 saldo rekening tetap utuh padahal uangnya sudah ditransfer ke investor. Baris
 lama yang belum punya `dari` TIDAK dijatuhkan ke wadah mana pun — menebaknya
@@ -127,7 +136,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 85 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 98 pemeriksaan, jsdom + finance/kompas/account tiruan
 ```
 
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`
