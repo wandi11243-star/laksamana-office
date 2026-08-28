@@ -122,6 +122,27 @@ memanggil finance-api langsung) tidak boleh: finance-api tidak punya
 `lib_sesi.php` dan seluruh aksinya terbuka — alamatnya berarti buku kas,
 invoice, dan seluruh transaksi harian di HTML yang dibuka orang luar.
 
+**Planning Pembayaran berbentuk LEMBAR per tanggal** (28 Agustus 2026), menyalin
+lembar Excel pembayaran mingguan: satu `batch` (tanggal bayar) berisi baris yang
+dikelompokkan per rekening pembayar, dengan subtotal tiap kelompok.
+
+- **Kelompok rekening DIHITUNG dari kolom `dari`, bukan diketik.** Di Excel judul
+  kelompok cuma teks; baris yang nyasar ke kelompok salah tidak pernah ketahuan.
+- **Penerima / bank / nomor rekening DIBACA dari master Vendor di BD OS**, tidak
+  disalin. Nomor yang dibetulkan di sana harus langsung berlaku di sini —
+  salinan berarti yang mentransfer memakai nomor lama tanpa satu pun tanda.
+- **`bukti` menyimpan `{ok, at, by}`**, bukan boolean. Centang tanpa jejak tidak
+  bisa diaudit, padahal justru kolom itu yang membuktikan uang keluar.
+- **`byBayarGrup()` menandai satu kelompok rekening sekaligus** dan menyebut saldo
+  sesudahnya. Orang menekan kirim di m-banking sekali untuk beberapa transfer;
+  menandainya satu per satu membuat sebagian tertinggal tanpa disadari.
+- BD yang mati **tidak mematikan halaman** — nominalnya tetap terbaca, cuma kolom
+  penerima yang kosong, dan itu dikatakan.
+
+"Rekening Pribadi - Mandiri" di lembar Excel adalah **rekening Mandiri yang sama**
+(ditegaskan user 28 Agustus 2026), bukan wadah terpisah — jadi tidak ada wadah
+"pribadi", dan saldonya memang kas perusahaan.
+
 **Backend menumpang `finance-mysql`** (tabel `bk_state`, `bk_akses`, `bk_peran`),
 bukan backend sendiri: tabelnya lahir sendiri lewat `brankas_pastikan()`, jadi
 tidak ada database baru yang harus dibuat manual di cPanel dan tidak ada berkas
@@ -136,7 +157,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 98 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 120 pemeriksaan, jsdom + finance/kompas/account tiruan
 ```
 
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`

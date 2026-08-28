@@ -624,6 +624,10 @@ const SESSION_KEY = 'lm_session';
    penjualan dari backend Kompas. Dua alamat, dua peran — jangan ditukar. */
 const API_BK = '../../finance-api-mysql/api.php';
 const API_KP = '../../kompas-api-mysql/api.php';
+/* Master vendor. DIBACA dari BD OS, tidak pernah disalin ke sini — nomor
+   rekening yang dibetulkan di sana harus langsung berlaku di lembar
+   pembayaran, kalau tidak yang mentransfer memakai nomor lama tanpa tanda. */
+const API_BD = '../../bd-api-mysql/api.php';
 
 /* ---------- format ----------
    Sama persis dengan panel Kas Kecil & Omset. Modul yang menuliskan rupiah
@@ -715,6 +719,7 @@ const MAP_BAWAAN = {
 let CURRENT_USER = null;
 let BK = null;                 // {data:{rekening,piutang,bayar,investor,setting}, akses, peran}
 let KP = null;                 // blob kompas (reports, rekap_*, rekap_setoran)
+let BD = null;                 // blob BD OS — yang dipakai cuma .vendors
 let KP_ERR = '';
 let CURRENT = 'ringkasan';
 let CHARTS = [];
@@ -864,9 +869,10 @@ async function postJson(url, data) {
 }
 async function muatSemua() {
   setSync('saving', 'Memuat…');
-  const [a, b] = await Promise.allSettled([
+  const [a, b, c] = await Promise.allSettled([
     postJson(API_BK, { action:'brankasGet' }),
-    fetch(API_KP + '?action=getAll&cb=' + Date.now()).then(r => r.json())
+    fetch(API_KP + '?action=getAll&cb=' + Date.now()).then(r => r.json()),
+    fetch(API_BD + '?action=getAll&cb=' + Date.now()).then(r => r.json())
   ]);
   if (a.status === 'fulfilled' && a.value && a.value.ok) BK = a.value.data;
   else throw new Error('Brankas: ' + ((a.reason && a.reason.message) || (a.value && a.value.error) || 'gagal dibaca'));
@@ -879,6 +885,11 @@ async function muatSemua() {
      yang sudah diketik jadi tidak bisa dibaca gara-gara panel lain. */
   if (b.status === 'fulfilled' && b.value && b.value.ok) { KP = b.value.data || {}; KP_ERR = ''; }
   else { KP = null; KP_ERR = 'Data Rekap Penjualan tidak terbaca, jadi saldo rekening belum bisa dihitung.'; }
+
+  /* BD boleh gagal tanpa mematikan modul — yang bergantung padanya cuma nama
+     penerima di lembar pembayaran. Halaman yang mogok total gara-gara modul
+     lain sedang batuk lebih merugikan daripada satu kolom yang kosong. */
+  BD = (c.status === 'fulfilled' && c.value && c.value.ok) ? (c.value.data || {}) : null;
   setSync('ok', '✓ Tersimpan');
 }
 /* State dikirim UTUH. Backend menulis blob sekali jalan, jadi mengirim
@@ -1069,7 +1080,7 @@ const TITLES = {
   saldo     :['Saldo & Rekening','Dihitung dari Aktual Masuk di Rekap Penjualan'],
   mutasi    :['Mutasi & Transfer','Setor, tarik, dan pindah uang antar wallet'],
   pending   :['Uang Pending / Piutang','Bon yang dicatat kasir dan belum dibayar tamu'],
-  bayar     :['Planning Pembayaran','Kewajiban terjadwal dan yang sudah dibayar'],
+  bayar     :['Planning Pembayaran','Lembar pembayaran per tanggal, dikelompokkan per rekening'],
   modal     :['Pengembalian Modal','Progres pengembalian modal per investor'],
   pengaturan:['Pengaturan','Saldo awal, pemetaan metode pembayaran, dan biaya bulanan'],
   akses     :['Kelola Akses','Siapa boleh membuka dan mengubah halaman mana']
@@ -1465,62 +1476,227 @@ async function muSimpan() {
 }
 
 
-const BAYAR_KAT = ['Sewa','Gaji','Pajak','Vendor','Utilitas','Cicilan','Investor','Operasional','Lainnya'];
+/* ============ HALAMAN: PLANNING PEMBAYARAN ============
+   Bentuknya menyalin lembar Excel pembayaran mingguan yang selama ini dipakai
+   (permintaan user 28 Agustus 2026): satu tanggal bayar = satu batch, isinya
+   dikelompokkan per REKENING YANG MEMBAYAR, dengan subtotal tiap kelompok.
+
+   BEDANYA DARI EXCEL, DAN SEMUANYA DISENGAJA:
+
+   1. Kelompok rekening TIDAK diketik. Di Excel "Rekening PT/CV - UOB" cuma
+      judul baris — kalau ada baris nyasar ke kelompok yang salah, tidak ada
+      yang bisa melaporkannya. Di sini kelompoknya dihitung dari kolom
+      "Dibayar dari", jadi salah taruh mustahil.
+   2. Penerima, bank, dan nomor rekening TIDAK diketik ulang tiap baris. Ia
+      dibaca dari master Vendor di BD OS. Mengetik ulang nomor rekening tiap
+      minggu adalah cara paling pasti untuk suatu hari mengetiknya salah.
+   3. "Bukti TF" menyimpan SIAPA dan KAPAN, bukan cuma centang. Centang tanpa
+      jejak tidak bisa diaudit — padahal justru kolom itu yang membuktikan
+      uang benar-benar keluar.
+   4. Menandai batch terbayar MENGURANGI SALDO WALLET. Inilah yang membuatnya
+      bukan sekadar Excel yang dipindah.
+
+   Catatan tentang "Rekening Pribadi - Mandiri" di Excel: itu rekening Mandiri
+   yang sama (ditegaskan user 28 Agustus 2026), bukan wadah terpisah. Jadi
+   tidak ada wadah "pribadi" di sini, dan saldonya memang kas perusahaan. */
+const BAYAR_KAT = ['Bahan baku','Minuman','Rokok','Gas & Utilitas','Jasa & Langganan',
+                   'Sewa','Gaji','Pajak','Cicilan','Bagi hasil','Kas kecil','Lainnya'];
+
+/* Master vendor DIBACA dari BD OS, tidak disalin. Kalau disalin, nomor
+   rekening yang dibetulkan di sana tidak pernah sampai ke sini — dan yang
+   mentransfer memakai nomor lama tanpa satu pun tanda. */
+function vendorSemua() { const v = BD && BD.vendors; return Array.isArray(v) ? v : []; }
+function vendorAktif() { return vendorSemua().filter(v => !v.arsip); }
+function vendorById(id) { return vendorSemua().find(v => v.id === id) || null; }
+function vendorNama(id) { const v = vendorById(id); return v ? v.nama : ''; }
+/* Penerima kosong berarti "sama dengan nama pendek" — begitu master vendor
+   menyimpannya, dan menyalin aturannya ke sini menjaga dua layar menulis nama
+   yang sama. */
+function vendorPenerima(v) { return v ? (v.penerima || v.nama) : ''; }
+
+function batchTgl() {
+  const t = {};
+  (BK.data.bayar || []).forEach(p => { if (p.batch) t[p.batch] = (t[p.batch] || 0) + 1; });
+  return Object.keys(t).sort((a, b) => a < b ? 1 : -1);      // terbaru dulu
+}
+let BATCH_AKTIF = null;
+function batchPilih(t) { BATCH_AKTIF = t; render(); }
+
 function vBayar() {
   const V = document.getElementById('app-view');
-  const arr = (BK.data.bayar || []).slice().sort((a, b) => String(a.dueDate) < String(b.dueDate) ? -1 : 1);
-  const jadwal = arr.filter(p => p.status === 'scheduled');
+  const semua = BK.data.bayar || [];
+  const tglAda = batchTgl();
+  if (BATCH_AKTIF === null) BATCH_AKTIF = tglAda.length ? tglAda[0] : '';
+  const lepas = semua.filter(p => !p.batch);            // belum masuk batch mana pun
+  const isi = semua.filter(p => p.batch === BATCH_AKTIF);
   const s = saldoSemua();
-  const likuid = SEMUA_WADAH().reduce((a, k) => a + s[k].saldo, 0);
-  const total = jadwal.reduce((a, p) => a + num(p.amount), 0);
 
-  let h = '<div class="grid g3" style="margin-bottom:18px">'
-    + kartu('Terjadwal', fmtRp(total), jadwal.length + ' kewajiban belum dibayar')
-    + kartu('Sudah Dibayar', fmtRp(arr.filter(p => p.status === 'paid').reduce((a, p) => a + num(p.amount), 0)), 'sepanjang catatan')
-    + kartu('Sisa Kas Sesudah Semua', fmtRp(likuid - total), likuid - total < 0 ? 'kas tidak cukup' : 'kalau semuanya dibayar')
+  let h = '';
+  if (!BD) h += '<div class="notice warn">⚠ <div><b>Master vendor dari BD OS tidak terbaca.</b> '
+    + 'Baris tetap bisa dicatat, tapi nama penerima dan nomor rekeningnya tidak akan tampil.</div></div>';
+
+  /* ---- ringkasan ---- */
+  const totBatch = isi.reduce((a, p) => a + num(p.amount), 0);
+  const sudah = isi.filter(p => p.status === 'paid').reduce((a, p) => a + num(p.amount), 0);
+  const bukti = isi.filter(p => p.bukti && p.bukti.ok).length;
+  h += '<div class="grid g4" style="margin-bottom:18px">'
+    + kartu('Nilai Batch', fmtRp(totBatch), isi.length + ' baris pembayaran')
+    + kartu('Sudah Dibayar', fmtRp(sudah), (totBatch ? Math.round(sudah / totBatch * 100) : 0) + '% dari batch')
+    + kartu('Bukti TF', bukti + ' / ' + isi.length, 'sudah ada buktinya')
+    + kartu('Belum Masuk Batch', String(lepas.length), lepas.length ? 'perlu dijadwalkan' : 'semua sudah terjadwal')
     + '</div>';
-  if (likuid - total < 0) h = '<div class="notice bad">⚠ <div><b>Kas tidak cukup untuk seluruh kewajiban terjadwal.</b> '
-    + 'Kurang ' + fmtRp(total - likuid) + '.</div></div>' + h;
 
-  h += '<div class="card" data-aks><h3>Catat Rencana Pembayaran</h3><div class="card-sub">Kewajiban yang sudah pasti, berikut tanggal jatuh temponya</div>'
+  /* ---- pemilih batch ---- */
+  h += '<div class="card" style="padding:14px 18px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+    + '<b style="font-size:13px">Batch pembayaran</b>'
+    + '<select class="nokunci" style="max-width:230px" onchange="batchPilih(this.value)">'
+    + (tglAda.length ? '' : '<option value="">— belum ada batch —</option>')
+    + tglAda.map(t => '<option value="' + t + '"' + (t === BATCH_AKTIF ? ' selected' : '') + '>'
+        + esc(fmtTgl(t)) + '</option>').join('')
+    + (lepas.length ? '<option value=""' + (BATCH_AKTIF === '' ? ' selected' : '') + '>— belum masuk batch (' + lepas.length + ') —</option>' : '')
+    + '</select>'
+    + '<span style="flex:1"></span>'
+    + '<span class="helper" style="margin:0">Satu tanggal = satu lembar pembayaran, persis seperti lembar Excel.</span>'
+    + '</div></div>';
+
+  /* ---- form ---- */
+  const vOpt = vendorAktif().slice().sort((a, b) => String(a.nama).localeCompare(String(b.nama)))
+    .map(v => '<option value="' + v.id + '">' + esc(v.nama) + (v.norek ? '' : ' (tanpa rekening)') + '</option>').join('');
+  h += '<div class="card" data-aks><h3>Tambah Baris Pembayaran</h3>'
+    + '<div class="card-sub">Penerima, bank, dan nomor rekening terisi sendiri dari master Vendor di BD OS — '
+    + 'tidak diketik ulang tiap minggu.</div>'
     + '<div class="grid g3">'
-    + fld('Nama Kewajiban', '<input id="by_name" placeholder="mis. Sewa Gedung Q3">')
+    + fld('Tanggal bayar (batch)', '<input type="date" id="by_batch" value="' + esc(BATCH_AKTIF || todayISO()) + '">')
+    + fld('Dibayar dari', '<select id="by_dari">'
+        + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + ' — saldo ' + fmtRp(s[k].saldo) + '</option>').join('')
+        + '</select>')
+    + fld('Vendor', '<select id="by_vendor" onchange="byVendorPilih()">'
+        + '<option value="">— tanpa vendor —</option>' + vOpt + '</select>')
+    + '</div>'
+    + '<div id="by_infoVendor" class="notice info" style="display:none"></div>'
+    + '<div class="grid g3">'
+    + fld('Keterangan', '<input id="by_name" placeholder="mis. Pembayaran bahan baku tgl 21 Agustus 2026">')
     + fld('Kategori', '<select id="by_cat">' + BAYAR_KAT.map(c => '<option>' + c + '</option>').join('') + '</select>')
     + fld('Nominal', '<input class="mono" id="by_amt" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
-    + '</div><div class="grid g3">'
-    + fld('Jatuh Tempo', '<input type="date" id="by_due">')
-    + fld('Dibayar Dari', '<select id="by_dari">' + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + '</option>').join('') + '</select>')
-    + fld('Catatan', '<input id="by_note" placeholder="opsional">')
     + '</div>'
-    + '<button class="btn btn-primary" onclick="bySimpan()">Simpan Rencana</button></div>';
+    + '<button class="btn btn-primary" onclick="bySimpan()">Tambah ke Batch</button></div>';
 
-  h += '<div class="tbl-wrap card"><h3>Daftar Kewajiban</h3>'
-    + (arr.length ? '<table><thead><tr><th>Kewajiban</th><th>Kategori</th><th>Jatuh Tempo</th><th>Dari</th><th class="num">Nominal</th><th>Status</th><th></th></tr></thead><tbody>'
-      + arr.map(p => { const d = hariKe(p.dueDate);
-          return '<tr><td><b>' + esc(p.name) + '</b>' + (p.note ? '<span class="helper">' + esc(p.note) + '</span>' : '') + '</td>'
-            + '<td>' + esc(p.cat || '—') + '</td>'
-            + '<td>' + esc(fmtTgl(p.dueDate)) + (p.status === 'scheduled' && d !== null && d < 0 ? '<span class="helper" style="color:var(--danger)">lewat ' + (-d) + ' hari</span>' : '') + '</td>'
-            + '<td>' + esc(namaBank(p.dari || KAS_K)) + '</td>'
-            + '<td class="num mono">' + fmtRp(p.amount) + '</td>'
-            + '<td><span class="chip">' + (p.status === 'paid' ? 'Dibayar' : 'Terjadwal') + '</span></td>'
-            + '<td data-aks><button class="btn btn-ghost btn-xs" onclick="byToggle(\'' + p.id + '\')">'
-            + (p.status === 'paid' ? 'Batalkan bayar' : 'Tandai dibayar') + '</button> '
-            + '<button class="btn btn-danger btn-xs" onclick="hapusBaris(\'bayar\',\'' + p.id + '\',\'bayar\',\'Hapus kewajiban ini?\')">Hapus</button></td></tr>'; }).join('')
-      + '</tbody></table>'
-      : '<div class="empty"><div class="big">◫</div>Belum ada rencana pembayaran.</div>')
-    + '</div>';
+  /* ---- lembar batch ---- */
+  const judul = BATCH_AKTIF ? ('Pembayaran tgl ' + fmtTgl(BATCH_AKTIF)) : 'Belum Masuk Batch';
+  const baris = BATCH_AKTIF ? isi : lepas;
+  h += '<div class="card"><h3>' + esc(judul) + '</h3>'
+    + '<div class="card-sub">Dikelompokkan menurut rekening yang membayar. Kelompoknya dihitung dari kolom '
+    + '<b>Dibayar dari</b>, bukan diketik — jadi baris tidak bisa nyasar ke kelompok yang salah.</div>';
+
+  if (!baris.length) {
+    h += '<div class="empty"><div class="big">◫</div>Belum ada baris di ' + esc(judul.toLowerCase()) + '.</div>';
+  } else {
+    let grandTotal = 0;
+    SEMUA_WADAH().forEach(w => {
+      const g = baris.filter(p => (p.dari || KAS_K) === w);
+      if (!g.length) return;
+      const sub = g.reduce((a, p) => a + num(p.amount), 0);
+      grandTotal += sub;
+      const belum = g.filter(p => p.status !== 'paid').length;
+      h += '<div style="margin-top:16px"><div style="display:flex;align-items:baseline;gap:10px;margin-bottom:6px">'
+        + '<b style="font-size:13.5px">Rekening ' + esc(namaBank(w)) + '</b>'
+        + '<span class="helper" style="margin:0">' + g.length + ' baris · saldo ' + fmtRp(s[w].saldo) + '</span>'
+        + '<span style="flex:1"></span>'
+        + (belum ? '<button class="btn btn-primary btn-xs" data-aks onclick="byBayarGrup(\'' + w + '\')">Tandai ' + belum + ' baris terbayar</button>' : '')
+        + '</div>'
+        + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Keterangan</th><th>Vendor</th>'
+        + '<th class="num">Nominal</th><th>Penerima</th><th>Bank</th><th>No. Rekening</th>'
+        + '<th>Bukti TF</th><th></th></tr></thead><tbody>';
+      g.forEach((p, i) => {
+        const v = vendorById(p.vendorId);
+        h += '<tr' + (p.status === 'paid' ? ' style="opacity:.6"' : '') + '>'
+          + '<td>' + (i + 1) + '</td>'
+          + '<td><b>' + esc(p.name) + '</b>'
+            + (p.cat ? '<span class="helper">' + esc(p.cat) + '</span>' : '') + '</td>'
+          + '<td>' + (v ? esc(v.nama) : '<span style="color:var(--muted-2)">—</span>') + '</td>'
+          + '<td class="num mono">' + fmtRp(p.amount) + '</td>'
+          + '<td>' + (v ? esc(vendorPenerima(v)) : (p.penerima ? esc(p.penerima) : '<span style="color:var(--muted-2)">—</span>')) + '</td>'
+          + '<td>' + (v && v.bank ? esc(v.bank) : '<span style="color:var(--muted-2)">—</span>') + '</td>'
+          + '<td class="mono">' + (v && v.norek ? esc(v.norek)
+              : '<span class="chip" style="background:var(--warn-bg);color:var(--warn)">belum ada</span>') + '</td>'
+          + '<td>' + (p.bukti && p.bukti.ok
+              ? '<span class="chip" style="background:var(--ok-bg);color:var(--ok)">✓</span>'
+                + '<span class="helper">' + esc(p.bukti.by || '—') + ' · ' + esc(fmtTgl(p.bukti.at)) + '</span>'
+              : '<button class="btn btn-ghost btn-xs" data-aks onclick="byBukti(\'' + p.id + '\')">Tandai</button>') + '</td>'
+          + '<td data-aks style="white-space:nowrap">'
+            + '<button class="btn btn-ghost btn-xs" onclick="byToggle(\'' + p.id + '\')">'
+              + (p.status === 'paid' ? 'Batal bayar' : 'Bayar') + '</button> '
+            + '<button class="btn btn-danger btn-xs" onclick="hapusBaris(\'bayar\',\'' + p.id + '\',\'bayar\',\'Hapus baris pembayaran ini?\')">Hapus</button>'
+          + '</td></tr>';
+      });
+      h += '<tr><td colspan="3"><b>Subtotal ' + esc(namaBank(w)) + '</b></td>'
+        + '<td class="num mono"><b>' + fmtRp(sub) + '</b></td><td colspan="5"></td></tr>';
+      h += '</tbody></table></div></div>';
+    });
+    h += '<div style="margin-top:16px;padding-top:12px;border-top:1px solid var(--line-hard);'
+      + 'display:flex;justify-content:space-between;align-items:baseline">'
+      + '<b>Total lembar ini</b><b class="mono" style="font-size:17px">' + fmtRp(grandTotal) + '</b></div>';
+  }
+  h += '</div>';
   V.innerHTML = h;
+  byVendorPilih();
 }
+
+/* Memilih vendor memunculkan penerima/bank/rekeningnya SEBELUM disimpan.
+   Tanpa ini orang baru tahu nomor rekeningnya kosong sesudah barisnya masuk
+   lembar — dan lembar pembayaran yang nomornya kosong tidak bisa dieksekusi. */
+function byVendorPilih() {
+  const sel = document.getElementById('by_vendor'), box = document.getElementById('by_infoVendor');
+  if (!sel || !box) return;
+  const v = vendorById(sel.value);
+  if (!v) { box.style.display = 'none'; box.innerHTML = ''; return; }
+  box.style.display = '';
+  box.innerHTML = 'ℹ <div>Transfer ke <b>' + esc(vendorPenerima(v)) + '</b>'
+    + (v.bank ? ' · ' + esc(v.bank) : '')
+    + (v.norek ? ' · <span class="mono">' + esc(v.norek) + '</span>'
+               : ' · <b style="color:var(--warn)">nomor rekening belum diisi di master Vendor</b>') + '</div>';
+}
+
 function bySimpan() {
   const g = id => (document.getElementById(id) || {}).value || '';
-  if (!g('by_name').trim()) { alert('Nama kewajiban wajib diisi.'); return; }
-  simpanBaris('bayar', { id:uid('by'), name:g('by_name').trim(), cat:g('by_cat'), amount:num(g('by_amt')),
-    dueDate:g('by_due'), dari:g('by_dari') || KAS_K, note:g('by_note').trim(), status:'scheduled' }, 'bayar');
+  if (!g('by_name').trim()) { alert('Keterangan wajib diisi.'); return; }
+  if (!num(g('by_amt'))) { alert('Nominal wajib diisi.'); return; }
+  if (!g('by_batch')) { alert('Tanggal bayar wajib diisi.'); return; }
+  const b = g('by_batch');
+  BATCH_AKTIF = b;
+  simpanBaris('bayar', { id:uid('by'), name:g('by_name').trim(), cat:g('by_cat'),
+    amount:num(g('by_amt')), dari:g('by_dari') || KAS_K, vendorId:g('by_vendor'),
+    batch:b, dueDate:b, note:'', status:'scheduled', bukti:null }, 'bayar');
 }
 function byToggle(id) {
   const p = baris(id, BK.data.bayar); if (!p) return;
   p.status = p.status === 'paid' ? 'scheduled' : 'paid';
   simpanBaris('bayar', p, 'bayar');
+}
+/* Bukti TF menyimpan SIAPA dan KAPAN. Centang tanpa jejak tidak bisa
+   diaudit — dan justru kolom inilah yang membuktikan uang benar-benar keluar. */
+function byBukti(id) {
+  if (!bolehAksi('bayar')) return;
+  const p = baris(id, BK.data.bayar); if (!p) return;
+  p.bukti = { ok:true, at:todayISO(), by:(CURRENT_USER && CURRENT_USER.name) || '' };
+  simpanBaris('bayar', p, 'bayar');
+}
+/* Satu tombol untuk seluruh kelompok rekening: orang menekan "kirim" di
+   m-banking sekali untuk beberapa transfer sekaligus, dan menandainya satu
+   per satu membuat sebagian tertinggal tanpa ada yang menyadarinya. */
+async function byBayarGrup(w) {
+  if (!bolehAksi('bayar')) return;
+  const g = (BK.data.bayar || []).filter(p =>
+    p.batch === BATCH_AKTIF && (p.dari || KAS_K) === w && p.status !== 'paid');
+  if (!g.length) return;
+  const jml = g.reduce((a, p) => a + num(p.amount), 0);
+  const s = saldoSemua();
+  const sisa = s[w].saldo - jml;
+  if (!confirm('Tandai ' + g.length + ' baris di rekening ' + namaBank(w) + ' sebagai terbayar?\n\n'
+    + 'Nilai: ' + fmtRp(jml) + '\nSaldo sesudahnya: ' + fmtRp(sisa)
+    + (sisa < 0 ? '\n\nPERHATIAN: saldo jadi minus — uangnya tidak cukup.' : ''))) return;
+  g.forEach(p => { p.status = 'paid'; });
+  if (await simpan()) { toast(g.length + ' baris ditandai terbayar.'); render(); }
 }
 
 function vModal() {

@@ -72,6 +72,9 @@ function domBrankas(opt) {
       w.fetch = async (url, init) => {
         const body = init && init.body ? JSON.parse(init.body) : {};
         panggilan.push({ url, body });
+        if (String(url).indexOf('bd-api') > -1)
+          return { json: async () => (opt.bdGagal ? { ok:false, error:'x' }
+                                                  : { ok:true, data: opt.bd || { vendors: [] } }) };
         if (String(url).indexOf('kompas-api') > -1)
           return { json: async () => (opt.kompasGagal ? { ok:false, error:'x' } : { ok:true, data: KOMPAS }) };
         if (String(url).indexOf('account-api') > -1)
@@ -449,6 +452,114 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     const v = d.getElementById('app-view').innerHTML;
     cek('halaman tetap jalan', v.indexOf('Catat Mutasi') > -1);
     cek('mengatakan daftarnya belum lengkap', v.indexOf('belum lengkap') > -1, v.slice(0, 400));
+    dom.window.close();
+  }
+
+  /* ================= 12. lembar pembayaran per batch ================= */
+  console.log('\n== Lembar pembayaran: batch & kelompok rekening ==');
+  {
+    /* Meniru lembar Excel: satu tanggal, tiga rekening pembayar. */
+    const { dom, panggilan } = domBrankas({
+      bd: { vendors: [
+        { id:'v1', nama:'Toffin',  penerima:'CV. Toffin Riau Jaya', bank:'BCA', norek:'034-2928-828', arsip:false },
+        { id:'v2', nama:'Ecocare', penerima:'PT. Ecocare Indo Pasifik', bank:'BCA', norek:'', arsip:false },
+        { id:'v3', nama:'Lama',    penerima:'', bank:'', norek:'', arsip:true }
+      ] },
+      bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], setting:{}, bayar:[
+        { id:'p1', name:'Bahan baku 21 Agu', cat:'Bahan baku', amount:885000, dari:'uob',
+          vendorId:'v1', batch:'2026-08-27', status:'scheduled', bukti:null },
+        { id:'p2', name:'Air refreshner',    cat:'Jasa & Langganan', amount:518000, dari:'uob',
+          vendorId:'v2', batch:'2026-08-27', status:'scheduled', bukti:null },
+        { id:'p3', name:'Bagi hasil cake',   cat:'Bagi hasil', amount:2518100, dari:'mandiri',
+          vendorId:'', batch:'2026-08-27', status:'scheduled', bukti:null },
+        { id:'p4', name:'Bahan baku 20-25',  cat:'Bahan baku', amount:1996000, dari:'bri',
+          vendorId:'', batch:'2026-08-27', status:'scheduled', bukti:null },
+        { id:'p5', name:'Belum dijadwalkan', cat:'Lainnya', amount:100000, dari:'bca',
+          vendorId:'', batch:'', status:'scheduled', bukti:null }
+      ] }, akses:{}, peran:{} }
+    });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('bayar'); await tunggu(80);
+    const v = d.getElementById('app-view').innerHTML;
+
+    cek('judul lembar menyebut tanggalnya', v.indexOf('Pembayaran tgl 27 Agu 2026') > -1, v.slice(0, 400));
+    cek('tiga kelompok rekening digambar',
+        v.indexOf('Rekening UOB') > -1 && v.indexOf('Rekening Mandiri') > -1 && v.indexOf('Rekening BRI') > -1);
+    cek('BCA tidak digambar (barisnya di luar batch)', v.indexOf('Rekening BCA') < 0);
+
+    /* Subtotal per kelompok — angka yang dicocokkan orang dengan m-banking. */
+    cek('subtotal UOB 885.000 + 518.000 = 1.403.000', v.indexOf('Rp1.403.000') > -1, v.slice(0, 2500));
+    cek('subtotal Mandiri', v.indexOf('Rp2.518.100') > -1);
+    cek('total lembar 5.917.100', v.indexOf('Rp5.917.100') > -1, v.slice(-600));
+
+    /* Penerima & rekening DIBACA dari master vendor, tidak diketik ulang. */
+    cek('penerima dari master vendor', v.indexOf('CV. Toffin Riau Jaya') > -1);
+    cek('nomor rekening dari master vendor', v.indexOf('034-2928-828') > -1);
+    cek('vendor tanpa rekening ditandai', v.indexOf('belum ada') > -1);
+    cek('baris tanpa vendor tidak mengarang penerima',
+        (v.match(/Bagi hasil cake[\s\S]{0,400}?PT\./) || []).length === 0);
+
+    cek('baris di luar batch dihitung terpisah', v.indexOf('Belum Masuk Batch') > -1);
+    cek('barisnya sendiri tidak ikut lembar', v.indexOf('Belum dijadwalkan') < 0);
+
+    /* Bukti TF menyimpan siapa & kapan, bukan cuma centang. */
+    w.byBukti('p1'); await tunggu(80);
+    const kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    const p1 = kirim && kirim.body.data.bayar.find(x => x.id === 'p1');
+    cek('bukti TF tersimpan', p1 && p1.bukti && p1.bukti.ok === true, JSON.stringify(p1 && p1.bukti));
+    cek('bukti mencatat siapa', p1 && p1.bukti.by === 'Wandi Pranata', JSON.stringify(p1 && p1.bukti));
+    cek('bukti mencatat kapan', p1 && /^\d{4}-\d{2}-\d{2}$/.test(p1.bukti.at || ''));
+    dom.window.close();
+  }
+
+  /* ================= 13. bayar satu kelompok sekaligus ================= */
+  console.log('\n== Tandai satu rekening terbayar ==');
+  {
+    const { dom, panggilan } = domBrankas({
+      bd: { vendors: [] },
+      bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], setting:{}, bayar:[
+        { id:'p1', name:'A', cat:'', amount:1000000, dari:'uob', vendorId:'', batch:'2026-08-27', status:'scheduled', bukti:null },
+        { id:'p2', name:'B', cat:'', amount:2000000, dari:'uob', vendorId:'', batch:'2026-08-27', status:'scheduled', bukti:null },
+        { id:'p3', name:'C', cat:'', amount:5000000, dari:'bri', vendorId:'', batch:'2026-08-27', status:'scheduled', bukti:null }
+      ] }, akses:{}, peran:{} }
+    });
+    await tunggu(400);
+    const w = dom.window;
+    w.go('bayar'); await tunggu(60);
+    const sblm = w.saldoSemua().uob.saldo;
+    await w.byBayarGrup('uob'); await tunggu(120);
+    const kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    const rows = kirim ? kirim.body.data.bayar : [];
+    cek('kedua baris UOB jadi paid',
+        rows.filter(x => x.dari === 'uob').every(x => x.status === 'paid'),
+        JSON.stringify(rows.map(x => x.dari + ':' + x.status)));
+    cek('baris BRI TIDAK ikut', (rows.find(x => x.id === 'p3') || {}).status === 'scheduled');
+    /* Yang sudah dibayar mengurangi saldo wallet — inilah yang membedakannya
+       dari lembar Excel yang cuma dicetak. */
+    cek('saldo UOB berkurang 3.000.000', w.saldoSemua().uob.saldo === sblm - 3000000,
+        sblm + ' -> ' + w.saldoSemua().uob.saldo);
+    cek('saldo BRI tidak bergeser', w.saldoSemua().bri.keluar === 0);
+    dom.window.close();
+  }
+
+  /* ================= 14. BD mati: lembar tetap terbaca ================= */
+  console.log('\n== Master vendor tidak terbaca ==');
+  {
+    const { dom } = domBrankas({
+      bdGagal: true,
+      bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], setting:{}, bayar:[
+        { id:'p1', name:'Bahan baku', cat:'', amount:885000, dari:'uob', vendorId:'v1',
+          batch:'2026-08-27', status:'scheduled', bukti:null }
+      ] }, akses:{}, peran:{} }
+    });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('bayar'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    cek('halaman tetap jalan', v.indexOf('Pembayaran tgl') > -1);
+    cek('nominal tetap terbaca', v.indexOf('Rp885.000') > -1);
+    cek('mengatakan master vendor tak terbaca', v.indexOf('tidak terbaca') > -1, v.slice(0, 300));
     dom.window.close();
   }
 
