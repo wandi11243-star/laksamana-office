@@ -976,9 +976,19 @@ node tools/uji-qr.js        # butuh `php` di PATH; kalau tidak ada, ia melewat, 
 ### Service Excellent: papan Reward (27 Agustus 2026)
 
 Aturan reward dulu cuma SATU BARIS teks di atas tabel Perolehan per Kru
-(`rewardAturanTeks`, sudah dibuang). Sekarang punya papannya sendiri —
-`rewardPapanHtml()` — berisi total cair, deret tangga berikut jumlah kru di
-tiap tangga, daftar yang sudah dapat, dan daftar yang paling dekat naik.
+(`rewardAturanTeks`, sudah dibuang). Sekarang `rewardPapanHtml()`: empat kartu
+`.recap` + SATU tabel tangga + satu baris keterangan.
+
+**Papan ini TIDAK punya satu pun kelas CSS sendiri, dan itu disengaja.** Versi
+pertamanya (pagi yang sama) punya deret tangga bergaya `.rw-*` buatan sendiri
+plus dua tabel kru — hasilnya terlihat seperti tempelan dari modul lain dan
+lebih panjang daripada tabel Perolehan per Kru yang justru jadi isi halaman.
+Sekarang seluruhnya memakai `.recap`, `.table-wrap`, dan `.hint` milik modul,
+jadi apa pun yang berubah di gaya modul otomatis ikut.
+
+**Jangan tambahkan daftar kru di papan ini.** Kolom Reward di tabel Perolehan
+per Kru sudah menuliskan siapa dapat berapa dan siapa kurang berapa, untuk
+orang yang sama, di layar yang sama.
 
 Dua hal yang harus dijaga saat menyentuhnya:
 
@@ -996,7 +1006,7 @@ yang menghitung reward sendiri-sendiri akan berselisih suatu hari, dan yang
 selisih itu uang.
 
 ```bash
-node tools/uji-reward-se.js   # 42 pemeriksaan, fungsinya dipotong dari sumber
+node tools/uji-reward-se.js   # 36 pemeriksaan, fungsinya dipotong dari sumber
 ```
 
 Ujinya sengaja TERISOLASI, bukan merender seluruh modul: halaman itu memuat

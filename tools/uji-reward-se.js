@@ -78,45 +78,45 @@ console.log('\n== Papan reward, tangga bawaan (30 / 40 / 70 / 100) ==');
   cek('lolos-belum-bertangga = 1 (Dedi)', /Lolos, Belum Bertangga<\/div>\s*<div class="val">1</.test(h));
   cek('belum memenuhi = 1 (Euis)', /Belum Memenuhi<\/div>\s*<div class="val">1</.test(h));
 
-  cek('tiga tangga digambar', (h.match(/class="rw-step/g) || []).length === 3,
-      String((h.match(/class="rw-step/g) || []).length));
-  cek('ketiganya bertanda "ada isinya"', (h.match(/rw-step on/g) || []).length === 3);
-  cek('dua panah di antaranya', (h.match(/rw-arrow/g) || []).length === 2);
+  /* SATU tabel saja, dan tanpa satu pun kelas buatan sendiri — seluruh
+     halaman ini memakai .recap dan tabel biasa, jadi papan yang punya gaya
+     sendiri terlihat seperti tempelan dari modul lain. */
+  cek('cuma SATU tabel', (h.match(/<table>/g) || []).length === 1,
+      String((h.match(/<table>/g) || []).length));
+  cek('tidak ada kelas buatan sendiri', !/class="rw-/.test(h));
+  /* Pola harus mengecualikan class="recap-grid" — ia ikut tercocok oleh
+     /class="recap/ dan membuat hitungannya 5, bukan 4. */
+  cek('memakai empat kartu .recap seperti panel lain',
+      (h.match(/class="recap(?![-a-z])/g) || []).length === 4,
+      String((h.match(/class="recap(?![-a-z])/g) || []).length));
+  cek('memakai .table-wrap seperti tabel lain', h.indexOf('table-wrap') > -1);
+
+  cek('tabel berkolom Tangga/Bonus/Sudah Sampai/Sedang Menuju/Subtotal',
+      h.indexOf('<th>Tangga</th><th>Bonus</th><th>Sudah Sampai</th><th>Sedang Menuju</th><th>Subtotal</th>') > -1,
+      h.slice(h.indexOf('<thead>'), h.indexOf('<thead>') + 200));
+  cek('tiga baris tangga', (h.match(/<tr><td><b>\d+<\/b> review<\/td>/g) || []).length === 3);
   cek('tangga menyebut nominalnya', h.indexOf('Rp. 40.000') > -1 && h.indexOf('Rp. 70.000') > -1 && h.indexOf('Rp. 200.000') > -1);
 
   /* Tiap orang dihitung SEKALI, di tangga yang dibayarkan saja. Kalau Andi
-     ikut dihitung di tangga 40 dan 70, jumlah ketiganya (5) akan lebih besar
-     daripada jumlah kru yang dapat (3) — dan angka yang tidak bisa
-     dijumlahkan adalah angka yang berhenti dipercaya. */
-  const perTangga = [...h.matchAll(/<b>(\d+)<\/b> kru di tangga ini/g)].map(m => Number(m[1]));
+     ikut dihitung di tangga 40 dan 70, jumlahnya (5) akan lebih besar
+     daripada jumlah kru yang dapat (3). */
+  const perTangga = [...h.matchAll(/<b>(\d+)<\/b> kru</g)].map(m => Number(m[1]));
   cek('tiap kru dihitung di SATU tangga saja',
       perTangga.reduce((a, b) => a + b, 0) === 3, JSON.stringify(perTangga));
 
-  cek('daftar "sudah dapat" memuat ketiganya',
-      h.indexOf('Andi') > -1 && h.indexOf('Budi') > -1 && h.indexOf('Cici') > -1);
-  cek('urut dari bonus terbesar', h.indexOf('Andi') < h.indexOf('Budi'));
-  cek('Dedi masuk daftar paling dekat naik', h.indexOf('Dedi') > -1);
+  /* Subtotal per tangga harus berjumlah sama dengan Total Cair — dua angka
+     untuk satu hal yang tidak cocok membuat papan ini berhenti dipercaya. */
+  cek('subtotal tangga menjumlah jadi total cair',
+      h.indexOf('Rp. 200.000') > -1 && h.indexOf('Rp. 70.000') > -1 && h.indexOf('Rp. 40.000') > -1);
 
-  /* Euis belum lolos SYARAT, jadi jaraknya diukur ke syarat — bukan ke tangga.
-     Syarat menang atas tangga di rewardOf(), jadi menulis "kurang 30 ke tangga
-     40" untuknya adalah janji yang tidak akan ditepati. */
-  cek('Euis diukur ke syarat minimal, bukan ke tangga',
-      h.indexOf('syarat minimal 30 review') > -1, h.slice(-800));
+  cek('menunjuk kolom Reward di tabel bawah', h.indexOf('kolom <b>Reward</b> tabel di bawah') > -1);
   cek('menjelaskan "satu tangga tertinggi"', h.indexOf('satu tangga tertinggi') > -1);
   cek('menyebut tempat mengaturnya', h.indexOf('Kontrol') > -1);
 
-  /* Keduanya TABEL sejak 27 Agu 2026 (permintaan user). Deret baris yang lama
-     terbaca sebagai paragraf berulang begitu seluruh tim di angka yang sama. */
-  cek('dua tabel digambar', (h.match(/<table>/g) || []).length === 2,
-      String((h.match(/<table>/g) || []).length));
-  cek('tabel "sudah dapat" berkolom Kru/Review/Tangga/Reward',
-      h.indexOf('<th>Kru</th><th>Review</th><th>Tangga</th>') > -1);
-  cek('tabel "paling dekat" berkolom Menuju & Kurang',
-      h.indexOf('<th>Menuju</th>') > -1 && h.indexOf('Kurang</th>') > -1);
-  cek('ada baris Total di kaki tabel reward',
-      h.indexOf('<tfoot>') > -1 && h.slice(h.indexOf('<tfoot>')).indexOf('Rp. 310.000') > -1,
-      h.slice(h.indexOf('<tfoot>'), h.indexOf('<tfoot>') + 200));
-  cek('kelas daftar lama sudah tidak dipakai', h.indexOf('rw-row') < 0 && h.indexOf('rw-list') < 0);
+  /* Papan ini TIDAK boleh mengulang daftar kru: kolom Reward di tabel
+     Perolehan per Kru sudah menuliskannya untuk orang yang sama. */
+  cek('tidak mengulang daftar nama kru',
+      h.indexOf('Andi') < 0 && h.indexOf('Dedi') < 0, 'nama kru tidak boleh muncul di papan');
 }
 
 /* ================= 2. bukan master: tidak diberi tahu cara mengaturnya ====== */
@@ -136,7 +136,7 @@ console.log('\n== Tangga belum disetel ==');
   setCfg({ reward: { min: 30, tiers: [] } });
   const h = rewardPapanHtml([kru('Andi', 120)]);
   cek('menyebut belum ada tangga', h.indexOf('Belum ada tangga bonus') > -1, h.slice(0, 300));
-  cek('tidak menggambar deret tangga', h.indexOf('rw-step') < 0);
+  cek('tidak menggambar tabel', h.indexOf('<table>') < 0);
   cek('tidak menulis nominal palsu', h.indexOf('Rp. 0') < 0);
   setCfg({ reward: null });
 }
@@ -146,10 +146,10 @@ console.log('\n== Belum ada yang mencapai tangga ==');
 {
   const h = rewardPapanHtml([kru('Euis', 10), kru('Fani', 5)]);
   cek('total nol', h.indexOf('Rp. 0') > -1, h.slice(0, 700));
-  cek('menyebutkan belum ada yang mencapai', h.indexOf('Belum ada kru yang mencapai') > -1);
-  cek('tangga tetap digambar (aturannya tetap terbaca)', (h.match(/class="rw-step/g) || []).length === 3);
-  cek('tidak ada tangga yang bertanda terisi', (h.match(/rw-step on/g) || []).length === 0);
-  cek('keduanya muncul di daftar paling dekat', h.indexOf('Euis') > -1 && h.indexOf('Fani') > -1);
+  cek('tabel tangga tetap digambar (aturannya tetap terbaca)',
+      (h.match(/<tr><td><b>\d+<\/b> review<\/td>/g) || []).length === 3);
+  cek('kolom "sudah sampai" kosong semua', (h.match(/<b>\d+<\/b> kru</g) || []).length === 0);
+  cek('subtotal kosong, bukan Rp. 0 berulang', (h.match(/Rp\. 0/g) || []).length === 1);
 }
 
 /* ================= 5. tangga tidak urut di setelan ================= */
@@ -162,29 +162,23 @@ console.log('\n== Tangga disetel tidak urut ==');
   const h = rewardPapanHtml([kru('Andi', 120)]);
   cek('120 review tetap dibayar tangga tertinggi', h.indexOf('Rp. 200.000') > -1, h.slice(0, 700));
   cek('tangga tergambar urut naik',
-      h.indexOf('>40<') < h.indexOf('>70<') && h.indexOf('>70<') < h.indexOf('>100<'));
+      h.indexOf('<b>40</b>') < h.indexOf('<b>70</b>') && h.indexOf('<b>70</b>') < h.indexOf('<b>100</b>'));
   setCfg({ reward: null });
 }
 
 /* ================= 6. seluruh tim masih nol ================= */
-/* Keadaan nyata di awal bulan, dan yang membuat user minta bentuk tabel:
-   puluhan kru sama-sama 0 review, barisnya identik kecuali namanya. */
+/* Keadaan nyata di awal bulan — dan yang membuat versi panjang papan ini
+   terasa berlebihan: 23 kru sama-sama 0 review, dan papannya jadi lebih
+   panjang daripada tabel yang justru jadi isi halaman. */
 console.log('\n== Seluruh tim masih 0 review ==');
 {
-  const nama = ['Arif','Cindy','Andi','Cecillia A. Wulan Aprilla','Erni Miani Angela Purba',
-                'Fajar','Gita','Hendra','Indah','Joko','Kiki','Lina','Maya'];
-  const baris = nama.map(n => kru(n, 0));
+  const baris = Array.from({length:23}, (_,i) => kru('Kru ' + (i+1), 0));
   const h = rewardPapanHtml(baris);
   cek('total nol', h.indexOf('Rp. 0') > -1);
-  cek('semua ditandai belum memenuhi', /Belum Memenuhi<\/div>\s*<div class="val">13</.test(h));
-  cek('daftar "paling dekat" berbentuk tabel', h.indexOf('<th>Menuju</th>') > -1);
-  /* Dipotong 10, dan sisanya DISEBUTKAN. Daftar yang memotong tanpa
-     mengatakannya terbaca sebagai "cuma segini yang sedang menuju". */
-  const trAntre = (h.slice(h.indexOf('Paling Dekat Naik')).match(/<tr><td><div class="name">/g) || []).length;
-  cek('dipotong 10 baris', trAntre === 10, String(trAntre));
-  cek('sisanya disebutkan (3 kru)', h.indexOf('+ 3 kru lagi') > -1, h.slice(-400));
-  cek('tidak ada tangga yang terisi', (h.match(/rw-step on/g) || []).length === 0);
-  cek('tangga menyebut jumlah yang menuju', h.indexOf('sedang menuju') > -1);
+  cek('semua ditandai belum memenuhi', /Belum Memenuhi<\/div>\s*<div class="val">23</.test(h));
+  cek('23 kru tercatat sedang menuju tangga pertama', h.indexOf('23 kru') > -1, h.slice(h.indexOf('<tbody>'), h.indexOf('<tbody>') + 300));
+  cek('papan tetap pendek — tidak ada daftar nama', h.indexOf('Kru 1<') < 0);
+  cek('panjang papan wajar (< 3500 karakter)', h.length < 3500, String(h.length));
 }
 
 console.log('\n---------------------------------------');
