@@ -476,7 +476,7 @@ button{font-family:inherit; cursor:pointer}
     <div class="tab hidden" data-tab="dividen">
       <div class="page-head"><h2>Dividen</h2><div class="desc">Riwayat dividen yang sudah dibagikan</div></div>
       <div class="section">
-        <div class="card" id="dividenBox"></div>
+        <div id="dividenBox"></div>
       </div>
     </div>
 
@@ -712,6 +712,7 @@ function gagalData(pesan) {
   document.getElementById('dailyBox').innerHTML = kosong('📊', 'Grafik belum bisa digambar', 'Angkanya belum terbaca.');
   document.getElementById('highlights').innerHTML = '';
   document.getElementById('laporanBox').innerHTML = kosong('📄', 'Laporan belum bisa disusun', 'Angka pendapatannya belum terbaca.');
+  document.getElementById('dividenBox').innerHTML = '<div class="card">' + kosong('💰', 'Riwayat dividen belum bisa dibaca', 'Servernya tidak menjawab.') + '</div>';
   document.getElementById('lrBulan').innerHTML = '';
   renderKosongLain();
 }
@@ -774,6 +775,7 @@ function render() {
   renderKPIs();
   renderHighlights();
   renderLaporan();
+  renderDividen();
   renderKosongLain();
   buildYearToggle();
   setTimeout(drawCharts, 60);
@@ -1312,9 +1314,69 @@ function agendaGambar() { vEvent(); vPromo(); }
 
    TABNYA SENGAJA TIDAK DIHAPUS: kalau dihapus, tidak ada satu pun tempat
    yang mengingatkan bahwa lima hal ini pernah dijanjikan ada di sini. */
+/* ---- DIVIDEN / PENGEMBALIAN MODAL ----
+   Dicatat CFO di Finance → Brankas → Pengembalian Modal, dan sampai ke sini
+   lewat investorRingkas yang mengambilnya server-ke-server. Begitu CFO
+   mencatat satu pembayaran, barisnya muncul di sini tanpa ada yang perlu
+   menyalin apa pun — itu justru maksud penyambungannya.
+
+   TIDAK ADA angka karangan di sini. Kalau belum ada yang dicatat, yang tampil
+   keadaan kosong yang menyebutkan di mana mencatatnya. */
+function renderDividen() {
+  const box = document.getElementById('dividenBox');
+  const d = (D && D.dividen) || null;
+
+  /* Server yang tidak bisa dihubungi DIBEDAKAN dari "belum pernah ada
+     pembagian". Daftar kosong yang sebenarnya berarti backend Finance mati
+     terbaca sebagai "saya belum pernah dibayar" — dan yang kedua memicu
+     telepon yang tidak perlu. */
+  if (d && d.gagal) {
+    box.innerHTML = '<div class="card">' + kosong('⚠️', 'Riwayat dividen belum bisa dibaca',
+      'Catatan pengembalian modal ada di panel Finance, dan panel itu sedang tidak menjawab. ' +
+      'Ini bukan berarti belum ada pembagian — coba muat ulang halaman beberapa saat lagi.') + '</div>';
+    return;
+  }
+  const r = (d && Array.isArray(d.riwayat)) ? d.riwayat : [];
+  if (!r.length) {
+    box.innerHTML = '<div class="card">' + kosong('💰', 'Belum ada pembagian yang dicatat',
+      'Pengembalian modal dicatat di <b>Finance → Brankas → Pengembalian Modal</b>. ' +
+      'Begitu satu pembayaran dicatat, riwayatnya muncul di sini.') + '</div>';
+    return;
+  }
+
+  const total = Number(d.total || 0), modal = Number(d.modal || 0);
+  const pct = modal > 0 ? (total / modal * 100) : null;
+  let h = '<div class="grid kpis" style="margin-bottom:18px">';
+  h += '<div class="kpi rise"><div class="label">Total Dikembalikan</div><div class="value mono">' + rp(total) + '</div>'
+     + '<div class="foot">' + r.length + ' kali pembagian</div></div>';
+  if (modal > 0) {
+    h += '<div class="kpi rise"><div class="label">Dari Modal Masuk</div><div class="value mono">' + rp(modal) + '</div>'
+       + '<div class="foot">' + pct.toFixed(1) + '% sudah dikembalikan</div></div>';
+    h += '<div class="kpi rise"><div class="label">Sisa Kewajiban</div><div class="value mono">' + rp(Math.max(modal - total, 0)) + '</div>'
+       + '<div class="foot">belum dikembalikan</div></div>';
+  }
+  h += '<div class="kpi rise"><div class="label">Pembagian Terakhir</div><div class="value mono">' + esc(tglPanjang(r[0].tgl)) + '</div>'
+     + '<div class="foot">' + rp(r[0].nominal) + ' · ' + esc(r[0].investor || '—') + '</div></div>';
+  h += '</div>';
+
+  if (pct !== null) {
+    h += '<div class="card"><div class="lr-nota" style="margin:0">'
+       + '<b>' + pct.toFixed(1) + '% dari modal sudah dikembalikan.</b> '
+       + 'Angka ini menjumlahkan SELURUH investor, bukan porsi satu orang — '
+       + 'rincian per investor ada di catatan Finance.</div></div>';
+  }
+
+  h += '<div class="card"><h3 style="font-size:16px;margin-bottom:4px">Riwayat Pembagian</h3>'
+     + '<div class="lr-nota-kecil" style="margin:0 0 12px">Terbaru lebih dulu · sumber: Brankas Finance</div>'
+     + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>Investor</th><th class="ka">Nominal</th></tr></thead><tbody>'
+     + r.map(x => '<tr><td class="mono nw">' + esc(tglPanjang(x.tgl)) + '</td>'
+         + '<td><b>' + esc(x.investor || '—') + '</b></td>'
+         + '<td class="mono ka">' + rp(x.nominal) + '</td></tr>').join('')
+     + '</tbody></table></div></div>';
+  box.innerHTML = h;
+}
+
 function renderKosongLain() {
-  document.getElementById('dividenBox').innerHTML = kosong('💰', 'Belum ada riwayat dividen',
-    'Pembagian dividen belum dicatat di sistem mana pun di Laksamana Office. Angka yang dulu tampil di sini adalah contoh, dan sudah dihapus.');
 }
 
 /* =======================================================================

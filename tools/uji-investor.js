@@ -580,6 +580,55 @@ async function jalankan(nama, opt) {
     }
   });
 
+  // ---- 19. tab Dividen tersambung ke Brankas ----
+  await jalankan('Dividen dari Brankas', {
+    sesiTersimpan: { token:'TE', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ dividen:{ gagal:false, modal:1000000000, total:300000000,
+            investor:2, riwayat:[
+              { tgl:'2026-08-10', investor:'H. Bakri', nominal:200000000 },
+              { tgl:'2026-06-30', investor:'Ibu Sari', nominal:100000000 } ] } }) }
+      : { ok:false },
+    periksa(w) {
+      const dv = $(w,'dividenBox').innerHTML;
+      cek('total dikembalikan tampil', dv.includes('Rp 300.000.000'), dv.slice(0,300));
+      cek('modal masuk tampil', dv.includes('Rp 1.000.000.000'));
+      cek('sisa kewajiban 700jt', dv.includes('Rp 700.000.000'));
+      cek('persentase 30.0%', dv.includes('30.0%'), dv.slice(0,600));
+      cek('riwayat memuat nama investor', dv.includes('H. Bakri') && dv.includes('Ibu Sari'));
+      cek('terbaru lebih dulu', dv.indexOf('H. Bakri') < dv.indexOf('Ibu Sari'));
+      cek('pembagian terakhir 10 Agu 2026', dv.includes('10 Agu 2026'), dv.slice(0,900));
+      cek('tidak ada lagi keadaan kosong', !dv.includes('Belum ada pembagian'));
+    }
+  });
+
+  // ---- 20. panel Finance mati -> BEDA dari "belum pernah ada pembagian" ----
+  await jalankan('Dividen: panel Finance tidak menjawab', {
+    sesiTersimpan: { token:'TF', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ dividen:{ gagal:true, riwayat:[] } }) }
+      : { ok:false },
+    periksa(w) {
+      const dv = $(w,'dividenBox').innerHTML;
+      cek('menyebut servernya yang bermasalah', dv.includes('belum bisa dibaca'), dv.slice(0,300));
+      cek('menegaskan BUKAN berarti belum ada pembagian', dv.includes('bukan berarti belum ada pembagian'));
+      cek('tidak menulis "belum pernah dicatat"', !dv.includes('Belum ada pembagian yang dicatat'));
+    }
+  });
+
+  // ---- 21. belum ada pembagian sama sekali ----
+  await jalankan('Dividen: belum ada pembagian', {
+    sesiTersimpan: { token:'TG', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ dividen:{ gagal:false, riwayat:[], total:0, modal:0, investor:0 } }) }
+      : { ok:false },
+    periksa(w) {
+      const dv = $(w,'dividenBox').innerHTML;
+      cek('menyebut di mana mencatatnya', dv.includes('Brankas'), dv.slice(0,300));
+      cek('tidak ada angka karangan', !dv.includes('Rp '), dv.slice(0,300));
+    }
+  });
+
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);

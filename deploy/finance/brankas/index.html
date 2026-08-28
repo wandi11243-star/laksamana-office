@@ -557,6 +557,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
         <div class="nav-label">Brankas</div>
         <a data-view="ringkasan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/></svg></span> Ringkasan Brankas</a>
         <a data-view="saldo"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg></span> Saldo &amp; Rekening</a>
+        <a data-view="mutasi"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4"/><path d="M3 6h18"/><path d="M7 22l-4-4 4-4"/><path d="M21 18H3"/></svg></span> Mutasi &amp; Transfer</a>
       </div>
       <div class="nav-group">
         <div class="nav-label">Kewajiban</div>
@@ -755,7 +756,11 @@ const PERM_NONE = 0, PERM_VIEW = 1, PERM_EDIT = 2;
 const PERM_OPT = [['0','Tak Terlihat','None'], ['1','Lihat','Lihat'], ['2','Boleh Ubah','Ubah']];
 /* Halaman yang PUNYA isian. Di luar daftar ini "Ubah" tidak berarti apa-apa —
    halamannya murni informasi — jadi nilainya dijepit ke Lihat saat dibaca. */
-const AKS_HAL_ISI = ['saldo','pending','bayar','modal','pengaturan','akses'];
+/* `pending` TIDAK di sini sejak 27 Agustus 2026: isinya dibaca dari modul
+   Cashier dan tidak bisa diubah dari halaman ini sama sekali. Halaman yang
+   "Ubah"-nya tidak berarti apa-apa harus dijepit ke Lihat, kalau tidak admin
+   memberi hak Ubah yang tidak pernah mengubah apa pun. */
+const AKS_HAL_ISI = ['saldo','mutasi','bayar','modal','pengaturan','akses'];
 
 const ROLE_KEYS = ['staf','manajemen','viewer'];
 const ROLE_LABEL = { staf:'Staf Finance', manajemen:'Manajemen', viewer:'View Only', admin:'Admin Modul' };
@@ -772,7 +777,8 @@ const ROLE_BAWAAN = 'staf';
 const DEFAULT_PERMS = {
   ringkasan :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
   saldo     :{ staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_VIEW },
-  pending   :{ staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_VIEW },
+  mutasi    :{ staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_VIEW },
+  pending   :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
   bayar     :{ staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_VIEW },
   modal     :{ staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_VIEW },
   pengaturan:{ staf:PERM_EDIT, manajemen:PERM_NONE, viewer:PERM_NONE },
@@ -865,7 +871,7 @@ async function muatSemua() {
   if (a.status === 'fulfilled' && a.value && a.value.ok) BK = a.value.data;
   else throw new Error('Brankas: ' + ((a.reason && a.reason.message) || (a.value && a.value.error) || 'gagal dibaca'));
   if (!BK.data) BK.data = {};
-  ['rekening','piutang','bayar','investor'].forEach(k => { if (!Array.isArray(BK.data[k])) BK.data[k] = []; });
+  ['rekening','piutang','bayar','investor','mutasi'].forEach(k => { if (!Array.isArray(BK.data[k])) BK.data[k] = []; });
   if (!BK.data.setting || typeof BK.data.setting !== 'object') BK.data.setting = {};
 
   /* Kompas boleh gagal tanpa mematikan modul: yang bergantung padanya cuma
@@ -985,7 +991,8 @@ function setoranSemua() { const v = KP && KP.rekap_setoran; return Array.isArray
 function saldoSemua() {
   const peta = petaGrup();
   const out = {}; SEMUA_WADAH().forEach(k => out[k] = {
-    awal:saldoAwal(k), masuk:0, setorMasuk:0, setorKeluar:0, keluar:0, saldo:0 });
+    awal:saldoAwal(k), masuk:0, setorMasuk:0, setorKeluar:0,
+    mutMasuk:0, mutKeluar:0, keluar:0, modal:0, saldo:0 });
 
   if (KP) {
     tglRekap().forEach(tgl => {
@@ -1012,20 +1019,56 @@ function saldoSemua() {
     const w = p.dari && out[p.dari] ? p.dari : null;
     if (w) out[w].keluar += num(p.amount);
   });
+  /* MUTASI WALLET: setor dari luar, tarik ke luar, dan pindah antar wallet.
+     Yang PINDAH menyentuh dua wadah sekaligus dan jumlahnya nol di total —
+     itulah bedanya dengan setor/tarik, dan itu yang membuat total kas likuid
+     tidak bergeser sepeser pun saat uang cuma berpindah rekening. */
+  (BK.data.mutasi || []).forEach(m => {
+    const n = num(m.nominal); if (!n) return;
+    if (m.jenis === 'masuk')  { if (out[m.ke])   out[m.ke].mutMasuk += n; }
+    else if (m.jenis === 'keluar') { if (out[m.dari]) out[m.dari].mutKeluar += n; }
+    else if (m.jenis === 'pindah') {
+      if (out[m.dari]) out[m.dari].mutKeluar += n;
+      if (out[m.ke])   out[m.ke].mutMasuk += n;
+    }
+  });
+  /* PENGEMBALIAN MODAL keluar dari wadah yang dipilih saat mencatatnya.
+     Baris lama yang belum punya `dari` TIDAK dijatuhkan ke wadah mana pun:
+     menebaknya berarti mengurangi saldo rekening yang uangnya tidak pernah
+     keluar dari sana. Yang menggantung dilaporkan di halaman Pengembalian
+     Modal, bukan didiamkan. */
+  (BK.data.investor || []).forEach(i => {
+    (i.returns || []).forEach(r => {
+      const w = r.dari && out[r.dari] ? r.dari : null;
+      if (w) out[w].modal += num(r.amount);
+    });
+  });
 
   SEMUA_WADAH().forEach(k => {
     const o = out[k];
-    o.saldo = o.awal + o.masuk + o.setorMasuk - o.setorKeluar - o.keluar;
+    o.saldo = o.awal + o.masuk + o.setorMasuk + o.mutMasuk
+            - o.setorKeluar - o.mutKeluar - o.keluar - o.modal;
   });
   return out;
 }
 const totalLikuid = () => SEMUA_WADAH().reduce((s, k) => s + saldoSemua()[k].saldo, 0);
+/* Pengembalian modal yang belum menyebut keluar dari wadah mana. Dihitung dan
+   DILAPORKAN — kalau didiamkan, saldo rekening lebih besar daripada kenyataan
+   sebesar angka ini, dan tidak ada satu pun layar yang menyebut sebabnya. */
+function modalTanpaWadah() {
+  const out = [];
+  (BK.data.investor || []).forEach(i => (i.returns || []).forEach(r => {
+    if (!r.dari || SEMUA_WADAH().indexOf(r.dari) < 0) out.push({ inv:i.name, r });
+  }));
+  return out;
+}
 
 /* ============ ROUTER ============ */
 const TITLES = {
   ringkasan :['Ringkasan Brankas','Posisi kas perusahaan dan keputusan terdekat'],
   saldo     :['Saldo & Rekening','Dihitung dari Aktual Masuk di Rekap Penjualan'],
-  pending   :['Uang Pending / Piutang','Uang yang sudah jadi hak perusahaan tapi belum masuk'],
+  mutasi    :['Mutasi & Transfer','Setor, tarik, dan pindah uang antar wallet'],
+  pending   :['Uang Pending / Piutang','Bon yang dicatat kasir dan belum dibayar tamu'],
   bayar     :['Planning Pembayaran','Kewajiban terjadwal dan yang sudah dibayar'],
   modal     :['Pengembalian Modal','Progres pengembalian modal per investor'],
   pengaturan:['Pengaturan','Saldo awal, pemetaan metode pembayaran, dan biaya bulanan'],
@@ -1052,7 +1095,7 @@ function render() {
       '<b>' + esc(ROLE_LABEL[peranSaya()]) + '</b>. Minta admin modul membukanya di Kelola Akses.</div></div></div>';
     return;
   }
-  ({ ringkasan:vRingkasan, saldo:vSaldo, pending:vPending, bayar:vBayar,
+  ({ ringkasan:vRingkasan, saldo:vSaldo, mutasi:vMutasi, pending:vPending, bayar:vBayar,
      modal:vModal, pengaturan:vPengaturan, akses:vAkses }[CURRENT] || vRingkasan)();
   terapkanKunci();
 }
@@ -1061,7 +1104,9 @@ function render() {
 function vRingkasan() {
   const s = saldoSemua();
   const likuid = SEMUA_WADAH().reduce((a, k) => a + s[k].saldo, 0);
-  const piutang = (BK.data.piutang || []).filter(r => r.status !== 'lunas').reduce((a, r) => a + num(r.amount), 0);
+  /* Bon dibaca dari modul Cashier, bukan dari blob brankas — lihat vPending(). */
+  const bon = bonBelum();
+  const piutang = bon.reduce((a, b) => a + num(b.nominal), 0);
   const jadwal = (BK.data.bayar || []).filter(p => p.status === 'scheduled');
   const wajib30 = jadwal.filter(p => { const d = hariKe(p.dueDate); return d !== null && d >= 0 && d <= 30; })
                         .reduce((a, p) => a + num(p.amount), 0);
@@ -1073,11 +1118,17 @@ function vRingkasan() {
   if (KP_ERR) h += '<div class="notice warn">⚠ <div>' + esc(KP_ERR) + '</div></div>';
   h += '<div class="grid g4" style="margin-bottom:18px">'
     + kartu('Total Kas Likuid', fmtRp(likuid), SEMUA_WADAH().length + ' wadah (4 bank + brankas fisik)')
-    + kartu('Uang Pending / Piutang', fmtRp(piutang), (BK.data.piutang || []).filter(r => r.status !== 'lunas').length + ' catatan belum masuk')
+    + kartu('Uang Pending / Piutang', fmtRp(piutang), KP ? (bon.length + ' bon belum dibayar') : 'Rekap Penjualan tak terbaca')
     + kartu('Kewajiban 30 Hari', fmtRp(wajib30), jadwal.length + ' pembayaran terjadwal')
     + kartu('Runway', runway === null ? '—' : (runway.toFixed(1) + ' bulan'),
             burn > 0 ? ('biaya bulanan ' + fmtRp(burn)) : 'isi biaya bulanan di Pengaturan')
     + '</div>';
+  const modalKeluar = SEMUA_WADAH().reduce((a, k) => a + s[k].modal, 0);
+  const mutPindah = (BK.data.mutasi || []).filter(m => m.jenis === 'pindah').length;
+  if (modalKeluar || mutPindah) h += '<div class="notice info">ℹ <div>'
+    + (modalKeluar ? 'Sudah <b>' + fmtRp(modalKeluar) + '</b> keluar sebagai pengembalian modal investor. ' : '')
+    + (mutPindah ? mutPindah + ' pemindahan antar wallet tercatat — pemindahan tidak mengubah total kas, cuma letaknya.' : '')
+    + '</div></div>';
 
   h += '<div class="grid g2">';
   h += '<div class="card"><h3>Posisi per Wadah</h3><div class="card-sub">Saldo berjalan tiap bank dan brankas fisik</div>'
@@ -1199,51 +1250,160 @@ async function hapusBaris(kunci, id, view, tanya) {
 }
 
 const PIUTANG_ST = { pending:'Belum masuk', lunas:'Sudah masuk' };
+/* ============ HALAMAN: UANG PENDING / PIUTANG ============
+   DIBACA dari modul Cashier, tidak diketik di sini (27 Agustus 2026,
+   permintaan user). Bon tamu dicatat kasir tiap malam di Cashier → Piutang /
+   Bon, dan blob-nya SAMA dengan Kompas — jadi datanya sudah ikut di KP yang
+   dimuat halaman ini, tanpa satu pun permintaan tambahan.
+
+   Halaman ini SENGAJA read-only. Bon yang bisa diketik di dua tempat akan
+   punya dua angka yang berbeda suatu hari, dan yang mencocokkannya tidak
+   punya cara tahu mana yang benar. Yang melunaskan tetap kasir, di tempat ia
+   mencatatnya. */
+function bonSemua() { const v = KP && KP.piutang; return Array.isArray(v) ? v : []; }
+function bonBelum() { return bonSemua().filter(b => b.status !== 'lunas'); }
+const BON_TIPE = { tamu:'Tamu', owner:'Owner', staff:'Staff', lain:'Lainnya' };
+
 function vPending() {
   const V = document.getElementById('app-view');
-  const arr = (BK.data.piutang || []).slice().sort((a, b) => String(a.dueDate) < String(b.dueDate) ? -1 : 1);
-  const belum = arr.filter(r => r.status !== 'lunas');
-  let h = '<div class="grid g3" style="margin-bottom:18px">'
-    + kartu('Belum Masuk', fmtRp(belum.reduce((a, r) => a + num(r.amount), 0)), belum.length + ' catatan')
-    + kartu('Sudah Masuk', fmtRp(arr.filter(r => r.status === 'lunas').reduce((a, r) => a + num(r.amount), 0)), 'total sepanjang catatan')
-    + kartu('Lewat Jatuh Tempo', fmtRp(belum.filter(r => { const d = hariKe(r.dueDate); return d !== null && d < 0; }).reduce((a, r) => a + num(r.amount), 0)), 'perlu ditagih')
+  if (!KP) { V.innerHTML = '<div class="notice bad">⚠ <div>' + esc(KP_ERR) + '</div></div>'; return; }
+
+  const belum = bonBelum();
+  const total = belum.reduce((a, b) => a + num(b.nominal), 0);
+  /* Dikelompokkan per orang: satu tamu bisa punya beberapa bon di tanggal
+     berbeda, dan yang ditagih adalah orangnya, bukan barisnya. */
+  const peta = new Map();
+  belum.forEach(b => {
+    const k = (b.nama || '(tanpa nama)') + '|' + (b.tipe || 'lain');
+    if (!peta.has(k)) peta.set(k, { nama:b.nama || '(tanpa nama)', tipe:b.tipe || 'lain', n:0, jml:0, lama:'' });
+    const o = peta.get(k); o.n++; o.jml += num(b.nominal);
+    if (!o.lama || String(b.date) < o.lama) o.lama = b.date;
+  });
+  const orang = [...peta.values()].sort((x, y) => y.jml - x.jml);
+  const tua = belum.reduce((a, b) => (!a || String(b.date) < String(a)) ? b.date : a, '');
+  const umur = tua ? -hariKe(tua) : 0;
+
+  let h = '<div class="notice info">ℹ <div><b>Halaman ini hanya membaca.</b> '
+    + 'Bon dicatat dan dilunaskan kasir di modul <b>Cashier → Piutang / Bon</b>. '
+    + 'Yang bisa diketik di dua tempat akan punya dua angka berbeda suatu hari, dan yang '
+    + 'mencocokkannya tidak punya cara tahu mana yang benar.</div></div>';
+
+  h += '<div class="grid g3" style="margin-bottom:18px">'
+    + kartu('Belum Dibayar', fmtRp(total), belum.length + ' bon dari ' + orang.length + ' orang')
+    + kartu('Bon Tertua', tua ? fmtTgl(tua) : '—', tua ? (umur > 0 ? umur + ' hari menggantung' : 'hari ini') : 'tidak ada bon terbuka')
+    + kartu('Sudah Lunas', fmtRp(bonSemua().filter(b => b.status === 'lunas').reduce((a, b) => a + num(b.nominal), 0)), 'sepanjang catatan')
     + '</div>';
 
-  h += '<div class="card" data-aks><h3>Catat Piutang</h3><div class="card-sub">Uang yang sudah jadi hak perusahaan tapi belum masuk rekening</div>'
-    + '<div class="grid g3">'
-    + fld('Sumber / Dari siapa', '<input id="pi_src" placeholder="mis. Corporate Event PT ABC">')
-    + fld('Nominal', '<input class="mono" id="pi_amt" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
-    + fld('Perkiraan Masuk', '<input type="date" id="pi_due">')
-    + '</div>'
-    + fld('Catatan', '<input id="pi_note" placeholder="opsional">')
-    + '<button class="btn btn-primary" onclick="pdSimpan()">Simpan Piutang</button></div>';
-
-  h += '<div class="tbl-wrap card"><h3>Daftar Piutang</h3>'
-    + (arr.length ? '<table><thead><tr><th>Sumber</th><th>Perkiraan Masuk</th><th class="num">Nominal</th><th>Status</th><th></th></tr></thead><tbody>'
-      + arr.map(r => { const d = hariKe(r.dueDate);
-          return '<tr><td><b>' + esc(r.source) + '</b>' + (r.note ? '<span class="helper">' + esc(r.note) + '</span>' : '') + '</td>'
-            + '<td>' + esc(fmtTgl(r.dueDate)) + (r.status !== 'lunas' && d !== null && d < 0 ? '<span class="helper" style="color:var(--danger)">lewat ' + (-d) + ' hari</span>' : '') + '</td>'
-            + '<td class="num mono">' + fmtRp(r.amount) + '</td>'
-            + '<td><span class="chip">' + esc(PIUTANG_ST[r.status] || 'Belum masuk') + '</span></td>'
-            + '<td data-aks><button class="btn btn-ghost btn-xs" onclick="pdToggle(\'' + r.id + '\')">'
-            + (r.status === 'lunas' ? 'Tandai belum' : 'Tandai masuk') + '</button> '
-            + '<button class="btn btn-danger btn-xs" onclick="hapusBaris(\'piutang\',\'' + r.id + '\',\'pending\',\'Hapus piutang ini?\')">Hapus</button></td></tr>'; }).join('')
+  h += '<div class="tbl-wrap card"><h3>Per Orang</h3><div class="card-sub">Yang ditagih adalah orangnya, bukan barisnya</div>'
+    + (orang.length ? '<table><thead><tr><th>Nama</th><th>Tipe</th><th class="num">Jumlah Bon</th><th>Bon Tertua</th><th class="num">Nominal</th></tr></thead><tbody>'
+      + orang.map(o => '<tr><td><b>' + esc(o.nama) + '</b></td>'
+          + '<td><span class="chip">' + esc(BON_TIPE[o.tipe] || 'Lainnya') + '</span></td>'
+          + '<td class="num">' + o.n + '</td>'
+          + '<td>' + esc(fmtTgl(o.lama)) + '</td>'
+          + '<td class="num mono"><b>' + fmtRp(o.jml) + '</b></td></tr>').join('')
+      + '<tr><td colspan="4"><b>Total</b></td><td class="num mono"><b>' + fmtRp(total) + '</b></td></tr>'
       + '</tbody></table>'
-      : '<div class="empty"><div class="big">◔</div>Belum ada piutang yang dicatat.</div>')
+      : '<div class="empty"><div class="big">◔</div>Tidak ada bon yang belum dibayar.</div>')
+    + '</div>';
+
+  h += '<div class="tbl-wrap card"><h3>Rincian Bon Belum Dibayar</h3>'
+    + (belum.length ? '<table><thead><tr><th>Tanggal</th><th>Nama</th><th>Tipe</th><th>No. Bill</th><th class="num">Nominal</th></tr></thead><tbody>'
+      + belum.slice().sort((x, y) => String(x.date) < String(y.date) ? -1 : 1).map(b =>
+          '<tr><td>' + esc(fmtTgl(b.date)) + '</td>'
+          + '<td>' + esc(b.nama || '—') + '</td>'
+          + '<td>' + esc(BON_TIPE[b.tipe] || 'Lainnya') + '</td>'
+          + '<td>' + esc(b.bill || '—') + '</td>'
+          + '<td class="num mono">' + fmtRp(b.nominal) + '</td></tr>').join('')
+      + '</tbody></table>'
+      : '<div class="empty"><div class="big">◔</div>Tidak ada bon terbuka.</div>')
     + '</div>';
   V.innerHTML = h;
 }
-function pdSimpan() {
+
+/* ============ HALAMAN: MUTASI & TRANSFER WALLET ============
+   Tiga jenis, dan bedanya penting:
+
+     masuk  — uang datang dari LUAR brankas (modal, refund, pinjaman)
+     keluar — uang pergi ke LUAR brankas (biaya yang tidak lewat halaman Bayar)
+     pindah — uang berpindah ANTAR wallet; totalnya nol
+
+   Yang ketiga itu yang paling sering dipakai dan yang paling mudah salah
+   dicatat sebagai dua baris (keluar dari A, masuk ke B). Kalau dicatat begitu
+   lalu salah satunya terhapus, uang perusahaan bertambah atau hilang tanpa
+   ada yang menyadarinya. Karena itu pindah adalah SATU baris yang menyentuh
+   dua wadah. */
+const MUT_JENIS = [
+  { k:'pindah', n:'Pindah antar wallet' },
+  { k:'masuk',  n:'Setor / uang masuk dari luar' },
+  { k:'keluar', n:'Tarik / uang keluar ke luar' }
+];
+function vMutasi() {
+  const V = document.getElementById('app-view');
+  const s = saldoSemua();
+  const arr = (BK.data.mutasi || []).slice().sort((a, b) => String(b.tgl) < String(a.tgl) ? -1 : 1);
+
+  let h = '<div class="grid g4" style="margin-bottom:18px">'
+    + SEMUA_WADAH().map(k => kartu(namaBank(k), fmtRp(s[k].saldo), 'saldo berjalan')).join('')
+    + '</div>';
+
+  h += '<div class="card" data-aks><h3>Catat Mutasi</h3>'
+    + '<div class="card-sub">Pindah antar wallet dicatat SATU baris, bukan dua. Dua baris yang salah satunya terhapus '
+    + 'membuat uang perusahaan bertambah atau hilang tanpa ada yang menyadarinya.</div>'
+    + '<div class="grid g3">'
+    + fld('Jenis', '<select id="mu_jenis" onchange="muUbahJenis()">'
+        + MUT_JENIS.map(j => '<option value="' + j.k + '">' + esc(j.n) + '</option>').join('') + '</select>')
+    + fld('Tanggal', '<input type="date" id="mu_tgl" value="' + todayISO() + '">')
+    + fld('Nominal', '<input class="mono" id="mu_nom" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
+    + '</div><div class="grid g3">'
+    + '<div class="field" id="mu_f_dari"><label>Dari Wallet</label><select id="mu_dari">'
+        + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + '</option>').join('') + '</select></div>'
+    + '<div class="field" id="mu_f_ke"><label>Ke Wallet</label><select id="mu_ke">'
+        + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + '</option>').join('') + '</select></div>'
+    + fld('Keterangan', '<input id="mu_ket" placeholder="mis. top-up kas operasional">')
+    + '</div>'
+    + '<button class="btn btn-primary" onclick="muSimpan()">Simpan Mutasi</button></div>';
+
+  h += '<div class="tbl-wrap card"><h3>Riwayat Mutasi</h3>'
+    + (arr.length ? '<table><thead><tr><th>Tanggal</th><th>Jenis</th><th>Dari</th><th>Ke</th><th class="num">Nominal</th><th>Keterangan</th><th></th></tr></thead><tbody>'
+      + arr.map(m => '<tr><td>' + esc(fmtTgl(m.tgl)) + '</td>'
+          + '<td><span class="chip">' + esc((MUT_JENIS.find(j => j.k === m.jenis) || {}).n || m.jenis) + '</span></td>'
+          + '<td>' + (m.jenis === 'masuk' ? '<span style="color:var(--muted-2)">luar brankas</span>' : esc(namaBank(m.dari))) + '</td>'
+          + '<td>' + (m.jenis === 'keluar' ? '<span style="color:var(--muted-2)">luar brankas</span>' : esc(namaBank(m.ke))) + '</td>'
+          + '<td class="num mono">' + fmtRp(m.nominal) + '</td>'
+          + '<td>' + esc(m.ket || '—') + '</td>'
+          + '<td data-aks><button class="btn btn-danger btn-xs" onclick="hapusBaris(\'mutasi\',\'' + m.id + '\',\'mutasi\',\'Hapus mutasi ini? Saldo wallet yang terlibat akan berubah.\')">Hapus</button></td></tr>').join('')
+      + '</tbody></table>'
+      : '<div class="empty"><div class="big">⇄</div>Belum ada mutasi yang dicatat.</div>')
+    + '</div>';
+  V.innerHTML = h;
+  muUbahJenis();
+}
+/* Kotak yang tidak berlaku DISEMBUNYIKAN, bukan dibiarkan aktif. "Dari Wallet"
+   yang tetap tampil pada jenis "masuk" akan diisi orang, lalu diabaikan diam-
+   diam saat disimpan — dan ia mengira uangnya berpindah. */
+function muUbahJenis() {
+  const j = (document.getElementById('mu_jenis') || {}).value || 'pindah';
+  const fd = document.getElementById('mu_f_dari'), fk = document.getElementById('mu_f_ke');
+  if (fd) fd.style.display = (j === 'masuk') ? 'none' : '';
+  if (fk) fk.style.display = (j === 'keluar') ? 'none' : '';
+}
+async function muSimpan() {
+  if (!bolehAksi('mutasi')) return;
   const g = id => (document.getElementById(id) || {}).value || '';
-  if (!g('pi_src').trim()) { alert('Sumber piutang wajib diisi.'); return; }
-  simpanBaris('piutang', { id:uid('pi'), source:g('pi_src').trim(), amount:num(g('pi_amt')),
-    dueDate:g('pi_due'), note:g('pi_note').trim(), status:'pending' }, 'pending');
+  const jenis = g('mu_jenis') || 'pindah', n = num(g('mu_nom'));
+  const dari = g('mu_dari'), ke = g('mu_ke');
+  if (!n) { alert('Nominal wajib diisi.'); return; }
+  if (!g('mu_tgl')) { alert('Tanggal wajib diisi.'); return; }
+  /* Pindah ke wallet yang sama tidak melakukan apa pun tapi tetap tersimpan
+     sebagai baris — dan baris yang tidak berarti apa-apa membuat riwayat
+     mutasi tidak bisa dipercaya. Ditolak di sini. */
+  if (jenis === 'pindah' && dari === ke) { alert('Wallet asal dan tujuan tidak boleh sama.'); return; }
+  BK.data.mutasi.push({ id:uid('mu'), tgl:g('mu_tgl'), jenis,
+    dari:(jenis === 'masuk' ? '' : dari), ke:(jenis === 'keluar' ? '' : ke),
+    nominal:n, ket:g('mu_ket').trim(), by:(CURRENT_USER && CURRENT_USER.name) || '' });
+  if (await simpan()) { toast('Mutasi tersimpan.'); render(); }
 }
-function pdToggle(id) {
-  const r = baris(id, BK.data.piutang); if (!r) return;
-  r.status = r.status === 'lunas' ? 'pending' : 'lunas';
-  simpanBaris('piutang', r, 'pending');
-}
+
 
 const BAYAR_KAT = ['Sewa','Gaji','Pajak','Vendor','Utilitas','Cicilan','Investor','Operasional','Lainnya'];
 function vBayar() {
@@ -1308,7 +1468,13 @@ function vModal() {
   const arr = (BK.data.investor || []).slice();
   const modal = arr.reduce((a, i) => a + num(i.capital), 0);
   const kembali = arr.reduce((a, i) => a + (i.returns || []).reduce((x, r) => x + num(r.amount), 0), 0);
-  let h = '<div class="grid g3" style="margin-bottom:18px">'
+  let h = '';
+  const gantung = modalTanpaWadah();
+  if (gantung.length) h += '<div class="notice warn">⚠ <div><b>' + gantung.length + ' catatan pengembalian belum menyebut '
+    + 'keluar dari wallet mana.</b> Uangnya sudah dibayarkan tapi saldo wallet belum berkurang, jadi saldo di halaman '
+    + 'Saldo &amp; Rekening lebih besar daripada kenyataan sebesar <b>'
+    + fmtRp(gantung.reduce((a, x) => a + num(x.r.amount), 0)) + '</b>. Hapus lalu catat ulang dengan wallet asalnya.</div></div>';
+  h += '<div class="grid g3" style="margin-bottom:18px">'
     + kartu('Modal Masuk', fmtRp(modal), arr.length + ' investor')
     + kartu('Sudah Dikembalikan', fmtRp(kembali), modal > 0 ? (kembali / modal * 100).toFixed(1) + '% dari modal' : '—')
     + kartu('Sisa Kewajiban', fmtRp(Math.max(modal - kembali, 0)), 'belum dikembalikan')
@@ -1327,21 +1493,26 @@ function vModal() {
       const sisa = Math.max(num(i.capital) - ret, 0);
       const p = num(i.capital) > 0 ? Math.min(ret / num(i.capital) * 100, 100) : 0;
       return '<div class="card"><h3>' + esc(i.name) + '</h3>'
-        + '<div class="card-sub">Modal ' + fmtRp(i.capital) + ' · kepemilikan ' + esc(String(i.ownership || 0)) + '%'
+        + '<div class="card-sub">Tercatat juga di halaman investor sebagai riwayat dividen. Modal ' + fmtRp(i.capital) + ' · kepemilikan ' + esc(String(i.ownership || 0)) + '%'
         + (i.targetDate ? ' · target ' + esc(fmtTgl(i.targetDate)) : '') + '</div>'
         + '<div class="grid g3" style="margin:12px 0">'
         + kartu('Dikembalikan', fmtRp(ret), p.toFixed(1) + '% dari modal')
         + kartu('Sisa', fmtRp(sisa), '')
         + kartu('Jumlah Pembayaran', String((i.returns || []).length) + '×', '')
         + '</div>'
-        + '<div data-aks class="grid g3">'
+        + '<div data-aks class="grid g4">'
         + fld('Tanggal Bayar', '<input type="date" id="rv_d_' + i.id + '">')
         + fld('Nominal', '<input class="mono" id="rv_a_' + i.id + '" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
+        + fld('Dibayar Dari', '<select id="rv_w_' + i.id + '">'
+            + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + '</option>').join('') + '</select>')
         + fld('&nbsp;', '<button class="btn btn-primary btn-block" onclick="rvTambah(\'' + i.id + '\')">Catat Pengembalian</button>')
         + '</div>'
-        + ((i.returns || []).length ? '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">Nominal</th><th></th></tr></thead><tbody>'
+        + ((i.returns || []).length ? '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Dibayar Dari</th><th class="num">Nominal</th><th></th></tr></thead><tbody>'
             + i.returns.slice().sort((a, b) => String(b.date) < String(a.date) ? -1 : 1).map((r, ix) =>
-              '<tr><td>' + esc(fmtTgl(r.date)) + '</td><td class="num mono">' + fmtRp(r.amount) + '</td>'
+              '<tr><td>' + esc(fmtTgl(r.date)) + '</td>'
+              + '<td>' + (r.dari && SEMUA_WADAH().indexOf(r.dari) >= 0 ? esc(namaBank(r.dari))
+                        : '<span class="chip" style="background:var(--warn-bg);color:var(--warn)">belum disebut</span>') + '</td>'
+              + '<td class="num mono">' + fmtRp(r.amount) + '</td>'
               + '<td data-aks><button class="btn btn-danger btn-xs" onclick="rvHapus(\'' + i.id + '\',' + ix + ')">Hapus</button></td></tr>').join('')
             + '</tbody></table></div>' : '')
         + '<div style="margin-top:12px" data-aks><button class="btn btn-danger btn-sm" onclick="hapusBaris(\'investor\',\'' + i.id + '\',\'modal\',\'Hapus investor ini beserta riwayat pengembaliannya?\')">Hapus Investor</button></div>'
@@ -1360,9 +1531,13 @@ function rvTambah(id) {
   const i = baris(id, BK.data.investor); if (!i) return;
   const d = (document.getElementById('rv_d_' + id) || {}).value || '';
   const a = num((document.getElementById('rv_a_' + id) || {}).value);
+  const w = (document.getElementById('rv_w_' + id) || {}).value || '';
   if (!d || !a) { alert('Tanggal dan nominal pengembalian wajib diisi.'); return; }
   if (!Array.isArray(i.returns)) i.returns = [];
-  i.returns.push({ date:d, amount:a });
+  /* `dari` = wadah yang uangnya keluar. Ikut disimpan sejak 27 Agustus 2026:
+     tanpa ini saldo rekening tetap utuh padahal uangnya sudah ditransfer ke
+     investor, dan selisihnya baru ketahuan saat mencocokkan mutasi bank. */
+  i.returns.push({ date:d, amount:a, dari:w, by:(CURRENT_USER && CURRENT_USER.name) || '' });
   simpanBaris('investor', i, 'modal');
 }
 function rvHapus(id, ix) {

@@ -168,7 +168,15 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     cek('ringkasan memperingatkan', d.getElementById('app-view').innerHTML.indexOf('belum bisa dihitung') > -1,
         d.getElementById('app-view').innerHTML.slice(0, 300));
     w.go('pending'); await tunggu(40);
-    cek('halaman piutang tetap bisa dibuka', d.getElementById('app-view').innerHTML.indexOf('Catat Piutang') > -1);
+    /* Piutang dibaca dari blob Kompas, jadi kalau Kompas mati halaman ini
+       memang tidak punya isi — yang penting ia MENJELASKAN sebabnya, bukan
+       memajang layar kosong yang terbaca sebagai modul rusak. */
+    cek('halaman piutang menjelaskan Kompas mati',
+        d.getElementById('app-view').innerHTML.indexOf('tidak terbaca') > -1,
+        d.getElementById('app-view').innerHTML.slice(0, 200));
+    w.go('mutasi'); await tunggu(40);
+    cek('halaman mutasi tetap bisa dibuka (tidak bergantung Kompas)',
+        d.getElementById('app-view').innerHTML.indexOf('Catat Mutasi') > -1);
     dom.window.close();
   }
 
@@ -179,13 +187,13 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     await tunggu(400);
     const w = dom.window, d = w.document;
     const semua = [];
-    ['ringkasan','saldo','pending','bayar','modal','pengaturan'].forEach(v => { w.go(v); semua.push(d.getElementById('app-view').innerHTML); });
+    ['ringkasan','saldo','pending','bayar','modal','pengaturan','mutasi'].forEach(v => { w.go(v); semua.push(d.getElementById('app-view').innerHTML); });
     const gab = semua.join(' ');
     cek('tidak ada nama investor karangan', !/Bakri|Sari Wahyuni|Nusantara Capital/.test(gab));
     cek('tidak ada rekening karangan', !/BCA Operasional|Mandiri Payroll|4839/.test(gab));
     cek('tidak ada piutang karangan', !/Mitsubishi|Pertamina/.test(gab));
     cek('tidak ada PIN', !/pinCFO|pinCEO|2468|1357/.test(gab));
-    cek('piutang kosong menyebutkan dirinya kosong', semua[2].indexOf('Belum ada piutang') > -1);
+    cek('piutang kosong menyebutkan dirinya kosong', semua[2].indexOf('Tidak ada bon') > -1, semua[2].slice(0, 200));
     cek('investor kosong menyebutkan dirinya kosong', semua[4].indexOf('Belum ada investor') > -1);
     dom.window.close();
   }
@@ -251,19 +259,140 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     const { dom, panggilan } = domBrankas({});
     await tunggu(400);
     const w = dom.window, d = w.document;
-    w.go('pending'); await tunggu(40);
-    d.getElementById('pi_src').value = 'Event PT Uji';
-    d.getElementById('pi_amt').value = '5.000.000';
-    d.getElementById('pi_due').value = '2026-09-01';
-    await w.pdSimpan(); await tunggu(120);
+    /* Dipindah dari halaman Piutang (yang kini read-only) ke halaman Mutasi —
+       jalur simpannya sama persis. */
+    w.go('mutasi'); await tunggu(40);
+    d.getElementById('mu_jenis').value = 'pindah';
+    d.getElementById('mu_tgl').value = '2026-08-20';
+    d.getElementById('mu_nom').value = '5.000.000';
+    d.getElementById('mu_dari').value = 'bri';
+    d.getElementById('mu_ke').value = 'bca';
+    d.getElementById('mu_ket').value = 'Uji pindah';
+    await w.muSimpan(); await tunggu(120);
     const kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
-    cek('piutang terkirim ke server', !!kirim);
+    cek('mutasi terkirim ke server', !!kirim);
     cek('nominal terbaca dari format rupiah',
-        kirim && kirim.body.data.piutang[0].amount === 5000000,
-        kirim ? String(kirim.body.data.piutang[0].amount) : '-');
+        kirim && kirim.body.data.mutasi[0].nominal === 5000000,
+        kirim ? String(kirim.body.data.mutasi[0].nominal) : '-');
     cek('state dikirim UTUH, bukan sepotong',
-        kirim && ['rekening','piutang','bayar','investor','setting'].every(k => kirim.body.data[k] !== undefined));
-    cek('tabel ikut memperbarui', d.getElementById('app-view').innerHTML.indexOf('Event PT Uji') > -1);
+        kirim && ['rekening','piutang','bayar','investor','mutasi','setting'].every(k => kirim.body.data[k] !== undefined));
+    cek('tabel ikut memperbarui', d.getElementById('app-view').innerHTML.indexOf('Uji pindah') > -1);
+    dom.window.close();
+  }
+
+  /* ================= 7. piutang dibaca dari Cashier ================= */
+  console.log('\n== Piutang dari modul Cashier ==');
+  {
+    const KP2 = JSON.parse(JSON.stringify(KOMPAS));
+    KP2.piutang = [
+      { id:'b1', date:'2026-08-01', nama:'Pak Budi', tipe:'tamu',  bill:'A-11', nominal:1500000, status:'open' },
+      { id:'b2', date:'2026-08-05', nama:'Pak Budi', tipe:'tamu',  bill:'A-22', nominal:500000,  status:'open' },
+      { id:'b3', date:'2026-08-06', nama:'Owner',    tipe:'owner', bill:'',     nominal:2000000, status:'open' },
+      { id:'b4', date:'2026-08-02', nama:'Sudah',    tipe:'tamu',  bill:'',     nominal:9000000, status:'lunas' }
+    ];
+    const asli = JSON.stringify(KOMPAS);
+    Object.assign(KOMPAS, KP2);
+    const { dom } = domBrankas({});
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('pending'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    cek('piutang: read-only, menyebut modul Cashier', v.indexOf('Cashier') > -1, v.slice(0, 300));
+    cek('piutang: TIDAK ada form input', v.indexOf('Catat Piutang') < 0);
+    cek('piutang: total 4.000.000 (yang lunas tidak ikut)', v.indexOf('Rp4.000.000') > -1, v.slice(0, 900));
+    cek('piutang: dikelompokkan per orang — Pak Budi 2 bon', v.indexOf('Pak Budi') > -1);
+    /* Rp9.000.000 memang tampil di kartu "Sudah Lunas" — yang tidak boleh
+       adalah munculnya di TABEL rincian bon terbuka. Diperiksa di potongan
+       tabelnya saja, bukan di seluruh halaman. */
+    const rinci = v.slice(v.indexOf('Rincian Bon Belum Dibayar'));
+    cek('piutang: yang lunas tidak muncul di rincian', rinci.indexOf('Rp9.000.000') < 0, rinci.slice(0, 300));
+    cek('piutang: total lunas tetap dipajang di ringkasan', v.indexOf('Rp9.000.000') > -1);
+    cek('piutang: bon tertua 1 Agu 2026', v.indexOf('1 Agu 2026') > -1, v.slice(0, 900));
+    Object.assign(KOMPAS, JSON.parse(asli));
+    dom.window.close();
+  }
+
+  /* ================= 8. mutasi & transfer wallet ================= */
+  console.log('\n== Mutasi & transfer wallet ==');
+  {
+    const { dom, panggilan } = domBrankas({
+      bk: { data:{ rekening:[], piutang:[], bayar:[], investor:[], mutasi:[
+              { id:'m1', tgl:'2026-08-05', jenis:'pindah', dari:'bri', ke:'bca', nominal:5000000, ket:'top-up' },
+              { id:'m2', tgl:'2026-08-06', jenis:'masuk',  dari:'',    ke:'uob', nominal:3000000, ket:'modal' },
+              { id:'m3', tgl:'2026-08-07', jenis:'keluar', dari:'cash',ke:'',    nominal:1000000, ket:'biaya' }
+            ], setting:{} }, akses:{}, peran:{} }
+    });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    const s = w.saldoSemua();
+    cek('pindah: BRI berkurang 5jt', s.bri.mutKeluar === 5000000, String(s.bri.mutKeluar));
+    cek('pindah: BCA bertambah 5jt', s.bca.mutMasuk === 5000000, String(s.bca.mutMasuk));
+    cek('masuk: UOB bertambah 3jt', s.uob.mutMasuk === 3000000, String(s.uob.mutMasuk));
+    cek('keluar: cash berkurang 1jt', s.cash.mutKeluar === 1000000, String(s.cash.mutKeluar));
+    /* Invarian: PINDAH tidak boleh menggeser total kas sepeser pun. */
+    /* SEMUA_WADAH() dideklarasikan `const` -> ada di lingkup leksikal, BUKAN
+       sebagai properti window. Harus lewat eval; jebakan yang sudah tercatat
+       di CLAUDE.md. */
+    const wadah = w.eval('SEMUA_WADAH()');
+    const tot = wadah.reduce((a, k) => a + s[k].saldo, 0);
+    const tanpaPindah = wadah.reduce((a, k) =>
+      a + s[k].awal + s[k].masuk + s[k].setorMasuk - s[k].setorKeluar - s[k].keluar - s[k].modal, 0);
+    cek('pindah tidak mengubah total kas', tot === tanpaPindah + 3000000 - 1000000,
+        tot + ' vs ' + (tanpaPindah + 2000000));
+
+    w.go('mutasi'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    cek('halaman mutasi tergambar', v.indexOf('Catat Mutasi') > -1);
+    cek('riwayat menampilkan tiga baris', (v.match(/btn-danger btn-xs/g) || []).length === 3);
+    cek('jenis "masuk" menulis "luar brankas"', v.indexOf('luar brankas') > -1);
+
+    /* pindah ke wallet yang sama harus DITOLAK */
+    d.getElementById('mu_jenis').value = 'pindah';
+    d.getElementById('mu_nom').value = '1.000.000';
+    d.getElementById('mu_dari').value = 'bri';
+    d.getElementById('mu_ke').value = 'bri';
+    const sblm = panggilan.filter(p => p.body && p.body.action === 'brankasSave').length;
+    await w.muSimpan(); await tunggu(60);
+    cek('pindah ke wallet yang sama ditolak',
+        panggilan.filter(p => p.body && p.body.action === 'brankasSave').length === sblm);
+    cek('alasannya disebut', panggilan.some(p => p.alert && p.alert.indexOf('tidak boleh sama') > -1));
+    dom.window.close();
+  }
+
+  /* ================= 9. pengembalian modal keluar dari wallet ================= */
+  console.log('\n== Pengembalian modal berwadah ==');
+  {
+    const { dom, panggilan } = domBrankas({
+      bk: { data:{ rekening:[], piutang:[], bayar:[], investor:[
+              { id:'i1', name:'H. Bakri', capital:100000000, ownership:50, targetDate:'',
+                returns:[ { date:'2026-08-10', amount:20000000, dari:'bri' },
+                          { date:'2026-08-11', amount:5000000 } ] }   // tanpa wadah
+            ], mutasi:[], setting:{} }, akses:{}, peran:{} }
+    });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    const s = w.saldoSemua();
+    cek('pengembalian berwadah mengurangi BRI', s.bri.modal === 20000000, String(s.bri.modal));
+    cek('pengembalian TANPA wadah tidak mengurangi siapa pun',
+        w.eval('SEMUA_WADAH()').reduce((a, k) => a + s[k].modal, 0) === 20000000);
+    cek('yang menggantung dilaporkan', w.modalTanpaWadah().length === 1, String(w.modalTanpaWadah().length));
+
+    w.go('modal'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    cek('peringatan gantung tampil', v.indexOf('belum menyebut') > -1, v.slice(0, 400));
+    cek('menyebut nominal yang menggantung', v.indexOf('Rp5.000.000') > -1);
+    cek('form punya pemilih wallet', v.indexOf('Dibayar Dari') > -1);
+    cek('tabel menandai baris tanpa wadah', v.indexOf('belum disebut') > -1);
+
+    /* mencatat pengembalian baru harus membawa `dari` */
+    d.getElementById('rv_d_i1').value = '2026-08-20';
+    d.getElementById('rv_a_i1').value = '7.000.000';
+    d.getElementById('rv_w_i1').value = 'bca';
+    await w.rvTambah('i1'); await tunggu(80);
+    const kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    const baru = kirim && kirim.body.data.investor[0].returns.slice(-1)[0];
+    cek('pengembalian baru menyimpan wallet asal', baru && baru.dari === 'bca', JSON.stringify(baru));
+    cek('nominalnya terbaca dari format rupiah', baru && baru.amount === 7000000);
     dom.window.close();
   }
 

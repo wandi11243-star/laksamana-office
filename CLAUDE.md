@@ -89,6 +89,30 @@ tanpa MDR (cash, transfer) → akt = kotor
   setelan di Pengaturan. Metode yang tidak punya tujuan tetap **dilaporkan di
   halaman Saldo**; itulah jaringnya kalau suatu hari ada metode baru.
 
+**Piutang DIBACA dari modul Cashier**, tidak diketik di sini (27 Agustus 2026).
+Bon tamu dicatat kasir di Cashier → Piutang / Bon, dan blob-nya SAMA dengan
+Kompas — jadi sudah ikut di data yang dimuat halaman ini. Halaman Brankas-nya
+read-only: bon yang bisa diketik di dua tempat akan punya dua angka berbeda
+suatu hari, dan yang mencocokkannya tidak punya cara tahu mana yang benar.
+
+**Mutasi & Transfer Wallet** punya tiga jenis, dan `pindah` adalah SATU baris
+yang menyentuh dua wadah — bukan dua baris (keluar dari A, masuk ke B). Dua
+baris yang salah satunya terhapus membuat uang perusahaan bertambah atau
+hilang tanpa ada yang menyadarinya.
+
+**Pengembalian modal menyebut wallet asalnya** (`returns[].dari`). Tanpa itu
+saldo rekening tetap utuh padahal uangnya sudah ditransfer ke investor. Baris
+lama yang belum punya `dari` TIDAK dijatuhkan ke wadah mana pun — menebaknya
+berarti mengurangi rekening yang uangnya tidak pernah keluar dari sana; yang
+menggantung dilaporkan lewat `modalTanpaWadah()`.
+
+**Pengembalian modal ikut tampil di halaman investor** sebagai riwayat dividen.
+Jalurnya `kompas-api?action=investorRingkas` → `dividen_investor()` → ambil
+`finance-api?action=brankasGet` SERVER-KE-SERVER. Dibalik (halaman investor
+memanggil finance-api langsung) tidak boleh: finance-api tidak punya
+`lib_sesi.php` dan seluruh aksinya terbuka — alamatnya berarti buku kas,
+invoice, dan seluruh transaksi harian di HTML yang dibuka orang luar.
+
 **Backend menumpang `finance-mysql`** (tabel `bk_state`, `bk_akses`, `bk_peran`),
 bukan backend sendiri: tabelnya lahir sendiri lewat `brankas_pastikan()`, jadi
 tidak ada database baru yang harus dibuat manual di cPanel dan tidak ada berkas
@@ -103,7 +127,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 58 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 85 pemeriksaan, jsdom + finance/kompas/account tiruan
 ```
 
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`
@@ -703,7 +727,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 163 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 176 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:

@@ -864,6 +864,13 @@ function ringkas_investor() {
        endpoint sendiri: bulannya cuma belasan, dan satu perjalanan lebih
        murah daripada dua. PETANYA DIOPER, bukan dibaca ulang — sekali baca
        blob, dan dijamin dua tab menghitung dari angka yang sama persis. */
+    /* Pengembalian modal investor, diambil server-ke-server dari panel
+       Brankas. Ikut di balasan ini dan bukan aksi sendiri: tab Dividen
+       ada di halaman yang sama dan daftarnya pendek — satu perjalanan
+       lebih murah daripada dua. Kalau finance-api mati, `gagal:true` dan
+       layar mengatakannya; daftar kosong yang berarti "servernya mati"
+       terbaca sebagai "belum pernah ada pembagian". */
+    'dividen' => dividen_investor(),
     'labaRugi' => laba_rugi_bulanan($peta),
     /* Tanggal data terakhir yang benar-benar diisi. Halaman investor
        memajangnya apa adanya — tanpa itu, omset hari ini yang kosong karena
@@ -1072,6 +1079,75 @@ function agenda_investor() {
        kosong yang sebenarnya berarti "servernya mati" terbaca sebagai
        "memang tidak ada acara", dan itu dua hal yang sangat berbeda. */
     'gagal'      => $gagal
+  );
+}
+
+/* ==================== DIVIDEN / PENGEMBALIAN MODAL =======================
+   Dicatat CFO di panel Finance → Brankas → Pengembalian Modal, dan tersimpan
+   di tabel bk_state milik finance-mysql — database yang BERBEDA dari blob
+   omset ini. Karena itu diambil server-ke-server lewat finance-api, cara yang
+   sama persis dengan agenda_investor() mengambil Marketing/Event/BD.
+
+   KENAPA TIDAK DIBALIK — halaman investor memanggil finance-api langsung?
+   Karena finance-api tidak punya lib_sesi.php dan seluruh aksinya terbuka.
+   Menyuruh halaman investor memanggilnya berarti menuliskan alamat backend
+   Kas Kecil — buku kas, invoice, seluruh transaksi harian — di dalam HTML
+   yang dibuka orang luar perusahaan. Satu pintu berpagar, dan pintunya di
+   sini.
+
+   Yang dipulangkan cuma nama investor, tanggal, dan nominal. TIDAK ada
+   nomor rekening, TIDAK ada wallet asalnya (itu urusan internal Finance),
+   dan TIDAK ada modal maupun kepemilikan investor LAIN — tiap investor
+   melihat daftar yang sama, jadi apa pun yang ada di sini terlihat oleh
+   semuanya.
+   ====================================================================== */
+function dividen_investor() {
+  $url = kp_url_modul('finance-api-mysql');
+  if ($url === '') return array('riwayat' => array(), 'gagal' => true);
+  /* kp_ambil_modul() memakai getAll; brankas punya aksinya sendiri, jadi
+     alamatnya ditambal di sini. */
+  $url = str_replace('action=getAll', 'action=brankasGet', $url);
+  $jawab = null;
+  if (function_exists('curl_init')) {
+    $ch = curl_init($url);
+    curl_setopt_array($ch, array(CURLOPT_RETURNTRANSFER => true, CURLOPT_TIMEOUT => 8, CURLOPT_FOLLOWLOCATION => true));
+    $jawab = curl_exec($ch); curl_close($ch);
+  } else {
+    $ctx = stream_context_create(array('http' => array('method' => 'GET', 'timeout' => 8)));
+    $jawab = @file_get_contents($url, false, $ctx);
+  }
+  if (!is_string($jawab) || $jawab === '') return array('riwayat' => array(), 'gagal' => true);
+  $d = json_decode($jawab, true);
+  if (!is_array($d) || empty($d['ok']) || !isset($d['data']['data']['investor'])) {
+    return array('riwayat' => array(), 'gagal' => true);
+  }
+  $inv = $d['data']['data']['investor'];
+  if (!is_array($inv)) return array('riwayat' => array(), 'gagal' => true);
+
+  $riwayat = array(); $totalModal = 0;
+  foreach ($inv as $i) {
+    if (!is_array($i)) continue;
+    $totalModal += kp_num(isset($i['capital']) ? $i['capital'] : 0);
+    $nama = kp_teks(isset($i['name']) ? $i['name'] : '', 80);
+    $ret = (isset($i['returns']) && is_array($i['returns'])) ? $i['returns'] : array();
+    foreach ($ret as $r) {
+      if (!is_array($r)) continue;
+      $t = kp_tgl(isset($r['date']) ? $r['date'] : '');
+      $n = kp_num(isset($r['amount']) ? $r['amount'] : 0);
+      if (!$t || !$n) continue;
+      $riwayat[] = array('tgl' => $t, 'investor' => $nama, 'nominal' => $n);
+    }
+  }
+  /* Terbaru dulu — yang dibuka investor pertama kali adalah "kapan terakhir
+     saya dibayar", bukan yang paling lama. */
+  usort($riwayat, function ($a, $b) { return strcmp($b['tgl'], $a['tgl']); });
+
+  return array(
+    'riwayat'    => $riwayat,
+    'total'      => array_reduce($riwayat, function ($a, $x) { return $a + $x['nominal']; }, 0),
+    'modal'      => $totalModal,
+    'investor'   => count($inv),
+    'gagal'      => false
   );
 }
 
