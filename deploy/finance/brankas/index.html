@@ -564,9 +564,34 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
 .qa .qa-d{flex:0 0 165px}
 .qa .qa-a{flex:0 0 130px;text-align:right}
 .qa .btn{height:38px;padding:0 16px}
+.qa-t{width:100%;border-collapse:collapse;font-size:13px}
+.qa-t th{font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted-2);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line)}
+.qa-t td{padding:7px 8px;border-bottom:1px solid var(--line-soft)}
+.qa-t tr:last-child td{border-bottom:none}
+.draf{border:1px dashed var(--gold);border-radius:var(--radius-sm);
+  background:var(--gold-glow);padding:12px 14px;margin-top:14px}
+.draf-h{display:flex;align-items:baseline;gap:8px;margin-bottom:6px}
+.draf-h b{font-size:13px}
+.draf-aksi{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.arsip-bar{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-top:8px;
+  padding-top:8px;border-top:1px solid var(--line-soft)}
 /* Satu baris keterangan, bukan tiga kotak terkunci: yang perlu dilihat saat
    mengetik cuma "vendornya kekenal atau tidak". Rinciannya sudah tercetak di
    lembar di bawah. */
+/* Kepala kolom kecil di atas strip. Placeholder saja tidak cukup begitu ada
+   tabel draf di bawahnya: dua deret kotak tanpa judul kolom membuat mata
+   harus mencocokkan lebar untuk tahu kolom mana yang mana. */
+.qa-h{display:flex;gap:8px;margin-top:12px;font-size:10px;font-weight:700;
+  letter-spacing:.06em;text-transform:uppercase;color:var(--muted-2)}
+.qa-h>span{overflow:hidden;white-space:nowrap}
+/* Rp menempel di kotak nominal, bukan di dalam placeholder: placeholder
+   hilang begitu diketik, padahal justru saat mengetik angka satuannya perlu
+   terlihat. */
+.qa-rp{position:relative;display:flex;align-items:center}
+.qa-rp>span{position:absolute;left:10px;font-size:12px;font-weight:600;
+  color:var(--muted-2);pointer-events:none}
+.qa-rp>input{padding-left:30px;width:100%}
 .qa-info{font-size:11.5px;margin-top:6px;min-height:16px;color:var(--muted)}
 .qa-info b{color:var(--ink)}
 .qa-info.warn{color:var(--warn)}
@@ -1143,6 +1168,14 @@ const TITLES = {
 };
 function go(view) {
   if (!TITLES[view] || !bolehLihat(view)) { const p = halPertamaBoleh(); if (!p) { CURRENT = ''; render(); return; } view = p; }
+  /* Pindah halaman menggambar ulang seluruh layar, jadi draf yang belum
+     disimpan lenyap. beforeunload tidak menangkap ini — perpindahannya di
+     dalam satu halaman, peramban tidak pernah tahu ada yang ditinggalkan. */
+  if (view !== CURRENT && DRAF.length &&
+      !confirm(DRAF.length + ' baris pembayaran belum disimpan dan akan hilang kalau pindah halaman. Lanjut?')) {
+    return;
+  }
+  if (view !== CURRENT) DRAF = [];
   CURRENT = view;
   if (location.hash !== '#/' + view) location.hash = '#/' + view;
   render();
@@ -1601,7 +1634,25 @@ let BATCH_AKTIF = null;
    di modul ini TOTAL — seluruh halaman digambar ulang tiap simpan, jadi apa
    pun yang cuma ada di DOM ikut hilang. */
 let QA = { cat: BAYAR_KAT[0], dari: KAS_K, fokus: false };
-function batchPilih(t) { BATCH_AKTIF = t; render(); }
+/* BARIS DRAF (28 Agustus 2026, permintaan user: "tambahin rownya ada, terus
+   nanti tinggal submit kalau sudah oke"). Baris dikumpulkan dulu, diperiksa
+   berjajar, baru disimpan SEKALI.
+
+   Hidup di peramban saja sampai ditekan Simpan — itu dikatakan di layar, dan
+   ditahan lagi oleh penjaga beforeunload. Menyimpannya ke localStorage sempat
+   terpikir dan sengaja tidak dilakukan: draf yang bertahan berhari-hari di satu
+   perangkat akan disimpan orang lain di perangkat lain tanpa tahu isinya sudah
+   basi, dan uang keluar dua kali. */
+let DRAF = [];
+let DRAF_PAKSA = false;   // sengaja menambah baris ke lembar arsip
+function batchPilih(t) {
+  /* Izin menulis ke lembar arsip berlaku untuk SATU lembar saja. Kalau
+     menetap, lembar arsip berikutnya ikut terbuka untuk diisi tanpa ada yang
+     memintanya — dan baris yang nyasar ke lembar minggu lalu tidak pernah
+     ikut dibayar. */
+  if (t !== BATCH_AKTIF) DRAF_PAKSA = false;
+  BATCH_AKTIF = t; render();
+}
 
 function vBayar() {
   const V = document.getElementById('app-view');
@@ -1627,57 +1678,160 @@ function vBayar() {
     + kartu('Belum Masuk Batch', String(lepas.length), lepas.length ? 'perlu dijadwalkan' : 'semua sudah terjadwal')
     + '</div>';
 
-  /* ---- satu bar: pilih lembar + tambah baris ----
+  /* Vendor DIKETIK, bukan dipilih dari dropdown: 36 vendor di daftar berarti
+     menggulir untuk satu nama yang sudah diketahui sebelum kotaknya dibuka.
+     <datalist> menyaring sambil mengetik dan tetap menerima nama yang belum ada
+     di master — itu memang perlu (isi kas kecil, biaya admin), dan yang tidak
+     dikenal DIKATAKAN di baris bawahnya alih-alih ditolak. */
+  const vList = vendorSemua()
+    .map(v => '<option value="' + esc(v.nama) + '">' + esc(v.norek ? (v.bank || '') + ' ' + v.norek : 'belum ada rekening') + '</option>')
+    .join('');
+
+  /* ---- satu bar: lembar aktif, arsip, dan baris draf ----
      Dulu dua kartu terpisah: kartu pemilih batch, lalu kartu form setinggi
      layar. Keduanya menyangkut hal yang sama — lembar mana yang sedang diisi —
      jadi dijadikan satu. */
+
+  /* LEMBAR AKTIF = TANGGAL TERBARU, dihitung, bukan ditandai (28 Agustus 2026,
+     permintaan user: "kalau pembayaran tgl baru, yang tanggal sebelumnya sudah
+     terarsipkan"). Dihitung supaya tidak ada penanda yang bisa melenceng dari
+     kenyataan — lembar minggu lalu yang lupa ditandai arsip akan terus terbuka
+     sebagai lembar berjalan, dan baris minggu ini masuk ke sana tanpa satu pun
+     tanda. */
+  const lembarBaru = tglAda.length ? tglAda[0] : '';
+  const arsip = tglAda.slice(1);
+  const diArsip = !!BATCH_AKTIF && BATCH_AKTIF !== lembarBaru;
+
+  /* Lembar arsip yang barisnya BELUM SEMUA terbayar disebutkan jumlahnya.
+     Mengarsipkan yang belum selesai persis begitulah pembayaran terlupakan:
+     lembarnya turun dari layar, dan tidak ada satu pun tempat yang menyebut
+     masih ada sisa. */
+  const sisaLembar = t => semua.filter(p => p.batch === t && p.status !== 'paid').length;
+
   const chip = (t, label, aktif) =>
     '<span class="qa-chip' + (aktif ? ' on' : '') + '" data-tgl="' + esc(t)
     + '" onclick="batchPilih(this.dataset.tgl)">' + esc(label) + '</span>';
 
   h += '<div class="card" style="padding:16px 18px">'
     + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
-    + '<b style="font-size:13px">Lembar</b>'
+    + '<b style="font-size:13px">Lembar pembayaran</b>'
     /* Tanggalnya SATU kendali yang sekaligus memilih lembar dan menjadi tujuan
        baris berikutnya. Dulu dua: dropdown batch di kartu ini dan kotak tanggal
        di form — dua kendali untuk satu maksud, dan yang mengisi harus menebak
        mana yang menentukan. */
     + '<input type="date" class="nokunci" style="max-width:165px" id="by_batch"'
-      + ' value="' + esc(BATCH_AKTIF || todayISO()) + '" onchange="batchPilih(this.value)">'
-    + tglAda.filter(t => t !== BATCH_AKTIF).slice(0, 6).map(t => chip(t, fmtTgl(t), false)).join('')
+      + ' value="' + esc(BATCH_AKTIF || lembarBaru || todayISO()) + '" onchange="batchPilih(this.value)">'
+    + (BATCH_AKTIF && BATCH_AKTIF === lembarBaru
+        ? '<span class="chip" style="background:var(--ok-bg);color:var(--ok)">lembar berjalan</span>' : '')
+    + (diArsip ? '<span class="chip" style="background:var(--warn-bg);color:var(--warn)">arsip</span>' : '')
     + (lepas.length ? chip('', 'belum masuk batch (' + lepas.length + ')', BATCH_AKTIF === '') : '')
     + '</div>';
 
-  /* ---- baris cepat ----
-     Vendor DIKETIK, bukan dipilih dari dropdown: 36 vendor di daftar berarti
-     menggulir untuk mencari satu nama, dan yang menyalin lembar Excel sudah tahu
-     namanya sebelum kotaknya dibuka. <datalist> menyaring sambil mengetik dan
-     tetap menerima nama yang belum ada di master — itu memang perlu (isi kas
-     kecil, biaya admin), dan yang tidak dikenal DIKATAKAN di baris bawahnya
-     alih-alih ditolak. */
-  const vList = vendorSemua()
-    .map(v => '<option value="' + esc(v.nama) + '">' + esc(v.norek ? (v.bank || '') + ' ' + v.norek : 'belum ada rekening') + '</option>')
-    .join('');
+  if (arsip.length) {
+    h += '<div class="arsip-bar"><span class="helper" style="margin:0">Arsip</span>'
+      + arsip.slice(0, 8).map(t => {
+          const sisa = sisaLembar(t);
+          return chip(t, fmtTgl(t) + (sisa ? ' · ' + sisa + ' belum' : ''), t === BATCH_AKTIF);
+        }).join('')
+      + (arsip.length > 8 ? '<span class="helper" style="margin:0">+' + (arsip.length - 8) + ' lagi</span>' : '')
+      + '</div>';
+  }
 
-  h += '<div data-aks>'
-    + '<datalist id="by_vlist">' + vList + '</datalist>'
-    + '<div class="qa">'
-    + '<input class="qa-v" id="by_vendor" list="by_vlist" autocomplete="off"'
-      + ' placeholder="Vendor — ketik namanya" oninput="byVendorPilih()" onkeydown="byEnter(event)">'
-    + '<input class="qa-n" id="by_name" placeholder="Keterangan — mis. bahan baku 21 Agu" onkeydown="byEnter(event)">'
-    + '<select class="qa-k" id="by_cat">'
-      + BAYAR_KAT.map(c => '<option' + (c === QA.cat ? ' selected' : '') + '>' + c + '</option>').join('')
-      + '</select>'
-    + '<select class="qa-d" id="by_dari">'
-      + SEMUA_WADAH().map(k => '<option value="' + k + '"' + (k === QA.dari ? ' selected' : '') + '>'
-          + esc(namaBank(k)) + '</option>').join('')
-      + '</select>'
-    + '<input class="qa-a mono" id="by_amt" inputmode="numeric" placeholder="Nominal"'
-      + ' oninput="ketikRp(this)" onkeydown="byEnter(event)">'
-    + '<button class="btn btn-primary" onclick="bySimpan()">Tambah</button>'
-    + '</div>'
-    + '<div class="qa-info" id="by_infoVendor"></div>'
-    + '</div></div>';
+  /* ---- baris draf ----
+     Tiap baris TIDAK langsung dikirim ke server (28 Agustus 2026, permintaan
+     user). Dikumpulkan dulu, diperiksa, baru disimpan sekali. Dua alasannya:
+     satu lembar Excel berisi 20-an baris, dan menyimpan 20 kali berarti 20
+     penulisan blob penuh plus 20 gambar ulang halaman; dan yang salah ketik
+     baru kelihatan saat barisnya berjajar — memperbaikinya sebelum tersimpan
+     jauh lebih murah daripada menghapus baris yang sudah masuk lembar. */
+  const drafTotal = DRAF.reduce((a, r) => a + num(r.amount), 0);
+
+  h += '<div data-aks>';
+
+  if (diArsip && !DRAF_PAKSA) {
+    /* Lembar arsip TIDAK langsung menerima baris baru. Menambahkan baris ke
+       lembar minggu lalu karena kebetulan sedang dibuka adalah salah yang tidak
+       menghasilkan satu pun galat — barisnya cuma tidak pernah ikut dibayar. */
+    h += '<div class="notice info" style="margin-top:12px">📁 <div>'
+      + '<b>Lembar ini sudah diarsipkan.</b> Baris baru dibuat di lembar berjalan '
+      + '<b>' + esc(fmtTgl(lembarBaru)) + '</b>. Bukti TF dan status bayar di lembar ini tetap bisa diubah.'
+      + '<div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">'
+      + '<button class="btn btn-xs" onclick="batchPilih(\'' + lembarBaru + '\')">Buka lembar berjalan</button>'
+      + '<button class="btn btn-ghost btn-xs" onclick="byPaksaArsip()">Tetap tambah ke lembar ini</button>'
+      + '</div></div></div>';
+  } else {
+    if (diArsip) h += '<div class="notice warn" style="margin-top:12px">⚠ <div>'
+      + 'Baris berikutnya masuk ke <b>lembar arsip ' + esc(fmtTgl(BATCH_AKTIF)) + '</b>, '
+      + 'bukan lembar berjalan.</div></div>';
+
+    /* Kepala kolom kecil, bukan label per kotak: strip ini dibaca bersama tabel
+       draf di bawahnya, dan dua deret kotak tanpa judul kolom membuat mata harus
+       mencocokkan lebar untuk tahu kolom mana yang mana. */
+    h += '<div class="qa-h">'
+      + '<span style="flex:1 1 190px;min-width:150px">Vendor</span>'
+      + '<span style="flex:2 1 260px;min-width:180px">Keterangan</span>'
+      + '<span style="flex:0 0 150px">Kategori</span>'
+      + '<span style="flex:0 0 165px">Dibayar dari</span>'
+      + '<span style="flex:0 0 130px;text-align:right">Nominal</span>'
+      + '<span style="flex:0 0 96px"></span>'
+      + '</div>';
+
+    h += '<datalist id="by_vlist">' + vList + '</datalist>'
+      + '<div class="qa" style="margin-top:4px">'
+      + '<input class="qa-v" id="by_vendor" list="by_vlist" autocomplete="off"'
+        + ' placeholder="ketik nama vendor…" oninput="byVendorPilih()" onkeydown="byEnter(event)">'
+      + '<input class="qa-n" id="by_name" placeholder="mis. bahan baku 21 Agu" onkeydown="byEnter(event)">'
+      + '<select class="qa-k" id="by_cat">'
+        + BAYAR_KAT.map(c => '<option' + (c === QA.cat ? ' selected' : '') + '>' + c + '</option>').join('')
+        + '</select>'
+      + '<select class="qa-d" id="by_dari">'
+        + SEMUA_WADAH().map(k => '<option value="' + k + '"' + (k === QA.dari ? ' selected' : '') + '>'
+            + esc(namaBank(k)) + '</option>').join('')
+        + '</select>'
+      + '<span class="qa-a qa-rp"><span>Rp</span>'
+        + '<input class="mono" id="by_amt" inputmode="numeric" placeholder="0"'
+        + ' oninput="ketikRp(this)" onkeydown="byEnter(event)"></span>'
+      + '<button class="btn" style="flex:0 0 96px" onclick="byTambahDraf()">+ Baris</button>'
+      + '</div>'
+      + '<div class="qa-info" id="by_infoVendor"></div>';
+  }
+
+  if (DRAF.length) {
+    h += '<div class="draf">'
+      + '<div class="draf-h"><b>' + DRAF.length + ' baris belum disimpan</b>'
+      + '<span class="helper" style="margin:0">total ' + fmtRp(drafTotal) + '</span></div>'
+      + '<div class="tbl-wrap"><table class="qa-t"><thead><tr>'
+      + '<th>#</th><th>Vendor</th><th>Keterangan</th><th>Kategori</th><th>Dibayar dari</th>'
+      + '<th style="text-align:right">Nominal</th><th></th></tr></thead><tbody>'
+      + DRAF.map((r, i) => {
+          const v = vendorByNama(r.vendor);
+          return '<tr>'
+            + '<td>' + (i + 1) + '</td>'
+            + '<td>' + (r.vendor
+                ? esc(r.vendor) + (v ? '' : ' <span class="chip" style="background:var(--warn-bg);color:var(--warn)">baru</span>')
+                : '<span style="color:var(--muted-2)">—</span>') + '</td>'
+            + '<td>' + esc(r.name) + '</td>'
+            + '<td><span class="helper" style="margin:0">' + esc(r.cat) + '</span></td>'
+            + '<td>' + esc(namaBank(r.dari)) + '</td>'
+            + '<td class="num mono" style="text-align:right">' + fmtRp(r.amount) + '</td>'
+            + '<td style="text-align:right"><button class="btn btn-ghost btn-xs"'
+              + ' onclick="byHapusDraf(' + i + ')" title="Buang baris ini">×</button></td>'
+            + '</tr>';
+        }).join('')
+      + '</tbody></table></div>'
+      + '<div class="draf-aksi">'
+      + '<button class="btn btn-primary" onclick="bySimpanDraf()">Simpan ' + DRAF.length
+        + ' baris ke lembar ' + esc(fmtTgl(BATCH_AKTIF || lembarBaru || todayISO())) + '</button>'
+      + '<button class="btn btn-ghost" onclick="byBatalDraf()">Buang semua</button>'
+      /* Draf hidup di peramban saja sampai ditekan Simpan. Itu harus dikatakan:
+         yang mengira 20 barisnya sudah aman lalu menutup tab akan kehilangan
+         seluruhnya, dan tidak ada tempat mana pun untuk mencarinya kembali. */
+      + '<span class="helper" style="margin:0">Belum terkirim ke server — baru tersimpan setelah tombol ini ditekan.</span>'
+      + '</div></div>';
+  }
+
+  h += '</div></div>';
+
 
   /* ---- lembar batch ---- */
   const judul = BATCH_AKTIF ? ('Pembayaran tgl ' + fmtTgl(BATCH_AKTIF)) : 'Belum Masuk Batch';
@@ -1788,29 +1942,74 @@ function byVendorPilih() {
   box.innerHTML = '✓ <b>' + esc(vendorPenerima(v)) + '</b> · ' + esc(v.bank || '—') + ' ' + esc(v.norek);
 }
 
-/* Enter = tambah baris. Inilah yang membuatnya terasa seperti mengetik di
+/* Enter = tambah ke draf. Inilah yang membuatnya terasa seperti mengetik di
    Excel: tangan tidak perlu pindah ke tetikus tiap baris. */
-function byEnter(e) { if (e && e.key === 'Enter') { e.preventDefault(); bySimpan(); } }
+function byEnter(e) { if (e && e.key === 'Enter') { e.preventDefault(); byTambahDraf(); } }
 
-function bySimpan() {
+/* Lembar arsip menerima baris hanya kalau diminta dengan sengaja. Penandanya
+   dibuang lagi tiap kali lembar lain dibuka (lihat batchPilih) — kalau menetap,
+   lembar arsip berikutnya ikut terbuka untuk diisi tanpa ada yang memintanya. */
+function byPaksaArsip() { DRAF_PAKSA = true; render(); }
+
+/* Menambah ke DRAF, BUKAN mengirim ke server. Yang dikirim ke server cuma
+   bySimpanDraf(), sekali untuk seluruh baris. */
+function byTambahDraf() {
   const g = id => (document.getElementById(id) || {}).value || '';
   if (!g('by_name').trim()) { alert('Keterangan wajib diisi.'); return; }
   if (!num(g('by_amt'))) { alert('Nominal wajib diisi.'); return; }
-  if (!g('by_batch')) { alert('Tanggal bayar wajib diisi.'); return; }
-  const b = g('by_batch');
-  BATCH_AKTIF = b;
-  /* Kategori & rekening diingat untuk baris berikutnya, dan kursor kembali ke
-     kotak Vendor sesudah render. Tanpa keduanya, menuangkan satu lembar Excel
-     berarti mengulang dua pilihan dan satu klik untuk TIAP baris. */
+  /* Kategori & rekening diingat untuk baris berikutnya. Tanpa itu, menuangkan
+     satu lembar Excel berarti mengulang dua pilihan untuk TIAP baris. */
   QA.cat = g('by_cat'); QA.dari = g('by_dari') || KAS_K; QA.fokus = true;
   /* Nama vendor disimpan APA ADANYA yang diketik (spasinya saja dirapikan).
      Kalau dicocokkan ke master lalu ditimpa, ejaan yang beda tipis akan
      diam-diam diganti — dan yang mengetiknya tidak pernah tahu barisnya
      berubah. Yang tidak dikenal sudah dikatakan di baris keterangan. */
-  simpanBaris('bayar', { id:uid('by'), name:g('by_name').trim(), cat:g('by_cat'),
-    amount:num(g('by_amt')), dari:g('by_dari') || KAS_K, vendor:g('by_vendor').trim(),
-    batch:b, dueDate:b, note:'', status:'scheduled', bukti:null }, 'bayar');
+  DRAF.push({ vendor: g('by_vendor').trim(), name: g('by_name').trim(),
+              cat: g('by_cat'), dari: g('by_dari') || KAS_K, amount: num(g('by_amt')) });
+  render();
 }
+
+function byHapusDraf(i) { DRAF.splice(i, 1); render(); }
+
+function byBatalDraf() {
+  if (!DRAF.length) return;
+  if (!confirm('Buang ' + DRAF.length + ' baris draf? Belum ada yang tersimpan, jadi tidak bisa dikembalikan.')) return;
+  DRAF = []; render();
+}
+
+/* SATU penulisan untuk seluruh draf. Menyimpan per baris berarti 20 penulisan
+   blob penuh dan 20 gambar ulang halaman untuk satu lembar Excel — dan kalau
+   yang kesepuluh gagal, sembilan baris sudah masuk sementara sebelas belum,
+   tanpa satu pun tempat yang mengatakan sampai mana. */
+async function bySimpanDraf() {
+  if (!bolehAksi('bayar')) return;
+  if (!DRAF.length) return;
+  const b = (document.getElementById('by_batch') || {}).value || '';
+  if (!b) { alert('Tanggal lembar wajib diisi.'); return; }
+  const baris = DRAF.map(r => ({
+    id: uid('by'), name: r.name, cat: r.cat, amount: r.amount, dari: r.dari,
+    vendor: r.vendor, batch: b, dueDate: b, note: '', status: 'scheduled', bukti: null
+  }));
+  /* Salinan cadangan: kalau simpan gagal, BK.data harus kembali seperti semula
+     DAN drafnya harus utuh. Tanpa itu, gagal simpan meninggalkan baris di layar
+     yang sebenarnya tidak ada di server — dan yang membacanya mengira sudah
+     tercatat. */
+  const sebelum = (BK.data.bayar || []).slice();
+  BK.data.bayar = sebelum.concat(baris);
+  const drafSebelum = DRAF.slice();
+  DRAF = [];
+  if (await simpan()) {
+    BATCH_AKTIF = b;
+    toast(baris.length + ' baris masuk lembar ' + fmtTgl(b) + '.');
+    render();
+  } else {
+    BK.data.bayar = sebelum;
+    DRAF = drafSebelum;
+    render();
+  }
+}
+
+
 function byToggle(id) {
   const p = baris(id, BK.data.bayar); if (!p) return;
   p.status = p.status === 'paid' ? 'scheduled' : 'paid';
@@ -2062,6 +2261,13 @@ async function setPeran(kunci, peran) {
 
 /* ============ BOOT ============ */
 document.querySelectorAll('.nav a').forEach(a => a.addEventListener('click', e => { e.preventDefault(); go(a.dataset.view); }));
+/* Draf hidup di peramban saja. Yang mengira 20 barisnya sudah aman lalu
+   menutup tab akan kehilangan seluruhnya, dan tidak ada tempat mana pun untuk
+   mencarinya kembali — peramban tidak menyimpan apa yang tidak dikirim. */
+window.addEventListener('beforeunload', e => {
+  if (!DRAF.length) return;
+  e.preventDefault(); e.returnValue = '';
+});
 window.addEventListener('hashchange', () => { const v = (location.hash || '').replace('#/', ''); if (v && v !== CURRENT) go(v); });
 
 (async function boot() {

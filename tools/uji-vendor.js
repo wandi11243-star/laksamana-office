@@ -482,7 +482,13 @@ function buatDom(opt) {
         potong(BK, 'function vendorByNama(')));
     /* Baris pembayaran menyimpan NAMA. Bentuk lama `vendorId` tetap dibaca
        supaya baris yang terlanjur dicatat di dev tidak kehilangan vendornya. */
-    cek('baris pembayaran menyimpan nama vendor', /vendor:g\('by_vendor'\)/.test(BK));
+    /* Baris draf menyimpan NAMA yang diketik, dan bySimpanDraf meneruskannya
+       apa adanya. Mencocokkannya ke master lalu menimpanya berarti ejaan yang
+       beda tipis diganti tanpa yang mengetiknya tahu. */
+    cek('baris draf menyimpan nama vendor yang diketik',
+        BK.indexOf("vendor: g('by_vendor').trim()") > -1);
+    cek('nama itu diteruskan apa adanya saat disimpan',
+        BK.indexOf('vendor: r.vendor') > -1);
     cek('bentuk lama vendorId masih dibaca', BK.indexOf('p.vendor || p.vendorId') > -1);
     cek('menunjuk Purchasing saat rekeningnya kosong',
         BK.indexOf('Purchasing &rarr; Database') > -1 || BK.indexOf('Purchasing → Database') > -1

@@ -137,11 +137,23 @@ dikelompokkan per rekening pembayar, dengan subtotal tiap kelompok.
 - **`byBayarGrup()` menandai satu kelompok rekening sekaligus** dan menyebut saldo
   sesudahnya. Orang menekan kirim di m-banking sekali untuk beberapa transfer;
   menandainya satu per satu membuat sebagian tertinggal tanpa disadari.
-- **Baris cepat, bukan form berlabel** (28 Agustus 2026, permintaan user). Satu
-  strip `.qa`: Vendor · Keterangan · Kategori · Dari · Nominal · Tambah, dan
-  **Enter menambahkan barisnya**. Bentuk sebelumnya punya tiga bagian berjudul
-  dan enam kotak berlabel — lebih tinggi daripada lembar Excel yang sedang
-  disalin, jadi tiap baris menuntut satu gulir turun lalu naik lagi.
+- **Baris cepat + DRAF, bukan form berlabel** (28 Agustus 2026, permintaan user).
+  Satu strip `.qa` berkepala kolom `.qa-h`: Vendor · Keterangan · Kategori · Dari
+  · Nominal · + Baris, dan **Enter menambah ke draf**. Bentuk sebelumnya punya
+  tiga bagian berjudul dan enam kotak berlabel — lebih tinggi daripada lembar
+  Excel yang sedang disalin, jadi tiap baris menuntut satu gulir turun lalu naik.
+- **`DRAF` dikumpulkan dulu, disimpan SEKALI** (`bySimpanDraf`). Menyimpan per
+  baris berarti 20 penulisan blob penuh + 20 gambar ulang halaman untuk satu
+  lembar; dan kalau yang kesepuluh gagal, sembilan sudah masuk sementara sebelas
+  belum, tanpa satu pun tempat yang mengatakan sampai mana. Gagal simpan
+  **mengembalikan `BK.data.bayar` DAN drafnya** — baris yang tertinggal di layar
+  padahal server tidak menerimanya adalah kegagalan paling mahal di halaman ini.
+- **Draf hidup di peramban saja**, dan itu dikatakan di layar + ditahan
+  `beforeunload` + konfirmasi saat pindah halaman (`go()` — perpindahan di dalam
+  satu halaman tidak pernah sampai ke `beforeunload`). **Sengaja TIDAK ke
+  localStorage**: draf yang bertahan berhari-hari di satu perangkat akan disimpan
+  orang lain di perangkat lain tanpa tahu isinya sudah basi, dan uang keluar dua
+  kali.
 - **Kategori & rekening TIDAK dikosongkan sesudah baris masuk** (`QA.cat`,
   `QA.dari`), dan kursor kembali ke kotak Vendor (`QA.fokus`). Keduanya di luar
   DOM karena render di modul ini TOTAL — halaman digambar ulang tiap simpan,
@@ -156,7 +168,20 @@ dikelompokkan per rekening pembayar, dengan subtotal tiap kelompok.
   diganti tanpa yang mengetiknya tahu.
 - **Tanggal lembar = tujuan baris berikutnya**, satu kendali. Sempat dua (dropdown
   batch di satu kartu, kotak tanggal di form), dan yang mengisi harus menebak mana
-  yang menentukan. Lembar lain dijangkau lewat chip di sebelahnya.
+  yang menentukan.
+- **Lembar berjalan = tanggal TERBARU, DIHITUNG bukan ditandai.** Tanggal baru
+  otomatis mengarsipkan yang sebelumnya (permintaan user). Penanda yang harus
+  diperbarui manual akan melenceng, dan lembar minggu lalu yang lupa ditandai
+  terus menerima baris minggu ini tanpa satu pun tanda.
+- **Lembar arsip tidak langsung menerima baris baru** — stripnya disembunyikan,
+  diganti penjelasan + tombol ke lembar berjalan. Menambah ke sana tetap mungkin
+  (`byPaksaArsip()`) tapi harus diminta, dan izinnya **berlaku satu lembar saja**:
+  kalau menetap, lembar arsip berikutnya ikut terbuka untuk diisi tanpa ada yang
+  memintanya. Bukti TF & status bayar di arsip TETAP bisa diubah — pembayaran
+  minggu lalu sering baru dikonfirmasi minggu ini.
+- **Chip arsip menyebut sisa yang belum terbayar** (`3 belum`). Mengarsipkan yang
+  belum selesai persis begitulah pembayaran terlupakan: lembarnya turun dari layar
+  dan tidak ada satu pun tempat yang menyebut masih ada sisa.
 - Master vendor yang mati **tidak mematikan halaman** — nominalnya tetap terbaca,
   cuma kolom penerima yang kosong, dan itu dikatakan.
 
@@ -178,7 +203,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 149 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 182 pemeriksaan, jsdom + finance/kompas/account tiruan
 ```
 
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`
@@ -268,7 +293,7 @@ tetap digambar ditandai `(lama)`, dan penandanya dibuang lagi saat menyimpan —
 kalau tidak ia menular jadi bagian nama.
 
 ```bash
-node tools/uji-vendor.js   # 103 pemeriksaan
+node tools/uji-vendor.js   # 104 pemeriksaan
 ```
 
 Ujinya tiga bagian: fungsi Purchasing **dipotong dari sumbernya** saat uji jalan

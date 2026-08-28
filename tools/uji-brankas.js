@@ -99,7 +99,8 @@ function domBrankas(opt) {
         // finance-api
         if (body.action === 'brankasGet')
           return { json: async () => ({ ok:true, data: opt.bk || { data:null, akses:{}, peran:{} } }) };
-        if (body.action === 'brankasSave')  return { json: async () => ({ ok:true, data:{ saved:true } }) };
+        if (body.action === 'brankasSave')  return { json: async () => (opt.gagalSimpan
+          ? { ok:false, error:'server sedang mati' } : { ok:true, data:{ saved:true } }) };
         if (body.action === 'brankasAkses') return { json: async () => ({ ok:true, data:{ akses: body.peta } }) };
         if (body.action === 'brankasPeran') return { json: async () => ({ ok:true, data:{ peran: { [body.kunci]: body.peran } } }) };
         return { json: async () => ({ ok:false, error:'aksi tak dikenal' }) };
@@ -221,7 +222,7 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
   {
     /* viewer: seluruh halaman berisian turun jadi Lihat, dan matriks yang
        menyimpan 2 untuk viewer tetap dijepit. */
-    const { dom } = domBrankas({
+    const { dom, panggilan } = domBrankas({
       sesi: { modules:['brankas'], adminModules:[], userId:'u-dina', name:'Dina' },
       bk: { data:null, akses:{ viewer:{ bayar:2, pengaturan:0 } }, peran:{ '#u-dina':'viewer' } }
     });
@@ -237,10 +238,21 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     w.go('bayar'); await tunggu(40);
     const v = d.getElementById('app-view').innerHTML;
     cek('halaman hanya-lihat memasang penjelasan', v.indexOf('hanya bisa melihat halaman ini') > -1, v.slice(0, 200));
-    cek('tombol simpan dibuang', v.indexOf('Simpan Rencana') < 0);
-    /* penjaga sungguhan: fungsi tetap bisa dipanggil dari console */
-    w.bySimpan();
-    cek('penjaga menolak walau dipanggil langsung', d.getElementById('app-view').innerHTML.indexOf('Simpan Rencana') < 0);
+    /* Blok [data-aks] DIBUANG seluruhnya untuk yang hanya boleh melihat, jadi
+       strip tambah baris dan tabel draf ikut hilang. Pemilih lembarnya tetap
+       ada (nokunci) — melihat lembar lain bukan mengubah apa pun. */
+    cek('strip tambah baris dibuang', !d.getElementById('by_vendor'));
+    cek('pemilih lembar tetap bisa dipakai',
+        !!d.getElementById('by_batch') && d.getElementById('by_batch').disabled === false);
+    /* Penjaga sungguhan: kotaknya memang dimatikan di layar, tapi fungsinya
+       tetap bisa dipanggil dari console. Yang menahan harus di dalam fungsinya,
+       bukan cuma di tampilannya. */
+    w.eval('DRAF = [{ vendor:"", name:"Selundupan", cat:"Lainnya", dari:"cash", amount:1000000 }]');
+    await w.bySimpanDraf(); await tunggu(120);
+    cek('viewer tidak bisa menyimpan walau fungsinya dipanggil langsung',
+        panggilan.filter(p => p.body && p.body.action === 'brankasSave').length === 0,
+        String(panggilan.filter(p => p.body && p.body.action === 'brankasSave').length));
+    cek('dan barisnya tidak menempel ke state', (w.eval('BK.data.bayar') || []).length === 0);
     dom.window.close();
   }
 
@@ -577,7 +589,7 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     dom.window.close();
   }
 
-  /* ================= 15. baris cepat: ketik, Enter, ketik ================= */
+  /* ================= 15. baris cepat + draf ================= */
   console.log('\n== Baris cepat pembayaran ==');
   {
     const { dom, panggilan } = domBrankas({
@@ -599,6 +611,18 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     cek('digambar sebagai satu baris cepat', v.indexOf('class="qa"') > -1, v.slice(0, 400));
     ['by_vendor', 'by_name', 'by_cat', 'by_dari', 'by_amt'].forEach(id =>
       cek('kotak ' + id + ' ada di baris cepat', !!d.getElementById(id)));
+
+    /* Kepala kolom kecil, bukan label per kotak: strip ini dibaca bersama tabel
+       draf di bawahnya, dan dua deret kotak tanpa judul kolom membuat mata harus
+       mencocokkan lebar untuk tahu kolom mana yang mana. */
+    const kepala = [...d.querySelectorAll('.qa-h span')].map(x => x.textContent).filter(Boolean);
+    cek('kolomnya berjudul', kepala.length === 5, kepala.join('|'));
+    cek('judulnya urut seperti kotaknya',
+        kepala.join('|') === 'Vendor|Keterangan|Kategori|Dibayar dari|Nominal', kepala.join('|'));
+    /* Rp menempel di kotak nominal, bukan di placeholder: placeholder hilang
+       begitu diketik, padahal justru saat mengetik angka satuannya perlu ada. */
+    cek('nominal bertanda Rp yang tidak hilang saat diketik',
+        v.indexOf('class="qa-a qa-rp"') > -1 && /<span>Rp<\/span>/.test(v));
 
     /* Vendor DIKETIK, bukan dipilih dari dropdown: 36 vendor berarti menggulir
        untuk satu nama yang sudah diketahui sebelum kotaknya dibuka. */
@@ -639,38 +663,172 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     box.value = ''; w.byVendorPilih();
     cek('kosong dijelaskan sebagai tanpa vendor', info().indexOf('Tanpa vendor') > -1, info());
     cek('kosong bukan peringatan', kelas().indexOf('warn') < 0);
+    dom.window.close();
+  }
 
-    /* Enter = tambah baris. Inilah yang membuat penuangan 20 baris terasa
-       seperti mengetik di Excel: tangan tidak pindah ke tetikus tiap baris. */
-    d.getElementById('by_vendor').value = 'Toffin';
-    d.getElementById('by_name').value = 'Bahan baku 21 Agu';
-    d.getElementById('by_amt').value = '885.000';
-    d.getElementById('by_cat').value = 'Bahan baku';
-    d.getElementById('by_dari').value = 'uob';
+  /* ================= 16. draf: kumpulkan dulu, simpan sekali ================= */
+  console.log('\n== Draf: kumpulkan dulu, simpan sekali ==');
+  {
+    const { dom, panggilan } = domBrankas({
+      vendors: { 'Toffin': { penerima:'CV. Toffin Riau Jaya', bank:'BCA', norek:'034-2928-828' } },
+      bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], bayar:[], setting:{} }, akses:{}, peran:{} }
+    });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('bayar'); await tunggu(80);
+    const simpanKe = () => panggilan.filter(p => p.body && p.body.action === 'brankasSave');
+    const isi = (vd, nm, amt, dari) => {
+      d.getElementById('by_vendor').value = vd;
+      d.getElementById('by_name').value = nm;
+      d.getElementById('by_amt').value = amt;
+      if (dari) d.getElementById('by_dari').value = dari;
+    };
+
+    /* Enter menambah ke DRAF, bukan mengirim ke server. */
+    isi('Toffin', 'Bahan baku 21 Agu', '885.000', 'uob');
     let dicegah = false;
-    w.byEnter({ key: 'Enter', preventDefault: () => { dicegah = true; } });
-    await tunggu(200);
+    w.byEnter({ key:'Enter', preventDefault: () => { dicegah = true; } });
+    await tunggu(120);
     cek('Enter tidak diteruskan ke peramban', dicegah);
-    const kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
-    const row = kirim && (kirim.body.data.bayar || [])[0];
-    cek('Enter menambahkan barisnya', !!row, JSON.stringify(kirim && kirim.body.data.bayar));
-    cek('nama vendor tersimpan apa adanya', row && row.vendor === 'Toffin', row && row.vendor);
-    cek('nominal terbaca dari teks berformat', row && row.amount === 885000, row && String(row.amount));
-    cek('rekening pembayar ikut tersimpan', row && row.dari === 'uob', row && row.dari);
+    cek('Enter menambah ke draf, tidak ke server', simpanKe().length === 0, String(simpanKe().length));
+    cek('draf tergambar', !!d.querySelector('.draf'));
+    cek('draf mengatakan belum tersimpan',
+        d.querySelector('.draf').textContent.indexOf('belum disimpan') > -1);
+    cek('draf menyebut jumlah barisnya',
+        d.querySelectorAll('.draf tbody tr').length === 1,
+        String(d.querySelectorAll('.draf tbody tr').length));
 
-    /* Yang BERULANG dalam satu lembar tidak dikosongkan: satu batch biasanya
-       dibayar dari rekening yang sama untuk beberapa baris berturut-turut, dan
-       mengulang dua pilihan itu 20 kali adalah 40 klik yang tidak menambah satu
-       pun keterangan. */
-    cek('rekening diingat untuk baris berikutnya',
-        d.getElementById('by_dari').value === 'uob', d.getElementById('by_dari').value);
-    cek('kategori diingat untuk baris berikutnya',
-        d.getElementById('by_cat').value === 'Bahan baku', d.getElementById('by_cat').value);
-    /* Kursor kembali ke kotak Vendor — render di modul ini TOTAL, jadi fokus
-       hilang sendiri, dan tanpa langkah ini tiap baris menuntut satu klik. */
+    /* Yang BERULANG dalam satu lembar tidak dikosongkan. */
+    cek('rekening diingat untuk baris berikutnya', d.getElementById('by_dari').value === 'uob');
     cek('kursor kembali ke kotak vendor',
         d.activeElement && d.activeElement.id === 'by_vendor',
         d.activeElement && d.activeElement.id);
+    cek('kotak vendor dikosongkan untuk baris berikutnya',
+        d.getElementById('by_vendor').value === '', d.getElementById('by_vendor').value);
+
+    isi('Ecocare', 'Air refreshner', '518.000');
+    w.byTambahDraf(); await tunggu(120);
+    cek('baris kedua masuk draf', d.querySelectorAll('.draf tbody tr').length === 2);
+    cek('total draf dijumlahkan',
+        d.querySelector('.draf-h').textContent.indexOf('Rp1.403.000') > -1,
+        d.querySelector('.draf-h').textContent);
+    /* Vendor yang belum ada di master ditandai di tabel draf juga — di sinilah
+       barisnya berjajar dan salah ketik paling mudah terlihat. */
+    cek('vendor di luar master ditandai di tabel draf',
+        d.querySelector('.draf tbody').innerHTML.indexOf('baru') > -1);
+    cek('masih belum ada yang dikirim', simpanKe().length === 0);
+
+    /* Baris draf bisa dibuang satu-satu sebelum disimpan. */
+    w.byHapusDraf(0); await tunggu(100);
+    cek('baris draf bisa dibuang', d.querySelectorAll('.draf tbody tr').length === 1);
+    cek('yang tersisa adalah baris kedua',
+        d.querySelector('.draf tbody').textContent.indexOf('Air refreshner') > -1);
+
+    /* SATU penulisan untuk seluruh draf. Menyimpan per baris berarti 20
+       penulisan blob penuh untuk satu lembar Excel — dan kalau yang kesepuluh
+       gagal, sembilan sudah masuk sementara sebelas belum. */
+    isi('Toffin', 'Bagi hasil', '2.518.100', 'mandiri');
+    w.byTambahDraf(); await tunggu(100);
+    d.getElementById('by_batch').value = '2026-08-27';
+    await w.bySimpanDraf(); await tunggu(200);
+    cek('seluruh draf disimpan sekali jalan', simpanKe().length === 1, String(simpanKe().length));
+    const rows = simpanKe()[0].body.data.bayar || [];
+    cek('kedua baris ikut terkirim', rows.length === 2, JSON.stringify(rows.map(r => r.name)));
+    cek('semuanya masuk lembar yang dipilih',
+        rows.every(r => r.batch === '2026-08-27'), JSON.stringify(rows.map(r => r.batch)));
+    cek('nominal terbaca dari teks berformat',
+        rows.some(r => r.amount === 2518100), JSON.stringify(rows.map(r => r.amount)));
+    cek('rekening tiap baris ikut tersimpan',
+        rows.some(r => r.dari === 'mandiri') && rows.some(r => r.dari === 'uob'),
+        JSON.stringify(rows.map(r => r.dari)));
+    cek('draf kosong sesudah disimpan', !d.querySelector('.draf'));
+    dom.window.close();
+  }
+
+  /* ================= 17. gagal simpan tidak meninggalkan baris hantu ============ */
+  console.log('\n== Draf: simpan gagal ==');
+  {
+    const { dom } = domBrankas({
+      gagalSimpan: true,
+      vendors: {},
+      bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], bayar:[], setting:{} }, akses:{}, peran:{} }
+    });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('bayar'); await tunggu(80);
+    d.getElementById('by_name').value = 'Bahan baku';
+    d.getElementById('by_amt').value = '885.000';
+    w.byTambahDraf(); await tunggu(100);
+    d.getElementById('by_batch').value = '2026-08-27';
+    await w.bySimpanDraf(); await tunggu(250);
+    /* Gagal simpan HARUS mengembalikan keduanya: baris yang sudah terlanjur
+       ditempel ke state, DAN drafnya. Kalau barisnya tertinggal di layar, yang
+       membacanya mengira sudah tercatat padahal server tidak pernah menerimanya. */
+    cek('baris tidak tertinggal di lembar', (w.eval('BK.data.bayar')).length === 0,
+        JSON.stringify(w.eval('BK.data.bayar')));
+    cek('draf dikembalikan supaya bisa dicoba lagi', !!d.querySelector('.draf'));
+    cek('isinya utuh', d.querySelectorAll('.draf tbody tr').length === 1);
+    dom.window.close();
+  }
+
+  /* ================= 18. lembar lama terarsipkan sendiri ================= */
+  console.log('\n== Lembar berjalan & arsip ==');
+  {
+    const { dom } = domBrankas({
+      vendors: {},
+      bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], setting:{}, bayar:[
+        { id:'p1', name:'Minggu ini', cat:'', amount:885000, dari:'uob', vendor:'',
+          batch:'2026-08-27', status:'scheduled', bukti:null },
+        { id:'p2', name:'Minggu lalu lunas', cat:'', amount:5000000, dari:'bri', vendor:'',
+          batch:'2026-08-20', status:'paid', bukti:null },
+        { id:'p3', name:'Dua minggu lalu, belum', cat:'', amount:900000, dari:'bca', vendor:'',
+          batch:'2026-08-13', status:'scheduled', bukti:null }
+      ] }, akses:{}, peran:{} }
+    });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('bayar'); await tunggu(80);
+
+    /* LEMBAR BERJALAN = TANGGAL TERBARU, dihitung, bukan ditandai. Penanda yang
+       harus diperbarui manual akan melenceng, dan lembar minggu lalu yang lupa
+       ditandai terus menerima baris minggu ini tanpa satu pun tanda. */
+    cek('lembar terbaru yang terbuka lebih dulu',
+        d.getElementById('by_batch').value === '2026-08-27', d.getElementById('by_batch').value);
+    const bar = () => d.getElementById('by_batch').closest('.card');
+    cek('lembar terbaru ditandai berjalan',
+        bar().textContent.indexOf('lembar berjalan') > -1);
+    const chips = () => [...bar().querySelectorAll('.arsip-bar .qa-chip')].map(c => c.textContent);
+    cek('lembar lama pindah ke arsip', chips().length === 2, chips().join('|'));
+    /* Mengarsipkan yang belum selesai persis begitulah pembayaran terlupakan:
+       lembarnya turun dari layar dan tidak ada yang menyebut masih ada sisa. */
+    cek('arsip yang masih punya sisa disebutkan',
+        chips().some(t => t.indexOf('13 Agu') > -1 && t.indexOf('1 belum') > -1), chips().join('|'));
+    cek('arsip yang sudah lunas tidak diberi angka',
+        chips().some(t => t.indexOf('20 Agu') > -1 && t.indexOf('belum') < 0), chips().join('|'));
+
+    /* Lembar arsip TIDAK langsung menerima baris baru: menambahkan baris ke
+       lembar minggu lalu karena kebetulan sedang dibuka adalah salah yang tidak
+       menghasilkan satu pun galat — barisnya cuma tidak pernah ikut dibayar. */
+    w.batchPilih('2026-08-20'); await tunggu(80);
+    cek('lembar arsip ditandai arsip', bar().textContent.indexOf('arsip') > -1);
+    cek('strip tambah baris disembunyikan di lembar arsip', !d.getElementById('by_vendor'));
+    cek('dikatakan kenapa', bar().textContent.indexOf('sudah diarsipkan') > -1);
+    cek('menunjuk lembar berjalan', bar().textContent.indexOf('27 Agu 2026') > -1);
+    /* Bukti TF & status bayar TETAP bisa diubah di arsip — pembayaran minggu
+       lalu sering baru dikonfirmasi minggu ini. */
+    cek('barisnya tetap tergambar',
+        d.getElementById('app-view').innerHTML.indexOf('Minggu lalu lunas') > -1);
+
+    /* Menambah ke lembar arsip tetap MUNGKIN, tapi harus diminta. */
+    w.byPaksaArsip(); await tunggu(80);
+    cek('bisa tetap menambah kalau diminta', !!d.getElementById('by_vendor'));
+    cek('dan diperingatkan ke mana barisnya masuk',
+        bar().textContent.indexOf('lembar arsip 20 Agu 2026') > -1, bar().textContent.slice(0, 300));
+    /* Izinnya berlaku SATU lembar: kalau menetap, lembar arsip berikutnya ikut
+       terbuka untuk diisi tanpa ada yang memintanya. */
+    w.batchPilih('2026-08-27'); await tunggu(60);
+    w.batchPilih('2026-08-13'); await tunggu(60);
+    cek('izin menulis ke arsip tidak menetap', !d.getElementById('by_vendor'));
     dom.window.close();
   }
 
