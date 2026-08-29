@@ -292,30 +292,6 @@ button{font-family:inherit; cursor:pointer}
 .lr-sorot .lr-nilai{color:var(--gold-dim);font-size:16px}
 .lr-mati .lr-nama{color:var(--muted-2)}
 .lr-belum{font-size:11px;color:var(--muted-2);font-style:italic;font-weight:600}
-/* Kaki grafik harian: total & rata-rata bulan yang sedang dilihat. Ada di
-   bawah grafiknya sendiri, bukan di kartu terpisah — yang membacanya sedang
-   melihat batang-batang itu, dan angka jumlahnya adalah pertanyaan berikutnya. */
-.daily-kaki{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;padding-top:11px;
-  border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
-.daily-kaki b{color:var(--ink);font-size:13px}
-/* Tabel harian: angka pastinya. Grafik menjawab "hari mana yang ramai", tapi
-   yang dicocokkan orang dengan laporan lain adalah angkanya. Dibatasi tinggi
-   dan menggulung sendiri — 31 baris di bawah grafik mendorong Sorotan di
-   sebelahnya keluar layar. */
-.daily-tabel{margin-top:12px;max-height:300px;overflow-y:auto;
-  border:1px solid var(--line);border-radius:var(--radius-sm)}
-.daily-tabel table{width:100%;border-collapse:collapse;font-size:12.5px}
-.daily-tabel th{position:sticky;top:0;background:var(--paper);text-align:left;
-  font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
-  color:var(--muted-2);padding:8px 11px;border-bottom:1px solid var(--line)}
-.daily-tabel th.num,.daily-tabel td.num{text-align:right;font-variant-numeric:tabular-nums}
-.daily-tabel td{padding:7px 11px;border-bottom:1px solid var(--line)}
-.daily-tabel tr:last-child td{border-bottom:none}
-/* Hari yang belum diisi dipudarkan dan ditulis "belum diisi" — BUKAN Rp 0.
-   Nol terbaca sebagai tutup atau tidak ada penjualan sama sekali, dan itu
-   jawaban yang salah untuk hari yang cuma belum sempat diinput. */
-.daily-tabel tr.kosong td{color:var(--muted-2)}
-.daily-tabel tr.kosong i{font-style:italic}
 /* Laporan PDF bulanan */
 .pdf-baris{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
 .pdf-baris:last-child{border-bottom:none}
@@ -330,6 +306,8 @@ button{font-family:inherit; cursor:pointer}
 .pdf-btn:hover{border-color:var(--gold)}
 .pdf-btn.pri{background:var(--gold);border-color:var(--gold);color:#fff}
 .pdf-btn:disabled{opacity:.5;cursor:default}
+.pdf-jml{margin-top:10px;padding-top:9px;border-top:1px solid var(--line);
+  font-size:11.5px;color:var(--muted-2)}
 .pdf-unggah{margin-top:16px;padding:14px 15px;border:1px dashed var(--gold);
   border-radius:var(--radius-sm);background:var(--gold-glow)}
 .pdf-unggah h4{margin:0 0 3px;font-size:13px;color:var(--ink)}
@@ -508,19 +486,18 @@ button{font-family:inherit; cursor:pointer}
         <div class="card" id="revBox"><canvas id="revChart" height="120"></canvas></div>
       </div>
 
-      <div class="section two">
-        <div>
-          <div class="section-head">
-            <h2>Omset Harian</h2>
-            <select id="dailyBulan" class="lr-pilih" onchange="harianGanti(this.value)"></select>
-          </div>
-          <div class="card" id="dailyBox"><canvas id="dailyChart" height="150"></canvas></div>
-        </div>
-        <div>
-          <div class="section-head"><h2>Sorotan</h2></div>
-          <div class="card">
-            <div id="highlights" class="list"></div>
-          </div>
+      <!-- Bagian "Omset Harian" DICABUT 29 Agustus 2026 atas permintaan user.
+           Angka hariannya sendiri tetap dipakai — Sorotan di bawah menghitung
+           hari terbaik dan rata-rata dari sana — jadi `harian` tetap ikut di
+           balasan investorRingkas. Yang dibuang cuma tampilannya di dashboard.
+
+           Sorotan sekarang selebar halaman, bukan setengah: kolom kanan yang
+           berdiri sendiri di grid dua kolom tetap dibatasi setengah lebar dan
+           menyisakan ruang kosong di sebelahnya. -->
+      <div class="section">
+        <div class="section-head"><h2>Sorotan</h2></div>
+        <div class="card">
+          <div id="highlights" class="list"></div>
         </div>
       </div>
     </div>
@@ -607,7 +584,7 @@ const MODUL = 'investor';
 
 let SESI = null;      // {token, nama}
 let D    = null;      // balasan investorRingkas
-let revChartObj = null, dailyChartObj = null;
+let revChartObj = null;
 
 /* Content-Type text/plain supaya tidak memicu preflight CORS — pola yang
    sama dipakai seluruh modul Office ke account-api. */
@@ -784,13 +761,11 @@ function gagalData(pesan) {
   document.getElementById('kpis').innerHTML = kosong('⚠️', 'Data belum bisa ditampilkan', pesan);
   document.getElementById('sumberNote').textContent = '';
   document.getElementById('revBox').innerHTML   = kosong('📈', 'Grafik belum bisa digambar', 'Angkanya belum terbaca.');
-  document.getElementById('dailyBox').innerHTML = kosong('📊', 'Grafik belum bisa digambar', 'Angkanya belum terbaca.');
   document.getElementById('highlights').innerHTML = '';
   document.getElementById('laporanBox').innerHTML = kosong('📄', 'Laporan belum bisa disusun', 'Angka pendapatannya belum terbaca.');
   document.getElementById('dividenBox').innerHTML = '<div class="card">' + kosong('💰', 'Riwayat dividen belum bisa dibaca', 'Servernya tidak menjawab.') + '</div>';
   document.getElementById('lrBulan').innerHTML = '';
   document.getElementById('pdfBox').innerHTML = kosong('📄', 'Laporan PDF belum bisa dibaca', 'Servernya tidak menjawab.');
-  const dbl = document.getElementById('dailyBulan'); if (dbl) dbl.innerHTML = '';
   renderKosongLain();
 }
 
@@ -1501,92 +1476,6 @@ function drawCharts() {
     if (revChartObj) revChartObj.destroy();
     revChartObj = new Chart(ctx, { type:'line', data:{ labels: MONTHS, datasets: ds }, options: baseOpts() });
   }
-
-  /* ---- omset harian, PER BULAN ----
-     Dulu jendela berjalan 30 hari (permintaan user 29 Agustus 2026: "diganti
-     menjadi bulanan saja"). Jendela berjalan tidak pernah sama dengan bulan
-     mana pun, jadi jumlah batangnya tidak bisa dicocokkan dengan angka bulanan
-     di kartu mana pun di halaman ini — dan itu pertanyaan pertama yang muncul
-     tiap kali orang menjumlahkannya.
-
-     Angkanya datang dari Input Omset Harian di modul Finance — yang diisi
-     kasir tiap hari. Sumbernya SATU dengan kartu di atas dan tab Laporan;
-     dua sumber untuk angka harian pasti berselisih suatu hari. */
-  const dailyBox = document.getElementById('dailyBox');
-  const semuaHarian = D.harian || [];
-  const blnPunya = [...new Set(semuaHarian.map(h => String(h.tgl).slice(0, 7)))].sort().reverse();
-  if (!blnPunya.length) {
-    dailyBox.innerHTML = kosong('📊', 'Belum ada omset harian',
-      'Belum ada satu hari pun yang diisi di Input Omset Harian — modul Finance, Dashboard Omset.');
-    const sel = document.getElementById('dailyBulan');
-    if (sel) sel.innerHTML = '';
-  } else {
-    if (!BLN_HARIAN || blnPunya.indexOf(BLN_HARIAN) < 0) BLN_HARIAN = blnPunya[0];
-    const sel = document.getElementById('dailyBulan');
-    if (sel) sel.innerHTML = blnPunya.map(b =>
-      '<option value="' + b + '"' + (b === BLN_HARIAN ? ' selected' : '') + '>' + esc(blnPanjang(b)) + '</option>').join('');
-    gambarHarianBulan();
-  }
-}
-
-/* Bulan yang sedang dilihat di grafik harian. Di luar D supaya berpindah bulan
-   tidak menembak server: seluruh harinya sudah ikut di balasan pertama. */
-let BLN_HARIAN = null;
-function harianGanti(b) { BLN_HARIAN = b; gambarHarianBulan(); }
-
-function gambarHarianBulan() {
-  const box = document.getElementById('dailyBox');
-  if (!box || !D) return;
-  const b = BLN_HARIAN;
-  const peta = {};
-  (D.harian || []).forEach(h => { if (String(h.tgl).slice(0, 7) === b) peta[h.tgl] = h; });
-
-  /* SELURUH tanggal bulan itu disusun 1..akhir, termasuk yang belum diisi.
-     Kalau yang digambar cuma hari yang ada datanya, dua batang bersebelahan
-     bisa berjarak seminggu tanpa ada yang menyebutkannya — grafiknya berbohong
-     tanpa satu pun angka yang salah. */
-  const [th, bl] = b.split('-').map(Number);
-  const akhir = new Date(Date.UTC(th, bl, 0)).getUTCDate();
-  const hari = [];
-  for (let i = 1; i <= akhir; i++) {
-    const t = b + '-' + String(i).padStart(2, '0');
-    hari.push({ tgl: t, omset: peta[t] ? peta[t].omset : null,
-                tagihan: peta[t] ? peta[t].tagihan : null });
-  }
-  const isi = hari.filter(h => h.omset != null);
-  const total = isi.reduce((a, h) => a + h.omset, 0);
-  const rata = isi.length ? total / isi.length : 0;
-
-  box.innerHTML = '<canvas id="dailyChart" height="150"></canvas>'
-    + '<div class="daily-kaki">'
-    + '<span><b>' + rp(total) + '</b> total</span>'
-    + '<span><b>' + rp(rata) + '</b> rata-rata / hari</span>'
-    + '<span>' + isi.length + ' dari ' + akhir + ' hari terisi</span>'
-    + '</div>'
-    /* Tabelnya ADA, bukan cuma grafik (permintaan user: "bisa ditampilkan omset
-       harian"). Grafik menjawab "hari mana yang ramai"; angka pastinya cuma
-       bisa dibaca dari tabel, dan itu yang dicocokkan orang dengan laporan
-       lain. Hari yang belum diisi ditulis "belum diisi", bukan Rp 0 — nol
-       terbaca sebagai tutup atau tidak ada penjualan sama sekali. */
-    + '<div class="daily-tabel"><table><thead><tr><th>Tanggal</th><th>Hari</th>'
-    + '<th class="num">Net Sales</th><th class="num">Tagihan POS</th></tr></thead><tbody>'
-    + hari.map(h => '<tr' + (h.omset == null ? ' class="kosong"' : '') + '>'
-        + '<td>' + esc(tglPanjang(h.tgl)) + '</td>'
-        + '<td>' + HARI_NAMA[new Date(h.tgl + 'T00:00:00Z').getUTCDay()] + '</td>'
-        + '<td class="num">' + (h.omset == null ? '<i>belum diisi</i>' : rp(h.omset)) + '</td>'
-        + '<td class="num">' + (h.tagihan == null ? '—' : rp(h.tagihan)) + '</td>'
-        + '</tr>').join('')
-    + '</tbody></table></div>';
-
-  if (dailyChartObj) dailyChartObj.destroy();
-  if (!isi.length) return;
-  dailyChartObj = new Chart(document.getElementById('dailyChart'), {
-    type:'bar',
-    data:{ labels: hari.map(h => Number(String(h.tgl).slice(8))),
-           datasets:[{ data: hari.map(h => h.omset),
-             backgroundColor:'rgba(200,150,31,.16)', borderColor:'#A9791F', borderWidth:1.2, borderRadius:4 }] },
-    options: baseOpts(true, hari)
-  });
 }
 
 function baseOpts(hideX, harian) {
@@ -1622,6 +1511,11 @@ function baseOpts(hideX, harian) {
    siapa pun yang punya kunci modulnya. Keduanya ditegakkan di server —
    `bolehUnggah` di bawah cuma menentukan formnya digambar atau tidak.
    ======================================================================= */
+/* Bulan yang sedang dilihat di daftar laporan. Di luar D: seluruh daftarnya
+   sudah ikut di balasan pertama, jadi berpindah bulan tidak menembak server. */
+let PDF_BULAN = null;
+function pdfGanti(b) { PDF_BULAN = b; gambarLaporPdf(); }
+
 const PDF_JENIS = [
   ['balance', 'Balance Report',        '📗'],
   ['ledger',  'General Ledger Report', '📘']
@@ -1640,29 +1534,46 @@ function gambarLaporPdf() {
       boleh ? 'Unggah Balance Report dan General Ledger Report bulanan lewat form di bawah.'
             : 'Balance Report dan General Ledger Report bulanan akan muncul di sini begitu diunggah.');
   } else {
-    h += bulan.map(b => {
-      const isi = peta[b] || {};
-      return '<div class="card" style="margin-bottom:14px">'
-        + '<div class="section-head" style="margin:0 0 4px"><h2 style="font-size:15px">'
-          + esc(blnPanjang(b)) + '</h2></div>'
-        + PDF_JENIS.map(([k, nama, ic]) => {
-            const f = isi[k];
-            return '<div class="pdf-baris">'
-              + '<div class="pdf-ic">' + ic + '</div>'
-              + '<div class="pdf-inti"><b>' + nama + '</b>'
-              + (f ? '<span>' + esc(f.nama) + ' · ' + ukuranTeks(f.ukuran)
-                     + (f.oleh ? ' · diunggah ' + esc(f.oleh) : '') + '</span>'
-                   : '<span class="pdf-belum">belum diunggah</span>')
-              + '</div>'
-              + (f ? '<button class="pdf-btn pri" data-b="' + esc(b) + '" data-j="' + k + '"'
-                     + ' onclick="unduhLapor(this)">Buka PDF</button>'
-                     + (boleh ? ' <button class="pdf-btn" data-b="' + esc(b) + '" data-j="' + k + '"'
-                                + ' onclick="hapusLapor(this)">Hapus</button>' : '')
-                   : '')
-              + '</div>';
-          }).join('')
-        + '</div>';
-    }).join('');
+    /* SATU BULAN SAJA, dipilih lewat penyaring (29 Agustus 2026, permintaan
+       user). Sebelumnya seluruh bulan ditumpuk sebagai kartu dan daftarnya
+       memanjang terus tiap bulan — sesudah setahun, form unggahnya terdorong
+       dua belas kartu ke bawah, dan yang mencari laporan lama harus menggulir
+       melewati semuanya.
+
+       Bentuknya sengaja sama dengan penyaring bulan di tab Laba Rugi: dua
+       daftar bulanan di satu halaman yang cara memilihnya berbeda membuat
+       orang mengira salah satunya tidak bisa dipilih. */
+    if (!PDF_BULAN || bulan.indexOf(PDF_BULAN) < 0) PDF_BULAN = bulan[0];
+    const isi = peta[PDF_BULAN] || {};
+    h += '<div class="card">'
+      + '<div class="section-head" style="margin:0 0 4px">'
+      + '<h2 style="font-size:15px">' + esc(blnPanjang(PDF_BULAN)) + '</h2>'
+      + '<select class="lr-pilih" onchange="pdfGanti(this.value)">'
+      + bulan.map(b => '<option value="' + esc(b) + '"' + (b === PDF_BULAN ? ' selected' : '') + '>'
+          + esc(blnPanjang(b)) + '</option>').join('')
+      + '</select></div>'
+      + PDF_JENIS.map(([k, nama, ic]) => {
+          const f = isi[k];
+          return '<div class="pdf-baris">'
+            + '<div class="pdf-ic">' + ic + '</div>'
+            + '<div class="pdf-inti"><b>' + nama + '</b>'
+            + (f ? '<span>' + esc(f.nama) + ' · ' + ukuranTeks(f.ukuran)
+                   + (f.oleh ? ' · diunggah ' + esc(f.oleh) : '') + '</span>'
+                 : '<span class="pdf-belum">belum diunggah</span>')
+            + '</div>'
+            + (f ? '<button class="pdf-btn pri" data-b="' + esc(PDF_BULAN) + '" data-j="' + k + '"'
+                   + ' onclick="unduhLapor(this)">Buka PDF</button>'
+                   + (boleh ? ' <button class="pdf-btn" data-b="' + esc(PDF_BULAN) + '" data-j="' + k + '"'
+                              + ' onclick="hapusLapor(this)">Hapus</button>' : '')
+                 : '')
+            + '</div>';
+        }).join('')
+      /* Jumlah bulan yang tersimpan disebutkan. Tanpa itu, penyaring yang cuma
+         menampilkan satu bulan membuat orang mengira memang cuma itu yang ada
+         — dan tidak pernah membuka daftarnya. */
+      + (bulan.length > 1 ? '<div class="pdf-jml">' + bulan.length
+          + ' bulan tersimpan · pilih di kotak sebelah judul</div>' : '')
+      + '</div>';
   }
 
   if (boleh) {
@@ -1739,6 +1650,11 @@ async function kirimLapor() {
     const r = await postJson(API_OMSET, { action:'investorLaporUpload', sesi: SESI.token, bulan, berkas });
     if (!r || !r.ok) throw new Error((r && r.error) || 'gagal');
     D.lapor = (r.data && r.data.lapor) || D.lapor;
+    /* Penyaring dipindahkan ke bulan yang BARUSAN diunggah. Tanpa ini, yang
+       mengunggah bulan baru menekan Unggah lalu tidak melihat satu pun
+       perubahan di daftar — penyaringnya masih di bulan lama — dan
+       menyimpulkan unggahannya gagal. */
+    PDF_BULAN = bulan;
     gambarLaporPdf();
     const g = (r.data && r.data.galat) || [];
     const pesanBaru = document.getElementById('pdfPesan');

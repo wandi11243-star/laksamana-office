@@ -147,30 +147,15 @@ async function jalankan(nama, opt) {
       cek('catatan menunjuk tab Laba Rugi', $(w,'sumberNote').innerHTML.includes('Laporan Laba Rugi'), $(w,'sumberNote').innerHTML);
       cek('bukan label server dev di domain produksi', !$(w,'sumberNote').innerHTML.includes('server dev'));
       cek('tombol tahun terbangun', $(w,'yearToggle').querySelectorAll('button').length === 2);
-      cek('grafik digambar', (w.__charts || []).length === 2, String((w.__charts || []).length));
-      const bar = (w.__charts || [])[1];
-      /* PER BULAN, bukan 30 hari berjalan (29 Agustus 2026, permintaan user).
-         Jendela berjalan tidak pernah sama dengan bulan mana pun, jadi jumlah
-         batangnya tidak bisa dicocokkan dengan kartu bulanan di halaman yang
-         sama — pertanyaan pertama yang muncul tiap kali orang menjumlahkannya. */
-      const hariBln = new Date(Date.UTC(2026, 8, 0)).getUTCDate();   // Agustus = 31
-      cek('grafik harian sebulan penuh', bar && bar.data.labels.length === hariBln,
-          bar && String(bar.data.labels.length));
-      cek('batang pertama tanggal 1', bar && bar.data.labels[0] === 1);
-      /* Hari yang belum diisi tetap punya tempatnya di sumbu, nilainya null.
-         Kalau yang digambar cuma hari yang ada datanya, dua batang bersebelahan
-         bisa berjarak seminggu tanpa ada yang menyebutkannya. */
-      cek('hari kosong jadi null, bukan 0',
-          bar && bar.data.datasets[0].data.some(x => x === null),
-          JSON.stringify((bar && bar.data.datasets[0].data || []).slice(-4)));
-      /* Tabel angkanya ADA, bukan cuma grafik — yang dicocokkan orang dengan
-         laporan lain adalah angka pastinya. */
-      cek('tabel harian tergambar', $(w,'dailyBox').innerHTML.includes('daily-tabel'));
-      cek('hari kosong ditulis "belum diisi", bukan Rp 0',
-          $(w,'dailyBox').innerHTML.includes('belum diisi'));
-      cek('pemilih bulan terisi',
-          $(w,'dailyBulan').querySelectorAll('option').length > 0,
-          String($(w,'dailyBulan').querySelectorAll('option').length));
+      /* TINGGAL SATU grafik. Bagian Omset Harian dicabut dari dashboard 29
+         Agustus 2026 atas permintaan user — yang tersisa cuma grafik omset
+         bulanan per tahun. */
+      cek('tinggal satu grafik', (w.__charts || []).length === 1, String((w.__charts || []).length));
+      cek('bagian Omset Harian sudah tidak ada', !w.document.getElementById('dailyBox'));
+      cek('pemilih bulan harian ikut dicabut', !w.document.getElementById('dailyBulan'));
+      /* Angka HARIANNYA tetap dipakai — Sorotan menghitung hari terbaik dan
+         rata-rata dari sana. Jadi `harian` harus tetap ikut di balasan server;
+         mencabutnya karena grafiknya hilang akan mematikan Sorotan diam-diam. */
       cek('sorotan hari terbaik ada', $(w,'highlights').innerHTML.includes('Hari terbaik'));
       // tab yang belum punya sumber (programBox & bukuBox sudah dihapus)
       ['dividenBox','laporanBox'].forEach(id =>
@@ -687,13 +672,31 @@ async function jalankan(nama, opt) {
       const pv = $(w,'pdfBox').innerHTML;
       cek('kedua laporan tergambar',
           pv.includes('Balance Report') && pv.includes('General Ledger Report'), pv.slice(0, 400));
-      cek('bulan yang ada tergambar', pv.includes('Jul 2026') && pv.includes('Jun 2026'), pv.slice(0, 300));
-      cek('bulan terbaru lebih dulu', pv.indexOf('Jul 2026') < pv.indexOf('Jun 2026'));
+      /* SATU BULAN SAJA, sisanya lewat penyaring (29 Agustus 2026, permintaan
+         user). Sebelumnya seluruh bulan ditumpuk jadi kartu dan daftarnya
+         memanjang terus tiap bulan. */
+      cek('bulan terbaru yang terbuka lebih dulu', pv.includes('Jul 2026'), pv.slice(0, 300));
+      cek('bulan lain TIDAK ikut digambar sebagai kartu',
+          (pv.match(/class="pdf-baris"/g) || []).length === 2,
+          String((pv.match(/class="pdf-baris"/g) || []).length));
+      cek('bulan lain ada di penyaring', pv.includes('value="2026-06"'), pv.slice(0, 400));
+      /* Jumlah bulan tersimpan disebutkan: penyaring yang cuma menampilkan satu
+         bulan membuat orang mengira memang cuma itu yang ada. */
+      cek('jumlah bulan tersimpan disebut', pv.includes('2 bulan tersimpan'), pv.slice(-300));
       cek('ukuran berkas disebut', pv.includes('5.0 MB') || pv.includes('5,0 MB'), pv.slice(0, 900));
+      /* Ganti bulan MENGGANTI isinya, bukan menambah baris. */
+      w.pdfGanti('2026-06');
+      const pv6 = $(w,'pdfBox').innerHTML;
+      cek('ganti bulan mengganti isinya', pv6.includes('Jun 2026') && !pv6.includes('Balance Jul 2026.pdf'),
+          pv6.slice(0, 300));
+      cek('barisnya tetap dua, tidak bertambah',
+          (pv6.match(/class="pdf-baris"/g) || []).length === 2,
+          String((pv6.match(/class="pdf-baris"/g) || []).length));
       /* Jenis yang belum ada untuk bulan itu DIKATAKAN, bukan barisnya dihapus.
          Baris yang hilang terbaca sebagai "memang cuma ada satu laporan"; yang
          sebenarnya terjadi adalah satu berkas belum diunggah. */
-      cek('yang belum diunggah dikatakan', pv.includes('belum diunggah'), pv.slice(0, 900));
+      cek('yang belum diunggah dikatakan', pv6.includes('belum diunggah'), pv6.slice(0, 900));
+      w.pdfGanti('2026-07');
       /* Investor biasa TIDAK melihat form unggah sama sekali. */
       cek('tidak ada form unggah untuk investor biasa', !pv.includes('pdf-unggah'));
       cek('tidak ada tombol hapus untuk investor biasa', !pv.includes('hapusLapor'));

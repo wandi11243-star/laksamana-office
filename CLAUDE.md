@@ -888,22 +888,14 @@ membuka (`dev.` → `https://dev.laksamanamuda.id`, selain itu
 tidak ada di DNS). Kalau dipatok satu, halaman dev akan memajang omset
 PRODUKSI dengan angka yang kelihatan wajar.
 
-**Omset harian tampil PER BULAN, bukan 30 hari berjalan** (29 Agustus 2026,
-permintaan user). Jendela berjalan tidak pernah sama dengan bulan mana pun,
-jadi jumlah batangnya tidak bisa dicocokkan dengan kartu bulanan di halaman
-yang sama — pertanyaan pertama yang muncul tiap kali orang menjumlahkannya.
+**Bagian "Omset Harian" DICABUT dari dashboard** (29 Agustus 2026, permintaan
+user). Sempat ada sebagai grafik + tabel per bulan; dibuang atas permintaan yang
+sama sehari kemudian.
 
-- `harian` di balasan `investorRingkas` sekarang **SELURUH hari yang ada
-  datanya**, bukan 30 baris terakhir. Layar yang memilih bulannya, jadi
-  berpindah bulan tidak menembak server lagi. ~365 baris setahun, kecil.
-- Hari kosong **tidak dibuatkan barisnya di server**; layar menyusun sendiri
-  1..akhir bulan dan menandai yang tidak ada sebagai `null`. Kalau yang
-  digambar cuma hari yang ada datanya, dua batang bersebelahan bisa berjarak
-  seminggu tanpa ada yang menyebutkannya.
-- **Tabelnya ada, bukan cuma grafik.** Grafik menjawab "hari mana yang ramai";
-  yang dicocokkan orang dengan laporan lain adalah angka pastinya. Hari yang
-  belum diisi ditulis **"belum diisi"**, bukan Rp 0 — nol terbaca sebagai tutup.
-- Sorotan ("hari terbaik", "rata-rata") ikut **bulan berjalan**, bukan 30 hari.
+Yang TETAP ada: `harian` di balasan `investorRingkas` — Sorotan menghitung hari
+terbaik dan rata-rata dari sana. Mencabutnya karena grafiknya hilang akan
+mematikan Sorotan diam-diam. Isinya SELURUH hari yang ada datanya (bukan 30
+hari terakhir seperti dulu), ~365 baris setahun.
 
 **Angka uang SELALU PENUH** (29 Agustus 2026, permintaan user). Bentuk singkat
 `rpShort` ("Rp 622 jt") dicabut dari seluruh teks dan diganti `rp()`.
@@ -913,6 +905,14 @@ singkat cuma **sumbu Y grafik** (`rpSumbu`) — sembilan digit per garis
 mendorong grafiknya keluar layar, dan angka pastinya sudah ada di tooltip.
 
 **Laporan PDF bulanan: Balance Report & General Ledger** (29 Agustus 2026).
+Daftarnya **satu bulan saja, dipilih lewat penyaring** — bukan seluruh bulan
+ditumpuk jadi kartu. Daftar yang memanjang tiap bulan mendorong form unggahnya
+dua belas kartu ke bawah sesudah setahun. Bentuk penyaringnya sengaja sama
+dengan yang di tab Laba Rugi: dua daftar bulanan di satu halaman yang cara
+memilihnya berbeda membuat orang mengira salah satunya tidak bisa dipilih.
+Sesudah unggah, penyaring **pindah ke bulan yang barusan diunggah** — kalau
+tidak, yang mengunggah bulan baru tidak melihat perubahan apa pun dan mengira
+unggahannya gagal.
 Satu kali unggah untuk kedua berkas — keduanya selalu terbit bersamaan dari
 sistem akuntansi, dan dua form berarti dua kali memilih bulan yang sama.
 
