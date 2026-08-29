@@ -117,8 +117,14 @@ try {
     $u = sesi_user($body);
     if (!$u) sesi_tolak_tak_dikenal();
     if (!sesi_punya_modul($u, 'investor')) sesi_tolak_tanpa_modul('Investor Compass');
+    /* `bolehUnggah` DIHITUNG SERVER, bukan disimpulkan layar. Halaman
+       investor tidak menyimpan adminModules sama sekali — dan kalaupun
+       menyimpan, apa pun yang datang dari peramban bisa diketik ulang.
+       Penjaga sebenarnya tetap di aksi investorLaporUpload di bawah; ini
+       cuma yang menentukan formnya digambar atau tidak. */
     keluar(array('ok' => true, 'data' => ringkas_investor(),
-                 'user' => array('nama' => isset($u['name']) ? $u['name'] : '')));
+                 'user' => array('nama' => isset($u['name']) ? $u['name'] : '',
+                                 'bolehUnggah' => sesi_admin_modul($u, 'investor'))));
   }
   /* Pintu kedua untuk halaman investor: agenda event & promo, dikumpulkan
      dari Marketing / Event / BD OS server-ke-server. Gerbangnya sama persis
@@ -135,6 +141,62 @@ try {
     if (!$u) sesi_tolak_tak_dikenal();
     if (!sesi_punya_modul($u, 'investor')) sesi_tolak_tanpa_modul('Investor Compass');
     keluar(array('ok' => true, 'data' => agenda_investor()));
+  }
+  /* ---------- LAPORAN PDF INVESTOR (29 Agustus 2026) ----------
+     Balance Report & General Ledger, satu kali unggah per bulan.
+
+     UNGGAH cuma untuk ADMIN MODUL `investor`; MEMBACA untuk siapa pun yang
+     punya kunci modulnya. Dua pagar berbeda untuk satu berkas, dan itu
+     memang bedanya: investor perlu membaca neraca, tidak menggantinya. */
+  else if ($action === 'investorLaporUpload') {
+    require_once __DIR__ . '/lib_sesi.php';
+    $u = sesi_user($body);
+    if (!$u) sesi_tolak_tak_dikenal();
+    if (!sesi_punya_modul($u, 'investor')) sesi_tolak_tanpa_modul('Investor Compass');
+    if (!sesi_admin_modul($u, 'investor'))
+      keluar(array('ok' => false, 'error' => 'Hanya admin modul Investor yang boleh mengunggah laporan.'));
+    $bulan = isset($body['bulan']) ? $body['bulan'] : '';
+    $berkas = (isset($body['berkas']) && is_array($body['berkas'])) ? $body['berkas'] : array();
+    if (!count($berkas)) keluar(array('ok' => false, 'error' => 'Tidak ada berkas yang dikirim.'));
+    /* SATU kali unggah untuk kedua laporan (permintaan user). Kalau salah
+       satu gagal, yang berhasil TETAP tersimpan dan yang gagal disebutkan
+       namanya — membatalkan keduanya berarti mengunggah ulang berkas 10 MB
+       yang sebenarnya sudah sampai dengan selamat. */
+    $hasil = array(); $galat = array();
+    foreach ($berkas as $jenis => $p) {
+      $r = inv_lapor_simpan($bulan, $jenis, $p, isset($u['name']) ? $u['name'] : '');
+      if (!empty($r['ok'])) $hasil[] = $jenis;
+      else $galat[] = $jenis . ': ' . (isset($r['error']) ? $r['error'] : 'gagal');
+    }
+    keluar(array('ok' => count($hasil) > 0,
+                 'data' => array('tersimpan' => $hasil, 'galat' => $galat,
+                                 'lapor' => inv_lapor_daftar()),
+                 'error' => count($hasil) ? null : implode('; ', $galat)));
+  }
+  else if ($action === 'investorLaporHapus') {
+    require_once __DIR__ . '/lib_sesi.php';
+    $u = sesi_user($body);
+    if (!$u) sesi_tolak_tak_dikenal();
+    if (!sesi_admin_modul($u, 'investor'))
+      keluar(array('ok' => false, 'error' => 'Hanya admin modul Investor yang boleh menghapus laporan.'));
+    inv_lapor_hapus(isset($body['bulan']) ? $body['bulan'] : '',
+                    isset($body['jenis']) ? $body['jenis'] : '');
+    keluar(array('ok' => true, 'data' => array('lapor' => inv_lapor_daftar())));
+  }
+  /* Isi berkasnya. Dikirim sebagai BINER, bukan base64 di dalam JSON —
+     base64 membengkakkan 12 MB jadi 16 MB dan peramban harus menampung
+     keduanya di memori sebelum satu byte pun sampai ke layar.
+
+     Lewat POST supaya tokennya ada di badan permintaan, bukan di URL: URL
+     tercatat di log akses server dan riwayat peramban, dan token yang
+     tercatat di sana masih sah sampai kedaluwarsa. */
+  else if ($action === 'investorLaporFile') {
+    require_once __DIR__ . '/lib_sesi.php';
+    $u = sesi_user($body);
+    if (!$u) sesi_tolak_tak_dikenal();
+    if (!sesi_punya_modul($u, 'investor')) sesi_tolak_tanpa_modul('Investor Compass');
+    inv_lapor_sajikan(isset($body['bulan']) ? $body['bulan'] : '',
+                      isset($body['jenis']) ? $body['jenis'] : '');
   }
   /* ---------- ANALYTICS ----------
      Modul internal Office: dibuka dari dalam, dan seluruh aksi kompas lain

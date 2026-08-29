@@ -149,8 +149,28 @@ async function jalankan(nama, opt) {
       cek('tombol tahun terbangun', $(w,'yearToggle').querySelectorAll('button').length === 2);
       cek('grafik digambar', (w.__charts || []).length === 2, String((w.__charts || []).length));
       const bar = (w.__charts || [])[1];
-      cek('grafik harian 30 titik', bar && bar.data.labels.length === 30);
-      cek('hari kosong jadi null, bukan 0', bar && bar.data.datasets[0].data[29] === null);
+      /* PER BULAN, bukan 30 hari berjalan (29 Agustus 2026, permintaan user).
+         Jendela berjalan tidak pernah sama dengan bulan mana pun, jadi jumlah
+         batangnya tidak bisa dicocokkan dengan kartu bulanan di halaman yang
+         sama — pertanyaan pertama yang muncul tiap kali orang menjumlahkannya. */
+      const hariBln = new Date(Date.UTC(2026, 8, 0)).getUTCDate();   // Agustus = 31
+      cek('grafik harian sebulan penuh', bar && bar.data.labels.length === hariBln,
+          bar && String(bar.data.labels.length));
+      cek('batang pertama tanggal 1', bar && bar.data.labels[0] === 1);
+      /* Hari yang belum diisi tetap punya tempatnya di sumbu, nilainya null.
+         Kalau yang digambar cuma hari yang ada datanya, dua batang bersebelahan
+         bisa berjarak seminggu tanpa ada yang menyebutkannya. */
+      cek('hari kosong jadi null, bukan 0',
+          bar && bar.data.datasets[0].data.some(x => x === null),
+          JSON.stringify((bar && bar.data.datasets[0].data || []).slice(-4)));
+      /* Tabel angkanya ADA, bukan cuma grafik — yang dicocokkan orang dengan
+         laporan lain adalah angka pastinya. */
+      cek('tabel harian tergambar', $(w,'dailyBox').innerHTML.includes('daily-tabel'));
+      cek('hari kosong ditulis "belum diisi", bukan Rp 0',
+          $(w,'dailyBox').innerHTML.includes('belum diisi'));
+      cek('pemilih bulan terisi',
+          $(w,'dailyBulan').querySelectorAll('option').length > 0,
+          String($(w,'dailyBulan').querySelectorAll('option').length));
       cek('sorotan hari terbaik ada', $(w,'highlights').innerHTML.includes('Hari terbaik'));
       // tab yang belum punya sumber (programBox & bukuBox sudah dihapus)
       ['dividenBox','laporanBox'].forEach(id =>
@@ -290,9 +310,15 @@ async function jalankan(nama, opt) {
       // tidaknya angka itu di mana pun.
       cek('nilai kartu BUKAN tagihan POS',
           !kp.includes('<div class="value mono">Rp 622.035.872</div>'), kp.slice(0,600));
-      cek('menyebut service', kp.includes('service Rp 26 jt'), kp.slice(0,600));
-      cek('menyebut pajak', kp.includes('pajak Rp 50 jt'), kp.slice(0,600));
-      cek('menyebut compliment Rp 12 jt', kp.includes('dipotong compliment Rp 12 jt'), kp.slice(0,900));
+      /* PENUH, bukan "Rp 26 jt" (29 Agustus 2026, permintaan user).
+         Pembulatan ke jutaan menyembunyikan sampai Rp 999.999, dan di halaman
+         yang dibaca investor selisih sebesar itu adalah selisih yang
+         ditanyakan. */
+      cek('menyebut service, angka penuh', kp.includes('service Rp 26.180.768'), kp.slice(0,600));
+      cek('menyebut pajak, angka penuh', kp.includes('pajak Rp 49.849.650'), kp.slice(0,600));
+      cek('menyebut compliment, angka penuh',
+          kp.includes('dipotong compliment Rp 11.635.850'), kp.slice(0,900));
+      cek('tidak ada lagi bentuk singkat di teks', !/Rp d+ (jt|M)/.test(kp), kp.slice(0,600));
       cek('kartu Omset Hari Ini tidak ada', !kp.includes('Omset Hari Ini'));
       // JEMBATAN KE REKAP PENJUALAN: angka tagihan POS disebut UTUH, supaya
       // selisih Rp 11,6 jt itu tidak perlu dihitung sendiri. Ditanyakan 3x.
@@ -637,6 +663,131 @@ async function jalankan(nama, opt) {
       const dv = $(w,'dividenBox').innerHTML;
       cek('menyebut di mana mencatatnya', dv.includes('Brankas'), dv.slice(0,300));
       cek('tidak ada angka karangan', !dv.includes('Rp '), dv.slice(0,300));
+    }
+  });
+
+  /* ---- 22. laporan PDF: investor biasa hanya MEMBACA ----
+     Dua pagar berbeda untuk satu berkas, dan itu memang bedanya: investor
+     perlu membaca neraca, tidak menggantinya. */
+  const LAPOR_CONTOH = {
+    '2026-07': {
+      balance: { nama:'Balance Jul 2026.pdf', ukuran: 240000, at: 1756400000000, oleh:'Wandi' },
+      ledger:  { nama:'GL Jul 2026.pdf', ukuran: 5242880, at: 1756400000000, oleh:'Wandi' }
+    },
+    '2026-06': {
+      balance: { nama:'Balance Jun 2026.pdf', ukuran: 210000, at: 1753800000000, oleh:'Wandi' }
+    }
+  };
+  await jalankan('Laporan PDF: investor biasa', {
+    sesiTersimpan: { token:'TP', nama:'Investor' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ lapor: LAPOR_CONTOH }) }
+      : { ok:false },
+    periksa(w) {
+      const pv = $(w,'pdfBox').innerHTML;
+      cek('kedua laporan tergambar',
+          pv.includes('Balance Report') && pv.includes('General Ledger Report'), pv.slice(0, 400));
+      cek('bulan yang ada tergambar', pv.includes('Jul 2026') && pv.includes('Jun 2026'), pv.slice(0, 300));
+      cek('bulan terbaru lebih dulu', pv.indexOf('Jul 2026') < pv.indexOf('Jun 2026'));
+      cek('ukuran berkas disebut', pv.includes('5.0 MB') || pv.includes('5,0 MB'), pv.slice(0, 900));
+      /* Jenis yang belum ada untuk bulan itu DIKATAKAN, bukan barisnya dihapus.
+         Baris yang hilang terbaca sebagai "memang cuma ada satu laporan"; yang
+         sebenarnya terjadi adalah satu berkas belum diunggah. */
+      cek('yang belum diunggah dikatakan', pv.includes('belum diunggah'), pv.slice(0, 900));
+      /* Investor biasa TIDAK melihat form unggah sama sekali. */
+      cek('tidak ada form unggah untuk investor biasa', !pv.includes('pdf-unggah'));
+      cek('tidak ada tombol hapus untuk investor biasa', !pv.includes('hapusLapor'));
+      cek('tombol buka PDF ada', pv.includes('unduhLapor'));
+    }
+  });
+
+  /* ---- 23. laporan PDF: admin modul boleh mengunggah ---- */
+  await jalankan('Laporan PDF: admin modul', {
+    sesiTersimpan: { token:'TA', nama:'CFO' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ lapor: LAPOR_CONTOH }),
+          user:{ nama:'CFO', bolehUnggah:true } }
+      : { ok:false },
+    periksa(w) {
+      const pv = $(w,'pdfBox').innerHTML;
+      cek('form unggah tampil untuk admin', pv.includes('pdf-unggah'), pv.slice(0, 200));
+      /* SATU form untuk kedua laporan (permintaan user): keduanya selalu terbit
+         bersamaan, dan dua form berarti dua kali memilih bulan yang sama —
+         satu kesempatan lagi untuk memilih bulan yang berbeda tanpa sadar. */
+      cek('satu kali unggah untuk kedua berkas',
+          !!$(w,'pdfBalance') && !!$(w,'pdfLedger') && !!$(w,'pdfBulan'));
+      cek('hanya satu tombol unggah',
+          (pv.match(/kirimLapor\(\)/g) || []).length === 1,
+          String((pv.match(/kirimLapor\(\)/g) || []).length));
+      /* Bulan sebagai input month, bukan teks bebas: diketik bebas, satu berkas
+         tersimpan di bawah "Agustus 2026" dan yang lain di bawah "2026-8", dan
+         keduanya tidak akan pernah bertemu. */
+      cek('bulan dipilih, bukan diketik bebas', $(w,'pdfBulan').type === 'month', $(w,'pdfBulan').type);
+      /* Bawaannya BULAN LALU: laporan akuntansi terbit sesudah bulannya tutup. */
+      cek('bawaannya bulan lalu', /^\d{4}-\d{2}$/.test($(w,'pdfBulan').value), $(w,'pdfBulan').value);
+      cek('hanya menerima PDF', $(w,'pdfBalance').accept.indexOf('pdf') > -1, $(w,'pdfBalance').accept);
+      cek('batas ukuran disebutkan', pv.includes('12 MB'));
+      cek('dikatakan akan mengganti yang lama', pv.includes('mengganti'));
+      cek('admin melihat tombol hapus', pv.includes('hapusLapor'));
+    }
+  });
+
+  /* ---- 24. laporan PDF: unggah ---- */
+  await jalankan('Laporan PDF: kirim', {
+    sesiTersimpan: { token:'TA', nama:'CFO' },
+    api: b => {
+      if (b.action === 'investorRingkas')
+        return { ok:true, data: buatRingkas({ lapor:{} }), user:{ nama:'CFO', bolehUnggah:true } };
+      if (b.action === 'investorLaporUpload')
+        return { ok:true, data:{ tersimpan:['balance'], galat:[],
+                 lapor:{ '2026-07': { balance:{ nama:'B.pdf', ukuran:1000, at:1, oleh:'CFO' } } } } };
+      return { ok:false };
+    },
+    async aksi(w) {
+      $(w,'pdfBulan').value = '2026-07';
+      /* Berkas palsu dipasang langsung ke .files. jsdom tidak punya
+         DataTransfer, dan input.files hanya-baca — jadi disetel lewat
+         defineProperty. Yang diuji tetap jalur sungguhannya: kirimLapor()
+         membaca el.files[0] lalu melewatkannya ke FileReader. */
+      const f = new w.File([new Uint8Array([37,80,68,70,45,49,46,52])], 'Balance.pdf', { type:'application/pdf' });
+      Object.defineProperty($(w,'pdfBalance'), 'files', { value:[f], configurable:true });
+      await w.kirimLapor();
+      await new Promise(r => setTimeout(r, 120));
+    },
+    periksa(w, p) {
+      const kirim = p.filter(x => x.body.action === 'investorLaporUpload').pop();
+      cek('unggah terkirim', !!kirim, JSON.stringify(p.map(x => x.body.action)));
+      if (kirim) {
+        cek('token ikut', kirim.body.sesi === 'TA');
+        cek('bulan ikut', kirim.body.bulan === '2026-07', kirim.body.bulan);
+        cek('berkas dikirim di bawah jenisnya', !!(kirim.body.berkas || {}).balance,
+            JSON.stringify(Object.keys(kirim.body.berkas || {})));
+        /* Yang tidak dipilih TIDAK dikirim sebagai kosong: kosong akan menimpa
+           berkas yang sudah ada dengan nol byte. */
+        cek('yang tidak dipilih tidak ikut dikirim', !(kirim.body.berkas || {}).ledger,
+            JSON.stringify(Object.keys(kirim.body.berkas || {})));
+        cek('isinya base64, bukan nama berkasnya saja',
+            typeof kirim.body.berkas.balance.dataBase64 === 'string'
+            && kirim.body.berkas.balance.dataBase64.length > 0);
+        cek('nama asli berkas ikut', kirim.body.berkas.balance.fileName === 'Balance.pdf');
+      }
+      cek('daftar disegarkan dari balasan', $(w,'pdfBox').innerHTML.includes('B.pdf'),
+          $(w,'pdfBox').innerHTML.slice(0, 300));
+      cek('dikatakan tersimpan', $(w,'pdfPesan').innerHTML.includes('Tersimpan'),
+          $(w,'pdfPesan').innerHTML);
+    }
+  });
+
+  /* ---- 25. laporan PDF: tidak ada satu pun ---- */
+  await jalankan('Laporan PDF: belum ada', {
+    sesiTersimpan: { token:'TP', nama:'Investor' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ lapor:{} }) } : { ok:false },
+    periksa(w) {
+      const pv = $(w,'pdfBox').innerHTML;
+      cek('keadaan kosong menjelaskan dirinya', pv.includes('Belum ada laporan PDF'), pv.slice(0, 300));
+      /* Tidak ada angka karangan, dan tidak ada tombol yang tidak menuju apa pun. */
+      cek('tidak ada tombol buka yang kosong', !pv.includes('unduhLapor'));
     }
   });
 

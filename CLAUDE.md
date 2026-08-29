@@ -888,6 +888,58 @@ membuka (`dev.` → `https://dev.laksamanamuda.id`, selain itu
 tidak ada di DNS). Kalau dipatok satu, halaman dev akan memajang omset
 PRODUKSI dengan angka yang kelihatan wajar.
 
+**Omset harian tampil PER BULAN, bukan 30 hari berjalan** (29 Agustus 2026,
+permintaan user). Jendela berjalan tidak pernah sama dengan bulan mana pun,
+jadi jumlah batangnya tidak bisa dicocokkan dengan kartu bulanan di halaman
+yang sama — pertanyaan pertama yang muncul tiap kali orang menjumlahkannya.
+
+- `harian` di balasan `investorRingkas` sekarang **SELURUH hari yang ada
+  datanya**, bukan 30 baris terakhir. Layar yang memilih bulannya, jadi
+  berpindah bulan tidak menembak server lagi. ~365 baris setahun, kecil.
+- Hari kosong **tidak dibuatkan barisnya di server**; layar menyusun sendiri
+  1..akhir bulan dan menandai yang tidak ada sebagai `null`. Kalau yang
+  digambar cuma hari yang ada datanya, dua batang bersebelahan bisa berjarak
+  seminggu tanpa ada yang menyebutkannya.
+- **Tabelnya ada, bukan cuma grafik.** Grafik menjawab "hari mana yang ramai";
+  yang dicocokkan orang dengan laporan lain adalah angka pastinya. Hari yang
+  belum diisi ditulis **"belum diisi"**, bukan Rp 0 — nol terbaca sebagai tutup.
+- Sorotan ("hari terbaik", "rata-rata") ikut **bulan berjalan**, bukan 30 hari.
+
+**Angka uang SELALU PENUH** (29 Agustus 2026, permintaan user). Bentuk singkat
+`rpShort` ("Rp 622 jt") dicabut dari seluruh teks dan diganti `rp()`.
+Pembulatan ke jutaan menyembunyikan sampai Rp 999.999, dan di halaman yang
+dibaca investor selisih sebesar itu adalah selisih yang ditanyakan. Yang tetap
+singkat cuma **sumbu Y grafik** (`rpSumbu`) — sembilan digit per garis
+mendorong grafiknya keluar layar, dan angka pastinya sudah ada di tooltip.
+
+**Laporan PDF bulanan: Balance Report & General Ledger** (29 Agustus 2026).
+Satu kali unggah untuk kedua berkas — keduanya selalu terbit bersamaan dari
+sistem akuntansi, dan dua form berarti dua kali memilih bulan yang sama.
+
+- **Binernya di disk, bukan di database** (`inv_lapor_dir()`), pola yang sama
+  dengan event-mysql & marketing-mysql. General Ledger sebulan bisa belasan MB;
+  di LONGTEXT tiap pembacaan daftar ikut menyeret isinya melewati
+  `max_allowed_packet`. Foldernya **diusahakan di luar web root**; kalau
+  terpaksa di dalam, ditutup `.htaccess` — ini neraca perusahaan.
+- Tabel `inv_lapor`, kunci **(bulan, jenis) UNIK**: unggah ulang MENGGANTI,
+  bukan menumpuk. Dua Balance Report untuk bulan yang sama berarti investor
+  melihat dua tombol berbeda isi tanpa tanda mana yang terbaru.
+- Berkas lama dihapus **SESUDAH** yang baru berhasil ditulis. Dibalik, satu
+  kegagalan tulis meninggalkan bulan itu tanpa laporan sama sekali.
+- **PDF diperiksa dari ISI berkasnya** (`%PDF` di empat byte pertama), bukan
+  namanya: nama diketik orang dan ekstensi bisa diganti.
+- **Dua pagar berbeda:** unggah/hapus = `sesi_admin_modul($u,'investor')`;
+  membaca = `sesi_punya_modul`. Investor perlu membaca neraca, tidak
+  menggantinya. `bolehUnggah` **dihitung server** dan ikut di balasan
+  `investorRingkas` — halaman investor tidak menyimpan `adminModules` sama
+  sekali, dan kalaupun menyimpan, apa pun di peramban bisa diketik ulang.
+- **Isi berkas dikirim sebagai BINER lewat POST**, bukan base64 di JSON dan
+  bukan `<a href>`: base64 membengkakkan 12 MB jadi 16 MB, dan URL dengan
+  token tercatat di log server serta riwayat peramban.
+- Kalau satu dari dua berkas gagal, **yang berhasil TETAP tersimpan** dan yang
+  gagal disebut namanya. Membatalkan keduanya berarti mengunggah ulang berkas
+  10 MB yang sebenarnya sudah sampai dengan selamat.
+
 **Tab Laporan Keuangan = Profit Loss Report, tapi separuh** (27 Agustus 2026).
 Susunannya disalin persis dari laporan bulanan CFO — urutan dan nama barisnya
 sama — supaya investor tidak perlu mencocokkan dua penyusunan yang berbeda.
@@ -974,7 +1026,7 @@ lima hal itu pernah dijanjikan ada di sana.
 Ujinya:
 
 ```bash
-node tools/uji-investor.js   # 176 pemeriksaan, jsdom + account-api/kompas-api tiruan
+node tools/uji-investor.js   # 209 pemeriksaan, jsdom + account-api/kompas-api tiruan
 ```
 
 Dua hal yang akan membuang waktu kalau tidak diketahui lebih dulu:

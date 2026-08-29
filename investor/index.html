@@ -292,6 +292,56 @@ button{font-family:inherit; cursor:pointer}
 .lr-sorot .lr-nilai{color:var(--gold-dim);font-size:16px}
 .lr-mati .lr-nama{color:var(--muted-2)}
 .lr-belum{font-size:11px;color:var(--muted-2);font-style:italic;font-weight:600}
+/* Kaki grafik harian: total & rata-rata bulan yang sedang dilihat. Ada di
+   bawah grafiknya sendiri, bukan di kartu terpisah — yang membacanya sedang
+   melihat batang-batang itu, dan angka jumlahnya adalah pertanyaan berikutnya. */
+.daily-kaki{display:flex;gap:18px;flex-wrap:wrap;margin-top:12px;padding-top:11px;
+  border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+.daily-kaki b{color:var(--ink);font-size:13px}
+/* Tabel harian: angka pastinya. Grafik menjawab "hari mana yang ramai", tapi
+   yang dicocokkan orang dengan laporan lain adalah angkanya. Dibatasi tinggi
+   dan menggulung sendiri — 31 baris di bawah grafik mendorong Sorotan di
+   sebelahnya keluar layar. */
+.daily-tabel{margin-top:12px;max-height:300px;overflow-y:auto;
+  border:1px solid var(--line);border-radius:var(--radius-sm)}
+.daily-tabel table{width:100%;border-collapse:collapse;font-size:12.5px}
+.daily-tabel th{position:sticky;top:0;background:var(--paper);text-align:left;
+  font-size:10px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--muted-2);padding:8px 11px;border-bottom:1px solid var(--line)}
+.daily-tabel th.num,.daily-tabel td.num{text-align:right;font-variant-numeric:tabular-nums}
+.daily-tabel td{padding:7px 11px;border-bottom:1px solid var(--line)}
+.daily-tabel tr:last-child td{border-bottom:none}
+/* Hari yang belum diisi dipudarkan dan ditulis "belum diisi" — BUKAN Rp 0.
+   Nol terbaca sebagai tutup atau tidak ada penjualan sama sekali, dan itu
+   jawaban yang salah untuk hari yang cuma belum sempat diinput. */
+.daily-tabel tr.kosong td{color:var(--muted-2)}
+.daily-tabel tr.kosong i{font-style:italic}
+/* Laporan PDF bulanan */
+.pdf-baris{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--line)}
+.pdf-baris:last-child{border-bottom:none}
+.pdf-ic{font-size:20px;flex:0 0 auto}
+.pdf-inti{flex:1;min-width:0}
+.pdf-inti b{display:block;font-size:13.5px;color:var(--ink)}
+.pdf-inti span{font-size:11.5px;color:var(--muted-2)}
+.pdf-belum{font-size:11.5px;color:var(--muted-2);font-style:italic}
+.pdf-btn{font-family:var(--font-body);font-size:12px;font-weight:700;cursor:pointer;
+  border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  border-radius:var(--radius-sm);padding:7px 13px;white-space:nowrap}
+.pdf-btn:hover{border-color:var(--gold)}
+.pdf-btn.pri{background:var(--gold);border-color:var(--gold);color:#fff}
+.pdf-btn:disabled{opacity:.5;cursor:default}
+.pdf-unggah{margin-top:16px;padding:14px 15px;border:1px dashed var(--gold);
+  border-radius:var(--radius-sm);background:var(--gold-glow)}
+.pdf-unggah h4{margin:0 0 3px;font-size:13px;color:var(--ink)}
+.pdf-unggah .ket{font-size:11.5px;color:var(--muted);margin-bottom:11px}
+.pdf-form{display:grid;gap:10px;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));align-items:end}
+.pdf-form label{display:block;font-size:10px;font-weight:700;letter-spacing:.06em;
+  text-transform:uppercase;color:var(--muted-2);margin-bottom:5px}
+.pdf-form input{width:100%;font-family:var(--font-body);font-size:12.5px;
+  border:1px solid var(--line);border-radius:var(--radius-sm);padding:7px 9px;background:var(--surface)}
+.pdf-pesan{margin-top:10px;font-size:12px}
+.pdf-pesan.ok{color:var(--ok, #1F9D5F)}
+.pdf-pesan.err{color:var(--danger, #C9432B)}
 .lr-pilih{font-family:var(--font-body);font-size:13px;font-weight:600;color:var(--ink);
   background:var(--surface);border:1px solid var(--line);border-radius:var(--radius-sm);
   padding:7px 11px;cursor:pointer}
@@ -460,7 +510,10 @@ button{font-family:inherit; cursor:pointer}
 
       <div class="section two">
         <div>
-          <div class="section-head"><h2>Omset Harian (30 hari)</h2></div>
+          <div class="section-head">
+            <h2>Omset Harian</h2>
+            <select id="dailyBulan" class="lr-pilih" onchange="harianGanti(this.value)"></select>
+          </div>
           <div class="card" id="dailyBox"><canvas id="dailyChart" height="150"></canvas></div>
         </div>
         <div>
@@ -489,6 +542,10 @@ button{font-family:inherit; cursor:pointer}
           <select id="lrBulan" class="lr-pilih" onchange="lrGanti(this.value)"></select>
         </div>
         <div class="card" id="laporanBox"></div>
+      </div>
+      <div class="section">
+        <div class="section-head"><h2>Laporan Akuntansi Bulanan</h2></div>
+        <div id="pdfBox"></div>
       </div>
     </div>
 
@@ -561,13 +618,26 @@ async function postJson(url, data) {
 
 /* ---- format ---- */
 const rp = n => (n == null) ? "—" : "Rp " + Math.round(n).toLocaleString("id-ID");
-const rpShort = n => {
+/* ANGKA UANG SELALU PENUH (29 Agustus 2026, permintaan user: "formatnya
+   tetap Rp.0.000.000"). Bentuk singkat — "Rp 622 jt", "Rp 1,2 M" —
+   dicabut dari seluruh teks: pembulatan ke jutaan menyembunyikan sampai
+   Rp 999.999, dan di halaman yang dibaca investor selisih sebesar itu
+   adalah selisih yang ditanyakan.
+
+   Yang TETAP singkat cuma angka di sumbu Y grafik — sumbu dengan sembilan
+   digit per garis mendorong grafiknya keluar layar, dan angka pastinya
+   sudah ada di tooltip. */
+const rpSumbu = n => {
   if (n == null) return "—";
   if (Math.abs(n) >= 1e9) return "Rp " + (n/1e9).toFixed(n % 1e9 === 0 ? 0 : 1) + " M";
   if (Math.abs(n) >= 1e6) return "Rp " + (n/1e6).toFixed(0) + " jt";
   return "Rp " + Math.round(n).toLocaleString("id-ID");
 };
 const MONTHS = ["Jan","Feb","Mar","Apr","Mei","Jun","Jul","Agu","Sep","Okt","Nov","Des"];
+/* getUTCDay dipakai bersama tanggal ISO yang diurai sebagai UTC tengah malam.
+   Kalau diurai lokal, zona di barat Greenwich menggeser harinya satu hari dan
+   Sabtu tertulis Jumat — salah yang tidak pernah dicurigai siapa pun. */
+const HARI_NAMA = ["Minggu","Senin","Selasa","Rabu","Kamis","Jumat","Sabtu"];
 const esc = s => String(s == null ? '' : s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 function tglPanjang(iso) {
   if (!iso) return '—';
@@ -703,6 +773,11 @@ async function muatData() {
     return;
   }
   D = r.data || null;
+  /* `bolehUnggah` datang dari server bersama identitas pemakainya, bukan
+     disimpulkan layar: halaman ini tidak menyimpan adminModules sama sekali,
+     dan kalaupun menyimpan, apa pun yang ada di peramban bisa diketik ulang.
+     Penjaga sebenarnya tetap di aksi investorLaporUpload. */
+  if (D) D.bolehUnggah = !!(r.user && r.user.bolehUnggah);
   render();
 }
 function gagalData(pesan) {
@@ -714,6 +789,8 @@ function gagalData(pesan) {
   document.getElementById('laporanBox').innerHTML = kosong('📄', 'Laporan belum bisa disusun', 'Angka pendapatannya belum terbaca.');
   document.getElementById('dividenBox').innerHTML = '<div class="card">' + kosong('💰', 'Riwayat dividen belum bisa dibaca', 'Servernya tidak menjawab.') + '</div>';
   document.getElementById('lrBulan').innerHTML = '';
+  document.getElementById('pdfBox').innerHTML = kosong('📄', 'Laporan PDF belum bisa dibaca', 'Servernya tidak menjawab.');
+  const dbl = document.getElementById('dailyBulan'); if (dbl) dbl.innerHTML = '';
   renderKosongLain();
 }
 
@@ -775,6 +852,7 @@ function render() {
   renderKPIs();
   renderHighlights();
   renderLaporan();
+  gambarLaporPdf();
   renderDividen();
   renderKosongLain();
   buildYearToggle();
@@ -828,7 +906,7 @@ function renderKPIs() {
     const sv = Number(x.svc || 0), pj = Number(x.pajak || 0), cp = Number(x.compliment || 0);
     if (sv + pj + cp <= 0) return '';
     const bag = [];
-    if (sv + pj > 0) bag.push('termasuk service ' + rpShort(sv) + ' & pajak ' + rpShort(pj));
+    if (sv + pj > 0) bag.push('termasuk service ' + rp(sv) + ' & pajak ' + rp(pj));
     /* Compliment disebut TERANG-TERANGAN. Ia satu-satunya sebab angka di
        sini berbeda dari kartu "Dibayar Tamu" di Rekap Penjualan — Agustus
        2026 selisihnya Rp 11,6 jt — dan selisih yang tidak dijelaskan akan
@@ -844,7 +922,7 @@ function renderKPIs() {
          daftarnya — mengeluarkannya membuat jumlah metode tidak lagi sama
          dengan totalnya. Laporan laba rugi justru harus mengeluarkannya,
          karena tamunya tidak membayar. */
-      bag.push('dipotong compliment ' + rpShort(cp)
+      bag.push('dipotong compliment ' + rp(cp)
              + ' dari tagihan POS ' + rp(x.dibayarTamu));
     }
     return bag.join(' · ');
@@ -869,7 +947,7 @@ function renderKPIs() {
   const k = [
     { label:"Omset " + blnPanjang(bi.kunci), val: rp(bulanIniNilai),
       delta: delta(rataIni, rataLalu), deltaKet:"rata-rata/hari vs " + blnPanjang(bl.kunci),
-      foot: target > 0 ? (pctTagihan + "% dari target " + rpShort(target)) : "Target bulanan belum disetel",
+      foot: target > 0 ? (pctTagihan + "% dari target " + rp(target)) : "Target bulanan belum disetel",
       foot2: ketPajak(bi) },
     { label:"Transaksi " + blnPanjang(bi.kunci), val: trx ? trx.toLocaleString("id-ID") : "—",
       delta: null, foot: trx ? "struk terhitung" : "Jumlah bill belum diisi" },
@@ -905,21 +983,25 @@ function renderHighlights() {
   const bulanNilai = Number(bi.netSales || 0);
   const items = [];
 
-  /* Hari terbaik DALAM 30 hari terakhir — bukan sepanjang sejarah. Rekor
-     lama yang terus dipajang tidak menceritakan apa pun soal keadaan
-     sekarang, dan itulah yang ditanyakan investor saat membuka halaman. */
-  const isi = (D.harian || []).filter(h => h.omset != null);
+  /* Hari terbaik DI BULAN BERJALAN — bukan sepanjang sejarah, dan bukan lagi
+     30 hari berjalan. Rekor lama yang terus dipajang tidak menceritakan apa
+     pun soal keadaan sekarang; jendela 30 hari tidak cocok dengan bulan mana
+     pun, jadi angkanya tidak bisa dicocokkan dengan kartu di sebelahnya. */
+  const blnKini = bi.kunci || '';
+  const isi = (D.harian || []).filter(h => h.omset != null && String(h.tgl).slice(0, 7) === blnKini);
   if (isi.length) {
     const best = isi.reduce((a, b) => (b.omset > a.omset ? b : a));
-    items.push({ ic:"🏆", t:"Hari terbaik " + rpShort(best.omset), s:tglPanjang(best.tgl) + " · dari 30 hari terakhir" });
+    items.push({ ic:"🏆", t:"Hari terbaik " + rp(best.omset),
+                 s:tglPanjang(best.tgl) + " · " + blnPanjang(blnKini) });
     const rata = isi.reduce((a, b) => a + b.omset, 0) / isi.length;
-    items.push({ ic:"📊", t:"Rata-rata " + rpShort(rata) + " / hari", s:isi.length + " hari terisi dari 30 hari terakhir" });
+    items.push({ ic:"📊", t:"Rata-rata " + rp(rata) + " / hari",
+                 s:isi.length + " hari terisi di " + blnPanjang(blnKini) });
   }
   if (target > 0) {
     const sisa = target - bulanNilai;
     items.push(sisa > 0
-      ? { ic:"🎯", t:"Kurang " + rpShort(sisa) + " dari target", s:"target " + blnPanjang(bi.kunci) + " " + rpShort(target) }
-      : { ic:"🎉", t:"Target " + blnPanjang(bi.kunci) + " tercapai", s:"lebih " + rpShort(-sisa) + " dari target" });
+      ? { ic:"🎯", t:"Kurang " + rp(sisa) + " dari target", s:"target " + blnPanjang(bi.kunci) + " " + rp(target) }
+      : { ic:"🎉", t:"Target " + blnPanjang(bi.kunci) + " tercapai", s:"lebih " + rp(-sisa) + " dari target" });
   } else {
     items.push({ ic:"🎯", t:"Target bulanan belum disetel", s:"disetel di Finance — Dashboard Omset" });
   }
@@ -1420,23 +1502,93 @@ function drawCharts() {
     revChartObj = new Chart(ctx, { type:'line', data:{ labels: MONTHS, datasets: ds }, options: baseOpts() });
   }
 
+  /* ---- omset harian, PER BULAN ----
+     Dulu jendela berjalan 30 hari (permintaan user 29 Agustus 2026: "diganti
+     menjadi bulanan saja"). Jendela berjalan tidak pernah sama dengan bulan
+     mana pun, jadi jumlah batangnya tidak bisa dicocokkan dengan angka bulanan
+     di kartu mana pun di halaman ini — dan itu pertanyaan pertama yang muncul
+     tiap kali orang menjumlahkannya.
+
+     Angkanya datang dari Input Omset Harian di modul Finance — yang diisi
+     kasir tiap hari. Sumbernya SATU dengan kartu di atas dan tab Laporan;
+     dua sumber untuk angka harian pasti berselisih suatu hari. */
   const dailyBox = document.getElementById('dailyBox');
-  const harian = D.harian || [];
-  if (!harian.some(h => h.omset != null)) {
-    dailyBox.innerHTML = kosong('📊', 'Belum ada omset 30 hari terakhir', 'Tidak ada satu pun hari yang diisi dalam 30 hari terakhir.');
+  const semuaHarian = D.harian || [];
+  const blnPunya = [...new Set(semuaHarian.map(h => String(h.tgl).slice(0, 7)))].sort().reverse();
+  if (!blnPunya.length) {
+    dailyBox.innerHTML = kosong('📊', 'Belum ada omset harian',
+      'Belum ada satu hari pun yang diisi di Input Omset Harian — modul Finance, Dashboard Omset.');
+    const sel = document.getElementById('dailyBulan');
+    if (sel) sel.innerHTML = '';
   } else {
-    if (!document.getElementById('dailyChart')) dailyBox.innerHTML = '<canvas id="dailyChart" height="150"></canvas>';
-    const dctx = document.getElementById('dailyChart');
-    if (dailyChartObj) dailyChartObj.destroy();
-    dailyChartObj = new Chart(dctx, {
-      type:'bar',
-      data:{ labels: harian.map(h => Number(String(h.tgl).slice(8))),
-             datasets:[{ data: harian.map(h => h.omset),
-               backgroundColor:'rgba(200,150,31,.16)', borderColor:'#A9791F', borderWidth:1.2, borderRadius:4 }] },
-      options: baseOpts(true, harian)
-    });
+    if (!BLN_HARIAN || blnPunya.indexOf(BLN_HARIAN) < 0) BLN_HARIAN = blnPunya[0];
+    const sel = document.getElementById('dailyBulan');
+    if (sel) sel.innerHTML = blnPunya.map(b =>
+      '<option value="' + b + '"' + (b === BLN_HARIAN ? ' selected' : '') + '>' + esc(blnPanjang(b)) + '</option>').join('');
+    gambarHarianBulan();
   }
 }
+
+/* Bulan yang sedang dilihat di grafik harian. Di luar D supaya berpindah bulan
+   tidak menembak server: seluruh harinya sudah ikut di balasan pertama. */
+let BLN_HARIAN = null;
+function harianGanti(b) { BLN_HARIAN = b; gambarHarianBulan(); }
+
+function gambarHarianBulan() {
+  const box = document.getElementById('dailyBox');
+  if (!box || !D) return;
+  const b = BLN_HARIAN;
+  const peta = {};
+  (D.harian || []).forEach(h => { if (String(h.tgl).slice(0, 7) === b) peta[h.tgl] = h; });
+
+  /* SELURUH tanggal bulan itu disusun 1..akhir, termasuk yang belum diisi.
+     Kalau yang digambar cuma hari yang ada datanya, dua batang bersebelahan
+     bisa berjarak seminggu tanpa ada yang menyebutkannya — grafiknya berbohong
+     tanpa satu pun angka yang salah. */
+  const [th, bl] = b.split('-').map(Number);
+  const akhir = new Date(Date.UTC(th, bl, 0)).getUTCDate();
+  const hari = [];
+  for (let i = 1; i <= akhir; i++) {
+    const t = b + '-' + String(i).padStart(2, '0');
+    hari.push({ tgl: t, omset: peta[t] ? peta[t].omset : null,
+                tagihan: peta[t] ? peta[t].tagihan : null });
+  }
+  const isi = hari.filter(h => h.omset != null);
+  const total = isi.reduce((a, h) => a + h.omset, 0);
+  const rata = isi.length ? total / isi.length : 0;
+
+  box.innerHTML = '<canvas id="dailyChart" height="150"></canvas>'
+    + '<div class="daily-kaki">'
+    + '<span><b>' + rp(total) + '</b> total</span>'
+    + '<span><b>' + rp(rata) + '</b> rata-rata / hari</span>'
+    + '<span>' + isi.length + ' dari ' + akhir + ' hari terisi</span>'
+    + '</div>'
+    /* Tabelnya ADA, bukan cuma grafik (permintaan user: "bisa ditampilkan omset
+       harian"). Grafik menjawab "hari mana yang ramai"; angka pastinya cuma
+       bisa dibaca dari tabel, dan itu yang dicocokkan orang dengan laporan
+       lain. Hari yang belum diisi ditulis "belum diisi", bukan Rp 0 — nol
+       terbaca sebagai tutup atau tidak ada penjualan sama sekali. */
+    + '<div class="daily-tabel"><table><thead><tr><th>Tanggal</th><th>Hari</th>'
+    + '<th class="num">Net Sales</th><th class="num">Tagihan POS</th></tr></thead><tbody>'
+    + hari.map(h => '<tr' + (h.omset == null ? ' class="kosong"' : '') + '>'
+        + '<td>' + esc(tglPanjang(h.tgl)) + '</td>'
+        + '<td>' + HARI_NAMA[new Date(h.tgl + 'T00:00:00Z').getUTCDay()] + '</td>'
+        + '<td class="num">' + (h.omset == null ? '<i>belum diisi</i>' : rp(h.omset)) + '</td>'
+        + '<td class="num">' + (h.tagihan == null ? '—' : rp(h.tagihan)) + '</td>'
+        + '</tr>').join('')
+    + '</tbody></table></div>';
+
+  if (dailyChartObj) dailyChartObj.destroy();
+  if (!isi.length) return;
+  dailyChartObj = new Chart(document.getElementById('dailyChart'), {
+    type:'bar',
+    data:{ labels: hari.map(h => Number(String(h.tgl).slice(8))),
+           datasets:[{ data: hari.map(h => h.omset),
+             backgroundColor:'rgba(200,150,31,.16)', borderColor:'#A9791F', borderWidth:1.2, borderRadius:4 }] },
+    options: baseOpts(true, hari)
+  });
+}
+
 function baseOpts(hideX, harian) {
   return {
     responsive:true, maintainAspectRatio:true,
@@ -1447,14 +1599,208 @@ function baseOpts(hideX, harian) {
            memuat angka tanggal, dan "14" di sebelah "13" bisa saja beda
            bulan tanpa ada yang menyebutkannya. */
         title: harian ? (c => tglPanjang(harian[c[0].dataIndex] && harian[c[0].dataIndex].tgl)) : undefined,
-        label: c => (c.dataset.label ? c.dataset.label + ': ' : '') + rpShort(c.parsed.y)
+        label: c => (c.dataset.label ? c.dataset.label + ': ' : '') + rp(c.parsed.y)
       } }
     },
     scales:{
-      y:{ ticks:{ callback: v => rpShort(v), font:{ size:10 }, color:'#928C80' }, grid:{ color:'rgba(60,55,45,.06)' } },
+      y:{ ticks:{ callback: v => rpSumbu(v), font:{ size:10 }, color:'#928C80' }, grid:{ color:'rgba(60,55,45,.06)' } },
       x:{ ticks:{ font:{ size:10 }, color:'#928C80' }, grid:{ display:false } }
     }
   };
+}
+
+
+/* =======================================================================
+   LAPORAN PDF BULANAN — Balance Report & General Ledger Report
+   -----------------------------------------------------------------------
+   Dua berkas, SATU kali unggah (permintaan user 29 Agustus 2026). Keduanya
+   selalu terbit bersamaan dari sistem akuntansi, dan dua form terpisah
+   berarti dua kali memilih bulan yang sama — dan satu kesempatan lagi untuk
+   memilih bulan yang berbeda tanpa menyadarinya.
+
+   Yang boleh MENGUNGGAH cuma admin modul `investor`; yang boleh MEMBACA
+   siapa pun yang punya kunci modulnya. Keduanya ditegakkan di server —
+   `bolehUnggah` di bawah cuma menentukan formnya digambar atau tidak.
+   ======================================================================= */
+const PDF_JENIS = [
+  ['balance', 'Balance Report',        '📗'],
+  ['ledger',  'General Ledger Report', '📘']
+];
+
+function gambarLaporPdf() {
+  const box = document.getElementById('pdfBox');
+  if (!box) return;
+  const peta = (D && D.lapor) || {};
+  const bulan = Object.keys(peta).sort().reverse();
+  const boleh = !!(D && D.bolehUnggah);
+
+  let h = '';
+  if (!bulan.length) {
+    h += kosong('📄', 'Belum ada laporan PDF',
+      boleh ? 'Unggah Balance Report dan General Ledger Report bulanan lewat form di bawah.'
+            : 'Balance Report dan General Ledger Report bulanan akan muncul di sini begitu diunggah.');
+  } else {
+    h += bulan.map(b => {
+      const isi = peta[b] || {};
+      return '<div class="card" style="margin-bottom:14px">'
+        + '<div class="section-head" style="margin:0 0 4px"><h2 style="font-size:15px">'
+          + esc(blnPanjang(b)) + '</h2></div>'
+        + PDF_JENIS.map(([k, nama, ic]) => {
+            const f = isi[k];
+            return '<div class="pdf-baris">'
+              + '<div class="pdf-ic">' + ic + '</div>'
+              + '<div class="pdf-inti"><b>' + nama + '</b>'
+              + (f ? '<span>' + esc(f.nama) + ' · ' + ukuranTeks(f.ukuran)
+                     + (f.oleh ? ' · diunggah ' + esc(f.oleh) : '') + '</span>'
+                   : '<span class="pdf-belum">belum diunggah</span>')
+              + '</div>'
+              + (f ? '<button class="pdf-btn pri" data-b="' + esc(b) + '" data-j="' + k + '"'
+                     + ' onclick="unduhLapor(this)">Buka PDF</button>'
+                     + (boleh ? ' <button class="pdf-btn" data-b="' + esc(b) + '" data-j="' + k + '"'
+                                + ' onclick="hapusLapor(this)">Hapus</button>' : '')
+                   : '')
+              + '</div>';
+          }).join('')
+        + '</div>';
+    }).join('');
+  }
+
+  if (boleh) {
+    /* Bulan diisi <input type="month"> supaya bentuknya dijamin YYYY-MM —
+       diketik bebas, satu berkas akan tersimpan di bawah "Agustus 2026" dan
+       yang lain di bawah "2026-8", dan keduanya tidak akan pernah bertemu. */
+    h += '<div class="pdf-unggah">'
+      + '<h4>Unggah laporan bulanan</h4>'
+      + '<div class="ket">Pilih bulannya sekali, lalu kedua berkasnya. Boleh salah satu dulu — '
+      + 'yang tidak dipilih dibiarkan seperti sebelumnya. Hanya PDF, maksimal 12 MB per berkas. '
+      + 'Mengunggah untuk bulan yang sudah ada akan <b>mengganti</b> berkas lamanya.</div>'
+      + '<div class="pdf-form">'
+      + '<div><label>Bulan laporan</label><input type="month" id="pdfBulan" value="' + esc(bulanLaluISO()) + '"></div>'
+      + '<div><label>Balance Report (PDF)</label><input type="file" id="pdfBalance" accept="application/pdf,.pdf"></div>'
+      + '<div><label>General Ledger Report (PDF)</label><input type="file" id="pdfLedger" accept="application/pdf,.pdf"></div>'
+      + '<div><button class="pdf-btn pri" id="pdfKirim" onclick="kirimLapor()">Unggah</button></div>'
+      + '</div>'
+      + '<div class="pdf-pesan" id="pdfPesan"></div>'
+      + '</div>';
+  }
+  box.innerHTML = h;
+}
+
+const ukuranTeks = n => n >= 1048576 ? (n / 1048576).toFixed(1) + ' MB'
+                      : n >= 1024 ? Math.round(n / 1024) + ' KB' : n + ' B';
+/* Bawaannya BULAN LALU, bukan bulan ini: laporan akuntansi terbit sesudah
+   bulannya tutup, jadi yang diunggah hari ini hampir selalu bulan sebelumnya. */
+function bulanLaluISO() {
+  const d = new Date();
+  d.setDate(1); d.setMonth(d.getMonth() - 1);
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+}
+
+/* Berkas -> base64. Dibaca di peramban lalu dikirim di dalam JSON, mengikuti
+   pola modul Event. FileReader, bukan arrayBuffer + btoa manual: berkas 12 MB
+   yang diubah lewat String.fromCharCode per byte membuat tab-nya menggantung. */
+function bacaBase64(f) {
+  return new Promise((res, rej) => {
+    const r = new FileReader();
+    r.onload = () => res(String(r.result).replace(/^data:[^,]+,/, ''));
+    r.onerror = () => rej(new Error('berkas tidak bisa dibaca'));
+    r.readAsDataURL(f);
+  });
+}
+
+async function kirimLapor() {
+  const pesan = document.getElementById('pdfPesan');
+  const tombol = document.getElementById('pdfKirim');
+  const lapor = (kelas, teks) => { pesan.className = 'pdf-pesan ' + kelas; pesan.innerHTML = teks; };
+  const bulan = (document.getElementById('pdfBulan') || {}).value || '';
+  if (!/^\d{4}-\d{2}$/.test(bulan)) { lapor('err', 'Bulan laporan wajib diisi.'); return; }
+
+  const ambil = id => { const el = document.getElementById(id); return el && el.files && el.files[0]; };
+  const fb = ambil('pdfBalance'), fl = ambil('pdfLedger');
+  if (!fb && !fl) { lapor('err', 'Pilih minimal satu berkas.'); return; }
+  for (const f of [fb, fl]) {
+    if (!f) continue;
+    /* Diperiksa di sini JUGA, bukan cuma di server: 12 MB yang ditolak sesudah
+       terkirim adalah satu menit menunggu untuk kabar yang sudah bisa
+       diketahui sebelum satu byte pun berangkat. Servernya tetap memeriksa —
+       yang di sini menghemat waktu, bukan menjaga apa pun. */
+    if (f.size > 12 * 1024 * 1024) {
+      lapor('err', '<b>' + esc(f.name) + '</b> berukuran ' + ukuranTeks(f.size) + ', melebihi batas 12 MB.');
+      return;
+    }
+  }
+
+  tombol.disabled = true;
+  lapor('', 'Mengunggah…');
+  try {
+    const berkas = {};
+    if (fb) berkas.balance = { fileName: fb.name, dataBase64: await bacaBase64(fb) };
+    if (fl) berkas.ledger  = { fileName: fl.name, dataBase64: await bacaBase64(fl) };
+    const r = await postJson(API_OMSET, { action:'investorLaporUpload', sesi: SESI.token, bulan, berkas });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'gagal');
+    D.lapor = (r.data && r.data.lapor) || D.lapor;
+    gambarLaporPdf();
+    const g = (r.data && r.data.galat) || [];
+    const pesanBaru = document.getElementById('pdfPesan');
+    if (pesanBaru) {
+      pesanBaru.className = 'pdf-pesan ' + (g.length ? 'err' : 'ok');
+      pesanBaru.innerHTML = (g.length
+        ? '⚠ Sebagian gagal: ' + esc(g.join('; ')) + '. Yang berhasil sudah tersimpan.'
+        : '✓ Tersimpan untuk ' + esc(blnPanjang(bulan)) + '.');
+    }
+  } catch (e) {
+    lapor('err', '⚠ ' + esc(e.message || e));
+  } finally {
+    const t = document.getElementById('pdfKirim');
+    if (t) t.disabled = false;
+  }
+}
+
+/* PDF diambil sebagai BINER lewat POST, bukan dibuka lewat <a href>. Dua
+   alasannya: tokennya tetap di badan permintaan (URL tercatat di log server
+   dan riwayat peramban), dan berkasnya tidak pernah punya alamat yang bisa
+   diteruskan ke orang lain. */
+async function unduhLapor(btn) {
+  const b = btn.dataset.b, j = btn.dataset.j;
+  const teksAsli = btn.textContent;
+  btn.disabled = true; btn.textContent = 'Membuka…';
+  try {
+    const r = await fetch(API_OMSET, {
+      method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action:'investorLaporFile', sesi: SESI.token, bulan: b, jenis: j })
+    });
+    if (!r.ok) throw new Error('server menolak (' + r.status + ')');
+    const ct = r.headers.get('Content-Type') || '';
+    if (ct.indexOf('application/pdf') < 0) {
+      /* Balasan JSON berarti penolakan atau berkasnya hilang — dibaca supaya
+         pesannya sampai, bukan dibuka sebagai PDF rusak. */
+      const j2 = await r.json().catch(() => null);
+      throw new Error((j2 && j2.error) || 'balasan bukan PDF');
+    }
+    const url = URL.createObjectURL(await r.blob());
+    window.open(url, '_blank');
+    /* Dilepas belakangan: melepasnya langsung membuat tab yang baru terbuka
+       kehilangan sumbernya sebelum sempat menggambar. */
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch (e) {
+    alert('Laporan tidak bisa dibuka.\n\n' + (e.message || e));
+  } finally {
+    btn.disabled = false; btn.textContent = teksAsli;
+  }
+}
+
+async function hapusLapor(btn) {
+  const b = btn.dataset.b, j = btn.dataset.j;
+  const nama = (PDF_JENIS.find(x => x[0] === j) || [])[1] || j;
+  if (!confirm('Hapus ' + nama + ' ' + blnPanjang(b) + '?\n\nBerkasnya ikut terhapus dari server.')) return;
+  try {
+    const r = await postJson(API_OMSET, { action:'investorLaporHapus', sesi: SESI.token, bulan: b, jenis: j });
+    if (!r || !r.ok) throw new Error((r && r.error) || 'gagal');
+    D.lapor = (r.data && r.data.lapor) || {};
+    gambarLaporPdf();
+  } catch (e) {
+    alert('Gagal menghapus.\n\n' + (e.message || e));
+  }
 }
 
 /* =======================================================================

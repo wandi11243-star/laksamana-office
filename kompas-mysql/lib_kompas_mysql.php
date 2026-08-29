@@ -814,22 +814,30 @@ function ringkas_investor() {
   }
   ksort($tahunan);
 
-  /* 30 hari kalender terakhir sampai hari ini — bukan "30 baris terakhir".
-     Kalau yang diambil 30 baris, hari yang belum diisi menghilang dari
-     sumbu dan grafiknya jadi berbohong: dua batang bersebelahan bisa
-     berjarak seminggu tanpa ada yang menyebutkannya.
+  /* SELURUH hari yang ada datanya, bukan 30 hari terakhir (29 Agustus 2026,
+     permintaan user: tampilan harian diganti jadi per bulan). Layar yang
+     memilih bulannya, jadi server tidak perlu tahu bulan mana yang sedang
+     dibuka — dan berpindah bulan tidak menembak server lagi.
+
+     Yang dikirim CUMA hari yang benar-benar terisi. Hari kosong TIDAK
+     dibuatkan barisnya di sini: layar menyusun sendiri 1..31 untuk bulan yang
+     dipilih dan menandai yang tidak ada sebagai kosong. Kalau server yang
+     mengirim seluruh hari kalender, balasannya penuh baris null untuk bulan
+     yang memang belum ada datanya sama sekali.
+
+     Ukurannya tetap kecil: satu tahun penuh ~365 baris x ~60 byte.
 
      `omset` di sini NET SALES, seragam dengan kartu dan grafik tahunan;
      `net` dan `tagihan` ikut supaya layar bisa berpindah konvensi tanpa
      menyentuh server. */
   $harian = array();
-  for ($i = 29; $i >= 0; $i--) {
-    $t = gmdate('Y-m-d', strtotime($hariIni . ' -' . $i . ' day'));
-    $ada = isset($peta[$t]);
+  $tglUrut = array_keys($peta);
+  sort($tglUrut);
+  foreach ($tglUrut as $t) {
     $harian[] = array('tgl' => $t,
-                      'omset'   => $ada ? kp_netsales_hari($peta[$t]) : null,
-                      'tagihan' => $ada ? kp_tagihan_hari($peta[$t])  : null,
-                      'net'     => $ada ? kp_net_hari($peta[$t])      : null);
+                      'omset'   => kp_netsales_hari($peta[$t]),
+                      'tagihan' => kp_tagihan_hari($peta[$t]),
+                      'net'     => kp_net_hari($peta[$t]));
   }
 
   $s  = kp_state_assoc();
@@ -860,6 +868,11 @@ function ringkas_investor() {
     'bulanLalu'=> $blokBulan($blnLalu),
     'tahunan'  => $tahunan,
     'harian'   => $harian,
+    /* Daftar laporan PDF per bulan. Ikut di balasan ini dan bukan aksi
+       sendiri: daftarnya pendek (dua berkas per bulan) dan tab Laporan ada di
+       halaman yang sama. Yang TIDAK ikut adalah isi berkasnya — itu diambil
+       satu per satu lewat investorLaporFile saat tombolnya ditekan. */
+    'lapor'    => inv_lapor_daftar(),
     /* Susunan Profit Loss Report per bulan. Ikut di balasan ini, bukan
        endpoint sendiri: bulannya cuma belasan, dan satu perjalanan lebih
        murah daripada dua. PETANYA DIOPER, bukan dibaca ulang — sekali baca
@@ -1299,4 +1312,171 @@ function an_peran_simpan($peta) {
     $pdo->commit();
   } catch (Throwable $e) { if ($pdo->inTransaction()) $pdo->rollBack(); throw $e; }
   return array('ok' => true, 'saved' => true);
+}
+
+/* =====================================================================
+   LAPORAN PDF BULANAN UNTUK INVESTOR (29 Agustus 2026)
+   ---------------------------------------------------------------------
+   Balance Report & General Ledger Report, satu kali unggah per bulan.
+
+   BINERNYA DI DISK, BUKAN DI DATABASE. Pola yang sama dengan event-mysql
+   dan marketing-mysql — dan alasannya sama: General Ledger sebulan bisa
+   belasan MB, dan menaruhnya di kolom LONGTEXT berarti tiap pembacaan
+   daftar ikut menyeret isinya melewati max_allowed_packet.
+
+   FOLDERNYA DIUSAHAKAN DI LUAR WEB ROOT, dan itu bukan kehati-hatian
+   berlebih: berkas ini neraca dan buku besar perusahaan. Kalau terpaksa
+   di dalam, ditutup .htaccess — dan tetap tidak pernah dilayani lewat URL
+   tebakan, cuma lewat aksi berpagar di api.php.
+
+   YANG DISIMPAN DI DATABASE CUMA PENUNJUKNYA. Satu baris per bulan per
+   jenis, dan kuncinya (bulan, jenis) UNIK: mengunggah ulang MENGGANTI,
+   bukan menumpuk. Dua Balance Report untuk bulan yang sama berarti
+   investor melihat dua tombol yang isinya berbeda tanpa satu pun tanda
+   mana yang terbaru.
+   ===================================================================== */
+function inv_lapor_pastikan() {
+  $pdo = db();
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `inv_lapor` (
+       `id`     INT UNSIGNED NOT NULL AUTO_INCREMENT PRIMARY KEY,
+       `bulan`  CHAR(7)      NOT NULL,
+       `jenis`  VARCHAR(20)  NOT NULL,
+       `kunci`  VARCHAR(80)  NOT NULL,
+       `nama`   VARCHAR(190) NOT NULL DEFAULT \'\',
+       `ukuran` INT UNSIGNED NOT NULL DEFAULT 0,
+       `at`     BIGINT       NOT NULL DEFAULT 0,
+       `oleh`   VARCHAR(80)  NOT NULL DEFAULT \'\',
+       UNIQUE KEY `uq_inv_lapor` (`bulan`,`jenis`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+}
+
+/* Dua jenis, daftar TERTUTUP. Jenis bebas berarti tab Laporan suatu hari
+   penuh berkas yang tidak ada yang tahu apa isinya. */
+function inv_lapor_jenis() {
+  return array('balance' => 'Balance Report', 'ledger' => 'General Ledger Report');
+}
+
+function inv_lapor_dir() {
+  static $dir = null;
+  if ($dir !== null) return $dir;
+  if (defined('DATA_DIR') && DATA_DIR !== '') {
+    if (!is_dir(DATA_DIR) && !@mkdir(DATA_DIR, 0775, true))
+      throw new Exception('DATA_DIR tidak bisa dibuat: ' . DATA_DIR);
+    $dir = realpath(DATA_DIR) ?: DATA_DIR;
+  } else {
+    $luar  = __DIR__ . '/../../../kompas-db';   // di luar public_html
+    $dalam = __DIR__ . '/db';                   // terpaksa: ditutup .htaccess
+    if (is_dir($luar) || @mkdir($luar, 0775, true))        $dir = $luar;
+    else if (is_dir($dalam) || @mkdir($dalam, 0775, true)) $dir = $dalam;
+    else throw new Exception('Tidak bisa membuat folder berkas. Cek izin tulis hosting.');
+    $dir = realpath($dir) ?: $dir;
+  }
+  return $dir;
+}
+function inv_lapor_files_dir() { return inv_lapor_dir() . '/lapor'; }
+function inv_lapor_siapkan() {
+  if (!is_dir(inv_lapor_files_dir())) @mkdir(inv_lapor_files_dir(), 0775, true);
+  /* .htaccess dipasang kalau foldernya terpaksa di dalam web root. Tanpa itu,
+     neraca perusahaan bisa diambil siapa pun yang menebak nama berkasnya. */
+  if (strpos(inv_lapor_dir(), realpath(__DIR__)) !== 0) return;
+  $ht = inv_lapor_dir() . '/.htaccess';
+  if (!file_exists($ht)) @file_put_contents($ht,
+    "<IfModule mod_authz_core.c>\n  Require all denied\n</IfModule>\n" .
+    "<IfModule !mod_authz_core.c>\n  Order allow,deny\n  Deny from all\n</IfModule>\n");
+}
+/* kunci -> path aman. Kunci buatan kita sendiri (lp_<acak>.pdf), tapi tetap
+   dibersihkan: satu hari nanti ada yang mengoper kunci dari luar. */
+function inv_lapor_path($kunci) {
+  $safe = preg_replace('/[^A-Za-z0-9._-]/', '_', (string)$kunci);
+  return inv_lapor_files_dir() . '/' . $safe;
+}
+
+function inv_lapor_daftar() {
+  inv_lapor_pastikan();
+  $out = array();
+  foreach (db()->query('SELECT `bulan`,`jenis`,`nama`,`ukuran`,`at`,`oleh`
+                        FROM `inv_lapor` ORDER BY `bulan` DESC, `jenis`')->fetchAll() as $r) {
+    $b = (string)$r['bulan'];
+    if (!isset($out[$b])) $out[$b] = array();
+    $out[$b][(string)$r['jenis']] = array(
+      'nama' => (string)$r['nama'], 'ukuran' => (int)$r['ukuran'],
+      'at' => (int)$r['at'], 'oleh' => (string)$r['oleh']);
+  }
+  /* (object) supaya peta kosong terkirim sebagai {} bukan [] — aturan JSON
+     yang sama dengan seluruh berkas ini. */
+  return (object)$out;
+}
+
+function inv_lapor_simpan($bulan, $jenis, $payload, $oleh) {
+  inv_lapor_pastikan();
+  $bulan = trim((string)$bulan);
+  if (!preg_match('/^\d{4}-\d{2}$/', $bulan)) return array('ok' => false, 'error' => 'bulan harus YYYY-MM');
+  $jenisSah = inv_lapor_jenis();
+  if (!isset($jenisSah[$jenis])) return array('ok' => false, 'error' => 'jenis laporan tidak dikenal: ' . $jenis);
+  if (!$payload || empty($payload['dataBase64'])) return array('ok' => false, 'error' => 'berkas kosong');
+
+  $bin = base64_decode(preg_replace('#^data:[^,]+,#', '', $payload['dataBase64']), true);
+  if ($bin === false) return array('ok' => false, 'error' => 'base64 tidak valid');
+  /* HANYA PDF. Diperiksa dari ISI berkasnya, bukan namanya: nama diketik
+     orang dan ekstensi bisa diganti, sedangkan empat byte pertama tidak. */
+  if (substr($bin, 0, 4) !== '%PDF') return array('ok' => false, 'error' => 'berkasnya bukan PDF');
+  if (strlen($bin) > 12 * 1024 * 1024)
+    return array('ok' => false, 'error' => 'berkas melebihi 12 MB (' . round(strlen($bin) / 1048576, 1) . ' MB)');
+
+  inv_lapor_siapkan();
+  $kunci = 'lp_' . bin2hex(random_bytes(8)) . '.pdf';
+  if (file_put_contents(inv_lapor_path($kunci), $bin) === false)
+    return array('ok' => false, 'error' => 'gagal menulis berkas (cek izin folder)');
+
+  $pdo = db();
+  /* Berkas LAMA dihapus SESUDAH yang baru berhasil ditulis. Dibalik, satu
+     kegagalan tulis meninggalkan bulan itu tanpa laporan sama sekali. */
+  $st = $pdo->prepare('SELECT `kunci` FROM `inv_lapor` WHERE `bulan`=? AND `jenis`=?');
+  $st->execute(array($bulan, $jenis));
+  $lama = $st->fetchColumn();
+
+  $pdo->prepare('INSERT INTO `inv_lapor` (`bulan`,`jenis`,`kunci`,`nama`,`ukuran`,`at`,`oleh`)
+                 VALUES (?,?,?,?,?,?,?)
+                 ON DUPLICATE KEY UPDATE `kunci`=VALUES(`kunci`), `nama`=VALUES(`nama`),
+                   `ukuran`=VALUES(`ukuran`), `at`=VALUES(`at`), `oleh`=VALUES(`oleh`)')
+      ->execute(array($bulan, $jenis, $kunci,
+                      mb_substr((string)(isset($payload['fileName']) ? $payload['fileName'] : $kunci), 0, 190),
+                      strlen($bin), (int)(microtime(true) * 1000), mb_substr((string)$oleh, 0, 80)));
+
+  if ($lama && $lama !== $kunci) @unlink(inv_lapor_path($lama));
+  return array('ok' => true, 'bulan' => $bulan, 'jenis' => $jenis, 'ukuran' => strlen($bin));
+}
+
+/* Dikirim sebagai biner, BUKAN base64 di dalam JSON. Base64 membengkakkan
+   berkas 12 MB jadi 16 MB, dan peramban harus menampung keduanya sekaligus
+   di memori sebelum satu byte pun sampai ke layar. */
+function inv_lapor_sajikan($bulan, $jenis) {
+  inv_lapor_pastikan();
+  $st = db()->prepare('SELECT `kunci`,`nama` FROM `inv_lapor` WHERE `bulan`=? AND `jenis`=?');
+  $st->execute(array((string)$bulan, (string)$jenis));
+  $r = $st->fetch();
+  if (!$r) { http_response_code(404); header('Content-Type: application/json');
+             echo json_encode(array('ok' => false, 'error' => 'laporan tidak ada')); exit; }
+  $p = inv_lapor_path($r['kunci']);
+  if (!is_file($p)) { http_response_code(404); header('Content-Type: application/json');
+             echo json_encode(array('ok' => false, 'error' => 'berkasnya hilang dari disk')); exit; }
+  header('Content-Type: application/pdf');
+  header('Content-Length: ' . filesize($p));
+  header('Content-Disposition: inline; filename="' . preg_replace('/[^A-Za-z0-9._ -]/', '_', $r['nama']) . '"');
+  header('Cache-Control: private, max-age=0, no-store');
+  readfile($p);
+  exit;
+}
+
+function inv_lapor_hapus($bulan, $jenis) {
+  inv_lapor_pastikan();
+  $pdo = db();
+  $st = $pdo->prepare('SELECT `kunci` FROM `inv_lapor` WHERE `bulan`=? AND `jenis`=?');
+  $st->execute(array((string)$bulan, (string)$jenis));
+  $k = $st->fetchColumn();
+  $pdo->prepare('DELETE FROM `inv_lapor` WHERE `bulan`=? AND `jenis`=?')
+      ->execute(array((string)$bulan, (string)$jenis));
+  if ($k) @unlink(inv_lapor_path($k));
+  return array('ok' => true);
 }
