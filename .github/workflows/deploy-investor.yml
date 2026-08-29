@@ -108,33 +108,63 @@ jobs:
         if: always()
         run: |
           set +e
+          # Diagnosa ditulis ke LOG dan ke Summary sekaligus. Sebelumnya cuma
+          # ke Summary — dan saat run-nya merah, yang dibuka orang adalah log
+          # langkah yang gagal, bukan halaman Summary. Akibatnya langkah ini
+          # cuma menampilkan "exit code 1" tanpa satu pun keterangan, dan
+          # sebabnya harus ditebak dari LAMA tiap langkah FTP. Sudah kejadian
+          # 29 Agustus 2026.
+          lapor() { echo "$1"; echo "$1" >> "$GITHUB_STEP_SUMMARY"; }
+          lapor "## Investor Compass -> ${{ steps.target.outputs.situs }}"
+          lapor ""
+          # Hasil kedua percobaan FTP disebut lebih dulu. Kalau keduanya
+          # gagal, isi halaman di server memang TIDAK MUNGKIN berubah — dan
+          # "BEDA" di bawah cuma akibat, bukan sebab. Menyebut akibatnya saja
+          # membuat orang mencari di tempat yang salah.
+          FTP1="${{ steps.ftpinv.outcome }}"
+          FTP2="${{ steps.ftpinv2.outcome }}"
+          lapor "- FTP percobaan 1: **$FTP1**"
+          [ -n "$FTP2" ] && [ "$FTP2" != "skipped" ] && lapor "- FTP percobaan 2: **$FTP2**"
+          if [ "$FTP1" != "success" ] && [ "$FTP2" != "success" ]; then
+            lapor ""
+            lapor "**Tidak ada satu byte pun yang terkirim.** Kedua percobaan FTP gagal,"
+            lapor "jadi isi di server pasti masih versi lama. Yang perlu diperiksa,"
+            lapor "berurutan dari yang paling sering:"
+            lapor ""
+            lapor "1. Secret **FTP_SERVER / FTP_USERNAME / FTP_PASSWORD** ada dan benar"
+            lapor "   di Settings -> Secrets and variables -> Actions. Situs investor"
+            lapor "   memakai secret PRODUKSI untuk kedua target (dev & produksi) —"
+            lapor "   bukan salah ketik: akun FTP dev terkurung di docroot-nya sendiri,"
+            lapor "   sedangkan dev.investor.laksamanamuda.id folder SEJAJAR."
+            lapor "2. Akun FTP-nya tidak terkunci hosting karena percobaan beruntun."
+            lapor "3. Folder ${{ steps.target.outputs.dir }} ada di server."
+            lapor ""
+            lapor "Galat FTP-nya sendiri ada di log langkah **Deploy situs investor**."
+            exit 1
+          fi
           URL="https://${{ steps.target.outputs.situs }}/?cb=$RANDOM"
           echo "Memeriksa $URL"
           curl -sS --max-time 60 -o /tmp/live.html "$URL"
           RC=$?
-          {
-            echo "## Investor Compass -> ${{ steps.target.outputs.situs }}"
-            echo ""
-          } >> "$GITHUB_STEP_SUMMARY"
           if [ $RC -ne 0 ]; then
             # https bisa gagal karena sertifikat subdomainnya belum terbit —
             # itu urusan AutoSSL, bukan tanda deploy-nya gagal. Dicoba lagi
             # lewat http supaya isinya tetap bisa diperiksa.
-            echo "- https gagal (curl $RC) - mencoba http" >> "$GITHUB_STEP_SUMMARY"
+            lapor "- https gagal (curl $RC) - mencoba http"
             curl -sS --max-time 60 -o /tmp/live.html "http://${{ steps.target.outputs.situs }}/?cb=$RANDOM"
             RC=$?
           fi
           if [ $RC -ne 0 ]; then
-            echo "- **GAGAL dihubungi** (curl $RC). Situsnya tidak bisa dibuka dari runner." >> "$GITHUB_STEP_SUMMARY"
+            lapor "- **GAGAL dihubungi** (curl $RC). Situsnya tidak bisa dibuka dari runner."
             exit 1
           fi
           tr -d '\r' < investor/index.html > /tmp/a
           tr -d '\r' < /tmp/live.html      > /tmp/b
           if cmp -s /tmp/a /tmp/b; then
-            echo "- **UTUH** - isi di server identik dengan repo ($(wc -c < /tmp/a) byte)." >> "$GITHUB_STEP_SUMMARY"
+            lapor "- **UTUH** - isi di server identik dengan repo ($(wc -c < /tmp/a) byte)."
           else
-            echo "- **BEDA** - repo $(wc -c < /tmp/a) byte, server $(wc -c < /tmp/b) byte." >> "$GITHUB_STEP_SUMMARY"
-            echo "  Kemungkinan transfer terpotong, atau server-dir menunjuk folder yang salah." >> "$GITHUB_STEP_SUMMARY"
+            lapor "- **BEDA** - repo $(wc -c < /tmp/a) byte, server $(wc -c < /tmp/b) byte."
+            lapor "  Kemungkinan transfer terpotong, atau server-dir menunjuk folder yang salah."
             head -c 300 /tmp/live.html >> "$GITHUB_STEP_SUMMARY"
             exit 1
           fi
