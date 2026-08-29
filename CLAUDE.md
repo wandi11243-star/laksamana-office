@@ -79,10 +79,32 @@ tanpa MDR (cash, transfer) → akt = kotor
   terpisah. Membaca kunci yang salah memulangkan saldo NOL tanpa satu pun galat
   — `kotor − 0` tetap kotor, dan angkanya kelihatan masuk akal.
 - Kelompok `error_*` **tidak ada** di daftar: ia catatan salah input, bukan uang.
+**METODE PEMBAYARAN BARU HARUS DIDAFTARKAN DI LIMA TEMPAT** (TikTok Go, 29
+Agustus 2026). Yang terlewat gagal dengan cara yang berbeda-beda, dan tidak
+satu pun melempar galat:
+
+| tempat | kalau terlewat |
+|---|---|
+| `PAYS` di `deploy/cashier/`, `deploy/finance/omset/`, `deploy/finance/kas/` | kasir tidak punya kotak untuk mengetiknya |
+| `RK_GRUP` di `deploy/finance/kas/` | tidak muncul di Rekap Penjualan |
+| `RK_GRUP` **kembar** di `deploy/finance/brankas/` | uangnya tidak pernah masuk saldo bank mana pun |
+| `MAP_BAWAAN` di brankas | metodenya menggantung — dilaporkan di halaman Saldo (jaring terakhir) |
+| `$grup` di `kompas-mysql` | penanda dilaporkan sebagai `takDikenal` |
+| `$bank` di `kompas-mysql` | **MDR yang diketik DIBUANG DIAM-DIAM** |
+
+Yang terakhir paling berbahaya: daftar `$bank` tertutup, jadi menambah ojol
+baru di frontend tanpa menambahnya di sana membuat potongan komisi yang sudah
+diketik hilang tanpa satu pun pesan — dan saldo banknya jadi lebih besar
+daripada yang benar-benar diterima.
+
+Kuncinya ditulis **serangkai tanpa pemisah** (`gofood`, `grabfood`, `tiktokgo`)
+— nama merek di daftar itu memang begitu, dan satu kunci yang pakai garis bawah
+membuat orang berikutnya harus mengingat mana yang mana.
+
 - **Setoran cash** (`rekap_setoran`) menambah bank tujuan dan mengurangi brankas
   fisik. `tujuan` teks bebas, jadi yang tidak cocok dengan BRI/Mandiri/BCA/UOB
   **dilaporkan di layar**, bukan dijatuhkan ke bank pertama.
-- QR Order, Gofood, dan Grabfood bawaannya **UOB**, sama dengan Transfer
+- QR Order, Gofood, Grabfood, dan TikTok Go bawaannya **UOB**, sama dengan Transfer
   (ditetapkan user 27 Agustus 2026). Sempat dibiarkan kosong karena tidak ada
   yang bisa MENEBAK ke rekening mana settlement ojol masuk — tapi jawaban dari
   yang memegang rekeningnya bukan tebakan. Ini bawaan, bukan kunci mati:
@@ -212,7 +234,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 184 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 190 pemeriksaan, jsdom + finance/kompas/account tiruan
 ```
 
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`

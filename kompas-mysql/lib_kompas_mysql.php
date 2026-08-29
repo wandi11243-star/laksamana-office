@@ -352,7 +352,7 @@ function simpan_rekap($data) {
      penanda yang sudah tersimpan tidak jadi "tak dikenal" saat dibaca ulang. */
   $grup = array('cash','qr_order',
                 'edc_bri','qris_bri','edc_mandiri','qris_mandiri','edc_bca','qris_bca',
-                'transfer','gofood','grabfood','error',
+                'transfer','gofood','grabfood','tiktokgo','error',
                 'bri','mandiri','bca');   // ← warisan, sebelum EDC/QRIS dipecah
   /* Yang punya MDR. Bertambah dua kali pada 12 Agustus 2026: `gofood` &
      `grabfood` (ojol memotong komisi persis seperti bank memotong MDR), lalu
@@ -362,7 +362,7 @@ function simpan_rekap($data) {
      galat. */
   $bank = array('qr_order',
                 'edc_bri','qris_bri','edc_mandiri','qris_mandiri','edc_bca','qris_bca',
-                'gofood','grabfood',
+                'gofood','grabfood','tiktokgo',
                 'bri','mandiri','bca');   // ← warisan
 
   $ubah = 0; $takDikenal = array();

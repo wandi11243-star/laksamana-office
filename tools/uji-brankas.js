@@ -91,7 +91,8 @@ function domBrankas(opt) {
           return { json: async () => (opt.vendorGagal ? { status:'error' }
                                                       : { vendors: opt.vendors || {} }) };
         if (String(url).indexOf('kompas-api') > -1)
-          return { json: async () => (opt.kompasGagal ? { ok:false, error:'x' } : { ok:true, data: KOMPAS }) };
+          return { json: async () => (opt.kompasGagal ? { ok:false, error:'x' }
+                                                          : { ok:true, data: opt.kompas || KOMPAS }) };
         if (String(url).indexOf('account-api') > -1)
           return { json: async () => ({ ok:true, members: opt.roster || [
             { id:'u-wandi', name:'Wandi Pranata', keterangan:'Office', isModuleAdmin:true },
@@ -140,6 +141,12 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     cek('QR Order dipetakan ke UOB', pmap.qr_order === 'uob', pmap.qr_order);
     cek('Gofood dipetakan ke UOB', pmap.gofood === 'uob', pmap.gofood);
     cek('Grabfood dipetakan ke UOB', pmap.grabfood === 'uob', pmap.grabfood);
+    /* TikTok Go ikut UOB, sama dengan seluruh platform online lain. Metode
+       baru yang lupa dipetakan memang tidak hilang diam-diam — ia muncul di
+       petaBelum() dan dilaporkan di halaman Saldo — tapi selama tujuannya
+       sudah diketahui, mengandalkan jaring itu berarti membiarkan uangnya
+       tidak masuk saldo bank mana pun sampai ada yang menyetelnya. */
+    cek('TikTok Go dipetakan ke UOB', pmap.tiktokgo === 'uob', pmap.tiktokgo);
     cek('tidak ada metode tanpa tujuan', w.petaBelum().length === 0,
         w.petaBelum().map(g => g.n).join(','));
     cek('BCA masuk 0', s.bca.masuk === 0, String(s.bca.masuk));
@@ -846,7 +853,39 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
   }
 
 
-  console.log('\n---------------------------------------');
+   /* ================= 19. TikTok Go ================= */
+  console.log('\n== TikTok Go ==');
+  {
+    /* Blob kompas SENDIRI, bukan menambah ke KOMPAS bersama: angka harapan di
+       sana sudah ditulis rinci di komentar dan dipakai belasan asersi lain,
+       jadi menambah satu metode di situ akan menggeser semuanya. */
+    const { dom } = domBrankas({ kompas: { reports: {
+      '2026-08-01': { pay: { tiktokgo:{actual:5000000}, gofood:{actual:3000000}, cash:{actual:1000000} },
+                      mdr: { tiktokgo:250000, gofood:150000 } }
+    }, rekap_setoran: [] } });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    const s = w.saldoSemua();
+    /* TikTok memotong komisi persis seperti ojol lain, jadi yang masuk
+       rekening BUKAN nominal pesanan. Kalau `mdr` terlewat di RK_GRUP, saldo
+       UOB akan selalu lebih besar daripada yang benar-benar diterima — dan
+       selisihnya muncul sebagai uang, bukan sebagai galat. */
+    cek('TikTok Go dikurangi MDR-nya', s.uob.masuk === 7600000,
+        s.uob.masuk + ' (harusnya 4.750.000 + 2.850.000)');
+    cek('cash tidak ikut terpengaruh', s.cash.masuk === 1000000, String(s.cash.masuk));
+    w.go('saldo'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    cek('TikTok Go tergambar di halaman Saldo', v.indexOf('TikTok Go') > -1);
+    cek('nilainya sesudah MDR yang ditulis', v.indexOf('Rp4.750.000') > -1,
+        v.slice(Math.max(0, v.indexOf('TikTok Go') - 40), v.indexOf('TikTok Go') + 260));
+    /* Jaring pengamannya: metode yang tidak punya tujuan DILAPORKAN. Kalau
+       TikTok Go terlewat di MAP_BAWAAN, di sinilah ia muncul. */
+    cek('tidak ada metode yang menggantung tanpa rekening', w.petaBelum().length === 0,
+        w.petaBelum().map(g => g.n).join(','));
+    dom.window.close();
+  }
+
+ console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);
 })();
