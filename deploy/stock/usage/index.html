@@ -669,7 +669,21 @@
                   <button type="button" onclick="setPeriodeWaste('semua')"  id="wp-semua">Semua</button>
                 </div>
               </div>
-              <div class="pt-3 mt-3 grid grid-cols-1 sm:grid-cols-2 gap-3" style="border-top:1px solid var(--line)">
+              <div class="pt-3 mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3" style="border-top:1px solid var(--line)">
+                <!-- Pemilih bulan, sama bentuknya dengan yang di Report
+                     Pemakaian: tombol periode di atas hanya menjangkau bulan
+                     berjalan, jadi waste bulan lalu tidak pernah bisa dibuka
+                     tanpa menarik SELURUH data lewat "Semua".
+                     Daftar bulan yang sudah jadi, bukan input[type=month]:
+                     pemilih bawaan browser menampilkan "07/2026" dan menuntut
+                     orang mengetik atau menavigasi kalender. -->
+                <div class="field">
+                  <label>📅 Bulan Tertentu</label>
+                  <div class="flex items-center gap-1.5">
+                    <select id="wp-bulan-pilih" onchange="setBulanWaste(this.value)" class="flex-1 min-w-0"></select>
+                    <button type="button" id="wp-bulan-hapus" onclick="setBulanWaste('')" class="btn btn-ghost btn-sm hidden">✕</button>
+                  </div>
+                </div>
                 <div class="field">
                   <label>💥 Sebab</label>
                   <select id="wf-sebab" onchange="setSebabWaste(this.value)"></select>
@@ -796,6 +810,19 @@
                   <button type="button" onclick="setPeriodeSerah('minggu')" id="srp-minggu">7 Hari</button>
                   <button type="button" onclick="setPeriodeSerah('bulan')"  id="srp-bulan">Bulan Ini</button>
                   <button type="button" onclick="setPeriodeSerah('semua')"  id="srp-semua">Semua</button>
+                </div>
+              </div>
+              <!-- Pemilih bulan, sama bentuknya dengan Report Pemakaian &
+                   Report Waste. Ketiganya memakai rentangBulan() yang sama —
+                   tiga layar yang menghitung rentang bulan sendiri-sendiri
+                   akan menyebut jumlah berbeda untuk bulan yang sama. -->
+              <div class="pt-3 mt-3 grid grid-cols-1 sm:grid-cols-3 gap-3" style="border-top:1px solid var(--line)">
+                <div class="field">
+                  <label>📅 Bulan Tertentu</label>
+                  <div class="flex items-center gap-1.5">
+                    <select id="srp-bulan-pilih" onchange="setBulanSerah(this.value)" class="flex-1 min-w-0"></select>
+                    <button type="button" id="srp-bulan-hapus" onclick="setBulanSerah('')" class="btn btn-ghost btn-sm hidden">✕</button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1010,7 +1037,9 @@
     renderFilterTim();
     renderFilterSebabWaste();
     renderFilterTimWaste();
-    isiPilihanBulan();
+    isiPilihanBulan('p-bulan-pilih');
+    isiPilihanBulan('wp-bulan-pilih');
+    isiPilihanBulan('srp-bulan-pilih');
     setAktifPeriode();
     tambahBaris();
     // Daftar bahan dimuat DULU: autocomplete Pemakaian maupun Waste
@@ -1208,24 +1237,38 @@
     if (PERIODE === 'semua') return {};
     if (PERIODE === 'hari')  return { dari: hariIni(), ke: hariIni() };
     if (PERIODE === 'minggu') return { dari: tglGeser(-6), ke: hariIni() };
-    if (PERIODE === 'pilih' && BULAN_PILIH) {
-      /* Hari terakhir bulan itu, bukan hari ini: bulan lalu harus terambil
-         penuh. Tanggal 0 bulan berikutnya = hari terakhir bulan ini, dan itu
-         benar juga untuk Februari maupun tahun kabisat. */
-      const [th, bl] = BULAN_PILIH.split('-').map(Number);
-      const akhir = new Date(th, bl, 0).getDate();
-      return { dari: `${BULAN_PILIH}-01`, ke: `${BULAN_PILIH}-${String(akhir).padStart(2, '0')}` };
-    }
+    if (PERIODE === 'pilih' && BULAN_PILIH) return rentangBulan(BULAN_PILIH);
     const d = new Date();
     return { dari: `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-01`, ke: hariIni() };
+  }
+
+  /* SATU rumus rentang bulan untuk KETIGA layar (Pemakaian, Waste, Serah
+      Terima). Sempat cuma ada di dalam rentang milik Pemakaian; begitu Waste dan
+      Serah ikut punya pemilih bulan (2 September 2026), menyalinnya berarti
+      tiga tempat menghitung hari terakhir bulan sendiri-sendiri — dan yang
+      salah satu di antaranya meleset di Februari tidak melempar apa pun, cuma
+      kehilangan catatan tanggal 29 tanpa ada yang menyadarinya.
+
+      Hari terakhir bulan itu, BUKAN hari ini: bulan lalu harus terambil penuh.
+      Tanggal 0 bulan berikutnya = hari terakhir bulan ini, dan itu benar juga
+      untuk Februari maupun tahun kabisat. */
+  function rentangBulan(ym) {
+    const [th, bl] = String(ym).split('-').map(Number);
+    const akhir = new Date(th, bl, 0).getDate();
+    return { dari: `${ym}-01`, ke: `${ym}-${String(akhir).padStart(2, '0')}` };
   }
 
   /* Daftar bulan: 24 bulan ke belakang, terbaru di atas. Cukup untuk
      pertanyaan "bandingkan dengan tahun lalu" tanpa membuat daftarnya
      memanjang tak berujung. Label memakai nama bulan Indonesia ("Juli 2026"),
-     nilainya tetap YYYY-MM karena itu yang dipakai rentang(). */
-  function isiPilihanBulan() {
-    const sel = document.getElementById('p-bulan-pilih');
+     nilainya tetap YYYY-MM karena itu bentuk yang dibaca penghitung rentang.
+
+     Kotaknya DISEBUT lewat parameter: tiga layar punya pemilih bulan sendiri,
+     dan daftar yang cuma diisi di satu kotak membuat dua kotak lain tampil
+     kosong — terbaca sebagai "tidak ada bulan yang bisa dipilih". */
+  function isiPilihanBulan(id) {
+    const sel = document.getElementById(id || 'p-bulan-pilih');
+    if (!sel) return;
     const now = new Date();
     let html = '';
     for (let i = 0; i < 24; i++) {
@@ -1511,6 +1554,7 @@
   const SEBAB_OPSI = ['Kadaluarsa', 'Rusak', 'Tumpah', 'Salah Olah', 'Sisa Produksi', 'Lainnya'];
   let DATA_WASTE = [];
   let PERIODE_WASTE = 'bulan';
+  let BULAN_WASTE = '';       // 'YYYY-MM' saat PERIODE_WASTE === 'pilih'
   let FOTO_WASTE = null;      // null = tidak diubah; '' = dihapus; string = foto baru
   /* Penyaring Report Waste. Periode disaring DI SERVER (ikut rentangWaste),
      tiga yang lain di layar — sebab, divisi, dan pencarian bekerja pada data
@@ -1710,9 +1754,28 @@
   function rentangWaste() {
     if (PERIODE_WASTE === 'semua') return {};
     if (PERIODE_WASTE === 'minggu') return { dari: tglGeser(-6), ke: hariIni() };
+    /* Bulan tertentu — tombol periode di atas cuma menjangkau bulan berjalan,
+       jadi tanpa ini waste bulan lalu hanya bisa dilihat dengan menarik
+       SELURUH data lewat "Semua" lalu mencarinya dengan mata. */
+    if (PERIODE_WASTE === 'pilih' && BULAN_WASTE) return rentangBulan(BULAN_WASTE);
     return { dari: `${bulanIni()}-01`, ke: hariIni() };
   }
-  function setPeriodeWaste(p) { PERIODE_WASTE = p; muatWaste(); }
+  function setPeriodeWaste(p) {
+    PERIODE_WASTE = p;
+    BULAN_WASTE = '';                    // tombol periode & pemilih bulan saling meniadakan
+    /* Dikembalikan ke bulan berjalan, BUKAN dikosongkan: daftar ini selalu
+       punya nilai, dan kotak kosong tampil seperti pilihan yang hilang. */
+    const sel = document.getElementById('wp-bulan-pilih');
+    if (sel) sel.value = bulanIni();
+    muatWaste();
+  }
+  /* Kosong = kembali ke "Bulan Ini". Tanpa jalan keluar ini, memilih satu bulan
+     berarti terkurung di bulan itu sampai halaman dimuat ulang. */
+  function setBulanWaste(v) {
+    if (!v) { setPeriodeWaste('bulan'); return; }
+    PERIODE_WASTE = 'pilih'; BULAN_WASTE = v;
+    muatWaste();
+  }
   function setSebabWaste(s) { SEBAB_WASTE = s; renderWasteReport(); }
   function setTimWaste(t)   { TIM_WASTE = t;   renderWasteReport(); }
 
@@ -2402,6 +2465,7 @@
   let FOTO_SERAH = null;      // null = tak diubah; '' = dihapus; string = baru
   let SRH_DATA = [];
   let PERIODE_SERAH = 'minggu';
+  let BULAN_SERAH = '';       // 'YYYY-MM' saat PERIODE_SERAH === 'pilih'
   let srBarisNo = 0;
 
   /* DUA jalan masuk foto, satu tujuan.
@@ -2588,12 +2652,26 @@
 
   function rentangSerah() {
     if (PERIODE_SERAH === 'semua') return {};
+    /* Bulan tertentu, alasan yang sama dengan Waste: barang yang diserahkan
+       bulan lalu tidak boleh cuma bisa dicari lewat "Semua". */
+    if (PERIODE_SERAH === 'pilih' && BULAN_SERAH) return rentangBulan(BULAN_SERAH);
     const now = new Date();
     if (PERIODE_SERAH === 'bulan') return { dari: ymdLokal(new Date(now.getFullYear(), now.getMonth(), 1)), ke: hariIni() };
     const d = new Date(now); d.setDate(d.getDate() - 6);
     return { dari: ymdLokal(d), ke: hariIni() };
   }
-  function setPeriodeSerah(p) { PERIODE_SERAH = p; muatSerah(); }
+  function setPeriodeSerah(p) {
+    PERIODE_SERAH = p;
+    BULAN_SERAH = '';
+    const sel = document.getElementById('srp-bulan-pilih');
+    if (sel) sel.value = bulanIni();
+    muatSerah();
+  }
+  function setBulanSerah(v) {
+    if (!v) { setPeriodeSerah('bulan'); return; }
+    PERIODE_SERAH = 'pilih'; BULAN_SERAH = v;
+    muatSerah();
+  }
 
   async function muatSerah() {
     try {
@@ -2809,6 +2887,8 @@
   function renderSerahReport() {
     srhAturTujuan();
     segAktif('srp-', ['minggu', 'bulan', 'semua'], PERIODE_SERAH);
+    const hapusBln = document.getElementById('srp-bulan-hapus');
+    if (hapusBln) hapusBln.classList.toggle('hidden', PERIODE_SERAH !== 'pilih');
 
     const q = (document.getElementById('sq').value || '').trim().toLowerCase();
     const list = SRH_DATA.filter(s => !q ||
@@ -2931,7 +3011,13 @@
      supaya yang terbaca selalu menjawab penyaring yang sedang terpasang. */
 
   function renderWasteReport() {
+    /* Saat sebuah bulan dipilih, TIDAK ADA tombol periode yang menyala — dan
+       itu memang benar: yang berlaku bukan salah satu dari ketiganya. Yang
+       menggantikan tandanya adalah tombol ✕ di sebelah pemilih bulan, jadi
+       tetap ada satu hal di layar yang mengatakan penyaringnya sedang khusus. */
     segAktif('wp-', ['minggu', 'bulan', 'semua'], PERIODE_WASTE);
+    const hapusBln = document.getElementById('wp-bulan-hapus');
+    if (hapusBln) hapusBln.classList.toggle('hidden', PERIODE_WASTE !== 'pilih');
 
     const q = (document.getElementById('wq').value || '').trim().toLowerCase();
     const list = DATA_WASTE

@@ -411,6 +411,55 @@ justru supaya spare berlipat punya tempat untuk muncul. `smoke-modul.js` **tidak
 cukup** untuk modul ini — ia melaporkan `hanya boot yang diuji`, jadi seluruh
 aritmetikanya lewat tanpa disentuh.
 
+### Pemakaian Bahan Baku: pemilih bulan di KETIGA report (2 September 2026)
+
+`deploy/stock/usage/`. Modul ini punya tiga layar report — **Pemakaian**,
+**Waste**, dan **Serah Terima** — dan sampai 2 September 2026 cuma Pemakaian
+yang punya pemilih bulan. Dua lainnya hanya 7 Hari / Bulan Ini / Semua, jadi
+waste bulan lalu dan serah terima bulan lalu hanya bisa dilihat dengan menarik
+SELURUH data lewat "Semua" lalu mencarinya dengan mata (permintaan user).
+
+**`rentangBulan(ym)` adalah SATU rumus untuk ketiganya.** Sebelumnya hitungan
+hari terakhir bulan ada inline di `rentang()` milik Pemakaian; menyalinnya ke
+dua layar baru berarti tiga tempat menghitungnya sendiri-sendiri, dan yang
+meleset di Februari **tidak melempar apa pun** — ia cuma kehilangan catatan
+tanggal 29, dan tidak ada satu pun layar yang menyebutkannya.
+
+Yang perlu dijaga saat menyentuhnya:
+
+- **Akhir rentang = hari terakhir BULAN ITU, bukan hari ini.** Bulan lalu harus
+  terambil penuh. `new Date(th, bl, 0)` = tanggal 0 bulan berikutnya = hari
+  terakhir bulan ini, dan itu benar juga untuk Februari maupun tahun kabisat.
+- **`isiPilihanBulan(id)` menerima id kotaknya.** Tiga layar, tiga `<select>`;
+  yang cuma diisi satu membuat dua kotak lain tampil kosong — terbaca sebagai
+  "tidak ada bulan yang bisa dipilih", bukan sebagai bug.
+- **Tombol periode dan pemilih bulan saling meniadakan.** Menekan "7 Hari"
+  sesudah memilih Februari harus benar-benar memberi 7 hari; tombol yang
+  menyala untuk rentang yang tidak diberikannya adalah kebohongan yang paling
+  sulit dilacak di layar penyaring.
+- **Saat sebuah bulan dipilih, tidak ada tombol periode yang menyala** — itu
+  memang benar, yang berlaku bukan salah satu dari ketiganya. Yang menggantikan
+  tandanya tombol **✕** di sebelah pemilih bulan, dan ✕ itu pula satu-satunya
+  jalan keluar: tanpa itu, memilih satu bulan berarti terkurung di bulan itu
+  sampai halaman dimuat ulang.
+- Periode disaring **di server** (`dari`/`ke` jadi query string ke `usage.php` /
+  `waste.php` / `serah.php`). Rentang yang salah tetap menggambar layar yang
+  rapi, cuma dengan isi bulan yang keliru — karena itu ujinya memeriksa **URL
+  yang benar-benar diminta**, bukan tampilannya.
+- Pemilih bulan Pemakaian ada **di dalam laci filter** (layar itu punya lima
+  penyaring); Waste dan Serah tidak punya laci, jadi pemilihnya langsung
+  terlihat. Perbedaan itu disengaja — laci untuk layar yang penyaringnya
+  menumpuk, bukan untuk semua.
+
+```bash
+node tools/uji-bulan-usage.js   # 37 pemeriksaan, jsdom + stock-api tiruan
+```
+
+Ujinya memuat modulnya sungguhan (termasuk `catat-common.js`) tapi **membuang
+skrip CDN Tailwind & FontAwesome** — keduanya tidak bisa dimuat jsdom dan
+tumpukan galatnya menenggelamkan baris OK/GAGAL. `smoke-modul.js` **tidak
+cukup**: ia melaporkan `hanya boot yang diuji` untuk modul ini.
+
 ### Master Vendor: di PURCHASING, dibaca Finance & BD (28 Agustus 2026)
 
 `deploy/stock/purchasing/` → tab **Database & Vendor** → *Daftar Kontak Vendor*.
