@@ -896,7 +896,7 @@ function resepTersaring() { urutkanDaftar(); }
 
 function setAktif() {  }
 
-function jalan() { kirim(); konfirmasi(); }
+function jalan() { kirim(); konfirmasi(); perUnitResep(); }
 
 
 
@@ -911,7 +911,121 @@ function jalan() { kirim(); konfirmasi(); }
 
 
 
-function viewResep() { cari(); render(); bukaResep(); cetakBanyak(); resepTersaring(); tabelResep(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function menuYieldBelum() {  }
+
+
+
+
+function yieldSebatch() {  }
+
+
+function perujukResep() { dipakaiOleh(); }
+
+
+function isiPorsiSetBatch() {  }
+
+function bukaIsiPorsi() { menuYieldBelum(); pesan(); yieldSebatch(); modalDasar(); perujukResep(); isiPorsiSetBatch(); konfirmasi(); isiPorsiJalan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function isiPorsiJalan() { menuYieldBelum(); yieldSebatch(); pesan(); setSync(); muat(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewResep() { cari(); render(); bukaResep(); menuYieldBelum(); bukaIsiPorsi(); cetakBanyak(); resepTersaring(); tabelResep(); }
+
 
 
 
