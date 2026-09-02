@@ -680,6 +680,13 @@ async function main() {
   j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-admin', id: idDua, status: 'DISETUJUI' });
   cek('HRD TIDAK bisa mengesahkan yang belum diloloskan head', ditolak(j), JSON.stringify(j));
 
+  /* LANGKAH PERTAMA MILIK HEAD, bukan HRD (29 Agustus 2026, permintaan user).
+     Kalau HRD boleh meloloskan sendiri, ia bisa menekan Teruskan lalu Sahkan
+     berturut-turut — dan dua langkahnya jadi hiasan: pengajuan disahkan tanpa
+     head divisinya pernah melihatnya. */
+  j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-admin', id: idDua, status: 'MENUNGGU_HRD' });
+  cek('HRD TIDAK bisa meloloskan sendiri untuk divisi yang punya head', ditolak(j), JSON.stringify(j));
+
   j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-headbar', id: idDua, status: 'MENUNGGU_HRD' });
   cek('head bisa meloloskan ke HRD', j.ok, j.error);
 
@@ -707,9 +714,10 @@ async function main() {
     !!aju3 && !!aju3.headOleh && !!aju3.putusOleh,
     aju3 ? JSON.stringify({ headOleh: aju3.headOleh, putusOleh: aju3.putusOleh }) : '-');
 
-  /* Divisi Marketing tidak punya head, jadi admin harus tetap bisa menjalankan
-     KEDUA langkahnya sendiri — kalau tidak, pengajuan dari divisi tanpa head
-     tidak akan pernah bisa disahkan siapa pun. */
+  /* SATU pengecualian, dan cuma satu: divisi Marketing belum punya head sama
+     sekali, jadi admin harus tetap bisa menjalankan kedua langkahnya. Tanpa
+     itu pengajuan dari divisi tanpa head menggantung selamanya tanpa satu pun
+     layar yang menyebutkan kenapa. */
   j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-admin', id: idAju, status: 'MENUNGGU_HRD' });
   cek('admin bisa meloloskan untuk divisi tanpa head', j.ok, j.error);
   j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-admin', id: idAju, status: 'DISETUJUI' });

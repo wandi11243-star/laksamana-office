@@ -3927,18 +3927,34 @@ function ajuSaya(){ return (S.pengajuan||[]).filter(a=>a.userId===(ME&&ME.id)); 
    Kru mengajukan, head divisinya yang memutuskan. Ini yang membedakan modul
    ini dari lembar Excel: perubahan jadwal punya jejak siapa menyetujui apa.
    ===================================================================== */
+/* Divisi ini punya head atau tidak. Dipakai satu-satunya pengecualian di
+   bawah — dan hanya itu, supaya "tidak ada head" tidak diam-diam melebar jadi
+   "head-nya sedang sibuk". */
+function divPunyaHead(div){ return ((S&&S.setting.heads[div])||[]).length>0; }
+
 /* LANGKAH 1 — head divisi si pengaju meloloskan ke HRD.
 
-   Admin modul (= HRD di modul ini) juga boleh, dan itu disengaja: head yang
-   sedang cuti tidak boleh membuat seluruh pengajuan divisinya berhenti. Yang
-   menahannya dari melompati langkah kedua adalah putus_pengajuan() di server
-   — ia tetap harus menekan dua kali, dan kedua namanya tercatat terpisah. */
+   HRD TIDAK IKUT DI SINI (29 Agustus 2026, permintaan user). Sebelumnya admin
+   modul boleh melakukannya juga, dengan alasan head yang cuti tidak boleh
+   membuat pengajuan divisinya berhenti — tapi akibatnya HRD bisa menekan
+   Teruskan lalu Sahkan sendiri, dan dua langkahnya jadi hiasan. Yang diminta
+   memang sebaliknya: tombol HRD baru muncul SESUDAH head menekan Teruskan.
+
+   SATU pengecualian, dan cuma satu: divisi yang belum punya head sama sekali.
+   Tanpa itu pengajuan dari divisi seperti Marketing tidak akan pernah bisa
+   diputuskan siapa pun — ia menggantung selamanya tanpa satu pun layar yang
+   menyebutkan kenapa. Pengecualiannya sempit dan bisa dihilangkan dengan
+   menunjuk head di Pengaturan, dan layarnya mengatakan itu.
+
+   Head yang berhalangan diselesaikan dengan MENUNJUK head kedua di
+   Pengaturan — bukan dengan melonggarkan gerbang ini. */
 function bisaPutusHead(a){
   if(!a || a.status!=='MENUNGGU') return false;
-  if(isAdmin()) return true;
   const u=kruById(a.userId);
   if(!u || !ME) return false;
-  return isHeadUser(ME.id, divisiDari(u));
+  const div=divisiDari(u);
+  if(isHeadUser(ME.id, div)) return true;
+  return isAdmin() && !divPunyaHead(div);
 }
 /* LANGKAH 2 — HRD mengesahkan. Di modul ini admin modul MEMANG HRD: lihat
    admin_modul_untuk() di account-api, yang menambahkan `jadwal` untuk user
@@ -4148,7 +4164,13 @@ function viewPengajuan(){
        Kalau cuma pemutus terakhir yang ditulis, pertanyaan "siapa head yang
        menyetujui cuti ini" tidak ada jawabannya di layar mana pun — padahal
        justru itu yang ditanyakan kalau suatu hari dipersoalkan. */
-    const jejakHead=a.headOleh ? '<div class="kecil">head: '+esc(a.headOleh)+'</div>' : '';
+    /* PERSETUJUAN HEAD DITULIS SEBAGAI PERSETUJUAN, bukan sekadar nama
+       (29 Agustus 2026, permintaan user). "head: Arif" tidak mengatakan apa
+       yang Arif lakukan — ia bisa saja yang menolak. Yang perlu terbaca HRD
+       sebelum menekan Sahkan adalah bahwa langkah pertama SUDAH lewat. */
+    const jejakHead=a.headOleh
+      ? '<div class="kecil" style="color:var(--ok)">✓ Disetujui head: '+esc(a.headOleh)+'</div>'
+      : '';
     const jejak=a.status!=='MENUNGGU'
       ? jejakHead
         +(a.status==='MENUNGGU_HRD' ? ''

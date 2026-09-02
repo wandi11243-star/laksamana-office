@@ -503,10 +503,19 @@ MENUNGGU  --head meloloskan-->  MENUNGGU_HRD  --HRD mengesahkan-->  DISETUJUI
   ditekan — dan pertanyaan "siapa head yang menyetujui cuti ini" tidak punya
   jawaban di layar mana pun. Keduanya lahir lewat `pastikan_kolom()`, bukan
   berkas migrasi.
-- **Admin modul boleh melakukan langkah pertama juga**, dan itu disengaja: head
-  yang sedang cuti tidak boleh membuat seluruh pengajuan divisinya berhenti —
-  dan divisi seperti Marketing memang tidak punya head sama sekali. Ia tetap
-  harus menekan dua kali, dan kedua namanya tercatat terpisah.
+- **HRD TIDAK bisa melakukan langkah pertama** (29 Agustus 2026, permintaan
+  user). Sempat boleh dengan alasan head yang cuti tidak boleh menghentikan
+  divisinya — tapi akibatnya HRD bisa menekan Teruskan lalu Sahkan berturut-
+  turut, dan dua langkahnya jadi hiasan. Tombol HRD baru muncul SESUDAH head
+  meneruskan.
+- **Satu pengecualian, dan cuma satu**: divisi yang belum punya head sama
+  sekali (`divPunyaHead` / `jdw_div_punya_head`). Tanpa itu pengajuan dari
+  divisi seperti Marketing menggantung selamanya tanpa satu pun yang berhak
+  meneruskan. Head yang berhalangan diselesaikan dengan MENUNJUK head kedua di
+  Pengaturan — bukan dengan melonggarkan gerbang ini.
+- **Jejaknya ditulis "✓ Disetujui head: <nama>"**, bukan "head: <nama>". Nama
+  saja tidak mengatakan apa yang ia lakukan — ia bisa saja yang menolak. Yang
+  perlu terbaca HRD sebelum menekan Sahkan adalah langkah pertama SUDAH lewat.
 - **`AJU_BERJALAN`** (`['MENUNGGU','MENUNGGU_HRD']`) dipakai bersama oleh
   lencana sidebar, tab Antrian, dan tombol Batal. Tiga tempat yang menghitung
   sendiri pasti menyimpang begitu ada status baru — dan `MENUNGGU_HRD` yang

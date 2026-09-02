@@ -208,9 +208,14 @@ try {
       $a = pengajuan_by_id(ambil($body, 'id'));
       if (!$a) throw new Exception('Pengajuan tidak ditemukan: ' . ambil($body, 'id'));
       jdw_wajib_boleh_baris($u, $a['user_id']);
+      /* Head divisi kru ITU — bukan head mana pun. Divisi yang belum punya
+         head sama sekali dianggap lolos: kalau tidak, pengajuannya
+         menggantung selamanya karena tidak ada yang berhak meneruskan. */
+      $divAju = jdw_divisi_user($a['user_id']);
+      $isHead = jdw_head($u, $divAju) || !jdw_div_punya_head($divAju);
       keluar(array('ok' => true, 'data' => putus_pengajuan(
         ambil($body, 'id'), ambil($body, 'status'), ambil($body, 'nota'), nama_pemanggil($u),
-        jdw_admin($u))));
+        jdw_admin($u), $isHead)));
     }
 
     case 'hapusPengajuan': {

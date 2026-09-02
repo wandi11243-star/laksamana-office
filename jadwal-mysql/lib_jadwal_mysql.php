@@ -269,6 +269,15 @@ function jdw_head($u, $div) {
    belum tentu sudah mengisi daftar head, dan penjaga yang lebih ketat
    daripada layar akan mengunci seluruh perusahaan di luar begitu versi ini
    mendarat — termasuk admin yang seharusnya menunjuk head-nya. */
+/* Divisi TERTENTU punya head atau tidak — beda dari jdw_ada_head() yang
+   menanyakan seluruh modul. Dipakai satu-satunya pengecualian gerbang
+   langkah pertama di putus_pengajuan(). */
+function jdw_div_punya_head($div) {
+  $set = json_decode(json_encode(baca_setting()), true);
+  $heads = (is_array($set) && isset($set['heads']) && is_array($set['heads']))
+         ? $set['heads'] : array();
+  return isset($heads[$div]) && is_array($heads[$div]) && count($heads[$div]) > 0;
+}
 function jdw_ada_head() {
   $set = json_decode(json_encode(baca_setting()), true);
   $heads = (is_array($set) && isset($set['heads']) && is_array($set['heads']))
@@ -637,7 +646,10 @@ function simpan_pengajuan($row, $by) {
 
    Yang sudah DISETUJUI/DITOLAK boleh dikembalikan ke MENUNGGU — itu jalan
    untuk membatalkan putusan yang salah, dan sudah ada sebelum perubahan ini. */
-function putus_pengajuan($id, $status, $nota, $by, $adminHRD = null) {
+/* $isHead: true kalau pemanggil head divisi kru itu ATAU divisinya memang
+   belum punya head. null berarti pemanggil lama yang tidak mengirimnya —
+   gerbangnya dilewati, sama seperti $adminHRD. */
+function putus_pengajuan($id, $status, $nota, $by, $adminHRD = null, $isHead = null) {
   $pdo = db();
   pastikan_tabel($pdo);
   $id = s($id);
@@ -666,8 +678,22 @@ function putus_pengajuan($id, $status, $nota, $by, $adminHRD = null) {
         throw new Exception('Pengajuan ini belum disetujui head divisinya, jadi belum bisa disahkan HRD.');
       }
     }
-    if ($status === 'MENUNGGU_HRD' && $sebelum !== 'MENUNGGU') {
-      throw new Exception('Hanya pengajuan yang masih menunggu head yang bisa diteruskan ke HRD.');
+    if ($status === 'MENUNGGU_HRD') {
+      if ($sebelum !== 'MENUNGGU') {
+        throw new Exception('Hanya pengajuan yang masih menunggu head yang bisa diteruskan ke HRD.');
+      }
+      /* LANGKAH PERTAMA MILIK HEAD, bukan HRD (29 Agustus 2026, permintaan
+         user). Kalau HRD boleh meloloskan sendiri, ia bisa menekan Teruskan
+         lalu Sahkan berturut-turut dan dua langkahnya jadi hiasan —
+         pengajuan disahkan tanpa head divisinya pernah melihatnya.
+
+         SATU pengecualian: divisi yang belum punya head sama sekali. Tanpa
+         itu pengajuannya menggantung selamanya tanpa satu pun yang bisa
+         memutuskan. Yang berhalangan diselesaikan dengan menunjuk head
+         kedua di Pengaturan, bukan dengan melonggarkan gerbang ini. */
+      if ($isHead === false) {
+        throw new Exception('Langkah pertama milik head divisi kru itu. HRD baru bisa mengesahkan sesudah head meneruskannya.');
+      }
     }
   }
 
