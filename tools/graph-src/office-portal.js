@@ -904,6 +904,98 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function ALL_MODULE_KEYS_SEED() { appModuleList(); }
 
 
@@ -1955,7 +2047,44 @@ function loadAdminUsers() { adminCall(); esc(); renderPickGrid(); renderAdminLis
 
 
 
-function renderAdminList() { moduleLabels(); esc(); initials(); }
+
+
+
+
+
+
+
+function renderAdminList() { deleteAdminUser(); moduleLabels(); esc(); initials(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2383,7 +2512,17 @@ function resetAdminForm() { renderTimGrid(); add(); renderPickGrid(); }
 
 
 
+
 function fillAdminForm() { pisahKeterangan(); renderTimGrid(); renderPickGrid(); grantEfektif(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2432,6 +2571,15 @@ function pesanAdminErr() {  }
 
 
 function submitAdminForm() { readPickGrid(); grantEfektif(); gabungKeterangan(); readTimGrid(); adminCall(); pesanAdminErr(); katalogModul(); adminBawaanUntuk(); resetAdminForm(); loadAdminUsers(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3055,4 +3203,4 @@ function openNickModal() { closeAcctMenu(); getSession(); }
 
 
 
-function closeNickModal() { add(); imporUserExcel(); renderAdminList(); deleteAdminUser(); fillAdminForm(); toggleAdminUser(); switchAdminTab(); toggleModuleActive(); saveModuleLabel(); toggleModuleUsersPanel(); toggleModuleUserAccess(); }
+function closeNickModal() { add(); imporUserExcel(); renderAdminList(); deleteAdminUser(); fillAdminForm(); toggleAdminUser(); notify(); switchAdminTab(); toggleModuleActive(); saveModuleLabel(); toggleModuleUsersPanel(); toggleModuleUserAccess(); }
