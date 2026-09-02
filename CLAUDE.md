@@ -527,6 +527,16 @@ MENUNGGU  --head meloloskan-->  MENUNGGU_HRD  --HRD mengesahkan-->  DISETUJUI
 - **Form menampilkan shift yang SEKARANG ada** di tanggal itu
   (`gambarShiftSekarang`). Tanpa itu yang mengajukan tukar shift tidak melihat
   apa yang sedang ia tukar, dan head tidak tahu apa yang akan tertimpa.
+- **`bisaLihatAju()` TERPISAH dari `bisaPutuskan()`.** Penyaring daftarnya
+  sempat memakai `bisaPutuskan`, dan begitu langkah HRD lahir akibatnya
+  langsung terasa: pengajuan yang baru diteruskan head LENYAP dari layarnya
+  sendiri — sama persis seperti kalau ia menolaknya. Siapa yang boleh MELIHAT
+  tidak boleh bergantung status.
+- **Pita menyebut DUA angka**: yang menunggu keputusan saya, dan yang sudah
+  saya teruskan ke HRD. Tanpa yang kedua, head yang barusan meneruskan tidak
+  punya satu pun tanda bahwa pengajuannya masih hidup.
+- Urutan daftar memakai `ajuBerjalan`, bukan `status===MENUNGGU` — kalau
+  tidak, baris yang baru diteruskan jatuh ke bawah bersama riwayat.
 - **Kru boleh menarik pengajuannya selama belum disahkan**, termasuk saat sudah
   di meja HRD.
 

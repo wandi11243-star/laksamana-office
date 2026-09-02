@@ -3947,10 +3947,31 @@ function bisaPutusHead(a){
 function bisaPutusHRD(a){
   return !!a && a.status==='MENUNGGU_HRD' && isAdmin();
 }
-/* Apa pun yang bisa saya kerjakan pada baris ini. Dipakai lencana sidebar dan
-   penyaring tabel — keduanya harus menghitung hal yang sama, kalau tidak
-   lencananya menyebut angka yang tidak cocok dengan isi halamannya. */
+/* Apa pun yang bisa saya KERJAKAN pada baris ini — dipakai lencana sidebar dan
+   pita "N menunggu keputusan Anda". Keduanya harus menghitung hal yang sama,
+   kalau tidak lencananya menyebut angka yang tidak cocok dengan halamannya. */
 function bisaPutuskan(a){ return bisaPutusHead(a) || bisaPutusHRD(a); }
+
+/* Siapa yang boleh MELIHAT baris ini — sengaja TIDAK sama dengan siapa yang
+   boleh memutuskannya, dan tidak bergantung status sama sekali.
+
+   Sebelum ini penyaring daftarnya memakai bisaPutuskan(), dan begitu langkah
+   HRD lahir akibatnya langsung terasa: pengajuan yang baru saja diteruskan
+   head LENYAP dari layarnya sendiri — sama persis seperti kalau ia menolaknya.
+   Head kehilangan jejak pekerjaan yang baru ia kerjakan, dan tidak punya cara
+   tahu apakah HRD sudah menindaklanjutinya. (29 Agustus 2026, dilaporkan
+   user.)
+
+   Head tetap melihat SELURUH pengajuan divisinya, apa pun statusnya — itu
+   juga yang membuat tab Riwayat berguna baginya. */
+function bisaLihatAju(a){
+  if(!a) return false;
+  if(isAdmin()) return true;
+  if(a.userId===(ME&&ME.id)) return true;
+  const u=kruById(a.userId);
+  if(!u || !ME) return false;
+  return isHeadUser(ME.id, divisiDari(u));
+}
 /* Pil shift pada kartu pengajuan. Kosong untuk pengajuan lama yang memang
    belum punya kolomnya — bukan diganti tebakan. */
 function pilShiftAju(a){
@@ -4012,8 +4033,12 @@ function viewPengajuan(){
   const semua=(S.pengajuan||[]).slice();
   /* Yang MENUNGGU selalu di atas: itu satu-satunya yang menuntut tindakan.
      Sisanya urut terbaru — riwayat cuma untuk dilihat sekali-sekali. */
-  const urut=semua.filter(a=>isAdmin() || bisaPutuskan(a) || a.userId===(ME&&ME.id))
-    .sort((x,y)=>(x.status==='MENUNGGU'?0:1)-(y.status==='MENUNGGU'?0:1) || (y.dibuatAt||0)-(x.dibuatAt||0));
+  /* Yang MASIH BERJALAN selalu di atas — termasuk yang sudah di meja HRD.
+     Mengurut hanya berdasarkan MENUNGGU membuat baris yang baru diteruskan
+     head jatuh ke bawah bersama riwayat, dan head mengira ia sudah selesai
+     diputuskan. */
+  const urut=semua.filter(bisaLihatAju)
+    .sort((x,y)=>(ajuBerjalan(x)?0:1)-(ajuBerjalan(y)?0:1) || (y.dibuatAt||0)-(x.dibuatAt||0));
 
   /* TIGA TAB, bukan panel Riwayat yang cuma muncul kalau datanya kebetulan
      lebih dari 20.
@@ -4169,6 +4194,9 @@ function viewPengajuan(){
      pita peringatan "N menunggu keputusan Anda" harus menyebut pekerjaan yang
      ada, bukan pekerjaan yang kebetulan muat di layar ini. */
   const nMenunggu=menunggu.filter(a=>bisaPutuskan(a)).length;
+  /* Hanya untuk yang BUKAN HRD: bagi HRD, baris MENUNGGU_HRD justru pekerjaan
+     miliknya sendiri dan sudah terhitung di nMenunggu. */
+  const nDiHRD=isAdmin()?0:menunggu.filter(a=>a.status==='MENUNGGU_HRD').length;
   /* Tab SELALU digambar lengkap dengan angkanya, TERMASUK saat angkanya nol.
      Nol yang tertulis adalah keterangan ("memang belum ada"); tab yang hilang
      adalah teka-teki — dan itulah yang terjadi pada bentuk sebelumnya, waktu
@@ -4180,7 +4208,13 @@ function viewPengajuan(){
   return '<div class="panel">'
     +'<div class="rowbar"><h2>📝 Pengajuan Off, Izin &amp; Tukar Shift</h2><div class="spacer"></div>'
     +'<button class="btn btn-primary btn-sm" onclick="bukaAjukan()">+ Ajukan</button></div>'
+    /* DUA angka, bukan satu. Yang menunggu keputusan saya menuntut tindakan;
+       yang sedang di HRD cuma perlu diketahui masih berjalan — dan kalau tidak
+       disebut sama sekali, head yang barusan meneruskan tidak punya satu pun
+       tanda bahwa pengajuannya masih hidup. */
     +(nMenunggu?'<div class="note w"><b>'+nMenunggu+' pengajuan</b> menunggu keputusan Anda.</div>':'')
+    +(nDiHRD?'<div class="note i"><b>'+nDiHRD+' pengajuan</b> sudah Anda teruskan dan sedang menunggu '
+      +'pengesahan HRD. Jadwalnya belum berubah sampai HRD menyahkannya.</div>':'')
     +'<p class="mutedhint" style="margin-bottom:12px">'
     +(isAdmin()?'Sebagai admin, Anda bisa memutuskan pengajuan semua divisi.'
       :(divisiKuasa().length?'Sebagai head '+esc(divisiKuasa().map(namaDivisi).join(', '))+', Anda memutuskan pengajuan kru divisi itu.'
