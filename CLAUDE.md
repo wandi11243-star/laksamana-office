@@ -586,6 +586,18 @@ menyentuhnya:
   HRD menulis "Bar" = orang itu bisa membuka modul Jadwal. Disengaja — tanpa
   Tim, kru baru tidak muncul di lembar mana pun. Yang tetap mustahil: modul di
   LUAR bawaan Tim, dan mengangkat siapa pun jadi admin.
+- **Hapus permanen ADA sejak 29 Agustus 2026**, dan hanya untuk akun yang
+  **sudah dinonaktifkan** (`rosterHapusUser`). Yang diminta user: nomor HP,
+  username, dan Employee ID-nya bisa dipakai lagi. Syarat nonaktif dulu itu
+  pagarnya — dua langkah dengan jeda di tengah, dan jeda itulah yang menahan
+  penghapusan karena salah klik. **Ditegakkan di server** (`must_deactivate_
+  first`), bukan cuma di layar.
+- **`grants` & `admins` ikut dibuang.** Kalau tidak, barisnya jadi yatim dan
+  HIDUP LAGI begitu id yang sama dipakai ulang — memberi akses modul kepada
+  orang yang tidak pernah diberi apa pun. Justru itu yang membuat "id-nya bisa
+  dipakai lagi" berbahaya kalau dikerjakan setengah.
+- Superadmin dan diri sendiri tetap tidak bisa dihapus dari sini, alasan yang
+  sama dengan nonaktif.
 - Nonaktif **bukan** hapus. `kruDivisi()` menyaring `active!==false`, jadi yang
   dinonaktifkan hilang dari **seluruh** lembar termasuk bulan lalu — selnya
   tetap tersimpan dan kembali saat diaktifkan lagi. Menghapus akun (hanya bisa
@@ -593,7 +605,16 @@ menyentuhnya:
 - **Rekap Pegawai membaca SEMUA divisi** sejak tanggal yang sama
   (`rekapKandidat` tidak lagi dipotong `divisiLihat()`). Hak MENGUBAH sel di
   halaman itu tetap `bolehUbah(div)`.
-- Empat kolom kepegawaian adalah **daftar tertutup** di layar ini:
+- **Daftarnya menjelaskan saringannya sendiri.** Tiga kendali berdiri berjauhan
+(tapis Aktif/Nonaktif, divisi, kotak cari), dan yang paling sering terjadi:
+orang mencari nama yang ADA tapi tapisnya masih di "Aktif" sementara orangnya
+sudah nonaktif — lalu menyimpulkan datanya hilang. Sekarang saringan yang
+sedang berlaku disebut dengan KATA di atas tabel, berikut tautan **Bersihkan
+saringan** yang mengembalikan ketiganya sekaligus. Bagian yang cocok dengan
+kotak cari **disorot** (`sorot()`, di-esc dulu baru ditandai), dan baris kru
+nonaktif diredupkan (`.peg-mati`).
+
+Empat kolom kepegawaian adalah **daftar tertutup** di layar ini:
   `HR_BRANCH` / `HR_ORG` / `HR_LEVEL` / `HR_STATUS`. Nilai tersimpan yang tidak
   ada di daftar tetap digambar dan ditandai `(lama)` lewat `opsiHR()` — tanpa
   itu, membuka form seorang kru yang datanya diimpor dengan ejaan lain akan

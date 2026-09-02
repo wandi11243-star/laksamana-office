@@ -32,6 +32,9 @@
  *                             branch?,organization?,jobPosition?,jobLevel?,
  *                             employmentStatus?,joinDate?}   -> {ok,id}
  *   {action:"rosterSetActive", sesi, id, active}             -> {ok,id,active}
+ *   {action:"rosterHapusUser", sesi, id}                     -> {ok,id,nama}
+ *        Hapus PERMANEN, dan hanya untuk akun yang sudah dinonaktifkan.
+ *        Membebaskan no HP / username / Employee ID-nya untuk dipakai lagi.
  *   -- admin modul --
  *   {action:"listModuleMembers", module}         -> {ok,members:[...]}
  *   -- tanpa gerbang, dipanggil modul saat boot --
@@ -103,6 +106,7 @@ try {
     // token sesi Office, bukan PIN — lihat butuh_pengelola_roster().
     case 'rosterSaveUser':    keluar(aksi_roster_simpan_user($body));
     case 'rosterSetActive':   keluar(aksi_roster_set_active($body));
+    case 'rosterHapusUser':   keluar(aksi_roster_hapus_user($body));
     case 'import':            keluar(aksi_import($body));
     case 'sessionRefresh':    keluar(aksi_segarkan_sesi($body));
 

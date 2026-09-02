@@ -433,6 +433,14 @@ table.list tbody tr.dwrow td:first-child{box-shadow:inset 3px 0 0 var(--gold-2)}
 .row .who b{font-size:13.5px}
 .row .who span{font-size:11px;color:var(--muted-2);display:block}
 .stpill{font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:20px;letter-spacing:.02em}
+/* Sorot hasil cari di Data Pegawai. Warnanya gold-soft, bukan kuning peramban
+   bawaan — <mark> bawaan memakai kuning terang yang berteriak lebih keras
+   daripada isi barisnya sendiri. */
+.peg-sorot{background:var(--gold-soft);color:var(--gold-dim);border-radius:3px;padding:0 2px}
+/* Baris kru nonaktif diredupkan. Saat tapis "Semua" dibuka, pil kecil di kolom
+   ketujuh tidak cukup untuk membedakannya sekilas. */
+.peg-mati td{opacity:.62}
+.peg-mati td:last-child{opacity:1}
 .st-MENUNGGU{background:var(--warn-bg);color:var(--warn)}
 /* Menunggu HRD dibedakan warnanya dari menunggu head: keduanya sama-sama
    belum selesai, tapi yang kedua sudah bergerak satu langkah, dan head yang
@@ -1947,7 +1955,10 @@ function pesanGagalRoster(j){
     talenta_taken:'Employee ID Talenta itu sudah dipakai akun lain'+siapa,
     not_found:'datanya tidak ada lagi di Office — muat ulang halaman',
     cannot_deactivate_self:'akun Anda sendiri tidak bisa dinonaktifkan dari sini',
-    cannot_deactivate_admin:'akun superadmin tidak bisa dinonaktifkan dari sini'
+    cannot_deactivate_admin:'akun superadmin tidak bisa dinonaktifkan dari sini',
+    cannot_delete_self:'akun Anda sendiri tidak bisa dihapus dari sini',
+    cannot_delete_admin:'akun superadmin tidak bisa dihapus dari sini',
+    must_deactivate_first:'nonaktifkan dulu sebelum bisa dihapus permanen'
   };
   return peta[e]||e;
 }
@@ -1967,6 +1978,22 @@ function pegDaftar(){
       .some(x=>String(x||'').toLowerCase().indexOf(q)>-1);
   }).sort((a,b)=>String(a.name||'').localeCompare(String(b.name||'')));
 }
+/* Menyorot bagian yang cocok dengan kotak cari. Tanpa ini, mencari "0812" di
+   39 baris memulangkan lima baris dan yang membacanya harus memindai enam
+   kolom untuk menemukan KENAPA baris itu ikut — sering kali yang cocok bukan
+   kolom yang ia kira.
+
+   Teksnya di-esc DULU, baru penandanya disisipkan. Dibalik, nama yang memuat
+   tanda kurung sudut akan menutup tag <mark> lebih awal dan sisa barisnya
+   tergambar sebagai HTML mentah. */
+function sorot(teks){
+  const t=String(teks==null?'':teks);
+  const q=PEG_Q.trim();
+  if(!q) return esc(t);
+  const i=t.toLowerCase().indexOf(q.toLowerCase());
+  if(i<0) return esc(t);
+  return esc(t.slice(0,i))+'<mark class="peg-sorot">'+esc(t.slice(i,i+q.length))+'</mark>'+esc(t.slice(i+q.length));
+}
 function viewPegawai(){
   if(!bolehBuka('pegawai')){
     return '<div class="panel"><div class="empty"><div class="ic">🔒</div>'
@@ -1976,6 +2003,16 @@ function viewPegawai(){
   const daftar=pegDaftar();
   const nAktif=ROSTER.filter(u=>u.active!==false).length;
   const nMati =ROSTER.length-nAktif;
+  /* Saringan yang sedang berlaku disebut dengan KATA, bukan cuma ditandai
+     tombol aktif. Tiga kendali yang berdiri berjauhan (tapis, divisi, kotak
+     cari) membuat orang lupa salah satunya masih menyala — dan daftar yang
+     kosong karenanya terbaca sebagai data yang hilang. */
+  const bagianTapis=[];
+  if(PEG_TAPIS!=='semua') bagianTapis.push(PEG_TAPIS==='aktif'?'hanya yang aktif':'hanya yang nonaktif');
+  if(PEG_DIV!=='ALL')     bagianTapis.push('divisi '+namaDivisi(PEG_DIV));
+  if(PEG_Q.trim())        bagianTapis.push('cari "'+PEG_Q.trim()+'"');
+  const adaTapis=bagianTapis.length>0;
+  const ketTapis=bagianTapis.join(', ');
 
   const tapis=function(k,t,n){
     return '<button class="'+(PEG_TAPIS===k?'active':'')+'" onclick="pegSetTapis(&#39;'+k+'&#39;)">'+esc(t)+' ('+n+')</button>';
@@ -1990,15 +2027,18 @@ function viewPegawai(){
     const aktif=(u.active!==false);
     const d=divisiDari(u);
     const manual=!!(S&&S.setting.divOverride&&S.setting.divOverride[u.id]);
-    return '<tr>'
+    /* Baris nonaktif diredupkan, bukan cuma diberi pil merah: saat tapis
+       "Semua" dibuka, yang aktif dan yang sudah keluar berdempetan, dan pil
+       kecil di kolom ketujuh tidak cukup untuk membedakannya sekilas. */
+    return '<tr'+(aktif?'':' class="peg-mati"')+'>'
       +'<td class="no">'+(i+1)+'</td>'
-      +'<td><b>'+esc(u.name)+'</b>'
-        +(u.jobPosition?('<div class="mutedhint">'+esc(u.jobPosition)+'</div>'):'')+'</td>'
-      +'<td>'+esc(u.keterangan||'—')+'</td>'
+      +'<td><b>'+sorot(u.name)+'</b>'
+        +(u.jobPosition?('<div class="mutedhint">'+sorot(u.jobPosition)+'</div>'):'')+'</td>'
+      +'<td>'+sorot(u.keterangan||'—')+'</td>'
       +'<td><span class="chip"'+(d===DIV_NONSHIFT?' style="opacity:.6"':'')+'>'+esc(namaDivisi(d))+'</span>'
         +(manual?'<div class="mutedhint">penempatan manual</div>':'')+'</td>'
-      +'<td>'+esc(u.noHp||'—')+'</td>'
-      +'<td>'+esc(u.talentaId||'—')+'</td>'
+      +'<td class="mono">'+sorot(u.noHp||'—')+'</td>'
+      +'<td class="mono">'+sorot(u.talentaId||'—')+'</td>'
       +'<td>'+(aktif
           ? '<span class="stpill" style="background:var(--ok-bg);color:var(--ok)">AKTIF</span>'
           : '<span class="stpill" style="background:var(--danger-bg);color:var(--danger)">NONAKTIF</span>')+'</td>'
@@ -2006,7 +2046,11 @@ function viewPegawai(){
         +'<button class="btn btn-ghost btn-sm" onclick="bukaFormPegawai(&#39;'+escJs(u.id)+'&#39;)">Ubah</button> '
         +(aktif
           ? '<button class="btn btn-ghost btn-sm bahaya" onclick="konfirmAktifPegawai(&#39;'+escJs(u.id)+'&#39;,false)">Nonaktifkan</button>'
-          : '<button class="btn btn-ghost btn-sm" onclick="konfirmAktifPegawai(&#39;'+escJs(u.id)+'&#39;,true)">Aktifkan</button>')
+          /* HAPUS PERMANEN cuma muncul di baris yang SUDAH nonaktif — itu
+             pagarnya, dan server menegakkan syarat yang sama. */
+          : '<button class="btn btn-ghost btn-sm" onclick="konfirmAktifPegawai(&#39;'+escJs(u.id)+'&#39;,true)">Aktifkan</button> '
+            +'<button class="btn btn-ghost btn-sm bahaya" title="Hapus permanen — nomor HP &amp; Employee ID-nya bisa dipakai lagi"'
+            +' onclick="konfirmHapusPegawai(&#39;'+escJs(u.id)+'&#39;)">Hapus</button>')
       +'</td></tr>';
   }).join('');
 
@@ -2020,18 +2064,39 @@ function viewPegawai(){
     +'<div class="rowbar">'
       +'<div class="seg">'+tapis('aktif','Aktif',nAktif)+tapis('nonaktif','Nonaktif',nMati)+tapis('semua','Semua',ROSTER.length)+'</div>'
       +pilihDiv
-      +'<input class="inp" id="pegCari" style="min-width:200px;flex:1" placeholder="Cari nama, Tim, no HP, Employee ID…" value="'+esc(PEG_Q)+'" oninput="pegCari(this.value)">'
+      +'<input class="inp" id="pegCari" style="min-width:220px;flex:1" placeholder="🔍 Cari nama, Tim, no HP, Employee ID, jabatan…" value="'+esc(PEG_Q)+'" oninput="pegCari(this.value)">'
+      /* Tombol bersihkan cuma muncul kalau memang ada yang menyaring. Tombol
+         yang selalu ada tapi jarang berarti apa-apa berhenti dibaca — dan yang
+         paling sering terjadi di halaman ini justru sebaliknya: orang mencari
+         nama yang ada tapi tapisnya masih di "Nonaktif", lalu menyimpulkan
+         orangnya belum terdaftar. */
+      +(adaTapis?'<button class="btn btn-ghost btn-sm" onclick="pegBersih()">✕ Bersihkan saringan</button>':'')
     +'</div>'
+    /* Kenapa daftarnya sependek ini — ditulis DI ATAS tabelnya, bukan di kaki.
+       Yang melihat nol baris menutup halaman sebelum sampai ke kaki. */
+    +(adaTapis
+      ? '<div class="note'+(daftar.length?'':' w')+'" style="margin-bottom:10px">'
+        +(daftar.length?'Menampilkan <b>'+daftar.length+'</b> dari '+ROSTER.length+' akun'
+                       :'<b>Tidak ada yang cocok</b>')
+        +' — '+esc(ketTapis)+'.'
+        +' <a href="#" onclick="pegBersih();return false">Bersihkan saringan</a></div>'
+      : '')
     +(daftar.length
       ? '<div class="tablewrap"><table class="list"><thead><tr><th class="no">#</th><th>Nama</th><th>Tim (Office)</th>'
         +'<th>Divisi</th><th>No HP</th><th>Employee ID</th><th>Status</th><th>Aksi</th></tr></thead><tbody>'
         +baris+'</tbody></table></div>'
       : '<div class="empty"><div class="ic">🔍</div>Tidak ada yang cocok dengan saringan ini.</div>')
     +'<p class="mutedhint" style="margin-top:10px">'+daftar.length+' dari '+ROSTER.length+' akun Office. '
-      +'Kru yang keluar <b>dinonaktifkan</b>, bukan dihapus — menghapusnya membuat jadwal bulan-bulan lalu kehilangan namanya.</p>'
+      +'Kru yang keluar <b>dinonaktifkan</b> dulu — jadwal bulan-bulan lalu tetap menyebut namanya. '
+      +'Yang sudah nonaktif bisa <b>dihapus permanen</b> kalau nomor HP atau Employee ID-nya perlu dipakai lagi; '
+      +'sesudah itu jadwal lamanya kehilangan nama pemiliknya.</p>'
     +'</div>';
 }
 function pegSetTapis(k){ PEG_TAPIS=k; render(); }
+/* Bersihkan SEMUA saringan sekaligus, termasuk tapis Aktif/Nonaktif. Yang
+   menekan tombol ini sedang mencari orang yang ia yakin ada — dan sering kali
+   yang menyembunyikannya justru tapis bawaan, bukan kotak carinya. */
+function pegBersih(){ PEG_Q=''; PEG_TAPIS='semua'; PEG_DIV='ALL'; render(); }
 /* Kotak cari menggambar ulang seluruh halaman, jadi fokus & kursor hilang tiap
    satu huruf kalau tidak dikembalikan. Pola yang sama dipakai modul lain. */
 function pegCari(v){
@@ -2178,8 +2243,8 @@ function konfirmAktifPegawai(id, aktif){
         +'</b> dan bisa masuk ke Laksamana Office seperti biasa. Shift lamanya yang masih tersimpan ikut tergambar lagi.</div>'
       : '<div class="note w"><b>'+esc(u.name)+'</b> tidak akan bisa masuk ke Laksamana Office, dan barisnya hilang dari '
         +'<b>seluruh lembar jadwal — termasuk bulan-bulan yang sudah lewat</b>. Selnya tidak dihapus: begitu diaktifkan lagi, semuanya kembali.</div>'
-        +'<p style="margin:12px 0 0;font-size:13px">Ini yang dipakai untuk kru yang keluar. Menghapus akunnya sama sekali hanya bisa lewat '
-        +'<b>Kelola User</b> superadmin di Office — dan itu membuat jadwal lama benar-benar kehilangan namanya.</p>')
+        +'<p style="margin:12px 0 0;font-size:13px">Ini yang dipakai untuk kru yang keluar. Sesudah nonaktif, barisnya masih bisa '
+        +'<b>dihapus permanen</b> dari daftar ini kalau nomor HP atau Employee ID-nya perlu dipakai orang lain.</p>')
     +'</div>'
     +'<div class="mf"><button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
     +'<button class="btn '+(aktif?'btn-primary':'btn-danger')+'" id="pegAktifBtn" onclick="setAktifPegawai(&#39;'+escJs(id)+'&#39;,'+(aktif?'true':'false')+')">'
@@ -2187,6 +2252,53 @@ function konfirmAktifPegawai(id, aktif){
     +'</div></div>';
   document.getElementById('modalRoot').innerHTML=html;
 }
+/* ---------- Hapus permanen ----------
+   Hanya untuk yang SUDAH nonaktif, dan server menegakkan syarat yang sama —
+   kalau cuma di layar, satu panggilan dari console menghapus akun yang masih
+   aktif berikut seluruh riwayat jadwalnya.
+
+   Konfirmasinya MENYEBUT AKIBATNYA, bukan bertanya "yakin?". Yang hilang
+   bukan cuma barisnya: sel jadwal bulan-bulan lalu berkunci user id, dan id
+   yang tidak ada lagi di roster tidak bisa diterjemahkan jadi nama oleh layar
+   mana pun. Itu justru harga dari "id-nya bisa dipakai lagi", dan yang
+   menekannya harus tahu ia sedang membayar itu. */
+function konfirmHapusPegawai(id){
+  const u=kruById(id); if(!u) return;
+  if(u.active!==false){ toast('Nonaktifkan dulu sebelum bisa dihapus', true); return; }
+  const html='<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal">'
+    +'<div class="mh"><h3>Hapus permanen — '+esc(u.name)+'</h3>'
+    +'<button class="xbtn" onclick="tutupModal()">×</button></div>'
+    +'<div class="mb">'
+    +'<div class="note w"><b>Tidak bisa dibatalkan.</b> Akun <b>'+esc(u.name)+'</b> dihapus dari Laksamana Office '
+    +'berikut seluruh hak akses modulnya.</div>'
+    +'<p style="margin:12px 0 0;font-size:13px"><b>Yang dibebaskan:</b> nomor HP'
+    +(u.noHp?' <span class="mono">'+esc(u.noHp)+'</span>':'')
+    +(u.talentaId?', Employee ID <span class="mono">'+esc(u.talentaId)+'</span>':'')
+    +', dan namanya — ketiganya bisa dipakai lagi untuk kru baru.</p>'
+    +'<p style="margin:10px 0 0;font-size:13px"><b>Yang ikut hilang:</b> sel jadwal bulan-bulan lalu '
+    +'masih tersimpan, tapi tidak lagi bisa menyebut nama pemiliknya. Kalau riwayat jadwalnya masih '
+    +'perlu dibaca, biarkan saja <b>nonaktif</b> — ia sudah tidak muncul di lembar mana pun.</p>'
+    +'</div>'
+    +'<div class="mf"><button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
+    +'<button class="btn btn-danger" id="pegHapusBtn" onclick="hapusPegawai(&#39;'+escJs(id)+'&#39;)">Ya, hapus permanen</button></div>'
+    +'</div></div>';
+  document.getElementById('modalRoot').innerHTML=html;
+}
+async function hapusPegawai(id){
+  const b=document.getElementById('pegHapusBtn');
+  if(b){ b.disabled=true; b.textContent='Menghapus…'; }
+  try{
+    const r=await accPost({action:'rosterHapusUser', id:id});
+    tutupModal();
+    await muatRoster();
+    render();
+    toast('Dihapus permanen'+(r&&r.nama?(' — '+r.nama):''));
+  }catch(e){
+    if(b){ b.disabled=false; b.textContent='Ya, hapus permanen'; }
+    toast('Gagal: '+e.message, true);
+  }
+}
+
 async function setAktifPegawai(id, aktif){
   const b=document.getElementById('pegAktifBtn');
   if(b){ b.disabled=true; b.textContent='Menyimpan…'; }

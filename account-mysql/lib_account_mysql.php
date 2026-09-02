@@ -1104,6 +1104,47 @@ function aksi_roster_simpan_user($body) {
    Nonaktif, bukan hapus: aksi_hapus_user() membuang barisnya berikut seluruh
    hak aksesnya, dan jadwal bulan-bulan lalu yang menyebut id itu langsung
    kehilangan namanya. Kru yang keluar tetap harus terbaca di lembar lama. */
+/* HAPUS PERMANEN — hanya untuk yang SUDAH DINONAKTIFKAN (29 Agustus 2026,
+   permintaan user: "kalau dinonaktifkan bisa dihapus permanen agar id-nya
+   bisa dipakai").
+
+   SYARAT NONAKTIF DULU ITU PAGARNYA, bukan formalitas. Menghapus akun
+   membuang nomor HP, username, dan Employee ID-nya sehingga bisa dipakai
+   ulang — tapi juga membuat sel jadwal bulan-bulan lalu kehilangan nama
+   pemiliknya: `jadwal_sel` berkunci user_id, dan id yang tidak ada lagi di
+   roster tidak bisa diterjemahkan jadi nama oleh layar mana pun. Menuntut
+   dinonaktifkan lebih dulu membuatnya dua langkah dengan jeda di tengah,
+   dan jeda itulah yang menahan penghapusan karena salah klik.
+
+   `grants` dan `admins` ikut dibuang — kalau tidak, barisnya jadi yatim dan
+   HIDUP LAGI begitu id yang sama dipakai ulang, memberi akses modul kepada
+   orang yang tidak pernah diberi apa pun. Itu justru yang membuat
+   "id-nya bisa dipakai" berbahaya kalau dikerjakan setengah. */
+function aksi_roster_hapus_user($body) {
+  $caller = butuh_pengelola_roster($body);
+  if (!$caller) return array('ok' => false, 'error' => 'forbidden');
+  $id = s(isset($body['id']) ? $body['id'] : '');
+  if ($id === '') return array('ok' => false, 'error' => 'missing_fields');
+  $u = user_by_id($id);
+  if (!$u) return array('ok' => false, 'error' => 'not_found');
+  if (s($caller['id']) === $id) return array('ok' => false, 'error' => 'cannot_delete_self');
+  /* Superadmin tidak bisa dihapus dari sini, alasan yang sama dengan
+     nonaktif: pengelola roster bukan superadmin, dan tanpa pagar ini HRD
+     bisa membuang satu-satunya akun yang bisa membetulkan keadaan. */
+  if (in_array('*', admin_modul_untuk($id), true))
+    return array('ok' => false, 'error' => 'cannot_delete_admin');
+  /* WAJIB nonaktif dulu. Ini pagar yang diminta user, dan ia ditegakkan di
+     server — kalau cuma di layar, satu panggilan dari console menghapus akun
+     yang masih aktif berikut seluruh riwayat jadwalnya. */
+  $aktif = !(isset($u['active']) && (int)$u['active'] === 0);
+  if ($aktif) return array('ok' => false, 'error' => 'must_deactivate_first');
+
+  q('DELETE FROM `grants` WHERE user_id = :i', array(':i' => $id));
+  q('DELETE FROM `admins` WHERE user_id = :i', array(':i' => $id));
+  q('DELETE FROM `users`  WHERE id = :i',      array(':i' => $id));
+  return array('ok' => true, 'id' => $id, 'nama' => isset($u['name']) ? $u['name'] : '');
+}
+
 function aksi_roster_set_active($body) {
   $caller = butuh_pengelola_roster($body);
   if (!$caller) return array('ok' => false, 'error' => 'forbidden');
