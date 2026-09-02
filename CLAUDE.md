@@ -402,8 +402,29 @@ Yang menahan bug diam-diam, dan ketiganya muncul sebagai UANG bukan sebagai gala
   harga yang diputuskan di sana harus sama dengan yang keluar di Daftar Resep
   begitu menunya benar-benar dibuat.
 
+**Tapis Makanan / Minuman di Daftar Resep** (2 September 2026). Tapisnya sudah
+ada sejak lama — tapi berupa **dropdown bertuliskan "Food" / "Drink"**, satu
+dari empat kotak pilihan berjajar di baris atas. Yang mencari "minuman" tidak
+menemukannya lalu menyimpulkan tapisnya tidak ada; itu permintaan yang datang
+dari user, dan dua sebabnya (istilah data dipakai sebagai label, kendali
+tenggelam di antara tiga kendali lain) sama-sama diperbaiki:
+
+- Jadi **saklar `.seg`, sebaris dengan tab Menu Jadi / Base** — keduanya
+  menjawab pertanyaan yang sama-sama dijawab sebelum melihat tabel: bagian mana
+  yang sedang dilihat.
+- **Nilainya TETAP `'food'`/`'drink'`.** Itu isi kolom `jenis` di data; saklar
+  yang mengirim `'makanan'` membuat tidak satu pun resep cocok dan daftarnya
+  kosong tanpa satu pun galat. Yang berubah cuma tulisannya, lewat
+  `namaJenis()` — satu tempat, supaya tapis bertuliskan "Makanan" tidak pernah
+  berdiri di atas kolom bertuliskan "Food".
+- **Angka di tombol dihitung TANPA tapis jenis** (`resepTersaring(tipe, true)`).
+  Kalau ikut, tombol yang tidak sedang dipilih selalu menulis `(0)` — dan nol
+  membaca sebagai "tidak ada minuman sama sekali", bukan "kamu sedang melihat
+  makanan". Tapis lain (seksi, aktif, kata kunci) **tetap** berlaku: angkanya
+  harus menjanjikan apa yang benar-benar muncul kalau ditekan.
+
 ```bash
-node tools/uji-spare-hpp.js   # 35 pemeriksaan, jsdom + stock-api tiruan
+node tools/uji-spare-hpp.js   # 47 pemeriksaan, jsdom + stock-api tiruan
 ```
 
 Ujinya membuat resep bertingkat (bahan → base → menu, dan menu berisi dua base)

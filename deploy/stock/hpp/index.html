@@ -301,6 +301,13 @@ const SEED_URL = 'seed-hpp.json';
    Bawaannya tetap 33%, sama dengan kolom "Below 33%" di berkas HPP aslinya. */
 let SET={targetFood:0.33,targetDrink:0.33,buffer:0.05,lampuKuning:3,lampuMerah:8};
 const AMBANG_OF=r=>(r&&r.jenis==='drink')?num(SET.targetDrink):num(SET.targetFood);
+/* SATU tempat yang menerjemahkan kolom `jenis` jadi kata yang dibaca orang.
+   Nilai tersimpannya tetap 'food'/'drink' — itu isi kolomnya di database, dan
+   menggantinya membuat seluruh resep lama tidak cocok dengan tapis mana pun
+   tanpa satu pun galat. Yang diterjemahkan cuma tulisannya, dan diterjemahkan
+   di SATU tempat: tapis bertuliskan "Makanan" di atas kolom bertuliskan
+   "Food" membuat orang bertanya apakah keduanya hal yang sama. */
+const namaJenis=j=>j==='drink'?'Minuman':'Makanan';
 const AMBANG   = 0.33;   // dipakai tampilan umum (sebaran & judul kolom)
 
 const $=i=>document.getElementById(i);
@@ -863,13 +870,19 @@ const AMB_RESEP={
   cogs:r=>{ const c=cogsOf(r); return c===null?-1:c; },
   aktif:r=>(r.aktif===0?0:1)
 };
-function resepTersaring(tipe){
+/* `abaikanJenis` dipakai HANYA untuk menghitung angka di tombol Makanan /
+   Minuman. Kalau angkanya dihitung dengan tapis jenis ikut berlaku, tombol
+   yang tidak sedang dipilih SELALU menulis (0) — dan tombol bertuliskan nol
+   membaca sebagai "tidak ada minuman sama sekali", bukan sebagai "kamu sedang
+   melihat makanan". Saringan lain (seksi, aktif, kata kunci) TETAP berlaku:
+   angkanya harus menjanjikan apa yang benar-benar muncul kalau ditekan. */
+function resepTersaring(tipe,abaikanJenis){
   const q=low(F.q);
   const l=S.resep.filter(r=>{
     if(tipe&&r.tipe!==tipe) return false;
     if(F.aktif==='ya'&&r.aktif===0) return false;
     if(F.aktif==='tidak'&&r.aktif!==0) return false;
-    if(F.jenis&&r.jenis!==F.jenis) return false;
+    if(!abaikanJenis&&F.jenis&&r.jenis!==F.jenis) return false;
     if(F.seksi&&r.seksi!==F.seksi) return false;
     if(q&&low(r.nama).indexOf(q)<0&&low(r.seksi||'').indexOf(q)<0) return false;
     return true;
@@ -904,10 +917,6 @@ function viewResep(){
   const nAktif=S.resep.length-nMati;
   let h=`<div class="card"><div class="bar" style="margin-bottom:0">
       <input type="search" id="q" placeholder="Cari nama resep atau seksi…" value="${esc(F.q)}" oninput="cari(this,v=>{F.q=v;F.hal=1;FBS.hal=1})">
-      <select onchange="F.jenis=this.value;F.hal=1;FBS.hal=1;render()">
-        <option value="">Semua jenis</option>
-        <option value="food"${F.jenis==='food'?' selected':''}>Food</option>
-        <option value="drink"${F.jenis==='drink'?' selected':''}>Drink</option></select>
       <select onchange="F.seksi=this.value;F.hal=1;FBS.hal=1;render()">
         <option value="">Semua seksi</option>
         ${seksiSet.map(s=>`<option value="${esc(s)}"${F.seksi===s?' selected':''}>${esc(s)}</option>`).join('')}</select>
@@ -930,10 +939,30 @@ function viewResep(){
      tab = satu pekerjaan; jumlahnya tetap terlihat di labelnya supaya tidak
      ada yang tersembunyi tanpa jejak. */
   const nD=resepTersaring('dish').length, nB=resepTersaring('base').length;
-  h+=`<div class="seg" style="margin-bottom:14px">
+  /* TAPIS JENIS jadi saklar, bukan dropdown (2 September 2026, permintaan
+     user). Sebelumnya ia satu dari EMPAT kotak pilihan berjajar di baris atas
+     dan bertuliskan "Food" / "Drink" — istilah yang dipakai di data, bukan
+     yang dipakai orang yang mencarinya. Dua-duanya sebab yang sama: yang
+     mencari "minuman" tidak menemukannya, lalu menyimpulkan tapisnya tidak ada.
+
+     Ditaruh SEBARIS dengan tab Menu Jadi / Base karena keduanya menjawab
+     pertanyaan yang sama-sama dijawab sebelum melihat tabel: bagian mana yang
+     sedang dilihat. Nilainya TETAP 'food'/'drink' — itu isi kolom `jenis` di
+     data, dan menggantinya jadi 'makanan' membuat seluruh resep yang sudah
+     tersimpan tidak cocok dengan tapis mana pun tanpa satu pun galat. Yang
+     berubah cuma tulisannya. */
+  const tanpaJenis=resepTersaring(F.tab==='base'?'base':'dish',true);
+  const nJ=j=>tanpaJenis.filter(r=>r.jenis===j).length;
+  const segJenis=[['','Semua',tanpaJenis.length],['food','🍽 Makanan',nJ('food')],['drink','🥤 Minuman',nJ('drink')]];
+  h+=`<div class="bar" style="margin-bottom:14px">
+    <div class="seg">
       <button class="${F.tab!=='base'?'active':''}" onclick="F.tab='dish';render()">🍽 Menu Jadi <span class="chip mute" style="margin-left:6px">${nD}</span></button>
       <button class="${F.tab==='base'?'active':''}" onclick="F.tab='base';render()">🥣 Base &amp; Olahan <span class="chip mute" style="margin-left:6px">${nB}</span></button>
-    </div>`;
+    </div>
+    <div class="seg" title="Saring menurut makanan atau minuman">
+      ${segJenis.map(([v,t,n])=>`<button class="${F.jenis===v?'active':''}" onclick="F.jenis='${v}';F.hal=1;FBS.hal=1;render()">${t} <span class="chip mute" style="margin-left:6px">${n}</span></button>`).join('')}
+    </div>
+  </div>`;
   h+=(F.tab==='base')
     ? tabelResep('base','Base &amp; Bahan Olahan','Dibuat sendiri lalu dipakai resep lain — dinilai dari modal per satuan hasil.','FBS')
     : tabelResep('dish','Menu Jadi','Yang dijual — dinilai dari COGS terhadap harga jualnya.','F');
@@ -967,7 +996,7 @@ function tabelResep(tipe,judul,sub,mana){
     h+=`<tr class="${mati?'mati':''}">
       <td><b>${esc(r.nama)}</b>${m.hilang.length?` <span class="chip bad" title="${esc([...new Set(m.hilang)].join(', '))}">${m.hilang.length} bahan hilang</span>`:''}${m.siklus?' <span class="chip bad">resep berputar</span>':''}${m.manual?' <span class="chip mute">modal manual</span>':''}${
         (m.campur&&m.campur.length)?` <span class="chip warn" title="${esc([...new Set(m.campur)].join(', '))} — satuan takarannya tidak sebanding dengan satuan harga bahannya (mis. Pcs vs Gram), jadi angkanya dipakai apa adanya. Kg↔Gram dan Liter↔ML dikonversi otomatis dan tidak muncul di sini.">${[...new Set(m.campur)].length} satuan campur</span>`:''}</td>
-      <td>${r.jenis==='drink'?'<span class="chip teal">Drink</span>':'<span class="chip violet">Food</span>'}</td>
+      <td>${r.jenis==='drink'?'<span class="chip teal">Minuman</span>':'<span class="chip violet">Makanan</span>'}</td>
       <td style="font-size:11.5px;color:var(--muted)">${esc(r.seksi||'—')}</td>
       <td class="num">${y} ${esc(r.yield_unit||'')}</td>
       <td class="num">${(r.bahan||[]).filter(b=>b&&b.nama).length}</td>
@@ -1161,8 +1190,8 @@ function gambarEditor(){
       <div class="g3">
         <div class="field"><label>Nama</label><input value="${esc(r.nama)}" oninput="ED.nama=this.value"></div>
         <div class="field"><label>Jenis</label><select onchange="ED.jenis=this.value;gambarEditor()">
-          <option value="food"${r.jenis==='food'?' selected':''}>Food</option>
-          <option value="drink"${r.jenis==='drink'?' selected':''}>Drink</option></select></div>
+          <option value="food"${r.jenis==='food'?' selected':''}>Makanan</option>
+          <option value="drink"${r.jenis==='drink'?' selected':''}>Minuman</option></select></div>
         <div class="field"><label>Tipe</label><select onchange="ED.tipe=this.value;gambarEditor()">
           <option value="base"${r.tipe==='base'?' selected':''}>Base (bahan setengah jadi)</option>
           <option value="dish"${r.tipe==='dish'?' selected':''}>Menu jadi (dijual)</option></select></div>
@@ -2491,8 +2520,8 @@ function viewDash(){
   const hilangTot=new Set(); S.resep.forEach(r=>modalMenu(r).hilang.forEach(n=>hilangTot.add(n)));
 
   let h=`<div class="row-in">
-    ${kartu('COGS rata-rata Food',rata('food')===null?'—':pct(rata('food')),cogsList.filter(x=>x.r.jenis==='food').length+' menu berharga','accent')}
-    ${kartu('COGS rata-rata Drink',rata('drink')===null?'—':pct(rata('drink')),cogsList.filter(x=>x.r.jenis==='drink').length+' menu berharga','')}
+    ${kartu('COGS rata-rata Makanan',rata('food')===null?'—':pct(rata('food')),cogsList.filter(x=>x.r.jenis==='food').length+' menu berharga','accent')}
+    ${kartu('COGS rata-rata Minuman',rata('drink')===null?'—':pct(rata('drink')),cogsList.filter(x=>x.r.jenis==='drink').length+' menu berharga','')}
     ${kartu('Lewat ambang '+(AMBANG*100)+'%',lewat.length,'menu yang modalnya terlalu tinggi','')}
     ${kartu('Resep tercatat',S.resep.length,dish.length+' menu jadi · '+(S.resep.length-dish.length)+' base','')}
     ${kartu('Bahan tercatat',S.bahan.length,'sumber seluruh angka modal','')}
@@ -2518,7 +2547,7 @@ function viewDash(){
     <div class="tbl-wrap"><table><thead><tr><th>Menu</th><th>Jenis</th><th class="num">Modal</th><th class="num">Harga jual</th><th class="num">COGS%</th><th class="num">Harga ideal</th><th class="num">Selisih</th></tr></thead><tbody>`;
   cogsList.sort((a,b)=>b.c-a.c).slice(0,15).forEach(x=>{
     const m=modalMenu(x.r).total, hj=hargaJual(x.r), ideal=m/AMBANG;
-    h+=`<tr><td><b>${esc(x.r.nama)}</b></td><td>${x.r.jenis==='drink'?'Drink':'Food'}</td>
+    h+=`<tr><td><b>${esc(x.r.nama)}</b></td><td>${namaJenis(x.r.jenis)}</td>
       <td class="num mono">${rp(m)}</td><td class="num mono">${rp(hj)}</td><td class="num">${chipCogs(x.c,x.r)}</td>
       <td class="num mono">${rp(ideal)}</td>
       <td class="num mono" style="color:${ideal>hj?'var(--danger)':'var(--ok)'}">${ideal>hj?'+':''}${rp(ideal-hj)}</td></tr>`;
@@ -2780,7 +2809,7 @@ function kartuKalk(){
     +kartu('Modal per porsi',rp2(perPorsi),porsi+' porsi','')
     +kartu('COGS',c===null?'—':pct(c),hj>0?('harga jual '+rp(hj)):'isi rencana harga jual','')
     +kartu('Harga ideal',rp(perPorsi/num(SET.targetFood)),
-        `supaya COGS pas ${(num(SET.targetFood)*100).toFixed(0)}% (drink: ${rp(perPorsi/num(SET.targetDrink))})`,'');
+        `supaya COGS pas ${(num(SET.targetFood)*100).toFixed(0)}% (minuman: ${rp(perPorsi/num(SET.targetDrink))})`,'');
 }
 function noteKalk(){
   const {t}=kalTotal();
@@ -2806,8 +2835,8 @@ function viewAtur(){
   return `<div class="card"><h3>Target &amp; ambang</h3>
     <div class="card-sub">Angka-angka ini dipakai seluruh modul: warna chip COGS, kolom "harga ideal", dan lampu di halaman Pemakaian. Bawaannya mengikuti berkas HPP aslinya (ambang 33%, spare 5%).</div>
     <div class="g3">
-      <div class="field"><label>Target COGS Food (%)</label><input type="number" step="any" id="sF" value="${(num(SET.targetFood)*100)}"></div>
-      <div class="field"><label>Target COGS Drink (%)</label><input type="number" step="any" id="sD" value="${(num(SET.targetDrink)*100)}"></div>
+      <div class="field"><label>Target COGS Makanan (%)</label><input type="number" step="any" id="sF" value="${(num(SET.targetFood)*100)}"></div>
+      <div class="field"><label>Target COGS Minuman (%)</label><input type="number" step="any" id="sD" value="${(num(SET.targetDrink)*100)}"></div>
       <div class="field"><label>Spare modal (%)</label><input type="number" step="any" id="sB" value="${(num(SET.buffer)*100)}">
         <div style="font-size:11.5px;color:var(--muted-2);margin-top:4px">Cadangan yang ditambahkan ke modal tiap <b>menu jadi</b> — penutup susut, ceceran, dan porsi yang meleset. Modal, COGS%, dan harga ideal semuanya dihitung dari angka yang <b>sudah</b> ditambah spare. Isi <b>0</b> untuk mematikannya.</div></div>
     </div>
@@ -2851,7 +2880,7 @@ function simpanAtur(){
 function lembarResep(r,denganModal){
   const m=modalMenu(r), y=num(r.yield_qty)||1;
   let t=`<div class="rjudul">${esc(r.nama)}</div>
-    <div class="meta">${r.jenis==='drink'?'Drink':'Food'} · ${r.tipe==='base'?'Base':'Menu jadi'} · ${esc(r.seksi||'')} · hasil ${y} ${esc(r.yield_unit||'')}</div>
+    <div class="meta">${namaJenis(r.jenis)} · ${r.tipe==='base'?'Base':'Menu jadi'} · ${esc(r.seksi||'')} · hasil ${y} ${esc(r.yield_unit||'')}</div>
     <table><thead><tr><th style="width:44%">Bahan</th><th>Qty</th><th>Satuan</th>${denganModal?'<th class="num">Harga/satuan</th><th class="num">Subtotal</th>':''}</tr></thead><tbody>`;
   (r.bahan||[]).forEach(b=>{
     if(b.catatan!==undefined&&b.nama===undefined){

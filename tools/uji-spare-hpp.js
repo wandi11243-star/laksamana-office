@@ -298,6 +298,71 @@ function domHpp(setting) {
     dom.window.close();
   }
 
+
+  /* ================= 11. tapis Makanan / Minuman ================= */
+  /* Tapisnya sudah ada sejak lama, tapi berupa DROPDOWN bertuliskan
+     "Food" / "Drink" — satu dari empat kotak pilihan berjajar. Yang mencari
+     "minuman" tidak menemukannya lalu menyimpulkan tapisnya tidak ada
+     (permintaan user 2 September 2026). Sekarang saklar, dan berbahasa yang
+     sama dengan yang mencarinya. */
+  console.log('\n== Tapis Makanan / Minuman ==');
+  {
+    const dom = domHpp(); await tunggu(120);
+    const w = dom.window, d = w.document;
+    w.go('resep'); await tunggu(60);
+    const tombol = () => Array.from(d.querySelectorAll('#view .seg button'))
+      .filter(b => /Makanan|Minuman|Semua/.test(b.textContent));
+    cek('ada tiga tombol jenis', tombol().length === 3,
+        tombol().map(b => b.textContent.trim()).join(' | '));
+    cek('tulisannya bahasa Indonesia',
+        tombol().map(b => b.textContent).join(' ').indexOf('Food') < 0 &&
+        d.getElementById('view').innerHTML.indexOf('>Drink<') < 0);
+    cek('bawaannya Semua', tombol()[0].classList.contains('active'));
+
+    /* Angka di tombol dihitung TANPA tapis jenis. Kalau ikut, tombol yang
+       tidak sedang dipilih selalu menulis (0) — dan nol membaca sebagai
+       "tidak ada minuman sama sekali", bukan "kamu sedang melihat makanan".
+       Data ujinya: 2 menu jadi (Nasi Ayam & Ayam Sambal = makanan) dan
+       1 minuman (Botol Air). */
+    const angka = () => tombol().map(b => Number((b.textContent.match(/(\d+)\s*$/) || [])[1]));
+    cek('angka awal 3 / 2 / 1', JSON.stringify(angka()) === '[3,2,1]', JSON.stringify(angka()));
+
+    tombol().find(b => b.textContent.indexOf('Minuman') > -1).click();
+    await tunggu(60);
+    cek('menekan Minuman menyaring ke satu baris',
+        w.resepTersaring('dish').length === 1, String(w.resepTersaring('dish').length));
+    cek('yang tersisa memang minuman',
+        w.resepTersaring('dish')[0].jenis === 'drink', w.resepTersaring('dish')[0].jenis);
+    cek('angkanya TIDAK berubah jadi 0',
+        JSON.stringify(angka()) === '[3,2,1]', JSON.stringify(angka()));
+    cek('tombol Minuman yang menyala',
+        tombol().find(b => b.textContent.indexOf('Minuman') > -1).classList.contains('active'));
+
+    tombol().find(b => b.textContent.indexOf('Makanan') > -1).click();
+    await tunggu(60);
+    cek('menekan Makanan menyaring ke dua baris',
+        w.resepTersaring('dish').length === 2, String(w.resepTersaring('dish').length));
+    /* Jalan kembali. Tapis tanpa cara membatalkannya berarti terkurung di
+       satu jenis sampai halaman dimuat ulang. */
+    tombol()[0].click(); await tunggu(60);
+    cek('Semua mengembalikan ketiganya', w.resepTersaring('dish').length === 3,
+        String(w.resepTersaring('dish').length));
+
+    /* Nilai tersimpannya TETAP 'food'/'drink' — itu isi kolom `jenis` di
+       data. Kalau saklarnya mengirim 'makanan', tidak ada satu pun resep yang
+       cocok dan daftarnya kosong tanpa satu pun galat. */
+    cek('nilai tapis tetap food/drink',
+        d.getElementById('view').innerHTML.indexOf("F.jenis='drink'") > -1 &&
+        d.getElementById('view').innerHTML.indexOf("F.jenis='food'") > -1);
+
+    /* Tapis lain TETAP berlaku saat menghitung angkanya: angka di tombol
+       harus menjanjikan apa yang benar-benar muncul kalau ditekan. */
+    w.eval("F.q='botol'"); w.render(); await tunggu(60);
+    cek('kata kunci ikut mempersempit angkanya',
+        JSON.stringify(angka()) === '[1,0,1]', JSON.stringify(angka()));
+    dom.window.close();
+  }
+
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);
