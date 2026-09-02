@@ -769,6 +769,7 @@ function pasangMenu() { levelSaya(); bolehLihat(); go(); }
 
 
 
+
 function seed() {  }
 
 

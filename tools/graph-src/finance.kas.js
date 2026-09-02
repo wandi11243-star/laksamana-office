@@ -1169,6 +1169,7 @@ function simpanTarget() { bolehAksi(); fetchTimeout(); daftar(); render(); }
 
 
 
+
 function seed() {  }
 
 
@@ -1467,6 +1468,7 @@ function setViewMode() { modeHarian(); daysOfMonth(); render(); }
 
 
 function syncKendaliPeriode() { modeHarian(); tagihanOf(); save(); rkHitung(); }
+
 
 
 

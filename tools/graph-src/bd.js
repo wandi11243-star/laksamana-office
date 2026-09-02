@@ -844,6 +844,7 @@ function bacaRpEl() {  }
 
 
 
+
 function ic() {  }
 
 function toast() { $(); }
@@ -931,6 +932,12 @@ function apiPost() { antre(); _post(); }
 
 
 function normalize() {  }
+
+
+
+
+
+
 
 
 
@@ -1286,6 +1293,7 @@ function kuadran() {  }
 
 function selesai() {  }
 function lewat() { selesai(); sisaHari(); }
+
 
 
 
@@ -2355,7 +2363,85 @@ function promoSort() { promoStatus(); }
 
 
 
-function promoTerlihat() { promoStatus(); }
+function promoTerlihat() { promoStatus(); opsiVendor(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function muatVendorPur() { opsiVendor(); infoVendorPO(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function opsiVendor() { esc(); }
+
+
+
+
+
+
+
+function infoVendorPO() { esc(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4121,7 +4207,17 @@ function q() { uid(); bacaRpEl(); sesi(); nowStamp(); toast(); save(); render();
 
 
 
-function poModal() { inDays(); showModal(); ic(); esc(); P(); fTglPanjang(); sisaHari(); rpInput(); picOptions(); opsiProject(); hapusPo(); simpanPo(); }
+function poModal() { inDays(); showModal(); ic(); esc(); P(); fTglPanjang(); sisaHari(); muatVendorPur(); opsiVendor(); infoVendorPO(); rpInput(); picOptions(); opsiProject(); hapusPo(); simpanPo(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4160,6 +4256,8 @@ function poModal() { inDays(); showModal(); ic(); esc(); P(); fTglPanjang(); sis
 
 
 function simpanPo() { g(); toast(); bacaRp(); uid(); save(); render(); }
+
+
 
 
 
@@ -4526,6 +4624,8 @@ function cari() { bukaProject(); taskModal(); poModal(); coordModal(); $(); }
 
 
 function showModal() { $(); taskModal(); render(); vPromo(); barisRequest(); nomoriBarisReq(); ic(); adminModul(); toast(); approverSets(); uid(); save(); }
+
+
 
 
 

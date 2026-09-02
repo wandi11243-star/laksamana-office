@@ -5722,6 +5722,12 @@ function baris() { esc(); isLunas(); kwitansiNo(); displayPhone(); fmtDate(); to
 
 
 
+
+
+
+
+
+
 function kwitansiPDF() { hasDP(); toast(); kwitansiHTML(); logAudit(); rpDot(); dpTotal(); kwitansiNo(); renderHariH(); }
 
 
@@ -7579,7 +7585,77 @@ function rewardTeks() { rewardOf(); esc(); rpDot(); }
 
 
 
-function rewardAturanTeks() { rewardCfg(); esc(); rpDot(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rewardPapanHtml() { rewardCfg(); esc(); rpDot(); reviewRangeLabel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -9250,9 +9326,7 @@ function keluarDariPapan() { divisiCocok(); divisiKruNama(); tingkatKruNama(); }
 
 
 
-function renderCapaian() { muatRosterTim(); reviewRange(); reviewTargetMonth(); reviewsInRange(); feedbacksInRange(); askedTs(); reviewTargetsInRange(); reviewTargetTim(); kruCapaian(); rvHostOf(); reviewTargetOf(); rewardOf(); keluarDariPapan(); tblPage(); byId(); esc(); reviewRangeLabel(); openRvTargetForm(); rvChipsHtml(); rpDot(); fmtMonth(); rewardAturanTeks(); rewardTeks(); tblPagerHtml(); logAudit(); normPhone(); }
-
-
+function renderCapaian() { muatRosterTim(); reviewRange(); reviewTargetMonth(); reviewsInRange(); feedbacksInRange(); askedTs(); reviewTargetsInRange(); reviewTargetTim(); kruCapaian(); rvHostOf(); reviewTargetOf(); rewardOf(); keluarDariPapan(); tblPage(); byId(); esc(); reviewRangeLabel(); openRvTargetForm(); rvChipsHtml(); rpDot(); rewardPapanHtml(); fmtMonth(); rewardTeks(); tblPagerHtml(); logAudit(); normPhone(); }
 
 
 

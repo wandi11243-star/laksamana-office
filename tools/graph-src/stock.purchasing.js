@@ -1633,6 +1633,35 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pagePerm() {  }
 
 
@@ -3699,7 +3728,7 @@ function nomorHalaman() {  }
 
 
 
-function potongHalaman() { nomorHalaman(); keHalamanPager(); sama(); }
+function potongHalaman() { nomorHalaman(); keHalamanPager(); }
 
 
 
@@ -3721,6 +3750,48 @@ function potongHalaman() { nomorHalaman(); keHalamanPager(); sama(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function norekBersih() {  }
+
+
+
+
+
+
+
+
+function selRekening() { sama(); }
 
 
 
@@ -3903,7 +3974,16 @@ function petaKolom() {  }
 
 
 
+
+
+
+
+
+
+
+
 function barisEksporVendor() { tutupHariOf(); }
+
 
 
 
@@ -3925,6 +4005,16 @@ function bacaVendorCsv() { bacaVendorRows(); uraiCsv(); }
 function bacaProdukCsv() { bacaProdukRows(); uraiCsv(); }
 
 function bacaVendorRows() { petaKolom(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4179,7 +4269,21 @@ function jalankanImpor() { requireEditPage(); sendPostRequest(); showToast(); ca
 
 
 
-function renderDatabaseTab() { barangVendor(); labelTutup(); thPur(); urutkanPur(); tutupHariOf(); potongHalaman(); chipBarang(); openEditVendorModal(); triggerDeleteVendorConfirm(); areaList(); satuanDasarOf(); isiList(); labelCaraBeli(); bahanAktif(); }
+function renderDatabaseTab() { barangVendor(); labelTutup(); norekBersih(); thPur(); urutkanPur(); tutupHariOf(); potongHalaman(); selRekening(); chipBarang(); openEditVendorModal(); triggerDeleteVendorConfirm(); areaList(); satuanDasarOf(); isiList(); labelCaraBeli(); bahanAktif(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6677,6 +6781,13 @@ function submitAddVendor() { requireEditPage(); showToast(); bacaTutupHari(); se
 
 
 
+
+
+
+
+
+
+
 function serverDukungSatuan() {  }
 
 
@@ -7378,7 +7489,46 @@ function showToast() {  }
 
 
 
-function openAddVendorModal() { renderTutupHari(); toggleModal(); }
+
+
+
+
+
+
+function opsiBank() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function cekNorekKembar() { norekBersih(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function openAddVendorModal() { opsiBank(); cekNorekKembar(); renderTutupHari(); toggleModal(); }
+
+
+
+
 
 
 
@@ -7419,7 +7569,11 @@ function bacaTutupHari() {  }
 
 
 
-function openEditVendorModal() { renderTutupHari(); tutupHariOf(); toggleModal(); }
+function openEditVendorModal() { opsiBank(); cekNorekKembar(); renderTutupHari(); tutupHariOf(); toggleModal(); }
+
+
+
+
 
 
 

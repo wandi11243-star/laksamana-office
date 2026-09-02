@@ -556,7 +556,55 @@ function modalResep() { cariResep(); qtySesuai(); per1(); infoPur(); }
 
 
 
-function modalMenu() { modalResep(); muat(); }
+
+
+
+
+
+function modalDasar() { modalResep(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function spareModal() {  }
+
+
+
+
+
+
+
+function kenaSpare() {  }
+function modalMenu() { modalDasar(); kenaSpare(); spareModal(); muat(); }
+
+
 
 
 
@@ -715,7 +763,10 @@ function tabrakan() { dipakaiSebagaiBahan(); dipakaiSebagaiResep(); sisiTersimpa
 
 
 
-function perUnitResep() { modalMenu(); }
+function perUnitResep() { modalDasar(); }
+
+
+
 
 
 
@@ -891,7 +942,12 @@ function viewResep() { cari(); render(); bukaResep(); cetakBanyak(); resepTersar
 
 
 
-function tabelResep() { resepTersaring(); thUrut(); modalMenu(); hargaJual(); chipCogs(); cogsOf(); setAktif(); bukaResep(); cetakResep(); pagerBar(); }
+function tabelResep() { resepTersaring(); spareModal(); thUrut(); modalMenu(); hargaJual(); chipCogs(); cogsOf(); setAktif(); bukaResep(); cetakResep(); pagerBar(); }
+
+
+
+
+
 
 
 
@@ -1172,7 +1228,11 @@ function tandaCampur() {  }
 
 
 
-function modalPratinjau() { hitungBaris(); }
+function modalPratinjau() { hitungBaris(); modalMenu(); kenaSpare(); spareModal(); }
+
+
+
+
 
 
 
@@ -2664,7 +2724,12 @@ function kirimPakai() { setSync(); pesan(); }
 
 
 
-function kalTotal() { hitungBaris(); }
+function kalTotal() { hitungBaris(); spareModal(); }
+
+
+
+
+
 
 
 
@@ -2705,6 +2770,9 @@ function viewKalk() { dlSatuanHtml(); hitungBaris(); render(); segarKalk(); tand
 
 
 function kartuKalk() { kalTotal(); kartu(); }
+
+
+
 
 
 
@@ -2762,6 +2830,8 @@ function viewAtur() { simpanAtur(); }
 
 
 
+
+
 function simpanAtur() { pesan(); render(); }
 
 
@@ -2779,6 +2849,12 @@ function simpanAtur() { pesan(); render(); }
 
 
 function lembarResep() { modalMenu(); hitungBaris(); per1(); hargaJual(); cogsOf(); }
+
+
+
+
+
+
 
 
 

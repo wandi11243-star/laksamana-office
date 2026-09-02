@@ -601,6 +601,7 @@ function bolehLihat() {  }
 
 
 
+
 function seed() { tambahJejak(); }
 
 
