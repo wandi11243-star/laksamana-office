@@ -515,8 +515,33 @@ MENUNGGU  --head meloloskan-->  MENUNGGU_HRD  --HRD mengesahkan-->  DISETUJUI
 - Query `getAll` juga memakai kedua status itu sebagai "masih berjalan"; kalau
   tidak, pengajuan yang sudah diloloskan head masuk potongan 200 baris terakhir
   dan bisa hilang dari layar HRD tanpa pernah diputuskan.
+- **`putuskan()` mengoper `status` apa adanya.** Dulu di situ tertulis
+  `DISETUJUI` mati — warisan dari waktu putusannya satu langkah — jadi tombol
+  "Teruskan ke HRD" tetap mengirim DISETUJUI dan ditolak server dengan pesan
+  yang membingungkan. **Ujinya lolos** karena memanggil `kirimPutusan()`
+  langsung, melewati `putuskan()`. Uji tombol harus MENGKLIK tombolnya.
+- **Pengajuan SATU TANGGAL**, bukan rentang (29 Agustus 2026). Rentang membuat
+  satu persetujuan menimpa belasan sel sekaligus tanpa pernah melihat isinya.
+  `sampai` tetap ada di data (pengajuan lama menyimpannya) dan disamakan
+  dengan `dari` saat dikirim.
+- **Form menampilkan shift yang SEKARANG ada** di tanggal itu
+  (`gambarShiftSekarang`). Tanpa itu yang mengajukan tukar shift tidak melihat
+  apa yang sedang ia tukar, dan head tidak tahu apa yang akan tertimpa.
 - **Kru boleh menarik pengajuannya selama belum disahkan**, termasuk saat sudah
   di meja HRD.
+
+### Jadwal: "Isi Sel Kosong" jadi "Isi Jadwal" (29 Agustus 2026)
+
+Permintaan user. Tiga perubahan yang saling terkait:
+
+- **Tidak ada hari yang tercentang saat dibuka** (`hari:[0,0,0,0,0,0,0]`).
+  Sebelumnya ketujuhnya menyala, jadi satu klik shift menyentuh seluruh minggu.
+- **`timpa` bawaannya `true`** — sel yang sudah terisi ikut diganti.
+- **Namanya ikut berubah.** Alat bernama "Isi Sel Kosong" yang menimpa sel
+  terisi adalah cara tercepat menghapus kerja head lain; jawabannya mengganti
+  NAMANYA, bukan membatasi alatnya. Yang menahan salah tekan bukan lagi nama,
+  melainkan konfirmasi bentrok di `isiSisaPilih()` — tiap sel yang tertimpa
+  disebut satu per satu, dan yang lahir dari pengajuan disetujui ditandai.
 
 ### Jadwal: HRD mengurus DATA DIRI, bukan hak akses (19 Agustus 2026)
 
