@@ -312,6 +312,13 @@
 
 
 
+
+
+
+
+
+
+
 function kini() {  }
 
 
@@ -863,6 +870,12 @@ function render() { modalMenu(); hargaJual(); cogsOf(); }
 
 
 
+
+
+
+
+
+
 function resepTersaring() { urutkanDaftar(); }
 
 
@@ -899,6 +912,22 @@ function jalan() { kirim(); konfirmasi(); }
 
 
 function viewResep() { cari(); render(); bukaResep(); cetakBanyak(); resepTersaring(); tabelResep(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
