@@ -477,6 +477,26 @@ Aturannya, dan ini yang tidak boleh dilonggarkan tanpa sengaja:
 | Jadwal — `simpanSetting` | admin modul saja (blob-nya memuat daftar head) |
 | Jadwal — halaman **Data Pegawai** (`rosterSaveUser`, `rosterSetActive` di account-api) | admin modul `jadwal` — dan itu sudah berarti HRD, lihat `admin_modul_untuk`. Gerbangnya **token sesi**, bukan callerName+callerPin |
 
+### Jadwal: ekspor Excel bisa dipilih orangnya (29 Agustus 2026)
+
+`exportExcel()` sekarang MEMBUKA PEMILIH, tidak langsung mengunduh — yang
+mengerjakan ekspornya `tulisExcel(lingkup, emps, total)`.
+
+- **Bawaannya semua tercentang.** Beda dari modal Isi Jadwal yang sengaja
+  kosong: di sana satu klik menimpa jadwal orang lain, di sini yang terjadi
+  cuma berkas terunduh. Memaksa mencentang 39 nama untuk pekerjaan yang
+  hampir selalu berarti "semuanya" adalah pekerjaan tanpa alasan.
+- **"Kosongkan" hanya menyentuh yang sedang tampil** di kotak cari
+  (`eksDaftar()`). Menekannya sesudah menyaring lalu mendapati orang di luar
+  saringan ikut hilang centangnya adalah kejutan yang tidak diminta siapa pun.
+- **Berkas sebagian DITANDAI DI NAMANYA** (`_2dari4`). Berkas berisi 3 dari 39
+  orang yang namanya sama persis dengan ekspor lengkap akan dikirim ke Talenta
+  sebagai jadwal seluruh divisi — dan 36 orang yang tidak ikut tidak terjadwal
+  tanpa satu pun pesan.
+- Yang **belum punya Employee ID** ditandai di daftar pilihnya, bukan cuma
+  dihitung sesudah berkasnya terunduh: barisnya diterima Talenta tanpa keluhan
+  lalu dilewati.
+
 ### Jadwal: pengajuan lewat DUA persetujuan (29 Agustus 2026)
 
 Permintaan user: pengajuan off/izin/cuti disetujui **head dulu, baru HRD**.

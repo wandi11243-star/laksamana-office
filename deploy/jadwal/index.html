@@ -437,6 +437,20 @@ table.list tbody tr.dwrow td:first-child{box-shadow:inset 3px 0 0 var(--gold-2)}
    bawaan — <mark> bawaan memakai kuning terang yang berteriak lebih keras
    daripada isi barisnya sendiri. */
 .peg-sorot{background:var(--gold-soft);color:var(--gold-dim);border-radius:3px;padding:0 2px}
+/* Daftar pilih kru di modal ekspor. Tingginya dibatasi dan menggulung
+   sendiri: 39 nama membuat tombol Unduh di kaki modal keluar layar, dan
+   tombol yang tidak terlihat sama saja dengan tombol yang tidak ada. */
+.eks-list{max-height:340px;overflow-y:auto;border:1px solid var(--line);border-radius:10px}
+.eks-baris{display:flex;align-items:center;gap:10px;padding:8px 11px;cursor:pointer;
+  border-bottom:1px solid var(--line)}
+.eks-baris:last-child{border-bottom:none}
+.eks-baris:hover{background:var(--gold-glow)}
+.eks-baris input{width:16px;height:16px;flex:0 0 auto;cursor:pointer}
+.eks-nama{display:flex;flex-direction:column;gap:1px;min-width:0}
+.eks-nama b{font-size:13.5px}
+/* Yang tidak dicentang diredupkan — saat 30 dari 39 dimatikan, mencari yang
+   MASIH ikut lebih cepat daripada membaca kotak centangnya satu per satu. */
+.eks-baris.mati{opacity:.5}
 /* Baris kru nonaktif diredupkan. Saat tapis "Semua" dibuka, pil kecil di kolom
    ketujuh tidak cukup untuk membedakannya sekilas. */
 .peg-mati td{opacity:.62}
@@ -5463,6 +5477,18 @@ function hariSebulan(mk){
    ("Shift Pagi", "Middle", "dayoff"). Itu bisa disamakan tanpa menyentuh
    kode: nama tiap shift diatur di Pengaturan -> Definisi Shift, dan itulah
    yang ditulis ke sini. */
+/* ---------- PEMILIH ORANG SEBELUM EKSPOR (29 Agustus 2026, permintaan user)
+   Dulu tombol Excel langsung mengunduh SELURUH kru divisi yang sedang dibuka.
+   Yang perlu mengirim jadwal satu-dua orang ke Talenta harus mengekspor
+   semuanya lalu menghapus barisnya di Excel — dan menghapus baris di lembar
+   yang kolomnya dibekukan adalah cara tercepat ikut menghapus baris yang
+   salah.
+
+   BAWAANNYA SEMUA TERCENTANG. Beda dari modal Isi Jadwal yang sengaja kosong:
+   di sana satu klik menimpa jadwal orang lain, di sini yang terjadi cuma
+   berkas terunduh. Memaksa mencentang 39 nama untuk pekerjaan yang hampir
+   selalu berarti "semuanya" adalah pekerjaan yang ditambahkan tanpa alasan. */
+let EKS=null;   // {lingkup, pilih:{id:1}, q}
 function exportExcel(lingkup){
   const semuaDiv=(typeof DIV!=='undefined' && DIV==='ALL');
   const emps=semuaDiv?kruSemuaDivisi():kruDivisi(divTunggal());
@@ -5470,6 +5496,92 @@ function exportExcel(lingkup){
   if(typeof TextEncoder==='undefined' || typeof Uint8Array==='undefined'){
     toast('Peramban ini terlalu tua untuk ekspor Excel — pakai PNG atau Print', true); return;
   }
+  const pilih={};
+  emps.forEach(function(u){ pilih[u.id]=1; });
+  EKS={lingkup:lingkup, pilih:pilih, q:''};
+  gambarPilihEkspor();
+}
+function eksToggle(id){ if(!EKS) return; EKS.pilih[id]=EKS.pilih[id]?0:1; gambarPilihEkspor(); }
+function eksSemua(v){
+  if(!EKS) return;
+  /* Menyentuh HANYA yang sedang tampil di kotak cari. Menekan Kosongkan
+     sesudah menyaring lalu mendapati orang di luar saringan ikut hilang
+     centangnya adalah kejutan yang tidak diminta siapa pun. */
+  eksDaftar().forEach(function(u){ EKS.pilih[u.id]=v?1:0; });
+  gambarPilihEkspor();
+}
+function eksCari(v){
+  if(!EKS) return;
+  EKS.q=v; gambarPilihEkspor();
+  const i=document.getElementById('eksCari');
+  if(i){ i.focus(); try{ i.setSelectionRange(i.value.length,i.value.length); }catch(e){} }
+}
+function eksSumber(){
+  const semuaDiv=(typeof DIV!=='undefined' && DIV==='ALL');
+  return semuaDiv?kruSemuaDivisi():kruDivisi(divTunggal());
+}
+function eksDaftar(){
+  const q=((EKS&&EKS.q)||'').trim().toLowerCase();
+  return eksSumber().filter(function(u){
+    if(!q) return true;
+    return [u.name,u.talentaId,u.jobPosition,namaDivisi(divisiDari(u))]
+      .some(function(x){ return String(x||'').toLowerCase().indexOf(q)>-1; });
+  });
+}
+function gambarPilihEkspor(){
+  if(!EKS) return;
+  const semua=eksSumber();
+  const list=eksDaftar();
+  const nPilih=semua.filter(function(u){ return EKS.pilih[u.id]; }).length;
+  const minggu=(EKS.lingkup==='minggu');
+  const baris=list.map(function(u){
+    const on=!!EKS.pilih[u.id];
+    const eid=String(u.talentaId||'').trim();
+    return '<label class="eks-baris'+(on?'':' mati')+'">'
+      +'<input type="checkbox"'+(on?' checked':'')+' onchange="eksToggle(&#39;'+escJs(u.id)+'&#39;)">'
+      +'<span class="eks-nama"><b>'+esc(u.name)+'</b>'
+      +'<span class="mutedhint">'+esc(namaDivisi(divisiDari(u)))
+      /* Yang belum punya Employee ID ditandai DI SINI, bukan cuma dihitung
+         sesudah berkasnya terunduh: barisnya diterima Talenta tanpa keluhan
+         lalu dilewati, dan itu baru ketahuan saat orangnya tidak terjadwal. */
+      +(eid?(' · '+esc(eid)):' · <span style="color:var(--danger)">belum punya Employee ID</span>')
+      +'</span></span></label>';
+  }).join('');
+  document.getElementById('modalRoot').innerHTML=
+    '<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal" style="max-width:520px">'
+    +'<div class="mh"><h3>Ekspor Excel '+(minggu?'jadwal minggu ini':'jadwal sebulan')+'</h3>'
+    +'<span class="chip">'+nPilih+' dari '+semua.length+'</span>'
+    +'<button class="xbtn" onclick="tutupModal()">×</button></div>'
+    +'<div class="mb">'
+    +'<p class="mutedhint" style="margin:0 0 10px">Hilangkan centang kru yang tidak perlu ikut. '
+    +'Bawaannya semua tercentang.</p>'
+    +'<div class="rowbar" style="margin-bottom:8px">'
+    +'<input class="inp" id="eksCari" style="flex:1;min-width:160px" placeholder="Cari nama, Employee ID, jabatan…" '
+    +'value="'+esc(EKS.q||'')+'" oninput="eksCari(this.value)">'
+    +'<button class="btn btn-ghost btn-sm" onclick="eksSemua(1)">Centang '+(EKS.q?'yang tampil':'semua')+'</button>'
+    +'<button class="btn btn-ghost btn-sm" onclick="eksSemua(0)">Kosongkan</button>'
+    +'</div>'
+    +(list.length?'<div class="eks-list">'+baris+'</div>'
+                 :'<div class="empty"><div class="ic">?</div>Tidak ada yang cocok.</div>')
+    +'</div>'
+    +'<div class="mf"><button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
+    +'<button class="btn btn-primary"'+(nPilih?'':' disabled')+' onclick="jalanEkspor()">'
+    +(nPilih?('Unduh '+nPilih+' kru'):'Belum ada yang dicentang')+'</button></div>'
+    +'</div></div>';
+}
+function jalanEkspor(){
+  if(!EKS) return;
+  const dipilih=eksSumber().filter(function(u){ return EKS.pilih[u.id]; });
+  if(!dipilih.length){ toast('Belum ada kru yang dicentang'); return; }
+  const lingkup=EKS.lingkup, total=eksSumber().length;
+  tutupModal(); EKS=null;
+  tulisExcel(lingkup, dipilih, total);
+}
+
+/* total = berapa kru yang SEBENARNYA ada di lingkup itu. Dipakai menandai
+   berkas yang isinya cuma sebagian — lihat namaBerkas di bawah. */
+function tulisExcel(lingkup, emps, total){
+  const semuaDiv=(typeof DIV!=='undefined' && DIV==='ALL');
   const minggu=(lingkup==='minggu');
   const hari=minggu ? tujuhHari(MINGGU_AKTIF||seninDari(hariIni()))
                     : hariSebulan(BULAN_AKTIF||bulanDari(hariIni()));
@@ -5565,7 +5677,13 @@ function exportExcel(lingkup){
     B('xl/worksheets/sheet1.xml', sheet)
   ]);
 
-  const namaBerkas=namaEkspor('shift_attendance','xlsx');
+  /* BERKAS SEBAGIAN DITANDAI DI NAMANYA. Berkas berisi 3 dari 39 orang yang
+     namanya sama persis dengan ekspor lengkap akan dikirim ke Talenta sebagai
+     jadwal seluruh divisi — dan 36 orang yang tidak ikut tidak terjadwal tanpa
+     satu pun pesan. Namanya harus mengatakan apa isinya. */
+  const sebagian=(typeof total==='number' && total>emps.length);
+  const namaBerkas=namaEkspor('shift_attendance'
+    +(sebagian?('_'+emps.length+'dari'+total):''),'xlsx');
   const blob=new Blob([zip],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const a=document.createElement('a');
   a.href=URL.createObjectURL(blob); a.download=namaBerkas;
@@ -5576,6 +5694,7 @@ function exportExcel(lingkup){
      satu-satunya gejalanya adalah beberapa orang tidak terjadwal sesudah
      impor — dan itu baru ketahuan saat orangnya tidak muncul. */
   toast((minggu?'Excel jadwal minggu ini diunduh':'Excel jadwal sebulan diunduh')
+    +(sebagian?(' — '+emps.length+' dari '+total+' kru'):'')
     +(tanpaId?(' — '+tanpaId+' kru belum punya Employee ID Talenta, kolomnya kosong'):''), !!tanpaId);
 }
 
