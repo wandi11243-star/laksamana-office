@@ -885,6 +885,50 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     dom.window.close();
   }
 
+
+  /* ================= 20. blob PHP menyimpan semua kunci ================= */
+  /* Seluruh uji di atas memakai server TIRUAN, jadi tidak satu pun dari
+     mereka bisa melihat apa yang benar-benar ditulis PHP ke bk_state.
+     brankas_simpan() menyaring blob lewat daftar kunci tertutup, dan kunci
+     yang terlewat di sana hilang TANPA satu pun galat: server tetap membalas
+     ok, layar menggambar ulang dari memori sehingga barisnya kelihatan sudah
+     masuk, dan baru lenyap saat halaman dimuat ulang. Sudah kejadian
+     2 September 2026 — `mutasi` tidak ada di daftar itu, jadi seluruh Mutasi
+     & Transfer Wallet hilang tiap refresh sementara 190 pemeriksaan di atas
+     tetap hijau.
+
+     Karena itu KEDUA daftar DIBACA dari sumbernya lalu dibandingkan, bukan
+     ditulis ulang di sini: daftar yang disalin tangan akan ikut basi bersama
+     yang disalinnya, dan uji yang basi persis itulah yang membuat bug ini
+     lolos pertama kali. */
+  console.log('\n== Kunci blob: frontend <-> PHP ==');
+  {
+    const daftar = (teks, re, nama) => {
+      const m = teks.match(re);
+      if (!m) { cek(nama + ' terbaca dari sumbernya', false, 'pola tidak ketemu'); return null; }
+      return m[1].split(',').map(x => x.trim().replace(/^['"]|['"]$/g, '')).filter(Boolean);
+    };
+    /* Baris di muatSemua() yang memastikan tiap kunci berbentuk array — itulah
+       daftar kunci larik yang benar-benar dipakai halaman ini. */
+    const fe = daftar(HTML, /\[([^\]]*)\]\.forEach\(k => \{ if \(!Array\.isArray\(BK\.data\[k\]\)\)/,
+                      'daftar kunci frontend');
+    const PHP = fs.readFileSync(path.join(ROOT, 'finance-mysql', 'lib_finance_mysql.php'), 'utf8');
+    const be = daftar(PHP, /foreach \(array\(([^)]*)\) as \$k\)\s*\r?\n\s*\$bersih\[\$k\]/,
+                      'daftar kunci brankas_simpan()');
+    if (fe && be) {
+      const hilang = fe.filter(k => be.indexOf(k) < 0);
+      cek('semua kunci frontend ikut ditulis brankas_simpan()', hilang.length === 0,
+          'dibuang diam-diam oleh PHP: ' + hilang.join(', '));
+      cek('mutasi ada di daftar PHP', be.indexOf('mutasi') >= 0, be.join(','));
+      /* Bentuk kosong brankas_baca() harus memuat kunci yang sama. Frontend
+         memang menambalnya sendiri, tapi dua bentuk bawaan yang berbeda
+         berarti salah satunya pasti tertinggal saat ada kunci baru. */
+      const kosong = (PHP.match(/\$data = array\('rekening'[\s\S]*?\);/) || [''])[0];
+      const kurang = fe.filter(k => kosong.indexOf("'" + k + "'") < 0);
+      cek('bentuk kosong brankas_baca() lengkap', kurang.length === 0, 'kurang: ' + kurang.join(', '));
+    }
+  }
+
  console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);

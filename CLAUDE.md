@@ -227,6 +227,19 @@ migrasi yang bisa tertinggal di produksi. Datanya blob satu baris — boleh kare
 yang menyunting cuma CFO; kalau suatu hari dibuka untuk banyak orang, inilah yang
 pertama harus dipecah.
 
+**Blobnya DISARING daftar kunci tertutup di `brankas_simpan()`, dan itu satu-
+satunya tempat yang memutuskan apa yang bertahan.** Kunci yang dipakai
+`BK.data` tapi tidak disebut di sana hilang **tanpa satu pun galat**: server
+tetap membalas `ok`, layar menggambar ulang dari memori sehingga barisnya
+kelihatan sudah masuk, dan baru lenyap saat halaman dimuat ulang. Kejadian
+2 September 2026 — `mutasi` tidak ada di daftar itu sejak panel ini lahir, jadi
+seluruh Mutasi & Transfer Wallet hilang tiap refresh sementara 190 pemeriksaan
+`uji-brankas.js` tetap hijau (servernya di sana tiruan, jadi ia cuma bisa
+melihat apa yang DIKIRIM frontend, bukan apa yang DITULIS PHP). Kunci baru
+wajib ditambahkan di **dua** tempat: daftar `foreach` itu, dan bentuk kosong di
+`brankas_baca()`. Sekarang keduanya dibandingkan dengan daftar di `muatSemua()`
+lewat uji yang membaca ketiga sumbernya — bukan menyalinnya.
+
 Hak aksesnya matriks halaman × role yang **sama persis** dengan panel Kas Kecil
 dan modul Reservasi (None/Lihat/Ubah). Bawaannya PENUH untuk `staf` — permintaan
 user "masuk langsung full akses dulu, tapi ada kelola akses per role".
@@ -234,7 +247,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 190 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 193 pemeriksaan, jsdom + finance/kompas/account tiruan
 ```
 
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`

@@ -547,6 +547,7 @@ function brankas_baca() {
   if ($data === null) {
     $data = array('rekening' => array(), 'piutang' => array(),
                   'bayar' => array(), 'investor' => array(),
+                  'mutasi' => array(),
                   'setting' => new stdClass());
   }
 
@@ -578,9 +579,18 @@ function brankas_simpan($in) {
   if ($data === null) throw new Exception('data brankas kosong');
   /* Kunci yang dikenal saja yang ditulis. Blob yang menerima apa saja akan
      menumbuhkan field yang tidak pernah dibaca siapa pun, dan yang membacanya
-     lewat phpMyAdmin tidak punya cara tahu mana yang masih dipakai. */
+     lewat phpMyAdmin tidak punya cara tahu mana yang masih dipakai.
+
+     DAFTAR INI SATU-SATUNYA YANG MEMUTUSKAN APA YANG BERTAHAN. Kunci yang
+     dipakai frontend tapi TIDAK disebut di sini hilang tanpa satu pun galat:
+     server membalas ok, layar menggambar ulang dari memori sehingga barisnya
+     kelihatan sudah masuk, dan baru lenyap saat halaman dimuat ulang. Sudah
+     kejadian 2 September 2026 dengan `mutasi` — seluruh Mutasi & Transfer
+     Wallet hilang tiap refresh, dan tools/uji-brankas.js tetap lolos karena
+     servernya di sana tiruan. Kunci baru di BK.data harus ditambahkan DI
+     SINI dan di bentuk kosong brankas_baca(). */
   $bersih = array();
-  foreach (array('rekening', 'piutang', 'bayar', 'investor') as $k)
+  foreach (array('rekening', 'piutang', 'bayar', 'investor', 'mutasi') as $k)
     $bersih[$k] = (isset($data[$k]) && is_array($data[$k])) ? array_values($data[$k]) : array();
   $bersih['setting'] = (isset($data['setting']) && is_array($data['setting']))
                      ? $data['setting'] : new stdClass();
