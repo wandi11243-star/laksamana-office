@@ -554,12 +554,60 @@ function modalResep(r,jalur){
   if(!siklus) MEMO[r.id]=hasil;    // hasil di bawah siklus tidak boleh disimpan
   return hasil;
 }
-/* Modal satu MENU. Resep kosong → pakai modal ketikan tangan (menu yang dibeli
-   jadi, atau yang resepnya belum dipindahkan). */
-function modalMenu(r){
+/* Modal BAHAN satu resep — SEBELUM spare. Resep kosong → pakai modal ketikan
+   tangan (menu yang dibeli jadi, atau yang resepnya belum dipindahkan).
+
+   Inilah angka yang dipakai saat resep ini DIRUJUK resep lain: yang menyusun
+   modal orang lain harus modal telanjangnya, kalau tidak spare-nya ikut
+   terbawa ke atas dan menumpuk. Alasan lengkapnya di catatan SPARE MODAL
+   tepat di bawah ini. */
+function modalDasar(r){
   const m=modalResep(r);
   if((r.bahan||[]).length===0 && num(r.modal_manual)>0) return {total:num(r.modal_manual),hilang:[],siklus:false,campur:[],manual:true};
   return m;
+}
+/* ---- SPARE / BUFFER MODAL (2 September 2026, permintaan user) ----
+   Modal menu ditambah cadangan sekian persen — di berkas HPP aslinya ada baris
+   "buffer 5%" di sheet Harga, dan itulah yang dipulihkan di sini. Gunanya
+   menutup susut, ceceran, dan porsi yang meleset: harga jual yang disusun di
+   atas modal telanjang selalu sedikit terlalu tipis.
+
+   Persentasenya SETELAN (`SET.buffer`, halaman Pengaturan), bukan angka mati.
+   Kotak isiannya sudah ada sejak modul ini lahir — yang tidak ada justru
+   pemakaiannya: `SET.buffer` tersimpan rapi ke server lalu tidak pernah dibaca
+   satu pun perhitungan, jadi mengubahnya tidak menggeser satu angka pun.
+
+   TIGA HAL YANG MENAHAN BUG DIAM-DIAM DI SINI:
+
+   1. Spare dikenakan pada MENU JADI SAJA, sekali — lihat kenaSpare. Kalau base ikut
+      dipadding, menu yang memakai base kena 5% di atas 5% — dan resep yang
+      bertingkat tiga kena tiga kali. Angkanya tetap terlihat masuk akal, jadi
+      tidak ada yang akan mempertanyakannya sampai COGS seluruh menu bersantan
+      pelan-pelan meleset.
+   2. modalResep() MEMOIZE hasilnya di MEMO dan memulangkan referensi yang SAMA
+      tiap kali. Karena itu objeknya tidak pernah disunting di sini, selalu
+      dibuat baru: menambahkan spare ke objek memo berarti resep yang digambar
+      dua kali dapat spare dua kali, dan modalnya naik sendiri tiap render.
+   3. `bahan` dan `spare` ikut dipulangkan, tidak cuma totalnya. Layar yang
+      merinci per baris (penyunting, lembar PDF) harus bisa menuliskan spare
+      sebagai barisnya sendiri — jumlah baris bahan yang tidak sama dengan
+      total di bawahnya adalah selisih yang dikira salah hitung. */
+const pctSp=p=>(Math.round(p*1000)/10)+'%';
+function spareModal(){
+  const p=num(SET.buffer);
+  /* Negatif ditolak, bukan dipakai apa adanya: buffer negatif MENGURANGI modal,
+     dan modal yang lebih murah daripada bahannya adalah angka yang menyesatkan
+     tanpa satu pun tanda. Nol tetap sah — itu cara mematikan spare. */
+  return (isFinite(p)&&p>0)?p:0;
+}
+/* Base tidak kena, alasan lengkapnya di butir 1 di atas. */
+function kenaSpare(r){ return !!r && r.tipe==='dish'; }
+function modalMenu(r){
+  const m=modalDasar(r);
+  const p=kenaSpare(r)?spareModal():0;
+  const spare=m.total*p;
+  return {total:m.total+spare, bahan:m.total, spare:spare, rate:p,
+          hilang:m.hilang, siklus:m.siklus, campur:m.campur, manual:!!m.manual};
 }
 /* HARGA JUAL LAMA DIHAPUS 15 Agustus 2026 (permintaan user). Yang tersisa satu
    harga jual saja — `harga_baru`. Kolom lamanya tidak lagi dibaca di mana pun.
@@ -718,7 +766,10 @@ function tabrakan(b){
 function perUnitResep(r){
   if(!r) return 0;
   const y=num(r.yield_qty)||1;
-  return modalMenu(r).total/y;
+  /* modalDasar, BUKAN modalMenu: angka ini menjadi "harga per satuan" sebuah
+     bahan yang dibuat sendiri, lalu dipakai menyusun modal resep lain. Spare
+     yang ikut di sini akan dipadding lagi di menu yang memakainya. */
+  return modalDasar(r).total/y;
 }
 
 /* ====================== KERANGKA ====================== */
@@ -897,8 +948,13 @@ function tabelResep(tipe,judul,sub,mana){
   if(st.hal>nHal) st.hal=nHal;
   const hal=semua.slice((st.hal-1)*st.per,st.hal*st.per);
   const dish=(tipe==='dish');
+  /* Kolom Modal di tabel Menu Jadi sudah termasuk spare, dan itu HARUS tertulis:
+     angka yang diam-diam 5% lebih besar daripada jumlah bahannya adalah selisih
+     yang dicari orang berjam-jam di tempat yang salah. Rinciannya menyusul di
+     title tiap sel supaya barisnya tidak ikut ramai. */
+  const sp=dish?spareModal():0;
   let h=`<div class="card"><h3>${judul} <span style="font-weight:400;color:var(--muted-2);font-size:13px">${semua.length}</span></h3>
-    <div class="card-sub">${sub}</div>`;
+    <div class="card-sub">${sub}${sp>0?` <b>Modal sudah termasuk spare ${pctSp(sp)}</b> — diatur di Pengaturan.`:''}</div>`;
   if(!semua.length) return h+`<div class="empty" style="padding:22px">Tidak ada yang cocok dengan saringan ini.</div></div>`;
   h+=`<div class="tbl-wrap"><table><thead><tr>
       ${thUrut(mana,'nama','Nama')}${thUrut(mana,'jenis','Jenis')}${thUrut(mana,'seksi','Seksi')}
@@ -915,7 +971,7 @@ function tabelResep(tipe,judul,sub,mana){
       <td style="font-size:11.5px;color:var(--muted)">${esc(r.seksi||'—')}</td>
       <td class="num">${y} ${esc(r.yield_unit||'')}</td>
       <td class="num">${(r.bahan||[]).filter(b=>b&&b.nama).length}</td>
-      <td class="num mono">${rp(m.total)}</td>
+      <td class="num mono"${m.spare>0?` title="Modal bahan ${rp(m.bahan)} + spare ${pctSp(m.rate)} ${rp(m.spare)}"`:''}>${rp(m.total)}</td>
       <td class="num mono">${rp2(m.total/y)}</td>
       ${dish?`<td class="num mono">${hargaJual(r)?rp(hargaJual(r)):'—'}</td><td class="num">${chipCogs(cogsOf(r),r)}</td>`:''}
       <td><button type="button" class="sw${mati?'':' on'}" role="switch" aria-checked="${mati?'false':'true'}"
@@ -1177,12 +1233,16 @@ function modalPratinjau(r){
   (r.bahan||[]).forEach(b=>{ if(!b||!b.nama) return; const s=hitungBaris(b,r.jenis);
     if(s.ada){ t+=s.nilai; if(s.campur) campur++; } else hilang++; });
   if((r.bahan||[]).length===0) t=num(r.modal_manual);
-  return {total:t,hilang,campur};
+  /* Spare-nya dihitung dengan aturan yang SAMA dengan modalMenu(). Kalau tidak,
+     angka di penyunting berbeda dari angka di daftar untuk resep yang sama —
+     dan yang menyuntingnya akan menyimpan lalu mendapati modalnya berubah. */
+  const p=kenaSpare(r)?spareModal():0;
+  return {total:t+t*p, bahan:t, spare:t*p, rate:p, hilang, campur};
 }
 function ringkasEditor(m,r){
   const y=num(r.yield_qty)||1, hj=hargaJual(r);
   const c=hj>0?m.total/hj:null;
-  return `<div>Modal <b>${rp(m.total)}</b> · per ${esc(r.yield_unit||'unit')} <b>${rp2(m.total/y)}</b>`
+  return `<div>${m.spare>0?`Modal bahan ${rp(m.bahan)} + spare ${pctSp(m.rate)} ${rp(m.spare)} → `:''}Modal <b>${rp(m.total)}</b> · per ${esc(r.yield_unit||'unit')} <b>${rp2(m.total/y)}</b>`
     +(hj>0?` · harga jual ${rp(hj)} → COGS <b>${pct(c)}</b> ${c>AMBANG?'<span class="chip bad">di atas '+(AMBANG*100)+'%</span>':'<span class="chip ok">sehat</span>'}`:'')
     +(m.hilang?` · <span style="color:var(--danger)">${m.hilang} baris bahannya belum dikenal</span>`:'')
     +(m.campur?` · <span style="color:var(--warn)">${m.campur} baris satuannya tidak sebanding dengan satuan harga bahannya (⚠) — angkanya dipakai apa adanya</span>`:'')+`</div>`;
@@ -2667,7 +2727,12 @@ let KAL={baris:[{nama:'',qty:'',ref:'bahan'}],hargaJual:'',porsi:1};
 function kalTotal(){
   let t=0,hilang=0;
   KAL.baris.forEach(b=>{ if(!b.nama) return; const s=hitungBaris(b,'food'); if(s.ada) t+=s.nilai; else hilang++; });
-  return {t,hilang};
+  /* Kalkulator ini menimbang MENU yang akan dijual — COGS & harga idealnya
+     dipakai memutuskan harga. Jadi spare-nya ikut, sama seperti menu jadi yang
+     sudah tersimpan; kalau tidak, harga yang diputuskan di sini selalu sedikit
+     lebih murah daripada yang keluar di Daftar Resep begitu menunya dibuat. */
+  const p=spareModal();
+  return {t:t+t*p, bahan:t, spare:t*p, rate:p, hilang};
 }
 function viewKalk(){
   let h=`<div class="card"><h3>Coba hitung</h3>
@@ -2705,10 +2770,13 @@ function viewKalk(){
 /* Kartu & catatan kalkulator dipisah jadi fungsinya sendiri supaya bisa
    digambar ulang TANPA menyentuh kotak isian yang sedang diketik. */
 function kartuKalk(){
-  const {t,hilang}=kalTotal();
+  const {t,hilang,bahan,spare,rate}=kalTotal();
   const porsi=num(KAL.porsi)||1, perPorsi=t/porsi, hj=num(KAL.hargaJual);
   const c=hj>0?perPorsi/hj:null;
-  return kartu('Modal total',rp(t),hilang?`${hilang} baris belum dikenal`:'dari '+KAL.baris.filter(b=>b.nama).length+' bahan','accent')
+  const kakiModal=hilang?`${hilang} baris belum dikenal`
+    :(spare>0?`bahan ${rp(bahan)} + spare ${pctSp(rate)} ${rp(spare)}`
+             :'dari '+KAL.baris.filter(b=>b.nama).length+' bahan');
+  return kartu('Modal total',rp(t),kakiModal,'accent')
     +kartu('Modal per porsi',rp2(perPorsi),porsi+' porsi','')
     +kartu('COGS',c===null?'—':pct(c),hj>0?('harga jual '+rp(hj)):'isi rencana harga jual','')
     +kartu('Harga ideal',rp(perPorsi/num(SET.targetFood)),
@@ -2736,12 +2804,14 @@ function segarKalk(){
 /* ====================== 7. PENGATURAN ====================== */
 function viewAtur(){
   return `<div class="card"><h3>Target &amp; ambang</h3>
-    <div class="card-sub">Angka-angka ini dipakai seluruh modul: warna chip COGS, kolom "harga ideal", dan lampu di halaman Pemakaian. Bawaannya mengikuti berkas HPP aslinya (ambang 33%, buffer 5%).</div>
+    <div class="card-sub">Angka-angka ini dipakai seluruh modul: warna chip COGS, kolom "harga ideal", dan lampu di halaman Pemakaian. Bawaannya mengikuti berkas HPP aslinya (ambang 33%, spare 5%).</div>
     <div class="g3">
       <div class="field"><label>Target COGS Food (%)</label><input type="number" step="any" id="sF" value="${(num(SET.targetFood)*100)}"></div>
       <div class="field"><label>Target COGS Drink (%)</label><input type="number" step="any" id="sD" value="${(num(SET.targetDrink)*100)}"></div>
-      <div class="field"><label>Buffer harga (%)</label><input type="number" step="any" id="sB" value="${(num(SET.buffer)*100)}"></div>
+      <div class="field"><label>Spare modal (%)</label><input type="number" step="any" id="sB" value="${(num(SET.buffer)*100)}">
+        <div style="font-size:11.5px;color:var(--muted-2);margin-top:4px">Cadangan yang ditambahkan ke modal tiap <b>menu jadi</b> — penutup susut, ceceran, dan porsi yang meleset. Modal, COGS%, dan harga ideal semuanya dihitung dari angka yang <b>sudah</b> ditambah spare. Isi <b>0</b> untuk mematikannya.</div></div>
     </div>
+    <div class="notice info" style="margin-top:2px">ℹ <div>Spare dikenakan <b>sekali, pada menu jadi saja</b>. Base &amp; Olahan tetap modal telanjang — kalau base ikut dipadding, menu yang memakainya kena spare dua kali dan resep bertingkat kena tiga kali, tanpa satu pun tanda di layar.</div></div>
     <div class="g2">
       <div class="field"><label>Lampu kuning di atas (% selisih)</label><input type="number" step="any" id="sK" value="${SET.lampuKuning}"></div>
       <div class="field"><label>Lampu merah di atas (% selisih)</label><input type="number" step="any" id="sM" value="${SET.lampuMerah}"></div>
@@ -2794,6 +2864,12 @@ function lembarResep(r,denganModal){
     t+=`</tr>`;
   });
   if(denganModal){
+    /* Spare ditulis sebagai BARISNYA SENDIRI, bukan dilebur ke TOTAL MODAL.
+       Lembar ini dipegang orang dapur sambil menghitung ulang di kertas; total
+       yang lebih besar daripada jumlah subtotal di atasnya akan dikira salah
+       hitung, dan yang mencari selisihnya tidak punya satu pun petunjuk. */
+    if(m.spare>0) t+=`<tr><th colspan="4">Modal bahan</th><th class="num">${rp(m.bahan)}</th></tr>
+        <tr><th colspan="4">Spare ${pctSp(m.rate)}</th><th class="num">${rp(m.spare)}</th></tr>`;
     t+=`<tr><th colspan="4">TOTAL MODAL</th><th class="num">${rp(m.total)}</th></tr>
         <tr><th colspan="4">Modal per ${esc(r.yield_unit||'unit')}</th><th class="num">${rp2(m.total/y)}</th></tr>`;
     if(hargaJual(r)>0) t+=`<tr><th colspan="4">Harga jual · COGS</th><th class="num">${rp(hargaJual(r))} · ${pct(cogsOf(r))}</th></tr>`;

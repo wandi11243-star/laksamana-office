@@ -34,7 +34,8 @@ adalah **pemilih panel** (~280 baris, tanpa aplikasi di dalamnya), dan
 aplikasinya ada satu tingkat lebih dalam:
 
 ```
-deploy/stock/index.html          pemilih   →  ordering/ purchasing/ tree/ usage/
+deploy/stock/index.html          pemilih   →  ordering/ purchasing/ tree/ usage/ hpp/
+deploy/stock/hpp/index.html      HPP & Resep, izin SENDIRI 'hpp' (bukan 'stock')
 deploy/finance/index.html        pemilih   →  omset/ kas/
 deploy/finance/omset/index.html  BEKAS deploy/kompas/  (izin 'kompas')
 deploy/finance/kas/index.html    BEKAS deploy/finance/ (izin 'finance')
@@ -350,6 +351,65 @@ node tools/uji-analytics.js   # 95 pemeriksaan
 Ujinya memakai **berkas POS asli** di root repo kalau ada (kalau tidak, bagian
 itu MELEWAT dengan jelas). `DecompressionStream`/`Blob`/`Response` ada di Node
 18+, jadi jalur yang dipakai peramban benar-benar dijalankan — bukan ditiru.
+
+### HPP: SPARE MODAL, sekali dan hanya di menu jadi (2 September 2026)
+
+`deploy/stock/hpp/`, kunci izin **`hpp`** (bukan `stock` — panel ini berdiri
+sendiri di pemilih). Modal tiap **menu jadi** ditambah cadangan sekian persen —
+penutup susut, ceceran, dan porsi yang meleset. Persentasenya setelan
+(`SET.buffer`, halaman Pengaturan, bawaan 5%), tersimpan di `hpp_setting` lewat
+`simpanSetting` — **backend tidak perlu diubah sama sekali**, kuncinya sudah ada
+di sana sejak modul lahir.
+
+**Kotak isiannya memang sudah ada sejak awal — yang tidak ada justru
+pemakaiannya.** `SET.buffer` disimpan rapi ke server lalu tidak dibaca satu pun
+perhitungan, jadi mengubahnya tidak menggeser satu angka pun. Ia setelan mati
+selama dua minggu, dan tidak ada satu pun layar yang mengatakannya.
+
+Rumusnya, dan pembagian tugas ketiga fungsinya:
+
+```
+modalResep(r)   bahan mentah saja, MEMOIZED di MEMO
+modalDasar(r)   modalResep + jalur modal_manual   <- yang dipakai MENYUSUN resep lain
+modalMenu(r)    modalDasar + spare kalau tipe==='dish'   <- modal RESMI seluruh layar
+```
+
+Yang menahan bug diam-diam, dan ketiganya muncul sebagai UANG bukan sebagai galat:
+
+- **Spare dikenakan SEKALI, di menu jadi saja** (`kenaSpare()`). Kalau base ikut
+  dipadding, menu yang memakai base kena 5% di atas 5% dan resep bertingkat tiga
+  kena tiga kali. Karena itu `perUnitResep()` — harga per satuan sebuah base yang
+  menyusun modal resep lain — memakai **`modalDasar`, bukan `modalMenu`**.
+- **`modalMenu()` selalu membuat OBJEK BARU.** `modalResep()` memoize hasilnya
+  dan memulangkan referensi yang sama tiap kali; menambahkan spare ke objek itu
+  membuat resep yang digambar dua kali dapat spare dua kali. Render di modul ini
+  TOTAL, jadi gejalanya modal yang **naik sendiri tiap halaman digambar ulang** —
+  sudah diuji, tiga render membawa satu menu dari 7.293 ke 11.879.
+- **`modalPratinjau()` memakai aturan yang SAMA.** Penyunting resep memakai
+  fungsi itu, daftar memakai `modalMenu()`; kalau cuma salah satunya kena spare,
+  yang menyunting menyimpan lalu mendapati modalnya berubah tanpa ia menyentuh
+  apa pun.
+- **Buffer negatif diabaikan**, nol tetap sah. Negatif MENGURANGI modal, dan
+  modal yang lebih murah daripada bahannya adalah angka menyesatkan yang tidak
+  akan dipertanyakan siapa pun. Nol wajib sah — itu satu-satunya cara mematikan
+  spare tanpa menyunting kode.
+- **Spare selalu ditulis sebagai barisnya sendiri** di penyunting, lembar PDF,
+  dan kartu kalkulator; daftar Menu Jadi menyebutnya di keterangan tabel dan
+  merincinya di `title` tiap sel Modal. Total yang 5% lebih besar daripada jumlah
+  subtotal di atasnya akan dikira salah hitung, dan yang mencari selisihnya tidak
+  punya satu pun petunjuk.
+- Kalkulator HPP ikut menghitung spare: ia menimbang menu yang AKAN dijual, jadi
+  harga yang diputuskan di sana harus sama dengan yang keluar di Daftar Resep
+  begitu menunya benar-benar dibuat.
+
+```bash
+node tools/uji-spare-hpp.js   # 35 pemeriksaan, jsdom + stock-api tiruan
+```
+
+Ujinya membuat resep bertingkat (bahan → base → menu, dan menu berisi dua base)
+justru supaya spare berlipat punya tempat untuk muncul. `smoke-modul.js` **tidak
+cukup** untuk modul ini — ia melaporkan `hanya boot yang diuji`, jadi seluruh
+aritmetikanya lewat tanpa disentuh.
 
 ### Master Vendor: di PURCHASING, dibaca Finance & BD (28 Agustus 2026)
 
