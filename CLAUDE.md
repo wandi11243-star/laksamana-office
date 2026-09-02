@@ -1479,6 +1479,30 @@ main-main dan isinya rutin tertinggal; menjadikannya sumber kebenaran untuk
 pencabutan berarti satu percobaan di dev bisa memutus akses orang yang sedang
 bekerja. `--cabut` ada, tapi bacalah daftarnya dulu.
 
+### Monarx memblokir langkah verifikasi backend (29 Agustus 2026)
+
+Rumahweb memasang **Monarx** (WAF) di depan domainnya. Untuk IP runner GitHub
+Actions ia menyajikan halaman *Access Denied / Human Verification*, jadi
+`curl "…/account-api-mysql/api.php?action=ping"` memulangkan HTML challenge,
+bukan JSON. Langkah **Verifikasi backend hidup dan versi terbaru** karena itu
+melaporkan `GAGAL env BUKAN produksi — config.php salah` untuk backend yang
+sebenarnya sehat.
+
+Halaman itu sekarang **dikenali** (`mx-page` / `monarx` / `Access Denied`) dan
+dilaporkan `LEWAT`, bukan `GAGAL`. Alasannya sama dengan sertifikat SSL yang
+belum terbit di `deploy-investor.yml`: run merah yang penyebabnya di luar repo
+cuma melatih orang mengabaikan tanda merah.
+
+**Yang TIDAK ikut dilonggarkan**, dan sengaja: config dev yang terpasang di
+produksi (`env` salah), parse error PHP, dan balasan kosong tetap GAGAL. Itu
+kesalahan termahal di repo ini, dan halaman Monarx bisa dibedakan darinya.
+
+Verifikasi isi berkas (`deploy/**`) TIDAK terpengaruh — ia membandingkan HTML
+yang memang dilayani ke peramban biasa.
+
+Kalau ingin pemeriksaannya jalan lagi: minta Rumahweb mengecualikan
+`/*-api-mysql/*.php` dari Monarx.
+
 **Push otomatis men-deploy.** `main` → **`team.laksamanamuda.id`** (produksi),
 `develop` → `dev.laksamanamuda.id`. Berkas ini sempat menulis
 `office.laksamanamuda.id`; nama itu **tidak ada di DNS** dan tidak pernah ada —
