@@ -887,6 +887,33 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function timSayaList() {  }
 
 
@@ -981,6 +1008,8 @@ function timBelumDiisi() { sayaAdmin(); }
 
 
 function pesanTimKosong() { gantiSub(); renderFilterJenis(); renderFilterTim(); renderFilterSebabWaste(); renderFilterTimWaste(); isiPilihanBulan(); setAktifPeriode(); tambahBaris(); kunciPilihanTim(); siapkanWaste(); timSaya(); timBawaan(); siapkanSerah(); muat(); muatWaste(); soMuat(); muatSerah(); }
+
+
 
 
 
@@ -1204,13 +1233,26 @@ function hapus() { muat(); }
 
 
 
-function rentang() {  }
+function rentang() { rentangBulan(); }
 
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+function rentangBulan() {  }
 
 
 
@@ -1225,6 +1267,7 @@ function rentang() {  }
 
 
 function isiPilihanBulan() { bulanIni(); }
+
 
 
 
@@ -1538,6 +1581,7 @@ function muatLagi() { render(); }
 
 
 
+
 function pasangSatuanWaste() { cekSatuanLain(); }
 
 
@@ -1707,12 +1751,31 @@ function hapusWaste() { muatWaste(); }
 
 
 
-function rentangWaste() { bulanIni(); }
+function rentangWaste() { rentangBulan(); bulanIni(); }
 
 
 
 
-function setPeriodeWaste() { muatWaste(); }
+
+
+
+
+function setPeriodeWaste() { bulanIni(); muatWaste(); }
+
+
+
+
+
+
+
+
+
+
+function setBulanWaste() { setPeriodeWaste(); muatWaste(); }
+
+
+
+
 function setSebabWaste() { renderWasteReport(); }
 function setTimWaste() { renderWasteReport(); }
 
@@ -2415,6 +2478,7 @@ function tutup() { soRenderDaftar(); }
 
 
 
+
 function siapkanSerah() { resetSerah(); }
 
 
@@ -2586,14 +2650,28 @@ function lihatFotoSerah() { bukaFoto(); }
 
 
 
-function rentangSerah() {  }
+function rentangSerah() { rentangBulan(); }
 
 
 
 
 
 
-function setPeriodeSerah() { muatSerah(); }
+
+
+
+function setPeriodeSerah() { bulanIni(); muatSerah(); }
+
+
+
+
+
+
+function setBulanSerah() { setPeriodeSerah(); muatSerah(); }
+
+
+
+
 
 function muatSerah() { rentangSerah(); renderSerahReport(); }
 
@@ -2886,6 +2964,8 @@ function renderSerahReport() { srhAturTujuan(); segAktif(); rekapBaris(); barisS
 
 
 
+
+
 function blokSerah() { kartuSerah(); }
 
 
@@ -2931,6 +3011,12 @@ function kartuSerah() { fmtQty(); lihatFotoSerah(); editSerah(); hapusSerah(); }
 
 
 function renderWasteReport() { segAktif(); rekapBaris(); barisWaste(); totalPerSatuan(); kartu(); teksTotal(); gambarBars(); gambarBarsQty(); petaQty(); panelRekap(); kosong(); timBelumDiisi(); pesanTimKosong(); fmtQty(); lihatFotoWaste(); editWaste(); hapusWaste(); }
+
+
+
+
+
+
 
 
 
