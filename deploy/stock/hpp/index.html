@@ -911,119 +911,28 @@ function setAktif(id,on){
         <div>Masih dipakai <b>${pakai.length} resep lain</b>: ${esc(pakai.slice(0,5).map(x=>x.nama).join(', '))}${pakai.length>5?', …':''}.
         Modal resep-resep itu tetap terhitung, jadi angkanya tidak berubah.</div></div>`:'')});
 }
-/* ================= ISI YIELD "1 PORSI" UNTUK MENU JADI =================
-   Permintaan user 2 September 2026: seluruh menu jadi di Daftar Resep diisi
-   yield-nya "1 Porsi". Sebagian besar memang cuma kosong satuannya — warisan
-   pemindahan dari berkas Excel Maret 2026, yang kolom hasilnya memang tidak
-   selalu terisi.
+/* ---- YIELD MENU JADI: kenapa sebagian TIDAK 1 Porsi ----
+   September 2026 seluruh menu jadi diisi yield "1 Porsi" (permintaan user),
+   lewat alat sekali pakai yang sudah dicabut lagi begitu pekerjaannya selesai.
 
-   TAPI TIDAK SEMUA BOLEH DIISI BEGITU SAJA, dan ini bagian yang harus tetap
-   dijaga siapa pun yang menyentuh alat ini:
+   Yang SENGAJA tidak ikut, dan jangan "dirapikan" belakangan: resep yang
+   ditulis untuk SATU BATCH — Bubur Ayam & Soto Bening 10 Porsi, Bitterballen
+   25 Pcs, Chicken Skin 400 Gr, Hainan Chicken 1000 Gr, Nasi Kuning 6 Porsi,
+   Tea Orange Extract 1600 Ml. Di sana yield bukan keterangan, ia PEMBAGI:
+   perUnitResep() = modal ÷ yield, dan angka itulah yang dipakai resep LAIN
+   yang merujuknya sebagai bahan (hitungBaris, cabang lewatResep).
 
-   Ada menu jadi yang resepnya ditulis untuk SATU BATCH — Bubur Ayam hasil 10
-   Porsi, Chicken Skin hasil 400 Gr, Tea Orange Extract hasil 1600 Ml. Yield
-   itu BUKAN keterangan; ia PEMBAGI. `perUnitResep()` = modal ÷ yield, dan
-   angka itulah yang dipakai resep LAIN yang merujuknya sebagai bahan
-   (`hitungBaris`, cabang lewatResep). Menuliskan 1 Porsi di sana tanpa ikut
-   membagi takaran bahannya membuat:
+     Nasi Campur Bali pakai 20 Gr Chicken Skin   (Chicken Skin hasil 400 Gr)
+       yield 400 Gr : (modal ÷ 400) × 20
+       yield 1 Porsi: (modal ÷   1) × 20      -> 400 kali lipat
 
-     Nasi Campur Bali pakai 20 Gr Chicken Skin
-       sebelum : (modal ÷ 400) × 20
-       sesudah : (modal ÷   1) × 20      -> 400 kali lipat
+   Sembilan resep merujuk ketujuh batch itu. Menuliskan 1 Porsi tanpa ikut
+   membagi takaran bahannya tidak melempar apa pun — yang berubah cuma angka
+   modal, dan angka modal yang salah terlihat persis seperti yang benar.
+   Membaginya otomatis juga bukan jawabannya: takaran sebatch tidak selalu
+   habis dibagi rata (satu telur untuk 10 porsi).
 
-   Tidak ada satu pun galat yang muncul; yang berubah cuma angka modal, dan
-   angka modal yang salah terlihat persis seperti angka modal yang benar.
-   Di data Maret 2026 ada 7 resep semacam itu, dan 9 resep lain merujuknya.
-
-   Karena itu yang hasilnya BUKAN 1 ditahan secara bawaan, disebut satu per
-   satu berikut siapa yang merujuknya, dan baru ikut kalau diminta
-   terang-terangan. Membaginya otomatis TIDAK dilakukan: takaran bahan sebuah
-   batch tidak selalu habis dibagi rata (satu telur untuk 10 porsi), dan
-   menebaknya berarti mengarang resep. */
-function menuYieldBelum(){
-  return S.resep.filter(r=>r.tipe==='dish'
-    && !(num(r.yield_qty)===1 && String(r.yield_unit||'')==='Porsi'));
-}
-/* Hasilnya bukan 1 = resepnya untuk sebatch, bukan sepiring. */
-function yieldSebatch(r){ return num(r.yield_qty)!==1; }
-/* Resep lain yang memakainya sebagai bahan — dirinya sendiri tidak dihitung
-   (ada resep yang namanya sama dengan salah satu barisnya sendiri). */
-function perujukResep(r){ return dipakaiOleh(r.nama).filter(x=>x.id!==r.id); }
-
-let ISI_PORSI_BATCH=false;   // di luar DOM: modal digambar ulang sebagai string
-function isiPorsiSetBatch(v){ ISI_PORSI_BATCH=!!v; }
-
-function bukaIsiPorsi(){
-  const semua=menuYieldBelum();
-  if(!semua.length){ pesan('<div class="notice ok">✓ Semua menu jadi sudah 1 Porsi.</div>'); return; }
-  const aman=semua.filter(r=>!yieldSebatch(r));
-  const batch=semua.filter(yieldSebatch);
-  ISI_PORSI_BATCH=false;
-
-  let h=`<div>Menu jadi yang yield-nya belum <b>1 Porsi</b>: <b>${semua.length}</b>.</div>`;
-  if(aman.length) h+=`<div class="notice ok" style="margin:11px 0"><div><b>${aman.length} resep aman diisi.</b>
-    Hasilnya sudah 1, cuma satuannya yang kosong — jadi <b>tidak ada satu angka pun yang berubah</b>,
-    yang ditulis cuma kata “Porsi”.</div></div>`;
-  if(batch.length){
-    h+=`<div class="notice bad" style="margin:11px 0"><div><b>${batch.length} resep ditahan.</b>
-      Resepnya ditulis untuk <b>satu batch</b>, dan yield-nya dipakai sebagai PEMBAGI —
-      bukan sekadar keterangan. Menuliskan 1 Porsi tanpa ikut membagi takaran bahannya
-      membuat modalnya melonjak, dan resep lain yang memakainya ikut terseret.</div></div>
-      <div class="tbl-wrap" style="max-height:210px;overflow:auto"><table><thead><tr>
-        <th>Resep</th><th>Hasil sekarang</th><th>Modal per satuan</th><th>Kalau jadi 1 Porsi</th></tr></thead><tbody>`;
-    batch.forEach(r=>{
-      const y=num(r.yield_qty)||1, m=modalDasar(r).total, ref=perujukResep(r);
-      h+=`<tr><td><b>${esc(r.nama)}</b>${ref.length?`<div style="font-size:11px;color:var(--danger)">dipakai ${ref.length} resep lain: ${esc(ref.slice(0,3).map(x=>x.nama).join(', '))}${ref.length>3?', …':''}</div>`:''}</td>
-        <td class="num">${y} ${esc(r.yield_unit||'—')}</td>
-        <td class="num mono">${rp2(m/y)}</td>
-        <td class="num mono" style="color:var(--danger)">${rp2(m)} <span style="font-size:10px">(${y}×)</span></td></tr>`;
-    });
-    h+=`</tbody></table></div>
-      <label style="display:flex;gap:8px;align-items:flex-start;margin-top:12px;font-size:12.5px;cursor:pointer">
-        <input type="checkbox" onchange="isiPorsiSetBatch(this.checked)" style="margin-top:2px">
-        <span>Isi juga yang ${batch.length} itu. <b>Takaran bahannya tidak ikut dibagi</b> — sesudah ini
-        takarannya harus dibetulkan satu per satu supaya modalnya benar lagi.</span></label>`;
-  }
-  konfirmasi({judul:'Isi Yield Menu Jadi',pesan:h,tombol:'Isikan 1 Porsi',
-    onYa:()=>isiPorsiJalan()});
-}
-
-/* Disimpan SATU PER SATU lewat simpanResep yang sama dengan penyunting resep —
-   tidak ada aksi massal di hpp.php, dan menambahnya berarti satu jalur tulis
-   kedua yang aturannya harus dijaga sejajar dengan yang pertama.
-
-   Seluruh baris resep ikut dikirim apa adanya: hpp_simpan_resep() menulis
-   ulang SELURUH baris, jadi mengirim yield saja akan menghapus bahannya. */
-async function isiPorsiJalan(){
-  if(JALAN) return;
-  const daftar=menuYieldBelum().filter(r=>ISI_PORSI_BATCH||!yieldSebatch(r));
-  if(!daftar.length){ pesan('<div class="notice warn">Tidak ada yang diisi — yang tersisa semuanya resep sebatch, dan itu tidak dicentang.</div>'); return; }
-  JALAN=true; setSync('','Menyimpan…');
-  let sukses=0; const gagal=[];
-  for(let i=0;i<daftar.length;i++){
-    const r=daftar[i];
-    pesan(`<div class="notice info">Mengisi yield… ${i+1}/${daftar.length} — ${esc(r.nama)}</div>`);
-    try{
-      const res=await fetch(API,{method:'POST',redirect:'follow',
-        headers:{'Content-Type':'text/plain;charset=utf-8'},
-        body:JSON.stringify({action:'simpanResep',by:(ME&&ME.name)||'',
-          data:Object.assign({},r,{yield_qty:1,yield_unit:'Porsi'})})});
-      const t=await res.text();
-      let j=null; try{ j=JSON.parse(t); }catch(e){}
-      if(!j||j.status==='error') throw new Error((j&&j.message)||'balasan bukan JSON');
-      sukses++;
-    }catch(e){ gagal.push(r.nama); }
-  }
-  JALAN=false;
-  /* Yang gagal DISEBUT NAMANYA. "5 gagal" tanpa nama berarti harus membuka 108
-     resep satu per satu untuk mencarinya. */
-  await muat();
-  pesan(gagal.length
-    ? `<div class="notice warn">Terisi <b>${sukses}</b> resep. <b>${gagal.length} gagal</b>: ${esc(gagal.slice(0,8).join(', '))}${gagal.length>8?', …':''}. Coba lagi untuk yang gagal.</div>`
-    : `<div class="notice ok">✓ Yield <b>${sukses}</b> menu jadi diisi 1 Porsi.</div>`);
-  setSync('ok','✓ Tersambung');
-}
-
+   Resep BARU tidak menambah pekerjaan ini: bawaan form sudah 1 Porsi. */
 function viewResep(){
   const seksiSet=[...new Set(S.resep.map(r=>r.seksi).filter(Boolean))].sort();
   const nMati=S.resep.filter(r=>r.aktif===0).length;
@@ -1043,7 +952,6 @@ function viewResep(){
           .map(o=>`<option value="${o[0]}"${F.aktif===o[0]?' selected':''}>${o[1]} (${o[2]})</option>`).join('')}
       </select>
       <button class="btn btn-primary btn-sm" onclick="bukaResep('')">+ Resep Baru</button>
-      ${(ME&&ME.isAdmin&&menuYieldBelum().length)?`<button class="btn btn-ghost btn-sm" onclick="bukaIsiPorsi()" title="Menu jadi yang kolom hasilnya masih kosong atau bukan 1 Porsi">📏 Isi yield 1 Porsi (${menuYieldBelum().length})</button>`:''}
       <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(1)">🖨 PDF (+modal)</button>
       <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(0)">🖨 PDF (resep saja)</button>
     </div></div>`;

@@ -80,11 +80,7 @@ const RESEP = [
            { nama:'Sambal Matah', qty:50, satuan:'Gr', ref:'resep' }] }
 ];
 
-/* Apa saja yang dikirim ke server, dicatat per pemanggilan domHpp. Uji alat
-   massal harus memeriksa APA yang ditulis, bukan cuma bahwa layarnya berubah. */
-let KIRIM = [];
-function domHpp(setting, resepKhusus) {
-  KIRIM = [];
+function domHpp(setting) {
   const dom = new JSDOM(HTML, { runScripts:'dangerously', url:'https://dev.laksamanamuda.id/stock/hpp/',
                                 pretendToBeVisual:true, beforeParse(w) {
     w.localStorage.setItem('lm_session', JSON.stringify({
@@ -92,12 +88,11 @@ function domHpp(setting, resepKhusus) {
       expiry: Date.now() + 3600e3 }));
     /* Dua endpoint: hpp.php?action=all dan items.php. Keduanya dibalas dari
        sini, jadi ujinya tidak pernah menyentuh jaringan. */
-    w.fetch = (url, opt) => {
+    w.fetch = (url) => {
       const u = String(url);
-      if (opt && opt.body) { try { KIRIM.push(JSON.parse(opt.body)); } catch (e) {} }
       const body = u.indexOf('items.php') > -1
         ? { products:{} }
-        : { status:'success', bahan:BAHAN, resep:(resepKhusus || RESEP),
+        : { status:'success', bahan:BAHAN, resep:RESEP,
             setting: Object.assign({ targetFood:0.33, targetDrink:0.33, buffer:0.05,
                                      lampuKuning:3, lampuMerah:8 }, setting || {}) };
       const teks = JSON.stringify(body);
@@ -368,99 +363,6 @@ function domHpp(setting, resepKhusus) {
     dom.window.close();
   }
 
-
-  /* ================= 12. isi yield "1 Porsi" ================= */
-  /* Permintaan user: seluruh menu jadi diisi yield 1 Porsi. Sebagian besar
-     memang cuma kosong satuannya. TAPI yield bukan keterangan — ia PEMBAGI
-     di perUnitResep(), dan angka itulah yang dipakai resep lain yang
-     merujuknya sebagai bahan. Resep yang ditulis untuk sebatch karena itu
-     ditahan; kalau tidak, modal resep yang memakainya melonjak berlipat-lipat
-     tanpa satu pun galat.
-
-     Data ujinya sengaja memuat ketiga keadaannya sekaligus. */
-  const RESEP_YIELD = [
-    { id:'y1', nama:'Nasi Ayam', jenis:'food', tipe:'dish', yield_qty:1, yield_unit:'Porsi',
-      aktif:1, harga_baru:20000, bahan:[{ nama:'Ayam', qty:100, satuan:'Gr', ref:'bahan' }] },
-    /* Hasilnya sudah 1, cuma satuannya kosong -> aman, tidak ada angka yang berubah. */
-    { id:'y2', nama:'Botol Air', jenis:'drink', tipe:'dish', yield_qty:1, yield_unit:'',
-      aktif:1, harga_baru:10000, modal_manual:5000, bahan:[] },
-    /* Resep SEBATCH: 10 porsi, dan dipakai resep lain. Inilah yang ditahan. */
-    { id:'y3', nama:'Bubur Ayam', jenis:'food', tipe:'dish', yield_qty:10, yield_unit:'Porsi',
-      aktif:1, harga_baru:25000, bahan:[{ nama:'Ayam', qty:1000, satuan:'Gr', ref:'bahan' }] },
-    { id:'y4', nama:'Bubur Spesial', jenis:'food', tipe:'dish', yield_qty:1, yield_unit:'Porsi',
-      aktif:1, harga_baru:30000, bahan:[{ nama:'Bubur Ayam', qty:1, satuan:'Porsi', ref:'resep' }] },
-    /* Base tidak pernah ikut, apa pun yield-nya. */
-    { id:'y5', nama:'Ayam Karage', jenis:'food', tipe:'base', yield_qty:1000, yield_unit:'Gr',
-      aktif:1, bahan:[{ nama:'Ayam', qty:1000, satuan:'Gr', ref:'bahan' }] }
-  ];
-  console.log('\n== Isi yield 1 Porsi ==');
-  {
-    const dom = domHpp(null, RESEP_YIELD); await tunggu(140);
-    const w = dom.window, d = w.document;
-    const belum = w.menuYieldBelum().map(r => r.id).sort();
-    cek('yang sudah 1 Porsi tidak ikut', belum.indexOf('y1') < 0 && belum.indexOf('y4') < 0,
-        belum.join(','));
-    cek('base tidak pernah ikut', belum.indexOf('y5') < 0, belum.join(','));
-    cek('yang satuannya kosong ikut', belum.indexOf('y2') > -1, belum.join(','));
-    cek('yang sebatch ikut terdaftar', belum.indexOf('y3') > -1, belum.join(','));
-    cek('hanya dua yang perlu diisi', belum.length === 2, belum.join(','));
-
-    cek('Botol Air bukan sebatch', w.yieldSebatch(w.eval("S.resep.find(r=>r.id==='y2')")) === false);
-    cek('Bubur Ayam sebatch', w.yieldSebatch(w.eval("S.resep.find(r=>r.id==='y3')")) === true);
-    cek('perujuk Bubur Ayam ketemu',
-        w.perujukResep(w.eval("S.resep.find(r=>r.id==='y3')")).length === 1,
-        String(w.perujukResep(w.eval("S.resep.find(r=>r.id==='y3')")).length));
-
-    /* Tombolnya cuma muncul kalau memang ada yang perlu diisi — alat sekali
-       pakai yang menetap di layar selamanya akan ditekan lagi tanpa sebab. */
-    w.go('resep'); await tunggu(60);
-    cek('tombol muncul di Daftar Resep',
-        d.getElementById('view').innerHTML.indexOf('Isi yield 1 Porsi (2)') > -1);
-
-    /* Pratinjaunya harus MENYEBUT yang ditahan berikut akibatnya. Daftar yang
-       cuma menulis jumlah membuat orang menekan Lanjut tanpa tahu apa yang
-       akan berubah. */
-    w.bukaIsiPorsi(); await tunggu(40);
-    const mdl = d.getElementById('konfirm').innerHTML;
-    cek('pratinjau menyebut yang aman', mdl.indexOf('1 resep aman diisi') > -1);
-    cek('pratinjau menyebut yang ditahan', mdl.indexOf('1 resep ditahan') > -1);
-    cek('menyebut nama resep sebatch-nya', mdl.indexOf('Bubur Ayam') > -1);
-    cek('menyebut siapa yang merujuknya', mdl.indexOf('Bubur Spesial') > -1);
-    cek('menyebut lipatannya', mdl.indexOf('(10×)') > -1);
-
-    /* Bawaannya TIDAK ikut. Centang harus diminta terang-terangan. */
-    KIRIM.length = 0;
-    w.konfirmYa(); await tunggu(200);
-    const simpan = KIRIM.filter(x => x.action === 'simpanResep');
-    cek('hanya satu resep yang ditulis', simpan.length === 1, String(simpan.length));
-    cek('yang ditulis yang aman, bukan yang sebatch',
-        simpan[0] && simpan[0].data.id === 'y2', simpan[0] && simpan[0].data.id);
-    cek('yield-nya jadi 1 Porsi',
-        simpan[0] && simpan[0].data.yield_qty === 1 && simpan[0].data.yield_unit === 'Porsi',
-        simpan[0] && (simpan[0].data.yield_qty + ' ' + simpan[0].data.yield_unit));
-    /* hpp_simpan_resep() menulis ulang SELURUH baris, jadi mengirim yield saja
-       akan menghapus bahan & harga jualnya. */
-    cek('sisa datanya ikut terkirim utuh',
-        simpan[0] && simpan[0].data.harga_baru === 10000 && simpan[0].data.modal_manual === 5000,
-        simpan[0] && JSON.stringify(simpan[0].data));
-    dom.window.close();
-  }
-  {
-    /* Dicentang: yang sebatch ikut ditulis. Tetap mungkin — user yang tahu
-       takarannya akan dibetulkan sesudahnya berhak memutuskan itu. */
-    const dom = domHpp(null, RESEP_YIELD); await tunggu(140);
-    const w = dom.window;
-    w.bukaIsiPorsi(); await tunggu(40);
-    w.isiPorsiSetBatch(true);
-    KIRIM.length = 0;
-    w.konfirmYa(); await tunggu(260);
-    const simpan = KIRIM.filter(x => x.action === 'simpanResep');
-    cek('dicentang: keduanya ditulis', simpan.length === 2, String(simpan.length));
-    cek('termasuk yang sebatch',
-        simpan.some(x => x.data.id === 'y3' && x.data.yield_qty === 1),
-        simpan.map(x => x.data.id).join(','));
-    dom.window.close();
-  }
 
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);

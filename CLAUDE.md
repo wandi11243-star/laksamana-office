@@ -423,52 +423,35 @@ tenggelam di antara tiga kendali lain) sama-sama diperbaiki:
   makanan". Tapis lain (seksi, aktif, kata kunci) **tetap** berlaku: angkanya
   harus menjanjikan apa yang benar-benar muncul kalau ditekan.
 
-**Alat "Isi yield 1 Porsi"** (2 September 2026, permintaan user) di Daftar
-Resep — tombolnya **hanya muncul kalau memang ada yang perlu diisi**, dan hanya
-untuk admin modul. Alat sekali pakai yang menetap di layar selamanya akan
-ditekan lagi tanpa sebab.
+**Yield menu jadi = 1 Porsi, KECUALI resep sebatch.** September 2026 seluruh
+menu jadi diisi yield "1 Porsi" (permintaan user) lewat alat sekali pakai di
+Daftar Resep; alatnya **sudah dicabut lagi** begitu pekerjaannya selesai —
+tombol yang tidak punya pekerjaan lagi akan ditekan lagi tanpa sebab.
 
-Sebagian besar menu jadi memang cuma **kosong satuannya** (warisan pemindahan
-dari Excel Maret 2026: 101 dari 237). Yang itu aman — `yield_qty`-nya sudah 1,
-jadi tidak satu angka pun berubah; yang ditulis cuma kata "Porsi".
-
-**Yang TIDAK boleh diisi begitu saja adalah resep SEBATCH**, dan pagarnya jangan
-dilonggarkan. Yield bukan keterangan — ia **PEMBAGI**: `perUnitResep()` =
-modal ÷ yield, dan angka itulah yang dipakai resep lain yang merujuknya sebagai
-bahan (`hitungBaris`, cabang `lewatResep`).
+Yang perlu bertahan bukan alatnya, tapi **kenapa sebagian sengaja TIDAK 1
+Porsi** — dan itu jangan "dirapikan" belakangan. Resep yang ditulis untuk SATU
+BATCH (Bubur Ayam & Soto Bening 10 Porsi, Bitterballen 25 Pcs, Chicken Skin
+400 Gr, Hainan Chicken 1000 Gr, Nasi Kuning 6 Porsi, Tea Orange Extract
+1600 Ml) memakai yield sebagai **PEMBAGI**, bukan keterangan:
+`perUnitResep()` = modal ÷ yield, dan angka itulah yang dipakai resep lain yang
+merujuknya sebagai bahan (`hitungBaris`, cabang `lewatResep`).
 
 ```
 Nasi Campur Bali pakai 20 Gr Chicken Skin   (Chicken Skin hasil 400 Gr)
-  sebelum : (modal ÷ 400) × 20
-  sesudah : (modal ÷   1) × 20      -> 400 kali lipat
+  yield 400 Gr  : (modal ÷ 400) × 20
+  yield 1 Porsi : (modal ÷   1) × 20      -> 400 kali lipat
 ```
 
-Di data Maret 2026 ada **7** resep semacam itu (Bubur Ayam & Soto Bening 10
-Porsi, Bitterballen 25 Pcs, Chicken Skin 400 Gr, Hainan Chicken 1000 Gr, Nasi
-Kuning 6 Porsi, Tea Orange Extract 1600 Ml) dan **9** resep lain merujuknya.
-Tidak ada satu pun galat yang muncul; yang berubah cuma angka modal, dan angka
-modal yang salah terlihat persis seperti yang benar.
-
-Karena itu:
-
-- Yang hasilnya bukan 1 **ditahan secara bawaan**, disebut satu per satu di
-  pratinjau berikut lipatannya dan siapa yang merujuknya, dan baru ikut kalau
-  dicentang terang-terangan.
-- **Takaran bahannya TIDAK dibagi otomatis.** Takaran sebatch tidak selalu habis
-  dibagi rata (satu telur untuk 10 porsi), dan menebaknya berarti mengarang
-  resep. Yang mencentang diberi tahu bahwa takarannya harus dibetulkan sendiri.
-- Disimpan **satu per satu lewat `simpanResep`** yang sama dengan penyunting
-  resep — tidak ada aksi massal di `hpp.php`, dan menambahnya berarti satu jalur
-  tulis kedua yang aturannya harus dijaga sejajar dengan yang pertama. Seluruh
-  baris resep ikut dikirim: `hpp_simpan_resep()` menulis ulang SELURUH baris,
-  jadi mengirim yield saja akan menghapus bahannya.
-- Yang gagal **disebut namanya**. "5 gagal" tanpa nama berarti membuka 108 resep
-  satu per satu untuk mencarinya.
+Sembilan resep merujuk ketujuh batch itu. Menuliskannya 1 Porsi tanpa ikut
+membagi takaran bahannya **tidak melempar apa pun** — yang berubah cuma angka
+modal, dan angka modal yang salah terlihat persis seperti yang benar.
+Membaginya otomatis juga bukan jawabannya: takaran sebatch tidak selalu habis
+dibagi rata (satu telur untuk 10 porsi).
 
 Resep BARU tidak menambah pekerjaan ini: bawaan form sudah `1 Porsi`.
 
 ```bash
-node tools/uji-spare-hpp.js   # 67 pemeriksaan, jsdom + stock-api tiruan
+node tools/uji-spare-hpp.js   # 47 pemeriksaan, jsdom + stock-api tiruan
 ```
 
 Ujinya membuat resep bertingkat (bahan → base → menu, dan menu berisi dua base)
