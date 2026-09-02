@@ -473,8 +473,50 @@ Aturannya, dan ini yang tidak boleh dilonggarkan tanpa sengaja:
 | akses modul `dw` di Office | otomatis untuk Tim HRD/CEO, admin modul, Admin Akses, **dan head divisi** — head-nya ditanyakan ke `jadwal-api?action=headIds`, lazy + cache + gagal = kosong |
 | akses modul `jadwal` di Office | **otomatis** untuk Tim Kitchen/Bar/Floor/Cashier/HRD/CEO + admin modul (`modul_bawaan_untuk`) — tidak perlu dicentang |
 | Jadwal — tulis/hapus sel, putus pengajuan | **head divisi kru itu** (`jdw_wajib_boleh_baris`, diperiksa PER BARIS) |
+| Jadwal — **mengesahkan** pengajuan (`DISETUJUI`) | **admin modul saja = HRD**, dan hanya dari `MENUNGGU_HRD` |
 | Jadwal — `simpanSetting` | admin modul saja (blob-nya memuat daftar head) |
 | Jadwal — halaman **Data Pegawai** (`rosterSaveUser`, `rosterSetActive` di account-api) | admin modul `jadwal` — dan itu sudah berarti HRD, lihat `admin_modul_untuk`. Gerbangnya **token sesi**, bukan callerName+callerPin |
+
+### Jadwal: pengajuan lewat DUA persetujuan (29 Agustus 2026)
+
+Permintaan user: pengajuan off/izin/cuti disetujui **head dulu, baru HRD**.
+
+```
+MENUNGGU  --head meloloskan-->  MENUNGGU_HRD  --HRD mengesahkan-->  DISETUJUI
+    |                                |
+    +-- head menolak --> DITOLAK     +-- HRD menolak --> DITOLAK
+```
+
+- **Urutannya ditegakkan di SERVER** (`putus_pengajuan`), bukan cuma di layar.
+  Tanpa itu head tinggal mengirim `status:'DISETUJUI'` sekali dari console dan
+  langkah HRD terlewat seluruhnya — sel jadwalnya ikut terisi. Bahaya yang sama
+  sudah tercatat di komentar `putusPengajuan` untuk kasus kru yang menyetujui
+  cutinya sendiri; yang berubah cuma siapa yang melompat.
+- **Sel jadwal baru ditulis di langkah KEDUA.** `kirimPutusan` hanya menulis
+  saat `DISETUJUI`, jadi persetujuan head tidak menyentuh lembar sama sekali.
+  Kalau ditulis di langkah pertama, jadwal sudah berubah sebelum HRD setuju.
+- **Kata di tombolnya beda per langkah**: head melihat *Teruskan ke HRD*, HRD
+  melihat *Sahkan*. Tombol bertuliskan "Setujui" yang ternyata belum menyetujui
+  apa pun adalah janji yang tidak ditepati.
+- **`head_at` / `head_oleh` kolom SENDIRI**, terpisah dari `putus_*`. Kalau
+  ditumpuk, nama head yang meloloskan tertimpa nama HRD begitu langkah kedua
+  ditekan — dan pertanyaan "siapa head yang menyetujui cuti ini" tidak punya
+  jawaban di layar mana pun. Keduanya lahir lewat `pastikan_kolom()`, bukan
+  berkas migrasi.
+- **Admin modul boleh melakukan langkah pertama juga**, dan itu disengaja: head
+  yang sedang cuti tidak boleh membuat seluruh pengajuan divisinya berhenti —
+  dan divisi seperti Marketing memang tidak punya head sama sekali. Ia tetap
+  harus menekan dua kali, dan kedua namanya tercatat terpisah.
+- **`AJU_BERJALAN`** (`['MENUNGGU','MENUNGGU_HRD']`) dipakai bersama oleh
+  lencana sidebar, tab Antrian, dan tombol Batal. Tiga tempat yang menghitung
+  sendiri pasti menyimpang begitu ada status baru — dan `MENUNGGU_HRD` yang
+  jatuh ke tab Riwayat adalah pekerjaan yang disembunyikan di balik nama yang
+  mengatakan sudah selesai.
+- Query `getAll` juga memakai kedua status itu sebagai "masih berjalan"; kalau
+  tidak, pengajuan yang sudah diloloskan head masuk potongan 200 baris terakhir
+  dan bisa hilang dari layar HRD tanpa pernah diputuskan.
+- **Kru boleh menarik pengajuannya selama belum disahkan**, termasuk saat sudah
+  di meja HRD.
 
 ### Jadwal: HRD mengurus DATA DIRI, bukan hak akses (19 Agustus 2026)
 
@@ -549,7 +591,7 @@ modul yang mati.
 Ujinya **wajib dijalankan** setelah menyentuh salah satu penjaga itu:
 
 ```bash
-node tools/uji-hak-akses.js     # 74 pemeriksaan, butuh php + pdo_sqlite di PATH
+node tools/uji-hak-akses.js     # 88 pemeriksaan, butuh php + pdo_sqlite di PATH
 ```
 
 Ia menjalankan kedua API sungguhan lewat `php -S` dengan account-api tiruan

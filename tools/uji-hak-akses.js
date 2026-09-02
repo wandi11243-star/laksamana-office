@@ -658,8 +658,62 @@ async function main() {
   j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-headbar', id: idAju, status: 'DISETUJUI' });
   cek('head divisi LAIN TIDAK bisa memutuskan pengajuan itu', ditolak(j), JSON.stringify(j));
 
+  /* ——— DUA LANGKAH: head meloloskan, HRD mengesahkan (29 Agustus 2026) ———
+     Ditegakkan di SERVER, bukan cuma di layar. Tanpa penjaga di sini, head
+     tinggal mengirim status DISETUJUI sekali dari console dan langkah HRD
+     terlewat seluruhnya — sel jadwalnya ikut terisi, dan HRD tidak pernah tahu
+     ada yang diputuskan. Bahaya yang sama sudah tercatat di komentar
+     putusPengajuan untuk kasus kru yang menyetujui cutinya sendiri.
+
+     Pengajuan ini dibuat ADMIN atas nama kru Bar: `u-staf` ada di Marketing
+     yang tidak punya head, jadi tidak ada head yang bisa dipakai mengujinya. */
+  j = await panggil('jadwal-mysql', { action: 'simpanPengajuan', sesi: 'tok-admin',
+    row: { userId: 'kru-bar', jenis: 'CUTI', dari: '2026-09-10', sampai: '2026-09-10', alasan: 'uji dua langkah' } });
+  const idDua = j.ok ? j.data.id : '';
+  cek('pengajuan kru Bar dibuat', j.ok, j.error);
+
+  j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-headbar', id: idDua, status: 'DISETUJUI' });
+  cek('head TIDAK bisa langsung mengesahkan, harus lewat HRD', ditolak(j), JSON.stringify(j));
+
+  /* HRD pun tidak boleh mengesahkan yang belum dilihat head divisinya. Kalau
+     bisa, head baru tahu jadwal divisinya berubah saat membuka lembar. */
+  j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-admin', id: idDua, status: 'DISETUJUI' });
+  cek('HRD TIDAK bisa mengesahkan yang belum diloloskan head', ditolak(j), JSON.stringify(j));
+
+  j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-headbar', id: idDua, status: 'MENUNGGU_HRD' });
+  cek('head bisa meloloskan ke HRD', j.ok, j.error);
+
+  j = await ambil('jadwal-mysql', 'action=getAll&sesi=tok-admin');
+  const aju2 = j.ok ? (j.data.pengajuan || []).find(a => a.id === idDua) : null;
+  cek('statusnya jadi MENUNGGU_HRD', !!aju2 && aju2.status === 'MENUNGGU_HRD',
+    aju2 ? aju2.status : 'tidak ketemu');
+  /* Nama head disimpan di kolomnya SENDIRI. Kalau ditumpuk ke putus_oleh, ia
+     tertimpa nama HRD begitu langkah kedua ditekan — dan pertanyaan siapa head
+     yang meloloskan tidak punya jawaban di mana pun. */
+  cek('nama head yang meloloskan tercatat terpisah', !!aju2 && !!aju2.headOleh,
+    aju2 ? JSON.stringify({ headOleh: aju2.headOleh, putusOleh: aju2.putusOleh }) : '-');
+
+  j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-headbar', id: idDua, status: 'DISETUJUI' });
+  cek('head tetap tidak bisa mengesahkan walau sudah ia loloskan', ditolak(j), JSON.stringify(j));
+
+  j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-admin', id: idDua, status: 'DISETUJUI' });
+  cek('HRD mengesahkan sesudah head meloloskan', j.ok, j.error);
+
+  j = await ambil('jadwal-mysql', 'action=getAll&sesi=tok-admin');
+  const aju3 = j.ok ? (j.data.pengajuan || []).find(a => a.id === idDua) : null;
+  cek('statusnya jadi DISETUJUI', !!aju3 && aju3.status === 'DISETUJUI',
+    aju3 ? aju3.status : 'tidak ketemu');
+  cek('jejak head TIDAK hilang sesudah HRD mengesahkan',
+    !!aju3 && !!aju3.headOleh && !!aju3.putusOleh,
+    aju3 ? JSON.stringify({ headOleh: aju3.headOleh, putusOleh: aju3.putusOleh }) : '-');
+
+  /* Divisi Marketing tidak punya head, jadi admin harus tetap bisa menjalankan
+     KEDUA langkahnya sendiri — kalau tidak, pengajuan dari divisi tanpa head
+     tidak akan pernah bisa disahkan siapa pun. */
+  j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-admin', id: idAju, status: 'MENUNGGU_HRD' });
+  cek('admin bisa meloloskan untuk divisi tanpa head', j.ok, j.error);
   j = await panggil('jadwal-mysql', { action: 'putusPengajuan', sesi: 'tok-admin', id: idAju, status: 'DISETUJUI' });
-  cek('admin bisa memutuskan pengajuan', j.ok, j.error);
+  cek('admin bisa mengesahkan sesudahnya', j.ok, j.error);
 
   /* ——— yang SENGAJA tetap terbuka (dipakai lintas modul) ——— */
   j = await ambil('dw-mysql', 'action=jadwalDW&dari=2026-08-01&sampai=2026-08-31');

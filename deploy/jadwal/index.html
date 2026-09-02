@@ -434,6 +434,10 @@ table.list tbody tr.dwrow td:first-child{box-shadow:inset 3px 0 0 var(--gold-2)}
 .row .who span{font-size:11px;color:var(--muted-2);display:block}
 .stpill{font-size:10.5px;font-weight:800;padding:3px 9px;border-radius:20px;letter-spacing:.02em}
 .st-MENUNGGU{background:var(--warn-bg);color:var(--warn)}
+/* Menunggu HRD dibedakan warnanya dari menunggu head: keduanya sama-sama
+   belum selesai, tapi yang kedua sudah bergerak satu langkah, dan head yang
+   memindai dua puluh baris harus bisa melihat mana yang masih miliknya. */
+.st-MENUNGGU_HRD{background:var(--info-bg,#E4EFF8);color:var(--info,#2F7FC4)}
 .st-DISETUJUI{background:var(--ok-bg);color:var(--ok)}
 .st-DITOLAK{background:var(--danger-bg);color:var(--danger)}
 /* Pil jenis shift di kolom Shift halaman Pengajuan. inline-block + nowrap:
@@ -789,7 +793,18 @@ const JENIS_AJU_PILIH = ['OFF','IZIN','CUTI','TUKAR'];
    konstantanya apa adanya — "MENUNGGU", "DISETUJUI", "DITOLAK" — tiga kata
    berhuruf besar semua yang berteriak lebih keras daripada tombol di
    sebelahnya, padahal ia cuma keterangan. */
-const LABEL_STATUS_AJU = {MENUNGGU:'Menunggu', DISETUJUI:'Disetujui', DITOLAK:'Ditolak'};
+/* DUA LANGKAH (29 Agustus 2026, permintaan user): head meloloskan dulu, HRD
+   yang mengesahkan. Labelnya menyebut SIAPA yang sedang ditunggu, bukan
+   sekadar "Menunggu" — yang membuka halaman ini ingin tahu apakah bolanya di
+   tangannya atau di tangan orang lain, dan satu kata yang sama untuk dua
+   keadaan berbeda membuat head mengira masih ada yang perlu ia kerjakan. */
+const LABEL_STATUS_AJU = {MENUNGGU:'Menunggu head', MENUNGGU_HRD:'Menunggu HRD',
+                          DISETUJUI:'Disetujui', DITOLAK:'Ditolak'};
+/* Status yang belum selesai jalannya. Dipakai bersama oleh lencana sidebar,
+   penyaring tabel, dan tombol Batal — tiga tempat yang menghitung sendiri
+   pasti menyimpang begitu ada status baru. */
+const AJU_BERJALAN = ['MENUNGGU','MENUNGGU_HRD'];
+const ajuBerjalan = a => AJU_BERJALAN.indexOf(a && a.status) > -1;
 /* Pengajuan yang DISETUJUI langsung menulis sel jadwal untuk jenis-jenis di
    bawah — head tidak perlu mengetik ulang apa yang baru saja ia setujui, dan
    itu justru sumber jadwal yang tidak cocok dengan keputusannya. TUKAR/UBAH
@@ -1739,7 +1754,11 @@ function bolehBuka(k){
 }
 function buildNav(){
   const el=document.getElementById('nav'); if(!el) return;
-  const menunggu=(S&&S.pengajuan||[]).filter(a=>a.status==='MENUNGGU'&&bisaPutuskan(a)).length;
+  /* Lencana menghitung yang BISA SAYA KERJAKAN, bukan semua yang belum
+     selesai: head tidak perlu diberi angka untuk pengajuan yang sudah ada di
+     meja HRD, dan HRD tidak perlu diberi angka untuk yang belum dilihat head.
+     Angka yang tidak bisa ditindaklanjuti berhenti dibaca. */
+  const menunggu=(S&&S.pengajuan||[]).filter(a=>bisaPutuskan(a)).length;
   let h='', adaIsi=false, tunda='';
   NAV_DEF.forEach(function(n){
     /* Judul kelompok ditahan dulu, baru ditulis kalau ternyata ada halaman di
@@ -3835,7 +3854,7 @@ function viewSaya(){
   });
   kal+='</div>';
 
-  const menunggu=ajuSaya().filter(x=>x.status==='MENUNGGU');
+  const menunggu=ajuSaya().filter(ajuBerjalan);
   return '<div class="panel">'
     +'<div class="rowbar"><h2>👤 Jadwal Saya</h2>'
     +'<span class="chip">'+esc(u.name)+' · '+esc(namaDivisi(div))+'</span>'
@@ -3869,7 +3888,7 @@ function viewSaya(){
             const rentang=(x.dari===x.sampai)?tglPanjang(x.dari):(tglManusia(x.dari)+' – '+tglPanjang(x.sampai));
             return '<div class="row"><div class="who"><b>'+esc(JENIS_AJU[x.jenis]||x.jenis)+'</b>'
               +'<span>'+esc(rentang)+'</span></div>'+pilShiftAju(x)
-              +'<span class="stpill st-MENUNGGU">'+esc(LABEL_STATUS_AJU.MENUNGGU)+'</span></div>';
+              +'<span class="stpill st-'+esc(x.status)+'">'+esc(LABEL_STATUS_AJU[x.status]||x.status)+'</span></div>';
           }).join('')
         +'</div>'
       : '');
@@ -3886,12 +3905,30 @@ function ajuSaya(){ return (S.pengajuan||[]).filter(a=>a.userId===(ME&&ME.id)); 
    Kru mengajukan, head divisinya yang memutuskan. Ini yang membedakan modul
    ini dari lembar Excel: perubahan jadwal punya jejak siapa menyetujui apa.
    ===================================================================== */
-function bisaPutuskan(a){
+/* LANGKAH 1 — head divisi si pengaju meloloskan ke HRD.
+
+   Admin modul (= HRD di modul ini) juga boleh, dan itu disengaja: head yang
+   sedang cuti tidak boleh membuat seluruh pengajuan divisinya berhenti. Yang
+   menahannya dari melompati langkah kedua adalah putus_pengajuan() di server
+   — ia tetap harus menekan dua kali, dan kedua namanya tercatat terpisah. */
+function bisaPutusHead(a){
+  if(!a || a.status!=='MENUNGGU') return false;
   if(isAdmin()) return true;
   const u=kruById(a.userId);
   if(!u || !ME) return false;
   return isHeadUser(ME.id, divisiDari(u));
 }
+/* LANGKAH 2 — HRD mengesahkan. Di modul ini admin modul MEMANG HRD: lihat
+   admin_modul_untuk() di account-api, yang menambahkan `jadwal` untuk user
+   yang kolom Tim-nya HRD. Head TIDAK bisa melakukan langkah ini — kalau bisa,
+   dua langkahnya cuma hiasan. */
+function bisaPutusHRD(a){
+  return !!a && a.status==='MENUNGGU_HRD' && isAdmin();
+}
+/* Apa pun yang bisa saya kerjakan pada baris ini. Dipakai lencana sidebar dan
+   penyaring tabel — keduanya harus menghitung hal yang sama, kalau tidak
+   lencananya menyebut angka yang tidak cocok dengan isi halamannya. */
+function bisaPutuskan(a){ return bisaPutusHead(a) || bisaPutusHRD(a); }
 /* Pil shift pada kartu pengajuan. Kosong untuk pengajuan lama yang memang
    belum punya kolomnya — bukan diganti tebakan. */
 function pilShiftAju(a){
@@ -3980,8 +4017,8 @@ function viewPengajuan(){
      dipotong: tab Antrian membawa jumlah totalnya, dan pita peringatan di
      atas berbunyi "N pengajuan menunggu keputusan Anda" — keduanya dihitung
      dari seluruh antrian, bukan dari halaman yang sedang tampil. */
-  const menunggu=urut.filter(a=>a.status==='MENUNGGU');
-  const sudah=urut.filter(a=>a.status!=='MENUNGGU');
+  const menunggu=urut.filter(ajuBerjalan);
+  const sudah=urut.filter(a=>!ajuBerjalan(a));
   if(['riwayat','semua'].indexOf(AJU_TAB)<0) AJU_TAB='antri';
   const qAju=(CARI_AJU||'').trim().toLowerCase();
   const saring=(arr)=>qAju?arr.filter(function(a){
@@ -4027,16 +4064,30 @@ function viewPengajuan(){
 
        Ikonnya TETAP ada di depan katanya — itu yang membuat baris hijau dan
        merah bisa dibedakan sekilas saat memindai dua puluh baris. */
-    const putus=(a.status==='MENUNGGU'&&bisaPutuskan(a))
-      ? '<button class="btn btn-ok btn-sm" title="Setujui pengajuan ini"'
-        +' onclick="putuskan(\''+escJs(a.id)+'\',\'DISETUJUI\')">✓ Setujui</button>'
+    /* Kata di tombolnya BEDA per langkah, bukan dua-duanya "Setujui".
+       Langkah head tidak mengubah jadwal sama sekali — ia meneruskan — dan
+       tombol bertuliskan "Setujui" yang ternyata belum menyetujui apa pun
+       adalah janji yang tidak ditepati: head mengira urusannya selesai, lalu
+       kaget saat kru menanyakan kenapa jadwalnya belum berubah. */
+    const putus = bisaPutusHead(a)
+      ? '<button class="btn btn-ok btn-sm" title="Loloskan ke HRD untuk disahkan"'
+        +' onclick="putuskan(\''+escJs(a.id)+'\',\'MENUNGGU_HRD\')">✓ Teruskan ke HRD</button>'
         /* Bergaris, bukan terisi — lihat .btn-ghost.bahaya. Di baris yang
-           sudah punya tombol Setujui, satu-satunya yang boleh menonjol adalah
+           sudah punya tombol utama, satu-satunya yang boleh menonjol adalah
            tindakan yang dituju. */
         +'<button class="btn btn-ghost bahaya btn-sm" title="Tolak, dengan alasan yang dibaca kru"'
         +' onclick="putuskan(\''+escJs(a.id)+'\',\'DITOLAK\')">✕ Tolak</button>'
+      : bisaPutusHRD(a)
+      ? '<button class="btn btn-ok btn-sm" title="Sahkan — sel jadwalnya langsung terisi"'
+        +' onclick="putuskan(\''+escJs(a.id)+'\',\'DISETUJUI\')">✓ Sahkan</button>'
+        +'<button class="btn btn-ghost bahaya btn-sm" title="Tolak, dengan alasan yang dibaca kru"'
+        +' onclick="putuskan(\''+escJs(a.id)+'\',\'DITOLAK\')">✕ Tolak</button>'
       : '';
-    const batal=(a.userId===(ME&&ME.id)&&a.status==='MENUNGGU')
+    /* Kru boleh menarik pengajuannya selama BELUM disahkan — termasuk saat
+       sudah di meja HRD. Dulu cuma saat masih menunggu head; sekarang ada
+       langkah kedua, dan pengajuan yang tidak jadi dipakai tidak boleh
+       terkunci cuma karena head sudah meneruskannya. */
+    const batal=(a.userId===(ME&&ME.id)&&ajuBerjalan(a))
       ? '<button class="btn btn-ghost btn-sm" onclick="batalAju(\''+escJs(a.id)+'\')">Batal</button>' : '';
     /* Jejak keputusan ditulis KECIL DI BAWAH statusnya, bukan di kolom sendiri:
        ia cuma dibaca saat ada yang mempertanyakan, dan satu kolom penuh untuk
@@ -4046,11 +4097,18 @@ function viewPengajuan(){
        menanyakannya lewat WhatsApp, dan jawabannya tidak pernah kembali ke
        sistem. Kolom yang diisi tapi tidak pernah dibaca sama saja dengan
        kolom yang tidak ada. */
+    /* DUA nama, bukan satu: head yang meloloskan dan HRD yang mengesahkan.
+       Kalau cuma pemutus terakhir yang ditulis, pertanyaan "siapa head yang
+       menyetujui cuti ini" tidak ada jawabannya di layar mana pun — padahal
+       justru itu yang ditanyakan kalau suatu hari dipersoalkan. */
+    const jejakHead=a.headOleh ? '<div class="kecil">head: '+esc(a.headOleh)+'</div>' : '';
     const jejak=a.status!=='MENUNGGU'
-      ? '<div class="kecil">'+esc(a.putusOleh||'—')+'</div>'
+      ? jejakHead
+        +(a.status==='MENUNGGU_HRD' ? ''
+          : '<div class="kecil">'+(a.status==='DISETUJUI'?'HRD: ':'')+esc(a.putusOleh||'—')+'</div>')
         +(a.putusNota?'<div class="kecil" style="color:var(--danger)">"'+esc(a.putusNota)+'"</div>':'')
       : '';
-    return '<tr'+(a.status==='MENUNGGU'?' class="tunggu"':'')+'>'
+    return '<tr'+(ajuBerjalan(a)?' class="tunggu"':'')+'>'
       +'<td><span class="stpill" style="background:var(--gold-soft);color:var(--gold-dim)">'
         +esc(JENIS_AJU[a.jenis]||a.jenis)+'</span></td>'
       +'<td class="nama">'+esc(u?u.name:namaKru(a.userId))

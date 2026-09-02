@@ -12,7 +12,8 @@
  *   POST {action:'simpanSel',       rows:[...], hapus:[...]}
  *   POST {action:'simpanSetting',   data:{...}}
  *   POST {action:'simpanPengajuan', row:{...}}
- *   POST {action:'putusPengajuan',  id, status:'DISETUJUI'|'DITOLAK', nota}
+ *   POST {action:'putusPengajuan',  id, status:'MENUNGGU_HRD'|'DISETUJUI'|'DITOLAK', nota}
+ *                                  MENUNGGU_HRD = diloloskan head; DISETUJUI = disahkan HRD.
  *   POST {action:'hapusPengajuan',  id}
  *
  * TIAP PERMINTAAN MEMBAWA `sesi` — token sesi Office; lewat ?sesi= untuk GET,
@@ -188,17 +189,28 @@ try {
     }
 
     case 'putusPengajuan': {
-      /* Sepasang dengan bisaPutuskan() di layar: yang memutuskan adalah head
-         divisi SI PENGAJU — bukan head mana pun, dan jelas bukan pengajunya
-         sendiri. Tanpa ini, kru yang mengajukan cuti tinggal memanggil
-         endpoint ini sekali untuk menyetujui cutinya sendiri, dan sel
-         jadwalnya ikut berubah tanpa satu pun head tahu. */
+      /* Sepasang dengan bisaPutusHead()/bisaPutusHRD() di layar: yang
+         meloloskan langkah pertama adalah head divisi SI PENGAJU — bukan head
+         mana pun, dan jelas bukan pengajunya sendiri. Tanpa ini, kru yang
+         mengajukan cuti tinggal memanggil endpoint ini sekali untuk menyetujui
+         cutinya sendiri, dan sel jadwalnya ikut berubah tanpa satu pun head
+         tahu.
+
+         DUA LANGKAH (29 Agustus 2026): head meneruskan (MENUNGGU_HRD), lalu
+         HRD mengesahkan (DISETUJUI). Urutannya ditegakkan putus_pengajuan(),
+         bukan di sini — dan bukan cuma di layar: tanpa penjaga server, head
+         tinggal mengirim status DISETUJUI sekali dan langkah HRD terlewat
+         seluruhnya.
+
+         Di modul ini admin modul MEMANG HRD — lihat admin_modul_untuk() di
+         account-api, yang menambahkan `jadwal` untuk yang kolom Tim-nya HRD. */
       $u = wajib_office($body);
       $a = pengajuan_by_id(ambil($body, 'id'));
       if (!$a) throw new Exception('Pengajuan tidak ditemukan: ' . ambil($body, 'id'));
       jdw_wajib_boleh_baris($u, $a['user_id']);
       keluar(array('ok' => true, 'data' => putus_pengajuan(
-        ambil($body, 'id'), ambil($body, 'status'), ambil($body, 'nota'), nama_pemanggil($u))));
+        ambil($body, 'id'), ambil($body, 'status'), ambil($body, 'nota'), nama_pemanggil($u),
+        jdw_admin($u))));
     }
 
     case 'hapusPengajuan': {

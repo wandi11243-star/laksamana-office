@@ -142,6 +142,14 @@ function pastikan_tabel($pdo) {
   pastikan_kolom($pdo, 'jadwal_pengajuan', 'shift',       "VARCHAR(16)  NOT NULL DEFAULT ''");
   pastikan_kolom($pdo, 'jadwal_pengajuan', 'jam_mulai',   "VARCHAR(5)   NOT NULL DEFAULT ''");
   pastikan_kolom($pdo, 'jadwal_pengajuan', 'jam_selesai', "VARCHAR(5)   NOT NULL DEFAULT ''");
+  /* Jejak persetujuan HEAD, terpisah dari putus_* yang menyimpan putusan
+     TERAKHIR (29 Agustus 2026, permintaan user: disetujui head dulu, baru
+     HRD). Dipisah karena keduanya orang berbeda pada waktu berbeda: kalau
+     ditumpuk di satu kolom, nama head yang meloloskan tertimpa nama HRD
+     begitu langkah kedua ditekan, dan yang bertanya "siapa yang menyetujui
+     cuti ini" cuma menemukan HRD. */
+  pastikan_kolom($pdo, 'jadwal_pengajuan', 'head_at',   'BIGINT       NOT NULL DEFAULT 0');
+  pastikan_kolom($pdo, 'jadwal_pengajuan', 'head_oleh', "VARCHAR(120) NOT NULL DEFAULT ''");
   $pdo->exec(
     'CREATE TABLE IF NOT EXISTS `jadwal_setting` (
        `id`         TINYINT UNSIGNED NOT NULL PRIMARY KEY,
@@ -372,9 +380,9 @@ function baca_semua($dari, $sampai) {
   $aju = array();
   $q = $pdo->query(
     'SELECT * FROM (
-       SELECT * FROM `jadwal_pengajuan` WHERE `status` = \'MENUNGGU\'
+       SELECT * FROM `jadwal_pengajuan` WHERE `status` IN (\'MENUNGGU\',\'MENUNGGU_HRD\')
        UNION ALL
-       SELECT * FROM (SELECT * FROM `jadwal_pengajuan` WHERE `status` <> \'MENUNGGU\'
+       SELECT * FROM (SELECT * FROM `jadwal_pengajuan` WHERE `status` NOT IN (\'MENUNGGU\',\'MENUNGGU_HRD\')
                       ORDER BY `putus_at` DESC LIMIT 200) x
      ) y ORDER BY `dibuat_at` DESC');
   foreach ($q->fetchAll() as $r) {
@@ -382,6 +390,8 @@ function baca_semua($dari, $sampai) {
       'id' => $r['id'], 'userId' => $r['user_id'], 'jenis' => $r['jenis'],
       'dari' => $r['tgl_mulai'], 'sampai' => $r['tgl_selesai'],
       'alasan' => (string)$r['alasan'], 'status' => $r['status'],
+      'headAt'   => isset($r['head_at'])   ? (int)$r['head_at'] : 0,
+      'headOleh' => isset($r['head_oleh']) ? (string)$r['head_oleh'] : '',
       /* Shift yang DIMINTA kru. Diisi untuk jenis TUKAR/UBAH — sebelumnya
          maksudnya cuma ada di dalam kalimat `alasan`, dan head harus
          menerjemahkan prosa jadi sel jadwal sendiri sesudah menyetujui.
@@ -609,18 +619,72 @@ function simpan_pengajuan($row, $by) {
   return array('saved' => true, 'id' => $id);
 }
 
-function putus_pengajuan($id, $status, $nota, $by) {
+/* DUA LANGKAH PERSETUJUAN (29 Agustus 2026, permintaan user):
+
+     MENUNGGU  --head setuju-->  MENUNGGU_HRD  --HRD setuju-->  DISETUJUI
+        |                             |
+        +-- head tolak --> DITOLAK    +-- HRD tolak --> DITOLAK
+
+   URUTANNYA DITEGAKKAN DI SINI, bukan cuma di layar. Tanpa itu, head tinggal
+   memanggil endpoint ini sekali dengan status DISETUJUI dan langkah HRD
+   terlewat seluruhnya — dan sel jadwalnya ikut terisi. Bahaya yang sama
+   persis sudah ditulis di komentar putusPengajuan di api.php untuk kasus kru
+   yang menyetujui cutinya sendiri; yang berubah cuma siapa yang melompat.
+
+   $adminHRD dioper dari api.php — di modul ini admin modul MEMANG HRD (lihat
+   admin_modul_untuk di account-api). Dikirim sebagai parameter, bukan dibaca
+   ulang di sini, supaya fungsi ini tetap bisa diuji tanpa sesi.
+
+   Yang sudah DISETUJUI/DITOLAK boleh dikembalikan ke MENUNGGU — itu jalan
+   untuk membatalkan putusan yang salah, dan sudah ada sebelum perubahan ini. */
+function putus_pengajuan($id, $status, $nota, $by, $adminHRD = null) {
   $pdo = db();
   pastikan_tabel($pdo);
   $id = s($id);
   $status = strtoupper(s($status));
-  if (!in_array($status, array('DISETUJUI', 'DITOLAK', 'MENUNGGU'), true)) {
+  if (!in_array($status, array('DISETUJUI', 'MENUNGGU_HRD', 'DITOLAK', 'MENUNGGU'), true)) {
     throw new Exception('Status putusan tidak dikenal: ' . $status);
   }
-  $st = $pdo->prepare(
-    'UPDATE `jadwal_pengajuan`
-        SET `status`=:s, `putus_at`=:t, `putus_oleh`=:by, `putus_nota`=:n
-      WHERE `id`=:id');
+
+  $lama = pengajuan_by_id($id);
+  if (!$lama) throw new Exception('Pengajuan tidak ditemukan: ' . $id);
+  $sebelum = strtoupper((string)$lama['status']);
+
+  /* $adminHRD === null berarti pemanggil lama yang belum mengirim peran
+     (mis. skrip uji). Urutannya cuma ditegakkan kalau perannya diketahui —
+     menolak yang tidak mengirimnya akan mematikan jalur yang sudah ada tanpa
+     menambah keamanan apa pun. */
+  if ($adminHRD !== null) {
+    if ($status === 'DISETUJUI') {
+      if (!$adminHRD) {
+        throw new Exception('Persetujuan akhir hanya oleh HRD. Yang bisa dilakukan head: meneruskan pengajuan ini ke HRD.');
+      }
+      /* Head HARUS sudah meloloskannya. Kalau tidak, HRD bisa menyetujui
+         pengajuan yang belum pernah dilihat head divisinya — dan head baru
+         tahu jadwalnya berubah saat membuka lembar. */
+      if ($sebelum !== 'MENUNGGU_HRD') {
+        throw new Exception('Pengajuan ini belum disetujui head divisinya, jadi belum bisa disahkan HRD.');
+      }
+    }
+    if ($status === 'MENUNGGU_HRD' && $sebelum !== 'MENUNGGU') {
+      throw new Exception('Hanya pengajuan yang masih menunggu head yang bisa diteruskan ke HRD.');
+    }
+  }
+
+  /* Persetujuan head menulis kolomnya SENDIRI. putus_* dibiarkan untuk
+     putusan terakhir — kalau ditumpuk, nama head hilang begitu HRD menekan
+     setuju, dan pertanyaan "siapa yang meloloskan" tidak ada jawabannya. */
+  if ($status === 'MENUNGGU_HRD') {
+    $st = $pdo->prepare(
+      'UPDATE `jadwal_pengajuan`
+          SET `status`=:s, `head_at`=:t, `head_oleh`=:by, `putus_nota`=:n
+        WHERE `id`=:id');
+  } else {
+    $st = $pdo->prepare(
+      'UPDATE `jadwal_pengajuan`
+          SET `status`=:s, `putus_at`=:t, `putus_oleh`=:by, `putus_nota`=:n
+        WHERE `id`=:id');
+  }
   $st->execute(array(
     ':s' => $status, ':t' => ms(), ':by' => mb_substr(s($by), 0, 120),
     ':n' => mb_substr(s($nota), 0, 255), ':id' => $id,
