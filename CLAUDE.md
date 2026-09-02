@@ -715,6 +715,70 @@ Empat kolom kepegawaian adalah **daftar tertutup** di layar ini:
   galat. `jobPosition` sengaja tetap teks bebas: isinya jabatan sungguhan, dan
   daftar tertutup di situ akan basi tiap ada posisi baru.
 
+### Portal: Kelola User dilipat, dan hapus permanen berpagar (2 September 2026)
+
+`deploy/index.html` → **Kelola Akses** → tab **User** (superadmin, di balik PIN).
+Beda dari halaman **Data Pegawai** di modul Jadwal: yang ini mengurus **hak
+akses modul & admin modul**, yang itu mengurus **data diri**. Pemisahan itu
+sengaja — lihat bagian Data Pegawai di atas.
+
+**Formulirnya dilipat jadi empat seksi `<details class="af-sec">`** — Identitas
+& akun, Data kepegawaian (tertutup, 6 kolom Talenta), Modul yang boleh dibuka,
+Kelola akses. Dulu ketiganya digelar sekaligus bersama **sepuluh paragraf
+penjelasan**, jadi tombol Simpan berada dua layar penuh di bawah kotak Nama dan
+membetulkan satu nomor HP berarti menggulir turun lalu naik lagi.
+
+- **Penjelasannya TIDAK dibuang satu kata pun** — ia pindah ke
+  `<details class="af-help">` di dalam seksinya. Paragraf itu ditulis untuk
+  orang yang sedang memutuskan centang mana yang diberikan, dan justru pada
+  detik itulah ia dibutuhkan. `tools/uji-kelola-user.js` menghitung **10**
+  paragraf dan memeriksa isi tiap-tiapnya: paragraf yang jatuh saat menyunting
+  formulir tidak menimbulkan galat apa pun, cuma centang yang diberikan tanpa
+  tahu akibatnya.
+- **Baris tombol ada DI LUAR `.af-scroll`.** Yang menggulir cuma isiannya, jadi
+  Simpan / Batal / Hapus selalu di tempat yang sama. Centang *Akun aktif* ikut
+  pindah ke baris itu — ia keadaan akun, sama seperti Simpan dan Hapus.
+- **Kedua kolom menggulir sendiri** di atas 900px (`position:sticky` +
+  `max-height:calc(100vh - 108px)`), jadi halamannya tidak bergerak sama sekali
+  dan kotak cari tidak ikut hanyut saat menggulir ke user ke-38. Di bawah 900px
+  gulir bersarang **dimatikan**: dua kotak gulir di dalam halaman yang juga
+  menggulir membuat orang menggeser yang salah lalu mengira daftarnya mentok.
+
+**Hapus permanen hanya untuk akun yang SUDAH dinonaktifkan.** Aturan yang sama
+dengan `rosterHapusUser` di Data Pegawai, dan alasannya sama: dua langkah
+dengan jeda di tengah, dan jeda itulah yang menahan penghapusan karena salah
+klik. Yang perlu dijaga:
+
+- **Ditegakkan di server** (`must_deactivate_first` di `aksi_hapus_user`), bukan
+  cuma di layar. Tombolnya memang hanya digambar untuk baris nonaktif, tapi satu
+  panggilan dari console peramban melewati seluruh penjagaan layar.
+- **`grants` & `admins` ikut dibuang** — sudah begitu sejak awal, dan itu justru
+  yang membuat "id-nya bisa dipakai ulang" aman: baris yatim akan HIDUP LAGI
+  begitu id yang sama dipakai lagi.
+- **Tapis Aktif / Nonaktif / Semua**, bawaannya **Aktif**. Tanpa itu, menemukan
+  akun nonaktif yang mau dihapus berarti menyisir seluruh daftar mencari baris
+  yang justru paling sulit dilihat (`.u-row.inactive` diredupkan). Angka di tiap
+  tombol dihitung dari **kata kunci yang sedang berlaku**, bukan dari seluruh
+  daftar — kalau tidak, mencari nama yang ternyata nonaktif memperlihatkan
+  "Nonaktif 6" sementara daftarnya kosong.
+- **Keadaan kosong menyebut tapisnya**, bukan cuma kata kuncinya. Salah paham
+  yang sudah tercatat di Data Pegawai: orang mencari nama yang ADA tapi orangnya
+  nonaktif, tapisnya masih di Aktif, lalu menyimpulkan akunnya sudah terhapus.
+- **Yang BELUM dipagari, dan disengaja:** tidak ada penjaga "superadmin
+terakhir" di `aksi_hapus_user`. Menonaktifkan superadmin terakhir sudah mengunci
+semua orang di luar sebelum sampai ke penghapusan, jadi pagarnya ada di langkah
+sebelumnya — tapi kalau suatu hari nonaktif dilonggarkan, ini yang pertama harus
+ditambahkan.
+
+```bash
+node tools/uji-kelola-user.js   # 39 pemeriksaan, jsdom + account-api tiruan
+```
+
+Ujinya memanggil `renderAdminList` / `fillAdminForm` langsung — panel ini di
+balik gerbang PIN (`verifyAdminPin`), dan yang diuji isinya, bukan gerbangnya.
+Daftar user disuntikkan ke `admin-list._users`, tempat yang sama yang diisi
+`loadAdminUsers()`, jadi kode yang jalan tetap kode sungguhan.
+
 **Matriks halaman × peran DW bisa disetel** (19 Agustus 2026) — `setting.akses`
 `{halaman:{peran:0|1}}`, disunting admin modul di halaman Hak Akses. Yang perlu
 diingat sebelum menyentuhnya:

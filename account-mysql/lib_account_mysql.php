@@ -1014,13 +1014,28 @@ function aksi_simpan_user_banyak($body) {
   return array('ok' => true, 'sukses' => $sukses, 'gagal' => $gagal, 'baris' => $out);
 }
 
+/* WAJIB DINONAKTIFKAN DULU (2 September 2026, permintaan user). Aturan yang
+   sama sudah berlaku di aksi_roster_hapus_user() sejak 29 Agustus 2026, dan
+   alasannya persis sama: menghapus akun melepaskan kembali nomor HP, nama
+   panggilan, dan Talenta ID-nya, TAPI juga membuat sel jadwal bulan-bulan lalu
+   kehilangan nama pemiliknya — `jadwal_sel` berkunci user_id, dan id yang tidak
+   ada lagi di `users` tidak bisa diterjemahkan jadi nama oleh layar mana pun.
+   Menuntut nonaktif dulu membuatnya dua langkah dengan jeda di tengah, dan jeda
+   itulah yang menahan penghapusan karena salah klik.
+
+   Ditegakkan DI SINI, bukan cuma di layar: tombolnya memang cuma digambar untuk
+   baris nonaktif, tapi satu panggilan dari console peramban melewati seluruh
+   penjagaan itu. */
 function aksi_hapus_user($body) {
   $caller = butuh_superadmin($body);
   if (!$caller) return array('ok' => false, 'error' => 'forbidden');
   $id = s(isset($body['id']) ? $body['id'] : '');
   if ($id !== '' && s($caller['id']) === $id)
     return array('ok' => false, 'error' => 'cannot_delete_self');
-  if (!user_by_id($id)) return array('ok' => false, 'error' => 'not_found');
+  $u = user_by_id($id);
+  if (!$u) return array('ok' => false, 'error' => 'not_found');
+  $aktif = !(isset($u['active']) && (int)$u['active'] === 0);
+  if ($aktif) return array('ok' => false, 'error' => 'must_deactivate_first');
 
   // Hak aksesnya ikut dibuang. Di Sheet baris Grants/Admins yatim ini
   // tertinggal dan hidup lagi kalau id yang sama dipakai ulang.
