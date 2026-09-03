@@ -628,6 +628,69 @@ skrip CDN Tailwind & FontAwesome** — keduanya tidak bisa dimuat jsdom dan
 tumpukan galatnya menenggelamkan baris OK/GAGAL. `smoke-modul.js` **tidak
 cukup**: ia melaporkan `hanya boot yang diuji` untuk modul ini.
 
+### Denah meja: Marketing MENGIKUTI Reservasi, tidak menyalinnya (2 Sep 2026)
+
+`deploy/marketing/` → *Pilih & Kunci Meja* (Reservasi VIP dan pemilih meja
+Event) menggambar denah venue yang SAMA dengan `deploy/reservasi/` dan menulis
+kunciannya ke database Reservasi. Dua modul, satu ruangan — dan tiap kali
+keduanya menyimpang, gejalanya bukan galat melainkan kru yang berdebat meja
+mana yang benar.
+
+Koordinat mejanya sudah lama satu sumber (`deploy/assets/venue-layouts.js`).
+Yang **belum** ikut sampai 2 September 2026, dan semuanya keluhan user:
+
+- **`layoutTanggal` tidak dibaca sama sekali.** Modul Reservasi punya denah
+  KHUSUS SATU TANGGAL yang menang atas segalanya (`getLayout()`); Marketing cuma
+  membaca `master.layouts`. Akibatnya meja yang digeser untuk satu malam tetap
+  tergambar di posisi lamanya. `vipDenah()` sekarang memakai urutan yang sama:
+  **denah tanggal > template hasil edit > bawaan**.
+- **Minggu bukan akhir pekan.** Di sini dulu cuma Jumat & Sabtu, sementara
+  Reservasi sudah memasukkan Minggu — jadi tiap Minggu kedua modul menggambar
+  denah yang berbeda untuk ruangan yang sama, tanpa satu pun tanda.
+- **Lantai 2 memakai `layoutOverrides2`**, kunci yang terpisah. Menumpangkannya
+  di `layoutOverrides` berarti menjadwalkan denah lantai bawah ikut mengganti
+  denah atas.
+
+**KUNCI MEJA H-3 JAM, bukan sehari penuh.** `rsvMejaTerpakai()` dulu memblokir
+meja untuk SATU HARI PENUH: tamu jam 12:00 membuat mejanya tak bisa dipakai
+acara jam 20:00 di hari yang sama, padahal modul Reservasi sendiri
+mengizinkannya. Kru Marketing karena itu melihat denah yang jauh lebih penuh
+daripada kenyataan, lalu menolak acara yang sebenarnya masih muat.
+
+`vipLockStart/vipLockEnd/vipLocksRange` adalah **BERKAS KEMBAR**
+`lockStart/lockEnd/locksRange` di `deploy/reservasi/`. Kalau di sana berubah, di
+sini HARUS ikut — dua aturan untuk satu meja berarti satu modul menjualnya
+sementara modul lain menganggapnya penuh. Yang perlu dijaga:
+
+- **`jam` kosong = SEHARI PENUH**, bukan "tidak ada yang terkunci". Tanpa jam
+  tidak ada cara tahu jendela mana yang bentrok, dan menganggapnya kosong
+  berarti menjanjikan meja yang mungkin sudah dipesan.
+- **Reservasi lintas hari ikut dipertimbangkan** (±1 hari): booking 02:00 dini
+  hari mengunci mejanya sejak 23:00 malam sebelumnya. Penyaring lama
+  (`r.date !== tanggal`) membuat kuncian itu tidak terlihat sama sekali.
+- **Jamnya wajib ikut di pemeriksaan terakhir sebelum menulis**, bukan cuma di
+  denah. Kalau tidak, orang memilih meja yang terlihat kosong lalu ditolak saat
+  menekan Simpan.
+- Pemilih meja Event mengambil jamnya dari `tamuDatang` lalu `mulaiSetup` —
+  **sumber yang sama** dengan yang ditulis ke Reservasi saat menyimpan.
+
+**Nada warna & ukuran** juga disamakan: latar `--paper`, `aspect-ratio
+1600/1160`, meja diwarnai per ZONA dengan nilai yang disalin dari `.seat.zone-*`
+di Reservasi, terpilih = garis emas di LUAR kotak (warna zonanya tetap
+terbaca), terkunci = pudar + ✕. Lebar maksimumnya naik dari 1180px ke 1560px
+dan ukuran hurufnya `clamp()` — denah yang dibesarkan tapi hurufnya tetap 9,5px
+tidak menyelesaikan keluhannya. Zona yang **tidak dikenal dibiarkan tanpa
+kelas**, bukan dijatuhkan ke warna pertama: meja berzona baru harus terlihat
+berbeda supaya CSS-nya ditambah.
+
+```bash
+node tools/uji-denah-marketing.js   # 41 pemeriksaan, jsdom
+```
+
+Ujinya membaca **kedua berkas** lalu membandingkannya — angka H-3 jam, aturan
+akhir pekan, dan tujuh warna zona diambil dari `deploy/reservasi/index.html`,
+bukan ditulis ulang. Yang disalin tangan pasti menyimpang.
+
 ### Master Vendor: di PURCHASING, dibaca Finance & BD (28 Agustus 2026)
 
 `deploy/stock/purchasing/` → tab **Database & Vendor** → *Daftar Kontak Vendor*.
