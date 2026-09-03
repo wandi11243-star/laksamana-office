@@ -116,6 +116,33 @@ for p in $daftar; do
     echo "GAGAL   ${m:-/} — isi di server BEDA dari repo (tidak ter-upload / terpotong / salah folder)${ket}"
     echo "        repo=$(wc -c < /tmp/a) byte, server=$(wc -c < /tmp/b) byte"
     grep -q '</html>' /tmp/b || echo "        server tidak punya </html> → terpotong atau 404"
+    # BERKAS MANA YANG SEBENARNYA DISAJIKAN (4 September 2026).
+    #
+    # "isi di server BEDA" menyebut tiga kemungkinan sekaligus, dan yang
+    # membacanya harus menebak yang mana. Padahal jawabannya sering ada di
+    # repo ini juga: 3 September 2026 deploy produksi gagal di dw/, dan isi
+    # yang disajikan server ternyata cashier/index.html PERSIS — berkas yang
+    # diunggah tepat SEBELUM dw (urutannya alfabetis). Itu bukan transfer
+    # terpotong dan bukan berkas yang tidak mendarat, melainkan aliran data
+    # FTP yang tertukar antar berkas; ketiga dugaan di baris atas menuntun ke
+    # arah yang salah, dan yang mencari sebabnya membuang waktu memeriksa
+    # ukuran berkas dan izin folder.
+    #
+    # Jadi dicari: adakah halaman LAIN di repo yang isinya sama persis dengan
+    # yang dipulangkan server. Kalau ada, namanya disebut.
+    for _q in $daftar; do
+      if [ "$_q" = "." ]; then _qm=""; else _qm="$_q/"; fi
+      [ "$_q" = "$p" ] && continue
+      _qs="deploy/${_qm}index.html"
+      [ -f "$_qs" ] || continue
+      tr -d '\r' < "$_qs" > /tmp/c
+      if cmp -s /tmp/c /tmp/b; then
+        echo "        server menyajikan isi ${_qm}index.html — BERKASNYA TERTUKAR,"
+        echo "        bukan terpotong. Aliran FTP menulis berkas tetangga ke sini;"
+        echo "        unggah paksa berikutnya biasanya membetulkannya."
+        break
+      fi
+    done
     gagal=1
   fi
 done
