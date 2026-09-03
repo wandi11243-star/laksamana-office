@@ -683,8 +683,32 @@ tidak menyelesaikan keluhannya. Zona yang **tidak dikenal dibiarkan tanpa
 kelas**, bukan dijatuhkan ke warna pertama: meja berzona baru harus terlihat
 berbeda supaya CSS-nya ditambah.
 
+**Jam kosong diarahkan ke `00:00`, dan itu DIKATAKAN** (3 September 2026,
+permintaan user). Sebelumnya jam kosong berarti seluruh hari terkunci — aman,
+tapi denahnya tampak penuh merah begitu tanggalnya baru dipilih. Akibat 00:00
+harus terlihat: jendela H-3 jadi 21:00 malam sebelumnya sampai 03:00, jadi meja
+yang dipesan tamu jam 20:00 tampil **bebas**. `vipCatatanJam()` memasang pita
+peringatan selama jamnya belum diisi; tanpa itu dua pihak bisa memegang meja
+yang sama tanpa satu pun tanda. Peringatannya hilang sendiri begitu jamnya
+diisi — peringatan yang selalu muncul berhenti dibaca.
+
+**Denah bawaan yang tidak berlaku hari itu TIDAK ditawarkan** (permintaan user).
+Dulu empat tombol berjajar — Weekday/Weekend × Lt.1/Lt.2 — padahal dua di
+antaranya jelas bukan denah hari itu, dan denah hari kerja yang dibuka pada hari
+Sabtu menggambar meja di posisi yang malam itu tidak ada. Sekarang tinggal dua.
+
+- **Template custom TIDAK ikut disaring**: namanya bebas, dan menebak jenis
+  harinya dari nama berarti menyembunyikan denah yang mungkin justru dibuat
+  untuk hari itu.
+- **`vipDenahKeys(d, tanggal, semua)` — `semua=true` membuka lagi seluruhnya**,
+  dan itu wajib untuk dua pemakai: `vipDenahKunci()` (mencari denah mana yang
+  memuat meja sebuah reservasi lama, bisa saja denah jenis hari lain) dan
+  pengumpul kapasitas `VIP_CAP`. Tanpa itu reservasi lama tampil dengan denah
+  yang semua mejanya pudar — terbaca sebagai "mejanya hilang" — dan ringkasan
+  slot berubah jadi "? org".
+
 ```bash
-node tools/uji-denah-marketing.js   # 41 pemeriksaan, jsdom
+node tools/uji-denah-marketing.js   # 57 pemeriksaan, jsdom
 ```
 
 Ujinya membaca **kedua berkas** lalu membandingkannya — angka H-3 jam, aturan

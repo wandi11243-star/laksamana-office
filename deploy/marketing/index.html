@@ -14235,10 +14235,35 @@ function vipLockEnd(r,d){
 }
 function vipLocksRange(r,a,b,d){ return vipLockStart(r)<=b && vipLockEnd(r,d)>=a; }
 
-/* `jam` kosong = jamnya memang belum diisi. Yang dipakai kalau begitu SELURUH
-   HARI — bukan "tidak ada yang terkunci": tanpa jam, tidak ada cara tahu
-   jendela mana yang bentrok, dan menganggapnya kosong berarti menjanjikan meja
-   yang mungkin sudah dipesan. */
+/* JAM KOSONG DIARAHKAN KE 00:00 (2 September 2026, permintaan user:
+   "ketika klik tanggal langsung diarahkan 00:00 aja").
+
+   Sebelumnya jam kosong berarti SELURUH HARI dianggap terkunci — aman, tapi
+   membuat denah tampak penuh merah begitu tanggalnya baru dipilih dan jamnya
+   belum diketik. Sekarang yang dipakai 00:00, jadi denahnya langsung terbaca.
+
+   AKIBATNYA HARUS DIKATAKAN DI LAYAR, dan vipCatatanJam() itulah yang
+   melakukannya: jendela H-3 dari 00:00 berarti 21:00 malam sebelumnya sampai
+   03:00 dini hari. Meja yang dipesan tamu jam 20:00 karena itu tampil BEBAS —
+   dan kalau dikunci begitu saja, dua pihak memegang meja yang sama. Karena itu
+   selama jamnya belum diisi, pemilih meja memasang pita peringatan yang
+   menyebut jam berapa yang sedang dipakai. */
+const VIP_JAM_BAWAAN='00:00';
+function vipJamAtau00(jam){ return String(jam||'').trim()||VIP_JAM_BAWAAN; }
+/* Pita peringatan saat jamnya belum diisi. Dikembalikan kosong kalau jamnya
+   sudah ada — peringatan yang selalu muncul berhenti dibaca. */
+function vipCatatanJam(jam){
+  if(String(jam||'').trim()) return '';
+  return '<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)
+    +'<span><b>Jam belum diisi</b>, jadi denah ini memakai <b>'+VIP_JAM_BAWAAN+'</b> — '
+    +'yang terkunci cuma reservasi sekitar tengah malam. Isi jamnya dulu kalau acaranya siang '
+    +'atau malam, supaya meja yang sudah dipesan jam itu ikut terlihat terkunci.</span></div>';
+}
+
+/* `jam` kosong sudah tidak pernah sampai ke sini — pemanggilnya mengarahkannya
+   lewat vipJamAtau00(). Cabang sehari-penuh tetap dipertahankan sebagai jaring:
+   yang memanggil dari tempat baru dan lupa mengaraahkan jamnya lebih baik
+   mendapat denah yang terlalu ketat daripada denah yang terlalu longgar. */
 function rsvMejaTerpakai(d,tanggal,kecualiId,jam){
   const out={};
   const a = jam ? vipAbsMin(tanggal,jam) : vipDayNo(tanggal)*1440;
@@ -15947,8 +15972,31 @@ function vipDenahKey(d,tanggal,pilihan){
    di posisi lamanya. */
 const VIP_DENAH_BAWAAN=['weekday','weekend','lantai2','lantai2_weekend'];
 const VIP_DENAH_LABEL={weekday:'Weekday · Lt.1', weekend:'Weekend · Lt.1', lantai2:'Weekday · Lt.2', lantai2_weekend:'Weekend · Lt.2'};
-function vipDenahKeys(d,tanggal){
-  const keys=VIP_DENAH_BAWAAN.slice();
+/* DENAH BAWAAN YANG TIDAK BERLAKU DI HARI ITU TIDAK DITAWARKAN (2 September
+   2026, permintaan user: "tanggal yang sudah pasti weekend langsung tampilkan
+   weekend, jangan ada yang weekday lagi").
+
+   Empat tombol — Weekday Lt.1, Weekend Lt.1, Weekday Lt.2, Weekend Lt.2 —
+   padahal dua di antaranya jelas bukan denah hari itu. Yang menekannya harus
+   ingat sendiri tanggal berapa yang sedang dibuka, dan denah hari kerja yang
+   dibuka pada hari Sabtu menggambar meja di posisi yang malam itu tidak ada.
+
+   `semua=true` MEMBUKA lagi seluruhnya, dan itu wajib untuk dua pemakai:
+   vipDenahKunci() (mencari denah mana yang memuat meja sebuah reservasi lama —
+   bisa saja denah jenis lain) dan pengumpul kapasitas VIP_CAP (meja yang sudah
+   dipilih harus tetap punya kapasitas walau denahnya tidak sedang ditawarkan).
+   Tanpa itu, reservasi lama tampil dengan denah yang semua mejanya pudar, dan
+   ringkasan slot berubah jadi "? org". */
+function vipDenahKeys(d,tanggal,semua){
+  let keys=VIP_DENAH_BAWAAN.slice();
+  if(tanggal&&!semua){
+    /* Template CUSTOM tidak ikut disaring — namanya bebas, dan menebak jenis
+       harinya dari nama berarti menyembunyikan denah yang mungkin justru
+       dibuat untuk hari itu. */
+    const we=vipAkhirPekan(tanggal);
+    const buang=we?['weekday','lantai2']:['weekend','lantai2_weekend'];
+    keys=keys.filter(function(k){ return buang.indexOf(k)<0; });
+  }
   const custom=(d&&d.master&&d.master.layouts)||{};
   if(custom&&!Array.isArray(custom)) Object.keys(custom).forEach(k=>{ if(keys.indexOf(k)<0) keys.push(k); });
   /* Denah khusus tanggal ikut ditawarkan — cuma untuk TANGGAL YANG SEDANG
@@ -16028,7 +16076,9 @@ function vipDenahKunci(d,tanggal,dipilih){
      patokan awal supaya reservasi biasa tetap digambar di denah hari itu saat
      mejanya kebetulan ada di beberapa denah sekaligus. */
   let terbaik=otomatis, nilai=cocok(otomatis);
-  vipDenahKeys(d,tanggal).forEach(function(k){
+  /* semua=true: reservasi lama bisa memakai meja dari denah jenis hari lain,
+     dan menyembunyikannya di sini membuat mejanya seolah hilang. */
+  vipDenahKeys(d,tanggal,true).forEach(function(k){
     const n=cocok(k);
     if(n>nilai){ nilai=n; terbaik=k; }
   });
@@ -16141,7 +16191,7 @@ function vipDenahHTML(d,terpakai,dipilih,opts){
      sudah dipilih — seolah pilihannya rusak. */
   if(!bacaSaja){
     VIP_CAP={}; VIP_MEJA_LT={};
-    vipDenahKeys(d,tgl).forEach(function(k){
+    vipDenahKeys(d,tgl,true).forEach(function(k){
       const X=vipDenah(d,k); if(!X||!Array.isArray(X.tables)) return;
       const lt=vipDenahLantai(d,k);
       X.tables.forEach(function(t){
@@ -16249,7 +16299,7 @@ async function vipCekKetersediaan(){
     +'<div class="modal-body"><div class="tbl-note">'+svg(IC.alert)+'<span>'+esc(e.message)+'</span></div></div>'
     +'<div class="modal-foot"><button class="btn" onclick="vipFormUI()">← Kembali</button><button class="btn pri" onclick="vipCekKetersediaan()">Coba Lagi</button></div>'); }
   VIP_RSV=d;
-  const terpakai=rsvMejaTerpakai(d,tgl,'vip-'+f.id,f.jamMulai);
+  const terpakai=rsvMejaTerpakai(d,tgl,'vip-'+f.id,vipJamAtau00(f.jamMulai));
   let h='<div class="modal-head"><div><h3>Meja Terkunci</h3><p>'+fmtDate(tgl)+' · dari modul Reservasi</p></div><div class="x" onclick="vipFormUI()">'+svg(IC.x)+'</div></div>';
   h+='<div class="modal-body">';
   h+=vipTerpakaiHTML(terpakai);
@@ -16285,10 +16335,11 @@ async function vipCekKetersediaan(){
 function vipPilihMejaUI(d){
   const f=VIP_FORM;
   VIP_RSV=d;
-  const terpakai=rsvMejaTerpakai(d,f.tanggal,'vip-'+f.id,f.jamMulai);
+  const terpakai=rsvMejaTerpakai(d,f.tanggal,'vip-'+f.id,vipJamAtau00(f.jamMulai));
   const dipilih=f.meja||[];
   let h='<div class="modal-head"><div><h3>Pilih &amp; Kunci Meja</h3><p>'+esc(f.nama)+' · '+fmtDate(f.tanggal)+' · '+esc(vipJam(f))+' · '+vipPax(f)+' orang</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>';
   h+='<div class="modal-body">';
+  h+=vipCatatanJam(f.jamMulai);
   const denah=vipDenahHTML(d,terpakai,dipilih);
   if(denah){
     h+='<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Denah ini denah yang sama dengan modul Reservasi. Klik meja untuk mengunci — boleh lebih dari satu, '+vipPax(f)+' orang biasanya butuh beberapa meja.</span></div>';
@@ -16352,7 +16403,7 @@ async function vipSimpanKunci(){
       /* Jamnya WAJIB ikut: pemeriksaan terakhir sebelum menulis harus memakai
          jendela yang sama dengan yang digambar di denah, kalau tidak orang
          memilih meja yang terlihat kosong lalu ditolak saat menekan Simpan. */
-      const terpakai=rsvMejaTerpakai(d,f.tanggal,'vip-'+f.id,f.jamMulai);
+      const terpakai=rsvMejaTerpakai(d,f.tanggal,'vip-'+f.id,vipJamAtau00(f.jamMulai));
       const bentrok=(f.meja||[]).filter(m=>terpakai[m]);
       if(bentrok.length) return {__batal:true,bentrok};
       const now=Date.now();
@@ -16562,9 +16613,10 @@ function evmUI(){
   if(!EVM) return;
   const ev=S.events.find(function(x){ return x.id===EVM.evId; }); if(!ev) return;
   const d=EVM.rsv||{};
-  const terpakai=rsvMejaTerpakai(d,EVM.tgl,evmResId(EVM.evId),EVM.jam);
+  const terpakai=rsvMejaTerpakai(d,EVM.tgl,evmResId(EVM.evId),vipJamAtau00(EVM.jam));
   let h='<div class="modal-head"><div><h3>Pilih &amp; Kunci Meja</h3><p>'+esc(ev.nama||'Event')+' · '+fmtDate(EVM.tgl)+' · '+(+ev.pax||0)+' pax</p></div>'
    +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div><div class="modal-body">';
+  h+=vipCatatanJam(EVM.jam);
   const denah=vipDenahHTML(d,terpakai,EVM.meja,{tanggal:EVM.tgl,klik:'evmToggle',layout:EVM.layout});
   if(denah){
     h+='<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Denah yang sama dengan modul Reservasi. Klik meja untuk mengunci — boleh lebih dari satu, dan boleh lintas lantai.</span></div>'
@@ -16666,7 +16718,7 @@ async function evmSimpan(){
     const hasil=await rsvSisipkan(function(d){
       // Diperiksa ULANG di dalam putaran simpan: meja bisa baru diambil orang
       // lain di sela-sela kita memilih. Kuncian sendiri tidak dihitung bentrok.
-      const terpakai=rsvMejaTerpakai(d,EVM.tgl,evmResId(EVM.evId),EVM.jam);
+      const terpakai=rsvMejaTerpakai(d,EVM.tgl,evmResId(EVM.evId),vipJamAtau00(EVM.jam));
       const bentrok=EVM.meja.filter(function(m){ return terpakai[m]; });
       if(bentrok.length) return {__batal:true,bentrok:bentrok};
       const now=Date.now();

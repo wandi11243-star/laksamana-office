@@ -14233,7 +14233,32 @@ function vipLockEnd() { vipSedangDuduk(); vipAbsMin(); vipAbsTs(); vipDineEst();
 
 
 
-function vipLocksRange() { vipLockStart(); vipLockEnd(); }
+function vipLocksRange() { vipLockStart(); vipLockEnd(); vipCatatanJam(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipJamAtau00() {  }
+
+
+function vipCatatanJam() { svg(); vipJamAtau00(); }
+
+
+
+
+
+
 
 
 
@@ -15929,7 +15954,7 @@ function vipLanjutMeja() { vipKumpulkan(); toast(); modal(); fmtDate(); rsvAmbil
 
 
 
-function vipDenahKey() { vipDenah(); vipDenahKeyOtomatis(); }
+function vipDenahKey() { vipDenah(); vipDenahKeyOtomatis(); vipDenahKunci(); }
 
 
 
@@ -15947,7 +15972,30 @@ function vipDenahKey() { vipDenah(); vipDenahKeyOtomatis(); }
 
 
 
-function vipDenahKeys() { vipKeyTanggal(); vipDenah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vipDenahKeys() { vipAkhirPekan(); vipKeyTanggal(); vipDenah(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -16018,6 +16066,8 @@ function vipDenahKeyOtomatis() { vipKeyTanggal(); vipDenah(); vipAkhirPekan(); }
 
 
 function vipDenahKunci() { vipDenahKeyOtomatis(); vipDenah(); vipDenahKeys(); }
+
+
 
 
 
@@ -16235,7 +16285,7 @@ function vipTerpakaiHTML() { esc(); vipLanjutMeja(); }
 
 
 
-function vipCekKetersediaan() { $(); today(); modal(); fmtDate(); rsvAmbil(); vipFormUI(); svg(); esc(); rsvMejaTerpakai(); vipTerpakaiHTML(); vipDenahBarHTML(); vipDenah(); vipDenahKey(); vipDenahLabel(); vipLanjutMeja(); }
+function vipCekKetersediaan() { $(); today(); modal(); fmtDate(); rsvAmbil(); vipFormUI(); svg(); esc(); rsvMejaTerpakai(); vipJamAtau00(); vipTerpakaiHTML(); vipDenahBarHTML(); vipDenah(); vipDenahKey(); vipDenahLabel(); vipLanjutMeja(); }
 
 
 
@@ -16282,7 +16332,8 @@ function vipCekKetersediaan() { $(); today(); modal(); fmtDate(); rsvAmbil(); vi
 
 
 
-function vipPilihMejaUI() { rsvMejaTerpakai(); esc(); fmtDate(); vipJam(); vipPax(); closeModal(); svg(); vipDenahHTML(); vipTerpakaiHTML(); vipDenahBarHTML(); rsvDaftarMeja(); vipToggleMeja(); escJs(); vipRingkasSlotHTML(); vipFormUI(); vipSimpanKunci(); modal(); $(); }
+function vipPilihMejaUI() { rsvMejaTerpakai(); vipJamAtau00(); esc(); fmtDate(); vipJam(); vipPax(); closeModal(); svg(); vipCatatanJam(); vipDenahHTML(); vipTerpakaiHTML(); vipDenahBarHTML(); rsvDaftarMeja(); vipToggleMeja(); escJs(); vipRingkasSlotHTML(); vipFormUI(); vipSimpanKunci(); modal(); $(); }
+
 
 
 
@@ -16335,7 +16386,7 @@ function vipToggleMeja() { vipSegarkanRingkas(); }
 
 
 
-function vipSimpanKunci() { toast(); $(); vipDpsUntukReservasi(); rsvSisipkan(); rsvMejaTerpakai(); vipPerusahaan(); userName(); vipPax(); vipTerapkanRingkasanDp(); svg(); vipPastikanClient(); logAct(); fmtDate(); vipNominal(); save(); closeModal(); buildNav(); go(); }
+function vipSimpanKunci() { toast(); $(); vipDpsUntukReservasi(); rsvSisipkan(); rsvMejaTerpakai(); vipJamAtau00(); vipPerusahaan(); userName(); vipPax(); vipTerapkanRingkasanDp(); svg(); vipPastikanClient(); logAct(); fmtDate(); vipNominal(); save(); closeModal(); buildNav(); go(); }
 
 
 
@@ -16558,7 +16609,8 @@ function evmBuka() { can(); toast(); $(); evmMeja(); modal(); fmtDate(); rsvAmbi
 
 
 
-function evmUI() { rsvMejaTerpakai(); evmResId(); esc(); fmtDate(); closeModal(); svg(); vipDenahHTML(); vipTerpakaiHTML(); evmBarHTML(); rsvDaftarMeja(); evmToggle(); escJs(); evmRingkasHTML(); evmSimpan(); modal(); $(); }
+function evmUI() { rsvMejaTerpakai(); evmResId(); vipJamAtau00(); esc(); fmtDate(); closeModal(); svg(); vipCatatanJam(); vipDenahHTML(); vipTerpakaiHTML(); evmBarHTML(); rsvDaftarMeja(); evmToggle(); escJs(); evmRingkasHTML(); evmSimpan(); modal(); $(); }
+
 
 
 
@@ -16649,7 +16701,7 @@ function evmRingkasHTML() { esc(); }
 
 
 
-function evmSimpan() { evmMeja(); toast(); evmLepas(); $(); rsvSisipkan(); rsvMejaTerpakai(); evmResId(); jenisEvent(); userName(); svg(); logAct(); fmtDate(); save(); closeModal(); evmSegarkanField(); }
+function evmSimpan() { evmMeja(); toast(); evmLepas(); $(); rsvSisipkan(); rsvMejaTerpakai(); evmResId(); vipJamAtau00(); jenisEvent(); userName(); svg(); logAct(); fmtDate(); save(); closeModal(); evmSegarkanField(); }
 
 
 

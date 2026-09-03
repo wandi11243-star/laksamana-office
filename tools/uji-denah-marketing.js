@@ -240,6 +240,78 @@ const posX = L => ((L && L.tables && L.tables[0]) || {}).x;
     cek('font 9.5px yang lama sudah tidak ada', HTML.indexOf('.dn-meja{font-size:9.5px}') < 0);
   }
 
+
+  /* ================= 4. jam kosong & pilihan denah ================= */
+  console.log('\n== Jam kosong diarahkan ke 00:00 ==');
+  {
+    /* Sebelumnya jam kosong berarti SELURUH HARI terkunci — aman, tapi denahnya
+       tampak penuh merah begitu tanggalnya baru dipilih. Sekarang 00:00. */
+    cek('jam kosong jadi 00:00', w.vipJamAtau00('') === '00:00');
+    cek('spasi saja juga jadi 00:00', w.vipJamAtau00('   ') === '00:00');
+    cek('jam yang sudah diisi tidak diganggu', w.vipJamAtau00('19:30') === '19:30');
+
+    /* Jendela H-3 dari 00:00 = 21:00 malam sebelumnya sampai 03:00. Meja yang
+       dipesan jam 20:00 karena itu tampil BEBAS — itu memang yang diminta,
+       tapi HARUS dikatakan di layar, kalau tidak dua pihak memegang meja yang
+       sama tanpa satu pun tanda. */
+    const d = { reservations:[{ id:'r1', date:'2026-09-10', time:'20:00', table:'T1',
+                                name:'Tamu Malam', status:'Confirmed' }] };
+    cek('dengan 00:00, meja jam 20:00 tampil bebas',
+        !w.rsvMejaTerpakai(d, '2026-09-10', '', w.vipJamAtau00(''))['T1']);
+    cek('dan itu DIKATAKAN lewat pita peringatan',
+        w.vipCatatanJam('').indexOf('00:00') > -1 &&
+        w.vipCatatanJam('').toLowerCase().indexOf('jam belum diisi') > -1,
+        w.vipCatatanJam(''));
+    /* Peringatan yang selalu muncul berhenti dibaca. */
+    cek('tidak diperingatkan kalau jamnya sudah ada', w.vipCatatanJam('19:00') === '');
+    /* Reservasi sekitar tengah malam TETAP terkunci — 00:00 bukan berarti
+       tidak ada yang terkunci sama sekali. */
+    const tm = { reservations:[{ id:'r2', date:'2026-09-10', time:'01:00', table:'T1',
+                                 name:'Dini', status:'Confirmed' }] };
+    cek('reservasi tengah malam tetap terkunci pada 00:00',
+        !!w.rsvMejaTerpakai(tm, '2026-09-10', '', w.vipJamAtau00(''))['T1']);
+  }
+
+  console.log('\n== Denah yang tidak berlaku hari itu tidak ditawarkan ==');
+  {
+    /* 2026-09-05 Sabtu, 2026-09-07 Senin. */
+    const sabtu = w.vipDenahKeys({}, '2026-09-05');
+    const senin = w.vipDenahKeys({}, '2026-09-07');
+    cek('hari Sabtu: weekday tidak ditawarkan',
+        sabtu.indexOf('weekday') < 0 && sabtu.indexOf('lantai2') < 0, sabtu.join(','));
+    cek('hari Sabtu: kedua denah weekend ditawarkan',
+        sabtu.indexOf('weekend') >= 0 && sabtu.indexOf('lantai2_weekend') >= 0, sabtu.join(','));
+    cek('hari Senin: weekend tidak ditawarkan',
+        senin.indexOf('weekend') < 0 && senin.indexOf('lantai2_weekend') < 0, senin.join(','));
+    cek('hari Senin: kedua denah weekday ditawarkan',
+        senin.indexOf('weekday') >= 0 && senin.indexOf('lantai2') >= 0, senin.join(','));
+    cek('Minggu ikut weekend', w.vipDenahKeys({}, '2026-09-06').indexOf('weekday') < 0);
+    /* Dua tombol, bukan empat — itu inti keluhannya. */
+    cek('tinggal dua tombol denah bawaan', sabtu.length === 2, sabtu.join(','));
+
+    /* Template CUSTOM tidak ikut disaring: namanya bebas, dan menebak jenis
+       harinya dari nama berarti menyembunyikan denah yang mungkin justru
+       dibuat untuk hari itu. */
+    const cst = { master:{ layouts:{ 'gala': mejaDi(100) } } };
+    cek('template custom tetap ditawarkan di hari apa pun',
+        w.vipDenahKeys(cst, '2026-09-05').indexOf('gala') >= 0 &&
+        w.vipDenahKeys(cst, '2026-09-07').indexOf('gala') >= 0);
+
+    /* semua=true membuka lagi seluruhnya. WAJIB untuk dua pemakai: pencari
+       denah reservasi lama, dan pengumpul kapasitas meja yang sudah dipilih. */
+    cek('semua=true mengembalikan keempat denah bawaan',
+        ['weekday','weekend','lantai2','lantai2_weekend']
+          .every(k => w.vipDenahKeys({}, '2026-09-05', true).indexOf(k) >= 0),
+        w.vipDenahKeys({}, '2026-09-05', true).join(','));
+    /* Reservasi lama yang mejanya cuma ada di denah weekday tetap ketemu
+       denahnya walau tanggalnya Sabtu — kalau tidak, panel Detail menggambar
+       denah yang semua mejanya pudar, dan itu terbaca sebagai "mejanya hilang". */
+    const beda = { master:{ layouts:{ weekday:{ name:'WD', tables:[{ id:'ZZ9', x:10, y:10, w:50, h:50, cap:'2', zone:'wood' }] } } } };
+    cek('denah reservasi lama tetap ketemu walau jenis harinya beda',
+        w.vipDenahKunci(beda, '2026-09-05', ['ZZ9']) === 'weekday',
+        w.vipDenahKunci(beda, '2026-09-05', ['ZZ9']));
+  }
+
   dom.window.close();
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
