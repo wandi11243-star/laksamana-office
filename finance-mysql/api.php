@@ -218,6 +218,12 @@ try {
     case 'brankasSave':
       keluar(array('ok' => true, 'data' => brankas_simpan($body)));
 
+    /* Dipakai panel Kas Kecil (Planning Pembayaran). Membacanya tetap lewat
+       brankasGet — halaman itu memang perlu seluruh state untuk menghitung
+       saldo wallet; yang disempitkan cuma penulisannya. */
+    case 'bayarSave':
+      keluar(array('ok' => true, 'data' => brankas_bayar_simpan($body)));
+
     case 'brankasAkses':
       keluar(array('ok' => true, 'data' => brankas_akses_simpan($body)));
 

@@ -605,6 +605,34 @@ function brankas_simpan($in) {
   return array('saved' => true, 'updated_at' => $ts);
 }
 
+/* PENULIS SEMPIT: hanya kunci `bayar` (2 September 2026).
+
+   Planning Pembayaran pindah ke panel Kas Kecil atas permintaan user, tapi
+   datanya TETAP di `bk_state` — saldo tiap wallet di halaman Saldo Brankas
+   dihitung dari baris pembayaran berstatus `paid`, jadi memindahkan datanya
+   keluar berarti Brankas kehilangan hitungan saldonya.
+
+   Kas Kecil karena itu MENULIS lewat sini, bukan lewat brankasSave. Bedanya
+   menentukan: brankasSave menulis SELURUH blob, jadi dua panel yang sama-sama
+   memakainya akan saling menimpa — yang menyimpan belakangan menghapus mutasi
+   atau pengembalian modal yang baru saja dicatat di panel sebelah, tanpa satu
+   pun galat. Di sini blob dibaca dulu, hanya `bayar` yang diganti, sisanya
+   ditulis kembali apa adanya.
+
+   Penyaringan kunci tetap dikerjakan brankas_simpan() — satu tempat yang
+   memutuskan apa yang bertahan, dan jalur kedua yang menyaring sendiri pasti
+   menyimpang darinya suatu hari. */
+function brankas_bayar_simpan($in) {
+  brankas_pastikan();
+  $rows = (isset($in['bayar']) && is_array($in['bayar'])) ? array_values($in['bayar']) : null;
+  if ($rows === null) throw new Exception('daftar pembayaran kosong');
+  $b = brankas_baca();
+  $data = (isset($b['data']) && is_array($b['data'])) ? $b['data'] : array();
+  $data['bayar'] = $rows;
+  return brankas_simpan(array('data' => $data,
+                              'oleh' => isset($in['oleh']) ? $in['oleh'] : ''));
+}
+
 /* Matriks ditulis sekali jalan (hapus lalu isi ulang) — alasan dan syaratnya
    sama persis dengan akses_simpan() di atas. */
 function brankas_akses_simpan($in) {

@@ -146,6 +146,13 @@ memanggil finance-api langsung) tidak boleh: finance-api tidak punya
 `lib_sesi.php` dan seluruh aksinya terbuka — alamatnya berarti buku kas,
 invoice, dan seluruh transaksi harian di HTML yang dibuka orang luar.
 
+> **PLANNING PEMBAYARAN SUDAH PINDAH KE PANEL KAS KECIL** (2 September 2026,
+> permintaan user). Halamannya sekarang `deploy/finance/kas/` → menu *Planning
+> Pembayaran*, kunci izin **`finance`** — bukan `brankas` lagi. Seluruh
+> keterangan bentuk lembar di bawah tetap berlaku, cuma letaknya yang berbeda.
+> Rinciannya di bagian **Planning Pembayaran: layar di Kas Kecil, data di
+> Brankas** sesudah blok ini.
+
 **Planning Pembayaran berbentuk LEMBAR per tanggal** (28 Agustus 2026), menyalin
 lembar Excel pembayaran mingguan: satu `batch` (tanggal bayar) berisi baris yang
 dikelompokkan per rekening pembayar, dengan subtotal tiap kelompok.
@@ -221,6 +228,60 @@ dikelompokkan per rekening pembayar, dengan subtotal tiap kelompok.
 (ditegaskan user 28 Agustus 2026), bukan wadah terpisah — jadi tidak ada wadah
 "pribadi", dan saldonya memang kas perusahaan.
 
+### Planning Pembayaran: layar di Kas Kecil, data di Brankas (2 Sep 2026)
+
+Permintaan user: "planning pembayaran yang berada di modul brankas saya ingin
+pindahkan ke modul kas kecil saja". Yang pindah **layarnya**; **datanya tetap
+di `bk_state`**, dan pemisahan itu yang harus dijaga.
+
+**Kenapa datanya tidak ikut pindah.** Baris pembayaran berstatus `paid`
+MENGURANGI saldo wallet di `saldoSemua()` panel Brankas. Memindahkan datanya
+keluar berarti halaman Saldo di sana kehilangan hitungannya, dan yang
+menggantikannya cuma ketergantungan yang arahnya terbalik — plus satu migrasi
+data produksi yang bisa tertinggal.
+
+| | di mana |
+|---|---|
+| layar & lembar isian | `deploy/finance/kas/` (kunci `finance`) |
+| data `bayar` | `bk_state` di `finance-mysql`, bersama sisa blob brankas |
+| saldo wallet yang menguranginya | halaman Saldo panel Brankas |
+
+**Kas Kecil MEMBACA lewat `brankasGet`, MENULIS lewat `bayarSave`.** Bedanya
+menentukan: `brankasSave` menulis SELURUH blob, jadi dua panel yang sama-sama
+memakainya akan saling menimpa — panel yang menyimpan belakangan menghapus
+mutasi atau pengembalian modal yang baru dicatat di panel sebelah, **tanpa satu
+pun galat**. `brankas_bayar_simpan()` membaca blob dulu, mengganti hanya kunci
+`bayar`, lalu menulis kembali lewat `brankas_simpan()` — jadi penyaringan kunci
+tetap dikerjakan satu tempat.
+
+Membacanya sengaja tetap `brankasGet`: halaman ini memang perlu seluruh state
+untuk menghitung saldo wallet, dan user memutuskan (2 September 2026) bahwa
+pemegang Kas Kecil boleh melihat saldo rekening perusahaan. **Itu melonggarkan
+pemisahan `brankas` vs `finance` yang dulu dibuat sengaja** — kalau suatu hari
+harus diketatkan lagi, yang perlu diubah `muatBayar()` di kas, bukan aksinya.
+
+Yang lain yang perlu dijaga:
+
+- **`bayar` WAJIB tetap ada** di daftar kunci `brankas_simpan()` dan di bentuk
+  kosong `brankas_baca()`. Mencabutnya "karena halamannya sudah tidak di sana"
+  membuang seluruh rencana pembayaran pada penyimpanan berikutnya, dan saldo
+  wallet naik sendiri sebesar yang sudah terbayar.
+- **`saldoSemua()` di kas dibangun di atas `rkHitung()` milik panel itu**, bukan
+  disalin dari `aktGrup()` brankas. Keduanya sudah berkas kembar; menyalinnya
+  sekali lagi berarti TIGA rumus untuk satu angka.
+- **Dimuat MALAS** — `BK` & master vendor baru diambil saat menunya dibuka.
+  Panel ini sudah menarik tiga sumber saat boot.
+- **Penjaga draf ikut pindah** (`beforeunload` + konfirmasi di `go()`). Kalau
+  tertinggal di panel lama, Brankas melempar `ReferenceError` tiap tab ditutup
+  DAN Kas Kecil membuang 20 baris yang belum tersimpan tanpa peringatan.
+
+```bash
+node tools/uji-bayar-kas.js   # 98 pemeriksaan, jsdom + kompas/finance/stock tiruan
+```
+
+84 di antaranya **diiris apa adanya** dari `uji-brankas.js` — yang berpindah
+halamannya, bukan aturannya, dan angkanya keluar sama persis sesudah pindah.
+
 **Backend menumpang `finance-mysql`** (tabel `bk_state`, `bk_akses`, `bk_peran`),
 bukan backend sendiri: tabelnya lahir sendiri lewat `brankas_pastikan()`, jadi
 tidak ada database baru yang harus dibuat manual di cPanel dan tidak ada berkas
@@ -248,7 +309,8 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 193 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 109 pemeriksaan, jsdom + finance/kompas/account tiruan
+                             # (84 pemeriksaan lembar pembayaran pindah ke uji-bayar-kas.js)
 ```
 
 **`kompas` sudah bukan modul.** Sejak 11 Agustus 2026 ia masuk ke `finance`
