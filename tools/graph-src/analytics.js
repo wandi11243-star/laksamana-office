@@ -754,6 +754,8 @@
 
 
 
+
+
 function todayISO() {  }
 function fmtTgl() {  }
 
@@ -892,6 +894,8 @@ function sayaAdmin() { simpanAkses(); }
 
 
 
+
+
 function aksKunci() {  }
 
 function aksPeta() {  }
@@ -971,7 +975,21 @@ function postJson() {  }
 
 
 
-function muatSemua() { setSync(); postJson(); isoDari(); }
+
+
+
+
+
+
+function katEvent() {  }
+
+function muatSemua() { setSync(); postJson(); isoDari(); katEvent(); }
+
+
+
+
+
+
 
 
 
@@ -1166,6 +1184,13 @@ function uraiCsvBaris() {  }
 
 
 
+
+
+
+
+
+
+
 function blnAda() {  }
 function blnAktif() { blnAda(); }
 
@@ -1197,6 +1222,10 @@ function diRentang() {  }
 function pct() {  }
 
 function vRingkasan() { blnAktif(); lap(); pilihBulan(); kosongBelumAda(); kartu(); bandingKompas(); }
+
+
+
+
 
 
 
@@ -1600,7 +1629,23 @@ function bahanBakuHtml() { resepPeta(); uraiResep(); pct(); }
 
 
 
-function vEvent() { blnAktif(); lap(); pilihBulan(); kosongBelumAda(); kartu(); fmtBln(); fmtTgl(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function katPilih() { render(); }
+function vEvent() { vDampak(); }
+function vMarketing() { vDampak(); }
+
+function vDampak() { blnAktif(); lap(); pilihBulan(); kosongBelumAda(); katPilih(); kartu(); fmtBln(); fmtTgl(); }
 
 
 
@@ -1618,6 +1663,265 @@ function vEvent() { blnAktif(); lap(); pilihBulan(); kosongBelumAda(); kartu(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function trenPilih() { render(); }
+
+function trenBaris() { blnAda(); lap(); }
+
+
+
+
+
+
+
+
+
+function vTren() { trenBaris(); kosongBelumAda(); fmtBln(); kartu(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sel() { trenPilih(); fmtBln(); bersihkanChart(); }
 
 
 
@@ -1964,6 +2268,7 @@ function go() { bolehLihat(); halPertamaBoleh(); render(); }
 
 function bersihkanChart() {  }
 function render() { bersihkanChart(); peranSaya(); go(); terapkanKunci(); }
+
 
 
 
