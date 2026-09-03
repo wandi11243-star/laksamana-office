@@ -361,7 +361,7 @@ async function siap(w) {
   }
 
   /* ================= 7. pengaruh event ================= */
-  console.log('\n== Pengaruh event ==');
+  console.log('\n== Pengaruh Event & Marketing (dipisah) ==');
   {
     const hari = {};
     /* Sabtu berevent 12jt, Sabtu biasa 9jt, Senin biasa 1jt. Kalau
@@ -377,27 +377,175 @@ async function siap(w) {
       ringkas:{ bill:100, grand:23000000 }
     } }, setting:{} }, akses:{}, peran:{} };
     const { dom } = domAnalytics({ an,
-      event: [{ start_datetime:'2026-08-01 19:00', title:'Live Music Agustusan' }],
-      mkt:   [{ tanggal:'2026-08-01', nama:'Promo Merdeka' }] });
+      event: [{ start_datetime:'2026-08-01 19:00', title:'Live Music Agustusan', category:'Live Music' },
+              { start_datetime:'2026-08-03 19:00', title:'Akustik Senin',        category:'Live Music' }],
+      mkt:   [{ tanggal:'2026-08-01', nama:'Promo Merdeka', jenis:'Promo' }] });
+    await siap(dom.window);
+    const w = dom.window, d = w.document;
+
+    /* ---- Halaman Event: HANYA acara modul Event ---- */
+    w.go('event'); await tunggu(60);
+    let v = d.getElementById('app-view').innerHTML;
+    cek('acara dari modul Event terbaca', v.indexOf('Live Music Agustusan') > -1);
+    /* Inilah gunanya dipisah: acara Marketing TIDAK ikut mengotori halaman
+       Event. Kalau ikut, memisahkannya tidak berarti apa-apa. */
+    cek('acara Marketing TIDAK ikut di halaman Event', v.indexOf('Promo Merdeka') < 0);
+
+    /* ---- Halaman Marketing: kebalikannya ---- */
+    w.go('marketing'); await tunggu(60);
+    let m = d.getElementById('app-view').innerHTML;
+    cek('acara Marketing terbaca di halamannya sendiri', m.indexOf('Promo Merdeka') > -1);
+    cek('acara Event tidak ikut ke halaman Marketing', m.indexOf('Live Music Agustusan') < 0);
+
+    w.go('event'); await tunggu(60);
+    v = d.getElementById('app-view').innerHTML;
+    /* Satu hari dengan dua acara tetap DIHITUNG SATU HARI — kalau tidak,
+       rata-ratanya condong ke hari itu saja. 1 Agu punya acara Event DAN
+       Marketing; di halaman Event yang dihitung 2 hari (1 & 3 Agustus). */
+    cek('hari dihitung sekali per hari', /Hari ada acara[\s\S]{0,140}>2</.test(v),
+        v.slice(Math.max(0, v.indexOf('Hari ada acara') - 40), v.indexOf('Hari ada acara') + 240));
+    /* Peringatan sebab-akibat WAJIB ada. Acara ditaruh di akhir pekan, dan
+       akhir pekan memang lebih ramai tanpa acara apa pun. */
+    cek('mengatakan angkanya bukan bukti sebab-akibat', v.indexOf('bukan bukti sebab-akibat') > -1);
+    cek('menyebutkan jumlah harinya', v.indexOf('hari ada acara vs') > -1);
+    cek('dibandingkan dengan hari yang sama', v.indexOf('Rata-rata hari sama') > -1);
+    cek('selisih dihitung terhadap Sabtu biasa, bukan seluruh hari',
+        v.indexOf('+33%') > -1, v.slice(v.indexOf('Hari Ada Acara, Satu per Satu'),
+                                       v.indexOf('Hari Ada Acara, Satu per Satu') + 900));
+
+    /* ---- KONTRIBUSI OMSET (permintaan user) ----
+       1 Agu 12jt dari total 23jt yang punya data harian = 12/23 = 52,2%.
+       Penyebutnya total omset BULAN ITU, bukan omset hari berevent saja. */
+    cek('kontribusi hari itu terhadap total omset ditulis', v.indexOf('52.2%') > -1,
+        v.slice(v.indexOf('Kontribusi'), v.indexOf('Kontribusi') + 400));
+    cek('kartu Omset hari itu ada', v.indexOf('Omset hari itu') > -1);
+    dom.window.close();
+  }
+
+  /* ================= 7b. per kategori ================= */
+  console.log('\n== Pengaruh per kategori ==');
+  {
+    const hari = {
+      '2026-08-01': { bill:40, grand:12000000 },   // Sabtu, Live Music
+      '2026-08-08': { bill:40, grand:9000000  },   // Sabtu, tanpa acara
+      '2026-08-15': { bill:40, grand:6000000  },   // Sabtu, Workshop
+      '2026-08-03': { bill:10, grand:1000000  }    // Senin, tanpa acara
+    };
+    const an = { data:{ laporan:{ '2026-08': {
+      diunggah:'2026-08-28', oleh:'W', berkas:'x.xlsx', jenis:'bill',
+      hari, jam:Array.from({length:24},()=>({bill:0,grand:0})), menu:{},
+      ringkas:{ bill:130, grand:28000000 }
+    } }, setting:{} }, akses:{}, peran:{} };
+    const { dom } = domAnalytics({ an,
+      event: [{ start_datetime:'2026-08-01 19:00', title:'Band A', category:'Live Music' },
+              { start_datetime:'2026-08-15 19:00', title:'Kelas Kopi', category:'Workshop' },
+              { start_datetime:'2026-08-01 21:00', title:'Tanpa Label' }] });
     await siap(dom.window);
     const w = dom.window, d = w.document;
     w.go('event'); await tunggu(60);
     const v = d.getElementById('app-view').innerHTML;
 
-    cek('acara dari modul Event terbaca', v.indexOf('Live Music Agustusan') > -1);
-    cek('acara dari modul Marketing terbaca', v.indexOf('Promo Merdeka') > -1);
-    /* Satu hari dengan dua acara tetap DIHITUNG SATU HARI — kalau tidak,
-       rata-ratanya condong ke hari itu saja. */
-    cek('satu hari berevent dihitung sekali', /Hari ada event[\s\S]{0,120}>1</.test(v),
-        v.slice(v.indexOf('Hari ada event') - 40, v.indexOf('Hari ada event') + 200));
-    /* Peringatan sebab-akibat WAJIB ada. Event ditaruh di akhir pekan, dan
-       akhir pekan memang lebih ramai tanpa event apa pun. */
-    cek('mengatakan angkanya bukan bukti sebab-akibat', v.indexOf('bukan bukti sebab-akibat') > -1);
-    cek('menyebutkan jumlah harinya', v.indexOf('hari berevent vs') > -1);
-    /* Pembanding per hari yang SAMA: Sabtu berevent vs Sabtu biasa = +33%. */
-    cek('dibandingkan dengan hari yang sama', v.indexOf('Rata-rata hari sama') > -1);
-    cek('selisih dihitung terhadap Sabtu biasa, bukan seluruh hari',
-        v.indexOf('+33%') > -1, v.slice(v.indexOf('Hari Berevent, Satu per Satu'), v.indexOf('Hari Berevent, Satu per Satu') + 900));
+    cek('tabel per kategori digambar', v.indexOf('Per Kategori') > -1);
+    cek('kategori dari modul Event terbaca', v.indexOf('Live Music') > -1 && v.indexOf('Workshop') > -1);
+    /* Acara tanpa kategori TIDAK dibuang dan tidak dijatuhkan ke kategori
+       pertama: ia diberi nama sendiri. Kalau dibuang, jumlah kategori tidak
+       akan pernah sama dengan totalnya. */
+    cek('acara tanpa kategori diberi nama sendiri', v.indexOf('(tanpa kategori)') > -1);
+
+    /* Kontribusi Live Music: 12jt dari 28jt = 42,9%.
+       Workshop: 6jt dari 28jt = 21,4%. Penyebutnya SAMA untuk keduanya. */
+    cek('kontribusi tiap kategori dihitung dari total bulan',
+        v.indexOf('42.9%') > -1 && v.indexOf('21.4%') > -1,
+        v.slice(v.indexOf('Per Kategori'), v.indexOf('Per Kategori') + 1400));
+
+    /* 1 Agustus punya DUA kategori (Live Music & tanpa kategori), jadi hari
+       itu ikut dihitung di keduanya dan kolom Omset tidak bisa dijumlahkan.
+       Itu HARUS dikatakan — angka yang tidak bisa dijumlahkan tanpa penjelasan
+       adalah angka yang berhenti dipercaya. */
+    cek('tumpang tindih hari dikatakan', v.indexOf('tidak bisa dijumlahkan') > -1);
+
+    /* Tapis kategori: menekan satu kategori menyaring seluruh halaman. */
+    w.katPilih('Event', 'Workshop'); await tunggu(60);
+    const vw = d.getElementById('app-view').innerHTML;
+    cek('tapis kategori menyaring harinya', /Hari ada acara[\s\S]{0,140}>1</.test(vw),
+        vw.slice(Math.max(0, vw.indexOf('Hari ada acara') - 40), vw.indexOf('Hari ada acara') + 240));
+    cek('yang tersaring cuma acara kategori itu',
+        vw.indexOf('Kelas Kopi') > -1 && vw.indexOf('Band A') < 0);
+    /* Angka di tombol kategori dihitung dari SELURUH acara bulan itu, bukan
+       dari yang sedang tersaring — kalau ikut, tombol yang tidak dipilih
+       selalu menulis nol, dan nol membaca sebagai "tidak ada acaranya". */
+    cek('angka di chip kategori tidak jadi nol',
+        vw.indexOf('>Live Music <span style="opacity:.7">1 hari</span>') > -1,
+        vw.slice(vw.indexOf('Kategori'), vw.indexOf('Kategori') + 700));
+    dom.window.close();
+  }
+
+  /* ================= 7c. tren bulanan ================= */
+  console.log('\n== Tren bulanan ==');
+  {
+    const bulan = (b, grand, bill, nHari) => {
+      const hari = {};
+      for (let i = 1; i <= nHari; i++) hari[b + '-' + String(i).padStart(2,'0')] = { bill:1, grand:grand/nHari };
+      return { diunggah:'2026-09-01', oleh:'W', berkas:'x.xlsx', jenis:'bill',
+               hari, jam:Array.from({length:24},()=>({bill:0,grand:0})), menu:{},
+               ringkas:{ bill, grand } };
+    };
+    const an = { data:{ laporan:{
+      '2026-06': bulan('2026-06', 100000000, 1000, 10),
+      '2026-07': bulan('2026-07', 150000000, 1200, 10),
+      '2026-08': bulan('2026-08', 120000000, 1100, 10)
+    }, setting:{} }, akses:{}, peran:{} };
+    const { dom } = domAnalytics({ an });
+    await siap(dom.window);
+    const w = dom.window, d = w.document;
+    w.go('tren'); await tunggu(80);
+    const v = d.getElementById('app-view').innerHTML;
+
+    cek('halaman tren tergambar', v.indexOf('Total Omset Bulan ke Bulan') > -1);
+    cek('ketiga bulan ikut', ['Jun','Jul','Agu'].every(x => v.indexOf(x) > -1));
+    /* Agustus 120jt dari Juli 150jt = -20,0%. Tandanya harus ikut: angka
+       tanpa tanda membuat turun dan naik terbaca sama. */
+    cek('selisih bulan sebelumnya dihitung', v.indexOf('-20.0%') > -1,
+        v.slice(v.indexOf('Perbandingan Bulan ke Bulan'), v.indexOf('Perbandingan Bulan ke Bulan') + 1200));
+    cek('kartu bulan tertinggi menyebut Juli', /Bulan tertinggi[\s\S]{0,240}Jul/.test(v),
+        v.slice(0, 900));
+    cek('ada kanvas grafiknya', !!d.getElementById('trenChart'));
+    /* Chart.js dimuat dari CDN; di jsdom ia memang tidak ada. Yang WAJIB:
+       halamannya tetap menggambar tabelnya dan MENGATAKAN grafiknya gagal —
+       grafik yang hilang diam-diam tidak bisa dibedakan dari data yang nol. */
+    cek('CDN grafik mati dikatakan, tabelnya tetap ada',
+        v.indexOf('Grafik tidak bisa digambar') > -1 && v.indexOf('Perbandingan Bulan ke Bulan') > -1);
+
+    /* Pembanding dua bulan bebas — pertanyaan "Agustus vs Juni" tidak terjawab
+       oleh selisih berurutan. */
+    cek('pembanding dua bulan ada', v.indexOf('Bandingkan Dua Bulan') > -1);
+    w.trenPilih('b', '2026-06'); await tunggu(60);
+    const vb = d.getElementById('app-view').innerHTML;
+    /* Agustus 120jt vs Juni 100jt = +20,0%. */
+    cek('bandingan bebas dihitung benar', vb.indexOf('+20.0%') > -1,
+        vb.slice(vb.indexOf('Bandingkan Dua Bulan'), vb.indexOf('Bandingkan Dua Bulan') + 1400));
+    dom.window.close();
+  }
+
+  /* ================= 7d. baru satu bulan ================= */
+  console.log('\n== Tren dengan satu bulan saja ==');
+  {
+    const an = { data:{ laporan:{ '2026-08': {
+      diunggah:'2026-08-28', oleh:'W', berkas:'x.xlsx', jenis:'bill',
+      hari:{ '2026-08-01':{ bill:1, grand:100000 } },
+      jam:Array.from({length:24},()=>({bill:0,grand:0})), menu:{}, ringkas:{ bill:1, grand:100000 }
+    } }, setting:{} }, akses:{}, peran:{} };
+    const { dom } = domAnalytics({ an });
+    await siap(dom.window);
+    const w = dom.window, d = w.document;
+    w.go('tren'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    /* Satu bulan bukan tren. Menggambar grafik satu batang lalu menyebutnya
+       "tren" adalah janji yang tidak ditepati; yang dikatakan justru apa yang
+       kurang dan bagaimana melengkapinya. */
+    cek('satu bulan: dikatakan belum bisa digambar', v.indexOf('Baru satu bulan') > -1);
+    cek('dan menunjuk cara melengkapinya', v.indexOf('Unggah Laporan') > -1);
+    cek('tidak menggambar grafik menyesatkan', !d.getElementById('trenChart'));
     dom.window.close();
   }
 

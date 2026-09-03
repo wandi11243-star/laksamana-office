@@ -335,6 +335,64 @@ sendiri DILAPORKAN. Menu yang namanya tidak ada di HPP **disebutkan berikut
 persentase nilainya** — tanpa itu perkiraan terlihat lengkap padahal separuh
 menunya tidak ikut dihitung, dan selisih di lapangan akan dikira barang hilang.
 
+**PENGARUH EVENT & PENGARUH MARKETING adalah DUA HALAMAN, satu penggambar**
+(2 September 2026, permintaan user). Sebelumnya satu halaman yang mencampur
+acara dari modul Event dan modul Marketing — dua hal yang direncanakan tim
+berbeda dan dinilai dengan pertanyaan berbeda; dicampur, tidak satu pun
+pertanyaan tentang salah satunya bisa dijawab tanpa memilah dengan mata.
+
+Dipisah sebagai **parameter `vDampak(sumber)`, bukan disalin jadi dua fungsi**.
+Kalau disalin, satu perbaikan rumus akan berlaku di satu halaman saja — dan dua
+halaman yang menghitung "pengaruh" dengan cara berbeda lebih buruk daripada
+satu halaman yang tercampur.
+
+**Kategori datang dari dua nama kolom yang berbeda** dan disatukan di satu
+tempat (`katEvent()`): `category` di modul Event, `jenis` di Marketing.
+Dibiarkan berbeda sampai ke layar, tapis kategori di satu halaman tidak akan
+pernah cocok dengan yang di sebelahnya. Yang kosong diberi nama sendiri
+(`(tanpa kategori)`), tidak dibuang dan tidak dijatuhkan ke kategori pertama —
+acara tanpa kategori tetap membawa omset, dan membuangnya membuat jumlah
+kategori tidak pernah sama dengan totalnya.
+
+Dua angka yang diminta user ada di tabel **Per Kategori**: omset yang masuk di
+hari-hari kategori itu, dan **berapa persen kontribusinya terhadap seluruh
+omset bulan itu**. Yang menahan bug diam-diam:
+
+- **Penyebutnya total omset SEBULAN**, bukan omset hari berevent saja. Salah
+  penyebut membuat tiap kategori terlihat menyumbang berlipat-lipat dan tidak
+  ada satu pun angka yang kelihatan aneh.
+- **Satu hari bisa punya acara dari dua kategori**, dan hari itu ikut dihitung
+  di keduanya — jadi kolom Omset **tidak bisa dijumlahkan**. Itu DIKATAKAN di
+  layar berikut angka yang tidak berganda; angka yang tidak bisa dijumlahkan
+  tanpa penjelasan adalah angka yang berhenti dipercaya.
+- **Angka di chip kategori dihitung dari SELURUH acara bulan itu**, bukan dari
+  yang sedang tersaring. Kalau ikut, chip yang tidak dipilih selalu menulis
+  `0 hari` — dan nol membaca sebagai "tidak ada acara kategori itu".
+
+**Halaman Tren Bulanan** menjawab satu-satunya pertanyaan yang tidak terjawab
+dari mana pun sebelumnya: "dibanding bulan lalu bagaimana". Grafiknya memakai
+**Chart.js yang memang sudah dimuat modul ini sejak awal tapi belum pernah
+dipakai sekali pun**.
+
+- **Ketiadaan `Chart` DIKATAKAN dan tabelnya tetap digambar.** CDN yang mati
+  membuat grafik hilang, dan grafik yang hilang diam-diam tidak bisa dibedakan
+  dari data yang memang nol.
+- **Dua sumbu Y**: total sebulan dan rata-rata sehari berbeda dua orde besaran;
+  digambar di satu sumbu, garis rata-ratanya menempel di dasar grafik dan
+  terbaca sebagai nol.
+- **Menu Report dipisah, bukan digambar sebagai bulan beromset nol.** Batang nol
+  di tengah grafik terbaca sebagai bulan yang sepi, bukan sebagai bulan yang
+  laporannya berbeda jenis.
+- **Satu bulan bukan tren**: kalau baru satu bulan diunggah, yang digambar
+  penjelasan + cara melengkapinya, bukan grafik satu batang.
+- Pembanding **dua bulan bebas** ada di bawahnya — tabel MoM cuma membandingkan
+  dengan bulan tepat sebelumnya, dan "Agustus vs Agustus tahun lalu" tidak
+  terjawab oleh selisih berurutan.
+
+**`pilihBulan()` tidak lagi dipotong `slice(0, 14)`.** Bulan ke-15 dan
+seterusnya hilang dari layar tanpa satu pun tanda, dan yang mencarinya akan
+menyimpulkan laporannya belum pernah diunggah.
+
 **Pengaruh event TIDAK disajikan sebagai sebab-akibat.** Event hampir selalu di
 akhir pekan, dan akhir pekan memang lebih ramai tanpa event apa pun — jadi tiap
 hari berevent dibandingkan dengan **rata-rata hari yang SAMA tanpa event**, dan
@@ -345,7 +403,7 @@ Berkas POS **jangan di-commit** (sudah di `.gitignore`): satu berkas memuat
 seluruh transaksi sebulan.
 
 ```bash
-node tools/uji-analytics.js   # 95 pemeriksaan
+node tools/uji-analytics.js   # 118 pemeriksaan
 ```
 
 Ujinya memakai **berkas POS asli** di root repo kalau ada (kalau tidak, bagian

@@ -653,9 +653,11 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
       <div class="nav-group">
         <div class="nav-label">Analisa</div>
         <a data-view="ringkasan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m7 14 3-4 3 3 5-7"/></svg></span> Ringkasan</a>
+        <a data-view="tren"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></span> Tren Bulanan</a>
         <a data-view="hari"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span> Hari &amp; Jam</a>
         <a data-view="menu"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h12"/></svg></span> Menu &amp; Bahan Baku</a>
         <a data-view="event"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.1 4.3 4.7.7-3.4 3.3.8 4.7L12 13.8 7.8 16l.8-4.7L5.2 8l4.7-.7Z"/></svg></span> Pengaruh Event</a>
+        <a data-view="marketing"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-8-8 18-2-8Z"/></svg></span> Pengaruh Marketing</a>
       </div>
       <div class="nav-group">
         <div class="nav-label">Data</div>
@@ -809,7 +811,7 @@ let CURRENT_USER = null;
 let AN = null;                 // {data:{laporan,setting}, akses, peran}
 let KP = null;                 // blob kompas — dipakai membandingkan angka POS
 let HP = null;                 // {bahan,resep} dari modul HPP
-let EV = [];                   // {tgl,judul,sumber} dari Event + Marketing
+let EV = [];                   // {tgl,judul,sumber,kategori} dari Event + Marketing
 let EV_ERR = [];               // modul agenda yang tidak menjawab
 let KP_ERR = '';
 /* Bulan yang sedang dilihat. null = bulan terbaru yang ada laporannya —
@@ -884,7 +886,9 @@ const DEFAULT_PERMS = {
   ringkasan :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
   hari      :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
   menu      :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
+  tren      :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
   event     :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
+  marketing :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
   unggah    :{ staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_NONE },
   pengaturan:{ staf:PERM_EDIT, manajemen:PERM_NONE, viewer:PERM_NONE },
   akses     :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW }
@@ -971,6 +975,14 @@ async function postJson(url, data) {
    analyticsGet — sisanya masing-masing cuma menghidupkan satu halaman, dan
    halaman yang mogok total gara-gara modul lain sedang batuk lebih merugikan
    daripada satu bagian yang kosong dan mengatakan kenapa. */
+/* Kategori yang kosong TIDAK dijatuhkan ke keranjang kategori pertama, dan
+   tidak pula dibuang: ia diberi nama sendiri. Acara tanpa kategori tetap
+   terjadi dan tetap membawa omset — mengeluarkannya dari hitungan membuat
+   jumlah kategori tidak pernah sama dengan totalnya, dan angka yang tidak bisa
+   dijumlahkan adalah angka yang berhenti dipercaya. */
+const KAT_KOSONG = '(tanpa kategori)';
+function katEvent(v) { const s = String(v == null ? '' : v).trim(); return s || KAT_KOSONG; }
+
 async function muatSemua() {
   setSync('saving', 'Memuat…');
   const [a, b, c, d, e] = await Promise.allSettled([
@@ -1001,13 +1013,19 @@ async function muatSemua() {
   if (d.status === 'fulfilled' && d.value && d.value.ok) {
     ((d.value.data || {}).events || []).forEach(x => {
       const t = isoDari(x && (x.start_datetime || x.tanggal));
-      if (t) EV.push({ tgl:t, judul:String((x && x.title) || '(tanpa judul)'), sumber:'Event' });
+      /* `category` di modul Event, `jenis` di Marketing — dua nama untuk hal
+         yang sama, dan yang menyatukannya HARUS di sini. Kalau dibiarkan
+         berbeda sampai ke layar, tapis kategori di satu halaman tidak akan
+         pernah cocok dengan yang di halaman sebelahnya. */
+      if (t) EV.push({ tgl:t, judul:String((x && x.title) || '(tanpa judul)'),
+                       sumber:'Event', kategori:katEvent(x && x.category) });
     });
   } else EV_ERR.push('Event');
   if (e.status === 'fulfilled' && e.value && e.value.ok) {
     ((e.value.data || {}).events || []).forEach(x => {
       const t = isoDari(x && x.tanggal);
-      if (t) EV.push({ tgl:t, judul:String((x && x.nama) || '(tanpa nama)'), sumber:'Marketing' });
+      if (t) EV.push({ tgl:t, judul:String((x && x.nama) || '(tanpa nama)'),
+                       sumber:'Marketing', kategori:katEvent(x && x.jenis) });
     });
   } else EV_ERR.push('Marketing');
 
@@ -1159,7 +1177,14 @@ const TITLES = {
   ringkasan :['Ringkasan','Angka pokok dari laporan POS yang diunggah'],
   hari      :['Hari & Jam','Omset per hari dalam seminggu, dan sebaran jamnya'],
   menu      :['Menu & Bahan Baku','Menu terlaris dan perkiraan bahan yang seharusnya keluar'],
+  tren      :['Tren Bulanan','Total omset bulan ke bulan, dan perbandingan dua bulan'],
+  /* DIPISAH jadi dua halaman (2 September 2026, permintaan user). Sebelumnya
+     satu halaman yang mencampur acara dari modul Event dan modul Marketing —
+     dua hal yang direncanakan tim berbeda, dijual berbeda, dan dinilai
+     berbeda. Dicampur, tidak satu pun pertanyaan tentang salah satunya bisa
+     dijawab tanpa memilah dengan mata. */
   event     :['Pengaruh Event','Omset hari berevent dibanding hari biasa'],
+  marketing :['Pengaruh Marketing','Omset hari ada acara Marketing dibanding hari biasa'],
   unggah    :['Unggah Laporan','Berkas Sales Recapitulation dari POS'],
   pengaturan:['Pengaturan','Batas jam shift dan pemetaan nama menu'],
   akses     :['Kelola Akses','Siapa boleh membuka dan mengubah halaman mana']
@@ -1259,13 +1284,17 @@ function vRingkasan() {
   V.innerHTML = h;
 }
 
+/* Pemilih bulan, dipakai SELURUH halaman yang membaca satu bulan. Dulu
+   dipotong `slice(0, 14)` — bulan ke-15 dan seterusnya hilang dari layar tanpa
+   satu pun tanda, dan yang mencarinya akan menyimpulkan laporannya belum pernah
+   diunggah. Sekarang semuanya digambar; chip-nya membungkus sendiri. */
 function pilihBulan() {
   const a = blnAda(), b = blnAktif();
   if (!a.length) return '';
   return '<div class="card" style="padding:14px 18px;margin-bottom:16px">'
     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
     + '<b style="font-size:13px">Bulan</b>'
-    + a.slice(0, 14).map(x => '<span class="qa-chip' + (x === b ? ' on' : '') + '" data-b="' + esc(x) + '"'
+    + a.map(x => '<span class="qa-chip' + (x === b ? ' on' : '') + '" data-b="' + esc(x) + '"'
         + ' onclick="blnPilih(this.dataset.b)">' + esc(fmtBln(x)) + '</span>').join('')
     + '<span style="flex:1"></span>'
     + '<span class="helper" style="margin:0">' + esc(ketLaporan(lap(b))) + '</span>'
@@ -1600,7 +1629,23 @@ function bahanBakuHtml(urut) {
    sendirinya. Karena itu halaman ini SELALU menampilkan pembandingnya per
    hari juga, dan menyebutkan jumlah harinya. Angka dari tiga hari bukan
    bukti, dan itu ditulis di layar. */
-function vEvent() {
+/* ============ HALAMAN: PENGARUH EVENT & PENGARUH MARKETING ============
+   DUA HALAMAN, satu penggambar (2 September 2026, permintaan user). Sebelumnya
+   satu halaman yang mencampur acara dari modul Event dan modul Marketing —
+   dua hal yang direncanakan tim berbeda dan dinilai dengan pertanyaan berbeda.
+   Dicampur, tidak satu pun pertanyaan tentang salah satunya bisa dijawab tanpa
+   memilah dengan mata.
+
+   Dipisah sebagai PARAMETER, bukan disalin jadi dua fungsi: kalau disalin, satu
+   perbaikan rumus akan berlaku di satu halaman saja, dan dua halaman yang
+   menghitung "pengaruh" dengan cara berbeda lebih buruk daripada satu halaman
+   yang tercampur. */
+let KAT_PILIH = { Event:'', Marketing:'' };
+function katPilih(sumber, k) { KAT_PILIH[sumber] = k; render(); }
+function vEvent()     { vDampak('Event'); }
+function vMarketing() { vDampak('Marketing'); }
+
+function vDampak(sumber) {
   const V = document.getElementById('app-view');
   const b = blnAktif(), d = lap(b);
   let h = pilihBulan();
@@ -1608,85 +1653,344 @@ function vEvent() {
 
   const hari = d.hari || {};
   const tgl = Object.keys(hari).sort();
-  if (EV_ERR.length) h += '<div class="notice warn">⚠ <div><b>' + esc(EV_ERR.join(' & '))
-    + ' tidak menjawab.</b> Hari berevent di bawah mungkin belum lengkap, jadi '
-    + 'perbandingannya belum bisa dipercaya.</div></div>';
+  /* Total omset SEBULAN dari laporan POS. Inilah penyebut "kontribusi berapa
+     persen" — bukan total setahun, dan bukan total hari berevent saja. */
+  const totalBulan = tgl.reduce((a, t) => a + (hari[t].grand || 0), 0);
+
+  if (EV_ERR.indexOf(sumber) >= 0) h += '<div class="notice warn">⚠ <div><b>Modul ' + esc(sumber)
+    + ' tidak menjawab.</b> Daftar acara di bawah belum lengkap, jadi perbandingannya '
+    + 'belum bisa dipercaya.</div></div>';
+
+  const semua = EV.filter(e => e.sumber === sumber && blnDari(e.tgl) === b);
+  /* Kategori yang benar-benar ADA di bulan ini, bukan daftar tertutup: kategori
+     baru di modul Event tidak perlu didaftarkan lagi di sini. */
+  const katSet = [...new Set(semua.map(e => e.kategori))].sort();
+  const kat = (KAT_PILIH[sumber] && katSet.indexOf(KAT_PILIH[sumber]) >= 0) ? KAT_PILIH[sumber] : '';
+  const dipakai = kat ? semua.filter(e => e.kategori === kat) : semua;
 
   /* Peta tanggal -> daftar acara. Satu hari bisa punya beberapa acara; yang
      dihitung tetap SATU hari, kalau tidak hari dengan tiga acara dihitung tiga
      kali dan rata-ratanya condong ke hari itu saja. */
   const peta = {};
-  EV.forEach(e => { if (blnDari(e.tgl) !== b) return;
-    (peta[e.tgl] = peta[e.tgl] || []).push(e); });
+  dipakai.forEach(e => { (peta[e.tgl] = peta[e.tgl] || []).push(e); });
 
   const adaEv = tgl.filter(t => peta[t]);
   const tanpa = tgl.filter(t => !peta[t]);
   const rata = arr => arr.length ? arr.reduce((a, t) => a + (hari[t].grand || 0), 0) / arr.length : 0;
   const rEv = rata(adaEv), rNo = rata(tanpa);
   const beda = rNo ? (rEv - rNo) / rNo * 100 : 0;
+  const omsetEv = adaEv.reduce((a, t) => a + (hari[t].grand || 0), 0);
 
-  h += '<div class="grid g3" style="margin-bottom:18px">'
-    + kartu('Hari ada event', adaEv.length, 'dari ' + tgl.length + ' hari')
-    + kartu('Rata-rata hari berevent', rp0(rEv), adaEv.length ? adaEv.length + ' hari' : 'belum ada')
+  /* Tapis kategori. Angkanya dihitung dari SELURUH acara bulan itu, bukan dari
+     yang sedang tersaring — kalau ikut, tombol yang tidak dipilih selalu
+     menulis nol, dan nol membaca sebagai "tidak ada acara kategori itu". */
+  if (katSet.length) {
+    const jml = k => {
+      const hr = new Set(semua.filter(e => !k || e.kategori === k).map(e => e.tgl).filter(t => hari[t]));
+      return hr.size;
+    };
+    h += '<div class="card" style="padding:14px 18px;margin-bottom:16px">'
+      + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+      + '<b style="font-size:13px">Kategori</b>'
+      /* Angkanya diredupkan lewat OPACITY, bukan .helper: chip yang terpilih
+         berlatar emas dengan tulisan putih, dan .helper memakai warna abu tetap
+         yang di atasnya hampir tidak terbaca. */
+      + '<span class="qa-chip' + (kat ? '' : ' on') + '" onclick="katPilih(\'' + sumber + '\',\'\')">'
+        + 'Semua <span style="opacity:.7">' + jml('') + ' hari</span></span>'
+      + katSet.map(k => '<span class="qa-chip' + (kat === k ? ' on' : '') + '" data-k="' + esc(k) + '"'
+          + ' onclick="katPilih(\'' + sumber + '\', this.dataset.k)">' + esc(k)
+          + ' <span style="opacity:.7">' + jml(k) + ' hari</span></span>').join('')
+      + '</div></div>';
+  }
+
+  h += '<div class="grid g4" style="margin-bottom:18px">'
+    + kartu('Hari ada acara', adaEv.length, 'dari ' + tgl.length + ' hari' + (kat ? ' · ' + esc(kat) : ''))
+    + kartu('Omset hari itu', rp0(omsetEv),
+            (totalBulan ? (omsetEv / totalBulan * 100).toFixed(1) + '% dari omset bulan ini' : 'belum ada omset'))
+    + kartu('Rata-rata hari ada acara', rp0(rEv), adaEv.length ? adaEv.length + ' hari' : 'belum ada')
     + kartu('Rata-rata hari biasa', rp0(rNo), tanpa.length + ' hari')
     + '</div>';
 
   if (!adaEv.length) {
-    h += '<div class="notice info">ℹ <div>Tidak ada event yang tercatat di modul Event maupun '
-      + 'Marketing untuk ' + esc(fmtBln(b)) + ', jadi belum ada yang bisa dibandingkan.</div></div>';
-  } else {
-    h += '<div class="card"><h3>Selisihnya</h3>'
-      + '<div class="grid g2">'
-      + kartu('Beda rata-rata', (beda >= 0 ? '+' : '') + beda.toFixed(0) + '%',
-              rp0(rEv - rNo) + ' per hari')
-      + kartu('Cukup untuk disimpulkan?', (adaEv.length >= 6 && tanpa.length >= 6) ? 'Mungkin' : 'Belum',
-              adaEv.length + ' hari berevent vs ' + tanpa.length + ' hari biasa')
-      + '</div>'
-      /* Peringatan ini TIDAK boleh dihapus supaya halamannya terlihat lebih
-         tegas. Event ditaruh di akhir pekan, dan akhir pekan memang lebih
-         ramai tanpa event apa pun — angka mentah di atas akan memuji event
-         untuk sesuatu yang sudah terjadi dengan sendirinya. */
-      + '<div class="notice warn" style="margin-top:12px">⚠ <div><b>Angka di atas bukan bukti sebab-akibat.</b> '
-      + 'Event hampir selalu ditaruh di akhir pekan, dan akhir pekan memang lebih ramai tanpa event apa pun. '
-      + 'Pembanding yang lebih adil ada di tabel bawah: tiap hari berevent dibandingkan dengan '
-      + 'rata-rata hari yang SAMA di bulan ini.</div></div>'
-      + '</div>';
+    h += '<div class="notice info">ℹ <div>Tidak ada acara ' + esc(sumber)
+      + (kat ? ' berkategori <b>' + esc(kat) + '</b>' : '')
+      + ' yang tanggalnya punya data POS untuk ' + esc(fmtBln(b)) + ', jadi belum ada yang bisa dibandingkan.</div></div>';
+    V.innerHTML = h; return;
+  }
 
-    /* Pembanding per hari yang sama — inilah yang membuat angkanya berarti. */
-    const dowRata = Array.from({ length: 7 }, () => ({ n:0, g:0 }));
-    tanpa.forEach(t => { const k = dowRata[dowDari(t)]; k.n++; k.g += hari[t].grand || 0; });
+  h += '<div class="card"><h3>Selisihnya</h3>'
+    + '<div class="grid g2">'
+    + kartu('Beda rata-rata', (beda >= 0 ? '+' : '') + beda.toFixed(0) + '%', rp0(rEv - rNo) + ' per hari')
+    + kartu('Cukup untuk disimpulkan?', (adaEv.length >= 6 && tanpa.length >= 6) ? 'Mungkin' : 'Belum',
+            adaEv.length + ' hari ada acara vs ' + tanpa.length + ' hari biasa')
+    + '</div>'
+    /* Peringatan ini TIDAK boleh dihapus supaya halamannya terlihat lebih
+       tegas. Acara ditaruh di akhir pekan, dan akhir pekan memang lebih ramai
+       tanpa acara apa pun — angka mentah di atas akan memuji acara untuk
+       sesuatu yang sudah terjadi dengan sendirinya. */
+    + '<div class="notice warn" style="margin-top:12px">⚠ <div><b>Angka di atas bukan bukti sebab-akibat.</b> '
+    + 'Acara hampir selalu ditaruh di akhir pekan, dan akhir pekan memang lebih ramai tanpa acara apa pun. '
+    + 'Pembanding yang lebih adil ada di tabel bawah: tiap hari dibandingkan dengan '
+    + 'rata-rata hari yang SAMA di bulan ini.</div></div>'
+    + '</div>';
 
-    h += '<div class="card"><h3>Hari Berevent, Satu per Satu</h3>'
-      + '<div class="card-sub">Tiap hari dibandingkan dengan rata-rata hari yang sama '
-      + '<b>tanpa event</b> di bulan ini. Sabtu berevent dibandingkan dengan Sabtu biasa, bukan '
-      + 'dengan rata-rata seluruh hari.</div>'
-      + '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Hari</th><th>Acara</th>'
-      + '<th class="num">Omset</th><th class="num">Rata-rata hari sama</th><th class="num">Selisih</th>'
-      + '</tr></thead><tbody>'
-      + adaEv.map(t => {
-          const dw = dowDari(t), k = dowRata[dw];
-          const pemb = k.n ? k.g / k.n : 0;
-          const g = hari[t].grand || 0;
-          const s = pemb ? (g - pemb) / pemb * 100 : 0;
-          return '<tr><td class="mono">' + esc(fmtTgl(t)) + '</td>'
-            + '<td>' + NAMA_HARI[dw] + '</td>'
-            + '<td>' + peta[t].map(e => esc(e.judul)
-                + ' <span class="helper" style="margin:0">' + esc(e.sumber) + '</span>').join('<br>') + '</td>'
-            + '<td class="num mono">' + rp0(g) + '</td>'
-            + '<td class="num mono">' + (k.n ? rp0(pemb) : '<span style="color:var(--muted-2)">tidak ada pembanding</span>') + '</td>'
-            + '<td class="num mono" style="color:' + (s >= 0 ? 'var(--ok)' : 'var(--danger)') + '">'
-              + (k.n ? (s >= 0 ? '+' : '') + s.toFixed(0) + '%' : '—') + '</td>'
-            + '</tr>';
-        }).join('')
+  /* Pembanding per hari yang sama — inilah yang membuat angkanya berarti. */
+  const dowRata = Array.from({ length: 7 }, () => ({ n:0, g:0 }));
+  tanpa.forEach(t => { const k = dowRata[dowDari(t)]; k.n++; k.g += hari[t].grand || 0; });
+  const pembandingDow = t => { const k = dowRata[dowDari(t)]; return k.n ? k.g / k.n : 0; };
+
+  /* ---- PER KATEGORI (permintaan user) ----
+     Dua angka yang diminta: omset yang didapat, dan berapa persen kontribusinya
+     terhadap total omset bulan itu. Ditambah uplift terhadap hari yang sama
+     tanpa acara, karena tanpa itu kategori yang kebetulan jatuh di Sabtu akan
+     selalu terlihat paling hebat. */
+  if (katSet.length > 1 && !kat) {
+    const perKat = katSet.map(k => {
+      const hr = [...new Set(semua.filter(e => e.kategori === k).map(e => e.tgl))].filter(t => hari[t]);
+      const om = hr.reduce((a, t) => a + (hari[t].grand || 0), 0);
+      const pemb = hr.reduce((a, t) => a + pembandingDow(t), 0);
+      return { k, acara: semua.filter(e => e.kategori === k).length, hr, om,
+               naik: pemb ? (om - pemb) / pemb * 100 : null };
+    }).sort((x, y) => y.om - x.om);
+
+    /* Satu hari bisa punya acara dari DUA kategori, dan hari itu ikut dihitung
+       di keduanya. Jumlah kolom Omset karena itu bisa lebih besar daripada
+       "Omset hari itu" di kartu atas — dan angka yang tidak bisa dijumlahkan
+       harus MENGATAKAN kenapa, bukan dibiarkan membingungkan. */
+    const jumlahHariKat = perKat.reduce((a, x) => a + x.hr.length, 0);
+    const tumpang = jumlahHariKat - adaEv.length;
+
+    h += '<div class="card"><h3>Per Kategori</h3>'
+      + '<div class="card-sub">Omset yang masuk pada hari-hari berkategori itu, dan berapa persennya '
+      + 'dari <b>seluruh omset ' + esc(fmtBln(b)) + '</b> (' + rp0(totalBulan) + ').</div>'
+      + '<div class="tbl-wrap"><table><thead><tr><th>Kategori</th><th class="num">Acara</th>'
+      + '<th class="num">Hari</th><th class="num">Omset hari itu</th><th class="num">Kontribusi</th>'
+      + '<th class="num">Rata-rata/hari</th><th class="num">vs hari sama</th></tr></thead><tbody>'
+      + perKat.map(x => '<tr><td><b>' + esc(x.k) + '</b></td>'
+          + '<td class="num">' + x.acara + '</td>'
+          + '<td class="num">' + x.hr.length + '</td>'
+          + '<td class="num mono">' + rp0(x.om) + '</td>'
+          + '<td class="num mono">' + (totalBulan ? (x.om / totalBulan * 100).toFixed(1) + '%' : '—') + '</td>'
+          + '<td class="num mono">' + rp0(x.hr.length ? x.om / x.hr.length : 0) + '</td>'
+          + '<td class="num mono" style="color:' + (x.naik === null ? 'var(--muted-2)' : x.naik >= 0 ? 'var(--ok)' : 'var(--danger)') + '">'
+            + (x.naik === null ? 'tidak ada pembanding' : (x.naik >= 0 ? '+' : '') + x.naik.toFixed(0) + '%') + '</td>'
+          + '</tr>').join('')
       + '</tbody></table></div>'
-      /* Hari yang seluruh pembandingnya juga berevent tidak punya dasar
-         pembanding sama sekali — itu dikatakan, bukan diisi nol. Nol terbaca
-         sebagai "tidak berpengaruh". */
-      + '<div class="helper">Hari yang seluruh pembandingnya juga berevent ditulis '
-      + '"tidak ada pembanding" — bukan nol, karena nol terbaca sebagai tidak berpengaruh.</div>'
+      + (tumpang > 0
+          ? '<div class="notice info" style="margin-top:12px">ℹ <div><b>Kolom Omset tidak bisa dijumlahkan.</b> '
+            + tumpang + ' hari punya acara dari lebih dari satu kategori, dan hari itu ikut dihitung di '
+            + 'tiap kategorinya. Yang tidak berganda ada di kartu <b>Omset hari itu</b> di atas: '
+            + rp0(omsetEv) + '.</div></div>'
+          : '')
+      + '<div class="helper">Tekan sebuah kategori di atas halaman untuk melihat hanya kategori itu.</div>'
       + '</div>';
   }
+
+  h += '<div class="card"><h3>Hari Ada Acara, Satu per Satu</h3>'
+    + '<div class="card-sub">Tiap hari dibandingkan dengan rata-rata hari yang sama '
+    + '<b>tanpa acara</b> di bulan ini. Sabtu berevent dibandingkan dengan Sabtu biasa, bukan '
+    + 'dengan rata-rata seluruh hari.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Hari</th><th>Acara</th>'
+    + '<th class="num">Omset</th><th class="num">Kontribusi</th>'
+    + '<th class="num">Rata-rata hari sama</th><th class="num">Selisih</th>'
+    + '</tr></thead><tbody>'
+    + adaEv.map(t => {
+        const dw = dowDari(t), k = dowRata[dw];
+        const pemb = k.n ? k.g / k.n : 0;
+        const g = hari[t].grand || 0;
+        const s = pemb ? (g - pemb) / pemb * 100 : 0;
+        return '<tr><td class="mono">' + esc(fmtTgl(t)) + '</td>'
+          + '<td>' + NAMA_HARI[dw] + '</td>'
+          + '<td>' + peta[t].map(e => esc(e.judul)
+              + ' <span class="helper" style="margin:0">' + esc(e.kategori) + '</span>').join('<br>') + '</td>'
+          + '<td class="num mono">' + rp0(g) + '</td>'
+          + '<td class="num mono">' + (totalBulan ? (g / totalBulan * 100).toFixed(1) + '%' : '—') + '</td>'
+          + '<td class="num mono">' + (k.n ? rp0(pemb) : '<span style="color:var(--muted-2)">tidak ada pembanding</span>') + '</td>'
+          + '<td class="num mono" style="color:' + (s >= 0 ? 'var(--ok)' : 'var(--danger)') + '">'
+            + (k.n ? (s >= 0 ? '+' : '') + s.toFixed(0) + '%' : '—') + '</td>'
+          + '</tr>';
+      }).join('')
+    + '</tbody></table></div>'
+    /* Hari yang seluruh pembandingnya juga berevent tidak punya dasar
+       pembanding sama sekali — itu dikatakan, bukan diisi nol. Nol terbaca
+       sebagai "tidak berpengaruh". */
+    + '<div class="helper">Kolom <b>Kontribusi</b> = omset hari itu dibagi seluruh omset '
+    + esc(fmtBln(b)) + '. Hari yang seluruh pembandingnya juga ada acara ditulis '
+    + '"tidak ada pembanding" — bukan nol, karena nol terbaca sebagai tidak berpengaruh.</div>'
+    + '</div>';
+
   V.innerHTML = h;
+}
+
+/* ============ HALAMAN: TREN BULANAN ============
+   Seluruh halaman lain menjawab "bulan ini bagaimana". Yang tidak pernah bisa
+   dijawab dari mana pun: "dibanding bulan lalu bagaimana" — dan itu justru
+   pertanyaan pertama tiap kali laporan baru diunggah (permintaan user).
+
+   Grafiknya memakai Chart.js yang MEMANG SUDAH DIMUAT modul ini sejak awal
+   tapi belum pernah dipakai satu kali pun. CDN-nya bisa mati, jadi ketiadaan
+   `Chart` DIKATAKAN dan tabelnya tetap digambar — angka yang hilang gara-gara
+   satu berkas dari luar tidak bisa dibedakan dari angka yang memang nol. */
+let TREN_A = '', TREN_B = '';
+function trenPilih(sisi, v) { if (sisi === 'a') TREN_A = v; else TREN_B = v; render(); }
+
+function trenBaris() {
+  return blnAda().slice().sort().map(b => {
+    const d = lap(b) || {}, r = d.ringkas || {};
+    const nHari = Object.keys(d.hari || {}).length;
+    return { b, jenis:d.jenis || 'bill', grand:r.grand || 0, bill:r.bill || 0, hari:nHari,
+             perBill: r.bill ? (r.grand || 0) / r.bill : 0,
+             perHari: nHari ? (r.grand || 0) / nHari : 0 };
+  });
+}
+
+function vTren() {
+  const V = document.getElementById('app-view');
+  const semua = trenBaris();
+  if (!semua.length) { V.innerHTML = kosongBelumAda(); return; }
+
+  /* Menu Report tidak punya Grand Total per bill — ia dipisah, bukan digambar
+     sebagai bulan beromset nol. Batang nol di tengah grafik terbaca sebagai
+     bulan yang sepi, bukan sebagai bulan yang laporannya berbeda jenis. */
+  const pakai = semua.filter(x => x.grand > 0);
+  const kosong = semua.filter(x => !(x.grand > 0));
+
+  if (semua.length === 1) {
+    V.innerHTML = '<div class="notice info">ℹ <div><b>Baru satu bulan yang diunggah ('
+      + esc(fmtBln(semua[0].b)) + ').</b> Tren bulan ke bulan baru bisa digambar mulai bulan kedua — '
+      + 'unggah laporan bulan lain lewat <b>Unggah Laporan</b>.</div></div>';
+    return;
+  }
+
+  const totalSemua = pakai.reduce((a, x) => a + x.grand, 0);
+  const terbaik = pakai.slice().sort((x, y) => y.grand - x.grand)[0];
+  const akhir = pakai[pakai.length - 1], sebelum = pakai[pakai.length - 2];
+  const tumbuh = (sebelum && sebelum.grand) ? (akhir.grand - sebelum.grand) / sebelum.grand * 100 : null;
+
+  let h = '<div class="grid g4" style="margin-bottom:18px">'
+    + kartu('Bulan terunggah', semua.length, pakai.length + ' punya omset')
+    + kartu('Rata-rata per bulan', rp0(pakai.length ? totalSemua / pakai.length : 0),
+            'dari ' + pakai.length + ' bulan')
+    + kartu('Bulan tertinggi', terbaik ? rp0(terbaik.grand) : '—', terbaik ? fmtBln(terbaik.b) : 'belum ada')
+    + kartu('Bulan terakhir vs sebelumnya',
+            tumbuh === null ? '—' : (tumbuh >= 0 ? '+' : '') + tumbuh.toFixed(1) + '%',
+            sebelum ? fmtBln(akhir.b) + ' vs ' + fmtBln(sebelum.b) : 'belum ada pembanding')
+    + '</div>';
+
+  h += '<div class="card"><h3>Total Omset Bulan ke Bulan</h3>'
+    + '<div class="card-sub">Grand Total dari berkas POS tiap bulan. Garisnya rata-rata per hari — '
+    + 'bulan yang harinya lebih sedikit (bulan berjalan, atau berkas yang tidak sebulan penuh) '
+    + 'akan terlihat rendah di batangnya padahal tidak di garisnya.</div>'
+    + '<div style="position:relative;height:300px"><canvas id="trenChart"></canvas></div>'
+    + (typeof Chart !== 'function'
+        ? '<div class="notice warn" style="margin-top:12px">⚠ <div><b>Grafik tidak bisa digambar.</b> '
+          + 'Pustaka Chart.js gagal dimuat dari CDN — periksa koneksi. Tabel di bawah tetap benar.</div></div>'
+        : '')
+    + '</div>';
+
+  h += '<div class="card"><h3>Perbandingan Bulan ke Bulan</h3>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Bulan</th><th class="num">Grand Total</th>'
+    + '<th class="num">Δ bulan sebelumnya</th><th class="num">Bill</th><th class="num">Hari</th>'
+    + '<th class="num">Rata-rata/bill</th><th class="num">Rata-rata/hari</th></tr></thead><tbody>'
+    + semua.slice().reverse().map((x, i, arr) => {
+        const sb = arr[i + 1];
+        const dlt = (sb && sb.grand) ? (x.grand - sb.grand) / sb.grand * 100 : null;
+        return '<tr><td><b>' + esc(fmtBln(x.b)) + '</b>'
+          + (x.jenis === 'menu' ? ' <span class="helper" style="margin:0">Menu Report</span>' : '') + '</td>'
+          + '<td class="num mono">' + rp0(x.grand) + '</td>'
+          + '<td class="num mono" style="color:' + (dlt === null ? 'var(--muted-2)' : dlt >= 0 ? 'var(--ok)' : 'var(--danger)') + '">'
+            + (dlt === null ? '—' : (dlt >= 0 ? '+' : '') + dlt.toFixed(1) + '%') + '</td>'
+          + '<td class="num mono">' + (x.bill || 0).toLocaleString('id-ID') + '</td>'
+          + '<td class="num">' + x.hari + '</td>'
+          + '<td class="num mono">' + rp0(x.perBill) + '</td>'
+          + '<td class="num mono">' + rp0(x.perHari) + '</td></tr>';
+      }).join('')
+    + '</tbody></table></div>'
+    + (kosong.length
+        ? '<div class="helper">' + kosong.length + ' bulan tidak punya Grand Total ('
+          + esc(kosong.map(x => fmtBln(x.b)).join(', ')) + ') — laporannya Menu Report, '
+          + 'yang memang tidak memuat nilai per bill. Bulan itu tidak ikut di grafik.</div>'
+        : '')
+    + '</div>';
+
+  /* ---- BANDINGKAN DUA BULAN ----
+     Tabel di atas cuma membandingkan dengan bulan TEPAT sebelumnya. Pertanyaan
+     yang sering datang justru "Agustus vs Agustus tahun lalu", dan itu tidak
+     terjawab oleh selisih berurutan. */
+  const opsi = semua.map(x => x.b);
+  const A = opsi.indexOf(TREN_A) >= 0 ? TREN_A : opsi[opsi.length - 1];
+  const B = opsi.indexOf(TREN_B) >= 0 ? TREN_B : opsi[opsi.length - 2];
+  const ra = semua.find(x => x.b === A), rb = semua.find(x => x.b === B);
+  const sel = (x, y) => (y ? (x - y) / y * 100 : null);
+  const barisBanding = [
+    ['Grand Total', ra.grand, rb.grand, 1],
+    ['Jumlah bill', ra.bill, rb.bill, 0],
+    ['Hari ada transaksi', ra.hari, rb.hari, 0],
+    ['Rata-rata per bill', ra.perBill, rb.perBill, 1],
+    ['Rata-rata per hari', ra.perHari, rb.perHari, 1]
+  ];
+  h += '<div class="card"><h3>Bandingkan Dua Bulan</h3>'
+    + '<div class="card-sub">Tabel di atas membandingkan dengan bulan tepat sebelumnya. '
+    + 'Yang ini bebas — mis. bulan yang sama tahun lalu.</div>'
+    + '<div class="grid g2" style="margin-bottom:14px">'
+    + '<div class="field"><label>Bulan A</label><select onchange="trenPilih(\'a\', this.value)">'
+      + opsi.map(x => '<option value="' + esc(x) + '"' + (x === A ? ' selected' : '') + '>' + esc(fmtBln(x)) + '</option>').join('')
+      + '</select></div>'
+    + '<div class="field"><label>Bulan B (pembanding)</label><select onchange="trenPilih(\'b\', this.value)">'
+      + opsi.map(x => '<option value="' + esc(x) + '"' + (x === B ? ' selected' : '') + '>' + esc(fmtBln(x)) + '</option>').join('')
+      + '</select></div>'
+    + '</div>'
+    + (A === B
+        ? '<div class="notice info">ℹ <div>Kedua kotaknya bulan yang sama, jadi selisihnya nol. Pilih bulan yang berbeda.</div></div>'
+        : '<div class="tbl-wrap"><table><thead><tr><th></th><th class="num">' + esc(fmtBln(A)) + '</th>'
+          + '<th class="num">' + esc(fmtBln(B)) + '</th><th class="num">Selisih</th><th class="num">%</th>'
+          + '</tr></thead><tbody>'
+          + barisBanding.map(x => {
+              const s = sel(x[1], x[2]);
+              const f = v => x[3] ? rp0(v) : Math.round(v).toLocaleString('id-ID');
+              return '<tr><td>' + esc(x[0]) + '</td>'
+                + '<td class="num mono">' + f(x[1]) + '</td>'
+                + '<td class="num mono">' + f(x[2]) + '</td>'
+                + '<td class="num mono">' + (x[1] - x[2] >= 0 ? '+' : '') + f(x[1] - x[2]) + '</td>'
+                + '<td class="num mono" style="color:' + (s === null ? 'var(--muted-2)' : s >= 0 ? 'var(--ok)' : 'var(--danger)') + '">'
+                  + (s === null ? '—' : (s >= 0 ? '+' : '') + s.toFixed(1) + '%') + '</td></tr>';
+            }).join('')
+          + '</tbody></table></div>')
+    + '</div>';
+
+  V.innerHTML = h;
+
+  /* Chart dibuat SESUDAH innerHTML dipasang — canvas-nya belum ada sebelum itu,
+     dan Chart.js gagal diam-diam kalau elemennya null. Instansnya dicatat di
+     CHARTS supaya bersihkanChart() membuangnya saat halaman berganti; tanpa itu
+     tiap perpindahan halaman meninggalkan satu chart hidup di memori. */
+  if (typeof Chart === 'function' && pakai.length) {
+    const cv = document.getElementById('trenChart');
+    if (cv) CHARTS.push(new Chart(cv, {
+      data: {
+        labels: pakai.map(x => fmtBln(x.b)),
+        datasets: [
+          { type:'bar', label:'Grand Total', data: pakai.map(x => x.grand),
+            backgroundColor:'rgba(169,121,31,.75)', borderRadius:6, yAxisID:'y' },
+          { type:'line', label:'Rata-rata per hari', data: pakai.map(x => x.perHari),
+            borderColor:'#5C574D', backgroundColor:'#5C574D', tension:.25, yAxisID:'y1' }
+        ]
+      },
+      options: {
+        responsive:true, maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{ legend:{ position:'bottom' },
+          tooltip:{ callbacks:{ label: c => c.dataset.label + ': ' + rp0(c.parsed.y) } } },
+        scales:{
+          /* Dua sumbu: total sebulan dan rata-rata sehari berbeda dua orde
+             besaran, dan digambar di satu sumbu garisnya akan rata menempel di
+             dasar grafik — terbaca sebagai "rata-ratanya nol". */
+          y:  { position:'left',  ticks:{ callback: v => fmtRpShort(v) } },
+          y1: { position:'right', grid:{ drawOnChartArea:false }, ticks:{ callback: v => fmtRpShort(v) } }
+        }
+      }
+    }));
+  }
 }
 
 /* ============ HALAMAN: UNGGAH LAPORAN ============ */
@@ -1986,7 +2290,8 @@ function render() {
       + esc(KP_ERR || 'Backend Kompas tidak menjawab.') + ' Muat ulang halaman (Ctrl+F5).</div></div>';
     return;
   }
-  ({ ringkasan:vRingkasan, hari:vHari, menu:vMenu, event:vEvent, unggah:vUnggah,
+  ({ ringkasan:vRingkasan, tren:vTren, hari:vHari, menu:vMenu,
+     event:vEvent, marketing:vMarketing, unggah:vUnggah,
      pengaturan:vPengaturan, akses:vAkses }[CURRENT] || vRingkasan)();
   terapkanKunci();
 }
