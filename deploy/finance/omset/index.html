@@ -3188,16 +3188,23 @@ function viewBreakdown(){
      berarti mengakui omset untuk orang yang tidak mengerjakannya, dan mereka
      memang tidak ada di roster event/marketing. Yang tidak ketemu tetap
      dibiarkan kosong dan tetap dilaporkan di pita. */
-  function picPengisi(divi){
-    if(!CURRENT_USER) return null;
+  /* Mencocokkan SEBUAH AKUN OFFICE ke roster divisi. Satu pencocok untuk dua
+     pemakai yang berbeda — akun yang MENGINPUT event (picAkun dari
+     ev.inputOlehId) dan akun yang MENGISI breakdown (picPengisi) — supaya
+     keduanya tidak pernah berselisih pendapat tentang siapa "orang yang sama". */
+  function picAkun(divi,officeId,nama){
     const list=DB.employees[divi]||[];
     /* officeUserId dulu — nama bisa berubah ejaannya di Office, id tidak.
        Aturan yang sama dengan compCocok(). */
-    const byId=list.find(e=>e.officeUserId && e.officeUserId===CURRENT_USER.id);
+    const byId=officeId?list.find(e=>e.officeUserId && e.officeUserId===officeId):null;
     if(byId) return byId.id;
-    const n=String(CURRENT_USER.name||'').trim().toLowerCase();
+    const n=String(nama||'').trim().toLowerCase();
     const byNama=n?list.find(e=>String(e.name||'').trim().toLowerCase()===n):null;
     return byNama?byNama.id:null;
+  }
+  function picPengisi(divi){
+    if(!CURRENT_USER) return null;
+    return picAkun(divi,CURRENT_USER.id,CURRENT_USER.name);
   }
   function serapOtomatis(){
     if(EVHARI.tgl!==bdDate || EVHARI.st!=='ok') return false;
@@ -3260,9 +3267,33 @@ function viewBreakdown(){
       if(abai.has(key)||sudahAda(key)) return;
       /* Modul event tidak menyimpan nilai rupiah event, jadi tidak ada
          srcNominal di sini — yang dihemat cuma nama event & PIC-nya. */
-      state.ev.push({picId:cocokPic('event',ev.picName)||picPengisi('event')||undefined,
+      /* URUTANNYA MENENTUKAN, dan ketiganya menjawab pertanyaan yang berbeda:
+
+           1. cocokPic   — nama yang DITULIS di kolom PIC modul Event.
+                           Kalau itu memang nama orang di roster, dialah
+                           jawabannya; tidak ada yang lebih tahu daripada
+                           yang mengetiknya.
+           2. picAkun    — AKUN YANG MENGINPUT event itu (4 September 2026,
+                           permintaan user). Kolom PIC di modul Event teks
+                           bebas dan di produksi seluruhnya berisi "Event
+                           Manager" — sebuah jabatan, jadi langkah 1 tidak
+                           akan pernah berhasil. Yang mengetiknya adalah yang
+                           mengerjakan acaranya.
+           3. picPengisi — orang yang sedang mengisi breakdown, jaring
+                           terakhir untuk event yang lahir sebelum jejak
+                           createdBy ada.
+
+         Langkah 2 ditaruh DI ATAS langkah 3 justru karena bedanya nyata:
+         breakdown diisi kasir/finance tiap malam, dan mengakui omset event
+         kepada mereka adalah tebakan yang lebih buruk daripada memakai nama
+         orang yang benar-benar tercatat membuat acaranya. Ketiganya tetap
+         dijepit ke roster divisi event — yang tidak ada di sana dibiarkan
+         kosong dan dilaporkan di pita, bukan ditebak. */
+      state.ev.push({picId:cocokPic('event',ev.picName)
+          ||picAkun('event',ev.inputOlehId,ev.inputOleh)
+          ||picPengisi('event')||undefined,
         eventName:ev.nama||'', amount:0, shift:[],
-        srcId:key, srcPic:ev.picName||''});
+        srcId:key, srcPic:ev.picName||'', srcInput:ev.inputOleh||''});
       tambah++;
     });
     return tambah>0||ubah>0;
@@ -3423,15 +3454,29 @@ function viewBreakdown(){
        dalamnya. */
     const dari={mkt:'Marketing',vip:'Marketing (Reservasi VIP)',evt:'Event'}[r.srcId.slice(0,3)]||'modul lain';
     const pic=r.srcPic?` · PIC di ${dari}: <b>${esc(r.srcPic)}</b>`:'';
+    /* Siapa yang mengetik event itu di modul Event. Disebut walau PIC-nya
+       sudah cocok: kolom PIC di sana berisi jabatan, jadi inilah satu-satunya
+       nama orang yang pernah tercatat — dan yang mempertanyakan pengakuan
+       omsetnya akan mencari nama itu, bukan jabatannya. */
+    const input=r.srcInput?` · diinput oleh <b>${esc(r.srcInput)}</b>`:'';
     /* Kalau PIC yang terpilih BUKAN nama yang ditulis modul asalnya, itu
-       DIKATAKAN. Sumbernya dua: nama di modul asalnya sebuah jabatan ("Event
-       Manager"), atau orangnya belum ada di roster — dan pada kedua-duanya
-       yang dipakai adalah orang yang sedang mengisi. Kalau tidak dikatakan,
-       omsetnya masuk ke nama yang tidak pernah disebut di layar mana pun. */
+       DIKATAKAN — berikut SIAPA yang dipakai sebagai gantinya. Sebabnya dua:
+       nama di modul asalnya sebuah jabatan ("Event Manager"), atau orangnya
+       belum ada di roster; dan penggantinya juga dua, akun yang MENGINPUT
+       event itu atau orang yang sedang MENGISI breakdown. Kalau tidak
+       dikatakan, omsetnya masuk ke nama yang tidak pernah disebut di layar
+       mana pun. */
     const divi=r.srcId.slice(0,3)==='evt'?'event':'marketing';
     const terpilih=(DB.employees[divi]||[]).find(e=>e.id===r.picId);
-    const bedaPic=terpilih && String(r.srcPic||'').trim().toLowerCase()!==String(terpilih.name||'').trim().toLowerCase()
-      ? ` · <span class="tag" style="background:var(--gold-soft);color:var(--gold-dim)">diakui untuk <b>${esc(terpilih.name)}</b> — yang mengisi</span>`
+    const sama=(a,b)=>String(a||'').trim().toLowerCase()===String(b||'').trim().toLowerCase();
+    /* SEBABNYA disebut, bukan cuma hasilnya. "Yang input di Event" dan "yang
+       mengisi" adalah dua orang yang berbeda pada hari yang sama — event
+       diketik PIC-nya siang hari, breakdown diisi kasir malamnya — dan yang
+       membaca pita ini sedang memeriksa apakah omsetnya diakui ke orang yang
+       benar. Satu kata "yang mengisi" untuk kedua-duanya membuat pemeriksaan
+       itu mustahil. */
+    const bedaPic=terpilih && !sama(r.srcPic,terpilih.name)
+      ? ` · <span class="tag" style="background:var(--gold-soft);color:var(--gold-dim)">diakui untuk <b>${esc(terpilih.name)}</b> — ${sama(r.srcInput,terpilih.name)?'yang input di Event':'yang mengisi'}</span>`
       : '';
     /* Baris VIP wajib menyebutkan bahwa nominalnya sudah termasuk tax &
        service, dan berapa hasil pecahannya. Tanpa itu orang membandingkan
@@ -3460,7 +3505,7 @@ function viewBreakdown(){
       ? ' · <span class="tag">menu dipilih di tempat</span>'
       : (mf==='tetap' ? ' · <span class="tag">menu ditetapkan</span>'
         : ' · <span class="tag" title="Marketing belum memilih. Untuk sementara diperlakukan seperti menu ditetapkan, jadi kasir tetap dipotong." style="background:var(--warn-bg,#fdf3e3);color:var(--warn)">menu belum ditentukan</span>');
-    return `<div class="esrc"><span class="tag">otomatis</span>dari modul ${dari}${pic}${bedaPic}${menu}${nilai}</div>`;
+    return `<div class="esrc"><span class="tag">otomatis</span>dari modul ${dari}${pic}${input}${bedaPic}${menu}${nilai}</div>`;
   }
   /* Panel Open Bill. Kotaknya baru muncul setelah dicentang — kalau selalu
      tampil, tiap event polos ikut memajang empat kotak kosong dan halaman ini

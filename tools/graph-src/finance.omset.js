@@ -666,7 +666,7 @@ function bolehLihat() { levelSaya(); }
 
 
 
-function pasangMenu() { levelSaya(); bolehLihat(); go(); }
+function pasangMenu() { levelSaya(); bolehLihat(); go(); sama(); }
 
 
 
@@ -1543,7 +1543,7 @@ function inputVal() { hitung(); tambahJejak(); save(); dateLabel(); render(); }
 
 
 
-function fmtWaktu() {  }
+function fmtWaktu() { SAMA(); }
 
 
 
@@ -2461,7 +2461,7 @@ function compPicRentang() { compListPicRentang(); compPotong(); }
 
 
 
-function kartuApprovalCompliment() { compsRentang(); compListPemberi(); compStatusPemberi(); compPotong(); putusCompliment(); porsiPic(); potonganHari(); potongKasir(); }
+function kartuApprovalCompliment() { compsRentang(); compListPemberi(); compStatusPemberi(); compPotong(); putusCompliment(); sama(); porsiPic(); potonganHari(); potongKasir(); }
 
 
 
@@ -3188,7 +3188,25 @@ function cocokPic() {  }
 
 
 
-function picPengisi() { compCocok(); }
+
+
+
+
+function picAkun() { compCocok(); }
+
+
+
+
+
+
+
+
+
+function picPengisi() { picAkun(); }
+
+
+
+function serapOtomatis() { mkFinance(); cocokPic(); picPengisi(); vipPecah(); picAkun(); }
 
 
 
@@ -3199,7 +3217,20 @@ function picPengisi() { compCocok(); }
 
 
 
-function serapOtomatis() { mkFinance(); cocokPic(); picPengisi(); vipPecah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3414,7 +3445,7 @@ function bukaBagi() { modalBagiHasil(); calc(); sumDiakui(); save(); potonganBar
 
 
 
-function pitaBaris() { menuFixRow(); }
+function pitaBaris() {  }
 
 
 
@@ -3424,6 +3455,20 @@ function pitaBaris() { menuFixRow(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+function sama() { menuFixRow(); }
 
 
 

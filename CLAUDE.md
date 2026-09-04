@@ -449,10 +449,49 @@ ada satu layar pun yang menjelaskan selisihnya.
 yang membuat bug ini bertahan: yang membacanya berhenti memeriksa. Sama persis
 dengan kasus `hpp.php` di bawah.
 
-**PIC yang tidak cocok jatuh ke ORANG YANG MENGISI** (permintaan user).
-Modul Event menulis PIC-nya **"Event Manager"** — sebuah JABATAN, bukan nama
-orang, jadi `cocokPic()` tidak akan pernah menemukannya berapa kali pun
-dicoba. Yang mengisi breakdown-nya memang PIC event itu sendiri.
+**PIC yang tidak cocok jatuh ke AKUN YANG MENGINPUT EVENT-nya, baru ke ORANG
+YANG MENGISI** (permintaan user, dua kali di hari yang sama). Modul Event
+menulis PIC-nya **"Event Manager"** — sebuah JABATAN, bukan nama orang, jadi
+`cocokPic()` tidak akan pernah menemukannya berapa kali pun dicoba.
+
+Rantainya TIGA langkah, dan urutannya menentukan siapa yang diakui:
+
+```
+cocokPic('event', ev.picName)                       nama yang DITULIS di modul Event
+  || picAkun('event', ev.inputOlehId, ev.inputOleh) AKUN YANG MENGINPUT event itu
+  || picPengisi('event')                            orang yang MENGISI breakdown
+```
+
+**Langkah kedua melewati TIGA berkas, dan tiap sambungan yang putus gagal
+diam-diam** — PIC-nya cuma jatuh ke jaring berikutnya, dan angkanya tetap
+terlihat wajar:
+
+| berkas | perannya |
+|---|---|
+| `deploy/event/` `saveEvent()` | menulis `createdBy` + `createdById` dari `sesiKru()`, **hanya saat event lahir** |
+| `event-mysql` `events_hari()` | membacanya dari blob `data` → `inputOleh` / `inputOlehId` |
+| `deploy/finance/omset/` `serapOtomatis()` | `picAkun('event', ev.inputOlehId, ev.inputOleh)` |
+
+- **TIDAK ditulis ulang saat event disunting.** Yang menyunting belum tentu
+  yang membuat, dan menimpanya memindahkan pengakuan omset ke orang yang cuma
+  membetulkan satu huruf.
+- **Event yang lahir sebelum 4 September 2026 memang tidak punya jejak ini**,
+  dan itu bukan galat — langkah ketiga tetap ada. Backend memulangkan string
+  kosong, bukan null: yang membacanya memperlakukannya sebagai "tidak ketemu".
+- **Jejaknya tidak punya kolom sendiri** — ia field aplikasi, jadi ikut di blob
+  `data` tanpa satu pun berkas migrasi (lihat `collections()`). Yang perlu
+  diubah cuma `SELECT`-nya, yang sebelumnya tidak mengambil kolom itu.
+- **Nama kuncinya berkas kembar**: `inputOleh`/`inputOlehId` di PHP harus sama
+  persis dengan yang dibaca JS. Beda satu huruf tidak melempar apa pun.
+- **"Diinput oleh" ikut tampil di detail event**, dan tidak digambar kalau
+  kosong — "Diinput oleh: —" membuat orang mencari jejak yang memang tidak
+  pernah ada.
+
+Langkah ketiga tetap ada karena breakdown-nya memang sering diisi PIC event
+itu sendiri, tapi ia ditaruh PALING BELAKANG: breakdown juga sering diisi
+kasir atau finance tiap malam, dan mengakui omset event kepada mereka adalah
+tebakan yang lebih buruk daripada memakai nama orang yang benar-benar tercatat
+membuat acaranya.
 
 - **Dijepit ke roster divisi itu** (`picPengisi(divi)`). Breakdown sering
   diisi kasir atau finance tiap malam — menjatuhkan omset event ke mereka
@@ -465,17 +504,24 @@ dicoba. Yang mengisi breakdown-nya memang PIC event itu sendiri.
   ejaannya di Office, id tidak. Aturan yang sama dengan `compCocok()`.
 - **Baris manual juga** bawaannya yang mengisi, bukan orang PERTAMA di daftar:
   orang pertama cuma kebetulan urutan.
-- **DIKATAKAN di pita barisnya** (`diakui untuk <nama> — yang mengisi`) saat
-  PIC terpilih berbeda dari nama di modul asalnya. Diam-diam, omsetnya masuk
-  ke nama yang tidak pernah disebut di layar mana pun.
+- **DIKATAKAN di pita barisnya** saat PIC terpilih berbeda dari nama di modul
+  asalnya, berikut SEBABNYA — `— yang input di Event` dan `— yang mengisi`
+  adalah dua orang yang berbeda pada hari yang sama (event diketik PIC-nya
+  siang, breakdown diisi kasir malamnya), dan satu kata untuk kedua-duanya
+  membuat pemeriksaan "apakah omsetnya diakui ke orang yang benar" mustahil.
+  Nama penginputnya juga disebut walau PIC-nya sudah cocok (`diinput oleh
+  <nama>`): kolom PIC di modul Event berisi jabatan, jadi itulah satu-satunya
+  nama orang yang pernah tercatat di sana.
 
 ```bash
-node tools/uji-pic-breakdown.js   # 30 pemeriksaan, jsdom (omset + kas)
+node tools/uji-pic-breakdown.js   # 47 pemeriksaan, jsdom (omset + kas + event + php)
 ```
 
 Ujinya menjaga **kedua sisinya** — memperbaiki satu saja tidak menutup
-jalurnya. `mkSelect` hidup di dalam `viewBreakdown()` jadi ia DIPOTONG dari
-sumbernya saat uji jalan, bukan disalin.
+jalurnya — dan sejak babak keduanya juga **ketiga berkas** jalur penginput,
+termasuk membandingkan nama kunci di PHP dengan nama kunci yang dibaca JS.
+`mkSelect`, `picAkun`, dan `picPengisi` hidup di dalam `viewBreakdown()` jadi
+ketiganya DIPOTONG dari sumbernya saat uji jalan, bukan disalin.
 
 ### Modul `analytics`: laporan POS diurai DI PERAMBAN (29 Agustus 2026)
 

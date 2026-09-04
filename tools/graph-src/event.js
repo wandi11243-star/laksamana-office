@@ -5714,7 +5714,28 @@ function eventForm() { modal(); closeModal(); esc(); fileUrl(); fmtSize(); pilih
 
 
 
-function saveEvent() { g(); toast(); esc(); uid(); save(); closeModal(); }
+function saveEvent() { g(); toast(); esc(); uid(); sesiKru(); save(); closeModal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -10698,10 +10719,17 @@ function renderHistoryDetail() { breakdownEventEms(); setTop(); esc(); statusBad
 
 
 
-function namaKru() {  }
 
 
 
+
+function sesiKru() {  }
+
+
+
+
+
+function namaKru() { sesiKru(); }
 function paintSideUser() { initials(); }
 
 

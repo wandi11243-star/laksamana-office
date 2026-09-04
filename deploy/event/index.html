@@ -5727,7 +5727,28 @@ function saveEvent(id){
   if(window._posterBaru)      data.poster_img=window._posterBaru;
   else if(window._posterHapus) data.poster_img=null;
   if(id){Object.assign(DB.events.find(x=>x.id===id),data);}
-  else{const nid=uid();data.status='Draft';data.idea_id=window._dariIde||null;window._dariIde=null;DB.events.push({id:nid,...data});
+  else{const nid=uid();data.status='Draft';data.idea_id=window._dariIde||null;window._dariIde=null;
+    /* SIAPA YANG MENGINPUT, dicatat sekali saat event lahir (4 September 2026,
+       permintaan user).
+
+       Kolom PIC di atas teks bebas, dan di produksi SELURUH event terisi
+       "Event Manager" — sebuah JABATAN, bukan nama orang, jadi ia tidak akan
+       pernah cocok dengan roster Office berapa kali pun dicoba. Yang
+       benar-benar mengerjakan acaranya adalah pemilik akun yang mengetiknya.
+
+       Yang membacanya Finance > Omset > Breakdown Sumber lewat events_hari():
+       PIC baris event di sana diakui ke akun ini, jadi omsetnya masuk ke
+       orangnya. Tanpa jejak ini yang dipakai adalah orang yang MENGISI
+       breakdown tiap malam — kasir atau finance, yang tidak mengerjakan
+       acaranya sama sekali.
+
+       TIDAK ditulis ulang saat event disunting: yang menyunting belum tentu
+       yang membuat, dan menimpanya berarti memindahkan pengakuan omset ke
+       orang yang cuma membetulkan satu huruf. Event yang lahir sebelum
+       tanggal itu karena itu memang tidak punya jejak ini — dan itu bukan
+       galat, Breakdown tetap punya jalan mundurnya. */
+    const kru=sesiKru(); data.createdBy=kru.name; data.createdById=kru.id;
+    DB.events.push({id:nid,...data});
     // default timeline & tasks from template
     DB.eventDetails[nid]={timeline:Object.fromEntries(TIMELINE_PHASES.map(p=>[p,false])),rundown:[],vendors:[],budget:[],sponsors:[],tasks:[{title:'Design poster',assignee:'Marketing',due:data.start_datetime,done:false},{title:'Book talent',assignee:'Ent. Coord',due:data.start_datetime,done:false}]};
     id=nid;}
@@ -5760,7 +5781,7 @@ function renderEventDetail(id){
   const info=`<div class="grid g2"><div class="card"><h3 class="sec">ℹ️ Informasi Dasar</h3><div class="kv">
     <div class="k">Kategori</div><div><span class="badge b-blue">${e.category}</span></div><div class="k">Theme</div><div>${esc(e.theme||'—')}</div>
     <div class="k">Venue</div><div>${esc(e.venue)}</div><div class="k">Waktu</div><div>${fmtDateTime(e.start_datetime)} – ${new Date(e.end_datetime).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})}</div>
-    <div class="k">Kapasitas</div><div>${e.capacity} orang</div><div class="k">PIC</div><div>${esc(e.pic||'—')}</div>
+    <div class="k">Kapasitas</div><div>${e.capacity} orang</div><div class="k">PIC</div><div>${esc(e.pic||'—')}</div>${e.createdBy?`<div class="k">Diinput oleh</div><div>${esc(e.createdBy)}</div>`:''}
     <div class="k">Status</div><div>${statusBadge(e.status)}</div><div class="k">Ticketed</div><div>${e.is_ticketed?'Ya · '+sold+' terjual':'Tidak'}</div></div>
     <div style="margin-top:12px" class="mini">${e.description}</div></div>
     <!-- Kartu "Materi Marketing" DIBUANG. Isinya enam kotak bertuliskan
@@ -10677,7 +10698,7 @@ function renderHistoryDetail(id){
   <div class="grid g2"><div class="card"><h3 class="sec">ℹ️ Informasi Dasar</h3><div class="kv">
     <div class="k">Kategori</div><div><span class="badge b-blue">${e.category}</span></div><div class="k">Theme</div><div>${esc(e.theme||'—')}</div>
     <div class="k">Venue</div><div>${esc(e.venue)}</div><div class="k">Waktu</div><div>${fmtDateTime(e.start_datetime)}${e.end_datetime?' – '+new Date(e.end_datetime).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'}):''}</div>
-    <div class="k">Kapasitas</div><div>${e.capacity} orang</div><div class="k">PIC</div><div>${esc(e.pic||'—')}</div>
+    <div class="k">Kapasitas</div><div>${e.capacity} orang</div><div class="k">PIC</div><div>${esc(e.pic||'—')}</div>${e.createdBy?`<div class="k">Diinput oleh</div><div>${esc(e.createdBy)}</div>`:''}
     <div class="k">Status</div><div>${statusBadge(e.status)}</div><div class="k">Ticketed</div><div>${e.is_ticketed?'Ya · '+sold+' terjual':'Tidak'}</div></div>
     ${e.description?`<div style="margin-top:12px" class="mini">${e.description}</div>`:''}</div>
   <div class="card"><h3 class="sec">📊 Pencapaian</h3><div class="kv">
@@ -10696,12 +10717,19 @@ function renderHistoryDetail(id){
 /* Identitas & logo di sidebar — disamakan dengan Marketing/Reservasi.
    Nama diambil dari sesi Office (guard SSO di <head> sudah memastikan sesinya
    ada dan berhak), jadi tidak perlu login terpisah di modul ini. */
-/* Nama kru yang sedang login — dipakai sebagai jejak siapa yang mencatat
-   penjualan. Sumbernya sesi Office yang sama dengan blok pengguna di sidebar. */
-function namaKru(){
+/* Akun Office yang sedang login — id DAN nama. Sumbernya sesi Office yang
+   sama dengan blok pengguna di sidebar.
+
+   Id-nya ikut, bukan cuma nama: nama bisa berubah ejaannya di Office, id
+   tidak. Aturan yang sama dengan compCocok() di Finance > Omset, dan itulah
+   yang membuat jejak ini tetap cocok dengan roster setahun kemudian. */
+function sesiKru(){
   let s=null; try{ s=JSON.parse(localStorage.getItem('lm_session')||'null'); }catch(_){}
-  return (s&&s.name)||'Kru';
+  return {id:(s&&s.userId)||'', name:(s&&s.name)||''};
 }
+/* Nama kru yang sedang login — dipakai sebagai jejak siapa yang mencatat
+   penjualan. */
+function namaKru(){ return sesiKru().name||'Kru'; }
 function paintSideUser(){
   let s=null; try{ s=JSON.parse(localStorage.getItem('lm_session')||'null'); }catch(_){}
   const nama=(s&&s.name)||'Kru';

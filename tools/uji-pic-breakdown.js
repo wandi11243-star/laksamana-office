@@ -17,6 +17,16 @@
  * Gabungannya: angkanya terlihat rapi di Breakdown, tidak muncul di Performa,
  * dan tidak ada satu layar pun yang menjelaskan selisihnya. Uji ini menjaga
  * KEDUA sisinya — memperbaiki satu saja tidak menutup jalurnya.
+ *
+ * BABAK KEDUA (permintaan user hari yang sama): PIC event diakui ke AKUN YANG
+ * MENGINPUT event-nya di modul Event, bukan ke orang yang mengisi breakdown
+ * tiap malam. Kolom PIC di modul Event teks bebas dan seluruhnya berisi
+ * "Event Manager" — sebuah jabatan, jadi pencocokan nama tidak akan pernah
+ * berhasil. Jalurnya melewati TIGA berkas (modul Event menulis jejaknya,
+ * event-mysql memulangkannya, Breakdown membacanya) dan tiap sambungan yang
+ * putus gagal DIAM-DIAM: PIC-nya cuma jatuh ke jaring berikutnya, dan
+ * angkanya tetap terlihat wajar. Karena itu ketiganya diuji, bukan cuma
+ * ujungnya.
  */
 const fs = require('fs');
 const path = require('path');
@@ -99,7 +109,7 @@ const EMP = {
        bagian picPengisi di bawah. */
     cek('serapan otomatis masih berakhir di ||undefined, bukan di nama pertama',
         src.indexOf("picPengisi('event')||undefined") > -1 &&
-        src.indexOf("cocokPic('event',ev.picName)||picPengisi") > -1,
+        src.indexOf("cocokPic('event',ev.picName)") > -1,
         'jalur serapan event berubah');
     cek('komentarnya tidak lagi MENJANJIKAN jatuh-ke-PIC-pertama',
         src.indexOf('Yang tidak ketemu dibiarkan memakai PIC pertama') < 0,
@@ -111,10 +121,28 @@ const EMP = {
        Modul Event menulis PIC-nya "Event Manager" — sebuah JABATAN, bukan nama
        orang, jadi cocokPic() tidak akan pernah menemukannya berapa kali pun
        dicoba. Yang mengisi breakdown-nya memang PIC event itu sendiri. */
-    const pp = fungsiPicPengisi(src);
+    /* picPengisi sekarang cuma pembungkus picAkun — keduanya dipotong dari
+       sumbernya, bukan disalin. Kalau cuma picPengisi yang diambil, ujinya
+       gagal dengan ReferenceError yang tidak ada hubungannya dengan PIC. */
+    const pp = '(function(){' + fungsiPotong(src, 'function picAkun(') + ';' +
+               fungsiPotong(src, 'function picPengisi(') + ';return picPengisi;})()';
+    const pa = '(function(){' + fungsiPotong(src, 'function picAkun(') + ';return picAkun;})()';
     w.eval('CURRENT_USER = { id:"u-budi", name:"Budi", level:"ops" };');
     cek('PIC jatuh ke yang mengisi kalau ia ada di roster divisi itu',
         w.eval('(' + pp + ')("event")') === 'e1', String(w.eval('(' + pp + ')("event")')));
+    /* ---- AKUN YANG MENGINPUT EVENT (permintaan user 4 September 2026) ----
+       Pencocok yang sama dipakai untuk akun yang MENGETIK event-nya di modul
+       Event. Dua pemakai, satu pencocok — kalau dipisah, keduanya bisa
+       berselisih pendapat tentang siapa "orang yang sama". */
+    cek('penginput event dicocokkan lewat namanya',
+        w.eval('(' + pa + ')("event","","Budi")') === 'e1');
+    /* Penginput yang bukan orang divisi event tetap TIDAK diakui — sama
+       ketatnya dengan yang mengisi. Menebak berarti mengakui omset untuk
+       orang yang tidak mengerjakan acaranya. */
+    cek('...penginput di luar roster divisi itu tidak diakui',
+        !w.eval('(' + pa + ')("event","u-cici","Cici")'));
+    cek('...event lama (tanpa jejak penginput) tidak menebak siapa pun',
+        !w.eval('(' + pa + ')("event","","")'));
     /* Dijepit ke roster DIVISI ITU: breakdown sering diisi kasir tiap malam,
        dan menjatuhkan omset event ke kasir berarti mengakui omset untuk orang
        yang tidak mengerjakannya. */
@@ -137,8 +165,22 @@ const EMP = {
     /* Serapan otomatis memakainya sebagai CADANGAN, bukan menggantikan
        pencocokan nama: kalau nama di modul asalnya memang cocok, itu yang
        menang — yang mengisi belum tentu PIC-nya. */
-    cek('serapan event memakai pengisinya sebagai cadangan',
-        src.indexOf("cocokPic('event',ev.picName)||picPengisi('event')||undefined") > -1);
+    /* URUTANNYA yang diuji, bukan sekadar ketiganya ada. Dibalik, omset event
+       masuk ke kasir yang mengisi breakdown tiap malam padahal ada nama yang
+       benar-benar tercatat membuat acaranya — dan tidak ada satu pun galat
+       yang menyebutkannya. */
+    const iEv = src.indexOf("state.ev.push({picId:cocokPic('event'");
+    const rantai = src.slice(iEv, iEv + 400);
+    cek('serapan event: nama di modul Event diperiksa lebih dulu',
+        iEv > -1 && rantai.indexOf("cocokPic('event',ev.picName)") > -1 &&
+        rantai.indexOf("cocokPic('event',ev.picName)") < rantai.indexOf("picAkun('event'"),
+        rantai.slice(0, 200));
+    cek('...lalu AKUN YANG MENGINPUT event itu',
+        rantai.indexOf("picAkun('event',ev.inputOlehId,ev.inputOleh)") > -1, rantai.slice(0, 200));
+    cek('...baru orang yang mengisi breakdown, sebagai jaring terakhir',
+        rantai.indexOf("picAkun('event'") < rantai.indexOf("picPengisi('event')"));
+    cek('...dan nama penginputnya disimpan di barisnya (srcInput)',
+        rantai.indexOf("srcInput:ev.inputOleh") > -1, rantai.slice(0, 400));
     cek('serapan marketing juga',
         src.indexOf("cocokPic('marketing',ev.picName)||picPengisi('marketing')||undefined") > -1);
     cek('serapan Reservasi VIP juga',
@@ -158,6 +200,14 @@ const EMP = {
     cek('pita menyebut kalau PIC-nya diambil dari yang mengisi',
         src.indexOf('yang mengisi') > -1 && src.indexOf('${bedaPic}') > -1,
         'penanda bedaPic tidak digambar');
+    /* "Yang input di Event" dan "yang mengisi" adalah dua orang yang berbeda
+       pada hari yang sama — event diketik PIC-nya siang, breakdown diisi
+       kasir malamnya. Satu kata untuk kedua-duanya membuat pemeriksaan
+       "apakah omsetnya diakui ke orang yang benar" mustahil dilakukan. */
+    cek('...dan membedakannya dari "yang input di Event"',
+        src.indexOf('yang input di Event') > -1);
+    cek('...nama penginputnya disebut di pita, walau PIC-nya sudah cocok',
+        src.indexOf('diinput oleh <b>') > -1 && src.indexOf('${input}') > -1);
     w.close();
   }
 
@@ -225,6 +275,58 @@ const EMP = {
     w.close();
   }
 
+  /* ====== 3. HULUNYA: modul Event mencatat siapa yang menginput ====== */
+  console.log('');
+  console.log('== Modul Event + backend event-mysql ==');
+  {
+    const src = fs.readFileSync(OMSET, 'utf8');
+    const ev  = fs.readFileSync(path.join(ROOT, 'deploy', 'event', 'index.html'), 'utf8');
+    const php = fs.readFileSync(path.join(ROOT, 'event-mysql', 'lib_event_mysql.php'), 'utf8');
+
+    const iSesi = ev.indexOf('function sesiKru()');
+    cek('sesiKru() memulangkan id DAN nama akun Office',
+        iSesi > -1 && ev.slice(iSesi, iSesi + 300).indexOf('userId') > -1,
+        'id-nya yang menahan jejak ini tetap cocok kalau namanya diganti di Office');
+    cek('event baru menyimpan createdBy & createdById',
+        ev.indexOf('data.createdBy=kru.name; data.createdById=kru.id;') > -1);
+
+    /* Event yang DISUNTING tidak boleh ditimpa: yang menyunting belum tentu
+       yang membuat, dan menimpanya memindahkan pengakuan omset ke orang yang
+       cuma membetulkan satu huruf. */
+    const iSimpan = ev.indexOf('function saveEvent(');
+    const badan   = ev.slice(iSimpan, ev.indexOf('function ensureDetails(', iSimpan));
+    const iEdit   = badan.indexOf('if(id){Object.assign(');
+    const iBaru   = badan.indexOf('data.createdBy=kru.name');
+    cek('...hanya di cabang event BARU, bukan saat event disunting',
+        iEdit > -1 && iBaru > iEdit, 'jejaknya ikut ditulis ulang saat menyunting');
+
+    /* "Diinput oleh: —" membuat orang mencari jejak yang memang tidak pernah
+       ada di event lama. */
+    cek('"Diinput oleh" tampil di layar dan tidak digambar kalau kosong',
+        (ev.split('Diinput oleh').length - 1) === 2 && ev.indexOf('${e.createdBy?') > -1);
+
+    cek('events_hari() ikut membaca kolom data',
+        php.indexOf('SELECT id, title, status, venue, pic, start_datetime, data') > -1);
+    cek('...dan memulangkan inputOleh + inputOlehId',
+        php.indexOf("'inputOleh'") > -1 && php.indexOf("'inputOlehId'") > -1);
+    /* Event lama tidak punya field itu. Dipulangkan string kosong, bukan
+       null: yang membacanya memperlakukannya sebagai "tidak ketemu". */
+    cek('...event lama dipulangkan string kosong, bukan null',
+        php.indexOf("isset($d['createdBy'])   ? (string)$d['createdBy']   : ''") > -1);
+    /* Satu blob rusak tidak boleh menghapus seluruh daftar event hari itu
+       dari layar Breakdown. */
+    cek('...blob yang tidak bisa di-decode tidak melempar',
+        php.indexOf('if (!is_array($d)) $d = array();') > -1);
+
+    /* BERKAS KEMBAR: nama kunci yang dikirim backend harus sama persis dengan
+       yang dibaca layar. Beda satu huruf tidak melempar apa pun — PIC-nya
+       cuma diam-diam jatuh ke jaring berikutnya, dan angkanya tetap wajar. */
+    cek('nama kunci backend = nama kunci yang dibaca Breakdown',
+        php.indexOf("'inputOleh'") > -1 && src.indexOf('ev.inputOleh') > -1 &&
+        php.indexOf("'inputOlehId'") > -1 && src.indexOf('ev.inputOlehId') > -1,
+        'kunci di PHP dan di JS sudah tidak sama');
+  }
+
   console.log('\n---------------------------------------');
   console.log('  OK: ' + ok + '   GAGAL: ' + gagal);
   process.exit(gagal ? 1 : 0);
@@ -240,11 +342,13 @@ function fungsiMkSelect(src) {
   return src.slice(i + 'const mkSelect='.length, j).replace(/;\s*$/, '');
 }
 
-/* picPengisi juga hidup di dalam viewBreakdown(). Dipotong dari sumbernya,
-   bukan disalin — supaya ujinya ikut basi kalau fungsinya berubah. */
-function fungsiPicPengisi(src) {
-  const i = src.indexOf('function picPengisi(');
-  if (i < 0) throw new Error('picPengisi tidak ketemu di sumber');
+/* picAkun & picPengisi juga hidup di dalam viewBreakdown(). Dipotong dari
+   sumbernya, bukan disalin — supaya ujinya ikut basi kalau fungsinya berubah.
+   Batas akhirnya kurung tutup berindentasi dua spasi, sama dengan pembukanya;
+   keduanya memang ditulis begitu di berkas aslinya. */
+function fungsiPotong(src, tanda) {
+  const i = src.indexOf(tanda);
+  if (i < 0) throw new Error(tanda + ' tidak ketemu di sumber');
   const j = src.indexOf('\n  }', i);
   return src.slice(i, j + 4);
 }

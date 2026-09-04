@@ -464,12 +464,19 @@ function save_all($state) {
    Nominal TIDAK dipulangkan: modul event tidak menyimpan nilai rupiah event
    (yang ada cuma penjualan tiket, itu pun tidak selalu). Kolom Nominal di
    Breakdown tetap diisi tangan; yang dihemat endpoint ini adalah nama event
-   dan PIC-nya. */
+   dan PIC-nya.
+
+   SIAPA YANG MENGINPUT ikut dipulangkan (4 September 2026). Kolom `pic` di
+   modul ini teks bebas, dan di produksi seluruhnya berisi jabatan "Event
+   Manager" — jadi Breakdown Omset tidak punya satu pun nama orang yang bisa
+   dicocokkan dengan roster Office, dan omset event tidak diakui untuk siapa
+   pun. Jejaknya tidak punya kolom sendiri: ia field aplikasi, jadi tempatnya
+   di dalam blob `data` (lihat collections()). */
 function events_hari($tgl) {
   if (!tanggal_valid($tgl)) throw new Exception('tanggal tidak sah: ' . $tgl);
   $pdo = db();
   $st = $pdo->prepare(
-    "SELECT id, title, status, venue, pic, start_datetime
+    "SELECT id, title, status, venue, pic, start_datetime, data
        FROM events
       WHERE DATE(start_datetime) = :tgl
         AND status NOT IN ('Planning', 'Draft', 'Cancelled')
@@ -477,13 +484,24 @@ function events_hari($tgl) {
   $st->execute(array(':tgl' => $tgl));
   $out = array();
   foreach ($st->fetchAll() as $r) {
+    /* Event yang lahir SEBELUM 4 September 2026 tidak punya createdBy, dan itu
+       bukan galat — jejak siapa yang menginput memang belum pernah dicatat.
+       Dipulangkan sebagai string kosong, bukan null: yang membacanya
+       memperlakukannya sebagai "tidak ketemu" dan punya jalan mundurnya
+       sendiri. Blob yang gagal di-decode diperlakukan sama, bukan dilempar —
+       satu baris rusak tidak boleh menghapus seluruh daftar event hari itu
+       dari layar Breakdown. */
+    $d = json_decode((string)$r['data'], true);
+    if (!is_array($d)) $d = array();
     $out[] = array(
-      'id'      => $r['id'],
-      'nama'    => $r['title'],
-      'status'  => $r['status'],
-      'venue'   => $r['venue'],
-      'picName' => $r['pic'],          // di modul ini PIC memang teks nama
-      'mulai'   => $r['start_datetime'],
+      'id'          => $r['id'],
+      'nama'        => $r['title'],
+      'status'      => $r['status'],
+      'venue'       => $r['venue'],
+      'picName'     => $r['pic'],      // di modul ini PIC memang teks nama
+      'inputOleh'   => isset($d['createdBy'])   ? (string)$d['createdBy']   : '',
+      'inputOlehId' => isset($d['createdById']) ? (string)$d['createdById'] : '',
+      'mulai'       => $r['start_datetime'],
     );
   }
   return array('events' => $out);
