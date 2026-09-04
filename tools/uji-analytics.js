@@ -94,8 +94,12 @@ function domAnalytics(opt) {
           ? { ok:false, error:'server mati' } : { ok:true, data:{ saved:true } });
         if (body.action === 'analyticsAkses' || body.action === 'analyticsPeran')
           return jawab({ ok:true, data:{ akses:{}, peran:{} } });
+        /* hpp.php membalas payload DATAR — {bahan, resep, setting, ts}, tanpa
+           `ok` dan tanpa `data`. Bentuk ini DIPERIKSA terhadap sumber PHP-nya
+           di bagian 3d, jadi tiruan ini tidak bisa menyimpang diam-diam lagi. */
         if (u.indexOf('hpp.php') > -1) return jawab(opt.hppGagal
-          ? { ok:false } : { ok:true, data: opt.hpp || { bahan:[], resep:[] } });
+          ? { status:'error', message:'token salah' }
+          : Object.assign({ bahan:[], resep:[], setting:{}, ts:'2026-09-04' }, opt.hpp || {}));
         if (u.indexOf('account-api') > -1) return jawab({ ok:true, members: opt.roster || [] });
         if (u.indexOf('event-api') > -1) return jawab(opt.eventGagal
           ? { ok:false } : { ok:true, data:{ events: opt.event || [] } });
@@ -416,6 +420,82 @@ async function siap(w) {
       }
       dom.window.close();
     }
+  }
+
+
+  /* ================= 3d. Bentuk balasan hpp.php =============================
+     Sampai 4 September 2026 analytics memeriksa `c.value.ok && c.value.data`,
+     padahal hpp.php membalas payload DATAR. Keduanya selalu undefined, jadi HP
+     selalu null dan perkiraan bahan baku TIDAK PERNAH SEKALI PUN terhitung —
+     tanpa satu pun galat, dengan pesan di layar yang terdengar seperti
+     gangguan sementara.
+
+     Ujinya tidak lolos begitu saja waktu itu karena STUB-nya ikut salah: ia
+     memulangkan {ok,data} yang tidak pernah dipulangkan server mana pun.
+     Karena itu bentuknya sekarang dibaca dari SUMBER PHP-nya, bukan dari
+     tiruannya. */
+  console.log('\n== Bentuk balasan stock-api-mysql/hpp.php ==');
+  {
+    const php = fs.readFileSync(path.join(ROOT, 'stock-mysql', 'hpp.php'), 'utf8');
+    const fn = php.slice(php.indexOf('function hpp_ambil('));
+    const ret = fn.slice(fn.indexOf('return array('), fn.indexOf(';', fn.indexOf('return array(')));
+    cek('hpp_ambil memulangkan bahan & resep di tingkat ATAS',
+        /'bahan' =>/.test(ret) && /'resep' =>/.test(ret), ret.slice(0, 200));
+    cek('...tanpa membungkusnya dalam kunci `data`', ret.indexOf("'data'") < 0, ret.slice(0, 200));
+    cek('...dan tanpa kunci `ok`', ret.indexOf("'ok'") < 0, ret.slice(0, 200));
+    /* pur_json menggemakan array apa adanya — tidak ada pembungkus di jalan. */
+    const lib = fs.readFileSync(path.join(ROOT, 'stock-mysql', 'lib_stock_mysql.php'), 'utf8');
+    const pj = lib.slice(lib.indexOf('function pur_json('), lib.indexOf('function pur_json(') + 320);
+    cek('pur_json menggemakan payload apa adanya', /echo json_encode\(\$arr/.test(pj), pj);
+
+    /* Dan layarnya membaca bentuk itu, bukan bentuk lain. */
+    const src = HTML;   // berkas modulnya, sudah dibaca di kepala berkas ini
+    cek('analytics tidak lagi menugaskan HP dari c.value.data',
+        src.indexOf('? c.value.data : null') < 0,
+        'penugasan lama masih ada');
+    cek('...melainkan bentuk yang benar-benar dipakai (resep berupa array)',
+        src.indexOf('Array.isArray(c.value.resep)') > -1);
+
+    /* Yang menentukan: dengan tiruan berbentuk BENAR, resepnya harus terbaca
+       dan perkiraan bahan baku harus benar-benar tergambar. */
+    const hpp = { bahan: [], resep: [
+      { nama:'Kopi', yield_qty:1, bahan:[ { nama:'Biji', qty:18, satuan:'Gr' } ] } ] };
+    const an = { data:{ laporan:{ '2026-08': {
+      diunggah:'2026-08-28', oleh:'W', berkas:'x.xlsx', jenis:'menu',
+      hari:{ '2026-08-01':{ bill:1, grand:10000 } },
+      jam:Array.from({length:24},()=>({bill:0,grand:0})),
+      menu:{ 'Kopi':{ qty:10, nilai:250000 } },
+      ringkas:{ bill:1, grand:10000, net:10000, svc:0, tax:0, sub:10000,
+                discMenu:0, discBill:0, discVoucher:0, pax:0, billPax:0 }
+    } }, setting:{} }, akses:{}, peran:{} };
+    const { dom } = domAnalytics({ an, hpp });
+    await siap(dom.window);
+    const w = dom.window, d = w.document;
+    cek('HP terisi dari balasan datar', !!w.eval('HP'), 'HP masih null');
+    cek('...dan resepnya ikut', w.eval('HP && HP.resep.length') === 1);
+    w.go('menu'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    cek('perkiraan bahan baku benar-benar tergambar',
+        v.indexOf('Resep dari modul HPP tidak terbaca') < 0 &&
+        v.indexOf('Perkiraan Bahan Baku') > -1, v.slice(0, 300));
+    /* 10 Kopi x 18 Gr = 180 Gr. */
+    cek('angkanya dihitung, bukan cuma kerangkanya',
+        v.slice(v.indexOf('Biji'), v.indexOf('Biji') + 160).indexOf('180') > -1,
+        v.slice(v.indexOf('Biji'), v.indexOf('Biji') + 200));
+    dom.window.close();
+  }
+
+  {
+    /* Gagalnya harus MENYEBUTKAN sebabnya. Tiga kemungkinan (token salah,
+       modul mati, versi beda) butuh tiga tindakan yang berbeda, dan pesan
+       "tidak terbaca" tanpa sebab mengirim orang menebak ketiganya. */
+    const { dom } = domAnalytics({ hppGagal:true });
+    await siap(dom.window);
+    const w = dom.window;
+    cek('hpp gagal -> HP null', w.eval('HP') === null);
+    cek('...dan sebabnya dicatat', /token salah/.test(w.eval('HP_ERR')), w.eval('HP_ERR'));
+    cek('...tapi halamannya tetap hidup', !!w.document.getElementById('app-view'));
+    dom.window.close();
   }
 
   /* ================= 4. laporan menu & bahan baku ================= */

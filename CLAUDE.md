@@ -520,6 +520,32 @@ angka yang sama dari dua bentuk laporan yang berbeda. Itu pemeriksaan terkuat
 di berkas ini dan satu-satunya yang tidak bisa dipalsukan; ia MELEWAT dengan
 jelas kalau salah satu berkasnya tidak ada di root repo.
 
+**`hpp.php` MEMBALAS PAYLOAD DATAR** — `{bahan, resep, setting, ts}`, tanpa
+kunci `ok` dan tanpa kunci `data`. Sama dengan `vendors.php`, beda dari
+finance-api/kompas-api yang memakai `{ok,data}`.
+
+Sampai 4 September 2026 `muatSemua()` memeriksa `c.value.ok && c.value.data`,
+dan keduanya SELALU `undefined` — jadi `HP` selalu null dan **perkiraan bahan
+baku tidak pernah sekali pun terhitung sejak modul ini lahir**. Yang tampil di
+layar "Resep dari modul HPP tidak terbaca", yang terdengar seperti gangguan
+sementara. Dua hal yang membuatnya bertahan berbulan-bulan, dan keduanya lebih
+penting daripada bug-nya sendiri:
+
+- **Komentar di atas barisnya menyatakan sebaliknya** ("hpp.php membalas
+  {ok,data}"). Yang membacanya percaya bentuknya sudah diperiksa. Komentar yang
+  salah lebih berbahaya daripada tidak ada komentar.
+- **Stub `fetch` di `uji-analytics.js` ikut salah** — ia memulangkan `{ok,data}`
+  yang tidak pernah dipulangkan server mana pun, jadi 185 pemeriksaan lewat
+  tanpa menyentuhnya. Tiruan yang bentuknya beda dari yang ditiru tidak menguji
+  apa pun; ia cuma mengulang asumsi yang sama dengan kode yang diujinya.
+
+Sekarang yang diperiksa **bentuk yang benar-benar dipakai** (`resep` berupa
+array), bukan kunci status — itu juga menolak balasan galat
+`{status:'error',message}` yang dipulangkan `hpp.php` dengan kode 403 kalau
+`API_TOKEN` dipasang. Bentuk balasannya dibandingkan dengan **sumber PHP-nya**
+di uji, bukan dengan tiruannya. Gagalnya menyebut SEBABNYA (`HP_ERR`): token
+salah, modul mati, dan versi beda butuh tiga tindakan yang berbeda.
+
 **Perkiraan bahan baku = qty menu × resep HPP**, dan resepnya **bertingkat**
 (`uraiResep()`): resep boleh memakai resep lain dan `yield_qty` dibagi.
 Kedalaman dibatasi 6 dan resep yang menunjuk dirinya sendiri DILAPORKAN.
@@ -649,7 +675,7 @@ Berkas POS **jangan di-commit** (sudah di `.gitignore`): satu berkas memuat
 seluruh transaksi sebulan.
 
 ```bash
-node tools/uji-analytics.js   # 185 pemeriksaan
+node tools/uji-analytics.js   # 198 pemeriksaan
 ```
 
 Ujinya memakai **berkas POS asli** di root repo kalau ada (kalau tidak, bagian

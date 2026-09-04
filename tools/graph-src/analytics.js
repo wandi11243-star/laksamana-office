@@ -821,6 +821,7 @@ function ketikRp() { fmtRpInput(); }
 
 
 
+
 function setSync() {  }
 
 function toast() { setSync(); }
@@ -984,6 +985,27 @@ function postJson() {  }
 function katEvent() {  }
 
 function muatSemua() { setSync(); postJson(); isoDari(); katEvent(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1743,6 +1765,10 @@ function bahanSatuMenu() { uraiResep(); }
 
 
 function bahanBakuHtml() { resepPeta(); uraiResep(); mnBahan(); }
+
+
+
+
 
 
 

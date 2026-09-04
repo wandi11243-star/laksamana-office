@@ -810,7 +810,8 @@ function ketikRp(el) { const p = el.selectionStart, l = el.value.length; el.valu
 let CURRENT_USER = null;
 let AN = null;                 // {data:{laporan,setting}, akses, peran}
 let KP = null;                 // blob kompas — dipakai membandingkan angka POS
-let HP = null;                 // {bahan,resep} dari modul HPP
+let HP = null;                 // {bahan,resep,setting,ts} dari modul HPP — payload DATAR
+let HP_ERR = '';               // sebab kenapa tidak terbaca, untuk dikatakan di layar
 let EV = [];                   // {tgl,judul,sumber,kategori} dari Event + Marketing
 let EV_ERR = [];               // modul agenda yang tidak menjawab
 let KP_ERR = '';
@@ -1002,11 +1003,32 @@ async function muatSemua() {
   if (b.status === 'fulfilled' && b.value && b.value.ok) { KP = b.value.data || {}; KP_ERR = ''; }
   else { KP = null; KP_ERR = 'Rekap Penjualan tidak terbaca, jadi angka POS tidak bisa dibandingkan dengan yang diinput manual.'; }
 
-  /* hpp.php membalas {ok,data:{bahan,resep}} — bentuknya beda dari vendors.php
-     yang tidak punya kunci `ok` sama sekali. Memeriksa yang salah membuang
-     balasan yang baik-baik saja, dan gejalanya cuma perkiraan bahan baku yang
-     selalu kosong tanpa satu pun galat. */
-  HP = (c.status === 'fulfilled' && c.value && c.value.ok && c.value.data) ? c.value.data : null;
+  /* hpp.php membalas payload DATAR: {bahan, resep, setting, ts} — TANPA kunci
+     `ok` dan TANPA kunci `data`. Sama dengan vendors.php, beda dari
+     finance-api/kompas-api yang memakai {ok,data}.
+
+     Sampai 4 September 2026 baris ini berbunyi `c.value.ok && c.value.data`,
+     dan keduanya SELALU undefined — jadi HP selalu null dan perkiraan bahan
+     baku tidak pernah sekali pun terhitung sejak modul ini lahir. Komentar di
+     atasnya menyatakan sebaliknya, dan justru komentar itu yang membuatnya
+     bertahan: yang membacanya percaya bentuknya sudah diperiksa. Kesalahan
+     yang sama persis sudah tercatat untuk vendors.php di CLAUDE.md.
+
+     Yang diperiksa sekarang BENTUK YANG DIPAKAI, bukan kunci status: `resep`
+     harus array. Itu juga menolak balasan galat {status:'error',message:…}
+     yang dipulangkan hpp.php dengan kode 403 kalau API_TOKEN dipasang. */
+  if (c.status === 'fulfilled' && c.value && Array.isArray(c.value.resep)) {
+    HP = c.value; HP_ERR = '';
+  } else {
+    HP = null;
+    /* Sebabnya DISEBUT, bukan cuma "tidak terbaca". Tiga kemungkinannya
+       butuh tiga tindakan yang berbeda — token salah diurus di config.php,
+       modul mati diurus di cPanel, dan balasan aneh berarti versinya beda. */
+    HP_ERR = (c.status !== 'fulfilled')
+      ? 'stock-api-mysql/hpp.php tidak menjawab (' + ((c.reason && c.reason.message) || 'jaringan') + ')'
+      : ((c.value && c.value.message) ? 'hpp.php menjawab: ' + c.value.message
+                                     : 'balasan hpp.php tidak berbentuk {bahan, resep}');
+  }
 
   EV = [];
   EV_ERR = [];
@@ -1744,7 +1766,11 @@ function bahanSatuMenu(nama, qty, peta) {
 }
 function bahanBakuHtml(urut) {
   if (!HP) return '<div class="notice warn">⚠ <div><b>Resep dari modul HPP tidak terbaca.</b> '
-    + 'Penjualan menu di atas tetap terbaca, tapi perkiraan bahan baku belum bisa dihitung.</div></div>';
+    + 'Penjualan menu di atas tetap terbaca, tapi perkiraan bahan baku belum bisa dihitung.'
+    + (HP_ERR ? '<div style="margin-top:6px;font-size:12px">Sebabnya: ' + esc(HP_ERR) + '</div>' : '')
+    + '<div style="margin-top:6px;font-size:12px">Yang dibaca <b>stock-api-mysql/hpp.php?action=all</b>. '
+    + 'Coba buka modul <b>Stock → HPP &amp; Resep</b> — kalau di sana daftarnya juga kosong, '
+    + 'yang mati backend-nya, bukan halaman ini.</div></div></div>';
   const peta = resepPeta();
   const keluar = {}, prep = {};
   const tanpaResep = [];
