@@ -715,6 +715,57 @@ Ujinya membaca **kedua berkas** lalu membandingkannya — angka H-3 jam, aturan
 akhir pekan, dan tujuh warna zona diambil dari `deploy/reservasi/index.html`,
 bukan ditulis ulang. Yang disalin tangan pasti menyimpang.
 
+### Konten: yang selesai otomatis diarsipkan (4 September 2026)
+
+`deploy/konten/`. Permintaan user: Content Planning, Shooting, Design, dan
+Editing hanya menampilkan **task yang masih berjalan**; yang sudah tayang atau
+selesai diarsipkan sendiri.
+
+- **Antrian produksi** (`queueState`) bawaannya `status:todo`, bukan ``.
+  Kotak pilihannya sekarang berbunyi *Aktif / Arsip / Semua* — kendalinya
+  memang sudah ada, yang berubah bawaannya dan kata-katanya.
+- **Content Planning** punya tapis `arsip` sendiri (`aktif`/`arsip`/``),
+  terpisah dari tapis per-status yang sudah ada. `STATUS_ARSIP` =
+  `[Posted,Cancelled]`, satu daftar dipakai tapis dan penghitungnya.
+- **Dua tapis tidak boleh saling meniadakan.** Memilih status `Posted`
+  sementara tapis arsip masih `aktif` akan memulangkan tabel KOSONG — dan
+  kosong terbaca sebagai "belum ada yang tayang", bukan sebagai "tapisnya
+  bertabrakan". Karena itu status arsip yang dipilih eksplisit MENANG atas
+  tapis arsip.
+- **Reset kembali ke AKTIF, bukan ke Semua.** Kalau tidak, menekan Reset justru
+  memunculkan seluruh arsip — kebalikan dari yang diharapkan yang menekannya.
+- **Yang disembunyikan disebut angkanya** di kepala halaman dan di baris
+  penyaring antrian. Daftar yang menyusut tanpa keterangan terbaca sebagai data
+  yang hilang, dan dilaporkan sebagai bug.
+
+### Reservasi: siapa yang terakhir mengubah denah (4 September 2026)
+
+Permintaan user. Capnya **menempel di objek denahnya** (`_editBy`, `_editAt`
+lewat `leCap()`), bukan disimpulkan dari Audit Log: audit dipotong di 500
+baris, jadi denah yang disunting lama justru yang paling pasti sudah kehilangan
+jejaknya di sana. Audit **tetap** dicatat — yang satu menjawab "siapa yang
+terakhir", yang satu "apa saja yang pernah terjadi".
+
+- Dipasang di **kedua** jalur simpan: `leSave()` (template) dan
+  `leSimpanTanggal()` (denah khusus tanggal). Yang terlewat tidak melempar apa
+  pun — denahnya cuma tidak pernah punya jejak.
+- Ditampilkan di penyunting denah, di baris Hari-H, dan di daftar template.
+- **Denah bawaan yang belum pernah disunting tidak diberi keterangan**:
+  `leCapTeks()` memulangkan kosong. "Terakhir diubah: -" membuat orang mencari
+  orang yang tidak pernah ada.
+- Aman terhadap backend: `master` disimpan sebagai **satu blob JSON tanpa
+  penyaringan kunci** (`json_encode($state[master])`), jadi kunci baru tidak
+  hilang diam-diam seperti kasus `mutasi` di brankas.
+
+```bash
+node tools/uji-arsip-konten.js   # 26 pemeriksaan, jsdom (Konten + Reservasi)
+```
+
+Modul Konten seluruhnya terbungkus IIFE (`const COMS = (function(){…})()`), jadi
+`planFilters`/`queueState` TIDAK ada di `window` — ujinya menyuntikkan jembatan
+`eval` KE DALAM IIFE saat uji jalan, bukan menambah kait ke berkas yang
+di-deploy. Pola yang sama dengan `uji-vendor.js` untuk modul BD.
+
 ### Master Vendor: di PURCHASING, dibaca Finance & BD (28 Agustus 2026)
 
 `deploy/stock/purchasing/` → tab **Database & Vendor** → *Daftar Kontak Vendor*.

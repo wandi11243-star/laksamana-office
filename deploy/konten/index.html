@@ -1570,16 +1570,30 @@ VIEWS.dashboard=function(){
 };
 
 /* ===== CONTENT PLANNING ===== */
-let planFilters={status:'',platform:'',pillar:'',pic:'',q:''};
+/* STATUS YANG DIANGGAP SELESAI — satu daftar, dipakai tapis arsip dan
+   penghitungnya. Sebelumnya ['Posted','Cancelled'] ditulis ulang di enam
+   tempat sebagai penentu "sudah lewat deadline"; menambah status selesai baru
+   berarti mengingat keenamnya, dan yang terlewat gagal diam-diam. */
+const STATUS_ARSIP=['Posted','Cancelled'];
+const sudahArsip=c=>STATUS_ARSIP.includes(c&&c.status);
+/* `arsip`: 'aktif' (bawaan) | 'arsip' | '' (semua). Konten yang sudah tayang
+   atau dibatalkan tidak lagi menuntut pekerjaan, dan daftar yang menyimpannya
+   selamanya membuat yang benar-benar perlu dikerjakan tenggelam. */
+let planFilters={arsip:'aktif',status:'',platform:'',pillar:'',pic:'',q:''};
 VIEWS.planning=function(){
   return `${brandBar()}
   <div class="page-head">
-    <div><p style="color:var(--txt-3);font-size:13px">${DB.content.length} total konten - ${DB.content.filter(c=>c.status==='Posted').length} tayang</p></div>
+    <div><p style="color:var(--txt-3);font-size:13px">${DB.content.length} total konten - ${DB.content.filter(c=>c.status==='Posted').length} tayang${
+      /* Yang tersembunyi disebut angkanya, dan cuma saat memang sedang
+         disembunyikan — keterangan yang selalu muncul berhenti dibaca. */
+      (planFilters.arsip==='aktif'&&DB.content.filter(sudahArsip).length)
+        ? ` · <b>${DB.content.filter(sudahArsip).length}</b> diarsipkan (tayang/batal)` : ''}</p></div>
     ${can('content')?`<button class="btn btn-gold" onclick="COMS.openContentForm()">＋ Konten Baru</button>`:''}
   </div>
   <div class="card" style="padding:14px;margin-bottom:16px">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <input class="ctrl" style="max-width:230px" placeholder="Cari judul / caption..." value="${esc(planFilters.q)}" oninput="COMS.planF('q',this.value)">
+      <select class="ctrl" style="max-width:200px" onchange="COMS.planF('arsip',this.value)"><option value="aktif" ${planFilters.arsip==='aktif'?'selected':''}>Aktif (belum tayang)</option><option value="arsip" ${planFilters.arsip==='arsip'?'selected':''}>Arsip (tayang/batal)</option><option value="" ${planFilters.arsip===''?'selected':''}>Semua</option></select>
       <select class="ctrl" style="max-width:150px" onchange="COMS.planF('status',this.value)"><option value="">Semua Status</option>${Object.keys(STATUS).map(s=>`<option ${planFilters.status===s?'selected':''}>${s}</option>`).join('')}</select>
       <select class="ctrl" style="max-width:150px" onchange="COMS.planF('platform',this.value)"><option value="">Semua Platform</option>${Object.keys(PLATFORMS).map(p=>`<option ${planFilters.platform===p?'selected':''}>${p}</option>`).join('')}</select>
       <select class="ctrl" style="max-width:170px" onchange="COMS.planF('pillar',this.value)"><option value="">Semua Pillar</option>${PILLARS.map(p=>`<option ${planFilters.pillar===p?'selected':''}>${p}</option>`).join('')}</select>
@@ -1591,10 +1605,19 @@ VIEWS.planning=function(){
 };
 AFTER.planning=renderPlanTable;
 function planF(k,v){planFilters[k]=v;renderPlanTable();}
-function planReset(){planFilters={status:'',platform:'',pillar:'',pic:'',q:''};route('planning');}
+/* Reset kembali ke AKTIF, bukan ke semua — kalau tidak, menekan Reset justru
+   memunculkan seluruh arsip. */
+function planReset(){planFilters={arsip:'aktif',status:'',platform:'',pillar:'',pic:'',q:''};route('planning');}
 function filteredContent(){
   let list=filterByBrand(DB.content);
   const f=planFilters;
+  /* Tapis arsip DILEWATI kalau orang memilih status yang memang arsip. Tanpa
+     pengecualian ini, memilih "Posted" dari kotak status memulangkan tabel
+     KOSONG — dan kosong terbaca sebagai "belum ada yang tayang", bukan sebagai
+     "dua tapisnya saling meniadakan". */
+  if(f.arsip&&!(f.status&&STATUS_ARSIP.includes(f.status))){
+    list=f.arsip==='arsip'?list.filter(sudahArsip):list.filter(c=>!sudahArsip(c));
+  }
   if(f.status)list=list.filter(c=>c.status===f.status);
   if(f.platform)list=list.filter(c=>contentPlatforms(c).includes(f.platform));
   if(f.pillar)list=list.filter(c=>c.pillar===f.pillar);
@@ -2452,14 +2475,29 @@ VIEWS.workload=function(){
 // ===== QUEUE PRODUKSI TERPADU (design / edit / shoot) =====
 // Menggabungkan tugas dari kebutuhan konten + tugas mandiri (DB.prodTasks).
 // State filter & sorting untuk tiap queue produksi (shoot/design/edit)
+/* ARSIP OTOMATIS (4 September 2026, permintaan user: "jika sudah posted atau
+   done dia otomatis arsip, jadi tampilan awalnya hanya task yang baru").
+
+   Bawaannya `todo`, bukan '' (semua). Antrian yang menyimpan pekerjaan selesai
+   selamanya akan lebih panjang tiap minggu, dan yang dikerjakan hari ini —
+   satu-satunya alasan halaman ini dibuka — tenggelam di antara ratusan baris
+   yang sudah beres.
+
+   TIDAK DIHAPUS, cuma tidak ditampilkan: pilihan "Arsip (selesai)" ada di
+   kotak yang sama, dan jumlah totalnya tetap tertulis di kanan ("x / y
+   pekerjaan") supaya tidak ada yang mengira datanya hilang. */
+const QUEUE_BAWAAN={q:'',status:'todo',priority:'',sort:'date',dir:1};
 const queueState={
-  shoot:{q:'',status:'',priority:'',sort:'date',dir:1},
-  design:{q:'',status:'',priority:'',sort:'date',dir:1},
-  edit:{q:'',status:'',priority:'',sort:'date',dir:1}
+  shoot:Object.assign({},QUEUE_BAWAAN),
+  design:Object.assign({},QUEUE_BAWAAN),
+  edit:Object.assign({},QUEUE_BAWAAN)
 };
 function queueF(kind,key,val){queueState[kind][key]=val;route(currentView);}
 function queueSort(kind,col){const st=queueState[kind];if(st.sort===col){st.dir=-st.dir;}else{st.sort=col;st.dir=1;}route(currentView);}
-function queueReset(kind){queueState[kind]={q:'',status:'',priority:'',sort:'date',dir:1};route(currentView);}
+/* Reset mengembalikan ke BAWAAN yang sama, bukan ke "semua": kalau tidak,
+   menekan Reset justru memunculkan kembali seluruh arsip — kebalikan dari yang
+   diharapkan orang yang menekannya. */
+function queueReset(kind){queueState[kind]=Object.assign({},QUEUE_BAWAAN);route(currentView);}
 function queueSortVal(r,key){
   switch(key){
     case 'priority':return PRIORITY[r.priority]?PRIORITY[r.priority].n:0;
@@ -2701,14 +2739,20 @@ function prodQueue(kind,title,roleNote){
     // tie-breaker: prioritas lalu tanggal
     return (PRIORITY[b.priority].n-PRIORITY[a.priority].n)||(new Date(a.date||'2099')-new Date(b.date||'2099'));});
   const total=fromContent.length+standalone.length+fromMkt.length;
+  /* Dihitung dari daftar SEBELUM tapis status, kalau tidak angkanya selalu nol
+     — dan nol membaca sebagai "tidak ada yang selesai". */
+  const arsipJml=[...fromContent,...standalone,...fromMkt].filter(r=>r.done).length;
   const addBtn=can(p.view)?`<button class="btn btn-gold" onclick="COMS.openTaskForm('${kind}')">＋ Tambah ${p.short}</button>`:'';
   const filterBar=`<div class="card" style="padding:12px;margin-bottom:16px">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
       <input class="ctrl" style="max-width:240px" placeholder="Cari pekerjaan..." value="${esc(st.q)}" oninput="COMS.queueF('${kind}','q',this.value)">
-      <select class="ctrl" style="max-width:170px" onchange="COMS.queueF('${kind}','status',this.value)"><option value="">Semua Status</option><option value="todo" ${st.status==='todo'?'selected':''}>Dikerjakan</option><option value="done" ${st.status==='done'?'selected':''}>Selesai</option></select>
+      <select class="ctrl" style="max-width:190px" onchange="COMS.queueF('${kind}','status',this.value)"><option value="todo" ${st.status==='todo'?'selected':''}>Aktif (belum selesai)</option><option value="done" ${st.status==='done'?'selected':''}>Arsip (sudah selesai)</option><option value="" ${st.status===''?'selected':''}>Semua</option></select>
       <select class="ctrl" style="max-width:160px" onchange="COMS.queueF('${kind}','priority',this.value)"><option value="">Semua Prioritas</option>${Object.keys(PRIORITY).map(pr=>`<option value="${pr}" ${st.priority===pr?'selected':''}>${PRIORITY[pr].label}</option>`).join('')}</select>
       <button class="btn btn-ghost btn-sm" onclick="COMS.queueReset('${kind}')">Reset</button>
-      <span style="margin-left:auto;font-size:12px;color:var(--txt-3)">${list.length} / ${total} pekerjaan</span>
+      <span style="margin-left:auto;font-size:12px;color:var(--txt-3)">${list.length} / ${total} pekerjaan${
+        /* Yang tersembunyi DISEBUT ANGKANYA. "12 pekerjaan" tanpa keterangan
+           tidak bisa dibedakan dari "cuma segitu yang pernah ada". */
+        (st.status==='todo'&&arsipJml>0)?` · <b>${arsipJml}</b> diarsipkan`:''}</span>
     </div></div>`;
   /* Peringatan, BUKAN halaman kosong. Kalau modul Marketing tidak terbaca,
      antrian dari konten & tugas mandiri tetap harus bisa dikerjakan — yang

@@ -1590,9 +1590,32 @@ function st() { esc(); fmtDate(); brandBar(); num(); fmtDateShort(); tint(); cal
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function planF() { renderPlanTable(); }
+
+
 function planReset() { route(); }
 function filteredContent() { filterByBrand(); contentPlatforms(); contentDetail(); }
+
+
+
+
+
+
+
 
 
 
@@ -2457,8 +2480,23 @@ function saveUser() { getUser(); toast(); logAct(); save(); closeDrawer(); route
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
 function queueF() { route(); }
 function queueSort() { route(); }
+
+
+
 function queueReset() { route(); }
 function queueSortVal() { brandName(); userName(); }
 
@@ -2677,6 +2715,12 @@ function reqMktSelesai() { can(); toast(); getUser(); closeModal(); route(); mua
 
 function reqMktUlang() { muatReqMkt(); route(); }
 function prodQueue() { tint(); muatReqMkt(); filterByBrand(); contentTypeLabel(); printTypeLabel(); contentPlatforms(); reqMktUntuk(); queueSortVal(); can(); openTaskForm(); esc(); queueF(); queueReset(); reqMktUlang(); brandBar(); pgSlice(); qHead(); getBrand(); openContent(); reqMktLihat(); escJsAttr(); toggleProdDone(); reqMktSelesai(); toggleTaskDone(); prioBadge(); brandDot(); avatar(); userName(); deadlineHTML(); pgBar(); }
+
+
+
+
+
+
 
 
 

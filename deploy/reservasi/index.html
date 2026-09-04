@@ -4239,7 +4239,14 @@ function renderDashboard(){
      ${HARIH_Q&&!perTanggal?`<span class="harih-result">${list.length} hasil untuk “${esc(HARIH_Q)}”</span>`:""}
      ${inMap&&canEdit?`<span style="margin-left:auto;display:inline-flex;gap:6px">
        <button class="btn btn-sm ${hasLayoutOverride(HARIH_DATE)?'btn-primary':'btn-ghost'}" onclick="openLayoutSettings()" title="Pilih layout denah khusus tanggal ini (event); besok balik default">⚙️ Layout: ${layoutName(harihL1())}${hasLayoutOverride(HARIH_DATE)?" ⚑":""}</button>
-       <button class="btn btn-sm btn-ghost" onclick="openLayoutEditor(harihLayoutKey(),HARIH_DATE,harihLantai())" title="Ubah posisi meja untuk tanggal ini — template tidak ikut berubah kecuali sengaja dipilih">✏️ Editor Denah: ${esc(layoutName(harihLayoutKey()))}</button>
+       <button class="btn btn-sm btn-ghost" onclick="openLayoutEditor(harihLayoutKey(),HARIH_DATE,harihLantai())" title="Ubah posisi meja untuk tanggal ini — template tidak ikut berubah kecuali sengaja dipilih${(()=>{const c=leCapTeks(harihLayoutKey());return c?'\n'+c.replace(/<[^>]*>/g,''):'';})()}">✏️ Editor Denah: ${esc(layoutName(harihLayoutKey()))}</button>${(()=>{
+         /* Jejak penyunting ditulis DI LAYAR, bukan cuma di title tombol:
+            tooltip menuntut orang menaruh kursor di tempat yang tepat, dan
+            yang bertanya "siapa yang mengubah denah" tidak tahu harus
+            menghoverkan apa. */
+         const c=leCapTeks(harihLayoutKey());
+         return c?`<span class="harih-result" style="margin-left:6px">${c}</span>`:'';
+       })()}
      </span>`:""}
    </div>
 
@@ -4747,7 +4754,12 @@ function openLayoutSettings(lt){
       <label class="wa-target" style="display:flex;gap:11px;align-items:flex-start;cursor:pointer;flex:1;margin:0">
         <input type="radio" name="lyov" value="${esc(k)}" ${cur===k?"checked":""} style="margin-top:3px;width:17px;height:17px;accent-color:var(--gold)">
         <div><h4 style="margin:0">${esc(layoutName(k))}${builtin?"":" (custom)"}</h4>
-          <p style="margin:2px 0 0">${sub}${dipakai?` · dipakai ${dipakai} tanggal`:""}</p></div>
+          <p style="margin:2px 0 0">${sub}${dipakai?` · dipakai ${dipakai} tanggal`:""}${(()=>{
+            /* Denah bawaan yang BELUM pernah disunting tidak punya penyunting,
+               dan menuliskan "terakhir diubah: -" membuat orang mencari orang
+               yang tidak pernah ada. leCapTeks() memulangkan kosong untuk itu. */
+            const c=leCapTeks(k); return c?` · ${c}`:"";
+          })()}</p></div>
       </label>
       ${builtin?"":`<button class="btn btn-sm btn-danger" title="Hapus template ini" onclick="hapusTemplate('${esc(k)}')">🗑️</button>`}
     </div>`;
@@ -4889,6 +4901,40 @@ function clearLayoutOverride(date, lt, keepModal){
 /* ===== EDITOR DENAH — atur posisi meja sendiri (drag & drop) ===== */
 let LE=null;   // { key, data:{name,fixed,tables}, sel, dirty, drag }
 function leClone(o){ return JSON.parse(JSON.stringify(o)); }
+/* ================= SIAPA YANG TERAKHIR MENYUNTING DENAH =================
+   4 September 2026, permintaan user. Denah dipegang beberapa orang; kalau meja
+   tiba-tiba pindah, pertanyaan pertama selalu "siapa yang mengubah", dan
+   sampai sekarang jawabannya cuma ada di Audit Log — daftar yang dipotong di
+   500 baris, jadi denah yang disunting lama justru yang paling pasti sudah
+   kehilangan jejaknya.
+
+   Karena itu capnya MENEMPEL DI OBJEK DENAHNYA, bukan disimpulkan dari audit:
+   selama denahnya ada, keterangannya ikut. Audit tetap dicatat — yang satu
+   menjawab "siapa yang terakhir", yang satu menjawab "apa saja yang pernah
+   terjadi", dan keduanya memang pertanyaan berbeda.
+
+   Namanya berawalan `_` supaya jelas bukan bagian denah: penggambar denah
+   membaca `tables` & `fixed`, dan kunci lain tidak pernah disentuhnya. */
+function leCap(d){
+  if(!d || typeof d!=="object") return d;
+  d._editBy = SESSION ? SESSION.name : "-";
+  d._editAt = Date.now();
+  return d;
+}
+/* Keterangan siap pakai. Kosong kalau denahnya belum pernah disunting — denah
+   bawaan memang tidak punya penyunting, dan menuliskan "terakhir diubah: -"
+   membuat orang mencari orang yang tidak pernah ada. */
+function leCapTeks(key){
+  const d=getLayout(key);
+  if(!d || !d._editBy) return "";
+  return "Terakhir diubah "+esc(d._editBy)+(d._editAt?" · "+fmtWaktuSingkat(d._editAt):"");
+}
+/* Tanggal + jam pendek. Dipisah supaya dipakai baris denah maupun tooltip. */
+function fmtWaktuSingkat(ts){
+  if(!ts) return "";
+  const d=new Date(ts);
+  return fmtDateShort(ymdOf(ts))+" "+String(d.getHours()).padStart(2,"0")+":"+String(d.getMinutes()).padStart(2,"0");
+}
 function lePx(v){ return (v/SEAT_W*100).toFixed(3)+"%"; }
 function lePy(v){ return (v/SEAT_H*100).toFixed(3)+"%"; }
 /* openLayoutEditor(key, ctxDate, ctxLt)
@@ -4969,6 +5015,14 @@ function leRender(){
   byId("modalRoot").innerHTML=`<div class="modal-back" onclick="if(event.target===this)leTryClose()"><div class="modal" style="max-width:1120px;width:100%">
     <div class="modal-head"><h3>✏️ Editor Denah ${esc(LE.data.name||"")} <span class="badge-status tag-new" style="vertical-align:middle">Lantai ${lt}</span>${LE.dirty?' •':''}</h3><button class="close-x" onclick="leTryClose()">×</button></div>
     <div class="modal-body" style="max-height:80vh">
+      ${(()=>{
+        /* Ditaruh PALING ATAS di badan modal, bukan di kaki: pertanyaan "siapa
+           yang mengubah" muncul SEBELUM orang menyunting, bukan sesudah — dan
+           keterangan di kaki modal yang tingginya 80vh praktis tidak pernah
+           terbaca. */
+        const cap=leCapTeks(LE.key);
+        return cap?`<div class="le-tools" style="margin-bottom:8px;font-size:12.5px;color:var(--muted-2)">✏️ ${cap}</div>`:'';
+      })()}
       ${LE.ctx?`<div class="le-tools" style="margin-bottom:8px">
         <label style="margin:0;font-weight:600;font-size:13px">📅 Denah untuk tanggal</label>
         <input type="date" value="${LE.ctx.date}" onchange="leGantiTanggal(this.value)" style="max-width:180px">
@@ -5010,7 +5064,7 @@ function leSimpanTanggal(){
   const {date,lt}=LE.ctx, k=keyTanggal(date,lt);
   const d=leClone(LE.data);
   d.name="Denah "+fmtDateShort(date)+" · Lt."+lt;
-  layoutTanggal()[k]=d;
+  layoutTanggal()[k]=leCap(d);
   LE.key=k; LE.dirty=false;
   saveState(); logAudit("Simpan Denah Tanggal",`${fmtDateShort(date)} Lt.${lt} (${(d.tables||[]).length} meja)`);
   toast(`Denah ${fmtDateShort(date)} disimpan — template tidak ikut berubah ✓`,"ok");
@@ -5121,7 +5175,7 @@ function leTplKey(){
 function leSave(){
   const key=leTplKey();
   if(parseKeyTanggal(key)) return;   // tidak mungkin, tapi jangan sampai denah tanggal masuk registry template
-  customLayouts()[key]=leClone(LE.data); LE.key=key; LE.dirty=false;
+  customLayouts()[key]=leCap(leClone(LE.data)); LE.key=key; LE.dirty=false;
   saveState(); logAudit("Simpan Layout",`${layoutName(key)} (${LE.data.tables.length} meja)`);
   toast(`Template ${layoutName(key)} disimpan — berlaku untuk semua tanggal yang memakainya`,"ok");
   leRender(); renderHariH();

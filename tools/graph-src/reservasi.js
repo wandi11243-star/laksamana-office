@@ -4195,7 +4195,14 @@ function renderDashboard() { resetOccCache(); resetLantaiCache(); recapList(); t
 
 
 
-function tabBtn() { dashTab(); byId(); openCoordWA(); newReservation(); fmtDateShort(); esc(); fmtDur(); waitMinutes(); icon(); afterSearch(); renderDashboard(); hasLayoutOverride(); openLayoutSettings(); layoutName(); harihL1(); openLayoutEditor(); harihLayoutKey(); harihLantai(); dashSetMode(); recapSetFrom(); setDenahTgl(); timeSelectHtml(); lantaiTersedia(); recapIsDay(); recapSetDay(); recapSet7(); recapSetMonth(); denahFilterAktif(); todayStr(); recapReset(); fmtDate(); recapMultiDay(); waitlistView(); harihMapView(); dashCalendar(); recapTable(); updateHarihTimers(); }
+function tabBtn() { dashTab(); byId(); openCoordWA(); newReservation(); fmtDateShort(); esc(); fmtDur(); waitMinutes(); icon(); afterSearch(); renderDashboard(); hasLayoutOverride(); openLayoutSettings(); layoutName(); harihL1(); openLayoutEditor(); harihLayoutKey(); harihLantai(); leCapTeks(); dashSetMode(); recapSetFrom(); setDenahTgl(); timeSelectHtml(); lantaiTersedia(); recapIsDay(); recapSetDay(); recapSet7(); recapSetMonth(); denahFilterAktif(); todayStr(); recapReset(); fmtDate(); recapMultiDay(); waitlistView(); harihMapView(); dashCalendar(); recapTable(); updateHarihTimers(); }
+
+
+
+
+
+
+
 
 
 
@@ -4721,7 +4728,12 @@ function harihMapView() { harihLayoutKey(); harihOccupancy(); occSig(); layoutNa
 
 
 
-function openLayoutSettings() { toast(); harihLantai(); ltCfg(); defaultDayTypeLt(); ovLantai(); esc(); lantaiLayout(); allLayoutKeys(); isBuiltinLayout(); layoutName(); hapusTemplate(); todayStr(); getLayout(); layoutTanggal(); fmtDateShort(); clearLayoutOverride(); }
+function openLayoutSettings() { toast(); harihLantai(); ltCfg(); defaultDayTypeLt(); ovLantai(); esc(); lantaiLayout(); allLayoutKeys(); isBuiltinLayout(); layoutName(); leCapTeks(); hapusTemplate(); todayStr(); getLayout(); layoutTanggal(); fmtDateShort(); clearLayoutOverride(); }
+
+
+
+
+
 
 
 
@@ -4889,6 +4901,40 @@ function clearLayoutOverride() { ovLantai(); keyTanggal(); layoutTanggal(); logA
 
 
 function leClone() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function leCap() {  }
+
+
+
+
+
+
+
+
+function leCapTeks() { getLayout(); esc(); fmtWaktuSingkat(); }
+
+
+
+
+
+function fmtWaktuSingkat() { fmtDateShort(); ymdOf(); }
+
+
+
+
 function lePx() {  }
 function lePy() { openLayoutEditor(); }
 
@@ -4941,7 +4987,7 @@ function leInspectorHtml() { leAddTable(); esc(); leSet(); leDeleteTable(); }
 
 
 
-function leRender() { parseKeyTanggal(); ovLantai(); getLayout(); defaultDayTypeLt(); isBuiltinLayout(); customLayouts(); adaDenahTanggal(); lantaiLayout(); allLayoutKeys(); esc(); layoutName(); byId(); leTryClose(); leGantiTanggal(); leHapusDenahTanggal(); leSwitch(); leDuplicate(); leRename(); leDeleteTemplate(); leResetDefault(); fmtDateShort(); leCanvasHtml(); kapasitasLayout(); leInspectorHtml(); leSave(); leSimpanTanggal(); }
+function leRender() { parseKeyTanggal(); ovLantai(); getLayout(); defaultDayTypeLt(); isBuiltinLayout(); customLayouts(); adaDenahTanggal(); lantaiLayout(); allLayoutKeys(); esc(); layoutName(); byId(); leTryClose(); leCapTeks(); leGantiTanggal(); leHapusDenahTanggal(); leSwitch(); leDuplicate(); leRename(); leDeleteTemplate(); leResetDefault(); fmtDateShort(); leCanvasHtml(); kapasitasLayout(); leInspectorHtml(); leSave(); leSimpanTanggal(); }
 
 
 
@@ -5005,7 +5051,15 @@ function leRender() { parseKeyTanggal(); ovLantai(); getLayout(); defaultDayType
 
 
 
-function leSimpanTanggal() { keyTanggal(); leClone(); fmtDateShort(); layoutTanggal(); saveState(); logAudit(); toast(); leRender(); renderHariH(); }
+
+
+
+
+
+
+
+
+function leSimpanTanggal() { keyTanggal(); leClone(); fmtDateShort(); layoutTanggal(); leCap(); saveState(); logAudit(); toast(); leRender(); renderHariH(); }
 
 
 
@@ -5118,7 +5172,7 @@ function leTplKey() { parseKeyTanggal(); ovLantai(); getLayout(); defaultDayType
 
 
 
-function leSave() { leTplKey(); parseKeyTanggal(); customLayouts(); leClone(); saveState(); logAudit(); layoutName(); toast(); leRender(); renderHariH(); }
+function leSave() { leTplKey(); parseKeyTanggal(); customLayouts(); leCap(); leClone(); saveState(); logAudit(); layoutName(); toast(); leRender(); renderHariH(); }
 
 
 
