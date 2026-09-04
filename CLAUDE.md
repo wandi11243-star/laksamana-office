@@ -190,9 +190,30 @@ nominalnya boleh disunting. Nominal per hari disimpan di `rekap_setoran[].jumlah
 - **Mengetik nominal tidak menggambar ulang halaman** (`rkUbahNominal`), sama
   alasannya dengan centangnya: render di modul ini TOTAL, jadi kotak yang
   sedang diketik akan dibuat ulang dan hanya huruf pertama yang masuk.
+- **"Rp" di kotak nominal adalah HIASAN, bukan bagian nilainya** (`.rpin>span`).
+  Sempat ikut di dalam `value` lewat `fmtRp()`, dan begitu kotaknya diketik
+  pemformat hidup modul ini (`fmtRpInput`, yang membuang semua non-digit)
+  menghapusnya — sehingga kotak yang belum disentuh berbunyi `Rp1.803.000`
+  sementara yang barusan diketik berbunyi `1.527.000`, di kolom yang sama
+  (keluhan user 4 September 2026). Sebagai hiasan ia tidak bisa hilang dan
+  tidak pernah ikut terpilih saat isinya di-blok untuk diganti.
+- **Kotaknya berclass `rp`, jadi yang memformat pemformat modul** — satu
+  penangan `input` di `document`. `rkUbahNominal` sengaja TIDAK memformat
+  sendiri: dua pemformat untuk satu kotak menggeser kursornya dua kali tiap
+  ketukan. Penangan elemen jalan lebih dulu, jadi `el.value` di sana masih
+  mentah — dan itu aman, `num()` memang membuang seluruh non-digit.
+- **Kotak yang isinya tidak sah ditandai DI KOTAKNYA** (`.rpin.err`), bukan
+  cuma di pita peringatan: pita menyebut tanggal, dan mencocokkan tanggal
+  dengan baris di tabel 30 baris adalah pekerjaan yang tidak perlu ada.
+  Disegarkan di `rkSegarPilih()`, bukan di `rkUbahNominal` — supaya ikut
+  tersegar sesudah Pilih Semua, bukan hanya sesudah ada yang mengetik.
+- **`rkPasangKotak()` satu tempat untuk menyalakan/mematikan kotak**, dipakai
+  centang per baris dan Pilih Semua. Dua tempat yang menyetelnya
+  sendiri-sendiri akan menyimpang, dan yang menyimpang di sini adalah kotak
+  yang terlihat mati padahal harinya ikut terkirim.
 
 ```bash
-node tools/uji-setoran-sebagian.js   # 42 pemeriksaan, jsdom (kas + brankas + php)
+node tools/uji-setoran-sebagian.js   # 59 pemeriksaan, jsdom (kas + brankas + php)
 ```
 
 **Pengembalian modal menyebut wallet asalnya** (`returns[].dari`). Tanpa itu

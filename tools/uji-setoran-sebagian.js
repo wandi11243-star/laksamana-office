@@ -137,6 +137,87 @@ function boot(berkas, url) {
   w.eval('RK_PILIH={};');
   cek('tanpa pilihan, tidak ada peringatan', w.eval('rkPeringatanPilih()') === '');
 
+
+  /* ---- kolom Yang Disetor: bentuk & format rupiahnya ---- */
+  w.eval("RK_PILIH={}; RK_TAB='setoran';");
+  w.document.body.insertAdjacentHTML('beforeend', '<div id="uji-st"></div>');
+  w.eval("document.getElementById('uji-st').innerHTML=rkHalSetoran(rkBelumSetor())");
+  const kotak = w.document.querySelectorAll('#uji-st input[data-nom]');
+  cek('tiap hari punya kotak nominalnya sendiri', kotak.length === 2, String(kotak.length));
+  /* Kotaknya SELALU digambar, cuma dimatikan — kalau ia baru muncul saat
+     dicentang, lebar kolom bergeser tiap satu centang dan barisnya melompat
+     di bawah kursor. */
+  cek('kotak yang belum dicentang dimatikan, bukan disembunyikan',
+      kotak[0].disabled === true && kotak[0].closest('.rpin') !== null);
+
+  /* "Rp" HIASAN, bukan bagian nilai. Kalau ia ikut di value, pemformat hidup
+     modul ini (fmtRpInput, yang membuang semua non-digit) menghapusnya begitu
+     kotaknya diketik — kotak yang belum disentuh berbunyi "Rp1.803.000"
+     sementara yang barusan diketik berbunyi "1.527.000", di kolom yang sama.
+     Itulah yang dikeluhkan user 4 September 2026. */
+  const bungkus = kotak[0].closest('.rpin');
+  cek('prefiks Rp digambar sebagai hiasan di sebelah kotak',
+      bungkus.querySelector('span') && bungkus.querySelector('span').textContent === 'Rp',
+      bungkus.outerHTML.slice(0, 160));
+  cek('...dan TIDAK ikut di dalam nilainya',
+      String(kotak[0].placeholder).indexOf('Rp') < 0, kotak[0].placeholder);
+
+  /* Pemformatnya SATU untuk seluruh modul: kotaknya berclass "rp", jadi
+     penangan `input` di document yang mengerjakannya berikut posisi kursor.
+     Pemformat kedua di sini akan menggeser kursornya dua kali tiap ketukan. */
+  cek('kotaknya menyerahkan format ke pemformat modul (class rp)',
+      kotak[0].classList.contains('rp'), kotak[0].className);
+  {
+    const src = fs.readFileSync(KAS, 'utf8');
+    const i = src.indexOf('function rkUbahNominal(');
+    const badan = src.slice(i, src.indexOf('function ', i + 10));
+    cek('rkUbahNominal tidak memformat sendiri (pemformat modul yang kerja)',
+        i > -1 && badan.indexOf('ketikRp(') < 0, badan.slice(0, 200));
+  }
+
+  /* Dicentang: kotaknya hidup, terisi sisa hari itu, TANPA "Rp" di nilainya. */
+  w.eval("rkPilihHari('2026-09-01',true)");
+  const k1 = w.document.querySelector('#uji-st input[data-nom="2026-09-01"]');
+  cek('dicentang → kotaknya hidup', k1.disabled === false);
+  cek('...terisi sisa hari itu, berformat ribuan tanpa Rp',
+      k1.value === '1.000.000', k1.value);
+  cek('...dan barisnya ditandai terisi', k1.closest('.rpin').classList.contains('on'));
+
+  /* Diketik: formatnya tetap rupiah. Ini yang diminta user — angka mentah
+     "1527000" di antara "Rp1.803.000" tidak bisa dibandingkan sekali lihat. */
+  k1.value = '1527000';
+  k1.dispatchEvent(new w.Event('input', { bubbles: true }));
+  cek('diketik → langsung berformat ribuan', k1.value === '1.527.000', k1.value);
+  cek('...dan nilainya terbaca benar, bukan 1,527',
+      w.eval("RK_PILIH['2026-09-01']") === 1527000, String(w.eval("RK_PILIH['2026-09-01']")));
+
+  /* Kotak yang isinya tidak sah ditandai DI KOTAKNYA. Pita peringatan menyebut
+     tanggal, dan mencocokkan tanggal dengan baris di tabel 30 baris adalah
+     pekerjaan yang tidak perlu ada. */
+  k1.value = '9000000';
+  k1.dispatchEvent(new w.Event('input', { bubbles: true }));
+  cek('nominal di atas sisa ditandai di kotaknya', k1.closest('.rpin').classList.contains('err'));
+  k1.value = '0';
+  k1.dispatchEvent(new w.Event('input', { bubbles: true }));
+  cek('nominal nol juga ditandai di kotaknya', k1.closest('.rpin').classList.contains('err'));
+  k1.value = '500000';
+  k1.dispatchEvent(new w.Event('input', { bubbles: true }));
+  cek('dibetulkan → tandanya hilang', !k1.closest('.rpin').classList.contains('err'));
+
+  /* Pilih Semua memakai pemasang yang sama; kalau tidak, kotaknya hidup tapi
+     kosong — dan hari yang ikut terkirim dengan nominal nol. */
+  w.eval('rkPilihSemua(true)');
+  const semua = [...w.document.querySelectorAll('#uji-st input[data-nom]')];
+  cek('Pilih Semua menghidupkan semua kotak berikut isinya',
+      semua.every(i => !i.disabled && i.value.length > 0),
+      JSON.stringify(semua.map(i => [i.disabled, i.value])));
+  cek('...dan tidak ada satu pun yang ditandai salah',
+      semua.every(i => !i.closest('.rpin').classList.contains('err')));
+  w.eval('rkPilihSemua(false)');
+  cek('dilepas → kotaknya mati dan kosong lagi',
+      semua.every(i => i.disabled && i.value === ''),
+      JSON.stringify(semua.map(i => [i.disabled, i.value])));
+
   /* ---- yang dikirim ke server ---- */
   let terkirim = null;
   w.eval('rkKirim=function(d,cb){ __KIRIM=d; };');

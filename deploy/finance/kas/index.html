@@ -94,6 +94,38 @@ input,select,textarea{font-family:inherit}
 .kkd input,.kkd select{width:100%;padding:8px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-size:13.5px}
 .kkd input:focus,.kkd select:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
 .kkd input[type=checkbox]{width:auto;padding:0}
+/* KOTAK NOMINAL SETORAN (kolom "Yang Disetor" di sub-tab Setoran Cash).
+
+   "Rp" digambar sebagai HIASAN, bukan bagian nilainya. Sempat ikut di dalam
+   value lewat fmtRp(): begitu kotaknya diketik, pemformat hidup modul ini
+   (fmtRpInput, yang membuang semua non-digit) menghapus "Rp"-nya — jadi kotak
+   yang belum disentuh berbunyi "Rp1.803.000" sementara yang barusan diketik
+   berbunyi "1.527.000", di kolom yang sama. Sebagai hiasan ia tidak bisa
+   hilang, tidak bisa terhapus tak sengaja, dan tidak pernah ikut terpilih saat
+   isinya di-blok untuk diganti.
+
+   Lebar "Rp"-nya dipatok (padding-left 30px) supaya angkanya rata kanan di
+   kolom yang sama — inilah gunanya rata kanan: puluhan baris angka yang bisa
+   dibandingkan panjangnya sekali lihat. */
+.rpin{position:relative;display:block}
+.rpin>span{position:absolute;left:10px;top:50%;transform:translateY(-50%);
+  font-size:12.5px;font-weight:600;color:var(--muted-2);pointer-events:none;letter-spacing:.2px}
+.rpin>input{width:100%;padding:8px 10px 8px 30px;border:1.5px solid var(--line);border-radius:8px;
+  background:var(--surface);color:var(--text);font-size:13.5px;text-align:right;
+  transition:border-color .15s,box-shadow .15s,background .15s}
+.rpin>input:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring);background:#fff}
+/* Terisi = bergaris emas tipis. Di daftar 30 baris, yang sudah dicentang harus
+   terlihat tanpa menelusuri kolom centangnya satu per satu. */
+.rpin>input:not(:disabled){border-color:var(--gold-soft);font-weight:600}
+/* Lewat kelas .on, bukan lewat :not(:disabled)+span — spannya berada SEBELUM
+   input di markup, jadi kombinator saudara tidak akan pernah cocok dan
+   aturannya mati diam-diam. */
+.rpin.on>span{color:var(--gold)}
+/* Mati = jelas MATI, bukan sekadar pucat: kotak yang terlihat bisa diketik
+   tapi menolak ketikan adalah kotak yang dicoba berkali-kali. */
+.rpin>input:disabled{background:var(--paper);color:var(--muted-2);cursor:not-allowed;border-style:dashed}
+.rpin.err>input{border-color:var(--danger);background:var(--danger-bg-t)}
+.rpin.err>span{color:var(--danger)}
 .kkd td{vertical-align:middle;padding:7px 8px}
 .kkd .num input{text-align:right}
 
@@ -2212,7 +2244,7 @@ function rkHalSetoran(belum){
     html+=`<div class="tbl-wrap"><table><thead><tr>
         <th style="width:36px"><input type="checkbox" onchange="rkPilihSemua(this.checked)" title="Pilih semua" style="accent-color:var(--gold);cursor:pointer"></th>
         <th>Tanggal</th><th class="num">Cash Actual</th><th class="num">Sisa Belum Setor</th>
-        <th class="num" style="width:150px">Yang Disetor</th><th>Umur</th>
+        <th class="num" style="width:168px">Yang Disetor</th><th>Umur</th>
       </tr></thead><tbody>`;
     const kini=new Date(todayISO()+'T00:00:00');
     belum.forEach(b=>{
@@ -2225,10 +2257,21 @@ function rkHalSetoran(belum){
         <td class="num mono"><b>${fmtRp(b.sisa)}</b></td>
         ${/* Kotaknya SELALU digambar, cuma dimatikan saat belum dicentang —
              kalau ia baru muncul begitu dicentang, lebar kolom tabel bergeser
-             tiap satu centang dan barisnya melompat di bawah kursor. */''}
-        <td class="num"><input class="mono" data-nom="${b.tgl}" inputmode="numeric" style="text-align:right;width:100%"
-          value="${on?fmtRp(num(RK_PILIH[b.tgl])):''}" placeholder="${fmtRp(b.sisa)}"
-          ${on?'':'disabled'} oninput="rkUbahNominal('${b.tgl}',this)"></td>
+             tiap satu centang dan barisnya melompat di bawah kursor.
+
+             class="rp" menyerahkan pemformatan hidup ke pemformat modul ini
+             (satu penangan `input` di document, lihat fmtRpInput). SATU
+             pemformat untuk seluruh modul: yang menulis pemformat kedua di
+             sini akan menggeser kursornya dua kali tiap ketukan.
+
+             Nilainya TANPA "Rp" — prefiksnya hiasan di sebelahnya, lihat CSS
+             .rpin. Kalau "Rp" ikut di value, ia lenyap begitu kotaknya diketik
+             dan kolomnya jadi campur dua bentuk. */''}
+        <td class="num"><label class="rpin${on?' on':''}"><span>Rp</span>
+          <input class="mono rp" data-nom="${b.tgl}" inputmode="numeric"
+          value="${on?fmtRpInput(num(RK_PILIH[b.tgl])):''}" placeholder="${fmtRpInput(b.sisa)}"
+          ${on?'':'disabled'} title="Sisa hari ini ${fmtRp(b.sisa)}"
+          oninput="rkUbahNominal('${b.tgl}',this)"></label></td>
         <td>${umur<=1?'<span class="chip mute">baru</span>':umur<=3?`<span class="chip warn">${umur} hari</span>`:`<span class="chip bad">${umur} hari</span>`}</td>
       </tr>`;
     });
@@ -2302,8 +2345,7 @@ function rkPilihHari(tgl,on){
   /* Dicentang = seluruh SISA hari itu, bukan seluruh cash-nya: hari yang sudah
      disetor sebagian akan disetor dua kali kalau bawaannya cash penuh. */
   if(on) RK_PILIH[tgl]=rkSisaSetor(tgl); else delete RK_PILIH[tgl];
-  const inp=document.querySelector('input[data-nom="'+tgl+'"]');
-  if(inp){ inp.disabled=!on; inp.value=on?fmtRp(num(RK_PILIH[tgl])):''; }
+  rkPasangKotak(document.querySelector('input[data-nom="'+tgl+'"]'), on, RK_PILIH[tgl]);
   rkSegarPilih();
 }
 function rkPilihSemua(on){
@@ -2311,8 +2353,8 @@ function rkPilihSemua(on){
   if(on) rkBelumSetor().forEach(b=>{ RK_PILIH[b.tgl]=b.sisa; });
   document.querySelectorAll('input[data-pilih]').forEach(c=>{ c.checked=RK_PILIH[c.dataset.pilih]!==undefined; });
   document.querySelectorAll('input[data-nom]').forEach(i=>{
-    const t=i.dataset.nom, ada=RK_PILIH[t]!==undefined;
-    i.disabled=!ada; i.value=ada?fmtRp(num(RK_PILIH[t])):'';
+    const t=i.dataset.nom;
+    rkPasangKotak(i, RK_PILIH[t]!==undefined, RK_PILIH[t]);
   });
   rkSegarPilih();
 }
@@ -2320,14 +2362,28 @@ function rkPilihSemua(on){
    centangnya: daftarnya bisa puluhan baris, dan render total di modul ini akan
    membuat ulang kotak yang sedang diketik sehingga hanya huruf pertama yang
    masuk. Yang diperbarui cuma dua angka dan satu tombol. */
+/* Menyalakan/mematikan satu kotak nominal berikut hiasannya. SATU tempat,
+   dipakai centang per baris dan pilih-semua: dua tempat yang menyetelnya
+   sendiri-sendiri akan menyimpang, dan yang menyimpang di sini adalah kotak
+   yang terlihat mati padahal harinya ikut terkirim. */
+function rkPasangKotak(inp,on,nilai){
+  if(!inp) return;
+  inp.disabled=!on;
+  inp.value=on?fmtRpInput(num(nilai)):'';
+  const w=inp.closest('.rpin'); if(w) w.classList.toggle('on',!!on);
+}
 function rkUbahNominal(tgl,el){
-  if(RK_PILIH[tgl]===undefined) return;      // kotaknya mati, tidak mungkin — tapi jangan menghidupkan centang dari sini
-  ketikRp(el);
+  if(RK_PILIH[tgl]===undefined) return;      // kotaknya mati — jangan menghidupkan centang dari sini
+  /* TIDAK memformat di sini: kotaknya berclass "rp", jadi pemformat modul
+     (penangan `input` di document) yang mengerjakannya berikut posisi
+     kursornya. Penangan elemen jalan LEBIH DULU daripada yang di document,
+     jadi el.value di baris bawah ini masih mentah — dan itu tidak masalah,
+     num() memang membuang seluruh non-digit. */
   RK_PILIH[tgl]=num(el.value);
   rkSegarPilih();
 }
 function rkSegarPilih(){
-  const n=rkNPilih(), t=fmtRp(rkTotalPilih()), nol=rkPilihNol();
+  const n=rkNPilih(), t=fmtRp(rkTotalPilih()), nol=rkPilihNol(), lebih=rkPilihLebih();
   ['rk-st-n','rk-st-n2'].forEach(id=>{ const e=document.getElementById(id); if(e) e.textContent=n; });
   ['rk-st-total','rk-st-total2'].forEach(id=>{ const e=document.getElementById(id); if(e) e.textContent=t; });
   /* Peringatannya disegarkan di sini juga, bukan cuma digambar sekali: kotak
@@ -2335,8 +2391,17 @@ function rkSegarPilih(){
      peringatan apa pun kalau ia cuma ditulis saat render. */
   const w=document.getElementById('rk-st-warn');
   if(w) w.innerHTML=rkPeringatanPilih();
+  /* Kotak yang isinya tidak sah ditandai DI KOTAKNYA, bukan cuma di pita
+     peringatan: pita menyebut tanggal, dan mencocokkan tanggal dengan baris di
+     tabel 30 baris adalah pekerjaan yang tidak perlu ada. Dikerjakan di sini —
+     bukan di rkUbahNominal — supaya ia ikut tersegarkan sesudah Pilih Semua,
+     bukan hanya sesudah ada yang mengetik. */
+  const salah={}; nol.concat(lebih).forEach(d=>{ salah[d]=1; });
+  document.querySelectorAll('input[data-nom]').forEach(i=>{
+    const box=i.closest('.rpin'); if(box) box.classList.toggle('err', !!salah[i.dataset.nom]);
+  });
   const b=document.getElementById('rk-st-simpan');
-  if(b) b.disabled=(n===0||nol.length>0||rkPilihLebih().length>0||RK_JALAN);
+  if(b) b.disabled=(n===0||nol.length>0||lebih.length>0||RK_JALAN);
 }
 function rkCatatSetoran(){
   const hari=rkHariPilih().sort();
