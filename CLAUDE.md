@@ -522,6 +522,71 @@ Yang menahan bug diam-diam, dan ketiganya muncul sebagai UANG bukan sebagai gala
   harga yang diputuskan di sana harus sama dengan yang keluar di Daftar Resep
   begitu menunya benar-benar dibuat.
 
+### HPP: ekspor & impor Daftar Resep lewat Excel (4 September 2026)
+
+Permintaan user: "daftar resep dan barang dan harga dan floor itu bisa export
+dan import lewat excel". **Bahan & Harga dan Barang Floor sudah punya sejak 17
+Agustus 2026** — satu berkas untuk keduanya, tombolnya digambar `layarBahan()`
+yang dipakai kedua halaman. Yang belum cuma **Daftar Resep**, dan itulah yang
+ditambahkan.
+
+**SATU BARIS = SATU BARIS BAHAN**, bukan satu resep: sebuah resep punya banyak
+bahan dan Excel tidak punya sel bersarang. Kolom resepnya (jenis, tipe, yield,
+harga jual) ditulis **di baris pertama tiap resep saja**; diulang di tiap baris,
+yang menyuntingnya harus menebak baris mana yang menentukan.
+
+Yang menahan bug diam-diam — tidak satu pun muncul sebagai galat:
+
+- **Baris CATATAN ikut, ditandai `Ref=Catatan`.** `hpp_simpan_resep` menyimpan
+  baris `{catatan}` tanpa `nama` ("bumbu blender saring") yang memisahkan tahap
+  memasak. Kalau ekspor menyaringnya dengan `b.nama`, satu putaran
+  ekspor–sunting–impor **menghapus seluruh tahap memasak** — dan yang hilang
+  bukan angka, jadi tidak ada yang menyadarinya. Dibaca balik ia juga tidak
+  boleh jadi bahan biasa: ia akan muncul sebagai "bahan tak dikenal" yang tidak
+  akan pernah bisa dibereskan siapa pun.
+- **Pencocokan NAMA + JENIS.** `cariResep()` sengaja jatuh ke pencarian tanpa
+  jenis (dipakai penghitung modal), jadi impor **tidak boleh memakainya apa
+  adanya**: resep drink baru bernama "Ayam Goreng" akan menimpa isi resep food
+  yang sudah ada. Yang dipakai hanya kecocokan sejenis; nama yang cuma ada di
+  jenis lain dianggap resep BARU.
+- **Ejaan tersimpan menang atas ejaan berkas** (`rec.nama=cocok.nama`), sama
+  dengan impor bahan. Pencocokannya `low()`, jadi "ayam goreng" tetap menemukan
+  "Ayam Goreng" — tapi menemukannya tidak boleh sekalian MENGGANTI namanya.
+- **Barisnya digabung dengan data lama** (`Object.assign({},cocok,r)`) sebelum
+  dikirim. Server menulis SELURUH kolom tiap simpan, jadi kolom yang tidak ada
+  di berkas (`catatan` resep, `harga_lama`, `di_purchasing`) akan **terhapus
+  jadi kosong** kalau barisnya dikirim mentah.
+- **Resep non-aktif tetap diekspor.** Berkas yang cuma memuat yang aktif,
+  diunggah balik, tidak akan pernah bisa menghidupkan yang dimatikan.
+- **Saringan di layar TIDAK ikut** — sama alasannya dengan ekspor bahan dan
+  dengan ekspor Jadwal Shift: berkas berisi 40 resep yang namanya sama persis
+  dengan ekspor lengkap akan diunggah balik orang lain sebagai "seluruh daftar".
+- **Bahan yang belum dikenal DISEBUT namanya di pratinjau**, sebelum menulis.
+  Barisnya tetap tersimpan, tapi modalnya dihitung tanpa bahan itu — angka yang
+  terlihat wajar padahal kurang.
+
+**Satu-satunya aturan yang berbeda dari impor bahan, dan itu dikatakan
+terang-terangan di pratinjau: baris bahan resep yang IKUT di berkas diganti
+utuh.** Tidak bisa lain — satu resep tersebar di beberapa baris, jadi menghapus
+baris di Excel adalah satu-satunya cara orang menyatakan "bahan ini sudah tidak
+dipakai". Yang tetap berlaku: **resep yang tidak ada di berkas tidak disentuh**.
+
+Backend `hpp_impor_resep()` di `stock-mysql/hpp.php` dibentuk mengikuti
+`hpp_impor_bahan()`, **bukan `hpp_impor()`** — yang terakhir menjalankan
+`DELETE FROM hpp_resep` / `hpp_bahan` saat `$timpa` dan memang cuma untuk
+pemindahan awal sekali jalan. Dipakai berulang, ia menghapus seluruh daftar
+resep sebelum menulis yang ada di berkas. Aksinya `imporResep`, terpisah dari
+`impor` lama yang tidak disentuh.
+
+```bash
+node tools/uji-excel-resep.js   # 58 pemeriksaan, jsdom
+```
+
+Ujinya melakukan **putaran penuh** — ekspor lalu impor tanpa satu suntingan pun
+harus melaporkan "tidak ada yang berubah". Itu satu-satunya cara menangkap kolom
+yang hilang di jalan: yang lolos ekspor tapi tidak terbaca impor tidak
+menimbulkan galat di kedua sisinya.
+
 **Tapis Makanan / Minuman di Daftar Resep** (2 September 2026). Tapisnya sudah
 ada sejak lama — tapi berupa **dropdown bertuliskan "Food" / "Drink"**, satu
 dari empat kotak pilihan berjajar di baris atas. Yang mencari "minuman" tidak

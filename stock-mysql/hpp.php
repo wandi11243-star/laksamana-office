@@ -470,6 +470,57 @@ function hpp_impor($pdo, $d, $by, $timpa) {
  * membanjiri modul tetangga adalah keputusan orang, bukan efek samping sebuah
  * unggahan; tombol "Daftarkan semuanya" di layar sudah menyediakan jalannya.
  */
+/* IMPOR RESEP DARI EXCEL/CSV (4 September 2026, permintaan user).
+ *
+ * Beda dari hpp_impor() di atas, yang MENGHAPUS SELURUH TABEL saat $timpa dan
+ * memang cuma untuk pemindahan awal sekali jalan. Yang ini dipakai berulang:
+ * daftar resep disunting di Excel lalu diunggah kembali.
+ *
+ * TIDAK MENGHAPUS RESEP. Resep yang ada di tabel tapi tidak ada di berkas
+ * dibiarkan — berkas yang cuma memuat sebagian (orang menyaring dulu di Excel)
+ * tidak boleh berarti "sisanya sudah tidak ada".
+ *
+ * TAPI BARIS BAHAN DI DALAM RESEP YANG IKUT DI BERKAS MEMANG DIGANTI UTUH, dan
+ * itu tidak bisa dihindari: satu resep = beberapa baris berkas, jadi baris yang
+ * dihapus orang di Excel adalah satu-satunya cara ia menyatakan "bahan ini
+ * sudah tidak dipakai". Layar mengatakannya terang-terangan sebelum menulis.
+ *
+ * Barisnya sudah DIGABUNG dengan data lama di layar (id resep lama
+ * dipertahankan di sana), jadi di sini ia disimpan apa adanya lewat jalur
+ * simpan yang sama — satu penulis, satu aturan.
+ */
+function hpp_impor_resep($pdo, $rows, $by) {
+  if (!is_array($rows)) return array('status' => 'error', 'message' => 'rows bukan array');
+  /* Id yang sudah ada dikumpulkan SEKALI di depan; angka "baru" harus dihitung
+     SEBELUM barisnya ditulis — sesudahnya semua baris terlihat sudah ada. */
+  $ada = array();
+  foreach ($pdo->query('SELECT id FROM hpp_resep')->fetchAll(PDO::FETCH_COLUMN) as $i) {
+    $ada[(string)$i] = true;
+  }
+  $baru = 0; $ubah = 0; $lewat = 0; $galat = array();
+  foreach ($rows as $r) {
+    if (is_array($r)) $r = (object)$r;
+    if (!is_object($r)) { $lewat++; continue; }
+    $nm = hpp_txt(isset($r->nama) ? $r->nama : '', 190);
+    if ($nm === '') { $lewat++; continue; }
+    $id = hpp_txt(isset($r->id) ? $r->id : '', 48);
+    $sebelum = ($id !== '' && isset($ada[$id]));
+    try {
+      hpp_simpan_resep($pdo, $r, $by);
+    } catch (Throwable $e) {
+      /* Satu resep yang gagal TIDAK menjatuhkan seluruh unggahan — 364 resep
+         yang benar tidak boleh hilang karena satu nama yang kepanjangan.
+         Namanya dipulangkan supaya yang gagal bisa DISEBUT di layar. */
+      error_log('[stock/hpp] impor resep "' . $nm . '" gagal: ' . $e->getMessage());
+      $galat[] = $nm;
+      continue;
+    }
+    if ($sebelum) $ubah++; else $baru++;
+  }
+  return array('status' => 'success', 'saved' => true,
+               'baru' => $baru, 'diubah' => $ubah, 'lewat' => $lewat, 'galat' => $galat);
+}
+
 function hpp_impor_bahan($pdo, $rows, $by) {
   if (!is_array($rows)) return array('status' => 'error', 'message' => 'rows bukan array');
   /* Daftar nama yang sudah ada dikumpulkan SEKALI di depan. Menanyakannya per
@@ -741,6 +792,9 @@ try {
       pur_json(['status' => 'success', 'saved' => true]);
     }
     if ($a === 'impor') pur_json(hpp_impor($pdo, $b->data ?? new stdClass(), $by, !empty($b->timpa)));
+    /* Dipakai berulang dari layar Daftar Resep; TIDAK menghapus resep yang
+       tidak ada di berkas. Lihat catatan di hpp_impor_resep(). */
+    if ($a === 'imporResep') pur_json(hpp_impor_resep($pdo, $b->rows ?? array(), $by));
     /* SAMAKAN NAMA DENGAN PURCHASING (14 Agustus 2026, permintaan user).
        Pencocokan dihapus sebagai konsep: nama bahan di HPP harus SAMA PERSIS
        dengan nama di basis purchasing, supaya bahan baru di sana langsung

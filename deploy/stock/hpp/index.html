@@ -952,6 +952,15 @@ function viewResep(){
           .map(o=>`<option value="${o[0]}"${F.aktif===o[0]?' selected':''}>${o[1]} (${o[2]})</option>`).join('')}
       </select>
       <button class="btn btn-primary btn-sm" onclick="bukaResep('')">+ Resep Baru</button>
+      <!-- EKSPOR/IMPOR DAFTAR RESEP. Sama seperti di Bahan & Harga, saringan
+           yang sedang aktif di layar TIDAK ikut: berkas berisi 40 resep yang
+           namanya sama persis dengan ekspor lengkap akan diunggah balik oleh
+           orang lain sebagai "seluruh daftar resep", dan tidak ada satu pun
+           tanda yang membedakannya. Yang diunduh selalu seluruhnya. -->
+      <button class="btn btn-ghost btn-sm" onclick="exportResepXlsx()" title="Unduh SELURUH resep (menu jadi + base, makanan + minuman) sebagai berkas Excel — saringan di layar ini tidak ikut">⬇ Excel</button>
+      <button class="btn btn-ghost btn-sm" onclick="exportResepCsv()" title="Sama isinya dengan Excel, tapi tanpa mengunduh pustaka apa pun">⬇ CSV</button>
+      <button class="btn btn-ghost btn-sm" onclick="pilihBerkasResep()" title="Unggah berkas hasil ekspor yang sudah disunting. Resep yang tidak ada di berkas TIDAK dihapus; ada pratinjau sebelum ditulis">⬆ Impor</button>
+      <input type="file" id="fResep" accept=".xlsx,.xls,.csv,text/csv" class="hidden" onchange="bacaBerkasResep(this)">
       <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(1)">🖨 PDF (+modal)</button>
       <button class="btn btn-ghost btn-sm" onclick="cetakBanyak(0)">🖨 PDF (resep saja)</button>
     </div></div>`;
@@ -2499,6 +2508,263 @@ function jalankanImpor(){
     .catch(e=>{
       setSync('err','✕ Gagal');
       pesan(`<div class="notice bad">✕ Gagal mengimpor: ${esc(e.message||'')}. <b>Tidak ada yang tersimpan.</b> Kalau server belum diperbarui, unggah ulang <b>stock-mysql/</b> dulu.</div>`);
+    });
+}
+
+/* ============ EKSPOR & IMPOR DAFTAR RESEP (4 September 2026) ============
+   Permintaan user: "daftar resep, barang, harga, dan floor bisa export dan
+   import lewat Excel". Bahan & Harga dan Barang Floor SUDAH punya sejak 17
+   Agustus 2026 (satu berkas untuk keduanya — Barang Floor memang bahan juga);
+   yang belum cuma Daftar Resep, dan itulah yang ditambahkan di sini.
+
+   SATU BARIS = SATU BARIS BAHAN, bukan satu resep. Sebuah resep punya banyak
+   baris bahan, dan Excel tidak punya sel bersarang; bentuk inilah yang dipakai
+   berkas HPP aslinya (sheet "Recipe - Food"), jadi yang membukanya mengenali
+   susunannya tanpa dijelaskan. Kolom resep (jenis, tipe, yield, harga jual)
+   DIULANG di tiap barisnya — yang pertama untuk sebuah resep yang menang, dan
+   sisanya diabaikan.
+
+   PERBEDAAN PENTING DARI IMPOR BAHAN, dan ini satu-satunya tempat aturannya
+   tidak sama: baris bahan sebuah resep yang IKUT di berkas DIGANTI UTUH.
+   Tidak bisa lain — satu resep tersebar di beberapa baris, jadi menghapus baris
+   di Excel adalah SATU-SATUNYA cara orang menyatakan "bahan ini sudah tidak
+   dipakai". Yang tetap berlaku: resep yang TIDAK ADA di berkas tidak disentuh
+   sama sekali, dan nama tidak pernah diganti lewat impor.
+
+   Pencocokannya NAMA + JENIS, bukan nama saja: ada nama yang hidup di food dan
+   drink sekaligus (mis. "Simple Syrup"), dan mencocokkan dengan nama saja akan
+   menimpa resep minuman dengan isi resep makanan tanpa satu pun galat — persis
+   alasan PR dipetakan per jenis di petakan(). */
+const KOL_RESEP=['Nama Resep','Jenis','Tipe','Seksi','Yield Qty','Yield Unit',
+                 'Harga Jual','Modal Manual','Aktif','Bahan','Qty','Satuan','Ref',
+                 'Modal (otomatis)'];
+/* Urutannya: Menu Jadi dulu lalu Base, masing-masing menurut nama. Sama dengan
+   urutan tab di layar — berkas yang urutannya berbeda dari layar membuat orang
+   mencocokkannya baris demi baris. */
+function resepEkspor(){
+  const urut=(a,b)=>low(a.nama).localeCompare(low(b.nama));
+  return S.resep.filter(r=>r.tipe==='dish').slice().sort(urut)
+    .concat(S.resep.filter(r=>r.tipe!=='dish').slice().sort(urut));
+}
+function barisEksporResep(){
+  const out=[];
+  resepEkspor().forEach(r=>{
+    const m=modalMenu(r);
+    /* Kolom resep hanya ditulis di baris PERTAMA tiap resep. Mengulangnya di
+       tiap baris membuat berkasnya terbaca seperti data yang berganda, dan
+       yang menyuntingnya harus menebak baris mana yang menentukan. Pembaca
+       impor memang sudah memakai baris pertama sebagai penentu. */
+    const kepala=[r.nama, r.jenis==='drink'?'Minuman':'Makanan',
+                  r.tipe==='base'?'Base':'Menu Jadi', r.seksi||'',
+                  num(r.yield_qty)||1, r.yield_unit||'', num(r.harga_baru)||0,
+                  num(r.modal_manual)||0, capYa(r.aktif!==0)];
+    const kosong=['','','','','','','','',''];
+    /* Baris CATATAN (mis. "bumbu blender saring") IKUT, ditandai Ref=Catatan.
+       Di berkas HPP aslinya baris itu memisahkan tahap memasak, dan resep
+       tanpa tahapnya tidak bisa dibaca juru masak. Kalau tidak diekspor, satu
+       putaran ekspor-sunting-impor MENGHAPUSNYA dari resep tanpa satu pun
+       galat — yang hilang bukan angka, jadi tidak ada yang menyadarinya. */
+    const isi=(r.bahan||[]).filter(b=>b&&(b.nama||b.catatan));
+    if(!isi.length){ out.push(kepala.concat(['','','','',Math.round(m.total)])); return; }
+    isi.forEach((b,i)=>{
+      const cat=!b.nama&&b.catatan;
+      out.push((i===0?kepala:kosong).concat([
+        cat?b.catatan:b.nama, cat?'':num(b.qty), cat?'':(b.satuan||''),
+        cat?'Catatan':(b.ref==='resep'?'Resep':'Bahan'),
+        i===0?Math.round(m.total):''
+      ]));
+    });
+  });
+  return out;
+}
+function ringkasEksporResep(n,bentuk){
+  pesan(`<div class="notice ok"><div>✓ <b>${resepEkspor().length} resep</b> (${n} baris) diekspor ke ${bentuk}.
+    Satu baris = satu bahan; kolom resepnya ditulis di baris pertama tiap resep.
+    <div style="margin-top:6px;font-size:12px;color:var(--muted)">Kolom <b>Modal (otomatis)</b> cuma keterangan — diubah pun tidak dibaca saat impor.
+    Resep yang <b>dihapus dari berkas tidak ikut terhapus</b> dari data; tapi baris bahan resep yang <b>ikut</b> di berkas diganti persis seperti isinya.</div></div></div>`);
+}
+function exportResepCsv(){
+  const r=barisEksporResep();
+  unduhCsv(`resep_hpp_laksamana_${tglBerkas()}.csv`,[csvBaris(KOL_RESEP),...r.map(csvBaris)].join('\n'));
+  ringkasEksporResep(r.length,'CSV');
+}
+async function exportResepXlsx(){
+  let XL; try{ XL=await muatXlsx(); }catch(e){ return galatXlsx(); }
+  const aoa=[KOL_RESEP,...barisEksporResep()];
+  const ws=XL.utils.aoa_to_sheet(aoa);
+  ws['!cols']=aoa[0].map((h,i)=>({wch:Math.min(42,Math.max(String(h).length+2,
+    ...aoa.slice(1).map(r=>String(r[i]==null?'':r[i]).length+2)))}));
+  const wb=XL.utils.book_new();
+  XL.utils.book_append_sheet(wb,ws,'Daftar Resep');
+  XL.writeFile(wb,`resep_hpp_laksamana_${tglBerkas()}.xlsx`);
+  ringkasEksporResep(aoa.length-1,'Excel');
+}
+
+function pilihBerkasResep(){ const i=$('fResep'); if(!i) return; i.value=''; i.click(); }
+function bacaBerkasResep(el){
+  const f=el.files&&el.files[0]; if(!f) return;
+  const excel=/\.xlsx?$/i.test(f.name||'');
+  const lanjut=rows=>{
+    const h=bacaResepRows(rows);
+    if(h.galat) return pesan(`<div class="notice bad">✕ ${h.galat}</div>`);
+    if(!h.resep.length) return pesan(`<div class="notice bad">✕ Tidak ada baris berisi nama resep di berkas itu.</div>`);
+    siapkanImporResep(h.resep,h.bolong);
+  };
+  const fr=new FileReader();
+  fr.onerror=()=>pesan(`<div class="notice bad">✕ Berkasnya tidak bisa dibaca.</div>`);
+  if(excel){
+    fr.onload=()=>{
+      muatXlsx().then(XL=>{
+        const wb=XL.read(new Uint8Array(fr.result),{type:'array'});
+        const ws=wb.Sheets[wb.SheetNames[0]];
+        if(!ws) return pesan(`<div class="notice bad">✕ Tidak ada sheet yang bisa dibaca di berkas itu.</div>`);
+        lanjut(XL.utils.sheet_to_json(ws,{header:1,raw:false,defval:''})
+                 .filter(r=>(r||[]).some(c=>String(c).trim()!=='')));
+      }).catch(e=>{
+        if(!window.XLSX) return galatXlsx();
+        console.error(e);
+        pesan(`<div class="notice bad">✕ Isi berkas Excel tidak bisa dibaca. Coba buka lalu simpan ulang dari Excel.</div>`);
+      });
+    };
+    fr.readAsArrayBuffer(f);
+  } else {
+    fr.onload=()=>lanjut(uraiCsv(fr.result));
+    fr.readAsText(f,'utf-8');
+  }
+}
+/* Baris berkas -> daftar resep. Baris yang kolom Nama Resep-nya KOSONG dianggap
+   lanjutan resep di atasnya — itulah bentuk yang ditulis ekspor, dan itu pula
+   yang paling wajar diketik orang. */
+function bacaResepRows(rows){
+  if(!rows.length) return {galat:'Berkasnya kosong.'};
+  const amb=petaKolom(rows[0]);
+  if(amb(rows[0],'Nama Resep')===undefined){
+    return {galat:'Kolom <b>Nama Resep</b> tidak ada di baris pertama berkas itu. Pakai hasil <b>⬇ Excel</b> atau <b>⬇ CSV</b> dari halaman ini sebagai kerangkanya.'};
+  }
+  const out=[],bolong=[]; let kini=null;
+  rows.slice(1).forEach((b,i)=>{
+    const nama=String(amb(b,'Nama Resep')||'').trim();
+    const bahan=String(amb(b,'Bahan')||'').trim();
+    if(nama){
+      const jenisTeks=low(String(amb(b,'Jenis')||''));
+      const tipeTeks=low(String(amb(b,'Tipe')||''));
+      kini={
+        nama,
+        /* Yang dibandingkan KATA INDONESIANYA, tapi yang disimpan tetap
+           'food'/'drink' — itu isi kolom `jenis` di database, dan menyimpan
+           'Makanan' membuat resepnya tidak pernah cocok dengan tapis mana pun
+           tanpa satu pun galat. */
+        jenis: jenisTeks.indexOf('minum')>-1||jenisTeks==='drink' ? 'drink' : 'food',
+        tipe:  tipeTeks.indexOf('base')>-1 ? 'base' : 'dish',
+        seksi: String(amb(b,'Seksi')||'').trim(),
+        yield_qty: angkaImpor(amb(b,'Yield Qty'))||1,
+        yield_unit: String(amb(b,'Yield Unit')||'').trim(),
+        harga_baru: angkaImpor(amb(b,'Harga Jual')),
+        modal_manual: angkaImpor(amb(b,'Modal Manual')),
+        aktif: /^(t|n|0)/.test(low(String(amb(b,'Aktif')||'ya'))) ? 0 : 1,
+        bahan: []
+      };
+      out.push(kini);
+    }
+    if(!kini){ bolong.push(i+2); return; }   // +2: baris kepala + hitungan dari 1
+    if(!bahan) return;                        // baris resep tanpa bahan — sah
+    const ref=low(String(amb(b,'Ref')||''));
+    /* Ref=Catatan dipulangkan sebagai baris catatan, bentuk yang sama dengan
+       yang disimpan hpp_simpan_resep ({catatan} tanpa {nama}). Dibaca sebagai
+       bahan biasa, ia jadi bahan bernama "bumbu blender saring" yang tidak
+       ada di daftar mana pun — muncul sebagai peringatan bahan tak dikenal
+       yang tidak akan pernah bisa dibereskan siapa pun. */
+    if(ref.indexOf('catat')>-1){ kini.bahan.push({catatan:bahan}); return; }
+    kini.bahan.push({
+      nama: bahan,
+      qty: angkaImpor(amb(b,'Qty')),
+      satuan: String(amb(b,'Satuan')||'').trim(),
+      ref: ref.indexOf('resep')>-1 ? 'resep' : 'bahan'
+    });
+  });
+  return {resep:out,bolong};
+}
+/* Pratinjau. Bentuknya sengaja sama dengan siapkanImpor() milik Bahan & Harga —
+   dua alur unggah di satu modul yang tampilannya berbeda membuat orang ragu
+   apakah yang kedua benar-benar sudah berjalan. */
+let IMPOR_RESEP=null;
+function siapkanImporResep(list,bolong){
+  const baru=[],ubah=[]; let sama=0;
+  list.forEach(r=>{
+    const lama=cariResep(r.nama,r.jenis);
+    /* cariResep() jatuh ke pencarian TANPA jenis kalau yang sejenis tidak ada.
+       Di sini itu tidak boleh: resep drink bernama sama tidak boleh ditimpa
+       isi resep food. Yang dipakai cuma kecocokan sejenis. */
+    const cocok=(lama&&lama.jenis===r.jenis)?lama:null;
+    if(!cocok){ baru.push(Object.assign({id:''},r)); return; }
+    /* Digabung dengan baris lama supaya kolom yang TIDAK ada di berkas —
+       catatan, harga_lama, di_purchasing — tidak terhapus jadi kosong: server
+       menulis seluruh kolom tiap kali (hpp_simpan_resep). */
+    const rec=Object.assign({},cocok,r);   // id lama ikut dari `cocok`
+    /* Ejaan tersimpan menang atas ejaan di berkas — pencocokannya low(), jadi
+       "ayam goreng" di Excel tetap menemukan "Ayam Goreng". Tanpa baris ini,
+       menemukannya berarti sekalian MENGGANTI NAMANYA, dan yang mengetiknya
+       tidak pernah bermaksud begitu. Impor bahan sudah memakai aturan ini. */
+    rec.nama=cocok.nama;
+    delete rec.updated_at; delete rec.updated_by;
+    /* Baris catatan ikut dibandingkan: mengubah tahap memasaknya saja adalah
+       perubahan sah, dan resep yang dinyatakan "sama, dilewati" padahal
+       catatannya berbeda tidak akan pernah tersimpan. */
+    const sidik=l=>JSON.stringify((l||[]).filter(x=>x&&(x.nama||x.catatan)).map(x=>
+      x.nama?[low(x.nama),num(x.qty),low(x.satuan||''),x.ref==='resep'?'r':'b']:['#',low(x.catatan)]));
+    const sbl=sidik(cocok.bahan), ssd=sidik(rec.bahan);
+    const beda=sbl!==ssd
+      || ['seksi','yield_unit'].some(k=>String(rec[k]||'')!==String(cocok[k]||''))
+      || ['yield_qty','harga_baru','modal_manual'].some(k=>num(rec[k])!==num(cocok[k]))
+      || (rec.aktif===0)!==(cocok.aktif===0)
+      || rec.tipe!==cocok.tipe;
+    if(beda) ubah.push({rec,lama:cocok}); else sama++;
+  });
+  if(!baru.length&&!ubah.length){
+    return pesan(`<div class="notice info">Tidak ada yang berubah — ${sama} resep di berkas itu isinya sama persis dengan yang tersimpan.</div>`);
+  }
+  /* Bahan yang disebut berkas tapi tidak dikenal DILAPORKAN sebelum menulis,
+     bukan sesudah. Modal resepnya akan terhitung tanpa bahan itu — angka yang
+     terlihat wajar padahal kurang, dan itulah kesalahan yang paling sulit
+     ditemukan di modul ini. */
+  const takKenal=[...new Set(baru.concat(ubah.map(x=>x.rec))
+    .flatMap(r=>r.bahan.map(b=>b.nama))
+    .filter(n=>n&&!PB[low(n)]&&!PR[low(n)]))];
+  IMPOR_RESEP={rows:baru.concat(ubah.map(x=>x.rec))};
+  konfirmasi({
+    judul:'Impor Daftar Resep',
+    tombol:`Impor ${IMPOR_RESEP.rows.length} resep`,
+    onYa:jalankanImporResep,
+    pesan:`<div style="display:flex;gap:8px;margin-bottom:12px">
+        ${[['Baru',baru.length],['Diperbarui',ubah.length],['Sama, dilewati',sama]].map(k=>
+          `<div style="flex:1;text-align:center;border:1px solid var(--line);border-radius:10px;padding:9px 6px">
+             <div class="mono" style="font-size:19px;font-weight:800">${k[1]}</div>
+             <div style="font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">${k[0]}</div></div>`).join('')}
+      </div>
+      <div style="font-size:12.5px">Resep yang <b>sudah ada akan diperbarui</b>, bukan ditambah kembar — dicocokkan menurut <b>nama + jenis</b>. Resep yang ada di data tapi <b>tidak ada di berkas ini tidak dihapus</b>.</div>
+      <div class="notice warn" style="margin:10px 0 0"><div><b>Baris bahan resep yang ikut di berkas diganti persis seperti isinya.</b>
+        Bahan yang kamu hapus dari berkas akan hilang juga dari resepnya — itu satu-satunya cara menyatakannya lewat Excel.</div></div>
+      ${takKenal.length?`<div class="notice bad" style="margin:10px 0 0"><div><b>${takKenal.length} nama bahan belum dikenal</b>: ${esc(takKenal.slice(0,8).join(', '))}${takKenal.length>8?', …':''}.
+        Barisnya tetap tersimpan, tapi modalnya <b>dihitung tanpa bahan itu</b> sampai namanya ada di Bahan &amp; Harga.</div></div>`:''}
+      ${bolong&&bolong.length?`<div style="margin-top:10px;font-size:12px;color:var(--muted)">${bolong.length} baris dilewati karena berada sebelum nama resep mana pun (baris ${bolong.slice(0,6).join(', ')}${bolong.length>6?', …':''}).</div>`:''}`
+  });
+}
+function jalankanImporResep(){
+  if(!IMPOR_RESEP||!IMPOR_RESEP.rows.length) return;
+  const rows=IMPOR_RESEP.rows; IMPOR_RESEP=null;
+  setSync('','Mengimpor…');
+  fetch(API,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'imporResep',by:(ME&&ME.name)||'',rows:rows})})
+    .then(r=>r.text()).then(t=>{
+      let j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(!j||j.status==='error') throw new Error((j&&j.message)||'balasan bukan JSON (stock-api-mysql/hpp.php belum ter-deploy?)');
+      pesan(`<div class="notice ok"><div>✓ Impor selesai: <b>${j.baru||0} resep baru</b>, <b>${j.diubah||0} diperbarui</b>${
+        (j.galat&&j.galat.length)?`, <b>${j.galat.length} gagal</b> (${esc(j.galat.slice(0,5).join(', '))})`:''}. Yang tidak ada di berkas tidak disentuh.</div></div>`);
+      return muat();
+    })
+    .catch(e=>{
+      setSync('err','✕ Gagal');
+      pesan(`<div class="notice bad">✕ Impor gagal: ${esc(e.message||'')}. <b>Tidak ada yang tersimpan</b> — coba lagi.</div>`);
     });
 }
 

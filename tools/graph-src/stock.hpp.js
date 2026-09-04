@@ -933,7 +933,16 @@ function jalan() { kirim(); konfirmasi(); perUnitResep(); }
 
 
 
-function viewResep() { cari(); render(); bukaResep(); cetakBanyak(); resepTersaring(); tabelResep(); }
+function viewResep() { cari(); render(); bukaResep(); exportResepXlsx(); exportResepCsv(); pilihBerkasResep(); bacaBerkasResep(); cetakBanyak(); resepTersaring(); tabelResep(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2477,13 +2486,270 @@ function siapkanImpor() { sisiHarga(); tabrakan(); pesan(); per1(); konfirmasi()
 
 
 
-function jalankanImpor() { setSync(); pesan(); muat(); }
+function jalankanImpor() { setSync(); pesan(); muat(); petakan(); }
 
 
 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function resepEkspor() {  }
+function urut() {  }
+
+
+
+function barisEksporResep() { resepEkspor(); modalMenu(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ringkasEksporResep() { pesan(); resepEkspor(); }
+
+
+
+
+
+function exportResepCsv() { barisEksporResep(); unduhCsv(); tglBerkas(); csvBaris(); ringkasEksporResep(); }
+
+
+
+
+function exportResepXlsx() { muatXlsx(); galatXlsx(); barisEksporResep(); tglBerkas(); ringkasEksporResep(); }
+
+
+
+
+
+
+
+
+
+
+
+function pilihBerkasResep() {  }
+function bacaBerkasResep() { bacaResepRows(); pesan(); siapkanImporResep(); muatXlsx(); lanjut(); galatXlsx(); uraiCsv(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bacaResepRows() { petaKolom(); angkaImpor(); siapkanImpor(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function siapkanImporResep() { cariResep(); pesan(); konfirmasi(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function jalankanImporResep() { setSync(); pesan(); muat(); }
 
 
 
