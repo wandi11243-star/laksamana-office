@@ -3121,7 +3121,22 @@ function viewBreakdown() { daysOfMonth(); todayISO(); getDay(); calInner(); date
 
 
 
-function buangDariShift() { calc(); }
+function buangDariShift() { calc(); mkSelect(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3132,6 +3147,13 @@ function buangDariShift() { calc(); }
 
 
 function mkSelect() {  }
+
+
+
+
+
+
+
 
 
 
@@ -3662,6 +3684,23 @@ function kartuEfek() { potonganBaris(); obTotal(); obAktif(); diskonKasir(); oms
 
 
 function calc() { sumDiakui(); kartuEfek(); barisTanpaShift(); potongKasirAktif(); potonganBaris(); sumDiskon(); empName(); potongKasir(); save(); render(); drawMk(); drawEv(); drawKs(); drawSo(); pitaSumber(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

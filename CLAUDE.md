@@ -415,6 +415,48 @@ jadi blob satu baris membuat head yang menyimpan belakangan menghapus kerja head
 lain tanpa error. Penulisannya granular per baris — `simpanSel` di jadwal,
 `simpanAjuan`/`putusAjuan` di dw. Jangan "rapikan" kembali jadi `saveAll`.
 
+### Breakdown Sumber → Performa: PIC yang kosong (4 September 2026)
+
+Keluhan user: *"omset performa event tidak ketarik padahal sudah di-set
+breakdown"*. Sebabnya **dua hal yang saling menutupi**, dan sendiri-sendiri
+tidak satu pun kelihatan:
+
+| | |
+|---|---|
+| `deploy/finance/omset/` Breakdown | kotaknya digambar `mkSelect(list, r.picId ‖ list[0].id)` — baris yang `picId`-nya kosong **tetap memajang nama orang pertama**, jadi di layar terlihat sudah punya PIC |
+| `deploy/finance/kas/` Performa | `if(agg[r.picId])` — baris ber-PIC tak dikenal **dibuang tanpa satu pun tanda** |
+
+Gabungannya: angkanya rapi di Breakdown, tidak muncul di Performa, dan tidak
+ada satu layar pun yang menjelaskan selisihnya.
+
+- **PIC yang kosong TIDAK dijatuhkan ke orang pertama, di layar maupun di
+  data.** Itu menebak siapa yang dapat omsetnya, dan tebakan tentang uang
+  orang lebih buruk daripada kotak yang jelas-jelas belum diisi. Yang kosong
+  digambar sebagai pilihan **— pilih PIC —**, termasuk kalau PIC tersimpannya
+  sudah dihapus dari roster.
+- **Baris tanpa PIC DISEBUT di dua tempat**: pita di Breakdown (berikut nama
+  PIC di modul asalnya, petunjuk tercepat kenapa ia tidak cocok) dan pita di
+  Performa **di atas segmen PIC** — yang membukanya sedang mencari angka yang
+  ia harapkan ada, dan jawabannya harus terbaca sebelum ia menyimpulkan
+  angkanya memang nol.
+- **Nominalnya tetap tidak diakui untuk siapa pun.** Yang berubah cuma:
+  sekarang dikatakan.
+- Sumber tersering: baris otomatis dari modul Marketing/Event yang nama
+  PIC-nya tidak ada di roster (`cocokPic()` memulangkan null).
+
+**Komentar di `cocokPic()` sempat menyatakan "dibiarkan memakai PIC pertama"**
+— dan itu memang yang TERLIHAT, tapi cuma di layar. Komentar yang salah itulah
+yang membuat bug ini bertahan: yang membacanya berhenti memeriksa. Sama persis
+dengan kasus `hpp.php` di bawah.
+
+```bash
+node tools/uji-pic-breakdown.js   # 18 pemeriksaan, jsdom (omset + kas)
+```
+
+Ujinya menjaga **kedua sisinya** — memperbaiki satu saja tidak menutup
+jalurnya. `mkSelect` hidup di dalam `viewBreakdown()` jadi ia DIPOTONG dari
+sumbernya saat uji jalan, bukan disalin.
+
 ### Modul `analytics`: laporan POS diurai DI PERAMBAN (29 Agustus 2026)
 
 `deploy/analytics/index.html`, kunci izin `analytics`. Alurnya: unggah berkas

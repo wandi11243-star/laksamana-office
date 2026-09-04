@@ -3131,7 +3131,23 @@ function viewBreakdown(){
   // Baris yang jadi tanpa shift akan muncul sendiri di peringatan calc().
   state.ks.filter(r=>r.off).forEach(r=>buangDariShift(r.kasirId));
 
-  const mkSelect=(list,sel)=>list.map(e=>`<option value="${e.id}" ${e.id===sel?'selected':''}>${esc(e.name)}</option>`).join('');
+/* PIC yang KOSONG digambar sebagai pilihan kosong, bukan diam-diam jatuh ke
+   nama pertama (4 September 2026, keluhan user "omset performa event tidak
+   ketarik padahal sudah di-set breakdown").
+
+   Sebelumnya kotaknya digambar `mkSelect(list, r.picId||list[0]?.id)`: baris
+   yang picId-nya kosong TETAP MEMAJANG nama orang pertama, jadi di layar ia
+   terlihat sudah punya PIC. Yang tersimpan tetap kosong — dan Performa
+   Marketing/Event membuang baris yang picId-nya tidak dikenal (`if(agg[r.picId])`),
+   jadi nominalnya lenyap tanpa satu pun galat. Yang mengisinya melihat angka
+   di Breakdown, tidak melihatnya di Performa, dan tidak ada satu layar pun
+   yang menjelaskan selisihnya.
+
+   Tidak dijatuhkan ke PIC pertama di DATANYA juga — itu menebak siapa yang
+   dapat omsetnya, dan tebakan tentang uang orang lebih buruk daripada kotak
+   yang jelas-jelas belum diisi. */
+  const mkSelect=(list,sel)=>(list.some(e=>e.id===sel)?'':'<option value="">— pilih PIC —</option>')
+    +list.map(e=>`<option value="${e.id}" ${e.id===sel?'selected':''}>${esc(e.name)}</option>`).join('');
 
   /* ---- MENYERAP EVENT HARI ITU DARI MODUL MARKETING & EVENT ----
      Baris otomatis ditandai `srcId` ("mkt:<id>" event marketing / "vip:<id>"
@@ -3143,9 +3159,15 @@ function viewBreakdown(){
      user marketing, sedangkan Section B memakai id pegawai milik modul ini —
      dua ruang id yang berbeda, dan tidak ada tabel yang memetakan keduanya.
      Nama adalah satu-satunya yang sama, karena keduanya sama-sama datang dari
-     roster Office. Yang tidak ketemu dibiarkan memakai PIC pertama seperti
-     baris manual; namanya tetap ditulis di pita sumber supaya orangnya tahu
-     harus membetulkan pilihan siapa. */
+     roster Office. Yang tidak ketemu DIBIARKAN KOSONG — bukan dijatuhkan ke
+     PIC pertama: itu menebak siapa yang dapat omsetnya. Namanya ditulis di
+     pita sumber DAN kotak PIC-nya tampil kosong, jadi yang mengisi tahu
+     baris mana yang masih perlu dipilihkan orangnya.
+
+     Komentar ini sempat berbunyi "dibiarkan memakai PIC pertama", dan itu
+     memang yang TERLIHAT di layar — tapi cuma di layar: yang tersimpan tetap
+     kosong, dan Performa membuang barisnya. Komentar yang salah adalah yang
+     membuat bug itu bertahan, karena yang membacanya berhenti memeriksa. */
   function cocokPic(divi,nama){
     const n=String(nama||'').trim().toLowerCase();
     if(!n) return null;
@@ -3451,7 +3473,7 @@ function viewBreakdown(){
       <div class="ebox${r.srcId?' auto':''}">
       ${pitaBaris(r,i,'mk')}
       <div class="brow mk">
-        <div class="field"><label>Marketing</label><select data-i="${i}" data-f="picId" class="mkf">${mkSelect(DB.employees.marketing,r.picId||DB.employees.marketing[0]?.id)}</select></div>
+        <div class="field"><label>Marketing</label><select data-i="${i}" data-f="picId" class="mkf">${mkSelect(DB.employees.marketing,r.picId)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="mkf" placeholder="cth. Mitsubishi Gathering" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal Omset</label><input data-i="${i}" data-f="amount" class="mkf mono rp" inputmode="numeric" value="${r.amount||0}" title="Hanya kolom ini yang dipotong dari kasir shift"></div>
         <div class="field"><label>Tax</label><input data-i="${i}" data-f="tax" class="mkf mono rp" inputmode="numeric" value="${r.tax||0}" title="Ikut diakui untuk PIC, tapi tidak dipotong dari kasir"></div>
@@ -3479,7 +3501,7 @@ function viewBreakdown(){
       <div class="ebox${r.srcId?' auto':''}">
       ${pitaBaris(r,i,'ev')}
       <div class="brow mk">
-        <div class="field"><label>PIC Event</label><select data-i="${i}" data-f="picId" class="evf">${mkSelect(DB.employees.event,r.picId||DB.employees.event[0]?.id)}</select></div>
+        <div class="field"><label>PIC Event</label><select data-i="${i}" data-f="picId" class="evf">${mkSelect(DB.employees.event,r.picId)}</select></div>
         <div class="field"><label>Nama Event</label><input data-i="${i}" data-f="eventName" class="evf" placeholder="cth. Live Music Anniversary" value="${esc(r.eventName||'')}"></div>
         <div class="field"><label>Nominal</label><input data-i="${i}" data-f="amount" class="evf mono rp" inputmode="numeric" value="${r.amount||0}"></div>
         <div class="field"><label>Diakui PIC</label><div class="mono evdiakui" data-i="${i}" style="padding:9px 0;font-weight:800">${fmtRp(porsiPic(r,'event'))}</div></div>
@@ -3685,7 +3707,24 @@ function viewBreakdown(){
       : (dHari!==dTot
         ? `<div class="notice warn">⚠ Diskon yang sudah diatribusikan <b>${fmtRp(dTot)}</b>, sedangkan Discount di Input Omset Harian <b>${fmtRp(dHari)}</b> — ${dSel>0?`masih ada ${fmtRp(dSel)} yang belum ditulis atas nama kasir mana pun (atau Self Order)`:`kelebihan ${fmtRp(-dSel)}`}. Selama belum cocok, tidak ada catatan siapa yang memberi diskon itu — meski total omsetnya tetap benar.</div>`
         : (dHari>0?`<div class="notice ok">✓ Seluruh diskon ${fmtRp(dHari)} sudah tercatat atas nama pemberinya.</div>`:''));
-    document.getElementById('bd_warn').innerHTML = perDiskon + (belum.length
+    /* BARIS TANPA PIC. Nominalnya tetap ikut menyeimbangkan harian, tapi ia
+       tidak diakui untuk SIAPA PUN di Performa Marketing/Event — dan itulah
+       kegagalan paling sunyi di halaman ini: angkanya terlihat rapi di sini,
+       lalu tidak muncul di Performa, tanpa satu layar pun yang menjelaskan
+       ke mana perginya. Baris otomatis dari modul Marketing/Event yang nama
+       PIC-nya tidak cocok dengan roster adalah sumbernya yang paling sering. */
+    const tanpaPic = [].concat(
+      state.mk.filter(r => !DB.employees.marketing.some(e => e.id === r.picId))
+              .map(r => ({ r, divi:'Marketing' })),
+      state.ev.filter(r => !DB.employees.event.some(e => e.id === r.picId))
+              .map(r => ({ r, divi:'Event' })));
+    const nilaiTanpaPic = tanpaPic.reduce((s, x) => s + num(x.r.amount), 0);
+    const picWarn = tanpaPic.length
+      ? `<div class="notice bad">⚠ <div><b>${tanpaPic.length} baris belum dipilih PIC-nya</b>${nilaiTanpaPic?` (total ${fmtRp(nilaiTanpaPic)})`:''}. Nominalnya <b>tidak akan muncul di Performa Marketing/Event</b> — tidak diakui untuk siapa pun, dan tidak ada layar lain yang menyebutkannya.` +
+        `<div style="margin-top:6px;font-size:12px;opacity:.9">${esc(tanpaPic.map(x => x.divi + ': ' + (x.r.eventName || '(tanpa nama)') + (x.r.srcPic ? ' — di modul asalnya PIC-nya "' + x.r.srcPic + '", tidak ada di roster ' + x.divi.toLowerCase() : '')).join(' · '))}</div>` +
+        `<div style="margin-top:6px;font-size:12px;opacity:.9">Pilih PIC-nya di kotak <b>— pilih PIC —</b> pada barisnya. Kalau orangnya memang belum ada di roster, tambahkan dulu lewat <b>Pengaturan Target</b> di panel Kas Kecil.</div></div></div>`
+      : '';
+    document.getElementById('bd_warn').innerHTML = perDiskon + picWarn + (belum.length
       ? `<div class="notice warn">⚠ ${belum.length} baris <b>marketing</b> belum ditentukan kasir shift-nya${belum.some(r=>r.eventName)?` (${esc(belum.filter(r=>r.eventName).map(r=>r.eventName).join(', '))})`:''}. Potongan <b>${fmtRp(belum.reduce((s,r)=>s+potongKasir(r),0))}</b> tidak dibebankan ke kasir mana pun, jadi omset itu terhitung dua kali — sekali di realisasi PIC, sekali di realisasi kasir. Klik tombol potongan pada barisnya.</div>`
       : '');
     document.getElementById('bd_balance').innerHTML=`

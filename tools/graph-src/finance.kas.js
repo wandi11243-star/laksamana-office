@@ -4057,7 +4057,45 @@ function mkTable() { realBy(); targetPic(); pct(); modeHarian(); labelRentang();
 
 
 
-function viewPerforma() { rentangAktif(); porsiPic(); compListPicRentang(); compPotong(); modeHarian(); labelRentang(); kartuApprovalCompliment(); targetPic(); pct(); aturTombolKirim(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
+
+
+
+function pitaYatimPerforma() { dateLabel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewPerforma() { rentangAktif(); porsiPic(); compListPicRentang(); compPotong(); modeHarian(); labelRentang(); pitaYatimPerforma(); kartuApprovalCompliment(); targetPic(); pct(); aturTombolKirim(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
