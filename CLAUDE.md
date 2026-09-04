@@ -520,6 +520,70 @@ angka yang sama dari dua bentuk laporan yang berbeda. Itu pemeriksaan terkuat
 di berkas ini dan satu-satunya yang tidak bisa dipalsukan; ia MELEWAT dengan
 jelas kalau salah satu berkasnya tidak ada di root repo.
 
+### Analytics: menu paket & Kategori Menu (4 September 2026)
+
+**BARIS `(PACKAGE)` DIGABUNGKAN KE MENU ASLINYA** (permintaan user). POS
+menulis menu bonus/paket sebagai baris tersendiri berakhiran `(PACKAGE)`, dan
+selama tidak digabung ia berdiri sebagai menu palsu — Agustus 2026: **4.123
+porsi** yang tidak pernah masuk hitungan menu sesungguhnya, dan bahan bakunya
+tidak pernah ikut terhitung.
+
+Dua bentuk, dan bedanya menentukan bisa-tidaknya ia dihitung:
+
+| bentuk | contoh | caranya |
+|---|---|---|
+| bernama JELAS (905 porsi) | `MINERAL WATER (PACKAGE)` | buang akhirannya, selesai |
+| bernama UKURAN (3.218 porsi) | `LARGE (PACKAGE)`, `REGULAR (PACKAGE)` | minumannya ada di KODE-nya |
+
+- **Digabungkan saat MENGGAMBAR (`menuNormal()`), bukan saat mengurai.**
+  Dibakukan ke laporan tersimpan, peta kode yang dibetulkan bulan depan tidak
+  akan pernah memperbaiki bulan-bulan yang sudah diunggah — dan yang
+  membetulkannya tidak punya cara tahu kenapa angkanya tidak berubah. `menu`
+  di laporan tersimpan **tetap memakai nama mentah dari POS**.
+- **Kode yang belum dipetakan TETAP DIHITUNG**, dengan nama yang menyebut
+  kodenya (`LARGE (PACKAGE) · MATCHA02`). Dibuang, jumlah porsi di halaman ini
+  berhenti sama dengan jumlah di berkas POS — dan ujinya memeriksa persis itu:
+  total porsi & nilai **tidak boleh berubah** karena penggabungan.
+- **`Menu Code` ADA tapi KOSONG di seluruh 19.734 baris**; yang berisi kodenya
+  `Custom Menu Name`. Kolom yang ada tapi kosong adalah jebakan yang tidak bisa
+  ditangkap dengan memilih kolom sekali di depan — `menu code` menang karena
+  kolomnya memang ada, dan nol kode terbaca tanpa satu pun galat. Karena itu
+  `KOL_CARI.kode` dan `kode2` dipilih **PER BARIS**.
+- **`Custom Menu Name` juga dipakai kasir menulis catatan** ("Setengah
+  mateng", "Takeaway", "No sugar") — 860 nilai berbeda. `kodeMenu()`
+  menyaringnya: diawali huruf, diakhiri angka, hanya huruf/angka/`._-` di
+  antaranya. Tanpa itu daftarnya penuh baris yang tidak akan pernah bisa
+  dipetakan siapa pun.
+- **Saran pasangan TIDAK boleh menawarkan baris paket** — namanya memuat
+  kodenya sendiri, jadi ia selalu cocok dan selalu jadi saran teratas.
+  Memasangkannya ke situ memetakan kode ke dirinya sendiri: porsinya tidak
+  pindah ke mana pun, dan yang menekan tombolnya mengira sudah selesai.
+- Sarannya **ditawarkan, tidak dipakai sendiri**: `SALTED01` cocok ke `SALTED
+  EGG` maupun `KOPI SUSU SALTED AREN`, dan menebak salah satunya memindahkan
+  porsi ke menu yang salah tanpa satu pun tanda. Petanya di **Pengaturan →
+  Kode Menu Paket**, dan bisa diisi langsung dari halaman Menu lewat tombol
+  saran. Kodenya **dibakukan huruf besar di satu tempat** — ia diketik kasir,
+  jadi `Matcha02` dan `MATCHA02` pasti bercampur.
+
+**HALAMAN `Kategori Menu` BERDIRI SENDIRI** (permintaan user). Dari kolom
+`Menu Category Detail`; Agustus 2026 ada 23 kategori, termasuk **EVENT**
+(Rp27,4 juta). Dipisahkan dari peringkat menu bukan demi kerapian: kategori
+seperti EVENT menjawab "berapa yang datang dari acara", bukan "menu mana yang
+paling laku", dan mencampurnya ke daftar 259 menu membuatnya harus dicari
+dengan mata di antara nama-nama minuman.
+
+- **Kelompok atas (FOOD/BEVERAGES/OTHERS) DIHITUNG dari kategori detailnya**,
+  bukan disimpan terpisah — dua tempat yang menjumlahkan sendiri-sendiri akan
+  berselisih suatu hari, dan yang selisih itu omset.
+- **`katMenu` menyimpan menu apa saja yang ada di tiap kategori**, supaya
+  barisnya bisa dibuka tanpa mengunggah ulang. Ringkasan yang cuma menyimpan
+  total tidak bisa menjawab "isinya apa", dan itu pertanyaan berikutnya yang
+  pasti muncul.
+- **Laporan lama tidak punya kategori**, dan halamannya MENGATAKAN sebabnya
+  berikut cara membetulkannya (unggah ulang) — dibedakan pula antara "Bill
+  Report" dan "Detail Report yang diunggah sebelum kolomnya dibaca", karena
+  yang keliru menebaknya akan mengunggah berkas yang salah lagi.
+
 **`hpp.php` MEMBALAS PAYLOAD DATAR** — `{bahan, resep, setting, ts}`, tanpa
 kunci `ok` dan tanpa kunci `data`. Sama dengan `vendors.php`, beda dari
 finance-api/kompas-api yang memakai `{ok,data}`.
@@ -675,7 +739,7 @@ Berkas POS **jangan di-commit** (sudah di `.gitignore`): satu berkas memuat
 seluruh transaksi sebulan.
 
 ```bash
-node tools/uji-analytics.js   # 198 pemeriksaan
+node tools/uji-analytics.js   # 229 pemeriksaan
 ```
 
 Ujinya memakai **berkas POS asli** di root repo kalau ada (kalau tidak, bagian

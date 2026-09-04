@@ -656,6 +656,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
         <a data-view="tren"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></span> Tren Bulanan</a>
         <a data-view="hari"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span> Hari &amp; Jam</a>
         <a data-view="menu"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h12"/></svg></span> Menu &amp; Bahan Baku</a>
+        <a data-view="kategori"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span> Kategori Menu</a>
         <a data-view="event"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.1 4.3 4.7.7-3.4 3.3.8 4.7L12 13.8 7.8 16l.8-4.7L5.2 8l4.7-.7Z"/></svg></span> Pengaruh Event</a>
         <a data-view="marketing"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-8-8 18-2-8Z"/></svg></span> Pengaruh Marketing</a>
       </div>
@@ -1199,6 +1200,7 @@ const TITLES = {
   ringkasan :['Ringkasan','Angka pokok dari laporan POS yang diunggah'],
   hari      :['Hari & Jam','Omset per hari dalam seminggu, dan sebaran jamnya'],
   menu      :['Menu & Bahan Baku','Menu terlaris dan perkiraan bahan yang seharusnya keluar'],
+  kategori  :['Kategori Menu','Omset per kategori menu — termasuk EVENT, terpisah dari peringkat menu'],
   tren      :['Tren Bulanan','Total omset bulan ke bulan, dan perbandingan dua bulan'],
   /* DIPISAH jadi dua halaman (2 September 2026, permintaan user). Sebelumnya
      satu halaman yang mencampur acara dari modul Event dan modul Marketing —
@@ -1480,6 +1482,190 @@ function vHari() {
 }
 
 /* ============ HALAMAN: MENU & BAHAN BAKU ============ */
+/* Kategori menu yang kosong diberi nama sendiri, tidak dibuang dan tidak
+   dijatuhkan ke kategori pertama — alasan yang sama dengan KAT_KOSONG untuk
+   event: menu tanpa kategori tetap membawa omset, dan membuangnya membuat
+   jumlah kategori tidak pernah sama dengan totalnya. */
+const KAT_TANPA = '(tanpa kategori)';
+
+/* ---- NORMALISASI MENU PAKET, dikerjakan saat MENGGAMBAR ----
+
+   Dinormalkan saat mengurai, peta kode yang dibetulkan bulan depan tidak akan
+   pernah memperbaiki bulan-bulan yang sudah tersimpan — dan yang membetulkannya
+   tidak punya cara tahu kenapa angkanya tidak berubah. Karena itu `menu` di
+   dalam laporan tersimpan tetap memakai NAMA MENTAH dari POS, dan penggabungan
+   dikerjakan di sini setiap kali halaman digambar.
+
+   Memulangkan { list, takKenal, digabung } — `list` sudah digabung dan diurut,
+   `takKenal` kode paket yang belum punya pasangan. */
+function petaKode() {
+  const p = (AN && AN.data && AN.data.setting && AN.data.setting.petaKode) || {};
+  const out = {};
+  Object.keys(p).forEach(k => { const v = String(p[k] || '').trim(); if (v) out[String(k).toUpperCase()] = v; });
+  return out;
+}
+function menuNormal(d) {
+  const mentah = (d && d.menu) || {};
+  const paket = (d && d.paket) || {};
+  const pk = petaKode();
+  const gab = {}, takKenal = {};
+  let digabung = 0;
+  const tambah = (nama, q, n) => {
+    if (!gab[nama]) gab[nama] = { qty:0, nilai:0 };
+    gab[nama].qty += q; gab[nama].nilai += n;
+  };
+  Object.keys(mentah).forEach(nm => {
+    const m = mentah[nm];
+    if (!PAKET_RE.test(nm)) { tambah(nm, m.qty || 0, m.nilai || 0); return; }
+
+    /* Bernama jelas: "MINERAL WATER (PACKAGE)" -> "MINERAL WATER". Tidak butuh
+       peta apa pun, dan justru inilah sebagian besar barisnya. */
+    if (!paketGenerik(nm)) { tambah(paketNamaAsli(nm), m.qty || 0, m.nilai || 0); digabung += m.qty || 0; return; }
+
+    /* Bernama ukuran saja: minumannya ada di kodenya. Rinciannya dipakai kalau
+       ada; kalau laporannya lama (belum menyimpan `paket`), barisnya dibiarkan
+       apa adanya — DIBIARKAN, bukan ditebak, dan itu terlihat di layar sebagai
+       menu bernama "LARGE (PACKAGE)" yang memang belum bisa diuraikan. */
+    const rinci = paket[nm];
+    if (!rinci) { tambah(nm, m.qty || 0, m.nilai || 0); return; }
+    Object.keys(rinci).forEach(kd => {
+      const x = rinci[kd];
+      const tuju = kd && pk[kd];
+      if (tuju) { tambah(tuju, x.qty || 0, x.nilai || 0); digabung += x.qty || 0; return; }
+      /* Belum dipetakan: TETAP DIHITUNG, dengan nama yang menyebut kodenya —
+         supaya porsinya tidak hilang dari total dan yang memetakannya tahu
+         persis baris mana yang dimaksud. Dibuang, jumlah porsi di halaman ini
+         berhenti sama dengan jumlah di berkas POS. */
+      const label = kd ? nm + ' · ' + kd : nm;
+      tambah(label, x.qty || 0, x.nilai || 0);
+      if (kd) {
+        if (!takKenal[kd]) takKenal[kd] = { qty:0, nilai:0, dari:nm };
+        takKenal[kd].qty += x.qty || 0; takKenal[kd].nilai += x.nilai || 0;
+      }
+    });
+  });
+  return { gab, takKenal, digabung };
+}
+/* Tebakan pasangan untuk sebuah kode, dari menu yang MEMANG ada di laporan
+   bulan itu. Cuma SARAN — tidak pernah dipakai sendiri: kode "SALTED01" cocok
+   ke "SALTED EGG" maupun "SALTED CARAMEL LATTE", dan menebak salah satunya
+   memindahkan porsi ke menu yang salah tanpa satu pun tanda. */
+function saranKode(kode, namaAda) {
+  const inti = String(kode || '').replace(/[0-9_.\-]+$/, '').toUpperCase();
+  if (inti.length < 3) return [];
+  return namaAda.filter(n => String(n).toUpperCase().replace(/[^A-Z]/g, '').indexOf(inti) > -1)
+                /* Baris paket yang BELUM dipetakan ikut ada di daftar nama, dan
+                   namanya memuat kodenya sendiri ("REGULAR (PACKAGE) · MATCHA01")
+                   — jadi ia selalu cocok dengan kodenya dan selalu jadi saran
+                   teratas. Memasangkannya ke situ memetakan kode ke dirinya
+                   sendiri: porsinya tidak pindah ke mana pun, dan yang menekan
+                   tombolnya mengira sudah selesai. */
+                .filter(n => !/\(PACKAGE\)/i.test(n)).slice(0, 4);
+}
+
+/* ---- KATEGORI MENU (4 September 2026, permintaan user) ----
+
+   Halaman SENDIRI, dipisahkan dari Penjualan Menu. Sebabnya bukan kerapian:
+   kategori seperti EVENT (Rp27,4 juta Agustus 2026) menjawab pertanyaan yang
+   sama sekali berbeda dari "menu mana yang paling laku" — ia menjawab "berapa
+   yang datang dari acara", dan mencampurnya ke daftar 259 menu membuatnya
+   harus dicari dengan mata di antara nama-nama minuman.
+
+   Datanya dari kolom `Menu Category Detail` di Detail Report POS. Laporan lama
+   (diunggah sebelum tanggal ini) TIDAK punya kolom itu — halamannya
+   mengatakannya, bukan menggambar tabel kosong. */
+let KT_BUKA = '';                 // kategori yang menunya sedang dibuka
+function ktBuka(k) { KT_BUKA = (KT_BUKA === k) ? '' : k; render(); }
+
+function vKategori() {
+  const V = document.getElementById('app-view');
+  const b = blnAktif(), d = lap(b);
+  let h = pilihBulan();
+  if (!d) { V.innerHTML = h + kosongBelumAda(); return; }
+
+  const kat = d.kategori || {};
+  const nama = Object.keys(kat);
+  if (!nama.length) {
+    /* Dua sebab yang berbeda, dan yang keliru menebaknya akan mengunggah
+       berkas yang salah lagi: laporannya bukan Detail Report, atau ia Detail
+       Report yang diunggah sebelum kolom kategori ikut dibaca. */
+    V.innerHTML = h + '<div class="notice warn">⚠ <div><b>Laporan bulan ini belum memuat kategori menu.</b>'
+      + (d.jenis === 'menu'
+          ? ' Berkasnya memang laporan menu, tapi diunggah sebelum kolom <i>Menu Category Detail</i> ikut dibaca '
+            + '(4 September 2026). <b>Unggah ulang berkas bulan itu</b> — ringkasannya akan ditimpa, dan '
+            + 'kategorinya ikut terbaca.'
+          : ' Yang diunggah <b>Bill Report</b>, yang tidak memuat nama menu maupun kategorinya. '
+            + 'Yang memuat keduanya <b>Sales Recapitulation Detail Report</b>.')
+      + '</div></div>';
+    return;
+  }
+
+  const list = nama.map(n => ({ n, qty:kat[n].qty || 0, nilai:kat[n].nilai || 0, kat:kat[n].kat || KAT_TANPA }))
+                   .sort((a, x) => x.nilai - a.nilai);
+  const tot = list.reduce((a, x) => a + x.nilai, 0);
+  const totQ = list.reduce((a, x) => a + x.qty, 0);
+
+  /* Kelompok atas (FOOD / BEVERAGES / OTHERS) dihitung dari kategori detailnya,
+     bukan disimpan terpisah — dua tempat yang menjumlahkan sendiri-sendiri
+     akan berselisih suatu hari, dan yang selisih itu omset. */
+  const atas = {};
+  list.forEach(x => {
+    if (!atas[x.kat]) atas[x.kat] = { qty:0, nilai:0, n:0 };
+    atas[x.kat].qty += x.qty; atas[x.kat].nilai += x.nilai; atas[x.kat].n++;
+  });
+  const atasUrut = Object.keys(atas).sort((a, b) => atas[b].nilai - atas[a].nilai);
+
+  h += '<div class="grid g3" style="margin-bottom:18px">'
+    + atasUrut.slice(0, 3).map(k => kartu(k, rp0(atas[k].nilai),
+        pct(atas[k].nilai, tot) + '% · ' + atas[k].n + ' kategori · ' + atas[k].qty.toLocaleString('id-ID') + ' porsi')).join('')
+    + '</div>';
+
+  h += '<div class="card"><h3>Per Kategori</h3>'
+    + '<div class="card-sub">Dari kolom <i>Menu Category Detail</i> di laporan POS. '
+    + 'Diurut menurut nilai. Klik satu baris untuk melihat menu apa saja yang ada di dalamnya.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Kategori</th><th>Kelompok</th>'
+    + '<th class="num">Porsi</th><th class="num">Nilai</th><th class="num">% omset menu</th>'
+    + '<th style="width:20%"></th></tr></thead><tbody>';
+  const pun = list.length ? (list[0].nilai || 1) : 1;
+  list.forEach((x, i) => {
+    h += '<tr style="cursor:pointer" onclick="ktBuka(' + esc(JSON.stringify(x.n)).replace(/"/g, '&quot;') + ')">'
+      + '<td>' + (i + 1) + '</td>'
+      + '<td><b>' + esc(x.n) + '</b></td>'
+      + '<td><span class="chip">' + esc(x.kat) + '</span></td>'
+      + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
+      + '<td class="num mono">' + rp0(x.nilai) + '</td>'
+      + '<td class="num">' + pct(x.nilai, tot) + '%</td>'
+      + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
+        + '<div style="width:' + Math.round(x.nilai / pun * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
+      + '</tr>';
+    if (KT_BUKA === x.n) h += '<tr><td colspan="7" style="background:var(--paper)">' + ktRincian(d, x) + '</td></tr>';
+  });
+  h += '</tbody></table></div>'
+    + '<div class="helper">Total ' + rp0(tot) + ' dari ' + totQ.toLocaleString('id-ID') + ' porsi. '
+    + 'Angka ini <b>nilai menu sebelum service &amp; pajak</b> — sama dasarnya dengan tabel Penjualan Menu, '
+    + 'jadi keduanya bisa dibandingkan langsung.</div>'
+    + '</div>';
+  V.innerHTML = h;
+}
+/* Menu di dalam satu kategori. Laporan menyimpan kategori sebagai TOTAL, bukan
+   per menu — jadi rinciannya cuma bisa disebut kalau ada; yang tidak ada
+   dikatakan, bukan digambar kosong. */
+function ktRincian(d, x) {
+  const pm = (d && d.katMenu && d.katMenu[x.n]) || null;
+  if (!pm) {
+    return '<div class="helper" style="padding:8px 2px">Rincian menu per kategori belum tersimpan untuk bulan ini. '
+      + 'Unggah ulang berkasnya untuk melihat isi kategori ini.</div>';
+  }
+  const nm = Object.keys(pm).sort((a, b) => pm[b].nilai - pm[a].nilai);
+  return '<div style="padding:6px 2px 10px">'
+    + '<div class="helper" style="margin:0 0 8px">' + nm.length + ' menu di kategori <b>' + esc(x.n) + '</b>.</div>'
+    + '<table style="width:100%"><tbody>'
+    + nm.map(n => '<tr><td style="padding:3px 0">' + esc(n) + '</td>'
+        + '<td class="num" style="padding:3px 0;width:90px">' + (pm[n].qty || 0).toLocaleString('id-ID') + '</td>'
+        + '<td class="num mono" style="padding:3px 0;width:130px">' + rp0(pm[n].nilai || 0) + '</td></tr>').join('')
+    + '</tbody></table></div>';
+}
+
 /* Kendali halaman Menu & Bahan Baku. Di luar DOM karena render di modul ini
    TOTAL — halaman digambar ulang tiap kali, jadi apa pun yang cuma ada di DOM
    ikut hilang. */
@@ -1526,7 +1712,12 @@ function vMenu() {
     return;
   }
 
-  const urut = nama.map(n => ({ n, qty:menu[n].qty || 0, nilai:menu[n].nilai || 0 }))
+  /* Baris (PACKAGE) digabungkan ke menu sesungguhnya SEBELUM diurut — kalau
+     tidak, "MINERAL WATER" dan "MINERAL WATER (PACKAGE)" berdiri sebagai dua
+     menu berbeda dan keduanya turun peringkat sendiri-sendiri. */
+  const NM = menuNormal(d);
+  const gab = NM.gab;
+  const urut = Object.keys(gab).map(n => ({ n, qty:gab[n].qty || 0, nilai:gab[n].nilai || 0 }))
                    .sort((a, x) => (MN_URUT === 'qty' ? x.qty - a.qty : x.nilai - a.nilai));
   const totQty = urut.reduce((a, x) => a + x.qty, 0);
   const totNilai = urut.reduce((a, x) => a + x.nilai, 0);
@@ -1539,7 +1730,8 @@ function vMenu() {
     + kartu('Porsi Terjual', totQty.toLocaleString('id-ID'), 'jumlah seluruh qty')
     + kartu('Nilai Menu', rp0(totNilai), 'sebelum service & pajak')
     + kartu('Belum Ada Resep', tanpaResep.length, peta ? 'dari ' + urut.length + ' menu' : 'HPP tidak terbaca')
-    + '</div>';
+    + '</div>'
+    + mnPaketHtml(NM, Object.keys(gab));
 
   /* ---- 1. daftar penjualan menu: top-N ATAU seluruhnya ---- */
   const tampil = MN_SEMUA ? urut : urut.slice(0, MN_TOP);
@@ -1593,6 +1785,71 @@ function vMenu() {
   h += bahanBakuHtml(urut);
   h += mnTakDikenalHtml(tanpaResep, totNilai);
   V.innerHTML = h;
+}
+
+/* Keterangan penggabungan paket + daftar kode yang belum punya pasangan.
+   Dikatakan DI ATAS tabel, bukan di bawah: yang membaca peringkat menu harus
+   tahu lebih dulu bahwa sebagian porsinya masih berdiri sebagai baris terpisah,
+   kalau tidak ia menyimpulkan menunya memang sepi. */
+function mnPaketHtml(NM, namaAda) {
+  const kd = Object.keys(NM.takKenal);
+  let h = '';
+  if (NM.digabung) {
+    h += '<div class="notice info">ℹ <div><b>' + NM.digabung.toLocaleString('id-ID')
+      + ' porsi dari menu paket sudah digabung</b> ke menu aslinya — baris berakhiran '
+      + '<i>(PACKAGE)</i> di POS bukan menu tersendiri, ia menu yang sama yang diberikan '
+      + 'sebagai bagian paket.</div></div>';
+  }
+  if (!kd.length) return h;
+  const totQ = kd.reduce((a, k) => a + NM.takKenal[k].qty, 0);
+  /* Diurut menurut porsi: yang paling banyak yang paling merugikan kalau
+     dibiarkan berdiri sendiri, dan itu yang paling dulu perlu dipetakan. */
+  kd.sort((a, b) => NM.takKenal[b].qty - NM.takKenal[a].qty);
+  h += '<div class="card"><h3>Kode paket yang belum dipasangkan</h3>'
+    + '<div class="card-sub">Baris paket yang namanya cuma menyebut ukuran '
+    + '(<i>LARGE (PACKAGE)</i>, <i>REGULAR (PACKAGE)</i>) tidak memberi tahu minumannya. '
+    + 'Yang memberi tahu <b>kode</b>-nya, dan pasangan kode → menu diisi sekali di '
+    + '<b>Pengaturan</b>; sesudah itu berlaku untuk <b>seluruh bulan</b> yang pernah diunggah.</div>'
+    + '<div class="notice warn">⚠ <div><b>' + kd.length + ' kode</b> senilai '
+    + totQ.toLocaleString('id-ID') + ' porsi belum punya pasangan. Porsinya <b>tetap dihitung</b> '
+    + '(berdiri sendiri dengan nama berkodenya), tapi belum masuk ke menu aslinya dan '
+    + 'bahan bakunya belum ikut terhitung.</div></div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Kode</th><th>Muncul sebagai</th>'
+    + '<th class="num">Porsi</th><th>Kemungkinan menunya</th></tr></thead><tbody>'
+    + kd.map(k => {
+        const x = NM.takKenal[k];
+        /* Saran DITAWARKAN, tidak dipakai sendiri: "SALTED01" cocok ke
+           "SALTED EGG" maupun "SALTED CARAMEL LATTE", dan menebak salah
+           satunya memindahkan porsi ke menu yang salah tanpa satu pun tanda. */
+        const s = saranKode(k, namaAda);
+        return '<tr><td><b class="mono">' + esc(k) + '</b></td>'
+          + '<td style="font-size:12px;color:var(--muted)">' + esc(x.dari) + '</td>'
+          + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
+          + '<td>' + (s.length
+              ? s.map(n => '<button class="btn btn-ghost btn-sm" style="margin:2px 4px 2px 0" '
+                  + 'onclick="mnPasangKode(' + esc(JSON.stringify(k)).replace(/"/g, '&quot;') + ','
+                  + esc(JSON.stringify(n)).replace(/"/g, '&quot;') + ')">' + esc(n) + '</button>').join('')
+              : '<span class="helper" style="margin:0">tidak ada nama yang mirip — isi manual di Pengaturan</span>')
+          + '</td></tr>';
+      }).join('')
+    + '</tbody></table></div></div>';
+  return h;
+}
+/* Memasangkan satu kode langsung dari halaman ini. Disimpan ke setelan yang
+   sama dengan yang disunting di Pengaturan — satu tempat, supaya tidak ada dua
+   daftar pasangan yang bisa berbeda isi. */
+async function mnPasangKode(kode, menu) {
+  /* Izinnya diperiksa terhadap halaman PENGATURAN, bukan halaman ini: yang
+     disimpan setelan modul, dan tombol di sini tidak boleh jadi pintu belakang
+     untuk mengubahnya. */
+  if (!bolehAksi('pengaturan')) return;
+  const k = String(kode).toUpperCase();
+  if (!AN.data.setting.petaKode) AN.data.setting.petaKode = {};
+  const sebelum = AN.data.setting.petaKode[k];
+  AN.data.setting.petaKode[k] = menu;
+  if (await simpan()) { toast('Dipasangkan: ' + k + ' → ' + menu); render(); }
+  else { if (sebelum === undefined) delete AN.data.setting.petaKode[k];
+         else AN.data.setting.petaKode[k] = sebelum; render(); }
 }
 
 /* Rincian bahan SATU menu. Dihitung ulang khusus untuk baris ini — total di
@@ -2349,7 +2606,29 @@ const KOL_CARI = {
   bill  : ['bill number','sales number','receipt number','no bill'],
   menu  : ['menu','menu name','product','product name','item','item name','nama menu'],
   qty   : ['qty','quantity','jumlah','qty sold','sold'],
-  nilai : ['menu total','item total','total menu','sales amount','subtotal']
+  nilai : ['menu total','item total','total menu','sales amount','subtotal'],
+  /* KODE MENU, dua kolom dan keduanya perlu.
+
+     `Menu Code` ADA di Detail Report tapi KOSONG di seluruh 19.734 baris; yang
+     benar-benar berisi kodenya `Custom Menu Name`. Kalau keduanya ditaruh di
+     satu daftar, `menu code` menang karena kolomnya memang ada — dan hasilnya
+     nol kode terbaca, tanpa satu pun galat. Kolom yang ADA tapi KOSONG adalah
+     jebakan yang tidak bisa ditangkap dengan memilih kolom sekali di depan.
+
+     Karena itu keduanya disimpan dan dipilih PER BARIS: `menu code` dipakai
+     kalau barisnya berisi, kalau tidak `custom menu name`. Begitu suatu hari
+     POS mulai mengisi Menu Code, ia langsung yang dipakai — tanpa menyentuh
+     kode ini.
+
+     `Custom Menu Name` juga dipakai kasir menulis catatan ("Setengah mateng",
+     "Takeaway", "No sugar"), jadi isinya disaring kodeMenu() lebih dulu. */
+  kode  : ['menu code','item code','product code','kode menu'],
+  kode2 : ['custom menu name','nama menu custom'],
+  /* KATEGORI. Detail-nya yang berguna (NUSANTARA, COFFEE SERIES, EVENT, …);
+     yang atas cuma FOOD / BEVERAGES / OTHERS. Keduanya disimpan — yang atas
+     dipakai mengelompokkan, yang detail dipakai membaca. */
+  kat   : ['menu category','category','kategori'],
+  katD  : ['menu category detail','sub category','subcategory','kategori detail']
 };
 function petaKolomPos(kepala) {
   const p = {};
@@ -2401,6 +2680,47 @@ function jamDari(v) {
   return (j >= 0 && j < 24) ? j : -1;
 }
 
+/* ---- MENU PAKET (4 September 2026, permintaan user) ----
+
+   POS menuliskan menu bonus/paket sebagai baris tersendiri berakhiran
+   "(PACKAGE)". Ada dua bentuk, dan bedanya menentukan bisa-tidaknya ia
+   dihitung:
+
+     "MINERAL WATER (PACKAGE)"  namanya JELAS — cukup buang akhirannya
+     "LARGE (PACKAGE)"          namanya cuma UKURAN — minumannya ada di kodenya
+
+   Agustus 2026: 905 porsi bentuk pertama, 3.218 porsi bentuk kedua. Selama
+   tidak dinormalkan, 4.123 porsi berdiri sebagai menu-menu palsu bernama
+   "REGULAR (PACKAGE)" — porsi yang tidak pernah masuk hitungan menu
+   sesungguhnya, dan bahan bakunya tidak pernah ikut terhitung. */
+const PAKET_RE = /\s*\(PACKAGE\)\s*$/i;
+/* Yang namanya cuma menyebut UKURAN, bukan menu. Daftar tertutup, dan yang
+   tidak ada di sini dianggap bernama jelas — menambah pola baru harus
+   disengaja, bukan ditebak dari kata pertama. */
+const PAKET_GENERIK = /^(REGULAR|LARGE|LARGE KOPI|LARGE TEH|SMALL|MEDIUM)$/i;
+function paketGenerik(nama) {
+  const s = String(nama || '').trim();
+  return PAKET_RE.test(s) && PAKET_GENERIK.test(s.replace(PAKET_RE, '').trim());
+}
+/* Nama tanpa akhiran (PACKAGE). Dipakai untuk yang bernama jelas. */
+function paketNamaAsli(nama) { return String(nama || '').trim().replace(PAKET_RE, '').trim(); }
+/* Kode dari kolom teks bebas. Kolomnya juga dipakai kasir menulis catatan,
+   jadi yang diterima HANYA bentuk kode: huruf lalu angka, tanpa spasi
+   (AMERICANO02, KOPISUSU001, MATCHA01). Tanpa saringan ini, "Setengah
+   mateng" dan "SEMUA MAKANAN NYA UDAH KELUAR YA" ikut jadi kode, dan
+   daftarnya penuh baris yang tidak akan pernah bisa dipetakan siapa pun. */
+function kodeMenu(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  /* SATU aturan: diawali huruf, diakhiri angka, dan hanya huruf/angka/._-
+     di antaranya. Kelas karakternya sudah menolak spasi, jadi catatan kasir
+     ("Setengah mateng", "SEMUA MAKANAN NYA UDAH KELUAR YA") gugur di sini.
+     Sempat ada pemeriksaan spasi terpisah di atasnya; dicabut karena tidak
+     menahan apa pun — dua aturan untuk satu hal berarti yang satu bisa
+     dilonggarkan tanpa yang lain ikut. */
+  return /^[A-Za-z][A-Za-z0-9_.\-]*\d$/.test(s) ? s.toUpperCase() : '';
+}
+
 function ringkasPos(baris, namaBerkas) {
   const iH = cariBarisKepala(baris);
   if (iH < 0) throw new Error('Baris kepala kolom tidak ketemu. Pastikan berkasnya hasil ekspor POS, bukan berkas yang sudah disunting.');
@@ -2414,6 +2734,15 @@ function ringkasPos(baris, namaBerkas) {
 
   const hari = {}, jam = Array.from({ length: 24 }, () => ({ bill:0, grand:0 }));
   const menu = {}, perBln = {};
+  /* paket[namaMentah][kode] — rincian baris (PACKAGE) menurut kodenya.
+     DISIMPAN TERPISAH, dan `menu` tetap memakai nama mentah: dinormalkan saat
+     MENGURAI, peta kode yang dibetulkan bulan depan tidak akan pernah
+     memperbaiki bulan-bulan yang sudah tersimpan. Normalisasinya dikerjakan
+     saat MENGGAMBAR (menuNormal()), jadi satu perbaikan peta langsung berlaku
+     untuk seluruh bulan yang pernah diunggah. */
+  const paket = {};
+  /* kategori[detail] = {qty, nilai, kat} — kat = FOOD/BEVERAGES/OTHERS. */
+  const kategori = {}, katMenu = {};
   const r = { bill:0, grand:0, net:0, sub:0, svc:0, tax:0,
               discMenu:0, discBill:0, discVoucher:0, pax:0, billPax:0 };
   let nLewat = 0, nRow = 0;
@@ -2469,6 +2798,30 @@ function ringkasPos(baris, namaBerkas) {
         const nl = K.nilai ? angka(b[K.nilai]) : g;
         if (!menu[nm]) menu[nm] = { qty:0, nilai:0 };
         menu[nm].qty += q; menu[nm].nilai += nl;
+
+        /* Baris paket dirinci per kode. Yang kodenya tidak terbaca tetap
+           dicatat di bawah kunci kosong — kalau dibuang, jumlah rincian tidak
+           lagi sama dengan menu[nm] dan porsinya hilang saat dinormalkan. */
+        if (PAKET_RE.test(nm)) {
+          const kd = (K.kode ? kodeMenu(b[K.kode]) : '') || (K.kode2 ? kodeMenu(b[K.kode2]) : '');
+          if (!paket[nm]) paket[nm] = {};
+          if (!paket[nm][kd]) paket[nm][kd] = { qty:0, nilai:0 };
+          paket[nm][kd].qty += q; paket[nm][kd].nilai += nl;
+        }
+
+        if (K.katD || K.kat) {
+          const kd = String((K.katD ? b[K.katD] : '') || '').trim() || KAT_TANPA;
+          const ka = String((K.kat ? b[K.kat] : '') || '').trim() || KAT_TANPA;
+          if (!kategori[kd]) kategori[kd] = { qty:0, nilai:0, kat:ka };
+          kategori[kd].qty += q; kategori[kd].nilai += nl;
+          /* Menu apa saja yang ada di kategori itu. Disimpan supaya barisnya
+             bisa dibuka tanpa mengunggah ulang berkasnya — ringkasan yang cuma
+             menyimpan total tidak bisa menjawab "isinya apa", dan itu
+             pertanyaan berikutnya yang pasti muncul. */
+          if (!katMenu[kd]) katMenu[kd] = {};
+          if (!katMenu[kd][nm]) katMenu[kd][nm] = { qty:0, nilai:0 };
+          katMenu[kd][nm].qty += q; katMenu[kd][nm].nilai += nl;
+        }
       }
     }
   }
@@ -2494,7 +2847,7 @@ function ringkasPos(baris, namaBerkas) {
   Object.keys(hari).forEach(t => { if (blnDari(t) !== bulan) delete hari[t]; });
   const tglU = Object.keys(hari).sort();
 
-  return { bulan, jenis, berkas:namaBerkas, hari, jam, menu, ringkas:r,
+  return { bulan, jenis, berkas:namaBerkas, hari, jam, menu, paket, kategori, katMenu, ringkas:r,
            nBaris:nRow, nLewat, blnLain, billDariBaris:!punyaBill,
            tglAwal:tglU[0] || '', tglAkhir:tglU[tglU.length - 1] || '' };
 }
@@ -2600,7 +2953,7 @@ function render() {
       + esc(KP_ERR || 'Backend Kompas tidak menjawab.') + ' Muat ulang halaman (Ctrl+F5).</div></div>';
     return;
   }
-  ({ ringkasan:vRingkasan, tren:vTren, hari:vHari, menu:vMenu,
+  ({ ringkasan:vRingkasan, tren:vTren, hari:vHari, menu:vMenu, kategori:vKategori,
      event:vEvent, marketing:vMarketing, unggah:vUnggah,
      pengaturan:vPengaturan, akses:vAkses }[CURRENT] || vRingkasan)();
   terapkanKunci();
@@ -2648,6 +3001,32 @@ function vPengaturan() {
         + 'disebutkan di halaman <b>Menu &amp; Bahan Baku</b>.</div>')
     + '</div>';
 
+  /* Pemetaan KODE PAKET -> nama menu. Beda dari pemetaan di atas, dan bedanya
+     harus jelas: yang di atas menyamakan nama POS dengan nama HPP; yang ini
+     memberi tahu minuman apa yang dimaksud sebuah baris paket yang namanya
+     cuma menyebut ukuran. */
+  const pk = (AN.data.setting || {}).petaKode || {};
+  const kk = Object.keys(pk).sort();
+  h += '<div class="card" data-aks><h3>Kode Menu Paket</h3>'
+    + '<div class="card-sub">Baris <i>LARGE (PACKAGE)</i> dan <i>REGULAR (PACKAGE)</i> di laporan POS '
+    + 'tidak menyebut minumannya — yang menyebut <b>kode</b>-nya (mis. <span class="mono">AMERICANO02</span>). '
+    + 'Pasangkan sekali di sini, dan porsinya digabungkan ke menu aslinya di <b>seluruh bulan</b> '
+    + 'yang pernah diunggah — termasuk yang sudah tersimpan sebelum pemetaan ini dibuat.</div>'
+    + '<div class="qa-sheet" style="grid-template-columns:1fr 1fr auto">'
+    + '<div class="hd">Kode di POS</div><div class="hd">Menu yang dimaksud</div><div class="hd"></div>'
+    + '<div class="cel c1"><input id="pk_kode" placeholder="mis. AMERICANO02"></div>'
+    + '<div class="cel"><input id="pk_menu" placeholder="mis. ICE AMERICANO"></div>'
+    + '<div class="cel aksi"><button class="btn btn-primary" onclick="kodeTambah()">+ Pasangkan</button></div>'
+    + kk.map(k => '<div class="qa-sel c1 mono" data-l="Kode">' + esc(k) + '</div>'
+        + '<div class="qa-sel" data-l="Menu">' + esc(pk[k]) + '</div>'
+        + '<div class="qa-sel aksi"><button class="btn btn-ghost btn-xs" data-k="' + esc(k) + '"'
+        + ' onclick="kodeHapus(this.dataset.k)">×</button></div>').join('')
+    + '</div>'
+    + (kk.length ? '' : '<div class="helper">Belum ada pasangan. Kode yang muncul di laporan tapi belum '
+        + 'dipasangkan <b>disebutkan berikut jumlah porsinya</b> di halaman <b>Menu &amp; Bahan Baku</b>, '
+        + 'lengkap dengan tombol untuk memasangkannya langsung dari sana.</div>')
+    + '</div>';
+
   V.innerHTML = h;
 }
 async function simpanShift() {
@@ -2679,6 +3058,30 @@ async function petaHapus(k) {
   delete peta[k];
   if (await simpan()) { toast('Dihapus.'); render(); }
   else { peta[k] = sebelum; render(); }
+}
+async function kodeTambah() {
+  if (!bolehAksi('pengaturan')) return;
+  const g = id => ((document.getElementById(id) || {}).value || '').trim();
+  /* Kodenya DIBAKUKAN huruf besar di satu tempat — di laporan POS ia diketik
+     kasir, jadi "Matcha02" dan "MATCHA02" pasti bercampur. Dua ejaan untuk
+     satu kode berarti separuh porsinya tetap menggantung tanpa sebab yang
+     kelihatan. */
+  const kode = g('pk_kode').toUpperCase(), menu = g('pk_menu');
+  if (!kode || !menu) { alert('Kode dan nama menunya wajib diisi.'); return; }
+  if (!AN.data.setting.petaKode) AN.data.setting.petaKode = {};
+  const sebelum = AN.data.setting.petaKode[kode];
+  AN.data.setting.petaKode[kode] = menu;
+  if (await simpan()) { toast('Dipasangkan.'); render(); }
+  else { if (sebelum === undefined) delete AN.data.setting.petaKode[kode];
+         else AN.data.setting.petaKode[kode] = sebelum; render(); }
+}
+async function kodeHapus(k) {
+  if (!bolehAksi('pengaturan')) return;
+  const pk = AN.data.setting.petaKode || {};
+  const sebelum = pk[k];
+  delete pk[k];
+  if (await simpan()) { toast('Dihapus.'); render(); }
+  else { pk[k] = sebelum; render(); }
 }
 
 /* ============ HALAMAN: KELOLA AKSES ============ */

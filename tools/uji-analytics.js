@@ -632,6 +632,147 @@ async function siap(w) {
     dom.window.close();
   }
 
+
+  /* ================= 4b. Menu paket & kategori (4 September 2026) =========
+     Tiga permintaan user yang saling bersentuhan:
+       1. porsi baris (PACKAGE) ikut dihitung di menu aslinya
+       2. kategori menu (termasuk EVENT) punya halaman sendiri
+       3. baris paket yang namanya cuma ukuran dikenali dari KODE-nya
+
+     Yang dijaga di sini semuanya gagal DIAM-DIAM: porsi yang tidak digabung
+     berdiri sebagai menu palsu bernama "REGULAR (PACKAGE)", dan bahan bakunya
+     tidak pernah ikut terhitung. */
+  console.log('\n== Menu paket & kategori ==');
+  {
+    /* Empat bentuk baris paket sekaligus, plus satu menu biasa sebagai
+       pembanding yang tidak boleh ikut berubah. */
+    const rows = [
+      { a:'Sales Date', b:'Bill Number', c:'Menu', d:'Custom Menu Name', e:'Menu Code',
+        f:'Qty', g:'Subtotal', h:'Menu Category', i:'Menu Category Detail' },
+      { a:'2026-08-01', b:'B1', c:'MINERAL WATER',           d:'', e:'', f:'10', g:'100000', h:'BEVERAGES', i:'GRAB AND GO' },
+      { a:'2026-08-01', b:'B1', c:'MINERAL WATER (PACKAGE)', d:'', e:'', f:'3',  g:'0',      h:'BEVERAGES', i:'GRAB AND GO' },
+      { a:'2026-08-01', b:'B2', c:'LARGE (PACKAGE)',         d:'MATCHA02', e:'', f:'4', g:'20000', h:'BEVERAGES', i:'SIGNATURE NON COFFEE' },
+      { a:'2026-08-01', b:'B2', c:'REGULAR (PACKAGE)',       d:'MATCHA01', e:'', f:'2', g:'10000', h:'BEVERAGES', i:'SIGNATURE NON COFFEE' },
+      { a:'2026-08-01', b:'B3', c:'MATCHA LATTE',            d:'', e:'', f:'5',  g:'150000', h:'BEVERAGES', i:'SIGNATURE NON COFFEE' },
+      /* Kolom kode juga dipakai kasir menulis catatan — tidak boleh jadi kode. */
+      { a:'2026-08-01', b:'B4', c:'LARGE (PACKAGE)',         d:'Setengah mateng', e:'', f:'1', g:'5000', h:'BEVERAGES', i:'TEA COLLECTION' },
+      { a:'2026-08-01', b:'B5', c:'NASI GORENG',             d:'', e:'', f:'6',  g:'300000', h:'FOOD', i:'NUSANTARA' },
+      { a:'2026-08-01', b:'B6', c:'DJ PERFORMANCE',          d:'', e:'', f:'1',  g:'500000', h:'OTHERS', i:'EVENT' }
+    ];
+    const { dom } = domAnalytics({});
+    await siap(dom.window);
+    const w = dom.window, d = w.document;
+    const u = w.eval('ringkasPos')(rows, 'x.xlsx');
+
+    /* ---- pengurai ---- */
+    cek('baris paket dirinci per kode', !!u.paket['LARGE (PACKAGE)'],
+        JSON.stringify(Object.keys(u.paket)));
+    cek('kode dibaca dari Custom Menu Name saat Menu Code kosong',
+        !!(u.paket['LARGE (PACKAGE)'] || {})['MATCHA02'],
+        JSON.stringify(u.paket['LARGE (PACKAGE)']));
+    /* Kolom yang ADA tapi KOSONG adalah jebakannya: kalau `Menu Code` dipilih
+       sekali di depan karena kolomnya ada, nol kode terbaca tanpa satu pun
+       galat. Karena itu kolomnya dipilih PER BARIS. */
+    cek('catatan kasir TIDAK dianggap kode',
+        !!(u.paket['LARGE (PACKAGE)'] || {})[''], JSON.stringify(u.paket['LARGE (PACKAGE)']));
+    cek('kodeMenu menolak teks bercelah',
+        w.eval("kodeMenu('Setengah mateng')") === '' && w.eval("kodeMenu('MATCHA02')") === 'MATCHA02');
+    cek('kodeMenu menolak yang tidak berakhiran angka',
+        w.eval("kodeMenu('Takeaway')") === '');
+    cek('kode dibakukan huruf besar', w.eval("kodeMenu('matcha02')") === 'MATCHA02');
+
+    /* ---- 1 & 3: penggabungan saat MENGGAMBAR ---- */
+    w.eval('AN.data.setting.petaKode = {}');
+    let NM = w.eval('menuNormal')(u);
+    /* Nama jelas cukup dibuang akhirannya — tidak butuh peta apa pun. */
+    cek('paket bernama jelas digabung ke menu aslinya',
+        NM.gab['MINERAL WATER'].qty === 13, String(NM.gab['MINERAL WATER'] && NM.gab['MINERAL WATER'].qty));
+    cek('...dan nama berakhiran (PACKAGE) tidak lagi berdiri sendiri',
+        !NM.gab['MINERAL WATER (PACKAGE)']);
+    /* Yang namanya cuma ukuran BELUM bisa digabung — tapi porsinya TETAP
+       dihitung, dengan nama yang menyebut kodenya. Dibuang, jumlah porsi di
+       halaman ini berhenti sama dengan jumlah di berkas POS. */
+    cek('kode yang belum dipetakan dilaporkan', Object.keys(NM.takKenal).length === 2,
+        JSON.stringify(Object.keys(NM.takKenal)));
+    cek('...porsinya tetap dihitung dengan nama berkode',
+        !!NM.gab['LARGE (PACKAGE) · MATCHA02'], JSON.stringify(Object.keys(NM.gab)));
+
+    /* JUMLAH TOTAL TIDAK BOLEH BERUBAH karena penggabungan — ini pemeriksaan
+       yang paling menentukan: penggabungan yang menghilangkan atau
+       menggandakan porsi tidak akan terlihat di layar mana pun. */
+    const totQ = o => Object.keys(o).reduce((a, k) => a + o[k].qty, 0);
+    const totN = o => Object.keys(o).reduce((a, k) => a + o[k].nilai, 0);
+    cek('porsi total tidak berubah karena penggabungan',
+        totQ(NM.gab) === totQ(u.menu), totQ(NM.gab) + ' vs ' + totQ(u.menu));
+    cek('nilai total tidak berubah karena penggabungan',
+        totN(NM.gab) === totN(u.menu), totN(NM.gab) + ' vs ' + totN(u.menu));
+
+    /* Dipetakan: porsinya pindah ke menu aslinya. */
+    w.eval("AN.data.setting.petaKode = { MATCHA02:'MATCHA LATTE', MATCHA01:'MATCHA LATTE' }");
+    NM = w.eval('menuNormal')(u);
+    cek('kode yang dipetakan pindah ke menu aslinya',
+        NM.gab['MATCHA LATTE'].qty === 11, String(NM.gab['MATCHA LATTE'].qty));
+    cek('...dan totalnya tetap sama', totQ(NM.gab) === totQ(u.menu),
+        totQ(NM.gab) + ' vs ' + totQ(u.menu));
+    cek('...sisa kode yang belum dipetakan tinggal yang tanpa kode',
+        Object.keys(NM.takKenal).length === 0, JSON.stringify(Object.keys(NM.takKenal)));
+    /* Peta dipakai saat MENGGAMBAR, bukan saat mengurai: kalau dibakukan ke
+       laporan tersimpan, peta yang dibetulkan bulan depan tidak akan pernah
+       memperbaiki bulan yang sudah diunggah. */
+    cek('laporan tersimpan tetap memakai nama mentah',
+        !!u.menu['LARGE (PACKAGE)'], JSON.stringify(Object.keys(u.menu)));
+
+    /* Saran tidak boleh menawarkan baris paket itu sendiri — memetakan kode ke
+       namanya sendiri tidak memindahkan porsi ke mana pun, dan yang menekan
+       tombolnya mengira sudah selesai. */
+    const saran = w.eval('saranKode')('MATCHA02', Object.keys(NM.gab).concat(['REGULAR (PACKAGE) · MATCHA02']));
+    cek('saran kode tidak menawarkan baris paket', saran.every(x => x.indexOf('(PACKAGE)') < 0),
+        JSON.stringify(saran));
+    cek('saran kode menemukan menu yang mirip', saran.indexOf('MATCHA LATTE') > -1, JSON.stringify(saran));
+
+    /* ---- 2: halaman kategori ---- */
+    cek('kategori terbaca dari laporan', Object.keys(u.kategori).length === 5,
+        JSON.stringify(Object.keys(u.kategori)));
+    cek('EVENT jadi kategorinya sendiri', !!u.kategori['EVENT'] && u.kategori['EVENT'].nilai === 500000,
+        JSON.stringify(u.kategori['EVENT']));
+    cek('kelompok atas ikut disimpan', u.kategori['EVENT'].kat === 'OTHERS');
+    cek('menu di dalam kategori ikut disimpan',
+        !!(u.katMenu['NUSANTARA'] || {})['NASI GORENG']);
+
+    w.eval('AN.data.laporan = null');
+    w.eval('AN.data.laporan = {}');
+    w.eval('AN.data.laporan["2026-08"] = ' + JSON.stringify(u));
+    w.eval("BLN='2026-08'");
+    w.go('kategori'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    cek('halaman Kategori Menu tergambar', v.indexOf('Per Kategori') > -1, v.slice(0, 300));
+    cek('EVENT tampil di halamannya sendiri', v.indexOf('EVENT') > -1);
+    cek('...berikut kelompok atasnya', v.indexOf('OTHERS') > -1);
+    /* Kategori TERPISAH dari peringkat menu — itu inti permintaannya. */
+    cek('halaman kategori tidak memuat tabel peringkat menu',
+        v.indexOf('<h3>Penjualan Menu</h3>') < 0 && v.indexOf('Perkiraan Bahan Baku') < 0,
+        v.slice(0, 300));
+    cek('...tapi tetap menunjuk ke sana supaya angkanya bisa dibandingkan',
+        v.indexOf('Penjualan Menu') > -1);
+    cek('persentasenya dihitung dari total omset menu', /% omset menu/.test(v));
+    /* Baris kategori bisa dibuka untuk melihat isinya. */
+    w.eval("ktBuka('NUSANTARA')"); await tunggu(60);
+    const v2 = d.getElementById('app-view').innerHTML;
+    cek('isi kategori bisa dibuka', v2.indexOf('NASI GORENG') > -1,
+        v2.slice(v2.indexOf('menu di kategori') - 100, v2.indexOf('menu di kategori') + 300));
+    w.eval("ktBuka('NUSANTARA')"); await tunggu(60);
+    cek('menekan lagi menutupnya', w.eval('KT_BUKA') === '');
+
+    /* Laporan LAMA tidak punya kategori — halamannya harus MENGATAKAN sebabnya
+       dan cara membetulkannya, bukan menggambar tabel kosong. */
+    w.eval('delete AN.data.laporan["2026-08"].kategori');
+    w.go('kategori'); await tunggu(60);
+    const v3 = d.getElementById('app-view').innerHTML;
+    cek('laporan tanpa kategori mengatakan sebabnya',
+        /belum memuat kategori menu/.test(v3) && /Unggah ulang/.test(v3), v3.slice(0, 400));
+    dom.window.close();
+  }
+
   /* ================= 5. Bill Report: halaman menu mengatakan apa yang kurang === */
   console.log('\n== Bill Report: menu memang tidak ada ==');
   {
