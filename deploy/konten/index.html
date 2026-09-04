@@ -1660,7 +1660,7 @@ VIEWS.planning=function(){
       <select class="ctrl" style="max-width:150px" onchange="COMS.planF('status',this.value)"><option value="">Semua Status</option>${Object.keys(STATUS).map(s=>`<option ${planFilters.status===s?'selected':''}>${s}</option>`).join('')}</select>
       <select class="ctrl" style="max-width:150px" onchange="COMS.planF('platform',this.value)"><option value="">Semua Platform</option>${Object.keys(PLATFORMS).map(p=>`<option ${planFilters.platform===p?'selected':''}>${p}</option>`).join('')}</select>
       <select class="ctrl" style="max-width:170px" onchange="COMS.planF('pillar',this.value)"><option value="">Semua Pillar</option>${PILLARS.map(p=>`<option ${planFilters.pillar===p?'selected':''}>${p}</option>`).join('')}</select>
-      <select class="ctrl" style="max-width:150px" onchange="COMS.planF('pic',this.value)"><option value="">Semua PIC</option>${DB.users.map(u=>`<option value="${u.id}" ${planFilters.pic===u.id?'selected':''}>${esc(u.name)}</option>`).join('')}</select>
+      <select class="ctrl" style="max-width:230px" onchange="COMS.planF('pic',this.value)">${picOptions(planFilters.pic,planHitungPic)}</select>
       <button class="btn btn-ghost btn-sm" onclick="COMS.planReset()">Reset</button>
     </div>
   </div>
@@ -1671,7 +1671,18 @@ function planF(k,v){planFilters[k]=v;renderPlanTable();}
 /* Reset kembali ke AKTIF, bukan ke semua — kalau tidak, menekan Reset justru
    memunculkan seluruh arsip. */
 function planReset(){planFilters={arsip:'aktif',status:'',platform:'',pillar:'',pic:'',q:''};route('planning');}
-function filteredContent(){
+/* Angka di tiap pilihan PIC dihitung dari saringan yang SEDANG BERLAKU di
+   halaman ini (arsip, status, platform, pillar, kata kunci) — kecuali tapis
+   PIC-nya sendiri. Kalau tapis PIC ikut dihitung, tiap nama yang tidak sedang
+   dipilih selalu menulis (0), dan nol membaca sebagai "orang itu tidak pegang
+   apa-apa". Kalau sebaliknya SELURUH konten yang dihitung, angkanya menjanjikan
+   baris yang tidak akan muncul saat ditekan. */
+function planHitungPic(id){
+  const l=filteredContent(true);
+  if(id==null) return l.length;
+  return l.filter(c=>picCocok(id,c.pic)).length;
+}
+function filteredContent(tanpaPic){
   let list=filterByBrand(DB.content);
   const f=planFilters;
   /* Tapis arsip DILEWATI kalau orang memilih status yang memang arsip. Tanpa
@@ -1684,7 +1695,7 @@ function filteredContent(){
   if(f.status)list=list.filter(c=>c.status===f.status);
   if(f.platform)list=list.filter(c=>contentPlatforms(c).includes(f.platform));
   if(f.pillar)list=list.filter(c=>c.pillar===f.pillar);
-  if(f.pic)list=list.filter(c=>c.pic===f.pic);
+  if(f.pic&&!tanpaPic)list=list.filter(c=>picCocok(f.pic,c.pic));
   if(f.q){const q=f.q.toLowerCase();list=list.filter(c=>(c.title+' '+contentDetail(c)).toLowerCase().includes(q));}
   return list.sort((a,b)=>new Date(a.deadline||'2099')-new Date(b.deadline||'2099'));
 }
@@ -2198,34 +2209,65 @@ function copyText(t){navigator.clipboard.writeText(t).then(()=>toast('Disalin ke
    tapis ini justru sedang mencari siapa yang menumpuk pekerjaan. */
 let pipeFilters={pic:''};
 function pipeF(v){pipeFilters.pic=v;route('pipeline');}
-/* Konten yang dipegang seseorang, TANPA yang sudah selesai — orang yang
-   pekerjaannya sudah tayang semua tidak sedang menumpuk apa pun. */
-function pipeMilik(pic){
-  return filterByBrand(DB.content).filter(c=>c.pic===pic&&c.status!=='Cancelled').length;
+/* SATU pembuat daftar pilihan PIC, dipakai Pipeline DAN Content Planning.
+   Dua dropdown yang disusun sendiri-sendiri akan menyimpang begitu ada satu
+   pilihan baru — dan yang membacanya tidak punya cara tahu kenapa "Belum ada
+   PIC" cuma ada di satu halaman.
+
+   `hitung(picId)` diberikan pemanggilnya: yang dihitung memang berbeda —
+   Pipeline menghitung konten aktif, Content Planning menghitung yang lolos
+   saringan halamannya sendiri. Yang sama bentuk daftarnya, bukan angkanya. */
+function picOptions(terpilih, hitung){
+  const n=id=>{ const v=hitung(id); return v?` (${v})`:''; };
+  const dipakai=DB.users.filter(u=>hitung(u.id)>0);
+  const sel=v=>terpilih===v?' selected':'';
+  let h=`<option value=""${sel('')}>Semua PIC${n(null)}</option>`;
+  /* "Punya saya" DI ATAS daftar nama: itu pilihan yang paling sering ditekan,
+     dan mencarinya di antara tiga puluh nama adalah pekerjaan yang tidak perlu
+     ada. Cuma digambar kalau memang punya sesuatu. */
+  if(SES&&hitung(SES)) h+=`<option value="${esc(SES)}"${sel(SES)}>⭐ Punya saya${n(SES)}</option>`;
+  h+=dipakai.map(u=>`<option value="${esc(u.id)}"${sel(u.id)}>${esc(u.name)}${n(u.id)}</option>`).join('');
+  /* Yang belum ada PIC-nya justru paling perlu ditemukan: tak seorang pun
+     merasa memilikinya. Nilainya '__none__' — bukan '' yang sudah berarti
+     "semua". */
+  if(hitung('__none__')) h+=`<option value="__none__"${sel('__none__')}>⚠ Belum ada PIC${n('__none__')}</option>`;
+  return h;
+}
+/* Cocokkan satu baris dengan pilihan PIC. Satu aturan untuk kedua halaman —
+   '__none__' dibandingkan langsung dengan c.pic tidak akan pernah cocok, dan
+   daftarnya kosong tanpa satu pun keterangan. */
+function picCocok(pilih, pic){
+  if(!pilih) return true;
+  return pilih==='__none__' ? !pic : pic===pilih;
 }
 function pipeTersaring(){
-  const l=filterByBrand(DB.content);
-  if(!pipeFilters.pic) return l;
-  /* '__none__' bukan id siapa pun — dibandingkan langsung dengan c.pic, ia
-     tidak akan pernah cocok dan kanbannya kosong tanpa satu pun keterangan. */
-  if(pipeFilters.pic==='__none__') return l.filter(c=>!c.pic);
-  return l.filter(c=>c.pic===pipeFilters.pic);
+  return filterByBrand(DB.content).filter(c=>picCocok(pipeFilters.pic,c.pic));
+}
+/* Konten aktif per orang; `null` berarti seluruhnya, '__none__' yang tanpa PIC. */
+function pipeHitung(id){
+  const l=filterByBrand(DB.content).filter(c=>c.status!=='Cancelled');
+  if(id==null) return l.length;
+  return l.filter(c=>picCocok(id,c.pic)).length;
 }
 VIEWS.pipeline=function(){
-  const dipakai=DB.users.filter(u=>pipeMilik(u.id)>0);
+  /* Baris penyaingnya berbentuk KARTU, sama dengan Content Planning dan antrian
+     produksi. Sebelumnya kotak PIC-nya diselipkan ke dalam .page-head bersama
+     tombol Konten Baru; .page-head memakai align-items:flex-end + flex-wrap,
+     jadi begitu isinya tiga benda ia membungkus dan kotaknya berdiri sendiri
+     di kanan atas, tidak sejajar dengan apa pun (keluhan user 4 September
+     2026). Kartu penyaring memang sudah jadi bentuk baku modul ini — yang
+     kurang cuma pipeline yang belum memakainya. */
+  const nAktif=pipeTersaring().filter(c=>c.status!=='Cancelled').length;
   return `${brandBar()}
-  <div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">Geser kartu antar kolom untuk update status - ${pipeTersaring().filter(c=>c.status!=='Cancelled').length} konten aktif${pipeFilters.pic?' · '+esc(userName(pipeFilters.pic)):''}</p></div>
-    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-      <select class="ctrl" style="max-width:230px" onchange="COMS.pipeF(this.value)">
-        <option value="" ${pipeFilters.pic===''?'selected':''}>Semua PIC (${filterByBrand(DB.content).filter(c=>c.status!=='Cancelled').length})</option>
-        ${SES&&pipeMilik(SES)?`<option value="${esc(SES)}" ${pipeFilters.pic===SES?'selected':''}>Punya saya (${pipeMilik(SES)})</option>`:''}
-        ${dipakai.map(u=>`<option value="${esc(u.id)}" ${pipeFilters.pic===u.id?'selected':''}>${esc(u.name)} (${pipeMilik(u.id)})</option>`).join('')}
-        ${/* Yang belum ada PIC-nya justru paling perlu ditemukan: tak seorang pun
-             merasa memilikinya, dan kartunya diam di kolomnya sampai ada yang
-             kebetulan melihatnya. */''}
-        ${filterByBrand(DB.content).filter(c=>!c.pic&&c.status!=='Cancelled').length?`<option value="__none__" ${pipeFilters.pic==='__none__'?'selected':''}>Belum ada PIC (${filterByBrand(DB.content).filter(c=>!c.pic&&c.status!=='Cancelled').length})</option>`:''}
-      </select>
-      ${can('content')?`<button class="btn btn-gold" onclick="COMS.openContentForm()">＋ Konten Baru</button>`:''}
+  <div class="page-head">
+    <div><p style="color:var(--txt-3);font-size:13px">Geser kartu antar kolom untuk update status</p></div>
+    ${can('content')?`<button class="btn btn-gold" onclick="COMS.openContentForm()">＋ Konten Baru</button>`:''}
+  </div>
+  <div class="card" style="padding:12px;margin-bottom:16px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <select class="ctrl" style="max-width:250px" onchange="COMS.pipeF(this.value)">${picOptions(pipeFilters.pic,pipeHitung)}</select>
+      ${pipeFilters.pic?`<button class="btn btn-ghost btn-sm" onclick="COMS.pipeF('')">Reset</button>`:''}
+      <span style="margin-left:auto;font-size:12px;color:var(--txt-3)">${nAktif} konten aktif${pipeFilters.pic?` · ${esc(pipeFilters.pic==='__none__'?'belum ada PIC':userName(pipeFilters.pic))}`:''}</span>
     </div></div>
   <div class="kanban" id="kanban">${PIPELINE.map(col=>{
     const items=pipeTersaring().filter(c=>c.status===col);

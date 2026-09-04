@@ -1570,7 +1570,7 @@ function tugasSaya() { filterByBrand(); platformTags(); statusPill(); openConten
 
 
 
-function st() { esc(); fmtDate(); brandBar(); num(); fmtDateShort(); tint(); calOpenEvent(); getBrand(); openContent(); brandDot(); platformTags(); can(); route(); deadlineHTML(); openContentForm(); planF(); planReset(); }
+function st() { esc(); fmtDate(); brandBar(); num(); fmtDateShort(); tint(); calOpenEvent(); getBrand(); openContent(); brandDot(); platformTags(); can(); route(); deadlineHTML(); openContentForm(); planF(); picOptions(); planReset(); }
 
 
 
@@ -1671,7 +1671,18 @@ function planF() { renderPlanTable(); }
 
 
 function planReset() { route(); }
-function filteredContent() { filterByBrand(); contentPlatforms(); contentDetail(); }
+
+
+
+
+
+
+function planHitungPic() { filteredContent(); picCocok(); }
+
+
+
+
+function filteredContent() { filterByBrand(); contentPlatforms(); picCocok(); contentDetail(); }
 
 
 
@@ -2200,10 +2211,41 @@ function copyText() { toast(); }
 function pipeF() { route(); }
 
 
-function pipeMilik() { filterByBrand(); }
 
 
-function pipeTersaring() { filterByBrand(); pipeMilik(); brandBar(); esc(); userName(); pipeF(); can(); openContentForm(); kDragOver(); kDragLeave(); kDrop(); contentCard(); }
+
+
+
+
+function picOptions() { esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function picCocok() {  }
+
+
+
+function pipeTersaring() { filterByBrand(); picCocok(); }
+
+
+
+function pipeHitung() { filterByBrand(); picCocok(); pipeTersaring(); brandBar(); can(); openContentForm(); pipeF(); picOptions(); esc(); userName(); kDragOver(); kDragLeave(); kDrop(); contentCard(); }
+
 
 
 

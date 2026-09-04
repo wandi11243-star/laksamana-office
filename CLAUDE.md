@@ -766,6 +766,29 @@ yang menumpuk pekerjaan. Pilihan **Belum ada PIC** memakai nilai `__none__` dan
 disaring lewat cabangnya sendiri: dibandingkan langsung dengan `c.pic` ia tidak
 akan pernah cocok, dan kanbannya kosong tanpa satu pun keterangan.
 
+**Pilihan PIC dibuat SATU tempat** (`picOptions()` + `picCocok()`), dipakai
+Pipeline dan Content Planning. Dua dropdown yang disusun sendiri-sendiri akan
+menyimpang begitu ada pilihan baru — dan yang membacanya tidak punya cara tahu
+kenapa "Belum ada PIC" cuma ada di satu halaman.
+
+- **Baris penyaring Pipeline berbentuk KARTU**, sama dengan halaman lain.
+  Sebelumnya kotak PIC-nya diselipkan ke `.page-head` bersama tombol Konten
+  Baru; `.page-head` memakai `align-items:flex-end` + `flex-wrap`, jadi begitu
+  isinya tiga benda ia membungkus dan kotaknya berdiri sendiri di kanan atas
+  tanpa sejajar dengan apa pun (keluhan user 4 September 2026).
+- **`hitung()` diberikan pemanggilnya**, karena yang dihitung memang berbeda:
+  Pipeline menghitung konten aktif, Content Planning menghitung yang lolos
+  saringan halamannya sendiri. Yang sama bentuk daftarnya, bukan angkanya.
+- **Angka PIC di Planning dihitung TANPA tapis PIC-nya sendiri**
+  (`filteredContent(true)`). Kalau ikut, tiap nama yang tidak sedang dipilih
+  selalu menulis `(0)` — dan nol membaca sebagai "orang itu tidak pegang
+  apa-apa". Saringan lain (arsip, status, kata kunci) TETAP berlaku: angkanya
+  harus menjanjikan apa yang benar-benar muncul kalau ditekan.
+- **Orang yang tidak memegang apa pun tidak ditawarkan**; memilihnya cuma
+  memulangkan daftar kosong, dan daftar kosong terbaca sebagai bug.
+- **`__none__` untuk "Belum ada PIC"**, bukan `` yang sudah berarti semua.
+  Dibandingkan langsung dengan `c.pic` ia tidak akan pernah cocok.
+
 **Kartu "Tugas Saya" di dashboard berbasis DEADLINE** (permintaan user: yang
 overdue atau dekat, dan hanya milik yang login). `tugasSaya()` mengumpulkan
 dari **tiga sumber**: konten yang PIC-nya saya, sub-tugas produksi di dalam
@@ -802,7 +825,7 @@ terakhir", yang satu "apa saja yang pernah terjadi".
   hilang diam-diam seperti kasus `mutasi` di brankas.
 
 ```bash
-node tools/uji-arsip-konten.js   # 49 pemeriksaan, jsdom (Konten + Reservasi)
+node tools/uji-arsip-konten.js   # 66 pemeriksaan, jsdom (Konten + Reservasi)
 ```
 
 Modul Konten seluruhnya terbungkus IIFE (`const COMS = (function(){…})()`), jadi

@@ -232,9 +232,9 @@ function dom(html, url, siapkan) {
         {id:'k4',title:'Yatim',status:'Idea',pic:'',brand:'',pillar:''}
       ]; brandFilter='all';`);
 
-    cek('jumlah per orang dihitung', w.__uji("pipeMilik('u-a')") === 2 &&
-        w.__uji("pipeMilik('u-b')") === 1,
-        w.__uji("pipeMilik('u-a')") + '/' + w.__uji("pipeMilik('u-b')"));
+    cek('jumlah per orang dihitung', w.__uji("pipeHitung('u-a')") === 2 &&
+        w.__uji("pipeHitung('u-b')") === 1,
+        w.__uji("pipeHitung('u-a')") + '/' + w.__uji("pipeHitung('u-b')"));
     cek('tanpa tapis, semuanya tampil', w.__uji('pipeTersaring()').length === 4);
     w.__uji("pipeFilters.pic='u-a'");
     cek('tersaring ke satu orang',
@@ -305,6 +305,81 @@ function dom(html, url, siapkan) {
     cek('dan yang jatuh tempo dekat', /1 ≤3 hari/.test(dash),
         dash.slice(dash.indexOf('Tugas Saya'), dash.indexOf('Tugas Saya') + 260));
     cek('kartu Terlambat menyebut porsi saya', /punya saya/.test(dash));
+    d.window.close();
+  }
+
+
+  /* ========= 5. tampilan PIC: satu bentuk untuk dua halaman ========= */
+  console.log('\n== Pilihan PIC seragam di Pipeline & Content Planning ==');
+  {
+    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/');
+    await tunggu(500);
+    const w = d.window;
+    w.__uji(`SES='u-me';
+      DB.users=[{id:'u-me',name:'Saya'},{id:'u-a',name:'Ana'},{id:'u-z',name:'Nganggur'}];
+      DB.content=[
+        {id:'k1',title:'M1',status:'Editing',pic:'u-me',brand:'',pillar:''},
+        {id:'k2',title:'A1',status:'Design',pic:'u-a',brand:'',pillar:''},
+        {id:'k3',title:'A2',status:'Idea',pic:'u-a',brand:'',pillar:''},
+        {id:'k4',title:'Yatim',status:'Idea',pic:'',brand:'',pillar:''}
+      ]; brandFilter='all'; pipeFilters={pic:''};
+      planFilters={arsip:'aktif',status:'',platform:'',pillar:'',pic:'',q:''};`);
+
+    /* SATU pembuat daftar untuk dua halaman: dua dropdown yang disusun
+       sendiri-sendiri akan menyimpang begitu ada pilihan baru. */
+    const opsi = w.__uji('picOptions("", pipeHitung)');
+    cek('Punya saya ada di atas daftar nama',
+        opsi.indexOf('Punya saya') > -1 &&
+        opsi.indexOf('Punya saya') < opsi.indexOf('Ana'), opsi.replace(/</g,'\n<'));
+    cek('jumlah tiap orang ikut tertulis',
+        /Ana \(2\)/.test(opsi) && /Punya saya \(1\)/.test(opsi), opsi.replace(/</g,'\n<'));
+    /* Orang yang tidak pegang apa-apa tidak ditawarkan: memilihnya cuma
+       memulangkan daftar kosong, dan daftar kosong terbaca sebagai bug. */
+    cek('yang tidak pegang apa-apa tidak ditawarkan', opsi.indexOf('Nganggur') < 0);
+    cek('yang belum ada PIC ditawarkan', /Belum ada PIC \(1\)/.test(opsi), opsi.replace(/</g,'\n<'));
+    cek('Semua PIC menyebut totalnya', /Semua PIC \(4\)/.test(opsi), opsi.replace(/</g,'\n<'));
+
+    /* Aturan cocoknya juga satu: '__none__' bukan id siapa pun. */
+    cek('picCocok: kosong berarti semua', w.__uji("picCocok('','u-a')") === true);
+    cek('picCocok: __none__ hanya yang tanpa PIC',
+        w.__uji("picCocok('__none__','')") === true &&
+        w.__uji("picCocok('__none__','u-a')") === false);
+
+    /* ---- Content Planning memakai daftar yang sama ---- */
+    const plan = w.__uji('VIEWS.planning()');
+    cek('Content Planning ikut menyebut jumlah tiap PIC',
+        /Ana \(2\)/.test(plan), plan.slice(plan.indexOf('Semua PIC'), plan.indexOf('Semua PIC') + 260));
+    cek('Content Planning ikut punya Punya saya', plan.indexOf('Punya saya') > -1);
+    cek('Content Planning ikut punya Belum ada PIC', plan.indexOf('Belum ada PIC') > -1);
+    /* Tapisnya benar-benar bekerja di halaman itu, bukan cuma tergambar. */
+    w.__uji("planFilters.pic='u-a'");
+    cek('tapis PIC menyaring daftar planning',
+        w.__uji('filteredContent()').map(c=>c.title).join(',') === 'A1,A2',
+        w.__uji('filteredContent()').map(c=>c.title).join(','));
+    w.__uji("planFilters.pic='__none__'");
+    cek('Belum ada PIC menyaring di planning juga',
+        w.__uji('filteredContent()').map(c=>c.title).join(',') === 'Yatim',
+        w.__uji('filteredContent()').map(c=>c.title).join(','));
+    /* Angka di pilihan dihitung TANPA tapis PIC-nya sendiri. Kalau ikut, tiap
+       nama yang tidak sedang dipilih selalu menulis (0) — dan nol membaca
+       sebagai "orang itu tidak pegang apa-apa". */
+    cek('angka PIC tidak jadi nol saat satu PIC dipilih',
+        w.__uji("planHitungPic('u-a')") === 2, String(w.__uji("planHitungPic('u-a')")));
+    /* ...tapi saringan LAIN tetap berlaku: angkanya harus menjanjikan apa yang
+       benar-benar muncul kalau ditekan. */
+    w.__uji("planFilters.pic=''; planFilters.q='A1';");
+    cek('kata kunci ikut mempersempit angka PIC',
+        w.__uji("planHitungPic('u-a')") === 1, String(w.__uji("planHitungPic('u-a')")));
+
+    /* ---- Kerapiannya: kotaknya tidak lagi menumpang di .page-head ---- */
+    w.__uji("planFilters.q=''");
+    const pipe = w.__uji('VIEWS.pipeline()');
+    const kepala = pipe.slice(pipe.indexOf('page-head'), pipe.indexOf('</div>', pipe.indexOf('page-head')) + 6);
+    cek('pemilih PIC keluar dari page-head', kepala.indexOf('COMS.pipeF') < 0, kepala);
+    cek('dan berdiri di kartu penyaring seperti halaman lain',
+        /class="card"[^>]*>\s*<div[^>]*>\s*<select class="ctrl"[^>]*COMS\.pipeF/.test(pipe.replace(/\s+/g,' ')),
+        pipe.slice(pipe.indexOf('COMS.pipeF') - 220, pipe.indexOf('COMS.pipeF') + 60));
+    cek('jumlah konten aktif tetap disebut', /konten aktif/.test(pipe));
     d.window.close();
   }
 
