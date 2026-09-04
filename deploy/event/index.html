@@ -381,6 +381,12 @@ td b{font-weight:800}
 .b-rose{background:rgba(192,37,122,.12);color:#8A175A}
 input,select,textarea{background:var(--panel2);border:1px solid var(--line);color:var(--txt);padding:8px 10px;border-radius:7px;font-size:13px;width:100%;font-family:inherit}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--accent)}
+/* Kotak isian yang TERKUNCI — sekarang cuma PIC di form event, yang diambil
+   dari akun pembuatnya. Dibedakan warnanya supaya yang mencoba mengetiknya
+   tidak mengira formulirnya rusak. Dipakai readonly, BUKAN disabled: yang
+   disabled tidak bisa diblok untuk disalin, dan itu satu-satunya cara orang
+   memindahkan namanya ke tempat lain. */
+input[readonly]{background:var(--panel);color:var(--muted);cursor:not-allowed}
 label{font-size:12px;color:var(--muted);display:block;margin-bottom:4px}
 .field{margin-bottom:12px}
 .toolbar{display:flex;gap:10px;align-items:center;margin-bottom:16px;flex-wrap:wrap}
@@ -5685,6 +5691,39 @@ function hapusPoster(){
   const box=document.getElementById('e_poster_prev');
   if(box) box.innerHTML='<span class="mini">Poster dihapus — emoji dipakai lagi. Tekan Simpan.</span>';
 }
+/* KOTAK PIC DI FORM EVENT — TERKUNCI ke akun yang membuat event
+   (5 September 2026, permintaan user "saya ingin ambil data PIC langsung
+   di-lock yang input siapa").
+
+   Dulu kotak teks bebas, dan seluruh event produksi terisi "Event Manager" —
+   sebuah JABATAN, bukan nama orang. Akibatnya terbaca di Finance > Omset >
+   Performa Event: 10 baris breakdown Agustus 2026 senilai Rp108,6 juta
+   "tidak diakui untuk siapa pun", karena tidak ada satu pun nama yang bisa
+   dicocokkan dengan roster Office.
+
+   TIGA keadaan, dan ketiganya sengaja berbunyi berbeda:
+
+     event BARU            -> terkunci ke akun yang sedang login
+     event lama BERJEJAK   -> terkunci ke pembuatnya yang tercatat
+     event lama TANPA jejak-> tetap bisa diketik, dan sebabnya dikatakan
+
+   Yang ketiga tidak boleh ikut dikunci. Jejak pembuat baru lahir 4 September
+   2026, jadi event sebelum itu tidak punya satu pun — menguncinya berarti
+   "Event Manager" di 25 event lama tidak akan pernah bisa diperbaiki siapa
+   pun, dan justru itu yang sedang dibereskan. */
+function fieldPicEvent(id,e){
+  const kru=sesiKru();
+  const pemilik = id ? String(e.createdBy||'') : kru.name;
+  if(pemilik) return '<div class="field"><label>PIC</label>'
+    +'<input id="e_pic" value="'+esc(pemilik)+'" readonly title="Terkunci ke akun yang menginput event ini.">'
+    +'<div class="mini">🔒 Diambil dari akun <b>'+esc(pemilik)+'</b> — tidak diketik.</div></div>';
+  if(!id) return '<div class="field"><label>PIC</label>'
+    +'<input id="e_pic" value="'+esc(e.pic||'')+'">'
+    +'<div class="mini">⚠ Nama akun Office tidak terbaca, jadi PIC belum bisa dikunci. Ketik <b>nama orangnya</b> seperti tertulis di Office.</div></div>';
+  return '<div class="field"><label>PIC</label>'
+    +'<input id="e_pic" value="'+esc(e.pic||'')+'">'
+    +'<div class="mini">⚠ Event ini dibuat sebelum PIC dikunci ke akun, jadi masih bisa diketik. Isi <b>nama orangnya</b> seperti di Office — jabatan seperti "Event Manager" tidak cocok dengan roster mana pun, dan omsetnya tidak diakui untuk siapa pun di Finance › Performa Event.</div></div>';
+}
 function eventForm(id,awal){
   const e=id?DB.events.find(x=>x.id===id):(awal||{category:'Music',status:'Draft',poster:'🎪',capacity:100});
   window._posterBaru=null; window._posterHapus=false;
@@ -5705,7 +5744,7 @@ function eventForm(id,awal){
     <div class="field"><label>Kapasitas</label><input id="e_cap" type="number" value="${e.capacity||100}"></div>
     <div class="field"><label>Mulai *</label><input id="e_start" type="datetime-local" value="${e.start_datetime?e.start_datetime.slice(0,16):''}" onchange="document.getElementById('e_end').min=this.value"></div>
     <div class="field"><label>Selesai</label><input id="e_end" type="datetime-local" value="${e.end_datetime?e.end_datetime.slice(0,16):''}" min="${e.start_datetime?e.start_datetime.slice(0,16):''}"></div>
-    <div class="field"><label>PIC</label><input id="e_pic" value="${esc(e.pic||'')}"></div>
+    ${fieldPicEvent(id,e)}
 <!-- Co-PIC dicabut: satu acara punya satu penanggung jawab. Dua nama di kolom
      PIC membuat pertanyaan "siapa yang harus ditanya" tidak pernah punya
      jawaban tunggal, dan yang kedua tidak pernah diisi di acara mana pun. -->
@@ -5721,7 +5760,17 @@ function saveEvent(id){
   // dinilai upcoming/selesai, dan dulu diam-diam diisi "sekarang".
   if(!g('e_start')){toast('Tanggal & jam mulai wajib diisi.');return;}
   if(g('e_end') && g('e_end')<g('e_start')){toast('⛔ Waktu selesai tidak boleh sebelum waktu mulai.');return;}
-  const data={title,category:g('e_cat'),theme:g('e_theme'),venue:g('e_venue'),capacity:+g('e_cap'),start_datetime:g('e_start')?new Date(g('e_start')).toISOString():new Date().toISOString(),end_datetime:g('e_end')?new Date(g('e_end')).toISOString():new Date().toISOString(),pic:g('e_pic'),description:'<p>'+esc(g('e_desc'))+'</p>',is_ticketed:document.getElementById('e_tix').checked};
+  /* PIC TIDAK dibaca dari kotaknya kalau ia terkunci. Kotak readonly tetap
+     bisa diubah lewat devtools, dan yang menentukan pengakuan omset di
+     Finance tidak boleh bergantung pada sebuah elemen layar — itu jenis
+     kegagalan yang tidak menimbulkan galat, cuma memindahkan uang ke nama
+     lain. Urutannya sama persis dengan fieldPicEvent(); kalau salah satunya
+     diubah, yang lain HARUS ikut, kalau tidak yang diketik dan yang tersimpan
+     bisa berbeda tanpa satu pun tanda. */
+  const lama=id?DB.events.find(x=>x.id===id):null;
+  const kru=sesiKru();
+  const pic = lama ? (lama.createdBy || g('e_pic')) : (kru.name || g('e_pic'));
+  const data={title,category:g('e_cat'),theme:g('e_theme'),venue:g('e_venue'),capacity:+g('e_cap'),start_datetime:g('e_start')?new Date(g('e_start')).toISOString():new Date().toISOString(),end_datetime:g('e_end')?new Date(g('e_end')).toISOString():new Date().toISOString(),pic,description:'<p>'+esc(g('e_desc'))+'</p>',is_ticketed:document.getElementById('e_tix').checked};
   // Poster hanya disentuh kalau memang diubah di form ini — supaya menyimpan
   // event tanpa membuka pemilih gambar tidak menghapus poster yang sudah ada.
   if(window._posterBaru)      data.poster_img=window._posterBaru;
@@ -5731,10 +5780,15 @@ function saveEvent(id){
     /* SIAPA YANG MENGINPUT, dicatat sekali saat event lahir (4 September 2026,
        permintaan user).
 
-       Kolom PIC di atas teks bebas, dan di produksi SELURUH event terisi
+       Kolom PIC di atas dulu teks bebas, dan di produksi SELURUH event terisi
        "Event Manager" — sebuah JABATAN, bukan nama orang, jadi ia tidak akan
        pernah cocok dengan roster Office berapa kali pun dicoba. Yang
        benar-benar mengerjakan acaranya adalah pemilik akun yang mengetiknya.
+       Sejak 5 September 2026 kotaknya TERKUNCI ke akun itu (fieldPicEvent),
+       jadi `pic` dan `createdBy` event baru selalu berbunyi sama — dan
+       cocokPic() di Breakdown sudah berhasil di langkah pertama. createdById
+       tetap dicatat: nama bisa berubah ejaannya di Office, id tidak, dan
+       itulah yang menahan pencocokan ini tetap benar setahun kemudian.
 
        Yang membacanya Finance > Omset > Breakdown Sumber lewat events_hari():
        PIC baris event di sana diakui ke akun ini, jadi omsetnya masuk ke
@@ -5747,7 +5801,7 @@ function saveEvent(id){
        orang yang cuma membetulkan satu huruf. Event yang lahir sebelum
        tanggal itu karena itu memang tidak punya jejak ini — dan itu bukan
        galat, Breakdown tetap punya jalan mundurnya. */
-    const kru=sesiKru(); data.createdBy=kru.name; data.createdById=kru.id;
+    data.createdBy=kru.name; data.createdById=kru.id;
     DB.events.push({id:nid,...data});
     // default timeline & tasks from template
     DB.eventDetails[nid]={timeline:Object.fromEntries(TIMELINE_PHASES.map(p=>[p,false])),rundown:[],vendors:[],budget:[],sponsors:[],tasks:[{title:'Design poster',assignee:'Marketing',due:data.start_datetime,done:false},{title:'Book talent',assignee:'Ent. Coord',due:data.start_datetime,done:false}]};

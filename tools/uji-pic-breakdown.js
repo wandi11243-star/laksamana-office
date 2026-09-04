@@ -290,6 +290,40 @@ const EMP = {
     cek('event baru menyimpan createdBy & createdById',
         ev.indexOf('data.createdBy=kru.name; data.createdById=kru.id;') > -1);
 
+    /* ---- KOTAK PIC TERKUNCI (permintaan user 5 September 2026) ----
+       Tiga keadaan, dan yang ketiga TIDAK boleh ikut dikunci: jejak pembuat
+       baru lahir 4 September 2026, jadi event sebelum itu tidak punya satu
+       pun — menguncinya berarti "Event Manager" di event lama tidak akan
+       pernah bisa diperbaiki siapa pun. */
+    const iPic = ev.indexOf('function fieldPicEvent(');
+    const pic  = iPic > -1 ? ev.slice(iPic, ev.indexOf('function eventForm(', iPic)) : '';
+    cek('kotak PIC tidak lagi diketik bebas di form event',
+        ev.indexOf('<label>PIC</label><input id="e_pic" value="') < 0,
+        'kotak teks bebasnya masih ada');
+    cek('...digambar fieldPicEvent(), bukan inline di form',
+        iPic > -1 && ev.indexOf('${fieldPicEvent(id,e)}') > -1);
+    cek('...event baru terkunci ke akun yang login',
+        pic.indexOf('const pemilik = id ? String(e.createdBy||') > -1 &&
+        pic.indexOf('kru.name') > -1);
+    cek('...yang terkunci memakai readonly, bukan disabled',
+        pic.indexOf('readonly') > -1 && pic.indexOf('disabled') < 0,
+        'disabled tidak bisa diblok untuk disalin');
+    cek('...event lama TANPA jejak pembuat tetap bisa diketik',
+        pic.indexOf('dibuat sebelum PIC dikunci ke akun') > -1,
+        'event lama ikut terkunci — "Event Manager" jadi tidak bisa diperbaiki');
+    cek('...dan sebabnya dikatakan di layar, bukan cuma di komentar',
+        pic.indexOf('tidak diakui untuk siapa pun di Finance') > -1);
+    cek('kotak terkunci dibedakan warnanya di CSS',
+        ev.indexOf('input[readonly]{') > -1);
+
+    /* Yang menentukan pengakuan omset tidak boleh bergantung pada elemen
+       layar: kotak readonly tetap bisa diubah lewat devtools. */
+    const iSimpanPic = ev.indexOf('const pic = lama ?');
+    cek('saveEvent tidak percaya kotaknya kalau PIC terkunci',
+        iSimpanPic > -1 &&
+        ev.slice(iSimpanPic, iSimpanPic + 120).indexOf('lama.createdBy') > -1,
+        'PIC masih dibaca mentah dari DOM');
+
     /* Event yang DISUNTING tidak boleh ditimpa: yang menyunting belum tentu
        yang membuat, dan menimpanya memindahkan pengakuan omset ke orang yang
        cuma membetulkan satu huruf. */

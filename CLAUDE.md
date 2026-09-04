@@ -469,6 +469,7 @@ terlihat wajar:
 | berkas | perannya |
 |---|---|
 | `deploy/event/` `saveEvent()` | menulis `createdBy` + `createdById` dari `sesiKru()`, **hanya saat event lahir** |
+| `deploy/event/` `fieldPicEvent()` | kotak PIC **TERKUNCI** ke akun itu — sejak 5 Sep 2026 |
 | `event-mysql` `events_hari()` | membacanya dari blob `data` → `inputOleh` / `inputOlehId` |
 | `deploy/finance/omset/` `serapOtomatis()` | `picAkun('event', ev.inputOlehId, ev.inputOleh)` |
 
@@ -493,6 +494,45 @@ kasir atau finance tiap malam, dan mengakui omset event kepada mereka adalah
 tebakan yang lebih buruk daripada memakai nama orang yang benar-benar tercatat
 membuat acaranya.
 
+**KOTAK PIC DI FORM EVENT SUDAH TIDAK DIKETIK** (5 September 2026, permintaan
+user). `fieldPicEvent(id,e)` punya TIGA keadaan, dan ketiganya berbunyi
+berbeda karena jalan keluarnya berbeda:
+
+| keadaan | kotaknya |
+|---|---|
+| event BARU | terkunci ke akun yang sedang login |
+| event lama BERJEJAK (`createdBy` ada) | terkunci ke pembuat yang tercatat |
+| event lama TANPA jejak | **tetap bisa diketik**, dan sebabnya dikatakan |
+
+- **Yang ketiga TIDAK boleh ikut dikunci.** Jejak pembuat baru lahir 4
+  September 2026, jadi event sebelum itu tidak punya satu pun — menguncinya
+  berarti "Event Manager" di 25 event lama tidak akan pernah bisa diperbaiki
+  siapa pun, dan justru itu yang sedang dibereskan.
+- **`saveEvent()` TIDAK membaca kotaknya kalau PIC terkunci** — kotak
+  `readonly` tetap bisa diubah lewat devtools, dan yang menentukan pengakuan
+  omset di Finance tidak boleh bergantung pada elemen layar. Urutan di
+  `saveEvent()` **berkas kembar** dengan `fieldPicEvent()`: kalau salah satu
+  diubah yang lain HARUS ikut, kalau tidak yang diketik dan yang tersimpan
+  bisa berbeda tanpa satu pun tanda.
+- **`readonly`, bukan `disabled`** (`input[readonly]` di CSS): yang `disabled`
+  tidak bisa diblok untuk disalin, dan itu satu-satunya cara orang memindahkan
+  namanya ke tempat lain. Aturan yang sama dengan daftar menu tak dikenal di
+  Analytics.
+- Akibatnya `pic` dan `createdBy` event baru **selalu berbunyi sama**, jadi
+  `cocokPic()` di Breakdown sudah berhasil di langkah PERTAMA. Langkah kedua
+  tetap perlu: ia yang menahan pencocokan tetap benar kalau nama orangnya
+  diganti ejaannya di Office (`createdById`).
+
+**Siapa yang menginput event LAMA tidak bisa dipulihkan dari data.** Tabel
+`events` punya `created_at` (KAPAN) tapi tidak ada satu kolom pun untuk
+SIAPA, dan blob `data`-nya juga tidak — modul ini tidak punya audit log.
+Jangan menghabiskan waktu mencarinya lagi. Yang bisa: mengetik nama orangnya
+di kotak PIC event itu (keadaan ketiga di atas), atau — untuk baris breakdown
+yang SUDAH tersimpan — memilih PIC-nya satu per satu di Breakdown Sumber.
+Baris breakdown tersimpan **tidak ikut terperbaiki sendiri**: `serapOtomatis()`
+hanya menyetel `picId` saat barisnya LAHIR, dan menimpanya belakangan berarti
+menghapus pilihan yang sudah dibuat finance.
+
 - **Dijepit ke roster divisi itu** (`picPengisi(divi)`). Breakdown sering
   diisi kasir atau finance tiap malam — menjatuhkan omset event ke mereka
   berarti mengakui omset untuk orang yang tidak mengerjakannya, dan mereka
@@ -514,7 +554,7 @@ membuat acaranya.
   nama orang yang pernah tercatat di sana.
 
 ```bash
-node tools/uji-pic-breakdown.js   # 47 pemeriksaan, jsdom (omset + kas + event + php)
+node tools/uji-pic-breakdown.js   # 55 pemeriksaan, jsdom (omset + kas + event + php)
 ```
 
 Ujinya menjaga **kedua sisinya** — memperbaiki satu saja tidak menutup

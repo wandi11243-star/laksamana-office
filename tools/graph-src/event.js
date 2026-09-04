@@ -1232,6 +1232,12 @@
 
 
 
+
+
+
+
+
+
 function uid() {  }
 
 
@@ -5685,7 +5691,40 @@ function hapusPoster() {  }
 
 
 
-function eventForm() { modal(); closeModal(); esc(); fileUrl(); fmtSize(); pilihPoster(); hapusPoster(); saveEvent(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function fieldPicEvent() { sesiKru(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function eventForm() { modal(); closeModal(); esc(); fileUrl(); fmtSize(); pilihPoster(); hapusPoster(); fieldPicEvent(); saveEvent(); }
 
 
 
@@ -5714,7 +5753,22 @@ function eventForm() { modal(); closeModal(); esc(); fileUrl(); fmtSize(); pilih
 
 
 
-function saveEvent() { g(); toast(); esc(); uid(); sesiKru(); save(); closeModal(); }
+function saveEvent() { g(); toast(); fieldPicEvent(); sesiKru(); esc(); uid(); save(); closeModal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
