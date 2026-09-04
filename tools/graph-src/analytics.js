@@ -2295,6 +2295,36 @@ function pratinjauUnggah() { kartu(); fmtBln(); fmtTgl(); anSimpanUnggah(); anBa
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function petaKolomPos() {  }
 
 
@@ -2318,7 +2348,66 @@ function cariBarisKepala() {  }
 
 
 
-function ringkasPos() { cariBarisKepala(); petaKolomPos(); isoDari(); }
+
+
+
+
+
+
+
+
+
+
+
+function jamDari() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ringkasPos() { cariBarisKepala(); petaKolomPos(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function catatBill() { isoDari(); jamDari(); }
+
+
 
 
 

@@ -463,15 +463,62 @@ Yang menahan bug diam-diam:
 
 **DUA BENTUK LAPORAN, dan bedanya menentukan apa yang bisa dijawab:**
 
-| | isinya | menjawab |
+| ekspor POS | isinya | menjawab |
 |---|---|---|
-| **Bill Report** | satu baris per bill | omset/hari, rata-rata per bill, sebaran jam |
-| **Menu Report** | satu baris per menu terjual | menu terlaris + perkiraan bahan baku |
+| *Sales Recapitulation Report* (**Bill Report**) | satu baris per bill, 45 kolom | omset/hari, rata-rata per bill, sebaran jam |
+| *Sales Recapitulation **Detail** Report* (**Menu Report**) | satu baris per menu terjual, 46 kolom | menu terlaris + perkiraan bahan baku |
 
 Berkas yang diunggah user pertama kali **Bill Report**, dan di dalamnya TIDAK
-ada satu pun nama menu. Halaman Menu & Bahan Baku karena itu **mengatakan
-laporan mana yang kurang**, bukan menggambar tabel kosong — tabel kosong
-terbaca sebagai "tidak ada yang terjual".
+ada satu pun nama menu (kolom terdekatnya `Menu Discount` — itu nilai
+diskonnya). Halaman Menu & Bahan Baku karena itu **mengatakan laporan mana yang
+kurang**, bukan menggambar tabel kosong — tabel kosong terbaca sebagai "tidak
+ada yang terjual". Yang memuat nama menu adalah **Detail Report**.
+
+**DETAIL REPORT memakai nama kolom yang beda tipis, dan yang tidak dikenali
+TIDAK melempar galat — ia memulangkan NOL** (4 September 2026). Agustus 2026:
+19.734 baris menu, 4.785 bill, 259 menu.
+
+| kolomnya | kalau tidak dikenali |
+|---|---|
+| `Nett Sales` (dua t) | Net Sales terbaca Rp0 |
+| `Order Time` | sebaran jam kosong 24 dari 24 |
+| `Total After Bill Discount` vs `Total` | omset sebulan Rp6,3 juta lebih besar |
+| `Discount` (per menu) vs `Bill Discount` | diskon menu terhitung sebagai diskon bill |
+
+Yang ketiga paling halus: `Total` di Detail Report adalah nilai **sebelum** bill
+discount. Karena itu `'total after bill discount'` ditaruh **paling depan** di
+`KOL_CARI.grand` — Bill Report tidak punya kolom itu dan tetap jatuh ke
+`grand total`.
+
+**BILL DIHITUNG DARI NOMOR BILL YANG BERBEDA, bukan dari jumlah baris.** Di
+Bill Report keduanya sama; di Detail Report satu bill tersebar di beberapa
+baris menu, jadi menghitung baris memberi **19.734 "bill" untuk 4.785 bill
+sungguhan** — rata-rata per bill jatuh dari Rp152.613 ke Rp37.325 dan grafik
+bill per jam empat kali lebih tinggi. Dua angka yang terlihat masuk akal dan
+tidak akan dipertanyakan siapa pun.
+
+- Berkas **tanpa** kolom nomor bill jatuh ke hitungan baris, dan itu
+  **DIKATAKAN di pratinjau** (`billDariBaris`). Angka bill yang diam-diam
+  berarti "jumlah baris" akan dibaca sebagai jumlah tamu.
+- **Satu bill boleh muncul di dua jam** (pesan lagi belakangan — 481 dari 4.785
+  di Agustus). Jadi jumlah kolom bill per jam boleh lebih besar daripada total
+  bill; yang ditanya "jam berapa ramai", bukan "bill-nya dibagi ke mana".
+  Bill per HARI tetap dijumlahkan pas.
+
+**`jamDari()` membaca tiga bentuk**, dan memulangkan `-1` kalau tidak ada jam:
+`"10:03:21"` (Bill Report), `46235.419108796` (serial Excel di Detail Report),
+dan serial jam-saja. Sebelumnya jamnya diambil `parseInt(teks.slice(0,2))`, yang
+untuk serial memulangkan **46** — di luar 0..23, jadi barisnya dibuang dan
+seluruh sebaran jam kosong. **Serial BULAT = tanggal tanpa jam**, dipulangkan
+`-1`: dijadikan nol ia menumpuk jadi "ramai sekali tengah malam", dan itu
+satu-satunya jam yang tidak akan dicurigai karena tutupnya memang lewat tengah
+malam.
+
+Ujinya membandingkan **kedua berkas untuk bulan yang sama** — bill, grand, net,
+subtotal, service, pajak, bill discount, dan rata-rata per bill harus keluar
+angka yang sama dari dua bentuk laporan yang berbeda. Itu pemeriksaan terkuat
+di berkas ini dan satu-satunya yang tidak bisa dipalsukan; ia MELEWAT dengan
+jelas kalau salah satu berkasnya tidak ada di root repo.
 
 **Perkiraan bahan baku = qty menu × resep HPP**, dan resepnya **bertingkat**
 (`uraiResep()`): resep boleh memakai resep lain dan `yield_qty` dibagi.
@@ -602,7 +649,7 @@ Berkas POS **jangan di-commit** (sudah di `.gitignore`): satu berkas memuat
 seluruh transaksi sebulan.
 
 ```bash
-node tools/uji-analytics.js   # 145 pemeriksaan
+node tools/uji-analytics.js   # 185 pemeriksaan
 ```
 
 Ujinya memakai **berkas POS asli** di root repo kalau ada (kalau tidak, bagian

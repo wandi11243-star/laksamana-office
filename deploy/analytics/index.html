@@ -2247,8 +2247,20 @@ function pratinjauUnggah(u) {
     + kartu('Bulan', fmtBln(b), u.jenis === 'menu' ? 'Menu Report' : 'Bill Report')
     + kartu('Baris terbaca', u.nBaris.toLocaleString('id-ID'), u.nLewat ? u.nLewat + ' dilewati' : 'semuanya terbaca')
     + kartu('Hari', Object.keys(u.hari).length, u.tglAwal ? fmtTgl(u.tglAwal) + ' – ' + fmtTgl(u.tglAkhir) : '—')
-    + kartu('Total', rp0(r.grand), (r.bill || 0).toLocaleString('id-ID') + ' bill')
+    + kartu('Total', rp0(r.grand), (r.bill || 0).toLocaleString('id-ID') + ' bill'
+        + (u.jenis === 'menu' && !u.billDariBaris ? ' (nomor bill berbeda)' : ''))
     + '</div>'
+    /* Laporan per-menu tanpa kolom nomor bill: jumlah bill jatuh ke jumlah
+       BARIS, dan satu bill berisi lima menu terhitung lima. Rata-rata per bill
+       jadi beberapa kali lebih kecil, dan angkanya tetap terlihat wajar — jadi
+       ini harus DIKATAKAN, bukan didiamkan. */
+    + (u.jenis === 'menu' && u.billDariBaris
+        ? '<div class="notice warn">⚠ <div><b>Berkasnya tidak punya kolom nomor bill</b>, jadi '
+          + '"jumlah bill" di atas sebenarnya <b>jumlah baris menu</b> — satu bill berisi lima menu '
+          + 'terhitung lima. Nilai omsetnya tetap benar; yang tidak bisa dipercaya cuma jumlah bill '
+          + 'dan rata-rata per bill. Ekspor ulang dengan kolom <i>Bill Number</i> kalau kedua angka '
+          + 'itu diperlukan.</div></div>'
+        : '')
     /* Bulan yang datanya menyeberang DILAPORKAN. Satu berkas yang memuat dua
        bulan akan tersimpan seluruhnya di bawah satu bulan, dan omset bulan
        sebelahnya ikut terhitung tanpa ada yang menyadarinya. */
@@ -2278,14 +2290,32 @@ function pratinjauUnggah(u) {
    antar versi tanpa memberi tahu siapa pun, dan pembaca yang menghitung kolom
    ke-41 akan diam-diam membaca Tax sebagai Grand Total — salah yang muncul
    sebagai uang, bukan sebagai galat. */
+/* Nama kolom DICARI menurut namanya, bukan posisinya — dan urutan di tiap
+   daftar menentukan mana yang menang saat sebuah berkas punya keduanya.
+
+   Ditambah 4 September 2026 setelah user mengunggah *Sales Recapitulation
+   DETAIL Report* (satu baris per menu terjual). Berkas itu memakai nama yang
+   beda tipis dari Bill Report, dan yang tidak dikenali TIDAK melempar galat —
+   ia cuma memulangkan nol:
+
+     'Nett Sales'   (dua t)  -> Net Sales terbaca Rp0
+     'Order Time'            -> sebaran jam kosong 24 dari 24
+     'Total After Bill Discount' vs 'Total'
+
+   Yang terakhir paling halus: 'Total' di Detail Report adalah nilai SEBELUM
+   bill discount, jadi memakainya membuat omset sebulan Rp6,3 juta lebih besar
+   daripada Bill Report untuk data yang sama persis — angka yang terlihat wajar
+   dan tidak akan dipertanyakan siapa pun. Karena itu 'total after bill
+   discount' ditaruh PALING DEPAN: Bill Report tidak punya kolom itu dan tetap
+   jatuh ke 'grand total'. */
 const KOL_CARI = {
   tgl   : ['sales date','sales in date','date','tanggal','trx date','transaction date'],
-  jam   : ['sales in time','time','jam','transaction time','order time'],
-  grand : ['grand total','total','total amount','nett amount'],
-  net   : ['net sales','netsales','net amount'],
+  jam   : ['sales in time','order time','time','jam','transaction time','sales date in'],
+  grand : ['total after bill discount','grand total','total','total amount','nett amount'],
+  net   : ['net sales','nett sales','netsales','net amount'],
   sub   : ['subtotal','sub total','gross sales','amount'],
-  dMenu : ['menu discount'],
-  dBill : ['bill discount','discount'],
+  dMenu : ['menu discount','discount'],
+  dBill : ['bill discount'],
   dVouc : ['voucher discount'],
   svc   : ['service charge total','service charge','service'],
   tax   : ['tax total','tax','pb1','pb 1'],
@@ -2317,6 +2347,33 @@ function cariBarisKepala(baris) {
   return -1;
 }
 const angka = v => { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+/* JAM dari tiga bentuk yang semuanya muncul di berkas POS, memulangkan -1
+   kalau tidak ada jam yang bisa dibaca:
+
+     "10:03:21"        Bill Report — Sales In Time
+     46235.419108796   Detail Report — Order Time (serial Excel)
+     0.419108796       serial jam-saja
+
+   Sebelumnya jamnya diambil dengan parseInt(teks.slice(0,2)), yang untuk
+   serial memulangkan 46 — di luar 0..23, jadi barisnya dibuang dan SELURUH
+   sebaran jam kosong tanpa satu pun galat. Halaman Sebaran Jam & analisis
+   shift tergambar rapi dengan angka nol semua, dan nol terbaca sebagai
+   "memang tidak ada transaksi". */
+function jamDari(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return -1;
+  const m = s.match(/(\d{1,2}):(\d{2})/);
+  if (m) { const j = +m[1]; return (j >= 0 && j < 24) ? j : -1; }
+  const n = parseFloat(s.replace(/[^0-9.\-]/g, ''));
+  if (isNaN(n) || n < 0) return -1;
+  const f = n - Math.floor(n);
+  /* Serial bulat = tanggal TANPA jam. Dijadikan 0 ia akan menumpuk jadi
+     "ramai sekali tengah malam" — dan itu satu-satunya jam yang tidak akan
+     dicurigai orang, karena tutupnya memang lewat tengah malam. */
+  if (f === 0 && n >= 1) return -1;
+  const j = Math.floor(f * 24 + 1e-9);
+  return (j >= 0 && j < 24) ? j : -1;
+}
 
 function ringkasPos(baris, namaBerkas) {
   const iH = cariBarisKepala(baris);
@@ -2333,7 +2390,27 @@ function ringkasPos(baris, namaBerkas) {
   const menu = {}, perBln = {};
   const r = { bill:0, grand:0, net:0, sub:0, svc:0, tax:0,
               discMenu:0, discBill:0, discVoucher:0, pax:0, billPax:0 };
-  let nLewat = 0;
+  let nLewat = 0, nRow = 0;
+
+  /* BILL DIHITUNG DARI NOMOR BILL YANG BERBEDA, bukan dari jumlah baris.
+
+     Di Bill Report keduanya sama — satu baris satu bill. Di DETAIL Report satu
+     bill tersebar di beberapa baris menu, dan menghitung baris memberi 19.734
+     "bill" untuk 4.785 bill sungguhan. Akibatnya rata-rata per bill jatuh dari
+     Rp152.613 ke Rp37.325 dan grafik bill per jam empat kali lebih tinggi
+     daripada kenyataannya — dua angka yang terlihat masuk akal dan tidak akan
+     dipertanyakan siapa pun.
+
+     Kalau kolom nomor bill tidak ada, jatuh ke hitungan baris — dan itu
+     DIKATAKAN di pratinjau, bukan didiamkan. */
+  const bSemua = new Set(), bHari = {}, bJam = {};
+  const punyaBill = !!K.bill;
+  const catatBill = (no, t, jm) => {
+    if (!punyaBill) return;
+    bSemua.add(no);
+    (bHari[t] = bHari[t] || new Set()).add(no);
+    if (jm >= 0) (bJam[jm] = bJam[jm] || new Set()).add(no);
+  };
 
   for (let i = iH + 1; i < baris.length; i++) {
     const b = baris[i];
@@ -2344,8 +2421,9 @@ function ringkasPos(baris, namaBerkas) {
     const g = K.grand ? angka(b[K.grand]) : 0;
     const net = K.net ? angka(b[K.net]) : 0;
     if (!hari[t]) hari[t] = { bill:0, grand:0, net:0 };
-    hari[t].bill++; hari[t].grand += g; hari[t].net += net;
-    r.bill++; r.grand += g; r.net += net;
+    hari[t].grand += g; hari[t].net += net;
+    nRow++; r.grand += g; r.net += net;
+    if (!punyaBill) { hari[t].bill++; r.bill++; }
     if (K.sub) r.sub += angka(b[K.sub]);
     if (K.svc) r.svc += angka(b[K.svc]);
     if (K.tax) r.tax += angka(b[K.tax]);
@@ -2354,8 +2432,9 @@ function ringkasPos(baris, namaBerkas) {
     if (K.dVouc) r.discVoucher += angka(b[K.dVouc]);
     if (K.pax) { const p = angka(b[K.pax]); if (p > 0) { r.pax += p; r.billPax++; } }
 
-    const jm = parseInt(String(b[K.jam] || '').slice(0, 2), 10);
-    if (jm >= 0 && jm < 24) { jam[jm].bill++; jam[jm].grand += g; }
+    const jm = K.jam ? jamDari(b[K.jam]) : -1;
+    if (jm >= 0) { jam[jm].grand += g; if (!punyaBill) jam[jm].bill++; }
+    catatBill(String(b[K.bill] || '').trim(), t, jm);
 
     if (jenis === 'menu') {
       const nm = String(b[K.menu] || '').trim();
@@ -2367,7 +2446,16 @@ function ringkasPos(baris, namaBerkas) {
       }
     }
   }
-  if (!r.bill) throw new Error('Tidak ada satu pun baris yang punya tanggal terbaca.');
+  /* Set diubah jadi angka SESUDAH seluruh baris dibaca — bill yang muncul di
+     dua jam (pesan lagi belakangan) tercatat di kedua jamnya, jadi jumlah
+     kolom bill per jam boleh lebih besar daripada total bill. Itu memang
+     benar: pertanyaannya "jam berapa ramai", bukan "bill-nya dibagi ke mana". */
+  if (punyaBill) {
+    r.bill = bSemua.size;
+    Object.keys(hari).forEach(t => { hari[t].bill = bHari[t] ? bHari[t].size : 0; });
+    for (let j = 0; j < 24; j++) jam[j].bill = bJam[j] ? bJam[j].size : 0;
+  }
+  if (!nRow) throw new Error('Tidak ada satu pun baris yang punya tanggal terbaca.');
 
   /* Bulan dengan baris terbanyak yang dipakai. Berkas yang menyeberang bulan
      TIDAK dibuang diam-diam — jumlahnya dilaporkan di pratinjau. */
@@ -2381,7 +2469,8 @@ function ringkasPos(baris, namaBerkas) {
   const tglU = Object.keys(hari).sort();
 
   return { bulan, jenis, berkas:namaBerkas, hari, jam, menu, ringkas:r,
-           nBaris:r.bill, nLewat, blnLain, tglAwal:tglU[0] || '', tglAkhir:tglU[tglU.length - 1] || '' };
+           nBaris:nRow, nLewat, blnLain, billDariBaris:!punyaBill,
+           tglAwal:tglU[0] || '', tglAkhir:tglU[tglU.length - 1] || '' };
 }
 
 async function anPilihBerkas(el) {

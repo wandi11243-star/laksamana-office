@@ -40,6 +40,24 @@ function berkasPos() {
   const f = fs.readdirSync(ROOT).find(x => /^Sales Recapitulation Report.*\.xlsx$/i.test(x));
   return f ? path.join(ROOT, f) : null;
 }
+/* Sales Recapitulation DETAIL Report — satu baris per menu terjual. Berkas
+   inilah yang memuat nama menu; Bill Report tidak memuat satu pun. */
+function berkasPosDetail() {
+  const f = fs.readdirSync(ROOT).find(x => /^Sales Recapitulation Detail Report.*\.xlsx$/i.test(x));
+  return f ? path.join(ROOT, f) : null;
+}
+/* Membaca satu berkas lewat jalur yang benar-benar dipakai peramban. */
+async function uraiBerkas(w, bp) {
+  const buf = fs.readFileSync(bp);
+  const file = new w.File([new Uint8Array(buf)], path.basename(bp),
+    { type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  file.arrayBuffer = async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+  file.text = async () => buf.toString('utf8');
+  w.eval('UNGGAH_HASIL = null');
+  await w.anPilihBerkas({ files: [file] });
+  for (let i = 0; i < 400 && !w.eval('UNGGAH_HASIL'); i++) await tunggu(50);
+  return w.eval('UNGGAH_HASIL');
+}
 
 function domAnalytics(opt) {
   opt = opt || {};
@@ -218,6 +236,186 @@ async function siap(w) {
     cek('angka kecil bukan tanggal', iso(21) === '', iso(21));
     cek('kosong tetap kosong', iso('') === '' && iso(null) === '');
     dom.window.close();
+  }
+
+
+  /* ================= 3b. Detail Report (satu baris per menu) ==============
+     Diunggah user 4 September 2026. Empat kolomnya bernama beda tipis dari
+     Bill Report, dan yang tidak dikenali TIDAK melempar galat — ia memulangkan
+     nol, dan nol di halaman analitik terbaca sebagai fakta. */
+  console.log('\n== Detail Report: satu baris per menu ==');
+  {
+    /* jamDari() diuji SELALU, tidak bergantung berkas: ia yang menentukan
+       seluruh sebaran jam, dan salahnya muncul sebagai grafik rata. */
+    const { dom } = domAnalytics({});
+    await siap(dom.window);
+    const w = dom.window;
+    const jd = v => w.eval('jamDari')(v);
+    cek('jam dari teks "10:03:21"', jd('10:03:21') === 10, String(jd('10:03:21')));
+    cek('jam dari teks berjam-tanggal', jd('2026-08-01 21:45') === 21, String(jd('2026-08-01 21:45')));
+    /* Serial Excel: 46235.419108796 -> 0.419… x 24 = 10,06 -> jam 10. Dibaca
+       dengan parseInt(slice(0,2)) ia jadi 46, di luar 0..23, dan barisnya
+       dibuang — itulah sebab sebaran jam kosong 24 dari 24. */
+    cek('jam dari serial Excel penuh', jd(46235.419108796) === 10, String(jd(46235.419108796)));
+    cek('jam dari serial jam-saja', jd(0.9) === 21, String(jd(0.9)));
+    /* Serial BULAT = tanggal tanpa jam. Dijadikan 0 ia menumpuk jadi "ramai
+       sekali tengah malam" — satu-satunya jam yang tidak akan dicurigai,
+       karena tutupnya memang lewat tengah malam. */
+    cek('serial bulat = tidak ada jam, bukan jam 00', jd(46235) === -1, String(jd(46235)));
+    cek('kosong = tidak ada jam', jd('') === -1 && jd(null) === -1);
+
+    /* Urutan KOL_CARI menentukan mana yang menang saat berkas punya keduanya.
+       'Total' di Detail Report adalah nilai SEBELUM bill discount; memakainya
+       membuat omset sebulan Rp6,3 juta lebih besar daripada Bill Report untuk
+       data yang sama persis. */
+    const kc = w.eval('KOL_CARI');
+    cek('total-after-bill-discount menang atas total',
+        kc.grand.indexOf('total after bill discount') === 0, kc.grand.join(','));
+    cek('"Nett Sales" (dua t) dikenali', kc.net.indexOf('nett sales') > -1, kc.net.join(','));
+    cek('"Order Time" dikenali sebagai jam', kc.jam.indexOf('order time') > -1, kc.jam.join(','));
+    /* 'discount' pindah dari dBill ke dMenu: di Detail Report kolom itu diskon
+       per menu, dan menghitungnya sebagai bill discount membuatnya berganda
+       dengan kolom 'Bill Discount' yang juga ada di berkas yang sama. */
+    cek('kolom "Discount" dihitung sebagai diskon menu, bukan bill',
+        kc.dMenu.indexOf('discount') > -1 && kc.dBill.indexOf('discount') < 0,
+        JSON.stringify({ dMenu:kc.dMenu, dBill:kc.dBill }));
+
+    /* ---- dua jalur penghitungan bill, diuji langsung di ringkasPos ---- */
+    const ringkas = w.eval('ringkasPos');
+    /* Empat baris menu milik DUA bill. Yang menghitung baris memberi 4. */
+    const detail = [
+      { a:'Sales Date', b:'Bill Number', c:'Order Time', d:'Menu', e:'Qty', f:'Total After Bill Discount' },
+      { a:'2026-08-01', b:'B1', c:'0.5',  d:'Kopi',  e:'1', f:'10000' },
+      { a:'2026-08-01', b:'B1', c:'0.5',  d:'Roti',  e:'2', f:'20000' },
+      { a:'2026-08-01', b:'B2', c:'0.75', d:'Kopi',  e:'1', f:'10000' },
+      { a:'2026-08-01', b:'B2', c:'0.75', d:'Teh',   e:'1', f:'5000' }
+    ];
+    const rd = ringkas(detail, 'detail.xlsx');
+    cek('4 baris menu milik 2 bill dihitung sebagai 2 bill',
+        rd.ringkas.bill === 2, String(rd.ringkas.bill));
+    cek('...tapi barisnya tetap dilaporkan 4', rd.nBaris === 4, String(rd.nBaris));
+    cek('...dan nilainya dijumlahkan dari tiap baris',
+        rd.ringkas.grand === 45000, String(rd.ringkas.grand));
+    cek('rata-rata per bill jadi 22.500, bukan 11.250',
+        rd.ringkas.grand / rd.ringkas.bill === 22500,
+        String(rd.ringkas.grand / rd.ringkas.bill));
+    cek('bill per hari juga dari nomor bill', rd.hari['2026-08-01'].bill === 2,
+        String(rd.hari['2026-08-01'].bill));
+    /* 0.5 -> jam 12, 0.75 -> jam 18. Satu bill per jam. */
+    cek('bill per jam juga dari nomor bill',
+        rd.jam[12].bill === 1 && rd.jam[18].bill === 1,
+        rd.jam[12].bill + ' / ' + rd.jam[18].bill);
+    cek('laporan yang punya nomor bill tidak ditandai jatuh-ke-baris',
+        rd.billDariBaris === false, String(rd.billDariBaris));
+
+    /* TANPA kolom nomor bill: jatuh ke hitungan baris — dan itu DITANDAI,
+       bukan didiamkan. Angka bill yang diam-diam berarti "jumlah baris"
+       adalah angka yang dibaca sebagai jumlah tamu. */
+    const tanpaBill = detail.map(r => ({ a:r.a, c:r.c, d:r.d, e:r.e, f:r.f }));
+    const rt = ringkas(tanpaBill, 'x.xlsx');
+    cek('tanpa kolom nomor bill, jatuh ke hitungan baris',
+        rt.ringkas.bill === 4, String(rt.ringkas.bill));
+    cek('...dan ditandai supaya bisa dikatakan di layar',
+        rt.billDariBaris === true, String(rt.billDariBaris));
+    cek('...bill per hari & per jam ikut terisi',
+        rt.hari['2026-08-01'].bill === 4 && rt.jam[12].bill === 2,
+        rt.hari['2026-08-01'].bill + ' / ' + rt.jam[12].bill);
+    dom.window.close();
+  }
+
+  {
+    const bd = berkasPosDetail();
+    if (!bd) {
+      console.log('  LEWAT  berkas "Sales Recapitulation Detail Report*.xlsx" tidak ada di root repo.');
+    } else {
+      const { dom } = domAnalytics({});
+      await siap(dom.window);
+      const w = dom.window;
+      w.go('unggah'); await tunggu(40);
+      const u = await uraiBerkas(w, bd);
+      cek('Detail Report terbaca', !!u, 'UNGGAH_HASIL masih null');
+      if (u) {
+        cek('dikenali sebagai Menu Report', u.jenis === 'menu', u.jenis);
+        cek('nama menu terbaca', Object.keys(u.menu).length > 50,
+            String(Object.keys(u.menu).length));
+        /* INTI perbaikan 4 September 2026: bill dihitung dari nomor bill yang
+           BERBEDA. Menghitung baris memberi 19.734 "bill" untuk 4.785 bill
+           sungguhan — rata-rata per bill jatuh empat kali lipat, dan angkanya
+           tetap terlihat masuk akal. */
+        cek('bill lebih sedikit daripada baris (dihitung dari nomor bill)',
+            u.ringkas.bill > 0 && u.ringkas.bill < u.nBaris / 2,
+            u.ringkas.bill + ' bill dari ' + u.nBaris + ' baris');
+        cek('Nett Sales terbaca (bukan nol)', u.ringkas.net > 1e8, String(u.ringkas.net));
+        cek('service & pajak terbaca', u.ringkas.svc > 0 && u.ringkas.tax > 0);
+        const berjam = (u.jam || []).filter(x => x.bill > 0).length;
+        cek('sebaran jam terisi (Order Time serial terbaca)', berjam > 8, String(berjam));
+        /* Satu bill boleh muncul di dua jam — pesan lagi belakangan. Jadi
+           jumlah kolom bill per jam BOLEH lebih besar daripada total bill,
+           tapi tidak boleh lebih kecil. */
+        const jamBill = (u.jam || []).reduce((a, x) => a + (x.bill || 0), 0);
+        cek('bill per jam >= total bill (satu bill bisa dua jam)',
+            jamBill >= u.ringkas.bill, jamBill + ' vs ' + u.ringkas.bill);
+        cek('per tanggal terisi', Object.keys(u.hari).length > 20,
+            String(Object.keys(u.hari).length));
+        /* Bulanan: bill per hari juga harus dari nomor bill, bukan baris. */
+        const hariBill = Object.keys(u.hari).reduce((a, t) => a + u.hari[t].bill, 0);
+        cek('bill per hari dijumlahkan = total bill', hariBill === u.ringkas.bill,
+            hariBill + ' vs ' + u.ringkas.bill);
+      }
+      dom.window.close();
+    }
+  }
+
+  /* ================= 3c. Dua laporan, satu bulan, angka yang sama ==========
+     Pemeriksaan terkuat di berkas ini, dan satu-satunya yang tidak bisa
+     dipalsukan: Bill Report dan Detail Report untuk bulan yang sama HARUS
+     memulangkan angka yang sama. Keduanya dibaca lewat jalur yang benar-benar
+     dipakai peramban, dan yang dibandingkan hasilnya — bukan asumsinya. */
+  console.log('\n== Bill Report vs Detail Report: bulan yang sama ==');
+  {
+    const bp = berkasPos(), bd = berkasPosDetail();
+    if (!bp || !bd) {
+      console.log('  LEWAT  perlu KEDUA berkas di root repo untuk membandingkannya.');
+    } else {
+      const { dom } = domAnalytics({});
+      await siap(dom.window);
+      const w = dom.window;
+      w.go('unggah'); await tunggu(40);
+      const a = await uraiBerkas(w, bp);
+      const b = await uraiBerkas(w, bd);
+      if (!a || !b) { cek('kedua berkas terbaca', false, 'salah satu gagal diurai'); }
+      else {
+        cek('bulannya sama', a.bulan === b.bulan, a.bulan + ' vs ' + b.bulan);
+        cek('jumlah bill sama', a.ringkas.bill === b.ringkas.bill,
+            a.ringkas.bill + ' vs ' + b.ringkas.bill);
+        /* Nilai uang dibandingkan dengan toleransi Rp100: Detail Report
+           membagi bill discount ke tiap baris menu, dan pembulatan per baris
+           menyisakan selisih beberapa rupiah. */
+        const dekat = (x, y, tol) => Math.abs(x - y) <= (tol || 100);
+        cek('grand total sama', dekat(a.ringkas.grand, b.ringkas.grand),
+            a.ringkas.grand + ' vs ' + b.ringkas.grand);
+        cek('net sales sama', dekat(a.ringkas.net, b.ringkas.net),
+            a.ringkas.net + ' vs ' + b.ringkas.net);
+        cek('subtotal sama', dekat(a.ringkas.sub, b.ringkas.sub),
+            a.ringkas.sub + ' vs ' + b.ringkas.sub);
+        cek('service charge sama', dekat(a.ringkas.svc, b.ringkas.svc),
+            a.ringkas.svc + ' vs ' + b.ringkas.svc);
+        cek('pajak sama', dekat(a.ringkas.tax, b.ringkas.tax),
+            a.ringkas.tax + ' vs ' + b.ringkas.tax);
+        cek('bill discount sama', dekat(a.ringkas.discBill, b.ringkas.discBill),
+            a.ringkas.discBill + ' vs ' + b.ringkas.discBill);
+        /* Rata-rata per bill adalah angka yang paling sering dibaca orang di
+           halaman ini, dan yang paling mudah salah empat kali lipat. */
+        const rb = x => x.ringkas.grand / (x.ringkas.bill || 1);
+        cek('rata-rata per bill sama', dekat(rb(a), rb(b), 1),
+            Math.round(rb(a)) + ' vs ' + Math.round(rb(b)));
+        /* Cuma Detail Report yang punya nama menu — itu sebabnya ia diunggah. */
+        cek('cuma Detail Report yang memuat nama menu',
+            Object.keys(a.menu).length === 0 && Object.keys(b.menu).length > 50,
+            Object.keys(a.menu).length + ' vs ' + Object.keys(b.menu).length);
+      }
+      dom.window.close();
+    }
   }
 
   /* ================= 4. laporan menu & bahan baku ================= */
