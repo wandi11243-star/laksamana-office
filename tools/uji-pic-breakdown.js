@@ -92,17 +92,72 @@ const EMP = {
     cek('PIC tersimpan yang tidak ada di roster tampil kosong',
         hilang.indexOf('— pilih PIC —') > -1 && hilang.indexOf('selected') < 0, hilang);
 
-    /* Serapan otomatis: nama PIC yang tidak cocok dibiarkan KOSONG, bukan
-       ditebak — menebak berarti mengakui omset untuk orang yang tidak pernah
-       mengerjakannya. */
-    cek('serapan otomatis membiarkan PIC kosong, bukan menebak',
-        src.indexOf("cocokPic('event',ev.picName)||undefined") > -1,
+    /* Nama PIC yang tidak cocok kini jatuh ke ORANG YANG MENGISI (permintaan
+       user), TAPI hanya kalau ia ada di roster divisi itu. Yang tidak ketemu
+       di kedua-duanya tetap dibiarkan kosong — menebak berarti mengakui omset
+       untuk orang yang tidak pernah mengerjakannya. Batas itu diuji di
+       bagian picPengisi di bawah. */
+    cek('serapan otomatis masih berakhir di ||undefined, bukan di nama pertama',
+        src.indexOf("picPengisi('event')||undefined") > -1 &&
+        src.indexOf("cocokPic('event',ev.picName)||picPengisi") > -1,
         'jalur serapan event berubah');
     cek('komentarnya tidak lagi MENJANJIKAN jatuh-ke-PIC-pertama',
         src.indexOf('Yang tidak ketemu dibiarkan memakai PIC pertama') < 0,
         'klaim lama masih ada — komentar yang salah itulah yang membuat bugnya bertahan');
     cek('...tapi sejarahnya tetap dicatat supaya tidak diulang',
         src.indexOf('cuma di layar') > -1);
+
+    /* ---- PIC = ORANG YANG MENGISI (permintaan user 4 September 2026) ----
+       Modul Event menulis PIC-nya "Event Manager" — sebuah JABATAN, bukan nama
+       orang, jadi cocokPic() tidak akan pernah menemukannya berapa kali pun
+       dicoba. Yang mengisi breakdown-nya memang PIC event itu sendiri. */
+    const pp = fungsiPicPengisi(src);
+    w.eval('CURRENT_USER = { id:"u-budi", name:"Budi", level:"ops" };');
+    cek('PIC jatuh ke yang mengisi kalau ia ada di roster divisi itu',
+        w.eval('(' + pp + ')("event")') === 'e1', String(w.eval('(' + pp + ')("event")')));
+    /* Dijepit ke roster DIVISI ITU: breakdown sering diisi kasir tiap malam,
+       dan menjatuhkan omset event ke kasir berarti mengakui omset untuk orang
+       yang tidak mengerjakannya. */
+    w.eval('CURRENT_USER = { id:"u-cici", name:"Cici", level:"ops" };');
+    cek('...tapi TIDAK kalau ia bukan orang divisi itu',
+        !w.eval('(' + pp + ')("event")'), String(w.eval('(' + pp + ')("event")')));
+    cek('...kasir tetap ketemu di rosternya sendiri',
+        w.eval('(' + pp + ')("kasir")') === 'k1');
+    /* officeUserId menang atas nama — nama bisa berubah ejaannya di Office,
+       id tidak. Aturan yang sama dengan compCocok(). */
+    w.eval('DB.employees.event = [{id:"e9",name:"Nama Lama",officeUserId:"u-budi"}];');
+    w.eval('CURRENT_USER = { id:"u-budi", name:"Budi Ganti Nama", level:"ops" };');
+    cek('dicocokkan lewat officeUserId, bukan cuma nama',
+        w.eval('(' + pp + ')("event")') === 'e9', String(w.eval('(' + pp + ')("event")')));
+    w.eval('CURRENT_USER = null;');
+    cek('tanpa sesi, tidak menebak siapa pun',
+        !w.eval('(' + pp + ')("event")'));
+    w.eval('DB.employees = ' + JSON.stringify(EMP) + ';');
+
+    /* Serapan otomatis memakainya sebagai CADANGAN, bukan menggantikan
+       pencocokan nama: kalau nama di modul asalnya memang cocok, itu yang
+       menang — yang mengisi belum tentu PIC-nya. */
+    cek('serapan event memakai pengisinya sebagai cadangan',
+        src.indexOf("cocokPic('event',ev.picName)||picPengisi('event')||undefined") > -1);
+    cek('serapan marketing juga',
+        src.indexOf("cocokPic('marketing',ev.picName)||picPengisi('marketing')||undefined") > -1);
+    cek('serapan Reservasi VIP juga',
+        src.indexOf("cocokPic('marketing',v.picName)||picPengisi('marketing')||undefined") > -1);
+    /* Baris manual: bawaannya yang mengisi, bukan orang PERTAMA di daftar —
+       orang pertama cuma kebetulan urutan. */
+    cek('baris manual event tidak lagi jatuh ke orang pertama',
+        src.indexOf('state.ev.push({picId:DB.employees.event[0]?.id') < 0);
+    cek('baris manual marketing juga tidak',
+        src.indexOf('state.mk.push({picId:DB.employees.marketing[0]?.id') < 0);
+    cek('...keduanya memakai picPengisi()',
+        src.indexOf("state.ev.push({picId:picPengisi('event')||undefined") > -1 &&
+        src.indexOf("state.mk.push({picId:picPengisi('marketing')||undefined") > -1);
+
+    /* Dan itu DIKATAKAN di pitanya: kalau tidak, omsetnya masuk ke nama yang
+       tidak pernah disebut di layar mana pun. */
+    cek('pita menyebut kalau PIC-nya diambil dari yang mengisi',
+        src.indexOf('yang mengisi') > -1 && src.indexOf('${bedaPic}') > -1,
+        'penanda bedaPic tidak digambar');
     w.close();
   }
 
@@ -183,4 +238,13 @@ function fungsiMkSelect(src) {
   if (i < 0) throw new Error('mkSelect tidak ketemu di sumber');
   const j = src.indexOf('\n', src.indexOf(".join('');", i));
   return src.slice(i + 'const mkSelect='.length, j).replace(/;\s*$/, '');
+}
+
+/* picPengisi juga hidup di dalam viewBreakdown(). Dipotong dari sumbernya,
+   bukan disalin — supaya ujinya ikut basi kalau fungsinya berubah. */
+function fungsiPicPengisi(src) {
+  const i = src.indexOf('function picPengisi(');
+  if (i < 0) throw new Error('picPengisi tidak ketemu di sumber');
+  const j = src.indexOf('\n  }', i);
+  return src.slice(i, j + 4);
 }

@@ -449,8 +449,28 @@ ada satu layar pun yang menjelaskan selisihnya.
 yang membuat bug ini bertahan: yang membacanya berhenti memeriksa. Sama persis
 dengan kasus `hpp.php` di bawah.
 
+**PIC yang tidak cocok jatuh ke ORANG YANG MENGISI** (permintaan user).
+Modul Event menulis PIC-nya **"Event Manager"** — sebuah JABATAN, bukan nama
+orang, jadi `cocokPic()` tidak akan pernah menemukannya berapa kali pun
+dicoba. Yang mengisi breakdown-nya memang PIC event itu sendiri.
+
+- **Dijepit ke roster divisi itu** (`picPengisi(divi)`). Breakdown sering
+  diisi kasir atau finance tiap malam — menjatuhkan omset event ke mereka
+  berarti mengakui omset untuk orang yang tidak mengerjakannya, dan mereka
+  memang tidak ada di roster event/marketing. Yang tidak ketemu di kedua-duanya
+  tetap kosong dan tetap dilaporkan.
+- **CADANGAN, bukan pengganti**: kalau nama dari modul asalnya memang cocok,
+  itu yang menang — yang mengisi belum tentu PIC-nya.
+- Dicocokkan lewat **`officeUserId` dulu**, baru nama — nama bisa berubah
+  ejaannya di Office, id tidak. Aturan yang sama dengan `compCocok()`.
+- **Baris manual juga** bawaannya yang mengisi, bukan orang PERTAMA di daftar:
+  orang pertama cuma kebetulan urutan.
+- **DIKATAKAN di pita barisnya** (`diakui untuk <nama> — yang mengisi`) saat
+  PIC terpilih berbeda dari nama di modul asalnya. Diam-diam, omsetnya masuk
+  ke nama yang tidak pernah disebut di layar mana pun.
+
 ```bash
-node tools/uji-pic-breakdown.js   # 18 pemeriksaan, jsdom (omset + kas)
+node tools/uji-pic-breakdown.js   # 30 pemeriksaan, jsdom (omset + kas)
 ```
 
 Ujinya menjaga **kedua sisinya** — memperbaiki satu saja tidak menutup

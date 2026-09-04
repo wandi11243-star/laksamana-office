@@ -3174,7 +3174,32 @@ function cocokPic() {  }
 
 
 
-function serapOtomatis() { mkFinance(); cocokPic(); vipPecah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function picPengisi() { compCocok(); }
+
+
+
+
+
+
+
+
+
+
+function serapOtomatis() { mkFinance(); cocokPic(); picPengisi(); vipPecah(); }
 
 
 
@@ -3390,6 +3415,16 @@ function bukaBagi() { modalBagiHasil(); calc(); sumDiakui(); save(); potonganBar
 
 
 function pitaBaris() { menuFixRow(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3683,7 +3718,11 @@ function kartuEfek() { potonganBaris(); obTotal(); obAktif(); diskonKasir(); oms
 
 
 
-function calc() { sumDiakui(); kartuEfek(); barisTanpaShift(); potongKasirAktif(); potonganBaris(); sumDiskon(); empName(); potongKasir(); save(); render(); drawMk(); drawEv(); drawKs(); drawSo(); pitaSumber(); }
+function calc() { sumDiakui(); kartuEfek(); barisTanpaShift(); potongKasirAktif(); potonganBaris(); sumDiskon(); empName(); potongKasir(); save(); render(); picPengisi(); drawMk(); drawEv(); drawKs(); drawSo(); pitaSumber(); }
+
+
+
+
 
 
 

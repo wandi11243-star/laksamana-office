@@ -3174,6 +3174,31 @@ function viewBreakdown(){
     const e=(DB.employees[divi]||[]).find(x=>String(x.name||'').trim().toLowerCase()===n);
     return e?e.id:null;
   }
+  /* PIC = ORANG YANG SEDANG MENGISI, kalau nama dari modul asalnya tidak cocok
+     (4 September 2026, permintaan user: "PIC eventnya diambil langsung orang
+     yang input").
+
+     Sebabnya terlihat di layar user: modul Event menulis PIC-nya "Event
+     Manager" — sebuah JABATAN, bukan nama orang, jadi ia tidak akan pernah
+     cocok dengan roster berapa kali pun dicoba. Yang mengisi breakdown-nya
+     memang PIC event itu sendiri, jadi dialah jawabannya.
+
+     DIJEPIT: hanya kalau yang login ADA di roster divisi itu. Breakdown sering
+     diisi kasir atau finance tiap malam — menjatuhkan omset event ke mereka
+     berarti mengakui omset untuk orang yang tidak mengerjakannya, dan mereka
+     memang tidak ada di roster event/marketing. Yang tidak ketemu tetap
+     dibiarkan kosong dan tetap dilaporkan di pita. */
+  function picPengisi(divi){
+    if(!CURRENT_USER) return null;
+    const list=DB.employees[divi]||[];
+    /* officeUserId dulu — nama bisa berubah ejaannya di Office, id tidak.
+       Aturan yang sama dengan compCocok(). */
+    const byId=list.find(e=>e.officeUserId && e.officeUserId===CURRENT_USER.id);
+    if(byId) return byId.id;
+    const n=String(CURRENT_USER.name||'').trim().toLowerCase();
+    const byNama=n?list.find(e=>String(e.name||'').trim().toLowerCase()===n):null;
+    return byNama?byNama.id:null;
+  }
   function serapOtomatis(){
     if(EVHARI.tgl!==bdDate || EVHARI.st!=='ok') return false;
     const abai=new Set(state.abaikan);
@@ -3203,7 +3228,7 @@ function viewBreakdown(){
       const key='mkt:'+ev.id;
       if(abai.has(key)||sudahAda(key)) return;
       const f=mkFinance(ev,EVHARI.set);
-      state.mk.push({picId:cocokPic('marketing',ev.picName)||undefined,
+      state.mk.push({picId:cocokPic('marketing',ev.picName)||picPengisi('marketing')||undefined,
         eventName:ev.nama||'', amount:0, tax:0, service:0, shift:[],
         menuFix:String(ev.menuFix||''),
         srcId:key, srcPic:ev.picName||'', srcNominal:f.grand,
@@ -3223,7 +3248,7 @@ function viewBreakdown(){
       if(abai.has(key)||sudahAda(key)) return;
       const pt=v.perusahaan?' ('+v.perusahaan+')':'';
       const p=vipPecah(v.nominal,EVHARI.set);
-      state.mk.push({picId:cocokPic('marketing',v.picName)||undefined,
+      state.mk.push({picId:cocokPic('marketing',v.picName)||picPengisi('marketing')||undefined,
         eventName:'VIP — '+(v.nama||'(tanpa nama)')+pt, amount:0, tax:0, service:0, shift:[],
         menuFix:String(v.menuFix||''),
         srcId:key, srcPic:v.picName||'', srcNominal:num(v.nominal),
@@ -3235,7 +3260,7 @@ function viewBreakdown(){
       if(abai.has(key)||sudahAda(key)) return;
       /* Modul event tidak menyimpan nilai rupiah event, jadi tidak ada
          srcNominal di sini — yang dihemat cuma nama event & PIC-nya. */
-      state.ev.push({picId:cocokPic('event',ev.picName)||undefined,
+      state.ev.push({picId:cocokPic('event',ev.picName)||picPengisi('event')||undefined,
         eventName:ev.nama||'', amount:0, shift:[],
         srcId:key, srcPic:ev.picName||''});
       tambah++;
@@ -3398,6 +3423,16 @@ function viewBreakdown(){
        dalamnya. */
     const dari={mkt:'Marketing',vip:'Marketing (Reservasi VIP)',evt:'Event'}[r.srcId.slice(0,3)]||'modul lain';
     const pic=r.srcPic?` · PIC di ${dari}: <b>${esc(r.srcPic)}</b>`:'';
+    /* Kalau PIC yang terpilih BUKAN nama yang ditulis modul asalnya, itu
+       DIKATAKAN. Sumbernya dua: nama di modul asalnya sebuah jabatan ("Event
+       Manager"), atau orangnya belum ada di roster — dan pada kedua-duanya
+       yang dipakai adalah orang yang sedang mengisi. Kalau tidak dikatakan,
+       omsetnya masuk ke nama yang tidak pernah disebut di layar mana pun. */
+    const divi=r.srcId.slice(0,3)==='evt'?'event':'marketing';
+    const terpilih=(DB.employees[divi]||[]).find(e=>e.id===r.picId);
+    const bedaPic=terpilih && String(r.srcPic||'').trim().toLowerCase()!==String(terpilih.name||'').trim().toLowerCase()
+      ? ` · <span class="tag" style="background:var(--gold-soft);color:var(--gold-dim)">diakui untuk <b>${esc(terpilih.name)}</b> — yang mengisi</span>`
+      : '';
     /* Baris VIP wajib menyebutkan bahwa nominalnya sudah termasuk tax &
        service, dan berapa hasil pecahannya. Tanpa itu orang membandingkan
        Rp4.433.250 di pita dengan Rp3.855.000 yang masuk kolom Omset dan
@@ -3425,7 +3460,7 @@ function viewBreakdown(){
       ? ' · <span class="tag">menu dipilih di tempat</span>'
       : (mf==='tetap' ? ' · <span class="tag">menu ditetapkan</span>'
         : ' · <span class="tag" title="Marketing belum memilih. Untuk sementara diperlakukan seperti menu ditetapkan, jadi kasir tetap dipotong." style="background:var(--warn-bg,#fdf3e3);color:var(--warn)">menu belum ditentukan</span>');
-    return `<div class="esrc"><span class="tag">otomatis</span>dari modul ${dari}${pic}${menu}${nilai}</div>`;
+    return `<div class="esrc"><span class="tag">otomatis</span>dari modul ${dari}${pic}${bedaPic}${menu}${nilai}</div>`;
   }
   /* Panel Open Bill. Kotaknya baru muncul setelah dicentang — kalau selalu
      tampil, tiap event polos ikut memajang empat kotak kosong dan halaman ini
@@ -3748,10 +3783,14 @@ function viewBreakdown(){
   }
   // tiket:false ditulis eksplisit — baris tanpa field ini (data sebelum 28 Juli
   // 2026) juga dibaca sebagai non-ticketing, jadi keduanya konsisten.
-  document.getElementById('add_mk').onclick=()=>{state.mk.push({picId:DB.employees.marketing[0]?.id,eventName:'',amount:0,tax:0,service:0,tiket:false,dw:0,shift:[]});drawMk();calc();};
+  document.getElementById('add_mk').onclick=()=>{state.mk.push({picId:picPengisi('marketing')||undefined,eventName:'',amount:0,tax:0,service:0,tiket:false,dw:0,shift:[]});drawMk();calc();};
   // Baris event TIDAK diberi `shift`: section ini tidak punya pengaturan kasir
   // lagi, jadi field kosong yang tak pernah diisi cuma jadi umpan salah baca.
-  document.getElementById('add_ev').onclick=()=>{state.ev.push({picId:DB.employees.event[0]?.id,eventName:'',amount:0,tiket:false,dw:0});drawEv();calc();};
+  /* Baris manual bawaannya ORANG YANG MENGISI, bukan orang pertama di daftar:
+     yang menekan tombol ini biasanya PIC-nya sendiri, dan orang pertama di
+     daftar cuma kebetulan urutan. Kalau yang login bukan orang event, kotaknya
+     dibiarkan kosong — bukan dijatuhkan ke siapa pun. */
+  document.getElementById('add_ev').onclick=()=>{state.ev.push({picId:picPengisi('event')||undefined,eventName:'',amount:0,tiket:false,dw:0});drawEv();calc();};
   drawMk();drawEv();drawKs();drawSo();calc();
 
   /* Penarikan event otomatis dijalankan PALING AKHIR, sesudah halaman lengkap
