@@ -437,18 +437,11 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
   }
 
   /* ================= 10. setoran cash muncul di Riwayat Mutasi ================= */
-  console.log('\n== Setoran cash TIDAK didaftar sebagai mutasi (4 Sep 2026) ==');
+  console.log('\n== Setoran cash ikut tercatat sebagai mutasi ==');
   {
-    /* Sampai 4 September 2026 kedua setoran KOMPAS ikut tergambar di riwayat
-       ini. Dicabut atas permintaan user: halaman Mutasi & Transfer Wallet
-       didominasi baris yang tidak diketik di sini dan tidak bisa disunting
-       di sini, sehingga yang mencari satu mutasi manual harus menyisirnya.
-
-       YANG TETAP DIUJI DI SINI adalah bagian yang TIDAK boleh ikut berubah:
-       saldonya. saldoSemua() membaca setoranSemua() LANGSUNG, jadi setoran
-       tetap mengurangi brankas fisik walau tidak muncul satu baris pun di
-       daftar. Kalau suatu hari ada yang "merapikan" saldoSemua() supaya
-       membaca mutasiSemua(), inilah yang menangkapnya. */
+    /* KOMPAS punya dua setoran: st1 ke BRI (dikenali), st2 "brankas kantor"
+       (tidak dikenali). Keduanya harus muncul di riwayat, dan yang kedua
+       harus ditandai. */
     const { dom, panggilan } = domBrankas({
       bk: { data:{ rekening:[], piutang:[], bayar:[], investor:[], mutasi:[
               { id:'m1', tgl:'2026-08-09', jenis:'pindah', dari:'bca', ke:'uob', nominal:1000000, ket:'manual' }
@@ -459,36 +452,54 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     w.go('mutasi'); await tunggu(60);
     const v = d.getElementById('app-view').innerHTML;
 
-    cek('setoran tidak lagi jadi baris riwayat',
-        v.indexOf('<td>Setoran cash') < 0, v.slice(0, 500));   // keterangannya boleh menyebutnya; BARISNYA yang tidak boleh ada
-    cek('penanda "Rekap Penjualan" ikut hilang', v.indexOf('Rekap Penjualan</span>') < 0);
+    cek('setoran ikut di riwayat', v.indexOf('Setoran cash') > -1, v.slice(0, 400));
+    cek('ditandai berasal dari Rekap Penjualan', v.indexOf('Rekap Penjualan</span>') > -1);
     cek('mutasi manual tetap ada', v.indexOf('manual') > -1);
-    cek('satu baris saja di riwayat (yang diketik di sini)',
-        (v.match(/<tr><td>\d+ Agu 2026<\/td>/g) || []).length === 1,
+    cek('tiga baris di riwayat (1 manual + 2 setoran)',
+        (v.match(/<tr><td>\d+ Agu 2026<\/td>/g) || []).length === 3,
         String((v.match(/<tr><td>\d+ Agu 2026<\/td>/g) || []).length));
-    /* Sekarang SETIAP baris bisa dihapus — tidak ada lagi baris yang datang
-       dari tempat lain, jadi tidak ada lagi tombol yang harus ditahan. */
-    cek('barisnya bisa dihapus', (v.match(/btn-danger btn-xs/g) || []).length === 1,
-        String((v.match(/btn-danger btn-xs/g) || []).length));
 
-    /* Jumlahnya TETAP disebut sebagai keterangan. Tanpa itu, yang menjumlahkan
-       tabel lalu membandingkannya dengan kartu saldo menemukan selisih yang
-       tidak dijelaskan di layar mana pun — dan selisih semacam itu dicari
-       berjam-jam sebelum ada yang curiga tempatnya bukan di sini. */
-    cek('jumlah setoran tetap disebutkan sebagai keterangan', v.indexOf('Rp18.000.000') > -1, v.slice(0, 700));
-    cek('dan dikatakan tempatnya di Rekap Penjualan',
-        v.indexOf('tidak didaftar di halaman ini') > -1 && v.indexOf('Setoran Cash') > -1,
-        v.slice(0, 700));
+    /* Baris otomatis TIDAK boleh punya tombol hapus: yang memegangnya Rekap
+       Penjualan, dan menghapusnya di sini cuma membuang baris yang muncul
+       lagi begitu halaman dimuat ulang. */
+    cek('cuma baris manual yang punya tombol hapus',
+        (v.match(/btn-danger btn-xs/g) || []).length === 1,
+        String((v.match(/btn-danger btn-xs/g) || []).length));
+    cek('baris otomatis menjelaskan kenapa tak bisa dihapus', v.indexOf('dari Rekap Penjualan') > -1);
+
+    cek('total setoran disebutkan', v.indexOf('Rp18.000.000') > -1, v.slice(0, 700));
+    cek('setoran tujuan tak dikenal diperingatkan', v.indexOf('tidak dikenali') > -1);
+    cek('tujuan mentahnya ditulis apa adanya', v.indexOf('brankas kantor') > -1);
+    cek('menyebut berapa hari yang dicakup', v.indexOf('mencakup 1 hari') > -1);
+
+    /* Jenis mutasi manual TIDAK boleh memakai kata "Setor": halaman ini sudah
+       memuat baris "Setoran cash" dari Rekap Penjualan, dan dua hal yang
+       berlawanan arah (omset keluar dari brankas vs uang masuk dari luar)
+       yang terbaca sama di satu layar akan tertukar cepat atau lambat.
+       Permintaan user 4 September 2026. */
+    cek('jenis mutasi manual tidak lagi bernama "Setor"',
+        v.indexOf('Setor / uang masuk') < 0, v.slice(v.indexOf('mu_jenis'), v.indexOf('mu_jenis') + 300));
+    cek('...melainkan menyebut uang masuk dari LUAR',
+        v.indexOf('Uang masuk dari luar') > -1, v.slice(v.indexOf('mu_jenis'), v.indexOf('mu_jenis') + 300));
+    cek('dan gunanya dijelaskan: cash di luar omset harian',
+        v.indexOf('di luar omset harian') > -1 && v.indexOf('TIDAK lewat POS') > -1,
+        v.slice(v.indexOf('Catat Mutasi'), v.indexOf('Catat Mutasi') + 600));
+    /* Pemasukan yang sudah lewat POS dicatat lagi di sini = uang dihitung dua
+       kali. Peringatannya harus ada di layarnya, bukan cuma di komentar. */
+    cek('...berikut peringatan jangan mencatat omset dua kali',
+        /dua kali/.test(v.slice(v.indexOf('Catat Mutasi'), v.indexOf('Catat Mutasi') + 700)));
+    cek('setoran cash TETAP jadi baris riwayat (dipulihkan 4 Sep 2026)',
+        v.indexOf('<td>Setoran cash') > -1, v.slice(0, 400));
 
     /* Saldo dan riwayat harus bercerita hal yang sama: yang menjumlahkan
        daftar tidak boleh mendapat angka lain daripada kartu di atasnya. */
     const s2 = w.saldoSemua();
-    cek('setoran BRI TETAP masuk saldo walau tidak didaftar', s2.bri.setorMasuk === 10000000, String(s2.bri.setorMasuk));
+    cek('setoran BRI di riwayat = setorMasuk BRI di saldo', s2.bri.setorMasuk === 10000000, String(s2.bri.setorMasuk));
     dom.window.close();
   }
 
-  /* ================= 11. Kompas mati: SALDO yang tidak lengkap ============== */
-  console.log('\n== Rekap Penjualan tak terbaca ==');
+  /* ================= 11. Kompas mati: daftar tidak lengkap, dan bilang ======= */
+  console.log('\n== Setoran tak terbaca ==');
   {
     const { dom } = domBrankas({ kompasGagal:true });
     await tunggu(400);
@@ -496,14 +507,7 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     w.go('mutasi'); await tunggu(60);
     const v = d.getElementById('app-view').innerHTML;
     cek('halaman tetap jalan', v.indexOf('Catat Mutasi') > -1);
-    /* Sejak setoran tidak didaftar di sini, daftar mutasinya justru LENGKAP
-       walau Kompas mati — yang tidak lengkap saldonya, karena setoran cash
-       belum dikurangkan. Pesannya harus menyebut yang benar: pita yang bilang
-       "daftar belum lengkap" akan membuat orang mencari baris yang hilang di
-       tabel yang sebenarnya sudah utuh. */
-    cek('mengatakan SALDO-nya yang belum memperhitungkan setoran',
-        v.indexOf('Rekap Penjualan tidak terbaca') > -1 && v.indexOf('setoran cash') > -1,
-        v.slice(0, 500));
+    cek('mengatakan daftarnya belum lengkap', v.indexOf('belum lengkap') > -1, v.slice(0, 400));
     dom.window.close();
   }
 

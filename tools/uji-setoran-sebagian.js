@@ -5,11 +5,13 @@
  * Dua permintaan user yang saling bersentuhan, dan keduanya gagal DIAM-DIAM
  * kalau salah:
  *
- *   1. Mutasi kas di panel Brankas tidak lagi mendaftar setoran cash. Yang
- *      TIDAK boleh ikut berubah adalah SALDONYA — saldoSemua() membaca
- *      setoranSemua() langsung, bukan lewat daftar mutasi. Kalau suatu hari
- *      ada yang "merapikannya" supaya membaca mutasiSemua(), seluruh setoran
- *      hilang dari saldo tanpa satu pun galat.
+ *   1. Setoran cash IKUT di daftar mutasi Brankas (dicabut lalu dipulihkan
+ *      atas permintaan user 4 September 2026), tapi jenis mutasi manual tidak
+ *      lagi bernama "Setor" — dua hal berlawanan arah yang terbaca sama di
+ *      satu layar akan tertukar cepat atau lambat. Yang TIDAK boleh ikut
+ *      berubah adalah SALDONYA: saldoSemua() membaca setoranSemua() langsung,
+ *      bukan lewat daftar mutasi, jadi baris yang ikut di daftar TIDAK boleh
+ *      dihitung dua kali.
  *
  *   2. Setoran boleh sebagian: nominal per hari bisa disunting. Jebakannya
  *      hari yang disetor sebagian lalu dianggap lunas — sisanya lenyap dari
@@ -163,15 +165,28 @@ function boot(berkas, url) {
   const b = boot(BRANKAS, 'https://team.laksamanamuda.id/finance/brankas/');
   await new Promise(r => setTimeout(r, 500));
   b.eval('KP={reports:' + JSON.stringify(REPORTS) + ',rekap_setoran:' + JSON.stringify(SETORAN) + '};'
-       + 'BK={data:{mutasi:[{id:"m1",tgl:"2026-09-02",jenis:"pindah",dari:"kas",ke:"bca",nominal:70000,ket:"top-up"}],'
+       + 'BK={data:{mutasi:[{id:"m1",tgl:"2026-09-02",jenis:"pindah",dari:"cash",ke:"bca",nominal:70000,ket:"top-up"}],'
        + 'bayar:[],investor:[],setting:{}}};');
 
   const mut = b.eval('mutasiSemua()');
-  cek('setoran cash tidak lagi didaftar sebagai mutasi',
-      mut.length === 1 && mut[0].id === 'm1', JSON.stringify(mut.map(m => m.id)));
-  cek('mutasi yang diketik sendiri tetap ada', mut[0].ket === 'top-up');
-  cek('mutasiSetoran() benar-benar dicabut, bukan sekadar tidak dipanggil',
-      b.eval('typeof mutasiSetoran') === 'undefined');
+  cek('setoran cash ikut di daftar mutasi', mut.length === 3, JSON.stringify(mut.map(m => m.id)));
+  cek('mutasi yang diketik sendiri tetap ada',
+      mut.some(m => m.ket === 'top-up'), JSON.stringify(mut.map(m => m.ket)));
+  /* Setoran SEBAGIAN harus muncul sebesar yang benar-benar disetor, bukan
+     sebesar cash hari itu — kalau tidak, daftar mutasi dan kartu saldo
+     bercerita dua hal yang berbeda untuk uang yang sama. */
+  const stBca = mut.find(m => m.id === 'st-st1');
+  cek('setoran sebagian tampil sebesar yang disetor, bukan cash hari itu',
+      stBca && stBca.nominal === 300000, JSON.stringify(stBca));
+
+  /* Kata "Setor" dicabut dari jenis mutasi manual: halaman ini sudah memuat
+     baris "Setoran cash", dan yang manual justru KEBALIKANNYA — uang masuk
+     dari luar, bukan omset yang keluar dari brankas. */
+  cek('jenis mutasi manual tidak lagi bernama "Setor"',
+      b.eval('JSON.stringify(MUT_JENIS)').indexOf('Setor') < 0, b.eval('JSON.stringify(MUT_JENIS)'));
+  cek('...dan menyebut cash di luar omset harian',
+      b.eval('JSON.stringify(MUT_JENIS)').indexOf('di luar omset harian') > -1,
+      b.eval('JSON.stringify(MUT_JENIS)'));
 
   /* YANG PALING PENTING: saldonya tidak boleh ikut berubah. */
   const s = b.eval('saldoSemua()');
@@ -185,19 +200,30 @@ function boot(berkas, url) {
   /* Jumlahnya tetap disebut: yang menjumlahkan tabel lalu membandingkannya
      dengan kartu saldo akan menemukan selisih, dan selisih tanpa penjelasan
      adalah selisih yang dicari berjam-jam. */
-  const rs = b.eval('setoranRingkas()');
-  cek('halaman masih tahu berapa setoran yang tidak didaftarnya',
-      rs.n === 2 && rs.total === 800000, JSON.stringify(rs));
+  /* Baris setoran ikut di daftar TAPI tidak boleh ikut dihitung lagi di
+     saldo — saldoSemua() sudah membaca setoranSemua() sendiri. Dihitung dua
+     kali, brankas fisik berkurang dua kali lipat dari yang sebenarnya keluar. */
+  const kembar = b.eval('(BK.data.mutasi||[]).filter(function(m){return String(m.id).indexOf("st-")===0}).length');
+  cek('baris setoran DIBACA, tidak disalin ke bk_state', kembar === 0, String(kembar));
+  cek('...sehingga setorKeluar tidak berlipat', s[kasK].setorKeluar === 800000 && s[kasK].mutKeluar === 70000,
+      JSON.stringify({ setorKeluar: s[kasK].setorKeluar, mutKeluar: s[kasK].mutKeluar }));
+
   b.eval('document.body.insertAdjacentHTML("beforeend","<div id=\'app-view\'></div>")');
   b.eval('vMutasi()');
   const html = b.document.getElementById('app-view').innerHTML;
-  cek('layar menyebut setoran tidak didaftar di sini',
-      /tidak didaftar di halaman ini/.test(html), html.slice(0, 300));
-  cek('...berikut jumlahnya, supaya selisih dengan kartu saldo terjelaskan',
-      html.indexOf('800.000') > -1 || html.indexOf('800,000') > -1);
-  cek('...dan menunjuk ke mana tempatnya', /Setoran Cash/.test(html));
-  cek('tabel riwayat tidak lagi memuat baris Rekap Penjualan',
-      html.indexOf('Rekap Penjualan</span>') < 0);
+  cek('barisnya tergambar di riwayat', html.indexOf('<td>Setoran cash') > -1, html.slice(0, 400));
+  cek('...ditandai datang dari Rekap Penjualan', html.indexOf('Rekap Penjualan</span>') > -1);
+  /* Baris yang datang dari tempat lain tidak boleh punya tombol hapus: yang
+     memegangnya Rekap Penjualan, dan menghapusnya di sini cuma membuang baris
+     yang muncul lagi begitu halaman dimuat ulang. */
+  cek('cuma mutasi manual yang bisa dihapus',
+      (html.match(/btn-danger btn-xs/g) || []).length === 1,
+      String((html.match(/btn-danger btn-xs/g) || []).length));
+  cek('kotak Jenis di form tidak menawarkan kata Setor',
+      html.indexOf('Setor / uang masuk') < 0);
+  cek('form menjelaskan pemasukan lewat POS jangan dicatat dua kali',
+      /dua kali/.test(html) && /Aktual Masuk/.test(html),
+      html.slice(html.indexOf('Catat Mutasi'), html.indexOf('Catat Mutasi') + 700));
   b.close();
 
   /* ============ 3. Server memakai aturan yang sama ============ */

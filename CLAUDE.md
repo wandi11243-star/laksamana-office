@@ -124,22 +124,38 @@ yang menyentuh dua wadah — bukan dua baris (keluar dari A, masuk ke B). Dua
 baris yang salah satunya terhapus membuat uang perusahaan bertambah atau
 hilang tanpa ada yang menyadarinya.
 
-**Setoran cash TIDAK didaftar di Riwayat Mutasi** (4 September 2026, permintaan
-user). Sempat ikut sejak 27 Agustus 2026 dengan alasan yang masih benar —
-uangnya memang berpindah wallet — tapi akibatnya halaman itu didominasi baris
-yang tidak diketik di sana dan tidak bisa disunting di sana, sehingga yang
-mencari satu mutasi manual harus menyisirnya. Setoran punya halaman yang jauh
-lebih lengkap: **Rekap Penjualan → Setoran Cash**, berikut tujuan, hari yang
-dicakup, dan siapa yang mencatatnya.
+**Setoran cash dari Rekap Penjualan IKUT di Riwayat Mutasi** — dibaca, bukan
+disalin. Uangnya memang berpindah wallet, jadi ia mutasi; saldonya sudah
+bergeser sejak awal, tapi jejaknya sempat tidak ada di daftar perpindahan
+wallet — sehingga perpindahan yang PALING SERING terjadi justru tidak
+kelihatan di sana, dan yang menjumlahkan daftarnya mendapat angka yang tidak
+cocok dengan saldo. Barisnya **tidak bisa dihapus dari Brankas**: yang
+memegang setoran adalah Rekap Penjualan, dan menyalinnya ke `bk_state` berarti
+setoran yang dibatalkan di sana meninggalkan mutasi hantu di sini.
 
-**Yang TIDAK ikut berubah: saldonya.** `saldoSemua()` membaca `setoranSemua()`
-LANGSUNG, bukan lewat `mutasiSemua()` — jadi setoran tetap mengurangi brankas
-fisik dan menambah bank tujuannya. Kalau suatu hari ada yang "merapikan"
-`saldoSemua()` supaya membaca daftar mutasi, seluruh setoran cash hilang dari
-saldo **tanpa satu pun galat**. Karena itu jumlahnya tetap DISEBUT di halaman
-itu sebagai satu baris keterangan: yang menjumlahkan tabel lalu
-membandingkannya dengan kartu saldo akan menemukan selisih, dan selisih tanpa
-penjelasan adalah selisih yang dicari berjam-jam di tempat yang salah.
+> Sempat DICABUT 4 September 2026 lalu **dipulihkan hari yang sama atas
+> permintaan user**. Jangan dicabut lagi tanpa diminta. Yang dicabut sebagai
+> gantinya adalah kata "Setor" di jenis mutasi manual — lihat blok di bawah.
+
+**`saldoSemua()` membaca `setoranSemua()` LANGSUNG, bukan lewat
+`mutasiSemua()`.** Baris setoran yang ikut di daftar karena itu **tidak boleh**
+ikut dijumlahkan lagi di sana — kalau ia disalin ke `BK.data.mutasi`, brankas
+fisik berkurang dua kali lipat dari yang benar-benar keluar, tanpa satu pun
+galat.
+
+**Jenis mutasi manual TIDAK memakai kata "Setor"** (4 September 2026,
+permintaan user). Ia dulu bernama *Setor / uang masuk dari luar*, dan di layar
+yang sama sudah ada baris **Setoran cash** dari Rekap Penjualan — dua hal yang
+arahnya BERLAWANAN (omset yang keluar dari brankas vs uang yang masuk dari
+luar) terbaca sama, dan yang tertukar mencatat pemasukan sebagai setoran atau
+sebaliknya. Sekarang **Uang masuk dari luar (di luar omset harian)**.
+
+Gunanya disebut di labelnya sendiri, bukan ditebak: pemasukan cash yang tidak
+lewat POS — sewa tempat, penjualan barang bekas, titipan yang dikembalikan.
+Yang **sudah** masuk omset harian jangan dicatat di sini: ia sudah terhitung
+lewat **Aktual Masuk** di Rekap Penjualan, dan mencatatnya lagi menaikkan saldo
+tanpa satu pun uang yang benar-benar datang. Peringatan itu ada **di layarnya**,
+bukan cuma di komentar kode.
 
 **SETORAN BOLEH SEBAGIAN** (4 September 2026, permintaan user: "semisalnya mau
 dirubah setorannya ternyata tidak semuanya"). Mencentang sebuah hari di Rekap
@@ -176,7 +192,7 @@ nominalnya boleh disunting. Nominal per hari disimpan di `rekap_setoran[].jumlah
   sedang diketik akan dibuat ulang dan hanya huruf pertama yang masuk.
 
 ```bash
-node tools/uji-setoran-sebagian.js   # 38 pemeriksaan, jsdom (kas + brankas + php)
+node tools/uji-setoran-sebagian.js   # 42 pemeriksaan, jsdom (kas + brankas + php)
 ```
 
 **Pengembalian modal menyebut wallet asalnya** (`returns[].dari`). Tanpa itu
@@ -355,7 +371,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 106 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 114 pemeriksaan, jsdom + finance/kompas/account tiruan
                              # (84 pemeriksaan lembar pembayaran pindah ke uji-bayar-kas.js)
 ```
 

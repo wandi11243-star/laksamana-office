@@ -1376,39 +1376,39 @@ function vPending() {
    setoran yang dibatalkan di sana meninggalkan mutasi hantu di sini. Karena
    itu baris ini juga tidak bisa dihapus dari halaman ini — yang membatalkan
    setoran melakukannya di tempat ia mencatatnya. */
-/* SETORAN CASH DICABUT DARI DAFTAR INI (4 September 2026, permintaan user).
-
-   Sempat ikut sejak 27 Agustus 2026 dengan alasan yang masih benar — uangnya
-   memang berpindah wallet — tapi akibatnya halaman Mutasi & Transfer Wallet
-   didominasi baris yang tidak diketik di sini dan tidak bisa disunting di
-   sini, sehingga yang mencari satu mutasi manual harus menyisirnya. Setoran
-   punya halamannya sendiri yang jauh lebih lengkap: Rekap Penjualan → Setoran
-   Cash menyebut tujuan, hari yang dicakup, dan siapa yang mencatatnya.
-
-   YANG TIDAK BERUBAH: saldonya. saldoSemua() membaca setoranSemua() LANGSUNG,
-   bukan lewat daftar ini — jadi setoran tetap mengurangi brankas fisik dan
-   menambah bank persis seperti sebelumnya. Kalau suatu hari ada yang
-   "merapikan" saldoSemua() supaya membaca mutasiSemua(), seluruh setoran cash
-   akan hilang dari saldo tanpa satu pun galat.
-
-   Karena itu jumlahnya tetap DISEBUT di halaman ini sebagai satu baris
-   keterangan (bukan tabel): yang menjumlahkan daftar di bawah lalu
-   membandingkannya dengan saldo akan menemukan selisih, dan selisih tanpa
-   penjelasan adalah selisih yang dicari berjam-jam. */
-function setoranRingkas() {
-  const st = setoranSemua();
-  return { n:st.length, total:st.reduce(function (a, s) { return a + num(s.nominal); }, 0) };
+function mutasiSetoran() {
+  return setoranSemua().map(function (st) {
+    const bank = bankDariTujuan(st.tujuan);
+    return { id:'st-' + st.id, tgl:st.tgl, jenis:'pindah',
+             dari:KAS_K, ke:bank, nominal:num(st.nominal),
+             ket:'Setoran cash' + (st.catatan ? ' — ' + st.catatan : ''),
+             auto:true, tujuanTeks:st.tujuan || '', hari:(st.hari || []).length, kenal:!!bank };
+  });
 }
-/* Mutasi yang diketik di halaman ini saja, terbaru dulu. */
+/* Manual + otomatis, terbaru dulu. Satu daftar, bukan dua tabel: yang
+   membacanya bertanya "uangnya pindah ke mana saja bulan ini", bukan "mana
+   yang diketik orang dan mana yang datang dari kasir". */
 function mutasiSemua() {
-  return (BK.data.mutasi || []).slice()
+  return (BK.data.mutasi || []).concat(mutasiSetoran())
     .sort(function (a, b) { return String(b.tgl) < String(a.tgl) ? -1 : (String(b.tgl) > String(a.tgl) ? 1 : 0); });
 }
 
+/* KATA "SETOR" SENGAJA TIDAK DIPAKAI DI SINI (4 September 2026, permintaan
+   user). Halaman ini sudah memuat baris "Setoran cash" dari Rekap Penjualan —
+   uang omset harian yang dibawa ke bank — dan jenis mutasi yang juga bernama
+   "Setor" membuat dua hal yang sama sekali berbeda terbaca sama di satu layar.
+   Yang ini justru KEBALIKANNYA: uang yang MASUK ke wallet dari luar, bukan
+   omset yang keluar dari brankas.
+
+   Gunanya disebutkan di label supaya tidak perlu ditebak: pemasukan cash di
+   luar omset harian — sewa tempat, penjualan barang bekas, titipan yang
+   dikembalikan. Yang masuk lewat POS TIDAK dicatat di sini; ia sudah terhitung
+   lewat Aktual Masuk di Rekap Penjualan, dan mencatatnya lagi di sini membuat
+   uangnya dihitung dua kali tanpa satu pun galat. */
 const MUT_JENIS = [
   { k:'pindah', n:'Pindah antar wallet' },
-  { k:'masuk',  n:'Setor / uang masuk dari luar' },
-  { k:'keluar', n:'Tarik / uang keluar ke luar' }
+  { k:'masuk',  n:'Uang masuk dari luar (di luar omset harian)' },
+  { k:'keluar', n:'Uang keluar ke luar' }
 ];
 function vMutasi() {
   const V = document.getElementById('app-view');
@@ -1418,27 +1418,29 @@ function vMutasi() {
      lengkap, dan daftar tidak lengkap yang diam adalah daftar yang salah. */
   const kpMati = !KP;
   const arr = mutasiSemua();
-  const setor = setoranRingkas();
+  const auto = arr.filter(m => m.auto);
+  const takKenal = auto.filter(m => !m.kenal);
 
   let h = '<div class="grid g4" style="margin-bottom:18px">'
     + SEMUA_WADAH().map(k => kartu(namaBank(k), fmtRp(s[k].saldo), 'saldo berjalan')).join('')
     + '</div>';
 
-  if (kpMati) h += '<div class="notice warn">⚠ <div><b>Rekap Penjualan tidak terbaca.</b> '
-    + 'Mutasi di bawah tetap lengkap — ia tidak bergantung pada Rekap Penjualan — tapi saldo di kartu atas '
-    + 'belum memperhitungkan setoran cash, jadi angkanya lebih besar daripada yang sebenarnya ada di brankas.</div></div>';
-  /* Setoran cash TIDAK didaftar di sini lagi, tapi tetap mengurangi brankas —
-     jadi jumlahnya disebut. Tanpa baris ini, yang menjumlahkan tabel di bawah
-     lalu membandingkannya dengan kartu saldo menemukan selisih yang tidak
-     dijelaskan di mana pun. */
-  else if (setor.n) h += '<div class="notice info">ℹ <div><b>Setoran cash tidak didaftar di halaman ini</b> — tempatnya di '
-    + '<b>Rekap Penjualan → Setoran Cash</b>, yang juga menyebut tujuan dan hari yang dicakupnya. '
-    + 'Uangnya tetap dihitung: ' + fmtRp(setor.total) + ' dari ' + setor.n + ' setoran sudah dikurangkan dari '
-    + esc(namaBank(KAS_K)) + ' dan ditambahkan ke bank tujuannya di kartu saldo di atas.</div></div>';
+  if (kpMati) h += '<div class="notice warn">⚠ <div><b>Setoran cash dari Rekap Penjualan tidak terbaca.</b> '
+    + 'Daftar di bawah cuma memuat mutasi yang diketik di halaman ini, jadi belum lengkap.</div></div>';
+  if (auto.length) h += '<div class="notice info">ℹ <div><b>' + auto.length + ' setoran cash dari Rekap Penjualan ikut di daftar ini.</b> '
+    + 'Total ' + fmtRp(auto.reduce((a, m) => a + num(m.nominal), 0)) + ' berpindah dari brankas fisik ke bank. '
+    + 'Barisnya DIBACA dari Rekap Penjualan, tidak disalin — yang membatalkan setoran melakukannya di sana, '
+    + 'dan daftar ini langsung ikut.</div></div>';
+  if (takKenal.length) h += '<div class="notice warn">⚠ <div><b>' + takKenal.length + ' setoran tujuannya tidak dikenali</b> '
+    + 'sebagai BRI / Mandiri / BCA / UOB, jadi uangnya keluar dari brankas fisik tapi tidak masuk ke bank mana pun. '
+    + 'Betulkan tujuannya di <b>Rekap Penjualan → Setoran Cash</b>.</div></div>';
 
   h += '<div class="card" data-aks><h3>Catat Mutasi</h3>'
     + '<div class="card-sub">Pindah antar wallet dicatat SATU baris, bukan dua. Dua baris yang salah satunya terhapus '
-    + 'membuat uang perusahaan bertambah atau hilang tanpa ada yang menyadarinya.</div>'
+    + 'membuat uang perusahaan bertambah atau hilang tanpa ada yang menyadarinya.'
+    + '<br><b>Uang masuk dari luar</b> untuk pemasukan cash yang TIDAK lewat POS — sewa tempat, penjualan barang bekas, '
+    + 'titipan yang dikembalikan. Yang sudah masuk omset harian jangan dicatat lagi di sini: ia sudah terhitung lewat '
+    + '<b>Aktual Masuk</b> di Rekap Penjualan, dan mencatatnya dua kali menaikkan saldo tanpa satu pun uang yang benar-benar datang.</div>'
     + '<div class="grid g3">'
     + fld('Jenis', '<select id="mu_jenis" onchange="muUbahJenis()">'
         + MUT_JENIS.map(j => '<option value="' + j.k + '">' + esc(j.n) + '</option>').join('') + '</select>')
@@ -1456,16 +1458,23 @@ function vMutasi() {
   h += '<div class="tbl-wrap card"><h3>Riwayat Mutasi</h3>'
     + (arr.length ? '<table><thead><tr><th>Tanggal</th><th>Jenis</th><th>Dari</th><th>Ke</th><th class="num">Nominal</th><th>Keterangan</th><th></th></tr></thead><tbody>'
       + arr.map(m => '<tr><td>' + esc(fmtTgl(m.tgl)) + '</td>'
-          + '<td><span class="chip">' + esc((MUT_JENIS.find(j => j.k === m.jenis) || {}).n || m.jenis) + '</span></td>'
+          + '<td><span class="chip">' + esc((MUT_JENIS.find(j => j.k === m.jenis) || {}).n || m.jenis) + '</span>'
+            + (m.auto ? ' <span class="chip" style="background:var(--info-bg);color:var(--info)">Rekap Penjualan</span>' : '') + '</td>'
           + '<td>' + (m.jenis === 'masuk' ? '<span style="color:var(--muted-2)">luar brankas</span>' : esc(namaBank(m.dari))) + '</td>'
-          + '<td>' + (m.jenis === 'keluar' ? '<span style="color:var(--muted-2)">luar brankas</span>' : esc(namaBank(m.ke))) + '</td>'
+          + '<td>' + (m.jenis === 'keluar' ? '<span style="color:var(--muted-2)">luar brankas</span>'
+                     : (m.auto && !m.kenal
+                        ? '<span class="chip" style="background:var(--warn-bg);color:var(--warn)">' + esc(m.tujuanTeks || 'tanpa tujuan') + '</span>'
+                        : esc(namaBank(m.ke)))) + '</td>'
           + '<td class="num mono">' + fmtRp(m.nominal) + '</td>'
-          + '<td>' + esc(m.ket || '—') + '</td>'
-          + '<td data-aks><button class="btn btn-danger btn-xs" onclick="hapusBaris(\'mutasi\',\'' + m.id + '\',\'mutasi\',\'Hapus mutasi ini? Saldo wallet yang terlibat akan berubah.\')">Hapus</button></td></tr>').join('')
+          + '<td>' + esc(m.ket || '—') + (m.auto && m.hari ? '<span class="helper">mencakup ' + m.hari + ' hari</span>' : '') + '</td>'
+          /* Baris otomatis tidak bisa dihapus dari sini: yang memegangnya
+             Rekap Penjualan, dan tombol hapus di sini akan membuang baris
+             yang muncul lagi begitu halaman dimuat ulang. */
+          + '<td' + (m.auto ? '' : ' data-aks') + '>' + (m.auto
+              ? '<span class="helper">dari Rekap Penjualan</span>'
+              : '<button class="btn btn-danger btn-xs" onclick="hapusBaris(\'mutasi\',\'' + m.id + '\',\'mutasi\',\'Hapus mutasi ini? Saldo wallet yang terlibat akan berubah.\')">Hapus</button>') + '</td></tr>').join('')
       + '</tbody></table>'
-      : '<div class="empty"><div class="big">⇄</div>Belum ada mutasi yang dicatat di halaman ini.'
-        + (setor.n ? '<div class="helper" style="margin-top:6px">Setoran cash tidak masuk daftar ini — lihat Rekap Penjualan → Setoran Cash.</div>' : '')
-        + '</div>')
+      : '<div class="empty"><div class="big">⇄</div>Belum ada mutasi yang dicatat.</div>')
     + '</div>';
   V.innerHTML = h;
   muUbahJenis();
