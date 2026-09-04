@@ -124,14 +124,60 @@ yang menyentuh dua wadah — bukan dua baris (keluar dari A, masuk ke B). Dua
 baris yang salah satunya terhapus membuat uang perusahaan bertambah atau
 hilang tanpa ada yang menyadarinya.
 
-**Setoran cash dari Rekap Penjualan IKUT di Riwayat Mutasi** — dibaca, bukan
-disalin. Uangnya memang berpindah wallet, jadi ia mutasi; saldonya sudah
-bergeser sejak awal, tapi jejaknya sempat tidak ada di daftar perpindahan
-wallet — sehingga perpindahan yang PALING SERING terjadi justru tidak
-kelihatan di sana, dan yang menjumlahkan daftarnya mendapat angka yang tidak
-cocok dengan saldo. Barisnya **tidak bisa dihapus dari Brankas**: yang
-memegang setoran adalah Rekap Penjualan, dan menyalinnya ke `bk_state` berarti
-setoran yang dibatalkan di sana meninggalkan mutasi hantu di sini.
+**Setoran cash TIDAK didaftar di Riwayat Mutasi** (4 September 2026, permintaan
+user). Sempat ikut sejak 27 Agustus 2026 dengan alasan yang masih benar —
+uangnya memang berpindah wallet — tapi akibatnya halaman itu didominasi baris
+yang tidak diketik di sana dan tidak bisa disunting di sana, sehingga yang
+mencari satu mutasi manual harus menyisirnya. Setoran punya halaman yang jauh
+lebih lengkap: **Rekap Penjualan → Setoran Cash**, berikut tujuan, hari yang
+dicakup, dan siapa yang mencatatnya.
+
+**Yang TIDAK ikut berubah: saldonya.** `saldoSemua()` membaca `setoranSemua()`
+LANGSUNG, bukan lewat `mutasiSemua()` — jadi setoran tetap mengurangi brankas
+fisik dan menambah bank tujuannya. Kalau suatu hari ada yang "merapikan"
+`saldoSemua()` supaya membaca daftar mutasi, seluruh setoran cash hilang dari
+saldo **tanpa satu pun galat**. Karena itu jumlahnya tetap DISEBUT di halaman
+itu sebagai satu baris keterangan: yang menjumlahkan tabel lalu
+membandingkannya dengan kartu saldo akan menemukan selisih, dan selisih tanpa
+penjelasan adalah selisih yang dicari berjam-jam di tempat yang salah.
+
+**SETORAN BOLEH SEBAGIAN** (4 September 2026, permintaan user: "semisalnya mau
+dirubah setorannya ternyata tidak semuanya"). Mencentang sebuah hari di Rekap
+Penjualan → Setoran Cash mengisi kotak nominal dengan **sisa** hari itu, dan
+nominalnya boleh disunting. Nominal per hari disimpan di `rekap_setoran[].jumlah`
+`{tgl: nominal}`.
+
+- **Baris LAMA tidak punya `jumlah`, dan itu berarti setoran PENUH** — itulah
+  satu-satunya bentuk yang mungkin sebelum tanggal itu. Dianggap nol, seluruh
+  setoran yang sudah tercatat muncul lagi sebagai "belum disetor" dan
+  disetorkan untuk kedua kalinya.
+- **Hari yang baru disetor sebagian BELUM lunas.** `rkSetor()` memulangkan true
+  hanya kalau sisanya habis. Kalau ia menyala begitu harinya disebut satu baris
+  setoran, sisanya lenyap dari daftar "belum disetor" — uang yang masih di
+  brankas dan tidak disebut satu layar pun.
+- **`rkSetorSudah()` di `deploy/finance/kas/` adalah BERKAS KEMBAR
+  `kp_setor_masuk()` di `kompas-mysql`.** Layar dan server yang berbeda
+  pendapat tentang hari mana yang masih perlu disetor adalah selisih yang cuma
+  ketahuan waktu uangnya dihitung ulang di brankas.
+- **Server menjepit nominal ke SISA hari itu**, bukan ke cash-nya: dijepit ke
+  cash, setoran kedua untuk hari yang sudah sebagian bisa membawa jumlah penuh
+  lagi, dan total setoran jadi lebih besar daripada uang yang pernah ada di
+  laci. Gejalanya saldo brankas fisik yang minus, bukan galat.
+- **Layar MENOLAK nominal yang melampaui sisa**, tidak sekadar
+  memperingatkan — karena servernya menjepit. Layar yang meneruskannya membuat
+  nominal tersimpan berbeda dari yang diketik tanpa satu pun pesan. Kalau uang
+  yang benar-benar disetor memang lebih besar, yang salah **Cash Actual** hari
+  itu di Report Daily, dan layarnya mengatakan begitu.
+- **Nominal nol ditahan di dua tempat** — tombolnya dimatikan DAN
+  `rkCatatSetoran()` menolak sendiri. Yang pertama menyentuh DOM, dan sekali
+  saja ia tidak sempat jalan, tombolnya hidup dengan pilihan yang tidak sah.
+- **Mengetik nominal tidak menggambar ulang halaman** (`rkUbahNominal`), sama
+  alasannya dengan centangnya: render di modul ini TOTAL, jadi kotak yang
+  sedang diketik akan dibuat ulang dan hanya huruf pertama yang masuk.
+
+```bash
+node tools/uji-setoran-sebagian.js   # 38 pemeriksaan, jsdom (kas + brankas + php)
+```
 
 **Pengembalian modal menyebut wallet asalnya** (`returns[].dari`). Tanpa itu
 saldo rekening tetap utuh padahal uangnya sudah ditransfer ke investor. Baris
@@ -309,7 +355,7 @@ user "masuk langsung full akses dulu, tapi ada kelola akses per role".
 Ujinya:
 
 ```bash
-node tools/uji-brankas.js    # 109 pemeriksaan, jsdom + finance/kompas/account tiruan
+node tools/uji-brankas.js    # 106 pemeriksaan, jsdom + finance/kompas/account tiruan
                              # (84 pemeriksaan lembar pembayaran pindah ke uji-bayar-kas.js)
 ```
 

@@ -1702,6 +1702,30 @@ function rkSetoranSemua(){ return (DB&&Array.isArray(DB.rekap_setoran))?DB.rekap
 function rkSetoranHari(tgl){
   return rkSetoranSemua().find(s=>s&&Array.isArray(s.hari)&&s.hari.indexOf(tgl)>-1)||null;
 }
+function rkSetoranHariSemua(tgl){
+  return rkSetoranSemua().filter(s=>s&&Array.isArray(s.hari)&&s.hari.indexOf(tgl)>-1);
+}
+/* SETORAN SEBAGIAN (4 September 2026, permintaan user: "semisalnya mau dirubah
+   setorannya ternyata tidak semuanya"). Sebuah setoran boleh membawa nominal
+   yang lebih kecil daripada cash hari itu, disimpan per hari di `s.jumlah`.
+
+   BARIS LAMA TIDAK PUNYA `jumlah`, dan itu berarti SELURUH cash hari itu —
+   begitulah satu-satunya bentuk yang mungkin sebelum hari ini. Dianggap nol,
+   seluruh setoran yang sudah tercatat akan mendadak muncul lagi sebagai "belum
+   disetor", dan orang akan menyetorkannya untuk kedua kalinya. */
+function rkSetorSudah(tgl){
+  let n=0;
+  rkSetoranHariSemua(tgl).forEach(s=>{
+    const j=s&&s.jumlah;
+    if(j&&j[tgl]!==undefined&&j[tgl]!==null&&j[tgl]!=='') n+=num(j[tgl]);
+    else n+=rkCash(tgl);      // baris lama = setoran penuh
+  });
+  return n;
+}
+/* Sisa yang masih di brankas fisik. Dijepit di nol: setoran yang nominalnya
+   sengaja dilebihkan (mis. dibulatkan) tidak boleh membuat sisa hari itu
+   NEGATIF lalu mengurangi angka "belum disetor" hari-hari lain. */
+function rkSisaSetor(tgl){ return Math.max(0, rkCash(tgl)-rkSetorSudah(tgl)); }
 function rkCash(tgl){ return rkPay(rkRec(tgl),'cash','actual'); }
 /* Hari yang cash-nya belum disetor — SELURUH riwayat, bukan hanya bulan yang
    sedang dilihat. Cash yang tertinggal dari bulan lalu justru yang paling
@@ -1711,7 +1735,7 @@ function rkBelumSetor(){
   Object.keys((DB&&DB.reports)||{}).forEach(t=>{
     if(!/^\d{4}-\d{2}-\d{2}$/.test(t)) return;
     const c=rkCash(t);
-    if(c>0 && !rkSetor(t)) out.push({tgl:t,cash:c});
+    if(c>0 && !rkSetor(t)) out.push({tgl:t,cash:c,sudah:rkSetorSudah(t),sisa:rkSisaSetor(t)});
   });
   return out.sort((a,b)=>a.tgl<b.tgl?-1:1);
 }
@@ -1823,7 +1847,11 @@ function rkSetor(tgl){
      cerminan yang dipelihara server, plus penanda lama dari sebelum riwayat
      ini ada. Diperiksa dua-duanya — hari yang ditandai sebelum 12 Agustus 2026
      tidak punya baris riwayat dan tidak boleh mendadak jadi "belum setor". */
-  if(rkSetoranHari(tgl)) return true;
+  /* Tercakup setoran TAPI masih bersisa = BELUM selesai. Kalau di sini
+     dipulangkan true begitu ada satu baris yang menyebut harinya, setoran
+     sebagian membuat sisanya lenyap dari daftar "belum disetor" — uang yang
+     masih di brankas dan tidak ada satu pun layar yang menyebutnya lagi. */
+  if(rkSetoranHari(tgl)) return rkSisaSetor(tgl)<1;
   const r=rkRec(tgl); return !!(r&&r.setor);
 }
 function rkTanda(tgl,grup){
@@ -2132,14 +2160,31 @@ function rkIsiHari(tgl){ RK_TGL=tgl; RK_TAB='input'; RK_PESAN=''; render(); }
    disetor. Sekarang: pilih beberapa hari sekaligus → totalnya dihitung → catat
    satu setoran dengan tanggal & tujuan → riwayatnya tersimpan dan bisa dibuka
    lagi. */
-let RK_PILIH={};                  // {tgl:true} — hari yang dicentang, belum dicatat
+/* {tgl: nominal} — hari yang dicentang BESERTA berapa yang benar-benar dibawa
+   ke bank. Nilainya BUKAN boolean lagi (4 September 2026): centangnya mengisi
+   sisa hari itu sebagai bawaan, lalu boleh disunting kalau ternyata yang
+   dibawa cuma sebagian. Kehadiran kuncinya yang menandai tercentang, bukan
+   nilainya — nominal nol tetap "tercentang", supaya kotak yang sedang
+   dikosongkan untuk diketik ulang tidak melepas centangnya sendiri. */
+let RK_PILIH={};
 let RK_TGL_SETOR=todayISO();
 let RK_TUJUAN='';
 let RK_CATATAN='';
-function rkTotalPilih(){
-  return Object.keys(RK_PILIH).filter(t=>RK_PILIH[t]).reduce((s,t)=>s+rkCash(t),0);
-}
-function rkNPilih(){ return Object.keys(RK_PILIH).filter(t=>RK_PILIH[t]).length; }
+function rkHariPilih(){ return Object.keys(RK_PILIH); }
+function rkTotalPilih(){ return rkHariPilih().reduce((s,t)=>s+num(RK_PILIH[t]),0); }
+function rkNPilih(){ return rkHariPilih().length; }
+/* Hari tercentang yang nominalnya nol atau kosong. Tidak dibuang diam-diam:
+   baris setoran bernilai nol tidak berarti apa-apa, dan harinya akan tetap
+   "belum disetor" — jadi yang mencentangnya harus tahu sebelum menekan
+   simpan, bukan sesudah mencari ke mana harinya pergi. */
+function rkPilihNol(){ return rkHariPilih().filter(t=>num(RK_PILIH[t])<1).sort(); }
+/* Yang nominalnya MELAMPAUI sisa hari itu. DITOLAK, bukan diperingatkan:
+   server menjepitnya ke sisa (kp_setor_masuk di kompas-mysql), jadi layar
+   yang meneruskannya membuat nominal tersimpan berbeda dari yang diketik
+   tanpa satu pun pesan. Kalau uang yang benar-benar disetor memang lebih
+   besar, yang salah bukan setorannya melainkan Cash Actual hari itu — dan
+   itu dibetulkan di Report Daily, bukan disembunyikan di sini. */
+function rkPilihLebih(){ return rkHariPilih().filter(t=>num(RK_PILIH[t])>rkSisaSetor(t)+0.5).sort(); }
 /* Tujuan yang pernah dipakai, jadi saran ketik. Daftar bank dipasang sebagai
    bawaan supaya setoran pertama pun tidak perlu mengetik dari nol. */
 function rkDaftarTujuan(){
@@ -2166,25 +2211,37 @@ function rkHalSetoran(belum){
   }else{
     html+=`<div class="tbl-wrap"><table><thead><tr>
         <th style="width:36px"><input type="checkbox" onchange="rkPilihSemua(this.checked)" title="Pilih semua" style="accent-color:var(--gold);cursor:pointer"></th>
-        <th>Tanggal</th><th class="num">Cash Actual</th><th>Umur</th>
+        <th>Tanggal</th><th class="num">Cash Actual</th><th class="num">Sisa Belum Setor</th>
+        <th class="num" style="width:150px">Yang Disetor</th><th>Umur</th>
       </tr></thead><tbody>`;
     const kini=new Date(todayISO()+'T00:00:00');
     belum.forEach(b=>{
       const umur=Math.round((kini-new Date(b.tgl+'T00:00:00'))/86400000);
+      const on=RK_PILIH[b.tgl]!==undefined;
       html+=`<tr>
-        <td><input type="checkbox" data-pilih="${b.tgl}" ${RK_PILIH[b.tgl]?'checked':''} onchange="rkPilihHari('${b.tgl}',this.checked)" style="accent-color:var(--gold);cursor:pointer"></td>
-        <td><b>${esc(dateLabel(b.tgl))}</b></td>
+        <td><input type="checkbox" data-pilih="${b.tgl}" ${on?'checked':''} onchange="rkPilihHari('${b.tgl}',this.checked)" style="accent-color:var(--gold);cursor:pointer"></td>
+        <td><b>${esc(dateLabel(b.tgl))}</b>${b.sudah>0?`<div style="font-size:11.5px;color:var(--muted)">${fmtRp(b.sudah)} sudah disetor sebelumnya</div>`:''}</td>
         <td class="num mono">${fmtRp(b.cash)}</td>
+        <td class="num mono"><b>${fmtRp(b.sisa)}</b></td>
+        ${/* Kotaknya SELALU digambar, cuma dimatikan saat belum dicentang —
+             kalau ia baru muncul begitu dicentang, lebar kolom tabel bergeser
+             tiap satu centang dan barisnya melompat di bawah kursor. */''}
+        <td class="num"><input class="mono" data-nom="${b.tgl}" inputmode="numeric" style="text-align:right;width:100%"
+          value="${on?fmtRp(num(RK_PILIH[b.tgl])):''}" placeholder="${fmtRp(b.sisa)}"
+          ${on?'':'disabled'} oninput="rkUbahNominal('${b.tgl}',this)"></td>
         <td>${umur<=1?'<span class="chip mute">baru</span>':umur<=3?`<span class="chip warn">${umur} hari</span>`:`<span class="chip bad">${umur} hari</span>`}</td>
       </tr>`;
     });
-    html+=`</tbody></table></div>`;
+    html+=`</tbody></table></div>
+      <div class="card-sub" style="margin:10px 0 0">Mencentang mengisi kotak <b>Yang Disetor</b> dengan sisa hari itu.
+      Ubah kalau yang dibawa ke bank ternyata cuma sebagian — <b>sisanya tetap berdiri di daftar ini</b> sampai benar-benar disetor,
+      jadi tidak ada cash yang hilang dari pantauan.</div>`;
   }
   html+=`</div>`;
 
   html+=`<div class="card">
     <h3>Catat Setoran</h3>
-    <div class="card-sub">Nominalnya tidak diketik — dihitung server dari cash hari-hari yang dicentang, supaya angka tersimpan tidak pernah beda dari jumlah harinya.</div>
+    <div class="card-sub">Nominal per hari diambil dari kotak <b>Yang Disetor</b> di tabel atas; yang tidak disunting memakai sisa hari itu, dihitung ulang server dari Report Daily supaya tidak pernah beda dari cash-nya.</div>
     <div class="row-in" style="margin-bottom:0">
       <div class="field"><label for="rkStTgl">Tanggal setor</label>
         <input type="date" id="rkStTgl" value="${RK_TGL_SETOR}" onchange="RK_TGL_SETOR=this.value"></div>
@@ -2194,12 +2251,13 @@ function rkHalSetoran(belum){
       <div class="field"><label for="rkStCatatan">Catatan (opsional)</label>
         <input id="rkStCatatan" value="${esc(RK_CATATAN)}" placeholder="mis. disetor Pak Budi" oninput="RK_CATATAN=this.value"></div>
     </div>
+    <div id="rk-st-warn" style="margin-top:10px">${rkPeringatanPilih()}</div>
     <div class="balance-bar" style="margin-top:6px">
       <div class="bnums">
         <div class="bi">Hari dipilih<b id="rk-st-n2">${n}</b></div>
         <div class="bi">Total disetor<b id="rk-st-total2">${fmtRp(total)}</b></div>
       </div>
-      <button class="btn btn-primary" id="rk-st-simpan" onclick="rkCatatSetoran()"${(n&&!RK_JALAN)?'':' disabled'}>🏦 Catat Setoran</button>
+      <button class="btn btn-primary" id="rk-st-simpan" onclick="rkCatatSetoran()"${(n&&!rkPilihNol().length&&!rkPilihLebih().length&&!RK_JALAN)?'':' disabled'}>🏦 Catat Setoran</button>
     </div>
   </div>`;
 
@@ -2220,7 +2278,14 @@ function rkHalSetoran(belum){
         <td><b>${esc(dateLabel(s.tgl))}</b>${s.catatan?`<div style="font-size:11.5px;color:var(--muted)">${esc(s.catatan)}</div>`:''}</td>
         <td>${s.tujuan?esc(s.tujuan):'<span style="color:var(--muted-2)">—</span>'}</td>
         <td class="num mono"><b>${fmtRp(s.nominal)}</b></td>
-        <td><div style="display:flex;gap:5px;flex-wrap:wrap">${hari.map(h=>`<span class="chip mute">${esc(rkLabelHari(h))}</span>`).join('')}</div></td>
+        ${/* Tiap hari menyebut nominalnya kalau setoran ini memang sebagian.
+             Tanpa itu, riwayat cuma menulis satu total dan tidak ada cara tahu
+             hari mana yang sudah lunas dan mana yang belum. */''}
+        <td><div style="display:flex;gap:5px;flex-wrap:wrap">${hari.map(h=>{
+          const j=s.jumlah&&s.jumlah[h]!==undefined?num(s.jumlah[h]):null;
+          const penuh=j===null||j>=rkCash(h)-0.5;
+          return `<span class="chip ${penuh?'mute':'warn'}" title="${penuh?'setoran penuh':'sebagian dari '+fmtRp(rkCash(h))}">${esc(rkLabelHari(h))}${penuh?'':' · '+fmtRp(j)}</span>`;
+        }).join('')}</div></td>
         <td style="font-size:12px;color:var(--muted)">${esc(s.by||'—')}</td>
         <td><button class="btn btn-danger btn-xs" onclick="rkHapusSetoran('${esc(s.id)}')" title="Batalkan setoran ini">✕</button></td>
       </tr>`;
@@ -2234,31 +2299,80 @@ function rkHalSetoran(belum){
    baris dan menggambar ulang akan menggulirkannya balik ke atas tiap satu
    centang. Yang diperbarui cuma dua angka dan satu tombol. */
 function rkPilihHari(tgl,on){
-  if(on) RK_PILIH[tgl]=true; else delete RK_PILIH[tgl];
+  /* Dicentang = seluruh SISA hari itu, bukan seluruh cash-nya: hari yang sudah
+     disetor sebagian akan disetor dua kali kalau bawaannya cash penuh. */
+  if(on) RK_PILIH[tgl]=rkSisaSetor(tgl); else delete RK_PILIH[tgl];
+  const inp=document.querySelector('input[data-nom="'+tgl+'"]');
+  if(inp){ inp.disabled=!on; inp.value=on?fmtRp(num(RK_PILIH[tgl])):''; }
   rkSegarPilih();
 }
 function rkPilihSemua(on){
   RK_PILIH={};
-  if(on) rkBelumSetor().forEach(b=>{ RK_PILIH[b.tgl]=true; });
-  document.querySelectorAll('input[data-pilih]').forEach(c=>{ c.checked=!!RK_PILIH[c.dataset.pilih]; });
+  if(on) rkBelumSetor().forEach(b=>{ RK_PILIH[b.tgl]=b.sisa; });
+  document.querySelectorAll('input[data-pilih]').forEach(c=>{ c.checked=RK_PILIH[c.dataset.pilih]!==undefined; });
+  document.querySelectorAll('input[data-nom]').forEach(i=>{
+    const t=i.dataset.nom, ada=RK_PILIH[t]!==undefined;
+    i.disabled=!ada; i.value=ada?fmtRp(num(RK_PILIH[t])):'';
+  });
+  rkSegarPilih();
+}
+/* Mengetik nominal TIDAK menggambar ulang halaman, alasan yang sama dengan
+   centangnya: daftarnya bisa puluhan baris, dan render total di modul ini akan
+   membuat ulang kotak yang sedang diketik sehingga hanya huruf pertama yang
+   masuk. Yang diperbarui cuma dua angka dan satu tombol. */
+function rkUbahNominal(tgl,el){
+  if(RK_PILIH[tgl]===undefined) return;      // kotaknya mati, tidak mungkin — tapi jangan menghidupkan centang dari sini
+  ketikRp(el);
+  RK_PILIH[tgl]=num(el.value);
   rkSegarPilih();
 }
 function rkSegarPilih(){
-  const n=rkNPilih(), t=fmtRp(rkTotalPilih());
+  const n=rkNPilih(), t=fmtRp(rkTotalPilih()), nol=rkPilihNol();
   ['rk-st-n','rk-st-n2'].forEach(id=>{ const e=document.getElementById(id); if(e) e.textContent=n; });
   ['rk-st-total','rk-st-total2'].forEach(id=>{ const e=document.getElementById(id); if(e) e.textContent=t; });
-  const b=document.getElementById('rk-st-simpan'); if(b) b.disabled=(n===0||RK_JALAN);
+  /* Peringatannya disegarkan di sini juga, bukan cuma digambar sekali: kotak
+     yang dikosongkan sesudah halaman tergambar tidak akan pernah menyalakan
+     peringatan apa pun kalau ia cuma ditulis saat render. */
+  const w=document.getElementById('rk-st-warn');
+  if(w) w.innerHTML=rkPeringatanPilih();
+  const b=document.getElementById('rk-st-simpan');
+  if(b) b.disabled=(n===0||nol.length>0||rkPilihLebih().length>0||RK_JALAN);
 }
 function rkCatatSetoran(){
-  const hari=Object.keys(RK_PILIH).filter(t=>RK_PILIH[t]).sort();
+  const hari=rkHariPilih().sort();
   if(!hari.length||RK_JALAN) return;
+  /* Dijaga DI SINI juga, bukan cuma lewat tombol yang dimatikan: rkSegarPilih()
+     menyentuh DOM, dan sekali saja ia tidak sempat jalan (halaman digambar
+     ulang oleh hal lain), tombolnya hidup dengan pilihan yang tidak sah. */
+  const nol=rkPilihNol(), lebih=rkPilihLebih();
+  if(nol.length||lebih.length){
+    RK_PESAN='<div class="notice bad">✕ Setorannya belum bisa dicatat.</div>'+rkPeringatanPilih();
+    render(); return;
+  }
   if(!String(RK_TUJUAN||'').trim()){
     RK_PESAN='<div class="notice bad">✕ Isi dulu <b>disetor ke mana</b>. Riwayat setoran tanpa tujuan tidak bisa dipakai mencocokkan mutasi rekening — dan itu satu-satunya gunanya.</div>';
     render(); return;
   }
-  rkKirim({setoran:{tambah:[{tgl:RK_TGL_SETOR,tujuan:RK_TUJUAN,catatan:RK_CATATAN,hari:hari}]}},()=>{
+  /* `jumlah` dikirim per hari. Server tetap yang memutuskan: hari yang tidak
+     disebut di sana dihitung ulang dari cash-nya, jadi bentuk lama (tanpa
+     jumlah) tetap sah dan angka yang dikarang dari console tetap dibatasi. */
+  const jumlah={}; hari.forEach(t=>{ jumlah[t]=num(RK_PILIH[t]); });
+  rkKirim({setoran:{tambah:[{tgl:RK_TGL_SETOR,tujuan:RK_TUJUAN,catatan:RK_CATATAN,hari:hari,jumlah:jumlah}]}},()=>{
     RK_PILIH={}; RK_TUJUAN=''; RK_CATATAN='';
   });
+}
+/* Dipakai dua kali — saat halaman digambar dan tiap kali nominal disunting —
+   jadi ia satu fungsi. Dua salinan akan menyimpang, dan yang menyimpang di
+   sini adalah peringatan yang berhenti muncul. */
+function rkPeringatanPilih(){
+  const nol=rkPilihNol(), lebih=rkPilihLebih(); let s='';
+  if(nol.length) s+='<div class="notice bad" style="margin:0 0 8px">⚠ <b>'+nol.length+' hari dicentang tapi nominalnya nol</b> ('
+    +nol.map(x=>esc(rkLabelHari(x))).join(', ')+'). Isi nominalnya, atau lepas centangnya — baris setoran nol tidak menyetor apa pun.</div>';
+  if(lebih.length) s+='<div class="notice bad" style="margin:0 0 8px">⚠ <b>'+lebih.length+' hari nominalnya melampaui sisa yang tercatat</b> ('
+    +lebih.map(x=>esc(rkLabelHari(x))+' — sisa '+fmtRp(rkSisaSetor(x))).join(', ')+'). '
+    +'Kalau yang benar-benar disetor memang sebesar itu, yang perlu dibetulkan <b>Cash Actual</b> hari itu di Report Daily — '
+    +'bukan setorannya, kalau tidak jumlah setoran jadi lebih besar daripada uang yang pernah masuk laci.</div>';
+  return s;
 }
 function rkHapusSetoran(id){
   const s=rkSetoranSemua().find(x=>String(x.id)===String(id));
@@ -2317,9 +2431,13 @@ function rkHalInput(){
      tempat untuk menandai hal yang sama akan saling menimpa — yang satu tahu
      ke mana uangnya disetor, yang satu lagi tidak. */
   const st=rkSetoranHari(RK_TGL);
+  const stSisa=rkSisaSetor(RK_TGL);
   html+=`<div class="card">
     <h3>Setoran Cash</h3>
-    ${st
+    ${(st&&stSisa>=1)
+      ? `<div class="notice warn" style="margin-bottom:12px">⚠ <b>Baru sebagian yang disetor.</b> Dari ${fmtRp(rkCash(RK_TGL))} cash ${esc(dateLabel(RK_TGL))}, ${fmtRp(rkSetorSudah(RK_TGL))} sudah masuk bank — <b>${fmtRp(stSisa)} masih di brankas</b> dan harinya tetap berdiri di daftar belum disetor.</div>
+         <button class="btn btn-ghost" onclick="rkGantiTab('setoran')">🏦 Buka Setoran Cash</button>`
+      : st
       ? `<div class="notice ok" style="margin-bottom:0">✓ Cash ${esc(dateLabel(RK_TGL))} (${fmtRp(rkCash(RK_TGL))}) sudah disetor pada <b>${esc(dateLabel(st.tgl))}</b> ke <b>${esc(st.tujuan||'—')}</b>, bersama ${(st.hari||[]).length-1} hari lain. Rinciannya di sub-tab <b>Setoran Cash</b>.</div>`
       : rkSetor(RK_TGL)
         ? `<div class="notice ok" style="margin-bottom:0">✓ Hari ini sudah ditandai disetor (penanda lama, tanpa rincian tujuan).</div>`

@@ -1290,7 +1290,7 @@ function bonSemua() {  }
 function bonBelum() { bonSemua(); }
 
 
-function vPending() { bonBelum(); hariKe(); kartu(); fmtTgl(); bonSemua(); baris(); }
+function vPending() { bonBelum(); hariKe(); kartu(); fmtTgl(); bonSemua(); baris(); saldoSemua(); setoranSemua(); mutasiSemua(); }
 
 
 
@@ -1376,7 +1376,6 @@ function vPending() { bonBelum(); hariKe(); kartu(); fmtTgl(); bonSemua(); baris
 
 
 
-function mutasiSetoran() { setoranSemua(); bankDariTujuan(); }
 
 
 
@@ -1388,7 +1387,6 @@ function mutasiSetoran() { setoranSemua(); bankDariTujuan(); }
 
 
 
-function mutasiSemua() { mutasiSetoran(); }
 
 
 
@@ -1397,14 +1395,22 @@ function mutasiSemua() { mutasiSetoran(); }
 
 
 
+function setoranRingkas() { setoranSemua(); }
 
-function vMutasi() { saldoSemua(); mutasiSemua(); SEMUA_WADAH(); kartu(); fld(); muUbahJenis(); todayISO(); ketikRp(); muSimpan(); fmtTgl(); hapusBaris(); }
 
 
 
+function mutasiSemua() {  }
 
 
 
+
+
+
+
+
+
+function vMutasi() { saldoSemua(); mutasiSemua(); setoranRingkas(); SEMUA_WADAH(); kartu(); fld(); muUbahJenis(); todayISO(); ketikRp(); muSimpan(); fmtTgl(); hapusBaris(); }
 
 
 

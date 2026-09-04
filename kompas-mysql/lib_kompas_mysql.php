@@ -330,6 +330,39 @@ function simpan_target($data) {
    Daily Report di panel Input Omset Harian; kalau panel ini boleh menyentuhnya,
    dua layar akan menulis satu angka yang sama dan yang belakangan menang tanpa
    ada yang tahu. Panel rekap cuma menandai dan menghitung. */
+/* Cash actual satu hari. Satu pembaca, dipakai penjepit nominal setoran dan
+   penghitung penanda `setor` — dua pembaca yang berbeda letak kuncinya akan
+   memulangkan nol untuk salah satunya, dan nol di sini berarti "hari itu tidak
+   punya cash" alias langsung dianggap lunas. */
+function kp_cash_hari($s, $h) {
+  return isset($s['reports'][$h]['pay']['cash']['actual'])
+           ? kp_num($s['reports'][$h]['pay']['cash']['actual']) : 0;
+}
+/* Berapa yang SUDAH disetor untuk satu hari, dijumlahkan dari seluruh baris
+   setoran. Baris LAMA tidak punya `jumlah` dan itu berarti setoran penuh —
+   begitulah satu-satunya bentuk yang mungkin sebelum 4 September 2026.
+   Dianggap nol, seluruh setoran yang sudah tercatat akan mendadak muncul lagi
+   sebagai "belum disetor" dan disetorkan untuk kedua kalinya.
+
+   BERKAS KEMBAR rkSetorSudah() di deploy/finance/kas/. Kalau aturannya berubah
+   di sini, di sana HARUS ikut: layar dan server yang berbeda pendapat tentang
+   hari mana yang masih perlu disetor adalah selisih yang cuma ketahuan waktu
+   uangnya dihitung ulang di brankas. */
+function kp_setor_masuk($s, $h) {
+  $h = (string)$h; $n = 0;
+  if (!isset($s['rekap_setoran']) || !is_array($s['rekap_setoran'])) return 0;
+  foreach ($s['rekap_setoran'] as $row) {
+    if (!isset($row['hari']) || !is_array($row['hari'])) continue;
+    if (!in_array($h, array_map('strval', $row['hari']), true)) continue;
+    if (isset($row['jumlah'][$h]) && $row['jumlah'][$h] !== '' && $row['jumlah'][$h] !== null) {
+      $n += kp_num($row['jumlah'][$h]);
+    } else {
+      $n += kp_cash_hari($s, $h);
+    }
+  }
+  return $n;
+}
+
 function simpan_rekap($data) {
   if (!is_array($data)) throw new Exception('Payload kosong/invalid');
   $baris = isset($data['hari']) && is_array($data['hari']) ? $data['hari'] : null;
@@ -527,17 +560,45 @@ function simpan_rekap($data) {
         }
         if (!count($hari)) throw new Exception('Setoran tanpa satu pun hari yang dicakup');
         sort($hari);
+        /* SETORAN SEBAGIAN (4 September 2026, permintaan user). `jumlah` boleh
+           menyebut nominal per hari — kasir kadang membawa sebagian saja.
+           Hari yang TIDAK disebut di sana tetap dihitung dari cash-nya, jadi
+           layar lama (yang tidak mengirim `jumlah` sama sekali) berperilaku
+           persis seperti sebelumnya.
+
+           Angka dari peramban tetap TIDAK dipercaya bulat-bulat: ia dijepit
+           ke SISA hari itu (lihat penjepitnya di bawah). Layar sudah menolak
+           nominal yang melampaui sisa, jadi jepitan di sini tidak akan
+           pernah menyala lewat pemakaian biasa — ia menahan panggilan yang
+           datang dari console peramban, dan itu memang satu-satunya
+           tugasnya. */
+        $jml = (isset($baru['jumlah']) && is_array($baru['jumlah'])) ? $baru['jumlah'] : array();
         $nominal = 0;
+        $perHari = array();
         foreach ($hari as $h) {
-          if (isset($s['reports'][$h]['pay']['cash']['actual'])) $nominal += kp_num($s['reports'][$h]['pay']['cash']['actual']);
+          $cash = kp_cash_hari($s, $h);
+          /* Dijepit ke SISA hari itu, bukan ke cash-nya. Dijepit ke cash,
+             setoran kedua untuk hari yang sudah disetor sebagian bisa membawa
+             jumlah penuh lagi — total yang disetor jadi lebih besar daripada
+             uang yang pernah ada di laci, dan gejalanya saldo brankas fisik
+             yang minus di panel Brankas, bukan galat. */
+          $sisa = $cash - kp_setor_masuk($s, $h);
+          if ($sisa < 0) $sisa = 0;
+          $n = (isset($jml[$h]) && $jml[$h] !== '' && $jml[$h] !== null) ? kp_num($jml[$h]) : $sisa;
+          if ($n < 0)     $n = 0;
+          if ($n > $sisa) $n = $sisa;
+          $perHari[$h] = $n;
+          $nominal += $n;
           $tersentuh[$h] = 1;
         }
+        if ($nominal <= 0) throw new Exception('Setoran bernilai nol — tidak ada uang yang berpindah');
         $s['rekap_setoran'][] = array(
           'id'      => 'st' . dechex((int)(microtime(true) * 1000)) . dechex(mt_rand(0, 0xffff)),
           'tgl'     => $tglSetor,
           'tujuan'  => mb_substr(trim((string)(isset($baru['tujuan']) ? $baru['tujuan'] : '')), 0, 80),
           'catatan' => mb_substr(trim((string)(isset($baru['catatan']) ? $baru['catatan'] : '')), 0, 200),
           'hari'    => $hari,
+          'jumlah'  => $perHari,
           'nominal' => $nominal,
           'by'      => isset($data['by']) ? (string)$data['by'] : '',
           'at'      => (int)(microtime(true) * 1000),
@@ -551,14 +612,22 @@ function simpan_rekap($data) {
        kecuali masih tercakup setoran lain — dan itu cuma bisa diketahui dengan
        melihat seluruh daftar. */
     if (count($tersentuh)) {
-      $tercakup = array();
-      foreach ($s['rekap_setoran'] as $row) {
-        if (!isset($row['hari']) || !is_array($row['hari'])) continue;
-        foreach ($row['hari'] as $h) $tercakup[(string)$h] = 1;
-      }
+      /* Yang dijumlahkan NOMINALNYA, bukan sekadar "harinya disebut". Sejak
+         setoran boleh sebagian, hari yang tercakup belum tentu lunas — dan
+         penanda yang menyala terlalu cepat membuat sisanya lenyap dari daftar
+         "belum disetor" di layar. Uang yang masih di brankas lalu tidak
+         disebut satu layar pun, dan tidak ada satu pun galat yang menandainya.
+
+         Baris LAMA tidak punya `jumlah` dan itu berarti setoran penuh — sama
+         dengan aturan rkSetorSudah() di deploy/finance/kas/. Kedua sisi harus
+         memakai aturan yang sama, kalau tidak layar dan server berbeda
+         pendapat tentang hari mana yang masih perlu disetor. */
       foreach (array_keys($tersentuh) as $h) {
         if (!isset($s['reports'][$h]) || !is_array($s['reports'][$h])) $s['reports'][$h] = array();
-        $s['reports'][$h]['setor'] = isset($tercakup[$h]);
+        /* Toleransi 1 rupiah: cash actual disimpan sebagai float, dan sisa
+           0,0001 yang tidak pernah bisa disetor siapa pun akan membuat harinya
+           berdiri di daftar "belum disetor" selamanya. */
+        $s['reports'][$h]['setor'] = (kp_cash_hari($s, $h) - kp_setor_masuk($s, $h)) < 1;
       }
     }
   }
