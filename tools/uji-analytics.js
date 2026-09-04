@@ -264,13 +264,93 @@ async function siap(w) {
         v.slice(Math.max(0, v.indexOf('Susu UHT') - 60), v.indexOf('Susu UHT') + 200));
     /* Base TIDAK boleh muncul sebagai bahan: ia diurai jadi isinya, dan
        menghitungnya dua kali membuat perkiraan lebih besar dari kenyataan. */
-    cek('base tidak ikut jadi baris bahan',
+    cek('base tidak ikut jadi baris bahan MENTAH',
         !/>Susu Aren( \([^)]*\))?</.test(v), 'Susu Aren muncul sebagai bahan');
     /* Menu tanpa resep DILAPORKAN. Tanpa itu perkiraan terlihat lengkap
        padahal sebagian menunya tidak pernah ikut dihitung. */
-    cek('menu tanpa resep dilaporkan', v.indexOf('belum punya resep') > -1);
+    cek('menu tanpa resep dilaporkan', v.indexOf('Menu yang belum ada di HPP') > -1);
     cek('menu tanpa resep disebut namanya', v.indexOf('Menu Tanpa Resep') > -1);
     cek('disebut berapa persen nilainya yang tidak terhitung', /% dari nilai penjualan menu/.test(v));
+    /* Barisnya ikut ditandai DI TABEL PENJUALAN, bukan cuma di kartu bawah:
+       yang melihat menu terlaris harus langsung tahu mana yang bahannya tidak
+       ikut terhitung, tanpa menggulir ke bawah dan mencocokkan nama. */
+    cek('...dan ditandai di baris penjualannya', v.indexOf('belum ada resep') > -1);
+
+    /* ===== 1. bahan prep dipisah dari bahan mentah (4 Sep 2026) ===== */
+    cek('ada saklar Bahan Mentah / Bahan Prep',
+        /Bahan Mentah \(\d+\)/.test(v) && /Bahan Prep \/ Base \(\d+\)/.test(v),
+        v.slice(v.indexOf('Perkiraan Bahan Baku'), v.indexOf('Perkiraan Bahan Baku') + 600));
+    /* Bawaannya MENTAH — itu yang dibandingkan dengan stok gudang, dan itu
+       pertanyaan yang lebih sering dibawa orang ke halaman ini. */
+    cek('bawaannya bahan mentah', w.eval('MN_BAHAN') === 'mentah');
+    cek('dikatakan kedua daftar tidak boleh dijumlahkan', /tidak boleh dijumlahkan/.test(v));
+    w.eval("mnBahan('prep')"); await tunggu(60);
+    const vp = d.getElementById('app-view').innerHTML;
+    /* 100 Kopi Susu x 1 Pcs Susu Aren = 100 Pcs base yang harus diproduksi.
+       Dicatat dalam satuan BARIS RESEPNYA (Pcs) — bukan satuan yield-nya,
+       karena itulah takaran yang benar-benar diambil dapur. */
+    cek('base muncul di daftar prep', vp.indexOf('Susu Aren (Pcs)') > -1,
+        vp.slice(vp.indexOf('Base / bahan prep'), vp.indexOf('Base / bahan prep') + 400));
+    cek('jumlah base dihitung benar (100 Pcs)',
+        vp.slice(vp.indexOf('Susu Aren (Pcs)'), vp.indexOf('Susu Aren (Pcs)') + 140).indexOf('>100<') > -1,
+        vp.slice(vp.indexOf('Susu Aren (Pcs)'), vp.indexOf('Susu Aren (Pcs)') + 160));
+    /* Bahan mentah TIDAK boleh ikut di daftar prep, dan sebaliknya: bahan
+       penyusun base sudah terurai di daftar mentah, jadi mencampurnya
+       menghitung barang yang sama dua kali. */
+    cek('bahan mentah tidak ikut di daftar prep',
+        vp.slice(vp.indexOf('Base / bahan prep')).indexOf('Biji Kopi') < 0);
+    w.eval("mnBahan('mentah')"); await tunggu(60);
+
+    /* ===== 2. top menu, ATAU seluruh menu ===== */
+    const v2 = d.getElementById('app-view').innerHTML;
+    cek('ada saklar urutan & jumlah baris',
+        /Menurut Nilai/.test(v2) && /Menurut Porsi/.test(v2) && /Seluruhnya \(3\)/.test(v2),
+        v2.slice(v2.indexOf('Penjualan Menu'), v2.indexOf('Penjualan Menu') + 700));
+    /* Urutan menurut porsi menjawab pertanyaan yang BERBEDA: menu murah yang
+       terjual ratusan porsi menghabiskan paling banyak bahan, sementara menu
+       mahal menyumbang paling banyak omset. */
+    w.eval("mnUrut('qty')"); await tunggu(60);
+    const vq = d.getElementById('app-view').innerHTML;
+    cek('urutan menurut porsi benar-benar berubah',
+        vq.indexOf('>Kopi Susu Aren<') < vq.indexOf('>Roti Bakar<') &&
+        vq.indexOf('>Roti Bakar<') < vq.indexOf('>Menu Tanpa Resep<'));
+    w.eval("mnUrut('nilai')"); await tunggu(60);
+
+    /* ===== rincian bahan PER PRODUK ===== */
+    w.eval("mnBuka('Kopi Susu Aren')"); await tunggu(60);
+    const vr = d.getElementById('app-view').innerHTML;
+    cek('rincian per produk memisahkan mentah & prep',
+        vr.indexOf('Bahan mentah') > -1 && vr.indexOf('Bahan prep / base') > -1,
+        vr.slice(vr.indexOf('porsi Kopi Susu Aren') - 200, vr.indexOf('porsi Kopi Susu Aren') + 400));
+    cek('rinciannya menyebut jumlah porsi yang dihitung', /100<\/b> porsi Kopi Susu Aren/.test(vr));
+    /* Menekan baris yang sedang terbuka harus MENUTUPNYA — kalau tidak,
+       satu-satunya cara menutupnya adalah membuka baris lain, dan yang membuka
+       baris terakhir terjebak dengan rincian yang tidak bisa dihilangkan. */
+    w.eval("mnBuka('Kopi Susu Aren')"); await tunggu(60);
+    cek('menekan baris yang terbuka menutupnya', w.eval('MN_BUKA') === '');
+    /* Menu tanpa resep: rinciannya MENGATAKAN sebabnya, bukan kosong. Kosong
+       terbaca sebagai "menu ini tidak butuh bahan apa-apa". */
+    w.eval("mnBuka('Menu Tanpa Resep')"); await tunggu(60);
+    const vt = d.getElementById('app-view').innerHTML;
+    cek('rincian menu tanpa resep menjelaskan sebabnya', /belum punya resep di HPP/.test(vt),
+        vt.slice(vt.indexOf('Menu Tanpa Resep'), vt.indexOf('Menu Tanpa Resep') + 400));
+
+    /* ===== 3. daftar menu tak dikenal sebagai TEKS yang bisa disalin ===== */
+    const ta = d.getElementById('mn-teks');
+    cek('daftar menu tak dikenal tersedia sebagai teks', !!ta, 'textarea mn-teks tidak ada');
+    cek('...satu baris per menu, dipisah TAB',
+        !!ta && ta.value.split('\n').length === 1 && ta.value.split('\t').length === 3,
+        ta && JSON.stringify(ta.value));
+    cek('...memuat nama, qty, dan nilainya',
+        !!ta && ta.value.indexOf('Menu Tanpa Resep') === 0 && ta.value.indexOf('\t5\t150000') > -1,
+        ta && JSON.stringify(ta.value));
+    /* readonly, BUKAN disabled: yang disabled tidak bisa diblok untuk disalin
+       manual, dan itu jalan keluar terakhir kalau izin clipboard ditolak. */
+    cek('teksnya readonly tapi tetap bisa diblok',
+        !!ta && ta.readOnly === true && ta.disabled === false);
+    cek('ada tombol salin & unduh',
+        vt.indexOf('mnSalin()') > -1 && vt.indexOf('mnUnduhTak()') > -1);
+    w.eval("mnBuka('Menu Tanpa Resep')"); await tunggu(60);
     dom.window.close();
   }
 
@@ -574,6 +654,75 @@ async function siap(w) {
     const v = d.getElementById('app-view').innerHTML;
     cek('HPP mati: menu terlaris tetap terbaca', v.indexOf('Kopi') > -1);
     cek('HPP mati: bahan baku dikatakan tidak bisa dihitung', v.indexOf('Resep dari modul HPP tidak terbaca') > -1);
+    dom.window.close();
+  }
+
+
+  /* ================= 8b. Top-N vs seluruh menu, dan dua urutan =============
+     25 menu supaya batas 20 baris punya arti, dan satu menu MURAH yang
+     terjual PALING BANYAK supaya urutan menurut porsi benar-benar berbeda
+     dari urutan menurut nilai. Tanpa keduanya, asersinya tidak menguji apa
+     pun — sudah terbukti sekali. */
+  console.log('\n== Penjualan menu: top-N & dua urutan ==');
+  {
+    const menu = { 'Air Mineral': { qty: 900, nilai: 4500000 } };   // murah, paling laku
+    for (let i = 1; i <= 24; i++) {
+      menu['Menu ' + String(i).padStart(2, '0')] = { qty: 30 - i, nilai: 20000000 - i * 100000 };
+    }
+    const an = { data: { laporan: { '2026-08': {
+      diunggah: '2026-08-28', oleh: 'Wandi', berkas: 'x.xlsx', jenis: 'menu',
+      hari: { '2026-08-01': { bill: 10, grand: 1000000 } },
+      jam: Array.from({ length: 24 }, () => ({ bill: 0, grand: 0 })),
+      menu,
+      ringkas: { bill: 10, grand: 1000000, net: 900000, svc: 0, tax: 0, sub: 900000,
+                 discMenu: 0, discBill: 0, discVoucher: 0, pax: 0, billPax: 0 }
+    } }, setting: {} }, akses: {}, peran: {} };
+    const { dom } = domAnalytics({ an, hpp: { bahan: [], resep: [] } });
+    await siap(dom.window);
+    const w = dom.window, d = dom.window.document;
+    w.go('menu'); await tunggu(60);
+
+    /* Dihitung HANYA di dalam kartu Penjualan Menu. Kartu "Menu yang belum ada
+       di HPP" di bawahnya memakai bentuk baris yang sama persis, jadi tanpa
+       dibatasi hitungannya jadi 20+25 — dan asersinya menguji hal lain. */
+    const baris = () => {
+      const v = d.getElementById('app-view').innerHTML;
+      const a0 = v.indexOf('Penjualan Menu'), a1 = v.indexOf('Perkiraan Bahan Baku');
+      return (v.slice(a0, a1 > a0 ? a1 : undefined).match(/<td><b>[^<]+<\/b>/g) || [])
+        .map(x => x.replace(/<[^>]*>/g, ''));
+    };
+
+    /* Bawaannya 20 teratas, dan yang TERSEMBUNYI disebut jumlah & nilainya —
+       daftar yang menyusut tanpa keterangan terbaca sebagai data yang hilang. */
+    cek('bawaannya 20 teratas, bukan seluruhnya', w.eval('MN_SEMUA') === false);
+    let v = d.getElementById('app-view').innerHTML;
+    cek('cuma 20 menu tergambar', baris().length === 20, String(baris().length));
+    cek('yang tersembunyi disebut jumlahnya', /5 menu senilai/.test(v),
+        v.slice(v.indexOf('teratas dari'), v.indexOf('teratas dari') + 200));
+
+    /* Seluruhnya: 25 baris. */
+    w.eval('mnSemua(true)'); await tunggu(60);
+    cek('Seluruhnya menggambar 25 baris', baris().length === 25, String(baris().length));
+    v = d.getElementById('app-view').innerHTML;
+    cek('...dan mengatakan semuanya sudah tampil', /Seluruh 25 menu ditampilkan/.test(v));
+
+    /* Air Mineral: PALING BANYAK porsinya (900), tapi nilainya paling KECIL.
+       Menurut nilai ia terakhir; menurut porsi ia pertama. Kalau saklarnya
+       tidak bekerja, kedua daftar ini akan sama. */
+    cek('menurut NILAI, menu murah ada di paling bawah',
+        baris()[24] === 'Air Mineral', baris().slice(-3).join(' | '));
+    w.eval("mnUrut('qty')"); await tunggu(60);
+    cek('menurut PORSI, menu murah naik ke paling atas',
+        baris()[0] === 'Air Mineral', baris().slice(0, 3).join(' | '));
+    /* Dan itu memang dua jawaban yang berbeda — kalau sama, saklarnya tidak
+       menjawab pertanyaan apa pun. */
+    cek('kedua urutan benar-benar berbeda', baris()[0] !== 'Menu 01' || false);
+
+    /* Seluruh menu di sini tidak punya resep — kartunya harus menyebut
+       semuanya, bukan memotongnya seperti chip yang lama. */
+    const ta = d.getElementById('mn-teks');
+    cek('teks salin memuat SELURUH menu tak dikenal, tidak dipotong',
+        !!ta && ta.value.split('\n').length === 25, ta && String(ta.value.split('\n').length));
     dom.window.close();
   }
 

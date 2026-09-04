@@ -474,11 +474,65 @@ laporan mana yang kurang**, bukan menggambar tabel kosong — tabel kosong
 terbaca sebagai "tidak ada yang terjual".
 
 **Perkiraan bahan baku = qty menu × resep HPP**, dan resepnya **bertingkat**
-(`uraiResep()`): resep boleh memakai resep lain, `yield_qty` dibagi, base tidak
-ikut jadi baris bahan. Kedalaman dibatasi 6 dan resep yang menunjuk dirinya
-sendiri DILAPORKAN. Menu yang namanya tidak ada di HPP **disebutkan berikut
-persentase nilainya** — tanpa itu perkiraan terlihat lengkap padahal separuh
-menunya tidak ikut dihitung, dan selisih di lapangan akan dikira barang hilang.
+(`uraiResep()`): resep boleh memakai resep lain dan `yield_qty` dibagi.
+Kedalaman dibatasi 6 dan resep yang menunjuk dirinya sendiri DILAPORKAN.
+
+**DUA DAFTAR, dan sengaja TIDAK dijumlahkan** (4 September 2026, permintaan
+user). `uraiResep()` mengisi dua wadah sekaligus:
+
+| | isinya | menjawab |
+|---|---|---|
+| **mentah** (`keluar`) | daun penguraian — yang benar-benar dibeli | berapa yang harus keluar gudang, buat dicocokkan stok fisik |
+| **prep** (`prep`) | base yang dilewati penguraian | berapa banyak base yang harus DIPRODUKSI dapur bulan itu |
+
+- **Menjumlahkannya menghitung barang yang sama dua kali**: bahan mentah yang
+  MENYUSUN sebuah base sudah ikut terurai di daftar mentah. Itu dikatakan di
+  layar, bukan cuma dijaga di kode — daftar yang tidak boleh dijumlahkan tanpa
+  penjelasan akan dijumlahkan orang.
+- **Base dicatat dalam satuan BARIS RESEPNYA** (mis. `Susu Aren (Pcs)`), bukan
+  satuan yield-nya: itulah takaran yang benar-benar diambil dapur, dan yield
+  sering berbeda satuan (yield 1000 Ml, dipakai per Ml).
+- **Bawaannya MENTAH.** Itu pertanyaan yang lebih sering dibawa orang ke
+  halaman ini, dan itu yang dibandingkan dengan stok gudang.
+- **Kosongnya dibedakan**: "tidak ada base yang dipakai" adalah jawaban yang
+  sah, "tidak ada bahan sama sekali" hampir selalu berarti resepnya belum
+  diisi. Dua keadaan itu tidak boleh berbunyi sama.
+
+**Rincian per produk** (`mnRincian`, klik satu baris menu) memakai
+`bahanSatuMenu()` yang MENGHITUNG ULANG untuk menu itu — total di bawahnya
+sudah dijumlahkan lintas menu dan tidak bisa dipecah balik. Menekan baris yang
+sedang terbuka **menutupnya**; kalau tidak, satu-satunya cara menutup rincian
+adalah membuka baris lain.
+
+**Daftar penjualan menu punya dua saklar**: urut menurut **Nilai** atau
+**Porsi**, dan **20 teratas** atau **Seluruhnya**. Keduanya menjawab pertanyaan
+yang berbeda — menu murah yang terjual ratusan porsi menghabiskan paling banyak
+bahan, sementara menu mahal menyumbang paling banyak omset, dan yang terlaris
+menurut salah satunya sering bukan yang terlaris menurut yang lain. Yang
+tersembunyi **disebut jumlah dan nilainya**; daftar yang menyusut tanpa
+keterangan terbaca sebagai data yang hilang.
+
+**Menu yang belum ada di HPP disajikan sebagai TEKS yang bisa disalin**
+(`mnTakDikenalHtml`, permintaan user). Sebelumnya cuma chip berwarna dan
+dipotong 12 — chip tidak bisa disalin, jadi yang mau menambahkan resepnya harus
+mengetik ulang puluhan nama sambil bolak-balik antar tab, dan satu huruf yang
+meleset membuat menunya tetap tidak cocok. Sekarang tabel lengkap + `<textarea>`
+satu-baris-per-menu dipisah TAB (nama · qty · nilai, bisa ditempel ke Excel) +
+tombol salin & unduh CSV.
+
+- **`readonly`, BUKAN `disabled`**: yang `disabled` tidak bisa diblok untuk
+  disalin manual, dan itu jalan keluar terakhir kalau izin clipboard ditolak
+  (`navigator.clipboard` butuh HTTPS dan bisa ditolak). Gagalnya **dikatakan**
+  berikut cara manualnya — tombol yang ditekan tanpa reaksi apa pun akan
+  ditekan berkali-kali.
+- **Tidak dipotong.** Daftar yang dipotong justru menyembunyikan menu yang
+  paling perlu ditambahkan.
+- Barisnya juga **ditandai di tabel penjualan** (`belum ada resep`): yang
+  melihat menu terlaris harus langsung tahu mana yang bahannya tidak ikut
+  terhitung, tanpa menggulir ke bawah dan mencocokkan nama.
+- Nilai totalnya tetap **disebut berikut persentasenya** — tanpa itu perkiraan
+  terlihat lengkap padahal separuh menunya tidak ikut dihitung, dan selisih di
+  lapangan akan dikira barang hilang.
 
 **PENGARUH EVENT & PENGARUH MARKETING adalah DUA HALAMAN, satu penggambar**
 (2 September 2026, permintaan user). Sebelumnya satu halaman yang mencampur
@@ -548,7 +602,7 @@ Berkas POS **jangan di-commit** (sudah di `.gitignore`): satu berkas memuat
 seluruh transaksi sebulan.
 
 ```bash
-node tools/uji-analytics.js   # 118 pemeriksaan
+node tools/uji-analytics.js   # 145 pemeriksaan
 ```
 
 Ujinya memakai **berkas POS asli** di root repo kalau ada (kalau tidak, bagian

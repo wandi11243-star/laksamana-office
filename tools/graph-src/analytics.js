@@ -1458,7 +1458,23 @@ function lbl() { diRentang(); kartu(); pct(); fmtTgl(); }
 
 
 
-function vMenu() { blnAktif(); lap(); pilihBulan(); kosongBelumAda(); kartu(); pct(); bahanBakuHtml(); }
+
+
+
+
+
+
+
+
+function mnUrut() { render(); }
+function mnSemua() { render(); }
+function mnBahan() { render(); }
+
+
+
+function mnBuka() { render(); }
+
+function vMenu() { blnAktif(); lap(); pilihBulan(); kosongBelumAda(); resepPeta(); kartu(); mnUrut(); mnSemua(); mnBuka(); pct(); mnRincian(); bahanBakuHtml(); mnTakDikenalHtml(); }
 
 
 
@@ -1507,6 +1523,144 @@ function vMenu() { blnAktif(); lap(); pilihBulan(); kosongBelumAda(); kartu(); p
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mnRincian() { bahanSatuMenu(); }
+
+
+
+
+
+
+
+function kol() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mnTakDikenalHtml() { pct(); mnSalin(); mnUnduhTak(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mnSalin() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mnUnduhTak() { blnAktif(); }
 
 
 
@@ -1533,6 +1687,22 @@ function resepPeta() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function uraiResep() {  }
 
 
@@ -1554,7 +1724,32 @@ function uraiResep() {  }
 
 
 
-function bahanBakuHtml() { resepPeta(); uraiResep(); pct(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function bahanSatuMenu() { uraiResep(); }
+
+
+
+
+
+function bahanBakuHtml() { resepPeta(); uraiResep(); mnBahan(); }
+
+
+
+
+
+
+
 
 
 
