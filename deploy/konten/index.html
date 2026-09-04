@@ -1500,6 +1500,58 @@ function contentCard(c){
 
 const VIEWS={};
 
+/* TUGAS SAYA DI DASHBOARD (4 September 2026, permintaan user: "kalau ada
+   deadline task yang overdue atau yang dekat bisa muncul di dashboard, tapi
+   my task saja sesuai yang login").
+
+   DIKUMPULKAN DARI TIGA SUMBER, bukan cuma konten: satu orang bisa memegang
+   konten (sebagai PIC), tugas produksi mandiri, DAN sub-tugas produksi di
+   dalam sebuah konten. Kartu yang cuma membaca `DB.content` akan menulis
+   "Bersih!" untuk orang yang besok pagi harus menyerahkan tiga video —
+   kesalahan yang paling mahal di layar yang justru dibuka untuk memastikan
+   tidak ada yang terlewat.
+
+   Yang TANPA deadline tetap ikut, ditaruh paling belakang (`sisa` null).
+   Membuangnya berarti tugas yang lupa diberi tenggat menghilang dari satu-
+   satunya layar yang menampilkannya. */
+const DEADLINE_DEKAT=3;   // hari; "dekat" menurut user
+function tugasSaya(){
+  const out=[];
+  filterByBrand(DB.content).forEach(c=>{
+    if(c.pic===SES&&!sudahArsip(c))
+      out.push({title:c.title||'(tanpa judul)',brand:c.brand,deadline:c.deadline,
+                meta:`${platformTags(c,2)} ${statusPill(c.status)}`,
+                buka:`COMS.openContent('${c.id}')`});
+    /* Sub-tugas produksi di dalam konten. PIC-nya mengikuti PIC kontennya —
+       modul ini memang tidak menyimpan PIC terpisah per sub-tugas. */
+    if(c.pic===SES&&c.prod) Object.keys(PROD_TYPES).forEach(k=>{
+      const t=c.prod[k]; if(!t||t.status==='done') return;
+      out.push({title:`${PROD_TYPES[k].emoji} ${PROD_TYPES[k].short}: ${c.title||'(tanpa judul)'}`,
+                brand:c.brand,deadline:t.date,
+                meta:`<span class="tag">${PROD_TYPES[k].label}</span>`,
+                buka:`COMS.openContent('${c.id}')`});
+    });
+  });
+  filterByBrand(DB.prodTasks).forEach(t=>{
+    if(t.pic!==SES||t.status==='done') return;
+    out.push({title:`${PROD_TYPES[t.kind]?PROD_TYPES[t.kind].emoji:''} ${t.title||'(tanpa judul)'}`,
+              brand:t.brand,deadline:t.date,
+              meta:`<span class="tag" style="font-size:9px">mandiri</span> ${esc((PROD_TYPES[t.kind]||{}).label||'')}`,
+              buka:`COMS.openTaskForm('${t.kind}','${t.id}')`});
+  });
+  out.forEach(x=>{ x.sisa=daysDiff(x.deadline); });
+  /* Urut: yang paling lewat tenggat di paling atas, yang tanpa tenggat paling
+     bawah. Tanpa urutan ini kartunya cuma potongan tujuh baris pertama menurut
+     urutan input data — dan yang terlambat bisa tidak pernah kelihatan. */
+  out.sort((a,b)=>{
+    if(a.sisa==null&&b.sisa==null) return 0;
+    if(a.sisa==null) return 1;
+    if(b.sisa==null) return -1;
+    return a.sisa-b.sisa;
+  });
+  return out;
+}
+
 /* ===== DASHBOARD ===== */
 VIEWS.dashboard=function(){
   autoUpdateStatuses(); // pastikan status iklan terkini
@@ -1510,6 +1562,9 @@ VIEWS.dashboard=function(){
   const overdue=cs.filter(c=>{const d=daysDiff(c.deadline);return d!=null&&d<0&&!['Posted','Cancelled'].includes(c.status);});
   const todayPub=cs.filter(c=>c.publishDate===todayISO());
   const myTasks=cs.filter(c=>c.pic===SES&&!['Posted','Cancelled'].includes(c.status));
+  const my=tugasSaya();
+  const myLewat=my.filter(x=>x.sisa!=null&&x.sisa<0);
+  const myDekat=my.filter(x=>x.sisa!=null&&x.sisa>=0&&x.sisa<=DEADLINE_DEKAT);
   const approvalPending=filterByBrand(cs).filter(c=>c.status==='Approval');
   const top=[...posted].sort((a,b)=>(b.metrics?.reach||0)-(a.metrics?.reach||0)).slice(0,5);
   // Jadwal hari ini (dari kalender: tayang, shoot, desain, edit, kunjungan)
@@ -1523,7 +1578,7 @@ VIEWS.dashboard=function(){
   <div class="grid g-4" style="margin-bottom:20px">
     ${st('Total Konten',num(cs.length),`${posted.length} tayang`,'flat')}
     ${st('Perlu Dikerjakan',num(pending.length),`${scheduled.length} terjadwal`,'flat')}
-    ${st('Terlambat',num(overdue.length),overdue.length?'Perlu perhatian':'Aman','',overdue.length?'down':'up')}
+    ${st('Terlambat',num(overdue.length),myLewat.length?`${myLewat.length} punya saya`:(overdue.length?'Perlu perhatian':'Aman'),'',overdue.length?'down':'up')}
     ${st('Tayang Hari Ini',num(todayPub.length),'','flat')}
   </div>
   <div class="grid g-2" style="margin-bottom:20px;align-items:start">
@@ -1549,12 +1604,20 @@ VIEWS.dashboard=function(){
   </div>
   <div class="grid g-2" style="align-items:start">
     <div class="card">
-      <div class="card-h"><h3>Tugas Saya</h3><span class="sub">${myTasks.length} aktif</span></div>
-      ${myTasks.length?`<div class="list-plain">${myTasks.slice(0,6).map(c=>{const od=daysDiff(c.deadline);const over=od!=null&&od<0;
-        return `<div class="li-row row-click" onclick="COMS.openContent('${c.id}')">${brandDot(c.brand)}
-          <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(c.title)}</div>
-          <div style="font-size:11px;color:var(--txt-3);margin-top:2px">${platformTags(c,2)} ${statusPill(c.status)}</div></div>
-          <span style="flex:0 0 auto;text-align:right">${deadlineHTML(c.deadline,false,{short:true,size:'11px'})}</span></div>`;}).join('')}</div>`
+      <div class="card-h"><h3>Tugas Saya</h3><span class="sub">${
+        /* Yang MENDESAK disebut duluan dan dipisah angkanya. "12 aktif" tidak
+           membedakan dua belas pekerjaan santai dari dua yang sudah lewat
+           tenggat — dan yang kedua itulah satu-satunya alasan kartu ini
+           dilihat pagi-pagi. */
+        myLewat.length?`<b style="color:var(--bad)">${myLewat.length} terlambat</b>`+(myDekat.length?` · ${myDekat.length} ≤${DEADLINE_DEKAT} hari`:'')
+        :myDekat.length?`${myDekat.length} jatuh tempo ≤${DEADLINE_DEKAT} hari`
+        :`${my.length} aktif`}</span></div>
+      ${my.length?`<div class="list-plain">${my.slice(0,7).map(x=>`
+        <div class="li-row row-click" onclick="${x.buka}">${brandDot(x.brand)}
+          <div style="flex:1;min-width:0"><div style="font-weight:600;font-size:13px">${esc(x.title)}</div>
+          <div style="font-size:11px;color:var(--txt-3);margin-top:2px">${x.meta}</div></div>
+          <span style="flex:0 0 auto;text-align:right">${deadlineHTML(x.deadline,false,{short:true,size:'11px'})}</span></div>`).join('')}</div>
+        ${my.length>7?`<div style="font-size:11px;color:var(--txt-3);margin-top:8px;text-align:center">+${my.length-7} tugas lain — buka Content Planning / antrian produksi</div>`:''}`
         :`<div class="empty" style="padding:30px"><div class="ei">🎉</div><h4>Bersih!</h4><p>Tidak ada tugas aktif untukmu.</p></div>`}
     </div>
     <div class="card">
@@ -2126,12 +2189,46 @@ function deleteContent(id){const c=getContent(id);if(!confirm('Hapus permanen "'
 function copyText(t){navigator.clipboard.writeText(t).then(()=>toast('Disalin ke clipboard','ok')).catch(()=>toast('Gagal menyalin','err'));}
 
 /* ===== PIPELINE ===== */
+/* TAPIS PIC DI PIPELINE (4 September 2026, permintaan user). Kanban ini
+   menampilkan SELURUH konten sekaligus; begitu isinya lewat seratus, kolom
+   Editing sendiri sudah lebih panjang dari layar dan tidak ada cara melihat
+   "punya siapa yang mana" selain membaca avatarnya satu per satu.
+
+   Jumlah per orang ditulis DI PILIHANNYA, bukan cuma namanya: yang membuka
+   tapis ini justru sedang mencari siapa yang menumpuk pekerjaan. */
+let pipeFilters={pic:''};
+function pipeF(v){pipeFilters.pic=v;route('pipeline');}
+/* Konten yang dipegang seseorang, TANPA yang sudah selesai — orang yang
+   pekerjaannya sudah tayang semua tidak sedang menumpuk apa pun. */
+function pipeMilik(pic){
+  return filterByBrand(DB.content).filter(c=>c.pic===pic&&c.status!=='Cancelled').length;
+}
+function pipeTersaring(){
+  const l=filterByBrand(DB.content);
+  if(!pipeFilters.pic) return l;
+  /* '__none__' bukan id siapa pun — dibandingkan langsung dengan c.pic, ia
+     tidak akan pernah cocok dan kanbannya kosong tanpa satu pun keterangan. */
+  if(pipeFilters.pic==='__none__') return l.filter(c=>!c.pic);
+  return l.filter(c=>c.pic===pipeFilters.pic);
+}
 VIEWS.pipeline=function(){
+  const dipakai=DB.users.filter(u=>pipeMilik(u.id)>0);
   return `${brandBar()}
-  <div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">Geser kartu antar kolom untuk update status - ${filterByBrand(DB.content).filter(c=>c.status!=='Cancelled').length} konten aktif</p></div>
-    ${can('content')?`<button class="btn btn-gold" onclick="COMS.openContentForm()">＋ Konten Baru</button>`:''}</div>
+  <div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">Geser kartu antar kolom untuk update status - ${pipeTersaring().filter(c=>c.status!=='Cancelled').length} konten aktif${pipeFilters.pic?' · '+esc(userName(pipeFilters.pic)):''}</p></div>
+    <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+      <select class="ctrl" style="max-width:230px" onchange="COMS.pipeF(this.value)">
+        <option value="" ${pipeFilters.pic===''?'selected':''}>Semua PIC (${filterByBrand(DB.content).filter(c=>c.status!=='Cancelled').length})</option>
+        ${SES&&pipeMilik(SES)?`<option value="${esc(SES)}" ${pipeFilters.pic===SES?'selected':''}>Punya saya (${pipeMilik(SES)})</option>`:''}
+        ${dipakai.map(u=>`<option value="${esc(u.id)}" ${pipeFilters.pic===u.id?'selected':''}>${esc(u.name)} (${pipeMilik(u.id)})</option>`).join('')}
+        ${/* Yang belum ada PIC-nya justru paling perlu ditemukan: tak seorang pun
+             merasa memilikinya, dan kartunya diam di kolomnya sampai ada yang
+             kebetulan melihatnya. */''}
+        ${filterByBrand(DB.content).filter(c=>!c.pic&&c.status!=='Cancelled').length?`<option value="__none__" ${pipeFilters.pic==='__none__'?'selected':''}>Belum ada PIC (${filterByBrand(DB.content).filter(c=>!c.pic&&c.status!=='Cancelled').length})</option>`:''}
+      </select>
+      ${can('content')?`<button class="btn btn-gold" onclick="COMS.openContentForm()">＋ Konten Baru</button>`:''}
+    </div></div>
   <div class="kanban" id="kanban">${PIPELINE.map(col=>{
-    const items=filterByBrand(DB.content).filter(c=>c.status===col);
+    const items=pipeTersaring().filter(c=>c.status===col);
     return `<div class="kcol" data-col="${col}" ondragover="COMS.kDragOver(event)" ondragleave="COMS.kDragLeave(event)" ondrop="COMS.kDrop(event,'${col}')">
       <div class="kcol-h"><span class="kdot" style="background:${STATUS[col].c}"></span><span class="kt">${col}</span><span class="kc">${items.length}</span></div>
       <div class="kcol-body">${items.map(c=>contentCard(c)).join('')||'<div style="text-align:center;color:var(--txt-3);font-size:11px;padding:16px">-</div>'}</div>
@@ -2492,8 +2589,12 @@ const queueState={
   design:Object.assign({},QUEUE_BAWAAN),
   edit:Object.assign({},QUEUE_BAWAAN)
 };
-function queueF(kind,key,val){queueState[kind][key]=val;route(currentView);}
-function queueSort(kind,col){const st=queueState[kind];if(st.sort===col){st.dir=-st.dir;}else{st.sort=col;st.dir=1;}route(currentView);}
+/* renderQueueTable(), BUKAN route(): route() menggambar ulang seluruh halaman
+   termasuk kotak carinya sendiri, dan kotak yang dibuat ulang kehilangan fokus
+   — hanya huruf pertama yang masuk. Itulah "typing-nya error" yang dilaporkan
+   4 September 2026. */
+function queueF(kind,key,val){queueState[kind][key]=val;renderQueueTable(kind);}
+function queueSort(kind,col){const st=queueState[kind];if(st.sort===col){st.dir=-st.dir;}else{st.sort=col;st.dir=1;}renderQueueTable(kind);}
 /* Reset mengembalikan ke BAWAAN yang sama, bukan ke "semua": kalau tidak,
    menekan Reset justru memunculkan kembali seluruh arsip — kebalikan dari yang
    diharapkan orang yang menekannya. */
@@ -2714,9 +2815,26 @@ function reqMktSelesai(id){
     });
 }
 function reqMktUlang(){ REQ_MKT={st:'idle',rows:[],galat:''}; muatReqMkt(); route(currentView); }
-function prodQueue(kind,title,roleNote){
-  const p=PROD_TYPES[kind];const t=tint(p.color);const st=queueState[kind];
-  if(kind==='design'||kind==='edit') muatReqMkt();
+/* ANTRIAN PRODUKSI — KERANGKA & TABEL DIPISAH (4 September 2026).
+
+   Sebelumnya queueF() memanggil route(), yang menggambar ULANG SELURUH
+   halaman pada tiap ketukan — termasuk kotak carinya sendiri. Elemen input
+   yang dibuat ulang kehilangan fokus, jadi hanya HURUF PERTAMA yang masuk dan
+   sisanya jatuh entah ke mana. Dilaporkan user 4 September 2026 sebagai
+   "typing-nya error" di Shooting, Design, dan Editing.
+
+   Halaman Content Planning tidak pernah kena karena ia memang sudah
+   memisahkan keduanya (planF -> renderPlanTable). Bentuk di sini disamakan
+   dengannya, bukan ditambal dengan menyimpan-dan-mengembalikan posisi kursor:
+   yang menggambar ulang kotak yang sedang diketik akan selalu punya masalah
+   berikutnya (teks terpilih, komposisi IME, autocomplete).
+
+   prodRows() memisahkan DATA dari tampilan supaya kerangka & tabel tidak
+   menghitungnya dua kali dengan dua aturan. */
+function prodRows(kind){
+  /* `st` ikut dibaca di sini: tapis q/status/priority dan urutannya semuanya
+     tinggal di queueState, dan pengumpul data inilah yang menerapkannya. */
+  const st=queueState[kind];
   // tugas dari konten
   const fromContent=filterByBrand(DB.content).filter(c=>c.prod&&c.prod[kind]).map(c=>({
     src:'content',cid:c.id,title:c.title,sub:contentTypeLabel(c)+(printTypeLabel(c)?' - 🖨 '+printTypeLabel(c):''),brand:c.brand,
@@ -2738,10 +2856,23 @@ function prodQueue(kind,title,roleNote){
     if(va<vb)return -1*st.dir;if(va>vb)return 1*st.dir;
     // tie-breaker: prioritas lalu tanggal
     return (PRIORITY[b.priority].n-PRIORITY[a.priority].n)||(new Date(a.date||'2099')-new Date(b.date||'2099'));});
+
   const total=fromContent.length+standalone.length+fromMkt.length;
   /* Dihitung dari daftar SEBELUM tapis status, kalau tidak angkanya selalu nol
      — dan nol membaca sebagai "tidak ada yang selesai". */
   const arsipJml=[...fromContent,...standalone,...fromMkt].filter(r=>r.done).length;
+  return {list,total,arsipJml};
+}
+/* Keterangan jumlah — dipakai kerangka DAN disegarkan tiap tabel digambar
+   ulang. Kalau cuma ditulis di kerangka, angkanya membeku di hasil pencarian
+   pertama dan berbohong sejak ketukan kedua. */
+function queueCountHTML(kind){
+  const {list,total,arsipJml}=prodRows(kind); const st=queueState[kind];
+  return `${list.length} / ${total} pekerjaan${(st.status==='todo'&&arsipJml>0)?` · <b>${arsipJml}</b> diarsipkan`:''}`;
+}
+function prodQueue(kind,title,roleNote){
+  const p=PROD_TYPES[kind];const st=queueState[kind];
+  if(kind==='design'||kind==='edit') muatReqMkt();
   const addBtn=can(p.view)?`<button class="btn btn-gold" onclick="COMS.openTaskForm('${kind}')">＋ Tambah ${p.short}</button>`:'';
   const filterBar=`<div class="card" style="padding:12px;margin-bottom:16px">
     <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
@@ -2749,27 +2880,30 @@ function prodQueue(kind,title,roleNote){
       <select class="ctrl" style="max-width:190px" onchange="COMS.queueF('${kind}','status',this.value)"><option value="todo" ${st.status==='todo'?'selected':''}>Aktif (belum selesai)</option><option value="done" ${st.status==='done'?'selected':''}>Arsip (sudah selesai)</option><option value="" ${st.status===''?'selected':''}>Semua</option></select>
       <select class="ctrl" style="max-width:160px" onchange="COMS.queueF('${kind}','priority',this.value)"><option value="">Semua Prioritas</option>${Object.keys(PRIORITY).map(pr=>`<option value="${pr}" ${st.priority===pr?'selected':''}>${PRIORITY[pr].label}</option>`).join('')}</select>
       <button class="btn btn-ghost btn-sm" onclick="COMS.queueReset('${kind}')">Reset</button>
-      <span style="margin-left:auto;font-size:12px;color:var(--txt-3)">${list.length} / ${total} pekerjaan${
-        /* Yang tersembunyi DISEBUT ANGKANYA. "12 pekerjaan" tanpa keterangan
-           tidak bisa dibedakan dari "cuma segitu yang pernah ada". */
-        (st.status==='todo'&&arsipJml>0)?` · <b>${arsipJml}</b> diarsipkan`:''}</span>
+      <span id="qCount" style="margin-left:auto;font-size:12px;color:var(--txt-3)">${queueCountHTML(kind)}</span>
     </div></div>`;
   /* Peringatan, BUKAN halaman kosong. Kalau modul Marketing tidak terbaca,
      antrian dari konten & tugas mandiri tetap harus bisa dikerjakan — yang
      hilang cuma satu sumber, dan itu disebutkan terang-terangan supaya tidak
      terbaca sebagai "tidak ada request masuk". */
   const pitaMkt=(kind==='design'||kind==='edit')&&REQ_MKT.st==='galat'
-    ? `<div class="card" style="padding:11px 14px;margin-bottom:16px;border-color:var(--bad);font-size:12.5px;color:var(--bad)">
+    ? `<div class="card" style="padding:11px 14px;margin-bottom:16px;border-color:var(--bad);font-size:12.5px;color:var(--bad)`+`">
          ⚠ Request dari modul Marketing tidak terbaca (${esc(REQ_MKT.galat)}). Antrian di bawah hanya berisi pekerjaan dari modul ini.
          <button class="btn btn-ghost btn-sm" style="margin-left:8px" onclick="COMS.reqMktUlang()">Coba lagi</button></div>`
     : '';
   return `${brandBar()}
   <div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">${p.emoji} ${roleNote}</p></div>${addBtn}</div>
   ${pitaMkt}${filterBar}
-  ${list.length?(()=>{
-    /* `p` di lingkup ini sudah dipakai PROD_TYPES[kind] — halamannya dinamai
-       `pg` supaya tidak menimpanya. Kalau tertimpa, seluruh kepala kolom
-       (Deadline ${p.short}) dan pesan kosongnya ikut salah. */
+  <div id="queueTable"></div>`;
+}
+/* Menggambar HANYA tabelnya. Inilah yang dipanggil tiap ketukan di kotak cari,
+   jadi kotaknya sendiri tidak pernah disentuh dan fokusnya tidak pernah lepas. */
+function renderQueueTable(kind){
+  const el=$('#queueTable'); if(!el) return;
+  const p=PROD_TYPES[kind];const t=tint(p.color);const st=queueState[kind];
+  const {list,total}=prodRows(kind);
+  const cnt=$('#qCount'); if(cnt) cnt.innerHTML=queueCountHTML(kind);
+  el.innerHTML=list.length?(()=>{
     const pg=pgSlice(list,'q_'+kind,JSON.stringify(st)+'|'+brandFilter);
     return `<div class="tbl-wrap"><table><thead><tr>${qHead(kind,'priority','Prioritas')}${qHead(kind,'title','Pekerjaan')}${qHead(kind,'brand','Brand')}<th>${kind==='shoot'?'Talent/Platform':'Platform'}</th>${qHead(kind,'pic','PIC')}${qHead(kind,'date','Deadline '+p.short)}${qHead(kind,'status','Status')}<th></th></tr></thead><tbody>
     ${pg.items.map(r=>{const done=r.done;const b=getBrand(r.brand);
@@ -2790,12 +2924,16 @@ function prodQueue(kind,title,roleNote){
       <td>${deadlineHTML(r.date,done)}</td>
       <td><span class="pill" style="background:${done?tint(PUBLISH_COLOR).bg:t.bg};color:${done?tint(PUBLISH_COLOR).fg:t.fg}"><span class="pd" style="background:${done?tint(PUBLISH_COLOR).fg:t.fg}"></span>${done?'Selesai':'Dikerjakan'}</span></td>
       <td>${can(p.view)?`<button class="btn ${done?'btn-ghost':'btn-gold'} btn-sm" onclick="${toggleFn}">${done?'↺ Buka':'✓ Selesai'}</button>`:''}</td></tr>`;}).join('')}
-  </tbody></table></div>${pgBar(pg,'pekerjaan')}`;})():`<div class="empty"><div class="ei">${p.emoji}</div><h4>${total>0?'Tidak ada yang cocok':'Antrian kosong'}</h4><p>${total>0?'Ubah / reset filter untuk melihat pekerjaan lain.':'Belum ada pekerjaan '+p.label.toLowerCase()+'. Tambahkan lewat konten atau tombol di atas.'}</p></div>`}`;
+  </tbody></table></div>${pgBar(pg,'pekerjaan')}`;
+  })():`<div class="empty"><div class="ei">${p.emoji}</div><h4>${total>0?'Tidak ada yang cocok':'Antrian kosong'}</h4><p>${total>0?'Ubah / reset filter untuk melihat pekerjaan lain.':'Belum ada pekerjaan '+p.label.toLowerCase()+'. Tambahkan lewat konten atau tombol di atas.'}</p></div>`;
 }
 function toggleProdDone(cid,kind){const c=getContent(cid);if(!c||!c.prod||!c.prod[kind])return;
   c.prod[kind].status=c.prod[kind].status==='done'?'todo':'done';
   logAct(c.prod[kind].status==='done'?'menyelesaikan '+PROD_TYPES[kind].short:'membuka ulang '+PROD_TYPES[kind].short,c.title);
-  save();route(currentView);}
+  save();
+  /* Dipanggil dari dua tempat: antrian produksi (ada #queueTable) dan panel
+     detail konten (tidak ada). Yang kedua tetap butuh route() penuh. */
+  if($('#queueTable'))renderQueueTable(kind);else route(currentView);}
 
 // ---- Tugas mandiri (di luar konten) ----
 function openTaskForm(kind,id){
@@ -2821,9 +2959,19 @@ function saveTask(kind,id){const g=k=>$('#tk_'+k)?$('#tk_'+k).value:'';
   else{DB.prodTasks.push(Object.assign({id:uid('tk'),status:'todo'},data));logAct('menambah tugas '+PROD_TYPES[kind].short,title);toast('Tugas ditambahkan','ok');}
   save();closeDrawer();route(currentView);}
 function delTask(id){if(!confirm('Hapus tugas ini?'))return;DB.prodTasks=DB.prodTasks.filter(t=>t.id!==id);save();closeDrawer();route(currentView);}
-function toggleTaskDone(id){const x=DB.prodTasks.find(t=>t.id===id);if(!x)return;x.status=x.status==='done'?'todo':'done';save();route(currentView);}
+/* Cukup tabelnya: baris yang ditandai selesai keluar dari tapis "Aktif", dan
+   menggambar ulang seluruh halaman untuk itu melempar posisi gulir ke atas —
+   yang menandai sepuluh pekerjaan berturut-turut harus menggulir balik tiap
+   kali. */
+function toggleTaskDone(id){const x=DB.prodTasks.find(t=>t.id===id);if(!x)return;x.status=x.status==='done'?'todo':'done';save();if($('#queueTable'))renderQueueTable(x.kind);else route(currentView);}
 
 VIEWS.shooting=()=>prodQueue('shoot','Shooting Schedule','Jadwal rekam - dari kebutuhan konten & jadwal mandiri. Tandai selesai bila sudah dieksekusi.');
+/* Tabelnya diisi SESUDAH kerangkanya masuk DOM — #queueTable belum ada saat
+   VIEWS.* dipanggil, dan mengisinya di sana gagal diam-diam (el null), yang
+   tampil sebagai halaman tanpa tabel sama sekali. */
+AFTER.shooting=()=>renderQueueTable('shoot');
+AFTER.design=()=>renderQueueTable('design');
+AFTER.editing=()=>renderQueueTable('edit');
 
 /* queueView() DIBUANG (Agustus 2026). Ia tidak pernah dipanggil satu kali pun
    sejak VIEWS.shooting / .design / .editing pindah ke prodQueue(), tapi masih
@@ -3865,6 +4013,8 @@ const API={
   exportCSV,backupJSON,restoreJSON,saveSettings,savePerms,resetPerms,cyclePerm,
   toggleNotif,markAllRead,clearSearch,
   closeModal,closeDrawer,
+  pipeF,
+  renderQueueTable,
   initAPI // Pastikan fungsi dipanggil
 };
 

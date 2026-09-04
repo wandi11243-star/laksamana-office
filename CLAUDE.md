@@ -738,6 +738,50 @@ selesai diarsipkan sendiri.
   penyaring antrian. Daftar yang menyusut tanpa keterangan terbaca sebagai data
   yang hilang, dan dilaporkan sebagai bug.
 
+**Mengetik di antrian produksi tidak lagi melempar fokus** (4 September 2026,
+keluhan user "typing-nya error" di Shooting/Design/Editing). `queueF()` dulu
+memanggil `route()`, yang menulis ulang `innerHTML` SELURUH `#view` — termasuk
+kotak carinya sendiri. Kotak yang dibuat ulang kehilangan fokus, jadi **hanya
+huruf pertama yang masuk**.
+
+`prodQueue()` sekarang dipisah jadi tiga: `prodRows()` (data), `prodQueue()`
+(kerangka + baris penyaring), `renderQueueTable()` (isi tabel). Yang dipanggil
+tiap ketukan cuma yang terakhir. Bentuknya disamakan dengan Content Planning,
+yang memang tidak pernah kena karena sudah memisahkan keduanya sejak awal
+(`planF` → `renderPlanTable`).
+
+- **Jangan "perbaiki" dengan menyimpan-mengembalikan posisi kursor.** Yang
+  menggambar ulang kotak yang sedang diketik akan selalu punya masalah
+  berikutnya: teks yang sedang dipilih, komposisi IME, autocomplete.
+- **`AFTER.shooting/design/editing` wajib ada.** `#queueTable` belum ada di DOM
+  saat `VIEWS.*` dipanggil; mengisinya di sana gagal diam-diam (elemennya null)
+  dan yang tampil halaman tanpa tabel sama sekali.
+- **Angka "x / y pekerjaan" disegarkan `renderQueueTable()`**, bukan cuma
+  ditulis di kerangka — kalau tidak ia membeku di hasil pencarian pertama dan
+  berbohong sejak ketukan kedua.
+
+**Pipeline bisa disaring per PIC** (permintaan user), berikut **jumlah konten
+tiap orang di pilihannya** — yang membuka tapis ini justru sedang mencari siapa
+yang menumpuk pekerjaan. Pilihan **Belum ada PIC** memakai nilai `__none__` dan
+disaring lewat cabangnya sendiri: dibandingkan langsung dengan `c.pic` ia tidak
+akan pernah cocok, dan kanbannya kosong tanpa satu pun keterangan.
+
+**Kartu "Tugas Saya" di dashboard berbasis DEADLINE** (permintaan user: yang
+overdue atau dekat, dan hanya milik yang login). `tugasSaya()` mengumpulkan
+dari **tiga sumber**: konten yang PIC-nya saya, sub-tugas produksi di dalam
+konten itu, dan tugas produksi mandiri. Kartu yang cuma membaca `DB.content`
+akan menulis "Bersih!" untuk orang yang besok pagi harus menyerahkan tiga
+video — kesalahan paling mahal di layar yang justru dibuka untuk memastikan
+tidak ada yang terlewat.
+
+- Diurutkan **yang paling lewat tenggat di paling atas**; tanpa itu kartunya
+  cuma tujuh baris pertama menurut urutan input data, dan yang terlambat bisa
+  tidak pernah kelihatan.
+- Yang **tanpa deadline tetap ikut**, ditaruh paling belakang (`sisa` null).
+  Membuangnya berarti tugas yang lupa diberi tenggat menghilang dari
+  satu-satunya layar yang menampilkannya.
+- `DEADLINE_DEKAT = 3` hari, satu tempat.
+
 ### Reservasi: siapa yang terakhir mengubah denah (4 September 2026)
 
 Permintaan user. Capnya **menempel di objek denahnya** (`_editBy`, `_editAt`
@@ -758,7 +802,7 @@ terakhir", yang satu "apa saja yang pernah terjadi".
   hilang diam-diam seperti kasus `mutasi` di brankas.
 
 ```bash
-node tools/uji-arsip-konten.js   # 26 pemeriksaan, jsdom (Konten + Reservasi)
+node tools/uji-arsip-konten.js   # 49 pemeriksaan, jsdom (Konten + Reservasi)
 ```
 
 Modul Konten seluruhnya terbungkus IIFE (`const COMS = (function(){…})()`), jadi

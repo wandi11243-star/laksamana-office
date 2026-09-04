@@ -1487,7 +1487,7 @@ function brandBar() { setBrand(); esc(); }
 
 
 function setBrand() { route(); }
-function contentCard() { getBrand(); daysDiff(); openContent(); brandBadge(); platformTags(); esc(); deadlineHTML(); avatar(); userName(); autoUpdateStatuses(); getUser(); todayISO(); filterByBrand(); collectCalEvents(); }
+function contentCard() { getBrand(); daysDiff(); openContent(); brandBadge(); platformTags(); esc(); deadlineHTML(); avatar(); userName(); }
 
 
 
@@ -1515,7 +1515,70 @@ function contentCard() { getBrand(); daysDiff(); openContent(); brandBadge(); pl
 
 
 
-function st() { esc(); fmtDate(); brandBar(); num(); fmtDateShort(); tint(); calOpenEvent(); getBrand(); openContent(); brandDot(); platformTags(); can(); route(); daysDiff(); statusPill(); deadlineHTML(); openContentForm(); planF(); planReset(); }
+function tugasSaya() { filterByBrand(); platformTags(); statusPill(); openContent(); esc(); openTaskForm(); daysDiff(); autoUpdateStatuses(); getUser(); todayISO(); collectCalEvents(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function st() { esc(); fmtDate(); brandBar(); num(); fmtDateShort(); tint(); calOpenEvent(); getBrand(); openContent(); brandDot(); platformTags(); can(); route(); deadlineHTML(); openContentForm(); planF(); planReset(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -2123,7 +2186,41 @@ function submitPublish() { getContent(); contentPlatforms(); logAct(); notify();
 
 
 function deleteContent() { getContent(); logAct(); save(); updateApprovalBadge(); closeDrawer(); route(); toast(); }
-function copyText() { toast(); brandBar(); filterByBrand(); can(); openContentForm(); kDragOver(); kDragLeave(); kDrop(); contentCard(); }
+function copyText() { toast(); }
+
+
+
+
+
+
+
+
+
+
+function pipeF() { route(); }
+
+
+function pipeMilik() { filterByBrand(); }
+
+
+function pipeTersaring() { filterByBrand(); pipeMilik(); brandBar(); esc(); userName(); pipeF(); can(); openContentForm(); kDragOver(); kDragLeave(); kDrop(); contentCard(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2433,7 +2530,7 @@ function toggleRole() {  }
 
 
 
-function saveUser() { getUser(); toast(); logAct(); save(); closeDrawer(); route(); bootApp(); daysDiff(); pct(); avatar(); esc(); roleShorts(); pgSlice(); pgBar(); }
+function saveUser() { getUser(); toast(); logAct(); save(); closeDrawer(); route(); bootApp(); daysDiff(); pct(); avatar(); esc(); roleShorts(); pgSlice(); pgBar(); renderQueueTable(); }
 
 
 
@@ -2492,8 +2589,12 @@ function saveUser() { getUser(); toast(); logAct(); save(); closeDrawer(); route
 
 
 
-function queueF() { route(); }
-function queueSort() { route(); }
+
+
+
+
+function queueF() { renderQueueTable(); }
+function queueSort() { renderQueueTable(); }
 
 
 
@@ -2713,8 +2814,7 @@ function reqMktSelesai() { can(); toast(); getUser(); closeModal(); route(); mua
 
 
 
-function reqMktUlang() { muatReqMkt(); route(); }
-function prodQueue() { tint(); muatReqMkt(); filterByBrand(); contentTypeLabel(); printTypeLabel(); contentPlatforms(); reqMktUntuk(); queueSortVal(); can(); openTaskForm(); esc(); queueF(); queueReset(); reqMktUlang(); brandBar(); pgSlice(); qHead(); getBrand(); openContent(); reqMktLihat(); escJsAttr(); toggleProdDone(); reqMktSelesai(); toggleTaskDone(); prioBadge(); brandDot(); avatar(); userName(); deadlineHTML(); pgBar(); }
+function reqMktUlang() { muatReqMkt(); route(); queueF(); prodRows(); }
 
 
 
@@ -2731,6 +2831,7 @@ function prodQueue() { tint(); muatReqMkt(); filterByBrand(); contentTypeLabel()
 
 
 
+function prodRows() { filterByBrand(); contentTypeLabel(); printTypeLabel(); contentPlatforms(); reqMktUntuk(); queueSortVal(); }
 
 
 
@@ -2765,9 +2866,11 @@ function prodQueue() { tint(); muatReqMkt(); filterByBrand(); contentTypeLabel()
 
 
 
+function queueCountHTML() { prodRows(); }
 
 
 
+function prodQueue() { muatReqMkt(); can(); openTaskForm(); esc(); queueF(); queueReset(); queueCountHTML(); reqMktUlang(); brandBar(); }
 
 
 
@@ -2792,7 +2895,42 @@ function prodQueue() { tint(); muatReqMkt(); filterByBrand(); contentTypeLabel()
 
 
 
-function toggleProdDone() { getContent(); logAct(); save(); route(); }
+
+
+
+function renderQueueTable() { tint(); prodRows(); queueCountHTML(); pgSlice(); qHead(); getBrand(); openContent(); reqMktLihat(); escJsAttr(); openTaskForm(); toggleProdDone(); reqMktSelesai(); toggleTaskDone(); prioBadge(); esc(); brandDot(); avatar(); userName(); deadlineHTML(); can(); pgBar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function toggleProdDone() { getContent(); logAct(); save(); route(); renderQueueTable(); }
+
+
+
 
 
 
@@ -2821,7 +2959,17 @@ function saveTask() { toast(); uid(); logAct(); save(); closeDrawer(); route(); 
 
 
 function delTask() { save(); closeDrawer(); route(); }
-function toggleTaskDone() { save(); route(); prodQueue(); }
+
+
+
+
+function toggleTaskDone() { save(); renderQueueTable(); route(); prodQueue(); }
+
+
+
+
+
+
 
 
 

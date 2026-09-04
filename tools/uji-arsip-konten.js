@@ -28,6 +28,10 @@ const cek = (nama, syarat, ket) => {
   else { gagal++; console.log('  GAGAL ' + nama + (ket ? '  -> ' + ket : '')); }
 };
 const tunggu = ms => new Promise(r => setTimeout(r, ms));
+/* Dibaca ulang dari disk: asersi yang membandingkan SUMBER harus melihat
+   berkas yang sekarang, bukan salinan yang diambil di awal berkas ini. */
+const KONTEN_BARU = () => fs.readFileSync(path.join(ROOT, 'deploy', 'konten', 'index.html'), 'utf8');
+
 
 /* Jembatan ke dalam IIFE: eval LANGSUNG di dalam lingkupnya, jadi seluruh
    variabel closure terbaca tanpa satu pun kait ditambahkan ke berkas yang
@@ -177,6 +181,130 @@ function dom(html, url, siapkan) {
     cek('Audit Log tidak ikut dicabut',
         RSV.indexOf('logAudit("Simpan Layout"') > -1 &&
         RSV.indexOf('logAudit("Simpan Denah Tanggal"') > -1);
+    d.window.close();
+  }
+
+
+  /* ============ 1b. mengetik tidak menggambar ulang halaman ============ */
+  console.log('\n== Konten: mengetik di antrian tidak melempar fokus ==');
+  {
+    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/');
+    await tunggu(500);
+    const w = d.window, doc = w.document;
+
+    /* Inilah bentuk bug-nya: queueF() memanggil route(), route() menulis ulang
+       innerHTML SELURUH #view — termasuk kotak carinya sendiri. Kotak yang
+       dibuat ulang kehilangan fokus, jadi hanya huruf pertama yang masuk.
+       Yang diuji karena itu: elemen input yang SAMA masih hidup sesudah
+       menyaring, dan masih memegang fokus. */
+    w.__uji("route('shooting')"); await tunggu(120);
+    const kotak = doc.querySelector('#view input.ctrl');
+    cek('kotak cari antrian ada', !!kotak);
+    if (kotak) {
+      kotak.focus();
+      cek('kotak cari bisa difokus', doc.activeElement === kotak);
+      w.__uji("queueF('shoot','q','abc')"); await tunggu(80);
+      /* isConnected: elemen yang dibuang dari DOM oleh innerHTML tetap ada
+         sebagai objek JS, jadi memeriksa `kotak` saja tidak membuktikan apa pun. */
+      cek('kotak cari TIDAK dibuat ulang saat menyaring', kotak.isConnected === true);
+      cek('fokusnya tidak lepas', doc.activeElement === kotak,
+          doc.activeElement ? doc.activeElement.tagName + '.' + doc.activeElement.className : 'null');
+    }
+    /* Tabelnya tetap harus benar-benar tergambar ulang — kalau tidak, tapisnya
+       jadi hiasan: fokus terjaga tapi hasilnya tidak pernah berubah. */
+    cek('wadah tabel antrian ada', !!doc.querySelector('#queueTable'));
+    cek('renderQueueTable dipakai, bukan route',
+        /function queueF\(kind,key,val\)\{queueState\[kind\]\[key\]=val;renderQueueTable\(kind\);\}/.test(KONTEN_BARU()));
+    d.window.close();
+  }
+
+  /* ================= 3. pipeline: tapis PIC ================= */
+  console.log('\n== Pipeline bisa disaring per orang ==');
+  {
+    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/');
+    await tunggu(500);
+    const w = d.window;
+    w.__uji(`DB.users = [{id:'u-a',name:'Ana'},{id:'u-b',name:'Budi'}];
+      DB.content = [
+        {id:'k1',title:'A1',status:'Editing',pic:'u-a',brand:'',pillar:''},
+        {id:'k2',title:'A2',status:'Design',pic:'u-a',brand:'',pillar:''},
+        {id:'k3',title:'B1',status:'Editing',pic:'u-b',brand:'',pillar:''},
+        {id:'k4',title:'Yatim',status:'Idea',pic:'',brand:'',pillar:''}
+      ]; brandFilter='all';`);
+
+    cek('jumlah per orang dihitung', w.__uji("pipeMilik('u-a')") === 2 &&
+        w.__uji("pipeMilik('u-b')") === 1,
+        w.__uji("pipeMilik('u-a')") + '/' + w.__uji("pipeMilik('u-b')"));
+    cek('tanpa tapis, semuanya tampil', w.__uji('pipeTersaring()').length === 4);
+    w.__uji("pipeFilters.pic='u-a'");
+    cek('tersaring ke satu orang',
+        w.__uji('pipeTersaring()').map(c=>c.title).join(',') === 'A1,A2',
+        w.__uji('pipeTersaring()').map(c=>c.title).join(','));
+    /* '__none__' bukan id siapa pun. Dibandingkan langsung dengan c.pic ia
+       tidak akan pernah cocok, dan kanbannya kosong tanpa satu pun keterangan. */
+    w.__uji("pipeFilters.pic='__none__'");
+    cek('pilihan Belum ada PIC benar-benar menyaring',
+        w.__uji('pipeTersaring()').map(c=>c.title).join(',') === 'Yatim',
+        w.__uji('pipeTersaring()').map(c=>c.title).join(','));
+    w.__uji("pipeFilters.pic=''");
+    const html = w.__uji('VIEWS.pipeline()');
+    cek('pilihannya menyebut jumlah tiap orang',
+        html.indexOf('Ana (2)') > -1 && html.indexOf('Budi (1)') > -1,
+        html.slice(html.indexOf('Semua PIC'), html.indexOf('Semua PIC') + 300));
+    cek('yang belum ada PIC ikut ditawarkan', html.indexOf('Belum ada PIC (1)') > -1);
+    d.window.close();
+  }
+
+  /* ========= 4. dashboard: deadline saya, overdue & yang dekat ========= */
+  console.log('\n== Dashboard: tugas SAYA yang lewat / dekat tenggat ==');
+  {
+    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/');
+    await tunggu(500);
+    const w = d.window;
+    const geser = n => { const x = new Date(); x.setDate(x.getDate() + n); return x.toISOString().slice(0,10); };
+    w.__uji(`SES='u-me';
+      DB.users=[{id:'u-me',name:'Saya'},{id:'u-lain',name:'Orang Lain'}];
+      DB.content=[
+        {id:'c1',title:'Telat Berat',status:'Editing',pic:'u-me',brand:'',deadline:'${geser(-5)}'},
+        {id:'c2',title:'Besok',status:'Design',pic:'u-me',brand:'',deadline:'${geser(1)}'},
+        {id:'c3',title:'Bulan Depan',status:'Idea',pic:'u-me',brand:'',deadline:'${geser(30)}'},
+        {id:'c4',title:'Punya Orang Lain',status:'Editing',pic:'u-lain',brand:'',deadline:'${geser(-9)}'},
+        {id:'c5',title:'Sudah Tayang',status:'Posted',pic:'u-me',brand:'',deadline:'${geser(-9)}'}
+      ];
+      DB.prodTasks=[
+        {id:'t1',kind:'edit',title:'Edit Reel',pic:'u-me',status:'todo',brand:'',date:'${geser(-2)}'},
+        {id:'t2',kind:'shoot',title:'Rekam Orang Lain',pic:'u-lain',status:'todo',brand:'',date:'${geser(-2)}'},
+        {id:'t3',kind:'design',title:'Sudah Beres',pic:'u-me',status:'done',brand:'',date:'${geser(-2)}'}
+      ]; brandFilter='all';`);
+
+    const my = w.__uji('tugasSaya()');
+    const judul = my.map(x => x.title);
+    /* HANYA punya yang login. Kartu yang ikut memajang pekerjaan orang lain
+       membuat angka "terlambat" tidak bisa dipakai memutuskan apa pun. */
+    cek('tugas orang lain tidak ikut',
+        !judul.some(t => /Orang Lain/.test(t)), JSON.stringify(judul));
+    cek('yang sudah tayang tidak ikut', !judul.some(t => /Sudah Tayang/.test(t)));
+    cek('tugas produksi yang sudah beres tidak ikut', !judul.some(t => /Sudah Beres/.test(t)));
+    /* DIKUMPULKAN DARI TIGA SUMBER. Kartu yang cuma membaca DB.content akan
+       menulis "Bersih!" untuk orang yang besok harus menyerahkan video. */
+    cek('tugas produksi mandiri ikut', judul.some(t => /Edit Reel/.test(t)), JSON.stringify(judul));
+    /* Urut: yang paling lewat tenggat paling atas. Tanpa urutan ini kartunya
+       cuma tujuh baris pertama menurut urutan input data, dan yang terlambat
+       bisa tidak pernah kelihatan. */
+    cek('yang paling terlambat di paling atas', /Telat Berat/.test(judul[0]), JSON.stringify(judul));
+    cek('yang tenggatnya jauh di bawah', /Bulan Depan/.test(judul[judul.length-1]), JSON.stringify(judul));
+
+    const lewat = my.filter(x => x.sisa != null && x.sisa < 0).length;
+    const dekat = my.filter(x => x.sisa != null && x.sisa >= 0 && x.sisa <= w.__uji('DEADLINE_DEKAT')).length;
+    cek('dua tugas saya sudah lewat tenggat', lewat === 2, String(lewat));
+    cek('satu tugas saya jatuh tempo dekat', dekat === 1, String(dekat));
+
+    const dash = w.__uji('VIEWS.dashboard()');
+    cek('dashboard menyebut jumlah yang terlambat', /2 terlambat/.test(dash),
+        dash.slice(dash.indexOf('Tugas Saya'), dash.indexOf('Tugas Saya') + 260));
+    cek('dan yang jatuh tempo dekat', /1 ≤3 hari/.test(dash),
+        dash.slice(dash.indexOf('Tugas Saya'), dash.indexOf('Tugas Saya') + 260));
+    cek('kartu Terlambat menyebut porsi saya', /punya saya/.test(dash));
     d.window.close();
   }
 
