@@ -805,7 +805,6 @@
 
 
 
-
 function pct() {  }
 
 
@@ -897,7 +896,6 @@ function bacaSesi() {  }
 
 
 function sayaAdmin() { bacaSesi(); aksTingkat(); simpanAkses(); }
-
 
 
 
@@ -2825,7 +2823,6 @@ function rkKirim() { bolehAksi(); fetchTimeout(); render(); }
 
 
 
-
 function go() { bolehLihat(); halPertamaBoleh(); render(); }
 
 
@@ -3262,14 +3259,7 @@ function kartuApprovalCompliment() { compsRentang(); compListPemberi(); compStat
 
 function obAktif() {  }
 function obTotal() { obAktif(); }
-function porsiPic() { obTotal(); }
-
-
-
-
-
-
-function potongKasir() { porsiPic(); }
+function porsiPic() { obTotal(); potongKasir(); }
 
 
 
@@ -3283,15 +3273,51 @@ function potongKasir() { porsiPic(); }
 
 
 
+function potongKasir() { potongKasirAktif(); porsiPic(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function menuFixRow() {  }
+function payGroupRow() {  }
+function potongKasirAktif() { menuFixRow(); payGroupRow(); }
 
 
 
 
 
 function potonganBaris() { potongKasir(); }
+
+
 
 
 
@@ -3319,7 +3345,11 @@ function potonganHari() { potonganBaris(); }
 
 
 
-function barisTanpaShift() { potonganBaris(); modalBagiHasil(); }
+function barisTanpaShift() { potongKasirAktif(); potonganBaris(); modalBagiHasil(); }
+
+
+
+
 
 
 
@@ -4031,44 +4061,6 @@ function viewAnalytics() { rentangAktif(); netOf(); porsiPic(); omsetKasir(); po
 
 
 function barCanvas() { barOpts(); emptyCanvas(); }
-
-
-
-
-
-
-function viewSummary() { rentangAktif(); porsiPic(); potonganHari(); }
-
-
-
-
-
-
-
-
-function realBy() { omsetKasir(); potonganHari(); porsiPic(); compPicRentang(); targetPic(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function mkTable() { realBy(); targetPic(); pct(); modeHarian(); labelRentang(); }
-
-
-
-
-
-
 
 
 

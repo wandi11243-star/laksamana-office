@@ -700,8 +700,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
       <div class="nav-group">
         <div class="nav-label">Dashboard</div>
         <a data-view="bulanan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span> Dashboard Omset</a>
-        <a data-view="analytics"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span> Analytics</a>
-        <a data-view="summary"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg></span> Ranking PIC</a>
+        <a data-view="analytics"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span> Analytics</a>
       </div>
       <div class="nav-group">
         <div class="nav-label">Performa</div>
@@ -982,7 +981,6 @@ const DEFAULT_PERMS={
   invoice  :{staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_NONE},
   bulanan  :{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
   analytics:{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
-  summary  :{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
   marketing:{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
   event    :{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
   kasir    :{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
@@ -1550,7 +1548,7 @@ let CURRENT='input';
    kartunya, dan mereka mengubah satu hari, bukan membaca rentang. */
 let VIEWMODE='bulan';                 // 'bulan' | 'hari'
 let VIEWDATE=todayISO();              // hari yang dilihat saat VIEWMODE==='hari'
-const VIEW_ANALITIK=['bulanan','analytics','summary','marketing','event','kasir'];
+const VIEW_ANALITIK=['bulanan','analytics','marketing','event','kasir'];
 
 function modeHarian(){ return VIEWMODE==='hari'; }
 /* Daftar hari yang dianalisis. Mode harian mengembalikan array 0 atau 1 elemen
@@ -2819,7 +2817,6 @@ const TITLES={
   invoice:['Invoice & Kwitansi','Permintaan kwitansi dari Reservasi — periksa dana masuknya, lalu terbitkan'],
   bulanan:['Dashboard Omset','Pencapaian target bulan berjalan'],
   analytics:['Dashboard Analytics','Komposisi & sumber pendapatan'],
-  summary:['Ranking Seluruh PIC','Leaderboard achievement bulanan'],
   marketing:['Performa Marketing','Kontribusi omset per marketing'],
   event:['Performa Event','Kontribusi omset per PIC event'],
   kasir:['Performa Kasir','Omset yang diakui tiap kasir — angka final'],
@@ -2881,7 +2878,7 @@ function render(){
   clearCharts();
   syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,bayar:viewBayar,rekap:viewRekap,invoice:viewInvoice,bulanan:viewBulanan,analytics:viewAnalytics,summary:viewSummary,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,target:viewTarget,akses:viewAkses}[CURRENT])();
+  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,bayar:viewBayar,rekap:viewRekap,invoice:viewInvoice,bulanan:viewBulanan,analytics:viewAnalytics,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,target:viewTarget,akses:viewAkses}[CURRENT])();
   terapkanKunci();   // buang tombol & matikan isian yang tidak boleh dipakai
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
@@ -3269,7 +3266,14 @@ function porsiPic(r, divi){
 /* Yang benar-benar dipotong dari kasir shift. Dipisah dari porsiPic() karena
    sejak 7 Agustus 2026 keduanya bukan angka yang sama lagi (lihat di atas).
    Hanya dipakai baris MARKETING — event tidak memotong siapa pun. */
-function potongKasir(r){ return num(r.amount); }
+/* BERKAS KEMBAR potongKasir() milik deploy/finance/omset/, dan sampai
+   5 September 2026 ia TERTINGGAL: di sana penjaga potongKasirAktif sudah ada
+   sejak penanda "menu dipilih di tempat" lahir (12 Agustus 2026), di sini
+   tidak pernah. Akibatnya baris yang di Breakdown berbunyi "Tidak ada
+   potongan kasir" TETAP mengurangi realisasi kasir di panel ini — dua layar
+   menyebut potongan yang berbeda untuk baris yang sama, dan tidak satu pun
+   melempar galat. */
+function potongKasir(r){ return potongKasirAktif(r) ? num(r.amount) : 0; }
 /* Potongan yang ditanggung kasir karena SATU baris event, dibagi per SHIFT —
    bukan rata ke semua kasir yang masuk hari itu. Kasir yang masuk tapi tidak
    kebagian shift event tersebut tidak ikut dipotong.
@@ -3291,7 +3295,29 @@ function potongKasir(r){ return num(r.amount); }
    Baris yang shift-nya belum diisi mengembalikan pembagi 0 → potongannya tidak
    dibebankan ke siapa pun. UI menandainya merah supaya ketahuan, daripada
    diam-diam membebankannya ke orang yang tidak bertugas. */
+/* ---- BERKAS KEMBAR menuFixRow/payGroupRow/potongKasirAktif milik
+   deploy/finance/omset/ (5 September 2026) ----
+
+   Ketiganya TIDAK PERNAH ADA di panel ini, dan itulah sebab keluhan user:
+   Performa Kasir memajang "5 hari punya baris event yang belum ditentukan
+   kasir shift-nya" untuk baris yang justru memang TIDAK PUNYA potongan —
+   "menu dipilih di tempat", atau Payment Group yang dimatikan finance.
+   Peringatan yang menuntut orang mengatur sesuatu yang tidak ada berhenti
+   dibaca, dan ketika suatu hari ada yang benar-benar terlewat, ia sudah tidak
+   dipercaya siapa pun.
+
+   Kalau salah satu berkas disentuh, yang lain HARUS ikut. */
+function menuFixRow(r){ const v=String((r&&r.menuFix)||''); return (v==='tetap'||v==='ditempat')?v:''; }
+function payGroupRow(r){ return !(r && r.payGroup===false); }
+function potongKasirAktif(r){
+  const mf=menuFixRow(r);
+  if(mf==='ditempat') return false;
+  if(mf==='tetap')    return true;
+  return payGroupRow(r);
+}
 function potonganBaris(r){
+  /* Nol untuk baris yang tidak memotong siapa pun — penjaganya ADA DI
+     potongKasir(), sama persis dengan versi di deploy/finance/omset/. */
   const total=potongKasir(r);
   const ids=Array.isArray(r.shift)?r.shift.filter(Boolean):[];
   const dw=Math.max(0,num(r.dw));
@@ -3320,8 +3346,12 @@ function potonganHari(d,kasirId){
    sekarang setiap baris event memotong kasir, bukan cuma yang free entry, jadi
    semuanya butuh shift. */
 function barisTanpaShift(d){
+  /* Saringan potongKasirAktif WAJIB di depan: tanpa itu baris yang memang
+     tidak punya potongan ikut terhitung sebagai "belum diatur", dan Performa
+     Kasir menyuruh orang mengatur sesuatu yang tidak ada. Sama persis dengan
+     versi di deploy/finance/omset/. */
   return (d.bd?.marketing||[])
-    .filter(r=>num(r.amount)>0 && potonganBaris(r).pembagi<=0);
+    .filter(r=>potongKasirAktif(r) && num(r.amount)>0 && potonganBaris(r).pembagi<=0);
 }
 
 /* Modal penentuan kasir shift satu baris event — merekalah yang dipotong.
@@ -4037,45 +4067,7 @@ function viewAnalytics(){
   }
 }
 
-function viewSummary(){
-  const el=document.getElementById('app-view');
-  const days=rentangAktif();
-  /* Realisasi SUDAH dikurangi compliment yang jadi tanggungan PIC itu, supaya
-     ranking di sini memakai angka yang sama dengan halaman Performa. */
-  /* Aturan potongan dipakai di sini juga — lewat porsiPic() untuk
-     marketing/event dan potonganHari() untuk kasir. Sempat dihitung
-     dengan r.amount mentah di sini, dan hasilnya ranking menampilkan realisasi
-     yang berbeda dari halaman Performa untuk orang yang sama. */
-  const realBy=(divi,id)=>{
-    let s=0;
-    days.forEach(d=>{
-      if(divi==='kasir'){
-        (d.bd?.kasir||[]).forEach(r=>{ if(r.kasirId===id&&!r.off) s+=omsetKasir(r)-potonganHari(d,id); });
-      }else{
-        (d.bd?.[divi]||[]).forEach(r=>{ if(r.picId===id) s+=porsiPic(r,divi); });
-      }
-    });
-    return s-compPicRentang((DB.employees[divi]||[]).find(e=>e.id===id));
-  };
-  /* Target diproporsikan di mode harian lewat targetPic(), sama seperti halaman
-     Performa. Kalau di sini tidak diproporsikan, ranking harian akan memakai
-     target sebulan sementara Performa memakai target sehari — dan achievement
-     orang yang sama beda antara dua halaman, persis kesalahan yang dicatat di
-     komentar porsiPic() di atas. */
-  const mkTable=(divi,list)=>{
-    const rows=list.map(e=>{const real=realBy(divi,e.id),tgt=targetPic(e.target),ach=pct(real,tgt);return{e,real,ach,tgt};}).sort((a,b)=>b.ach-a.ach);
-    return rows.map(r=>`<tr><td><b>${esc(r.e.name)}</b></td><td class="num mono">${fmtRp(r.tgt)}</td><td class="num mono">${fmtRp(r.real)}</td><td class="num">${r.ach.toFixed(0)}%</td><td>${r.real>=r.tgt?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</td></tr>`).join('');
-  };
-  const all=[];
-  [['marketing','Marketing'],['event','Event'],['kasir','Kasir']].forEach(([divi,lab])=>DB.employees[divi].forEach(e=>{const real=realBy(divi,e.id),tgt=targetPic(e.target);all.push({name:e.name,div:lab,ach:pct(real,tgt),real,target:tgt});}));
-  all.sort((a,b)=>b.ach-a.ach);
-  const lb=all.map((r,i)=>`<div class="leader ${i===0?'top1':''}"><div class="rank">${i+1}</div><div><div class="ln">${esc(r.name)} <span class="pill" style="margin-left:4px">${r.div}</span></div><div class="lm">${fmtRp(r.real)} / ${fmtRp(r.target)}</div></div><div class="lspace"></div><div style="text-align:right"><div class="ln">${r.ach.toFixed(0)}%</div><div class="lm">${r.real>=r.target?'Achieve':'Belum'}</div></div></div>`).join('');
-  el.innerHTML=`
-    <div class="card"><h3>🏆 Top Performer ${modeHarian()?'Harian':'Bulanan'}</h3><div class="card-sub">Leaderboard berdasarkan persentase achievement · ${esc(labelRentang())}</div>${lb||'<div class="empty">Belum ada data.</div>'}</div>
-    <div class="card"><span class="divlabel mk">Marketing</span><div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target</th><th class="num">Realisasi</th><th class="num">Ach</th><th>Status</th></tr></thead><tbody>${mkTable('marketing',DB.employees.marketing)}</tbody></table></div></div>
-    <div class="card"><span class="divlabel ev">Event</span><div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target</th><th class="num">Realisasi</th><th class="num">Ach</th><th>Status</th></tr></thead><tbody>${mkTable('event',DB.employees.event)}</tbody></table></div></div>
-    <div class="card"><span class="divlabel ks">Kasir</span><div class="tbl-wrap"><table><thead><tr><th>Nama</th><th class="num">Target</th><th class="num">Realisasi</th><th class="num">Ach</th><th>Status</th></tr></thead><tbody>${mkTable('kasir',DB.employees.kasir)}</tbody></table></div></div>`;
-}
+
 
 /* Baris breakdown yang tidak punya PIC dikenal. Ditaruh DI ATAS segmen PIC,
    bukan di bawah tabel: yang membuka halaman ini sedang mencari angka yang

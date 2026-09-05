@@ -137,6 +137,31 @@ const tunggu = ms => new Promise(r => setTimeout(r, ms));
     const w = boot(OMSET, 'https://team.laksamanamuda.id/finance/omset/');
     await tunggu(700);
 
+    /* ---- KUNCI SIMPAN (permintaan user 5 September 2026: "jika ada kasir
+       yang belum diaturkan tidak bisa submit") ----
+       Dulu peringatannya ada tapi tombolnya tetap hidup, jadi ia dilewati:
+       breakdown disimpan, potongan tidak dibebankan, dan uang yang sama
+       terhitung dua kali — sekali di realisasi PIC, sekali di realisasi
+       kasir. Selisihnya baru ketahuan berhari-hari kemudian. */
+    cek('simpan dikunci kalau masih ada kasir shift yang belum diatur',
+        src.indexOf('const ok=balance && belum.length===0;') > -1,
+        'tombolnya masih hidup padahal ada baris yang belum diatur');
+    cek('...tombolnya memang dimatikan oleh nilai itu',
+        src.indexOf('id="bd_save" ${ok?\'\':\'disabled\'}') > -1);
+    /* Balance dan shift dipisah supaya sebabnya bisa disebut sendiri-sendiri:
+       hari yang sudah balance tapi shift-nya belum diatur kalau berbunyi
+       "Belum Balance" akan membuat orang mencari selisih rupiah yang memang
+       tidak ada. */
+    cek('...dan sebabnya dibedakan dari "Belum Balance"',
+        src.indexOf('baris belum ada kasir shift-nya</span>') > -1,
+        'dua sebab yang berbeda berbunyi sama');
+    cek('...pitanya menyebut bahwa ia menahan simpan',
+        src.indexOf('<b>Belum bisa disimpan.</b>') > -1);
+    /* Peringatan yang tidak mengunci apa pun sudah terbukti dilewati — jangan
+       kembalikan kalimat yang menjanjikan sebaliknya. */
+    cek('...dan komentar lamanya yang menyatakan TIDAK mengunci sudah dicabut',
+        src.indexOf('Ini TIDAK mengunci simpan') < 0);
+
     cek('ada konfirmasi sebelum kiriman berangkat',
         src.indexOf('if(!confirm(ringkas)) return;') > -1,
         'tombol langsung mengirim tanpa satu pun kesempatan memeriksa');
@@ -187,6 +212,34 @@ const tunggu = ms => new Promise(r => setTimeout(r, ms));
        saja gagal menyimpan. */
     cek('...dan datanya tetap ditandai belum terkirim', w.eval('DIRTY') === true);
     w.close();
+  }
+
+  /* ============ 3. Halaman yang dicabut ============ */
+  console.log('\n== Ranking PIC sudah dicabut (deploy/finance/kas) ==');
+  {
+    const kas = fs.readFileSync(path.join(ROOT, 'deploy', 'finance', 'kas', 'index.html'), 'utf8');
+    /* Dicabut atas permintaan user 5 September 2026. Yang dijaga di sini bukan
+       "sudah hilang", tapi hilang di SEMUA tempat: satu rujukan yang
+       tertinggal punya akibatnya masing-masing, dan tidak satu pun melempar
+       galat yang menyebut sebabnya. */
+    cek('menu sidebar sudah tidak punya Ranking PIC',
+        kas.indexOf('data-view="summary"') < 0);
+    cek('fungsinya ikut dibuang, bukan dibiarkan yatim',
+        kas.indexOf('function viewSummary(') < 0);
+    cek('peta router tidak lagi menunjuknya',
+        kas.indexOf('summary:viewSummary') < 0,
+        'router memanggil fungsi yang sudah tidak ada — TypeError, layar putih');
+    /* TITLES-lah yang benar-benar mengunci halamannya: render() menjatuhkan
+       view yang tidak punya judul, jadi go("summary") dari console pun tidak
+       bisa membukanya lagi. */
+    cek('judulnya dicabut, jadi halamannya tidak bisa dicapai lewat go()',
+        kas.indexOf("summary:['Ranking Seluruh PIC'") < 0);
+    /* Kunci yang tertinggal di matriks akan digambar sebagai baris pengaturan
+       untuk halaman yang tidak ada lagi. */
+    cek('matriks hak akses tidak lagi menyebutnya',
+        kas.indexOf('summary  :{staf:') < 0);
+    cek('kelompok halaman analitik ikut disesuaikan',
+        kas.indexOf("VIEW_ANALITIK=['bulanan','analytics','marketing','event','kasir']") > -1);
   }
 
   console.log('\n---------------------------------------');

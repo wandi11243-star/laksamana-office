@@ -61,7 +61,17 @@ function rumus(src) {
              + '\n' + potong(src, 'function obAktif(')
              + '\n' + potong(src, 'function obTotal(')
              + '\n' + potong(src, 'function porsiPic(')
-             + '\nreturn { porsiPic: porsiPic, obTotal: obTotal };';
+             /* Ketiganya ditulis SATU BARIS di kedua berkas — potong() yang
+                mencari kurung tutup di kolom nol akan menelan tetangganya. */
+             + '\n' + potongBaris(src, 'function menuFixRow(')
+             + '\n' + potongBaris(src, 'function payGroupRow(')
+             + '\n' + potongBaris(src, 'function potongKasir(')
+             + '\n' + potong(src, 'function potongKasirAktif(')
+             + '\n' + potong(src, 'function potonganBaris(')
+             + '\n' + potong(src, 'function barisTanpaShift(')
+             + '\nreturn { porsiPic: porsiPic, obTotal: obTotal,'
+             + '\n  potongKasirAktif: potongKasirAktif, potonganBaris: potonganBaris,'
+             + '\n  barisTanpaShift: barisTanpaShift };';
   return new Function(kode)();
 }
 
@@ -122,6 +132,47 @@ cek('Open Bill yang dicabut centangnya tidak ikut diakui',
 cek('baris kosong tidak melempar',
     a.porsiPic({}, 'marketing') === 0 && b.porsiPic({}, 'event') === 0);
 
+console.log('\n== Baris yang TIDAK memotong kasir ==');
+/* Dua jalan sebuah baris jadi tidak memotong: marketing menandainya "menu
+   dipilih di tempat", atau finance mematikan Payment Group. Sampai
+   5 September 2026 penjaganya cuma ada di omset — kas memotong terus, jadi
+   baris yang di Breakdown berbunyi "Tidak ada potongan kasir" tetap
+   mengurangi realisasi kasir di Performa. */
+const DITEMPAT = { amount: 5000000, menuFix: 'ditempat', shift: ['k1', 'k2'] };
+const BUKAN_PG = { amount: 5000000, payGroup: false, shift: ['k1', 'k2'] };
+const NORMAL = { amount: 5000000, menuFix: 'tetap', shift: ['k1', 'k2'] };
+
+cek('menu dipilih di tempat: tidak memotong, di KEDUA berkas',
+    a.potonganBaris(DITEMPAT).total === 0 && b.potonganBaris(DITEMPAT).total === 0,
+    'omset=' + a.potonganBaris(DITEMPAT).total + ' kas=' + b.potonganBaris(DITEMPAT).total);
+cek('Payment Group dimatikan: juga tidak memotong',
+    a.potonganBaris(BUKAN_PG).total === 0 && b.potonganBaris(BUKAN_PG).total === 0,
+    'omset=' + a.potonganBaris(BUKAN_PG).total + ' kas=' + b.potonganBaris(BUKAN_PG).total);
+/* Daftar shift yang terlanjur tersimpan SEBELUM penandanya disetel tidak
+   boleh menghidupkan potongannya lagi — itu bentuk data yang paling sering
+   ada di produksi, dan justru itu yang dulu lolos. */
+cek('...walau daftar shift-nya masih tersimpan di barisnya',
+    a.potonganBaris(DITEMPAT).per === 0 && b.potonganBaris(DITEMPAT).per === 0);
+cek('baris normal TETAP memotong seperti sebelumnya',
+    a.potonganBaris(NORMAL).per === 2500000 && b.potonganBaris(NORMAL).per === 2500000,
+    'omset=' + a.potonganBaris(NORMAL).per + ' kas=' + b.potonganBaris(NORMAL).per);
+
+/* Peringatan "belum ditentukan kasir shift-nya" tidak boleh menghitung baris
+   yang memang tidak punya potongan — peringatan yang menuntut orang mengatur
+   sesuatu yang tidak ada berhenti dibaca, dan ketika suatu hari ada yang
+   benar-benar terlewat ia sudah tidak dipercaya siapa pun. */
+const HARI = { bd: { marketing: [
+  { amount: 5000000, menuFix: 'ditempat' },      // tidak memotong — jangan dihitung
+  { amount: 5000000, payGroup: false },          // tidak memotong — jangan dihitung
+  { amount: 5000000, menuFix: 'tetap' }          // MEMOTONG dan shift-nya kosong
+] } };
+cek('peringatan shift hanya menghitung baris yang benar-benar memotong',
+    a.barisTanpaShift(HARI).length === 1 && b.barisTanpaShift(HARI).length === 1,
+    'omset=' + a.barisTanpaShift(HARI).length + ' kas=' + b.barisTanpaShift(HARI).length);
+cek('...dan hari yang semuanya sudah diatur tidak diperingatkan',
+    a.barisTanpaShift({ bd: { marketing: [NORMAL] } }).length === 0 &&
+    b.barisTanpaShift({ bd: { marketing: [NORMAL] } }).length === 0);
+
 console.log('\n== Yang dijaga di layar Performa ==');
 /* Tanpa kolomnya, Omset + Tax + Service tidak berjumlah sama dengan kolom
    Diakui, dan selisih yang tidak bisa dijelaskan dari layar akan dilaporkan
@@ -140,10 +191,21 @@ cek('keterangan tabel menyebut Open Bill tidak dipotong dari kasir',
     srcKas.indexOf('tidak dipotong dari kasir mana pun') > -1);
 
 /* Open Bill TIDAK boleh masuk potongan kasir — uangnya sudah ada di omset
-   bruto kasir hari itu. Menambahkannya berarti memotong kasir dua kali. */
-cek('potongKasir tetap TIDAK menyentuh Open Bill',
-    srcKas.indexOf('function potongKasir(r){ return num(r.amount); }') > -1,
-    'kasir dipotong untuk uang yang sudah masuk omset brutonya');
+   bruto kasir hari itu. Menambahkannya berarti memotong kasir dua kali.
+   Diperiksa dari HASILNYA, bukan dari bunyi kodenya: yang tidak boleh berubah
+   adalah angkanya. */
+const OB_SHIFT = Object.assign({ menuFix: 'tetap', shift: ['k1'] }, BARIS);
+cek('potongan kasir TIDAK menyentuh Open Bill',
+    a.potonganBaris(OB_SHIFT).total === 6977200 &&
+    b.potonganBaris(OB_SHIFT).total === 6977200,
+    'omset=' + a.potonganBaris(OB_SHIFT).total + ' kas=' + b.potonganBaris(OB_SHIFT).total
+      + ' — kasir dipotong untuk uang yang sudah masuk omset brutonya');
+/* Tax & service juga di luar potongan: omset kasir di Section A itu angka NET,
+   jadi memotong tax & service dari sana mengurangi realisasi kasir dengan uang
+   yang tidak pernah jadi omsetnya. */
+cek('...maupun tax & service',
+    a.potonganBaris(OB_SHIFT).total === 6977200 &&
+    b.potonganBaris(OB_SHIFT).total === 6977200);
 
 /* Komentar yang salah lebih berbahaya daripada tidak ada komentar: yang
    membacanya berhenti memeriksa, dan itu yang membuat kas tertinggal. */

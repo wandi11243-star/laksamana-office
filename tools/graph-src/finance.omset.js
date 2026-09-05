@@ -2798,6 +2798,9 @@ function potonganBaris() { potongKasir(); }
 
 
 
+
+
+
 function potonganHari() { potonganBaris(); }
 
 
@@ -3907,6 +3910,23 @@ function kartuEfek() { potonganBaris(); obTotal(); obAktif(); diskonKasir(); oms
 
 
 function calc() { sumDiakui(); kartuEfek(); barisTanpaShift(); potongKasirAktif(); potonganBaris(); sumDiskon(); empName(); potongKasir(); KIRIM(); dateLabel(); save(); render(); kirimSekarang(); picPengisi(); drawMk(); drawEv(); drawKs(); drawSo(); pitaSumber(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

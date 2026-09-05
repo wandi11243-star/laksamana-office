@@ -2783,6 +2783,9 @@ function openBillList(d){
    dibebankan ke siapa pun. UI menandainya merah supaya ketahuan, daripada
    diam-diam membebankannya ke orang yang tidak bertugas. */
 function potonganBaris(r){
+  /* Nol untuk baris yang tidak memotong siapa pun — penjaganya ADA DI
+     potongKasir(), satu tempat, jadi daftar shift yang terlanjur tersimpan
+     sebelum penandanya disetel tidak pernah ikut dihitung. */
   const total=potongKasir(r);
   const ids=Array.isArray(r.shift)?r.shift.filter(Boolean):[];
   const dw=Math.max(0,num(r.dw));
@@ -3907,15 +3910,28 @@ function viewBreakdown(){
       <div class="helper" style="margin:10px 0 0">Kolom <b>Open Bill</b> tidak menambah maupun mengurangi Realisasi di sebelahnya — uangnya sudah ada di dalam Omset Bruto kasir itu. Ia menandai bagian mana yang datang dari pesanan tambahan event, dan event mana. Nominal yang sama juga diakui untuk PIC event-nya, dan <b>tidak dipotong</b> dari kasir mana pun.</div></div>`;
   }
   function calc(){
-    const tot=sumDiakui(), diff=net-tot, ok=Math.abs(diff)<1;
+    const tot=sumDiakui(), diff=net-tot;
     document.getElementById('bd_efek').innerHTML=kartuEfek();
-    /* Baris bernominal yang shift-nya belum ditentukan. Ini TIDAK mengunci
-       simpan — omset kasirnya sendiri bisa saja sudah benar dan balance, dan
-       mengunci di sini berarti angka yang sudah betul tidak bisa disimpan.
-       Tapi peringatannya sekarang menyebut akibatnya terang-terangan: potongan
-       yang tidak dibebankan membuat uang yang sama dihitung dua kali. */
-    // Saringan potongKasirAktif: lihat catatan di barisTanpaShift().
+    /* Baris bernominal yang shift-nya belum ditentukan. Saringan
+       potongKasirAktif: lihat catatan di barisTanpaShift(). */
     const belum=state.mk.filter(r=>potongKasirAktif(r)&&num(r.amount)>0&&potonganBaris(r).pembagi<=0);
+    /* SEKARANG MENGUNCI SIMPAN (5 September 2026, permintaan user: "jika ada
+       kasir yang belum diaturkan tidak bisa submit").
+
+       Dulu sengaja tidak mengunci, dengan alasan angka yang sudah betul tidak
+       boleh tertahan gara-gara pembagian shift. Yang terbukti di lapangan
+       justru sebaliknya: peringatannya dilewati, breakdown tetap disimpan, dan
+       potongan yang tidak dibebankan membuat uang yang sama terhitung dua
+       kali — sekali di realisasi PIC, sekali di realisasi kasir. Selisihnya
+       baru ketahuan berhari-hari kemudian di Performa Kasir, saat tidak ada
+       lagi yang ingat hari itu shift-nya siapa.
+
+       DIPISAH dari balance supaya keduanya bisa disebut sendiri-sendiri: hari
+       yang sudah balance tapi shift-nya belum diatur dulu akan berbunyi
+       "Belum Balance", dan yang membacanya akan mencari selisih rupiah yang
+       memang tidak ada. */
+    const balance=Math.abs(diff)<1;
+    const ok=balance && belum.length===0;
     /* Atribusi diskon TIDAK mengunci simpan — beda dengan balance omset. Kalau
        dikunci, hari yang alokasi omsetnya sudah benar jadi tidak bisa disimpan
        cuma gara-gara diskonnya belum dirinci, dan orang akan mengakalinya
@@ -3948,7 +3964,7 @@ function viewBreakdown(){
         `<div style="margin-top:6px;font-size:12px;opacity:.9">Pilih PIC-nya di kotak <b>— pilih PIC —</b> pada barisnya. Kalau orangnya memang belum ada di roster, tambahkan dulu lewat <b>Pengaturan Target</b> di panel Kas Kecil.</div></div></div>`
       : '';
     document.getElementById('bd_warn').innerHTML = perDiskon + picWarn + (belum.length
-      ? `<div class="notice warn">⚠ ${belum.length} baris <b>marketing</b> belum ditentukan kasir shift-nya${belum.some(r=>r.eventName)?` (${esc(belum.filter(r=>r.eventName).map(r=>r.eventName).join(', '))})`:''}. Potongan <b>${fmtRp(belum.reduce((s,r)=>s+potongKasir(r),0))}</b> tidak dibebankan ke kasir mana pun, jadi omset itu terhitung dua kali — sekali di realisasi PIC, sekali di realisasi kasir. Klik tombol potongan pada barisnya.</div>`
+      ? `<div class="notice bad">⚠ <b>Belum bisa disimpan.</b> ${belum.length} baris <b>marketing</b> belum ditentukan kasir shift-nya${belum.some(r=>r.eventName)?` (${esc(belum.filter(r=>r.eventName).map(r=>r.eventName).join(', '))})`:''}. Potongan <b>${fmtRp(belum.reduce((s,r)=>s+potongKasir(r),0))}</b> tidak dibebankan ke kasir mana pun, jadi omset itu terhitung dua kali — sekali di realisasi PIC, sekali di realisasi kasir. Klik tombol <b>Atur kasir shift</b> pada barisnya.</div>`
       : '');
     document.getElementById('bd_balance').innerHTML=`
       <div class="bnums">
@@ -3959,7 +3975,11 @@ function viewBreakdown(){
         <div class="bi">Selisih<b class="mono" style="color:${ok?'var(--ok)':'var(--danger)'}">${diff===0?'Rp0':(diff>0?'Kurang '+fmtRp(diff):'Lebih '+fmtRp(-diff))}</b></div>
       </div>
       <div style="display:flex;gap:10px;align-items:center">
-        ${ok?'<span class="status ok"><span class="d"></span>Valid, siap disimpan</span>':'<span class="status bad"><span class="d"></span>Belum Balance</span>'}
+        ${ok
+          ? '<span class="status ok"><span class="d"></span>Valid, siap disimpan</span>'
+          : (!balance
+            ? '<span class="status bad"><span class="d"></span>Belum Balance</span>'
+            : `<span class="status bad"><span class="d"></span>${belum.length} baris belum ada kasir shift-nya</span>`)}
         <button class="btn btn-primary" id="bd_save" ${ok?'':'disabled'}>Simpan Breakdown</button>
       </div>`;
     document.getElementById('bd_save').onclick=()=>{

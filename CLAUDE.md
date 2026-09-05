@@ -475,6 +475,57 @@ marketing, kasir shift dipotong); tidak = bayar sendiri-sendiri di meja
 node tools/uji-menufix.js   # 26 pemeriksaan, jsdom (marketing + omset)
 ```
 
+### Breakdown: simpan dikunci, & baris yang memang tidak memotong (5 Sep 2026)
+
+**Simpan Breakdown sekarang DIKUNCI kalau masih ada kasir shift yang belum
+diatur** (permintaan user). Dulu sengaja tidak mengunci — alasannya tertulis
+di kodenya: angka yang sudah betul tidak boleh tertahan gara-gara pembagian
+shift. Yang terbukti di lapangan justru sebaliknya: peringatannya dilewati,
+breakdown tetap disimpan, dan potongan yang tidak dibebankan membuat uang yang
+sama terhitung dua kali — sekali di realisasi PIC, sekali di realisasi kasir.
+
+- `balance` dan `belum.length` **dipisah**, jangan dilebur jadi satu `ok`.
+  Hari yang sudah balance tapi shift-nya belum diatur kalau berbunyi "Belum
+  Balance" akan membuat orang mencari selisih rupiah yang memang tidak ada.
+
+**BARIS YANG TIDAK MEMOTONG KASIR — tiga berkas kembar yang tertinggal.**
+Keluhan user: Performa Kasir memajang *"5 hari punya baris event yang belum
+ditentukan kasir shift-nya"* untuk baris yang justru memang tidak punya
+potongan. Sebabnya `deploy/finance/kas/` **tidak pernah mengenal**
+`menuFixRow` / `payGroupRow` / `potongKasirAktif` sama sekali:
+
+| | omset | kas (sebelum 5 Sep) |
+|---|---|---|
+| `potongKasir()` | `potongKasirAktif(r) ? num(r.amount) : 0` | `num(r.amount)` |
+| `barisTanpaShift()` | menyaring `potongKasirAktif` | tidak |
+
+Akibatnya baris yang di Breakdown berbunyi **"Tidak ada potongan kasir"**
+TETAP mengurangi realisasi kasir di Performa, dan tetap dihitung sebagai
+"belum diatur". Dua layar menyebut potongan yang berbeda untuk baris yang
+sama, dan tidak satu pun melempar galat.
+
+- **Penjaganya SATU tempat, di `potongKasir()`.** `potonganBaris()` tidak
+  memeriksanya lagi — dua penjaga untuk satu aturan cuma membuat yang
+  berikutnya menebak mana yang menentukan.
+- Karena penjaganya di `potongKasir()`, **daftar `shift` yang terlanjur
+  tersimpan sebelum penandanya disetel tidak pernah ikut dihitung.** Itu
+  bentuk data yang paling sering ada di produksi.
+- **Efeknya berlaku surut**: realisasi kasir pada hari yang punya baris
+  "dipilih di tempat" berikut `shift` tersimpan akan NAIK. Itu memang angka
+  yang benar menurut aturan yang sudah berlaku sejak 12 Agustus 2026.
+
+**Halaman Ranking PIC DICABUT** (permintaan user). Rujukannya ada di **enam**
+tempat dan semuanya harus ikut: menu sidebar, matriks hak akses
+(`summary:{staf:…}`), `VIEW_ANALITIK`, `TITLES`, peta router, dan
+`viewSummary()` sendiri. Yang benar-benar mengunci halamannya adalah
+**`TITLES`** — `render()` menjatuhkan view yang tidak punya judul, jadi
+`go('summary')` dari console pun tidak bisa membukanya lagi.
+
+```bash
+node tools/uji-openbill-performa.js   # 25 pemeriksaan (dari 18)
+node tools/uji-breakdown-simpan.js    # 36 pemeriksaan (dari 25)
+```
+
 ### Open Bill: satu rumus untuk dua layar (5 September 2026)
 
 Keluhan user: *"yang diakui PIC include Open Bill, tapi di Performa tidak
