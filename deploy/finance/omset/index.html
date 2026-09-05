@@ -231,6 +231,13 @@ tbody tr:hover{background:var(--gold-soft)}
 .obtoggle{display:inline-flex;align-items:center;gap:8px;border:1.5px dashed var(--line);border-radius:9px;padding:7px 11px;font-size:12.5px;font-weight:700;color:var(--muted);cursor:pointer;margin-bottom:10px}
 .obtoggle:hover{border-color:var(--gold)}
 .obtoggle.on{border-style:solid;border-color:var(--gold);background:var(--gold-soft);color:var(--gold-dim)}
+/* Centang Payment Group. Bentuknya sengaja BEDA dari .obtoggle: Open Bill
+   menyalakan sebuah panel, yang ini memutuskan ke mana omset satu acara
+   diakui. Dua kotak yang terlihat sama di satu baris membuat yang satu
+   ditekan sambil mengira yang lain. */
+.pgrp{display:inline-flex;align-items:center;gap:7px;font-size:11.5px;font-weight:700;color:var(--muted);cursor:pointer;line-height:1.3;padding:7px 0}
+.pgrp input{width:auto;margin:0;cursor:pointer}
+.pgrp span{white-space:nowrap}
 /* Centang Free Entry (dulu "Ticketing") di baris breakdown. Dibuat setinggi field di sebelahnya
    supaya tidak melayang saat baris ikut memanjang. */
 .tkbox{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:600;color:var(--muted);cursor:pointer;white-space:nowrap;padding-bottom:9px}
@@ -931,6 +938,54 @@ function kirim(){
     setSync('err',`Gagal simpan — tersimpan lokal, coba lagi ${detik}s.<br><span style="opacity:.85;font-size:11px">${esc(sebab)}</span>`);
   });
 }
+
+/* KIRIM SEKARANG, DAN TUNGGU JAWABAN SERVER (5 September 2026, keluhan user:
+   "beberapa kali ketika simpan data selalu berhasil tapi nyatanya datanya tak
+   tersimpan").
+
+   save() itu FIRE-AND-FORGET: ia menulis ke localStorage, memasang tulisan
+   "Menyimpan…" di pojok, lalu menjadwalkan kirim() satu detik kemudian. Yang
+   menekan tombol Simpan tidak pernah menunggu satu pun jawaban — halamannya
+   langsung digambar ulang dan terlihat beres. Kalau tabnya ditutup, halamannya
+   dipindah, atau requestnya gagal dalam detik itu, servernya TIDAK PERNAH
+   menerima apa pun; muat berikutnya mengambil salinan server (apiGet), dan
+   salinan lokal yang lebih baru diam-diam tertimpa. Persis "berhasil tapi
+   tidak tersimpan", dan tidak ada satu layar pun yang menyebutkannya.
+
+   Yang ini membatalkan penundaannya, mengirim sekarang, dan baru selesai
+   setelah server MENJAWAB ok. Yang memanggilnya boleh menunggu — dan itulah
+   satu-satunya cara sebuah tombol boleh mengatakan "tersimpan".
+
+   DIRTY dikembalikan true saat gagal: penjaga beforeunload di bawah membacanya,
+   dan tanpa itu halaman yang gagal simpan tetap bisa ditutup tanpa peringatan. */
+function kirimSekarang(){
+  clearTimeout(SAVE_TIMER); clearTimeout(RETRY_TIMER);
+  return new Promise((selesai,gagal)=>{
+    (function jalan(){
+      if(SAVING){ setTimeout(jalan,300); return; }   // biar kiriman lain rampung dulu
+      SAVING=true; DIRTY=false; setSync('saving');
+      apiSave(DB).then(()=>{
+        SAVING=false; RETRY_KE=0; clearTimeout(RETRY_TIMER);
+        setSync(DIRTY?'saving':'ok'); if(DIRTY) kirim();
+        selesai();
+      },err=>{
+        SAVING=false; DIRTY=true;
+        const sebab=(err&&err.message?String(err.message):'penyebab tidak diketahui').slice(0,200);
+        const detik=Math.round(jadwalkanUlang()/1000);
+        setSync('err',`Gagal simpan — tersimpan lokal, coba lagi ${detik}s.<br><span style="opacity:.85;font-size:11px">${esc(sebab)}</span>`);
+        gagal(new Error(sebab));
+      });
+    })();
+  });
+}
+/* Perubahan yang belum sampai ke server TIDAK boleh hilang diam-diam saat
+   tabnya ditutup. Peramban hanya menampilkan dialog bawaannya sendiri — teksnya
+   tidak bisa diatur — tapi yang penting bukan kalimatnya, melainkan bahwa
+   penutupan itu tertahan sebentar sampai kiriman terakhir sempat berangkat. */
+window.addEventListener('beforeunload',e=>{
+  if(!DIRTY && !SAVING) return;
+  e.preventDefault(); e.returnValue='';
+});
 
 /* ---- derived helpers ----
    Rokok & Videotron DIHAPUS 27 Juli 2026 atas permintaan. Aman dilakukan
@@ -2649,7 +2704,33 @@ function porsiPic(r, divi){
    dua-duanya keputusan yang sudah diambil sebelumnya — bukan kelalaian, jangan
    "diperbaiki" dengan mengurangi porsiPic(). */
 function menuFixRow(r){ const v=String((r&&r.menuFix)||''); return (v==='tetap'||v==='ditempat')?v:''; }
-function potongKasirAktif(r){ return menuFixRow(r)!=='ditempat'; }
+/* PAYMENT GROUP — keputusan finance untuk baris yang menunya BELUM ditentukan
+   di modul Marketing (5 September 2026, permintaan user).
+
+   Sebelumnya kekosongan itu diperlakukan diam-diam seperti 'tetap': kasir
+   tetap dipotong, dan satu-satunya jejaknya cuma kalimat di pita. Sekarang
+   keputusannya punya kotaknya sendiri — dicentang berarti tamunya membayar
+   sebagai satu grup (uangnya diakui marketing, kasir dipotong), tidak
+   dicentang berarti tamunya membayar sendiri-sendiri di meja (omsetnya tetap
+   milik kasir, tidak ada potongan).
+
+   BAWAANNYA TRUE, dan itu bukan kelalaian: itulah persis perilaku yang sudah
+   berjalan selama ini. Bawaan false akan MENCABUT potongan dari seluruh baris
+   lama yang sudah tersimpan begitu halaman ini dibuka lagi — omsetnya lalu
+   terhitung dua kali, sekali di realisasi PIC dan sekali di realisasi kasir,
+   tanpa satu pun galat. Yang berubah bukan angkanya, melainkan bahwa
+   keputusannya sekarang terlihat dan bisa dibalik.
+
+   Hanya berlaku saat menuFix KOSONG. Kalau marketing sudah memutuskan,
+   keputusan merekalah yang berlaku — dua tempat yang menjawab pertanyaan yang
+   sama akan berselisih suatu hari, dan yang selisih itu uang. */
+function payGroupRow(r){ return !(r && r.payGroup===false); }
+function potongKasirAktif(r){
+  const mf=menuFixRow(r);
+  if(mf==='ditempat') return false;
+  if(mf==='tetap')    return true;
+  return payGroupRow(r);
+}
 function potongKasir(r){ return potongKasirAktif(r) ? num(r.amount) : 0; }
 /* Open Bill yang diakui atas nama satu kasir pada satu hari, dari kedua
    section. Angka ini TIDAK mengubah realisasi — ia keterangan, lihat obTotal. */
@@ -3239,6 +3320,11 @@ function viewBreakdown(){
         eventName:ev.nama||'', amount:0, tax:0, service:0, shift:[],
         menuFix:String(ev.menuFix||''),
         srcId:key, srcPic:ev.picName||'', srcNominal:f.grand,
+        /* Acara lintas hari muncul di SETIAP harinya, dan barisnya menyebutkan
+           hari keberapa. Tanpa itu dua baris yang bunyinya identik pada dua
+           tanggal berbeda tidak bisa dibedakan, dan yang mencocokkannya
+           mengira salah satunya salah input. */
+        srcHari:+ev.hari||1, srcHariTotal:+ev.totalHari||1,
         srcOmset:f.omset, srcTax:f.tax, srcService:f.service});
       tambah++;
     });
@@ -3361,6 +3447,22 @@ function viewBreakdown(){
     };
   }
 
+  /* Centang Payment Group. HANYA digambar saat modul Marketing belum
+     memutuskan menunya — kalau sudah, keputusan merekalah yang berlaku dan
+     kotak di sini cuma akan jadi pertanyaan kedua yang jawabannya diabaikan.
+
+     Keterangannya menyebut AKIBATNYA, bukan cuma namanya: "Payment Group"
+     sendirian tidak mengatakan apa-apa tentang kasir yang dipotong, dan yang
+     mencentangnya sedang memutuskan ke mana omset satu acara diakui. */
+  function centangPayGroup(r,i,key){
+    if(menuFixRow(r)!=='') return '';
+    const on=payGroupRow(r);
+    return `<div class="field" style="min-width:160px"><label>Payment Group</label>
+      <label class="pgrp" title="Dicentang: tamunya bayar sebagai satu grup, omsetnya diakui marketing dan kasir shift dipotong. Tidak dicentang: tamunya bayar sendiri-sendiri di meja, omsetnya tetap milik kasir.">
+        <input type="checkbox" class="${key}pgrp" data-i="${i}" ${on?'checked':''}>
+        <span>${on?'ya — kasir dipotong':'tidak — kasir tidak dipotong'}</span>
+      </label></div>`;
+  }
   /* Ringkasan potongan per baris. Sekarang muncul di SEMUA baris, tidak lagi
      hanya yang free entry: setiap baris event memotong kasir, centang Free Entry
      cuma menentukan besarnya (50% atau 100%). */
@@ -3371,6 +3473,12 @@ function viewBreakdown(){
        mencoba menekannya. */
     if(menuFixRow(r)==='ditempat')
       return `<div class="bhbtn" style="cursor:default;border-style:dashed"><b>Tidak ada potongan kasir</b>menu dipilih di tempat — omset tetap diakui kasir</div>`;
+    /* Menu belum ditentukan DAN finance mematikan Payment Group: tidak ada
+       potongan. Bunyinya dibedakan dari kalimat di atas — sebabnya berbeda,
+       dan yang memeriksa kenapa kasirnya tidak dipotong perlu tahu apakah
+       itu keputusan marketing atau keputusan finance. */
+    if(!potongKasirAktif(r))
+      return `<div class="bhbtn" style="cursor:default;border-style:dashed"><b>Tidak ada potongan kasir</b>bukan payment group — tamunya bayar sendiri-sendiri</div>`;
     const b=potonganBaris(r);
     const belum=num(r.amount)>0 && b.pembagi<=0;
     // Baris yang nominalnya masih 0 belum punya apa-apa untuk dipotong — jangan
@@ -3493,8 +3601,22 @@ function viewBreakdown(){
     const rinci=vip&&num(r.srcNominal)>0
       ? ` <span style="opacity:.85">(sudah termasuk tax &amp; service → Omset ${fmtRp(num(r.srcOmset))} + Tax ${fmtRp(num(r.srcTax))} + Service ${fmtRp(num(r.srcService))})</span>`
       : '';
+    /* ACARA LINTAS HARI. Nilai yang dipulangkan modul Marketing adalah nilai
+       SELURUH acara — satu angka untuk seluruh harinya, karena di sana memang
+       cuma ada satu. Menyalinnya ke kolom pada dua tanggal membuat omset acara
+       itu terhitung dua kali, dengan angka yang kelihatan wajar di kedua
+       harinya dan tanpa satu pun galat. Karena itu tombol salinnya SENGAJA
+       tidak digambar, dan sebabnya dikatakan di tempat tombolnya berdiri —
+       tombol yang hilang tanpa keterangan terbaca sebagai halaman rusak. */
+    const hariTot=num(r.srcHariTotal)||1;
+    const multiHari=hariTot>1;
+    const capHari=multiHari
+      ? ` · <span class="tag" style="background:var(--gold-soft);color:var(--gold-dim)">hari ke-${num(r.srcHari)||1} dari ${hariTot}</span>`
+      : '';
     const nilai=num(r.srcNominal)>0
-      ? ` · nilai menurut ${dari}: <b>${fmtRp(num(r.srcNominal))}</b>${rinci} <button type="button" class="btn btn-ghost btn-sm ${key}salin" data-i="${i}" title="Isikan Omset, Tax, dan Service dari angka Marketing">salin ke kolom</button>`
+      ? (multiHari
+        ? ` · nilai <b>SELURUH</b> acara menurut ${dari}: <b>${fmtRp(num(r.srcNominal))}</b> <span style="opacity:.85">untuk ${hariTot} hari — isi kolom Omset dengan bagian hari ini saja. Tombol salin tidak ada di baris lintas hari: menyalin angka penuh di tiap harinya membuat omsetnya terhitung ${hariTot} kali.</span>`
+        : ` · nilai menurut ${dari}: <b>${fmtRp(num(r.srcNominal))}</b>${rinci} <button type="button" class="btn btn-ghost btn-sm ${key}salin" data-i="${i}" title="Isikan Omset, Tax, dan Service dari angka Marketing">salin ke kolom</button>`)
       : '';
     /* Penanda menu ikut di pita, bukan hanya tersirat dari ada/tidaknya tombol
        potongan. Yang KOSONG paling penting disebut: ia diperlakukan seperti
@@ -3505,7 +3627,7 @@ function viewBreakdown(){
       ? ' · <span class="tag">menu dipilih di tempat</span>'
       : (mf==='tetap' ? ' · <span class="tag">menu ditetapkan</span>'
         : ' · <span class="tag" title="Marketing belum memilih. Untuk sementara diperlakukan seperti menu ditetapkan, jadi kasir tetap dipotong." style="background:var(--warn-bg,#fdf3e3);color:var(--warn)">menu belum ditentukan</span>');
-    return `<div class="esrc"><span class="tag">otomatis</span>dari modul ${dari}${pic}${input}${bedaPic}${menu}${nilai}</div>`;
+    return `<div class="esrc"><span class="tag">otomatis</span>dari modul ${dari}${pic}${input}${bedaPic}${capHari}${menu}${nilai}</div>`;
   }
   /* Panel Open Bill. Kotaknya baru muncul setelah dicentang — kalau selalu
      tampil, tiap event polos ikut memajang empat kotak kosong dan halaman ini
@@ -3559,6 +3681,7 @@ function viewBreakdown(){
         <div class="field"><label>Tax</label><input data-i="${i}" data-f="tax" class="mkf mono rp" inputmode="numeric" value="${r.tax||0}" title="Ikut diakui untuk PIC, tapi tidak dipotong dari kasir"></div>
         <div class="field"><label>Service</label><input data-i="${i}" data-f="service" class="mkf mono rp" inputmode="numeric" value="${r.service||0}" title="Ikut diakui untuk PIC, tapi tidak dipotong dari kasir"></div>
         <div class="field"><label>Diakui PIC</label><div class="mono mkdiakui" data-i="${i}" style="padding:9px 0;font-weight:800">${fmtRp(porsiPic(r,'marketing'))}</div></div>
+        ${centangPayGroup(r,i,'mk')}
         ${tombolBagi(r,i,'mk')}
         <div style="display:flex;gap:5px;margin-bottom:14px">
           <button class="btn btn-danger btn-sm mkdel" data-i="${i}">✕</button>
@@ -3572,6 +3695,15 @@ function viewBreakdown(){
        50/50 dibuang, ia tidak lagi memengaruhi angka apa pun. Pembukaan modal
        shift saat nominal terisi tapi shift kosong tetap ada di penangan
        nominalnya (lihat bind di atas). */
+    /* Menggambar ulang section-nya BOLEH di sini — beda dengan kotak nominal
+       yang sedang diketik. Yang berubah bukan cuma kotak ini: tombol potongan
+       muncul/hilang, angka Diakui PIC bergeser, dan pita peringatan di bawah
+       ikut berubah. Menambal satu simpul DOM akan meninggalkan tiga tempat
+       yang menyebut keadaan lama. */
+    document.querySelectorAll('.mkpgrp').forEach(c=>c.onchange=()=>{
+      const r=state.mk[+c.dataset.i]; if(!r) return;
+      r.payGroup=c.checked; drawMk(); calc();
+    });
     document.querySelectorAll('.mkbagi').forEach(b=>b.onclick=()=>bukaBagi('mk',+b.dataset.i));
     document.querySelectorAll('.mkdel').forEach(b=>b.onclick=()=>{hapusBaris('mk',+b.dataset.i,drawMk);});
     formatAllRp(document.getElementById('bd_mk'));
@@ -3820,10 +3952,41 @@ function viewBreakdown(){
         <button class="btn btn-primary" id="bd_save" ${ok?'':'disabled'}>Simpan Breakdown</button>
       </div>`;
     document.getElementById('bd_save').onclick=()=>{
+      const btn=document.getElementById('bd_save');
+      /* KONFIRMASI SEBELUM KIRIM (permintaan user 5 September 2026).
+         Angkanya diulang di sini, bukan cuma "yakin?": yang menekan tombol
+         ini menutup pembukuan satu hari, dan satu-satunya kesempatan
+         memeriksa ulang totalnya adalah sebelum ia berangkat. Pertanyaan
+         tanpa isi cuma melatih orang menekan OK. */
+      const ringkas=[
+        'Simpan breakdown '+dateLabel(bdDate)+'?','',
+        'Total Omset Diakui : '+fmtRp(tot),
+        'Total Omset (net)  : '+fmtRp(net),
+        'Selisih            : '+(diff===0?'Rp0':(diff>0?'Kurang '+fmtRp(diff):'Lebih '+fmtRp(-diff))),
+        'Baris              : '+state.mk.length+' marketing, '+state.ev.length+' event','',
+        'Datanya dikirim ke server sekarang. Tunggu sampai muncul pesan tersimpan sebelum menutup halaman.'
+      ].join('\n');
+      if(!confirm(ringkas)) return;
       // Di SINI-lah pembuangan baris otomatis mengikat: state.abaikan yang
       // ditulis, bukan d.bd.abaikan. Sebelum tombol ini ditekan, baris yang
       // dibuang hanya hilang dari layar dan akan kembali kalau di-refresh.
-      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so,abaikan:state.abaikan};d.bdValid=true;save();render();
+      d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so,abaikan:state.abaikan};d.bdValid=true;
+      save();                                  // salinan lokal + tandai kotor
+      btn.disabled=true; btn.textContent='Menyimpan…';
+      /* render() DIPINDAH ke cabang berhasil. Dulu ia dipanggil seketika, jadi
+         halaman tergambar ulang seolah selesai padahal kiriman belum berangkat
+         sama sekali — itulah yang membuat gagal simpan tidak pernah terlihat.
+         Saat gagal, layarnya sengaja DIBIARKAN apa adanya: isian yang barusan
+         diketik masih di sana, dan percobaan ulang otomatis masih berjalan. */
+      kirimSekarang().then(()=>{
+        alert('✓ Breakdown '+dateLabel(bdDate)+' TERSIMPAN di server.');
+        render();
+      },err=>{
+        btn.disabled=false; btn.textContent='Simpan Breakdown';
+        alert('⚠ BELUM tersimpan di server.\n\n'+(err&&err.message||'penyebab tidak diketahui')
+          +'\n\nIsianmu masih ada di layar dan di salinan lokal peramban ini, dan pengiriman akan dicoba lagi otomatis. '
+          +'JANGAN tutup halaman sampai penanda di pojok berbunyi Tersimpan.');
+      });
     };
   }
   // tiket:false ditulis eksplisit — baris tanpa field ini (data sebelum 28 Juli

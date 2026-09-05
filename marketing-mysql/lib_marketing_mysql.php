@@ -801,17 +801,51 @@ function events_hari($tgl) {
   /* LEFT JOIN, bukan JOIN: event yang PIC-nya kosong atau menunjuk user yang
      sudah dihapus tetap harus muncul — kalau hilang, orang finance mengira
      event itu memang tidak ada dan mengetiknya lagi sebagai baris manual. */
+  /* ACARA LINTAS HARI IKUT MUNCUL DI SETIAP HARINYA (5 September 2026,
+     permintaan user: "karena ada 2 hari yang diinput di hari itu, maka omset
+     yang ditampilkan di tanggal selesainya juga").
+
+     Modul marketing punya saklar "Berlangsung lebih dari satu hari" yang
+     menulis `tanggalSelesai`, dan kalendernya sudah menggambar acaranya di
+     semua hari itu. Breakdown TIDAK — ia mencocokkan `e.tanggal = :tgl`
+     persis, jadi acara 7-8 Agustus cuma muncul tanggal 7. Omset hari kedua
+     karena itu tidak punya barisnya sendiri, dan yang mengisi harus
+     mengetiknya sebagai baris manual tanpa satu pun penanda sumber.
+
+     `tanggalSelesai` TIDAK punya kolom sendiri — ia field aplikasi, jadi
+     tempatnya di dalam blob `data`. Karena itu tidak bisa disaring di SQL
+     tanpa berkas migrasi; yang dilakukan: ambil jendela ke belakang lalu
+     saring di PHP. Jendelanya dijepit 60 hari supaya tetap memakai
+     idx_ev_tanggal dan tidak pernah berubah jadi pemindaian tabel penuh —
+     acara di venue ini tidak ada yang lebih panjang dari itu, dan yang lebih
+     panjang lebih baik tidak muncul daripada membuat halaman Breakdown
+     menggantung tiap kali dibuka. */
+  $batas = date('Y-m-d', strtotime($tgl . ' 00:00:00 -60 days'));
   $st = $pdo->prepare(
     "SELECT e.id, e.nama, e.tanggal, e.status, e.pax, e.mkt_pic, e.data, u.name AS pic_name
        FROM events e
        LEFT JOIN users u ON u.id = e.mkt_pic
-      WHERE e.tanggal = :tgl AND e.status IN ('Deal', 'Event Done')
+      WHERE e.status IN ('Deal', 'Event Done')
+        AND e.tanggal <= :tgl AND e.tanggal >= :batas
       ORDER BY e.nama");
-  $st->execute(array(':tgl' => $tgl));
+  $st->execute(array(':tgl' => $tgl, ':batas' => $batas));
   $out = array();
   foreach ($st->fetchAll() as $r) {
     $d = json_decode(isset($r['data']) ? $r['data'] : '', true);
     if (!is_array($d)) $d = array();
+    $mulai   = (string)$r['tanggal'];
+    $selesai = isset($d['tanggalSelesai']) ? (string)$d['tanggalSelesai'] : '';
+    /* Acara sehari TIDAK punya tanggalSelesai sama sekali — bentuk yang sama
+       dengan tglSelesai()/multiHari() di deploy/marketing. Yang tanggalnya
+       bukan hari ini HANYA lolos kalau ia benar-benar masih berlangsung;
+       tanpa syarat kedua ini, seluruh acara 60 hari terakhir ikut tertarik. */
+    if ($mulai !== $tgl && !($selesai !== '' && $selesai >= $tgl)) continue;
+    $hari = 1; $totalHari = 1;
+    if ($selesai !== '' && $selesai > $mulai) {
+      $hb = strtotime($mulai . ' 00:00:00');
+      $totalHari = (int)floor((strtotime($selesai . ' 00:00:00') - $hb) / 86400) + 1;
+      $hari      = (int)floor((strtotime($tgl     . ' 00:00:00') - $hb) / 86400) + 1;
+    }
     $out[] = array(
       'id'      => $r['id'],
       'nama'    => $r['nama'],
@@ -827,6 +861,14 @@ function events_hari($tgl) {
          orangnya, dan Finance HARUS memperlakukannya sebagai belum diputuskan
          — bukan diam-diam salah satu. Lihat MENU_FIX di deploy/marketing. */
       'menuFix' => isset($d['menuFix']) ? (string)$d['menuFix'] : '',
+      /* Hari keberapa dari acara ini, dan berapa hari seluruhnya. Dipakai
+         Breakdown untuk MENAHAN tombol "salin ke kolom": nilai yang dipulangkan
+         adalah nilai SELURUH acara, jadi menyalinnya di dua hari membuat omset
+         acara itu terhitung dua kali — tanpa satu pun galat, dan dengan angka
+         yang kelihatan wajar di kedua harinya. */
+      'selesai'   => $selesai,
+      'hari'      => $hari,
+      'totalHari' => $totalHari,
       'detail'  => isset($d['detail']) && is_array($d['detail']) ? $d['detail'] : array(),
     );
   }

@@ -454,9 +454,83 @@ kosong. Yang perlu dijaga:
   dipotong — kalau tidak, omsetnya terhitung dua kali), dan justru karena
   diam-diam begitu, ia **wajib disebut** di pita barisnya.
 
+**PAYMENT GROUP — keputusan finance untuk baris yang menunya belum ditentukan**
+(5 September 2026, permintaan user). Kekosongan itu dulu diperlakukan
+diam-diam seperti `tetap`; sekarang ia punya kotaknya sendiri di baris
+Breakdown. Dicentang = tamunya bayar sebagai satu grup (omset diakui
+marketing, kasir shift dipotong); tidak = bayar sendiri-sendiri di meja
+(omsetnya tetap milik kasir, tombol potongan tidak muncul).
+
+- **Bawaannya TRUE** (`payGroupRow()` = `r.payGroup!==false`), dan itu bukan
+  kelalaian: itulah persis perilaku yang sudah berjalan. Bawaan false
+  MENCABUT potongan dari seluruh baris lama begitu halamannya dibuka lagi —
+  omsetnya lalu terhitung dua kali, tanpa satu pun galat.
+- **Hanya berlaku saat `menuFix` KOSONG.** Kalau marketing sudah memutuskan,
+  keputusan merekalah yang menang — dua tempat yang menjawab pertanyaan yang
+  sama akan berselisih suatu hari, dan yang selisih itu uang.
+- **Bunyinya dibedakan** dari "menu dipilih di tempat": yang memeriksa kenapa
+  kasirnya tidak dipotong perlu tahu itu keputusan marketing atau finance.
+
 ```bash
-node tools/uji-menufix.js   # 20 pemeriksaan, jsdom (marketing + omset)
+node tools/uji-menufix.js   # 26 pemeriksaan, jsdom (marketing + omset)
 ```
+
+### Breakdown: acara lintas hari & simpan yang dikonfirmasi (5 Sep 2026)
+
+Dua keluhan user, dua-duanya gagal **tanpa satu pun galat** dan dua-duanya
+menyentuh uang.
+
+**1. Acara lintas hari cuma muncul di hari pertama.** Modul Marketing punya
+saklar *Berlangsung lebih dari satu hari* yang menulis `tanggalSelesai`, dan
+kalendernya sudah menggambar acaranya di semua hari itu — tapi
+`events_hari()` mencocokkan `e.tanggal = :tgl` persis. Omset hari kedua
+karena itu tidak punya barisnya sendiri.
+
+- **`tanggalSelesai` tidak punya kolom sendiri** (ada di blob `data`), jadi
+  tidak bisa disaring di SQL tanpa berkas migrasi. Yang dilakukan: ambil
+  jendela **60 hari** ke belakang lewat `idx_ev_tanggal`, lalu saring di PHP.
+  Tanpa batas bawah, query ini berubah jadi pemindaian tabel penuh tiap kali
+  halaman Breakdown dibuka.
+- **Syarat keduanya wajib** (`$mulai !== $tgl && !($selesai >= $tgl)` →
+  `continue`). Tanpa itu seluruh acara 60 hari terakhir ikut tertarik.
+- **Tombol "salin ke kolom" SENGAJA tidak digambar untuk baris lintas hari.**
+  Nilai yang dipulangkan Marketing adalah nilai **seluruh** acara — satu angka
+  untuk semua harinya, karena di sana memang cuma ada satu. Menyalinnya di dua
+  tanggal membuat omsetnya terhitung dua kali, dengan angka yang kelihatan
+  wajar di kedua harinya. Sebabnya **dikatakan di tempat tombolnya berdiri**:
+  tombol yang hilang tanpa keterangan terbaca sebagai halaman rusak.
+- `hari` / `totalHari` **berkas kembar** — nama kunci di PHP harus sama persis
+  dengan `ev.hari`/`ev.totalHari` yang dibaca JS. Beda satu huruf tidak
+  melempar; barisnya cuma diam-diam kembali dianggap acara sehari.
+
+**2. "Simpan selalu berhasil tapi datanya tidak tersimpan."** `save()` itu
+fire-and-forget: menulis ke localStorage, memasang "Menyimpan…" di pojok, lalu
+menjadwalkan `kirim()` **satu detik** kemudian. Tombol Simpan Breakdown tidak
+pernah menunggu satu pun jawaban — `render()` dipanggil seketika dan halaman
+terlihat beres. Kalau tabnya ditutup, halamannya dipindah, atau requestnya
+gagal dalam detik itu, server **tidak pernah menerima apa pun**; muat
+berikutnya mengambil salinan server lewat `apiGet()` dan salinan lokal yang
+lebih baru tertimpa diam-diam.
+
+- **`kirimSekarang()`** membatalkan penundaannya, mengirim sekarang, dan baru
+  selesai setelah server menjawab `ok`. Itulah satu-satunya cara sebuah tombol
+  boleh mengatakan "tersimpan".
+- **`render()` pindah ke cabang BERHASIL.** Saat gagal, layarnya dibiarkan apa
+  adanya — isian yang barusan diketik masih di sana, dan percobaan ulang
+  otomatis masih berjalan.
+- **Konfirmasi sebelum kirim menyebut angkanya** (Total Omset Diakui, net,
+  Selisih, jumlah baris), bukan sekadar "yakin?". Pertanyaan tanpa isi cuma
+  melatih orang menekan OK.
+- **`beforeunload`** menahan penutupan selama `DIRTY || SAVING`. `kirimSekarang()`
+  mengembalikan `DIRTY=true` saat gagal justru supaya penjaga itu menyala.
+
+```bash
+node tools/uji-breakdown-simpan.js   # 25 pemeriksaan, jsdom (omset + marketing + php)
+```
+
+Ujinya menjalankan `kirimSekarang()` sungguhan dengan `fetch` tiruan: server
+yang menolak harus sampai ke pemanggilnya sebagai **gagal**, berikut sebab
+aslinya — bukan ditelan lalu dilaporkan berhasil, yang persis keluhan aslinya.
 
 ### Breakdown Sumber → Performa: PIC yang kosong (4 September 2026)
 

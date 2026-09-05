@@ -542,6 +542,13 @@
 
 
 
+
+
+
+
+
+
+
 function pct() {  }
 
 
@@ -915,7 +922,55 @@ function jadwalkanUlang() {  }
 
 
 
-function kirim() { apiSave(); setSync(); jadwalkanUlang(); }
+function kirim() { apiSave(); setSync(); jadwalkanUlang(); save(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kirimSekarang() { setSync(); apiSave(); kirim(); jadwalkanUlang(); }
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2649,7 +2704,33 @@ function porsiPic() { obTotal(); }
 
 
 function menuFixRow() {  }
-function potongKasirAktif() { menuFixRow(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function payGroupRow() {  }
+function potongKasirAktif() { menuFixRow(); payGroupRow(); }
+
+
+
+
+
 function potongKasir() { potongKasirAktif(); }
 
 
@@ -3305,6 +3386,11 @@ function serapOtomatis() { mkFinance(); cocokPic(); picPengisi(); vipPecah(); pi
 
 
 
+
+
+
+
+
 function pitaSumber() { dateLabel(); save(); serapOtomatis(); drawMk(); drawEv(); calc(); }
 
 
@@ -3364,7 +3450,29 @@ function pitaSumber() { dateLabel(); save(); serapOtomatis(); drawMk(); drawEv()
 
 
 
-function tombolBagi() { menuFixRow(); potonganBaris(); }
+
+
+
+
+function centangPayGroup() { menuFixRow(); payGroupRow(); }
+
+
+
+
+
+
+
+
+
+
+
+function tombolBagi() { menuFixRow(); potongKasirAktif(); potonganBaris(); }
+
+
+
+
+
+
 
 
 
@@ -3511,6 +3619,20 @@ function sama() { menuFixRow(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function panelOb() { obAktif(); kasirAktif(); obTotal(); }
 
 
@@ -3548,7 +3670,17 @@ function bindOb() { obTotal(); calc(); }
 
 
 
-function drawMk() { pitaBaris(); mkSelect(); porsiPic(); tombolBagi(); panelOb(); bind(); bindOb(); bukaBagi(); hapusBaris(); formatAllRp(); }
+function drawMk() { pitaBaris(); mkSelect(); porsiPic(); centangPayGroup(); tombolBagi(); panelOb(); bind(); bindOb(); calc(); bukaBagi(); hapusBaris(); formatAllRp(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3763,7 +3895,38 @@ function kartuEfek() { potonganBaris(); obTotal(); obAktif(); diskonKasir(); oms
 
 
 
-function calc() { sumDiakui(); kartuEfek(); barisTanpaShift(); potongKasirAktif(); potonganBaris(); sumDiskon(); empName(); potongKasir(); save(); render(); picPengisi(); drawMk(); drawEv(); drawKs(); drawSo(); pitaSumber(); }
+function calc() { sumDiakui(); kartuEfek(); barisTanpaShift(); potongKasirAktif(); potonganBaris(); sumDiskon(); empName(); potongKasir(); KIRIM(); dateLabel(); save(); render(); kirimSekarang(); picPengisi(); drawMk(); drawEv(); drawKs(); drawSo(); pitaSumber(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

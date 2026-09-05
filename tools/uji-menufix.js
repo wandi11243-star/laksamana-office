@@ -156,13 +156,42 @@ const tunggu = ms => new Promise(r => setTimeout(r, ms));
         w.eval("menuFixRow({menuFix:'ditempat'})") === 'ditempat' &&
         w.eval("menuFixRow({menuFix:'entah'})") === '' &&
         w.eval('menuFixRow({})') === '');
-    /* Yang kosong DIPERLAKUKAN seperti 'tetap' — kasir tetap dipotong. Itu
-       pilihan sadar: kalau tidak dipotong, omsetnya terhitung dua kali,
-       sekali di realisasi PIC dan sekali di realisasi kasir. */
+    /* Yang kosong BAWAANNYA diperlakukan seperti 'tetap' — kasir tetap
+       dipotong. Itu pilihan sadar: kalau tidak dipotong, omsetnya terhitung
+       dua kali, sekali di realisasi PIC dan sekali di realisasi kasir. */
     cek('yang kosong diperlakukan seperti tetap (kasir tetap dipotong)',
         w.eval('potongKasirAktif({})') === true &&
         w.eval("potongKasirAktif({menuFix:'tetap'})") === true &&
         w.eval("potongKasirAktif({menuFix:'ditempat'})") === false);
+
+    /* ---- PAYMENT GROUP (permintaan user 5 September 2026) ----
+       Kekosongan menuFix sekarang punya kotaknya sendiri di Finance: dicentang
+       berarti tamunya bayar sebagai satu grup (kasir dipotong), tidak
+       dicentang berarti bayar sendiri-sendiri di meja (kasir tidak dipotong). */
+    cek('payGroup false mematikan potongan kasir',
+        w.eval('potongKasirAktif({payGroup:false})') === false);
+    cek('payGroup true menyalakannya',
+        w.eval('potongKasirAktif({payGroup:true})') === true);
+    /* BAWAANNYA TRUE. Bawaan false akan MENCABUT potongan dari seluruh baris
+       lama yang sudah tersimpan begitu halaman dibuka lagi — omsetnya lalu
+       terhitung dua kali, tanpa satu pun galat. */
+    cek('...baris lama (tanpa field payGroup) tetap dipotong seperti sebelumnya',
+        w.eval('payGroupRow({})') === true && w.eval('potongKasirAktif({})') === true,
+        'potongan baris lama tercabut diam-diam');
+    /* Keputusan marketing MENANG. Dua tempat yang menjawab pertanyaan yang
+       sama akan berselisih suatu hari, dan yang selisih itu uang. */
+    cek('...tapi TIDAK menimpa keputusan marketing',
+        w.eval("potongKasirAktif({menuFix:'tetap',payGroup:false})") === true &&
+        w.eval("potongKasirAktif({menuFix:'ditempat',payGroup:true})") === false,
+        'payGroup mengalahkan menuFix — dua sumber untuk satu keputusan');
+    cek('kotaknya HANYA digambar saat menuFix masih kosong',
+        src.indexOf("if(menuFixRow(r)!=='') return '';") > -1);
+    /* Sebab yang berbeda harus berbunyi berbeda: yang memeriksa kenapa
+       kasirnya tidak dipotong perlu tahu itu keputusan marketing atau
+       keputusan finance. */
+    cek('...dan alasan "bukan payment group" dibedakan dari "menu dipilih di tempat"',
+        src.indexOf('bukan payment group') > -1 &&
+        src.indexOf('menu dipilih di tempat') > -1);
     /* ...dan justru karena diperlakukan diam-diam seperti 'tetap', ia WAJIB
        disebut. Tanpa itu tidak ada cara apa pun bagi finance untuk tahu
        marketing belum memutuskan. */
