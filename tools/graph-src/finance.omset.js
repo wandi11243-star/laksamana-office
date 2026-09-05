@@ -2666,6 +2666,17 @@ function kartuApprovalCompliment() { compsRentang(); compListPemberi(); compStat
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 function obAktif() {  }
 function obTotal() { obAktif(); }
 function porsiPic() { obTotal(); }

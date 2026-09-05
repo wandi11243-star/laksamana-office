@@ -475,6 +475,54 @@ marketing, kasir shift dipotong); tidak = bayar sendiri-sendiri di meja
 node tools/uji-menufix.js   # 26 pemeriksaan, jsdom (marketing + omset)
 ```
 
+### Open Bill: satu rumus untuk dua layar (5 September 2026)
+
+Keluhan user: *"yang diakui PIC include Open Bill, tapi di Performa tidak
+include"*. Benar — dan sebabnya **berkas kembar yang tertinggal**.
+
+`porsiPic()` ada DUA KALI: `deploy/finance/omset/` (kolom **Diakui PIC** di
+Breakdown) dan `deploy/finance/kas/` (**Realisasi** di Performa). Open Bill
+lahir 11 Agustus 2026 dan salinan di omset ikut diperbarui; salinan di kas
+tidak. Sejak itu satu baris yang sama punya dua angka:
+
+```
+Breakdown : 6.977.200 + 697.720 + 348.860 + 433.550 = 8.457.330
+Performa  : 6.977.200 + 697.720 + 348.860           = 8.023.780
+```
+
+Selisihnya tidak pernah muncul sebagai galat — cuma sebagai realisasi yang
+lebih kecil daripada yang dijanjikan halaman sebelah, dengan dua angka yang
+sama-sama kelihatan wajar.
+
+- **`obAktif()` / `obTotal()` / `porsiPic()` bertiga adalah berkas kembar.**
+  Kalau salah satu berkas disentuh, yang lain HARUS ikut.
+- **Open Bill TETAP tidak dipotong dari kasir.** Uangnya sudah masuk omset
+  bruto kasir hari itu, jadi ia memang diakui dua kali — penuh untuk kasir,
+  penuh untuk PIC. Keputusan user 11 Agustus 2026; jangan "diperbaiki" dengan
+  menambahkannya ke `potongKasir()`.
+- **Kolom Open Bill muncul di Daftar Event hanya kalau ada yang punya.** Tanpa
+  kolomnya, Omset + Tax + Service tidak berjumlah sama dengan kolom Diakui dan
+  selisihnya dilaporkan sebagai salah hitung; kalau selalu tampil, mayoritas
+  periode memajang satu kolom penuh Rp0. `colspan` keadaan kosong ikut
+  menyesuaikan — kalau tidak, baris "Belum ada event" melenceng satu kolom.
+- **Komentar di omset sempat menjanjikan "muncul di Performa Kasir", dan itu
+  TIDAK PERNAH benar** — panel Kas Kecil tidak mengenal Open Bill sama sekali
+  sampai tanggal ini, dan yang menyusul cuma `porsiPic()`-nya. Pengakuan
+  bernama untuk kasir memang belum ada di sana. Komentar yang menjanjikan
+  layar yang tidak ada membuat yang membacanya berhenti memeriksa; itu persis
+  yang membuat `porsiPic()` di kas tertinggal hampir sebulan — kesalahan yang
+  sama dengan `hpp.php` dan `cocokPic()`.
+
+```bash
+node tools/uji-openbill-performa.js   # 18 pemeriksaan, TANPA jsdom
+```
+
+Ujinya **memotong kedua rumusnya dari kedua berkas** lalu memberi baris yang
+sama — hasilnya wajib sama persis. Itu satu-satunya pemeriksaan yang tidak
+bisa basi sendiri, dan itu pula yang akan menangkap berkas kembar berikutnya
+yang tertinggal. `num()` ikut dipotong: yang membedakan hasil bisa saja justru
+di sana, bukan di `porsiPic()`.
+
 ### Breakdown: acara lintas hari & simpan yang dikonfirmasi (5 Sep 2026)
 
 Dua keluhan user, dua-duanya gagal **tanpa satu pun galat** dan dua-duanya

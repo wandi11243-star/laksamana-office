@@ -3242,9 +3242,29 @@ function kartuApprovalCompliment(divi, list){
    Data lama TIDAK dimigrasi, sama seperti dua perubahan aturan sebelumnya:
    bentuk datanya tidak berubah, hanya cara membacanya. Baris event lama yang
    terlanjur menyimpan `shift` dibiarkan — potonganHari() tidak lagi membacanya. */
+/* ---- OPEN BILL IKUT DIAKUI UNTUK PIC (5 September 2026, keluhan user:
+   "yang diakui PIC include Open Bill, tapi di Performa tidak include") ----
+
+   BERKAS KEMBAR obAktif()/obTotal()/porsiPic() di deploy/finance/omset/.
+   Open Bill lahir 11 Agustus 2026 di panel Omset dan porsiPic() DI SANA ikut
+   diperbarui; salinan di sini tidak. Sejak itu satu baris yang sama punya dua
+   angka: Breakdown menulis Rp8.457.330 di kolom "Diakui PIC", Performa
+   menghitungnya Rp8.023.780, dan selisih Rp433.550 itu tidak muncul sebagai
+   galat di layar mana pun — cuma sebagai realisasi yang lebih kecil daripada
+   yang dijanjikan halaman sebelah.
+
+   Kalau salah satunya disentuh, yang lain HARUS ikut. Ujinya membandingkan
+   kedua berkas, bukan menyalin rumusnya: lihat tools/uji-openbill-performa.js.
+
+   Open Bill TIDAK dipotong dari kasir mana pun — uangnya sudah masuk omset
+   bruto kasir hari itu. Jadi ia memang diakui dua kali, penuh untuk kasir dan
+   penuh untuk PIC. Itu keputusan user 11 Agustus 2026, bukan kelalaian;
+   jangan "diperbaiki" dengan menambahkannya ke potongKasir(). */
+function obAktif(r){ return !!(r && r.ob); }
+function obTotal(r){ return obAktif(r) ? num(r.obAmount)+num(r.obTax)+num(r.obService) : 0; }
 function porsiPic(r, divi){
-  if(divi==='event') return Math.round(num(r.amount)/2);
-  return num(r.amount)+num(r.tax)+num(r.service);
+  if(divi==='event') return Math.round(num(r.amount)/2)+obTotal(r);
+  return num(r.amount)+num(r.tax)+num(r.service)+obTotal(r);
 }
 /* Yang benar-benar dipotong dari kasir shift. Dipisah dari porsiPic() karena
    sejak 7 Agustus 2026 keduanya bukan angka yang sama lagi (lihat di atas).
@@ -4103,7 +4123,7 @@ function viewPerforma(divi){
     if(agg[r.picId]){
       const p=porsiPic(r,divi);
       agg[r.picId].real+=p;
-      agg[r.picId].events.push({date:d.date,name:r.eventName,amount:num(r.amount),tax:num(r.tax),service:num(r.service),porsi:p,tiket:!!r.tiket});
+      agg[r.picId].events.push({date:d.date,name:r.eventName,amount:num(r.amount),tax:num(r.tax),service:num(r.service),ob:obTotal(r),porsi:p,tiket:!!r.tiket});
     } else if(num(r.amount)>0 || r.eventName){
       yatim.push({date:d.date,name:r.eventName||'(tanpa nama)',amount:num(r.amount),
                   porsi:porsiPic(r,divi),srcPic:r.srcPic||'',ada:!!r.picId});
@@ -4165,10 +4185,25 @@ function viewPerforma(divi){
        membuat orang mengira lupa mengisinya. */
     const mk=divi==='marketing';
     const kolTax=mk?'<th class="num">Tax</th><th class="num">Service</th>':'';
-    const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td class="num mono">${fmtRp(ev.amount)}</td>${mk?`<td class="num mono">${fmtRp(ev.tax||0)}</td><td class="num mono">${fmtRp(ev.service||0)}</td>`:''}<td class="num mono">${fmtRp(ev.porsi)}</td></tr>`).join('');
-    const ketDiakui=mk
+    /* Kolom Open Bill hanya digambar kalau memang ADA yang punya. Kalau
+       selalu tampil, mayoritas periode memajang satu kolom penuh "Rp0" —
+       kesalahan yang sudah tercatat untuk kolom Tax & Service di section
+       event. Tapi begitu ada satu saja, ia WAJIB tampil: tanpa kolomnya,
+       jumlah Omset + Tax + Service tidak sama dengan kolom Diakui, dan
+       selisih yang tidak bisa dijelaskan dari layar akan dilaporkan sebagai
+       salah hitung. */
+    const totOb=a.events.reduce((s,x)=>s+num(x.ob),0);
+    const adaOb=totOb>0;
+    const kolOb=adaOb?'<th class="num">Open Bill</th>':'';
+    const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td class="num mono">${fmtRp(ev.amount)}</td>${mk?`<td class="num mono">${fmtRp(ev.tax||0)}</td><td class="num mono">${fmtRp(ev.service||0)}</td>`:''}${adaOb?`<td class="num mono">${num(ev.ob)?fmtRp(num(ev.ob)):'<span class="muted">—</span>'}</td>`:''}<td class="num mono">${fmtRp(ev.porsi)}</td></tr>`).join('');
+    /* Open Bill disebut TERPISAH, bukan dilebur ke kalimat rumusnya: ia satu-
+       satunya bagian yang tidak dipotong dari kasir mana pun, dan yang
+       memeriksa kenapa potongan kasir lebih kecil daripada yang diakui PIC
+       harus menemukan jawabannya di sini. */
+    const ketOb=totOb?` · termasuk <b>Open Bill ${fmtRp(totOb)}</b> yang tidak dipotong dari kasir mana pun`:'';
+    const ketDiakui=(mk
       ? `nilai omset total ${fmtRp(nilaiEv)} · diakui <b>omset + tax + service</b>, dan omsetnya dipotong dari kasir shift`
-      : `nilai total ${fmtRp(nilaiEv)} · diakui <b>50%</b>, kasir tidak dipotong`;
+      : `nilai total ${fmtRp(nilaiEv)} · diakui <b>50%</b>, kasir tidak dipotong`)+ketOb;
     document.getElementById('pf_body').innerHTML=`
       <div class="grid g4">
         <div class="stat accent"><div class="lab">Target ${modeHarian()?'Harian':'Bulanan'}</div><div class="val sm mono">${fmtRp(tgt)}</div>${modeHarian()?`<div class="foot">dari target bulanan ${fmtRp(e.target)}</div>`:''}</div>
@@ -4179,7 +4214,7 @@ function viewPerforma(divi){
       <div class="card"><div class="prog ${a.real>=tgt?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">${top?('Top event: <b>'+esc(top.name||'—')+'</b> · '+fmtRp(top.amount)):'Belum ada event.'}</div></div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset per Event</h3><div class="chart-box sm"><canvas id="pf_chart"></canvas></div></div>
-        <div class="card"><h3>Daftar Event</h3><div class="card-sub">${cnt} event · ${ketDiakui}</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th><th class="num">${mk?'Omset':'Nilai Event'}</th>${kolTax}<th class="num">Diakui</th></tr></thead><tbody>${rows||`<tr><td colspan="${mk?6:4}" class="empty">Belum ada event.</td></tr>`}</tbody></table></div></div>
+        <div class="card"><h3>Daftar Event</h3><div class="card-sub">${cnt} event · ${ketDiakui}</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th><th class="num">${mk?'Omset':'Nilai Event'}</th>${kolTax}${kolOb}<th class="num">Diakui</th></tr></thead><tbody>${rows||`<tr><td colspan="${(mk?6:4)+(adaOb?1:0)}" class="empty">Belum ada event.</td></tr>`}</tbody></table></div></div>
       </div>
       ${kartuCompliment(a.compRows||[], pid==='__all__')}`;
     clearChartsExcept();

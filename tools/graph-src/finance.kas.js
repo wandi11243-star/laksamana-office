@@ -3106,7 +3106,7 @@ function kartuCompliment() { compPotong(); }
 
 
 
-function kartuApprovalCompliment() { compsRentang(); compListPemberi(); compStatusPemberi(); compPotong(); chip(); porsiPic(); potonganHari(); }
+function kartuApprovalCompliment() { compsRentang(); compListPemberi(); compStatusPemberi(); compPotong(); chip(); porsiPic(); potonganHari(); obAktif(); obTotal(); potongKasir(); }
 
 
 
@@ -3242,7 +3242,27 @@ function kartuApprovalCompliment() { compsRentang(); compListPemberi(); compStat
 
 
 
-function porsiPic() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function obAktif() {  }
+function obTotal() { obAktif(); }
+function porsiPic() { obTotal(); }
 
 
 
@@ -4076,7 +4096,22 @@ function pitaYatimPerforma() { dateLabel(); }
 
 
 
-function viewPerforma() { rentangAktif(); porsiPic(); compListPicRentang(); compPotong(); modeHarian(); labelRentang(); pitaYatimPerforma(); kartuApprovalCompliment(); targetPic(); pct(); aturTombolKirim(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+function viewPerforma() { rentangAktif(); porsiPic(); obTotal(); compListPicRentang(); compPotong(); modeHarian(); labelRentang(); pitaYatimPerforma(); kartuApprovalCompliment(); targetPic(); pct(); aturTombolKirim(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
