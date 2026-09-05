@@ -6219,7 +6219,7 @@ function pipeIsiEvents() { paintEvents(); briefSetPeriode(); esc(); briefGeserBu
 
 
 
-function paintEvents() { $(); briefRentang(); clientName(); tblUrut(); call(); briefLabelBulan(); briefBulanIni(); evSaringanBawaan(); fmtDate(); empty(); esc(); userName(); tblPage(); tblHead(); eventFinance(); daysTo(); go(); jenisEvent(); fmtRentang(); statusChip(); inisial(); genBriefFor(); draftNegotiation(); svg(); tblPagerHtml(); }
+function paintEvents() { $(); briefRentang(); clientName(); tblUrut(); call(); briefLabelBulan(); briefBulanIni(); evSaringanBawaan(); fmtDate(); empty(); esc(); userName(); tblPage(); tblHead(); eventFinance(); daysTo(); go(); jenisEvent(); menuFix(); menuFixChip(); fmtRentang(); statusChip(); inisial(); genBriefFor(); draftNegotiation(); svg(); tblPagerHtml(); }
 
 
 
@@ -6342,9 +6342,51 @@ function paintEvents() { $(); briefRentang(); clientName(); tblUrut(); call(); b
 
 
 
-function INV_STATUS_MAP() {  }
 
-function newEvent() { modal(); closeModal(); svg(); comboHTML(); neClientDariCari(); ff(); neJenisToggle(); today(); submitNewEvent(); }
+function INV_STATUS_MAP() { setMenuFixVip(); }
+
+
+
+
+
+
+
+
+
+
+function setMenuFixBaru() { $(); menuFixHelpHTML(); }
+
+
+
+
+
+
+function newEvent() { modal(); closeModal(); svg(); comboHTML(); neClientDariCari(); ff(); neJenisToggle(); today(); menuFixSegHTML(); menuFixHelpHTML(); submitNewEvent(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6396,7 +6438,18 @@ function neClientDariCari() { $(); neClientChange(); neClientLabel(); }
 function neClientChange() { $(); }
 
 
-function submitNewEvent() { $(); toast(); jenisEvent(); uid(); today(); logAct(); save(); closeModal(); go(); }
+function submitNewEvent() { $(); toast(); jenisEvent(); menuFix(); uid(); today(); logAct(); save(); closeModal(); go(); }
+
+
+
+
+
+
+
+
+
+
+
 
 
 

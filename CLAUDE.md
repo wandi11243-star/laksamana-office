@@ -415,6 +415,49 @@ jadi blob satu baris membuat head yang menyimpan belakangan menghapus kerja head
 lain tanpa error. Penulisannya granular per baris — `simpanSel` di jadwal,
 `simpanAjuan`/`putusAjuan` di dw. Jangan "rapikan" kembali jadi `saveAll`.
 
+### Pengakuan Omset: "belum ditentukan" bukan pilihan ketiga (5 Sep 2026)
+
+Keluhan user: *"kenapa ada yang menu belum ditentukan, padahal di sistem ada
+tulisan menu sudah ditetapkan dan menu dipilih di tempat"*. Betul — pilihannya
+memang cuma dua (`MENU_FIX` di `deploy/marketing/`). Yang ketiga adalah
+**keadaan**, bukan pilihan: `menuFix` yang masih kosong.
+
+Sebabnya **pertanyaan yang tidak pernah ditanyakan**. Kartu Pengakuan Omset
+(`menuFixCard`) cuma ada di halaman DETAIL event, dan tidak satu pun yang
+memaksa membukanya — jadi event yang dibuat lewat *Event Baru* lalu langsung
+ditinggalkan lahir tanpa jawaban. Reservasi VIP tidak kena karena di sana ia
+sudah wajib sejak awal (`f.jenis==='Assisted' && !menuFix(f)`).
+
+Sekarang `newEvent()` ikut menanyakannya dan `submitNewEvent()` menolak yang
+kosong. Yang perlu dijaga:
+
+- **Bawaannya tetap KOSONG, jangan dijatuhkan ke salah satu.** `tetap` membuat
+  kasir dipotong untuk acara yang tidak seharusnya; `ditempat` membuat omset
+  marketing hilang dari pengakuan. Dua-duanya salah dengan cara yang tidak
+  menimbulkan galat apa pun — sudah tertulis di komentar `MENU_FIX` sejak
+  penanda ini lahir, dan itu masih berlaku.
+- **Ditolak SEBELUM client baru dibuat.** Kalau pemeriksaannya di belakang,
+  formulir yang ditolak sudah terlanjur melahirkan satu Lead di Database
+  Client, dan Lead itu tinggal di sana tanpa ada yang tahu asalnya.
+- **`NE_MENUFIX` hidup di luar DOM**, dan `setMenuFixBaru()` cuma menukar kelas
+  tombol + teks bantuannya — bukan menggambar ulang modalnya. Menggambar ulang
+  menghapus Nama Event & client yang sudah diketik. Polanya disalin dari
+  `setMenuFixVip()`.
+- **Daftar event menandai yang belum menjawab** (`menuFixChip`), dan HANYA yang
+  belum. Sebelumnya penandanya cuma ada di kartu detail dan di pita Breakdown
+  milik Finance — jadi orang yang harus memutuskannya tidak punya satu pun
+  layar yang menunjukkan event mana saja yang menunggu.
+- **Event lama tetap kosong**, dan itu benar: menebaknya adalah keputusan
+  tentang uang yang tidak pernah diambil siapa-siapa. Dibetulkan satu per satu
+  lewat chip di daftar event → kartu Pengakuan Omset.
+- Di Finance yang kosong tetap **diperlakukan seperti `tetap`** (kasir tetap
+  dipotong — kalau tidak, omsetnya terhitung dua kali), dan justru karena
+  diam-diam begitu, ia **wajib disebut** di pita barisnya.
+
+```bash
+node tools/uji-menufix.js   # 20 pemeriksaan, jsdom (marketing + omset)
+```
+
 ### Breakdown Sumber → Performa: PIC yang kosong (4 September 2026)
 
 Keluhan user: *"omset performa event tidak ketarik padahal sudah di-set

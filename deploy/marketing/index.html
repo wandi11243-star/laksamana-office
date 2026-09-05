@@ -6315,7 +6315,8 @@ function paintEvents(){
   p.items.forEach(e=>{ const f=eventFinance(e); const rd=daysTo(e.tanggal);
     const wj=EVENT_COLOR[e.jenis]||'--muted';
     h+='<tr class="row-click" onclick="go(\'event\',\''+e.id+'\')"><td><div class="cell-strong">'+esc(e.nama)
-     +' <span class="chip" style="background:color-mix(in srgb,var('+wj+') 15%,transparent);color:var('+wj+')"><span class="cd" style="background:var('+wj+')"></span>'+esc(jenisEvent(e))+'</span></div>'
+     +' <span class="chip" style="background:color-mix(in srgb,var('+wj+') 15%,transparent);color:var('+wj+')"><span class="cd" style="background:var('+wj+')"></span>'+esc(jenisEvent(e))+'</span>'
+     +(menuFix(e)?'':' '+menuFixChip(e))+'</div>'
      +'<div class="cell-sub">'+esc(clientName(e.clientId))+'</div></td>'
      +'<td class="mono">'+fmtRentang(e)+'<div class="cell-sub">'+(rd>=0?(rd===0?'Hari ini':'H-'+rd):'lewat')+'</div></td><td class="mono">'+(e.pax||'—')+'</td><td>'+statusChip(e.status)+'</td>'
      /* Avatar inisial + nama depan, bentuk yang sama dengan chip PIC di
@@ -6344,7 +6345,24 @@ function paintEvents(){
 TBL_RENDER.events=paintEvents;
 function INV_STATUS_MAP(){ const m={}; Object.keys(INV_STATUS).forEach(k=>m[k]={c:INV_STATUS[k],t:k}); return m; }
 
+/* Pengakuan Omset di formulir Event Baru. Ditaruh di luar DOM karena modalnya
+   digambar sekali lalu diisi tangan — kalau nilainya cuma hidup di kelas
+   tombolnya, membacanya balik saat Simpan berarti menanyai DOM tentang sesuatu
+   yang seharusnya sudah diketahui. Polanya sama dengan VIP_FORM.menuFix. */
+let NE_MENUFIX='';
+/* Penanda menu di formulir Event Baru. Yang diganti cuma kelas tombolnya dan
+   teks bantuannya, BUKAN seluruh modal: menggambar ulang modalnya menghapus
+   Nama Event dan client yang sudah diketik, dan yang mengetiknya tidak akan
+   tahu kenapa. Disalin dari setMenuFixVip(), yang sudah lama begitu. */
+function setMenuFixBaru(v){
+  NE_MENUFIX=v;
+  const seg=$('ne_menufix');
+  if(seg) [...seg.children].forEach(b=>b.classList.toggle('on',b.dataset.v===v));
+  const fh=seg&&seg.parentNode?seg.parentNode.querySelector('.fh'):null;
+  if(fh) fh.outerHTML=menuFixHelpHTML(v);
+}
 function newEvent(){
+  NE_MENUFIX='';                       // modal baru, pilihan sebelumnya tidak ikut
   const dealClients=S.clients.slice().sort((a,b)=>String(a.nama).localeCompare(String(b.nama)));
   // "+ Client baru" ikut jadi salah satu baris daftar, bukan tombol terpisah:
   // orang mencari dulu, dan baru sadar client-nya belum ada saat tidak ketemu.
@@ -6366,6 +6384,30 @@ function newEvent(){
      +'<input class="inp" id="ne_jenisLain" style="margin-top:8px;display:none" placeholder="Tulis jenis eventnya"></div>'
    +'<div class="field"><label>Tanggal<span class="req">*</span></label><input class="inp" type="date" id="ne_tanggal" value="'+today()+'"></div>'
    +ff('Estimasi Pax','ne_pax','','number')+'</div>'
+   /* PENGAKUAN OMSET DITANYAKAN DI SINI, DAN WAJIB (5 September 2026, keluhan
+      user: "kenapa ada yang menu belum ditentukan, padahal di sistem ada
+      tulisan menu sudah ditetapkan dan menu dipilih di tempat").
+
+      Pertanyaannya memang cuma punya dua jawaban — tapi sampai hari ini ia
+      TIDAK PERNAH DITANYAKAN saat event dibuat. Kartunya hanya ada di halaman
+      detail event (menuFixCard), dan tidak ada satu pun yang memaksa
+      membukanya; event yang dibuat lalu langsung ditinggalkan karena itu
+      lahir tanpa jawaban. "Menu belum ditentukan" yang muncul di Breakdown
+      Finance adalah KEADAAN itu, bukan pilihan ketiga yang bisa dipilih
+      siapa pun.
+
+      Ditanyakan di depan, alasan yang sama persis dengan Reservasi VIP
+      Assisted: jawabannya sudah diketahui sejak acaranya dibuat, dan yang
+      dikosongkan tidak akan pernah kembali diisi — sementara Finance yang
+      menanggung akibatnya.
+
+      Bawaannya tetap KOSONG, tidak dijatuhkan ke salah satu. "tetap" membuat
+      kasir dipotong untuk acara yang tidak seharusnya; "ditempat" membuat
+      omset marketing hilang dari pengakuan. Dua-duanya salah dengan cara
+      yang tidak menimbulkan galat apa pun. */
+   +'<div class="field"><label>Pengakuan Omset<span class="req">*</span></label>'
+   +menuFixSegHTML('ne_menufix',NE_MENUFIX,'setMenuFixBaru',true)
+   +menuFixHelpHTML(NE_MENUFIX)+'</div>'
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Batal</button><button class="btn pri" onclick="submitNewEvent()">Buat & Detailing →</button></div>');
 }
 /* "Lainnya" di Jenis Event membuka kotak ketikan. Sebelum ini jenisnya
@@ -6413,6 +6455,17 @@ function submitNewEvent(){
     jenisLain=($('ne_jenisLain')?$('ne_jenisLain').value:'').trim();
     if(!jenisLain) return toast('Jenis event belum ditulis','Pilihan "Lainnya" harus ditulis jenisnya.','err');
   }
+  /* Wajib, alasan yang sama dengan Reservasi VIP Assisted — lihat keterangan
+     panjang di formulirnya. Divalidasi lewat menuFix() yang sama dengan
+     seluruh modul, bukan dibandingkan sendiri di sini: dua pemeriksa untuk
+     satu nilai akan berselisih begitu ada pilihan ketiga.
+
+     Ditaruh SEBELUM client baru dibuat. Kalau di belakang, formulir yang
+     ditolak karena Pengakuan Omset sudah terlanjur melahirkan satu Lead di
+     Database Client — dan Lead itu tinggal di sana tanpa ada yang tahu
+     asalnya. */
+  const mf=menuFix({menuFix:NE_MENUFIX});
+  if(!mf) return toast('Pengakuan Omset wajib','Pilih: menunya sudah ditetapkan, atau dipilih di tempat. Finance memakainya untuk tahu apakah omset acara ini memotong kasir.','err');
   // client baru dibuat langsung dari sini (masuk CRM sebagai Lead)
   if(cid==='__new__'){
     const cn=$('ne_cnama').value.trim(), chp=$('ne_chp').value.trim();
@@ -6424,7 +6477,7 @@ function submitNewEvent(){
   const cl=S.clients.find(c=>c.id===cid);
   if(!cl)return toast('Client tidak ditemukan','Pilih client yang valid.','err');
   const pic = ME.role==='marketing' ? ME.id : (cl.mktPIC || ME.id);
-  const ev={id:uid('e'),clientId:cid,nama,jenis,tanggal,status:'Lead',pipeCol:'Lead',mktPIC:pic,pax,invoiceSent:false,createdAt:today(),detail:{jenis,jenisLain,tanggal,pax},payments:[],tasks:{}};
+  const ev={id:uid('e'),clientId:cid,nama,jenis,tanggal,status:'Lead',pipeCol:'Lead',mktPIC:pic,pax,menuFix:mf,invoiceSent:false,createdAt:today(),detail:{jenis,jenisLain,tanggal,pax},payments:[],tasks:{}};
   S.events.unshift(ev); logAct('event',ev.id,'Event dibuat',nama);
   save(); closeModal(); go('event',ev.id);
 }
