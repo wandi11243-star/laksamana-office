@@ -546,9 +546,6 @@
 
 
 
-
-
-
 function pct() {  }
 
 
@@ -1042,11 +1039,10 @@ function selfDiskon() { selfRow(); }
 
 
 
-function pembagiHari() { daysInMonth(); }
 
 
 
-function dailyTarget() { pembagiHari(); }
+
 
 
 
@@ -1089,20 +1085,6 @@ function rentangAktif() { modeHarian(); daysOfMonth(); getDay(); }
 
 
 function labelRentang() { modeHarian(); dateLabel(); labelPeriode(); }
-
-
-
-function targetRentang() { modeHarian(); dailyTarget(); }
-
-
-
-
-
-
-
-function targetPic() { modeHarian(); pembagiHari(); }
-
-
 
 
 
@@ -1282,39 +1264,7 @@ function viewInput() { getDay(); calInner(); go(); repOf(); repPay(); }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function recalc() { v(); netOf(); dailyTarget(); pct(); grossOf(); avgSpendOf(); taxSvcOf(); tagihanOf(); daysOfMonth(); labelPeriode(); bonRingkasHari(); dateLabel(); fmtWaktu(); save(); render(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function recalc() { v(); netOf(); grossOf(); avgSpendOf(); taxSvcOf(); tagihanOf(); daysOfMonth(); labelPeriode(); bonRingkasHari(); dateLabel(); fmtWaktu(); save(); render(); }
 
 
 
@@ -4052,7 +4002,7 @@ function pasang() { serapOtomatis(); drawMk(); drawEv(); calc(); pitaSumber(); m
 
 
 
-function labelPeriode() { dailyTarget(); }
+function labelPeriode() {  }
 
 
 

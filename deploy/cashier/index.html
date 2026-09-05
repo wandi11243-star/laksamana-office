@@ -819,14 +819,16 @@ function omsetKasir(r){ return num(r&&r.amount)-num(r&&r.disc); }
 function diskonKasir(r){ return r&&r.off?0:num(r&&r.disc); }
 /* angka desimal (UPT, party size) — 2 angka di belakang koma, gaya id-ID */
 const fmtDec=n=>(isFinite(n)?n:0).toLocaleString('id-ID',{minimumFractionDigits:2,maximumFractionDigits:2});
-function pembagiHari(monthKey){
-  const [y,m]=monthKey.split('-').map(Number);
-  return DB.settings.useWorkingDays?DB.settings.workingDaysPerMonth:daysInMonth(y,m);
-}
-function dailyTarget(monthKey){
-  const div=pembagiHari(monthKey);
-  return div>0?DB.settings.companyMonthlyTarget/div:0;
-}
+/* SELURUH KONSEP TARGET DICABUT dari modul ini 5 September 2026, berbarengan
+   dengan panel Finance (permintaan user). pembagiHari/dailyTarget/targetPic
+   dibuang seluruhnya — fungsi yang tidak dipanggil siapa pun akan dipanggil
+   lagi suatu hari oleh orang yang mengira ia masih berarti sesuatu.
+
+   Yang TETAP ada: Bonus Kasir. Tangganya dihitung dari omset yang DIAKUI,
+   bukan dari pencapaian target, jadi ia tidak ikut hilang.
+
+   settings.companyMonthlyTarget dan employees[].target sengaja tidak dihapus
+   dari data — lihat catatan yang sama di deploy/finance/kas/. */
 function daysOfMonth(monthKey){ return DB.daily.filter(d=>monthKeyOf(d.date)===monthKey).sort((a,b)=>a.date<b.date?-1:1); }
 function getDay(date){ return DB.daily.find(d=>d.date===date); }
 function empName(div,id){ const e=(DB.employees[div]||[]).find(x=>x.id===id); return e?e.name:'—'; }
@@ -860,15 +862,6 @@ function labelPeriode(mk){
   return isNaN(d)?mk:d.toLocaleDateString('id-ID',{month:'long',year:'numeric'});
 }
 function labelRentang(){ return modeHarian()?dateLabel(VIEWDATE):labelPeriode(PERIOD); }
-/* Target PIC selalu disimpan BULANAN; mode harian membaginya dengan pembagi
-   yang sama yang dipakai target harian perusahaan. Tanpa proporsi ini,
-   achievement harian tiap kasir tampil ~1/30 dan semua orang terlihat gagal
-   total tiap hari — benar secara aritmetika, tapi tidak berarti apa pun. */
-function targetPic(bulanan){
-  if(!modeHarian()) return num(bulanan);
-  const div=pembagiHari(monthKeyOf(VIEWDATE));
-  return div>0?num(bulanan)/div:0;
-}
 function compsRentang(){ return modeHarian()?compsOn(VIEWDATE):compsBulan(PERIOD); }
 
 function setViewMode(m){
@@ -2613,13 +2606,14 @@ function bonusKasir(real){
 }
 /* Baris ringkasan: target, omset diakui, achievement, bonus, dan jarak ke
    level berikutnya dalam SATU baris — dibaca sebagai satu cerita. */
-function baguRingkasKasir(a, tgt, ach, harian, targetBulanan){
+/* Bonus TIDAK ikut dicabut bersama target: tangganya dihitung dari omset yang
+   DIAKUI, bukan dari pencapaian target. Yang hilang cuma dua kotak
+   pertamanya. BERKAS KEMBAR dengan versi di deploy/finance/kas/. */
+function baguRingkasKasir(a){
   const b=bonusKasir(a.real);
   const kurang=b.next?Math.max(0,b.next.min-a.real):0;
-  return `<div class="grid g5">
-    <div class="stat accent"><div class="lab">Target ${harian?'Harian':'Bulanan'}</div><div class="val sm mono">${fmtRp(tgt)}</div>${harian?`<div class="foot">dari target bulanan ${fmtRp(targetBulanan)}</div>`:''}</div>
-    <div class="stat"><div class="lab">Omset Diakui</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">angka final · dasar bonus</div></div>
-    <div class="stat"><div class="lab">Achievement</div><div class="val sm">${ach.toFixed(0)}%</div><div class="foot">${a.real>=tgt?'<span class="chip ok">Achieve</span>':'<span class="chip bad">Belum</span>'}</div></div>
+  return `<div class="grid g3">
+    <div class="stat accent"><div class="lab">Omset Diakui</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">angka final · dasar bonus</div></div>
     <div class="stat ${b.bonus?'accent':''}"><div class="lab">Bonus Saat Ini</div><div class="val sm mono">${fmtRp(b.bonus)}</div><div class="foot">${esc(b.label)}</div></div>
     <div class="stat"><div class="lab">${b.next?'Menuju '+b.next.label:'Level Tertinggi'}</div>
       <div class="val sm mono">${b.next?fmtRp(kurang):'—'}</div>
@@ -2809,8 +2803,7 @@ function viewKasir(){
       list.forEach(x=>{const g=agg[x.id];if(!g)return;a.real+=g.real;a.masuk+=g.masuk;a.off+=g.off;a.potong+=(g.potong||0);a.comp+=(g.comp||0);(g.compRows||[]).forEach(c=>a.compRows.push(c));g.hist.forEach(h=>a.hist.push(Object.assign({kasir:x.name},h)));(g.ob||[]).forEach(o=>a.ob.push(Object.assign({kasir:x.name},o)));});
     } else { k=list.find(x=>x.id===kid); a=agg[kid]; }
     if(!k||!a) return;
-    const tgt=targetPic(k.target);   // bulanan diproporsikan di mode harian
-    const ach=pct(a.real,tgt),avg=a.masuk>0?a.real/a.masuk:0;
+    const avg=a.masuk>0?a.real/a.masuk:0;
     /* Riwayat di MODUL INI hanya berstatus Masuk dan OFF (permintaan user
        11 Agustus 2026). Baris `extra` — potongan compliment yang jatuh di hari
        tanpa omset, jadi tampil sebagai baris tersendiri bernominal minus —
@@ -2849,8 +2842,8 @@ function viewKasir(){
       wadah.querySelectorAll('#ks_pager button').forEach(b=>{ if(!b.disabled) b.onclick=()=>{ KS_HAL=num(b.dataset.hal); gambarRiwayat(); }; });
     };
     document.getElementById('ks_body').innerHTML=`
-      ${baguRingkasKasir(a, tgt, ach, modeHarian(), k.target)}
-      <div class="card"><div class="prog ${a.real>=tgt?'ok':''}"><i style="width:${Math.min(ach,100)}%"></i></div><div class="foot" style="margin-top:8px;font-size:12.5px;color:var(--muted)">Progress target · omset diakui ${fmtRp(a.real)} dari ${fmtRp(tgt)} · ${a.masuk} hari masuk, ${a.off} hari OFF (rata-rata ${fmtRp(avg)}/hari)</div></div>
+      ${baguRingkasKasir(a)}
+      <div class="card"><div class="foot" style="font-size:12.5px;color:var(--muted)">Omset diakui ${fmtRp(a.real)} · ${a.masuk} hari masuk, ${a.off} hari OFF (rata-rata ${fmtRp(avg)}/hari)</div></div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset Harian</h3><div class="chart-box sm"><canvas id="ks_chart"></canvas></div></div>
         <div class="card"><h3>Riwayat</h3><div class="card-sub">${a.masuk} hari masuk, ${a.off} hari OFF · angka per hari sudah <b>final</b>${compLuar?` · ada ${fmtRp(-compLuar)} potongan compliment yang jatuh di hari tanpa omset, jadi tidak punya barisnya sendiri di sini — Omset Diakui di atas sudah memperhitungkannya`:', jumlahnya tepat sama dengan Omset Diakui di atas'}</div><div id="ks_riw"></div></div>

@@ -477,15 +477,12 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
            Finance membacanya lewat API_URL dan tidak pernah menulisinya. -->
       <div class="nav-group">
         <div class="nav-label">Sistem</div>
-        <!-- Pengaturan Target PINDAH ke panel Kas Kecil & Performa (12 Agustus
-             2026, permintaan user): ../kas/ → Sistem → Pengaturan Target.
-             Yang memakai angkanya memang semua ada di sana (Dashboard Omset,
-             Ranking PIC, tiga halaman Performa), sementara panel ini cuma
-             tempat mengetik omset tiap malam.
-
-             Panel ini TETAP MEMBACA target — dailyTarget() dipakai di Input
-             Omset Harian untuk pencapaian harian. Yang pindah cuma tempat
-             MENGUBAHNYA, dan penunjuk arahnya ada di halaman itu. -->
+        <!-- Pengaturan Target pernah ada di sini, lalu pindah ke panel Kas
+             Kecil (12 Agustus 2026), lalu DICABUT SELURUHNYA dari kedua panel
+             beserta konsep targetnya (5 September 2026, permintaan user).
+             Tidak ada lagi target perusahaan maupun target per PIC di mana
+             pun; yang tinggal cuma realisasi. Datanya sengaja dibiarkan utuh
+             di database — lihat catatan panjangnya di dekat daysOfMonth(). -->
         <a data-view="akses"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2"/><path d="m16 11 2 2 4-4"/></svg></span> Kelola Akses Kru</a>
       </div>
     </nav>
@@ -1042,14 +1039,13 @@ const fmtDec=n=>(isFinite(n)?n:0).toLocaleString('id-ID',{minimumFractionDigits:
 /* Pembagi hari sebulan — dipakai bareng oleh target harian perusahaan DAN
    proporsi target per PIC saat halaman dilihat per hari. Satu tempat, supaya
    "target harian" tidak pernah berarti dua angka berbeda di dua halaman. */
-function pembagiHari(monthKey){
-  const [y,m]=monthKey.split('-').map(Number);
-  return DB.settings.useWorkingDays?DB.settings.workingDaysPerMonth:daysInMonth(y,m);
-}
-function dailyTarget(monthKey){
-  const div=pembagiHari(monthKey);
-  return div>0?DB.settings.companyMonthlyTarget/div:0;
-}
+/* SELURUH KONSEP TARGET DICABUT dari panel Finance & Cashier 5 September 2026
+   (permintaan user) — target perusahaan maupun target per PIC. Yang tinggal
+   cuma REALISASI.
+
+   settings.companyMonthlyTarget dan employees[].target SENGAJA TIDAK dihapus
+   dari data: menghapus angka yang tidak bisa dikembalikan demi kerapian layar
+   bukan pertukaran yang baik. Yang dicabut kodenya, bukan datanya. */
 function daysOfMonth(monthKey){ return DB.daily.filter(d=>monthKeyOf(d.date)===monthKey).sort((a,b)=>a.date<b.date?-1:1); }
 function getDay(date){ return DB.daily.find(d=>d.date===date); }
 function empName(div,id){ const e=(DB.employees[div]||[]).find(x=>x.id===id); return e?e.name:'—'; }
@@ -1090,20 +1086,6 @@ function rentangAktif(){
 }
 function labelRentang(){
   return modeHarian()?dateLabel(VIEWDATE):labelPeriode(PERIOD);
-}
-/* Target perusahaan untuk rentang yang sedang dilihat. */
-function targetRentang(){
-  return modeHarian()?dailyTarget(monthKeyOf(VIEWDATE)):DB.settings.companyMonthlyTarget;
-}
-/* Target seorang PIC untuk rentang yang sedang dilihat. Target yang disimpan
-   selalu BULANAN, jadi mode harian membaginya dengan pembagi yang sama yang
-   dipakai target harian perusahaan. Kalau tidak diproporsikan, achievement
-   harian tiap orang akan tampil ~1/30 dan semua orang terlihat gagal total
-   tiap hari — angka yang benar secara aritmetika tapi tidak berarti apa pun. */
-function targetPic(bulanan){
-  if(!modeHarian()) return num(bulanan);
-  const div=pembagiHari(monthKeyOf(VIEWDATE));
-  return div>0?num(bulanan)/div:0;
 }
 /* Compliment dalam rentang aktif. compsBulan/compsOn sudah ada; ini cuma
    memilih yang mana yang berlaku supaya view tidak perlu bercabang sendiri. */
@@ -1259,13 +1241,6 @@ function viewInput(){
       <div class="grid g2">
         <div class="stat"><div class="lab">Avg Spending</div><div class="val sm" id="s_avg">Rp0</div><div class="foot">Omset ÷ Bill</div></div>
         <div class="stat"><div class="lab">Service + Tax</div><div class="val sm" id="s_tax">Rp0</div><div class="foot" id="s_tax_foot">di luar omset</div></div>
-        <div class="stat"><div class="lab">Target Harian</div><div class="val sm" id="s_target">Rp0</div><div class="foot" id="s_target_foot"></div></div>
-        <div class="stat"><div class="lab">Achievement Harian</div><div class="val sm" id="s_ach">0%</div><div class="foot" id="s_status"></div></div>
-      </div>
-      <div class="card" style="margin-top:16px">
-        <div class="lab" style="font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">Progress ke Target Harian</div>
-        <div class="prog" id="s_prog"><i style="width:0"></i></div>
-        <div class="foot" id="s_prog_foot" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
       </div>
       <!-- TARGET BULANAN (permintaan user 7 Agustus 2026). Halaman ini dulu
            hanya menjawab "hari ini sudah tercapai belum", padahal yang
@@ -1277,18 +1252,9 @@ function viewInput(){
         <h3>📅 Pencapaian Bulan Berjalan</h3>
         <div class="card-sub" id="s_bln_sub">—</div>
         <div class="grid g2" style="margin:12px 0">
-          <!-- Penunjuk arah, bukan sekadar keterangan: Pengaturan Target pindah
-               ke panel Kas Kecil & Performa (12 Agustus 2026), dan menu di
-               panel ini sudah tidak ada. Tanpa tautan ini orang yang biasa
-               mengubah target akan mencarinya di sidebar yang tidak lagi
-               memuatnya, lalu mengira halamannya hilang. -->
-          <div class="stat accent"><div class="lab">Target Bulanan</div><div class="val sm mono" id="s_btgt">Rp0</div><div class="foot">diatur di <a href="../kas/" style="color:inherit;text-decoration:underline">Kas Kecil &amp; Performa</a> → Sistem → Pengaturan Target</div></div>
-          <div class="stat"><div class="lab">Realisasi Bulan Ini</div><div class="val sm mono" id="s_breal">Rp0</div><div class="foot" id="s_breal_foot"></div></div>
-          <div class="stat"><div class="lab">Achievement Bulanan</div><div class="val sm" id="s_bach">0%</div><div class="foot" id="s_bstatus"></div></div>
-          <div class="stat"><div class="lab" id="s_bsisa_lab">Sisa Dikejar</div><div class="val sm mono" id="s_bsisa">Rp0</div><div class="foot">sesudah hari ini</div></div>
+          <div class="stat accent"><div class="lab">Realisasi Bulan Ini</div><div class="val sm mono" id="s_breal">Rp0</div><div class="foot" id="s_breal_foot"></div></div>
+          <div class="stat"><div class="lab">Rata-rata per Hari</div><div class="val sm mono" id="s_bavg">Rp0</div><div class="foot">termasuk hari yang sedang diketik</div></div>
         </div>
-        <div class="prog" id="s_bprog"><i style="width:0"></i></div>
-        <div class="foot" id="s_bprog_foot" style="font-size:12px;color:var(--muted);margin-top:8px"></div>
       </div>
     </div>
   </div>`;
@@ -1300,19 +1266,12 @@ function viewInput(){
 
   const recalc=()=>{
     const t={food:num(v('i_food')),bev:num(v('i_bev')),lainnya:num(v('i_lainnya')),discount:num(v('i_discount')),bill:num(v('i_bill')),service_charge:num(v('i_svc')),tax:num(v('i_tax'))};
-    const net=netOf(t), tgt=dailyTarget(monthKeyOf(inputDate)), ach=pct(net,tgt);
+    const net=netOf(t);
     document.getElementById('s_omset').textContent=fmtRp(net);
     document.getElementById('s_omset_foot').textContent=`Gross ${fmtRp(grossOf(t))} − Diskon ${fmtRp(t.discount)}`;
     document.getElementById('s_avg').textContent=fmtRp(avgSpendOf(t));
     document.getElementById('s_tax').textContent=fmtRp(taxSvcOf(t));
     document.getElementById('s_tax_foot').textContent=`Service ${fmtRp(t.service_charge)} + Tax ${fmtRp(t.tax)} · tagihan ${fmtRp(tagihanOf(t))}`;
-    document.getElementById('s_target').textContent=fmtRp(tgt);
-    document.getElementById('s_target_foot').textContent='otomatis dari target bulanan';
-    document.getElementById('s_ach').textContent=ach.toFixed(0)+'%';
-    const ok=net>=tgt&&tgt>0;
-    document.getElementById('s_status').innerHTML=ok?'<span class="status ok"><span class="d"></span>Achieve</span>':'<span class="status bad"><span class="d"></span>Belum Achieve</span>';
-    const bar=document.getElementById('s_prog');bar.classList.toggle('ok',ok);bar.querySelector('i').style.width=Math.min(ach,100)+'%';
-    document.getElementById('s_prog_foot').textContent=ok?`Melampaui target ${fmtRp(net-tgt)}`:`Kurang ${fmtRp(Math.max(tgt-net,0))} untuk capai target harian`;
 
     /* ---- Pencapaian bulan berjalan ----
        Hari yang sedang diinput DIKELUARKAN dari penjumlahan hari tersimpan,
@@ -1324,20 +1283,11 @@ function viewInput(){
     const mk=monthKeyOf(inputDate);
     const lainHari=daysOfMonth(mk).filter(x=>x.date!==inputDate);
     const bReal=lainHari.reduce((s,x)=>s+netOf(x),0)+net;
-    const bTgt=num(DB.settings.companyMonthlyTarget);
-    const bAch=pct(bReal,bTgt), bOk=bReal>=bTgt&&bTgt>0, bSisa=bTgt-bReal;
+    const bHari=lainHari.length+1;
     document.getElementById('s_bln_sub').innerHTML=`${esc(labelPeriode(mk))} · ${lainHari.length} hari lain sudah diinput, ditambah angka yang sedang diketik di kiri.`;
-    document.getElementById('s_btgt').textContent=fmtRp(bTgt);
     document.getElementById('s_breal').textContent=fmtRp(bReal);
     document.getElementById('s_breal_foot').textContent=`${lainHari.length} hari tersimpan + hari ini ${fmtRp(net)}`;
-    document.getElementById('s_bach').textContent=bAch.toFixed(1)+'%';
-    document.getElementById('s_bstatus').innerHTML=bOk?'<span class="status ok"><span class="d"></span>Achieve</span>':'<span class="status bad"><span class="d"></span>Belum Achieve</span>';
-    document.getElementById('s_bsisa_lab').textContent=bSisa>0?'Sisa Dikejar':'Surplus';
-    document.getElementById('s_bsisa').textContent=fmtRp(Math.abs(bSisa));
-    const bbar=document.getElementById('s_bprog');bbar.classList.toggle('ok',bOk);bbar.querySelector('i').style.width=Math.min(bAch,100)+'%';
-    document.getElementById('s_bprog_foot').textContent=bOk
-      ? `Target bulan ini sudah dilampaui ${fmtRp(-bSisa)}.`
-      : `Kurang ${fmtRp(Math.max(bSisa,0))} lagi untuk mencapai target bulanan — rata-rata ${fmtRp(tgt)} per hari.`;
+    document.getElementById('s_bavg').textContent=fmtRp(bHari?bReal/bHari:0);
 
     /* Pencocokan ke Report Daily. Arahnya SENGAJA begini: kasir menyetor
        duluan, angkanya jadi acuan, dan omset yang diinput belakangan harus
@@ -3961,7 +3911,7 @@ function viewBreakdown(){
     const picWarn = tanpaPic.length
       ? `<div class="notice bad">⚠ <div><b>${tanpaPic.length} baris belum dipilih PIC-nya</b>${nilaiTanpaPic?` (total ${fmtRp(nilaiTanpaPic)})`:''}. Nominalnya <b>tidak akan muncul di Performa Marketing/Event</b> — tidak diakui untuk siapa pun, dan tidak ada layar lain yang menyebutkannya.` +
         `<div style="margin-top:6px;font-size:12px;opacity:.9">${esc(tanpaPic.map(x => x.divi + ': ' + (x.r.eventName || '(tanpa nama)') + (x.r.srcPic ? ' — di modul asalnya PIC-nya "' + x.r.srcPic + '", tidak ada di roster ' + x.divi.toLowerCase() : '')).join(' · '))}</div>` +
-        `<div style="margin-top:6px;font-size:12px;opacity:.9">Pilih PIC-nya di kotak <b>— pilih PIC —</b> pada barisnya. Kalau orangnya memang belum ada di roster, tambahkan dulu lewat <b>Pengaturan Target</b> di panel Kas Kecil.</div></div></div>`
+        `<div style="margin-top:6px;font-size:12px;opacity:.9">Pilih PIC-nya di kotak <b>— pilih PIC —</b> pada barisnya. Kalau orangnya memang belum ada di roster, isi dulu kolom <b>Tim/Keterangan</b>-nya di Office — rosternya ditarik otomatis oleh halaman Input Omset Harian.</div></div></div>`
       : '';
     document.getElementById('bd_warn').innerHTML = perDiskon + picWarn + (belum.length
       ? `<div class="notice bad">⚠ <b>Belum bisa disimpan.</b> ${belum.length} baris <b>marketing</b> belum ditentukan kasir shift-nya${belum.some(r=>r.eventName)?` (${esc(belum.filter(r=>r.eventName).map(r=>r.eventName).join(', '))})`:''}. Potongan <b>${fmtRp(belum.reduce((s,r)=>s+potongKasir(r),0))}</b> tidak dibebankan ke kasir mana pun, jadi omset itu terhitung dua kali — sekali di realisasi PIC, sekali di realisasi kasir. Klik tombol <b>Atur kasir shift</b> pada barisnya.</div>`
@@ -4090,8 +4040,8 @@ function labelPeriode(mk){
    lalu heran kenapa layarnya tidak berubah — alasan yang sama persis dengan
    yang sudah dicatat pada blok halaman-halaman yang dipindah sebelumnya.
 
-   Panel ini TETAP MEMBACA target: dailyTarget() dipakai Input Omset Harian.
-   Yang pindah cuma tempat mengubahnya. */
+   SELURUH KONSEP TARGET kemudian dicabut dari kedua panel 5 September 2026
+   (permintaan user), jadi panel ini pun sudah tidak membacanya lagi. */
 
 /* Sinkron PIC dari Office OTOMATIS (tanpa PIN) berdasarkan Tim/Keterangan.
    Memakai listDivisiRoster — endpoint terbuka yang hanya membalas nama +

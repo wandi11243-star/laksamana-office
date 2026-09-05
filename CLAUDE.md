@@ -475,6 +475,58 @@ marketing, kasir shift dipotong); tidak = bayar sendiri-sendiri di meja
 node tools/uji-menufix.js   # 26 pemeriksaan, jsdom (marketing + omset)
 ```
 
+### TARGET DICABUT SELURUHNYA dari Finance & Cashier (5 September 2026)
+
+Permintaan user: *"Target bulanan dan pengaturan target di modul finance, dan
+cashier tidak perlu ada"* — **kedua jenisnya**, target perusahaan
+(`settings.companyMonthlyTarget`) maupun target per PIC (`employees[].target`).
+Yang tinggal cuma **realisasi**: omset yang benar-benar masuk, dan siapa yang
+diakui menerimanya.
+
+Yang dicabut, di **tiga** berkas:
+
+| berkas | yang hilang |
+|---|---|
+| `deploy/finance/kas/` | halaman **Pengaturan Target** (nav, TITLES, router, matriks akses, `AKS_HAL_ISI`), kartu Target/Achievement di Dashboard Omset & ketiga Performa, grafik *Target vs Actual*, kolom Target/Ach di tabel harian, blok target di laporan WA & PDF |
+| `deploy/finance/omset/` | kartu Target Harian & Achievement Harian, progress bar, tiga dari empat angka *Pencapaian Bulan Berjalan* |
+| `deploy/cashier/` | Target & Achievement di ringkas Performa Kasir |
+
+Yang perlu dijaga:
+
+- **`pembagiHari` / `dailyTarget` / `targetPic` / `targetRentang` DIBUANG
+  seluruhnya**, bukan dibiarkan menganggur. Fungsi yang tidak dipanggil siapa
+  pun akan dipanggil lagi suatu hari oleh orang yang mengira ia masih berarti
+  sesuatu — dan kali ini ia akan membaca setelan yang tidak pernah lagi bisa
+  diubah dari layar mana pun.
+- **Bonus Kasir TIDAK ikut dicabut.** Tangganya dihitung dari omset yang
+  DIAKUI, bukan dari pencapaian target. `baguRingkasKasir()` tinggal tiga
+  kotak (g5 → **g3**); grid yang tetap g5 menyisakan dua kolom kosong yang
+  terbaca sebagai kartu gagal dimuat.
+- **Data lama SENGAJA tidak dihapus.** `companyMonthlyTarget` dan
+  `employees[].target` tetap di database, cuma tidak dibaca siapa pun.
+  Menghapus angka yang tidak bisa dikembalikan demi kerapian layar bukan
+  pertukaran yang baik. Endpoint `simpanTarget` di `kompas-api` juga dibiarkan
+  hidup.
+- **Judul lembar PDF Performa jadi "Report Realisasi"**, dan
+  `cetakAchievement(divi,e,a)` tidak lagi menerima `tgt`/`ach`. Judul yang
+  menjanjikan achievement padahal isinya realisasi adalah janji yang tidak
+  ditepati tiap kali dibuka. Nama fungsinya sengaja tidak diganti — diff-nya
+  kecil dan riwayat gitnya tidak putus.
+- **Kalimat yang menyuruh ke "Pengaturan Target" ikut dibetulkan** di pita PIC
+  yatim (kas) dan pita baris tanpa PIC (omset). Roster PIC memang tidak pernah
+  diisi di sana: ia ditarik `syncPicOffice()` dari kolom **Tim/Keterangan** di
+  Office.
+
+```bash
+node tools/uji-tanpa-target.js   # 35 pemeriksaan, TANPA jsdom
+```
+
+Ujinya membuang komentar (JS **dan** HTML) sebelum mencari — sejarah kenapa
+sesuatu dicabut justru harus tetap boleh menyebut namanya; yang dilarang
+PEMAKAIANNYA. Satu rujukan yang tertinggal untuk fungsi yang sudah dibuang
+adalah ReferenceError, dan gejalanya **layar putih** tanpa satu kata pun yang
+menyebut target.
+
 ### Breakdown: simpan dikunci, & baris yang memang tidak memotong (5 Sep 2026)
 
 **Simpan Breakdown sekarang DIKUNCI kalau masih ada kasir shift yang belum

@@ -257,8 +257,15 @@ const EMP = {
     /* Nama PIC di modul asalnya disebut — itu petunjuk tercepat kenapa ia
        tidak cocok. */
     cek('...menyebut PIC di modul asalnya kalau ada', v.indexOf('Dewi') > -1);
+    /* Penunjuknya BERUBAH 5 September 2026: halaman Pengaturan Target dicabut
+       bersama seluruh konsep target, jadi kalimat yang menyuruh ke sana
+       menunjuk halaman yang tidak ada lagi. Roster PIC memang tidak pernah
+       diisi di sana — ia ditarik otomatis dari Tim/Keterangan di Office. */
     cek('...dan menunjuk ke mana harus dibetulkan',
-        /Breakdown Sumber/.test(v) && /Pengaturan Target/.test(v));
+        v.indexOf('Breakdown Sumber') > -1 && v.indexOf('Tim/Keterangan') > -1,
+        v.slice(v.indexOf('Breakdown Sumber'), v.indexOf('Breakdown Sumber')+320));
+    cek('...bukan ke halaman Pengaturan Target yang sudah dicabut',
+        !/Pengaturan Target/.test(v));
 
     /* Nominalnya TIDAK boleh diam-diam diakui untuk siapa pun: menebak
        pemiliknya lebih buruk daripada mengatakannya belum dipilih. */

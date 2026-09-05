@@ -819,11 +819,13 @@ function omsetKasir() {  }
 function diskonKasir() {  }
 
 
-function pembagiHari() { daysInMonth(); }
 
 
 
-function dailyTarget() { pembagiHari(); }
+
+
+
+
 
 
 
@@ -860,15 +862,6 @@ function labelPeriode() {  }
 
 
 function labelRentang() { modeHarian(); dateLabel(); labelPeriode(); }
-
-
-
-
-function targetPic() { modeHarian(); pembagiHari(); }
-
-
-
-
 function compsRentang() { modeHarian(); compsOn(); compsBulan(); }
 
 function setViewMode() { modeHarian(); daysOfMonth(); render(); }
@@ -2613,9 +2606,10 @@ function bonusKasir() {  }
 
 
 
+
+
+
 function baguRingkasKasir() { bonusKasir(); }
-
-
 
 
 
@@ -2720,7 +2714,7 @@ function kasirMurni() { ketKasir(); }
 
 
 
-function viewKasir() { rentangAktif(); ambilRoster(); render(); kasirMurni(); openBillList(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); barisTanpaShift(); modeHarian(); labelRentang(); targetPic(); pct(); }
+function viewKasir() { rentangAktif(); ambilRoster(); render(); kasirMurni(); openBillList(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); barisTanpaShift(); modeHarian(); labelRentang(); }
 
 
 
@@ -2832,8 +2826,7 @@ function viewKasir() { rentangAktif(); ambilRoster(); render(); kasirMurni(); op
 
 
 
-
-function gambarRiwayat() { baguRingkasKasir(); modeHarian(); kartuOpenBill(); kartuBonusKasir(); clearCharts(); tampil(); barOpts(); emptyCanvas(); }
+function gambarRiwayat() { baguRingkasKasir(); kartuOpenBill(); kartuBonusKasir(); clearCharts(); tampil(); barOpts(); emptyCanvas(); }
 
 
 
