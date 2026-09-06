@@ -2926,6 +2926,53 @@ yang memang dilayani ke peramban biasa.
 Kalau ingin pemeriksaannya jalan lagi: minta Rumahweb mengecualikan
 `/*-api-mysql/*.php` dari Monarx.
 
+### verifikasi-deploy.sh: kegagalan ALAT vs kegagalan DEPLOY (6 Sep 2026)
+
+Dijalankan user di laptop, skrip ini melaporkan **29 halaman GAGAL** dengan
+kalimat yang sama — *"isi di server BEDA dari repo"*, `server= byte`. Yang
+sebenarnya terjadi: `curl` tidak menghasilkan berkas sama sekali di mesin itu,
+jadi `tr < live.html` gagal, berkas pembandingnya tidak pernah lahir, dan tiap
+halaman jatuh ke cabang pembanding dengan ukuran server kosong. Server
+sendiri menjawab **HTTP 200 dengan isi yang benar untuk 27 dari 29 halaman**.
+
+Kesimpulan yang ditarik dari laporan itu — "develop gagal deploy" — salah,
+dan mencari sebabnya di FTP membuang waktu untuk deploy yang sehat.
+
+- **`|| true` DICABUT.** Itu yang menelan kegagalan curl. Sekarang kode HTTP
+  ditangkap (`-w %{http_code}`), dan unduhan yang tidak menghasilkan apa pun
+  dilaporkan sebagai **`TAK TERBACA`** dengan kalimat *"INI BUKAN bukti deploy
+  gagal"*, bukan sebagai isi yang berbeda. Kegagalan alat dan kegagalan deploy
+  menuntut tindakan yang berbeda: yang satu "periksa mesin ini", yang satu
+  "berkasnya tidak mendarat".
+- **`curl` yang tidak ada dikatakan SEKALI DI DEPAN** dan skripnya berhenti
+  (exit 2). Tanpa itu satu perintah yang kurang jadi 29 baris merah, dan sebab
+  aslinya tergulung ke atas layar.
+- **Folder sementara lewat `mktemp -d` + `trap`**, bukan `/tmp` yang dipatok:
+  Git Bash Windows tidak selalu bisa menulis ke sana, dan workflow memanggil
+  skrip ini TIGA KALI dalam satu run dengan nama berkas yang sama.
+- **Kode HTTP ikut di baris angka** pada laporan GAGAL. Tanpa itu "404" dan
+  "berkas lama yang masih utuh" terbaca sama persis, padahal jalan keluarnya
+  berbeda.
+
+Yang **tidak** dilonggarkan: `TAK TERBACA` tetap `gagal=1`. Workflow
+menggerbangi unggah paksa lewat **exit code**, bukan teksnya, jadi mengubah
+labelnya aman — tapi menjadikannya lulus akan mematikan seluruh jaring
+pengaman FTP.
+
+Dua hal yang ikut ketahuan saat menelusurinya, dan keduanya layak diingat:
+
+- **`stock/hpp/` sempat menyajikan salinan `stock/index.html`.** Bukan
+  terpotong — berkas TERTUKAR, persis pola yang sudah dikenali skrip ini.
+  Sepuluh menit kemudian ia sudah benar sendiri: verifikasi berjalan saat FTP
+  masih menulis. **Verifikasi yang dijalankan tangan tepat setelah push bisa
+  menangkap keadaan setengah jadi**, dan itu bukan kegagalan.
+- **Mencari string di `index.html` untuk membuktikan sebuah commit sudah
+  mendarat WAJIB membuang komentar dulu.** "Pengaturan Target" masih ada 8×
+  di `deploy/finance/kas/` — seluruhnya di komentar sejarah, karena sejarah
+  memang harus boleh menyebut nama yang dicabut. Salah baca ini membuat
+  commit yang SUDAH mendarat disimpulkan belum. Aturan yang sama dengan
+  `uji-tanpa-target.js`.
+
 **Push otomatis men-deploy.** `main` → **`team.laksamanamuda.id`** (produksi),
 `develop` → `dev.laksamanamuda.id`. Berkas ini sempat menulis
 `office.laksamanamuda.id`; nama itu **tidak ada di DNS** dan tidak pernah ada —

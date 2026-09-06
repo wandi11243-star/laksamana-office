@@ -76,6 +76,37 @@ base_modul() {
 ci="${GITHUB_SHA:-manual-$(date +%s)}"   # pemecah cache; tanpa ini bisa kena salinan lama CDN/proxy
 gagal=0
 
+# FOLDER SEMENTARA SENDIRI, BUKAN /tmp YANG DIPATOK (6 September 2026).
+#
+# Versi lama menulis ke /tmp/live.html dan tiga berkas pembanding di /tmp.
+# Dua hal yang diandalkannya sama-sama bisa meleset: bahwa folder itu ada dan
+# bisa ditulis di mesin yang menjalankan skrip ini (di Git Bash Windows tidak
+# selalu), dan bahwa tidak ada dua pemeriksaan yang berjalan bersamaan —
+# padahal workflow memanggil skrip ini TIGA KALI dalam satu run, dan nama
+# berkas yang dipatok membuat keduanya saling menimpa kalau kelak dijalankan
+# paralel.
+#
+# mktemp memilihkan tempat yang memang bisa ditulis, menghormati $TMPDIR, dan
+# memberi nama yang tidak mungkin bertabrakan.
+# CURL WAJIB ADA, dan ketiadaannya dikatakan SEKALI DI DEPAN (6 September
+# 2026). Tanpa penjaga ini, curl yang tidak terpasang membuat setiap halaman
+# gagal satu per satu dengan sebab yang sama — 29 baris merah untuk satu
+# perintah yang kurang, dan sebab aslinya tenggelam di baris pertama yang
+# sudah lama tergulung ke atas layar.
+if ! command -v curl >/dev/null 2>&1; then
+  echo "GAGAL   curl tidak ada di PATH — skrip ini tidak bisa mengambil apa pun." >&2
+  echo "        Ini kegagalan MESIN yang menjalankan skrip, BUKAN kegagalan deploy:" >&2
+  echo "        keadaan berkas di server sama sekali belum terperiksa." >&2
+  exit 2
+fi
+kerja=$(mktemp -d 2>/dev/null) || kerja=""
+if [ -z "$kerja" ] || [ ! -d "$kerja" ]; then
+  echo "GAGAL   tidak bisa membuat folder sementara — periksa TMPDIR/izin tulis." >&2
+  echo "        Ini kegagalan MESIN yang menjalankan skrip, bukan kegagalan deploy." >&2
+  exit 2
+fi
+trap 'rm -rf "$kerja"' EXIT
+
 # Root ditandai "." (bukan string kosong): ekspansi `for m in $daftar` tanpa
 # tanda kutip MEMBUANG baris kosong, jadi root index.html justru jadi satu-
 # satunya halaman yang tidak pernah diperiksa.
@@ -107,15 +138,52 @@ for p in $daftar; do
     url="${base}/${m}index.html?ci=${ci}"
     ket=""
   fi
-  curl -s -m 90 "$url" -o /tmp/live.html || true
-  tr -d '\r' < "$src" > /tmp/a
-  tr -d '\r' < /tmp/live.html > /tmp/b
-  if cmp -s /tmp/a /tmp/b; then
-    echo "OK      ${m:-/} ($(wc -c < /tmp/b) byte, sama persis dgn repo)${ket}"
+  # UNDUHAN YANG GAGAL BUKAN BUKTI ISINYA BERBEDA (6 September 2026).
+  #
+  # Sampai tanggal ini baris curl-nya berakhir `|| true`, dan hasilnya
+  # langsung dipakai membandingkan. Kalau curl tidak menghasilkan berkas sama
+  # sekali — jaringan mati, DNS diblokir, folder sementara tak bisa ditulis —
+  # maka pembacaan berkasnya gagal, pembandingnya tidak pernah lahir, dan
+  # SETIAP halaman jatuh ke cabang di bawah dengan bunyi "isi di server BEDA
+  # dari repo, server= byte".
+  #
+  # Dilaporkan user 6 September 2026: 29 halaman dilaporkan GAGAL dengan sebab
+  # yang identik, padahal 27 di antaranya dijawab server HTTP 200 dengan isi
+  # yang benar — yang betul-betul tertinggal cuma 2. Yang membacanya
+  # menyimpulkan seluruh deploy gagal lalu mencari sebabnya di FTP, padahal
+  # yang rusak mesin yang menjalankan skripnya.
+  #
+  # Kegagalan ALAT dan kegagalan DEPLOY wajib terbaca berbeda: yang satu
+  # berarti "periksa mesin yang menjalankan ini", yang satu "berkasnya tidak
+  # mendarat di server". Menyamakan keduanya membuat satu-satunya penjaga
+  # deploy di repo ini berbohong ke dua arah sekaligus — ia meneriakkan gagal
+  # untuk deploy yang sehat, dan orang yang sudah terbiasa mengabaikan
+  # teriakannya tidak akan percaya waktu ia benar.
+  kode=$(curl -s -m 90 -o "$kerja/live.html" -w '%{http_code}' "$url" 2>/dev/null) || kode=""
+  if [ ! -s "$kerja/live.html" ]; then
+    echo "TAK TERBACA ${m:-/} — tidak ada isi yang bisa dibandingkan (http=${kode:-curl gagal})${ket}"
+    case "${kode:-}" in
+      ""|000)
+        echo "        curl tidak memulangkan apa pun: jaringan, DNS, atau folder"
+        echo "        sementara tidak bisa ditulis. INI BUKAN bukti deploy gagal —"
+        echo "        periksa mesin yang menjalankan skrip ini lebih dulu." ;;
+      *)
+        echo "        server menjawab http=$kode dengan badan kosong." ;;
+    esac
+    gagal=1
+    continue
+  fi
+  tr -d '\r' < "$src" > "$kerja/a"
+  tr -d '\r' < "$kerja/live.html" > "$kerja/b"
+  if cmp -s "$kerja/a" "$kerja/b"; then
+    echo "OK      ${m:-/} ($(wc -c < "$kerja/b") byte, sama persis dgn repo)${ket}"
   else
     echo "GAGAL   ${m:-/} — isi di server BEDA dari repo (tidak ter-upload / terpotong / salah folder)${ket}"
-    echo "        repo=$(wc -c < /tmp/a) byte, server=$(wc -c < /tmp/b) byte"
-    grep -q '</html>' /tmp/b || echo "        server tidak punya </html> → terpotong atau 404"
+    # Kode HTTP-nya disebut DI BARIS ANGKA. Tanpa itu "404" dan "berkas lama
+    # yang masih utuh" terbaca sama persis, padahal jalan keluarnya berbeda:
+    # yang satu berkasnya tidak ada, yang satu ada tapi versinya tertinggal.
+    echo "        repo=$(wc -c < "$kerja/a") byte, server=$(wc -c < "$kerja/b") byte, http=${kode:-?}"
+    grep -q '</html>' "$kerja/b" || echo "        server tidak punya </html> → terpotong atau 404"
     # BERKAS MANA YANG SEBENARNYA DISAJIKAN (4 September 2026).
     #
     # "isi di server BEDA" menyebut tiga kemungkinan sekaligus, dan yang
@@ -135,8 +203,8 @@ for p in $daftar; do
       [ "$_q" = "$p" ] && continue
       _qs="deploy/${_qm}index.html"
       [ -f "$_qs" ] || continue
-      tr -d '\r' < "$_qs" > /tmp/c
-      if cmp -s /tmp/c /tmp/b; then
+      tr -d '\r' < "$_qs" > "$kerja/c"
+      if cmp -s "$kerja/c" "$kerja/b"; then
         echo "        server menyajikan isi ${_qm}index.html — BERKASNYA TERTUKAR,"
         echo "        bukan terpotong. Aliran FTP menulis berkas tetangga ke sini;"
         echo "        unggah paksa berikutnya biasanya membetulkannya."
