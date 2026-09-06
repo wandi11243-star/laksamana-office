@@ -475,6 +475,88 @@ marketing, kasir shift dipotong); tidak = bayar sendiri-sendiri di meja
 node tools/uji-menufix.js   # 26 pemeriksaan, jsdom (marketing + omset)
 ```
 
+### Realisasi dipajang sebagai TAGIHAN, & Dashboard naik ke atas (6 Sep 2026)
+
+Dua permintaan user di panel Kas Kecil.
+
+**1. Grup menu `Dashboard` (Dashboard Omset + Analytics) naik ke paling atas
+sidebar.** Dua halaman itu dibuka untuk MELIHAT, sisanya untuk MENGISI.
+Urutan menu di sini **tidak** menentukan halaman default — yang menentukan
+`halPertamaBoleh()`, dan ia membaca urutan `TITLES`, bukan urutan DOM. Jadi
+Buku Kas Kecil tetap yang terbuka tiap pagi.
+
+**2. Kartu Realisasi memajang TAGIHAN** (net + service + pajak), bukan net —
+angka yang benar-benar dibayar tamu, sama persis dengan **Dibayar Tamu** di
+Rekap Penjualan. Yang perlu dijaga:
+
+- **`real` (net) TIDAK diganti, cuma didampingi `realTagihan`.** Net tetap
+  dasar Rasio Komposisi, ATV, dan persentase Self Order. Menggantinya diam-
+  diam menggeser ketiganya tanpa satu pun label ikut berubah, dan Rasio
+  Komposisi malah berhenti berjumlah 100%.
+- **Catatan di layar WAJIB, bukan hiasan.** Halaman itu sekarang memajang dua
+  angka omset sekaligus; tanpa kalimat yang menyebut angka net-nya, yang
+  membandingkan keduanya akan mengira salah satunya salah — persis keluhan
+  yang melahirkan kartu Jembatan di modul Analytics.
+- **Lembar PDF & ringkasan WhatsApp ikut**, lewat `RINGKAS_OMSET`. Aturan
+  "laporan memakai HASIL YANG SAMA dengan layar" sudah tertulis di komentarnya
+  sejak lama. Label lama `Realisasi (net)` di lembar cetak DIGANTI: lembar yang
+  menjanjikan net tapi memuat tagihan beredar tanpa layarnya.
+- **`bulan.tagihan` berkas kembar dengan `realTagihan`**, dan `bReal` di
+  `deploy/finance/omset/` berkas kembar dengan keduanya. Dua panel yang
+  memajang "Realisasi Bulan Ini" dengan dasar berbeda adalah selisih yang baru
+  ketahuan waktu ada yang membuka dua layar.
+- **Jembatan di Analytics IKUT DIPERBARUI**: baris Dibayar Tamu sekarang
+  menunjuk "Rekap Penjualan & Dashboard Omset", dan baris net menunjuk
+  pemakainya yang sebenarnya. Menunjuk layar yang salah lebih buruk daripada
+  tidak menunjuk sama sekali.
+
+```bash
+node tools/uji-realisasi-tagihan.js   # 25 pemeriksaan, jsdom
+```
+
+**`smoke-modul.js` TIDAK MENYENTUH `finance/kas` maupun `finance/omset`** —
+daftarnya cuma memuat `finance`, yaitu halaman PEMILIH panel yang tidak berisi
+aplikasi apa pun. Seluruh Dashboard Omset selama ini lolos tanpa satu baris pun
+dijalankan. Uji di atas yang menutupnya; jangan mengandalkan smoke di sini.
+
+### Reservasi: bukti DP WAJIB (6 September 2026)
+
+Permintaan user: *"setiap input reservasi, jika dia masukin DP, wajib upload
+foto buktinya — dibuat mandatory"*. Kotaknya sudah ada sejak lama tapi boleh
+dilewati, dan yang terlewat baru ketahuan di halaman Dana Masuk berhari-hari
+kemudian. DP tanpa lampiran adalah uang yang tidak bisa dicocokkan dengan
+mutasi bank oleh siapa pun.
+
+- **`adaBuktiDp()` satu tempat yang memutuskan**, dan ia membaca **dua bentuk**
+  yang sama-sama sah: `dpProofData` (field datar, reservasi lama) dan
+  `dps[].proofData` (cicilan, bentuk sekarang). Memeriksa salah satu saja
+  membuat reservasi yang buktinya ada di bentuk satunya dianggap kosong.
+- **Bukti yang SUDAH TERSIMPAN ikut dihitung.** Menyunting nama tamu tidak
+  boleh menuntut berkasnya diunggah ulang — berkas itu di database, bukan di
+  komputer yang sedang membuka form.
+- **Reservasi LAMA yang DP-nya terlanjur tanpa bukti TIDAK DIKUNCI**, cuma
+  ditanya sekali lewat `confirm()`. Menguncinya berarti data yang sudah
+  terlanjur begitu tidak bisa dibetulkan siapa pun — termasuk nama tamu yang
+  salah ketik — dan justru bukti itulah yang sedang diusahakan lengkap. Pola
+  yang sama dengan kotak PIC event lama di modul Event.
+- **Modal Tambah DP wajib TANPA pengecualian.** Cicilannya baru lahir saat itu
+  juga, jadi tidak ada data lama yang bisa terkunci, dan yang mengetik
+  nominalnya sedang memegang struknya.
+- **Jalur Marketing (Reservasi VIP) sudah aman secara konstruksi**: di sana
+  satu baris DP LAHIR dari satu berkas bukti (`vipBuktiList`), jadi DP tanpa
+  bukti memang tidak bisa dibuat. Tidak ada yang perlu ditambahkan di sana.
+
+```bash
+node tools/uji-bukti-dp.js   # 25 pemeriksaan, jsdom
+```
+
+Modul Reservasi juga cuma "hanya boot yang diuji" di `smoke-modul.js`. Ujinya
+menyisipkan `deploy/assets/venue-layouts.js` sebagai skrip inline menggantikan
+tag `src`-nya — modul ini SENGAJA berhenti keras kalau denahnya tidak termuat,
+dan yang dijalankan tetap berkas aslinya, bukan tiruan yang bisa menyimpang
+dari koordinat sebenarnya. `SESSION` disetel langsung karena yang diuji jalur
+SIMPAN, bukan gerbang SSO-nya — pola yang sama dengan `uji-kelola-user.js`.
+
 ### TARGET DICABUT SELURUHNYA dari Finance & Cashier (5 September 2026)
 
 Permintaan user: *"Target bulanan dan pengaturan target di modul finance, dan

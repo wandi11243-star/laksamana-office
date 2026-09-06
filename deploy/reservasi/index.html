@@ -1348,6 +1348,20 @@ function ensureDps(r){
    dibersihkan — ensureDps akan mengira itu data lama yang belum dimigrasi, lalu
    MEMBANGUN ULANG cicilan yang baru saja dihapus. Di sini kita justru yang menulis
    ulang field lama itu dari isi r.dps, jadi urutannya harus dibalik. */
+/* SATU TEMPAT yang memutuskan apakah sebuah reservasi punya bukti DP.
+   Dipakai gerbang di saveReservation() dan pita peringatan di layar. Dua
+   tempat yang memeriksanya sendiri-sendiri akan menyimpang begitu bentuk
+   datanya berubah — dan yang menyimpang di sini adalah uang yang tercatat
+   masuk tanpa satu pun lampiran.
+
+   Dua bentuk sama-sama sah: `dpProofData` (field datar, reservasi lama) dan
+   `dps[].proofData` (cicilan, bentuk sekarang). Memeriksa salah satu saja
+   membuat reservasi yang buktinya ada di bentuk satunya dianggap kosong. */
+function adaBuktiDp(r){
+  if(!r) return false;
+  if(r.dpProofData) return true;
+  return Array.isArray(r.dps) && r.dps.some(p=>p && p.proofData);
+}
 function syncDp(r){
   if(!Array.isArray(r.dps)) r.dps=[];
   r.dpAmount = dpTotal(r);
@@ -3539,9 +3553,12 @@ function renderInput(editId){
                 oninput="fmtRupiahInput(this)">
        </div>
        <div class="field" id="dpProofWrap">
-         <label>Upload Bukti DP (foto/pdf)</label>
+         <label>Upload Bukti DP (foto/pdf) <span class="req">*</span></label>
          <input type="file" name="dpProof" accept="image/*,application/pdf" onchange="fileToData(this,'dpProofData')">
          <div id="dpProofData" class="hint"></div>
+         <div class="hint">Wajib kalau DP sudah masuk — DP tanpa lampiran tidak bisa dicocokkan
+           dengan mutasi bank, dan yang menagihnya balik ke tamu tidak punya apa-apa untuk ditunjukkan.
+           Kalau buktinya sudah pernah diunggah, tidak perlu diulang.</div>
        </div>
 
        <div class="field full"><div class="section-title" style="border:none;margin:6px 0 0">📋 Detail Tamu &amp; Penanganan</div></div>
@@ -3821,6 +3838,43 @@ async function saveReservation(){
   const dpStatus = document.querySelector('input[name=dpStatus]:checked').value;
   const now = Date.now();
   const existing = EDIT_ID ? STATE.reservations.find(x=>x.id===EDIT_ID) : null;
+
+  /* BUKTI DP WAJIB (6 September 2026, permintaan user).
+
+     DP yang tercatat tanpa lampiran adalah uang yang tidak bisa dicocokkan
+     dengan mutasi bank oleh siapa pun — dan yang menagihnya balik ke tamu
+     tidak punya apa-apa untuk ditunjukkan. Sampai tanggal ini kotaknya ada
+     tapi boleh dilewati, dan yang terlewat baru ketahuan di halaman Dana
+     Masuk berhari-hari kemudian.
+
+     BUKTI YANG SUDAH TERSIMPAN IKUT DIHITUNG. Menyunting nama tamu pada
+     reservasi yang buktinya sudah ada tidak boleh menuntut berkasnya
+     diunggah ulang — berkas itu ada di database, bukan di komputer yang
+     sedang membuka form.
+
+     RESERVASI LAMA YANG DP-NYA TERLANJUR TANPA BUKTI TIDAK DIKUNCI, cuma
+     ditanya sekali. Menguncinya berarti data yang sudah terlanjur begitu
+     tidak bisa dibetulkan siapa pun — termasuk nama tamu yang salah ketik —
+     dan justru bukti itulah yang sedang diusahakan lengkap. Polanya sama
+     dengan kotak PIC event lama di modul Event: yang lahir sebelum aturannya
+     ada tetap bisa disunting, dan sebabnya dikatakan. */
+  if(dpStatus==="Sudah"){
+    const buktiBaru = !!PENDING_FILES.dpProofData;
+    const buktiLama = adaBuktiDp(existing);
+    if(!buktiBaru && !buktiLama){
+      const dpLamaTanpaBukti = !!existing && existing.dpStatus==="Sudah";
+      if(!dpLamaTanpaBukti){
+        toast("Bukti DP wajib diunggah — foto struk transfer atau PDF-nya","err");
+        byId("dpProofWrap")?.scrollIntoView({behavior:"smooth",block:"center"});
+        f.elements["dpProof"]?.focus();
+        return;
+      }
+      if(!confirm("Reservasi ini punya DP tanpa bukti transfer \u2014 dicatat sebelum buktinya diwajibkan.\n\nSebaiknya buktinya diunggah sekarang selagi formulirnya terbuka. Simpan tanpa bukti?")) {
+        byId("dpProofWrap")?.scrollIntoView({behavior:"smooth",block:"center"});
+        return;
+      }
+    }
+  }
   const rec = {
     id: existing?existing.id:uid(),
     name:g("name"), phone:normPhone(g("phone")),
@@ -6504,7 +6558,7 @@ function openAddDp(resId){
        <input id="ndp_amount" inputmode="numeric" placeholder="mis. 300.000" oninput="fmtRupiahInput(this)"></div>
      <div class="field"><label>Metode / Tujuan Transfer</label>
        <select id="ndp_method">${(m.dpMethods||[]).map(v=>`<option>${esc(v)}</option>`).join("")}</select></div>
-     <div class="field"><label>Upload Bukti Transfer (foto/pdf)</label>
+     <div class="field"><label>Upload Bukti Transfer (foto/pdf) <span class="req">*</span></label>
        <input type="file" accept="image/*,application/pdf" onchange="fileToData(this,'ndpProof')">
        <div id="ndpProof" class="hint"></div>
        <div class="hint">Tanggal, jam, nominal, bank &amp; nama pengirim akan dibaca otomatis dari bukti ini di halaman Dana Masuk.</div></div>
@@ -6519,6 +6573,14 @@ async function saveAddDp(resId){
   ensureDps(r);
   const amount=rupiahVal(byId("ndp_amount").value);
   if(!amount){ toast("Nominal DP wajib diisi","err"); return; }
+  /* Di sini buktinya wajib TANPA pengecualian, beda dari form reservasi.
+     Cicilan ini baru lahir sekarang — tidak ada "data lama" yang bisa
+     terkunci, dan yang mengetik nominalnya sedang memegang struknya. */
+  if(!PENDING_FILES.ndpProof){
+    toast("Bukti transfer wajib diunggah untuk tiap DP","err");
+    byId("ndpProof")?.scrollIntoView({behavior:"smooth",block:"center"});
+    return;
+  }
   const prev=JSON.parse(JSON.stringify(r));
   const p=newDp();
   p.amount=amount;
