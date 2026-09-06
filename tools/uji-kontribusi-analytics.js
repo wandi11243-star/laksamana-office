@@ -113,12 +113,12 @@ function dom(opt) {
         const body = init && init.body ? JSON.parse(init.body) : {};
         const u = String(url);
         if (body.action === 'analyticsGet')
-          return jawab({ ok:true, data:{ data:{ laporan: LAPORAN, setting:{} }, akses:{}, peran:{} } });
+          return jawab({ ok:true, data:{ data:{ laporan: opt.laporan || LAPORAN, setting:{} }, akses:{}, peran:{} } });
         if (u.indexOf('hpp.php') > -1) return jawab({ bahan:[], resep:[], setting:{}, ts:'2026-09-06' });
         if (u.indexOf('event-api') > -1 || u.indexOf('marketing-api') > -1)
           return jawab({ ok:true, data:{ events: [] } });
         if (u.indexOf('action=getAll') > -1) {
-          const kp = { daily: DAILY };
+          const kp = { daily: opt.daily || DAILY };
           /* Register compliment DIHILANGKAN, bukan dikosongkan: yang diuji
              perbedaan antara "tidak terbaca" dan "nol". */
           if (!opt.tanpaCompliment) kp.compliments = COMPS;
@@ -291,6 +291,82 @@ function barisTabel(html, nama) {
        halaman salah. */
     cek('omset tanpa jam disebut nominalnya', jm.indexOf('Rp50.000.000') > -1);
     cek('sebabnya dikatakan', jm.indexOf('jamnya tidak') > -1);
+  }
+
+  /* ============ Selisih POS vs Rekap dipecah per hari ============
+
+     Datanya MENIRU KEJADIAN NYATA di produksi (Agustus 2026): 30 hari yang
+     net-nya cocok semua, dan SATU hari yang kolom tax-nya kehilangan tiga
+     digit terakhir saat diketik. Itu bentuk kesalahan yang paling sulit
+     dilihat — angkanya tetap masuk akal, netnya benar, dan selisihnya cuma
+     0,3% dari sebulan. */
+  console.log('\n== Selisih dipecah per hari ==');
+  {
+    /* 5 hari, semuanya sinkron POS<->Rekap, kecuali hari ke-3 yang tax-nya
+       diketik 2.514 padahal seharusnya 2.514.400. */
+    const HARI_S = {}, DAILY_S = [];
+    for (let i = 1; i <= 5; i++) {
+      const t = '2026-08-0' + i;
+      const net = 20000000, svc = 1000000;
+      const tax = (i === 3) ? 2514 : 2000000;   // hari ke-3 salah ketik
+      HARI_S[t] = { grand: net + svc + 2000000, bill: 100, net };
+      DAILY_S.push({ date:t, food:12000000, bev:8000000, lainnya:0, discount:0,
+                     service_charge:svc, tax:tax, bill:100 });
+    }
+    const LAP_S = { '2026-08': { bulan:'2026-08', jenis:'bill', berkas:'s.xlsx',
+      diunggah:'2026-09-06', oleh:'Uji', hari:HARI_S, jam:JAM, menu:{},
+      ringkas:{ bill:500, grand:5*23000000, net:5*20000000, svc:5000000, tax:10000000,
+                sub:0, discMenu:0, discBill:0, discVoucher:0, pax:0, billPax:0 } } };
+
+    const w2 = dom({ laporan: LAP_S, daily: DAILY_S }).window;
+    await siap(w2);
+    w2.go('ringkasan'); await tunggu(100);
+    const rv = w2.document.getElementById('app-view').innerHTML;
+    const tb = potong(rv, 'Selisihnya Ada di Hari Mana', 'Jembatan ke Tiga Layar');
+
+    cek('tabel rincian digambar', tb.length > 200, String(tb.length));
+    /* Hari yang salah HARUS disebut tanggalnya — itu satu-satunya yang dicari
+       orang yang membuka tabel ini. */
+    cek('menyebut tanggal yang berselisih', tb.indexOf('03 Agu 2026') > -1 || tb.indexOf('3 Agu 2026') > -1,
+        tb.slice(tb.indexOf('<tbody>'), tb.indexOf('<tbody>') + 260));
+    /* Selisihnya = 2.000.000 - 2.514 */
+    cek('nominal selisihnya benar', tb.indexOf('Rp1.997.486') > -1);
+    /* LETAKNYA yang paling menolong: net cocok, yang beda tax & service.
+       Menunjuk kolom yang salah membuat orang membuka layar yang keliru. */
+    cek('letak selisih menunjuk tax & service', tb.indexOf('tax &amp; service') > -1 || tb.indexOf('tax & service') > -1);
+    cek('TIDAK menuduh net', tb.indexOf('net (food/bev') < 0);
+    /* Hari yang cocok disebut jumlahnya — tabel yang cuma memuat satu baris
+       tanpa keterangan terbaca seolah 4 hari lain tidak diperiksa. */
+    cek('jumlah hari yang cocok disebut', /4 hari cocok persis/.test(tb), tb.slice(-260));
+    /* Jumlah di tabel WAJIB sama dengan kartu Selisih di atasnya. Dua angka
+       yang seharusnya sama tapi berbeda membuat tabel ini berhenti dipercaya
+       justru saat ia benar. */
+    cek('totalnya dinyatakan sama dengan kartu Selisih',
+        tb.indexOf('sama dengan kartu Selisih') > -1);
+    const kartu = potong(rv, 'Dibanding Rekap Penjualan', 'Selisihnya Ada di Hari Mana');
+    cek('kartu Selisih memang menyebut angka yang sama', kartu.indexOf('Rp1.997.486') > -1);
+  }
+
+  /* Tidak ada selisih adalah JAWABAN, bukan alasan menyembunyikan kartunya. */
+  console.log('\n== Kalau semua hari cocok ==');
+  {
+    const HARI_C = {}, DAILY_C = [];
+    for (let i = 1; i <= 3; i++) {
+      const t = '2026-08-0' + i;
+      HARI_C[t] = { grand: 23000000, bill: 100, net: 20000000 };
+      DAILY_C.push({ date:t, food:12000000, bev:8000000, lainnya:0, discount:0,
+                     service_charge:1000000, tax:2000000, bill:100 });
+    }
+    const LAP_C = { '2026-08': { bulan:'2026-08', jenis:'bill', berkas:'c.xlsx',
+      diunggah:'2026-09-06', oleh:'Uji', hari:HARI_C, jam:JAM, menu:{},
+      ringkas:{ bill:300, grand:69000000, net:60000000, svc:3000000, tax:6000000,
+                sub:0, discMenu:0, discBill:0, discVoucher:0, pax:0, billPax:0 } } };
+    const w3 = dom({ laporan: LAP_C, daily: DAILY_C }).window;
+    await siap(w3);
+    w3.go('ringkasan'); await tunggu(100);
+    const rv = w3.document.getElementById('app-view').innerHTML;
+    cek('dikatakan semuanya cocok', rv.indexOf('hari cocok persis') > -1);
+    cek('tidak menggambar tabel selisih', rv.indexOf('Selisihnya Ada di Hari Mana') < 0);
   }
 
   console.log('\n---------------------------------------');

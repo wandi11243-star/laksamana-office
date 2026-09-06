@@ -1344,13 +1344,27 @@ function kosongBelumAda() {
 function bandingKompas(b, d) {
   if (!KP) return '<div class="notice warn">⚠ <div>' + esc(KP_ERR) + '</div></div>';
   const daily = Array.isArray(KP.daily) ? KP.daily : [];
-  let net = 0, svc = 0, tax = 0, adaHari = 0;
+  /* PETA PER TANGGAL, dan totalnya dijumlahkan DARI PETA ITU — bukan dua
+     loop terpisah. Dua penjumlahan untuk angka yang sama pasti berbeda suatu
+     hari, dan yang berbeda di sini justru tabel yang dibuka orang untuk
+     mencari sebab selisihnya. Selisih yang tidak cocok dengan totalnya
+     sendiri adalah petunjuk yang menyesatkan ke arah yang salah. */
+  const rekap = {};
   daily.forEach(x => {
-    if (blnDari(isoDari(x && x.date)) !== b) return;
-    adaHari++;
-    net += (+x.food || 0) + (+x.bev || 0) + (+x.lainnya || 0) - (+x.discount || 0);
-    svc += (+x.service_charge || 0); tax += (+x.tax || 0);
+    const t = isoDari(x && x.date);
+    if (!t || blnDari(t) !== b) return;
+    /* Satu tanggal bisa punya lebih dari satu baris daily — dijumlahkan,
+       bukan ditimpa. Yang ditimpa membuang omset separuh hari tanpa satu pun
+       tanda. */
+    const r = rekap[t] || (rekap[t] = { net:0, svc:0, tax:0 });
+    r.net += (+x.food || 0) + (+x.bev || 0) + (+x.lainnya || 0) - (+x.discount || 0);
+    r.svc += (+x.service_charge || 0);
+    r.tax += (+x.tax || 0);
   });
+  let net = 0, svc = 0, tax = 0;
+  const tglRekap = Object.keys(rekap);
+  const adaHari = tglRekap.length;
+  tglRekap.forEach(t => { net += rekap[t].net; svc += rekap[t].svc; tax += rekap[t].tax; });
   if (!adaHari) return '<div class="notice info">ℹ <div>Rekap Penjualan belum punya data '
     + esc(fmtBln(b)) + ', jadi belum ada yang bisa dibandingkan.</div></div>';
   const tagihan = net + svc + tax;
@@ -1370,8 +1384,107 @@ function bandingKompas(b, d) {
           + 'Yang paling sering jadi sebabnya: hari yang belum diinput di Rekap Penjualan, '
           + 'atau berkas POS yang periodenya tidak sebulan penuh.</div></div>'
         : '')
+    + rincianSelisih(d, rekap, selisih)
     + '</div>'
     + jembatanLayar(b, posGrand, selisih, tagihan, net, svc, tax);
+}
+
+/* SELISIHNYA DIPECAH PER HARI (6 September 2026, pertanyaan user: "selisihnya
+   datang dari mana? tanggal berapa yang berbeda?").
+
+   Sampai tanggal ini kartu di atas cuma mengatakan selisihnya ADA. Itu
+   setengah pekerjaan: yang membacanya tahu ada yang salah tapi tidak punya
+   satu pun jalan untuk mencarinya, selain membandingkan 30 baris dengan mata
+   di dua layar berbeda. Angka yang menunjukkan masalah tanpa menunjukkan
+   letaknya akan didiamkan.
+
+   LETAK selisihnya ikut disebut, dan itu yang paling menolong: selisih di
+   NET berarti food/bev/lainnya/diskon yang salah ketik, selisih di TAX &
+   SERVICE berarti dua kolom kecil di sebelahnya. Dua sebab itu dicari di
+   tempat yang berbeda. Pada data produksi Agustus 2026 seluruh selisih
+   sebulan ternyata berasal dari SATU hari dan SATU kolom — tax 23 Agustus
+   diketik Rp2.514 alih-alih Rp2.514.400 — dan tanpa tabel ini tidak ada
+   satu pun layar yang bisa menunjukkannya.
+
+   AMBANGNYA Rp1, bukan nol: berkas POS menyimpan pecahan sen (grand total
+   sebulan berakhiran ",6992"), jadi nol akan menandai ke-30 harinya sebagai
+   berselisih dan tabel yang menyalakan semuanya sama tidak berartinya dengan
+   tabel yang tidak menyalakan apa pun. */
+const SELISIH_AMBANG = 1;
+function rincianSelisih(d, rekap, selisih) {
+  const hari = d.hari || {};
+  const semua = [...new Set([...Object.keys(hari), ...Object.keys(rekap)])].sort();
+  if (!semua.length) return '';
+
+  const baris = semua.map(t => {
+    const p = hari[t], r = rekap[t];
+    const pos = p ? (p.grand || 0) : null;
+    const rek = r ? (r.net + r.svc + r.tax) : null;
+    /* Hari yang cuma ada di SATU sisi bukan "selisih angka" melainkan hari
+       yang hilang, dan dua hal itu dicari dengan cara yang berbeda. */
+    if (pos === null) return { t, pos:0, rek, s:-rek, hanya:'rekap' };
+    if (rek === null) return { t, pos, rek:0, s:pos, hanya:'pos' };
+    const s = pos - rek;
+    /* Selisih dipecah: berapa yang dari net, berapa dari tax & service.
+       `net` POS baru ada kalau kolom Net Sales terbaca di berkasnya — kalau
+       tidak, pemecahan ini DITAHAN, bukan ditebak. Menebaknya menuduh kolom
+       yang salah, dan yang mengejarnya membuka layar yang keliru. */
+    const netPos = p && typeof p.net === 'number' ? p.net : null;
+    let letak = '';
+    if (netPos !== null && (netPos > 0 || pos === 0)) {
+      const bNet = netPos - r.net;
+      const bTs  = (pos - netPos) - (r.svc + r.tax);
+      const aNet = Math.abs(bNet) >= SELISIH_AMBANG, aTs = Math.abs(bTs) >= SELISIH_AMBANG;
+      letak = aNet && aTs ? 'net & tax/service'
+            : aNet ? 'net (food/bev/lainnya/diskon)'
+            : aTs  ? 'tax & service' : '';
+    }
+    return { t, pos, rek, s, letak };
+  });
+
+  const beda = baris.filter(x => Math.abs(x.s) >= SELISIH_AMBANG)
+                    .sort((a, z) => Math.abs(z.s) - Math.abs(a.s));
+  const cocok = baris.length - beda.length;
+
+  /* Tidak ada yang berselisih adalah JAWABAN, bukan alasan menyembunyikan
+     kartunya. Yang membuka halaman ini sedang bertanya "hari mana yang
+     beda", dan "tidak ada" harus terbaca sebagai jawaban atas pertanyaan
+     itu — bukan sebagai tabel yang gagal dimuat. */
+  if (!beda.length) return '<div class="notice ok" style="margin-top:12px">✓ <div>'
+    + '<b>Ke-' + cocok + ' hari cocok persis</b> antara POS dan Rekap Penjualan. '
+    + 'Selisih yang tersisa cuma pembulatan pecahan sen di berkas POS.</div></div>';
+
+  const TAMPIL = 15;
+  const pot = beda.slice(0, TAMPIL);
+  const sisa = beda.slice(TAMPIL);
+  const sisaNilai = sisa.reduce((a, x) => a + x.s, 0);
+
+  const sel = x => x.hanya === 'rekap' ? '<span style="color:var(--danger)">tidak ada di berkas POS</span>'
+            : x.hanya === 'pos' ? '<span style="color:var(--danger)">belum diinput di Rekap Penjualan</span>'
+            : (x.letak ? esc(x.letak) : '<span style="color:var(--muted-2)">tidak bisa dipecah</span>');
+
+  return '<div class="card" style="margin-top:16px"><h3>Selisihnya Ada di Hari Mana</h3>'
+    + '<div class="card-sub">Tiap tanggal dibandingkan sendiri-sendiri. Kolom <b>letak</b> menyebut '
+    + 'bagian mana yang berbeda — <i>net</i> berarti food/beverage/lainnya/diskon, '
+    + '<i>tax &amp; service</i> berarti dua kolom kecil di sebelahnya. Keduanya dibetulkan di '
+    + '<b>Rekap Penjualan › Input Harian</b> pada tanggal yang bersangkutan.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th class="num">POS</th>'
+    + '<th class="num">Rekap Penjualan</th><th class="num">Selisih</th><th>Letak selisih</th>'
+    + '</tr></thead><tbody>'
+    + pot.map(x => '<tr><td class="mono">' + esc(fmtTgl(x.t)) + '</td>'
+        + '<td class="num mono">' + rp0(x.pos) + '</td>'
+        + '<td class="num mono">' + rp0(x.rek) + '</td>'
+        + '<td class="num mono" style="font-weight:700;color:' + (x.s >= 0 ? 'var(--ok)' : 'var(--danger)') + '">'
+          + (x.s >= 0 ? '+' : '−') + rp0(Math.abs(x.s)) + '</td>'
+        + '<td style="font-size:12px">' + sel(x) + '</td></tr>').join('')
+    + '</tbody></table></div>'
+    /* Yang tersembunyi disebut jumlah DAN nilainya — daftar yang menyusut
+       tanpa keterangan terbaca sebagai data yang hilang. */
+    + (sisa.length ? '<div class="helper">' + sisa.length + ' hari lain juga berselisih, '
+        + 'totalnya ' + rp0(sisaNilai) + '. Yang di atas 15 terbesar.</div>' : '')
+    + '<div class="helper">' + cocok + ' hari cocok persis. '
+    + 'Jumlah seluruh selisih di atas = ' + rp0(selisih) + ', sama dengan kartu Selisih.</div>'
+    + '</div>';
 }
 
 /* Compliment sebulan, dari register `compliments[]` — BUKAN dari kolom

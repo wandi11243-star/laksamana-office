@@ -1298,8 +1298,53 @@ user). Yang menahan bug diam-diam:
   tidak berarti apa-apa.
 
 ```bash
-node tools/uji-kontribusi-analytics.js   # 44 pemeriksaan, jsdom
+node tools/uji-kontribusi-analytics.js   # 54 pemeriksaan, jsdom
 ```
+
+#### Selisih POS vs Rekap dipecah PER HARI (6 September 2026)
+
+Pertanyaan user: *"selisihnya datang dari mana? tanggal berapa yang berbeda?"*
+Kartu Selisih cuma mengatakan selisihnya ADA — setengah pekerjaan: yang
+membacanya tahu ada yang salah tapi tidak punya satu pun jalan mencarinya,
+selain membandingkan 30 baris dengan mata di dua layar. **Angka yang
+menunjukkan masalah tanpa menunjukkan letaknya akan didiamkan.**
+
+Tabel **Selisihnya Ada di Hari Mana** menjawabnya. Dijalankan atas data
+produksi Agustus 2026, seluruh selisih sebulan ternyata dari **satu hari dan
+satu kolom**:
+
+```
+23 Agu 2026   POS Rp29.989.850   Rekap Rp27.477.964   +Rp2.511.886   tax & service
+29 hari lain cocok persis.
+```
+
+Sebabnya **tax diketik `2.514` padahal `2.514.400`** — tiga digit terakhir
+hilang. Ketahuan karena rasio tax:service tepat **2,000** di 29 hari lain
+(PB 1 10%, service 5%), dan 0,002 di hari itu. Netnya benar, jumlah bill-nya
+benar; yang salah satu kolom kecil di sebelahnya, dan selisihnya cuma 0,3%
+dari omset sebulan — bentuk kesalahan yang tidak akan dicurigai siapa pun.
+
+Yang menahan bug diam-diam di tabel ini:
+
+- **Total dan rincian dihitung dari PETA YANG SAMA** (`rekap[tgl]`), bukan dua
+  loop terpisah. Selisih yang tidak cocok dengan totalnya sendiri adalah
+  petunjuk yang menyesatkan ke arah yang salah.
+- **Satu tanggal boleh punya lebih dari satu baris `daily`** — dijumlahkan,
+  bukan ditimpa. Yang ditimpa membuang omset separuh hari tanpa satu pun tanda.
+- **Kolom LETAK memecah selisih jadi `net` vs `tax & service`.** Dua sebab itu
+  dicari di tempat yang berbeda; menunjuk kolom yang salah membuat orang
+  membuka layar yang keliru. Kalau kolom Net Sales tidak terbaca di berkas POS,
+  pemecahannya **DITAHAN** (`tidak bisa dipecah`), bukan ditebak.
+- **Hari yang cuma ada di SATU sisi dibedakan** dari selisih angka: *belum
+  diinput di Rekap Penjualan* vs *tidak ada di berkas POS*. Itu hari yang
+  hilang, bukan angka yang beda, dan dicari dengan cara yang berbeda.
+- **Ambangnya Rp1, bukan nol.** Berkas POS menyimpan pecahan sen (grand total
+  Agustus berakhiran `,6992`), jadi nol menandai ke-30 harinya sebagai
+  berselisih — dan tabel yang menyalakan semuanya sama tidak berartinya dengan
+  yang tidak menyalakan apa pun.
+- **"Semua cocok" adalah JAWABAN**, digambar sebagai pita hijau berisi jumlah
+  harinya — bukan kartu yang hilang. Yang membukanya sedang bertanya "hari mana
+  yang beda", dan tabel yang lenyap terbaca sebagai gagal dimuat.
 
 Ujinya menjaga **invarian**, bukan hasil rumus yang disalin ulang dari kode
 yang diujinya — uji yang mengulang rumusnya cuma mengulang asumsi yang sama.
