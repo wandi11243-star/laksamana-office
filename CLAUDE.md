@@ -1155,8 +1155,76 @@ Berkas POS **jangan di-commit** (sudah di `.gitignore`): satu berkas memuat
 seluruh transaksi sebulan.
 
 ```bash
-node tools/uji-analytics.js   # 229 pemeriksaan
+node tools/uji-analytics.js   # 230 pemeriksaan
 ```
+
+### Analytics: jembatan tiga layar & kolom Kontribusi (6 September 2026)
+
+Tiga pertanyaan user, dan ketiganya menyentuh angka yang sama dibaca dari
+sudut berbeda.
+
+**1. “Kenapa Rekap Penjualan, Dashboard Omset, dan Investor beda?”** Karena
+ketiganya memang berbeda — lihat **TIGA KONVENSI PENJUALAN** di bagian
+Investor Compass. Yang salah bukan angkanya, tapi tidak adanya satu pun layar
+yang menjabarkan bedanya: yang membuka ketiganya untuk bulan yang sama melihat
+tiga angka dan menyimpulkan ada uang yang hilang. Sekarang halaman Ringkasan
+punya kartu **Jembatan ke Tiga Layar Office** (`jembatanLayar()`), tabel
+rekonsiliasi baris demi baris.
+
+- **DIBAYAR TAMU DIULANG sebagai titik tolak jalur kedua**, bukan diganti baris
+  keterangan. Net Sales dan Realisasi diturunkan dari angka yang SAMA, bukan
+  berurutan. Kalau Service charge langsung menyusul Net Sales, yang membacanya
+  akan mengurangkannya dari sana — Agustus 2026 itu memberi Rp236.000.000,
+  angka yang tidak ada di layar mana pun dan tetap terlihat wajar. Ujinya
+  memeriksa angka rantai-lurus itu **tidak boleh muncul**.
+- **Hanya SATU baris yang benar-benar selisih** (POS vs ketikan harian), dan ia
+  diwarnai merah serta dikatakan. Sisanya beda konvensi, dan beda konvensi
+  bukan sesuatu yang perlu dicari sebabnya.
+- **`complimentBulan()` memulangkan `null` kalau register `compliments[]` tidak
+  terbaca, BUKAN 0.** Nol membuat Net Sales sama persis dengan Dibayar Tamu —
+  angka salah yang terlihat sangat wajar, di baris yang justru dibaca investor.
+  Ia dibaca dari register, bukan dari `daily.discount` (itu cuma bill
+  discount); kalau suatu hari compliment ikut masuk kolom Discount di Input
+  Omset Harian, pengurangannya wajib dicabut di TIGA tempat — di sini, di
+  `kp_netsales_hari()`, dan di `laba_rugi_bulanan()`.
+
+**2 & 3. Kolom `vs rata-rata bulan` diganti `Total omset` + `Kontribusi`**, dan
+kolom Kontribusi yang sama ditambahkan di **Sebaran per Jam** (permintaan
+user). Yang menahan bug diam-diam:
+
+- **PENYEBUTNYA DIHITUNG DARI TABELNYA SENDIRI, bukan `ringkas.grand`.**
+  `ringkas` menjumlahkan SELURUH baris berkas termasuk yang tanggalnya jatuh di
+  bulan sebelah, sementara `hari` sudah dibuang untuk bulan lain di
+  `uraiPos()`, dan `jam` cuma memuat baris yang jamnya terbaca (`jamDari()`
+  memulangkan `-1`). Penyebut yang salah membuat kolomnya berhenti berjumlah
+  100% tanpa satu pun tanda — di data uji ia jatuh ke 80,8%, dan persen yang
+  tidak genap dibaca sebagai omset yang hilang.
+- **Sebaran jam memakai `tot` yang SAMA dengan kartu Dua Shift** di atasnya.
+  Dua penyebut di satu halaman membuat kolom yang sama berbunyi lain di dua
+  tempat, dan yang mencocokkannya tidak punya cara tahu mana yang benar.
+- **Omset yang jamnya tidak terbaca DISEBUT nominalnya** di kaki tabel — alasan
+  yang sama dengan kartu `Di luar keduanya` yang sengaja tidak disembunyikan:
+  jumlah kolom yang tidak sama dengan Ringkasan membuat orang mengira salah
+  satu halaman salah.
+- **BATANG MENGIKUTI KOLOM TOTAL, bukan rata-rata**, karena batang selalu
+  dibaca sebagai gambar dari kolom di sebelahnya. Itu dikatakan di kaki tabel.
+- **Rata-rata TIDAK dicabut.** Dua kolom menjawab dua pertanyaan: rata-rata
+  “hari mana yang lebih ramai” (adil), kontribusi “dari mana omsetnya datang”
+  (dari JUMLAH, jadi bulan dengan lima Sabtu mengangkat Sabtu). Bedanya wajib
+  dikatakan di `card-sub` — tanpa itu kolom Kontribusi dibaca sebagai
+  pembanding keramaian, dan kolom **Jumlah hari** yang menjelaskannya jadi
+  tidak berarti apa-apa.
+
+```bash
+node tools/uji-kontribusi-analytics.js   # 44 pemeriksaan, jsdom
+```
+
+Ujinya menjaga **invarian**, bukan hasil rumus yang disalin ulang dari kode
+yang diujinya — uji yang mengulang rumusnya cuma mengulang asumsi yang sama.
+Data ujinya dirancang supaya tiap kesalahan punya tempat untuk muncul:
+`ringkas.grand` sengaja jauh berbeda dari jumlah harinya, dan satu hari dibuat
+punya rata-rata tertinggi tapi total BUKAN yang terbesar — jadi batang yang
+salah kolom langsung ketahuan. Ketiga mutasinya sudah dicoba dan tertangkap.
 
 Ujinya memakai **berkas POS asli** di root repo kalau ada (kalau tidak, bagian
 itu MELEWAT dengan jelas). `DecompressionStream`/`Blob`/`Response` ada di Node

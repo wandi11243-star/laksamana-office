@@ -819,9 +819,20 @@ async function siap(w) {
     const v = d.getElementById('app-view').innerHTML;
 
     cek('tabel hari dalam seminggu tergambar', v.indexOf('Omset per Hari dalam Seminggu') > -1);
-    /* RATA-RATA, bukan jumlah: bulan dengan lima Sabtu dan empat Senin akan
-       selalu menunjukkan Sabtu lebih besar kalau yang dibandingkan jumlahnya. */
-    cek('yang dibandingkan rata-rata, bukan jumlah', v.indexOf('Rata-rata, bukan jumlah') > -1);
+    /* DUA KOLOM, DUA PERTANYAAN (6 September 2026, permintaan user).
+       Rata-rata membandingkan hari mana yang lebih ramai; Kontribusi menjawab
+       dari mana omset bulan itu datang, dan itu memang dihitung dari JUMLAH.
+       Card-sub WAJIB mengatakan bedanya — tanpa itu kolom Kontribusi dibaca
+       sebagai pembanding keramaian, dan bulan dengan lima Sabtu akan selalu
+       memenangkan Sabtu tanpa satu pun tanda bahwa sebabnya jumlah hari.
+
+       Yang diperiksa MAKNANYA, bukan satu kalimat persis: asersi yang
+       mencocokkan kalimat akan gagal tiap kali kata-katanya dirapikan, dan
+       uji yang gagal karena hal yang bukan salah akan dimatikan orang. */
+    cek('kolom Rata-rata omset dan Kontribusi dua-duanya ada',
+        v.indexOf('Rata-rata omset') > -1 && v.indexOf('Kontribusi') > -1);
+    cek('bedanya dua kolom itu dikatakan di layar',
+        v.indexOf('lima Sabtu dan empat Senin') > -1 && v.indexOf('dihitung dari JUMLAH') > -1);
     cek('Sabtu rata-rata 9jt', v.indexOf('Rp9.000.000') > -1, v.slice(v.indexOf('Sabtu') - 20, v.indexOf('Sabtu') + 260));
     cek('Senin rata-rata 1jt', v.indexOf('Rp1.000.000') > -1);
     cek('urutannya mulai Senin', v.indexOf('>Senin<') < v.indexOf('>Minggu<'));

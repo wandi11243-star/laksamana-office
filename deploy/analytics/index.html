@@ -1370,6 +1370,95 @@ function bandingKompas(b, d) {
           + 'Yang paling sering jadi sebabnya: hari yang belum diinput di Rekap Penjualan, '
           + 'atau berkas POS yang periodenya tidak sebulan penuh.</div></div>'
         : '')
+    + '</div>'
+    + jembatanLayar(b, posGrand, selisih, tagihan, net, svc, tax);
+}
+
+/* Compliment sebulan, dari register `compliments[]` — BUKAN dari kolom
+   Discount di Input Omset Harian. `daily.discount` cuma bill discount, jadi
+   menjumlahkan keduanya aman. Kalau suatu hari compliment ikut dimasukkan ke
+   kolom Discount, pengurangannya WAJIB dicabut di TIGA tempat: di sini, di
+   kp_netsales_hari(), dan di laba_rugi_bulanan() — kalau tidak Net Sales
+   menyusut dua kali lipat tanpa satu pun galat.
+
+   Memulangkan null kalau registernya TIDAK TERBACA, bukan 0. Nol membuat Net
+   Sales sama persis dengan Dibayar Tamu — angka yang salah, terlihat sangat
+   wajar, dan justru di baris yang dibaca investor. */
+function complimentBulan(b) {
+  if (!KP || !Array.isArray(KP.compliments)) return null;
+  let n = 0;
+  KP.compliments.forEach(c => {
+    if (!c || blnDari(isoDari(c.date)) !== b) return;
+    n += (+c.nominal || 0);
+  });
+  return n;
+}
+
+/* TIGA ANGKA PENJUALAN HIDUP DI OFFICE, DAN KETIGANYA SAH:
+
+     net       = food + bev + lainnya − discount     -> Dashboard Omset
+     tagihan   = net + service + pajak               -> Rekap Penjualan
+     netSales  = tagihan − compliment                -> Investor / Laporan CFO
+
+   Sampai 6 September 2026 halaman ini cuma memajang selisih POS vs Rekap.
+   Akibatnya yang membuka tiga layar itu untuk bulan yang sama melihat tiga
+   angka berbeda tanpa satu pun tempat yang menjelaskan bedanya, lalu
+   menyimpulkan ada uang yang hilang di antaranya — pertanyaan user 6
+   September 2026. Tabel ini menjabarkannya baris demi baris.
+
+   YANG BENAR-BENAR SELISIH CUMA SATU BARIS, dan itu diwarnai merah serta
+   dikatakan dua kali. Sisanya berbeda karena tiap layar menjawab pertanyaan
+   yang berbeda, dan beda semacam itu bukan sesuatu yang perlu dicari
+   sebabnya.
+
+   DIBAYAR TAMU DIULANG sebagai titik tolak jalur kedua, bukan diganti baris
+   keterangan. Kalau Service charge langsung menyusul Net Sales, yang
+   membacanya akan mengurangkannya dari Net Sales dan mendapat angka yang
+   tidak ada di layar mana pun — dan angka itu akan terlihat wajar. */
+function jembatanLayar(b, posGrand, selisih, tagihan, net, svc, tax) {
+  const comp = complimentBulan(b);
+  const netSales = comp === null ? null : tagihan - comp;
+
+  /* Dua bentuk baris, dan bedanya yang membuat tabel ini terbaca sebagai
+     hitungan alih-alih sebagai daftar angka: yang bertumpu (hasil, berlatar)
+     dan yang menambah/mengurangi (menjorok, redup). */
+  const bTitik = (t, n, ket) => '<tr style="background:var(--gold-soft)">'
+    + '<td style="font-weight:700">' + esc(t) + '</td>'
+    + '<td class="num mono" style="font-weight:700">' + rp0(n) + '</td>'
+    + '<td style="color:var(--gold-dim);font-size:12px">' + esc(ket) + '</td></tr>';
+  const bOp = (t, n, ket, warna) => '<tr>'
+    + '<td style="color:var(--muted);padding-left:26px">' + (n < 0 ? '−' : '+') + ' ' + esc(t) + '</td>'
+    + '<td class="num mono" style="color:' + (warna || 'var(--muted)') + '">'
+      + (n < 0 ? '−' : '+') + rp0(Math.abs(n)) + '</td>'
+    + '<td style="color:' + (warna || 'var(--muted)') + ';font-size:12px">' + esc(ket) + '</td></tr>';
+
+  let baris = bTitik('POS · Grand Total', posGrand, 'berkas yang diunggah di halaman ini')
+    + bOp('Selisih input manual', -selisih, 'satu-satunya selisih di tabel ini', 'var(--danger)')
+    + bTitik('Dibayar Tamu', tagihan, 'Finance › Rekap Penjualan');
+
+  /* Compliment yang tidak terbaca DIKATAKAN, dan barisnya tidak digambar nol.
+     Net Sales yang kebetulan sama dengan Dibayar Tamu adalah kesalahan yang
+     tidak akan dipertanyakan siapa pun. */
+  baris += (comp === null
+    ? '<tr><td colspan="3" style="color:var(--danger);font-size:12px">'
+      + 'Register compliment tidak terbaca, jadi Net Sales (Investor) tidak bisa dijabarkan di sini. '
+      + 'Angkanya BUKAN nol — nol akan membuat Net Sales sama persis dengan Dibayar Tamu.</td></tr>'
+    : bOp('Compliment', -comp, 'barangnya keluar, tamunya tidak membayar')
+      + bTitik('Net Sales', netSales, 'Investor › Laporan Keuangan'));
+
+  baris += bTitik('Dibayar Tamu', tagihan, 'angka yang sama — titik tolak jalur kedua')
+    + bOp('Service charge', -svc, 'titipan untuk kru, bukan penjualan')
+    + bOp('Pajak (PB 1)', -tax, 'titipan untuk negara, bukan penjualan')
+    + bTitik('Realisasi · net', net, 'Finance › Dashboard Omset');
+
+  return '<div class="card" style="margin-top:16px"><h3>Jembatan ke Tiga Layar Office</h3>'
+    + '<div class="card-sub">Penjualan ' + esc(fmtBln(b)) + ' berbunyi berbeda di tiga layar, dan itu '
+    + '<b>bukan karena ada yang hilang</b> — tiap layar menjawab pertanyaan yang berbeda. '
+    + 'Yang benar-benar selisih cuma baris yang merah.</div>'
+    + '<div class="tbl-wrap"><table><tbody>' + baris + '</tbody></table></div>'
+    + '<div class="helper"><b>Dibayar Tamu dipakai dua kali sebagai titik tolak.</b> Net Sales dan '
+    + 'Realisasi diturunkan dari angka yang sama, bukan berurutan — Realisasi <b>bukan</b> Net Sales '
+    + 'dikurangi service dan pajak.</div>'
     + '</div>';
 }
 
@@ -1387,31 +1476,49 @@ function vHari() {
   const dow = Array.from({ length: 7 }, () => ({ n:0, grand:0, bill:0 }));
   tgl.forEach(t => { const k = dow[dowDari(t)];
     k.n++; k.grand += hari[t].grand || 0; k.bill += hari[t].bill || 0; });
-  const puncak = Math.max(...dow.map(x => x.n ? x.grand / x.n : 0), 1);
-  const totalRata = tgl.length ? tgl.reduce((a, t) => a + (hari[t].grand || 0), 0) / tgl.length : 0;
+  /* PENYEBUT KONTRIBUSI DIHITUNG DARI TABEL INI SENDIRI, bukan dari
+     ringkas.grand. `ringkas` menjumlahkan SELURUH baris berkas — termasuk
+     yang tanggalnya jatuh di bulan sebelah — sementara `hari` sudah dibuang
+     untuk bulan lain di uraiPos(). Dua penyebut yang berbeda membuat kolom
+     Kontribusi berhenti berjumlah 100%, dan persen yang tidak genap tanpa
+     penjelasan dibaca sebagai omset yang hilang. */
+  const totalHari = tgl.reduce((a, t) => a + (hari[t].grand || 0), 0);
+  const totalRata = tgl.length ? totalHari / tgl.length : 0;
+  /* Batang mengikuti kolom TOTAL, bukan rata-rata: batang selalu dibaca
+     sebagai gambar dari kolom yang berdiri tepat di sebelahnya, dan batang
+     yang menggambar kolom lain adalah kebohongan yang tidak akan dicurigai
+     siapa pun. Itu juga dikatakan di kaki tabel. */
+  const puncak = Math.max(...dow.map(x => x.grand), 1);
 
   h += '<div class="card"><h3>Omset per Hari dalam Seminggu</h3>'
-    + '<div class="card-sub">Rata-rata, bukan jumlah — bulan yang punya lima Sabtu dan empat Senin '
-    + 'akan selalu menunjukkan Sabtu lebih besar kalau yang dibandingkan jumlahnya.</div>'
+    + '<div class="card-sub"><b>Rata-rata</b> menjawab hari mana yang lebih ramai — dan itu memang '
+    + 'harus rata-rata, karena bulan yang punya lima Sabtu dan empat Senin akan selalu menunjukkan '
+    + 'Sabtu lebih besar kalau yang dibandingkan jumlahnya. <b>Kontribusi</b> menjawab pertanyaan '
+    + 'yang lain: dari mana omset bulan ini datang — dan itu dihitung dari JUMLAH, jadi hari yang '
+    + 'kebetulan muncul lima kali ikut terangkat. Kolom Jumlah hari ada justru supaya keduanya '
+    + 'terbaca bersama.</div>'
     + '<div class="tbl-wrap"><table><thead><tr><th>Hari</th><th class="num">Jumlah hari</th>'
     + '<th class="num">Rata-rata omset</th><th class="num">Rata-rata bill</th>'
-    + '<th class="num">vs rata-rata bulan</th><th style="width:34%"></th></tr></thead><tbody>'
+    + '<th class="num">Total omset</th><th class="num">Kontribusi</th>'
+    + '<th style="width:26%"></th></tr></thead><tbody>'
     + [1,2,3,4,5,6,0].map(i => {
         const x = dow[i], rata = x.n ? x.grand / x.n : 0;
-        const beda = totalRata ? (rata - totalRata) / totalRata * 100 : 0;
-        const w = Math.round(rata / puncak * 100);
+        const kon = totalHari ? x.grand / totalHari * 100 : 0;
+        const w = Math.round(x.grand / puncak * 100);
         return '<tr><td><b>' + NAMA_HARI[i] + '</b></td>'
           + '<td class="num">' + x.n + '</td>'
           + '<td class="num mono">' + rp0(rata) + '</td>'
           + '<td class="num mono">' + (x.n ? Math.round(x.bill / x.n) : 0) + '</td>'
-          + '<td class="num mono" style="color:' + (beda >= 0 ? 'var(--ok)' : 'var(--danger)') + '">'
-            + (beda >= 0 ? '+' : '') + beda.toFixed(0) + '%</td>'
+          + '<td class="num mono">' + rp0(x.grand) + '</td>'
+          + '<td class="num mono"><b>' + kon.toFixed(1) + '%</b></td>'
           + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
             + '<div style="width:' + w + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
           + '</tr>';
       }).join('')
     + '</tbody></table></div>'
-    + '<div class="helper">Rata-rata seluruh hari: <b>' + rp0(totalRata) + '</b>.</div>'
+    + '<div class="helper">Rata-rata seluruh hari: <b>' + rp0(totalRata) + '</b> · total '
+    + rp0(totalHari) + ' dari ' + tgl.length + ' hari. Kolom Kontribusi berjumlah 100%, dan '
+    + 'batangnya menggambar kolom itu — bukan rata-ratanya.</div>'
     + '</div>';
 
   /* ---- dua shift ---- */
@@ -1445,26 +1552,46 @@ function vHari() {
     + '</div>';
 
   /* ---- sebaran per jam ---- */
+  /* KONTRIBUSI JAM MEMAKAI `tot` — sama persis dengan penyebut kartu Dua
+     Shift di atas, bukan ringkas.grand. Baris yang jamnya tidak terbaca tidak
+     pernah masuk `jam` (jamDari memulangkan -1), jadi penyebut dari ringkas
+     membuat kolomnya berhenti berjumlah 100% tanpa satu pun tanda.
+
+     Omset yang jamnya tidak terbaca DISEBUT di kaki tabel. Kalau didiamkan,
+     jumlah kolom Omset di sini tidak sama dengan total di Ringkasan, dan yang
+     menjumlahkannya akan mengira salah satu halaman salah — alasan yang sama
+     dengan kartu `Di luar keduanya` yang sengaja tidak disembunyikan. */
+  const tanpaJam = ((d.ringkas || {}).grand || 0) - tot;
   const pun = Math.max(...jam.map(x => (x && x.grand) || 0), 1);
   h += '<div class="card"><h3>Sebaran per Jam</h3>'
-    + '<div class="card-sub">Sepanjang bulan, menurut jam bill dibuka.</div>'
+    + '<div class="card-sub">Sepanjang bulan, menurut jam bill dibuka. '
+    + '<b>Kontribusi</b> = berapa persen omset bulan ini masuk di jam itu.</div>'
     + '<div class="tbl-wrap"><table><thead><tr><th>Jam</th><th class="num">Bill</th>'
-    + '<th class="num">Omset</th><th class="num">Rata/bill</th><th style="width:42%"></th></tr></thead><tbody>'
+    + '<th class="num">Omset</th><th class="num">Kontribusi</th><th class="num">Rata/bill</th>'
+    + '<th style="width:34%"></th></tr></thead><tbody>'
     + jam.map((x, j) => {
         const g = (x && x.grand) || 0, bl = (x && x.bill) || 0;
         if (!bl) return '';
         const dlm = diRentang(j, S.s1a, S.s1b) ? 'siang' : (diRentang(j, S.s2a, S.s2b % 24) ? 'malam' : '');
+        const kon = tot ? g / tot * 100 : 0;
         return '<tr><td class="mono">' + String(j).padStart(2,'0') + ':00'
           + (dlm ? ' <span class="chip" style="background:var(--gold-soft);color:var(--gold-dim)">' + dlm + '</span>' : '')
           + '</td>'
           + '<td class="num">' + bl.toLocaleString('id-ID') + '</td>'
           + '<td class="num mono">' + rp0(g) + '</td>'
+          + '<td class="num mono"><b>' + kon.toFixed(1) + '%</b></td>'
           + '<td class="num mono">' + rp0(bl ? g / bl : 0) + '</td>'
           + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
             + '<div style="width:' + Math.round(g / pun * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
           + '</tr>';
       }).join('')
-    + '</tbody></table></div></div>';
+    + '</tbody></table></div>'
+    + '<div class="helper">Kontribusi dihitung dari <b>' + rp0(tot) + '</b> — omset yang jamnya '
+    + 'terbaca di berkas POS, penyebut yang sama dengan kartu Dua Shift di atas. Kolomnya '
+    + 'berjumlah 100%.'
+    + (tanpaJam > 0 ? ' <b>' + rp0(tanpaJam) + '</b> tidak ada di tabel ini karena jamnya tidak '
+        + 'terbaca, jadi jumlah kolom Omset memang lebih kecil daripada total di Ringkasan.' : '')
+    + '</div></div>';
 
   /* ---- daftar tanggal ---- */
   h += '<div class="card"><h3>Per Tanggal</h3><div class="tbl-wrap"><table>'
