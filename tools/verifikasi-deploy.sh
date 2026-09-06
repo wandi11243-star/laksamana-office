@@ -159,16 +159,41 @@ for p in $daftar; do
   # deploy di repo ini berbohong ke dua arah sekaligus — ia meneriakkan gagal
   # untuk deploy yang sehat, dan orang yang sudah terbiasa mengabaikan
   # teriakannya tidak akan percaya waktu ia benar.
-  kode=$(curl -s -m 90 -o "$kerja/live.html" -w '%{http_code}' "$url" 2>/dev/null) || kode=""
-  if [ ! -s "$kerja/live.html" ]; then
-    echo "TAK TERBACA ${m:-/} — tidak ada isi yang bisa dibandingkan (http=${kode:-curl gagal})${ket}"
-    case "${kode:-}" in
-      ""|000)
-        echo "        curl tidak memulangkan apa pun: jaringan, DNS, atau folder"
-        echo "        sementara tidak bisa ditulis. INI BUKAN bukti deploy gagal —"
-        echo "        periksa mesin yang menjalankan skrip ini lebih dulu." ;;
-      *)
-        echo "        server menjawab http=$kode dengan badan kosong." ;;
+  # BERKAS UNDUHAN LAMA WAJIB DIHAPUS DULU (6 September 2026, babak kedua).
+  #
+  # `curl -o` tidak menyentuh berkas tujuan kalau ia gagal sebelum ada data.
+  # Berkas dari halaman SEBELUMNYA karena itu tetap di tempatnya, lolos
+  # pemeriksaan "-s" di bawah, dan dibandingkan seolah-olah itu jawaban server
+  # untuk halaman INI.
+  #
+  # Akibatnya bukan sekadar salah lapor. Pembanding "berkas tetangga" di bawah
+  # lalu menemukan kecocokan sempurna — karena isinya memang berkas repo yang
+  # barusan diunduh — dan mencetak "BERKASNYA TERTUKAR, aliran FTP menulis
+  # berkas tetangga ke sini". Tuduhan itu SELALU jatuh ke halaman nomor
+  # sebelumnya dalam urutan alfabetis, dan pada 6 September 2026 ketiganya
+  # persis begitu: bd->cashier, howandi_life->hr, stock->stock/hpp. Ketiga
+  # berkas itu benar semua ketika diunduh ulang satu per satu.
+  #
+  # Jadi gejala "berkas tertukar" bisa lahir seluruhnya di dalam skrip ini,
+  # tanpa FTP melakukan apa pun. Yang mengejarnya akan memeriksa server untuk
+  # kerusakan yang tidak pernah ada.
+  rm -f "$kerja/live.html"
+  # --retry: Rumahweb sesekali memutus satu dari 29 permintaan beruntun.
+  # Tanpa percobaan ulang, satu halaman acak gagal tiap kali skrip dijalankan,
+  # dan laporan yang isinya berganti-ganti tiap dijalankan akan berhenti
+  # dipercaya seluruhnya — termasuk waktu ia benar.
+  kode=$(curl -s -m 90 --retry 2 --retry-delay 2 -o "$kerja/live.html" -w '%{http_code}' "$url" 2>/dev/null)
+  st=$?
+  # Transfer yang PUTUS DI TENGAH meninggalkan berkas separuh dengan
+  # http=200. Tanpa memeriksa status keluar curl, potongan itu dilaporkan
+  # sebagai "isi di server BEDA" — tuduhan deploy gagal untuk berkas yang
+  # sebenarnya utuh di server.
+  if [ "$st" -ne 0 ] || [ ! -s "$kerja/live.html" ]; then
+    echo "TAK TERBACA ${m:-/} — tidak ada isi utuh yang bisa dibandingkan (curl=$st http=${kode:-?})${ket}"
+    case "$st" in
+      0) echo "        server menjawab http=${kode:-?} dengan badan kosong." ;;
+      *) echo "        curl berhenti dengan status $st (putus/timeout/DNS)."
+         echo "        INI BUKAN bukti deploy gagal — halaman ini belum terperiksa." ;;
     esac
     gagal=1
     continue
@@ -185,6 +210,13 @@ for p in $daftar; do
     echo "        repo=$(wc -c < "$kerja/a") byte, server=$(wc -c < "$kerja/b") byte, http=${kode:-?}"
     grep -q '</html>' "$kerja/b" || echo "        server tidak punya </html> → terpotong atau 404"
     # BERKAS MANA YANG SEBENARNYA DISAJIKAN (4 September 2026).
+    #
+    # CATATAN 6 September 2026: pembanding ini pernah menuduh FTP menukar
+    # berkas untuk kerusakan yang lahir di skrip ini sendiri — lihat blok
+    # "BERKAS UNDUHAN LAMA WAJIB DIHAPUS DULU" di atas. Sekarang ia hanya
+    # dicapai kalau curl benar-benar berhasil dan berkas lamanya sudah
+    # dihapus, jadi kalau ia menyala sekarang, ia berarti sesuatu. Kalau blok
+    # itu suatu hari dicabut, tuduhan di sini ikut berhenti bisa dipercaya.
     #
     # "isi di server BEDA" menyebut tiga kemungkinan sekaligus, dan yang
     # membacanya harus menebak yang mana. Padahal jawabannya sering ada di

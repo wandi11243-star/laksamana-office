@@ -2961,17 +2961,67 @@ pengaman FTP.
 
 Dua hal yang ikut ketahuan saat menelusurinya, dan keduanya layak diingat:
 
-- **`stock/hpp/` sempat menyajikan salinan `stock/index.html`.** Bukan
-  terpotong — berkas TERTUKAR, persis pola yang sudah dikenali skrip ini.
-  Sepuluh menit kemudian ia sudah benar sendiri: verifikasi berjalan saat FTP
-  masih menulis. **Verifikasi yang dijalankan tangan tepat setelah push bisa
-  menangkap keadaan setengah jadi**, dan itu bukan kegagalan.
+- **"BERKASNYA TERTUKAR" ternyata lahir DI DALAM skrip ini** — lihat blok
+  berikutnya. Tuduhan itu bukan bukti FTP melakukan apa pun.
 - **Mencari string di `index.html` untuk membuktikan sebuah commit sudah
   mendarat WAJIB membuang komentar dulu.** "Pengaturan Target" masih ada 8×
   di `deploy/finance/kas/` — seluruhnya di komentar sejarah, karena sejarah
   memang harus boleh menyebut nama yang dicabut. Salah baca ini membuat
   commit yang SUDAH mendarat disimpulkan belum. Aturan yang sama dengan
   `uji-tanpa-target.js`.
+
+#### Babak kedua: "berkas tertukar" yang tidak pernah terjadi
+
+Sesudah perbaikan di atas, verifikasi dev masih memerahkan **satu halaman acak
+setiap kali dijalankan** — `hr/`, lalu `analytics/`+`konten/`+`stock/tree/`,
+lalu `service_excellent/`, lalu `cashier/`+`hr/`. Tiap berkas yang dituduh
+selalu **identik dengan repo** saat diunduh ulang satu per satu.
+
+Dua di antaranya bahkan dilaporkan "menyajikan isi berkas lain":
+
+```
+GAGAL cashier/  server menyajikan isi bd/index.html          — BERKASNYA TERTUKAR
+GAGAL hr/       server menyajikan isi howandi_life/index.html — BERKASNYA TERTUKAR
+```
+
+Keduanya, dan `stock/hpp/` sebelumnya, adalah **halaman nomor tepat sebelumnya
+dalam urutan alfabetis** yang diperiksa skrip: `bd`(4)→`cashier`(5),
+`howandi_life`(13)→`hr`(14), `stock`(23)→`stock/hpp`(24). Bukan kebetulan.
+
+**`curl -o` tidak menyentuh berkas tujuan kalau ia gagal sebelum ada data.**
+Berkas unduhan halaman SEBELUMNYA karena itu tetap di tempatnya, lolos
+pemeriksaan "berkasnya ada dan tidak kosong", dan dibandingkan seolah-olah itu
+jawaban server untuk halaman ini. Pembanding "berkas tetangga" lalu menemukan
+kecocokan sempurna — karena isinya memang berkas repo yang barusan diunduh —
+dan mencetak tuduhan yang paling meyakinkan di seluruh skrip ini.
+
+**Gejala "aliran FTP menulis berkas tetangga" bisa lahir seluruhnya di dalam
+skrip, tanpa FTP melakukan apa pun.** Yang mengejarnya akan memeriksa server
+untuk kerusakan yang tidak pernah ada. Kejadian 3 September 2026 yang tercatat
+di komentar skrip (`dw/` disebut berisi `cashier/`) punya bentuk yang sama
+persis — `cashier` memang tepat sebelum `dw` dalam urutan itu — jadi diagnosis
+lamanya patut diragukan, walau tidak bisa dibuktikan lagi sekarang.
+
+Yang diperbaiki:
+
+- **`rm -f live.html` sebelum tiap unduhan.** Satu baris, dan ia yang
+  membedakan tuduhan yang berarti dari tuduhan yang mengarang sendiri.
+- **Status keluar curl diperiksa** (`st=$?`), bukan cuma kode HTTP. Transfer
+  yang PUTUS DI TENGAH meninggalkan berkas separuh dengan `http=200`, dan
+  potongan itu dilaporkan sebagai "isi di server BEDA" — tuduhan deploy gagal
+  untuk berkas yang utuh di server.
+- **`--retry 2 --retry-delay 2`.** Rumahweb sesekali memutus satu dari 29
+  permintaan beruntun, dan laporan yang isinya berganti-ganti tiap dijalankan
+  berhenti dipercaya seluruhnya — termasuk waktu ia benar.
+
+Sesudahnya: **dev 29/29 bersih dua putaran berturut-turut, produksi 29/29.**
+Sebelumnya tidak pernah ada dua putaran yang sama hasilnya.
+
+Pelajaran yang lebih besar dari bug-nya: **alat pemeriksa yang salah lebih
+mahal daripada tidak punya alat.** Dalam satu sore skrip ini menuduh 29
+halaman gagal (semuanya sehat), lalu menuduh FTP menukar berkas (tidak pernah
+terjadi) — dan satu-satunya kerusakan yang benar-benar ada, `analytics/` yang
+belum ter-deploy, nyaris tenggelam di antara keduanya.
 
 **Push otomatis men-deploy.** `main` → **`team.laksamanamuda.id`** (produksi),
 `develop` → `dev.laksamanamuda.id`. Berkas ini sempat menulis
