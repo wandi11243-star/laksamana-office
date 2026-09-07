@@ -1327,7 +1327,7 @@ function dpVerifiedTotal() { dpsOf(); }
 
 
 
-function ensureDps() { uid(); }
+function ensureDps() { uid(); saveReservation(); }
 
 
 
@@ -1344,6 +1344,20 @@ function ensureDps() { uid(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+function adaBuktiDp() {  }
 
 
 
@@ -3604,6 +3618,9 @@ function opt() { esc(); byId(); navigate(); onGuestNameInput(); checkPhoneHistor
 
 
 
+
+
+
 function fileToData() { toast(); }
 
 
@@ -3778,7 +3795,44 @@ function perbaikiKedatangan() { byId(); toast(); arrivalsOf(); hintPaxDatang(); 
 
 
 
-function saveReservation() { byId(); toast(); normTime(); todayStr(); dpToggle(); mejaMasihKosong(); hideBusy(); tablesOf(); renderSeatMap(); checkConflict(); popupMejaDiambil(); uid(); normPhone(); rupiahVal(); perbaikiKedatangan(); arrivedPax(); ensureDps(); newDp(); resetDpScan(); syncDp(); logAudit(); fmtDateShort(); setBusy(); saveNow(); reportRejected(); buildNav(); navigate(); }
+function saveReservation() { byId(); toast(); normTime(); todayStr(); dpToggle(); mejaMasihKosong(); hideBusy(); tablesOf(); renderSeatMap(); checkConflict(); popupMejaDiambil(); adaBuktiDp(); uid(); normPhone(); rupiahVal(); perbaikiKedatangan(); arrivedPax(); ensureDps(); newDp(); resetDpScan(); syncDp(); logAudit(); fmtDateShort(); setBusy(); saveNow(); reportRejected(); buildNav(); navigate(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -6515,6 +6569,14 @@ function openAddDp() { ensureDps(); openModal(); esc(); closeModal(); fmtDateSho
 
 
 function saveAddDp() { ensureDps(); rupiahVal(); byId(); toast(); newDp(); syncDp(); logAudit(); rpDot(); dpTotal(); commit(); closeModal(); buildNav(); navigate(); }
+
+
+
+
+
+
+
+
 
 
 

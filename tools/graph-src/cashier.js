@@ -520,6 +520,14 @@ function bacaSesi() {  }
 
 
 
+
+
+
+
+
+
+
+
 function bolehLihat() {  }
 
 
@@ -2064,7 +2072,42 @@ function openBillList() { obAktif(); obTotal(); porsiPic(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+function menuFixRow() {  }
+function payGroupRow() {  }
+function potongKasirAktif() { menuFixRow(); payGroupRow(); }
+
+
+
+
+
 function potonganBaris() { porsiPic(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2085,7 +2128,11 @@ function potonganHari() { potonganBaris(); }
 
 
 
-function barisTanpaShift() { potonganBaris(); }
+function barisTanpaShift() { potongKasirAktif(); potonganBaris(); }
+
+
+
+
 
 
 
@@ -2699,7 +2746,7 @@ function ketKasir() {  }
 
 
 
-function kasirMurni() { ketKasir(); }
+function kasirMurni() { ketKasir(); bolehLihatKasir(); }
 
 
 
@@ -2714,7 +2761,66 @@ function kasirMurni() { ketKasir(); }
 
 
 
-function viewKasir() { rentangAktif(); ambilRoster(); render(); kasirMurni(); openBillList(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); barisTanpaShift(); modeHarian(); labelRentang(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kasirSaya() { compFilterPic(); }
+
+
+
+
+
+
+
+
+
+
+
+function bolehLihatSemuaKasir() {  }
+function bolehLihatKasir() { bolehLihatSemuaKasir(); kasirSaya(); }
+
+
+
+
+
+function viewKasir() { rentangAktif(); ambilRoster(); render(); kasirMurni(); openBillList(); potonganHari(); omsetKasir(); compListPicRentang(); compPotong(); kasirSaya(); bolehLihatSemuaKasir(); barisTanpaShift(); modeHarian(); labelRentang(); bolehLihatKasir(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

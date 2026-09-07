@@ -475,6 +475,109 @@ marketing, kasir shift dipotong); tidak = bayar sendiri-sendiri di meja
 node tools/uji-menufix.js   # 26 pemeriksaan, jsdom (marketing + omset)
 ```
 
+### Bonus Marketing: empat skema di Performa Marketing (7 Sep 2026)
+
+Permintaan user. `deploy/finance/kas/` → **Performa Marketing**, meniru bentuk
+Performa Kasir: satu baris tiga kotak posisi sekarang, lalu tangganya sebagai
+tabel. **Skema 1+2+3 diakumulasi jadi satu angka rupiah; Skema 4 berdiri
+sendiri** karena bentuknya voucher, cuti, dan penghargaan — menjumlahkan
+voucher F&B ke rupiah bonus membuat angka yang TIDAK BISA DICAIRKAN tampak
+seperti uang yang bisa, dan yang menyiapkan pembayarannya tidak punya cara
+membedakannya lagi.
+
+| | isinya | dasarnya |
+|---|---|---|
+| Skema 1 | pool TIM dari event corporate, dibagi per PIC | nilai tiap event |
+| Skema 2 | tangga per PIC | realisasi PIC itu |
+| Skema 3 | tangga total omset TIM; leader beda nominal | realisasi seluruh tim |
+| Skema 4 | voucher F&B, cuti, Top Marketer | per event & realisasi |
+
+**Keputusan user yang TIDAK bisa ditemukan ulang dari dokumen SDM-nya**, dan
+tiap-tiapnya menggeser uang:
+
+- **Dasarnya "Diakui" (omset + tax + service)**, bukan omset polos — kolom yang
+  sama dengan kartu Realisasi. Per PIC memakai `real`, yang SUDAH dipotong
+  compliment: compliment mengurangi omset yang diakui, jadi ia harus ikut
+  mengurangi tangganya. Kalau tidak, kartu Realisasi dan kartu bonus di layar
+  yang sama bercerita lain tentang bulan yang sama.
+- **Skema 1 butir 1 & 2 AMBIL YANG TERTINGGI** ("salah satu dari target
+  berikut"); butir 3 & 4 **per event dan boleh berulang**, tapi tiap event
+  dihitung SEKALI di tangga tertingginya — event Rp75 juta memberi Rp500.000,
+  bukan Rp500.000 + Rp300.000.
+- **Pembagi pool Skema 1 = PIC yang punya event bulan itu**, bukan seluruh
+  roster. Roster ini tumbuh sendiri dari Tim/Keterangan Office dan rutin
+  menyimpan nama yang sudah pindah tim; dibagi ke seluruh roster, satu baris
+  yang tertinggal mengecilkan bonus SEMUA orang tanpa satu pun tanda. Angkanya
+  karena itu selalu disebut di layar.
+- **Skema 2 memakai SELURUH event PIC itu**, bukan yang corporate saja.
+- **Skema 3 diterima seluruh PIC di roster**, termasuk yang bulan itu belum
+  punya event — yang dinilai capaian TIM. Itu uang untuk orang yang tidak
+  menangani apa pun, jadi **dikatakan di kartunya**, bukan didiamkan.
+
+**TANGGA DOKUMENNYA BERLUBANG DAN TUMPANG TINDIH**, dan keduanya diputuskan di
+satu tempat (`MK_S2`), **memihak PIC**:
+
+| | dokumen | diputuskan |
+|---|---|---|
+| tumpang tindih | "Rp120–150 jt" vs "Rp150–200 jt" | tepat Rp150.000.000 → yang lebih besar |
+| celah | "Rp150–200 jt" lalu "Rp201–250 jt" | Rp200.000.001–Rp201.000.000 → tangga di atasnya |
+| Skema 3 | batasnya bersentuhan | yang tepat di batas → tangga lebih besar |
+| Skema 3 | tertulis "Rp 4.00.0000" | salah ketik, dibaca **Rp4.000.000** |
+
+Tangga yang berlubang membuat omset yang **NAIK** bisa **menurunkan** bonus,
+dan tidak ada seorang pun yang bisa menjelaskan itu kepada yang menerimanya.
+Yang ditulis di kolom Syarat pada tabel di layar adalah `min` di kode, bukan
+kalimat dokumennya — supaya yang dibaca sama persis dengan yang dihitung.
+
+**"EVENT CORPORATE" BARU BISA DIBACA SEJAK TANGGAL INI.** Jenis event
+(`detail.jenis` di modul Marketing — `EVENT_TYPES`, 'Corporate Event') tidak
+pernah sampai ke Finance. Sekarang ikut sebagai **`srcJenis`** di baris
+breakdown marketing, dan **DISEGARKAN tiap render** persis seperti `menuFix` —
+bukan cuma diisi saat barisnya lahir. `sudahAda()` melewati baris lama, jadi
+tanpa penyegar itu bonus corporate bulan-bulan lama hilang **tanpa satu pun
+galat**, dengan jumlah event yang tetap kelihatan wajar.
+
+- **VIP dan baris manual memang tidak punya jenis, dan itu benar** — Reservasi
+  VIP bukan event corporate. Yang kosong **TIDAK ditebak**; jumlahnya
+  **dilaporkan di kartu Skema 1** berikut cara membetulkannya (buka Breakdown
+  Sumber sekali pada tanggalnya).
+- `srcJenis` **berkas kembar**: nama kuncinya di `deploy/finance/omset/` harus
+  sama persis dengan yang dibaca `deploy/finance/kas/`. Beda satu huruf tidak
+  melempar — barisnya cuma berhenti jadi corporate.
+
+**LEADER DIBACA DARI Tim/Keterangan DI OFFICE** (permintaan user): tulis
+**Leader** di keterangan orangnya, di samping **Marketing**. Sengaja TIDAK ada
+setelan terpisah — setelan kedua untuk fakta yang sudah tercatat di Office pasti
+menyimpang darinya suatu hari, dan yang menyimpang di sini selisihnya sampai
+Rp2.250.000 sebulan untuk satu orang.
+
+- **"Office belum menjawab" DIBEDAKAN dari "leader belum ditentukan"**
+  (`info.ketAda`). Bentuk datanya identik — `leaderIds` kosong — tapi yang
+  pertama menyuruh MENUNGGU dan yang kedua menyuruh MENYUNTING Office. Kalimat
+  yang salah menyuruh orang membetulkan sesuatu yang sudah benar.
+- **Lebih dari satu leader juga dikatakan**, berikut nama-namanya.
+
+**`ketKasir()` diganti nama jadi `ketOffice()`** — isinya tidak pernah khusus
+kasir, dan nama yang menyempit begitu membuat pemakai berikutnya menyalinnya
+jadi fungsi kedua. Dua pembaca `KET_MAP` akan menyimpang begitu bentuk
+keterangan Office berubah.
+
+```bash
+node tools/uji-bonus-marketing.js   # 101 pemeriksaan, TANPA jsdom
+```
+
+Ujinya **memotong fungsinya dari sumber** lalu menjalankannya — seluruh
+hitungan bonus di halaman ini fungsi murni yang memulangkan angka atau string
+HTML, tidak satu pun menyentuh DOM. Yang dijaga bukan angka hasil salinan
+melainkan **INVARIAN**: bonus tidak boleh pernah TURUN waktu omsetnya NAIK,
+disapu Rp1 juta sekali sampai Rp600 juta plus tiap titik batas dan tetangga
+persisnya. Tangga berlubang gagal di situ tanpa perlu ada yang hafal batasnya.
+Tujuh mutasi sudah dicoba dan ketujuhnya tertangkap.
+
+`smoke-modul.js` **tidak menyentuh `finance/kas` sama sekali** — daftarnya cuma
+memuat `finance`, halaman pemilih panel. Uji di atas satu-satunya yang pernah
+menjalankan hitungan bonus ini.
+
 ### Realisasi dipajang sebagai TAGIHAN, & Dashboard naik ke atas (6 Sep 2026)
 
 Dua permintaan user di panel Kas Kecil.

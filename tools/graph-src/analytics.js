@@ -757,6 +757,7 @@
 
 
 
+
 function todayISO() {  }
 function fmtTgl() {  }
 
@@ -1077,120 +1078,6 @@ function simpan() { setSync(); postJson(); }
 
 
 
-function bisaXlsx() {  }
-
-function inflateRaw() {  }
-
-
-
-
-
-function bacaZip() { inflateRaw(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function uraiSheet() {  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function uraiSharedStrings() {  }
-
-
-
-
-
-
-
-
-
-
-
-
-function uraiCsvBaris() {  }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -1341,7 +1228,215 @@ function kosongBelumAda() {  }
 
 
 
-function bandingKompas() { isoDari(); fmtBln(); kartu(); }
+function bandingKompas() { isoDari(); fmtBln(); kartu(); rincianSelisih(); jembatanLayar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rincianSelisih() { fmtTgl(); sel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function complimentBulan() { isoDari(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function jembatanLayar() { complimentBulan(); }
+
+
+
+
+
+
+function bTitik() {  }
+
+
+
+function bOp() { bTitik(); fmtBln(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1416,7 +1511,45 @@ function vHari() { blnAktif(); lap(); pilihBulan(); kosongBelumAda(); shiftSet()
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function lbl() { diRentang(); kartu(); pct(); fmtTgl(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1683,6 +1816,20 @@ function mnBahan() { render(); }
 function mnBuka() { render(); }
 
 function vMenu() { blnAktif(); lap(); pilihBulan(); kosongBelumAda(); menuNormal(); resepPeta(); kartu(); mnPaketHtml(); mnUrut(); mnSemua(); mnBuka(); pct(); mnRincian(); bahanBakuHtml(); mnTakDikenalHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2310,6 +2457,26 @@ function vDampak() { blnAktif(); lap(); pilihBulan(); kosongBelumAda(); katPilih
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function trenPilih() { render(); }
 
 function trenBaris() { blnAda(); lap(); }
@@ -2474,7 +2641,16 @@ function sel() { trenPilih(); fmtBln(); bersihkanChart(); }
 
 
 
-function vUnggah() { bisaXlsx(); anPilihBerkas(); pratinjauUnggah(); blnAda(); fmtBln(); fmtTgl(); anHapus(); }
+function vUnggah() { anPilihBerkas(); pratinjauUnggah(); blnAda(); fmtBln(); fmtTgl(); anHapus(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2856,12 +3032,7 @@ function anPilihBerkas() {  }
 
 
 
-function lapor() { setSync(); uraiCsvBaris(); bisaXlsx(); bacaZip(); uraiSharedStrings(); uraiSheet(); ringkasPos(); todayISO(); render(); }
-
-
-
-
-
+function lapor() { setSync(); ringkasPos(); todayISO(); render(); }
 
 
 

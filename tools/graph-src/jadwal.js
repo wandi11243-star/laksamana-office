@@ -862,6 +862,19 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() { stafKantor(); muatData(); simpanSetting(); }
 
 
@@ -3961,6 +3974,54 @@ function imporParse() { impNorm(); impTgl(); impCocokNama(); }
 
 function imporTempel() { gambarImpor(); }
 
+
+
+
+function imporNamaGambar() { esc(); imporParse(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function imporBerkas() { esc(); imporNamaGambar(); imporHitung(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function imporCtx() { seninDari(); hariIni(); kruDivisi(); divTunggal(); }
 
 
@@ -3970,7 +4031,22 @@ function imporCtx() { seninDari(); hariIni(); kruDivisi(); divTunggal(); }
 
 
 
-function gambarImpor() { tutupModal(); esc(); namaDivisi(); divTunggal(); imporHitung(); imporSimpan(); }
+function gambarImpor() { tutupModal(); esc(); namaDivisi(); divTunggal(); imporBerkas(); imporHitung(); imporSimpan(); imporNamaGambar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

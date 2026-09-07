@@ -1181,7 +1181,11 @@ function render() { clearCharts(); syncKendaliPeriode(); formatAllRp(); todayISO
 
 
 
-function viewInput() { getDay(); calInner(); go(); repOf(); repPay(); }
+function viewInput() { getDay(); calInner(); jejakHtml(); jejakList(); go(); repOf(); repPay(); }
+
+
+
+
 
 
 
@@ -1344,9 +1348,33 @@ function recalc() { v(); netOf(); grossOf(); avgSpendOf(); taxSvcOf(); tagihanOf
 
 
 
+
+
+
+
 function v() {  }
 
-function saveDaily() { v(); grossOf(); getDay(); save(); render(); todayISO(); }
+function saveDaily() { v(); grossOf(); tambahJejak(); jejakHtml(); jejakList(); getDay(); save(); render(); todayISO(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1576,6 +1604,10 @@ function tambahJejak() {  }
 
 
 function jejakList() {  }
+
+
+
+
 
 
 
@@ -3355,6 +3387,30 @@ function serapOtomatis() { mkFinance(); cocokPic(); picPengisi(); vipPecah(); pi
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pitaSumber() { dateLabel(); save(); serapOtomatis(); drawMk(); drawEv(); calc(); }
 
 
@@ -3859,7 +3915,26 @@ function kartuEfek() { potonganBaris(); obTotal(); obAktif(); diskonKasir(); oms
 
 
 
-function calc() { sumDiakui(); kartuEfek(); barisTanpaShift(); potongKasirAktif(); potonganBaris(); sumDiskon(); empName(); potongKasir(); KIRIM(); dateLabel(); save(); render(); kirimSekarang(); picPengisi(); drawMk(); drawEv(); drawKs(); drawSo(); pitaSumber(); }
+function calc() { sumDiakui(); kartuEfek(); barisTanpaShift(); potongKasirAktif(); potonganBaris(); sumDiskon(); empName(); potongKasir(); jejakList(); jejakHtml(); KIRIM(); dateLabel(); tambahJejak(); save(); render(); kirimSekarang(); picPengisi(); drawMk(); drawEv(); drawKs(); drawSo(); pitaSumber(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

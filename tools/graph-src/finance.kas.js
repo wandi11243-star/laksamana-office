@@ -804,6 +804,14 @@
 
 
 
+
+
+
+
+
+
+
+
 function pct() {  }
 
 
@@ -1059,6 +1067,20 @@ function bolehAksi() { bolehUbah(); tingkatSaya(); }
 
 
 function halPertamaBoleh() { bolehLihat(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3556,6 +3578,10 @@ function cetakDashboardOmset() { lembarKop(); lembarKpi(); lembarSeksi(); lembar
 
 
 
+
+
+
+
 function waDashboardOmset() {  }
 
 
@@ -3613,7 +3639,42 @@ function waDashboardOmset() {  }
 
 
 
-function viewBulanan() { rentangAktif(); netOf(); taxSvcOf(); compsRentang(); selfOmset(); pct(); modeHarian(); daysOfMonth(); labelPeriode(); getDay(); labelRentang(); waDashboardOmset(); cetakDashboardOmset(); lineOpts(); barOpts(); }
+
+
+
+
+
+function viewBulanan() { rentangAktif(); netOf(); tagihanOf(); taxSvcOf(); compsRentang(); selfOmset(); pct(); modeHarian(); daysOfMonth(); labelPeriode(); getDay(); labelRentang(); waDashboardOmset(); cetakDashboardOmset(); lineOpts(); barOpts(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3940,7 +4001,424 @@ function pitaYatimPerforma() { dateLabel(); }
 
 
 
-function viewPerforma() { rentangAktif(); porsiPic(); obTotal(); compListPicRentang(); compPotong(); modeHarian(); labelRentang(); pitaYatimPerforma(); kartuApprovalCompliment(); aturTombolKirim(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mkTangga() {  }
+
+
+
+
+
+
+function mkCorporate() {  }
+function bonusS2() { mkTangga(); ketOffice(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mkLeader() { ketOffice(); }
+
+
+
+
+
+
+
+
+
+
+function bonusMarketing() { mkTangga(); ketOffice(); bonusS2(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function baguRingkasMk() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuSkema1() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuSkema2() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuSkema3() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuSkema4() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuBonusMk() { baguRingkasMk(); kartuSkema1(); kartuSkema2(); kartuSkema3(); kartuSkema4(); }
+
+
+
+
+
+
+
+
+
+
+
+function viewPerforma() { rentangAktif(); porsiPic(); obTotal(); mkCorporate(); compListPicRentang(); compPotong(); bonusMarketing(); modeHarian(); labelRentang(); pitaYatimPerforma(); kartuApprovalCompliment(); aturTombolKirim(); kartuBonusMk(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -4131,7 +4609,7 @@ function baguRingkasKasir() { bonusKasir(); }
 
 
 
-function kartuBonusKasir() { bonusKasir(); boot(); ketKasir(); }
+function kartuBonusKasir() { bonusKasir(); boot(); ketOffice(); mkLeader(); }
 
 
 
@@ -4177,7 +4655,12 @@ function kartuBonusKasir() { bonusKasir(); boot(); ketKasir(); }
 
 
 
-function ketKasir() {  }
+
+
+
+
+
+function ketOffice() {  }
 
 
 
@@ -4186,7 +4669,7 @@ function ketKasir() {  }
 
 
 
-function kasirMurni() { ketKasir(); }
+function kasirMurni() { ketOffice(); }
 
 
 
