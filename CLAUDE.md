@@ -622,6 +622,38 @@ daftarnya cuma memuat `finance`, yaitu halaman PEMILIH panel yang tidak berisi
 aplikasi apa pun. Seluruh Dashboard Omset selama ini lolos tanpa satu baris pun
 dijalankan. Uji di atas yang menutupnya; jangan mengandalkan smoke di sini.
 
+#### Daftar Event berhalaman (7 September 2026)
+
+Permintaan user. 12 baris per halaman — **angka yang sama dengan `KS_PER_HAL`**
+milik Riwayat Performa Kasir; dua tabel berhalaman di modul yang sama dengan
+panjang halaman berbeda membuat orang mengira salah satunya memotong barisnya.
+
+- **Tabelnya digambar ke wadahnya sendiri (`#pf_daftar`), BUKAN ke `#pf_body`.**
+  Kartunya berdiri bersebelahan dengan grafik *Omset per Event* dan di atas
+  empat kartu skema bonus; kalau `pf_body` ikut digambar ulang tiap klik, Chart.js
+  membangun ulang grafiknya dan gulir melompat kembali ke atas halaman. Jebakan
+  yang sama persis sudah dibayar di pager Riwayat — lihat komentar `gambarRiwayat()`.
+- **`PF_HAL` global, bukan di dalam `viewPerforma`** — kalau tidak, ia lahir
+  ulang jadi 1 tiap kali hanya tabelnya digambar ulang.
+- **YANG DIPOTONG HANYA TAMPILANNYA.** `a.events` tetap utuh, dan itu yang dibaca
+  `cetakAchievement()` maupun `bonusMarketing()`. Lembar PDF yang cuma memuat
+  halaman yang kebetulan terbuka menghilangkan event dari report PIC-nya, dan
+  bonus yang dihitung dari satu halaman jadi lebih kecil daripada yang berhak —
+  dua-duanya **tanpa satu pun galat**. Ujinya menekan tombol PDF dari halaman
+  TERAKHIR, tempat baris yang tampil paling sedikit.
+- **Ganti PIC kembali ke halaman 1.** Bertahan di halaman 3 milik PIC sebelumnya
+  memajang layar kosong pada PIC yang event-nya sedikit.
+
+```bash
+node tools/uji-pager-event.js   # 24 pemeriksaan, jsdom
+```
+
+Ujinya memakai PIC yang **sama-sama punya tiga halaman** saat menguji reset ganti
+PIC. Itu satu-satunya urutan yang bisa membedakan: pindah ke PIC yang cuma punya
+satu halaman membuat `PF_HAL` dijepit ke 1 oleh `gambarDaftar()` sendiri, dan
+reset yang hilang tidak akan pernah kelihatan — versi pertama uji ini memang
+meloloskan mutasi itu.
+
 ### Reservasi: bukti DP WAJIB (6 September 2026)
 
 Permintaan user: *"setiap input reservasi, jika dia masukin DP, wajib upload

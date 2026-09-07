@@ -4408,8 +4408,21 @@ function kartuBonusMk(info, pid, e, a, list){
     +kartuSkema4(info,pid,list);
 }
 
+/* Pager tabel Daftar Event (7 September 2026, permintaan user). Alasannya
+   sama dengan pager Riwayat di Performa Kasir, dan kartunya pun berdiri
+   BERSEBELAHAN dengan grafik: segmen "Semua PIC" sebulan penuh bisa lewat 40
+   baris, dan sejak empat kartu skema bonus lahir di bawahnya, tabel sepanjang
+   itu mendorong keseluruhannya jauh keluar layar.
+
+   PF_HAL global — bukan di dalam viewPerforma — supaya bertahan saat HANYA
+   tabelnya yang digambar ulang. Angkanya disamakan dengan KS_PER_HAL: dua
+   tabel bersebelahan di modul yang sama dengan panjang halaman berbeda
+   membuat orang mengira salah satunya memotong barisnya. */
+const PF_PER_HAL=12;
+let PF_HAL=1;
 function viewPerforma(divi){
   const el=document.getElementById('app-view');
+  PF_HAL=1;   // masuk halaman / ganti rentang selalu mulai dari halaman pertama
   const days=rentangAktif();
   const list=DB.employees[divi];
   const agg={};
@@ -4511,7 +4524,8 @@ function viewPerforma(divi){
     const totOb=a.events.reduce((s,x)=>s+num(x.ob),0);
     const adaOb=totOb>0;
     const kolOb=adaOb?'<th class="num">Open Bill</th>':'';
-    const rows=[...a.events].sort((x,y)=>x.date<y.date?-1:1).map(ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td class="num mono">${fmtRp(ev.amount)}</td>${mk?`<td class="num mono">${fmtRp(ev.tax||0)}</td><td class="num mono">${fmtRp(ev.service||0)}</td>`:''}${adaOb?`<td class="num mono">${num(ev.ob)?fmtRp(num(ev.ob)):'<span class="muted">—</span>'}</td>`:''}<td class="num mono">${fmtRp(ev.porsi)}</td></tr>`).join('');
+    const evUrut=[...a.events].sort((x,y)=>x.date<y.date?-1:1);
+    const barisEv=ev=>`<tr><td>${ev.date}</td><td>${esc(ev.name||'—')}${ev.pic?` <span class="muted" style="font-size:11px">· ${esc(ev.pic)}</span>`:''}</td><td class="num mono">${fmtRp(ev.amount)}</td>${mk?`<td class="num mono">${fmtRp(ev.tax||0)}</td><td class="num mono">${fmtRp(ev.service||0)}</td>`:''}${adaOb?`<td class="num mono">${num(ev.ob)?fmtRp(num(ev.ob)):'<span class="muted">—</span>'}</td>`:''}<td class="num mono">${fmtRp(ev.porsi)}</td></tr>`;
     /* Open Bill disebut TERPISAH, bukan dilebur ke kalimat rumusnya: ia satu-
        satunya bagian yang tidak dipotong dari kasir mana pun, dan yang
        memeriksa kenapa potongan kasir lebih kecil daripada yang diakui PIC
@@ -4520,6 +4534,32 @@ function viewPerforma(divi){
     const ketDiakui=(mk
       ? `nilai omset total ${fmtRp(nilaiEv)} · diakui <b>omset + tax + service</b>, dan omsetnya dipotong dari kasir shift`
       : `nilai total ${fmtRp(nilaiEv)} · diakui <b>50%</b>, kasir tidak dipotong`)+ketOb;
+    /* Tabelnya digambar TERPISAH dari #pf_body, sama dengan pager Riwayat di
+       Performa Kasir dan karena bahaya yang sama: kartunya berdiri
+       bersebelahan dengan grafik "Omset per Event", jadi kalau pf_body ikut
+       digambar ulang tiap ganti halaman, Chart.js membangun ulang grafiknya
+       dan gulir melompat kembali ke atas halaman.
+
+       YANG DIPOTONG HANYA TAMPILANNYA. `a.events` tetap utuh, dan itu yang
+       dibaca cetakAchievement() maupun bonusMarketing() — lembar PDF yang cuma
+       memuat halaman yang kebetulan terbuka akan menghilangkan event dari
+       report PIC-nya, dan bonus yang dihitung dari satu halaman akan lebih
+       kecil daripada yang berhak. Keduanya tanpa satu pun galat. */
+    const gambarDaftar=()=>{
+      const wadah=document.getElementById('pf_daftar'); if(!wadah) return;
+      const totalHal=Math.max(1,Math.ceil(evUrut.length/PF_PER_HAL));
+      if(PF_HAL>totalHal) PF_HAL=totalHal;
+      if(PF_HAL<1) PF_HAL=1;
+      const mulai=(PF_HAL-1)*PF_PER_HAL, akhir=Math.min(mulai+PF_PER_HAL,evUrut.length);
+      const rows=evUrut.slice(mulai,akhir).map(barisEv).join('');
+      const pager=totalHal>1?`<div id="pf_pager" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px">
+        <button class="btn btn-ghost btn-sm" data-hal="${PF_HAL-1}"${PF_HAL<=1?' disabled':''}>‹ Sebelumnya</button>
+        <span class="muted" style="font-size:12.5px">Baris ${mulai+1}–${akhir} dari ${evUrut.length} · halaman ${PF_HAL}/${totalHal}</span>
+        <button class="btn btn-ghost btn-sm" data-hal="${PF_HAL+1}"${PF_HAL>=totalHal?' disabled':''}>Berikutnya ›</button>
+      </div>`:'';
+      wadah.innerHTML=`<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th><th class="num">${mk?'Omset':'Nilai Event'}</th>${kolTax}${kolOb}<th class="num">Diakui</th></tr></thead><tbody>${rows||`<tr><td colspan="${(mk?6:4)+(adaOb?1:0)}" class="empty">Belum ada event.</td></tr>`}</tbody></table></div>${pager}`;
+      wadah.querySelectorAll('#pf_pager button').forEach(b=>{ if(!b.disabled) b.onclick=()=>{ PF_HAL=num(b.dataset.hal); gambarDaftar(); }; });
+    };
     document.getElementById('pf_body').innerHTML=`
       <div class="grid g3">
         <div class="stat accent"><div class="lab">Realisasi</div><div class="val sm mono">${fmtRp(a.real)}</div><div class="foot">${a.comp?`sudah dipotong compliment ${fmtRp(a.comp)}`:'tanpa potongan compliment'}</div></div>
@@ -4529,10 +4569,11 @@ function viewPerforma(divi){
       <div class="card"><div class="foot" style="font-size:12.5px;color:var(--muted)">${top?('Top event: <b>'+esc(top.name||'—')+'</b> · '+fmtRp(top.amount)):'Belum ada event.'}</div></div>
       <div class="grid g2" style="align-items:start">
         <div class="card"><h3>Omset per Event</h3><div class="chart-box sm"><canvas id="pf_chart"></canvas></div></div>
-        <div class="card"><h3>Daftar Event</h3><div class="card-sub">${cnt} event · ${ketDiakui}</div><div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th><th class="num">${mk?'Omset':'Nilai Event'}</th>${kolTax}${kolOb}<th class="num">Diakui</th></tr></thead><tbody>${rows||`<tr><td colspan="${(mk?6:4)+(adaOb?1:0)}" class="empty">Belum ada event.</td></tr>`}</tbody></table></div></div>
+        <div class="card"><h3>Daftar Event</h3><div class="card-sub">${cnt} event · ${ketDiakui}</div><div id="pf_daftar"></div></div>
       </div>
       ${BONUS?kartuBonusMk(BONUS,pid,e,a,list):''}
       ${kartuCompliment(a.compRows||[], pid==='__all__')}`;
+    gambarDaftar();
     clearChartsExcept();
     if(cnt){
       const evs=[...a.events].sort((x,y)=>y.amount-x.amount).slice(0,8);
@@ -4550,7 +4591,9 @@ function viewPerforma(divi){
   document.getElementById('pf_pdf').onclick=()=>{
     if(SEL) cetakAchievement(divi,SEL.e,SEL.a);
   };
-  document.querySelectorAll('#pf_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#pf_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');drawPic(b.dataset.pic);});
+  /* Bertahan di halaman 3 milik PIC sebelumnya cuma memajang layar kosong pada
+     PIC yang event-nya sedikit — alasan yang sama dengan #ks_seg di bawah. */
+  document.querySelectorAll('#pf_seg button').forEach(b=>b.onclick=()=>{document.querySelectorAll('#pf_seg button').forEach(x=>x.classList.remove('active'));b.classList.add('active');PF_HAL=1;drawPic(b.dataset.pic);});
   if(list.length)drawPic('__all__');
   else{
     document.getElementById('pf_body').innerHTML='<div class="card"><div class="empty">Belum ada PIC. Muncul otomatis dari Tim/Keterangan di Office.</div></div>';
