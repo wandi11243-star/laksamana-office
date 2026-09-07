@@ -3603,6 +3603,95 @@ main-main dan isinya rutin tertinggal; menjadikannya sumber kebenaran untuk
 pencabutan berarti satu percobaan di dev bisa memutus akses orang yang sedang
 bekerja. `--cabut` ada, tapi bacalah daftarnya dulu.
 
+### Penjaga tulis-basi pada blob omset bersama (7 September 2026)
+
+**Ini sebab kehilangan data produksi, bukan teori.** Keluhan user: tax 23
+Agustus dibetulkan dari `2.514` jadi `2.514.400` di Input Omset Harian,
+**terbukti tersimpan** (hard refresh menunjukkannya), lalu **beberapa menit
+kemudian kembali ke `2.514`**.
+
+`deploy/finance/omset` dan `deploy/cashier` menulis ke **SATU baris yang sama**
+(`app_state` id=1 di `kompas-mysql`) dan keduanya mengirim **SELURUH state**
+tiap menyimpan — omset punya 20 titik `save()`, cashier 14. Servernya menimpa
+buta (`data=VALUES(data)`). Jadi:
+
+1. Tab A dibuka pagi → memegang snapshot pagi.
+2. Tab B membetulkan tax siang → tersimpan **benar**.
+3. Tab A menyentuh apa pun sore → mengirim **snapshot paginya**, utuh.
+4. Koreksi siang **terhapus**. Tanpa galat: dari sisi server itu penyimpanan
+   yang sah.
+
+Dua tab milik satu orang sudah cukup; tidak perlu dua orang.
+
+**KOMENTAR LAMA DI `save_all()` KELIRU** dan kekeliruannya yang membuat ini
+bertahan: ia menyebut `db_lock()` "mencegah dua penyimpanan bertabrakan".
+`db_lock` hanya mencegah dua penyimpanan berjalan **BERSAMAAN** — ia tidak tahu
+apa-apa soal penyimpanan dari salinan **BASI**, dan justru itu yang berbahaya.
+
+**PENJAGANYA:** `getAll` memulangkan `ts` (= `updated_at`); klien menyimpannya
+di `BASE_TS` dan mengirimkannya kembali sebagai `baseTs` saat `saveAll`. Kalau
+versi di server sudah bergerak, penyimpanan **DITOLAK** berikut nama yang
+menimpanya.
+
+- **`baseTs` kosong DIBIARKAN LEWAT.** Itu klien versi lama — tab yang dibuka
+  sebelum perbaikan ini ter-deploy. Menolaknya mematikan penyimpanan untuk
+  siapa pun yang halamannya masih ter-cache, **termasuk kalau PHP mendarat
+  lebih dulu daripada HTML** — dan di repo ini urutan pendaratan FTP memang
+  tidak bisa dijamin. Lubang itu menutup sendiri begitu tiap orang memuat ulang
+  sekali.
+- **Versi dihitung SEKALI** (`$ua`), dipakai menulis DAN dibalas. Dihitung dua
+  kali, tiap simpan KEDUA dari tab yang sama ditolak tanpa ada yang salah.
+- **Klien memajukan `BASE_TS` sesudah simpannya sendiri berhasil** — isi server
+  kini sama persis dengan DB di layarnya, jadi sah. Tanpa ini, simpan kedua
+  selalu ditolak.
+- **Konflik DIBEDAKAN dari galat jaringan** dan **tidak dicoba ulang**.
+  Ulangannya tidak akan pernah berhasil selama versinya beda, dan kalau suatu
+  hari penjaganya lewat, justru ulangan itu yang menimpa kerja orang.
+- **Yang ditolak TIDAK dibuang.** Perubahannya masih di layar dan di
+  localStorage; `DIRTY` dikembalikan true. Pesannya menyuruh **mencatat dulu**,
+  bukan sekadar "muat ulang" — memuat ulang membuang ketikan itu, dan orang
+  akan menurutinya lalu kehilangan justru koreksi yang sedang ia kerjakan.
+- **Versi ikut disimpan bersama salinan lokal** (`CACHE_KEY+'_ts'`). Tanpa itu,
+  boot yang GAGAL menghubungi server jatuh ke localStorage dengan `BASE_TS`
+  nol — yaitu **tanpa penjaga** — padahal itu justru salinan yang paling
+  mungkin sudah tertinggal jauh.
+
+**`deploy/finance/kas` TIDAK ikut**, dan memang tidak boleh: `save()`-nya sudah
+dilumpuhkan jadi localStorage saja sejak lama, `kirim()`/`apiSave()` di sana
+kode mati yang sengaja dibiarkan hidup (kode salinan Kompas masih memanggil
+`save()`, dan fungsi yang dihapus menjatuhkan halaman dengan ReferenceError).
+Kas Kecil menulis lewat backend sendiri, Rekap lewat `simpanRekap` yang sempit.
+Kalau suatu hari `save()` di sana dihidupkan lagi tanpa `baseTs`, ia jadi
+lubang yang sama persis.
+
+Endpoint sempit yang sudah ada (`simpanRekap`, `simpanTarget`, setoran) tetap
+aman — semuanya baca-ubah-tulis di server. Ia **memajukan `updated_at`**, jadi
+tab omset/cashier yang terbuka akan konflik sesudahnya. Itu **bukan** positif
+palsu: blob di tab itu memang sudah basi, dan menyimpannya memang akan
+menghapus hasil endpoint sempit tadi.
+
+```bash
+node tools/uji-simpan-basi.js   # 38 pemeriksaan, jsdom
+```
+
+Ujinya membuka **DUA jsdom terpisah** — satu Cashier, satu Omset, localStorage
+masing-masing — menghadap SATU server tiruan. Itu simulasi dua tab yang
+sesungguhnya; uji yang cuma memanggil `apiSave()` sekali tidak akan pernah
+menangkap bug ini, karena bug-nya lahir dari URUTAN dua penyimpanan. PHP tidak
+bisa dijalankan di mesin pengembangan, jadi bagian terakhir ujinya
+**membandingkan kontraknya dengan SUMBER PHP** (nama field, arah perbandingan,
+dan bahwa versi yang ditulis sama dengan yang dibalas) — tiruan yang bentuknya
+beda dari yang ditiru tidak menguji apa pun, pelajaran yang sudah dibayar di
+stub `hpp.php` pada `uji-analytics`. Tujuh mutasi dicoba; yang pertama
+(klien berhenti mengirim `baseTs`) **mereproduksi persis gejala aslinya** —
+tax kembali ke `2.514`.
+
+**Yang BELUM dikerjakan, dan itu perbaikan sesungguhnya:** mengganti `saveAll`
+dengan endpoint sempit per layar, pola `simpanRekap`/`brankas_bayar_simpan`.
+Penjaga ini mengubah kehilangan senyap jadi penolakan yang terlihat — ia tidak
+menghapus sebabnya. 34 titik panggil, layak dikerjakan bertahap mulai dari
+Input Omset Harian dan Report Daily.
+
 ### Deploy gagal ETIMEDOUT: servernya sehat, IP runner-nya diblokir (7 Sep 2026)
 
 ```

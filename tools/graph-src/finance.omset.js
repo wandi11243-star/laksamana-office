@@ -885,11 +885,50 @@ function fetchTimeout() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function apiGet() { fetchTimeout(); }
 
 
 
-function apiSave() { fetchTimeout(); }
+
+
+
+function apiSave() { fetchTimeout(); kirim(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -920,6 +959,21 @@ function jadwalkanUlang() {  }
 
 
 function kirim() { apiSave(); setSync(); jadwalkanUlang(); save(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

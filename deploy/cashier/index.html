@@ -749,15 +749,54 @@ function fetchTimeout(url,opts,ms){
   opts=opts||{}; opts.signal=c.signal;
   return fetch(url,opts).then(r=>{clearTimeout(t);return r;},e=>{clearTimeout(t);throw e;});
 }
+/* ---- PENJAGA TULIS-BASI (7 September 2026) ----
+   saveAll mengirim SELURUH state, dan sampai tanggal ini server menimpanya
+   buta. Akibatnya tab yang sudah lama terbuka memegang snapshot basi, dan
+   penyimpanan apa pun darinya menulis ulang seluruh blob dari snapshot itu —
+   menghapus koreksi yang baru saja dibuat orang di modul sebelah, tanpa satu
+   pun galat. Keluhan user 7 September 2026: tax 23 Agustus dibetulkan jadi
+   2.514.400, terbukti tersimpan lewat hard refresh, lalu beberapa menit
+   kemudian kembali ke 2.514.
+
+   BASE_TS = versi blob yang sedang dipegang halaman ini. Dikirim balik saat
+   menyimpan; server menolak kalau versinya sudah bergerak. Nol berarti belum
+   diketahui (server versi lama, atau getAll belum pernah berhasil) dan server
+   memperlakukannya sebagai "tanpa penjaga" — perilakunya persis seperti
+   sebelum penjaga ini ada, jadi urutan pendaratan deploy tidak bisa
+   mematikan penyimpanan. */
+let BASE_TS=0;
+/* Versi ikut disimpan bersama salinan lokal. Tanpa ini, boot yang GAGAL
+   menghubungi server jatuh ke localStorage dengan BASE_TS nol — yaitu tanpa
+   penjaga — padahal itu justru salinan yang paling mungkin sudah basi. */
+const TS_KEY=CACHE_KEY+'_ts';
 function apiGet(){
   return fetchTimeout(API_URL+'?action=getAll&t='+Date.now(),{method:'GET',redirect:'follow'})
-    .then(r=>r.json()).then(j=>{ if(!j.ok) throw new Error(j.error||'server error'); return j.data; });
+    .then(r=>r.json()).then(j=>{ if(!j.ok) throw new Error(j.error||'server error');
+      BASE_TS=+j.ts||0;
+      try{ localStorage.setItem(TS_KEY,String(BASE_TS)); }catch(e){}
+      return j.data; });
 }
 function apiSave(state){
   return fetchTimeout(API_URL,{method:'POST',redirect:'follow',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:'saveAll',data:state})},40000)
-    .then(r=>r.json()).then(j=>{ if(!j.ok) throw new Error(j.error||'server error'); return j.data; });
+      body:JSON.stringify({action:'saveAll',data:state,baseTs:BASE_TS})},40000)
+    .then(r=>r.json()).then(j=>{
+      /* Konflik DIBEDAKAN dari galat biasa. kirim() tidak boleh mencoba
+         ulang: ulangannya tidak akan pernah berhasil selama versinya masih
+         beda, dan kalau suatu hari penjaganya lewat, justru ulangan itu yang
+         menimpa kerja orang. */
+      if(j&&j.konflik){
+        const e=new Error(j.error||'data di server sudah berubah');
+        e.konflik=true; e.oleh=String(j.by||''); throw e;
+      }
+      if(!j.ok) throw new Error(j.error||'server error');
+      /* Simpan KITA SENDIRI yang barusan jadi versi terbaru: isi server kini
+         sama persis dengan DB di layar ini, jadi baseTs-nya sah ikut maju.
+         Tanpa ini, simpan KEDUA dari tab yang sama selalu ditolak. */
+      if(j.data&&j.data.ts){ BASE_TS=+j.data.ts||BASE_TS;
+        try{ localStorage.setItem(TS_KEY,String(BASE_TS)); }catch(e){} }
+      return j.data;
+    });
 }
 /* Simpan ditunda sebentar lalu dikirim sekali — mengetik di form tidak boleh
    memicu satu request per ketukan. */
@@ -791,6 +830,21 @@ function kirim(){
     setSync(DIRTY?'saving':'ok'); if(DIRTY) kirim();
   },err=>{
     SAVING=false;
+    /* KONFLIK: server menolak karena blobnya sudah diubah orang lain sejak
+       halaman ini dimuat. TIDAK dicoba ulang dan TIDAK dibuang — perubahan
+       yang belum masuk masih ada di layar dan di localStorage. Yang diminta
+       BUKAN "muat ulang saja": memuat ulang membuang ketikan ini, jadi yang
+       benar adalah mencatatnya dulu. Kalau pesannya cuma menyuruh muat ulang,
+       orang akan menurutinya lalu kehilangan justru koreksi yang sedang ia
+       kerjakan. */
+    if(err&&err.konflik){
+      clearTimeout(RETRY_TIMER); RETRY_KE=0; DIRTY=true;
+      const oleh=err.oleh?(' oleh <b>'+esc(err.oleh)+'</b>'):'';
+      setSync('err','⚠ <b>TIDAK tersimpan.</b> Data di server sudah diubah'+oleh+
+        ' sejak halaman ini dibuka. Penyimpanan ditolak — kalau diteruskan, perubahan mereka yang terhapus.'+
+        '<br><span style="opacity:.9;font-size:11px">Catat dulu yang barusan Anda ubah, lalu <b>muat ulang halaman ini</b> dan ketik lagi. Menyimpan dari halaman yang sudah lama terbuka memang tidak aman.</span>');
+      return;
+    }
     /* Sebab aslinya WAJIB ikut tampil. Pesan generik bikin galat konfigurasi
        (mis. MySQL 1044 "Access denied ... to database") tidak bisa dibedakan
        dari jaringan putus, dan itu memakan waktu diagnosa yang tidak perlu. */
@@ -3163,7 +3217,11 @@ function boot(){
     syncPicOffice();   // tarik PIC per divisi dari Office (otomatis, tanpa PIN)
   }, err=>{
     // Jaringan gagal → pakai salinan lokal kalau ada, biar tetap bisa dilihat.
+    /* Versi salinan lokal ikut dipulihkan — lihat TS_KEY. Kalau tidak, boot
+       yang gagal menghubungi server menyimpan TANPA penjaga, padahal salinan
+       inilah yang paling mungkin sudah tertinggal jauh. */
     let cache=null; try{ cache=JSON.parse(localStorage.getItem(CACHE_KEY)||'null'); }catch(e){}
+    try{ BASE_TS=+localStorage.getItem(TS_KEY)||0; }catch(e){}
     DB=normalizeDB(cache||seed());
     setSync('err','Offline — memakai salinan lokal, perubahan akan disinkronkan saat online');
     PERIOD=DB.daily.length?monthKeyOf(DB.daily[DB.daily.length-1].date):monthKeyOf(todayISO());

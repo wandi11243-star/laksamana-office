@@ -74,25 +74,79 @@ function baca_state() {
   }
 }
 
+/* Versi blob yang sedang tersimpan. Dipakai penjaga tulis-basi di save_all()
+   dan dikirim ke klien lewat getAll, supaya klien tahu ia sedang memegang
+   salinan yang mana. */
+function state_ts() {
+  try {
+    $row = db()->query('SELECT `updated_at` FROM `app_state` WHERE `id`=1')->fetch();
+    return $row ? (int)$row['updated_at'] : 0;
+  } catch (Throwable $e) {
+    return 0;
+  }
+}
+
 /* ==================== SIMPAN ====================
-   Seluruh state ditimpa sebagai satu blob. Aman untuk satu penyunting;
-   db_lock() di api.php mencegah dua penyimpanan bertabrakan. */
-function save_all($state) {
+   Seluruh state ditimpa sebagai satu blob.
+
+   KOMENTAR LAMA DI SINI KELIRU, dan kekeliruannya memakan data produksi: ia
+   menyebut db_lock() "mencegah dua penyimpanan bertabrakan". db_lock hanya
+   mencegah dua penyimpanan berjalan BERSAMAAN — ia tidak tahu apa-apa soal
+   penyimpanan yang datang dari salinan BASI, dan justru itu yang berbahaya.
+
+   Kejadian 7 September 2026: tax 23 Agustus dibetulkan dari 2.514 jadi
+   2.514.400 lewat Input Omset Harian, tersimpan benar (hard refresh
+   membuktikannya), lalu beberapa menit kemudian kembali ke 2.514. Sebabnya
+   tab lain — Cashier, atau Omset di perangkat lain — yang masih memegang
+   snapshot sebelum koreksi itu menyimpan sesuatu; karena saveAll mengirim
+   SELURUH state, snapshot lamanya menimpa seluruh blob. Tidak ada satu pun
+   galat: dari sisi server itu penyimpanan yang sah.
+
+   PENJAGANYA: klien mengirim baseTs — versi yang ia muat. Kalau versi di
+   server sudah bergerak sejak itu, penyimpanan DITOLAK dan yang menimpanya
+   disebutkan namanya. Yang ditolak TIDAK kehilangan apa pun: datanya masih
+   ada di layar dan di localStorage klien.
+
+   baseTs kosong = klien versi lama, yaitu tab yang dibuka sebelum perbaikan
+   ini ter-deploy → dibiarkan lewat, perilaku lama. Menolaknya akan membuat
+   seluruh penyimpanan mati untuk siapa pun yang halamannya masih ter-cache,
+   termasuk kalau PHP-nya lebih dulu mendarat daripada HTML-nya — dan di repo
+   ini urutan pendaratan FTP memang tidak bisa dijamin. Lubang itu menutup
+   sendiri begitu tiap orang memuat ulang sekali. */
+function save_all($state, $baseTs = null) {
   if (!is_array($state) && !is_object($state)) throw new Exception('Payload kosong/invalid');
   $pdo = db();
   pastikan_tabel($pdo);
+  /* Dibaca DI DALAM db_lock() milik pemanggil. Kalau di luar, dua penyimpanan
+     bisa sama-sama lolos pemeriksaan lalu saling menimpa persis seperti
+     sebelum penjaga ini ada. */
+  if ($baseTs !== null && (int)$baseTs > 0) {
+    $tsKini = 0; $oleh = '';
+    try {
+      $r = $pdo->query('SELECT `updated_at`,`updated_by` FROM `app_state` WHERE `id`=1')->fetch();
+      if ($r) { $tsKini = (int)$r['updated_at']; $oleh = (string)$r['updated_by']; }
+    } catch (Throwable $e) { $tsKini = 0; }
+    if ($tsKini > 0 && (int)$baseTs !== $tsKini) {
+      return array('saved' => false, 'konflik' => true, 'ts' => $tsKini, 'by' => $oleh);
+    }
+  }
   $ub = '';
   if (is_object($state) && isset($state->_savedBy)) $ub = (string)$state->_savedBy;
   else if (is_array($state) && isset($state['_savedBy'])) $ub = (string)$state['_savedBy'];
+  /* Versinya dihitung SEKALI lalu dipakai untuk menulis DAN dibalas ke klien.
+     Dihitung dua kali, yang dibalas berbeda dari yang tersimpan — dan
+     penyimpanan klien BERIKUTNYA langsung dianggap basi oleh penjaganya
+     sendiri, jadi tiap simpan kedua ditolak tanpa ada yang salah. */
+  $ua = (int)(microtime(true) * 1000);
   $st = $pdo->prepare(
     'INSERT INTO `app_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:ua,:ub)
      ON DUPLICATE KEY UPDATE `data`=VALUES(`data`), `updated_at`=VALUES(`updated_at`), `updated_by`=VALUES(`updated_by`)');
   $st->execute(array(
     ':d'  => json_enc($state),
-    ':ua' => (int)(microtime(true) * 1000),
+    ':ua' => $ua,
     ':ub' => $ub,
   ));
-  return array('saved' => true, 'ts' => gmdate('c'));
+  return array('saved' => true, 'ts' => $ua, 'waktu' => gmdate('c'));
 }
 
 /* ==================== OMSET PER PIC MARKETING (dibaca modul lain) ====

@@ -71,7 +71,10 @@ if (defined('API_TOKEN') && API_TOKEN !== '') {
 }
 
 try {
-  if ($action === 'getAll')      keluar(array('ok' => true, 'data' => baca_state()));
+  /* ts = versi blob yang sedang dibaca. Klien menyimpannya lalu
+     mengirimkannya kembali saat saveAll; lihat penjaga tulis-basi di
+     save_all(). Klien versi lama mengabaikan field ini. */
+  if ($action === 'getAll')      keluar(array('ok' => true, 'data' => baca_state(), 'ts' => state_ts()));
   else if ($action === 'omsetPic') keluar(array('ok' => true, 'data' => omset_pic(
     isset($_GET['dari'])   ? $_GET['dari']   : '',
     isset($_GET['sampai']) ? $_GET['sampai'] : '')));
@@ -79,8 +82,16 @@ try {
   else if ($action === 'ping')   keluar(array('ok' => true, 'data' => ping()));
   else if ($action === 'saveAll') {
     $lock = db_lock();
-    try { $out = save_all(isset($body['data']) ? $body['data'] : null); }
+    try { $out = save_all(isset($body['data']) ? $body['data'] : null,
+                          isset($body['baseTs']) ? (int)$body['baseTs'] : null); }
     finally { db_unlock($lock); }
+    /* Konflik dibalas ok:false BERIKUT penandanya sendiri. Klien harus bisa
+       membedakannya dari jaringan putus: yang satu TIDAK BOLEH dicoba ulang
+       (percobaan ulang akan menimpa kerja orang), yang satu harus. */
+    if (isset($out['konflik']) && $out['konflik']) {
+      keluar(array('ok' => false, 'konflik' => true, 'ts' => $out['ts'], 'by' => $out['by'],
+        'error' => 'Data di server sudah diubah orang lain sejak halaman ini dimuat. Penyimpanan ditolak supaya perubahan mereka tidak ikut terhapus.'));
+    }
     keluar(array('ok' => true, 'data' => $out));
   }
   /* Kunci yang SAMA dengan saveAll, bukan kunci sendiri. simpan_target
