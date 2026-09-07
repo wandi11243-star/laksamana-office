@@ -95,7 +95,7 @@ function jalan(KET_TIRUAN) {
      - Budi : 1 event corporate pas di ambang, sisanya kecil
      - Citra: TIDAK punya event sama sekali — pembagi Skema 1 tidak boleh
               menghitungnya, dan bonus Skema 1-nya harus nol
-     - Dewi : leader, event sedang
+     - Dewi : Head, event sedang
    Nominalnya sengaja tidak bulat supaya angka yang kebetulan cocok karena
    pembulatan tidak lolos. */
 function ev(nama, porsi, jenis) { return { date: '2026-09-01', name: nama, porsi: porsi, jenis: jenis || '' }; }
@@ -115,7 +115,10 @@ const agg = {
   d: { real: 60000000, events: [ ev('Corp Sedang', 30000000, 'Corporate Event'),
                                  ev('Seminar', 30000000, 'Seminar') ] },
 };
-const KET = { Ayu: 'Marketing', Budi: 'Marketing', Citra: 'Marketing', Dewi: 'Marketing, Leader' };
+/* Penandanya kata HEAD (keputusan user 7 September 2026, menyatukan penanda
+   Bonus Leader dengan penanda hak lihat tim). Kata "Leader" sengaja TIDAK
+   dikenali lagi — diuji di bawah. */
+const KET = { Ayu: 'Marketing', Budi: 'Marketing', Citra: 'Marketing', Dewi: 'Marketing, Head' };
 
 const M = jalan(KET);
 const info = M.bonusMarketing(list, agg);
@@ -209,16 +212,28 @@ sama('di atas Rp350 juta -> tangga teratas', M.bonusS2(400000000).bonus, 1500000
 })();
 
 /* ---------- 4. Skema 3 ---------- */
-console.log('\n-- Skema 3 (omset tim & leader) --');
+console.log('\n-- Skema 3 (omset tim & Head) --');
 sama('omset tim = jumlah realisasi semua PIC', info.s3.total, 155000000 + 121000000 + 0 + 60000000);
 cek('Rp336 juta -> tangga Rp300–350 juta', info.s3.tier && info.s3.tier.leader === 500000,
     JSON.stringify(info.s3.tier));
-sama('Dewi terbaca leader', info.leaderIds.join(','), 'd');
+sama('Dewi terbaca Head', info.headIds.join(','), 'd');
 sama('Dewi dapat nominal LEADER', info.per.d.s3, 500000);
 sama('Ayu dapat nominal TIM', info.per.a.s3, 250000);
-cek('"Marketing" polos bukan leader', !M.mkLeader({ name: 'Ayu' }));
-cek('Office belum menjawab -> TIDAK ada yang dianggap leader',
-    !M.mkLeader({ name: 'Orang Asing' }));
+cek('"Marketing" polos bukan Head', !M.pbHead({ name: 'Ayu' }));
+/* Kata "Leader" TIDAK lagi berlaku. Kalau ia diam-diam masih dikenali, dua
+   penanda untuk satu jabatan hidup berdampingan — persis yang baru saja
+   ditutup, dan yang menyimpang di antaranya bonus sejuta. */
+cek('"Leader" TIDAK lagi dianggap Head', !M.pbHead({ name: 'Lama' })
+    || !jalan({ Lama: 'Marketing, Leader' }).pbHead({ name: 'Lama' }));
+cek('...diperiksa langsung dari petanya',
+    jalan({ X: 'Marketing, Leader' }).pbHead({ name: 'X' }) === false);
+cek('"Head" dikenali apa pun pemisahnya',
+    jalan({ X: 'Marketing/Head' }).pbHead({ name: 'X' }) === true
+    && jalan({ X: 'marketing head' }).pbHead({ name: 'X' }) === true);
+cek('kata yang MEMUAT head bukan head (Overhead)',
+    jalan({ X: 'Marketing, Overhead' }).pbHead({ name: 'X' }) === false);
+cek('Office belum menjawab -> TIDAK ada yang dianggap Head',
+    !M.pbHead({ name: 'Orang Asing' }));
 sama('tepat di batas Rp350 juta diberi tangga yang lebih besar',
      M.mkTangga(M.MK_S3, 350000000).leader, 1000000);
 sama('"Rp 4.00.0000" dibaca Rp4.000.000', M.MK_S3[0].leader, 4000000);
@@ -338,33 +353,36 @@ cek('menyebut pembagi pool berikut angkanya', /Dibagi ke 3 PIC/.test(html));
       /Dinilai per PIC/.test(semuaKartu));
 })();
 
-/* Leader kosong & leader ganda harus DIKATAKAN, bukan didiamkan. */
+/* Head kosong & Head ganda harus DIKATAKAN, bukan didiamkan. */
 (function () {
   const tanpaLeader = jalan({ Ayu: 'Marketing', Budi: 'Marketing', Citra: 'Marketing', Dewi: 'Marketing' });
   const i = tanpaLeader.bonusMarketing(list, agg);
-  sama('tanpa leader, tidak ada yang dianggap leader', i.leaderIds.length, 0);
-  cek('layar mengatakan leader belum ditentukan',
-      /Leader belum ditentukan/.test(tanpaLeader.kartuSkema3(i, list, 'a')));
+  sama('tanpa Head, tidak ada yang dianggap Head', i.headIds.length, 0);
+  cek('layar mengatakan Head belum ditentukan',
+      /Head belum ditentukan/.test(tanpaLeader.kartuSkema3(i, list, 'a')));
+  cek('...dan menyebut KATA yang dicari, berikut bahwa "Leader" bukan lagi kata itu',
+      /tambahkan kata <b>Head<\/b>/.test(tanpaLeader.kartuSkema3(i, list, 'a'))
+      && /bukan "Leader"/.test(tanpaLeader.kartuSkema3(i, list, 'a')));
   sama('semua PIC memakai nominal tim', i.per.d.s3, 250000);
 
-  /* Office BELUM MENJAWAB tidak boleh berbunyi sama dengan "leader belum
+  /* Office BELUM MENJAWAB tidak boleh berbunyi sama dengan "Head belum
      ditentukan": yang pertama menyuruh menunggu, yang kedua menyuruh menyunting
-     Office. Bentuk datanya identik (leaderIds kosong), jadi yang membedakan
+     Office. Bentuk datanya identik (headIds kosong), jadi yang membedakan
      cuma ketAda — dan kalau itu lepas, tidak ada satu pun galat. */
   const sepi = jalan(null);
   const iSepi = sepi.bonusMarketing(list, agg);
   cek('Office belum menjawab -> ketAda false', iSepi.ketAda === false);
   cek('...layarnya menyuruh MENUNGGU, bukan menyunting Office',
       /belum termuat/.test(sepi.kartuSkema3(iSepi, list, 'a'))
-      && !/Leader belum ditentukan/.test(sepi.kartuSkema3(iSepi, list, 'a')));
-  cek('Office menjawab tapi tanpa leader -> ketAda true',
+      && !/Head belum ditentukan/.test(sepi.kartuSkema3(iSepi, list, 'a')));
+  cek('Office menjawab tapi tanpa Head -> ketAda true',
       tanpaLeader.bonusMarketing(list, agg).ketAda === true);
 
-  const duaLeader = jalan({ Ayu: 'Marketing Leader', Budi: 'Marketing', Citra: 'Marketing', Dewi: 'Marketing, Leader' });
+  const duaLeader = jalan({ Ayu: 'Marketing Head', Budi: 'Marketing', Citra: 'Marketing', Dewi: 'Marketing, Head' });
   const i2 = duaLeader.bonusMarketing(list, agg);
-  sama('dua leader terbaca dua', i2.leaderIds.length, 2);
-  cek('layar mengatakan ada lebih dari satu leader',
-      /2 orang<\/b> tercatat sebagai leader/.test(duaLeader.kartuSkema3(i2, list, 'a')));
+  sama('dua Head terbaca dua', i2.headIds.length, 2);
+  cek('layar mengatakan ada lebih dari satu Head',
+      /2 orang<\/b> tercatat sebagai <b>Head<\/b>/.test(duaLeader.kartuSkema3(i2, list, 'a')));
 })();
 
 /* Event tanpa jenis harus disebut di kartunya, berikut cara membetulkannya. */
@@ -413,7 +431,7 @@ console.log('\n-- kolom Realisasi --');
   const s3 = M.kartuSkema3(info, list, 'a');
   cek('Skema 3 punya kolom Realisasi Tim', /<th class="num">Realisasi Tim<\/th>/.test(s3));
   cek('...dan letaknya SEBELUM kedua kolom bonus',
-      s3.indexOf('>Realisasi Tim<') < s3.indexOf('>Bonus Leader<')
+      s3.indexOf('>Realisasi Tim<') < s3.indexOf('>Bonus Leader<')   // nama kolom tetap ikut dokumen SDM
       && s3.indexOf('>Realisasi Tim<') < s3.indexOf('>Bonus Team Marketing<'));
   cek('baris tim yang sedang berlaku memajang omset tim',
       s3.indexOf('<b>' + rp(info.s3.total) + '</b> ✓') > -1, 'mencari ' + rp(info.s3.total));

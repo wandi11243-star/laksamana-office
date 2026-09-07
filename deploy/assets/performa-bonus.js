@@ -166,21 +166,44 @@ function bonusS2(nilai){
   if(t) return Object.assign({},t,{ next:MK_S2[MK_S2.indexOf(t)-1]||null });
   return { min:0, bonus:0, label:'Belum masuk tangga', next:MK_S2[MK_S2.length-1] };
 }
-/* Leader dibaca dari Tim/Keterangan di OFFICE (keputusan user 7 September
-   2026): tulis "Leader" di keterangan orangnya, di samping "Marketing".
+/* SATU KATA UNTUK DUA HAL: "Head" di kolom Tim/Keterangan Office (keputusan
+   user 7 September 2026), ditulis di samping "Marketing".
+
+   Sempat dua kata yang berbeda: "Leader" menentukan Bonus Leader (Skema 3),
+   sementara "Head" direncanakan menentukan siapa yang boleh melihat seluruh
+   tim. Dua penanda untuk satu jabatan yang sama pasti menyimpang — orang yang
+   ditandai Leader saja akan menerima bonusnya tapi tidak bisa membuka daftar
+   timnya, dan tidak ada satu pun layar yang bisa menjelaskan kenapa. User
+   memutuskan menyatukannya ke "Head".
+
+   KOLOMNYA TETAP BERNAMA "Bonus Leader" — itu nama di dokumen SDM-nya, dan
+   mengganti nama baris bonus membuat layar ini berhenti bisa dicocokkan dengan
+   dokumen yang dipegang orang. Yang berubah PENANDANYA di Office, bukan nama
+   bonusnya.
+
+   KATA "Leader" TIDAK LAGI DIKENALI. Yang keterangannya sudah terlanjur
+   ditulis "Leader" akan terbaca sebagai BUKAN head — dan itu dikatakan
+   terang-terangan di kartunya ("tambahkan kata Head"), bukan didiamkan. Dua
+   kata yang sama-sama berlaku justru mengembalikan masalah yang baru saja
+   ditutup.
 
    Sengaja TIDAK ada setelan terpisah di modul ini. Setelan kedua untuk fakta
    yang sudah tercatat di Office pasti menyimpang darinya suatu hari — dan yang
    menyimpang di sini selisihnya sampai Rp2.250.000 sebulan untuk satu orang.
 
    Kalau Office belum menjawab, PB_KET() memulangkan null dan TIDAK SEORANG
-   PUN dianggap leader; menebaknya berarti memberi bonus leader kepada orang
-   yang tidak pernah ditunjuk. Kosong maupun lebih dari satu DIKATAKAN di
-   kartunya berikut cara membetulkannya. */
-function mkLeader(e){
+   PUN dianggap head; menebaknya berarti memberi bonus leader kepada orang yang
+   tidak pernah ditunjuk — dan, begitu hak lihat ikut memakainya, membuka
+   daftar tim kepada yang belum tentu berhak. Kosong maupun lebih dari satu
+   DIKATAKAN di kartunya berikut cara membetulkannya. */
+function pbHead(e){
   const k=PB_KET(e);
   if(k===null) return false;
-  return String(k).toLowerCase().split(/[\s,;/]+/).some(t=>t==='leader'||t==='lead');
+  /* Kata UTUH, bukan potongan: "Overhead" dan "Headhunter" tidak boleh membuat
+     orang jadi head. Pemisahnya sama dengan seluruh modul (spasi, koma, titik
+     koma, garis miring), jadi "Marketing, Head" dan "Marketing/Head" sama-sama
+     terbaca. */
+  return String(k).toLowerCase().split(/[\s,;/]+/).some(t=>t==='head');
 }
 
 /* SATU tempat yang menghitung SELURUH skema, dari `agg` yang sama persis
@@ -214,11 +237,11 @@ function bonusMarketing(list, agg){
   /* --- SKEMA 3 --- */
   const totTim=list.reduce((s,e)=>s+((agg[e.id]&&agg[e.id].real)||0),0);
   const s3=mkTangga(MK_S3,totTim);
-  const leaderIds=list.filter(mkLeader).map(e=>e.id);
-  /* DIBEDAKAN dari "tidak ada yang bertanda Leader". Kalau Office belum
-     menjawab, PB_KET() memulangkan null untuk SEMUA orang dan leaderIds
+  const headIds=list.filter(pbHead).map(e=>e.id);
+  /* DIBEDAKAN dari "tidak ada yang bertanda Head". Kalau Office belum
+     menjawab, PB_KET() memulangkan null untuk SEMUA orang dan headIds
      kosong — persis sama bentuknya dengan tim yang memang belum menunjuk
-     leader. Kalimat "tambahkan kata Leader di Office" untuk keadaan itu
+     head. Kalimat "tambahkan kata Head di Office" untuk keadaan itu
      menyuruh orang membetulkan sesuatu yang sudah benar, dan yang menurutinya
      akan menambahkan penanda kedua pada orang yang sudah punya.
      Dibaca lewat PB_KET(), bukan KET_MAP langsung, supaya satu-satunya
@@ -232,20 +255,20 @@ function bonusMarketing(list, agg){
     const ikutS1=aktif.indexOf(e.id)>-1;
     const s1=ikutS1?s1per:0;
     const s2=bonusS2(a.real);
-    const isLeader=leaderIds.indexOf(e.id)>-1;
-    const s3n=s3?(isLeader?s3.leader:s3.tim):0;
+    const isHead=headIds.indexOf(e.id)>-1;
+    const s3n=s3?(isHead?s3.leader:s3.tim):0;
     let voucher=0; const vJml={};
     (a.events||[]).forEach(ev=>{
       const t=mkTangga(MK_S4_VOUCHER,ev.porsi);
       if(t){ voucher+=t.nilai; vJml[t.min]=(vJml[t.min]||0)+1; }
     });
     const evBesar=(a.events||[]).filter(ev=>ev.porsi>=MK_S4_CUTI_MIN).length;
-    per[e.id]={ s1:s1, ikutS1:ikutS1, s2:s2, s3:s3n, isLeader:isLeader,
+    per[e.id]={ s1:s1, ikutS1:ikutS1, s2:s2, s3:s3n, isHead:isHead,
       tunai:s1+s2.bonus+s3n,
       voucher:voucher, vJml:vJml, evBesar:evBesar,
       cuti:Math.floor(evBesar/MK_S4_CUTI_PER), top:a.real>=MK_S4_TOP };
   });
-  return { per:per, leaderIds:leaderIds, ketAda:ketAda, tanpaJenis:tanpaJenis,
+  return { per:per, headIds:headIds, ketAda:ketAda, tanpaJenis:tanpaJenis,
     jumPic:list.length,
     jumEvent:evSemua.length, corp:corp,
     s1:{ lolos:s1lolos, jum:s1jum, ev:s1ev, pool:s1pool, bagi:s1bagi, perPic:s1per },
@@ -408,14 +431,15 @@ function kartuSkema3(info, list, pid){
      lebih dari satu. Bonus leader dan bonus anggota berbeda sampai
      Rp2.250.000 sebulan, jadi kartu yang diam tentang siapa yang dianggap
      leader menyembunyikan tepat angka yang paling perlu diperiksa. */
-  const nama=info.leaderIds.map(id=>(list.find(x=>x.id===id)||{}).name).filter(Boolean);
+  const nama=info.headIds.map(id=>(list.find(x=>x.id===id)||{}).name).filter(Boolean);
   let pitaLeader;
-  if(!nama.length && !info.ketAda) pitaLeader=`<div class="notice warn"><div><b>Tim/Keterangan dari Office belum termuat</b>, jadi leader belum bisa ditentukan dan seluruh PIC sementara dihitung memakai kolom <b>Bonus Team Marketing</b>. Muat ulang halaman; kalau tetap begini, Office-nya yang belum menjawab.</div></div>`;
-  else if(!nama.length) pitaLeader=`<div class="notice warn"><div><b>Leader belum ditentukan</b>, jadi seluruh PIC dihitung memakai kolom <b>Bonus Team Marketing</b>.
-      Tentukan lewat Office: tambahkan kata <b>Leader</b> pada kolom <b>Tim/Keterangan</b> orangnya, di samping <b>Marketing</b>.</div></div>`;
-  else if(nama.length>1) pitaLeader=`<div class="notice warn"><div><b>${nama.length} orang</b> tercatat sebagai leader (${PB_ESC(nama.join(', '))}), dan semuanya menerima Bonus Leader.
-      Kalau itu tidak disengaja, hapus kata <b>Leader</b> pada kolom Tim/Keterangan yang tidak seharusnya di Office.</div></div>`;
-  else pitaLeader=`<div class="helper" style="margin-top:10px">Leader: <b>${PB_ESC(nama[0])}</b> — dari kolom Tim/Keterangan di Office. PIC lain memakai kolom Bonus Team Marketing.</div>`;
+  if(!nama.length && !info.ketAda) pitaLeader=`<div class="notice warn"><div><b>Tim/Keterangan dari Office belum termuat</b>, jadi Head belum bisa ditentukan dan seluruh PIC sementara dihitung memakai kolom <b>Bonus Team Marketing</b>. Muat ulang halaman; kalau tetap begini, Office-nya yang belum menjawab.</div></div>`;
+  else if(!nama.length) pitaLeader=`<div class="notice warn"><div><b>Head belum ditentukan</b>, jadi seluruh PIC dihitung memakai kolom <b>Bonus Team Marketing</b>.
+      Tentukan lewat Office: tambahkan kata <b>Head</b> pada kolom <b>Tim/Keterangan</b> orangnya, di samping <b>Marketing</b>.
+      <br><span style="opacity:.9;font-size:11px">Kata yang dicari <b>Head</b>, bukan "Leader" — kalau keterangannya sudah terlanjur ditulis Leader, gantilah.</span></div></div>`;
+  else if(nama.length>1) pitaLeader=`<div class="notice warn"><div><b>${nama.length} orang</b> tercatat sebagai <b>Head</b> (${PB_ESC(nama.join(', '))}), dan semuanya menerima Bonus Leader.
+      Kalau itu tidak disengaja, hapus kata <b>Head</b> pada kolom Tim/Keterangan yang tidak seharusnya di Office.</div></div>`;
+  else pitaLeader=`<div class="helper" style="margin-top:10px">Head: <b>${PB_ESC(nama[0])}</b> — dari kata <b>Head</b> di kolom Tim/Keterangan Office. PIC lain memakai kolom Bonus Team Marketing.</div>`;
   return `<div class="card">
     <h3>3️⃣ Skema 3 — Bonus Total Omset Team</h3>
     <div class="card-sub">Dasarnya <b>omset seluruh tim marketing</b> pada periode ini: ${PB_RP(info.s3.total)}${
@@ -789,10 +813,14 @@ window.bonusEvent=bonusEvent;
 window.kartuBonusMk=kartuBonusMk;
 window.kartuBonusEv=kartuBonusEv;
 window.pbSetKeterangan=pbSetKeterangan;
+/* Penentu Head. Diekspor karena tuan rumah butuh yang SAMA untuk memutuskan
+   siapa boleh melihat seluruh tim — dua penentu untuk satu jabatan pasti
+   menyimpang, dan yang menyimpang di sini bonus sejuta plus hak lihat. */
+window.pbHead=pbHead;
 /* Diekspor KHUSUS untuk uji: keduanya dipotong dan dijalankan langsung oleh
    tools/uji-bonus-*.js. Tanpa ini ujinya harus menulis ulang rumusnya. */
 window.PB_UJI={ mkTangga:mkTangga, bonusS2:bonusS2, tanggaEvS4:tanggaEvS4,
-  mkCorporate:mkCorporate, mkLeader:mkLeader, selRealisasi:selRealisasi,
+  mkCorporate:mkCorporate, pbHead:pbHead, selRealisasi:selRealisasi,
   kartuSkema1:kartuSkema1, kartuSkema2:kartuSkema2, kartuSkema3:kartuSkema3, kartuSkema4:kartuSkema4,
   kartuEvS1:kartuEvS1, kartuEvS2:kartuEvS2, kartuEvS3:kartuEvS3, kartuEvS4:kartuEvS4,
   MK_S2:MK_S2, MK_S3:MK_S3, MK_S1_JUMLAH:MK_S1_JUMLAH, MK_S1_EVENT:MK_S1_EVENT,

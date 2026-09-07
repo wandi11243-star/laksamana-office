@@ -545,17 +545,37 @@ galat**, dengan jumlah event yang tetap kelihatan wajar.
   sama persis dengan yang dibaca `deploy/finance/kas/`. Beda satu huruf tidak
   melempar — barisnya cuma berhenti jadi corporate.
 
-**LEADER DIBACA DARI Tim/Keterangan DI OFFICE** (permintaan user): tulis
-**Leader** di keterangan orangnya, di samping **Marketing**. Sengaja TIDAK ada
-setelan terpisah — setelan kedua untuk fakta yang sudah tercatat di Office pasti
-menyimpang darinya suatu hari, dan yang menyimpang di sini selisihnya sampai
-Rp2.250.000 sebulan untuk satu orang.
+**PENERIMA BONUS LEADER DIBACA DARI Tim/Keterangan DI OFFICE** (permintaan
+user): tulis **Head** di keterangan orangnya, di samping **Marketing**. Sengaja
+TIDAK ada setelan terpisah — setelan kedua untuk fakta yang sudah tercatat di
+Office pasti menyimpang darinya suatu hari, dan yang menyimpang di sini
+selisihnya sampai Rp2.250.000 sebulan untuk satu orang.
 
-- **"Office belum menjawab" DIBEDAKAN dari "leader belum ditentukan"**
-  (`info.ketAda`). Bentuk datanya identik — `leaderIds` kosong — tapi yang
+**KATANYA "Head", BUKAN "Leader"** (keputusan user 7 September 2026). Sempat
+dua kata berbeda: *Leader* untuk Bonus Leader, *Head* untuk hak melihat seluruh
+tim di modul Marketing/Event. Dua penanda untuk satu jabatan yang sama pasti
+menyimpang — orang yang ditandai Leader saja akan menerima bonusnya tapi tidak
+bisa membuka daftar timnya, dan tidak ada satu pun layar yang bisa menjelaskan
+kenapa. Sekarang satu kata untuk keduanya, satu fungsi: `pbHead()` di
+`deploy/assets/performa-bonus.js`, diekspor ke `window` justru supaya tuan
+rumah memakai penentu yang SAMA.
+
+- **KOLOMNYA TETAP BERNAMA "Bonus Leader".** Itu nama di dokumen SDM-nya;
+  mengganti nama baris bonus membuat layar berhenti bisa dicocokkan dengan
+  dokumen yang dipegang orang. Yang berubah PENANDANYA di Office, bukan nama
+  bonusnya.
+- **Kata "Leader" TIDAK lagi dikenali**, dan itu disengaja — dua kata yang
+  sama-sama berlaku mengembalikan persis masalah yang baru ditutup. Yang
+  keterangannya terlanjur "Leader" terbaca sebagai BUKAN head, dan kartunya
+  **mengatakannya**: *"Kata yang dicari Head, bukan 'Leader' — kalau
+  keterangannya sudah terlanjur ditulis Leader, gantilah."*
+- **Kata UTUH, bukan potongan**: "Overhead" dan "Headhunter" tidak boleh
+  membuat orang jadi head. Diuji.
+- **"Office belum menjawab" DIBEDAKAN dari "Head belum ditentukan"**
+  (`info.ketAda`). Bentuk datanya identik — `headIds` kosong — tapi yang
   pertama menyuruh MENUNGGU dan yang kedua menyuruh MENYUNTING Office. Kalimat
   yang salah menyuruh orang membetulkan sesuatu yang sudah benar.
-- **Lebih dari satu leader juga dikatakan**, berikut nama-namanya.
+- **Lebih dari satu Head juga dikatakan**, berikut nama-namanya.
 
 **`ketKasir()` diganti nama jadi `ketOffice()`** — isinya tidak pernah khusus
 kasir, dan nama yang menyempit begitu membuat pemakai berikutnya menyalinnya
@@ -3814,9 +3834,13 @@ Yang harus diingat saat mengerjakannya:
 - **Daftar Event pada segmen Semua menyebut nama PIC tiap baris** (`ev.pic`).
   Itu bocornya data per orang lewat pintu belakang; harus ikut disembunyikan
   untuk yang bukan Head.
-- **"Head" (hak lihat) dan "Leader" (bonus Skema 3) DUA KATA YANG BERBEDA.** Orang
-  yang ditandai Leader saja tidak otomatis bisa melihat tim. Kalau itu bukan
-  yang dimaksud, yang perlu diubah satu kata di `pbHead()` — bukan dua tempat.
+- **SATU KATA UNTUK DUA HAL: "Head".** Hak melihat tim dan penerima Bonus
+  Leader (Skema 3) memakai penanda yang SAMA, lewat `pbHead()` di
+  `deploy/assets/performa-bonus.js` — sudah disatukan atas permintaan user
+  7 September 2026. Jangan dipisah lagi jadi dua kata: orang yang ditandai
+  salah satunya akan mendapat separuh haknya, dan tidak ada layar yang bisa
+  menjelaskan kenapa. `pbHead` sengaja diekspor ke `window` supaya tuan rumah
+  tidak menulis penentunya sendiri.
 - Pencocokan user↔PIC lewat `officeUserId` DULU, baru nama.
 
 Datanya juga belum ada di kedua modul itu: `getAll` memulangkan SELURUH blob
