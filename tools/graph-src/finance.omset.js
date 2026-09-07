@@ -1009,10 +1009,51 @@ function kirim() { apiSave(); setSync(); jadwalkanUlang(); save(); }
 
 
 
-function kirimSekarang() { setSync(); apiSave(); kirim(); jadwalkanUlang(); }
+function kirimSekarang() { setSync(); apiSave(); kirim(); jadwalkanUlang(); save(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanTunggu() { kirimSekarang(); }
 
 
 
@@ -1408,7 +1449,7 @@ function recalc() { v(); netOf(); grossOf(); avgSpendOf(); taxSvcOf(); tagihanOf
 
 function v() {  }
 
-function saveDaily() { v(); grossOf(); tambahJejak(); jejakHtml(); jejakList(); getDay(); save(); render(); todayISO(); }
+function saveDaily() { v(); grossOf(); tambahJejak(); jejakHtml(); jejakList(); getDay(); save(); simpanTunggu(); render(); todayISO(); }
 
 
 
@@ -1614,7 +1655,8 @@ function hitung() { inputVal(); catatanMetode(); }
 
 
 
-function inputVal() { hitung(); tambahJejak(); save(); dateLabel(); render(); }
+function inputVal() { hitung(); tambahJejak(); save(); simpanTunggu(); dateLabel(); render(); }
+
 
 
 
@@ -3595,7 +3637,8 @@ function kasirAktif() {  }
 
 
 
-function bukaBagi() { modalBagiHasil(); calc(); sumDiakui(); save(); potonganBaris(); kasirAktif(); }
+function bukaBagi() { modalBagiHasil(); calc(); sumDiakui(); save(); potonganBaris(); simpanTunggu(); kasirAktif(); }
+
 
 
 

@@ -854,6 +854,106 @@ function kirim(){
   });
 }
 
+/* ---- MENUNGGU JAWABAN SERVER (7 September 2026) ----
+   BERKAS KEMBAR kirimSekarang() di deploy/finance/omset/. Kalau salah satu
+   diubah, yang lain HARUS ikut: keduanya menulis blob yang SAMA, dan dua
+   aturan untuk satu penyimpanan berarti satu modul mengaku berhasil untuk
+   kiriman yang tidak pernah sampai.
+
+   save() itu fire-and-forget — menulis localStorage, memasang "Menyimpan…" di
+   pojok, lalu menjadwalkan kirim() SATU DETIK kemudian. Tombol yang memanggil
+   save() lalu langsung mencetak "✓ tersimpan" sedang menebak. Kalau tabnya
+   ditutup, halamannya dipindah, atau requestnya gagal dalam detik itu,
+   servernya TIDAK PERNAH menerima apa pun; muat berikutnya mengambil salinan
+   server lewat apiGet, dan salinan lokal yang lebih baru tertimpa diam-diam.
+
+   Yang ini membatalkan penundaannya, mengirim sekarang, dan baru selesai
+   setelah server MENJAWAB ok. Yang memanggilnya boleh menunggu — dan itulah
+   satu-satunya cara sebuah tombol boleh mengatakan "tersimpan".
+
+   DIRTY dikembalikan true saat gagal: penjaga beforeunload di bawah
+   membacanya, dan tanpa itu halaman yang gagal simpan tetap bisa ditutup
+   tanpa peringatan. */
+function kirimSekarang(){
+  clearTimeout(SAVE_TIMER); clearTimeout(RETRY_TIMER);
+  return new Promise((selesai,gagal)=>{
+    (function jalan(){
+      if(SAVING){ setTimeout(jalan,300); return; }   // biar kiriman lain rampung dulu
+      SAVING=true; DIRTY=false; setSync('saving');
+      apiSave(DB).then(()=>{
+        SAVING=false; RETRY_KE=0; clearTimeout(RETRY_TIMER);
+        setSync(DIRTY?'saving':'ok'); if(DIRTY) kirim();
+        selesai();
+      },err=>{
+        SAVING=false; DIRTY=true;
+        /* Konflik tulis-basi TIDAK dicoba ulang dan pesannya berbeda — lihat
+           penjaga di kirim(). Ulangan untuk konflik tidak akan pernah berhasil
+           selama versinya beda. */
+        if(err&&err.konflik){
+          const oleh=err.oleh?(' oleh <b>'+esc(err.oleh)+'</b>'):'';
+          clearTimeout(RETRY_TIMER); RETRY_KE=0;
+          setSync('err','⚠ <b>TIDAK tersimpan.</b> Data di server sudah diubah'+oleh+
+            ' sejak halaman ini dibuka. Penyimpanan ditolak — kalau diteruskan, perubahan mereka yang terhapus.');
+          gagal(err); return;
+        }
+        const sebab=(err&&err.message?String(err.message):'penyebab tidak diketahui').slice(0,200);
+        const detik=Math.round(jadwalkanUlang()/1000);
+        setSync('err',`Gagal simpan — tersimpan lokal, coba lagi ${detik}s.<br><span style="opacity:.85;font-size:11px">${esc(sebab)}</span>`);
+        gagal(err);
+      });
+    })();
+  });
+}
+/* Perubahan yang belum sampai ke server TIDAK boleh hilang diam-diam saat
+   tabnya ditutup. Peramban hanya menampilkan dialog bawaannya sendiri —
+   teksnya tidak bisa diatur — tapi yang penting bukan kalimatnya, melainkan
+   bahwa penutupan itu tertahan sebentar sampai kiriman terakhir sempat
+   berangkat. BERKAS KEMBAR penjaga yang sama di deploy/finance/omset/. */
+window.addEventListener('beforeunload',e=>{
+  if(!DIRTY && !SAVING) return;
+  e.preventDefault(); e.returnValue='';
+});
+/* ---- SATU POLA UNTUK TOMBOL YANG MENGATAKAN "TERSIMPAN" (7 September 2026)
+   Pertanyaan user: "apakah perlu loading dulu sebelum muncul pesan sukses?
+   jangan sampai statusnya berhasil, ternyata malah tidak berhasil."
+
+   Sebelum ini tombol-tombolnya memanggil save() — yang cuma menulis
+   localStorage dan menjadwalkan kiriman SATU DETIK kemudian — lalu LANGSUNG
+   mencetak "✓ tersimpan". Itu menebak, bukan melaporkan. Kalau tabnya
+   ditutup, halamannya dipindah, atau requestnya gagal dalam detik itu, server
+   tidak pernah menerima apa pun sementara layarnya sudah terlanjur bilang
+   berhasil — dan muat berikutnya mengambil salinan server.
+
+   Yang menunggu jawaban server adalah kirimSekarang(); alasannya sudah
+   ditulis lengkap di atas fungsi itu. Yang kurang selama ini cuma
+   pemakaiannya.
+
+   GAGAL TIDAK MENGGAMBAR ULANG HALAMAN: isian yang barusan diketik harus
+   tetap ada di layar, dan percobaan ulang otomatis masih berjalan. Pesan
+   gagalnya menyebut keduanya — orang yang mengira ketikannya hilang akan
+   mengetik ulang di atas data yang sebenarnya masih utuh.
+
+   Isi .notice DIBUNGKUS SATU elemen blok: .notice itu display:flex, jadi tiap
+   potongan teks dan tiap penebalan di dalamnya jadi flex item sendiri dan
+   kalimatnya pecah jadi kolom-kolom sempit. Sudah pernah terlihat di layar
+   user pada pita modalBagiHasil. */
+function simpanTunggu(idBox, idTombol, pesanOk, sesudah){
+  const box=idBox?document.getElementById(idBox):null;
+  const btn=idTombol?document.getElementById(idTombol):null;
+  const semula=btn?btn.innerHTML:'';
+  if(btn){ btn.disabled=true; btn.innerHTML='Menyimpan…'; }
+  if(box) box.innerHTML='<div class="notice"><div>⏳ Menyimpan ke server… tunggu sebentar.</div></div>';
+  return kirimSekarang().then(()=>{
+    if(btn){ btn.disabled=false; btn.innerHTML=semula; }
+    if(box) box.innerHTML=pesanOk;
+    if(sesudah) sesudah();
+  },err=>{
+    if(btn){ btn.disabled=false; btn.innerHTML=semula; }
+    if(box) box.innerHTML='<div class="notice bad"><div>✕ <b>BELUM tersimpan ke server.</b> '
+      +esc((err&&err.message)||'gagal')
+      +'<br><span style="opacity:.9;font-size:11px">Yang barusan Anda isi <b>masih ada di layar ini</b> dan belum hilang, dan percobaan ulang otomatis masih berjalan. Jangan tutup halaman sebelum status di pojok berubah jadi Tersimpan.</span></div></div>';
+  });
+}
 /* ---- derived helpers ----
    Rokok & Videotron DIHAPUS 27 Juli 2026 atas permintaan. Aman dilakukan
    karena saat itu database dev maupun produksi belum berisi satu pun baris
@@ -1167,8 +1267,9 @@ function viewReport(){
     const jejak=tambahJejak(DB.reports[repDate]);
     DB.reports[repDate]={pay,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now(),submitted:true,log:jejak};
     save();
-    box.innerHTML=`<div class="notice ok">✓ Report ${esc(dateLabel(repDate))} tersimpan${h.abs?` dengan ${bh.ada?'sisa selisih':'selisih POS vs Actual'} ${fmtRp(h.abs)}`:''}.</div>`;
-    setTimeout(()=>render(),700);
+    simpanTunggu('rp_err','rp_save',
+      `<div class="notice ok"><div>✓ Report ${esc(dateLabel(repDate))} tersimpan di server${h.abs?` dengan ${bh.ada?'sisa selisih':'selisih POS vs Actual'} ${fmtRp(h.abs)}`:''}.</div></div>`,
+      ()=>setTimeout(()=>render(),700));
   });
   hitung();
 }
@@ -2414,8 +2515,9 @@ function viewRokok(){
     const jejak=tambahJejak(DB.rokok[rokokDate]);
     DB.rokok[rokokDate]={items,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now(),log:jejak};
     save();
-    document.getElementById('rk_err').innerHTML=`<div class="notice ok">✓ Stock ${esc(dateLabel(rokokDate))} tersimpan.</div>`;
-    setTimeout(()=>render(),700);
+    simpanTunggu('rk_err','rk_save',
+      `<div class="notice ok"><div>✓ Stock ${esc(dateLabel(rokokDate))} tersimpan di server.</div></div>`,
+      ()=>setTimeout(()=>render(),700));
   });
   hitung();
 }

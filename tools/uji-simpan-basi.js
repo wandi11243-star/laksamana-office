@@ -48,6 +48,7 @@ const sama = (n, d, h) => cek(n, d === h, 'dapat ' + JSON.stringify(d) + ', haru
 /* ---------------- server tiruan: SATU blob, dipakai bersama ---------------- */
 const TGL = '2026-08-23';
 const server = {
+  tunda: 0, paksaGagal: false,
   ts: 1000,
   by: '',
   data: { daily: [{ date: TGL, food: 12614400, bev: 13778500, lainnya: 185000,
@@ -57,8 +58,13 @@ const server = {
 const jejakSimpan = [];   // {tab, baseTs, diterima}
 
 function balas(obj) {
-  return Promise.resolve({ ok: true, status: 200,
-    json: () => Promise.resolve(obj), text: () => Promise.resolve(JSON.stringify(obj)) });
+  const r = { ok: true, status: 200,
+    json: () => Promise.resolve(obj), text: () => Promise.resolve(JSON.stringify(obj)) };
+  /* Jeda buatan dipakai bagian "loading dulu": tanpa jeda, jawabannya datang
+     di microtask berikutnya dan keadaan SEDANG-MENYIMPAN tidak pernah sempat
+     diamati — ujinya lalu lulus untuk kode yang langsung mencetak sukses. */
+  return server.tunda ? new Promise(k => setTimeout(() => k(r), server.tunda))
+                      : Promise.resolve(r);
 }
 function buatFetch(tab) {
   return (url, opts) => {
@@ -70,6 +76,8 @@ function buatFetch(tab) {
       return balas({ ok: true, data: JSON.parse(JSON.stringify(server.data)), ts: server.ts });
     }
     if (body.action === 'saveAll') {
+      if (server.paksaGagal) { jejakSimpan.push({ tab, baseTs: +body.baseTs || 0, diterima: false });
+        return balas({ ok: false, error: 'server sedang bermasalah' }); }
       const base = +body.baseTs || 0;
       /* Penjaganya persis seperti save_all() di kompas-mysql: hanya menolak
          kalau klien MENYEBUTKAN versinya dan versi itu sudah bergerak. */
@@ -182,6 +190,88 @@ const taxDi = w => {
   await tunggu(300);
   cek('simpannya diterima', jejakSimpan[jejakSimpan.length - 1].diterima === true);
   sama('dan tax tetap benar', server.data.daily[0].tax, 2514400);
+
+  /* ---- 5b. "berhasil" tidak boleh muncul sebelum server menjawab ----
+     Pertanyaan user 7 September 2026: "apakah perlu loading dulu sebelum
+     muncul pesan sukses? jangan sampai statusnya berhasil, ternyata malah
+     tidak berhasil."
+
+     Yang diuji URUTANNYA, bukan sekadar adanya pesan: selagi kiriman masih di
+     jalan, layar TIDAK BOLEH sudah menulis tanda centang. Jeda buatan di
+     server tiruan yang membuat keadaan itu bisa diamati. */
+  console.log('\n-- pesan sukses menunggu jawaban server --');
+  /* TAB BARU, bukan `fin`. Versi server sudah bergerak beberapa kali di
+     bagian-bagian sebelumnya, jadi `fin` sekarang memang basi dan simpannya
+     akan (benar) ditolak — yang diuji di sini urutan pesan pada simpan yang
+     BERHASIL, jadi tabnya harus yang segar. */
+  const segar = bukaTab('Segar', 'deploy/finance/omset/index.html', 'kompas',
+                        'https://dev.laksamanamuda.id/finance/omset/');
+  await tunggu(600);
+  segar.document.body.insertAdjacentHTML('beforeend',
+    '<div id="uji_box"></div><button id="uji_btn">Simpan</button>');
+  server.tunda = 250;
+  const OKMSG = '<div class="notice ok"><div>SUKSES-UJI</div></div>';
+  let p = segar.eval("simpanTunggu('uji_box','uji_btn','" + OKMSG.replace(/'/g, "\\'") + "')");
+  const boxU = () => segar.document.getElementById('uji_box').innerHTML;
+  const btnU = () => segar.document.getElementById('uji_btn');
+  cek('selagi mengirim: layar berbunyi Menyimpan…', /Menyimpan ke server/.test(boxU()), boxU().slice(0, 80));
+  cek('selagi mengirim: BELUM ada tanda sukses', !/SUKSES-UJI/.test(boxU()), boxU().slice(0, 80));
+  cek('selagi mengirim: tombolnya dimatikan', btnU().disabled === true);
+  await p;
+  cek('sesudah server menjawab: sukses baru muncul', /SUKSES-UJI/.test(boxU()), boxU().slice(0, 80));
+  cek('...dan tombolnya hidup lagi', btnU().disabled === false);
+
+  console.log('\n-- server menolak: JANGAN bilang berhasil --');
+  server.paksaGagal = true;
+  await segar.eval("simpanTunggu('uji_box','uji_btn','" + OKMSG.replace(/'/g, "\\'") + "')").catch(() => {});
+  cek('gagal: TIDAK ada tanda sukses', !/SUKSES-UJI/.test(boxU()), boxU().slice(0, 90));
+  cek('gagal: dikatakan BELUM tersimpan', /BELUM tersimpan/.test(boxU()), boxU().slice(0, 90));
+  cek('gagal: dikatakan isiannya masih ada di layar', /masih ada di layar/.test(boxU()));
+  cek('gagal: tombolnya hidup lagi supaya bisa dicoba lagi', btnU().disabled === false);
+  server.paksaGagal = false; server.tunda = 0;
+
+  /* Yang di atas menguji polanya. Yang di bawah menguji bahwa TOMBOL-TOMBOL
+     SUNGGUHAN memakainya — dan, lebih penting, bahwa tidak ada lagi yang
+     memakai pola lama. Pemeriksaan kedua itu yang akan menangkap tombol BARU
+     yang ditambahkan nanti dengan cara lama. */
+  console.log('\n-- tombol sungguhan memakainya --');
+  const LFx = t => t.replace(/\r\n/g, '\n');
+  const srcO = LFx(fs.readFileSync(path.join(ROOT, 'deploy/finance/omset/index.html'), 'utf8'));
+  const srcC = LFx(fs.readFileSync(path.join(ROOT, 'deploy/cashier/index.html'), 'utf8'));
+  cek('Simpan Omset (Input Omset Harian) menunggu server', /simpanTunggu\('i_err','i_save'/.test(srcO));
+  cek('Report Daily omset menunggu server', /simpanTunggu\('rp_err','rp_save'/.test(srcO));
+  cek('Simpan Pembagian menunggu server', /simpanTunggu\('bd_info',null/.test(srcO));
+  cek('Report Daily cashier menunggu server', /simpanTunggu\('rp_err','rp_save'/.test(srcC));
+  cek('Stock cashier menunggu server', /simpanTunggu\('rk_err','rk_save'/.test(srcC));
+  cek('cashier punya kirimSekarang (berkas kembar omset)', /function kirimSekarang\(\)/.test(srcC));
+  cek('cashier punya penjaga beforeunload', /addEventListener\('beforeunload'/.test(srcC));
+
+  /* INVARIAN: tidak boleh ada lagi save() yang langsung disusul klaim sukses.
+     Ini yang menangkap tombol berikutnya, bukan daftar nama di atas. */
+  /* Yang dicari: sesudah save(), ada baris yang LANGSUNG memasang tanda sukses
+     ke innerHTML. Diperiksa PER BARIS, bukan per jendela — versi pertama uji
+     ini melewati seluruh jendela begitu melihat simpanTunggu( di dalamnya, dan
+     mutasi yang menyelipkan satu baris pola lama TEPAT DI ATAS panggilan itu
+     lolos tanpa bunyi.
+
+     Pesan sukses yang dioper sebagai ARGUMEN ke simpanTunggu() tidak ikut
+     tertangkap dengan sendirinya: baris argumen tidak memuat innerHTML=, jadi
+     tidak perlu pengecualian apa pun. Pengecualian yang tidak perlu justru
+     yang membuat pemindai berbohong. */
+  const klaimLangsung = src => {
+    const baris = src.split('\n'), temuan = [];
+    for (let i = 0; i < baris.length; i++) {
+      if (!/(^|[\s;{])save\(\);/.test(baris[i])) continue;
+      for (let j = i + 1; j <= i + 3 && j < baris.length; j++) {
+        if (/innerHTML\s*=/.test(baris[j]) && /notice ok/.test(baris[j]) && /tersimpan/i.test(baris[j]))
+          temuan.push((j + 1) + ': ' + baris[j].trim().slice(0, 60));
+      }
+    }
+    return temuan;
+  };
+  const sisaO = klaimLangsung(srcO), sisaC = klaimLangsung(srcC);
+  cek('omset: tidak ada save() yang langsung mengaku tersimpan', sisaO.length === 0, sisaO.join(' | '));
+  cek('cashier: tidak ada save() yang langsung mengaku tersimpan', sisaC.length === 0, sisaC.join(' | '));
 
   /* ---- 6. server lama (tanpa ts) tidak boleh mematikan penyimpanan ---- */
   console.log('\n-- server versi lama (belum ter-deploy) --');

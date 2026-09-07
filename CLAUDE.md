@@ -3692,6 +3692,56 @@ Penjaga ini mengubah kehilangan senyap jadi penolakan yang terlihat — ia tidak
 menghapus sebabnya. 34 titik panggil, layak dikerjakan bertahap mulai dari
 Input Omset Harian dan Report Daily.
 
+#### Tombol tidak boleh bilang "tersimpan" sebelum server menjawab
+
+Pertanyaan user 7 September 2026: *"apakah perlu loading dulu sebelum muncul
+pesan sukses? jangan sampai statusnya berhasil, ternyata malah tidak
+berhasil."* Perlu — dan **lima tombol** memang belum begitu.
+
+`save()` itu fire-and-forget: menulis localStorage, memasang "Menyimpan…" di
+pojok, lalu menjadwalkan kiriman **satu detik** kemudian. Tombol yang memanggil
+`save()` lalu langsung mencetak `✓ tersimpan` sedang **menebak**.
+
+`kirimSekarang()` yang menunggu jawaban server sudah ada di `omset` sejak
+5 September 2026 — dengan komentar yang berbunyi *"itulah satu-satunya cara
+sebuah tombol boleh mengatakan tersimpan"* — tapi **cuma dipakai satu tombol**
+(Simpan Breakdown). Empat lainnya tidak, dan `cashier` bahkan belum punya
+fungsinya sama sekali.
+
+| tombol | modul |
+|---|---|
+| **Simpan Omset** (Input Omset Harian) | omset — *layar yang dilaporkan user* |
+| Report Daily | omset & cashier |
+| Simpan Pembagian | omset |
+| Stock | cashier |
+
+`simpanTunggu(idBox, idTombol, pesanOk, sesudah)` satu pola untuk kelimanya:
+matikan tombolnya, pasang **⏳ Menyimpan ke server…**, dan baru cetak sukses
+sesudah server menjawab.
+
+- **GAGAL TIDAK MENGGAMBAR ULANG HALAMAN.** Isian yang barusan diketik harus
+  tetap di layar, dan percobaan ulang otomatis masih berjalan. Pesan gagalnya
+  menyebut keduanya — orang yang mengira ketikannya hilang akan mengetik ulang
+  di atas data yang sebenarnya masih utuh.
+- **Simpan Pembagian tanpa id tombol** (`null`): modalnya sudah tertutup saat
+  callback-nya jalan, jadi `bh_ok` tidak ada lagi di DOM.
+- **`cashier` kebagian `kirimSekarang()` DAN `beforeunload`** — keduanya belum
+  pernah ada di sana. Tanpa `beforeunload`, menutup tab Cashier di dalam detik
+  penundaan itu membuang simpannya tanpa satu pun peringatan.
+- `kirimSekarang()` di cashier **berkas kembar** milik omset. Keduanya menulis
+  blob yang sama; dua aturan untuk satu penyimpanan berarti satu modul mengaku
+  berhasil untuk kiriman yang tidak pernah sampai.
+
+Ujinya menjaga **URUTAN**, bukan adanya pesan: server tiruannya diberi jeda
+buatan supaya keadaan sedang-mengirim sempat diamati. Tanpa jeda itu,
+jawabannya datang di microtask berikutnya dan ujinya lulus untuk kode yang
+langsung mencetak sukses. Ditambah **invarian pemindai sumber**: tidak boleh
+ada `save();` yang dalam tiga baris disusul `innerHTML` berisi tanda sukses —
+itu yang akan menangkap tombol BERIKUTNYA, bukan daftar nama di atas.
+Diperiksa **per baris**, bukan per jendela: versi pertamanya melewati seluruh
+jendela begitu melihat `simpanTunggu(` di dalamnya, dan mutasi yang
+menyelipkan satu baris pola lama tepat di atas panggilan itu lolos tanpa bunyi.
+
 ### Deploy gagal ETIMEDOUT: servernya sehat, IP runner-nya diblokir (7 Sep 2026)
 
 ```

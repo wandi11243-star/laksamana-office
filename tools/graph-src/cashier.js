@@ -822,7 +822,7 @@ function jadwalkanUlang() {  }
 
 
 
-function kirim() { apiSave(); setSync(); jadwalkanUlang(); }
+function kirim() { apiSave(); setSync(); jadwalkanUlang(); kirimSekarang(); save(); }
 
 
 
@@ -838,6 +838,106 @@ function kirim() { apiSave(); setSync(); jadwalkanUlang(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kirimSekarang() { setSync(); apiSave(); kirim(); jadwalkanUlang(); save(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanTunggu() { kirimSekarang(); }
 
 
 
@@ -1156,7 +1256,8 @@ function viewReport() { repOf(); penjelasHari(); calInner(); jejakHtml(); repPay
 
 
 
-function inputVal() { hitung(); tambahJejak(); save(); dateLabel(); render(); }
+function inputVal() { hitung(); tambahJejak(); save(); simpanTunggu(); dateLabel(); render(); }
+
 
 
 
@@ -2370,7 +2471,8 @@ function viewRokok() { rokokOf(); rokokSisaAwal(); rokokItem(); rokokLainPertama
 
 
 
-function hitung() { rokokItems(); nilai(); daftar(); tambahJejak(); save(); dateLabel(); render(); }
+function hitung() { rokokItems(); nilai(); daftar(); tambahJejak(); save(); simpanTunggu(); dateLabel(); render(); }
+
 
 
 

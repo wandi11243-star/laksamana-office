@@ -1029,6 +1029,47 @@ function kirimSekarang(){
     })();
   });
 }
+/* ---- SATU POLA UNTUK TOMBOL YANG MENGATAKAN "TERSIMPAN" (7 September 2026)
+   Pertanyaan user: "apakah perlu loading dulu sebelum muncul pesan sukses?
+   jangan sampai statusnya berhasil, ternyata malah tidak berhasil."
+
+   Sebelum ini tombol-tombolnya memanggil save() — yang cuma menulis
+   localStorage dan menjadwalkan kiriman SATU DETIK kemudian — lalu LANGSUNG
+   mencetak "✓ tersimpan". Itu menebak, bukan melaporkan. Kalau tabnya
+   ditutup, halamannya dipindah, atau requestnya gagal dalam detik itu, server
+   tidak pernah menerima apa pun sementara layarnya sudah terlanjur bilang
+   berhasil — dan muat berikutnya mengambil salinan server.
+
+   Yang menunggu jawaban server adalah kirimSekarang(); alasannya sudah
+   ditulis lengkap di atas fungsi itu. Yang kurang selama ini cuma
+   pemakaiannya.
+
+   GAGAL TIDAK MENGGAMBAR ULANG HALAMAN: isian yang barusan diketik harus
+   tetap ada di layar, dan percobaan ulang otomatis masih berjalan. Pesan
+   gagalnya menyebut keduanya — orang yang mengira ketikannya hilang akan
+   mengetik ulang di atas data yang sebenarnya masih utuh.
+
+   Isi .notice DIBUNGKUS SATU elemen blok: .notice itu display:flex, jadi tiap
+   potongan teks dan tiap penebalan di dalamnya jadi flex item sendiri dan
+   kalimatnya pecah jadi kolom-kolom sempit. Sudah pernah terlihat di layar
+   user pada pita modalBagiHasil. */
+function simpanTunggu(idBox, idTombol, pesanOk, sesudah){
+  const box=idBox?document.getElementById(idBox):null;
+  const btn=idTombol?document.getElementById(idTombol):null;
+  const semula=btn?btn.innerHTML:'';
+  if(btn){ btn.disabled=true; btn.innerHTML='Menyimpan…'; }
+  if(box) box.innerHTML='<div class="notice"><div>⏳ Menyimpan ke server… tunggu sebentar.</div></div>';
+  return kirimSekarang().then(()=>{
+    if(btn){ btn.disabled=false; btn.innerHTML=semula; }
+    if(box) box.innerHTML=pesanOk;
+    if(sesudah) sesudah();
+  },err=>{
+    if(btn){ btn.disabled=false; btn.innerHTML=semula; }
+    if(box) box.innerHTML='<div class="notice bad"><div>✕ <b>BELUM tersimpan ke server.</b> '
+      +esc((err&&err.message)||'gagal')
+      +'<br><span style="opacity:.9;font-size:11px">Yang barusan Anda isi <b>masih ada di layar ini</b> dan belum hilang, dan percobaan ulang otomatis masih berjalan. Jangan tutup halaman sebelum status di pojok berubah jadi Tersimpan.</span></div></div>';
+  });
+}
 /* Perubahan yang belum sampai ke server TIDAK boleh hilang diam-diam saat
    tabnya ditutup. Peramban hanya menampilkan dialog bawaannya sendiri — teksnya
    tidak bisa diatur — tapi yang penting bukan kalimatnya, melainkan bahwa
@@ -1452,9 +1493,9 @@ function saveDaily(){
   if(ex){Object.assign(ex,rec); ex.log=jejak;}
   else {rec.bd={marketing:[],event:[],kasir:[],self:{amount:0,disc:0}};rec.bdValid=false;rec.log=jejak;DB.daily.push(rec);}
   save();
-  box.innerHTML='<div class="notice ok">✓ Tersimpan. '+(ex?'Data diperbarui.':'Lanjut ke Breakdown untuk alokasi sumber omset.')+'</div>';
-  inputDate=date;PERIOD=monthKeyOf(date);
-  setTimeout(()=>render(),700);
+  simpanTunggu('i_err','i_save',
+    '<div class="notice ok"><div>✓ Tersimpan di server. '+(ex?'Data diperbarui.':'Lanjut ke Breakdown untuk alokasi sumber omset.')+'</div></div>',
+    ()=>{ inputDate=date;PERIOD=monthKeyOf(date); setTimeout(()=>render(),700); });
 }
 
 /* ============ 1b. REPORT DAILY (KASIR) ============
@@ -1625,8 +1666,9 @@ function viewReport(){
     const jejak=tambahJejak(DB.reports[repDate]);
     DB.reports[repDate]={pay,by:CURRENT_USER?CURRENT_USER.name:'',at:Date.now(),submitted:true,log:jejak};
     save();
-    box.innerHTML=`<div class="notice ok">✓ Report ${esc(dateLabel(repDate))} tersimpan${h.abs?` dengan ${bh.ada?'sisa selisih':'selisih POS vs Actual'} ${fmtRp(h.abs)}`:''}.</div>`;
-    setTimeout(()=>render(),700);
+    simpanTunggu('rp_err','rp_save',
+      `<div class="notice ok"><div>✓ Report ${esc(dateLabel(repDate))} tersimpan di server${h.abs?` dengan ${bh.ada?'sisa selisih':'selisih POS vs Actual'} ${fmtRp(h.abs)}`:''}.</div></div>`,
+      ()=>setTimeout(()=>render(),700));
   });
   hitung();
 }
@@ -3614,12 +3656,13 @@ function viewBreakdown(){
       d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so,abaikan:d.bd.abaikan||[]};
       d.bdValid=Math.abs(net-sumDiakui())<1;
       save();
-      const b=potonganBaris(row), box=document.getElementById('bd_info');
-      if(box){
-        box.innerHTML=`<div class="notice ok">✓ Shift <b>${esc(row.eventName||'event tanpa nama')}</b> tersimpan — ${b.pembagi>0?`${fmtRp(b.per)} dipotong dari masing-masing ${b.ids.length} kasir shift`:'belum ada kasir yang dibebani'}.</div>`;
-        clearTimeout(bagiInfoTimer);
-        bagiInfoTimer=setTimeout(()=>{ const x=document.getElementById('bd_info'); if(x) x.innerHTML=''; },6000);
-      }
+      const b=potonganBaris(row);
+      /* TANPA id tombol: modalnya sudah tertutup saat callback ini jalan, jadi
+         bh_ok tidak ada lagi di DOM. Pitanya saja yang menunggu. */
+      simpanTunggu('bd_info',null,
+        `<div class="notice ok"><div>✓ Shift <b>${esc(row.eventName||'event tanpa nama')}</b> tersimpan di server — ${b.pembagi>0?`${fmtRp(b.per)} dipotong dari masing-masing ${b.ids.length} kasir shift`:'belum ada kasir yang dibebani'}.</div></div>`,
+        ()=>{ clearTimeout(bagiInfoTimer);
+          bagiInfoTimer=setTimeout(()=>{ const x=document.getElementById('bd_info'); if(x) x.innerHTML=''; },6000); });
     }, kasirAktif());
   }
   /* Pita di atas baris otomatis: dari mana asalnya, PIC yang tertulis di modul
