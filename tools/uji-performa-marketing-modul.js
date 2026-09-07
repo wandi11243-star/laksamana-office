@@ -98,10 +98,28 @@ function buka(namaAku, jabatanAku) {
     ])};
     S.users[0].jabatan = ${JSON.stringify(jabatanAku)};
     ME = S.users.find(u=>u.name===${JSON.stringify(namaAku)});
-    PFO.st='ok'; PFO.bulan='2026-09'; PFO.data=${JSON.stringify(DATA)}; PFO.pic='';
+    PFO.st='ok'; PFO.bulan='2026-09'; PFO.dimuat='2026-09'; PFO.data=${JSON.stringify(DATA)}; PFO.pic='';
   `);
   return w;
 }
+
+/* Tab terpisah yang datanya BELUM disiapkan: dipakai menguji pemuatan otomatis.
+   Fetch-nya dihitung, jadi perputaran render→muat→render punya tempat untuk
+   ketahuan sebagai ANGKA, bukan sebagai halaman yang berkedip. */
+function bukaKosong(namaAku, jabatanAku) {
+  const w = buka(namaAku, jabatanAku);
+  const jejak = { n: 0 };
+  w.eval("PFO.st='idle'; PFO.data=null; PFO.dimuat='';");
+  w.fetch = (url, opts) => {
+    let b = {}; try { b = JSON.parse((opts && opts.body) || '{}'); } catch (e) {}
+    if (b.action !== 'performaDivisi') return Promise.resolve({ ok: true, json: () => Promise.resolve({ ok: true, data: {} }), text: () => Promise.resolve('{"ok":true}') });
+    jejak.n++;
+    const jawab = JSON.stringify({ ok: true, data: DATA });
+    return Promise.resolve({ ok: true, json: () => Promise.resolve(JSON.parse(jawab)), text: () => Promise.resolve(jawab) });
+  };
+  return { w, jejak };
+}
+const tunggu = ms => new Promise(r => setTimeout(r, ms));
 const seg = w => Array.from(w.document.querySelectorAll('#pfo_seg button'));
 const namaSeg = w => seg(w).map(b => b.textContent.trim());
 const body = w => (w.document.getElementById('pfo_body') || { innerHTML: '' }).innerHTML;
@@ -209,5 +227,36 @@ cek('...dan halaman ini TIDAK memanggil getAll kompas',
 cek('...lewat kompas-api, bukan api modul ini',
     /PFO_API = '\.\.\/kompas-api-mysql\/api\.php'/.test(blokPFO));
 
-console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
-process.exit(gagal ? 1 : 0);
+/* ---------- 4. memuat sendiri, tanpa tombol ---------- */
+(async function () {
+  console.log('\n-- memuat sendiri (tanpa tombol Tampilkan) --');
+  const src4 = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8');
+  const blok = src4.slice(src4.indexOf('const PFO_API'), src4.indexOf('function renderPerformance('));
+  cek('tombol Tampilkan sudah tidak digambar', blok.indexOf("id=\"pfo_muat\"") < 0);
+  cek('...dan tidak ada lagi kalimat yang menyuruh menekannya',
+      blok.indexOf('tekan <b>Tampilkan</b>') < 0);
+
+  const { w: w4, jejak } = bukaKosong('Budi', 'Marketing');
+  w4.eval("go('perfomset')");
+  cek('halaman langsung memuat sendiri', jejak.n === 1, 'permintaan terkirim: ' + jejak.n);
+  await tunggu(120);
+  cek('...dan datanya tergambar tanpa satu klik pun',
+      body(w4).indexOf(acuan.rp(acuan.agg.p2.real)) > -1, body(w4).slice(0, 80));
+
+  /* PERPUTARAN: pfoMuat() memanggil render() di ujungnya, dan render() itulah
+     yang memicu pemuatan. Tanpa penanda `dimuat`, keduanya saling memanggil
+     tanpa henti — yang terlihat bukan galat, melainkan halaman berkedip sambil
+     menghujani server. Yang diperiksa ANGKANYA, bukan tampilannya. */
+  const n1 = jejak.n;
+  w4.eval("go('perfomset');"); w4.eval("go('perfomset');");
+  await tunggu(120);
+  sama('menggambar ulang TIDAK memicu permintaan baru', jejak.n, n1);
+
+  w4.eval("(function(){ const m=document.getElementById('pfo_bulan'); m.value='2026-08'; m.onchange(); })()");
+  await tunggu(120);
+  sama('ganti bulan memicu tepat SATU permintaan', jejak.n, n1 + 1);
+  sama('...dan bulannya benar-benar berpindah', w4.eval('PFO.bulan'), '2026-08');
+
+  console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
+  process.exit(gagal ? 1 : 0);
+})();

@@ -13794,7 +13794,7 @@ function perfPitaBD(){
    berbeda; namanya sengaja dibedakan supaya tidak ada yang mengira salah
    satunya versi lama. */
 const PFO_API = '../kompas-api-mysql/api.php';
-let PFO = { st:'idle', err:'', data:null, bulan:'', pic:'', hal:1 };
+let PFO = { st:'idle', err:'', data:null, bulan:'', dimuat:'', pic:'', hal:1 };
 const PFO_PER_HAL = 5;
 
 /* Pemformat DIPAKAI dari asetnya (pbRp), bukan rp() milik modul ini: kartu
@@ -13870,7 +13870,7 @@ function pfoBolehLihat(pid){
 }
 
 async function pfoMuat(){
-  PFO.st='muat'; PFO.err='';
+  PFO.st='muat'; PFO.err=''; PFO.dimuat=PFO.bulan;
   const r=pfoRentang(PFO.bulan);
   let sesi=''; try{ sesi=(JSON.parse(localStorage.getItem('lm_session')||'null')||{}).token||''; }catch(e){}
   const stop=new AbortController(); const jam=setTimeout(()=>stop.abort(),25000);
@@ -13888,12 +13888,28 @@ async function pfoMuat(){
     PFO.data=null; PFO.st='galat';
     PFO.err=(e && e.name==='AbortError') ? 'Kompas tidak menjawab dalam 25 detik' : ((e&&e.message)||'gagal');
   }
-  if(view==='perfomset') render();
+  /* MASIH DI HALAMAN INI? Diperiksa lewat elemennya sendiri, bukan lewat
+     location.hash: go() mengosongkan hash pada beberapa keadaan, dan
+     refreshView() yang membacanya bisa melempar orang ke dashboard.
+     #pfo_bulan cuma ada selagi halaman ini tergambar. */
+  if(document.getElementById('pfo_bulan')) go('perfomset');
 }
 
 function renderPerformaOmset(V){
   if(!PFO.bulan) PFO.bulan=pfoBulanIni();
   pfoPasangKeterangan();
+  /* MEMUAT SENDIRI, tanpa tombol (permintaan user 7 September 2026). Tombol
+     "Tampilkan" cuma satu klik yang jawabannya selalu sama — halaman ini tidak
+     punya pilihan lain untuk ditunggu.
+
+     PENJAGANYA `dimuat`: pfoMuat() memanggil render() di ujungnya, dan
+     render() inilah yang memicu pemuatan. Tanpa penanda bulan yang sudah
+     dimuat, keduanya saling memanggil tanpa henti — dan yang terlihat di layar
+     bukan galat, melainkan halaman yang berkedip sambil menghujani server.
+
+     Bulan yang GAGAL dimuat juga sudah ditandai, jadi kegagalan tidak dicoba
+     ulang otomatis selamanya. Yang mencoba ulang tombol di pesan galatnya. */
+  if(PFO.st!=='muat' && PFO.dimuat!==PFO.bulan) pfoMuat();
 
   /* Aset belum termuat = seluruh halaman ini tidak bisa dihitung. DIKATAKAN,
      bukan dibiarkan jadi ReferenceError yang menyebut nama fungsi — yang
@@ -13907,18 +13923,22 @@ function renderPerformaOmset(V){
   const kepala = '<div class="card" style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">'
     + '<div><b>Periode</b></div>'
     + '<input type="month" id="pfo_bulan" value="'+esc(PFO.bulan)+'" class="inp" style="max-width:180px">'
-    + '<button class="btn" id="pfo_muat">Tampilkan</button>'
     + '<div class="muted" style="font-size:12.5px">Angkanya sama dengan <b>Performa Marketing</b> di panel Kas Kecil — dihitung oleh berkas yang sama.</div>'
     + '</div>';
 
   if(PFO.st==='muat'){ V.innerHTML=kepala+'<div class="card"><div class="empty">Memuat '+esc(pfoLabelBulan(PFO.bulan))+'…</div></div>'; pfoPasangKendali(); return; }
   if(PFO.st==='galat'){
     V.innerHTML=kepala+'<div class="card"><div class="empty">Gagal memuat: '+esc(PFO.err)
-      +'<br><span style="opacity:.85;font-size:12px">Kalau berbunyi soal akses, halaman ini butuh centang modul <b>Marketing</b> di Kelola Akses Office.</span></div></div>';
+      +'<br><span style="opacity:.85;font-size:12px">Kalau berbunyi soal akses, halaman ini butuh centang modul <b>Marketing</b> di Kelola Akses Office.</span>'
+      +'<div style="margin-top:12px"><button class="btn" id="pfo_ulang">Coba lagi</button></div></div></div>';
     pfoPasangKendali(); return;
   }
   if(PFO.st!=='ok' || !PFO.data){
-    V.innerHTML=kepala+'<div class="card"><div class="empty">Pilih bulan lalu tekan <b>Tampilkan</b>.</div></div>';
+    /* Praktis tidak terjangkau sejak pemuatan otomatis: begitu halaman ini
+       digambar, pfoMuat() sudah menyetel st ke 'muat'. Dibiarkan sebagai jaring
+       — keadaan yang tidak punya tampilan sama sekali akan muncul sebagai kartu
+       kosong tanpa satu kata pun, dan itu terbaca sebagai halaman rusak. */
+    V.innerHTML=kepala+'<div class="card"><div class="empty">Menyiapkan…</div></div>';
     pfoPasangKendali(); return;
   }
 
@@ -14017,9 +14037,14 @@ function renderPerformaOmset(V){
 }
 
 function pfoPasangKendali(){
-  const b=document.getElementById('pfo_muat'), m=document.getElementById('pfo_bulan');
-  if(m) m.onchange=()=>{ PFO.bulan=m.value||pfoBulanIni(); };
-  if(b) b.onclick=()=>{ PFO.hal=1; pfoMuat(); render(); };
+  const m=document.getElementById('pfo_bulan'), u=document.getElementById('pfo_ulang');
+  /* Ganti bulan = langsung muat. render() dipanggil supaya keadaan "Memuat…"
+     terlihat seketika; pemuatannya sendiri dipicu render itu lewat penjaga
+     `dimuat`, jadi tidak ada dua jalur yang bisa menyimpang. */
+  if(m) m.onchange=()=>{ PFO.bulan=m.value||pfoBulanIni(); PFO.hal=1; go('perfomset'); };
+  /* Tombol ini HANYA ada di keadaan galat: bulannya sudah ditandai dimuat,
+     jadi pemuatan otomatis tidak akan mencobanya lagi sendiri. */
+  if(u) u.onclick=()=>{ PFO.dimuat=''; PFO.hal=1; go('perfomset'); };
 }
 
 function renderPerformance(V){

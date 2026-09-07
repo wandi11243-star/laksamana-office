@@ -3923,11 +3923,34 @@ roster), dicocokkan lewat `officeUserId` DULU baru nama.
 `.tbl-wrap`, `.seg`, `.muted`, `.num`, `.mono`) tidak disentuh — halaman baru
 tidak boleh menggeser tampilan halaman lain.
 
-````bash
-node tools/uji-performa-marketing-modul.js   # 26 pemeriksaan, jsdom
+`
+**MEMUAT SENDIRI, tanpa tombol** (permintaan user). Tombol "Tampilkan" cuma satu
+klik yang jawabannya selalu sama — halaman ini tidak punya pilihan lain untuk
+ditunggu. Ganti bulan langsung memuat.
+
+- **Penjaganya `PFO.dimuat`** (bulan yang sudah dimuat). `pfoMuat()` menggambar
+  ulang di ujungnya, dan penggambaran itulah yang memicu pemuatan — tanpa
+  penanda ini keduanya saling memanggil tanpa henti, dan yang terlihat bukan
+  galat melainkan halaman berkedip sambil menghujani server. Ditandai SEBELUM
+  permintaan berangkat, bukan sesudah.
+- Bulan yang GAGAL juga ditandai, jadi kegagalan tidak dicoba ulang selamanya;
+  yang mencoba ulang tombol di pesan galatnya.
+- **`render()` dan variabel `view` TIDAK ADA di modul Marketing** — penggambarnya
+  `go(view,param)`, dan `view` cuma parameter go(). Ditulis `render()`, halaman
+  melempar ReferenceError saat tombolnya ditekan; ditulis `view===...`, ia malah
+  resolve ke `window.view` (elemen `<div id="view">`) sehingga syaratnya tidak
+  pernah benar dan halaman tidak pernah digambar ulang sesudah datanya datang.
+  **Kedua kesalahan itu sempat ter-commit** dan baru ketahuan waktu uji
+  pemuatan otomatis ditulis.
+- "Masih di halaman ini?" diperiksa lewat **elemennya sendiri**
+  (`#pfo_bulan`), bukan `location.hash`: `go()` mengosongkan hash pada beberapa
+  keadaan, dan `refreshView()` yang membacanya bisa melempar orang ke dashboard.
+
+```bash
+node tools/uji-performa-marketing-modul.js   # 33 pemeriksaan, jsdom
 ````
 
-Lima mutasi dicoba, kelimanya tertangkap. Ujinya juga membandingkan angka di
+Delapan mutasi dicoba, kedelapannya tertangkap. Ujinya juga membandingkan angka di
 layar dengan `pbAgregasi()` langsung: kalau suatu hari ada yang menyalin
 rumusnya ke modul ini, perbandingan itu yang berbunyi.
 
