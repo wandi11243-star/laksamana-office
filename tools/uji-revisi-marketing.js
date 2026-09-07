@@ -4,7 +4,8 @@
  *   JSDOM_PATH=/jalur/ke/jsdom node tools/uji-revisi-marketing.js
  *
  * 1. Request Design & Video dibagi kategori selesai/belum, bawaannya YANG BELUM.
- * 2. Reporting jadi per bulan: omset & jumlah event per hari, plus total sebulan.
+ * 2. Reporting jadi per bulan, barisnya PER KATEGORI (bukan per tanggal —
+ *    permintaan user 7 September 2026), plus total sebulan.
  * 3. Halaman Marketing Performance DICABUT.
  *
  * Yang ketiga diuji dengan cara yang sudah dibayar di Ranking PIC (lihat
@@ -124,33 +125,78 @@ v = view(w);
 cek('tapis jenis IKUT mengecilkan angka tabnya',
     /Belum Selesai \(1\)/.test(v) && /Sudah Selesai \(0\)/.test(v), 'angka tab mengabaikan tapis jenis');
 
-/* ---------- 2. Reporting per bulan ---------- */
-console.log('\n-- Reporting: per bulan, per hari --');
+/* ---------- 2. Reporting per bulan, per KATEGORI ---------- */
+/* Data ujinya dirancang supaya tiap kesalahan punya tempat untuk muncul:
+   - dua event Corporate di TANGGAL YANG SAMA (kalau masih dikelompokkan per
+     tanggal, barisnya tetap 1 dan jumlahnya tetap 2 — jadi jumlah baris saja
+     tidak cukup membedakan; karena itu ada juga
+   - satu Wedding di tanggal yang SAMA dengan salah satunya: per tanggal ia
+     akan melebur ke baris yang sama, per kategori ia berdiri sendiri;
+   - satu event ber-jenis 'Lainnya' berikut detail.jenisLain, yang WAJIB
+     terbaca sebagai ketikannya lewat jenisEvent();
+   - satu event tanpa jenis sama sekali, yang tidak boleh dibuang;
+   - satu peluang yang belum closing dan satu event bulan lain. */
+console.log('\n-- Reporting: per bulan, per kategori --');
 w = buka();
 w.eval(`
   S.events = [
-    { id:'e1', nama:'A', status:'Deal',       tanggal:'2026-09-03', pax:10, detail:{} },
-    { id:'e2', nama:'B', status:'Event Done', tanggal:'2026-09-03', pax:20, detail:{} },
-    { id:'e3', nama:'C', status:'Confirmed',  tanggal:'2026-09-20', pax:30, detail:{} },
-    { id:'e4', nama:'D', status:'Lead',       tanggal:'2026-09-05', pax:40, detail:{} },
-    { id:'e5', nama:'E', status:'Deal',       tanggal:'2026-08-15', pax:50, detail:{} }
+    { id:'e1', nama:'A', status:'Deal',       tanggal:'2026-09-03', jenis:'Corporate Event', detail:{} },
+    { id:'e2', nama:'B', status:'Event Done', tanggal:'2026-09-03', jenis:'Corporate Event', detail:{} },
+    { id:'e3', nama:'C', status:'Confirmed',  tanggal:'2026-09-03', jenis:'Wedding',         detail:{} },
+    { id:'e4', nama:'D', status:'Deal',       tanggal:'2026-09-20', jenis:'Lainnya',         detail:{jenisLain:'Arisan RT'} },
+    { id:'e5', nama:'E', status:'Deal',       tanggal:'2026-09-21', jenis:'',                detail:{} },
+    { id:'e6', nama:'F', status:'Lead',       tanggal:'2026-09-05', jenis:'Wedding',         detail:{} },
+    { id:'e7', nama:'G', status:'Deal',       tanggal:'2026-08-15', jenis:'Birthday',        detail:{} }
   ];
   repBulan='2026-09';
 `);
 w.eval("go('reports')");
 v = view(w);
 cek('ada pemilih bulan', /type="month"/.test(v));
-cek('menyebut yang dihitung tanggal ACARA, bukan tanggal input',
+cek('bulannya dari tanggal ACARA, bukan tanggal input',
     /tanggal acaranya<\/b>, bukan tanggal input/.test(v));
+cek('kolom pertamanya KATEGORI, bukan Tanggal',
+    /<th>Kategori<\/th>/.test(v) && !/<th>Tanggal<\/th>/.test(v), 'masih dikelompokkan per tanggal');
 const rows = () => Array.from(w.document.querySelectorAll('#view tbody tr'))
   .map(r => Array.from(r.querySelectorAll('td')).map(td => td.textContent.trim())).filter(x => x.length === 3);
-sama('hanya hari yang ADA acaranya digambar', rows().length, 2);
-sama('dua event di tanggal yang sama digabung jadi satu baris', rows()[0][1], '2');
-sama('...dan hari berikutnya satu event', rows()[1][1], '1');
-cek('peluang yang belum closing TIDAK dihitung', !/40/.test(rows().map(r => r[1]).join(',')));
-cek('bulan lain tidak ikut', rows().length === 2, 'event Agustus ikut tertarik');
+const kolKat = () => rows().map(r => r[0]);
+sama('satu baris per kategori', rows().length, 4);
+cek('dua event sejenis digabung jadi satu baris',
+    rows().filter(r => r[0] === 'Corporate Event').length === 1 &&
+    rows().find(r => r[0] === 'Corporate Event')[1] === '2', kolKat().join(' | '));
+cek('...dan event lain di TANGGAL YANG SAMA tidak ikut melebur ke sana',
+    rows().find(r => r[0] === 'Wedding') && rows().find(r => r[0] === 'Wedding')[1] === '1',
+    kolKat().join(' | '));
+cek('"Lainnya" dibaca sebagai ketikannya (jenisEvent), bukan mentah',
+    kolKat().indexOf('Arisan RT') > -1 && kolKat().indexOf('Lainnya') < 0, kolKat().join(' | '));
+cek('event tanpa jenis TIDAK dibuang & tidak dijatuhkan ke kategori pertama',
+    kolKat().indexOf('(tanpa jenis)') > -1, kolKat().join(' | '));
+cek('peluang yang belum closing TIDAK dihitung',
+    rows().find(r => r[0] === 'Wedding')[1] === '1', 'Lead ikut terhitung');
+cek('bulan lain tidak ikut', kolKat().indexOf('Birthday') < 0, kolKat().join(' | '));
 cek('ada baris TOTAL di dalam tabelnya', /TOTAL/.test(v), 'totalnya cuma di kartu atas');
-cek('kartu ringkas menyebut jumlah event bulan itu', />3</.test(v), 'jumlah event bulan tidak 3');
+cek('kartu ringkas menyebut jumlah event bulan itu', />5</.test(v), 'jumlah event bulan tidak 5');
+cek('...dan jumlah KATEGORI, bukan jumlah hari', /4 kategori/.test(v), 'kartunya masih menghitung hari');
+
+/* Urutannya dari omset TERBESAR — itu yang menjawab "dari kategori mana
+   omsetnya datang". Nilainya dibuat berbeda supaya urutannya punya arti; kalau
+   eventFinance() memulangkan nol untuk semuanya, pemeriksaan ini melewat
+   dengan jelas alih-alih lulus karena kebetulan. */
+w.eval(`
+  S.events[0].detail.sewaVenue =  50000000;   // Corporate
+  S.events[1].detail.sewaVenue =  50000000;   // Corporate
+  S.events[2].detail.sewaVenue = 300000000;   // Wedding — harus naik ke atas
+  S.events[3].detail.sewaVenue =   9000000;   // Arisan RT
+  go('reports');
+`);
+const nilai = rows().map(r => Number(String(r[2]).replace(/[^0-9]/g,'')));
+/* Tanpa ini, pemeriksaan urutan di bawah lulus untuk deret NOL — dan deret nol
+   memang selalu tidak menaik. Angkanya harus benar-benar sampai ke layar. */
+cek('angkanya benar-benar sampai ke tabel', nilai.some(x => x > 0), nilai.join(' , '));
+cek('diurutkan dari omset terbesar',
+    nilai.every((x,i) => i === 0 || nilai[i-1] >= x), nilai.join(' > '));
+cek('...dan yang teratas memang kategori bernilai terbesar',
+    kolKat()[0] === 'Wedding', kolKat().join(' | '));
 
 w.eval("repSetBulan('2026-08')");
 sama('ganti bulan mengganti isinya', rows().length, 1);

@@ -16840,6 +16840,33 @@ async function vipDetailDenahAsli(v){
    ANGKANYA DARI eventFinance().grand, rumus yang sama dengan Surat Penawaran
    dan Invoice. Menghitungnya sendiri di sini berarti laporan yang menyebut
    angka lain daripada dokumen yang sudah dikirim ke klien. */
+/* ============ REPORTING — PER BULAN, DIPECAH PER KATEGORI ==================
+   Permintaan user 7 September 2026: "di bagian reporting marketing jangan per
+   tanggal, per kategori."
+
+   Sebelumnya barisnya per TANGGAL acara. Yang hilang dengan itu justru
+   pertanyaan yang dibawa orang ke halaman ini: omsetnya datang dari jenis
+   acara yang mana. Tanggal cuma menjawab "hari mana yang ramai", dan itu
+   sudah dijawab kalender di halaman sebelah.
+
+   BULANNYA TETAP DITENTUKAN TANGGAL ACARANYA (e.tanggal), bukan tanggal
+   barisnya diinput — yang dipasangkan dengan omset adalah bulan acaranya
+   berlangsung. Dikatakan di layarnya supaya tidak perlu ditebak siapa pun.
+
+   KATEGORINYA DARI jenisEvent(), BUKAN e.jenis mentah. "Lainnya" itu penanda
+   isian bebas, bukan jenis — dibaca mentah, seluruh acara yang jenisnya
+   diketik sendiri menumpuk jadi satu baris bernama "Lainnya", dan tidak ada
+   satu pun layar yang bisa memecahnya lagi. jenisEvent() dipakai chip di
+   Daftar Event, kalender, dan Event Brief; memakai penentu kedua di sini
+   berarti kategori yang sama berbunyi lain di dua layar.
+
+   Yang dihitung hanya event yang SUDAH PASTI (Confirmed / Deal / Event Done).
+   Peluang yang belum closing bukan omset, dan memasukkannya membuat angka
+   bulan berjalan turun tiap kali ada peluang yang batal.
+
+   ANGKANYA DARI eventFinance().grand, rumus yang sama dengan Surat Penawaran
+   dan Invoice. Menghitungnya sendiri di sini berarti laporan yang menyebut
+   angka lain daripada dokumen yang sudah dikirim ke klien. */
 let repBulan = today().slice(0,7);
 function repSetBulan(v){ repBulan = v || today().slice(0,7); go('reports'); }
 function renderReports(V){
@@ -16848,48 +16875,53 @@ function renderReports(V){
      layar dan "Aug 2026" di layar sebelahnya. */
   const labelBulan = (typeof pfoLabelBulan==='function') ? pfoLabelBulan(repBulan) : repBulan;
   let h=pageHead('Modul K','Reporting',
-    'Omset & jumlah event per hari, beserta totalnya sebulan. Dihitung dari event yang sudah closing.',
+    'Omset & jumlah event per kategori, beserta totalnya sebulan. Dihitung dari event yang sudah closing.',
     '<button class="btn" onclick="exportCSV()">'+svg(IC.down)+'Export CSV</button>');
 
   h+='<div class="card" style="margin-bottom:16px;display:flex;gap:12px;align-items:center;flex-wrap:wrap">'
    +'<b>Periode</b>'
    +'<input type="month" class="inp" style="width:auto" value="'+esc(repBulan)+'" onchange="repSetBulan(this.value)">'
-   +'<span class="cell-sub">Yang dihitung <b>tanggal acaranya</b>, bukan tanggal input — dan hanya event berstatus Confirmed, Deal, atau Event Done.</span>'
+   +'<span class="cell-sub">Bulannya dari <b>tanggal acaranya</b>, bukan tanggal input — dan hanya event berstatus Confirmed, Deal, atau Event Done.</span>'
    +'</div>';
 
   const closed=(S.events||[]).filter(function(e){
     return ['Confirmed','Deal','Event Done'].indexOf(e.status)>-1
         && String(e.tanggal||'').slice(0,7)===repBulan; });
 
-  /* Dikelompokkan per tanggal acara. Hari tanpa acara TIDAK digambar: sebulan
-     penuh baris nol membuat yang benar-benar terjadi harus dicari dengan mata,
-     dan jumlah hari berisi toh sudah disebut di kartunya. */
-  const perHari={};
+  /* Dikelompokkan per kategori. Yang jenisnya kosong TIDAK dibuang dan TIDAK
+     dijatuhkan ke kategori pertama — acara tanpa jenis tetap membawa omset,
+     dan membuangnya membuat jumlah kategori tidak pernah sama dengan totalnya.
+     Aturan yang sama dengan katEvent() di modul Analytics. */
+  const perKat={};
   closed.forEach(function(e){
-    const t=String(e.tanggal||'').slice(0,10); if(!t) return;
-    if(!perHari[t]) perHari[t]={n:0,omset:0};
-    perHari[t].n++;
-    perHari[t].omset+=eventFinance(e).grand;
+    const k=String((typeof jenisEvent==='function'?jenisEvent(e):e.jenis)||'').trim()||'(tanpa jenis)';
+    if(!perKat[k]) perKat[k]={n:0,omset:0};
+    perKat[k].n++;
+    perKat[k].omset+=eventFinance(e).grand;
   });
-  const hari=Object.keys(perHari).sort();
-  const totalOmset=hari.reduce(function(a,t){ return a+perHari[t].omset; },0);
+  /* Diurutkan dari omset TERBESAR, bukan menurut abjad: pertanyaannya "dari
+     kategori mana omsetnya datang", dan jawabannya ada di urutannya. Yang sama
+     besar dipisah namanya supaya urutannya tidak berubah-ubah tiap render. */
+  const kat=Object.keys(perKat).sort(function(a,b){
+    return perKat[b].omset-perKat[a].omset || a.localeCompare(b); });
+  const totalOmset=kat.reduce(function(a,k){ return a+perKat[k].omset; },0);
 
   h+='<div class="grid g-3" style="margin-bottom:18px">'
    +stat('Total Omset '+labelBulan, rp(totalOmset), closed.length+' event closing','money')
-   +stat('Jumlah Event', String(closed.length), hari.length+' hari ada acara','event')
+   +stat('Jumlah Event', String(closed.length), kat.length+' kategori','event')
    +stat('Rata-rata per Event', rp(closed.length?Math.round(totalOmset/closed.length):0),'omset ÷ jumlah event','report')
    +'</div>';
 
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'
-   +'<thead><tr><th>Tanggal</th><th class="num">Jumlah Event</th><th class="num">Total Omset</th></tr></thead><tbody>';
-  if(!hari.length){
+   +'<thead><tr><th>Kategori</th><th class="num">Jumlah Event</th><th class="num">Total Omset</th></tr></thead><tbody>';
+  if(!kat.length){
     h+='<tr><td colspan="3">'+empty('Belum ada event closing di '+esc(labelBulan),
          'Pilih bulan lain di atas, atau naikkan status event di <b>Sales Pipeline &amp; Event</b> jadi Confirmed / Deal / Event Done.','report')+'</td></tr>';
   } else {
-    hari.forEach(function(t){
-      h+='<tr><td class="mono">'+fmtDate(t)+'</td>'
-       +'<td class="num mono">'+perHari[t].n+'</td>'
-       +'<td class="num mono">'+rp(perHari[t].omset)+'</td></tr>';
+    kat.forEach(function(k){
+      h+='<tr><td>'+esc(k)+'</td>'
+       +'<td class="num mono">'+perKat[k].n+'</td>'
+       +'<td class="num mono">'+rp(perKat[k].omset)+'</td></tr>';
     });
     /* Baris total DI DALAM tabelnya, bukan cuma di kartu atas: yang
        menjumlahkan kolomnya sendiri harus bisa mencocokkannya tanpa menggulir
