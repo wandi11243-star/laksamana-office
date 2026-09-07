@@ -624,6 +624,36 @@ menyebut kedua angka rata-ratanya, sementara kolom tabel diganti namanya jadi
 perhitungan yang sama persis. Dua kolom yang menghitung hal yang sama dengan
 nama berbeda, di satu halaman, adalah pertanyaan yang pasti datang.
 
+### Modul Event: tema diselaraskan, CSS SAJA (7 September 2026)
+
+Permintaan user: tampilannya dibuat lebih seperti modul Konten/Reservasi —
+dan saat ditanya bagian mana, jawabannya **“lebih ke CSS-nya saja, yang lain
+oke-oke saja”**. Jadi yang diubah HANYA nilai gaya; struktur halaman dan
+seluruh JS tidak disentuh. Modul ini 667 KB dan semuanya digambar dari string
+HTML — menyentuh strukturnya demi tampilan adalah pertukaran yang buruk.
+
+**Paletnya memang sudah sama sejak lama** (emas `#A9791F`, Plus Jakarta Sans +
+Inter). Yang membuatnya terasa berbeda kerapatannya, bukan warnanya:
+
+| | sebelum | sesudah (= Konten) |
+|---|---|---|
+| `.card` sudut / padding | 12px / 16px | **16px / 20px** |
+| `.card` bayangan | nilai sendiri | **`var(--shadow)`** |
+| `.grid` gap | 14px | **16px** |
+| `th` / `td` padding | 9px 10px / 10px | **10px 14px / 11px 14px** |
+| kotak isian | 8px 10px, r7, 13px | **9px 12px, r9, 13.5px** |
+| `.btn.sm` | 5px 10px, 12px | **7px 12px, 12.5px** |
+
+- **Latar kotak isian TIDAK diubah.** `--panel2` yang hangat itu identitas
+  modul ini, dan yang diminta nuansanya — bukan warnanya.
+- **Bayangan memakai `var(--shadow)` yang sudah ada**, bukan nilai sendiri:
+  dua nilai bayangan di satu berkas akan menyimpang begitu salah satunya
+  disetel, dan bedanya terlalu halus untuk disadari sampai keduanya berdiri
+  bersebelahan.
+- Verifikasinya: `git diff` menunjukkan hanya enam aturan CSS, isi di luar
+  seluruh blok `<style>` **identik byte-per-byte**, dan `smoke-modul.js event`
+  tetap merender 16 halaman.
+
 ### TARGET DICABUT SELURUHNYA dari Finance & Cashier (5 September 2026)
 
 Permintaan user: *"Target bulanan dan pengaturan target di modul finance, dan
