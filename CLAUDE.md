@@ -2220,6 +2220,57 @@ Permintaan user. Tiga perubahan yang saling terkait:
   melainkan konfirmasi bentrok di `isiSisaPilih()` — tiap sel yang tertimpa
   disebut satu per satu, dan yang lahir dari pengajuan disetujui ditandai.
 
+### Jadwal: Tempel dari Excel di Input Mingguan (7 September 2026)
+
+Permintaan user: Bar (dan divisi lain) menyusun jadwalnya lebih dulu di lembar
+Excel kasar, lalu ingin memindahkannya ke modul tanpa mengetik ulang ~170 sel.
+Tombol **📥 Tempel dari Excel** di halaman Input Mingguan (sebaris dengan Isi
+Jadwal / Salin Minggu Lalu, hanya saat SATU divisi dipilih & orangnya head-nya).
+
+Alurnya: tempel blok sel dari Excel apa adanya (tab antar kolom) →
+`imporParse()` mencari sendiri baris tanggal & baris tiap kru → pratinjau
+(kisi per minggu + daftar bentrok lewat `daftarTimpa`/`htmlTimpa`) → simpan
+lewat **`tulisSel()`** — jalur, penjaga per-divisi, dan konfirmasi bentrok yang
+SAMA dengan alat massal lain. **Tidak ada endpoint baru.**
+
+Yang menahan bug diam-diam (tidak satu pun melempar galat kalau lepas):
+
+- **Tanggal WAJIB dari tempelan, tidak pernah ditebak dari minggu aktif.**
+  Lembar Excel Bar mulai hari **Selasa** (1 Sep = Selasa) sementara minggu
+  modul ini mulai Senin — memetakan "kolom pertama = Senin minggu aktif"
+  menggeser SELURUH jadwal satu hari. Baris tanpa ≥2 sel tanggal bukan baris
+  tanggal; kalau tak ada satu pun, pratinjau menolak dan menyebut sebabnya.
+- **`impTgl()` membaca lima bentuk**: `dd/mm/yyyy`, `dd/mm` (tahun dari minggu
+  aktif), ISO, `1 Sep` / `1 September 2026` (nama bulan ID **dan** EN — Excel
+  ikut setelan Windows), dan nomor seri Excel (kalau yang disalin nilainya).
+  Dijepit **±18 bulan** dari minggu aktif — satu angka yang salah baca sebagai
+  seri tidak boleh menulis sel ke tahun 2125.
+- **Nama di luar roster divisi TIDAK ditulis dan TIDAK ditebak** ke orang
+  termirip. Disebut di pratinjau, barisnya dilewati. Nama yang cocok ke >1 kru
+  → ditandai ambigu, juga dilewati. (`impCocokNama`: token = kata utuh di nama
+  Office, atau — token ≥4 huruf — bagian dari sebuah kata; "BILA" menemukan
+  "Nabila".) Backend pun menolak baris di luar divisi head; di sini tidak
+  dikirim sama sekali.
+- **Kode yang bukan shift (mis. `HARAU!!!`) → `LAIN` + catatan sel**, persis
+  cara lembar Excel lama menuliskannya (`labelSel`: catatan bebas menimpa nama
+  shift). Disebut di pratinjau sebagai "catatan sel", bukan diam-diam jadi
+  shift. Kalau `LAIN` sudah dihapus di Pengaturan → jatuh ke `OFF`.
+- **`imporHitung()` (tiap ketukan) TIDAK menggambar ulang textarea-nya** —
+  hanya `#imporPrev` + keadaan tombol Simpan. Menggambar ulang kotak yang
+  sedang diketik membuang fokus (jebakan yang sama dicatat untuk `queueF` di
+  modul Konten).
+- **`imporParse()` sengaja MURNI** (argumen saja, tanpa global) supaya
+  `tools/uji-impor-jadwal.js` bisa memotongnya dari sumber dan menjalankannya
+  **tanpa jsdom** — pola `uji-openbill-performa.js`. Dedupe `u|tgl` (kolom
+  tanggal dobel di tempelan) → nilai terakhir menang.
+
+```bash
+node tools/uji-impor-jadwal.js   # 31 pemeriksaan, TANPA jsdom (imporParse dipotong dari sumber)
+```
+
+`smoke-modul.js jadwal` merender 8 halaman tapi **tidak membuka modal** — uji
+di atas + satu pemeriksaan glue DOM (di scratchpad) yang menutupnya.
+
 ### Jadwal: HRD mengurus DATA DIRI, bukan hak akses (19 Agustus 2026)
 
 Halaman **Data Pegawai** di modul Jadwal Shift memberi HRD dua hal yang dulu

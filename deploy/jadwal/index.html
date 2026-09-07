@@ -251,6 +251,14 @@ table.sched .jb b{display:block;font-style:normal;font-size:13px;color:var(--ink
 table.sched .jb i{display:block;font-size:9.5px;font-weight:600;font-style:normal;color:var(--muted-2);line-height:1.25}
 table.sched .nm b{font-weight:700;font-size:13px;display:block;line-height:1.2}
 table.sched .nm i{font-style:normal;font-size:11px;color:var(--muted-2)}
+/* Pratinjau "Tempel dari Excel": kisi yang sama tapi rapat & tanpa lebar
+   minimum, supaya empat minggu muat di dalam modal tanpa menggulir jauh. */
+table.sched.imprev{min-width:0}
+table.sched.imprev th,table.sched.imprev td{padding:3px 5px;font-size:10.5px;text-align:center}
+table.sched.imprev .nm{min-width:0;max-width:none;padding:3px 6px;white-space:nowrap}
+table.sched.imprev .nm b{font-size:11px}
+.impgrid{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:12px;color:var(--muted)}
+.impgrid span{white-space:nowrap}
 tr.hdr th{background:var(--gold-soft);font-family:var(--font-display);font-size:12px;font-weight:700;color:var(--ink);
   padding:6px 6px;text-align:center;white-space:nowrap}
 tr.hdr2 th{background:#EFECE4;font-size:11.5px;font-weight:700;color:var(--muted);padding:4px 6px;text-align:center;letter-spacing:.02em}
@@ -3382,6 +3390,7 @@ function viewMinggu(){
       : (bisaUbahDiv
         ? '<button class="btn btn-ghost btn-sm" onclick="salinMingguLalu()">📋 Salin Minggu Lalu</button>'
           +'<button class="btn btn-ghost btn-sm" onclick="isiSisa()">⚡ Isi Jadwal</button>'
+          +'<button class="btn btn-ghost btn-sm" onclick="imporTempel()">📥 Tempel dari Excel</button>'
           +'<button class="btn btn-ghost btn-sm" onclick="kosongkanMinggu()">🧹 Kosongkan</button>'
         /* Office membuka halaman ini untuk MELIHAT. Alat massalnya tetap
            disembunyikan, bukan dibiarkan menolak saat ditekan. */
@@ -3501,7 +3510,7 @@ function simpanSel(){
   tutupModal(); tulisSel([row],[]); toast('Jadwal disimpan');
 }
 function hapusSel(){ const e=EDIT; tutupModal(); tulisSel([],[{u:e.uid,d:e.tgl}]); toast('Sel dikosongkan'); }
-function tutupModal(){ const m=document.getElementById('modalRoot'); if(m) m.innerHTML=''; EDIT=null; ISI_BARIS=null; ISI_SISA=null; }
+function tutupModal(){ const m=document.getElementById('modalRoot'); if(m) m.innerHTML=''; EDIT=null; ISI_BARIS=null; ISI_SISA=null; IMPOR=null; }
 
 /* =====================================================================
    ALAT MINGGUAN — salin, isi cepat, kosongkan, isi baris
@@ -3765,6 +3774,315 @@ function isiSisaPilih(pilihan){
     +htmlTimpa(bentrok),
     jalan, {lebar:'580px', ya:'Ya, timpa '+bentrok.length+' sel'});
 }
+
+/* =====================================================================
+   IMPOR / TEMPEL DARI EXCEL  (7 September 2026, permintaan user)
+   ---------------------------------------------------------------------
+   Bar menyusun jadwalnya lebih dulu di lembar Excel kasar lalu ingin
+   memindahkannya ke sini tanpa mengetik ulang ~170 sel satu per satu.
+   Sampai hari ini satu-satunya jalan masuk selain klik sel adalah alat
+   massal "Isi Jadwal" / "Salin Minggu Lalu" — dan keduanya MENYUSUN dari
+   nol, bukan menyalin lembar yang sudah jadi.
+
+   Yang ditempel: blok sel dari Excel apa adanya (tab antar kolom). Parser
+   mencari SENDIRI baris tanggalnya dan baris tiap kru; kolom No., jabatan,
+   baris judul, dan baris nama-hari dilewati tanpa perlu dirapikan dulu.
+   Karena tanggal dibaca dari tempelan, satu tempelan boleh memuat empat
+   minggu sekaligus.
+
+   TIGA hal yang ditahan supaya kesalahan tidak lolos sebagai jadwal yang
+   salah — tidak satu pun melempar galat kalau lepas:
+
+     1. Tanggal WAJIB datang dari tempelan, tidak pernah ditebak dari
+        minggu aktif. Lembar Excel Bar mulai hari SELASA (1 Sep = Selasa)
+        sementara minggu modul ini mulai Senin — memetakan "kolom pertama
+        = Senin minggu aktif" menggeser SELURUH jadwal satu hari.
+     2. Nama di luar roster divisi yang sedang dibuka TIDAK ditulis dan
+        TIDAK ditebak ke orang termirip. Ia disebut di pratinjau dan
+        barisnya dilewati — menebak siapa yang dapat shift itu lebih buruk
+        daripada sel yang jelas belum diisi. (Backend pun menolaknya per
+        baris; di sini tidak dikirim sama sekali.)
+     3. Kode yang bukan shift (mis. "HARAU!!!") jatuh ke LAIN + catatan
+        sel — persis cara lembar Excel lama menuliskannya (labelSel:
+        catatan bebas menimpa nama shift). Disebut di pratinjau sebagai
+        "catatan sel", bukan diam-diam jadi shift.
+
+   Menyimpan lewat tulisSel(): jalur, penjaga per-divisi, dan daftar
+   bentrok yang SAMA dengan alat massal lain. Tidak ada endpoint baru.
+
+   imporParse() sengaja MURNI (argumen saja, tanpa global) supaya
+   tools/uji-impor-jadwal.js bisa memotongnya dari sumber dan menjalankannya
+   tanpa jsdom — pola yang sama dengan uji-openbill-performa.js.
+   ===================================================================== */
+let IMPOR=null;   // {teks, hasil}
+
+/* Nama bulan yang mungkin muncul saat sel tanggal disalin — Indonesia DAN
+   Inggris (Excel menampilkan sesuai setelan Windows, bukan setelan berkas). */
+const IMP_BULAN={jan:0,januari:0,january:0,feb:1,februari:1,february:1,mar:2,maret:2,march:2,
+  apr:3,april:3,mei:4,may:4,jun:5,juni:5,june:5,jul:6,juli:6,july:6,
+  agu:7,agt:7,ags:7,agustus:7,aug:7,august:7,sep:8,sept:8,september:8,
+  okt:9,oct:9,oktober:9,october:9,nov:10,november:10,des:11,dec:11,desember:11,december:11};
+
+function impPad2(n){ return String(n).padStart(2,'0'); }
+function impISO(y,mo,d){
+  if(!(mo>=1&&mo<=12&&d>=1&&d<=31)) return null;
+  return y+'-'+impPad2(mo)+'-'+impPad2(d);
+}
+/* Satu sel Excel -> 'YYYY-MM-DD' atau null. Menerima bentuk yang benar-benar
+   keluar saat sel tanggal disalin: dd/mm/yyyy & dd/mm (bawaan Indonesia),
+   ISO, "1 Sep"/"1 September 2026", dan — kalau yang disalin nilainya, bukan
+   tampilannya — nomor seri Excel.
+
+   `ref` = tanggal Senin minggu aktif. Dipakai dua hal: mengisi tahun untuk
+   bentuk tanpa tahun, DAN menolak tanggal yang lebih dari ~18 bulan dari
+   situ — satu angka yang salah baca sebagai seri tidak boleh menulis sel ke
+   tahun 2125 tanpa ada yang melihatnya. */
+function impTgl(selRaw, ref){
+  const s=String(selRaw==null?'':selRaw).trim();
+  if(!s) return null;
+  let iso=null, m;
+  if(/^\d{4}-\d{1,2}-\d{1,2}$/.test(s)){
+    const p=s.split('-'); iso=impISO(+p[0],+p[1],+p[2]);
+  } else if((m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})$/))){
+    let d=+m[1], mo=+m[2], y=+m[3];
+    if(mo>12 && d<=12){ const t=d; d=mo; mo=t; }   // toleran kalau ternyata mm/dd
+    if(y<100) y+=2000;
+    iso=impISO(y,mo,d);
+  } else if((m=s.match(/^(\d{1,2})[\/\-.](\d{1,2})$/))){
+    let d=+m[1], mo=+m[2];
+    if(mo>12 && d<=12){ const t=d; d=mo; mo=t; }
+    iso=impISO(+String(ref).slice(0,4), mo, d);
+  } else if((m=s.match(/^(\d{1,2})[ \-]([A-Za-z]{3,})\.?(?:[ \-](\d{2,4}))?$/))){
+    const mo=IMP_BULAN[m[2].toLowerCase()];
+    if(mo==null) return null;
+    let y=m[3]?+m[3]:+String(ref).slice(0,4); if(y<100) y+=2000;
+    iso=impISO(y, mo+1, +m[1]);
+  } else if(/^\d{5}(\.\d+)?$/.test(s)){
+    const n=Math.floor(+s);
+    const dt=new Date(Date.UTC(1899,11,30)+n*86400000);
+    iso=dt.getUTCFullYear()+'-'+impPad2(dt.getUTCMonth()+1)+'-'+impPad2(dt.getUTCDate());
+  }
+  if(!iso) return null;
+  const beda=Math.abs(parseD(iso).getTime()-parseD(ref).getTime())/86400000;
+  return beda>560 ? null : iso;
+}
+function impNorm(s){ return String(s||'').toUpperCase().replace(/[^A-Z\s]/g,' ').replace(/\s+/g,' ').trim(); }
+/* Cocokkan satu token nama ke roster divisi.
+   -> {id,name}            tepat satu cocok
+   -> {ganda:[nama,...]}   lebih dari satu — TIDAK ditebak
+   -> null                 tak ada
+   Cocok = token sama dengan salah satu KATA di nama Office, atau (untuk
+   token >=4 huruf) token bagian dari sebuah kata itu — "BILA" menemukan
+   "NABILA", "YUSUF" menemukan "M. Yusuf Ismail". */
+function impCocokNama(token, emps){
+  const t=impNorm(token);
+  if(t.length<3) return null;
+  const kena=(emps||[]).filter(function(u){
+    return impNorm(u.name).split(' ').some(function(w){
+      return w===t || (t.length>=4 && w.indexOf(t)>=0) || (w.length>=4 && t.indexOf(w)>=0);
+    });
+  });
+  if(kena.length===1) return {id:kena[0].id, name:kena[0].name};
+  if(kena.length>1)   return {ganda:kena.map(function(u){return u.name;})};
+  return null;
+}
+/* opts: {emps:[{id,name}], shifts:{KODE:{n,m,s,libur}}, ref:'YYYY-MM-DD' Senin minggu aktif}
+   -> {rows, cocok:[{token,ke}], lewat:[token], ganda:[{token,kandidat}],
+       bebas:[teks], adaTgl:bool} */
+function imporParse(teks, opts){
+  opts=opts||{};
+  const emps=opts.emps||[], shifts=opts.shifts||{};
+  const ref=opts.ref||(new Date().getFullYear()+'-01-01');
+  const KUNCI={};                       // nama shift & kode (dinormalkan) -> KODE resmi
+  Object.keys(shifts).forEach(function(k){
+    KUNCI[impNorm(k)]=k;
+    if(shifts[k]&&shifts[k].n) KUNCI[impNorm(shifts[k].n)]=k;
+  });
+  const KODE_BEBAS = shifts.LAIN ? 'LAIN' : (shifts.OFF ? 'OFF' : (Object.keys(shifts)[0]||'LAIN'));
+
+  const LEWAT_KATA={'NO':1,'NO.':1,'NAMA':1,'TGL':1,'HARI':1,'JABATAN':1,'ROLE':1,
+    'SENIN':1,'SELASA':1,'RABU':1,'KAMIS':1,'JUMAT':1,'SABTU':1,'MINGGU':1,
+    'MON':1,'TUE':1,'WED':1,'THU':1,'FRI':1,'SAT':1,'SUN':1};
+
+  const lines=String(teks||'').replace(/\r/g,'').split('\n');
+  let kolTgl=null;                      // {kolomIdx: 'YYYY-MM-DD'}
+  const rows=[], cocok=[], lewat=[], ganda=[], bebas=[];
+  const seen={};                        // 'id|tgl' -> index rows (terakhir menang)
+  const tokenSudah={}, lewatSudah={}, bebasSudah={}, gandaSudah={};
+
+  lines.forEach(function(ln){
+    const sel=ln.split('\t').map(function(x){return x.trim();});
+
+    /* Baris tanggal? dua sel atau lebih terbaca sebagai tanggal. */
+    const tg={}; let nTg=0;
+    sel.forEach(function(c,i){ const d=impTgl(c,ref); if(d){ tg[i]=d; nTg++; } });
+    if(nTg>=2){ kolTgl=tg; return; }
+    if(!kolTgl) return;                 // belum ketemu baris tanggal -> abaikan
+
+    /* Orangnya: sel paling kiri (maks kolom ke-4) yang cocok tepat satu kru. */
+    let orang=null, token='';
+    for(let i=0;i<sel.length && i<4;i++){
+      const c=sel[i]; if(!c) continue;
+      if(LEWAT_KATA[c.toUpperCase()]) continue;
+      if(/^\d+$/.test(c)) continue;               // kolom No.
+      if(KUNCI[impNorm(c)]) continue;             // sel shift yang tergeser ke kiri
+      if(impTgl(c,ref)) continue;
+      if(/\d/.test(c) || c.length>24) continue;   // judul lembar & sejenisnya
+      const hit=impCocokNama(c, emps);
+      if(hit && hit.id){ orang=hit; token=c; break; }
+      if(hit && hit.ganda){ token=c; if(!gandaSudah[c]){ gandaSudah[c]=1; ganda.push({token:c,kandidat:hit.ganda}); } break; }
+      if(/[A-Za-z]{3,}/.test(c)){ token=c; if(!lewatSudah[c]){ lewatSudah[c]=1; lewat.push(c); } break; }
+    }
+    if(!orang) return;
+    if(!tokenSudah[token]){ tokenSudah[token]=1; cocok.push({token:token, ke:orang.name}); }
+
+    Object.keys(kolTgl).forEach(function(iStr){
+      const i=+iStr, tgl=kolTgl[i], raw=(sel[i]||'').trim();
+      if(!raw) return;                            // sel kosong -> tidak ditulis
+      const kode=KUNCI[impNorm(raw)];
+      let t, n='';
+      if(kode){ t=kode; }
+      else { t=KODE_BEBAS; n=raw.slice(0,20); if(!bebasSudah[raw]){ bebasSudah[raw]=1; bebas.push(raw); } }
+      const def=shifts[t]||{m:'',s:'',libur:1};
+      const row={u:orang.id, d:tgl, t:t,
+        m:def.libur?'':(def.m||''), s:def.libur?'':(def.s||''), n:n};
+      const key=orang.id+'|'+tgl;
+      if(seen[key]!==undefined) rows[seen[key]]=row;
+      else { seen[key]=rows.length; rows.push(row); }
+    });
+  });
+
+  return {rows:rows, cocok:cocok, lewat:lewat, ganda:ganda, bebas:bebas, adaTgl:!!kolTgl};
+}
+
+function imporTempel(){ IMPOR={teks:'', hasil:null}; gambarImpor(); }
+
+function imporCtx(){
+  return { emps:kruDivisi(divTunggal()), shifts:S.setting.shifts,
+           ref:(MINGGU_AKTIF||seninDari(hariIni())) };
+}
+function gambarImpor(){
+  document.getElementById('modalRoot').innerHTML=
+    '<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal" style="max-width:680px">'
+    +'<div class="mh"><h3>Tempel dari Excel</h3>'
+      +'<span class="chip">'+esc(namaDivisi(divTunggal()))+'</span>'
+      +'<button class="xbtn" onclick="tutupModal()">×</button></div>'
+    +'<div class="mb">'
+      +'<p class="mutedhint" style="margin-bottom:8px">Di Excel: blok sel jadwalnya — '
+      +'<b>ikutkan baris tanggalnya</b> — lalu salin (Ctrl+C) dan tempel di bawah. '
+      +'Kolom No., jabatan, dan baris nama hari boleh ikut, akan dilewati sendiri. '
+      +'Tanggal dibaca dari tempelan, jadi empat minggu boleh sekaligus.</p>'
+      +'<textarea id="imporTeks" rows="8" spellcheck="false" '
+      +'style="width:100%;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;padding:9px;border:1.5px solid var(--line);border-radius:9px;white-space:pre;overflow-wrap:normal" '
+      +'placeholder="NAMA&#9;01/09/2026&#9;02/09/2026&#9;03/09/2026 ...&#10;ARIF&#9;HARAU!!!&#9;OFF&#9;SIANG ...&#10;CONDRO&#9;HARAU!!!&#9;SIANG&#9;SIANG ..." '
+      +'oninput="if(IMPOR){IMPOR.teks=this.value;} imporHitung();"></textarea>'
+      +'<div id="imporPrev" style="margin-top:10px"></div>'
+    +'</div>'
+    +'<div class="mf">'
+      +'<button class="btn btn-ghost" onclick="tutupModal()">Batal</button>'
+      +'<button class="btn btn-primary" id="imporSimpan" disabled onclick="imporSimpan()">Simpan</button>'
+    +'</div></div></div>';
+  const ta=document.getElementById('imporTeks');
+  if(ta && IMPOR) ta.value=IMPOR.teks;
+  imporHitung();
+}
+/* Dipanggil tiap ketukan. TIDAK menggambar ulang textarea-nya — hanya
+   #imporPrev dan keadaan tombol Simpan. Menggambar ulang textarea di
+   tengah pengetikan membuang fokus, dan hanya huruf pertama yang masuk
+   (jebakan yang sama dicatat di modul Konten untuk queueF). */
+function imporHitung(){
+  const prev=document.getElementById('imporPrev'); if(!prev) return;
+  const btn=document.getElementById('imporSimpan');
+  const teks=((IMPOR&&IMPOR.teks)||'').trim();
+  if(!teks){
+    prev.innerHTML='<p class="mutedhint">Belum ada yang ditempel.</p>';
+    if(btn) btn.disabled=true;
+    if(IMPOR) IMPOR.hasil=null;
+    return;
+  }
+  const h=imporParse(teks, imporCtx());
+  if(IMPOR) IMPOR.hasil=h;
+  prev.innerHTML=imporPratinjauHtml(h);
+  if(btn) btn.disabled=!h.rows.length;
+}
+function imporPratinjauHtml(h){
+  const divNama=namaDivisi(divTunggal());
+  if(!h.adaTgl){
+    return '<div class="note w"><b>Tidak menemukan baris tanggal.</b> Ikutkan baris tanggal Excel '
+      +'di dalam tempelan (mis. <code>01/09/2026</code> atau <code>1 Sep</code> di tiap kolom hari).</div>';
+  }
+  let s='';
+  if(h.cocok.length){
+    s+='<div class="mutedhint" style="margin-bottom:3px">Nama dikenali:</div>'
+      +'<div class="impgrid">'+h.cocok.map(function(c){
+        return '<span>'+esc(c.token)+' → <b>'+esc(c.ke)+'</b></span>';
+      }).join('')+'</div>';
+  }
+  if(h.ganda.length){
+    s+='<div class="note w" style="margin-top:8px"><b>Nama tidak pasti — dilewati:</b><br>'
+      +h.ganda.map(function(g){ return esc(g.token)+' bisa '+esc(g.kandidat.join(' / ')); }).join('<br>')+'</div>';
+  }
+  if(h.lewat.length){
+    s+='<div class="note w" style="margin-top:8px"><b>Tidak ada di roster '+esc(divNama)+' — barisnya dilewati:</b><br>'
+      +esc(h.lewat.join(', '))
+      +'<div class="mutedhint" style="margin-top:4px">Betulkan ejaannya di Excel, atau daftarkan orangnya di Office → modul Jadwal Shift → Data Pegawai.</div></div>';
+  }
+  if(h.bebas.length){
+    /* Kode shift dari baris pertama yang punya catatan — itulah wadah yang
+       dipakai imporParse (LAIN, atau OFF kalau LAIN sudah dihapus). */
+    const rBebas=h.rows.find(function(r){ return r.n; });
+    s+='<div class="note i" style="margin-top:8px">Bukan kode shift — ditulis sebagai <b>catatan sel</b>'
+      +(rBebas?' di atas shift <b>'+esc(shiftDef(rBebas.t).n)+'</b>':'')+': '
+      +esc(h.bebas.join(', '))+'</div>';
+  }
+  if(!h.rows.length){
+    return s+'<div class="note w" style="margin-top:8px">Belum ada sel yang bisa ditulis.</div>';
+  }
+  /* Kisi per minggu */
+  const perM={};
+  h.rows.forEach(function(r){ const sen=seninDari(r.d); (perM[sen]=perM[sen]||[]).push(r); });
+  Object.keys(perM).sort().forEach(function(sen){
+    const hari=tujuhHari(sen), rr=perM[sen], byUD={};
+    rr.forEach(function(r){ byUD[r.u+'|'+r.d]=r; });
+    const ids=[];
+    rr.forEach(function(r){ if(ids.indexOf(r.u)<0) ids.push(r.u); });
+    s+='<div class="mutedhint" style="margin:10px 0 3px"><b>'+esc(rentangMinggu(sen))+'</b></div>'
+      +'<div class="tablewrap"><table class="sched imprev"><tr class="hdr"><th class="nm">Kru</th>'
+      +hari.map(function(d,i){
+        return '<th class="'+(i>=5?'wknd':'')+'">'+esc(HARI[i].slice(0,2))+' '+parseD(d).getDate()+'</th>';
+      }).join('')+'</tr>'
+      +ids.map(function(id){
+        return '<tr><td class="nm"><b>'+esc(namaKru(id))+'</b></td>'
+          +hari.map(function(d){
+            const r=byUD[id+'|'+d];
+            if(!r) return '<td></td>';
+            const def=shiftDef(r.t);
+            return '<td style="background:'+esc(def.w)+';color:'+esc(warnaTeks(def.w))+'">'+esc(r.n||def.n)+'</td>';
+          }).join('')+'</tr>';
+      }).join('')+'</table></div>';
+  });
+  const bentrok=daftarTimpa(h.rows);
+  s+='<div class="note '+(bentrok.length?'w':'i')+'" style="margin-top:10px"><b>'+h.rows.length+' sel</b> akan ditulis'
+    +(bentrok.length
+      ? ' — <b style="color:var(--danger)">'+bentrok.length+'</b> menimpa sel yang sudah terisi (dirinci saat Simpan).'
+      : ' — tidak ada sel terisi yang tertimpa.')
+    +'</div>';
+  return s;
+}
+function imporSimpan(){
+  const h=IMPOR&&IMPOR.hasil;
+  if(!h||!h.rows.length){ toast('Belum ada sel untuk disimpan', true); return; }
+  const rows=h.rows.slice();
+  const bentrok=daftarTimpa(rows);
+  const jalan=function(){ tutupModal(); tulisSel(rows,[]); toast(rows.length+' sel diimpor dari Excel'); };
+  if(!bentrok.length){ jalan(); return; }
+  konfirmasi('Timpa '+bentrok.length+' sel yang sudah terisi?',
+    '<b>'+rows.length+' sel</b> dari tempelan akan ditulis. '
+    +'<b style="color:var(--danger)">'+bentrok.length+' di antaranya sudah terisi</b> dan isinya diganti:'
+    +htmlTimpa(bentrok),
+    jalan, {lebar:'580px', ya:'Ya, timpa '+bentrok.length+' sel'});
+}
+
 /* ---------- Isi Satu Baris: klik beruntun, satu hari per klik ----------
    Dulu tombol ini meminta SATU shift lalu menimpa ketujuh hari dengan shift
    itu — dan itu hampir tidak pernah benar. Tidak ada kru yang masuk PAGI

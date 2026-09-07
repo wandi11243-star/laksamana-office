@@ -854,6 +854,14 @@
 
 
 
+
+
+
+
+
+
+
+
 function svg() { stafKantor(); muatData(); simpanSetting(); }
 
 
@@ -3311,7 +3319,8 @@ function viewMinggu() { divisiLihat(); bolehUbah(); seninDari(); hariIni(); tuju
 
 
 
-function tabelDiv() { kruDivisi(); bolehUbah(); esc(); jabatanDari(); isiBaris(); escJs(); selHtml(); sel(); blokDW(); ikonDivisiJadwal(); namaDivisi(); kopCetakHTML(); rentangMinggu(); segDivisi(); geserMinggu(); tombolKembali(); seninDari(); hariIni(); panelKosongRoster(); panelGagalDW(); pitaBelumAdaHead(); legendaShift(); salinMingguLalu(); isiSisa(); kosongkanMinggu(); exportExcel(); exportPNG(); exportWA(); divisiKuasa(); }
+function tabelDiv() { kruDivisi(); bolehUbah(); esc(); jabatanDari(); isiBaris(); escJs(); selHtml(); sel(); blokDW(); ikonDivisiJadwal(); namaDivisi(); kopCetakHTML(); rentangMinggu(); segDivisi(); geserMinggu(); tombolKembali(); seninDari(); hariIni(); panelKosongRoster(); panelGagalDW(); pitaBelumAdaHead(); legendaShift(); salinMingguLalu(); isiSisa(); imporTempel(); kosongkanMinggu(); exportExcel(); exportPNG(); exportWA(); divisiKuasa(); }
+
 
 
 
@@ -3733,7 +3742,7 @@ function gambarIsiSisa() { isiSisaHitung(); tujuhHari(); isiSisaHari(); esc(); t
 
 
 
-function isiSisaPilih() { toast(); kruDivisi(); divTunggal(); addD(); sel(); shiftKru(); shiftDef(); daftarTimpa(); tulisSel(); tutupModal(); jalan(); konfirmasi(); esc(); htmlTimpa(); }
+function isiSisaPilih() { toast(); kruDivisi(); divTunggal(); addD(); sel(); shiftKru(); shiftDef(); daftarTimpa(); tulisSel(); tutupModal(); jalan(); konfirmasi(); esc(); htmlTimpa(); imporParse(); }
 
 
 
@@ -3752,6 +3761,315 @@ function isiSisaPilih() { toast(); kruDivisi(); divTunggal(); addD(); sel(); shi
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function impPad2() {  }
+function impISO() { impPad2(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function impTgl() { impISO(); impPad2(); parseD(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function impNorm() {  }
+
+
+
+
+
+
+
+function impCocokNama() { impNorm(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function imporParse() { impNorm(); impTgl(); impCocokNama(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function imporTempel() { gambarImpor(); }
+
+function imporCtx() { kruDivisi(); divTunggal(); seninDari(); hariIni(); }
+
+
+
+function gambarImpor() { tutupModal(); esc(); namaDivisi(); divTunggal(); imporHitung(); imporSimpan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function imporHitung() { imporParse(); imporCtx(); imporPratinjauHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function imporPratinjauHtml() { namaDivisi(); divTunggal(); esc(); imporParse(); shiftDef(); seninDari(); tujuhHari(); rentangMinggu(); parseD(); namaKru(); warnaTeks(); daftarTimpa(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function imporSimpan() { toast(); daftarTimpa(); tutupModal(); tulisSel(); jalan(); konfirmasi(); htmlTimpa(); }
 
 
 
