@@ -45,7 +45,16 @@ const sama = (n, d, h) => cek(n, d === h, 'dapat ' + JSON.stringify(d) + ', haru
 /* Skrip CDN (Chart.js, font) tidak bisa diambil jsdom — dibuang, lalu Chart
    diganti tiruan. Yang diuji pagernya, bukan grafiknya; yang penting grafik itu
    TIDAK dibangun ulang, dan untuk itu cukup memeriksa elemen canvas-nya. */
+/* Mesin bonus hidup di deploy/assets/performa-bonus.js dan dimuat lewat
+   <script src>. jsdom tidak mengambil skrip eksternal, jadi isinya DISISIPKAN
+   sebagai skrip inline menggantikan tagnya — bukan ditiru. Pola yang sama
+   dengan venue-layouts.js di uji-bukti-dp.js dan xlsx-baca.js di uji-analytics.
+   Kalau cuma dibuang seperti skrip CDN lain, viewPerforma() melempar di
+   bonusMarketing() dan seluruh uji pagernya gagal karena sebab yang tidak ada
+   hubungannya dengan pager. */
 const html = fs.readFileSync(path.join(ROOT, 'deploy/finance/kas/index.html'), 'utf8')
+  .replace(/<script[^>]*\ssrc="[^"]*performa-bonus\.js"[^>]*><\/script>/i,
+    '<script>' + fs.readFileSync(path.join(ROOT, 'deploy/assets/performa-bonus.js'), 'utf8') + '</script>')
   .replace(/<script[^>]*\ssrc=[^>]*><\/script>/gi, '');
 
 const vc = new VirtualConsole();

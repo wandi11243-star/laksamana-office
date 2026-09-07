@@ -62,31 +62,32 @@ const helper = [
   potong(kas, "const esc=s=>", "\n", 'esc'),
 ].join('');
 
-/* Seluruh blok bonus, dari komentar kepalanya sampai penutup kartuBonusMk(). */
-const blok = potong(kas,
-  '/* ============ BONUS MARKETING ============',
-  '+kartuSkema4(info,pid,list);\n}',
-  'blok bonus marketing');
+/* MESIN BONUSNYA SUDAH PINDAH ke deploy/assets/performa-bonus.js (7 September
+   2026) supaya modul Marketing dan Event memakai rumus yang SAMA, bukan
+   salinannya. Uji ini karena itu MENJALANKAN ASETNYA apa adanya — bukan
+   memotong potongan darinya: berkas itu memang sudah berdiri sendiri, jadi
+   memotongnya lagi cuma menambah satu tempat yang bisa menyimpang.
 
-cek('blok bonus marketing ada di deploy/finance/kas/', blok.length > 3000,
-    'panjangnya cuma ' + blok.length);
+   ketOffice() (peta Tim/Keterangan Office) diberikan lewat pbSetKeterangan(),
+   pintu yang sama yang dipakai tuan rumah sungguhan. */
+const ASET = LF(fs.readFileSync(path.join(AKAR, 'deploy/assets/performa-bonus.js'), 'utf8'));
+cek('aset mesin bonus ada dan berisi', ASET.length > 3000, 'panjangnya cuma ' + ASET.length);
+cek('...dan finance/kas memuatnya, bukan menyalinnya',
+    /src="\.\.\/\.\.\/assets\/performa-bonus\.js"/.test(kas)
+    && kas.indexOf('function bonusMarketing(') < 0);
 
-/* ketOffice() hidup jauh di bawah dan membaca KET_MAP (peta Tim/Keterangan dari
-   Office). Yang diuji di sini BUKAN ketOffice-nya — itu milik Performa Kasir —
-   melainkan mkLeader() yang membacanya, jadi petanya disediakan uji ini. */
-const jalan = new Function('KET_TIRUAN', `
-  ${helper}
-  function ketOffice(e){
-    if(!e) return null;
-    if(KET_TIRUAN && Object.prototype.hasOwnProperty.call(KET_TIRUAN,e.name)) return KET_TIRUAN[e.name];
+function jalan(KET_TIRUAN) {
+  const win = {};
+  new Function('window', ASET)(win);
+  win.pbSetKeterangan(e => {
+    if (!e) return null;
+    if (KET_TIRUAN && Object.prototype.hasOwnProperty.call(KET_TIRUAN, e.name)) return KET_TIRUAN[e.name];
     return null;
-  }
-  ${blok}
-  return { bonusMarketing, bonusS2, mkCorporate, mkTangga, mkLeader,
-           kartuBonusMk, kartuSkema1, kartuSkema2, kartuSkema3, kartuSkema4,
-           MK_S2, MK_S3, MK_S1_JUMLAH, MK_S1_EVENT, MK_S4_VOUCHER,
-           MK_S1_MIN_EVENT, MK_S4_CUTI_MIN, MK_S4_CUTI_PER, MK_S4_TOP };
-`);
+  });
+  return Object.assign({}, win.PB_UJI, {
+    bonusMarketing: win.bonusMarketing, bonusEvent: win.bonusEvent,
+    kartuBonusMk: win.kartuBonusMk, kartuBonusEv: win.kartuBonusEv });
+}
 
 /* ---------- data uji ----------
    Dirancang supaya tiap kesalahan punya tempat untuk muncul:

@@ -51,7 +51,14 @@ function cek(nama, syarat, ket) {
 }
 
 function boot(berkas, url) {
+  /* Aset LOKAL (mesin bonus Performa) disisipkan inline menggantikan tagnya —
+     jsdom tidak mengambil skrip eksternal, dan yang dibuang di baris berikutnya
+     hanya skrip CDN (https:). Tanpa penyisipan ini viewPerforma() melempar di
+     bonusEvent() dan bagian Performa gagal karena sebab yang tidak ada
+     hubungannya dengan PIC. Pola yang sama dengan venue-layouts.js. */
   const html = fs.readFileSync(berkas, 'utf8')
+    .replace(/<script[^>]*\ssrc="[^"]*performa-bonus\.js"[^>]*><\/script>/i,
+      '<script>' + fs.readFileSync(path.join(ROOT, 'deploy/assets/performa-bonus.js'), 'utf8') + '</script>')
     .replace(/<script[^>]+src=["']https?:[^"']+["'][^>]*><\/script>/g, '');
   const dom = new JSDOM(html, {
     url: url, runScripts: 'dangerously', pretendToBeVisual: true,

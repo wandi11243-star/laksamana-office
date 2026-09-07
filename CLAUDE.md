@@ -3742,6 +3742,89 @@ Diperiksa **per baris**, bukan per jendela: versi pertamanya melewati seluruh
 jendela begitu melihat `simpanTunggu(` di dalamnya, dan mutasi yang
 menyelipkan satu baris pola lama tepat di atas panggilan itu lolos tanpa bunyi.
 
+#### Mesin bonus jadi SUMBER TUNGGAL: deploy/assets/performa-bonus.js (7 Sep 2026)
+
+Permintaan user: Performa Marketing juga muncul di **modul Marketing**, Performa
+Event juga di **modul Event**. (User menyebutnya "yang ada di modul cashier" —
+sebenarnya keduanya ada di **panel Kas Kecil modul Finance**; Cashier cuma punya
+Performa Kasir.)
+
+Menyalinnya berarti **TIGA salinan rumus uang**. Repo ini sudah kehilangan waktu
+empat kali karena berkas kembar yang tertinggal — `porsiPic`, `potonganHari`,
+`hpp.php`, `cocokPic`. Jadi mesinnya **DIPINDAH**, bukan disalin: pola yang
+sama dengan `deploy/assets/venue-layouts.js` dan `deploy/assets/xlsx-baca.js`.
+
+Isinya seluruh Bonus Marketing + Bonus Event: konstanta tangga, `bonusMarketing()`,
+`bonusEvent()`, `mkTangga()`, `selRealisasi()`, dan seluruh kartu skema.
+
+- **MANDIRI.** Pemformatnya sendiri (`PB_RP/PB_NUM/PB_ESC`), disalin dari
+  finance/kas. Modul Marketing memakai `rp()` bukan `fmtRp()` dan modul Event
+  punya `esc()` sendiri; aset yang menumpang nama global tuan rumah akan
+  memformat BERBEDA di tiap modul tanpa satu pun galat. Yang disalin hanya
+  pemformat — tidak satu pun rumus uang.
+- **SELURUH isinya di dalam SATU pembungkus IIFE.** `fmtRp/num/esc` di dalamnya
+  bernama sama dengan milik tuan rumah, dan dua `const` bernama sama di lingkup
+  global skrip klasik membuat halamannya **mati dengan SyntaxError sebelum satu
+  baris pun jalan**. Sudah kejadian saat aset ini lahir. Yang dipakai tuan rumah
+  diekspor ke `window` di kaki berkas.
+- **Satu-satunya yang WAJIB diberikan tuan rumah**: peta Tim/Keterangan Office,
+  lewat `pbSetKeterangan(fn)`. Tanpa itu tidak ada yang dianggap leader — dan itu
+  keadaan yang SAH, bukan galat.
+- **WAJIB dimuat SEBELUM skrip halaman** (`<script src>` biasa): penyambung
+  `pbSetKeterangan(ketOffice)` dipanggil di badan skrip tuan rumah.
+
+**Uji jsdom yang mem-boot halaman pemakainya WAJIB menyisipkan asetnya inline**
+menggantikan tag `src`-nya — jsdom tidak mengambil skrip eksternal. Sudah
+dilakukan di `uji-pager-event.js` dan `uji-pic-breakdown.js`; kalau lupa,
+`viewPerforma()` melempar di `bonusEvent()` dan ujinya gagal karena sebab yang
+tidak ada hubungannya dengan yang sedang diuji. Pola yang sama dengan
+`venue-layouts.js` di `uji-bukti-dp.js`.
+
+`uji-bonus-marketing.js` dan `uji-bonus-event.js` sekarang **MENJALANKAN aset**
+apa adanya (`new Function('window', src)`), bukan memotong potongan darinya:
+berkas itu sudah berdiri sendiri, jadi memotongnya lagi cuma menambah satu
+tempat yang bisa menyimpang. `uji-bonus-event.js` juga memeriksa **ketiga tuan
+rumah tidak menyalin rumusnya** — itu yang akan menangkap salinan berikutnya,
+bukan daftar nama.
+
+> **BELUM SELESAI.** Yang sudah: mesinnya jadi sumber tunggal. Yang BELUM:
+> halamannya sendiri di modul Marketing & Event, endpoint sempit untuk
+> datanya, dan aturan akses Head. Lihat blok berikutnya.
+
+#### Aturan akses Head (BELUM dikerjakan)
+
+Permintaan user 7 September 2026: yang **Head** (dari kolom Tim/Keterangan di
+Office, kata "Head") bisa melihat seluruh tim; yang bukan Head **hanya bisa
+melihat dirinya sendiri dan rekapan gabungan** — anggota tim lain tidak bisa
+dibuka satu per satu. Bentuknya sama dengan Performa Kasir di modul Cashier
+(7 September 2026): tab **Semua** sengaja tetap terbuka karena ia agregat dan
+tidak menyebut siapa dapat berapa.
+
+**Aturan ini untuk halaman di modul MARKETING & EVENT, BUKAN untuk
+`deploy/finance/kas/`.** Di panel Kas Kecil yang membukanya Finance, dan
+memeriksa siapa dapat berapa memang tugasnya — mengunci mereka di sana akan
+mencabut justru pekerjaan yang halamannya ada untuk itu. Sama dengan
+`adminModules` yang dikecualikan di Performa Kasir.
+
+Yang harus diingat saat mengerjakannya:
+
+- **Gerbangnya di penggambar, bukan di tombolnya.** Tombol PIC lain memang
+  tidak digambar, tapi `data-*` bisa diubah dari devtools dalam sepuluh detik.
+  Pelajaran yang sudah dibayar di `uji-performa-kasir-akses.js`.
+- **Daftar Event pada segmen Semua menyebut nama PIC tiap baris** (`ev.pic`).
+  Itu bocornya data per orang lewat pintu belakang; harus ikut disembunyikan
+  untuk yang bukan Head.
+- **"Head" (hak lihat) dan "Leader" (bonus Skema 3) DUA KATA YANG BERBEDA.** Orang
+  yang ditandai Leader saja tidak otomatis bisa melihat tim. Kalau itu bukan
+  yang dimaksud, yang perlu diubah satu kata di `pbHead()` — bukan dua tempat.
+- Pencocokan user↔PIC lewat `officeUserId` DULU, baru nama.
+
+Datanya juga belum ada di kedua modul itu: `getAll` memulangkan SELURUH blob
+omset (piutang, 222 baris compliment berikut pemberinya, breakdown per kasir),
+jadi membukanya untuk staf marketing/event **bertentangan dengan permintaan
+akses ini sendiri**. Yang benar endpoint sempit — pola `investorRingkas` /
+`omsetPic` / `eventsHari`.
+
 ### Deploy gagal ETIMEDOUT: servernya sehat, IP runner-nya diblokir (7 Sep 2026)
 
 ```

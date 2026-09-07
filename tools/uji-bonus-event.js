@@ -45,30 +45,31 @@ function potong(teks, mulai, akhir, label) {
   return teks.slice(a, b + akhir.length);
 }
 
-const helper = [
-  potong(kas, 'const fmtRp=', '\n', 'fmtRp'),
-  potong(kas, 'const num=v=>', '\n', 'num'),
-  potong(kas, 'const esc=s=>', '\n', 'esc'),
-].join('');
+/* MESIN BONUSNYA SUDAH PINDAH ke deploy/assets/performa-bonus.js (7 September
+   2026) supaya modul Marketing dan Event memakai rumus yang SAMA, bukan
+   salinannya. Uji ini karena itu MENJALANKAN ASETNYA apa adanya — bukan
+   memotong potongan darinya: berkas itu memang sudah berdiri sendiri, jadi
+   memotongnya lagi cuma menambah satu tempat yang bisa menyimpang.
 
-/* KEDUA blok dipotong: mkTangga() dan MK_HI lahir di blok marketing dan dipakai
-   bersama oleh blok event. Memotong yang event saja berarti menulis ulang
-   mkTangga di sini — dan uji yang menulis ulang rumus yang diujinya tidak
-   menguji apa pun. */
-const blok = potong(kas,
-  '/* ============ BONUS MARKETING ============',
-  '+kartuEvS4(info,pid);\n}',
-  'blok bonus marketing + event');
-cek('blok bonus marketing + event ada di sumber', blok.indexOf('function bonusEvent') > -1);
+   Bonus Event dan Bonus Marketing tinggal di aset yang SAMA: mkTangga() dipakai
+   bersama, dan memisahkannya berarti dua tangga untuk satu aturan.
 
-const jalan = new Function(`
-  ${helper}
-  function ketOffice(){ return null; }   // leader cuma urusan Bonus Marketing
-  ${blok}
-  return { bonusEvent, tanggaEvS4, mkTangga, kartuBonusEv, kartuEvS1, kartuEvS2, kartuEvS3, kartuEvS4,
-           EV_S1, EV_S2, EV_S2_DASAR, EV_S3_VOUCHER, EV_S4 };
-`);
-const M = jalan();
+   Pemformat TIDAK disuntikkan dari sini — asetnya membawa miliknya sendiri,
+   justru supaya tiap modul yang memakainya memformat dengan cara yang sama.
+   Uji yang menyuntikkan pemformatnya sendiri tidak akan pernah menangkap aset
+   yang lupa membawanya. */
+const ASET = LF(fs.readFileSync(path.join(AKAR, 'deploy/assets/performa-bonus.js'), 'utf8'));
+cek('aset memuat mesin bonus event', ASET.indexOf('function bonusEvent') > -1);
+cek('...dan finance/kas memuatnya, bukan menyalinnya',
+    /src="\.\.\/\.\.\/assets\/performa-bonus\.js"/.test(kas)
+    && kas.indexOf('function bonusEvent(') < 0);
+const M = (function () {
+  const win = {};
+  new Function('window', ASET)(win);
+  win.pbSetKeterangan(function () { return null; });   // leader cuma urusan Bonus Marketing
+  return Object.assign({}, win.PB_UJI, {
+    bonusEvent: win.bonusEvent, kartuBonusEv: win.kartuBonusEv });
+})();
 
 /* ---------- data uji ----------
    `porsi` sengaja SEPARUH `amount` — persis seperti porsiPic() untuk event.
@@ -253,13 +254,23 @@ console.log('\n-- kolom Realisasi --');
 /* ---------- 9. tidak menabrak Bonus Marketing ---------- */
 console.log('\n-- terpisah dari Bonus Marketing --');
 cek('tabel event punya konstanta sendiri, bukan memakai MK_S2',
-    /const EV_S4=/.test(kas) && /const MK_S2=/.test(kas));
+    /const EV_S4=/.test(ASET) && /const MK_S2=/.test(ASET));
 cek('viewPerforma memilih penghitung menurut divisinya',
     /divi==='marketing'\?bonusMarketing\(list,agg\):bonusEvent\(list,agg\)/.test(kas));
 cek('...dan penggambarnya juga',
     /divi==='marketing'\?kartuBonusMk\(BONUS,pid,e,a,list\):kartuBonusEv\(BONUS,pid,e,a,list\)/.test(kas));
 cek('mkTangga dipakai bersama, tidak ditulis dua kali',
-    (kas.match(/function mkTangga\(/g) || []).length === 1);
+    (ASET.match(/function mkTangga\(/g) || []).length === 1);
+/* ASET INI SUMBER TUNGGAL: rumusnya tidak boleh muncul lagi di tuan rumah mana
+   pun. Inilah pemeriksaan yang akan menangkap salinan BERIKUTNYA — bukan daftar
+   nama di atas. Modul yang belum ada dilewati, bukan digagalkan. */
+['deploy/finance/kas/index.html', 'deploy/marketing/index.html', 'deploy/event/index.html']
+  .forEach(function (f) {
+    let t = ''; try { t = LF(fs.readFileSync(path.join(AKAR, f), 'utf8')); } catch (e) { return; }
+    cek(f.split('/')[1] + ': tidak menyalin rumus bonus',
+        t.indexOf('function bonusMarketing(') < 0 && t.indexOf('function bonusEvent(') < 0
+        && t.indexOf('const MK_S2=') < 0 && t.indexOf('const EV_S4=') < 0);
+  });
 
 console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
 process.exit(gagal ? 1 : 0);
