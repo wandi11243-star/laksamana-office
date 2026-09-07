@@ -624,9 +624,13 @@ dijalankan. Uji di atas yang menutupnya; jangan mengandalkan smoke di sini.
 
 #### Daftar Event berhalaman (7 September 2026)
 
-Permintaan user. 12 baris per halaman — **angka yang sama dengan `KS_PER_HAL`**
-milik Riwayat Performa Kasir; dua tabel berhalaman di modul yang sama dengan
-panjang halaman berbeda membuat orang mengira salah satunya memotong barisnya.
+Permintaan user. **LIMA baris per halaman** (`PF_PER_HAL`), sengaja BEDA dari
+`KS_PER_HAL=12` milik Riwayat Performa Kasir. Sempat 12 dengan alasan "dua
+tabel bersebelahan jangan beda panjang halaman"; **alasan itu keliru** —
+keduanya di HALAMAN yang berbeda dan tidak pernah berdiri bersebelahan, jadi
+tidak ada yang bisa membandingkannya. Yang nyata: kartu ini berdampingan dengan
+grafik *Omset per Event* dan di atas empat kartu skema bonus, dan dua belas
+baris membuatnya jauh lebih tinggi daripada grafik di sebelahnya.
 
 - **Tabelnya digambar ke wadahnya sendiri (`#pf_daftar`), BUKAN ke `#pf_body`.**
   Kartunya berdiri bersebelahan dengan grafik *Omset per Event* dan di atas
@@ -733,6 +737,35 @@ dan `MK_HI` lahir di blok marketing dan dipakai bersama, jadi memotong yang
 event saja berarti menulis ulang `mkTangga` di dalam uji — dan uji yang
 menulis ulang rumus yang diujinya tidak menguji apa pun. Delapan mutasi sudah
 dicoba dan kedelapannya tertangkap.
+
+#### Kolom Realisasi di tabel tangga (7 September 2026)
+
+Permintaan user, untuk TIGA tangga sekaligus: **Tangga Total Nilai Deal per PIC**
+dan **Bonus Total Omset Team** di Performa Marketing, dan **Tangga Total Nilai
+Omset per PIC** di Performa Event. Satu penggambar untuk ketiganya —
+`selRealisasi(nilai, min, aktif)`. Letaknya **di kiri kolom bonus**, jadi
+urutannya: syarat → realisasi → bonus.
+
+**ISINYA BEDA PER BARIS, dan itu inti kolomnya:**
+
+| baris | isinya |
+|---|---|
+| yang sedang berlaku | **angka realisasinya**, tebal + ✓ |
+| di atasnya | *kurang Rp X lagi* untuk sampai ke sana |
+| yang sudah terlewati | *terlampaui* — bukan diulang angkanya |
+
+Kolom yang memajang angka yang sama di semua baris tidak menghapus satu pun
+pekerjaan yang jadi alasan kolom ini ada: yang membacanya tetap harus
+menghitung sendiri sudah di baris mana ia berdiri dan kurang berapa lagi.
+Ujinya menjaga ketiga bentuk itu, bukan sekadar keberadaan kolomnya.
+
+- **PIC yang belum masuk tangga tetap melihat angkanya**, di baris DASAR ("Di
+  bawah Rp…"). Kalau hilang dari tabel, yang paling perlu tahu posisinya justru
+  tidak melihat angkanya di mana pun.
+- **`nilai` null di segmen "Semua PIC"** untuk kedua tangga PER PIC — memajang
+  angka gabungan di tangga yang dinilai per orang berarti menjanjikan bonus yang
+  tidak akan pernah diterima siapa pun. **Bonus Total Omset Team TIDAK null**:
+  dasarnya memang angka tim, jadi kolomnya berlaku di kedua segmen.
 
 ### Reservasi: bukti DP WAJIB (6 September 2026)
 

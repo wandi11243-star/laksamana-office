@@ -216,6 +216,40 @@ cek('menyebut pembagi pool Skema 2 berikut angkanya', /Dibagi ke 2 PIC/.test(htm
       'ketemu: ' + (singkat || []).join(', '));
 })();
 
+/* ---------- 8b. kolom Realisasi di tangga Skema 4 (7 September 2026) ----------
+   Yang dijaga bukan sekadar "ada kolomnya", melainkan ISINYA BEDA PER BARIS:
+   kolom yang memajang angka yang sama di semua baris tidak menghapus satu pun
+   pekerjaan yang jadi alasan kolom ini ada. */
+console.log('\n-- kolom Realisasi --');
+(function () {
+  const rp = n => 'Rp' + Math.round(n).toLocaleString('id-ID');
+  const s4 = M.kartuEvS4(info, 'a');                 // Andi, net Rp220.000.000
+  cek('Skema 4 punya kolom Realisasi', /<th class="num">Realisasi<\/th>/.test(s4));
+  cek('...dan letaknya SEBELUM kolom bonus (di kirinya)',
+      s4.indexOf('>Realisasi<') < s4.indexOf('>Bonus untuk Tim Event<'));
+  cek('baris yang sedang berlaku memajang ANGKA realisasinya',
+      s4.indexOf('<b>' + rp(info.per.a.net) + '</b> ✓') > -1, 'mencari ' + rp(info.per.a.net));
+  sama('...dan cuma sekali, bukan di tiap baris',
+       (s4.match(new RegExp('<b>' + rp(info.per.a.net).replace(/\./g, '\\.') + '</b> ✓', 'g')) || []).length, 1);
+  cek('baris di atasnya menyebut KURANG berapa lagi',
+      s4.indexOf('kurang ' + rp(250000001 - info.per.a.net)) > -1,
+      'mencari kurang ' + rp(250000001 - info.per.a.net));
+  cek('baris yang sudah terlewati ditandai, bukan diulang angkanya', /terlampaui/.test(s4));
+
+  /* PIC yang belum masuk tangga: angkanya harus muncul di baris DASAR, bukan
+     hilang sama sekali dari tabel. Kalau hilang, yang paling perlu tahu
+     posisinya justru tidak melihat angkanya di mana pun. */
+  const s4b = M.kartuEvS4(info, 'b');                // Bima, net Rp131.000.000
+  cek('PIC di bawah tangga tetap melihat angkanya, di baris dasar',
+      s4b.indexOf('<b>' + rp(info.per.b.net) + '</b> ✓') > -1, 'mencari ' + rp(info.per.b.net));
+  cek('...dan tangga pertama menyebut kurang berapa lagi',
+      s4b.indexOf('kurang ' + rp(150000000 - info.per.b.net)) > -1);
+
+  const s4all = M.kartuEvS4(info, '__all__');
+  cek('segmen Semua TIDAK memajang angka realisasi di tangga per PIC',
+      !/terlampaui|kurang Rp/.test(s4all));
+})();
+
 /* ---------- 9. tidak menabrak Bonus Marketing ---------- */
 console.log('\n-- terpisah dari Bonus Marketing --');
 cek('tabel event punya konstanta sendiri, bukan memakai MK_S2',

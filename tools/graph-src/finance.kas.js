@@ -4257,6 +4257,30 @@ function baguRingkasMk() {  }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function selRealisasi() {  }
+
+
+
+
+
 function kartuSkema1() {  }
 
 
@@ -4303,7 +4327,7 @@ function kartuSkema1() {  }
 
 
 
-function kartuSkema2() {  }
+function kartuSkema2() { selRealisasi(); }
 
 
 
@@ -4326,7 +4350,11 @@ function kartuSkema2() {  }
 
 
 
-function kartuSkema3() {  }
+
+
+
+function kartuSkema3() { selRealisasi(); }
+
 
 
 
@@ -4672,7 +4700,10 @@ function kartuEvS3() {  }
 
 
 
-function kartuEvS4() { kartuBonusMk(); }
+function kartuEvS4() { selRealisasi(); kartuBonusMk(); }
+
+
+
 
 
 
@@ -4696,6 +4727,12 @@ function kartuEvS4() { kartuBonusMk(); }
 
 
 function kartuBonusEv() { baguRingkasEv(); kartuEvS1(); kartuEvS2(); kartuEvS3(); kartuEvS4(); }
+
+
+
+
+
+
 
 
 

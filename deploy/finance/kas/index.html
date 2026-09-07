@@ -4257,6 +4257,30 @@ function baguRingkasMk(info, pid, e, a){
   </div>`;
 }
 
+/* Kolom Realisasi di tabel tangga (7 September 2026, permintaan user). Tangga
+   tanpa angka capaian di sebelahnya memaksa orang menghitung sendiri sudah di
+   baris mana ia berdiri dan kurang berapa lagi — padahal justru itu dua-duanya
+   satu-satunya pertanyaan yang dibawa orang ke tabel semacam ini.
+
+   ISINYA BEDA PER BARIS, dan bedanya disengaja:
+
+     baris yang sedang berlaku  -> ANGKA realisasinya, tebal
+     baris di atasnya           -> kurang berapa lagi untuk sampai ke sana
+     baris yang sudah terlewati -> ditandai terlampaui, bukan diulang angkanya
+
+   Kalau seluruh baris memajang angka yang sama, kolomnya berhenti berarti apa
+   pun dan yang membacanya tetap harus menghitung selisihnya sendiri — persis
+   pekerjaan yang kolom ini ada untuk menghapusnya.
+
+   `nilai` null berarti tangga itu TIDAK sedang menilai satu orang (segmen
+   Semua PIC pada tangga per PIC). Memajang angka gabungan di sana berarti
+   menjanjikan bonus yang tidak akan pernah diterima siapa pun. */
+function selRealisasi(nilai, min, aktif){
+  if(nilai===null||nilai===undefined) return '<td class="num mono"><span class="muted">—</span></td>';
+  if(aktif) return `<td class="num mono"><b>${fmtRp(nilai)}</b> ✓</td>`;
+  if(nilai>=min) return '<td class="num mono"><span class="muted">terlampaui</span></td>';
+  return `<td class="num mono"><span class="muted">kurang ${fmtRp(min-nilai)}</span></td>`;
+}
 function kartuSkema1(info){
   const s1=info.s1;
   const perTangga=m=>s1.ev.filter(x=>x.t.min===m).length;
@@ -4306,9 +4330,12 @@ function kartuSkema1(info){
 function kartuSkema2(info, pid, a){
   const semua=pid==='__all__';
   const s2=semua?null:info.per[pid].s2;
+  // Segmen Semua tidak menilai satu orang — lihat selRealisasi().
+  const real=semua?null:a.real;
   const baris=MK_S2.slice().reverse().map(t=>{
     const aktif=!!(s2&&s2.bonus&&s2.min===t.min);
     return `<tr${aktif?MK_HI:''}><td>${aktif?'<b>'+esc(t.label)+'</b> ✓':esc(t.label)}</td>
+      ${selRealisasi(real,t.min,aktif)}
       <td class="num mono">${aktif?'<b>'+fmtRp(t.bonus)+'</b>':fmtRp(t.bonus)}</td></tr>`;
   }).join('');
   const bawah=(s2&&!s2.bonus)?MK_HI:'';
@@ -4317,9 +4344,9 @@ function kartuSkema2(info, pid, a){
     <div class="card-sub">Dasarnya <b>Realisasi PIC itu sendiri</b> pada periode ini — seluruh event yang diakui untuknya, sudah dipotong compliment.
       ${semua?'<b>Dinilai per PIC</b>; angka gabungan tidak dipakai di sini, pilih namanya di atas.':`Realisasi ${esc(fmtRp(a.real))}.`}</div>
     <div class="tbl-wrap"><table>
-      <thead><tr><th>Total Nilai Deal / Bulan</th><th class="num">Bonus untuk Marketing</th></tr></thead>
+      <thead><tr><th>Total Nilai Deal / Bulan</th><th class="num">Realisasi</th><th class="num">Bonus untuk Marketing</th></tr></thead>
       <tbody>
-        <tr${bawah}><td>${bawah?'<b>Di bawah '+fmtRp(120000000)+'</b> ✓':'Di bawah '+fmtRp(120000000)}</td><td class="num mono">—</td></tr>
+        <tr${bawah}><td>${bawah?'<b>Di bawah '+fmtRp(120000000)+'</b> ✓':'Di bawah '+fmtRp(120000000)}</td>${selRealisasi(real,0,!!bawah)}<td class="num mono">—</td></tr>
         ${baris}
       </tbody></table></div>
     <div class="helper" style="margin-top:10px">Dihitung berdasarkan PIC yang menghandle event corporate — tangganya sendiri memakai <b>seluruh event</b> PIC itu (keputusan user 7 September 2026).</div>
@@ -4331,6 +4358,7 @@ function kartuSkema3(info, list, pid){
   const baris=MK_S3.slice().reverse().map(t=>{
     const aktif=!!(tier&&tier.min===t.min);
     return `<tr${aktif?MK_HI:''}><td>${aktif?'<b>'+esc(t.label)+'</b> ✓':esc(t.label)}</td>
+      ${selRealisasi(info.s3.total,t.min,aktif)}
       <td class="num mono">${aktif?'<b>'+fmtRp(t.leader)+'</b>':fmtRp(t.leader)}</td>
       <td class="num mono">${aktif?'<b>'+fmtRp(t.tim)+'</b>':fmtRp(t.tim)}</td></tr>`;
   }).join('');
@@ -4352,9 +4380,9 @@ function kartuSkema3(info, list, pid){
       tier?` — masuk ${esc(tier.label)}`:' — belum masuk tangga mana pun'}.
       Sama untuk <b>seluruh PIC di roster</b>, termasuk yang periode ini belum punya event: yang dinilai capaian TIM, bukan capaian orangnya. Yang membedakan hanya leader.</div>
     <div class="tbl-wrap"><table>
-      <thead><tr><th>Total Nilai Deal / Bulan</th><th class="num">Bonus Leader</th><th class="num">Bonus Team Marketing</th></tr></thead>
+      <thead><tr><th>Total Nilai Deal / Bulan</th><th class="num">Realisasi Tim</th><th class="num">Bonus Leader</th><th class="num">Bonus Team Marketing</th></tr></thead>
       <tbody><tr${tier?'':MK_HI}><td>${tier?'Di bawah '+fmtRp(300000000):'<b>Di bawah '+fmtRp(300000000)+'</b> ✓'}</td>
-        <td class="num mono">—</td><td class="num mono">—</td></tr>${baris}</tbody></table></div>
+        ${selRealisasi(info.s3.total,0,!tier)}<td class="num mono">—</td><td class="num mono">—</td></tr>${baris}</tbody></table></div>
     ${pitaLeader}
   </div>`;
 }
@@ -4675,9 +4703,12 @@ function kartuEvS3(info, pid, list){
 function kartuEvS4(info, pid){
   const semua=pid==='__all__';
   const s4=semua?null:info.per[pid].s4;
+  // Segmen Semua tidak menilai satu orang — lihat selRealisasi().
+  const real=semua?null:info.per[pid].net;
   const baris=EV_S4.slice().reverse().map(t=>{
     const aktif=!!(s4&&s4.bonus&&s4.min===t.min);
     return `<tr${aktif?MK_HI:''}><td>${aktif?'<b>'+esc(t.label)+'</b> ✓':esc(t.label)}</td>
+      ${selRealisasi(real,t.min,aktif)}
       <td class="num mono">${aktif?'<b>'+fmtRp(t.bonus)+'</b>':fmtRp(t.bonus)}</td></tr>`;
   }).join('');
   const bawah=(s4&&!s4.bonus)?MK_HI:'';
@@ -4686,9 +4717,9 @@ function kartuEvS4(info, pid){
     <div class="card-sub">Dasarnya <b>jumlah Nilai Event PIC itu sendiri</b> pada periode ini (net, sebelum tax &amp; service).
       ${semua?'<b>Dinilai per PIC</b>; angka gabungan tidak dipakai di sini, pilih namanya di atas.':`Totalnya ${fmtRp(info.per[pid].net)} dari ${info.per[pid].jumEvent} event — bisa dijumlahkan sendiri dari kolom Nilai Event di tabel sebelah.`}</div>
     <div class="tbl-wrap"><table>
-      <thead><tr><th>Total Nilai Omset / Bulan</th><th class="num">Bonus untuk Tim Event</th></tr></thead>
+      <thead><tr><th>Total Nilai Omset / Bulan</th><th class="num">Realisasi</th><th class="num">Bonus untuk Tim Event</th></tr></thead>
       <tbody>
-        <tr${bawah}><td>${bawah?'<b>Di bawah '+fmtRp(150000000)+'</b> ✓':'Di bawah '+fmtRp(150000000)}</td><td class="num mono">—</td></tr>
+        <tr${bawah}><td>${bawah?'<b>Di bawah '+fmtRp(150000000)+'</b> ✓':'Di bawah '+fmtRp(150000000)}</td>${selRealisasi(real,0,!!bawah)}<td class="num mono">—</td></tr>
         ${baris}
       </tbody></table></div>
   </div>`;
@@ -4715,10 +4746,16 @@ function kartuBonusEv(info, pid, e, a, list){
    itu mendorong keseluruhannya jauh keluar layar.
 
    PF_HAL global — bukan di dalam viewPerforma — supaya bertahan saat HANYA
-   tabelnya yang digambar ulang. Angkanya disamakan dengan KS_PER_HAL: dua
-   tabel bersebelahan di modul yang sama dengan panjang halaman berbeda
-   membuat orang mengira salah satunya memotong barisnya. */
-const PF_PER_HAL=12;
+   tabelnya yang digambar ulang.
+
+   LIMA baris per halaman (permintaan user 7 September 2026), sengaja BEDA dari
+   KS_PER_HAL=12 milik Riwayat Performa Kasir. Sempat disamakan dengan alasan
+   "dua tabel bersebelahan"; alasan itu keliru — keduanya di HALAMAN yang
+   berbeda, tidak pernah berdiri bersebelahan, jadi tidak ada yang bisa
+   membandingkannya. Yang nyata: kartu ini berdampingan dengan grafik Omset per
+   Event dan di atas empat kartu skema bonus, dan dua belas baris membuatnya
+   jauh lebih tinggi daripada grafik di sebelahnya. */
+const PF_PER_HAL=5;
 let PF_HAL=1;
 function viewPerforma(divi){
   const el=document.getElementById('app-view');

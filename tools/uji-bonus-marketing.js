@@ -379,6 +379,50 @@ cek('...berikut cara membetulkannya (Breakdown Sumber)',
   cek('...maka peringatannya tidak digambar', !/belum punya jenis/.test(M.kartuSkema1(i)));
 })();
 
+/* ---------- 7b. kolom Realisasi di tabel tangga (7 September 2026) ----------
+   Kolom ini ada supaya orang tidak perlu menghitung sendiri sudah di baris mana
+   ia berdiri dan kurang berapa lagi. Yang dijaga bukan sekadar "ada kolomnya",
+   melainkan ISINYA BEDA PER BARIS — kolom yang memajang angka yang sama di
+   semua baris tidak menghapus satu pun pekerjaan itu. */
+console.log('\n-- kolom Realisasi --');
+(function () {
+  const rp = n => 'Rp' + Math.round(n).toLocaleString('id-ID');
+  const s2 = M.kartuSkema2(info, 'a', agg.a);        // Ayu, realisasi Rp155.000.000
+  cek('Skema 2 punya kolom Realisasi', /<th class="num">Realisasi<\/th>/.test(s2));
+  cek('...dan letaknya SEBELUM kolom bonus (di kirinya)',
+      s2.indexOf('>Realisasi<') < s2.indexOf('>Bonus untuk Marketing<'));
+  cek('baris yang sedang berlaku memajang ANGKA realisasinya',
+      s2.indexOf('<b>' + rp(agg.a.real) + '</b> ✓') > -1, 'mencari ' + rp(agg.a.real));
+  cek('baris di atasnya menyebut KURANG berapa lagi',
+      s2.indexOf('kurang ' + rp(200000001 - agg.a.real)) > -1,
+      'mencari kurang ' + rp(200000001 - agg.a.real));
+  cek('baris yang sudah terlewati ditandai, bukan diulang angkanya',
+      /terlampaui/.test(s2));
+  sama('angka realisasinya muncul SEKALI saja, bukan di tiap baris',
+       (s2.match(new RegExp('<b>' + rp(agg.a.real).replace(/\./g, '\\.') + '</b> ✓', 'g')) || []).length, 1);
+
+  /* Segmen Semua tidak menilai satu orang: memajang angka gabungan di tangga
+     per PIC berarti menjanjikan bonus yang tidak akan pernah diterima siapa
+     pun — kesalahan yang sama dengan menyorot barisnya. */
+  const s2all = M.kartuSkema2(info, '__all__', { real: info.s3.total, events: [] });
+  cek('segmen Semua TIDAK memajang angka realisasi di tangga per PIC',
+      !/terlampaui|kurang Rp/.test(s2all) && s2all.indexOf(rp(info.s3.total) + '</b> ✓') === -1);
+
+  /* Skema 3 dasarnya angka TIM, jadi kolomnya berlaku di kedua segmen. */
+  const s3 = M.kartuSkema3(info, list, 'a');
+  cek('Skema 3 punya kolom Realisasi Tim', /<th class="num">Realisasi Tim<\/th>/.test(s3));
+  cek('...dan letaknya SEBELUM kedua kolom bonus',
+      s3.indexOf('>Realisasi Tim<') < s3.indexOf('>Bonus Leader<')
+      && s3.indexOf('>Realisasi Tim<') < s3.indexOf('>Bonus Team Marketing<'));
+  cek('baris tim yang sedang berlaku memajang omset tim',
+      s3.indexOf('<b>' + rp(info.s3.total) + '</b> ✓') > -1, 'mencari ' + rp(info.s3.total));
+  cek('tangga tim berikutnya menyebut kurang berapa lagi',
+      s3.indexOf('kurang ' + rp(350000000 - info.s3.total)) > -1,
+      'mencari kurang ' + rp(350000000 - info.s3.total));
+  cek('Skema 3 tetap memajang realisasi di segmen Semua (angkanya memang angka tim)',
+      M.kartuSkema3(info, list, '__all__').indexOf('<b>' + rp(info.s3.total) + '</b> ✓') > -1);
+})();
+
 /* ---------- 8. BERKAS KEMBAR srcJenis ---------- */
 console.log('\n-- srcJenis: omset menulis, kas membaca --');
 const omset = LF(fs.readFileSync(OMSET, 'utf8'));

@@ -110,67 +110,84 @@ w.eval(`
 `);
 w.eval('viewPerforma("marketing")');
 
+/* Jumlah halamannya DIHITUNG dari PF_PER_HAL yang benar-benar ada di sumber,
+   bukan ditulis 5 di sini. Angkanya sudah pernah berubah sekali (12 -> 5 atas
+   permintaan user 7 September 2026), dan uji yang memasang angkanya sendiri
+   akan merah untuk perubahan yang benar — lalu dibetulkan dengan mengganti
+   angkanya, yang justru menghapus pemeriksaannya. */
+const PER = w.eval('PF_PER_HAL');
+const halDari = n => Math.max(1, Math.ceil(n / PER));
+const HAL_SEMUA = halDari(31), HAL_AYU = halDari(30);
+
 console.log('-- halaman pertama --');
 cek('#pf_daftar ada (tabelnya wadah sendiri, bukan di dalam pf_body)', !!$('#pf_daftar'));
 sama('rentang aktif memang sebulan penuh', w.eval('rentangAktif().length'), 30);
-sama('halaman dipotong 12 baris', $$('#pf_daftar tbody tr').length, 12);
+sama('lima baris per halaman (permintaan user)', PER, 5);
+sama('halaman dipotong sepanjang PF_PER_HAL', $$('#pf_daftar tbody tr').length, PER);
 cek('pager digambar', !!$('#pf_pager'));
 cek('tombol Sebelumnya mati di halaman 1', $$('#pf_pager button')[0].disabled);
 cek('keterangan menyebut rentang & total baris',
-    /Baris 1–12 dari 31/.test($('#pf_pager span').textContent), $('#pf_pager span').textContent);
+    new RegExp('Baris 1–' + PER + ' dari 31').test($('#pf_pager span').textContent),
+    $('#pf_pager span').textContent);
 
 console.log('\n-- pindah halaman --');
 const grafikSebelum = $('#pf_chart');
 const bonusSebelum = $('#pf_daftar').closest('.grid').nextElementSibling;
 $$('#pf_pager button')[1].click();
-cek('halaman 2 tergambar', /halaman 2\/3/.test($('#pf_pager span').textContent), $('#pf_pager span').textContent);
-sama('halaman 2 juga 12 baris', $$('#pf_daftar tbody tr').length, 12);
+cek('halaman 2 tergambar',
+    new RegExp('halaman 2/' + HAL_SEMUA).test($('#pf_pager span').textContent), $('#pf_pager span').textContent);
+sama('halaman 2 juga sepanjang PF_PER_HAL', $$('#pf_daftar tbody tr').length, PER);
 cek('GRAFIK TIDAK DIBANGUN ULANG — canvas-nya elemen yang sama',
     $('#pf_chart') === grafikSebelum,
     'canvas diganti: pf_body ikut digambar ulang, gulir akan melompat ke atas');
 cek('kartu bonus juga tidak dibangun ulang',
     $('#pf_daftar').closest('.grid').nextElementSibling === bonusSebelum);
 
-$$('#pf_pager button')[1].click();
-sama('halaman terakhir berisi sisanya', $$('#pf_daftar tbody tr').length, 7);
+const keAkhir = () => { let n = 0; while ($('#pf_pager') && !$$('#pf_pager button')[1].disabled && n++ < 50) $$('#pf_pager button')[1].click(); };
+keAkhir();
+sama('halaman terakhir berisi sisanya', $$('#pf_daftar tbody tr').length, 31 - PER * (HAL_SEMUA - 1));
 cek('tombol Berikutnya mati di halaman terakhir', $$('#pf_pager button')[1].disabled);
 cek('keterangan halaman terakhir benar',
-    /Baris 25–31 dari 31/.test($('#pf_pager span').textContent), $('#pf_pager span').textContent);
+    new RegExp('Baris ' + (PER * (HAL_SEMUA - 1) + 1) + '–31 dari 31').test($('#pf_pager span').textContent),
+    $('#pf_pager span').textContent);
 
 console.log('\n-- ganti PIC --');
 const seg = $$('#pf_seg button');
-/* PINDAH KE PIC YANG SAMA-SAMA PUNYA 3 HALAMAN, selagi masih di halaman 3.
-   Ini satu-satunya urutan yang bisa membedakan: kalau pindah ke PIC yang cuma
-   punya satu halaman, PF_HAL dijepit ke 1 oleh gambarDaftar() sendiri dan
-   reset yang hilang tidak akan pernah kelihatan. Ayu punya 30 event = 3
-   halaman, sama dengan segmen Semua. */
+/* PINDAH SELAGI DI HALAMAN TERAKHIR, ke PIC yang halaman terakhirnya BUKAN
+   nomor yang sama. Ini satu-satunya urutan yang bisa membedakan: kalau pindah
+   ke PIC yang cuma punya satu halaman, PF_HAL dijepit ke 1 oleh gambarDaftar()
+   sendiri dan reset yang hilang tidak akan pernah kelihatan. */
 cek('masih di halaman terakhir sebelum ganti PIC',
-    /halaman 3\/3/.test($('#pf_pager span').textContent), $('#pf_pager span').textContent);
-seg[1].click();                                   // Ayu: 30 event, juga 3 halaman
-cek('ganti PIC kembali ke halaman 1, bukan bertahan di halaman 3',
-    /halaman 1\/3/.test($('#pf_pager span').textContent), $('#pf_pager span').textContent);
-sama('...dan barisnya sehalaman penuh', $$('#pf_daftar tbody tr').length, 12);
+    new RegExp('halaman ' + HAL_SEMUA + '/' + HAL_SEMUA).test($('#pf_pager span').textContent),
+    $('#pf_pager span').textContent);
+seg[1].click();                                   // Ayu: 30 event
+cek('ganti PIC kembali ke halaman 1, bukan bertahan di halaman terakhir',
+    new RegExp('halaman 1/' + HAL_AYU).test($('#pf_pager span').textContent), $('#pf_pager span').textContent);
+sama('...dan barisnya sehalaman penuh', $$('#pf_daftar tbody tr').length, PER);
 
 seg[2].click();                                   // Budi: 1 event saja
 sama('PIC dengan satu event tergambar utuh', $$('#pf_daftar tbody tr').length, 1);
 cek('pager TIDAK digambar untuk daftar satu baris', !$('#pf_pager'));
 seg[0].click();                                   // kembali ke Semua
-sama('kembali ke Semua juga mulai dari halaman 1', $$('#pf_daftar tbody tr').length, 12);
+sama('kembali ke Semua juga mulai dari halaman 1', $$('#pf_daftar tbody tr').length, PER);
 cek('...dan pagernya menyebut halaman 1',
-    /halaman 1\/3/.test($('#pf_pager span').textContent), $('#pf_pager span').textContent);
+    new RegExp('halaman 1/' + HAL_SEMUA).test($('#pf_pager span').textContent), $('#pf_pager span').textContent);
 
 console.log('\n-- yang TIDAK boleh ikut terpotong --');
 cek('kotak Jumlah Event menyebut SELURUH event, bukan sehalaman',
     />31</.test($('#pf_body').innerHTML), 'angka 31 tidak ketemu di kartu ringkas');
 cek('kartu bonus tetap dihitung dari seluruh event',
     /Skema 1 — Bonus Target Tim/.test($('#pf_body').innerHTML));
-$$('#pf_pager button')[1].click();
-$$('#pf_pager button')[1].click();
+keAkhir();
 cek('sedang di halaman terakhir saat tombol PDF ditekan',
-    /halaman 3\/3/.test($('#pf_pager span').textContent), $('#pf_pager span').textContent);
+    new RegExp('halaman ' + HAL_SEMUA + '/' + HAL_SEMUA).test($('#pf_pager span').textContent),
+    $('#pf_pager span').textContent);
+const tampilSaatCetak = $$('#pf_daftar tbody tr').length;
 $('#pf_pdf').click();
 const barisCetak = ($('#printSheet').innerHTML.match(/Event ke-/g) || []).length;
-sama('lembar PDF memuat SELURUH 31 event, bukan 7 baris yang sedang tampil', barisCetak, 31);
+sama('lembar PDF memuat SELURUH 31 event, bukan ' + tampilSaatCetak + ' baris yang sedang tampil', barisCetak, 31);
+cek('...dan yang tampil saat itu memang jauh lebih sedikit', tampilSaatCetak < 31,
+    'halaman terakhir kebetulan memuat semuanya — ujinya tidak menguji apa pun');
 
 console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
 process.exit(gagal ? 1 : 0);
