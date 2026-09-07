@@ -4000,6 +4000,82 @@ rumusnya ke modul ini, perbandingan itu yang berbunyi.
 > `kartuBonusEv()` sudah ada di aset. Yang perlu ditulis tinggal halamannya,
 > dengan aturan hak lihat yang sama.
 
+### Modul Marketing: tiga revisi (7 September 2026)
+
+**1. Request Design & Video dibagi kategori, bawaannya YANG BELUM SELESAI.**
+Kendalinya sudah ada sejak lama (`drFilter.status` = `'open'/'done'/'batal'`), tapi
+berupa dropdown yang tenggelam di antara tiga kendali lain dan bawaannya SEMUA.
+Sekarang tab `.seg` — **Belum Selesai / Sudah Selesai / Dibatalkan / Semua** —
+dengan angka di tiap tab.
+
+- **Angka tab dihitung TANPA tapis status itu sendiri** (`drHitungKat()`). Kalau
+  ikut, tab yang tidak sedang dipilih selalu menulis `(0)`, dan nol membaca
+  sebagai "tidak ada apa-apa di sana" alih-alih "kamu sedang melihat kategori
+  lain". Tapis LAIN (jenis, kata kunci) TETAP berlaku: angkanya harus
+  menjanjikan apa yang benar-benar muncul kalau tabnya ditekan. Aturan yang
+  sama dengan angka PIC di Content Planning modul Konten.
+- **Keadaan kosong menyebut KATEGORI yang sedang dilihat** berikut jumlah yang
+  ada di kategori lain — tab itulah saringan yang paling sering jadi sebabnya,
+  dan yang tidak menyadarinya akan melaporkan datanya hilang.
+- `drSelesai()` membaca `S.designreqprog` (kabar dari modul Konten), bukan field
+  di requestnya. Uji yang menyetel wadah lain akan lulus karena sebab yang
+  salah: seluruh request terbaca "belum selesai".
+
+**2. Reporting jadi PER BULAN dan sesederhana mungkin.** Pemilih bulan, tiga
+kartu ringkas (Total Omset, Jumlah Event, Rata-rata per Event), dan tabel per
+hari: **tanggal · jumlah event · total omset**, dengan baris TOTAL di kakinya.
+
+- **"Hari itu" DIBACA TANGGAL ACARANYA** (`e.tanggal`), bukan tanggal barisnya
+  diinput — yang dipasangkan dengan omset adalah hari acaranya berlangsung.
+  Dikatakan di layarnya supaya tidak perlu ditebak.
+- Hanya event **Confirmed / Deal / Event Done**. Peluang yang belum closing
+  bukan omset, dan memasukkannya membuat angka bulan berjalan turun tiap kali
+  ada peluang yang batal.
+- Angkanya dari `eventFinance().grand` — rumus yang sama dengan Surat Penawaran
+  dan Invoice. Menghitungnya sendiri berarti laporan yang menyebut angka lain
+  daripada dokumen yang sudah dikirim ke klien.
+- **Hari tanpa acara tidak digambar.** Sebulan penuh baris nol membuat yang
+  benar-benar terjadi harus dicari dengan mata; jumlah hari berisi toh sudah
+  disebut di kartunya.
+- **Baris TOTAL ada DI DALAM tabelnya**, bukan cuma di kartu atas: yang
+  menjumlahkan kolomnya sendiri harus bisa mencocokkannya tanpa menggulir balik.
+- Yang DICABUT: donat *Revenue per Jenis Event*, kartu Total Pax, dan Avg per
+  Pax. `donutSVG()` ikut dicabut — Reporting satu-satunya pemakainya.
+
+**3. Halaman "Marketing Performance" DICABUT.** Yang menggantikannya *Performa
+Omset & Bonus*: ia menjawab pertanyaan yang sama ("sebagai tim kita di mana")
+dengan angka yang BENAR-BENAR dipakai membayar bonus, dan dihitung berkas yang
+sama dengan panel Finance. Papan lama menilai AKTIVITAS dari data yang cuma ada
+di modul ini, jadi ia selalu bisa berbeda dari yang dipegang finance tanpa ada
+yang bisa menjelaskan mana yang benar.
+
+Rujukannya ada di **enam** tempat dan semuanya harus ikut: `NAV_DEF`, `TITLES`,
+peta router, **keempat** daftar nav role, `VIEW_TERBUKA`, dan penggambarnya
+sendiri. Ikut dicabut seluruh pembantunya — `perfPeriode`, `PERF_BD`,
+`muatPerfBD`, `perfPitaBD`, `KOL_LEADERBOARD`, dan `KOMPAS_API` yang hanya
+dipakai `muatPerfBD`.
+
+- **`VIEW_TERBUKA` jadi KOSONG, mekanismenya TIDAK dicabut.** `'performance'`
+  satu-satunya isinya; mencabut mekanismenya berarti menyentuh
+  `punyaAksesModul()`, `accessMatrix`, dan `openUserAccess` demi perubahan yang
+  seharusnya cukup di satu baris.
+- **`'perfomset'` SENGAJA TIDAK dimasukkan ke `VIEW_TERBUKA`**: halaman itu
+  memajang omset per orang, jadi ia harus tunduk pada matriks hak akses seperti
+  halaman lain — bukan terbuka untuk siapa pun yang memegang modul ini.
+- Endpoint `omsetPic` di kompas-api **TIDAK** dicabut, dibiarkan hidup seperti
+  `simpanTarget`: mencabut endpoint karena satu-satunya pemakainya hilang adalah
+  pekerjaan yang tidak bisa dibatalkan demi kerapian yang tidak diminta.
+
+````bash
+node tools/uji-revisi-marketing.js   # 39 pemeriksaan, jsdom
+````
+
+Ujinya membuang komentar sebelum mencari — sejarah kenapa sesuatu dicabut
+justru harus tetap boleh menyebut namanya; yang dilarang PEMAKAIANNYA. Satu
+rujukan yang tertinggal untuk fungsi yang sudah dibuang adalah ReferenceError,
+dan gejalanya **layar putih** tanpa satu kata pun yang menyebut sebabnya. Enam
+mutasi dicoba, keenamnya tertangkap.
+
 ### Deploy gagal ETIMEDOUT: servernya sehat, IP runner-nya diblokir (7 Sep 2026)
 
 ```

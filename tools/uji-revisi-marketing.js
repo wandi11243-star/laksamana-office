@@ -1,0 +1,190 @@
+/* uji-revisi-marketing.js — tiga revisi modul Marketing (7 September 2026)
+ *
+ *   node tools/uji-revisi-marketing.js
+ *   JSDOM_PATH=/jalur/ke/jsdom node tools/uji-revisi-marketing.js
+ *
+ * 1. Request Design & Video dibagi kategori selesai/belum, bawaannya YANG BELUM.
+ * 2. Reporting jadi per bulan: omset & jumlah event per hari, plus total sebulan.
+ * 3. Halaman Marketing Performance DICABUT.
+ *
+ * Yang ketiga diuji dengan cara yang sudah dibayar di Ranking PIC (lihat
+ * CLAUDE.md): rujukan sebuah halaman tersebar di ENAM tempat — menu, matriks
+ * hak akses, daftar nav role, TITLES, peta router, dan penggambarnya. Satu
+ * rujukan yang tertinggal untuk fungsi yang sudah dibuang adalah ReferenceError,
+ * dan gejalanya LAYAR PUTIH tanpa satu kata pun yang menyebut sebabnya.
+ * Komentar dibuang sebelum mencari: sejarah kenapa sesuatu dicabut justru harus
+ * tetap boleh menyebut namanya; yang dilarang PEMAKAIANNYA.
+ */
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const ROOT = path.resolve(__dirname, '..');
+const { JSDOM, VirtualConsole } = (() => {
+  for (const p of [process.env.JSDOM_PATH, path.join(ROOT, 'node_modules', 'jsdom'), 'jsdom']) {
+    if (!p) continue;
+    try { return require(p); } catch (e) { /* coba berikutnya */ }
+  }
+  console.error('jsdom tidak ketemu. Pasang `npm i jsdom`, atau setel JSDOM_PATH ke foldernya.');
+  process.exit(2);
+})();
+
+let ok = 0, gagal = 0;
+const cek = (n, s, k) => { if (s) { ok++; console.log('  OK   ' + n); } else { gagal++; console.log('  GAGAL ' + n + (k ? '  — ' + k : '')); } };
+const sama = (n, d, h) => cek(n, d === h, 'dapat ' + JSON.stringify(d) + ', harusnya ' + JSON.stringify(h));
+
+const SRC = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8');
+const KODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^[ \t]*\/\/.*$/gm, '');
+
+function buka() {
+  const html = SRC
+    .replace(/<script[^>]*\ssrc="[^"]*performa-bonus\.js"[^>]*><\/script>/i,
+      '<script>' + fs.readFileSync(path.join(ROOT, 'deploy/assets/performa-bonus.js'), 'utf8') + '</script>')
+    .replace(/<script[^>]*\ssrc="[^"]*venue-layouts\.js"[^>]*><\/script>/i,
+      '<script>' + fs.readFileSync(path.join(ROOT, 'deploy/assets/venue-layouts.js'), 'utf8') + '</script>')
+    .replace(/<script[^>]*\ssrc=[^>]*><\/script>/gi, '');
+  const vc = new VirtualConsole();
+  vc.on('jsdomError', e => {
+    const t = String((e && e.detail && e.detail.stack) || (e && e.message) || e);
+    if (!/Not implemented|Could not parse CSS/.test(t)) console.log('  !! ' + t.split('\n')[0]);
+  });
+  const dom = new JSDOM(html, { virtualConsole: vc, runScripts: 'dangerously',
+    url: 'https://dev.laksamanamuda.id/marketing/',
+    beforeParse(w) {
+      w.localStorage.setItem('lm_session', JSON.stringify({
+        id: 'u1', name: 'Ayu', modules: ['marketing'], adminModules: ['marketing'],
+        token: 't', expiry: Date.now() + 86400000 }));
+      w.fetch = () => new Promise(() => {});
+      w.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
+      w.print = () => {}; w.confirm = () => true;
+      w.Chart = class { destroy() {} update() {} };
+      w.HTMLCanvasElement.prototype.getContext = () => ({});
+    } });
+  const w = dom.window;
+  w.eval('S = normalizeState(seed());');
+  w.eval(`
+    S.users = [{ id:'u1', name:'Ayu', jabatan:'Marketing', div:'Marketing', role:'super_admin' }];
+    ME = S.users[0];
+  `);
+  return w;
+}
+const view = w => w.document.getElementById('view').innerHTML;
+
+/* ---------- 1. Request Design & Video ---------- */
+console.log('-- Request Design & Video: kategori selesai/belum --');
+let w = buka();
+/* Dua request BELUM selesai, satu SELESAI, satu DIBATALKAN. drSelesai() membaca
+   drProg() (kabar dari modul Konten), jadi progresnya yang disetel — bukan
+   field di requestnya, supaya yang diuji jalur yang sungguhan. */
+w.eval(`
+  S.designreqs = [
+    { id:'d1', jenis:'design', judul:'Belum A', brief:'', acara:'', deadline:'2026-09-10' },
+    { id:'d2', jenis:'edit',   judul:'Belum B', brief:'', acara:'', deadline:'2026-09-11' },
+    { id:'d3', jenis:'design', judul:'Sudah C', brief:'', acara:'', deadline:'2026-09-01' },
+    { id:'d4', jenis:'design', judul:'Batal D', brief:'', acara:'', deadline:'2026-09-02', batalAt: Date.now() }
+  ];
+  S.designreqprog = { d3: { status:'done' } };
+`);
+/* drSelesai() membaca drProg(), yang membaca S.designreqprog — kabar kemajuan
+   yang ditarik dari modul Konten. Diperiksa DULU bahwa wadahnya memang itu:
+   kalau namanya berbeda, seluruh request terbaca "belum selesai" dan tab Belum
+   Selesai akan lulus karena sebab yang salah. */
+cek('progres dari modul Konten bisa disetel di uji',
+    w.eval("!!(S.designreqprog && S.designreqprog.d3) && drSelesai({id:'d3'})===true"),
+    'wadah S.designreqprog tidak dikenali drSelesai()');
+sama('bawaannya kategori BELUM SELESAI', w.eval('drFilter.status'), 'open');
+w.eval("go('designreq')");
+let v = view(w);
+cek('tab kategorinya digambar', /Belum Selesai \(/.test(v), v.slice(0, 120));
+cek('...berikut angka tiap kategori', /Sudah Selesai \(\d+\)/.test(v) && /Dibatalkan \(\d+\)/.test(v));
+cek('tab yang aktif Belum Selesai',
+    /<button class="on"[^>]*onclick="drSetKat\('open'\)"/.test(v), 'tab aktifnya bukan yang belum selesai');
+const baris = () => Array.from(w.document.querySelectorAll('#dr-table tbody tr')).map(r => r.textContent);
+cek('yang tampil hanya yang BELUM selesai',
+    baris().length === 2 && baris().every(t => /Belum/.test(t)), baris().join(' | '));
+cek('yang sudah selesai TIDAK ikut', !baris().some(t => /Sudah C/.test(t)));
+cek('yang dibatalkan juga tidak', !baris().some(t => /Batal D/.test(t)));
+
+w.eval("drSetKat('done')");
+cek('tab Sudah Selesai memajang yang selesai',
+    baris().length === 1 && /Sudah C/.test(baris()[0]), baris().join(' | '));
+w.eval("drSetKat('')");
+sama('tab Semua memajang semuanya', baris().length, 4);
+
+/* Angka di tab dihitung TANPA tapis status sendiri — kalau ikut, tab yang tidak
+   dipilih selalu menulis (0), dan nol membaca sebagai "tidak ada apa-apa di
+   sana" alih-alih "kamu sedang melihat kategori lain". */
+w.eval("drSetKat('open')");
+v = view(w);
+cek('angka tab lain tidak nol saat kategori lain dipilih',
+    /Sudah Selesai \(1\)/.test(v) && /Dibatalkan \(1\)/.test(v), 'angkanya ikut tersaring status');
+/* Tapis LAIN tetap berlaku: angkanya harus menjanjikan apa yang benar-benar
+   muncul kalau tabnya ditekan. */
+w.eval("drFilter.jenis='edit'; go('designreq')");
+v = view(w);
+cek('tapis jenis IKUT mengecilkan angka tabnya',
+    /Belum Selesai \(1\)/.test(v) && /Sudah Selesai \(0\)/.test(v), 'angka tab mengabaikan tapis jenis');
+
+/* ---------- 2. Reporting per bulan ---------- */
+console.log('\n-- Reporting: per bulan, per hari --');
+w = buka();
+w.eval(`
+  S.events = [
+    { id:'e1', nama:'A', status:'Deal',       tanggal:'2026-09-03', pax:10, detail:{} },
+    { id:'e2', nama:'B', status:'Event Done', tanggal:'2026-09-03', pax:20, detail:{} },
+    { id:'e3', nama:'C', status:'Confirmed',  tanggal:'2026-09-20', pax:30, detail:{} },
+    { id:'e4', nama:'D', status:'Lead',       tanggal:'2026-09-05', pax:40, detail:{} },
+    { id:'e5', nama:'E', status:'Deal',       tanggal:'2026-08-15', pax:50, detail:{} }
+  ];
+  repBulan='2026-09';
+`);
+w.eval("go('reports')");
+v = view(w);
+cek('ada pemilih bulan', /type="month"/.test(v));
+cek('menyebut yang dihitung tanggal ACARA, bukan tanggal input',
+    /tanggal acaranya<\/b>, bukan tanggal input/.test(v));
+const rows = () => Array.from(w.document.querySelectorAll('#view tbody tr'))
+  .map(r => Array.from(r.querySelectorAll('td')).map(td => td.textContent.trim())).filter(x => x.length === 3);
+sama('hanya hari yang ADA acaranya digambar', rows().length, 2);
+sama('dua event di tanggal yang sama digabung jadi satu baris', rows()[0][1], '2');
+sama('...dan hari berikutnya satu event', rows()[1][1], '1');
+cek('peluang yang belum closing TIDAK dihitung', !/40/.test(rows().map(r => r[1]).join(',')));
+cek('bulan lain tidak ikut', rows().length === 2, 'event Agustus ikut tertarik');
+cek('ada baris TOTAL di dalam tabelnya', /TOTAL/.test(v), 'totalnya cuma di kartu atas');
+cek('kartu ringkas menyebut jumlah event bulan itu', />3</.test(v), 'jumlah event bulan tidak 3');
+
+w.eval("repSetBulan('2026-08')");
+sama('ganti bulan mengganti isinya', rows().length, 1);
+w.eval("repSetBulan('2026-01')");
+cek('bulan tanpa event menjelaskan sebabnya, bukan tabel kosong',
+    /Belum ada event closing/.test(view(w)), view(w).slice(0, 120));
+
+/* ---------- 3. Marketing Performance dicabut ---------- */
+console.log('\n-- Marketing Performance dicabut --');
+[['renderPerformance(', 'penggambarnya'],
+ ['function muatPerfBD(', 'pemuat data kompas-nya'],
+ ['KOL_LEADERBOARD', 'tabel leaderboard-nya'],
+ ['perfPeriode', 'variabel periodenya'],
+ ['PERF_BD', 'wadah datanya'],
+ ["KOMPAS_API", 'alamat kompas yang hanya dipakai olehnya']
+].forEach(([n, apa]) => cek('tidak ada lagi PEMAKAIAN ' + apa, KODE.indexOf(n) < 0, n));
+cek("entri menu 'performance' dicabut", KODE.indexOf("{k:'performance'") < 0);
+cek('judul halamannya dicabut', KODE.indexOf("performance:['Marketing Performance'") < 0);
+cek('peta router-nya dicabut', KODE.indexOf('performance:renderPerformance') < 0);
+cek('keempat daftar nav role tidak menyebutnya lagi', KODE.indexOf("'performance',") < 0);
+cek('VIEW_TERBUKA jadi kosong', /const VIEW_TERBUKA=\[\]/.test(KODE));
+cek("...dan 'perfomset' TIDAK dimasukkan ke sana",
+    KODE.indexOf("VIEW_TERBUKA=['perfomset']") < 0,
+    'halaman omset per orang tidak boleh terbuka untuk siapa pun pemegang modul');
+cek('sejarahnya tetap boleh disebut di komentar', SRC.indexOf('Marketing Performance') > -1);
+/* Halaman penggantinya harus tetap ada — mencabut yang lama tanpa yang baru
+   berarti tim marketing kehilangan papan performanya sama sekali. */
+cek('penggantinya (Performa Omset & Bonus) masih terpasang',
+    KODE.indexOf("{k:'perfomset'") > -1 && KODE.indexOf('perfomset:renderPerformaOmset') > -1);
+w = buka();
+w.eval("go('perfomset')");
+cek('...dan halamannya masih bisa dibuka', !!w.document.getElementById('pfo-wrap'));
+w.eval("go('performance')");
+cek('alamat lama tidak menjatuhkan halaman', view(w).length > 200, 'layar kosong / ReferenceError');
+
+console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
+process.exit(gagal ? 1 : 0);

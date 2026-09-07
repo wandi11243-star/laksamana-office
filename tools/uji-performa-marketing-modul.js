@@ -256,7 +256,16 @@ cek('...dan tidak memakai kata head sebagai penanda sendiri',
 /* Endpoint sempit, bukan getAll — getAll memulangkan seluruh blob omset.
    Diperiksa DI DALAM blok halaman ini saja: modul Marketing punya getAll-nya
    sendiri ke api.php miliknya, dan itu urusan lain. */
-const blokPFO = src.slice(src.indexOf('const PFO_API'), src.indexOf('function renderPerformance('));
+/* Batas bawahnya penutup pfoPasangKendali(), fungsi terakhir blok ini. Dulu
+   memakai `function renderPerformance(` — halaman itu DICABUT 7 September
+   2026, jadi indexOf memulangkan -1 dan potongannya diam-diam membentang
+   sampai akhir berkas: pemeriksaan "tidak memanggil getAll" lalu menuduh
+   halaman ini atas getAll milik modul, yang tidak ada hubungannya. Jangkar
+   yang hilang tidak menggagalkan slice(), ia cuma mengubah artinya. */
+const awalPFO = src.indexOf('const PFO_API');
+const akhirPFO = src.indexOf('\n}', src.indexOf('function pfoPasangKendali('));
+cek('blok halaman ini bisa dipotong dari sumber', awalPFO > -1 && akhirPFO > awalPFO);
+const blokPFO = src.slice(awalPFO, akhirPFO);
 cek('datanya lewat endpoint sempit', /action:'performaDivisi'/.test(blokPFO));
 cek('...dan halaman ini TIDAK memanggil getAll kompas',
     blokPFO.indexOf('getAll') < 0, 'getAll memulangkan seluruh blob omset');
