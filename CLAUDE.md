@@ -2227,8 +2227,16 @@ Excel kasar, lalu ingin memindahkannya ke modul tanpa mengetik ulang ~170 sel.
 Tombol **📥 Tempel dari Excel** di halaman Input Mingguan (sebaris dengan Isi
 Jadwal / Salin Minggu Lalu, hanya saat SATU divisi dipilih & orangnya head-nya).
 
-Alurnya: tempel blok sel dari Excel apa adanya (tab antar kolom) →
-`imporParse()` mencari sendiri baris tanggal & baris tiap kru → pratinjau
+**SATU template**: bentuk yang sama persis dengan yang keluar dari tombol
+**📗 Excel** (`tulisExcel` — impor Talenta *shift attendance*): baris 1
+`Employee ID | Employee Name | <30 tanggal> | Branch | Organization | Job
+Position | Job Level | Employment Status | Join Date`, lalu satu baris per kru.
+Ekspor dan impor memakai template yang sama supaya tidak ada dua bentuk berkas.
+Parser tetap **lenient** — bentuk `NAMA | tanggal` sederhana juga masih terbaca.
+
+Alurnya: tempel isi berkas Excel apa adanya (tab antar kolom) → `imporParse()`
+mencari sendiri baris tanggal (≥2 sel tanggal) & baris tiap kru; kolom Employee
+ID / Branch / Organization dan baris nama hari dilewati sendiri → pratinjau
 (kisi per minggu + daftar bentrok lewat `daftarTimpa`/`htmlTimpa`) → simpan
 lewat **`tulisSel()`** — jalur, penjaga per-divisi, dan konfirmasi bentrok yang
 SAMA dengan alat massal lain. **Tidak ada endpoint baru.**
@@ -2249,8 +2257,12 @@ Yang menahan bug diam-diam (tidak satu pun melempar galat kalau lepas):
   termirip. Disebut di pratinjau, barisnya dilewati. Nama yang cocok ke >1 kru
   → ditandai ambigu, juga dilewati. (`impCocokNama`: token = kata utuh di nama
   Office, atau — token ≥4 huruf — bagian dari sebuah kata; "BILA" menemukan
-  "Nabila".) Backend pun menolak baris di luar divisi head; di sini tidak
-  dikirim sama sekali.
+  "Nabila"; nama lengkap "Arif Rahman Harefa" dari berkas Talenta juga cocok.)
+  Backend pun menolak baris di luar divisi head; di sini tidak dikirim sama
+  sekali.
+- **Kolom metadata di kanan berkas Talenta** (Branch/Organization/Job
+  Position/…) tidak ikut jadi shift: yang dibaca cuma kolom yang ada di
+  `kolTgl`, dan person-search berhenti begitu nama ketemu di 4 kolom pertama.
 - **Kode yang bukan shift (mis. `HARAU!!!`) → `LAIN` + catatan sel**, persis
   cara lembar Excel lama menuliskannya (`labelSel`: catatan bebas menimpa nama
   shift). Disebut di pratinjau sebagai "catatan sel", bukan diam-diam jadi
@@ -2265,7 +2277,7 @@ Yang menahan bug diam-diam (tidak satu pun melempar galat kalau lepas):
   tanggal dobel di tempelan) → nilai terakhir menang.
 
 ```bash
-node tools/uji-impor-jadwal.js   # 31 pemeriksaan, TANPA jsdom (imporParse dipotong dari sumber)
+node tools/uji-impor-jadwal.js   # 39 pemeriksaan, TANPA jsdom (imporParse dipotong dari sumber)
 ```
 
 `smoke-modul.js jadwal` merender 8 halaman tapi **tidak membuka modal** — uji

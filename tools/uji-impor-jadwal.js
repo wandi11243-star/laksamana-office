@@ -189,5 +189,43 @@ cek('ARIF 8 Sep -> OFF', h2.rows.some(r => r.u === 'u-arif' && r.d === '2026-09-
 cek('ARIF 1 Sep tetap LAIN (minggu 1 tak tergeser)',
   h2.rows.some(r => r.u === 'u-arif' && r.d === '2026-09-01' && r.t === 'LAIN'));
 
+/* ---- bentuk berkas Talenta "export shift attendance" ----
+   SATU template: sama persis dengan yang keluar dari tombol "📗 Excel"
+   (tulisExcel). Header: Employee ID | Employee Name | 30 tanggal ISO |
+   Branch | Organization | Job Position | Job Level | Employment Status |
+   Join Date. Kolom metadata di kanan TIDAK boleh nyangkut sebagai shift. */
+console.log('\n=== Bentuk berkas Talenta (Employee ID | Employee Name | tanggal | metadata) ===');
+const T_DATES = [];
+for (let d = 1; d <= 30; d++) T_DATES.push('2026-09-' + String(d).padStart(2, '0'));
+const T_HDR = ['Employee ID', 'Employee Name', ...T_DATES,
+  'Branch', 'Organization', 'Job Position', 'Job Level', 'Employment Status', 'Join Date'].join('\t');
+function trow(eid, nm, sh) {
+  return [eid, nm, ...sh,
+    'PT Laksamana Indonesia Nusantara', 'Bar', 'Barista', 'Karyawan', 'Contract', '2025-01-01'].join('\t');
+}
+const SH30_ARIF = ['HARAU!!!', 'OFF', 'SIANG', 'SIANG', 'SIANG', 'SIANG', 'SIANG',
+  'OFF', 'SIANG', 'SIANG', 'SIANG', 'SIANG', 'SIANG', 'OFF',
+  'SIANG', 'SIANG', 'SIANG', 'SIANG', 'SIANG', 'SIANG', 'OFF', 'SIANG',
+  'SIANG', 'SIANG', 'SIANG', 'SIANG', 'SIANG', 'SIANG', 'OFF', 'SIANG'];
+let ht2 = M.imporParse([
+  T_HDR,
+  trow('1291225', 'Arif Rahman Harefa', SH30_ARIF),
+  trow('84125', 'Condro Fredyan Sidabutar', SH30_ARIF),
+].join('\n'), { emps: EMPS, shifts: SHIFTS, ref: REF });
+
+cek('header Talenta terbaca sebagai baris tanggal', ht2.adaTgl);
+cek('2 nama full dikenali', ht2.cocok.length === 2, JSON.stringify(ht2.cocok));
+cek('60 sel (2 x 30 hari)', ht2.rows.length === 60, 'dapat ' + ht2.rows.length);
+cek('kolom Employee ID (angka) tidak jadi nama/tanggal', !ht2.rows.some(r => /^\d+$/.test(r.u)));
+cek('kolom metadata (Bar/PT/Karyawan) tidak nyangkut sebagai shift',
+  !ht2.rows.some(r => /Laksamana|Karyawan|Contract|Barista/.test(r.t)), JSON.stringify(ht2.rows.filter(r => !SHIFTS[r.t])));
+cek('Arif 1 Sep -> LAIN + catatan HARAU!!!',
+  ht2.rows.find(r => r.u === 'u-arif' && r.d === '2026-09-01').t === 'LAIN');
+cek('Arif 30 Sep -> SIANG', ht2.rows.find(r => r.u === 'u-arif' && r.d === '2026-09-30').t === 'SIANG');
+cek('sel kosong di tengah bulan tidak ditulis',
+  M.imporParse([T_HDR, trow('1291225', 'Arif Rahman Harefa',
+    SH30_ARIF.map((s, i) => i === 10 ? '' : s))].join('\n'),
+    { emps: EMPS, shifts: SHIFTS, ref: REF }).rows.length === 29);
+
 console.log('\n' + (gagal ? 'GAGAL: ' : 'SEMUA LULUS: ') + ok + ' OK, ' + gagal + ' gagal');
 process.exit(gagal ? 1 : 0);
