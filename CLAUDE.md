@@ -654,6 +654,86 @@ satu halaman membuat `PF_HAL` dijepit ke 1 oleh `gambarDaftar()` sendiri, dan
 reset yang hilang tidak akan pernah kelihatan — versi pertama uji ini memang
 meloloskan mutasi itu.
 
+### Bonus Event: empat skema di Performa Event (7 Sep 2026)
+
+Permintaan user, sehari setelah Bonus Marketing. Bentuk kartunya SAMA PERSIS
+(satu baris tiga kotak posisi, lalu tangganya sebagai tabel) supaya yang
+membuka dua halaman itu tidak perlu belajar dua cara membaca. Isinya berbeda,
+dan bedanya yang harus dijaga.
+
+| | isinya | dasar |
+|---|---|---|
+| Skema 1 | tangga dari omset TIAP event, nominal **/orang** | nilai event |
+| Skema 2 | pool TIM dari **JUMLAH** event sebulan, dibagi tim | jumlah event |
+| Skema 3 | voucher F&B per event — **tidak diakumulasi** | nilai event |
+| Skema 4 | tangga per PIC dari total nilai omset sebulan | jumlah nilai event |
+
+**SKEMA 1 + 2 + 4 diakumulasi; SKEMA 3 berdiri sendiri.** Penomorannya
+**mengikuti dokumen SDM-nya**, jadi yang tunai memang tidak berurutan —
+diurutkan ulang supaya rapi, yang memegang dokumennya akan mencari "Skema 3"
+dan menemukan hal lain.
+
+**DASARNYA NET (`amount` = kolom Nilai Event), BUKAN `porsi` — dan ini BEDA
+dari Bonus Marketing**, yang memakai kolom Diakui. Dokumennya menyebutkan
+sendiri: *"Angka dari nett (Sebelum tax & services)"*. Untuk event
+`porsiPic()` cuma **separuh** nilai event (`amount/2 + Open Bill`), jadi salah
+pakai membuat seluruh tangga praktis tidak pernah tercapai — dan angka yang
+kecil terbaca sebagai bulan yang sepi, bukan sebagai bug. Ujinya menyertakan
+`porsi` yang berbeda dari `amount` justru supaya salah pakai punya tempat
+untuk muncul.
+
+- **Potongan compliment SENGAJA tidak dikurangkan.** Akibatnya orang bisa
+  menjumlahkan sendiri kolom Nilai Event di layar dan mendapat angka yang sama
+  persis dengan dasar tangganya. Dasar bonus yang tidak bisa dicocokkan dengan
+  tabel yang berdiri di layar yang sama adalah dasar yang berhenti dipercaya.
+- **Tabelnya konstanta SENDIRI (`EV_*`), bukan memakai `MK_*`.** Tangga dan
+  nominal Skema 4 event berbeda dari Skema 2 marketing walau bentuknya mirip;
+  menyatukannya membuat satu perubahan diam-diam menggeser bonus divisi
+  sebelah. Yang dipakai bersama cuma `mkTangga()` dan `MK_HI`.
+
+**NOMINAL SKEMA 1 ITU PER ORANG, dan Office tidak menyimpan anggota tim
+event.** Halaman ini menghitungnya untuk **PIC yang tercatat** di baris
+breakdown — tidak ada angka lain yang bisa dipakai. Kalau timnya lebih dari
+satu orang, yang dibayarkan angka itu **dikali jumlah orangnya**. Itu
+**dikatakan di layar**, bukan cuma di komentar: total yang diam-diam berarti
+"kalau timnya satu orang" akan dipakai menyiapkan pembayaran apa adanya.
+Kalau suatu hari perlu tepat, yang harus ditambah adalah kolom jumlah anggota
+tim di modul Event — bukan tebakan di sini.
+
+**Skema 2 dihitung dari JUMLAH event, bukan nilainya** — satu-satunya skema di
+seluruh repo yang begitu, dan gampang "diperbaiki" jadi nilai oleh yang
+membacanya sekilas. Bedanya juga dari Skema 1: yang ini **satu pool yang
+dibagi**, bukan nominal per orang.
+
+**TANGGA DOKUMENNYA BERLUBANG DI LIMA TEMPAT**, dan semuanya diputuskan
+memihak tim — dimasukkan ke tangga **DI ATASNYA**, aturan yang sama dengan
+`MK_S2`:
+
+| skema | celah di dokumen |
+|---|---|
+| 1 | "Rp35–45 juta" lalu "Rp46–55 juta" → Rp45.000.001 naik |
+| 1 | "Rp46–55 juta" lalu "> Rp56 juta" → Rp55.000.001 naik |
+| 4 | Rp200–201, Rp250–251, Rp300–301 juta |
+
+Tangga berlubang membuat omset yang **NAIK** bisa **MENURUNKAN** bonus, dan
+itu tidak pernah bisa dijelaskan ke orang yang menerimanya. Label di layar
+ditulis dari `min` di kode, bukan dari kalimat dokumennya.
+
+**"Di atas Rp X" di Skema 3 dibaca HARFIAH (`> X`)**, beda dari Bonus
+Marketing yang terpaksa membacanya `>= X` karena di sana satu ambang yang sama
+ditulis dua kali dengan kata berbeda. Di dokumen event tidak ada tabrakan
+seperti itu.
+
+```bash
+node tools/uji-bonus-event.js   # 76 pemeriksaan, TANPA jsdom
+```
+
+Ujinya memotong **KEDUA blok** (marketing + event) dari sumber: `mkTangga()`
+dan `MK_HI` lahir di blok marketing dan dipakai bersama, jadi memotong yang
+event saja berarti menulis ulang `mkTangga` di dalam uji — dan uji yang
+menulis ulang rumus yang diujinya tidak menguji apa pun. Delapan mutasi sudah
+dicoba dan kedelapannya tertangkap.
+
 ### Reservasi: bukti DP WAJIB (6 September 2026)
 
 Permintaan user: *"setiap input reservasi, jika dia masukin DP, wajib upload

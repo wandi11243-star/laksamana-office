@@ -4420,7 +4420,6 @@ function kartuBonusMk() { baguRingkasMk(); kartuSkema1(); kartuSkema2(); kartuSk
 
 
 
-function viewPerforma() { rentangAktif(); porsiPic(); obTotal(); mkCorporate(); compListPicRentang(); compPotong(); bonusMarketing(); modeHarian(); labelRentang(); pitaYatimPerforma(); kartuApprovalCompliment(); aturTombolKirim(); cetakAchievement(); }
 
 
 
@@ -4496,6 +4495,7 @@ function viewPerforma() { rentangAktif(); porsiPic(); obTotal(); mkCorporate(); 
 
 
 
+function tanggaEvS4() { mkTangga(); bonusMarketing(); }
 
 
 
@@ -4505,6 +4505,7 @@ function viewPerforma() { rentangAktif(); porsiPic(); obTotal(); mkCorporate(); 
 
 
 
+function bonusEvent() { mkTangga(); tanggaEvS4(); }
 
 
 
@@ -4545,7 +4546,306 @@ function viewPerforma() { rentangAktif(); porsiPic(); obTotal(); mkCorporate(); 
 
 
 
-function gambarDaftar() { kartuBonusMk(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function baguRingkasEv() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuEvS1() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuEvS2() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuEvS3() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuEvS4() { kartuBonusMk(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kartuBonusEv() { baguRingkasEv(); kartuEvS1(); kartuEvS2(); kartuEvS3(); kartuEvS4(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewPerforma() { rentangAktif(); porsiPic(); obTotal(); mkCorporate(); compListPicRentang(); compPotong(); bonusMarketing(); bonusEvent(); modeHarian(); labelRentang(); pitaYatimPerforma(); kartuApprovalCompliment(); aturTombolKirim(); cetakAchievement(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gambarDaftar() { kartuBonusMk(); kartuBonusEv(); kartuCompliment(); clearChartsExcept(); barOpts(); emptyCanvas(); }
 
 
 

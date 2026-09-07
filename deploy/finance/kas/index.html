@@ -4408,6 +4408,306 @@ function kartuBonusMk(info, pid, e, a, list){
     +kartuSkema4(info,pid,list);
 }
 
+/* ============ BONUS EVENT ============
+   Skema SDM tim Event, dipasang 7 September 2026 atas permintaan user. Empat
+   skema, bentuknya sama dengan Bonus Marketing di atas supaya yang membuka dua
+   halaman itu tidak perlu belajar dua cara membaca:
+
+     Skema 1  Bonus per event      tangga dari omset TIAP event, nominal /orang
+     Skema 2  Target bulanan       pool TIM dari JUMLAH event sebulan, dibagi tim
+     Skema 3  Non-Tunai            voucher F&B per event
+     Skema 4  Total omset bulanan  tangga per PIC
+
+   SKEMA 1 + 2 + 4 DIAKUMULASI jadi satu angka rupiah; SKEMA 3 BERDIRI SENDIRI
+   (permintaan user: "vouchernya di hitung terpisah"). Penomorannya sengaja
+   MENGIKUTI DOKUMEN, bukan diurutkan ulang supaya yang tunai berdampingan —
+   yang memegang dokumen SDM-nya akan mencari "Skema 3" dan harus menemukan
+   voucher di situ.
+
+   DASARNYA NET, DAN INI BEDA DARI BONUS MARKETING. Dokumennya menyebutkan
+   sendiri: "Angka dari nett (Sebelum tax & services)". Yang dibaca karena itu
+   `amount` — kolom **Nilai Event** di tabel Daftar Event halaman ini — BUKAN
+   `porsi`, yang untuk event cuma SEPARUHNYA (porsiPic: amount/2 + Open Bill).
+   Dipakai porsi, seluruh tangga di bawah praktis tidak pernah tercapai dan
+   tidak seorang pun akan curiga: angkanya kecil, dan kecil itu terbaca sebagai
+   bulan yang sepi.
+
+   Potongan compliment SENGAJA TIDAK dikurangkan dari dasarnya. Akibatnya orang
+   bisa menjumlahkan sendiri kolom Nilai Event di layar dan mendapat angka yang
+   sama persis dengan dasar tangganya — dasar bonus yang tidak bisa dicocokkan
+   dengan tabel yang berdiri di layar yang sama adalah dasar yang berhenti
+   dipercaya.
+
+   Seluruh nominal ditulis PENUH, bukan "35 jt" (permintaan user). */
+
+/* ---- SKEMA 1 — tangga per event, nominal PER ORANG ----
+   Dokumennya berlubang di dua tempat: "Rp35 – 45 juta" lalu "Rp46 – 55 juta"
+   (Rp45.000.001–Rp45.999.999 tidak disebut), dan "Rp46 – 55 juta" lalu
+   "> Rp56 juta" (Rp55.000.001–Rp55.999.999 tidak disebut). Keduanya dimasukkan
+   ke tangga DI ATASNYA — memihak tim, aturan yang sama dengan MK_S2 di Bonus
+   Marketing. Tangga berlubang membuat omset yang NAIK bisa MENURUNKAN bonus,
+   dan itu tidak pernah bisa dijelaskan ke orang yang menerimanya.
+
+   Label ditulis dari `min` INI, bukan dari kalimat dokumennya, supaya yang
+   dibaca di layar sama persis dengan yang dihitung. */
+const EV_S1=[
+  { min:100000001, bonus:1000000, label:'Di atas Rp100.000.000' },
+  { min: 55000001, bonus: 500000, label:'Rp55.000.001 – Rp100.000.000' },
+  { min: 45000001, bonus: 400000, label:'Rp45.000.001 – Rp55.000.000' },
+  { min: 35000000, bonus: 300000, label:'Rp35.000.000 – Rp45.000.000' },
+];
+
+/* ---- SKEMA 2 — JUMLAH event sebulan, pool tim ----
+   Baris "8 event" di dokumen berbunyi "tidak ada bonus (standar kerja)", jadi
+   ia bukan tangga melainkan garis dasar; disimpan terpisah supaya tetap bisa
+   digambar di tabel tanpa pernah ikut memberi rupiah. AMBIL YANG TERTINGGI:
+   12 event tidak juga menerima bonus baris 10 event. */
+const EV_S2=[
+  { min:12, bonus:500000 },
+  { min:10, bonus:200000 },
+];
+const EV_S2_DASAR=8;
+
+/* ---- SKEMA 3 — non-tunai, per event ----
+   "di atas Rp X" di sini dibaca HARFIAH (> X), beda dari Bonus Marketing yang
+   terpaksa membacanya ">= X" karena di sana satu ambang yang sama ditulis dua
+   kali dengan kata berbeda. Di dokumen event tidak ada tabrakan seperti itu:
+   30/56/100 cuma muncul di daftar ini. Tiap event dihitung SEKALI, di tangga
+   tertingginya — event Rp120 juta memberi Rp250.000, bukan Rp250.000 +
+   Rp150.000 + Rp100.000. */
+const EV_S3_VOUCHER=[
+  { min:100000001, nilai:250000 },
+  { min: 56000001, nilai:150000 },
+  { min: 30000001, nilai:100000 },
+];
+
+/* ---- SKEMA 4 — tangga per PIC dari total nilai omset sebulan ----
+   Tabelnya BEDA dari MK_S2 milik marketing (tangga maupun nominalnya), jadi
+   sengaja tabel sendiri — menyatukannya berarti satu perubahan di sini
+   diam-diam menggeser bonus divisi sebelah. Celah di dokumen (Rp200–201,
+   Rp250–251, Rp300–301 juta) dimasukkan ke tangga di atasnya, sama dengan
+   Skema 1. */
+const EV_S4=[
+  { min:350000001, bonus:1000000, label:'Di atas Rp350.000.000' },
+  { min:300000001, bonus: 700000, label:'Rp300.000.001 – Rp350.000.000' },
+  { min:250000001, bonus: 500000, label:'Rp250.000.001 – Rp300.000.000' },
+  { min:200000001, bonus: 350000, label:'Rp200.000.001 – Rp250.000.000' },
+  { min:150000000, bonus: 250000, label:'Rp150.000.000 – Rp200.000.000' },
+];
+
+function tanggaEvS4(nilai){
+  const t=mkTangga(EV_S4,nilai);
+  if(t) return Object.assign({},t,{ next:EV_S4[EV_S4.indexOf(t)-1]||null });
+  return { min:0, bonus:0, label:'Belum masuk tangga', next:EV_S4[EV_S4.length-1] };
+}
+
+/* SATU tempat yang menghitung seluruh skema event, dari `agg` yang sama dengan
+   yang menggambar tabel Daftar Event. Alasan yang sama dengan bonusMarketing():
+   dua tempat yang menghitung bonus sendiri-sendiri akan berselisih suatu hari,
+   dan yang selisih itu uang. */
+function bonusEvent(list, agg){
+  const evSemua=[]; const aktif=[];
+  list.forEach(e=>{
+    const a=agg[e.id]; if(!a) return;
+    if(a.events.length) aktif.push(e.id);
+    a.events.forEach(ev=>evSemua.push(ev));
+  });
+
+  /* --- SKEMA 2: pool tim dari JUMLAH event, bukan nilainya --- */
+  const s2tier=mkTangga(EV_S2,evSemua.length);
+  const s2pool=s2tier?s2tier.bonus:0;
+  /* Pembaginya PIC yang punya event bulan itu, bukan seluruh roster — alasan
+     yang sama dengan pool Skema 1 di Bonus Marketing: roster ini tumbuh sendiri
+     dari Tim/Keterangan Office dan rutin menyimpan nama yang sudah pindah tim.
+     Angkanya selalu disebut di layar. */
+  const s2bagi=aktif.length;
+  const s2per=s2bagi?Math.floor(s2pool/s2bagi):0;
+
+  const per={};
+  list.forEach(e=>{
+    const a=agg[e.id]||{real:0,events:[]};
+    const evs=a.events||[];
+    /* Skema 1 — per event, di tangga tertinggi tiap event saja. */
+    let s1=0; const s1Jml={};
+    evs.forEach(ev=>{ const t=mkTangga(EV_S1,num(ev.amount));
+      if(t){ s1+=t.bonus; s1Jml[t.min]=(s1Jml[t.min]||0)+1; } });
+    /* Skema 3 — voucher, aturan pemilihan tangga yang sama. */
+    let voucher=0; const vJml={};
+    evs.forEach(ev=>{ const t=mkTangga(EV_S3_VOUCHER,num(ev.amount));
+      if(t){ voucher+=t.nilai; vJml[t.min]=(vJml[t.min]||0)+1; } });
+    /* Skema 4 — dasarnya jumlah NILAI EVENT PIC itu, angka yang bisa
+       dijumlahkan sendiri dari kolom Nilai Event di tabel sebelah. */
+    const net=evs.reduce((s,ev)=>s+num(ev.amount),0);
+    const s4=tanggaEvS4(net);
+    const ikutS2=aktif.indexOf(e.id)>-1;
+    per[e.id]={ s1:s1, s1Jml:s1Jml, s2:ikutS2?s2per:0, ikutS2:ikutS2,
+      s4:s4, net:net, jumEvent:evs.length,
+      tunai:s1+(ikutS2?s2per:0)+s4.bonus,
+      voucher:voucher, vJml:vJml };
+  });
+  return { per:per, jumPic:list.length, jumEvent:evSemua.length,
+    s2:{ tier:s2tier, pool:s2pool, bagi:s2bagi, perPic:s2per },
+    tunaiSemua:list.reduce((s,e)=>s+per[e.id].tunai,0),
+    voucherSemua:list.reduce((s,e)=>s+per[e.id].voucher,0),
+    netSemua:list.reduce((s,e)=>s+per[e.id].net,0) };
+}
+
+/* ---- PENGGAMBAR KARTU BONUS EVENT ----
+   Bentuknya sengaja sama persis dengan kartu Bonus Marketing: satu baris tiga
+   kotak posisi sekarang, lalu tangganya sebagai tabel. MK_HI dipakai bersama —
+   dua warna sorot yang beda di dua halaman sejenis cuma membuat orang mengira
+   salah satunya menandai hal lain. */
+
+/* NOMINAL SKEMA 1 ITU PER ORANG, dan halaman ini menghitungnya untuk PIC yang
+   TERCATAT di baris breakdown — Office tidak menyimpan siapa saja anggota tim
+   sebuah event, jadi tidak ada angka lain yang bisa dipakai. Kalau timnya lebih
+   dari satu orang, yang dibayarkan adalah angka ini DIKALI jumlah orangnya.
+   Itu dikatakan di layar, bukan cuma di komentar: total yang diam-diam berarti
+   "kalau timnya satu orang" akan dipakai menyiapkan pembayaran apa adanya. */
+function baguRingkasEv(info, pid, e, a){
+  const semua=pid==='__all__';
+  const p=semua?null:info.per[pid];
+  const tunai=semua?info.tunaiSemua:(p?p.tunai:0);
+  const voucher=semua?info.voucherSemua:(p?p.voucher:0);
+  const rinci=semua
+    ? `jumlah bonus tunai ${info.jumPic} PIC di roster event`
+    : (p?`Skema 1 ${fmtRp(p.s1)} · 2 ${fmtRp(p.s2)} · 4 ${fmtRp(p.s4.bonus)}`:'—');
+  /* Kotak tengah: per PIC menjawab "kurang berapa lagi" (Skema 4), yang cuma
+     bisa dijawab per orang. Di segmen Semua ia diganti angka tim — tangga
+     Skema 4 dihitung dari omset SATU PIC, jadi menerapkannya ke angka gabungan
+     memberi tangga yang tidak akan pernah diterima siapa pun. */
+  const tengah=semua
+    ? `<div class="stat"><div class="lab">Event Tim Bulan Ini</div><div class="val sm">${info.jumEvent}</div>
+        <div class="foot">${info.s2.tier?`Skema 2 ${fmtRp(info.s2.pool)} dibagi ${info.s2.bagi} PIC`:`belum mencapai ${EV_S2[EV_S2.length-1].min} event`}</div></div>`
+    : (function(){
+        const s4=p.s4, kurang=s4.next?Math.max(0,s4.next.min-p.net):0;
+        return `<div class="stat"><div class="lab">${s4.next?'Menuju Tangga Skema 4':'Tangga Skema 4 Tertinggi'}</div>
+          <div class="val sm mono">${s4.next?fmtRp(kurang):'—'}</div>
+          <div class="foot">${s4.next?`lagi untuk bonus ${fmtRp(s4.next.bonus)}`:'sudah di tangga teratas'}</div></div>`;
+      })();
+  return `<div class="grid g3">
+    <div class="stat ${tunai?'accent':''}"><div class="lab">Bonus Tunai${semua?' — Seluruh Tim':''}</div>
+      <div class="val sm mono">${fmtRp(tunai)}</div><div class="foot">${esc(rinci)}</div></div>
+    ${tengah}
+    <div class="stat"><div class="lab">Non-Tunai (Skema 3)</div>
+      <div class="val sm mono">${voucher?fmtRp(voucher):'—'}</div>
+      <div class="foot">voucher F&amp;B${voucher?'':' · belum ada'}</div></div>
+  </div>`;
+}
+
+function kartuEvS1(info, pid, list){
+  const semua=pid==='__all__';
+  const jml=m=>semua?list.reduce((s,x)=>s+((info.per[x.id].s1Jml[m])||0),0):((info.per[pid].s1Jml[m])||0);
+  const baris=EV_S1.slice().reverse().map(t=>{
+    const n=jml(t.min);
+    return `<tr${n?MK_HI:''}><td>${esc(t.label)}</td>
+      <td class="num mono">${n} event</td>
+      <td class="num mono">${fmtRp(t.bonus)} <span class="muted">/orang</span></td>
+      <td class="num mono">${n?'<b>'+fmtRp(t.bonus*n)+'</b> ✓':'<span class="muted">—</span>'}</td></tr>`;
+  }).join('');
+  const total=semua?list.reduce((s,x)=>s+info.per[x.id].s1,0):info.per[pid].s1;
+  return `<div class="card">
+    <h3>1️⃣ Skema 1 — Bonus per Event</h3>
+    <div class="card-sub">Tangga dari <b>omset tiap event</b>, dihitung per event lalu dijumlahkan.
+      Dasarnya kolom <b>Nilai Event</b> di tabel sebelah — <b>net, sebelum tax &amp; service</b>, sesuai catatan di skemanya.</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>F&amp;B Sales Internal Event</th><th class="num">Tercapai</th><th class="num">Bonus Tim Event</th><th class="num">Diperoleh</th></tr></thead>
+      <tbody>
+        <tr><td>Di bawah ${fmtRp(35000000)}</td><td class="num mono">${semua?info.jumEvent-EV_S1.reduce((s,t)=>s+jml(t.min),0):info.per[pid].jumEvent-EV_S1.reduce((s,t)=>s+jml(t.min),0)} event</td>
+          <td class="num mono">—</td><td class="num mono"><span class="muted">standar kerja</span></td></tr>
+        ${baris}
+      </tbody>
+      <tfoot><tr><th colspan="3">Total Skema 1</th><th class="num mono">${fmtRp(total)} <span class="muted">/orang</span></th></tr></tfoot>
+    </table></div>
+    <div class="helper" style="margin-top:10px"><b>Nominalnya per orang.</b> Halaman ini menghitungnya untuk <b>PIC yang tercatat</b> di baris breakdown —
+      Office tidak menyimpan siapa saja anggota tim sebuah event. Kalau timnya lebih dari satu orang, yang dibayarkan angka ini <b>dikali jumlah orangnya</b>.
+      Tiap event dihitung sekali, di tangga tertingginya.</div>
+  </div>`;
+}
+
+function kartuEvS2(info){
+  const baris=EV_S2.slice().reverse().map(t=>{
+    const aktif=!!(info.s2.tier&&info.s2.tier.min===t.min);
+    return `<tr${aktif?MK_HI:''}><td>${aktif?'<b>':''}${t.min} event internal / Collab${aktif?'</b> ✓':''}</td>
+      <td class="num mono">${aktif?'<b>'+fmtRp(t.bonus)+'</b>':fmtRp(t.bonus)}</td></tr>`;
+  }).join('');
+  return `<div class="card">
+    <h3>2️⃣ Skema 2 — Bonus Target Bulanan (Performance Team)</h3>
+    <div class="card-sub">Dari <b>JUMLAH event</b> tim event pada periode ini, bukan nilainya: <b>${info.jumEvent} event</b>${
+      info.s2.tier?` — masuk tangga ${info.s2.tier.min} event`:' — belum masuk tangga mana pun'}.</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Target Event Internal Per Bulan</th><th class="num">Total Bonus (dibagi tim)</th></tr></thead>
+      <tbody>
+        <tr${info.s2.tier?'':MK_HI}><td>${info.s2.tier?'':'<b>'}${EV_S2_DASAR} event internal / Collab${info.s2.tier?'':'</b> ✓'}</td>
+          <td class="num mono"><span class="muted">standar kerja</span></td></tr>
+        ${baris}
+      </tbody>
+      <tfoot><tr><th>Pool tim</th><th class="num mono">${fmtRp(info.s2.pool)}</th></tr>
+        <tr><th>Dibagi ke ${info.s2.bagi} PIC yang punya event periode ini</th>
+          <th class="num mono">${fmtRp(info.s2.perPic)} <span class="muted">/ PIC</span></th></tr></tfoot>
+    </table></div>
+    <div class="helper" style="margin-top:10px">Berbeda dari Skema 1: yang ini <b>satu pool yang dibagi</b>, bukan nominal per orang. Yang berlaku hanya tangga tertinggi.</div>
+  </div>`;
+}
+
+function kartuEvS3(info, pid, list){
+  const semua=pid==='__all__';
+  const jml=m=>semua?list.reduce((s,x)=>s+((info.per[x.id].vJml[m])||0),0):((info.per[pid].vJml[m])||0);
+  const baris=EV_S3_VOUCHER.slice().reverse().map(t=>{
+    const n=jml(t.min);
+    return `<tr${n?MK_HI:''}><td>Voucher F&amp;B ${fmtRp(t.nilai)} untuk tiap event di atas ${fmtRp(t.min-1)}</td>
+      <td class="num mono">${n} event</td>
+      <td class="num mono">${n?'<b>'+fmtRp(t.nilai*n)+'</b> ✓':'<span class="muted">—</span>'}</td></tr>`;
+  }).join('');
+  return `<div class="card">
+    <h3>3️⃣ Skema 3 — Bonus Non-Tunai (insentif tambahan)</h3>
+    <div class="card-sub">Voucher F&amp;B — <b>tidak dijumlahkan</b> ke Bonus Tunai di atas (permintaan user).
+      Nilainya rupiah, tapi yang keluar bukan uang: menjumlahkannya membuat angka yang tidak bisa dicairkan tampak seperti yang bisa.</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Insentif</th><th class="num">Tercapai</th><th class="num">Diperoleh</th></tr></thead>
+      <tbody>${baris}</tbody>
+      <tfoot><tr><th colspan="2">Total voucher</th><th class="num mono">${fmtRp(semua?info.voucherSemua:info.per[pid].voucher)}</th></tr></tfoot>
+    </table></div>
+    <div class="helper" style="margin-top:10px">Tiap event dihitung sekali, di tangga tertingginya — event ${fmtRp(120000000)} memberi ${fmtRp(250000)}, bukan ketiganya sekaligus.</div>
+  </div>`;
+}
+
+function kartuEvS4(info, pid){
+  const semua=pid==='__all__';
+  const s4=semua?null:info.per[pid].s4;
+  const baris=EV_S4.slice().reverse().map(t=>{
+    const aktif=!!(s4&&s4.bonus&&s4.min===t.min);
+    return `<tr${aktif?MK_HI:''}><td>${aktif?'<b>'+esc(t.label)+'</b> ✓':esc(t.label)}</td>
+      <td class="num mono">${aktif?'<b>'+fmtRp(t.bonus)+'</b>':fmtRp(t.bonus)}</td></tr>`;
+  }).join('');
+  const bawah=(s4&&!s4.bonus)?MK_HI:'';
+  return `<div class="card">
+    <h3>4️⃣ Skema 4 — Tangga Total Nilai Omset per PIC</h3>
+    <div class="card-sub">Dasarnya <b>jumlah Nilai Event PIC itu sendiri</b> pada periode ini (net, sebelum tax &amp; service).
+      ${semua?'<b>Dinilai per PIC</b>; angka gabungan tidak dipakai di sini, pilih namanya di atas.':`Totalnya ${fmtRp(info.per[pid].net)} dari ${info.per[pid].jumEvent} event — bisa dijumlahkan sendiri dari kolom Nilai Event di tabel sebelah.`}</div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th>Total Nilai Omset / Bulan</th><th class="num">Bonus untuk Tim Event</th></tr></thead>
+      <tbody>
+        <tr${bawah}><td>${bawah?'<b>Di bawah '+fmtRp(150000000)+'</b> ✓':'Di bawah '+fmtRp(150000000)}</td><td class="num mono">—</td></tr>
+        ${baris}
+      </tbody></table></div>
+  </div>`;
+}
+
+/* Seluruh kartu bonus event, satu pintu — sama dengan kartuBonusMk(). */
+function kartuBonusEv(info, pid, e, a, list){
+  return baguRingkasEv(info,pid,e,a)
+    +`<div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">
+        <b>Skema 1 + 2 + 4 diakumulasi</b> jadi Bonus Tunai${pid==='__all__'?' tiap PIC':''};
+        <b>Skema 3 berdiri sendiri</b> karena bentuknya voucher. Penomorannya mengikuti dokumen SDM-nya, jadi yang tunai tidak berurutan.
+        Seluruh angkanya <b>net, sebelum tax &amp; service</b> — bukan kolom Diakui, yang untuk event hanya separuh nilai event.
+        Laporan maksimal 7–14 hari setelah event selesai; pencairan ikut gajian. Kartu-kartu ini hanya menunjukkan posisi capaian.</div></div>`
+    +kartuEvS1(info,pid,list)
+    +kartuEvS2(info)
+    +kartuEvS3(info,pid,list)
+    +kartuEvS4(info,pid);
+}
+
 /* Pager tabel Daftar Event (7 September 2026, permintaan user). Alasannya
    sama dengan pager Riwayat di Performa Kasir, dan kartunya pun berdiri
    BERSEBELAHAN dengan grafik: segmen "Semua PIC" sebulan penuh bisa lewat 40
@@ -4470,7 +4770,7 @@ function viewPerforma(divi){
      mengulang perhitungan yang sama tiap klik segmen dengan hasil yang selalu
      sama persis — dan membuka peluang dua segmen menyebut pool yang berbeda
      kalau suatu hari ada yang menyelipkan penyaring di dalamnya. */
-  const BONUS=divi==='marketing'?bonusMarketing(list,agg):null;
+  const BONUS=divi==='marketing'?bonusMarketing(list,agg):bonusEvent(list,agg);
   const seg='<button class="active" data-pic="__all__">🧮 Semua</button>'+list.map(e=>`<button data-pic="${e.id}">${esc(e.name)}</button>`).join('');
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap">
@@ -4571,7 +4871,7 @@ function viewPerforma(divi){
         <div class="card"><h3>Omset per Event</h3><div class="chart-box sm"><canvas id="pf_chart"></canvas></div></div>
         <div class="card"><h3>Daftar Event</h3><div class="card-sub">${cnt} event · ${ketDiakui}</div><div id="pf_daftar"></div></div>
       </div>
-      ${BONUS?kartuBonusMk(BONUS,pid,e,a,list):''}
+      ${BONUS?(divi==='marketing'?kartuBonusMk(BONUS,pid,e,a,list):kartuBonusEv(BONUS,pid,e,a,list)):''}
       ${kartuCompliment(a.compRows||[], pid==='__all__')}`;
     gambarDaftar();
     clearChartsExcept();
