@@ -517,7 +517,15 @@ function bacaSesi(){
     if(!s||!s.expiry||Date.now()>=s.expiry) return null;
     const m=s.modules||[];
     if(m.indexOf('*')<0 && m.indexOf('cashier')<0) return null;
-    return {id:s.userId,name:s.name,keterangan:s.keterangan||''};
+    /* adminModules IKUT DIBACA sejak 7 September 2026 — sebelumnya modul ini
+       memang tidak pernah membedakan siapa pun, karena semua halamannya
+       terbuka untuk seluruh pemegang kunci. Yang berubah: rincian per kasir
+       di Performa Kasir sekarang dibatasi, dan tanpa penanda ini supervisor
+       maupun Finance yang membuka modul ini ikut terkunci dari nama-nama yang
+       memang tugasnya ia periksa. */
+    const adm=s.adminModules||[];
+    const isAdmin=adm.indexOf('*')>-1||adm.indexOf('cashier')>-1;
+    return {id:s.userId,name:s.name,keterangan:s.keterangan||'',isAdmin};
   }catch(e){ return null; }
 }
 function bolehLihat(view){ return !!TITLES[view]; }
@@ -2753,6 +2761,45 @@ function kasirMurni(e){
    bertahan saat hanya tabelnya yang digambar ulang. */
 const KS_PER_HAL=12;
 let KS_HAL=1;
+/* ==== RINCIAN PER KASIR HANYA UNTUK DIRI SENDIRI (7 September 2026) ====
+
+   Permintaan user: yang login boleh melihat NAMANYA SENDIRI dan tab
+   <b>Semua</b> (yang memang mencakup kasir lain sebagai satu angka), tapi
+   TIDAK boleh membuka kasir lain satu per satu.
+
+   Tab Semua sengaja TETAP terbuka. Ia agregat — tidak menyebut siapa dapat
+   berapa — dan justru itu angka yang dipakai kasir membandingkan dirinya
+   dengan capaian tim. Menutupnya berarti mencabut satu-satunya pembanding
+   yang halaman ini punya, untuk sesuatu yang tidak pernah diminta.
+
+   ADMIN MODUL DIKECUALIKAN. Kalau tidak, supervisor dan Finance yang membuka
+   modul ini ikut terkunci dari nama-nama yang memang tugasnya ia periksa —
+   dan satu-satunya jalan keluarnya jadi membuka panel Finance di modul lain.
+   Kalau suatu hari ini harus diketatkan juga, yang perlu diubah cuma
+   bolehLihatKasir(); daftarnya sudah lewat satu tempat.
+
+   PENJAGANYA DUA LAPIS, dan itu bukan berlebihan: tombolnya memang tidak
+   digambar, tapi draw() bisa dipanggil dari console peramban. Yang menahan
+   sebenarnya gerbang di draw(), bukan tombol yang hilang. */
+function kasirSaya(list){
+  const u=CURRENT_USER; if(!u) return null;
+  /* officeUserId DULU, baru nama — nama bisa berubah ejaannya di Office, id
+     tidak. Aturan yang sama dengan compFilterPic() di berkas ini. */
+  const oid=u.id||'';
+  let s=oid?list.find(k=>k.officeUserId&&k.officeUserId===oid):null;
+  if(!s){
+    const nama=String(u.name||'').trim().toLowerCase();
+    if(nama) s=list.find(k=>String(k.name||'').trim().toLowerCase()===nama);
+  }
+  return s||null;
+}
+function bolehLihatSemuaKasir(){ return !!(CURRENT_USER&&CURRENT_USER.isAdmin); }
+function bolehLihatKasir(kid,list){
+  if(kid==='__all__') return true;
+  if(bolehLihatSemuaKasir()) return true;
+  const saya=kasirSaya(list);
+  return !!(saya&&saya.id===kid);
+}
 function viewKasir(){
   const el=document.getElementById('app-view');
   const days=rentangAktif();
@@ -2817,7 +2864,18 @@ function viewKasir(){
     agg[k.id].hist.forEach(h=>{ if(perTgl[h.date]){ h.real-=perTgl[h.date]; delete perTgl[h.date]; } });
     Object.keys(perTgl).forEach(dt=>agg[k.id].hist.push({date:dt,real:-perTgl[dt],off:false,extra:true}));
   });
-  const seg='<button class="active" data-k="__all__">🧮 Semua</button>'+list.map(k=>`<button data-k="${k.id}">${esc(k.name)}</button>`).join('');
+  /* Tombol yang tidak boleh dibuka TIDAK digambar — tombol yang ada tapi
+     menolak saat ditekan cuma membuat orang menekannya berkali-kali. */
+  const sayaKasir=kasirSaya(list);
+  const kasirTampil=bolehLihatSemuaKasir()?list:(sayaKasir?[sayaKasir]:[]);
+  const seg='<button class="active" data-k="__all__">🧮 Semua</button>'+kasirTampil.map(k=>`<button data-k="${k.id}">${esc(k.name)}</button>`).join('');
+  /* Daftar yang menyusut WAJIB menjelaskan dirinya. Kasir yang kemarin
+     melihat sepuluh nama dan hari ini cuma satu akan melaporkannya sebagai
+     data hilang, bukan sebagai aturan baru. */
+  const catatanAkses=bolehLihatSemuaKasir()?''
+    :(sayaKasir
+      ? `<div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Rincian per kasir hanya untuk <b>${esc(sayaKasir.name)}</b> — namamu sendiri. Tab <b>Semua</b> tetap memuat seluruh kasir, sebagai satu angka gabungan.</div></div>`
+      : `<div class="notice warn">⚠ <div>Akunmu belum cocok dengan satu pun nama kasir di sini, jadi yang bisa dibuka cuma tab <b>Semua</b>. Pencocokannya lewat Tim/Keterangan di Office — kalau namamu memang kasir, minta dibetulkan di sana.</div></div>`);
   /* Hari yang punya baris event tanpa kasir shift. Potongannya tidak dibebankan
      ke siapa pun, jadi realisasi kasir di bawah lebih BESAR dari seharusnya —
      sebut alasannya, jangan biarkan angkanya tampak wajar. Breakdown Sumber
@@ -2833,8 +2891,17 @@ function viewKasir(){
      menambah apa pun yang bisa dikerjakan dari sini — memperbaikinya tetap di
      Office. Kalau suatu saat perlu tahu siapa yang tersaring, `disaring` masih
      dihitung di atas; jangan hidupkan lagi sebagai notice permanen. */
-  el.innerHTML=`<div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>`+peringatan+(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
+  el.innerHTML=`<div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>`+peringatan+catatanAkses+(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
   const draw=kid=>{
+    /* GERBANG SEBENARNYA ADA DI SINI, bukan di tombolnya. draw() bisa
+       dipanggil dari console peramban, dan halaman yang menjaga aksesnya
+       hanya dengan tidak menggambar tombol tidak menjaga apa pun. */
+    if(!bolehLihatKasir(kid,list)){
+      const b=document.getElementById('ks_body');
+      if(b) b.innerHTML='<div class="card"><div class="empty">Rincian kasir lain tidak dibuka di modul ini. '
+        +'Yang bisa dilihat: namamu sendiri, dan tab <b>Semua</b> sebagai angka gabungan.</div></div>';
+      return;
+    }
     let k,a;
     if(kid==='__all__'){
       k={name:'Semua Kasir', target:list.reduce((s,x)=>s+num(x.target),0)};

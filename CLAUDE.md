@@ -714,6 +714,42 @@ node tools/uji-openbill-performa.js   # 47 pemeriksaan (dari 25), TIGA berkas
   mana yang utama. `kk_buku` tetap jadi cadangan berikutnya: yang tidak berhak
   membuka Dashboard Omset tidak boleh mendarat di layar kosong.
 
+### Cashier: Performa Kasir cuma untuk diri sendiri (7 September 2026)
+
+Permintaan user: yang login boleh melihat **namanya sendiri** dan tab
+**Semua**; kasir lain **tidak** bisa dibuka satu per satu.
+
+- **Tab Semua SENGAJA tetap terbuka.** Ia agregat — tidak menyebut siapa dapat
+  berapa — dan justru itu angka yang dipakai kasir membandingkan dirinya
+  dengan capaian tim. Menutupnya mencabut satu-satunya pembanding yang halaman
+  ini punya, untuk sesuatu yang tidak pernah diminta.
+- **GERBANGNYA DI `draw()`, bukan di tombolnya.** Tombol kasir lain memang
+  tidak digambar, tapi `draw()` membaca `b.dataset.k` saat diklik — dan
+  `data-k` bisa diubah dari devtools dalam sepuluh detik. Halaman yang menjaga
+  aksesnya hanya dengan tidak menggambar tombol tidak menjaga apa pun. Ujinya
+  melakukan persis itu: mengakali `data-k` lalu mengklik.
+- **ADMIN MODUL DIKECUALIKAN** (`adminModules` kini ikut dibaca `bacaSesi()`,
+  sebelumnya modul ini tidak pernah membedakan siapa pun). Tanpa itu
+  supervisor dan Finance yang membuka modul ini ikut terkunci dari nama-nama
+  yang memang tugasnya ia periksa. Kalau suatu hari harus diketatkan juga,
+  yang perlu diubah cuma `bolehLihatKasir()`.
+- **Pencocokan user↔kasir lewat `officeUserId` DULU, baru nama** — nama bisa
+  berubah ejaannya di Office, id tidak. Aturan yang sama dengan
+  `compFilterPic()` di berkas yang sama.
+- **Akun yang tidak cocok dengan kasir mana pun DIKATAKAN sebabnya** berikut
+  cara membetulkannya (Tim/Keterangan di Office). Daftar yang menyusut tanpa
+  penjelasan akan dilaporkan sebagai data hilang, bukan dibaca sebagai aturan
+  baru.
+
+Yang dijaga ujinya bukan NAMA melainkan ANGKA: isi `ks_body` tidak pernah
+menyebut nama kasir sama sekali, dan yang sebenarnya dirahasiakan memang
+capaian orangnya — namanya toh ada di Office. Tiap kasir di data uji diberi
+nominal berbeda supaya tiap tab punya angka khasnya sendiri.
+
+```bash
+node tools/uji-performa-kasir-akses.js   # 25 pemeriksaan, jsdom
+```
+
 ### TARGET DICABUT SELURUHNYA dari Finance & Cashier (5 September 2026)
 
 Permintaan user: *"Target bulanan dan pengaturan target di modul finance, dan
