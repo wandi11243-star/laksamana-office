@@ -3458,6 +3458,42 @@ main-main dan isinya rutin tertinggal; menjadikannya sumber kebenaran untuk
 pencabutan berarti satu percobaan di dev bisa memutus akses orang yang sedang
 bekerja. `--cabut` ada, tapi bacalah daftarnya dulu.
 
+### Deploy gagal ETIMEDOUT: servernya sehat, IP runner-nya diblokir (7 Sep 2026)
+
+```
+Error: connect ETIMEDOUT 202.10.43.196:21 (control socket)
+```
+
+Jangan mencari sebabnya di repo. Ini **kegagalan jaringan sebelum satu byte
+pun terkirim** — bukan berkas, bukan kredensial, bukan commit yang barusan
+di-push. Dibuktikan dengan menghubungi port 21 dari jaringan lain: server
+menjawab banner Pure-FTPd seketika, sementara runner GitHub menunggu sampai
+habis waktu.
+
+**ETIMEDOUT vs ECONNREFUSED menentukan ke mana harus melapor**, dan bedanya
+sempat salah dipetakan di kedua workflow:
+
+| gejala | kode curl | artinya |
+|---|---|---|
+| paket dibalas *reject* | **7** | ada yang menjawab — port tertutup / layanan mati |
+| paket **dibuang diam-diam** | **28** | firewall DROP — tanda khas IP runner kena blokir CSF/LFD |
+
+CSF di Rumahweb bawaannya **DROP**, jadi blokir IP muncul sebagai **28**,
+bukan 7 — padahal satu-satunya baris yang menyebut "minta whitelist" ada di 7,
+dan baris 28 berbunyi "server sedang bermasalah". Diagnosisnya menyuruh yang
+membacanya memeriksa server yang sehat. Sudah dibetulkan di `deploy.yml` dan
+`deploy-dev.yml`; jangan disamakan lagi jadi satu pesan — dua gejala itu
+menuntut dua tindakan yang berbeda.
+
+- **Tindakan pertama: JALANKAN ULANG workflow-nya.** Runner baru berarti IP
+  baru, dan itu sering langsung lolos. Percobaan ulang 3× di dalam job TIDAK
+  menolong: ketiganya dari IP yang sama.
+- Kalau berulang, minta support Rumahweb mencabut blokirnya. Menambah
+  whitelist rentang IP GitHub Actions bukan jalan keluar yang bertahan —
+  rentangnya besar dan berganti.
+- Peringatan **"Node 20 is being deprecated"** di log yang sama TIDAK ada
+  hubungannya dengan kegagalan ini.
+
 ### Monarx memblokir langkah verifikasi backend (29 Agustus 2026)
 
 Rumahweb memasang **Monarx** (WAF) di depan domainnya. Untuk IP runner GitHub
