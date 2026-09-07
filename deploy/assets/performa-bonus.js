@@ -43,6 +43,98 @@ const PB_RP=fmtRp, PB_NUM=num, PB_ESC=esc;
 /* Peta Tim/Keterangan dari Office. Diisi tuan rumah; lihat catatan di kepala. */
 let PB_KET=function(){ return null; };
 function pbSetKeterangan(fn){ PB_KET=(typeof fn==='function')?fn:function(){ return null; }; }
+
+/* ============ AGREGASI PERFORMA (pindah ke sini 7 September 2026) ============
+   Semula inline di deploy/finance/kas/. Ikut pindah begitu modul Marketing
+   perlu menghitung REALISASI yang sama: kalau tidak, halaman Marketing dan
+   panel Finance akan menyebut angka berbeda untuk PIC dan bulan yang sama,
+   dan yang mencocokkannya tidak punya cara tahu mana yang benar.
+
+   finance/kas TIDAK menyalin ini — porsiPic()/obTotal()/compPotong() di sana
+   sekarang MENDELEGASIKAN ke fungsi di bawah. Namanya dipertahankan di sana
+   karena pemanggil lain (potonganBaris, Analytics) memakainya. */
+function pbObAktif(r){ return !!(r && r.ob); }
+function pbObTotal(r){ return pbObAktif(r) ? PB_NUM(r.obAmount)+PB_NUM(r.obTax)+PB_NUM(r.obService) : 0; }
+/* MARKETING diakui omset + tax + service; EVENT hanya SEPARUH omsetnya.
+   Open Bill ikut di keduanya dan TIDAK dipotong dari kasir mana pun.
+   BERKAS KEMBAR porsiPic() di deploy/finance/omset/ — dijaga
+   tools/uji-openbill-performa.js, yang memotong keduanya lalu membandingkan
+   hasilnya untuk baris yang sama. */
+function pbPorsiPic(r, divi){
+  if(divi==='event') return Math.round(PB_NUM(r.amount)/2)+pbObTotal(r);
+  return PB_NUM(r.amount)+PB_NUM(r.tax)+PB_NUM(r.service)+pbObTotal(r);
+}
+/* Yang benar-benar dipotong = SUB TOTAL, bukan nilai penuh compliment-nya. */
+function pbCompPotong(c){ return c && c.subTotal!=null ? PB_NUM(c.subTotal) : PB_NUM(c&&c.nominal); }
+/* Sisi yang ber-PIC "Tamu" tidak menunjuk siapa pun, jadi tidak pernah cocok.
+   officeUserId DULU, nama cuma cadangan: nama bisa berubah ejaannya di Office,
+   id tidak. */
+function pbCompCocok(emp, div, oid, pnama){
+  if(!emp || div==='tamu') return false;
+  if(emp.officeUserId && oid) return oid===emp.officeUserId;
+  if(!pnama) return false;
+  return String(pnama).trim().toLowerCase()===String(emp.name||'').trim().toLowerCase();
+}
+function pbCompIsPicKasir(c, emp){ return pbCompCocok(emp, c.picDiv, c.picOfficeId, c.picName); }
+function pbCompIsPemberi(c, emp){ return pbCompCocok(emp, c.pemberiDiv, c.pemberiOfficeId, c.pemberiName); }
+/* Catatan LAMA (tanpa field ini) dibaca "menunggu", jadi potongannya lepas
+   surut. Memilih "potong" sebagai bawaan berarti menerapkan keputusan yang
+   belum pernah diambil siapa pun. */
+function pbCompStatusPemberi(c){
+  const st=String((c&&c.pemberiStatus)||'menunggu');
+  return (st==='potong'||st==='tidak')?st:'menunggu';
+}
+function pbCompFilterPic(list, emp){
+  if(!emp) return [];
+  return list.filter(c=>
+    pbCompIsPicKasir(c, emp) ||
+    (pbCompIsPemberi(c, emp) && pbCompStatusPemberi(c)==='potong'));
+}
+
+/* SATU penghitung realisasi untuk seluruh modul yang memajangnya.
+
+   `days`  : baris harian, tiap satu { date, bd:{ marketing:[], event:[] } }
+   `divi`  : "marketing" | "event"
+   `list`  : roster PIC divisi itu, [{id,name,officeUserId}]
+   `comps` : compliment dalam rentang yang sama
+
+   Baris yang PIC-nya TIDAK dikenal DIKUMPULKAN sebagai `yatim`, bukan
+   dilewati diam-diam: nominalnya tetap tidak diakui untuk siapa pun, tapi
+   sekarang bisa DIKATAKAN. Sampai 4 September 2026 baris seperti itu hilang
+   tanpa jejak dan tidak ada satu layar pun yang menyebutkan selisihnya. */
+function pbAgregasi(days, divi, list, comps){
+  const agg={}, yatim=[];
+  (list||[]).forEach(e=>{ agg[e.id]={real:0,events:[]}; });
+  (days||[]).forEach(d=>{
+    const rows=(d && d.bd && d.bd[divi]) || [];
+    rows.forEach(r=>{
+      const porsi=pbPorsiPic(r,divi);
+      if(agg[r.picId]){
+        agg[r.picId].real+=porsi;
+        agg[r.picId].events.push({ date:d.date, name:r.eventName,
+          amount:PB_NUM(r.amount), tax:PB_NUM(r.tax), service:PB_NUM(r.service),
+          ob:pbObTotal(r), porsi:porsi, tiket:!!r.tiket,
+          /* Jenis dari modul Marketing, penentu "event corporate" di Skema 1.
+             Yang kosong TIDAK ditebak — lihat mkCorporate(). */
+          jenis:String(r.srcJenis||'') });
+      } else if(PB_NUM(r.amount)>0 || r.eventName){
+        yatim.push({ date:d.date, name:r.eventName||'(tanpa nama)',
+          amount:PB_NUM(r.amount), porsi:porsi, srcPic:r.srcPic||'', ada:!!r.picId });
+      }
+    });
+  });
+  /* Compliment memotong realisasi PIC penanggungnya. Barisnya ikut disimpan,
+     bukan cuma totalnya, supaya bisa dirinci — angka potongan saja membuat PIC
+     bertanya "dipotong apa", dan jawabannya cuma ada di halaman lain. */
+  (list||[]).forEach(e=>{
+    const cr=pbCompFilterPic(comps||[], e);
+    agg[e.id].compRows=cr;
+    agg[e.id].comp=cr.reduce((t,c)=>t+pbCompPotong(c),0);
+    agg[e.id].real-=agg[e.id].comp;
+  });
+  return { agg:agg, yatim:yatim };
+}
+
 /* ============ BONUS MARKETING ============
    Skema SDM "Skema Target & Bonus — Tim Marketing", dipasang 7 September 2026
    atas permintaan user. EMPAT skema, dan pemisahan tunai/non-tunai bukan
@@ -817,6 +909,17 @@ window.pbSetKeterangan=pbSetKeterangan;
    siapa boleh melihat seluruh tim — dua penentu untuk satu jabatan pasti
    menyimpang, dan yang menyimpang di sini bonus sejuta plus hak lihat. */
 window.pbHead=pbHead;
+/* Lapisan agregasi realisasi. Diekspor supaya modul Marketing & Event
+   menghitung Realisasi dengan rumus yang SAMA dengan panel Finance — dua
+   penghitung untuk satu angka berarti dua layar menyebut realisasi berbeda
+   untuk PIC dan bulan yang sama. */
+window.pbAgregasi=pbAgregasi;
+window.pbPorsiPic=pbPorsiPic;
+window.pbObTotal=pbObTotal;
+window.pbObAktif=pbObAktif;
+window.pbCompPotong=pbCompPotong;
+window.pbCompFilterPic=pbCompFilterPic;
+window.pbCompStatusPemberi=pbCompStatusPemberi;
 /* Diekspor KHUSUS untuk uji: keduanya dipotong dan dijalankan langsung oleh
    tools/uji-bonus-*.js. Tanpa ini ujinya harus menulis ulang rumusnya. */
 window.PB_UJI={ mkTangga:mkTangga, bonusS2:bonusS2, tanggaEvS4:tanggaEvS4,

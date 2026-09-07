@@ -2906,19 +2906,14 @@ function compsBulan(monthKey){ return (DB.compliments||[]).filter(c=>monthKeyOf(
 
    Catatan LAMA tidak punya rincian; nominal-nya tetap dipakai apa adanya
    supaya angka bulan-bulan yang sudah ditutup tidak berubah surut. */
-function compPotong(c){ return c && c.subTotal!=null ? num(c.subTotal) : num(c&&c.nominal); }
+function compPotong(c){ return pbCompPotong(c); }
 /* Cocok kalau `emp` adalah PIC KASIR-nya ATAU PEMBERI-nya.
    Satu compliment sekarang menyebut dua orang, dan dua-duanya menanggung:
    kasir karena barang keluar lewat mejanya, marketing/event karena dialah yang
    memutuskan memberikannya. Keduanya dinilai di halaman Performa yang berbeda,
    jadi tidak ada satu angka pun yang terpotong dua kali di tempat yang sama.
    Sisi yang ber-PIC "Tamu" tidak menunjuk siapa pun, jadi tidak pernah cocok. */
-function compCocok(emp, div, oid, pnama){
-  if(!emp || div==='tamu') return false;
-  if(emp.officeUserId && oid) return oid===emp.officeUserId;
-  if(!pnama) return false;
-  return String(pnama).trim().toLowerCase()===String(emp.name||'').trim().toLowerCase();
-}
+function compCocok(emp, div, oid, pnama){ return pbCompCocok(emp, div, oid, pnama); }
 function compIsPicKasir(c, emp){ return compCocok(emp, c.picDiv, c.picOfficeId, c.picName); }
 function compIsPemberi(c, emp){ return compCocok(emp, c.pemberiDiv, c.pemberiOfficeId, c.pemberiName); }
 /* ---- APPROVAL SISI PEMBERI (7 Agustus 2026) ----
@@ -2934,18 +2929,10 @@ function compIsPemberi(c, emp){ return compCocok(emp, c.pemberiDiv, c.pemberiOff
    menerapkan keputusan yang belum pernah diambil siapa pun, dan angka yang
    sudah telanjur memotong itulah yang dikeluhkan. Bulan lama bisa dirapikan
    dengan memutuskannya satu per satu di halaman Performa. */
-function compStatusPemberi(c){
-  const s=String((c&&c.pemberiStatus)||'menunggu');
-  return (s==='potong'||s==='tidak')?s:'menunggu';
-}
+function compStatusPemberi(c){ return pbCompStatusPemberi(c); }
 /* Compliment yang membebani `emp`. Sisi pemberi cuma ikut kalau sudah
    DIPUTUS potong. */
-function compFilterPic(list, emp){
-  if(!emp) return [];
-  return list.filter(c=>
-    compIsPicKasir(c, emp) ||
-    (compIsPemberi(c, emp) && compStatusPemberi(c)==='potong'));
-}
+function compFilterPic(list, emp){ return pbCompFilterPic(list, emp); }
 /* Semua compliment yang MENYEBUT emp sebagai pemberi, apa pun status
    putusannya. Dipakai kartu approval di Performa — yang sudah diputus pun
    tetap tampil supaya keputusannya bisa dibalik. */
@@ -3163,12 +3150,14 @@ function kartuApprovalCompliment(divi, list){
    bruto kasir hari itu. Jadi ia memang diakui dua kali, penuh untuk kasir dan
    penuh untuk PIC. Itu keputusan user 11 Agustus 2026, bukan kelalaian;
    jangan "diperbaiki" dengan menambahkannya ke potongKasir(). */
-function obAktif(r){ return !!(r && r.ob); }
-function obTotal(r){ return obAktif(r) ? num(r.obAmount)+num(r.obTax)+num(r.obService) : 0; }
-function porsiPic(r, divi){
-  if(divi==='event') return Math.round(num(r.amount)/2)+obTotal(r);
-  return num(r.amount)+num(r.tax)+num(r.service)+obTotal(r);
-}
+/* MENDELEGASIKAN ke deploy/assets/performa-bonus.js (7 September 2026).
+   Namanya dipertahankan di sini karena pemanggil lain di berkas ini memakainya,
+   tapi IMPLEMENTASINYA cuma satu — modul Marketing & Event menghitung realisasi
+   dengan fungsi yang sama, dan dua penghitung untuk satu angka berarti dua layar
+   menyebut realisasi berbeda untuk PIC dan bulan yang sama. */
+function obAktif(r){ return pbObAktif(r); }
+function obTotal(r){ return pbObTotal(r); }
+function porsiPic(r, divi){ return pbPorsiPic(r, divi); }
 /* Yang benar-benar dipotong dari kasir shift. Dipisah dari porsiPic() karena
    sejak 7 Agustus 2026 keduanya bukan angka yang sama lagi (lihat di atas).
    Hanya dipakai baris MARKETING — event tidak memotong siapa pun. */
@@ -4035,51 +4024,17 @@ function viewPerforma(divi){
   PF_HAL=1;   // masuk halaman / ganti rentang selalu mulai dari halaman pertama
   const days=rentangAktif();
   const list=DB.employees[divi];
-  const agg={};
-  list.forEach(e=>agg[e.id]={real:0,events:[]});
-  /* Realisasi memakai porsiPic(r,divi) — dan `divi` bukan hiasan: sejak
-     7 Agustus 2026 marketing diakui omset+tax+service sedangkan event cuma
-     separuh omsetnya. `amount` (penuh) tetap disimpan supaya tabelnya bisa
-     menunjukkan nilai event yang sebenarnya di samping yang diakui. */
-  /* Baris yang PIC-nya TIDAK dikenal DIKUMPULKAN, bukan dilewati diam-diam.
-
-     Sampai 4 September 2026 baris ini cuma `if(agg[r.picId])` — dan baris yang
-     picId-nya kosong (paling sering: event otomatis dari modul Marketing/Event
-     yang nama PIC-nya tidak ada di roster) hilang tanpa jejak. Yang mengisinya
-     melihat nominalnya di Breakdown, tidak melihatnya di sini, dan tidak ada
-     satu layar pun yang menyebutkan selisihnya. Keluhan user: "omset performa
-     event tidak ketarik padahal sudah di-set breakdown".
-
-     Nominalnya tetap TIDAK diakui untuk siapa pun — menebak pemiliknya lebih
-     buruk daripada mengatakannya belum dipilih. Yang berubah cuma: sekarang
-     dikatakan. */
-  const yatim=[];
-  days.forEach(d=>{(d.bd?.[divi]||[]).forEach(r=>{
-    if(agg[r.picId]){
-      const p=porsiPic(r,divi);
-      agg[r.picId].real+=p;
-      agg[r.picId].events.push({date:d.date,name:r.eventName,amount:num(r.amount),tax:num(r.tax),service:num(r.service),ob:obTotal(r),porsi:p,tiket:!!r.tiket,
-        /* Jenis dari modul Marketing, penentu "event corporate" di Skema 1.
-         Yang kosong TIDAK ditebak — lihat mkCorporate(). */
-        jenis:String(r.srcJenis||'')});
-    } else if(num(r.amount)>0 || r.eventName){
-      yatim.push({date:d.date,name:r.eventName||'(tanpa nama)',amount:num(r.amount),
-                  porsi:porsiPic(r,divi),srcPic:r.srcPic||'',ada:!!r.picId});
-    }
-  });});
-  // Compliment memotong realisasi PIC penanggungnya (yang ber-PIC "Tamu" tidak).
-  // Barisnya ikut disimpan, bukan cuma totalnya, supaya bisa dirinci di bawah.
-  list.forEach(e=>{
-    const cr=compListPicRentang(e);
-    agg[e.id].compRows=cr;
-    agg[e.id].comp=cr.reduce((s,c)=>s+compPotong(c),0);
-    agg[e.id].real-=agg[e.id].comp;
-  });
-  /* Bonus dihitung SEKALI untuk seluruh divisi, di luar drawPic: Skema 1 dan
-     Skema 3 adalah angka TIM, jadi menghitungnya di dalam drawPic berarti
-     mengulang perhitungan yang sama tiap klik segmen dengan hasil yang selalu
-     sama persis — dan membuka peluang dua segmen menyebut pool yang berbeda
-     kalau suatu hari ada yang menyelipkan penyaring di dalamnya. */
+  /* AGREGASINYA DI deploy/assets/performa-bonus.js, bukan di sini lagi
+     (7 September 2026). Modul Marketing & Event memajang Realisasi yang sama;
+     dua penghitung untuk satu angka berarti dua layar berselisih untuk PIC dan
+     bulan yang sama, dan yang mencocokkannya tidak punya cara tahu mana yang
+     benar. Termasuk di dalamnya: porsiPic per divisi, Open Bill, baris yatim
+     (PIC tidak dikenal), dan potongan compliment. */
+  const HASIL=pbAgregasi(days, divi, list, compsRentang());
+  const agg=HASIL.agg, yatim=HASIL.yatim;
+  /* Bonus dihitung SEKALI untuk seluruh divisi, di luar drawPic: Skema tim
+     adalah angka TIM, jadi menghitungnya di dalam drawPic berarti mengulang
+     perhitungan yang sama tiap klik segmen dengan hasil yang selalu sama. */
   const BONUS=divi==='marketing'?bonusMarketing(list,agg):bonusEvent(list,agg);
   const seg='<button class="active" data-pic="__all__">🧮 Semua</button>'+list.map(e=>`<button data-pic="${e.id}">${esc(e.name)}</button>`).join('');
   el.innerHTML=`

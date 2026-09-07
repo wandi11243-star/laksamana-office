@@ -451,7 +451,15 @@ cek('omset MENYEGARKAN srcJenis tiap render (baris lama ikut betul)',
     /r\.srcJenis=jenisSumber\[r\.srcId\]/.test(omset));
 cek('penyegarnya hanya menyentuh baris marketing, bukan event',
     /state\.mk\.forEach\(r=>\{\s*\n?\s*if\(!r\.srcId \|\| !\(r\.srcId in jenisSumber\)\)/.test(omset));
-cek('kas MEMBACA nama kunci yang sama', /jenis:String\(r\.srcJenis\|\|''\)/.test(kas));
+/* Yang membacanya sekarang pbAgregasi() di aset, bukan viewPerforma di kas —
+   modul Marketing & Event merakit barisnya dengan fungsi yang sama sejak
+   7 September 2026. Nama kuncinya tetap harus sama persis dengan yang DITULIS
+   omset; beda satu huruf tidak melempar apa pun, barisnya cuma berhenti jadi
+   corporate. */
+cek('yang membacanya memakai nama kunci yang sama', /jenis:String\(r\.srcJenis\|\|''\)/.test(ASET));
+cek('...dan cuma SATU tempat yang merakitnya',
+    /jenis:String\(r\.srcJenis\|\|''\)/.test(ASET) !== /jenis:String\(r\.srcJenis\|\|''\)/.test(kas),
+    'dirakit di aset DAN di kas — salah satunya akan tertinggal');
 /* VIP sengaja tidak diberi jenis — kalau suatu hari ikut, ia jadi corporate
    palsu tanpa satu pun galat. */
 cek('VIP tidak ikut diberi jenis', !/vip:'\+v\.id\]=String\(\(v\.detail/.test(omset));

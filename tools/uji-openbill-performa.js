@@ -73,11 +73,33 @@ function potongBaris(src, tanda) {
   const j = src.indexOf('\n', i);
   return src.slice(i, j);
 }
+/* obAktif/obTotal/porsiPic di deploy/finance/kas/ SUDAH TIDAK punya badan
+   sendiri sejak 7 September 2026 — ketiganya mendelegasikan ke
+   deploy/assets/performa-bonus.js supaya modul Marketing & Event menghitung
+   realisasi dengan rumus yang sama. Jadi yang disuntikkan di sini adalah
+   IMPLEMENTASI ASETNYA, dan uji ini tetap membandingkan dua rumus yang
+   sungguhan berbeda letaknya: aset vs deploy/finance/omset/.
+
+   Berkas yang masih punya badannya sendiri (omset, cashier) tetap dipakai apa
+   adanya — kalau delegasinya suatu hari dilepas lagi, potong() akan menemukan
+   badan aslinya dan perbandingannya tetap sah. */
+const ASET_PB = fs.readFileSync(path.join(ROOT, 'deploy', 'assets', 'performa-bonus.js'), 'utf8');
+function rumusOb(src) {
+  if (src.indexOf('function obTotal(r){ return pbObTotal(r); }') < 0) {
+    return potong(src, 'function obAktif(') + '\n' + potong(src, 'function obTotal(')
+         + '\n' + potong(src, 'function porsiPic(');
+  }
+  return potongBaris(ASET_PB, 'function pbObAktif(')
+       + '\n' + potongBaris(ASET_PB, 'function pbObTotal(')
+       + '\n' + potong(ASET_PB, 'function pbPorsiPic(')
+       + '\nconst PB_NUM=num;'
+       + '\nfunction obAktif(r){ return pbObAktif(r); }'
+       + '\nfunction obTotal(r){ return pbObTotal(r); }'
+       + '\nfunction porsiPic(r,d){ return pbPorsiPic(r,d); }';
+}
 function rumus(src) {
   const kode = potongBaris(src, 'const num=')
-             + '\n' + potong(src, 'function obAktif(')
-             + '\n' + potong(src, 'function obTotal(')
-             + '\n' + potong(src, 'function porsiPic(')
+             + '\n' + rumusOb(src)
              /* Ketiganya ditulis SATU BARIS di kedua berkas — potong() yang
                 mencari kurung tutup di kolom nol akan menelan tetangganya. */
              + '\n' + potongBaris(src, 'function menuFixRow(')
@@ -211,8 +233,16 @@ cek('...hanya digambar kalau ada yang punya', srcKas.indexOf('const adaOb=totOb>
 cek('...dan colspan keadaan kosong ikut menyesuaikan',
     srcKas.indexOf('(mk?6:4)+(adaOb?1:0)') > -1,
     'baris "Belum ada event" akan melenceng satu kolom');
+/* Baris event dirakit di pbAgregasi() milik deploy/assets/performa-bonus.js
+   sejak 7 September 2026, bukan lagi inline di viewPerforma — modul Marketing &
+   Event memakai perakit yang sama. Yang diperiksa tetap hal yang sama: tiap
+   baris membawa nilai Open Bill-nya sendiri, kalau tidak kolomnya di layar
+   selalu kosong sementara totalnya tetap memperhitungkannya. */
 cek('barisnya membawa nilai Open Bill-nya sendiri',
-    srcKas.indexOf('ob:obTotal(r)') > -1);
+    ASET_PB.indexOf('ob:pbObTotal(r)') > -1 || srcKas.indexOf('ob:obTotal(r)') > -1);
+cek('...dan yang merakitnya cuma SATU tempat',
+    (ASET_PB.indexOf('ob:pbObTotal(r)') > -1) !== (srcKas.indexOf('ob:obTotal(r)') > -1),
+    'dirakit di dua tempat sekaligus — salah satunya akan tertinggal');
 cek('keterangan tabel menyebut Open Bill tidak dipotong dari kasir',
     srcKas.indexOf('tidak dipotong dari kasir mana pun') > -1);
 
