@@ -31,6 +31,16 @@ body{font-family:var(--font-body);
 h1,h2,h3,h4{font-family:var(--font-display);font-weight:800;letter-spacing:-.02em;line-height:1.18;color:var(--ink)}
 .mono{font-variant-numeric:tabular-nums;font-feature-settings:"tnum"}
 .hidden{display:none !important}
+/* Area pilih berkas di modal Impor dari Excel (7 September 2026). Dibuat
+   sebagai <label for> yang membungkus input file tersembunyi — bukan tombol
+   yang memanggil .click(): label bekerja tanpa JavaScript sama sekali dan
+   tetap bisa dijangkau papan ketik, dua hal yang hilang kalau dipalsukan
+   dengan tombol. */
+.impdrop{display:flex;gap:12px;align-items:center;padding:14px 16px;cursor:pointer;
+  border:1.5px dashed var(--line);border-radius:12px;background:var(--panel2, transparent);
+  transition:border-color .15s,background .15s}
+.impdrop:hover{border-color:var(--accent, #A9791F);background:rgba(169,121,31,.06)}
+.impdrop b{font-size:13.5px}
 button{font-family:inherit;cursor:pointer}
 input,select,textarea{font-family:inherit}
 a{color:var(--gold-dim)}
@@ -694,6 +704,9 @@ table.list tbody tr.dwrow td:first-child{box-shadow:inset 3px 0 0 var(--gold-2)}
 <div id="modalRoot"></div>
 <div id="toast"></div>
 
+<!-- Pembaca .xlsx/.csv, dipakai bersama modul Analytics. Lihat berkasnya
+     untuk alasan kenapa ia tidak disalin ke dalam modul. -->
+<script src="../assets/xlsx-baca.js"></script>
 <script>
 /* =========================================================================
    JADWAL SHIFT LAKSAMANA MUDA
@@ -2890,7 +2903,7 @@ function viewBulanan(){
     /* Impor ada di sini DAN di Input Mingguan: yang menempel jadwal sebulan
        penuh dari Excel sedang berada di lembar bulanan, dan tanggalnya dibaca
        dari tempelan jadi tidak terikat minggu yang sedang dibuka. */
-    +((!modeAll && bisa)?'<button class="btn btn-ghost btn-sm" title="Tempel jadwal dari berkas Excel (bentuk yang sama dengan tombol Excel Sebulan)" onclick="imporTempel()">📥 Tempel dari Excel</button>':'')
+    +((!modeAll && bisa)?'<button class="btn btn-ghost btn-sm" title="Impor jadwal dari berkas Excel (bentuk yang sama dengan tombol Excel Sebulan)" onclick="imporTempel()">📥 Impor dari Excel</button>':'')
     +'<button class="btn btn-ghost btn-sm" onclick="exportExcel(&#39;bulan&#39;)">📗 Excel Sebulan</button>'
     +(modeAll
       ? '<span class="mutedhint">PNG &amp; Teks WA tersedia per divisi — pilih divisinya di atas.</span>'
@@ -3394,7 +3407,7 @@ function viewMinggu(){
       : (bisaUbahDiv
         ? '<button class="btn btn-ghost btn-sm" onclick="salinMingguLalu()">📋 Salin Minggu Lalu</button>'
           +'<button class="btn btn-ghost btn-sm" onclick="isiSisa()">⚡ Isi Jadwal</button>'
-          +'<button class="btn btn-ghost btn-sm" onclick="imporTempel()">📥 Tempel dari Excel</button>'
+          +'<button class="btn btn-ghost btn-sm" onclick="imporTempel()">📥 Impor dari Excel</button>'
           +'<button class="btn btn-ghost btn-sm" onclick="kosongkanMinggu()">🧹 Kosongkan</button>'
         /* Office membuka halaman ini untuk MELIHAT. Alat massalnya tetap
            disembunyikan, bukan dibiarkan menolak saat ditekan. */
@@ -3959,7 +3972,55 @@ function imporParse(teks, opts){
   return {rows:rows, cocok:cocok, lewat:lewat, ganda:ganda, bebas:bebas, adaTgl:!!kolTgl};
 }
 
-function imporTempel(){ IMPOR={teks:'', hasil:null}; gambarImpor(); }
+function imporTempel(){ IMPOR={teks:'', hasil:null, berkas:''}; gambarImpor(); }
+
+/* Nama berkas yang sedang dipakai, digambar terpisah supaya bisa disegarkan
+   sendiri tanpa menggambar ulang modal — menggambar ulang membuang isi
+   textarea dan fokusnya (jebakan yang sama dicatat di imporHitung). */
+function imporNamaGambar(){
+  const el=document.getElementById('imporNamaBerkas'); if(!el) return;
+  const nm=(IMPOR&&IMPOR.berkas)||'';
+  el.innerHTML = nm ? '✓ Berkas terbaca: <b>'+esc(nm)+'</b>' : '';
+}
+
+/* BERKAS -> TSV -> imporParse() yang SAMA dengan jalur tempel.
+
+   Yang ditambahkan cuma cara MEMASUKKAN datanya; aturan membaca jadwalnya
+   tidak disalin sama sekali. Dua pengurai jadwal berarti berkas yang diterima
+   lewat unggahan bisa menghasilkan sel yang berbeda dari tempelan yang isinya
+   sama — dan yang membandingkannya tidak punya cara tahu mana yang benar.
+
+   Pembacanya sendiri di ../assets/xlsx-baca.js, dipakai bersama modul
+   Analytics. Ketiadaannya DIKATAKAN, bukan dibiarkan jadi ReferenceError yang
+   menyebut nama fungsi. */
+async function imporBerkas(input){
+  const f=input&&input.files&&input.files[0]; if(!f) return;
+  /* Kotaknya dikosongkan supaya memilih BERKAS YANG SAMA dua kali tetap
+     memicu onchange — tanpa ini, memperbaiki berkasnya di Excel lalu memilih
+     ulang tidak menghasilkan apa pun, dan yang mencoba akan menyangka
+     perbaikannya tidak terbaca. */
+  input.value='';
+  const prev=document.getElementById('imporPrev');
+  if(prev) prev.innerHTML='<div class="mutedhint">Membaca '+esc(f.name)+'…</div>';
+  try{
+    if(typeof bacaBerkasTabel!=='function') throw new Error(
+      'Pembaca berkas (assets/xlsx-baca.js) tidak termuat. Muat ulang halaman; '
+      +'kalau tetap begitu, berkas itu belum ter-deploy ke server.');
+    const baris=await bacaBerkasTabel(f);
+    const tsv=barisKeTsv(baris);
+    if(!tsv.trim()) throw new Error('Berkasnya terbaca tapi isinya kosong.');
+    IMPOR.teks=tsv; IMPOR.berkas=f.name;
+    const ta=document.getElementById('imporTeks'); if(ta) ta.value=tsv;
+    imporNamaGambar();
+    imporHitung();
+  }catch(e){
+    IMPOR.berkas='';
+    imporNamaGambar();
+    if(prev) prev.innerHTML='<div class="note bad">⚠ Gagal membaca berkasnya: '
+      +esc((e&&e.message)||'penyebab tidak diketahui')+'</div>';
+    const btn=document.getElementById('imporSimpan'); if(btn) btn.disabled=true;
+  }
+}
 
 function imporCtx(){
   /* `ref` cuma dipakai jendela kewarasan tanggal (±18 bulan) dan pengisian
@@ -3973,20 +4034,34 @@ function imporCtx(){
 function gambarImpor(){
   document.getElementById('modalRoot').innerHTML=
     '<div class="overlay" onclick="if(event.target===this)tutupModal()"><div class="modal" style="max-width:680px">'
-    +'<div class="mh"><h3>Tempel dari Excel</h3>'
+    +'<div class="mh"><h3>Impor dari Excel</h3>'
       +'<span class="chip">'+esc(namaDivisi(divTunggal()))+'</span>'
       +'<button class="xbtn" onclick="tutupModal()">×</button></div>'
     +'<div class="mb">'
-      +'<p class="mutedhint" style="margin-bottom:8px">Buka berkas Excel jadwalnya — '
-      +'<b>bentuk yang sama dengan tombol 📗 Excel</b> (Employee Name lalu satu kolom '
-      +'per tanggal) — blok isinya, salin (Ctrl+C), tempel di bawah. '
-      +'Kolom Employee ID, Branch/Organization dan baris nama hari boleh ikut, '
-      +'akan dilewati sendiri. Tanggal dibaca dari tempelan, jadi sebulan penuh '
-      +'boleh sekaligus.</p>'
+      /* UNGGAH BERKAS jadi cara utama (7 September 2026, permintaan user:
+         "modelnya bukan copy text tapi upload excel saja"). Menempel tetap
+         ada di bawah sebagai cadangan — jadwal yang disusun di Google Sheets
+         tidak selalu berbentuk berkas .xlsx, dan mencabutnya berarti
+         menghilangkan satu-satunya jalan untuk kasus itu. Ia dilipat supaya
+         layarnya tetap sederhana. */
+      +'<label class="impdrop" for="imporFile">'
+        +'<div style="font-size:26px;line-height:1">📁</div>'
+        +'<div><b>Pilih berkas Excel jadwalnya</b>'
+          +'<div class="mutedhint" style="margin:3px 0 0">.xlsx atau .csv — bentuk yang sama '
+          +'dengan tombol 📗 Excel (Employee Name lalu satu kolom per tanggal). '
+          +'Kolom Employee ID dan baris nama hari boleh ikut, akan dilewati sendiri. '
+          +'Tanggalnya dibaca dari berkasnya, jadi sebulan penuh boleh sekaligus.</div></div>'
+      +'</label>'
+      +'<input type="file" id="imporFile" accept=".xlsx,.csv" style="display:none" '
+        +'onchange="imporBerkas(this)">'
+      +'<div id="imporNamaBerkas" class="mutedhint" style="margin:8px 0 0"></div>'
+      +'<details style="margin-top:12px"><summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">'
+        +'Atau tempel dari papan ketik (Ctrl+C dari Excel/Sheets)</summary>'
       +'<textarea id="imporTeks" rows="8" spellcheck="false" '
       +'style="width:100%;font-size:12px;font-family:ui-monospace,Menlo,Consolas,monospace;padding:9px;border:1.5px solid var(--line);border-radius:9px;white-space:pre;overflow-wrap:normal" '
       +'placeholder="Employee Name&#9;2026-09-01&#9;2026-09-02&#9;2026-09-03 ...&#10;Arif Rahman Harefa&#9;HARAU!!!&#9;OFF&#9;SIANG ...&#10;Condro Fredyan Sidabutar&#9;HARAU!!!&#9;SIANG&#9;SIANG ..." '
-      +'oninput="if(IMPOR){IMPOR.teks=this.value;} imporHitung();"></textarea>'
+      +'oninput="if(IMPOR){IMPOR.teks=this.value; IMPOR.berkas=\'\';} imporHitung();"></textarea>'
+      +'</details>'
       +'<div id="imporPrev" style="margin-top:10px"></div>'
     +'</div>'
     +'<div class="mf">'
@@ -3995,6 +4070,7 @@ function gambarImpor(){
     +'</div></div></div>';
   const ta=document.getElementById('imporTeks');
   if(ta && IMPOR) ta.value=IMPOR.teks;
+  imporNamaGambar();
   imporHitung();
 }
 /* Dipanggil tiap ketukan. TIDAK menggambar ulang textarea-nya — hanya

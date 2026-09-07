@@ -33,6 +33,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="../assets/xlsx-baca.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 /* ===== TEMA OFFICE LAKSAMANA (emas di atas krem/putih, tanpa hitam) ===== */
@@ -1071,129 +1072,15 @@ async function simpan() {
 }
 
 /* ============ PEMBACA BERKAS POS ============
-   .xlsx adalah ZIP berisi XML. Yang perlu ditulis cuma pembaca daftar isinya;
-   pengempasan deflate dikerjakan DecompressionStream milik peramban.
+   PINDAH ke ../assets/xlsx-baca.js pada 7 September 2026, saat modul Jadwal
+   Shift ikut perlu membaca .xlsx untuk impor jadwal. Menyalinnya ke sana
+   berarti dua pembaca ZIP yang pasti lambat laun berbeda — kesalahan yang
+   sudah tiga kali memakan waktu di repo ini.
 
-   Dukungan: Chrome/Edge 80+, Safari 16.4+, Firefox 113+. Yang lebih tua
-   DIKATAKAN, bukan dibiarkan gagal diam-diam — berkas yang tidak terbaca
-   tanpa penjelasan akan disangka berkasnya yang rusak. */
-const bisaXlsx = () => typeof DecompressionStream === 'function';
-
-async function inflateRaw(u8) {
-  const st = new DecompressionStream('deflate-raw');
-  const rs = new Blob([u8]).stream().pipeThrough(st);
-  return new Uint8Array(await new Response(rs).arrayBuffer());
-}
-
-async function bacaZip(buf) {
-  const dv = new DataView(buf);
-  /* End Of Central Directory dicari DARI BELAKANG: komentar ZIP boleh sampai
-     64 KB, jadi tandanya tidak selalu di 22 byte terakhir. */
-  let eocd = -1;
-  for (let i = dv.byteLength - 22; i >= Math.max(0, dv.byteLength - 66000); i--) {
-    if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
-  }
-  if (eocd < 0) throw new Error('Berkasnya bukan .xlsx (tanda ZIP tidak ketemu).');
-  const jml = dv.getUint16(eocd + 10, true);
-  let p = dv.getUint32(eocd + 16, true);
-  const isi = {};
-  for (let i = 0; i < jml; i++) {
-    if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('Daftar isi ZIP rusak.');
-    const metode = dv.getUint16(p + 10, true);
-    const ukKompres = dv.getUint32(p + 20, true);
-    const nLen = dv.getUint16(p + 28, true);
-    const eLen = dv.getUint16(p + 30, true);
-    const kLen = dv.getUint16(p + 32, true);
-    const off  = dv.getUint32(p + 42, true);
-    const nama = new TextDecoder().decode(new Uint8Array(buf, p + 46, nLen));
-    isi[nama] = { metode, ukKompres, off };
-    p += 46 + nLen + eLen + kLen;
-  }
-  return {
-    daftar: Object.keys(isi),
-    async ambil(nama) {
-      const e = isi[nama];
-      if (!e) return null;
-      /* Panjang nama & extra di local header BOLEH berbeda dari yang di
-         direktori pusat — itu sah menurut spesifikasi, dan memakai angka
-         direktori untuk melompatinya adalah salah yang cuma muncul di
-         sebagian berkas. */
-      if (dv.getUint32(e.off, true) !== 0x04034b50) throw new Error('Header berkas di dalam ZIP rusak.');
-      const nLen = dv.getUint16(e.off + 26, true);
-      const eLen = dv.getUint16(e.off + 28, true);
-      const mulai = e.off + 30 + nLen + eLen;
-      const mentah = new Uint8Array(buf, mulai, e.ukKompres);
-      const isiBytes = e.metode === 0 ? mentah : await inflateRaw(mentah);
-      return new TextDecoder().decode(isiBytes);
-    }
-  };
-}
-
-const ENT_XML = { '&amp;':'&', '&lt;':'<', '&gt;':'>', '&quot;':'"', '&apos;':"'" };
-const unescXml = s => String(s).replace(/&(amp|lt|gt|quot|apos);/g, m => ENT_XML[m])
-                               .replace(/&#(\d+);/g, (_, d) => String.fromCharCode(+d));
-
-/* Sheet XML -> array baris, tiap baris {A:'…', B:'…'}. Mendukung dua cara POS
-   menyimpan teks: sharedStrings (t="s") dan inline (t="inlineStr"). Berkas
-   yang diunggah user memakai inline; berkas dari POS lain memakai
-   sharedStrings, dan yang cuma mengenal satu bentuk memulangkan seluruh kolom
-   teks sebagai angka indeks. */
-function uraiSheet(xml, ss) {
-  const baris = [];
-  for (const mr of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
-    const sel = {};
-    for (const mc of mr[1].matchAll(/<c r="([A-Z]+)\d+"([^>]*)>([\s\S]*?)<\/c>/g)) {
-      const tipe = (mc[2].match(/ t="([^"]*)"/) || [])[1] || 'n';
-      const dalam = mc[3];
-      let v;
-      if (tipe === 's') {
-        const ix = (dalam.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
-        v = ss[+ix] !== undefined ? ss[+ix] : '';
-      } else if (tipe === 'inlineStr' || tipe === 'str') {
-        v = [...dalam.matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x => x[1]).join('');
-      } else {
-        const x = (dalam.match(/<v>([\s\S]*?)<\/v>/) || [])[1];
-        v = x === undefined ? '' : x;
-      }
-      sel[mc[1]] = unescXml(v);
-    }
-    baris.push(sel);
-  }
-  return baris;
-}
-
-function uraiSharedStrings(xml) {
-  if (!xml) return [];
-  const out = [];
-  for (const m of xml.matchAll(/<si>([\s\S]*?)<\/si>/g)) {
-    out.push(unescXml([...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x => x[1]).join('')));
-  }
-  return out;
-}
-
-/* CSV: satu baris per baris, koma/titik-koma, tanda kutip ganda. Disediakan
-   karena sebagian POS mengekspor CSV, dan menolak CSV berarti orangnya harus
-   membukanya di Excel lalu menyimpan ulang — langkah yang setiap kali bisa
-   mengubah format tanggal tanpa disadari. */
-function uraiCsvBaris(teks) {
-  const pemisah = (teks.split('\n')[0].split(';').length > teks.split('\n')[0].split(',').length) ? ';' : ',';
-  const out = []; let baris = [], sel = '', kutip = false;
-  for (let i = 0; i < teks.length; i++) {
-    const c = teks[i];
-    if (kutip) {
-      if (c === '"') { if (teks[i + 1] === '"') { sel += '"'; i++; } else kutip = false; }
-      else sel += c;
-    } else if (c === '"') kutip = true;
-    else if (c === pemisah) { baris.push(sel); sel = ''; }
-    else if (c === '\n') { baris.push(sel); out.push(baris); baris = []; sel = ''; }
-    else if (c !== '\r') sel += c;
-  }
-  if (sel !== '' || baris.length) { baris.push(sel); out.push(baris); }
-  /* Diubah ke bentuk berkunci huruf kolom supaya sisa kodenya tidak perlu tahu
-     berkasnya datang dari .xlsx atau .csv. */
-  const huruf = i => { let s = ''; i++; while (i > 0) { const r = (i - 1) % 26; s = String.fromCharCode(65 + r) + s; i = (i - 1 - r) / 26; } return s; };
-  return out.map(b => { const o = {}; b.forEach((v, i) => { if (v !== '') o[huruf(i)] = v; }); return o; });
-}
+   Yang tersedia dari sana: bisaXlsx, bacaZip, uraiSheet, uraiSharedStrings,
+   uraiCsvBaris, bacaBerkasTabel, barisKeTsv. Ketiadaannya DIKATAKAN di boot
+   (lihat penjaga di bawah tag <script>), bukan dibiarkan jadi galat yang
+   menyebut nama fungsi. */
 
 /* ============ ROUTER ============ */
 const TITLES = {
@@ -2758,7 +2645,16 @@ function vUnggah() {
   const V = document.getElementById('app-view');
   let h = '';
 
-  if (!bisaXlsx()) {
+  /* Pembaca yang tidak termuat DIKATAKAN lebih dulu, sebelum bisaXlsx()
+     dipanggil — memanggilnya duluan cuma memberi ReferenceError yang
+     menyebut nama fungsi, dan yang membacanya akan menyangka berkasnya yang
+     rusak. Alasan yang sama dengan penjaga venue-layouts.js di Reservasi. */
+  if (typeof bisaXlsx !== 'function') {
+    h += '<div class="notice warn">⚠ <div><b>Pembaca berkas tidak termuat.</b> '
+      + '<code>assets/xlsx-baca.js</code> tidak terbaca, jadi unggahan .xlsx maupun .csv '
+      + 'tidak bisa diurai sama sekali. Muat ulang halaman; kalau tetap begitu, berkas itu '
+      + 'belum ter-deploy ke server.</div></div>';
+  } else if (!bisaXlsx()) {
     h += '<div class="notice bad">⚠ <div><b>Peramban ini belum bisa membuka .xlsx.</b> '
       + 'Berkas Excel dibuka pakai DecompressionStream, yang ada di Chrome/Edge 80+, Safari 16.4+, '
       + 'dan Firefox 113+. Perbarui peramban, atau ekspor laporannya sebagai <b>CSV</b> — '
@@ -3139,20 +3035,15 @@ async function anPilihBerkas(el) {
   const lapor = (kelas, teks) => { if (st) { st.className = 'helper'; st.innerHTML = teks; } setSync(kelas, teks); };
   lapor('saving', 'Membaca ' + esc(f.name) + '…');
   try {
-    let baris;
-    if (/\.csv$/i.test(f.name)) {
-      baris = uraiCsvBaris(await f.text());
-    } else {
-      if (!bisaXlsx()) throw new Error('Peramban ini belum bisa membuka .xlsx. Ekspor sebagai CSV.');
-      const zip = await bacaZip(await f.arrayBuffer());
-      /* Nama lembarnya tidak selalu sheet1.xml. Yang dipakai lembar PERTAMA
-         yang ada — berkas dengan dua lembar akan memakai lembar pertama, dan
-         itu memang lembar laporannya di seluruh ekspor POS yang dilihat. */
-      const lembar = zip.daftar.filter(x => /^xl\/worksheets\/.*\.xml$/i.test(x)).sort();
-      if (!lembar.length) throw new Error('Tidak ada lembar kerja di dalam berkasnya.');
-      const ss = uraiSharedStrings(await zip.ambil('xl/sharedStrings.xml'));
-      baris = uraiSheet(await zip.ambil(lembar[0]), ss);
-    }
+    /* Pemilihan lembar & cabang .csv PINDAH ke ../assets/xlsx-baca.js pada
+       7 September 2026. Keduanya dulu ditulis di sini; saat modul Jadwal ikut
+       perlu membaca .xlsx, menyalinnya ke sana berarti dua tempat yang
+       memutuskan lembar mana yang dibaca — dan yang menyimpang di situ
+       memulangkan lembar yang salah tanpa satu pun galat. */
+    if (typeof bacaBerkasTabel !== 'function') throw new Error(
+      'Pembaca berkas (assets/xlsx-baca.js) tidak termuat, jadi berkasnya tidak bisa dibuka. '
+      + 'Muat ulang halaman; kalau tetap begitu, berkas itu belum ter-deploy ke server.');
+    const baris = await bacaBerkasTabel(f);
     UNGGAH_HASIL = ringkasPos(baris, f.name);
     UNGGAH_HASIL.diunggah = todayISO();
     UNGGAH_HASIL.oleh = (CURRENT_USER && CURRENT_USER.name) || '';

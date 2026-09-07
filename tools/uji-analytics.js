@@ -24,7 +24,18 @@ const { JSDOM } = (() => {
   process.exit(2);
 })();
 
-const HTML = fs.readFileSync(path.join(ROOT, 'deploy', 'analytics', 'index.html'), 'utf8');
+/* Pembaca .xlsx hidup di ../assets/xlsx-baca.js sejak 7 September 2026 —
+   dipakai bersama modul Jadwal Shift supaya tidak ada dua pembaca ZIP. jsdom
+   tidak mengambil skrip eksternal, jadi isinya disisipkan sebagai skrip inline
+   menggantikan tag src-nya: yang dijalankan tetap berkas aslinya, bukan tiruan
+   yang bisa menyimpang dari pembaca yang sungguhan dipakai peramban.
+   Pola yang sama dengan uji-bukti-dp.js untuk venue-layouts.js. */
+const ASET_XLSX = fs.readFileSync(path.join(ROOT, 'deploy', 'assets', 'xlsx-baca.js'), 'utf8');
+const HTML_ASLI = fs.readFileSync(path.join(ROOT, 'deploy', 'analytics', 'index.html'), 'utf8');
+const HTML = HTML_ASLI.replace(
+  '<script src="../assets/xlsx-baca.js"><' + '/script>',
+  () => '<script>' + ASET_XLSX + '<' + '/script>');
+if (HTML === HTML_ASLI) { console.error('tag xlsx-baca.js tidak ketemu di sumber analytics'); process.exit(2); }
 
 let lulus = 0, gagal = 0;
 const cek = (nama, syarat, ket) => {

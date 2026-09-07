@@ -750,6 +750,76 @@ nominal berbeda supaya tiap tab punya angka khasnya sendiri.
 node tools/uji-performa-kasir-akses.js   # 25 pemeriksaan, jsdom
 ```
 
+### Impor jadwal dari BERKAS Excel, & pembaca .xlsx jadi milik bersama
+
+Permintaan user 7 September 2026: *“yang mingguan dan bulanan bisa, tapi
+modelnya bukan copy text tapi upload excel saja”*.
+
+**`deploy/assets/xlsx-baca.js` — SUMBER TUNGGAL pembaca .xlsx/.csv.** Isinya
+pindah dari `deploy/analytics/`, tempat ia lahir. Saat modul Jadwal ikut perlu
+membaca Excel, satu-satunya pilihan lain adalah MENYALINNYA — dan repo ini
+sudah tiga kali kehilangan waktu karena berkas kembar yang tertinggal
+(`porsiPic`, `potonganHari`, `hpp.php`). Pola yang sama dengan
+`assets/venue-layouts.js`.
+
+- Yang diekspor: `bisaXlsx`, `bacaZip`, `uraiSheet`, `uraiSharedStrings`,
+  `uraiCsvBaris`, **`bacaBerkasTabel(file)`** (berkas → baris berkunci huruf
+  kolom, apa pun bentuknya), **`barisKeTsv(baris)`**.
+- **Pemilihan lembar & cabang .csv ikut pindah.** Keduanya dulu ditulis di
+  Analytics; dua tempat yang memutuskan lembar mana yang dibaca akan
+  memulangkan lembar yang salah tanpa satu pun galat.
+- **Ketiadaannya DIKATAKAN di kedua modul**, bukan dibiarkan jadi
+  `ReferenceError` yang menyebut nama fungsi — yang membacanya akan menyangka
+  berkasnya yang rusak.
+- Uji Analytics **menyisipkan asset-nya sebagai skrip inline** menggantikan tag
+  `src`-nya (jsdom tidak mengambil skrip eksternal). Pola yang sama dengan
+  `uji-bukti-dp.js` untuk `venue-layouts.js`.
+
+**Modul Jadwal: unggah berkas jadi cara utama.** Yang ditambahkan HANYA cara
+memasukkan datanya — aturan membacanya tetap `imporParse()` yang sudah ada.
+Dua pengurai jadwal berarti berkas yang diunggah bisa menghasilkan sel berbeda
+dari tempelan yang isinya sama, dan yang membandingkannya tidak punya cara tahu
+mana yang benar.
+
+- **LEBAR TSV DARI KOLOM TERJAUH DI SELURUH BERKAS, bukan per baris.** Sel
+  kosong di ujung baris tidak ditulis ke XML sama sekali, jadi baris yang
+  berhenti lebih awal kehilangan kolomnya dan **seluruh tanggal di kanannya
+  BERGESER** — jadwal orang itu pindah hari tanpa satu pun galat. Ini
+  kesalahan paling mahal di jalur ini dan satu-satunya yang tidak kelihatan
+  dari layar.
+- **Menempel TIDAK dicabut**, cuma dilipat ke `<details>`. Jadwal yang disusun
+  di Google Sheets tidak selalu berbentuk berkas, dan mencabutnya
+  menghilangkan satu-satunya jalan untuk kasus itu.
+- **`input.value=` sesudah dibaca**, supaya memilih berkas yang SAMA dua kali
+  tetap memicu `onchange`. Tanpa itu, memperbaiki berkasnya di Excel lalu
+  memilih ulang tidak menghasilkan apa pun.
+- **Nama berkas digambar terpisah** (`imporNamaGambar`), tidak menggambar ulang
+  modal — menggambar ulang membuang isi textarea dan fokusnya.
+
+Bentuk berkas HR ternyata **sama persis** dengan ekspor 📗 Excel modul ini:
+`Employee ID | Employee Name | 2026-09-01 | …`, isinya `PAGI`/`SIANG`/
+`MIDDLE`/`dayoff`. `dayoff` jatuh ke kode `OFF` lewat nama shift-nya, bukan
+jadi shift bebas — kalau bebas, lembarnya penuh sel bertuliskan teks mentah
+dan tidak satu pun terbaca sebagai libur.
+
+```bash
+node tools/uji-impor-jadwal.js         # 39 pemeriksaan, TANPA jsdom — aturan pengurainya
+node tools/uji-impor-berkas-jadwal.js  # 26 pemeriksaan, jsdom — jalur berkasnya
+```
+
+**DUA BERKAS UJI, dan itu disengaja.** `uji-impor-jadwal.js` (sudah ada sejak
+pagi yang sama) menjaga ATURAN PENGURAINYA — tanggal harus dari tempelan bukan
+ditebak dari minggu aktif, nama di luar roster tidak ditulis, kode yang bukan
+shift jadi `LAIN` + catatan — dan berjalan TANPA jsdom. Yang baru menjaga
+JALUR BERKASNYA. Digabung, uji pengurai yang cepat itu ikut menyeret boot
+jsdom setiap kali dijalankan.
+
+Ujinya memakai **berkas jadwal asli** di root repo kalau ada; kalau tidak,
+bagian itu MELEWAT dengan jelas. Berkas itu **jangan di-commit** (sudah di
+`.gitignore`: `SCHEDULE*.xlsx`) — satu berkas memuat nama seluruh kru satu
+divisi berikut Employee ID Talenta-nya. Nama kru untuk uji diambil DARI
+berkasnya sendiri, jadi tidak ada nama pegawai yang tertulis di dalam kode uji.
+
 ### TARGET DICABUT SELURUHNYA dari Finance & Cashier (5 September 2026)
 
 Permintaan user: *"Target bulanan dan pengaturan target di modul finance, dan
