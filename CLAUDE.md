@@ -4216,6 +4216,71 @@ tanpa disentuh.
 > Dengan ini pekerjaan yang tertulis "BELUM dikerjakan" di blok **Mesin bonus
 > jadi SUMBER TUNGGAL** sudah selesai untuk kedua modul.
 
+### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)
+
+Keluhan user: **Performa Marketing dan Performa Event di panel Kas Kecil tidak
+bisa dibuka.** Yang terlihat di layar bukan pesan galat melainkan **halaman
+Performa Kasir yang tertinggal** — judulnya sudah berbunyi "Performa Event"
+sementara badannya masih kartu bonus kasir berikut Riwayat OFF/Masuk.
+
+Sebabnya satu baris yang tidak ada:
+
+```
+viewPerforma()  ->  kartuApprovalCompliment()  ->  compListPemberi()
+                ->  compIsPemberi()  ->  compCocok()  ->  pbCompCocok   TIDAK ADA
+```
+
+`deploy/finance/kas/` mendelegasikan `compCocok()` ke `pbCompCocok`, tapi fungsi
+itu hidup **di dalam IIFE** `deploy/assets/performa-bonus.js` dan tidak pernah
+diekspor ke `window`. Seluruh pemakaian di dalam aset lolos lewat closure, jadi
+ketiadaannya tidak kelihatan dari mana pun sampai tuan rumah memanggilnya.
+
+**Ia hanya menggigit kalau periodenya punya minimal SATU baris compliment.**
+`compListPemberi()` menyaring daftar; daftar kosong berarti fungsinya tidak
+pernah dipanggil. Itulah kenapa data uji (tanpa compliment) hijau sementara
+produksi (ratusan baris compliment) mati sejak commit `ebea814`.
+
+**GEJALANYA BUKAN GALAT, DAN ITU YANG PALING MAHAL.** `el.innerHTML` ada di
+UJUNG `viewPerforma()`, jadi penggambar yang melempar meninggalkan halaman
+SEBELUMNYA di layar — utuh, rapi, dan menyesatkan. Yang melaporkannya menyebut
+"tidak bisa dibuka", dan tidak ada satu pun tanda yang menunjuk ke barisnya.
+
+Tiga hal yang membuatnya bertahan, dan ketiganya lebih penting daripada bugnya:
+
+- **`smoke-modul.js` TIDAK PERNAH menyentuh `deploy/finance/kas/`** — daftarnya
+  cuma memuat `finance`, halaman PEMILIH panel yang tidak berisi aplikasi apa
+  pun. Sudah tertulis di berkas ini sejak lama, dan tetap terlewat.
+- **Uji bonus menjalankan asetnya BERDIRI SENDIRI** (`new Function(`). Itu
+  memang disengaja dan tetap benar — tapi ia tidak pernah membuktikan tuan
+  rumahnya bisa memanggil apa yang dipanggilnya.
+- **Data uji tanpa compliment.** Jalur yang rusak tidak pernah dijalankan.
+
+Yang menjaganya sekarang **bukan nama `pbCompCocok`**, melainkan invariannya:
+tiap nama berawalan `pb` / `PB_` yang dipanggil salah satu dari **ketiga** tuan
+rumah wajib ada di daftar `window.*` aset. Itu yang akan menangkap delegasi
+BERIKUTNYA yang lupa diekspor.
+
+Ujinya juga menanam penanda di `#app-view` sebelum menggambar lalu menuntutnya
+HILANG — "tidak melempar" saja tidak cukup, karena yang dilaporkan user justru
+layar yang kelihatan terisi padahal isinya halaman lain.
+
+```bash
+node tools/uji-performa-kas-boot.js   # 15 pemeriksaan, jsdom
+```
+
+**Berhati-hatilah menulis komentar tentang pemindai ini.** Draf pertama
+komentar di atas baris ekspornya memuat `pb` lalu bintang lalu garis-miring
+lalu `PB_` — urutan itu **menutup blok komentar lebih awal** dan mematikan
+SELURUH aset dengan SyntaxError, sehingga ketiga tuan rumahnya blank. Kalimat
+yang menyebut pola berawalan jangan ditulis sebagai glob di dalam `/* */`.
+
+Tiga bentuk data lain masih melempar di halaman ini dan **sengaja dibiarkan**,
+karena tidak satu pun bisa lahir dari `normalizeDB()`: `bd.<divisi>` yang bukan
+array, `compliments` yang bukan array, dan baris compliment **tanpa `date`**
+(`compsBulan()` melakukan `c.date.slice(0,7)`). Yang terakhir paling mungkin
+suatu hari benar-benar ada; kalau muncul, gejalanya akan sama persis dengan
+yang baru saja dibereskan.
+
 ### Deploy gagal ETIMEDOUT: servernya sehat, IP runner-nya diblokir (7 Sep 2026)
 
 ```

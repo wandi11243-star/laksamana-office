@@ -925,6 +925,25 @@ window.pbObAktif=pbObAktif;
 window.pbCompPotong=pbCompPotong;
 window.pbCompFilterPic=pbCompFilterPic;
 window.pbCompStatusPemberi=pbCompStatusPemberi;
+/* WAJIB diekspor walau seluruh pemakaian di dalam berkas ini sudah lewat
+   closure: deploy/finance/kas/ punya compCocok() sendiri yang mendelegasikan
+   ke sini, dan pemanggilnya (kartuApprovalCompliment) berjalan SAAT halaman
+   Performa Marketing & Event digambar.
+
+   Tanpa baris ini kedua halaman itu MATI TOTAL — tapi hanya pada periode yang
+   punya minimal satu baris compliment, karena compListPemberi() menyaring
+   daftar kosong tanpa pernah memanggil apa pun. Itulah yang membuatnya lolos
+   dari seluruh uji (datanya buatan, tanpa compliment) dan langsung menggigit
+   di produksi yang punya ratusan baris. Gejalanya bukan pesan galat melainkan
+   HALAMAN SEBELUMNYA yang tertinggal di layar: judulnya sudah berganti jadi
+   "Performa Event" sementara badannya masih Performa Kasir, karena
+   el.innerHTML di ujung viewPerforma() tidak pernah sempat dijalankan.
+   Kejadian 8 September 2026, dilaporkan user.
+
+   Yang menjaganya sekarang bukan ingatan: tools/uji-performa-kas-boot.js
+   memindai KETIGA tuan rumah dan menuntut tiap nama berawalan pb atau PB_
+   yang mereka panggil ada di daftar ekspor ini. */
+window.pbCompCocok=pbCompCocok;
 /* Diekspor KHUSUS untuk uji: keduanya dipotong dan dijalankan langsung oleh
    tools/uji-bonus-*.js. Tanpa ini ujinya harus menulis ulang rumusnya. */
 window.PB_UJI={ mkTangga:mkTangga, bonusS2:bonusS2, tanggaEvS4:tanggaEvS4,
