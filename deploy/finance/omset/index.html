@@ -1219,6 +1219,10 @@ function viewInput(){
           <div class="field"><label>Traffic (customer datang)</label><input class="mono ci" id="i_traffic" inputmode="numeric" value="${d.traffic}"></div>
           <div class="field"><label>Total Bill (jumlah transaksi)</label><input class="mono ci" id="i_bill" inputmode="numeric" value="${d.bill}"></div>
         </div>
+        ${existing?jejakHtml(existing,'Diinput'):''}
+        ${existing&&!jejakList(existing).length?'<div class="helper">Hari ini diisi sebelum jejak '
+          +'penginput dicatat (7 September 2026), jadi namanya memang tidak ada. Menyimpan ulang '
+          +'akan mencatat siapa yang MENGUBAHNYA — bukan siapa yang pertama mengisinya.</div>':''}
         <div id="i_err"></div>
         <div style="display:flex;gap:10px;margin-top:6px">
           <button class="btn btn-primary" id="i_save">${existing?'Update Data':'Simpan Omset'}</button>
@@ -1371,8 +1375,28 @@ function saveDaily(){
      tidak selisih sama sekali. Validasi lain di atas tetap berlaku. */
   const box=document.getElementById('i_err');
   if(errs.length){box.innerHTML='<div class="notice bad">⚠ '+[...new Set(errs)].join(' ')+'</div>';return;}
+  /* SIAPA YANG MENGINPUT (7 September 2026, permintaan user).
+
+     Memakai ULANG tambahJejak()/jejakHtml() yang sudah dipakai Report Daily di
+     berkas ini sejak 11 Agustus 2026 — bukan bentuk baru. Dua mekanisme jejak
+     di satu modul akan menyimpang begitu salah satunya diperbaiki, dan yang
+     mencari "siapa yang mengisi" harus tahu lebih dulu ia sedang melihat
+     halaman yang mana.
+
+     JEJAKNYA MENUMPUK, bukan menimpa — alasan yang sama dengan Report Daily.
+     Satu tanggal biasa disentuh lebih dari sekali: diisi malam itu, lalu
+     dikoreksi orang lain beberapa hari kemudian. Kalau yang tersimpan cuma
+     yang terakhir, nama orang yang benar-benar mengetiknya hilang tanpa bekas
+     — dan justru itu yang dicari kalau angkanya bermasalah. Pada 6 September
+     2026 ditemukan tax 23 Agustus diketik Rp2.514 alih-alih Rp2.514.400, dan
+     tidak ada satu pun layar yang bisa menyebut siapa yang perlu ditanyai.
+
+     Hari yang lahir SEBELUM tanggal ini tidak punya jejak sama sekali, dan itu
+     bukan galat — jejakList() memulangkan kosong dan layarnya mengatakannya. */
   const ex=getDay(date);
-  if(ex){Object.assign(ex,rec);} else {rec.bd={marketing:[],event:[],kasir:[],self:{amount:0,disc:0}};rec.bdValid=false;DB.daily.push(rec);}
+  const jejak=tambahJejak(ex);
+  if(ex){Object.assign(ex,rec); ex.log=jejak;}
+  else {rec.bd={marketing:[],event:[],kasir:[],self:{amount:0,disc:0}};rec.bdValid=false;rec.log=jejak;DB.daily.push(rec);}
   save();
   box.innerHTML='<div class="notice ok">✓ Tersimpan. '+(ex?'Data diperbarui.':'Lanjut ke Breakdown untuk alokasi sumber omset.')+'</div>';
   inputDate=date;PERIOD=monthKeyOf(date);
@@ -1583,7 +1607,11 @@ function jejakList(rec){
   if(rec&&Array.isArray(rec.log)&&rec.log.length) return rec.log;
   return (rec&&rec.at)?[{by:rec.by||'',at:rec.at}]:[];
 }
-function jejakHtml(rec){
+/* `kata` membedakan halaman: Report Daily "Disubmit", Input Omset Harian
+   "Diinput". Bentuk dan riwayatnya tetap satu — yang berbeda cuma kata
+   kerjanya, karena "disubmit" di halaman yang tombolnya berbunyi "Simpan
+   Omset" membuat orang mengira ada langkah lain yang belum ia kerjakan. */
+function jejakHtml(rec, kata){
   const log=jejakList(rec);
   if(!log.length) return '';
   const akhir=log[log.length-1];
@@ -1591,7 +1619,7 @@ function jejakHtml(rec){
   /* Dibungkus SATU div: `.notice` display:flex, jadi tanpa pembungkus tiap
      penebalan jadi kolomnya sendiri dan kalimatnya pecah bertumpuk. */
   return `<div class="notice info"><div>
-      📝 Disubmit oleh <b>${esc(akhir.by||'—')}</b> · <b>${esc(fmtWaktu(akhir.at))}</b>
+      📝 ${esc(kata||'Disubmit')} oleh <b>${esc(akhir.by||'—')}</b> · <b>${esc(fmtWaktu(akhir.at))}</b>
       ${sebelum.length?`<div style="font-size:12px;margin-top:6px;opacity:.78">Sebelumnya diisi/diubah oleh ${sebelum.map(x=>`${esc(x.by||'—')} (${esc(fmtWaktu(x.at))})`).join(' · ')}</div>`:''}
     </div></div>`;
 }

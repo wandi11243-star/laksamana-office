@@ -557,6 +557,73 @@ dan yang dijalankan tetap berkas aslinya, bukan tiruan yang bisa menyimpang
 dari koordinat sebenarnya. `SESSION` disetel langsung karena yang diuji jalur
 SIMPAN, bukan gerbang SSO-nya — pola yang sama dengan `uji-kelola-user.js`.
 
+### Input Omset Harian: siapa yang menginput (7 September 2026)
+
+Permintaan user. **Memakai ULANG `tambahJejak()` / `jejakList()` /
+`jejakHtml()`** yang sudah dipakai Report Daily di berkas yang sama sejak 11
+Agustus 2026 — bukan mekanisme baru. Dua bentuk jejak di satu modul akan
+menyimpang begitu salah satunya diperbaiki, dan yang mencari "siapa yang
+mengisi" harus tahu lebih dulu ia sedang melihat halaman yang mana.
+
+- **JEJAKNYA MENUMPUK** (`log[]`, 20 terakhir), bukan menimpa. Satu tanggal
+  biasa disentuh lebih dari sekali: diisi malam itu, dikoreksi orang lain
+  beberapa hari kemudian. Kalau yang tersimpan cuma yang terakhir, nama orang
+  yang benar-benar mengetiknya hilang — dan justru itu yang dicari kalau
+  angkanya bermasalah. Sebabnya konkret: 6 September 2026 ditemukan tax 23
+  Agustus diketik `2.514` alih-alih `2.514.400`, dan tidak ada satu pun layar
+  yang bisa menyebut siapa yang perlu ditanyai.
+- **`jejakHtml(rec, kata)`** — Report Daily "Disubmit", Input Omset "Diinput".
+  Bentuk dan riwayatnya tetap satu; yang berbeda cuma kata kerjanya, karena
+  "disubmit" di halaman yang tombolnya berbunyi *Simpan Omset* membuat orang
+  mengira ada langkah lain yang belum ia kerjakan. Bawaannya tetap
+  `Disubmit`, jadi pemanggilan lama tidak berubah artinya.
+- **Hari yang lahir sebelum ini tidak diklaim siapa pun.** Yang membukanya
+  sekarang bukan yang mengisinya dulu; layarnya mengatakan jejaknya memang
+  tidak ada, dan menyimpan ulang dicatat sebagai *yang mengubah*.
+- **Aman dari kehilangan diam-diam**, dan itu sudah diperiksa: `save_all()` di
+  `kompas-mysql` menulis blob apa adanya (`json_enc($state)`) tanpa daftar
+  kunci tertutup — beda dari `brankas_simpan()`. Ketiga modul yang membaca
+  `daily` (omset, kas, cashier) hanya MENAMBAH field yang kurang di
+  `normalize`, tidak menyusun ulang objeknya, jadi `log` tidak dibuang. Hanya
+  modul Omset yang MENULIS `daily` — beda dari `reports`, yang salinannya ada
+  di Cashier juga.
+
+```bash
+node tools/uji-jejak-omset.js   # 21 pemeriksaan, jsdom
+```
+
+`smoke-modul.js` **tidak menyentuh `deploy/finance/omset/` sama sekali** —
+daftarnya cuma memuat `finance`, halaman pemilih panel. Uji di atas adalah
+satu-satunya yang pernah menjalankan `saveDaily()`.
+
+### Analytics: dua label yang tidak menjelaskan dirinya (7 September 2026)
+
+Dua pertanyaan user, dan keduanya pertanyaan yang wajar — labelnya memang
+tidak cukup.
+
+**1. `% nilai` di Penjualan Menu.** Penyebutnya `totNilai` = jumlah nilai
+SELURUH menu bulan itu (sebelum service & pajak), bukan omset. Sekarang
+judulnya `% dari nilai menu` dan penyebutnya **disebut angkanya** di kaki
+tabel. Kolom persen tanpa penyebut cuma bisa ditebak, dan tebakan paling wajar
+di halaman omset justru yang salah: orang mengira pembaginya omset sebulan,
+lalu heran kolomnya tidak berjumlah 100%.
+
+**2. `Selisih` di Pengaruh Event / Marketing — ada DUA, pembandingnya
+BERBEDA**, dan itulah sumber pertanyaannya:
+
+| | pembandingnya |
+|---|---|
+| kartu **Beda rata-rata** | rata-rata hari berevent vs rata-rata **seluruh** hari biasa |
+| kolom di tabel per hari | hari itu vs rata-rata **hari yang SAMA** tanpa acara |
+
+Yang pertama kasar dan hampir selalu terlalu memuji — acara ditaruh di akhir
+pekan, dan akhir pekan memang lebih ramai tanpa acara apa pun. Yang kedua yang
+berarti. Sekarang kartunya berjudul **Selisihnya — pembanding kasar** dan
+menyebut kedua angka rata-ratanya, sementara kolom tabel diganti namanya jadi
+**`vs hari sama`** — nama yang SUDAH dipakai tabel Per Kategori untuk
+perhitungan yang sama persis. Dua kolom yang menghitung hal yang sama dengan
+nama berbeda, di satu halaman, adalah pertanyaan yang pasti datang.
+
 ### TARGET DICABUT SELURUHNYA dari Finance & Cashier (5 September 2026)
 
 Permintaan user: *"Target bulanan dan pengaturan target di modul finance, dan
