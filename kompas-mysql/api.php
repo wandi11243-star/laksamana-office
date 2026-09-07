@@ -123,6 +123,24 @@ try {
      semuanya dipanggil dari dalam Office dan mengubah gerbangnya sekarang
      akan mematikan panel Finance tanpa satu pun pesan yang menyebut
      sebabnya. Yang dijaga di sini cuma pintu yang menghadap ke luar. */
+  /* BERPAGAR SESI, beda dari aksi kompas lain yang sengaja dibiarkan terbuka.
+     Isinya omset per PIC — siapa dapat berapa — dan halaman yang memanggilnya
+     dibuka seluruh staf marketing/event, bukan cuma finance. Pagarnya kunci
+     modul yang bersangkutan, jadi yang tidak diberi akses modul itu tidak bisa
+     membacanya walau tahu alamatnya. */
+  else if ($action === 'performaDivisi') {
+    require_once __DIR__ . '/lib_sesi.php';
+    $u = sesi_user($body);
+    if (!$u) sesi_tolak_tak_dikenal();
+    $divi = isset($_GET['divi']) ? $_GET['divi'] : (isset($body['divi']) ? $body['divi'] : 'marketing');
+    $divi = ($divi === 'event') ? 'event' : 'marketing';
+    /* Kunci modulnya mengikuti divisinya. Kalau dipatok satu, orang yang cuma
+       punya modul Event bisa membaca omset per PIC marketing. */
+    if (!sesi_punya_modul($u, $divi)) sesi_tolak_tanpa_modul($divi === 'event' ? 'Event' : 'Marketing');
+    keluar(array('ok' => true, 'data' => performa_divisi($divi,
+      isset($_GET['dari'])   ? $_GET['dari']   : (isset($body['dari'])   ? $body['dari']   : ''),
+      isset($_GET['sampai']) ? $_GET['sampai'] : (isset($body['sampai']) ? $body['sampai'] : ''))));
+  }
   else if ($action === 'investorRingkas') {
     require_once __DIR__ . '/lib_sesi.php';
     $u = sesi_user($body);

@@ -905,6 +905,11 @@ window.bonusEvent=bonusEvent;
 window.kartuBonusMk=kartuBonusMk;
 window.kartuBonusEv=kartuBonusEv;
 window.pbSetKeterangan=pbSetKeterangan;
+/* Pemformat rupiahnya ikut diekspor. Tuan rumah punya pemformatnya sendiri
+   (modul Marketing: rp(), dengan spasi sesudah "Rp"), dan halaman yang
+   mencampur keduanya memajang "Rp1.000.000" bersebelahan dengan
+   "Rp 1.000.000" di kartu yang sama. */
+window.pbRp=PB_RP;
 /* Penentu Head. Diekspor karena tuan rumah butuh yang SAMA untuk memutuskan
    siapa boleh melihat seluruh tim — dua penentu untuk satu jabatan pasti
    menyimpang, dan yang menyimpang di sini bonus sejuta plus hak lihat. */

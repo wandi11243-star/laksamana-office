@@ -3849,6 +3849,93 @@ jadi membukanya untuk staf marketing/event **bertentangan dengan permintaan
 akses ini sendiri**. Yang benar endpoint sempit — pola `investorRingkas` /
 `omsetPic` / `eventsHari`.
 
+### Performa Omset & Bonus di modul Marketing (7 September 2026)
+
+Permintaan user. Halaman **Performa Marketing** yang selama ini hanya ada di
+panel Kas Kecil modul Finance sekarang juga ada di `deploy/marketing/` sebagai
+menu **Performa Omset & Bonus** (kunci view `perfomset`, kelompok Analitik).
+
+**BEDA dari "Marketing Performance" yang sudah ada di modul itu**, dan namanya
+sengaja dibedakan: yang lama mengukur **aktivitas** (lead, konversi, target
+aktivitas), yang baru mengukur **omset yang diakui** berikut bonusnya. Dua
+halaman bernama mirip yang mengukur hal berbeda akan membuat satu di antaranya
+dikira versi lama.
+
+**TIDAK MENYALIN SATU RUMUS PUN.** Realisasi, potongan compliment, dan seluruh
+tangga bonus dihitung `deploy/assets/performa-bonus.js` — berkas yang SAMA yang
+dipakai panel Finance (`pbAgregasi()`, `bonusMarketing()`, `kartuBonusMk()`).
+Ujinya memeriksa persis itu: modul ini tidak boleh memuat `function bonusMarketing(`,
+`function pbAgregasi(`, maupun `const MK_S2=`.
+
+**DATANYA LEWAT ENDPOINT SEMPIT** `kompas-api?action=performaDivisi&divi=&dari=&sampai=`,
+BUKAN `getAll`. getAll memulangkan seluruh blob omset — piutang, compliment
+seluruh divisi berikut pemberinya, breakdown per kasir — dan membukanya di
+halaman yang dibuka seluruh staf marketing **bertentangan dengan aturan hak
+lihat yang justru melahirkan halaman ini**. Alasan yang sama dengan
+`investorRingkas`.
+
+- **BERPAGAR SESI**, satu dari dua aksi kompas yang begitu (selain
+  `investorRingkas`). Kunci modulnya mengikuti `divi`-nya: kalau dipatok satu,
+  orang yang cuma punya modul Event bisa membaca omset per PIC marketing.
+- **Rumusnya TIDAK dihitung di PHP.** Yang dipulangkan baris mentah; menghitung
+  sebagiannya di server berarti melahirkan berkas kembar LINTAS BAHASA, yang
+  paling sulit dicocokkan.
+- Baris breakdown **disaring ke kolom yang dipakai saja** — `shift` (daftar kasir
+  yang dipotong) tidak ikut, itu data kasir yang tidak ada urusannya di sini.
+- `strtolower`, bukan `mb_strtolower` — nama pegawai ASCII, dan fungsi mbstring
+  yang tidak terpasang mematikan SELURUH endpoint folder itu.
+
+#### Hak lihat: Head melihat tim, yang lain melihat dirinya sendiri
+
+Permintaan user. Yang keterangannya di Office memuat kata **Head** boleh
+membuka tiap anggota tim satu per satu; yang bukan **hanya** boleh melihat
+dirinya sendiri dan **rekapan gabungan**.
+
+- **Tab "Semua" SENGAJA tetap terbuka.** Ia agregat — tidak menyebut siapa
+  dapat berapa — dan justru itu angka yang dipakai orang membandingkan dirinya
+  dengan capaian tim. Menutupnya mencabut satu-satunya pembanding yang halaman
+  ini punya, untuk sesuatu yang tidak pernah diminta. Aturan yang sama dengan
+  Performa Kasir di modul Cashier.
+- **GERBANGNYA DI PENGGAMBAR (`gambar()`), bukan di tombolnya.** Tombol PIC lain
+  memang tidak digambar, tapi `data-pic` bisa diubah dari devtools dalam sepuluh
+  detik. Ujinya melakukan persis itu — dan **versi pertama ujinya bocor**: ia
+  menyuntik tombol BARU, yang tidak punya penangan klik, jadi mengkliknya tidak
+  memanggil apa pun dan mutasi "gerbang cuma di tombol" LOLOS. Serangan yang
+  sesungguhnya jauh lebih sederhana: ubah `data-pic` tombol yang SUDAH ADA lalu
+  tekan. Jangan disederhanakan lagi.
+- **Daftar Event pada segmen Semua menyebut nama PIC tiap baris** (`ev.pic`).
+  Itu pintu belakang bocornya capaian per orang, jadi nama PIC hanya
+  disertakan untuk Head.
+- **Halaman terbuka di capaian SENDIRI** untuk yang bukan Head, bukan di
+  rekapan: yang membukanya paling sering ingin melihat dirinya.
+- Akun yang tidak cocok dengan PIC mana pun **dikatakan sebabnya** berikut cara
+  membetulkannya (isi Tim/Keterangan di Office), bukan dibiarkan melihat layar
+  yang menyusut tanpa penjelasan.
+- Penentunya `pbHead()` dari aset — **bukan ditulis ulang di modul ini**. Kata
+  yang sama juga menentukan Bonus Leader; lihat blok penanda Head.
+
+Peta Tim/Keterangan diberikan ke aset lewat `pbSetKeterangan()`. Di modul ini
+keterangan Office tersimpan sebagai `S.users[].jabatan` (lihat sinkronisasi
+roster), dicocokkan lewat `officeUserId` DULU baru nama.
+
+**Beberapa kelas CSS kartu aset belum ada di modul ini** (`.card-sub`, `.helper`,
+`.grid.g3`/`.g2`) dan ditambahkan SEPERLUNYA. Yang sudah ada (`.card` `.stat`,
+`.tbl-wrap`, `.seg`, `.muted`, `.num`, `.mono`) tidak disentuh — halaman baru
+tidak boleh menggeser tampilan halaman lain.
+
+````bash
+node tools/uji-performa-marketing-modul.js   # 26 pemeriksaan, jsdom
+````
+
+Lima mutasi dicoba, kelimanya tertangkap. Ujinya juga membandingkan angka di
+layar dengan `pbAgregasi()` langsung: kalau suatu hari ada yang menyalin
+rumusnya ke modul ini, perbandingan itu yang berbunyi.
+
+> **Performa Event di modul Event BELUM dikerjakan.** Fondasinya sudah siap —
+> endpoint `performaDivisi` sudah menerima `divi=event`, dan `bonusEvent()` /
+> `kartuBonusEv()` sudah ada di aset. Yang perlu ditulis tinggal halamannya,
+> dengan aturan hak lihat yang sama.
+
 ### Deploy gagal ETIMEDOUT: servernya sehat, IP runner-nya diblokir (7 Sep 2026)
 
 ```

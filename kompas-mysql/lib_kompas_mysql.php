@@ -149,6 +149,114 @@ function save_all($state, $baseTs = null) {
   return array('saved' => true, 'ts' => $ua, 'waktu' => gmdate('c'));
 }
 
+/* ==================== PERFORMA PER DIVISI (dibaca modul Marketing/Event)
+   Dipakai halaman Performa Marketing di deploy/marketing/ (dan nanti Performa
+   Event di deploy/event/), supaya kedua modul memajang REALISASI dan BONUS
+   yang sama dengan panel Finance.
+
+   KENAPA ENDPOINT SENDIRI, BUKAN getAll. getAll memulangkan SELURUH blob
+   omset: piutang, 222 baris compliment berikut pemberinya, breakdown per
+   kasir, pegawai seluruh divisi. Menyuruh modul Marketing memanggilnya berarti
+   menuliskan alamat blob itu di halaman yang dibuka seluruh staf marketing —
+   dan itu BERTENTANGAN dengan permintaan hak akses yang justru melahirkan
+   halaman ini (user 7 September 2026: yang bukan Head hanya boleh melihat
+   dirinya sendiri). Alasan yang sama dengan investorRingkas.
+
+   Yang dipulangkan cuma: roster PIC divisi itu, baris breakdown divisi itu per
+   tanggal, dan compliment yang menyangkut PIC divisi itu. Baris kasir, baris
+   divisi lain, piutang, dan setoran TIDAK ikut.
+
+   RUMUSNYA TIDAK DIHITUNG DI SINI. Yang dipulangkan baris mentah; realisasi,
+   potongan compliment, dan seluruh tangga bonus dihitung di
+   deploy/assets/performa-bonus.js — satu tempat untuk semua modul. Menghitung
+   sebagiannya di PHP berarti melahirkan berkas kembar lintas bahasa, yang
+   justru paling sulit dicocokkan. */
+function performa_divisi($divi, $dari, $sampai) {
+  $divi = ($divi === 'event') ? 'event' : 'marketing';
+  $dari = kp_tgl($dari); $sampai = kp_tgl($sampai);
+  if (!$dari || !$sampai) throw new Exception('rentang tanggal tidak sah (pakai YYYY-MM-DD)');
+  if (strcmp($dari, $sampai) > 0) { $t = $dari; $dari = $sampai; $sampai = $t; }
+
+  $s = kp_state_assoc();
+
+  $pic = array();
+  $emp = isset($s['employees'][$divi]) && is_array($s['employees'][$divi])
+       ? $s['employees'][$divi] : array();
+  foreach ($emp as $e) {
+    if (!is_array($e) || !isset($e['id'])) continue;
+    $pic[] = array(
+      'id'           => (string)$e['id'],
+      'name'         => isset($e['name']) ? (string)$e['name'] : '',
+      'officeUserId' => isset($e['officeUserId']) ? $e['officeUserId'] : null,
+    );
+  }
+
+  /* Baris breakdown, DISARING ke kolom yang benar-benar dipakai penghitung.
+     Mengirim barisnya apa adanya berarti ikut mengirim `shift` (daftar kasir
+     yang dipotong) — data kasir yang tidak ada urusannya dengan halaman ini. */
+  $days = array();
+  $daily = isset($s['daily']) && is_array($s['daily']) ? $s['daily'] : array();
+  foreach ($daily as $d) {
+    if (!is_array($d)) continue;
+    $tgl = kp_tgl(isset($d['date']) ? $d['date'] : '');
+    if (!$tgl || strcmp($tgl, $dari) < 0 || strcmp($tgl, $sampai) > 0) continue;
+    $src = isset($d['bd'][$divi]) && is_array($d['bd'][$divi]) ? $d['bd'][$divi] : array();
+    $rows = array();
+    foreach ($src as $r) {
+      if (!is_array($r)) continue;
+      $rows[] = array(
+        'picId'     => isset($r['picId'])     ? $r['picId'] : null,
+        'eventName' => isset($r['eventName']) ? (string)$r['eventName'] : '',
+        'amount'    => isset($r['amount'])    ? $r['amount'] : 0,
+        'tax'       => isset($r['tax'])       ? $r['tax'] : 0,
+        'service'   => isset($r['service'])   ? $r['service'] : 0,
+        'ob'        => isset($r['ob'])        ? $r['ob'] : null,
+        'obAmount'  => isset($r['obAmount'])  ? $r['obAmount'] : 0,
+        'obTax'     => isset($r['obTax'])     ? $r['obTax'] : 0,
+        'obService' => isset($r['obService']) ? $r['obService'] : 0,
+        'tiket'     => isset($r['tiket'])     ? $r['tiket'] : null,
+        'srcPic'    => isset($r['srcPic'])    ? (string)$r['srcPic'] : '',
+        /* Penentu "event corporate" di Skema 1 bonus. Nama kuncinya BERKAS
+           KEMBAR dengan yang ditulis deploy/finance/omset/ dan yang dibaca
+           pbAgregasi(); beda satu huruf tidak melempar apa pun, barisnya cuma
+           berhenti terhitung sebagai corporate. */
+        'srcJenis'  => isset($r['srcJenis'])  ? (string)$r['srcJenis'] : '',
+      );
+    }
+    $days[] = array('date' => $tgl, 'bd' => array($divi => $rows));
+  }
+
+  /* Compliment dalam rentang yang MENYANGKUT PIC divisi ini saja — sisi PIC
+     kasir maupun sisi pemberi. Yang tidak menyangkut siapa pun di divisi ini
+     tidak ikut: isinya nama tamu dan alasannya, dan tidak ada gunanya di
+     halaman ini. Penyaring akhir (potong / menunggu / tidak) tetap dikerjakan
+     pbCompFilterPic() di aset — dua penyaring untuk satu aturan pasti
+     menyimpang. */
+  $oid = array(); $nama = array();
+  foreach ($pic as $p) {
+    if ($p['officeUserId'] !== null && $p['officeUserId'] !== '') $oid[(string)$p['officeUserId']] = true;
+    if ($p['name'] !== '') $nama[strtolower(trim($p['name']))] = true;
+  }
+  $comps = array();
+  $cl = isset($s['compliments']) && is_array($s['compliments']) ? $s['compliments'] : array();
+  foreach ($cl as $c) {
+    if (!is_array($c)) continue;
+    $tgl = kp_tgl(isset($c['date']) ? $c['date'] : '');
+    if (!$tgl || strcmp($tgl, $dari) < 0 || strcmp($tgl, $sampai) > 0) continue;
+    $kena = false;
+    foreach (array(array('picDiv','picOfficeId','picName'), array('pemberiDiv','pemberiOfficeId','pemberiName')) as $sisi) {
+      $dv = isset($c[$sisi[0]]) ? (string)$c[$sisi[0]] : '';
+      if ($dv === 'tamu') continue;
+      $id = isset($c[$sisi[1]]) ? (string)$c[$sisi[1]] : '';
+      $nm = isset($c[$sisi[2]]) ? strtolower(trim((string)$c[$sisi[2]])) : '';
+      if (($id !== '' && isset($oid[$id])) || ($nm !== '' && isset($nama[$nm]))) { $kena = true; break; }
+    }
+    if ($kena) $comps[] = $c;
+  }
+
+  return array('pic' => $pic, 'days' => $days, 'comps' => $comps,
+               'dari' => $dari, 'sampai' => $sampai);
+}
 /* ==================== OMSET PER PIC MARKETING (dibaca modul lain) ====
    Dipakai modul Marketing > Marketing Performance untuk memajang totalan
    KEDUA di sampingnya sendiri: berapa yang benar-benar dialokasikan finance

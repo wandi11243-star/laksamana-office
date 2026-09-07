@@ -2061,6 +2061,20 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function svg() {  }
 
 
@@ -4201,6 +4215,11 @@ function doLogin() { $(); buildNav(); updateTopUser(); bootRoute(); }
 
 
 function updateTopUser() { $(); can(); go(); buildNav(); permViewKeys(); }
+
+
+
+
+
 
 
 
@@ -13749,6 +13768,255 @@ function perfPitaBD() { esc(); perfLabelPeriode(); svg(); muatPerfBD(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pfoRp() {  }
+
+function pfoBulanIni() {  }
+function pfoRentang() { pfoBulanIni(); }
+
+
+
+
+function pfoLabelBulan() {  }
+
+
+
+
+
+
+
+
+
+function pfoPasangKeterangan() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pfoAkuHead() {  }
+
+
+
+
+
+function pfoAkuPic() {  }
+
+
+
+
+
+
+
+function pfoBolehLihat() { pfoAkuHead(); pfoAkuPic(); }
+
+
+
+
+
+
+function pfoMuat() { pfoRentang(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderPerformaOmset() { pfoBulanIni(); pfoPasangKeterangan(); esc(); pfoLabelBulan(); pfoPasangKendali(); pfoAkuHead(); pfoAkuPic(); pfoBolehLihat(); pfoRp(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pfoPasangKendali() { pfoBulanIni(); pfoMuat(); render(); }
 
 
 
