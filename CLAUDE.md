@@ -4021,26 +4021,49 @@ dengan angka di tiap tab.
   di requestnya. Uji yang menyetel wadah lain akan lulus karena sebab yang
   salah: seluruh request terbaca "belum selesai".
 
-**2. Reporting jadi PER BULAN dan sesederhana mungkin.** Pemilih bulan, tiga
-kartu ringkas (Total Omset, Jumlah Event, Rata-rata per Event), dan tabel per
-hari: **tanggal · jumlah event · total omset**, dengan baris TOTAL di kakinya.
+**2. Reporting jadi PER BULAN, barisnya PER KATEGORI.** Pemilih bulan, tiga
+kartu ringkas (Total Omset, Jumlah Event, Rata-rata per Event), dan tabel
+**kategori · jumlah event · total omset**, dengan baris TOTAL di kakinya.
 
-- **"Hari itu" DIBACA TANGGAL ACARANYA** (`e.tanggal`), bukan tanggal barisnya
-  diinput — yang dipasangkan dengan omset adalah hari acaranya berlangsung.
+> Barisnya sempat **per tanggal acara**, dan diganti hari yang sama atas
+> permintaan user ("jangan per tanggal, per kategori"). Yang hilang dengan
+> pengelompokan per tanggal justru pertanyaan yang dibawa orang ke halaman ini:
+> omsetnya datang dari jenis acara yang mana. "Hari mana yang ramai" sudah
+> dijawab kalender di halaman sebelah.
+
+- **KATEGORINYA DARI `jenisEvent()`, BUKAN `e.jenis` mentah.** "Lainnya" itu
+  penanda isian bebas, bukan jenis — dibaca mentah, seluruh acara yang jenisnya
+  diketik sendiri menumpuk jadi satu baris bernama "Lainnya" dan tidak ada satu
+  pun layar yang bisa memecahnya lagi. `jenisEvent()` dipakai chip di Daftar
+  Event, kalender, dan Event Brief; penentu kedua di sini berarti kategori yang
+  sama berbunyi lain di dua layar.
+- **Yang jenisnya kosong TIDAK dibuang dan TIDAK dijatuhkan ke kategori
+  pertama** — acara tanpa jenis tetap membawa omset, dan membuangnya membuat
+  jumlah kategori berhenti sama dengan totalnya. Ia diberi namanya sendiri,
+  aturan yang sama dengan `katEvent()` di modul Analytics.
+- **Diurutkan dari omset TERBESAR, bukan menurut abjad.** Pertanyaannya "dari
+  kategori mana omsetnya datang", dan jawabannya ada di urutannya. Yang sama
+  besar dipisah namanya supaya urutannya tidak berubah-ubah tiap render.
+- **BULANNYA DIBACA TANGGAL ACARANYA** (`e.tanggal`), bukan tanggal barisnya
+  diinput — yang dipasangkan dengan omset adalah bulan acaranya berlangsung.
   Dikatakan di layarnya supaya tidak perlu ditebak.
 - Hanya event **Confirmed / Deal / Event Done**. Peluang yang belum closing
   bukan omset, dan memasukkannya membuat angka bulan berjalan turun tiap kali
   ada peluang yang batal.
 - Angkanya dari `eventFinance().grand` — rumus yang sama dengan Surat Penawaran
   dan Invoice. Menghitungnya sendiri berarti laporan yang menyebut angka lain
-  daripada dokumen yang sudah dikirim ke klien.
-- **Hari tanpa acara tidak digambar.** Sebulan penuh baris nol membuat yang
-  benar-benar terjadi harus dicari dengan mata; jumlah hari berisi toh sudah
-  disebut di kartunya.
+  daripada dokumen yang sudah dikirim ke klien. **`detail.total` TIDAK dibaca
+  siapa pun**; subtotalnya dari tabel Rincian, atau — kalau tabelnya kosong —
+  dari `eventFbCost + sewaVenue + biayaTeknis + biayaLain`. Uji yang mengisi
+  `detail.total` mendapat NOL untuk semua barisnya, dan pemeriksaan urutan lulus
+  tanpa menyentuh apa pun: deret nol memang selalu tidak menaik. Karena itu
+  ujinya sekarang memeriksa dulu angkanya benar-benar sampai ke tabel.
 - **Baris TOTAL ada DI DALAM tabelnya**, bukan cuma di kartu atas: yang
   menjumlahkan kolomnya sendiri harus bisa mencocokkannya tanpa menggulir balik.
 - Yang DICABUT: donat *Revenue per Jenis Event*, kartu Total Pax, dan Avg per
-  Pax. `donutSVG()` ikut dicabut — Reporting satu-satunya pemakainya.
+  Pax. `donutSVG()` ikut dicabut — Reporting satu-satunya pemakainya. Donat itu
+  memang memecah per jenis juga, tapi sebagai gambar tanpa angka; yang
+  menggantikannya tabel yang bisa dibaca dan dijumlahkan.
 
 **3. Halaman "Marketing Performance" DICABUT.** Yang menggantikannya *Performa
 Omset & Bonus*: ia menjawab pertanyaan yang sama ("sebagai tim kita di mana")
@@ -4067,7 +4090,7 @@ dipakai `muatPerfBD`.
   pekerjaan yang tidak bisa dibatalkan demi kerapian yang tidak diminta.
 
 ````bash
-node tools/uji-revisi-marketing.js   # 39 pemeriksaan, jsdom
+node tools/uji-revisi-marketing.js   # 46 pemeriksaan, jsdom
 ````
 
 Ujinya membuang komentar sebelum mencari — sejarah kenapa sesuatu dicabut
@@ -4075,6 +4098,123 @@ justru harus tetap boleh menyebut namanya; yang dilarang PEMAKAIANNYA. Satu
 rujukan yang tertinggal untuk fungsi yang sudah dibuang adalah ReferenceError,
 dan gejalanya **layar putih** tanpa satu kata pun yang menyebut sebabnya. Enam
 mutasi dicoba, keenamnya tertangkap.
+
+### Performa Omset & Bonus di modul Event (7 September 2026)
+
+Permintaan user, sehari setelah halaman kembarannya di modul Marketing:
+*"yang di bagian modul event, saya ingin juga ada performa event yang di ambil
+dari modul finance, tapi CSS-nya juga samakan aja dengan yang modul marketing
+punya performa marketing."* Kunci view `perfomset`, kelompok menu Analitik.
+
+**BEDA dari "Event Performance" yang sudah ada di modul itu**, dan keduanya
+sengaja dipertahankan: yang lama mengukur **jalannya acara** (talent, tiket,
+kehadiran), yang baru mengukur **omset yang diakui** berikut bonusnya. Dua
+halaman bernama mirip yang mengukur hal berbeda akan membuat salah satunya
+dikira versi lama — karena itu namanya dibedakan, bukan disamakan.
+
+**TIDAK MENYALIN SATU RUMUS PUN.** Realisasi, potongan compliment, dan keempat
+skema bonus dihitung `deploy/assets/performa-bonus.js` — berkas yang SAMA yang
+dipakai panel Kas Kecil dan modul Marketing (`pbAgregasi()`, `bonusEvent()`,
+`kartuBonusEv()`). Ujinya memeriksa persis itu: modul ini tidak boleh memuat
+`function bonusEvent(`, `function pbAgregasi(`, `function kartuBonusEv(`, maupun
+`const EV_S1=`.
+
+**Datanya lewat `performaDivisi&divi=event`**, endpoint sempit yang sudah ada
+sejak halaman Marketing — tidak ada endpoint baru. Bukan `getAll`: getAll
+memulangkan seluruh blob omset (piutang, compliment seluruh divisi berikut
+pemberinya, breakdown per kasir), dan membukanya di halaman yang dibuka seluruh
+tim event bertentangan dengan aturan hak lihat yang justru melahirkannya.
+
+#### Hak lihat: sama persis dengan modul Marketing
+
+Yang keterangannya di Office memuat kata **Head** boleh membuka tiap anggota
+tim; yang bukan **hanya** boleh melihat dirinya sendiri dan rekapan gabungan.
+
+- **Penentunya `pbHead()` dari aset**, bukan ditulis ulang di modul ini. Kata
+  yang sama juga menentukan penerima Bonus Leader — satu kata untuk dua hal,
+  keputusan user 7 September 2026. Jangan dipecah lagi.
+- **GERBANGNYA DI PENGGAMBAR (`gambar()`), bukan di tombolnya.** Tombol PIC lain
+  memang tidak digambar, tapi `data-pic` bisa diubah dari devtools dalam sepuluh
+  detik. Ujinya melakukan persis itu — mengubah `data-pic` tombol yang **sudah
+  ada** lalu menekannya, BUKAN menyuntik tombol baru (tombol suntikan tidak
+  punya penangan klik, jadi mutasi "gerbang cuma di tombol" akan lolos; itu
+  sudah kejadian di versi pertama uji Marketing).
+- **Tab Semua SENGAJA tetap terbuka** — ia agregat, tidak menyebut siapa dapat
+  berapa, dan justru itu pembanding yang halaman ini punya.
+- **Nama PIC di Daftar Event segmen Semua hanya untuk yang berhak.** Itu pintu
+  belakang bocornya capaian per orang.
+- **MANAJEMEN dikecualikan lewat `peranSaya()`**, bukan penentu kedua. Fungsi itu
+  sudah menggabungkan roster Office dan `adminModules` di sesi, **termasuk jalan
+  mundurnya waktu Office tidak menjawab** — yang menulis penentunya sendiri di
+  sini akan mengunci manajemen setiap kali account-api diam.
+- **Office yang diam TIDAK membuka tim untuk staf biasa**: `rosterSaya()`
+  memulangkan null, jadi ia bukan Head dan bukan pula PIC yang dikenal. Yang
+  tersisa rekapan gabungan, dan sebabnya dikatakan di layar.
+
+#### Yang gampang lepas tanpa satu pun galat
+
+- **Nama field Open Bill `ob` / `obAmount` / `obTax` / `obService`** (lihat
+  `pbObTotal()`). Salah nama tidak melempar — barisnya cuma berhenti punya Open
+  Bill, dan "Diakui" berhenti sama dengan setengah Nilai Event. Kolomnya hanya
+  digambar kalau ada yang punya: kalau selalu tampil, mayoritas periode
+  memajang satu kolom penuh Rp0.
+- **Dasarnya NET (`amount`), bukan Diakui** — beda dari Bonus Marketing. Sudah
+  dijaga `tools/uji-bonus-event.js`; di sini yang dijaga tabelnya menyebut nilai
+  yang sama.
+- **`PEV.dimuat` menahan perputaran render→muat→render.** `pevMuat()` memanggil
+  `router()` di ujungnya, dan `router()` itulah yang memicu pemuatan; tanpa
+  penanda bulan yang sudah dimuat, yang terlihat bukan galat melainkan halaman
+  berkedip sambil menghujani server. Ditandai SEBELUM permintaan berangkat.
+- **"Masih di halaman ini?" diperiksa lewat `#pev_bulan`**, bukan
+  `location.hash` — hash di modul ini bisa memuat segmen kedua & ketiga.
+- **Aset WAJIB dimuat sebelum skrip halaman**: `pbSetKeterangan()` dipanggil di
+  badan skrip tuan rumah.
+- **Uji jsdom WAJIB menyisipkan asetnya inline** menggantikan tag `src`-nya.
+  Kalau lupa, halamannya jatuh ke cabang "mesin tidak termuat" dan ujinya
+  lulus/gagal karena sebab yang tidak ada hubungannya dengan yang diuji.
+- **Stub `fetch` di uji tidak boleh menjawab `listModuleRoster` asal-asalan.
+  `ambilOffice()` membaca balasan tanpa `members` lalu MENGOSONGKAN `EMS_ROSTER`,
+  dan seluruh hak lihat runtuh — halamannya jatuh ke rekapan gabungan, dan yang
+  membaca laporannya akan mengira gerbangnya yang salah. Sudah kejadian saat
+  uji ini ditulis.
+
+#### CSS: dikurung `#pev-wrap`
+
+Kartu halaman ini digambar aset yang lahir untuk panel Finance, jadi ia memakai
+kelas MILIK MODUL ITU: `.stat` dengan anak `.lab`/`.val`/`.foot`, `.stat.accent`,
+`.seg`, `.notice`, `.tbl-wrap`, `.num`. Modul Event punya `.stat` sendiri dengan
+anak kelas yang BERBEDA (`.lbl`/`.val`/`.sub`).
+
+- **Ditulis global, `.stat`/`th`/`td`/`.seg` di 16 halaman lain ikut bergeser.**
+  Ujinya memindai blok CSS-nya dan menolak baris yang tidak berawalan
+  `#pev-wrap` — itu yang akan menangkap aturan BERIKUTNYA. Pemindainya
+  membuang komentar dulu: penjelasan di atas aturannya menyebut nama kelas apa
+  adanya, dan pemindai yang merah untuk komentar akan dimatikan orang
+  berikutnya.
+- **`.stat .val` modul ini bergradasi emas lewat
+  `-webkit-text-fill-color:transparent`.** Kalau tidak dikembalikan jadi
+  `currentColor`, angka di kartu `.accent` (latarnya sudah emas) **TIDAK
+  TERLIHAT sama sekali** — dan kartu kosong terbaca sebagai data yang gagal
+  dimuat, bukan sebagai salah warna.
+- **Keempat keadaan ikut dibungkus** (memuat, galat, siap, isi); kalau sebagian
+  saja, layarnya berpindah gaya waktu datanya datang.
+- **Warnanya memakai variabel palet modul ini**, bukan nilai yang disalin dari
+  Finance. Yang ditulis `rgba()` literal cuma tint pita peringatan — modul ini
+  memang tidak punya variabel latarnya, dan `.perhatian-kosong` sudah begitu.
+- **`.btn-ghost`/`.btn-sm` dipetakan di sini**, bukan diganti di asetnya: asetnya
+  dipakai tiga tuan rumah, dan modul ini menamainya `.btn.ghost`/`.btn.sm`.
+
+````bash
+node tools/uji-performa-event-modul.js   # 80 pemeriksaan, jsdom
+````
+
+Dua belas mutasi dicoba, kedua belasnya tertangkap. `smoke-modul.js event`
+**tidak cukup**: ia tidak mengambil skrip eksternal, jadi halaman ini di sana
+selalu jatuh ke cabang "mesin tidak termuat" dan seluruh hitungannya lewat
+tanpa disentuh.
+
+> Dengan ini pekerjaan yang tertulis "BELUM dikerjakan" di blok **Mesin bonus
+> jadi SUMBER TUNGGAL** sudah selesai untuk kedua modul.
 
 ### Deploy gagal ETIMEDOUT: servernya sehat, IP runner-nya diblokir (7 Sep 2026)
 
