@@ -3906,6 +3906,23 @@ dirinya sendiri dan **rekapan gabungan**.
 - **Daftar Event pada segmen Semua menyebut nama PIC tiap baris** (`ev.pic`).
   Itu pintu belakang bocornya capaian per orang, jadi nama PIC hanya
   disertakan untuk Head.
+- **ADMIN MODUL DIKECUALIKAN** (permintaan user: "untuk super admin tetap bisa
+  lihat full team marketing punya"). Alasannya sama dengan pengecualian
+  `adminModules` di Performa Kasir: yang mengelola modul ini memang tugasnya
+  memeriksa siapa dapat berapa, dan menguncinya justru mencabut pekerjaan yang
+  halamannya ada untuk itu. **Diperiksa dari DUA sumber** —
+  `lm_session.adminModules` (jawaban Office) dan `ME.role==='super_admin'`
+  (turunannya di modul ini). Turunan itu hanya diperbarui kalau pembacaan
+  roster Office BERHASIL, jadi memeriksa role saja mengunci admin yang membuka
+  halaman ini saat Office sedang tidak menjawab; memeriksa adminModules saja
+  mengunci yang sesinya sudah lama. **`pfoBolehSemua()` satu tempat yang
+  memutuskannya** — dua penentu yang disebar akan menyimpang, dan yang bocor
+  justru gerbang penggambarnya.
+- **Pengecualiannya TIDAK melebar**: admin modul LAIN (mis. Event) tidak ikut
+  terbuka. Diuji.
+- **Pitanya menyebut SEBAB haknya**, bukan cuma bahwa ia punya hak — Head dan
+  admin modul dua jalan berbeda, dan yang memeriksa "kenapa saya bisa/tidak
+  bisa" perlu tahu yang mana.
 - **Halaman terbuka di capaian SENDIRI** untuk yang bukan Head, bukan di
   rekapan: yang membukanya paling sering ingin melihat dirinya.
 - Akun yang tidak cocok dengan PIC mana pun **dikatakan sebabnya** berikut cara
@@ -3971,10 +3988,10 @@ tanpa kotak, tanpa aksen emas, tabelnya tanpa kepala.
   tampilan Finance.
 
 ```bash
-node tools/uji-performa-marketing-modul.js   # 44 pemeriksaan, jsdom
+node tools/uji-performa-marketing-modul.js   # 49 pemeriksaan, jsdom
 ````
 
-Sembilan mutasi dicoba, kesembilannya tertangkap. Ujinya juga membandingkan angka di
+Empat belas mutasi dicoba, keempat belasnya tertangkap. Ujinya juga membandingkan angka di
 layar dengan `pbAgregasi()` langsung: kalau suatu hari ada yang menyalin
 rumusnya ke modul ini, perbandingan itu yang berbunyi.
 

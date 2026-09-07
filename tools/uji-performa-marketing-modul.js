@@ -55,7 +55,12 @@ for (let i = 0; i < 8; i++) {
 DAYS[0].bd.marketing.push(ev('p3', 'Citra-0', 9000000));
 const DATA = { pic: PIC, days: DAYS, comps: [] };
 
-function buka(namaAku, jabatanAku) {
+/* opsi: { adminModules, role } — dipakai menguji pengecualian admin modul.
+   Keduanya dipisah karena sumbernya memang dua: adminModules jawaban Office,
+   role turunannya di dalam modul. Yang memeriksa cuma salah satu akan
+   mengunci admin yang membuka halaman ini saat Office sedang tidak menjawab. */
+function buka(namaAku, jabatanAku, opsi) {
+  opsi = opsi || {};
   const html = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8')
     /* Aset lokal disisipkan inline menggantikan tagnya — jsdom tidak mengambil
        skrip eksternal. Kalau ikut dibuang seperti skrip CDN, halamannya
@@ -75,7 +80,7 @@ function buka(namaAku, jabatanAku) {
     url: 'https://dev.laksamanamuda.id/marketing/',
     beforeParse(w) {
       w.localStorage.setItem('lm_session', JSON.stringify({
-        id: 'u1', name: namaAku, modules: ['marketing'], adminModules: [],
+        id: 'u1', name: namaAku, modules: ['marketing'], adminModules: opsi.adminModules || [],
         token: 't', expiry: Date.now() + 86400000 }));
       w.fetch = () => new Promise(() => {});      // boot tidak boleh menembak jaringan
       w.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
@@ -100,6 +105,7 @@ function buka(namaAku, jabatanAku) {
     ME = S.users.find(u=>u.name===${JSON.stringify(namaAku)});
     PFO.st='ok'; PFO.bulan='2026-09'; PFO.dimuat='2026-09'; PFO.data=${JSON.stringify(DATA)}; PFO.pic='';
   `);
+  if (opsi.role) w.eval('ME.role=' + JSON.stringify(opsi.role) + ';');
   return w;
 }
 
@@ -197,6 +203,36 @@ cek('"Leader" TIDAK memberi hak lihat tim',
 w2 = buka('Ayu', 'Marketing Overhead');
 w2.eval("go('perfomset')");
 cek('"Overhead" bukan Head', !namaSeg(w2).some(t => /Budi/.test(t)), namaSeg(w2).join(' | '));
+
+/* ---------- 2b. admin modul: melihat seluruh tim tanpa harus Head ----------
+   Permintaan user 7 September 2026: "untuk super admin tetap bisa lihat full
+   team marketing punya". Alasannya sama dengan pengecualian adminModules di
+   Performa Kasir: yang mengelola modul ini memang tugasnya memeriksa siapa
+   dapat berapa. */
+console.log('\n-- admin modul (bukan Head) --');
+let wA = buka('Budi', 'Marketing', { adminModules: ['marketing'] });
+wA.eval("go('perfomset')");
+cek('admin modul melihat SELURUH anggota tim',
+    ['Ayu', 'Budi', 'Citra'].every(n => namaSeg(wA).some(t => t.indexOf(n) > -1)), namaSeg(wA).join(' | '));
+cek('layarnya menyebut SEBABNYA — admin modul, bukan Head',
+    /admin modul Marketing<\/b>, jadi bisa membuka/.test(wA.document.getElementById('view').innerHTML));
+wA.eval("(function(){ const b=document.querySelector('#pfo_seg button[data-pic=\"p1\"]'); b.click(); })()");
+cek('...dan boleh membuka capaian rekan', body(wA).indexOf(acuan.rp(acuan.agg.p1.real)) > -1);
+
+/* Turunan role di dalam modul juga berlaku — dan HARUS, karena role hanya
+   diperbarui saat pembacaan roster Office berhasil. Kalau cuma role yang
+   diperiksa, admin yang membukanya saat Office diam ikut terkunci; kalau cuma
+   adminModules, yang rolenya sudah super_admin tapi sesinya lama ikut terkunci. */
+wA = buka('Budi', 'Marketing', { role: 'super_admin' });
+wA.eval("go('perfomset')");
+cek('role super_admin juga melihat seluruh tim',
+    ['Ayu', 'Citra'].every(n => namaSeg(wA).some(t => t.indexOf(n) > -1)), namaSeg(wA).join(' | '));
+
+/* Yang bukan keduanya tetap terkunci — pengecualiannya tidak boleh melebar. */
+wA = buka('Budi', 'Marketing', { adminModules: ['event'] });
+wA.eval("go('perfomset')");
+cek('admin modul LAIN tidak ikut terbuka',
+    !namaSeg(wA).some(t => /Ayu|Citra/.test(t)), namaSeg(wA).join(' | '));
 
 /* ---------- 3. tidak menyalin rumus ---------- */
 console.log('\n-- angkanya dari aset, bukan salinan --');

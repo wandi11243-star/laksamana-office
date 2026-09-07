@@ -13894,6 +13894,37 @@ function pfoAkuHead(){
   if(typeof ME==='undefined' || !ME || typeof pbHead!=='function') return false;
   return pbHead({ officeUserId: ME.id, name: ME.name });
 }
+/* ADMIN MODUL DIKECUALIKAN (permintaan user 7 September 2026: "untuk super
+   admin tetap bisa lihat full team marketing punya").
+
+   Alasannya sama dengan pengecualian adminModules di Performa Kasir modul
+   Cashier: yang mengelola modul ini memang tugasnya memeriksa siapa dapat
+   berapa, dan menguncinya justru mencabut pekerjaan yang halamannya ada untuk
+   itu. Yang dibatasi staf marketing biasa, bukan yang mengurusi aksesnya.
+
+   DIPERIKSA DARI DUA SUMBER, dan itu disengaja:
+
+     lm_session.adminModules  jawaban OFFICE, sumber kebenarannya
+     ME.role==='super_admin'  turunannya di dalam modul ini (lihat
+                              roleSeharusnya: isModuleAdmin -> super_admin)
+
+   Turunan itu hanya diperbarui kalau pembacaan roster Office BERHASIL —
+   roleSeharusnya memulangkan null saat gagal, dan rolenya sengaja tidak
+   disentuh. Jadi memeriksa role saja berarti admin yang membuka halaman ini
+   saat Office sedang tidak menjawab bisa terkunci dari daftar timnya sendiri,
+   tanpa satu pun layar yang menyebutkan sebabnya. */
+function pfoAdminModul(){
+  try{
+    const ss=JSON.parse(localStorage.getItem('lm_session')||'null')||{};
+    const am=ss.adminModules||[];
+    if(am.indexOf('*')>-1 || am.indexOf('marketing')>-1) return true;
+  }catch(e){}
+  return !!(typeof ME!=='undefined' && ME && ME.role==='super_admin');
+}
+/* SATU tempat yang memutuskan "boleh melihat seluruh tim". Dua penentu yang
+   disebar akan menyimpang: daftar segmennya memakai yang satu, gerbang
+   penggambarnya memakai yang lain, dan yang bocor justru gerbangnya. */
+function pfoBolehSemua(){ return pfoAkuHead() || pfoAdminModul(); }
 /* PIC yang MEWAKILI orang yang login. Dipakai dua kali: untuk memutuskan
    segmen mana yang boleh dibuka, dan untuk memilih segmen awalnya. */
 function pfoAkuPic(){
@@ -13906,7 +13937,7 @@ function pfoAkuPic(){
 }
 function pfoBolehLihat(pid){
   if(pid==='__all__') return true;
-  if(pfoAkuHead()) return true;
+  if(pfoBolehSemua()) return true;
   const aku=pfoAkuPic();
   return !!(aku && String(aku.id)===String(pid));
 }
@@ -13986,7 +14017,7 @@ function renderPerformaOmset(V){
   }
 
   const list=PFO.data.pic||[];
-  const H=pfoAkuHead(), aku=pfoAkuPic();
+  const H=pfoBolehSemua(), aku=pfoAkuPic();
   const HASIL=pbAgregasi(PFO.data.days||[], 'marketing', list, PFO.data.comps||[]);
   const agg=HASIL.agg, yatim=HASIL.yatim;
   const BONUS=bonusMarketing(list, agg);
@@ -14001,7 +14032,11 @@ function renderPerformaOmset(V){
     + '</div>';
 
   const pitaAkses = H
-    ? '<div class="muted" style="font-size:12.5px;margin:6px 0 12px">Anda tercatat <b>Head</b> di Tim/Keterangan Office, jadi bisa membuka tiap anggota tim.</div>'
+    ? '<div class="muted" style="font-size:12.5px;margin:6px 0 12px">'
+      + (pfoAkuHead()
+          ? 'Anda tercatat <b>Head</b> di Tim/Keterangan Office, jadi bisa membuka tiap anggota tim.'
+          : 'Anda <b>admin modul Marketing</b>, jadi bisa membuka tiap anggota tim.')
+      + '</div>'
     : (aku
         ? '<div class="muted" style="font-size:12.5px;margin:6px 0 12px">Anda bisa membuka <b>capaian sendiri</b> dan <b>rekapan gabungan</b>. Capaian rekan tidak dibuka satu per satu — yang bisa membukanya hanya yang tercatat <b>Head</b> di Tim/Keterangan Office.</div>'
         : '<div class="notice warn"><div>Akun Anda belum cocok dengan satu pun PIC marketing, jadi yang tampil hanya rekapan gabungan. Perbaikannya di Office: isi kolom <b>Tim/Keterangan</b> dengan <b>Marketing</b> supaya nama Anda ikut ditarik ke roster PIC.</div></div>');
