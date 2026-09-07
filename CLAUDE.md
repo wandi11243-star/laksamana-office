@@ -3946,11 +3946,35 @@ ditunggu. Ganti bulan langsung memuat.
   (`#pfo_bulan`), bukan `location.hash`: `go()` mengosongkan hash pada beberapa
   keadaan, dan `refreshView()` yang membacanya bisa melempar orang ke dashboard.
 
+
+**TAMPILANNYA DISAMAKAN DENGAN PANEL FINANCE** (permintaan user), dan seluruh
+aturannya **DIKURUNG `#pfo-wrap`**. Kartu halaman ini digambar aset yang lahir
+untuk panel Kas Kecil, jadi ia memakai kelas MILIK MODUL ITU: `.stat` dengan anak
+`.lab`/`.val`/`.foot`, `.stat.accent`, dan tabel berkepala kapital. Modul
+Marketing punya `.stat` sendiri dengan anak kelas yang BERBEDA (`.sl`/`.sv`) dan
+mengharapkan `.card` di sebelahnya — tanpa aturan ini kartunya tampil polos:
+tanpa kotak, tanpa aksen emas, tabelnya tanpa kepala.
+
+- **Ditulis global, `.stat`/`th`/`td`/`.seg` di 20-an halaman lain modul ini ikut
+  bergeser.** Halaman baru tidak boleh mengubah tampilan halaman yang sudah
+  jalan. Ujinya memindai blok CSS-nya dan menolak baris yang tidak berawalan
+  `#pfo-wrap` — itu yang akan menangkap aturan BERIKUTNYA. Pemindainya membuang
+  komentar dulu: penjelasan di atas aturannya menyebut nama kelas apa adanya,
+  dan pemindai yang merah untuk komentar akan dimatikan orang berikutnya.
+- **Keempat keadaan ikut dibungkus** (memuat, galat, siap, isi). Kalau sebagian
+  saja, layarnya berpindah gaya waktu datanya datang.
+- **Warnanya memakai variabel palet modul ini**, bukan nilai yang disalin dari
+  Finance: dua palet yang disalin pasti menyimpang begitu salah satunya
+  disetel, dan yang menyetelnya tidak akan tahu ada salinan kedua.
+- `.stat::before` (garis emas di kepala kartu) DIMATIKAN di dalam kurungan —
+  itu gaya modul Marketing; panel Finance tidak punya, dan yang diminta
+  tampilan Finance.
+
 ```bash
-node tools/uji-performa-marketing-modul.js   # 33 pemeriksaan, jsdom
+node tools/uji-performa-marketing-modul.js   # 44 pemeriksaan, jsdom
 ````
 
-Delapan mutasi dicoba, kedelapannya tertangkap. Ujinya juga membandingkan angka di
+Sembilan mutasi dicoba, kesembilannya tertangkap. Ujinya juga membandingkan angka di
 layar dengan `pbAgregasi()` langsung: kalau suatu hari ada yang menyalin
 rumusnya ke modul ini, perbandingan itu yang berbunyi.
 

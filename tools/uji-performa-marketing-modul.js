@@ -257,6 +257,36 @@ cek('...lewat kompas-api, bukan api modul ini',
   sama('ganti bulan memicu tepat SATU permintaan', jejak.n, n1 + 1);
   sama('...dan bulannya benar-benar berpindah', w4.eval('PFO.bulan'), '2026-08');
 
+  /* ---------- 5. tampilannya, dan yang tidak boleh ikut bergeser ----------
+     Kartu halaman ini digambar aset yang lahir untuk panel Finance, jadi
+     kelasnya (.stat .lab/.val/.foot, .stat.accent, tabel berkepala kapital)
+     harus disediakan modul ini. Yang dijaga: DIKURUNG. Ditulis global, .stat,
+     th, td, dan .seg di 20-an halaman lain modul ini ikut bergeser — halaman
+     baru tidak boleh mengubah tampilan halaman yang sudah jalan. */
+  console.log('\n-- tampilan disamakan dengan panel Finance --');
+  const wrap = w4.document.getElementById('pfo-wrap');
+  cek('seluruh isinya dikurung #pfo-wrap', !!wrap);
+  cek('...termasuk keadaan memuat & galat', (src4.match(/bungkus\(kepala/g) || []).length >= 3,
+      'sebagian keadaan tidak dibungkus — layarnya berpindah gaya waktu datanya datang');
+  ['.stat .lab', '.stat .val', '.stat .foot', '.stat.accent', 'th{', 'td{', '.seg button.active']
+    .forEach(k => cek('menyediakan ' + k, src4.indexOf('#pfo-wrap ' + k) > -1 || src4.indexOf('#pfo-wrap ' + k.replace('{', '')) > -1));
+  /* Tiap aturan yang ditambahkan untuk halaman ini WAJIB berawalan #pfo-wrap.
+     Ini yang akan menangkap aturan BERIKUTNYA yang ditulis global. */
+  /* KOMENTAR DIBUANG DULU. Penjelasan di atas aturannya menyebut nama kelas
+     apa adanya (".stat dengan anak .lab/.val/.foot"), dan baris komentar yang
+     kebetulan diawali titik akan terbaca sebagai aturan global — pemindai yang
+     merah untuk komentar akan dimatikan orang berikutnya, dan bersamanya
+     hilang pemeriksaan yang sungguhan. Aturan yang sama dengan
+     tools/uji-tanpa-target.js. */
+  const blokCss = src4.slice(src4.indexOf('/* ---- Performa Omset & Bonus: tampilan disamakan'),
+                             src4.indexOf('#pfo-wrap .btn-sm'))
+    .replace(/\/\*[\s\S]*?\*\//g, '');
+  const bocor = blokCss.split('\n')
+    .filter(b => /^[.#a-z]/i.test(b.trim()) && b.indexOf('#pfo-wrap') < 0);
+  cek('tidak ada aturan yang lolos jadi global', bocor.length === 0, bocor.join(' | '));
+  cek('kartu aset benar-benar memakai kelas itu',
+      /class="stat accent"|class="stat "/.test(body(w4)) || /class="stat/.test(body(w4)));
+
   console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
   process.exit(gagal ? 1 : 0);
 })();
