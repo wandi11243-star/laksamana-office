@@ -2741,7 +2741,11 @@ function sorotCariBulan() {  }
 
 
 
-function viewBulanan() { kruDivisi(); bulanDari(); hariIni(); saring(); bolehUbah(); namaDivisi(); dwOrang(); awalBulan(); akhirBulan(); esc(); isAdmin(); hariSebulan(); idxHari(); tglPendek(); ikonDivisiJadwal(); bebanKru(); isHeadUser(); selHtml(); sel(); blokDW(); rekapBulan(); kopCetakHTML(); labelBulan(); segDivisi(); geserBulanAktif(); tombolKembali(); panelKosongRoster(); panelGagalDW(); setCariBulan(); pitaBelumAdaHead(); legendaShift(); salinBulanLalu(); exportExcel(); exportPNG(); exportWA(); statBox(); }
+function viewBulanan() { kruDivisi(); bulanDari(); hariIni(); saring(); bolehUbah(); namaDivisi(); dwOrang(); awalBulan(); akhirBulan(); esc(); isAdmin(); hariSebulan(); idxHari(); tglPendek(); ikonDivisiJadwal(); bebanKru(); isHeadUser(); selHtml(); sel(); blokDW(); rekapBulan(); kopCetakHTML(); labelBulan(); segDivisi(); geserBulanAktif(); tombolKembali(); panelKosongRoster(); panelGagalDW(); setCariBulan(); pitaBelumAdaHead(); legendaShift(); salinBulanLalu(); imporTempel(); exportExcel(); exportPNG(); exportWA(); statBox(); }
+
+
+
+
 
 
 
@@ -3957,11 +3961,18 @@ function imporParse() { impNorm(); impTgl(); impCocokNama(); }
 
 function imporTempel() { gambarImpor(); }
 
-function imporCtx() { kruDivisi(); divTunggal(); seninDari(); hariIni(); }
+function imporCtx() { seninDari(); hariIni(); kruDivisi(); divTunggal(); }
+
+
+
+
+
 
 
 
 function gambarImpor() { tutupModal(); esc(); namaDivisi(); divTunggal(); imporHitung(); imporSimpan(); }
+
+
 
 
 
