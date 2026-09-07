@@ -196,6 +196,26 @@ const jejakDari = (w, tgl) =>
         /const jejak=tambahJejak\(ex\);/.test(HTML));
   }
 
+  /* ============ Breakdown Omset ikut punya jejak ============
+     Permintaan user 7 September 2026. Breakdown justru yang paling sering
+     diperiksa ulang — di sinilah omset dibagi ke PIC dan potongan dibebankan
+     ke kasir — jadi "siapa yang mengaturnya" adalah pertanyaan pertama kalau
+     angkanya bermasalah. */
+  console.log('\n== Jejak Breakdown ==');
+  {
+    cek('Simpan Breakdown mencatat jejak', /d\.bdLog=tambahJejak\(\{log:d\.bdLog\}\);/.test(HTML));
+    /* DI LUAR d.bd, dan itu yang menentukan: objek d.bd diganti UTUH tiap
+       kali disimpan, jadi jejak di dalamnya akan terhapus setiap kali tanpa
+       satu pun galat. */
+    cek('jejaknya di LUAR d.bd yang diganti utuh',
+        HTML.indexOf('d.bd={marketing:state.mk') > -1 && HTML.indexOf('d.bd.log=') < 0,
+        'jejak di dalam d.bd akan terhapus tiap simpan');
+    cek('memakai tambahJejak yang sama, bukan mekanisme kedua',
+        (HTML.match(/function tambahJejak\(/g) || []).length === 1);
+    cek('digambar dengan kata kerjanya sendiri', HTML.indexOf("'Diatur'") > -1);
+    cek('yang belum pernah disimpan dikatakan', HTML.indexOf('belum pernah disimpan') > -1);
+  }
+
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);

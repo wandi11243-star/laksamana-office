@@ -189,6 +189,24 @@ async function siap(w) {
       (SRC_OMSET.match(/function tagihanOf/g) || []).length === 1 &&
       (HTML_KAS.match(/function tagihanOf/g) || []).length === 1);
 
+  /* ============ Halaman pertama panel Kas ============
+     Permintaan user 7 September 2026: masuk ke Kas, yang terbuka Dashboard
+     Omset. Sehari sebelumnya grup menunya sudah dinaikkan ke paling atas;
+     ini melengkapinya — menu teratas yang bukan halaman pertama membuat
+     sidebar dan layar mengatakan dua hal berbeda tentang mana yang utama. */
+  console.log('\n== Halaman pertama panel Kas ==');
+  {
+    const w2 = domKas().window;
+    await siap(w2);
+    cek('halPertamaBoleh() memulangkan Dashboard Omset',
+        w2.eval('halPertamaBoleh()') === 'bulanan', String(w2.eval('halPertamaBoleh()')));
+    /* Jaring terakhirnya tetap ada: yang tidak berhak membuka Dashboard Omset
+       tidak boleh mendarat di layar kosong tanpa penjelasan. */
+    cek('kk_buku tetap jadi cadangan berikutnya',
+        /if\(bolehLihat\('bulanan'\)\) return 'bulanan';\s*\r?\n\s*if\(bolehLihat\('kk_buku'\)\) return 'kk_buku';/
+          .test(HTML_KAS));
+  }
+
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);

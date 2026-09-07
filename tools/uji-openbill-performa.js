@@ -28,6 +28,23 @@ const path = require('path');
 const ROOT = path.resolve(__dirname, '..');
 const OMSET = path.join(ROOT, 'deploy', 'finance', 'omset', 'index.html');
 const KAS = path.join(ROOT, 'deploy', 'finance', 'kas', 'index.html');
+/* BERKAS KEMBAR KETIGA (7 September 2026). Sampai tanggal ini uji ini cuma
+   membandingkan omset vs kas, dan modul Cashier — yang memajang Performa
+   Kasir dari rumus yang sama — tidak pernah ikut diperiksa. Akibatnya ia
+   tertinggal DUA perbaikan berturut-turut tanpa satu pun galat:
+
+     7 Agustus 2026  : section event berhenti memotong kasir (potonganHari)
+     5 September 2026: baris yang memang tidak memotong disaring
+                       (potongKasirAktif di barisTanpaShift)
+
+   Dilaporkan user 7 September 2026: Performa Kasir di Cashier memajang
+   "13 hari punya baris event yang belum ditentukan kasir shift-nya" untuk
+   baris yang justru berbunyi "Tidak ada potongan kasir", sementara panel
+   Finance untuk bulan yang sama menyebut SATU hari.
+
+   Dua berkas yang dibandingkan tidak menangkap berkas ketiga yang tertinggal.
+   Itu pelajarannya, dan itulah kenapa yang dibandingkan sekarang KETIGANYA. */
+const CASHIER = path.join(ROOT, 'deploy', 'cashier', 'index.html');
 
 let ok = 0, gagal = 0;
 function cek(nama, syarat, ket) {
@@ -65,13 +82,20 @@ function rumus(src) {
                 mencari kurung tutup di kolom nol akan menelan tetangganya. */
              + '\n' + potongBaris(src, 'function menuFixRow(')
              + '\n' + potongBaris(src, 'function payGroupRow(')
-             + '\n' + potongBaris(src, 'function potongKasir(')
              + '\n' + potong(src, 'function potongKasirAktif(')
              + '\n' + potong(src, 'function potonganBaris(')
+             + '\n' + potong(src, 'function potonganHari(')
              + '\n' + potong(src, 'function barisTanpaShift(')
-             + '\nreturn { porsiPic: porsiPic, obTotal: obTotal,'
+             /* potongKasir() ada di omset & kas, TIDAK di cashier — modul itu
+                menghitung potongan lewat potonganHari(). Dibuat opsional
+                supaya ketiadaannya tidak menghentikan perbandingan yang
+                justru jadi inti uji ini. */
+             + (src.indexOf('function potongKasir(') > -1
+                 ? '\n' + potongBaris(src, 'function potongKasir(')
+                 : '\nfunction potongKasir(r){ return potongKasirAktif(r) ? num(r.amount) : 0; }')
+             + '\nreturn { porsiPic: porsiPic, obTotal: obTotal, potongKasir: potongKasir,'
              + '\n  potongKasirAktif: potongKasirAktif, potonganBaris: potonganBaris,'
-             + '\n  barisTanpaShift: barisTanpaShift };';
+             + '\n  potonganHari: potonganHari, barisTanpaShift: barisTanpaShift };';
   return new Function(kode)();
 }
 
@@ -79,15 +103,17 @@ console.log('=== UJI OPEN BILL -> PERFORMA ===\n');
 
 const srcOmset = fs.readFileSync(OMSET, 'utf8');
 const srcKas = fs.readFileSync(KAS, 'utf8');
+const srcCashier = fs.readFileSync(CASHIER, 'utf8');
 
-console.log('== Kedua rumus harus memulangkan angka yang sama ==');
-let a, b;
+console.log('== Ketiga rumus harus memulangkan angka yang sama ==');
+let a, b, c;
 try {
   a = rumus(srcOmset);
   b = rumus(srcKas);
-  cek('porsiPic & obTotal ada di KEDUA berkas', true);
+  c = rumus(srcCashier);
+  cek('rumusnya ada di KETIGA berkas', true);
 } catch (e) {
-  cek('porsiPic & obTotal ada di KEDUA berkas', false, e.message);
+  cek('rumusnya ada di KETIGA berkas', false, e.message);
   console.log('\n---------------------------------------');
   console.log('  OK: ' + ok + '   GAGAL: ' + gagal);
   process.exit(1);
@@ -214,6 +240,101 @@ cek('komentar di omset tidak lagi menjanjikan Performa Kasir yang tidak ada',
     srcOmset.indexOf('muncul di kartu Efek ke Realisasi Kasir dan di\r\n   Performa Kasir') < 0);
 cek('...dan menyebut kas sebagai berkas kembarnya',
     srcOmset.indexOf('BERKAS KEMBAR: porsiPic() di deploy/finance/kas/') > -1);
+
+/* ================== KETIGA BERKAS KEMBAR HARUS SEPAKAT ==================
+
+   Bagian ini yang akan menangkap berkas kembar berikutnya yang tertinggal.
+   Datanya dipilih supaya tiap aturan punya tempat untuk gagal sendiri-
+   sendiri, bukan satu kasus yang menutupi semuanya. */
+console.log('\n== Ketiga berkas kembar sepakat ==');
+
+/* Baris marketing yang menunya DIPILIH DI TEMPAT: omsetnya tetap milik kasir,
+   jadi tidak ada potongan sama sekali — dan karena tidak ada potongan, ia
+   TIDAK boleh dihitung sebagai "belum diatur kasir shift-nya". Persis baris
+   yang ada di tangkapan layar user 7 September 2026. */
+const K3_DITEMPAT = { menuFix:'ditempat', amount:4059060, tax:405907, service:202953, shift:[] };
+/* Baris marketing biasa yang shift-nya memang belum diisi — ini yang MEMANG
+   harus diperingatkan. Tanpa kasus ini, saringan yang terlalu rakus (mis.
+   membuang semua baris) akan lolos tanpa ketahuan. */
+const K3_PERLU_SHIFT = { amount: 5000000, tax: 500000, service: 250000, shift: [] };
+
+[['omset', a], ['kas', b], ['cashier', c]].forEach(([nama, m]) => {
+  cek(nama + ': baris "dipilih di tempat" tidak memotong kasir',
+      m.potongKasirAktif(K3_DITEMPAT) === false);
+  cek(nama + ': ...jadi tidak dihitung sebagai belum-diatur',
+      m.barisTanpaShift({ bd:{ marketing:[K3_DITEMPAT], event:[] } }).length === 0,
+      'inilah yang membuat Cashier memajang 13 hari sementara Finance 1 hari');
+  cek(nama + ': baris biasa tanpa shift TETAP diperingatkan',
+      m.barisTanpaShift({ bd:{ marketing:[K3_PERLU_SHIFT], event:[] } }).length === 1,
+      'saringannya terlalu rakus — yang memang perlu diatur ikut hilang');
+});
+
+/* SECTION EVENT TIDAK MEMOTONG KASIR sejak 7 Agustus 2026. Barisnya sengaja
+   diberi `shift` yang TERLANJUR TERSIMPAN — itulah bentuk data yang ada di
+   produksi, dan satu-satunya yang bisa menghidupkan kembali potongan yang
+   sudah dihapus. Modul Cashier melakukannya selama sebulan penuh. */
+const K3_HARI_EVENT = { bd:{ marketing:[], event:[
+  { amount: 8000000, tax: 800000, service: 400000, shift:['k1','k2'] } ] } };
+[['omset', a], ['kas', b], ['cashier', c]].forEach(([nama, m]) => {
+  cek(nama + ': baris di section EVENT tidak memotong kasir mana pun',
+      m.potonganHari(K3_HARI_EVENT, 'k1') === 0,
+      'nilainya ' + m.potonganHari(K3_HARI_EVENT, 'k1') + ' — potongan yang sudah dihapus hidup lagi');
+  cek(nama + ': ...dan tidak ikut dihitung sebagai belum-diatur',
+      m.barisTanpaShift(K3_HARI_EVENT).length === 0);
+});
+
+/* Baris marketing yang shift-nya SUDAH diisi memang membagi potongan. Tanpa
+   kasus ini, potonganHari() yang selalu memulangkan nol akan lolos. */
+const K3_HARI_MK = { bd:{ marketing:[
+  { amount: 6000000, tax: 0, service: 0, shift:['k1','k2'] } ], event:[] } };
+const k3Nilai = [['omset', a], ['kas', b], ['cashier', c]].map(([nama, m]) => {
+  const v = m.potonganHari(K3_HARI_MK, 'k1');
+  cek(nama + ': baris marketing ber-shift TETAP membagi potongan', v > 0, String(v));
+  return v;
+});
+cek('ketiganya memulangkan potongan yang SAMA PERSIS',
+    k3Nilai[0] === k3Nilai[1] && k3Nilai[1] === k3Nilai[2],
+    'omset ' + k3Nilai[0] + ' · kas ' + k3Nilai[1] + ' · cashier ' + k3Nilai[2]);
+
+/* ============ porsiPic: DUA SEPAKAT, SATU BERBEDA ============
+
+   Omset & kas sepakat; cashier memulangkan angka lain, dan bedanya BUKAN
+   kelalaian sesaat melainkan versi yang tertinggal jauh:
+
+     omset & kas : amount + tax + service + obTotal
+     cashier     : r.tiket ? amount × PORSI_PIC_TIKET : amount
+
+   `PORSI_PIC_TIKET` dan cabang `r.tiket` sudah DIBUANG dari kedua berkas
+   lain — di cashier keduanya masih hidup. Untuk baris di layar user 5
+   September 2026 selisihnya Rp1.480.130 (tax 697.720 + service 348.860 +
+   Open Bill 433.550).
+
+   INI TIDAK DISAMAKAN BEGITU SAJA, dan itu disengaja. porsiPic() dipakai
+   potonganBaris() sebagai besar POTONGAN ke kasir shift, jadi menyamakannya
+   MENGUBAH ANGKA UANG yang sudah berjalan — dan komentar di kedua sisi
+   saling bertentangan tentang boleh-tidaknya Open Bill masuk ke sana:
+
+     cashier : "TIDAK BOLEH masuk ke porsiPic() — akan memotong kasir untuk
+                uang yang justru sengaja tidak dipotong"
+     omset   : potonganBaris() memakai porsiPic() yang SUDAH memuat obTotal
+
+   Yang benar adalah keputusan tentang uang, bukan tentang kode, jadi ia
+   dilaporkan ke user (7 September 2026) dan menunggu jawabannya.
+
+   Sementara itu nilainya DIKUNCI di sini. Uji yang cuma melewat akan
+   membiarkan perbedaan ini terlupakan; uji yang memaksa sama akan menuntut
+   perubahan uang yang belum diputuskan siapa pun. Yang dikunci akan berbunyi
+   begitu ada yang menyentuhnya — ke arah mana pun. */
+const k3Pp = [a.porsiPic(BARIS), b.porsiPic(BARIS), c.porsiPic(BARIS)];
+cek('porsiPic omset & kas tetap sepakat', k3Pp[0] === k3Pp[1],
+    'omset ' + k3Pp[0] + ' · kas ' + k3Pp[1]);
+cek('porsiPic cashier MASIH versi lama (menunggu keputusan user)',
+    k3Pp[2] === 6977200 && k3Pp[0] === 8457330,
+    'omset ' + k3Pp[0] + ' · cashier ' + k3Pp[2]
+    + ' — kalau salah satunya sudah diputuskan & diubah, PERBARUI uji ini');
+cek('PORSI_PIC_TIKET memang cuma tersisa di cashier',
+    srcOmset.indexOf('PORSI_PIC_TIKET') < 0 && srcKas.indexOf('PORSI_PIC_TIKET') < 0
+    && srcCashier.indexOf('PORSI_PIC_TIKET') > -1);
 
 console.log('\n---------------------------------------');
 console.log('  OK: ' + ok + '   GAGAL: ' + gagal);

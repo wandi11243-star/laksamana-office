@@ -2064,6 +2064,27 @@ function openBillList(d){
    Baris yang shift-nya belum diisi mengembalikan pembagi 0 → potongannya tidak
    dibebankan ke siapa pun. Halaman Performa Kasir menandainya supaya ketahuan,
    daripada diam-diam membebankannya ke orang yang tidak bertugas. */
+/* ==== BARIS YANG MEMANG TIDAK MEMOTONG KASIR ====
+   Disalin dari deploy/finance/omset/ pada 7 September 2026 — modul ini
+   TERTINGGAL sejak ketiganya lahir, dan akibatnya dilaporkan user: Performa
+   Kasir di sini memajang "13 hari punya baris event yang belum ditentukan
+   kasir shift-nya" untuk baris yang justru berbunyi "Tidak ada potongan
+   kasir", sementara panel Finance untuk bulan yang sama cuma menyebut SATU
+   hari.
+
+   KETIGANYA BERKAS KEMBAR dengan deploy/finance/omset/ dan
+   deploy/finance/kas/. Kalau salah satu berkas disentuh, dua lainnya HARUS
+   ikut — dan riwayat modul ini adalah buktinya: dua perbaikan berturut-turut
+   (7 Agustus dan 5 September 2026) berhenti di dua berkas dan tidak pernah
+   sampai ke sini, tanpa satu pun galat di antaranya. */
+function menuFixRow(r){ const v=String((r&&r.menuFix)||''); return (v==='tetap'||v==='ditempat')?v:''; }
+function payGroupRow(r){ return !(r && r.payGroup===false); }
+function potongKasirAktif(r){
+  const mf=menuFixRow(r);
+  if(mf==='ditempat') return false;
+  if(mf==='tetap')    return true;
+  return payGroupRow(r);
+}
 function potonganBaris(r){
   const total=porsiPic(r);
   const ids=Array.isArray(r.shift)?r.shift.filter(Boolean):[];
@@ -2074,9 +2095,23 @@ function potonganBaris(r){
 }
 /* Total potongan yang ditanggung satu kasir tetap dari seluruh event pada satu
    hari. */
+/* HANYA BARIS MARKETING, sama dengan kedua berkas kembarnya. Section event
+   tidak lagi memotong kasir sama sekali sejak 7 Agustus 2026 (lihat porsiPic),
+   dan modul ini tidak pernah ikut — jadi selama sebulan ia MENGHIDUPKAN
+   KEMBALI potongan yang sudah sengaja dihapus, termasuk pada baris event lama
+   yang `shift`-nya terlanjur tersimpan.
+
+   Akibatnya realisasi kasir di halaman ini lebih KECIL daripada angka yang
+   sama di panel Finance, dan dua layar menyebut dua angka untuk satu kasir
+   pada hari yang sama. Tidak satu pun melempar galat; yang membandingkannya
+   cuma melihat dua angka yang sama-sama kelihatan wajar.
+
+   Efeknya BERLAKU SURUT: realisasi kasir pada hari yang ada event-nya akan
+   naik di halaman ini. Itu memang angka yang benar menurut aturan yang sudah
+   berlaku sejak 7 Agustus 2026. */
 function potonganHari(d,kasirId){
   let s=0;
-  [...(d.bd?.marketing||[]),...(d.bd?.event||[])].forEach(r=>{
+  (d.bd?.marketing||[]).forEach(r=>{
     const b=potonganBaris(r);
     if(b.ids.indexOf(kasirId)>-1) s+=b.per;
   });
@@ -2086,8 +2121,12 @@ function potonganHari(d,kasirId){
    ada di sini DIHAPUS: sekarang setiap baris event memotong kasir, bukan cuma
    yang ticketing, jadi semuanya butuh shift. */
 function barisTanpaShift(d){
-  return [...(d.bd?.marketing||[]),...(d.bd?.event||[])]
-    .filter(r=>num(r.amount)>0 && potonganBaris(r).pembagi<=0);
+  /* Saringan potongKasirAktif WAJIB di depan: tanpa itu baris yang memang
+     tidak punya potongan ikut terhitung sebagai "belum diatur", dan halaman
+     ini menyuruh orang mengatur sesuatu yang tidak ada. Persis keluhan user
+     7 September 2026. Sama dengan versi di kedua berkas kembarnya. */
+  return (d.bd?.marketing||[])
+    .filter(r=>potongKasirAktif(r) && num(r.amount)>0 && potonganBaris(r).pembagi<=0);
 }
 
 

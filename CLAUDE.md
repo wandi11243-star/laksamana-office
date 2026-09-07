@@ -654,6 +654,66 @@ Inter). Yang membuatnya terasa berbeda kerapatannya, bukan warnanya:
   seluruh blok `<style>` **identik byte-per-byte**, dan `smoke-modul.js event`
   tetap merender 16 halaman.
 
+### Cashier: berkas kembar KETIGA yang tertinggal DUA kali (7 Sep 2026)
+
+Keluhan user: Performa Kasir di **modul Cashier** memajang *“13 hari punya
+baris event yang belum ditentukan kasir shift-nya”* untuk baris yang justru
+berbunyi **“Tidak ada potongan kasir”**, sementara panel Finance untuk bulan
+yang sama menyebut **satu** hari.
+
+`deploy/cashier/` tertinggal DUA perbaikan berturut-turut, dan keduanya sudah
+tercatat di berkas ini untuk berkas lain:
+
+| kapan | apa | sampai ke |
+|---|---|---|
+| 7 Agustus 2026 | section event berhenti memotong kasir (`potonganHari`) | omset, kas |
+| 5 September 2026 | baris tanpa potongan disaring (`potongKasirAktif`) | omset, kas |
+
+Akibatnya bukan cuma peringatan palsu: `potonganHari()` di sana masih membaca
+`d.bd.event`, jadi selama sebulan ia **menghidupkan kembali potongan yang sudah
+sengaja dihapus** — termasuk pada baris event lama yang `shift`-nya terlanjur
+tersimpan. Realisasi kasir di Cashier karena itu lebih kecil daripada angka
+yang sama di Finance. **Efek perbaikannya berlaku surut**: realisasi kasir pada
+hari yang ada event-nya akan naik di modul Cashier.
+
+**PELAJARANNYA ADA DI UJINYA, bukan di bug-nya.** `uji-openbill-performa.js`
+membandingkan omset vs kas sejak lahir — dua berkas — dan berkas ketiga yang
+memakai rumus yang sama tidak pernah ikut diperiksa. Sekarang ia membandingkan
+**KETIGANYA**, dan langsung menemukan satu perbedaan lagi (di bawah).
+
+#### `porsiPic` di Cashier masih versi lama — MENUNGGU KEPUTUSAN
+
+```
+omset & kas : amount + tax + service + obTotal      -> 8.457.330
+cashier     : r.tiket ? amount × PORSI_PIC_TIKET : amount -> 6.977.200
+```
+
+`PORSI_PIC_TIKET` dan cabang `r.tiket` sudah dibuang dari kedua berkas lain;
+di Cashier keduanya masih hidup. **Ini TIDAK disamakan begitu saja** —
+`porsiPic()` dipakai `potonganBaris()` sebagai besar POTONGAN ke kasir shift,
+jadi menyamakannya mengubah angka uang yang sudah berjalan. Komentar kedua sisi
+pun saling bertentangan: Cashier menulis *“Open Bill TIDAK BOLEH masuk
+porsiPic()”*, sementara `potonganBaris()` di omset memakai `porsiPic()` yang
+sudah memuat `obTotal`. Yang benar adalah keputusan tentang uang, bukan tentang
+kode. Nilainya **dikunci di uji** sampai diputuskan, jadi perubahan ke arah
+mana pun akan berbunyi.
+
+```bash
+node tools/uji-openbill-performa.js   # 47 pemeriksaan (dari 25), TIGA berkas
+```
+
+### Jejak penginput: Breakdown & halaman pertama Kas (7 September 2026)
+
+- **Breakdown Omset ikut mencatat siapa yang menyimpannya** (`d.bdLog`),
+  memakai `tambahJejak()` yang sama. **DI LUAR `d.bd`** — objek itu diganti
+  UTUH tiap simpan, jadi jejak di dalamnya akan terhapus setiap kali tanpa satu
+  pun galat. Kata kerjanya *Diatur*.
+- **Panel Kas membuka Dashboard Omset lebih dulu**, bukan Buku Kas Kecil.
+  Melengkapi kenaikan grup menunya sehari sebelumnya — menu teratas yang bukan
+  halaman pertama membuat sidebar dan layar mengatakan dua hal berbeda tentang
+  mana yang utama. `kk_buku` tetap jadi cadangan berikutnya: yang tidak berhak
+  membuka Dashboard Omset tidak boleh mendarat di layar kosong.
+
 ### TARGET DICABUT SELURUHNYA dari Finance & Cashier (5 September 2026)
 
 Permintaan user: *"Target bulanan dan pengaturan target di modul finance, dan
