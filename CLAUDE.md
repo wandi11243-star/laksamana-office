@@ -4338,7 +4338,7 @@ pengganti menjalankan PHP-nya, dan itu dikatakan di kepala berkas ujinya.
 
 ```bash
 npm i php-parser        # sekali; atau setel PHP_PARSER_PATH
-node tools/uji-hilang-marketing.js   # 50 pemeriksaan, jsdom + php-parser
+node tools/uji-hilang-marketing.js   # 59 pemeriksaan, jsdom + php-parser
 ```
 
 **Yang dijaga adalah INVARIANNYA, bukan nama `designreqs`/`vip`**: setiap
@@ -4360,6 +4360,54 @@ ditimpa tidak menyimpan versi sebelumnya. Yang masih ada: tabel `activities`
 (append-only, `INSERT IGNORE`, 5000 baris terakhir) merekam siapa membuat apa
 dan kapan, jadi ia bisa dipakai menyusun ulang daftar yang hilang — bukan
 isinya, tapi jejaknya.
+
+#### Cap server WAJIB dikembalikan ke klien — kalau tidak, bentrok palsu
+
+**Babak kedua, beberapa jam kemudian di produksi.** Sesudah cap ditentukan jam
+server, modal **"Sebagian Perubahan Tidak Tersimpan"** muncul TERUS — menyebut
+baris Request Design dan Reservasi VIP yang tidak seorang pun sedang menyentuh.
+
+Dua penjaga yang membandingkan angka dari **dua jam yang berbeda**:
+
+| | capnya dari |
+|---|---|
+| server menyimpan `updated_at` | jam SERVER (`cap_tulis`) |
+| klien mencatat acuan `_serverVer` | `r.updatedAt` di salinan LAYARNYA = jam KLIEN |
+
+Waktu selalu maju antara klien mencap dan server menulis, jadi cap server
+hampir selalu lebih besar — dan **setiap suntingan KEDUA pada baris yang sama**
+dilaporkan bentrok. Bukan karena ada yang menyalip.
+
+Yang menentukan **bukan jam siapa yang dipakai**, melainkan bahwa kedua sisi
+memakai **angka yang sama**. Karena itu `save_all()` sekarang membalas `versi` —
+peta `<koleksi>:<id> -> cap` untuk baris yang capnya bergeser — dan klien
+memasangnya lewat `terapkanVersiServer()` **sebelum** `refreshSnapshot()`.
+
+- **Urutannya menentukan.** Dipasang sesudah, yang dicatat sebagai acuan tetap
+  cap klien dan bentrok palsunya kembali utuh. Diuji sebagai mutasi tersendiri.
+- **Hanya baris yang capnya BERGESER yang dikirim balik** (`$ua !== $uaKirim`).
+  Kiriman utuh berisi ribuan baris `clients` tidak perlu memantulkan angka yang
+  tidak berubah.
+- **Kuncinya `<koleksi>:<id>`**, bentuk yang SAMA dengan `_eachRow()` di klien.
+  Beda satu huruf tidak melempar apa pun — klien cuma tidak menemukan barisnya,
+  dan bentrok palsunya kembali tanpa satu pun tanda.
+- **Alarm bentrok SUNGGUHAN tidak ikut dilonggarkan**, dan itu diuji sebagai
+  jaring tersendiri: mematikan alarmnya lebih buruk daripada bentrok palsu.
+
+> **Pelajarannya bukan soal jam.** Perbaikan babak pertama memindahkan sumber
+> cap ke server tanpa memeriksa **siapa lagi yang membaca angka itu** — dan
+> pembacanya ada di berkas lain, di sisi lain jaringan. Penjaga bentrok itu
+> kontrak DUA SISI; mengubah satu sisinya saja mengubah artinya, bukan
+> memperbaikinya. Gejalanya pun bukan galat, melainkan modal yang muncul
+> terus — dan modal yang selalu muncul berhenti dibaca orang, termasuk waktu
+> suatu hari ia benar.
+
+Ujinya menjalankan **DUA siklus simpan sungguhan** lewat `save()` milik modul,
+dengan server tiruan yang jamnya sengaja dimajukan. **Satu siklus tidak cukup**:
+bentroknya baru lahir di siklus kedua, dan uji yang berhenti di siklus pertama
+akan hijau untuk kode yang rusak. Lima mutasi dicoba — termasuk mengembalikan
+gejala produksinya persis — dan kelimanya tertangkap.
+
 
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)
 

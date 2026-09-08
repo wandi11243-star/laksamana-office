@@ -650,7 +650,7 @@ function put_setting($pdo, $k, $v) {
 
    Bentrok dikumpulkan, bukan membatalkan seluruh simpanan — perubahan lain
    yang tidak bertabrakan tetap tersimpan. */
-function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, $nowMs) {
+function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, $nowMs, &$versi) {
   $tabel = $c['table'];
   $cols  = $c['cols'];
   $adaCreated = !empty($c['created']);
@@ -711,8 +711,12 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, $no
     // baseUpdatedAt hanya metadata kiriman — jangan ikut tersimpan di `data`.
     $simpan = $r; unset($simpan['baseUpdatedAt']);
 
-    $ua = cap_tulis(ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0),
-                    $lolosBentrok, isset($verServer[$id]) ? $verServer[$id] : null, $nowMs);
+    $uaKirim = ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0);
+    $ua = cap_tulis($uaKirim, $lolosBentrok, isset($verServer[$id]) ? $verServer[$id] : null, $nowMs);
+    /* Cap yang dipakai DIKEMBALIKAN ke klien kalau berbeda dari yang ia kirim.
+       Lihat catatan panjang di save_all() — tanpa ini penjaga bentrok
+       melaporkan bentrok pada setiap suntingan kedua. */
+    if ($ua !== $uaKirim) $versi[$namaKoleksi . ':' . $id] = $ua;
     /* Cap yang benar-benar dipakai WAJIB ikut tersimpan di `data`.
        Klien membaca versinya dari situ (`r.updatedAt`) lalu mengirimkannya
        balik sebagai baseUpdatedAt, sementara penjaga bentrok di sini
@@ -778,7 +782,7 @@ function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $sejak) {
    alasannya. Yang berbeda cuma tempat simpanannya: satu nilai JSON di tabel
    `settings`, bukan tabel tersendiri — jadi penggabungannya dikerjakan di
    PHP, bukan diserahkan ke ON DUPLICATE KEY UPDATE. */
-function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, $nowMs) {
+function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, $nowMs, &$versi) {
   $lama = baris_settings($pdo, $nama);
 
   /* Baris yang sudah ada, dikunci id. Yang TIDAK ber-id sengaja tidak ikut:
@@ -821,8 +825,9 @@ function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, $nowM
 
     // baseUpdatedAt hanya metadata kiriman — jangan ikut tersimpan.
     $simpan = $r; unset($simpan['baseUpdatedAt']);
-    $ua = cap_tulis(ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0),
-                    $lolosBentrok, $verServer, $nowMs);
+    $uaKirim = ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0);
+    $ua = cap_tulis($uaKirim, $lolosBentrok, $verServer, $nowMs);
+    if ($ua !== $uaKirim) $versi[$nama . ':' . $id] = $ua;
 
     /* Penjaga urutan untuk baris yang TIDAK diubah klien: aplikasi mengirim
        state utuh, jadi baris ini cuma pantulan salinan yang dipegang klien.
@@ -868,12 +873,34 @@ function save_all($state) {
     /* Satu cap untuk SELURUH kiriman, diambil sekali. Dipanggil per baris, dua
        baris yang disimpan bersamaan bisa dapat cap berbeda tanpa alasan. */
     $nowMs = sekarang_ms();
+    /* CAP YANG BENAR-BENAR DIPAKAI, dikembalikan ke klien.
+
+       Sejak cap ditentukan JAM SERVER (lihat cap_tulis), nilai yang tersimpan
+       hampir selalu BERBEDA dari yang dikirim klien — waktu memang sudah maju
+       antara klien mencap dan server menulis. Klien mencatat acuan bentroknya
+       sendiri lewat refreshSnapshot(), yang membaca `r.updatedAt` dari salinan
+       DI LAYARNYA; jadi acuannya cap klien, sementara yang dibandingkan server
+       cap server.
+
+       Akibatnya SETIAP suntingan KEDUA pada baris yang sama dilaporkan
+       bentrok — `Sebagian Perubahan Tidak Tersimpan`, padahal tidak ada
+       seorang pun yang menyalip. Kejadian di produksi 8 September 2026,
+       beberapa jam setelah cap server dipasang, dan dilaporkan user sebagai
+       modal yang `muncul terus`.
+
+       Dua penjaga yang membandingkan angka dari DUA JAM yang berbeda selalu
+       salah; yang menentukan bukan jamnya melainkan bahwa kedua sisi memakai
+       angka YANG SAMA. Karena itu server memberitahukan cap yang ia pakai,
+       dan klien memasangnya sebelum mencatat acuan berikutnya. Hanya baris
+       yang capnya BERGESER yang dikirim balik — kiriman utuh berisi ribuan
+       baris client tidak perlu ikut memantulkan angka yang tidak berubah. */
+    $versi = array();
 
     foreach (collections() as $nama => $c) {
       $known[] = $nama;
       if (!array_key_exists($nama, $state)) continue;      // tidak dikirim → lewati
       $rows = is_array($state[$nama]) ? $state[$nama] : array();
-      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $sejak, $nowMs);
+      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $sejak, $nowMs, $versi);
     }
 
     /* Koleksi yang tinggal di `settings` — digabung PER BARIS, bukan ditimpa.
@@ -885,7 +912,7 @@ function save_all($state) {
       $known[] = $nama;
       if (!array_key_exists($nama, $state)) continue;   // tidak dikirim -> lewati
       $rows = is_array($state[$nama]) ? $state[$nama] : array();
-      $hitung[$nama] = upsert_settings_collection($pdo, $nama, $rows, $bentrok, $sejak, $nowMs);
+      $hitung[$nama] = upsert_settings_collection($pdo, $nama, $rows, $bentrok, $sejak, $nowMs, $versi);
     }
 
     // ---- activities: append-only ----
@@ -948,6 +975,11 @@ function save_all($state) {
     // semuanya masuk. Aplikasi wajib memberitahu user kalau ini terisi —
     // kalau didiamkan, user mengira perubahannya tersimpan padahal tidak.
     'bentrok' => $bentrok,
+    /* Cap baru untuk baris yang capnya digeser server, berkunci
+       `<koleksi>:<id>` — bentuk yang SAMA dengan kunci _eachRow() di klien.
+       Beda satu huruf tidak melempar apa pun: klien cuma tidak menemukan
+       barisnya, dan bentrok palsunya kembali. */
+    'versi'   => $versi,
     'backend' => 'php-mysql',
     'ts'      => gmdate('c'),
   );

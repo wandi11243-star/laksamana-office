@@ -2642,6 +2642,26 @@ async function kirimPemulihan(jumlah, kalah){
     API_READY=false; setSyncBadge('err'); jadwalkanKirimUlang();
   }
 }
+/* Pasang cap yang BENAR-BENAR dipakai server pada baris yang bersangkutan.
+
+   refreshSnapshot() di bawah mencatat acuan penjaga bentrok dari `r.updatedAt`
+   di salinan LAYAR INI. Sejak server menentukan capnya sendiri dari jamnya
+   (cap_tulis di marketing-mysql), acuan itu hampir selalu lebih kecil daripada
+   yang tersimpan — waktu memang sudah maju antara kita mencap dan server
+   menulis. Tanpa fungsi ini, SETIAP suntingan kedua pada baris yang sama
+   dilaporkan `Sebagian Perubahan Tidak Tersimpan` padahal tidak ada seorang
+   pun yang menyalip; modalnya lalu muncul terus-menerus dan yang membacanya
+   berhenti mempercayainya — termasuk waktu suatu hari ia benar.
+
+   Dipanggil SEBELUM refreshSnapshot(), bukan sesudah: yang dicatat acuan
+   harus cap yang sudah dibetulkan.
+
+   Server hanya mengirim baris yang capnya BERGESER, jadi ketiadaan sebuah
+   kunci di sini berarti `capmu sudah benar`, bukan `barisnya gagal`. */
+function terapkanVersiServer(versi){
+  if(!versi || typeof versi!=='object') return;
+  _eachRow(S,(key,r)=>{ const v=+versi[key]; if(v) r.updatedAt=v; });
+}
 function refreshSnapshot(){
   const snap={}, ver={};
   _eachRow(S,(key,r)=>{ snap[key]=_sig(r); ver[key]=r.updatedAt||0; });
@@ -2704,7 +2724,9 @@ function save(){
         API_READY=true; setSyncBadge('ok');
         tandaiSudahNaik();      // server sudah menerima — penanda boleh dicabut
         _ulangJeda=0;
-        refreshSnapshot();     // versi kita kini = versi server
+        terapkanVersiServer(j.data.versi);   // cap server dulu…
+        refreshSnapshot();     // …baru dicatat sebagai acuan bentrok berikutnya
+        localStorage.setItem(KEY, JSON.stringify(S));   // cache ikut cap yang benar
       }
     }else{
       API_READY=false; setSyncBadge('err');

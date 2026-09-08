@@ -156,6 +156,19 @@ cek('$nowMs diambil SEKALI per kiriman, bukan per baris',
    bentrok membandingkannya dengan KOLOM updated_at. Kalau keduanya berbeda,
    setiap suntingan berikutnya dilaporkan bentrok padahal tidak ada yang
    menyalip. */
+cek('server mengembalikan cap yang ia pakai lewat `versi`',
+    /'versi'\s*=>\s*\$versi,/.test(LIB_KODE) && /\$versi = array\(\);/.test(LIB_KODE),
+    'tanpa ini klien tidak pernah tahu cap sebenarnya, dan bentrok palsu kembali');
+cek('...berkunci <koleksi>:<id>, bentuk yang sama dengan _eachRow di klien',
+    /\$versi\[\$namaKoleksi \. ':' \. \$id\] = \$ua;/.test(LIB_KODE) &&
+    /\$versi\[\$nama \. ':' \. \$id\] = \$ua;/.test(LIB_KODE));
+cek('...hanya baris yang capnya BERGESER yang dikirim balik',
+    (LIB_KODE.match(/if \(\$ua !== \$uaKirim\)/g) || []).length === 2,
+    'kiriman berisi ribuan baris client tidak perlu memantulkan angka yang tidak berubah');
+cek('klien memasang cap server SEBELUM mencatat acuan',
+    MKT.indexOf('terapkanVersiServer(j.data.versi);') <
+    MKT.indexOf('refreshSnapshot();     // …baru dicatat sebagai acuan bentrok berikutnya'),
+    'kalau sesudah, yang dicatat tetap cap klien');
 cek("cap yang dipakai ikut tersimpan di data (updatedAt = ua)",
     (LIB_KODE.match(/\$simpan\['updatedAt'\] = \$ua;/g) || []).length >= 2,
     'kalau tidak, suntingan berikutnya dilaporkan bentrok palsu');
@@ -296,5 +309,136 @@ else {
   cek('...dan pemisahannya dikatakan di layar', /tidak ikut Total/.test(SRC));
 }
 
-console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL' + (lewat ? ', ' + lewat + ' LEWAT' : ''));
-process.exit(gagal ? 1 : 0);
+/* ---------- 7. BENTROK PALSU: cap server vs cap klien ----------
+   Regresi produksi 8 September 2026, beberapa jam setelah cap server dipasang:
+   modal "Sebagian Perubahan Tidak Tersimpan" muncul TERUS, menyebut baris yang
+   tidak seorang pun sedang menyentuh.
+
+   Sebabnya dua penjaga yang membandingkan angka dari DUA JAM yang berbeda.
+   Server menyimpan cap dari jamnya sendiri (cap_tulis); klien mencatat acuan
+   bentroknya dari `r.updatedAt` di salinan layarnya, yaitu cap KLIEN. Waktu
+   selalu maju antara klien mencap dan server menulis, jadi cap server hampir
+   selalu lebih besar — dan setiap suntingan KEDUA pada baris yang sama
+   dilaporkan bentrok.
+
+   Ujinya menjalankan DUA SIKLUS SIMPAN sungguhan lewat save() milik modul,
+   dengan server tiruan yang jamnya sengaja dimajukan. Satu siklus tidak cukup:
+   bentroknya baru lahir pada siklus kedua, dan uji yang berhenti di siklus
+   pertama akan hijau untuk kode yang rusak. */
+console.log('\n-- bentrok palsu sesudah cap server (regresi 8 Sep 2026) --');
+if (!JSDOM_MOD) { skip('siklus simpan (jsdom tidak ketemu)'); }
+else {
+  const { JSDOM, VirtualConsole } = JSDOM_MOD;
+  const vc = new VirtualConsole(); vc.on('jsdomError', () => {});
+  /* Server tiruan yang MENIRU KONTRAK PHP-nya: cap ditentukan jam server,
+     baris yang capnya bergeser dikembalikan lewat `versi`, dan penjaga
+     bentrok membandingkan baseUpdatedAt dengan cap TERSIMPAN. Kontraknya
+     sendiri dibandingkan dengan sumber PHP di bagian 3 & 4 di atas — tiruan
+     yang bentuknya beda dari yang ditiru tidak menguji apa pun. */
+  const simpanan = {};            // 'koleksi:id' -> cap tersimpan
+  let jamServer = Date.now() + 60000;   // server 1 menit di depan klien
+  const jejak = { simpan: 0, bentrok: [] };
+  function layaniSaveAll(data) {
+    jamServer += 1000;
+    const bentrok = [], versi = {};
+    ['designreqs', 'vip', 'events', 'clients'].forEach(nama => {
+      (data[nama] || []).forEach(r => {
+        if (!r || !r.id) return;
+        const key = nama + ':' + r.id;
+        const tersimpan = simpanan[key];
+        if ('baseUpdatedAt' in r) {
+          if (tersimpan != null && tersimpan > (+r.baseUpdatedAt || 0)) {
+            bentrok.push({ koleksi: nama, id: r.id, nama: r.nama || r.judul || r.id });
+            return;
+          }
+          const ua = jamServer;                    // CAP DARI JAM SERVER
+          simpanan[key] = ua;
+          if (ua !== (+r.updatedAt || 0)) versi[key] = ua;
+        } else if (tersimpan == null) {
+          simpanan[key] = +r.updatedAt || 0;
+        }
+      });
+    });
+    jejak.simpan++; jejak.bentrok = bentrok;
+    return { ok: true, data: { bentrok: bentrok, versi: versi } };
+  }
+  const dom = new JSDOM(
+    MKT.replace(/<script[^>]*\ssrc="[^"]*performa-bonus\.js"[^>]*><\/script>/i,
+        '<script>' + fs.readFileSync(path.join(ROOT, 'deploy/assets/performa-bonus.js'), 'utf8') + '</script>')
+       .replace(/<script[^>]*\ssrc="[^"]*venue-layouts\.js"[^>]*><\/script>/i,
+        '<script>' + fs.readFileSync(path.join(ROOT, 'deploy/assets/venue-layouts.js'), 'utf8') + '</script>')
+       .replace(/<script[^>]*\ssrc=[^>]*><\/script>/gi, ''),
+    { virtualConsole: vc, runScripts: 'dangerously',
+      url: 'https://dev.laksamanamuda.id/marketing/',
+      beforeParse(w) {
+        w.localStorage.setItem('lm_session', JSON.stringify({ id: 'u1', name: 'Uji',
+          modules: ['marketing'], adminModules: ['marketing'], token: 't', expiry: Date.now() + 86400000 }));
+        w.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
+        w.print = () => {}; w.confirm = () => true;
+        w.Chart = class { destroy() {} update() {} };
+        w.HTMLCanvasElement.prototype.getContext = () => ({});
+        w.fetch = (url, opt) => {
+          let b = {}; try { b = JSON.parse((opt && opt.body) || '{}'); } catch (e) {}
+          if (b.action !== 'saveAll') return new Promise(() => {});
+          const jwb = JSON.stringify(layaniSaveAll(b.data || {}));
+          return Promise.resolve({ ok: true, json: () => Promise.resolve(JSON.parse(jwb)),
+                                   text: () => Promise.resolve(jwb) });
+        };
+      } });
+  const w = dom.window;
+  const tunggu = ms => new Promise(r => setTimeout(r, ms));
+
+  (async function () {
+    w.eval("S = normalizeState(seed());");
+    w.eval("S.vip = [{id:'v1', nama:'Liya', tanggal:'2026-09-10', pax:6, jenis:'Assisted'}];");
+    w.eval("S.designreqs = [{id:'d1', judul:'frame videotron', jenis:'desain'}];");
+    /* Acuan awal = keadaan yang dianggap sudah sama dengan server. */
+    w.eval("refreshSnapshot();");
+    w.eval("simpanan_awal = 1;");
+    let lihatBentrok = [];
+    w.eval("showSaveConflict = function(b){ window.__BENTROK__ = b; };");
+
+    // ---- siklus 1: ubah lalu simpan ----
+    w.eval("S.vip[0].pax = 7; save();");
+    await tunggu(60);
+    lihatBentrok = w.__BENTROK__ || [];
+    cek('simpan pertama tidak bentrok', lihatBentrok.length === 0,
+        JSON.stringify(lihatBentrok));
+    const cap1 = w.eval("S.vip[0].updatedAt");
+    cek('klien memasang cap yang dipakai server', cap1 > Date.now() + 1000,
+        'cap klien tetap dipakai; acuan bentrok akan meleset — dapat ' + cap1);
+
+    // ---- siklus 2: ubah lagi, baris YANG SAMA ----
+    w.eval("window.__BENTROK__ = null;");
+    w.eval("S.vip[0].pax = 8; save();");
+    await tunggu(60);
+    lihatBentrok = w.__BENTROK__ || [];
+    cek('simpan KEDUA pada baris yang sama juga tidak bentrok',
+        lihatBentrok.length === 0,
+        'inilah gejala yang dilaporkan user: ' + JSON.stringify(lihatBentrok));
+
+    // ---- siklus 3: designreqs, jalur koleksi settings ----
+    w.eval("window.__BENTROK__ = null;");
+    w.eval("S.designreqs[0].judul = 'frame videotron rev'; save();");
+    await tunggu(60);
+    w.eval("window.__BENTROK__ = null;");
+    w.eval("S.designreqs[0].judul = 'frame videotron rev2'; save();");
+    await tunggu(60);
+    lihatBentrok = w.__BENTROK__ || [];
+    cek('Request Design juga tidak bentrok pada suntingan kedua',
+        lihatBentrok.length === 0, JSON.stringify(lihatBentrok));
+
+    /* Yang TIDAK boleh ikut dilonggarkan: bentrok SUNGGUHAN harus tetap
+       dilaporkan. Kalau tidak, perbaikan ini cuma mematikan alarmnya. */
+    w.eval("window.__BENTROK__ = null;");
+    simpanan['vip:v1'] = jamServer + 999999;      // orang lain menyimpan duluan
+    w.eval("S.vip[0].pax = 9; save();");
+    await tunggu(60);
+    lihatBentrok = w.__BENTROK__ || [];
+    cek('bentrok SUNGGUHAN tetap dilaporkan', lihatBentrok.length === 1,
+        'alarmnya ikut mati — itu lebih buruk daripada bentrok palsu');
+
+    console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL' + (lewat ? ', ' + lewat + ' LEWAT' : ''));
+    process.exit(gagal ? 1 : 0);
+  })();
+}
