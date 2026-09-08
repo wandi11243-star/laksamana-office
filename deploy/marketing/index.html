@@ -2000,6 +2000,27 @@ div.dn-meja{cursor:default}   /* <div> hanya dipakai mode baca-saja; <button> te
 .denah{margin-top:12px;max-width:1560px;margin-left:auto;margin-right:auto;
   max-height:calc(100vh - 300px)}
 @media(max-width:900px){ .denah{max-height:none} }
+/* ---- Buffering simpan. z-index DI ATAS .modal-bg (200): modal yang sedang
+   terbuka tidak boleh menutupi jawaban server. ---- */
+#simpan-tunggu{position:fixed;inset:0;z-index:400;display:none;
+  align-items:flex-start;justify-content:center;padding-top:14vh;
+  background:rgba(5,10,16,.35);backdrop-filter:blur(2px)}
+#simpan-tunggu.on{display:flex}
+#simpan-tunggu .st-kartu{background:var(--card,#fff);border-radius:14px;
+  box-shadow:0 18px 50px rgba(5,10,16,.28);padding:16px 20px;min-width:290px;
+  max-width:min(460px,92vw);display:flex;gap:14px;align-items:center}
+#simpan-tunggu .st-spin{width:22px;height:22px;flex:none;border-radius:50%;
+  border:3px solid rgba(34,48,60,.14);border-left-color:#C58E14;
+  animation:apispin .9s linear infinite}
+#simpan-tunggu.beres .st-spin{border:none;animation:none;
+  background:none;color:#1f9d5f;font-size:20px;line-height:22px;text-align:center}
+#simpan-tunggu.gagal .st-spin{border:none;animation:none;
+  background:none;color:#c9432b;font-size:20px;line-height:22px;text-align:center}
+#simpan-tunggu .st-teks{flex:1;min-width:0}
+#simpan-tunggu .st-teks b{font-size:14px}
+#simpan-tunggu .st-sub{font-size:12.5px;color:var(--muted,#6b7280);margin-top:3px;line-height:1.5}
+#simpan-tunggu .st-aksi{display:flex;gap:8px;flex:none}
+#simpan-tunggu .st-aksi:empty{display:none}
 </style>
 </head>
 <body>
@@ -2010,6 +2031,31 @@ div.dn-meja{cursor:default}   /* <div> hanya dipakai mode baca-saja; <button> te
   <p style="color:#888;font-size:14px;margin-top:8px" id="api-loading-text">Mengunduh database terbaru</p>
 </div>
 <style>@keyframes apispin{to{transform:rotate(360deg)}}</style>
+<!-- ============ BUFFERING SIMPAN (8 September 2026, permintaan user) ============
+     "pastikan setiap submit ada buffering untuk memastikan data tersimpan di
+     server."
+
+     Dipasang di save() — SATU tempat — bukan di 36 penangan submit satu per
+     satu. Alasannya bukan kemalasan: ada 101 titik save() di berkas ini, dan
+     yang tidak lewat penangan submit (pindah kolom pipeline, centang job,
+     hapus baris) sama-sama menulis ke server. Dipasang per tombol, yang
+     terlewat justru yang paling sering dipakai, dan tidak ada satu pun tanda
+     bahwa ia terlewat.
+
+     MENUTUP LAYAR selama menyimpan, disengaja: itu inti permintaannya.
+     Sebelum ini modal ditutup dan toast sukses muncul SEBELUM server menjawab
+     apa pun, jadi kru bisa langsung pindah halaman atau menutup tab sambil
+     mengira pekerjaannya sudah aman. -->
+<div id="simpan-tunggu" aria-live="polite">
+  <div class="st-kartu">
+    <div class="st-spin" id="st-spin"></div>
+    <div class="st-teks">
+      <b id="st-judul">Menyimpan ke server…</b>
+      <div class="st-sub" id="st-sub">Jangan tutup atau pindah halaman dulu.</div>
+    </div>
+    <div class="st-aksi" id="st-aksi"></div>
+  </div>
+</div>
 <div class="toast-wrap" id="toasts"></div>
 <datalist id="dl_staff"></datalist>
 <!-- Jenis & nama menu: saran dari halaman Database Menu (sidebar), bukan
@@ -2712,13 +2758,73 @@ async function apiLoad(){
 /* Server menulis PER-BARIS: baris yang tidak berubah tidak tersentuh, dan baris
    yang KITA ubah ditolak kalau orang lain sudah menyimpannya duluan (server
    balas daftar `bentrok`). Jadi tidak ada lagi timpa-buta seluruh database. */
-let saveInFlight=false, savePending=false;
-function save(){
+/* ---------- BUFFERING SIMPAN ----------
+   Ditunda 250 ms sebelum tampil: penyimpanan yang selesai dalam sekejap tidak
+   boleh membuat layar berkedip tiap kali ada yang dicentang. Yang lambat —
+   yang justru perlu ditunggu — tetap tertangkap. */
+const ST_TUNDA=250, ST_BERES=1100;
+let _stTimer=null, _stTutupTimer=null;
+function _stEl(){ return document.getElementById('simpan-tunggu'); }
+function _stSetel(kelas, judul, sub, aksi){
+  const el=_stEl(); if(!el) return;
+  el.className='on'+(kelas?' '+kelas:'');
+  document.getElementById('st-judul').textContent=judul;
+  document.getElementById('st-sub').innerHTML=sub||'';
+  document.getElementById('st-aksi').innerHTML=aksi||'';
+  const sp=document.getElementById('st-spin');
+  if(sp) sp.textContent = kelas==='beres' ? '✓' : (kelas==='gagal' ? '!' : '');
+}
+function stSembunyi(){
+  clearTimeout(_stTimer); clearTimeout(_stTutupTimer);
+  const el=_stEl(); if(el) el.className='';
+}
+function tungguSimpanMulai(){
+  clearTimeout(_stTimer); clearTimeout(_stTutupTimer);
+  _stTimer=setTimeout(function(){
+    _stSetel('','Menyimpan ke server…','Jangan tutup atau pindah halaman dulu.');
+  }, ST_TUNDA);
+}
+/* hasil: 'ok' | 'gagal' | 'bentrok'
+   'bentrok' TIDAK menampilkan apa-apa di sini — modal bentroknya sendiri yang
+   menjelaskan, dan dua lapis pesan di layar yang sama membuat yang membacanya
+   harus menebak mana yang berlaku. */
+function tungguSimpanSelesai(hasil){
+  clearTimeout(_stTimer);
+  const el=_stEl(); if(!el) return;
+  if(hasil==='bentrok'){ stSembunyi(); return; }
+  if(hasil==='gagal'){
+    /* Ditahan sampai ditutup sendiri. Kegagalan yang hilang sendiri dalam dua
+       detik sama saja tidak pernah diberitahukan — dan justru inilah keadaan
+       yang membuat orang menutup tab sambil mengira pekerjaannya aman.
+       Datanya TIDAK hilang: sudah di localStorage, dan kirim ulang otomatis
+       masih berjalan. Itu dikatakan, supaya tidak ada yang mengetik ulang. */
+    _stSetel('gagal','Belum tersimpan di server',
+      'Perubahanmu masih tersimpan di perangkat ini dan akan dicoba kirim lagi otomatis. '+
+      '<b>Jangan tutup tab ini</b> sampai statusnya hijau.',
+      '<button class="btn sm" onclick="save()">Coba lagi</button>'+
+      '<button class="btn sm ghost" onclick="stSembunyi()">Tutup</button>');
+    return;
+  }
+  /* Berhasil. Hanya ditampilkan kalau overlaynya MEMANG sempat terlihat —
+     kalau tidak, penyimpanan cepat akan memunculkan kartu "tersimpan" yang
+     berkedip tanpa ada yang sempat membacanya. */
+  if(el.className.indexOf('on')<0){ stSembunyi(); return; }
+  _stSetel('beres','Tersimpan di server','');
+  _stTutupTimer=setTimeout(stSembunyi, ST_BERES);
+}
+
+let saveInFlight=false, savePending=false, _savePendingRamai=false;
+/* opsi.diam = jangan tampilkan buffering. Dipakai sinkronisasi roster Office
+   yang berjalan sendiri saat modul dibuka: kru tidak menekan apa pun, jadi
+   layar yang tiba-tiba terkunci "Menyimpan…" cuma membingungkan. */
+function save(opsi){
+  const diam = !!(opsi && opsi.diam);
   stampChanges();                                // cap baris yang berubah SEBELUM cache/simpan
   localStorage.setItem(KEY, JSON.stringify(S));  // cache dulu (instan)
   tandaiBelumNaik();                             // dianggap belum sampai sampai server bilang ok
-  if(saveInFlight){ savePending=true; return; }  // hindari dua POST balapan dari tab yang sama
+  if(saveInFlight){ savePending=true; if(!diam) _savePendingRamai=true; return; }  // hindari dua POST balapan dari tab yang sama
   saveInFlight=true;
+  if(!diam) tungguSimpanMulai();
   const body={action:'saveAll', data:buildPayload()};  // baseUpdatedAt dibangun di sini, bukan di S
   fetch(API_URL, {
     method:'POST',
@@ -2732,7 +2838,7 @@ function save(){
       const bentrok=(j.data.bentrok||[]);
       if(bentrok.length){
         // Sebagian perubahan ditolak karena orang lain menyimpan duluan.
-        API_READY=false; setSyncBadge('conflict');
+        API_READY=false; setSyncBadge('conflict'); tungguSimpanSelesai('bentrok');
         /* BARIS YANG TIDAK BERTABRAKAN TETAP TERSIMPAN — server memang cuma
            melewati yang bentrok. Jadi capnya WAJIB ikut dipasang di sini
            juga, bukan cuma di cabang sukses. Tanpa ini, satu bentrok saja
@@ -2749,7 +2855,7 @@ function save(){
         localStorage.setItem(KEY, JSON.stringify(S));
         showSaveConflict(bentrok);
       }else{
-        API_READY=true; setSyncBadge('ok');
+        API_READY=true; setSyncBadge('ok'); tungguSimpanSelesai('ok');
         tandaiSudahNaik();      // server sudah menerima — penanda boleh dicabut
         _ulangJeda=0;
         terapkanVersiServer(j.data.versi);   // cap server dulu…
@@ -2757,14 +2863,21 @@ function save(){
         localStorage.setItem(KEY, JSON.stringify(S));   // cache ikut cap yang benar
       }
     }else{
-      API_READY=false; setSyncBadge('err');
+      API_READY=false; setSyncBadge('err'); tungguSimpanSelesai('gagal');
       console.warn('Simpan ditolak server:', j && j.error);
       jadwalkanKirimUlang();
     }
   })
-  .catch(err=>{ API_READY=false; setSyncBadge('err'); console.warn('Gagal sinkron ke server:', err);
+  .catch(err=>{ API_READY=false; setSyncBadge('err'); tungguSimpanSelesai('gagal');
+                console.warn('Gagal sinkron ke server:', err);
                 jadwalkanKirimUlang(); })
-  .finally(()=>{ saveInFlight=false; if(savePending){ savePending=false; save(); } });
+  .finally(()=>{ saveInFlight=false;
+    if(savePending){ savePending=false;
+      /* Antrean mewarisi sifat RAMAI kalau salah satu penyimpanan yang
+         mengantre datang dari tindakan kru. Kalau tidak, satu simpan diam
+         yang kebetulan mengantre di belakangnya akan menelan buffering-nya. */
+      const d=!_savePendingRamai; _savePendingRamai=false;
+      save(d?{diam:true}:undefined); } });
 }
 
 /* ---------- Kirim ulang otomatis ----------
@@ -2798,7 +2911,10 @@ window.addEventListener('online', cobaKirimSekarang);
    servernya memang sedang mati: kru tahu pekerjaannya belum aman SEBELUM
    menutup browser, bukan besok pagi saat datanya sudah tidak ada. */
 window.addEventListener('beforeunload', function(e){
-  if(!adaBelumNaik()) return;
+  /* `saveInFlight` ikut: penanda `belum naik` memang sudah dipasang di awal
+     save(), tapi menyebutnya di sini membuat maksudnya terbaca — yang ditahan
+     bukan cuma kegagalan, tapi juga kiriman yang MASIH berjalan. */
+  if(!adaBelumNaik() && !saveInFlight) return;
   e.preventDefault(); e.returnValue='';   // teksnya ditentukan browser
   return '';
 });
@@ -3300,7 +3416,7 @@ async function autoSyncOfficeRoster(){
       // Perubahan role dicatat terpisah & terperinci: ini menyangkut siapa boleh
       // membuka apa, jadi harus bisa ditelusuri satu per satu di Audit Log.
       if(roleBerubah.length) logAct('user','-','Role menyesuaikan Tim di Office',roleBerubah.join(' · '));
-      save(); buildNav(); paintStaffDatalist();
+      save({diam:true}); buildNav(); paintStaffDatalist();
     }
     const pesan=[];
     if(roleBerubah.length) pesan.push(roleBerubah.length+' role disesuaikan dengan Tim di Office.');

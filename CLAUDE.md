@@ -4338,7 +4338,7 @@ pengganti menjalankan PHP-nya, dan itu dikatakan di kepala berkas ujinya.
 
 ```bash
 npm i php-parser        # sekali; atau setel PHP_PARSER_PATH
-node tools/uji-hilang-marketing.js   # 65 pemeriksaan, jsdom + php-parser
+node tools/uji-hilang-marketing.js   # 80 pemeriksaan, jsdom + php-parser
 ```
 
 **Yang dijaga adalah INVARIANNYA, bukan nama `designreqs`/`vip`**: setiap
@@ -4440,6 +4440,61 @@ ulang masalahnya.**
 > mencari. Pertanyaan yang tidak diajukan: **siapa LAGI yang membaca angka
 > ini?** Jawabannya tiga tempat, dan dua di antaranya justru yang berjalan
 > paling sering.
+
+
+#### Buffering simpan di modul Marketing (8 September 2026)
+
+Permintaan user: *"pastikan setiap submit ada buffering untuk memastikan data
+tersimpan di server."* Sebelum ini `save()` fire-and-forget — modal ditutup dan
+toast sukses muncul **sebelum server menjawab apa pun**, jadi kru bisa langsung
+pindah halaman atau menutup tab sambil mengira pekerjaannya sudah aman.
+
+**DIPASANG DI `save()`, SATU tempat — bukan di 36 penangan submit.** Alasannya
+bukan kemalasan: ada **101** titik `save()` di berkas itu, dan yang tidak lewat
+penangan submit (pindah kolom pipeline, centang job, hapus baris) sama-sama
+menulis ke server. Dipasang per tombol, yang terlewat justru yang paling sering
+dipakai — dan tidak ada satu pun tanda bahwa ia terlewat.
+
+| keadaan | yang tampil |
+|---|---|
+| mengirim | kartu terkunci **"Menyimpan ke server…"** + *jangan tutup halaman* |
+| berhasil | **"Tersimpan di server"**, hilang sendiri ~1 detik |
+| gagal | **"Belum tersimpan di server"** + tombol Coba lagi, **DITAHAN** |
+| bentrok | tidak apa-apa — modal bentroknya sendiri yang menjelaskan |
+
+- **Ditunda 250 ms sebelum tampil** (`ST_TUNDA`). Penyimpanan yang selesai dalam
+  sekejap tidak boleh membuat layar berkedip tiap kali ada yang dicentang; yang
+  lambat — yang justru perlu ditunggu — tetap tertangkap.
+- **Keadaan BERHASIL hanya ditampilkan kalau overlaynya memang sempat
+  terlihat.** Kalau tidak, penyimpanan cepat memunculkan kartu "tersimpan" yang
+  berkedip tanpa ada yang sempat membacanya.
+- **Kegagalan DITAHAN sampai ditutup sendiri.** Kegagalan yang hilang sendiri
+  dalam dua detik sama saja tidak pernah diberitahukan — dan justru itulah
+  keadaan yang membuat orang menutup tab sambil mengira pekerjaannya aman.
+  Kalimatnya menyebut datanya **masih aman di perangkat** dan kirim ulang masih
+  berjalan; tanpa itu orang akan mengetik ulang di atas data yang sebenarnya
+  masih utuh.
+- **Sinkronisasi roster Office memakai `save({diam:true})`.** Ia berjalan sendiri
+  tiap modul dibuka; layar yang tiba-tiba terkunci "Menyimpan…" untuk sesuatu
+  yang tidak ditekan siapa pun cuma membingungkan. Antrean `savePending`
+  **mewarisi sifat ramai** (`_savePendingRamai`) — kalau tidak, satu simpan diam
+  yang kebetulan mengantre di belakang akan menelan buffering milik tindakan
+  kru.
+- **`beforeunload` ikut menyebut `saveInFlight`**, bukan hanya `adaBelumNaik()`.
+  Penanda itu ditulis `tandaiBelumNaik()` yang **menelan galatnya sendiri**, jadi
+  di peramban yang localStorage-nya ditolak (mode penyamaran) penandanya tidak
+  pernah terpasang — dan `saveInFlight` jadi satu-satunya yang menahan tab
+  ditutup di tengah kiriman.
+
+Ujinya menjaga **URUTAN**, bukan adanya elemen: server tiruannya digantung
+supaya keadaan sedang-mengirim sempat diamati, dan diperiksa bahwa layarnya
+**belum** mengaku tersimpan sebelum jawaban datang. Penangan `beforeunload`
+DIBANGKITKAN sungguhan (`dispatchEvent` + `defaultPrevented`) — memeriksa
+variabel `saveInFlight` saja tidak membuktikan tab benar-benar ditahan, dan
+versi pertama uji ini memang meloloskan mutasinya karena itu.
+
+Enam mutasi dicoba, keenamnya tertangkap — termasuk mengembalikan keadaan lama
+(tanpa buffering sama sekali) dan mengaku tersimpan sebelum server menjawab.
 
 
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)

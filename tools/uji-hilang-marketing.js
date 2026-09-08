@@ -486,6 +486,98 @@ else {
     cek('sesudah muat ulang, putarannya berhenti sepenuhnya',
         lihatBentrok.length === 0, JSON.stringify(lihatBentrok));
 
+    /* ---------- 8. BUFFERING SIMPAN (permintaan user 8 September 2026) ----------
+       "pastikan setiap submit ada buffering untuk memastikan data tersimpan di
+       server."
+
+       Yang diuji URUTANNYA, bukan adanya elemen: server tiruannya diberi jeda
+       buatan supaya keadaan SEDANG-MENGIRIM sempat diamati. Tanpa jeda itu,
+       jawabannya datang di microtask berikutnya dan ujinya hijau untuk kode
+       yang langsung mengaku sukses — pelajaran yang sudah dibayar di
+       tools/uji-simpan-basi.js. */
+    console.log('\n-- buffering simpan --');
+    const el = () => w.document.getElementById('simpan-tunggu');
+    cek('overlay buffering ada di halaman', !!el());
+    cek('...dan tertutup saat menganggur', el().className.indexOf('on') < 0, el().className);
+
+    /* Server dibuat lambat supaya keadaan menunggu bisa dilihat. */
+    let tahan = null;
+    const fetchCepat = w.fetch;
+    w.fetch = (url, opt) => new Promise(res => { tahan = () => res(fetchCepat(url, opt)); });
+
+    w.eval("S.clients[0].hp='0899'; save();");
+    await tunggu(400);                       // lewat ambang ST_TUNDA (250ms)
+    cek('selama menunggu server, layar TERKUNCI buffering',
+        el().className.indexOf('on') > -1, el().className);
+    cek('...dan kalimatnya menyuruh tidak menutup halaman',
+        /Jangan tutup/.test(w.document.getElementById('st-sub').textContent));
+    cek('...belum mengaku tersimpan',
+        !/Tersimpan/.test(w.document.getElementById('st-judul').textContent),
+        w.document.getElementById('st-judul').textContent);
+    /* Penangannya DIBANGKITKAN sungguhan, bukan diperiksa lewat saveInFlight —
+       yang terakhir cuma menyatakan kiriman sedang jalan, bukan bahwa tab
+       benar-benar ditahan.
+
+       Penanda `belum naik` sengaja DICABUT dulu supaya klausa saveInFlight
+       yang diuji, bukan penanda itu. Ini bukan keadaan mengada-ada:
+       tandaiBelumNaik() menelan galatnya sendiri, jadi di peramban yang
+       localStorage-nya ditolak (mode penyamaran, setelan privasi) penandanya
+       memang tidak pernah terpasang — dan saveInFlight jadi satu-satunya yang
+       menahan tab ditutup di tengah kiriman. */
+    w.eval('tandaiSudahNaik();');
+    const ev = new w.Event('beforeunload', { cancelable: true });
+    w.dispatchEvent(ev);
+    cek('beforeunload menahan tab selama kiriman masih berjalan',
+        ev.defaultPrevented === true,
+        'tab bisa ditutup di tengah kiriman tanpa satu pun peringatan');
+    w.eval('tandaiBelumNaik();');
+
+    tahan();                                  // server akhirnya menjawab
+    await tunggu(80);
+    cek('sesudah server menjawab, barulah mengaku tersimpan',
+        /Tersimpan di server/.test(w.document.getElementById('st-judul').textContent),
+        w.document.getElementById('st-judul').textContent);
+
+    /* GAGAL: harus DITAHAN di layar, bukan hilang sendiri. */
+    w.fetch = () => Promise.reject(new Error('jaringan mati'));
+    w.eval("S.clients[0].hp='0777'; save();");
+    await tunggu(400);
+    cek('kegagalan ditampilkan, bukan didiamkan',
+        /Belum tersimpan/.test(w.document.getElementById('st-judul').textContent),
+        w.document.getElementById('st-judul').textContent);
+    cek('...dan mengatakan datanya masih aman di perangkat',
+        /masih tersimpan di perangkat/.test(w.document.getElementById('st-sub').textContent));
+    cek('...serta memberi tombol coba lagi', /Coba lagi/.test(w.document.getElementById('st-aksi').innerHTML));
+    await tunggu(1400);
+    cek('kegagalan TIDAK hilang sendiri sesudah beberapa detik',
+        el().className.indexOf('gagal') > -1,
+        'kegagalan yang lenyap sendiri sama saja tidak pernah diberitahukan');
+
+    /* Sinkronisasi roster berjalan sendiri saat modul dibuka — tidak boleh
+       mengunci layar untuk sesuatu yang tidak ditekan siapa pun. */
+    w.eval("stSembunyi();");
+    w.fetch = (url, opt) => new Promise(res => { tahan = () => res(fetchCepat(url, opt)); });
+    w.eval("S.clients[0].hp='0666'; save({diam:true});");
+    await tunggu(400);
+    cek('simpan latar (roster Office) TIDAK mengunci layar',
+        el().className.indexOf('on') < 0, el().className);
+    tahan(); await tunggu(60);
+
+    const SRCM = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8');
+    cek('sinkronisasi roster memang memakai jalur diam',
+        /save\(\{diam:true\}\); buildNav\(\);/.test(SRCM),
+        'kalau tidak, layar terkunci sendiri tiap modul dibuka');
+    /* Dihitung PEMANGGILANNYA saja — definisi fungsinya sendiri ikut cocok
+       dengan pola polos, jadi asersi yang menghitungnya selalu >= 2 dan tidak
+       pernah bisa gagal. Pola yang sama dengan slice boundary di bagian 4. */
+    const panggilTunggu = (SRCM.match(/tungguSimpanMulai\(\)/g) || []).length
+                        - (SRCM.match(/function tungguSimpanMulai\(\)/g) || []).length;
+    cek('buffering dipasang di save(), bukan per tombol', panggilTunggu === 1,
+        'dipasang per tombol, yang terlewat justru yang paling sering dipakai — dapat ' + panggilTunggu);
+    cek('ketiga hasil server ditangani',
+        (SRCM.match(/tungguSimpanSelesai\('(ok|gagal|bentrok)'\)/g) || []).length === 4,
+        'sukses, gagal (dua jalur), dan bentrok');
+
     console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL' + (lewat ? ', ' + lewat + ' LEWAT' : ''));
     process.exit(gagal ? 1 : 0);
   })();
