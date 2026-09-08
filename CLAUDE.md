@@ -4338,7 +4338,7 @@ pengganti menjalankan PHP-nya, dan itu dikatakan di kepala berkas ujinya.
 
 ```bash
 npm i php-parser        # sekali; atau setel PHP_PARSER_PATH
-node tools/uji-hilang-marketing.js   # 109 pemeriksaan, jsdom + php-parser
+node tools/uji-hilang-marketing.js   # 118 pemeriksaan, jsdom + php-parser
 ```
 
 **Yang dijaga adalah INVARIANNYA, bukan nama `designreqs`/`vip`**: setiap
@@ -4579,6 +4579,71 @@ aku memuatnya?*
 > berbahaya daripada tidak ada asersi.
 
 Sembilan mutasi dicoba di babak ini, kesembilannya tertangkap.
+
+
+#### Menyimpan yang lama sekali: yang mahal bukan yang disangka (8 Sep 2026)
+
+Keluhan user: *"Menyimpan ke server ini juga lama banget untuk eksekusi."*
+
+**Dugaan pertama salah, dan pengukuran yang membetulkannya.** Disangka biaya
+terbesar ada di `JSON.parse(JSON.stringify(S))` — kloning seluruh database
+hanya untuk menempelkan satu field. Diukur pada **20.000 clients + 2.000
+events, satu baris berubah**:
+
+| | biaya |
+|---|---|
+| kloning penuh state | **34 ms** |
+| SATU sapuan `_dirty` (JSON.stringify per baris lewat `_sig()`) | **51 ms** |
+
+Jadi yang mahal **sapuannya**, bukan kloningnya — dan jalur simpan menyapunya
+**tiga kali**: `stampChanges()`, `petaBasisKotor()`, lalu `buildPayload()`,
+ditambah `refreshSnapshot()` penuh sesudah server menjawab.
+
+```
+cara LAMA  = sapu*3 + kloning   ~186 ms
+cara BARU  = sapu*1 + sisa       ~50 ms
+```
+
+- **`stampChanges()` memulangkan `{basis, kotor}`** — peta basis untuk penanda
+  "belum naik" DAN himpunan kunci baris kotor. Keduanya dipungut dari sapuan
+  yang memang sudah jalan.
+- **`buildPayload(kotor)` menerima himpunan itu**, jadi tidak menghitung ulang.
+  Tanpa argumen ia menghitung sendiri — `kirimPemulihan()` memanggilnya begitu,
+  dan di sana memang sekali saja.
+- **`refreshSnapshotSebagian(kotor)` di jalur simpan yang berhasil.** Baris yang
+  tidak ikut berubah tanda tangannya memang tetap sama — `_sig()` membuang
+  `updatedAt`, jadi cap baru dari server pun tidak menggesernya. Pemuatan tetap
+  memakai `refreshSnapshot()` penuh: di sana seluruh isinya memang baru.
+- **Salinan payload DANGKAL**, dan baris kotor diganti objek BARU
+  (`Object.assign`), bukan disunting di tempat. Kalau ini disederhanakan jadi
+  menyunting langsung, `baseUpdatedAt` bocor ke `S` dan penyimpanan berikutnya
+  mengirim base yang basi — bentrok palsu lagi. Diuji sebagai mutasi sendiri.
+
+**Di SERVER, baris yang tidak berubah tidak lagi ditulis ulang.** Aplikasi
+mengirim state utuh, jadi kiriman berisi SELURUH baris — puluhan ribu clients
+untuk satu event yang disunting, dan sebelumnya tiap baris tetap melewati satu
+`execute()` di dalam satu transaksi. Syaratnya dua-duanya: klien tidak
+menandainya berubah (tanpa `baseUpdatedAt`) DAN capnya sama persis dengan yang
+tersimpan; baris yang isinya disunting selalu dicap ulang `stampChanges()`, jadi
+isi berbeda dengan cap sama tidak bisa terjadi.
+
+> **`$ids[] = $id` TETAP dijalankan lebih dulu.** Itu yang menentukan baris tidak
+> ikut terhapus `hapus_yang_hilang()`. Melewatkannya bersama `continue` berarti
+> MENGOSONGKAN tabel — diuji sebagai asersi urutan tersendiri.
+
+**Modal bentrok sekarang menyebut sebab tersering dan menunjukkan angkanya.**
+"Orang lain sudah menyimpan" itu benar tapi tidak menolong: yang membacanya
+bertanya *siapa? kapan?* tanpa satu pun jalan mencarinya. Sebab tersering
+justru **modul yang sama terbuka di lebih dari satu tab** pada perangkat yang
+sama. Jam versi klien vs versi server ikut ditulis — tanpa angka, bentrok
+sungguhan dan bentrok palsu terlihat sama persis, dan sepanjang hari itu modal
+yang sama muncul untuk keduanya.
+
+Ujinya menjaga **JUMLAH SAPUAN, bukan milidetik** — waktu berbeda di tiap mesin
+dan uji yang mematok milidetik akan merah di laptop yang sibuk. `_sig()`
+dibungkus lalu dihitung berapa kali ia dipanggil per baris.
+
+Lima mutasi dicoba di babak ini, kelimanya tertangkap.
 
 
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)

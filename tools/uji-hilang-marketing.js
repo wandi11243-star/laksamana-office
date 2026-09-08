@@ -176,9 +176,15 @@ cek('...dan acuan bentrok ikut dibetulkan tanpa menunggu refreshSnapshot',
 cek('jalur bentrok TIDAK memanggil refreshSnapshot',
     !/showSaveConflict\(bentrok\);[\s\S]{0,80}refreshSnapshot\(\)/.test(MKT),
     'itu akan menghapus tanda berubah pada baris yang barusan DITOLAK');
-cek('klien memasang cap server SEBELUM mencatat acuan',
-    MKT.indexOf('terapkanVersiServer(j.data.versi);') <
-    MKT.indexOf('refreshSnapshot();     // …baru dicatat sebagai acuan bentrok berikutnya'),
+/* Jalur sukses kini memakai refreshSnapshotSebagian(). Jangkar yang hilang
+   membuat indexOf memulangkan -1, dan -1 lebih kecil daripada apa pun —
+   asersinya jadi selalu HIJAU untuk urutan apa pun. Karena itu keberadaan
+   kedua jangkarnya diperiksa lebih dulu, terpisah. */
+const iCap = MKT.indexOf('terapkanVersiServer(j.data.versi);   // cap server dulu…');
+const iAcuan = MKT.indexOf('refreshSnapshotSebagian(capBaru.kotor);');
+cek('kedua jangkar urutan ada di sumber', iCap > -1 && iAcuan > -1,
+    'urutan tidak bisa diperiksa kalau salah satunya hilang');
+cek('klien memasang cap server SEBELUM mencatat acuan', iCap > -1 && iAcuan > iCap,
     'kalau sesudah, yang dicatat tetap cap klien');
 cek("cap yang dipakai ikut tersimpan di data (updatedAt = ua)",
     (LIB_KODE.match(/\$simpan\['updatedAt'\] = \$ua;/g) || []).length >= 2,
@@ -787,6 +793,64 @@ else {
     cek('...dan dibersihkan begitu server menerima',
         w.eval('localStorage.getItem(KEY_PENDING_BASE)') === null,
         'muat ulang berikutnya akan menimpa data tersimpan dengan salinan lama');
+
+    /* ---------- 10. BIAYA MENYIMPAN ----------
+       Keluhan user 8 September 2026: "Menyimpan ke server ini juga lama banget
+       untuk eksekusi."
+
+       Yang mahal BUKAN kloning state-nya (dugaan pertama, dan pengukuran
+       menolaknya: kloning penuh ~34 ms, satu sapuan _dirty ~51 ms pada 20.000
+       clients). Yang mahal `_sig()` = JSON.stringify PER BARIS, dan jalur
+       simpan dulu menyapunya TIGA kali: stampChanges, petaBasisKotor, lalu
+       buildPayload.
+
+       Yang dijaga di sini JUMLAH SAPUAN, bukan waktunya — waktu berbeda di
+       tiap mesin dan uji yang mematok milidetik akan merah di laptop yang
+       sibuk. Sapuan dihitung dengan membungkus _sig(). */
+    console.log('\n-- biaya menyimpan --');
+    w.eval('stSembunyi(); saveInFlight=false; savePending=false;');
+    w.eval("S.clients=[]; for(let i=0;i<400;i++) S.clients.push({id:'k'+i,nama:'K'+i,hp:'08'+i});");
+    w.eval('refreshSnapshot();');
+    w.eval("S.clients[0].hp='0899-ubah';");
+    w.eval('window.__SIG__=0; _sigAsli=_sig; _sig=function(o){ window.__SIG__++; return _sigAsli(o); };');
+    w.fetch = fetchCepat;
+    w.eval('save();');
+    await tunggu(80);
+    const sapuan = w.__SIG__ / 400;
+    cek('baris hanya disapu SEKALI per penyimpanan',
+        sapuan <= 1.2,
+        'tiap sapuan JSON.stringify seluruh baris — dapat ' + sapuan.toFixed(2) + ' sapuan/baris');
+    w.eval('_sig=_sigAsli;');
+
+    const SRC10 = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8');
+    cek('daftar baris kotor dioper, tidak dihitung ulang',
+        /buildPayload\(capBaru\.kotor\)/.test(SRC10) && /const kotorTahu = \(kotor instanceof Set\)/.test(SRC10));
+    cek('payload tidak lagi mengkloning seluruh state',
+        SRC10.indexOf('const p = JSON.parse(JSON.stringify(S));') < 0,
+        'kloning penuh untuk menempelkan satu field pada segelintir baris');
+    cek('baseUpdatedAt TIDAK bocor ke S',
+        w.eval("S.clients.filter(c=>'baseUpdatedAt' in c).length") === 0,
+        'kalau bocor, penyimpanan berikutnya mengirim base basi -> bentrok palsu');
+
+    const LIB10 = fs.readFileSync(path.join(ROOT, 'marketing-mysql/lib_marketing_mysql.php'), 'utf8')
+      .replace(/\/\*[\s\S]*?\*\//g, '');
+    cek('server melewati baris yang tidak berubah',
+        /if \(!\$lolosBentrok && isset\(\$verServer\[\$id\]\) && \$ua === \$verServer\[\$id\]\) continue;/.test(LIB10),
+        'puluhan ribu execute() ke MySQL untuk satu event yang disunting');
+    /* Melewatinya TIDAK boleh ikut melewati pencatatan id: itu yang menentukan
+       baris tidak ikut terhapus hapus_yang_hilang(). */
+    const iIds = LIB10.indexOf('$ids[] = $id;');
+    const iLewat = LIB10.indexOf('$ua === $verServer[$id]) continue;');
+    cek('...tapi id-nya tetap dicatat lebih dulu', iIds > -1 && iLewat > iIds,
+        'melewatkan pencatatan id berarti MENGOSONGKAN tabel');
+
+    /* Modal bentrok menjelaskan sebab yang paling sering. */
+    cek('modal bentrok menyebut sebab tersering (tab ganda)',
+        /terbuka di lebih dari satu tab/.test(SRC10),
+        'yang membacanya bertanya "siapa? kapan?" tanpa satu pun jalan mencarinya');
+    cek('...dan menunjukkan angka versinya',
+        /versimu '\+jam\(vk\)\+', di server '\+jam\(vs\)/.test(SRC10),
+        'tanpa angka, bentrok sungguhan dan bentrok palsu terlihat sama persis');
 
     console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL' + (lewat ? ', ' + lewat + ' LEWAT' : ''));
     process.exit(gagal ? 1 : 0);

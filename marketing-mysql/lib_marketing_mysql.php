@@ -726,6 +726,26 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, $no
        menyalip, dan perubahan yang sah ditolak. */
     $simpan['updatedAt'] = $ua;
 
+    /* TIDAK BERUBAH -> TIDAK DITULIS.
+
+       Aplikasi mengirim state UTUH tiap menyimpan, jadi kiriman berisi SELURUH
+       baris — di database produksi itu puluhan ribu clients untuk satu event
+       yang disunting. Sebelumnya tiap baris tetap melewati satu execute(),
+       yaitu puluhan ribu perjalanan ke MySQL di dalam satu transaksi, dan
+       itulah yang dirasakan user sebagai `Menyimpan ke server` yang lama
+       sekali (dilaporkan 8 September 2026).
+
+       Aman dilewati karena syaratnya dua-duanya: klien TIDAK menandainya
+       berubah (tanpa baseUpdatedAt) DAN capnya sama persis dengan yang
+       tersimpan. Baris yang isinya disunting selalu dicap ulang
+       stampChanges(), jadi isi yang berbeda dengan cap yang sama tidak bisa
+       terjadi dari klien mana pun.
+
+       `$ids[]` DI ATAS tetap terisi — itu yang menentukan baris ini tidak
+       ikut terhapus hapus_yang_hilang(). Melewatkannya juga berarti
+       mengosongkan tabel. */
+    if (!$lolosBentrok && isset($verServer[$id]) && $ua === $verServer[$id]) continue;
+
     $args = array(':id' => $id);
     foreach ($cols as $kolom => $def) $args[':' . $kolom] = ambil($simpan, $def[0], $def[1]);
     $args[':updated_at'] = $ua;
@@ -833,6 +853,10 @@ function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, $nowM
        state utuh, jadi baris ini cuma pantulan salinan yang dipegang klien.
        Yang lebih lama tidak boleh menimpa yang lebih baru di server. */
     if (!$lolosBentrok && $verServer !== null && $ua < $verServer) continue;
+    /* Tidak berubah -> biarkan baris yang sudah ada, jangan disusun ulang.
+       Alasan yang sama dengan upsert_collection(), walau di sini biayanya
+       bukan perjalanan ke MySQL melainkan penyusunan ulang array. */
+    if (!$lolosBentrok && $verServer !== null && $ua === $verServer) continue;
 
     $simpan['updatedAt'] = $ua;
     $adaId[$id] = $simpan;

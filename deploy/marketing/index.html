@@ -2223,14 +2223,22 @@ const KEY_PENDING = KEY + '_pending';
    — `apakah ada yang menyimpan baris ini sesudah aku memuatnya` — dan
    jawabannya tidak bergantung jam siapa pun. */
 const KEY_PENDING_BASE = KEY_PENDING + '_base';
+/* CADANGAN saja: dipakai kalau tandaiBelumNaik() dipanggil tanpa peta.
+   Jalur simpan memberikannya dari stampChanges(), yang memang sudah menyapu
+   seluruh baris satu kali — menyapu ulang di sini berarti JSON.stringify per
+   baris untuk kedua kalinya dalam satu penyimpanan. */
 function petaBasisKotor(){
   const m={};
   try{ _eachRow(S,(key,r)=>{ if(_dirty(key,r)) m[key]=_serverVer[key]||0; }); }catch(_){}
   return m;
 }
-function tandaiBelumNaik(){ try{
+function tandaiBelumNaik(basis){ try{
   localStorage.setItem(KEY_PENDING, String(Date.now()));
-  localStorage.setItem(KEY_PENDING_BASE, JSON.stringify(petaBasisKotor()));
+  /* Petanya DIOPER dari stampChanges() oleh jalur simpan. Kalau diambil dari
+     variabel global yang diisi di sana, ia BASI begitu ada pemanggil lain —
+     penanda dipasang dengan peta milik penyimpanan SEBELUMNYA, dan baris yang
+     tidak disunting siapa pun ikut dilaporkan bentrok saat dimuat ulang. */
+  localStorage.setItem(KEY_PENDING_BASE, JSON.stringify(basis || petaBasisKotor()));
 }catch(_){} }
 function tandaiSudahNaik(){ try{
   localStorage.removeItem(KEY_PENDING); localStorage.removeItem(KEY_PENDING_BASE);
@@ -2583,13 +2591,28 @@ function _dirty(key,r){ return _snap[key]!==_sig(r); }   // beda dari versi serv
 // Cap updatedAt pada baris yang BERUBAH. baseUpdatedAt SENGAJA tidak disentuh di
 // sini — itu metadata kiriman, dibangun di buildPayload() dan tidak pernah masuk
 // objek S (kalau bocor ke S, save berikutnya mengirim base basi -> bentrok palsu).
+/* Basis tiap baris kotor DIKUMPULKAN DI SINI, sekalian jalan.
+
+   Dulu petaBasisKotor() menyapu seluruh baris sendiri, dan tiap sapuan
+   memanggil _sig() — JSON.stringify PER BARIS. Di database yang clients-nya
+   puluhan ribu baris, satu sapuan tambahan itu terasa: penyimpanan sudah
+   menyapu tiga kali (stampChanges, petaBasisKotor, buildPayload) SEBELUM satu
+   byte pun berangkat ke jaringan. Keluhan user 8 September 2026: "Menyimpan
+   ke server ini juga lama banget untuk eksekusi."
+
+   _dirty() dihitung SEBELUM updatedAt disentuh — aman, karena _sig() memang
+   membuang updatedAt sebelum membandingkan. */
 function stampChanges(){
   const now=Date.now();
+  const basis={}, kotor=new Set();
   _eachRow(S,(key,r)=>{
     if(!_dirty(key,r)) return;
+    basis[key] = _serverVer[key] || 0;
+    kotor.add(key);
     r.updatedAt = now;
     if(!r.createdAt) r.createdAt = now;
   });
+  return { basis, kotor };
 }
 /* ---------- KOLEKSI YANG TIDAK IKUT PENJAGA BENTROK ----------
    `users` dan `staff` BUKAN data yang disunting orang di sini — isinya cermin
@@ -2623,12 +2646,51 @@ let _sejakVersi = 0;
 
 // Salinan S untuk dikirim: baris yang berubah diberi baseUpdatedAt = versi yang
 // kita pegang dari server. S sendiri tetap bersih dari baseUpdatedAt.
-function buildPayload(){
-  const p = JSON.parse(JSON.stringify(S));
-  _eachRow(p,(key,r)=>{
-    if(!_dirty(key,r)) return;
-    if(KOL_TANPA_JAGA[key.split(':')[0]]) return;   // baris cermin: tanpa alarm bentrok
-    r.baseUpdatedAt = _serverVer[key] || 0;
+function buildPayload(kotor){
+  /* SALINAN DANGKAL, bukan JSON.parse(JSON.stringify(S)).
+
+     Kloning penuh menyalin SELURUH database dua kali (stringify lalu parse)
+     hanya untuk menempelkan satu field pada segelintir baris yang berubah —
+     lalu ia di-stringify SEKALI LAGI untuk dikirim. Di database besar itu
+     detik-detik yang berlalu sebelum satu byte pun berangkat, dan itulah yang
+     dirasakan sebagai `Menyimpan ke server` yang lama sekali.
+
+     Yang disalin sekarang HANYA baris yang benar-benar diberi baseUpdatedAt;
+     sisanya dipakai apa adanya lewat referensi. `S` tidak pernah tersentuh —
+     baris yang diubah diganti objek BARU (Object.assign), bukan disunting di
+     tempat. Kalau ini pernah disederhanakan jadi menyunting langsung,
+     baseUpdatedAt akan bocor ke S dan penyimpanan berikutnya mengirim base
+     yang basi — bentrok palsu yang sudah dijelaskan panjang di atas. */
+  /* DAFTAR BARIS KOTOR DIOPER dari stampChanges(), tidak dihitung ulang.
+
+     `_dirty()` memanggil `_sig()` = JSON.stringify PER BARIS. Diukur pada
+     20.000 clients + 2.000 events, satu sapuan begitu jauh lebih mahal
+     daripada kloning seluruh state — jadi yang harus dihilangkan bukan
+     kloningnya, melainkan sapuan KEDUA-nya. (Dugaan pertama justru
+     sebaliknya, dan pengukuran yang membetulkannya: kloning penuh 35 ms,
+     sapuan _dirty 52 ms.)
+
+     Tanpa argumen — jalur kirimPemulihan() — ia menghitung sendiri; di sana
+     memang cuma sekali. */
+  const kotorTahu = (kotor instanceof Set);
+  const adalahKotor = (key, r) => kotorTahu ? kotor.has(key) : _dirty(key, r);
+  const p = {};
+  for(const k in S) p[k] = S[k];
+  MKT_COLS.forEach(k=>{
+    const arr = S[k];
+    if(!Array.isArray(arr) || KOL_TANPA_JAGA[k]) return;   // baris cermin: tanpa alarm bentrok
+    let adaKotor=false;
+    for(let i=0;i<arr.length;i++){
+      const r=arr[i];
+      if(r && r.id && adalahKotor(k+':'+r.id, r)){ adaKotor=true; break; }
+    }
+    if(!adaKotor) return;                                  // koleksi utuh: pakai referensi
+    p[k] = arr.map(r=>{
+      if(!r || !r.id) return r;
+      const key=k+':'+r.id;
+      if(!adalahKotor(key, r)) return r;
+      return Object.assign({}, r, { baseUpdatedAt: _serverVer[key] || 0 });
+    });
   });
   p._sejak = _sejakVersi;
   /* `_versi` milik server, bukan bagian data kita — jangan dipantulkan balik
@@ -2776,6 +2838,25 @@ function terapkanVersiServer(versi){
      bentrok palsunya kembali pada penyimpanan berikutnya. */
   _eachRow(S,(key,r)=>{ const v=+versi[key]; if(v){ r.updatedAt=v; _serverVer[key]=v; } });
 }
+/* Segarkan acuan HANYA untuk baris yang barusan tersimpan.
+
+   refreshSnapshot() penuh menghitung ulang _sig() — JSON.stringify per baris —
+   untuk SELURUH database, padahal yang berubah cuma segelintir baris yang
+   barusan naik. Itu sapuan KEDUA dalam satu penyimpanan, dan pada 20.000
+   clients ia sama mahalnya dengan yang pertama.
+
+   Baris yang TIDAK ikut berubah tanda tangannya memang tetap sama: _sig()
+   membuang updatedAt, jadi cap baru dari server pun tidak menggesernya.
+
+   Dipakai HANYA di jalur simpan yang berhasil. Pemuatan tetap memakai
+   refreshSnapshot() penuh — di sana seluruh isinya memang baru. */
+function refreshSnapshotSebagian(kunci){
+  if(!(kunci instanceof Set)){ refreshSnapshot(); return; }
+  _eachRow(S,(key,r)=>{
+    if(!kunci.has(key)) return;
+    _snap[key]=_sig(r); _serverVer[key]=r.updatedAt||0;
+  });
+}
 function refreshSnapshot(){
   const snap={}, ver={};
   _eachRow(S,(key,r)=>{ snap[key]=_sig(r); ver[key]=r.updatedAt||0; });
@@ -2911,13 +2992,13 @@ let saveInFlight=false, savePending=false, _savePendingRamai=false;
    layar yang tiba-tiba terkunci "Menyimpan…" cuma membingungkan. */
 function save(opsi){
   const diam = !!(opsi && opsi.diam);
-  stampChanges();                                // cap baris yang berubah SEBELUM cache/simpan
+  const capBaru = stampChanges();                // cap baris yang berubah SEBELUM cache/simpan
   localStorage.setItem(KEY, JSON.stringify(S));  // cache dulu (instan)
-  tandaiBelumNaik();                             // dianggap belum sampai sampai server bilang ok
+  tandaiBelumNaik(capBaru.basis);                // dianggap belum sampai sampai server bilang ok
   if(saveInFlight){ savePending=true; if(!diam) _savePendingRamai=true; return; }  // hindari dua POST balapan dari tab yang sama
   saveInFlight=true;
   if(!diam) tungguSimpanMulai();
-  const body={action:'saveAll', data:buildPayload()};  // baseUpdatedAt dibangun di sini, bukan di S
+  const body={action:'saveAll', data:buildPayload(capBaru.kotor)};  // baseUpdatedAt dibangun di sini, bukan di S
   fetch(API_URL, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'}, // simple request, hindari preflight CORS
@@ -2951,7 +3032,7 @@ function save(opsi){
         tandaiSudahNaik();      // server sudah menerima — penanda boleh dicabut
         _ulangJeda=0;
         terapkanVersiServer(j.data.versi);   // cap server dulu…
-        refreshSnapshot();     // …baru dicatat sebagai acuan bentrok berikutnya
+        refreshSnapshotSebagian(capBaru.kotor);  // …baru dicatat sebagai acuan bentrok berikutnya
         localStorage.setItem(KEY, JSON.stringify(S));   // cache ikut cap yang benar
       }
     }else{
@@ -3015,7 +3096,16 @@ window.addEventListener('beforeunload', function(e){
 let _conflictShown=false;
 function showSaveConflict(bentrok){
   if(_conflictShown)return; _conflictShown=true;
-  const daftar=bentrok.slice(0,8).map(b=>'<li>'+esc(b.nama||b.id)+' <span class="cell-sub">('+esc(b.koleksi)+')</span></li>').join('');
+  const daftar=bentrok.slice(0,8).map(b=>{
+    /* Angkanya ikut ditampilkan: tanpa itu tidak ada satu pun cara membedakan
+       bentrok sungguhan dari bentrok palsu, dan sepanjang 8 September 2026
+       modal ini muncul berkali-kali untuk baris yang tidak seorang pun
+       sentuh — tanpa satu pun angka yang bisa dilacak. */
+    const vk=+b.versiKamu||0, vs=+b.versiServer||0;
+    const jam=t=>t?new Date(t).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+    const rinci = (vk||vs) ? ' <span class="cell-sub">· versimu '+jam(vk)+', di server '+jam(vs)+'</span>' : '';
+    return '<li>'+esc(b.nama||b.id)+' <span class="cell-sub">('+esc(b.koleksi)+')</span>'+rinci+'</li>';
+  }).join('');
   const lbh=bentrok.length>8?'<li>…dan '+(bentrok.length-8)+' lagi</li>':'';
   modal('<div class="modal-head"><div><h3>Sebagian Perubahan Tidak Tersimpan</h3><p>Orang lain sudah menyimpan data yang sama lebih dulu</p></div></div>'
    +'<div class="modal-body">'
@@ -3023,6 +3113,10 @@ function showSaveConflict(bentrok){
      +'<span>Perubahanmu pada data berikut <em>belum tersimpan</em> karena orang lain menyimpannya lebih dulu:</span></div>'
    +'<ul style="margin:12px 0 0 18px;line-height:1.9">'+daftar+lbh+'</ul>'
    +'<p style="color:var(--sand-dim);line-height:1.6;margin-top:14px">Amannya: muat ulang untuk mengambil versi terbaru, lalu ulangi perubahanmu di data itu. Perubahanmu pada data <em>lain</em> sudah tersimpan.</p>'
+   +'<p style="color:var(--sand-dim);line-height:1.6;margin-top:10px;font-size:12.5px">'
+     +'Sebab tersering <b>bukan</b> rekan kerja, melainkan <b>modul Marketing yang terbuka di lebih dari satu tab</b> pada perangkat ini — '
+     +'tab yang lebih lama menyimpan salinannya sendiri, lalu tab ini menganggapnya orang lain. '
+     +'Tutup tab Marketing yang lain, lalu muat ulang yang ini.</p>'
    +'</div><div class="modal-foot">'
    +'<button class="btn pri" onclick="reloadFromServer()">Muat ulang (disarankan)</button>'
    +'</div>','wide');
