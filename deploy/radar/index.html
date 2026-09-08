@@ -295,6 +295,7 @@ tbody tr.clk:hover{background:var(--gold-glow)}
 .cev:hover{filter:brightness(.97)}
 .cev.mkt{border-left-color:var(--gold);background:var(--gold-glow);color:var(--gold-deep)}
 .cev.evt{border-left-color:var(--violet);background:var(--violet-bg);color:var(--violet)}
+.cev.vip{border-left-color:var(--teal);background:var(--teal-bg);color:var(--teal)}
 .cres{font-size:9.5px;color:var(--muted);font-family:var(--mono);margin-top:auto;padding-top:2px}
 .legend{display:flex;gap:12px;flex-wrap:wrap;font-size:11px;color:var(--muted);align-items:center}
 .legend i{width:9px;height:9px;border-radius:2px;display:block}
@@ -381,6 +382,7 @@ select.finp{cursor:pointer;appearance:none;padding-right:30px;
 .chip.src.on.c-mkt{color:var(--gold-deep);background:var(--gold-glow)}
 .chip.src.on.c-evt{color:var(--violet);background:var(--violet-bg)}
 .chip.src.on.c-rsv{color:var(--info);background:var(--info-bg)}
+.c-vip{color:var(--teal);background:var(--teal-bg)}
 .chip.src i{width:9px;height:9px;border-radius:2px;display:inline-block;margin-right:6px;vertical-align:-1px}
 
 /* ---------- SAKLAR TAMPILAN (grid / tabel) ---------- */
@@ -799,6 +801,34 @@ function satukan(){
       tempat:e.venue||'', status:e.status||'', pax:+e.capacity||0,
       jenis:e.category||'', fb:'', mentah:e});
   });
+  /* ---------- RESERVASI VIP DARI MODUL MARKETING (8 September 2026) ----------
+     Permintaan user: reservasi VIP ikut muncul di Radar seperti event.
+
+     DATANYA SUDAH IKUT TERBAWA sejak lama — `vip` ada di dalam getAll
+     Marketing yang memang sudah ditarik Radar. Yang belum cuma pemakaiannya,
+     jadi tidak ada satu pun permintaan HTTP tambahan dan tidak ada sumber
+     baru di SUMBER[].
+
+     SUMBERNYA DIBERI NAMA SENDIRI ('vip'), bukan ditumpangkan ke 'mkt':
+     panel detail, badge, dan penyaring semuanya bercabang di `a.sumber`, dan
+     baris VIP yang menyamar sebagai event Marketing akan dibaca
+     drawerAgenda() sebagai event — lalu mencari clientId, payments, dan job
+     divisi yang tidak pernah ada di reservasi VIP. Yang tampil bukan galat,
+     melainkan panel setengah kosong yang terbaca sebagai data rusak.
+
+     YANG DIBATALKAN DISARING DI SINI lewat `batalAt`, penanda yang sama yang
+     dipakai vip_hari() di marketing-mysql. Menyaringnya dengan kata pada
+     `status` adalah kesalahan yang sudah pernah dibayar di modul ini —
+     lihat resBatal(): Radar sempat mencari kata `batal` yang TIDAK PERNAH
+     dipakai, sehingga yang batal ikut terhitung sebagai booking hidup. */
+  (D.mkt&&D.mkt.vip||[]).forEach(function(v){
+    if(!v||!v.tanggal||v.batalAt) return;
+    var meja=Array.isArray(v.meja)?v.meja.join(', '):String(v.meja||'');
+    AGENDA.push({sumber:'vip', id:v.id, tgl:v.tanggal, judul:v.nama||'(tanpa nama)',
+      jam:v.jamMulai||'', selesai:v.jamSelesai||'',
+      tempat:meja, status:v.status||'', pax:+v.pax||0,
+      jenis:v.jenis||'', fb:'', mentah:v});
+  });
   /* Agenda tanpa jam diletakkan di AKHIR hari, bukan awal. Sebagian besar
      event Marketing memang belum mengisi jamnya; string kosong secara alami
      terurut paling kecil, sehingga acara berjam-tidak-diketahui selalu naik ke
@@ -970,8 +1000,18 @@ function panelKesiapan(ev){
 function badgeSumber(s){
   if(s==='mkt') return pill('Marketing','p-warn');
   if(s==='evt') return pill('Event','p-vip');
+  if(s==='vip') return pill('Reservasi VIP','p-sea');
   return pill('Reservasi','p-sea');
 }
+/* Nama sumber DI SATU TEMPAT. Sebelum ada baris ini, tiap layar menuliskannya
+   sendiri sebagai `a.sumber==='mkt' ? 'Marketing' : 'Event'` — bentuk yang
+   diam-diam salah begitu ada sumber KETIGA: reservasi VIP dilabeli `Event`
+   di kalender, di judul panel, dan di laci, tanpa satu pun galat. */
+var SUMBER_LABEL={mkt:'Marketing · Event Klien', evt:'Event · Jadwal Acara',
+                  vip:'Marketing · Reservasi VIP'};
+var SUMBER_PENDEK={mkt:'Marketing', evt:'Event', vip:'Reservasi VIP'};
+function labelSumber(s){ return SUMBER_LABEL[s]||'Agenda'; }
+function labelSumberPendek(s){ return SUMBER_PENDEK[s]||'Agenda'; }
 function evBars(a){
   if(a.sumber!=='mkt') return '';
   var h='<div class="bars">', cat=evDivisi(a.mentah)[0]||'', subs=evSubs(a.mentah);
@@ -1178,6 +1218,13 @@ function agPasti(a){
   var s=String((a&&a.status)||'').trim();
   if(a.sumber==='mkt') return ST_MKT_JALAN.some(function(x){return x.toLowerCase()===s.toLowerCase();});
   if(a.sumber==='evt') return ST_EVT_JALAN.some(function(x){return x.toLowerCase()===s.toLowerCase();});
+  /* VIP: TANPA daftar putih status, dan itu disengaja. Yang di sini bukan
+     tahapan jualan melainkan booking yang sudah ada — tidak ada padanan
+     Lead/Prospect/Negotiation yang perlu disembunyikan. Yang batal sudah
+     disaring di satukan() lewat `batalAt`. Daftar putih yang ditebak-tebak
+     di sini akan MENYEMBUNYIKAN seluruh reservasi begitu ada satu status
+     baru di Marketing, dan daftar kosong terbaca sebagai tidak ada acara. */
+  if(a.sumber==='vip') return !resBatal(a) && !resNoShow(a);
   return true;
 }
 /* Daftar status yang boleh muncul di pemilih — dibangun dari data NYATA yang
@@ -1383,7 +1430,7 @@ function tabelRes(list,kunci){
 
    Chip penyaringnya SEKALIGUS jadi legenda (warnanya warna sumbernya), jadi
    tidak ada dua baris terpisah yang harus dicocokkan sendiri oleh pembaca. */
-var fCal={mkt:true, evt:true, rsv:true};
+var fCal={mkt:true, evt:true, rsv:true, vip:true};
 
 /* Total pax sebuah tanggal, dipecah per sumber.
    ---------------------------------------------------------------------
@@ -1418,6 +1465,7 @@ function vKalender(){
       '<button class="chip src c-mkt'+(fCal.mkt?' on':'')+'" onclick="APP.fCal(\'mkt\')"><i style="background:var(--gold)"></i>Marketing</button>'+
       '<button class="chip src c-evt'+(fCal.evt?' on':'')+'" onclick="APP.fCal(\'evt\')"><i style="background:var(--violet)"></i>Event</button>'+
       '<button class="chip src c-rsv'+(fCal.rsv?' on':'')+'" onclick="APP.fCal(\'rsv\')"><i style="background:var(--info)"></i>Reservasi</button>'+
+      '<button class="chip src c-vip'+(fCal.vip?' on':'')+'" onclick="APP.fCal(\'vip\')"><i style="background:var(--teal)"></i>Reservasi VIP</button>'+
     '</div></div>';
   if(!fCal.mkt&&!fCal.evt&&!fCal.rsv)
     h+='<div class="src-bad no-print" style="background:var(--warn-bg);border-color:var(--warn);color:var(--warn)">'+
@@ -1434,7 +1482,7 @@ function vKalender(){
   h+='<div class="grid g4" style="margin-bottom:16px">'+
     stat('Total pax '+BULAN[calCur.m], paxBln('mkt')+paxBln('evt')+paxRes(rbln),
          paxBln('mkt')+' mkt · '+paxBln('evt')+' evt · '+paxRes(rbln)+' rsv','')+
-    stat('Agenda bulan ini', bln.length, bln.filter(function(a){return a.sumber==='mkt';}).length+' Marketing · '+bln.filter(function(a){return a.sumber==='evt';}).length+' Event','tl')+
+    stat('Agenda bulan ini', bln.length, bln.filter(function(a){return a.sumber==='mkt';}).length+' Marketing · '+bln.filter(function(a){return a.sumber==='evt';}).length+' Event · '+bln.filter(function(a){return a.sumber==='vip';}).length+' VIP','tl')+
     stat('Reservasi bulan ini', rbln.length, paxRes(rbln)+' pax meja','se')+
     stat('Hari dobel agenda', Object.keys(bln.reduce(function(o,a){o[a.tgl]=(o[a.tgl]||0)+1;return o;},{})).filter(function(k){return bln.filter(function(a){return a.tgl===k;}).length>1;}).length, 'perlu dicek bentroknya','rd')+
   '</div>';
@@ -1445,7 +1493,10 @@ function vKalender(){
     var d=new Date(start); d.setDate(start.getDate()+i);
     var iso=d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
     var out=d.getMonth()!==calCur.m;
-    var ags=agendaTgl(iso).filter(function(a){return a.sumber==='mkt'?fCal.mkt:fCal.evt;});
+    /* Dipetakan lewat objeknya, bukan ternary dua cabang: yang ternary
+       menjatuhkan SETIAP sumber yang bukan 'mkt' ke penyaring Event, jadi
+       mematikan centang Event ikut menyembunyikan reservasi VIP. */
+    var ags=agendaTgl(iso).filter(function(a){ return fCal[a.sumber]!==false; });
     var rs=fCal.rsv?resTgl(iso):[];
     var p=paxTgl(iso);
     /* Total ikut penyaring: mematikan Reservasi harus benar-benar mengeluarkan
@@ -1454,9 +1505,12 @@ function vKalender(){
     var tot=(fCal.mkt?p.mkt:0)+(fCal.evt?p.evt:0)+(fCal.rsv?p.rsv:0);
     var rinci=[]; if(fCal.mkt&&p.mkt) rinci.push(p.mkt+' mkt');
     if(fCal.evt&&p.evt) rinci.push(p.evt+' evt'); if(fCal.rsv&&p.rsv) rinci.push(p.rsv+' rsv');
+    var paxVipHari=fCal.vip?agendaTgl(iso).filter(function(a){return a.sumber==='vip';})
+      .reduce(function(x,a){return x+(+a.pax||0);},0):0;
+    if(paxVipHari) rinci.push(paxVipHari+' vip*');
     h+='<div class="cd'+(out?' out':'')+(iso===t?' today':'')+'"><div class="cd-n">'+d.getDate()+'</div>';
     ags.slice(0,3).forEach(function(a){
-      h+='<button type="button" class="cev '+(a.sumber==='mkt'?'mkt':'evt')+'" title="'+esc(a.judul+' — '+(a.sumber==='mkt'?'Marketing':'Event')+(a.pax?' · '+a.pax+' pax':''))+'" '+
+      h+='<button type="button" class="cev '+(a.sumber==='mkt'?'mkt':(a.sumber==='vip'?'vip':'evt'))+'" title="'+esc(a.judul+' — '+labelSumberPendek(a.sumber)+(a.pax?' · '+a.pax+' pax':''))+'" '+
         'onclick="APP.detail(\'ag\',\''+a.sumber+'\',\''+esc(a.id)+'\')">'+esc(a.judul)+'</button>';
     });
     if(ags.length>3) h+='<div class="cres">+'+(ags.length-3)+' lagi</div>';
@@ -1489,7 +1543,7 @@ function vDetailEvent(){
   h+='<div class="card gold">';
   h+='<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap;'+
      'border-bottom:1px solid var(--line-soft);padding-bottom:13px;margin-bottom:15px">'+
-     '<div><div class="eyebrow">'+(a.sumber==='mkt'?'Marketing · Event Klien':'Event · Jadwal Acara')+'</div>'+
+     '<div><div class="eyebrow">'+labelSumber(a.sumber)+'</div>'+
      '<h2 style="font-size:22px;margin:5px 0 6px">'+esc(a.judul)+'</h2>'+
      '<div class="pill-row">'+badgeSumber(a.sumber)+pill(fTgl(a.tgl),'p-mute')+
        pill(dLabel(d), d<=1?'p-bad':(d<=3?'p-warn':'p-mute'))+(a.status?pill(a.status,'p-mute'):'')+'</div></div>'+
@@ -1654,6 +1708,13 @@ function vAgendaList(){
   var list=agendaTersaring();
   var paxMkt=list.filter(function(a){return a.sumber==='mkt';}).reduce(function(s,a){return s+(+a.pax||0);},0);
   var paxEvt=list.filter(function(a){return a.sumber==='evt';}).reduce(function(s,a){return s+(+a.pax||0);},0);
+  /* Pax VIP DIHITUNG tapi SENGAJA TIDAK dijumlahkan ke Total pax, dan itu
+     dikatakan di kartunya. Reservasi VIP mengunci meja di database Reservasi
+     juga, jadi tamunya bisa terhitung dua kali — sekali di sini, sekali
+     lewat baris reservasi. Angka yang mungkin berganda lebih buruk daripada
+     angka yang jelas-jelas dipisah: yang pertama tidak akan dipertanyakan
+     siapa pun. */
+  var paxVip=list.filter(function(a){return a.sumber==='vip';}).reduce(function(s,a){return s+(+a.pax||0);},0);
   h+='<div class="card no-print" style="margin-bottom:14px;display:flex;gap:14px;align-items:center;flex-wrap:wrap;padding:13px 18px">'+
      '<span class="eyebrow">Periode</span>'+kendaliPeriode('fAg',fAg)+
      '<div style="flex:1"></div>'+
@@ -1662,13 +1723,16 @@ function vAgendaList(){
     stat('Acara tampil', list.length, labelPeriode(fAg)+(bulanan?(fAg.waktu==='lewat'?' · sudah lewat':' · akan datang'):''),'')+
     stat('Pax Marketing', paxMkt, list.filter(function(a){return a.sumber==='mkt';}).length+' event klien','')+
     stat('Pax Event', paxEvt, list.filter(function(a){return a.sumber==='evt';}).length+' acara modul Event','tl')+
-    stat('Total pax', paxMkt+paxEvt, 'gabungan kedua sumber','se')+
+    stat('Reservasi VIP', list.filter(function(a){return a.sumber==='vip';}).length,
+         paxVip+' pax · tidak ikut Total','se')+
+    stat('Total pax', paxMkt+paxEvt, 'Marketing + Event','se')+
   '</div>';
   h+='<div class="filters">'+
     '<input class="finp" placeholder="Cari nama, tempat, jenis…" value="'+esc(fAg.q)+'" oninput="APP.fAg(\'q\',this.value)" style="min-width:210px">'+
     '<select class="finp" onchange="APP.fAg(\'sumber\',this.value)"><option value="">Semua sumber</option>'+
       '<option value="mkt"'+(fAg.sumber==='mkt'?' selected':'')+'>Marketing</option>'+
-      '<option value="evt"'+(fAg.sumber==='evt'?' selected':'')+'>Event</option></select>'+
+      '<option value="evt"'+(fAg.sumber==='evt'?' selected':'')+'>Event</option>'+
+      '<option value="vip"'+(fAg.sumber==='vip'?' selected':'')+'>Reservasi VIP</option></select>'+
     '<select class="finp" onchange="APP.fAg(\'status\',this.value)"><option value="">Semua status</option>'+
       statusPasti().map(function(s){return '<option'+(fAg.status===s?' selected':'')+'>'+esc(s)+'</option>';}).join('')+'</select>'+
     selFb('fAg',fAg.fb)+
@@ -1676,7 +1740,8 @@ function vAgendaList(){
   '</div>';
   h+='<div class="muted no-print" style="font-size:11.5px;margin:-6px 0 13px;line-height:1.6">'+
      (bulanan?'Terbuka di <b>Akan Datang</b>. Acara yang tanggalnya sudah lewat pindah ke <b>Sudah Lewat</b> — tetap bisa dibuka, lengkap dengan mana yang berstatus selesai. ':'')+
-     'Hanya acara yang sudah pasti jalan — <b>Marketing:</b> Deal &amp; Event Done · <b>Event:</b> Upcoming, Today &amp; Finished. '+
+     'Hanya acara yang sudah pasti jalan — <b>Marketing:</b> Deal &amp; Event Done · <b>Event:</b> Upcoming, Today &amp; Finished · '+
+     '<b>Reservasi VIP:</b> semua yang belum dibatalkan. '+
      'Tahapan jualan (Lead, Prospect, Quotation, Negotiation, Lost) dan Draft/Cancelled tidak ditampilkan di sini.</div>';
   /* Ember yang kosong sementara ember satunya berisi diberi jalan keluar yang
      bisa diklik. Tanpa itu, membuka bulan yang sudah lewat menghasilkan
@@ -2087,7 +2152,7 @@ function sorotanEvent(ev){
 
 function drawerAgenda(a){
   var d=dDay(a.tgl);
-  $('#drwEye').textContent = (a.sumber==='mkt'?'Marketing · Event Klien':'Event · Jadwal Acara');
+  $('#drwEye').textContent = labelSumber(a.sumber);
   $('#drwTitle').textContent = a.judul;
   /* Pil "Siap X%" / "Job belum disusun" DIBUANG (21 Agustus 2026, permintaan
      tim) — di sini dan di kartu daftar. Angkanya turunan progres job yang

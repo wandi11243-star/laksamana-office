@@ -4216,6 +4216,151 @@ tanpa disentuh.
 > Dengan ini pekerjaan yang tertulis "BELUM dikerjakan" di blok **Mesin bonus
 > jadi SUMBER TUNGGAL** sudah selesai untuk kedua modul.
 
+### Data Marketing hilang sendiri: koleksi yang tidak punya penjaga (8 Sep 2026)
+
+Tiga keluhan user dalam satu pesan, dan **dua di antaranya satu sebab**:
+
+1. *"Request Design & Video yang di-request kok hilang semua?"*
+3. *"Reservasi VIP yang Aurel input tgl 7 Sept untuk tgl 10 Sept hilang."*
+
+**`designreqs` dan `vip` ADA di `MKT_COLS` (klien) tapi TIDAK ADA di
+`collections()` maupun `scalar_keys()` (server).** Keduanya karena itu jatuh ke
+cabang **terakhir** `save_all()` — cabang "kunci yang belum dikenal backend" — dan
+disimpan sebagai satu gumpalan JSON lewat `put_setting()`:
+
+```sql
+INSERT INTO settings (k,v) VALUES (:k,:v) ON DUPLICATE KEY UPDATE v = VALUES(v)
+```
+
+**Timpa buta, tanpa satu pun penjaga.** Siapa pun yang tab Marketing-nya
+terbuka sejak pagi lalu menekan simpan apa pun sore hari MENGGANTI seluruh
+daftar Request Design dan seluruh daftar Reservasi VIP dengan salinan lamanya.
+Ada **100 titik `save()`** di modul itu, jadi hampir tindakan apa pun memicunya.
+
+Yang membuatnya bertahan: **penjaganya sudah ada dan sudah benar** untuk
+tabel lain (`baseUpdatedAt`, cap urutan, `hapus_yang_hilang` yang dibatasi
+`_sejak`), dan **klien sudah mengirim semua yang dibutuhkan** — `designreqs` dan
+`vip` ada di `MKT_COLS` sejak lama, jadi `stampChanges()` dan `buildPayload()`
+sudah mencapnya. **Servernya yang membuangnya.** Yang membaca kodenya melihat
+mesin penjaga yang lengkap dan berhenti memeriksa.
+
+Sekarang keduanya digabung PER BARIS lewat `upsert_settings_collection()`,
+dengan penjaga yang **sama persis** dengan `upsert_collection()`.
+
+- **BUKAN dijadikan tabel baru**, dan itu disengaja: berkas migrasi di repo ini
+  rutin tertinggal di produksi, sehingga tabel yang lahir dari `schema.sql` saja
+  berarti endpoint yang 500 di satu server dan 200 di server sebelahnya.
+  Bentuk simpanannya tetap; yang berubah CARA MENULISNYA.
+- **Namanya WAJIB masuk `$known`**, dan penggabungannya WAJIB sebelum cabang
+  `extra:`. Kalau tidak, `put_setting()` di sana menimpa balik hasilnya dengan
+  salinan mentah kiriman, dan seluruh penjaga jadi hiasan.
+- **`_versi` WAJIB ikut menghitungnya** (`versi_baris()`). Tanpa itu, menambah
+  satu Request Design atau satu Reservasi VIP **tidak menaikkan `_versi` sama
+  sekali** — dan penyegar otomatis di klien berhenti lebih awal begitu versinya
+  sama (`vSrv===_sejakVersi`). Tab orang lain karena itu tidak pernah menarik
+  baris baru itu, lalu kirimannya yang basi menghapusnya. **Dua bug yang saling
+  memberi makan**, dan yang kedua tidak akan pernah ketahuan tanpa yang pertama.
+- **Baris tanpa `id` tidak ikut digabung**: tanpa id ia tidak bisa dicocokkan,
+  jadi mempertahankannya berarti ia berlipat tiap kali disimpan.
+
+#### Cap urutan tidak boleh datang dari jam perangkat
+
+Keluhan **nomor 2** — *"inputan event baru Devani bulan Oktober hilang"* —
+menyentuh `events`, yang justru **sudah** punya penjaga lengkap. Satu-satunya
+mekanisme yang bisa mengalahkannya: `updated_at` datang dari `Date.now()` **jam
+perangkat masing-masing**, sementara `_versi` adalah MAX di seluruh tabel.
+
+Satu jam yang berjalan CEPAT menaikkan `_versi` melampaui waktu sebenarnya — dan
+sejak itu setiap baris yang dibuat perangkat berjam normal lahir dengan cap **di
+bawah `_sejak` orang lain**, sehingga sah dihapus oleh `hapus_yang_hilang()`.
+
+> Komentar lama di `baca_state()` menyatakan cara ini *"tetap sahih walau jam
+> tiap perangkat berbeda"*. Itu **keliru**, dan kekeliruannya yang membuat ini
+> bertahan: mengambil maksimum dari tabel tidak menyatukan jamnya — ia justru
+> memungut yang paling melenceng. Pola yang sama dengan komentar keliru di
+> `cocokPic()` dan `save_all()` kompas.
+
+Sekarang `cap_tulis()` yang memutuskan, dari **jam server**:
+
+- baris yang DIUBAH klien (punya `baseUpdatedAt`) → cap jam server, minimal satu
+  di atas versi server supaya penjaga urutan tidak memblokir tulisan yang benar;
+- baris yang TIDAK diubah → **dijepit** ke jam server: capnya cuma dipantulkan
+  balik klien, dan yang dipantulkan tidak boleh melompat ke masa depan.
+- `$nowMs` diambil **sekali per kiriman**; per baris, dua baris yang disimpan
+  bersamaan bisa dapat cap berbeda tanpa alasan.
+
+**Cap yang dipakai WAJIB ikut tersimpan di `data`** (`$simpan['updatedAt'] = $ua`).
+Klien membaca versinya dari sana lalu mengirimkannya balik sebagai
+`baseUpdatedAt`, sementara penjaga bentrok membandingkannya dengan **kolom**
+`updated_at`. Sejak cap ditentukan server keduanya PASTI berbeda kalau tidak
+disamakan — dan setiap suntingan berikutnya lalu dilaporkan bentrok padahal
+tidak ada yang menyalip. Bug ini sudah laten sebelum perubahan hari ini (cap
+yang dinaikkan `verServer+1` pun tidak pernah dipantulkan ke `data`).
+
+#### Reservasi VIP di Radar (permintaan user nomor 4)
+
+**Datanya SUDAH ikut terbawa sejak lama** — `vip` ada di dalam `getAll` Marketing
+yang memang sudah ditarik Radar. Yang belum cuma pemakaiannya: **tidak ada
+permintaan HTTP tambahan dan tidak ada sumber baru di `SUMBER[]`**.
+
+- **Sumbernya diberi nama sendiri (`'vip'`)**, bukan ditumpangkan ke `'mkt'`:
+  panel detail, badge, dan penyaring semuanya bercabang di `a.sumber`, dan baris
+  VIP yang menyamar sebagai event Marketing akan dibaca `drawerAgenda()` sebagai
+  event — lalu mencari `clientId`, `payments`, dan job divisi yang tidak pernah
+  ada di reservasi VIP. Yang tampil bukan galat, melainkan panel setengah
+  kosong yang terbaca sebagai data rusak.
+- **Yang dibatalkan disaring lewat `batalAt`**, penanda yang sama yang dipakai
+  `vip_hari()` di marketing-mysql. Menyaringnya dengan kata pada `status` adalah
+  kesalahan yang sudah pernah dibayar di modul ini — lihat `resBatal()`.
+- **`agPasti()` TIDAK diberi daftar putih status untuk VIP.** Yang di sini bukan
+  tahapan jualan melainkan booking yang sudah ada; daftar putih yang
+  ditebak-tebak akan MENYEMBUNYIKAN seluruh reservasi begitu ada satu status
+  baru di Marketing, dan daftar kosong terbaca sebagai tidak ada acara.
+- **`labelSumber()` menggantikan ternary dua cabang** yang tersebar di 6 layar
+  (`a.sumber==='mkt' ? 'Marketing' : 'Event'`). Bentuk itu diam-diam salah begitu
+  ada sumber KETIGA: reservasi VIP dilabeli "Event" di kalender, di judul panel,
+  dan di laci — tanpa satu pun galat. Penyaring kalendernya juga: ternary
+  `a.sumber==='mkt'?fCal.mkt:fCal.evt` menjatuhkan setiap sumber yang bukan mkt
+  ke penyaring Event, jadi mematikan centang Event ikut menyembunyikan VIP.
+- **Pax VIP DIHITUNG tapi TIDAK dijumlahkan ke Total pax**, dan itu dikatakan di
+  kartunya. Reservasi VIP juga mengunci meja di database Reservasi, jadi tamunya
+  bisa terhitung dua kali. Angka yang mungkin berganda lebih buruk daripada
+  angka yang jelas-jelas dipisah: yang pertama tidak akan dipertanyakan siapa pun.
+
+#### PHP diperiksa dengan pengurai, bukan dengan harapan
+
+Tidak ada `php` di mesin pengembangan, dan **satu parse error di
+`lib_marketing_mysql.php` mematikan SELURUH endpoint modul Marketing**. Ujinya
+karena itu memakai **php-parser** (pengurai PHP murni-JS) untuk memeriksa
+sintaksnya sungguhan, lalu memeriksa **logikanya sebagai kontrak** atas
+sumbernya — pola yang sama dengan `uji-simpan-basi.js`. Keduanya bukan
+pengganti menjalankan PHP-nya, dan itu dikatakan di kepala berkas ujinya.
+
+```bash
+npm i php-parser        # sekali; atau setel PHP_PARSER_PATH
+node tools/uji-hilang-marketing.js   # 50 pemeriksaan, jsdom + php-parser
+```
+
+**Yang dijaga adalah INVARIANNYA, bukan nama `designreqs`/`vip`**: setiap
+koleksi di `MKT_COLS` wajib punya pasangan di `collections()` ATAU di
+`kol_settings()`. Itu yang akan menangkap koleksi BERIKUTNYA yang ditambahkan
+ke klien tanpa pasangan di server — bukan daftar nama yang harus diingat orang.
+Empat belas mutasi dicoba, keempat belasnya tertangkap.
+
+> **Dua asersi sempat lolos mutasi**, dan keduanya kesalahan yang khas:
+> `/function upsert_collection[\s\S]*?cap_tulis\(/` tetap cocok walau
+> `cap_tulis` dicabut dari fungsi itu — pencariannya berlanjut sampai
+> menemukannya di `upsert_settings_collection` di bawahnya; dan
+> `'paxMkt+paxEvt'` adalah AWALAN dari `'paxMkt+paxEvt+paxVip'`, jadi
+> asersinya cocok justru pada versi yang menjumlahkannya. Badan fungsi harus
+> DIPOTONG dulu, dan yang diperiksa harus KETIADAAN-nya.
+
+**Data yang sudah hilang tidak bisa dikembalikan dari sini** — gumpalan yang
+ditimpa tidak menyimpan versi sebelumnya. Yang masih ada: tabel `activities`
+(append-only, `INSERT IGNORE`, 5000 baris terakhir) merekam siapa membuat apa
+dan kapan, jadi ia bisa dipakai menyusun ulang daftar yang hilang — bukan
+isinya, tapi jejaknya.
+
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)
 
 Keluhan user: **Performa Marketing dan Performa Event di panel Kas Kecil tidak

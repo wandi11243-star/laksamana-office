@@ -423,6 +423,89 @@ function collections() {
 /* Kunci top-level yang BUKAN daftar. Disimpan apa adanya di tabel settings. */
 function scalar_keys() { return array('settings', 'baseline', 'rolePerms', 'roleNav'); }
 
+/* ==================== KOLEKSI YANG TINGGAL DI `settings` ====================
+   `designreqs` (Request Design & Video) dan `vip` (Reservasi VIP) adalah
+   DAFTAR BARIS BER-ID, persis seperti events/clients — tapi keduanya tidak
+   pernah punya tabel sendiri. Sampai 8 September 2026 mereka jatuh ke cabang
+   TERAKHIR save_all() dan disimpan sebagai SATU gumpalan JSON lewat
+   put_setting(), yaitu `ON DUPLICATE KEY UPDATE v = VALUES(v)`: TIMPA BUTA,
+   tanpa satu pun penjaga.
+
+   Akibatnya nyata dan dilaporkan user hari itu: siapa pun yang tab
+   Marketing-nya terbuka sejak pagi, lalu menekan simpan apa pun sore hari,
+   MENGGANTI seluruh daftar Request Design dan seluruh daftar Reservasi VIP
+   dengan salinan lamanya. Ada 100 titik save() di modul itu, jadi hampir
+   tindakan apa pun memicunya — dan tidak ada satu pun galat di layar siapa
+   pun. Yang melaporkannya cuma bisa berkata `datanya hilang semua`.
+
+   Sekarang keduanya digabung PER BARIS dengan penjaga yang SAMA PERSIS
+   dengan upsert_collection(): cap urutan `updatedAt`, penjaga bentrok
+   `baseUpdatedAt`, dan penghapusan yang dibatasi `_sejak`. Klien memang
+   SUDAH mengirim ketiganya — `designreqs` dan `vip` ada di MKT_COLS sejak
+   lama, jadi stampChanges() dan buildPayload() sudah mencapnya; servernya
+   yang membuangnya.
+
+   TIDAK dijadikan tabel baru, dan itu disengaja: berkas migrasi di repo ini
+   rutin tertinggal di produksi, sehingga tabel yang lahir dari schema.sql
+   saja berarti endpoint yang 500 di satu server dan 200 di server
+   sebelahnya. Bentuk simpanannya tetap; yang berubah CARA MENULISNYA. */
+function kol_settings() { return array('designreqs', 'vip'); }
+
+/* Baris ber-id di dalam sebuah nilai settings. Nilai yang bukan array
+   diperlakukan sebagai kosong, bukan dilempar: satu nilai rusak tidak boleh
+   mematikan seluruh penyimpanan. */
+function baris_settings($pdo, $nama) {
+  $q = $pdo->prepare('SELECT v FROM settings WHERE k = :k');
+  $q->execute(array(':k' => 'extra:' . $nama));
+  $v = json_decode((string)$q->fetchColumn(), true);
+  return is_array($v) ? $v : array();
+}
+
+/* Cap tertinggi di sebuah daftar baris. Dipakai baca_state() supaya koleksi
+   yang tinggal di settings ikut menaikkan `_versi`. */
+function versi_baris($rows) {
+  $maks = 0;
+  foreach ($rows as $r) {
+    if (!is_array($r)) continue;
+    $v = ms_valid(isset($r['updatedAt']) ? $r['updatedAt'] : 0);
+    if ($v > $maks) $maks = $v;
+  }
+  return $maks;
+}
+
+/* Cap tulis satu baris. SUMBERNYA JAM SERVER, bukan jam perangkat yang
+   menyimpan — dan itu inti perbaikan kedua 8 September 2026.
+
+   `_versi` yang dipegang klien adalah cap TERTINGGI di seluruh data, dan
+   penghapusan dibatasi `updated_at <= _sejak`. Selama capnya datang dari jam
+   masing-masing perangkat, satu jam yang berjalan CEPAT menaikkan `_versi`
+   melampaui waktu sebenarnya — dan sejak itu setiap baris yang dibuat
+   perangkat berjam normal lahir dengan cap DI BAWAH `_sejak` orang lain,
+   sehingga sah dihapus. Gejalanya: event yang baru dibuat rekan lenyap
+   beberapa menit kemudian, tanpa galat di layar siapa pun.
+
+   Komentar lama di baca_state() menyatakan cara ini `tetap sahih walau jam
+   tiap perangkat berbeda`. Itu KELIRU, dan kekeliruannya yang membuat ini
+   bertahan: mengambil maksimum dari tabel tidak menyatukan jamnya — ia
+   justru memungut yang paling melenceng.
+
+   Baris yang DIUBAH klien (punya baseUpdatedAt) dicap jam server, minimal
+   satu di atas versi server supaya penjaga urutan tidak memblokir tulisan
+   yang benar. Baris yang TIDAK diubah dijepit ke jam server: capnya cuma
+   dipantulkan balik oleh klien, dan yang dipantulkan tidak boleh melompat ke
+   masa depan. */
+function cap_tulis($ua, $lolosBentrok, $verServer, $nowMs) {
+  if ($lolosBentrok) {
+    $ua = $nowMs;
+    if ($verServer !== null && $ua <= $verServer) $ua = $verServer + 1;
+    return $ua;
+  }
+  if ($ua > $nowMs) $ua = $nowMs;
+  return $ua;
+}
+
+function sekarang_ms() { return (int)round(microtime(true) * 1000); }
+
 /* ==================== NORMALISASI NILAI ==================== */
 function tanggal_valid($d) {
   $d = trim((string)$d);
@@ -525,6 +608,17 @@ function baca_state() {
       if ($v > $maks) $maks = $v;
     } catch (Throwable $e) { /* tabel belum ada: abaikan */ }
   }
+  /* Koleksi yang tinggal di `settings` WAJIB ikut dihitung. Kalau tidak,
+     menambah satu Request Design atau satu Reservasi VIP tidak menaikkan
+     `_versi` sama sekali — dan penyegar otomatis di klien berhenti lebih awal
+     begitu versinya sama (lihat pemeriksaan vSrv===_sejakVersi di modul
+     Marketing). Tab orang lain karena itu TIDAK PERNAH menarik baris baru
+     itu, lalu kirimannya yang basi menghapusnya. Dua bug yang saling memberi
+     makan, dan yang kedua tidak akan pernah ketahuan tanpa yang pertama. */
+  foreach (kol_settings() as $nama) {
+    $v = versi_baris(isset($out[$nama]) && is_array($out[$nama]) ? $out[$nama] : array());
+    if ($v > $maks) $maks = $v;
+  }
   $out['_versi'] = $maks;
 
   return $out;
@@ -556,7 +650,7 @@ function put_setting($pdo, $k, $v) {
 
    Bentrok dikumpulkan, bukan membatalkan seluruh simpanan — perubahan lain
    yang tidak bertabrakan tetap tersimpan. */
-function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak) {
+function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, $nowMs) {
   $tabel = $c['table'];
   $cols  = $c['cols'];
   $adaCreated = !empty($c['created']);
@@ -617,15 +711,16 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak) {
     // baseUpdatedAt hanya metadata kiriman — jangan ikut tersimpan di `data`.
     $simpan = $r; unset($simpan['baseUpdatedAt']);
 
-    $ua = ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0);
-    // Kalau sudah lolos cek bentrok, pastikan penjaga urutan `updated_at >=`
-    // TIDAK ikut memblokir: naikkan cap minimal 1 di atas versi server. Tanpa
-    // ini, tulisan yang benar bisa terbuang diam-diam kalau cap klien kebetulan
-    // <= cap server (mis. jam antar-perangkat sedikit berbeda). Untuk baris
-    // yang TIDAK diubah (tanpa baseUpdatedAt), penjaga urutan tetap berlaku.
-    if ($lolosBentrok && isset($verServer[$id]) && $ua <= $verServer[$id]) {
-      $ua = $verServer[$id] + 1;
-    }
+    $ua = cap_tulis(ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0),
+                    $lolosBentrok, isset($verServer[$id]) ? $verServer[$id] : null, $nowMs);
+    /* Cap yang benar-benar dipakai WAJIB ikut tersimpan di `data`.
+       Klien membaca versinya dari situ (`r.updatedAt`) lalu mengirimkannya
+       balik sebagai baseUpdatedAt, sementara penjaga bentrok di sini
+       membandingkannya dengan KOLOM `updated_at`. Kalau keduanya berbeda —
+       dan sejak cap ditentukan server keduanya PASTI berbeda — setiap
+       penyuntingan berikutnya dilaporkan bentrok padahal tidak ada yang
+       menyalip, dan perubahan yang sah ditolak. */
+    $simpan['updatedAt'] = $ua;
 
     $args = array(':id' => $id);
     foreach ($cols as $kolom => $def) $args[':' . $kolom] = ambil($simpan, $def[0], $def[1]);
@@ -678,6 +773,85 @@ function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $sejak) {
   return $del->rowCount();
 }
 
+/* Gabung satu koleksi yang tinggal di `settings`, dengan penjaga yang sama
+   persis dengan upsert_collection(). Lihat kol_settings() di atas untuk
+   alasannya. Yang berbeda cuma tempat simpanannya: satu nilai JSON di tabel
+   `settings`, bukan tabel tersendiri — jadi penggabungannya dikerjakan di
+   PHP, bukan diserahkan ke ON DUPLICATE KEY UPDATE. */
+function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, $nowMs) {
+  $lama = baris_settings($pdo, $nama);
+
+  /* Baris yang sudah ada, dikunci id. Yang TIDAK ber-id sengaja tidak ikut:
+     tanpa id ia tidak bisa dicocokkan, jadi mempertahankannya berarti ia
+     berlipat tiap kali disimpan. Klien selalu memberi id (uid()), dan
+     _eachRow() di sana pun melewati baris tanpa id. */
+  $adaId = array();
+  foreach ($lama as $r) {
+    if (!is_array($r) || !isset($r['id']) || $r['id'] === '') continue;
+    $adaId[(string)$r['id']] = $r;
+  }
+
+  $kirimId = array();
+  foreach ($rows as $r) {
+    if (!is_array($r) || !isset($r['id']) || $r['id'] === '') continue;
+    $id = (string)$r['id'];
+    $kirimId[$id] = 1;
+
+    $verServer = null;
+    if (isset($adaId[$id])) {
+      $verServer = ms_valid(isset($adaId[$id]['updatedAt']) ? $adaId[$id]['updatedAt'] : 0);
+    }
+
+    // --- penjaga bentrok: hanya untuk baris yang memang diubah klien ---
+    $lolosBentrok = false;
+    if (array_key_exists('baseUpdatedAt', $r)) {
+      $base = ms_valid($r['baseUpdatedAt']);
+      if ($verServer !== null && $verServer > $base) {
+        $bentrok[] = array(
+          'koleksi'     => $nama,
+          'id'          => $id,
+          'nama'        => isset($r['nama']) ? (string)$r['nama'] : (isset($r['judul']) ? (string)$r['judul'] : $id),
+          'versiKamu'   => $base,
+          'versiServer' => $verServer,
+        );
+        continue;   // JANGAN timpa kerja orang lain
+      }
+      $lolosBentrok = true;
+    }
+
+    // baseUpdatedAt hanya metadata kiriman — jangan ikut tersimpan.
+    $simpan = $r; unset($simpan['baseUpdatedAt']);
+    $ua = cap_tulis(ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0),
+                    $lolosBentrok, $verServer, $nowMs);
+
+    /* Penjaga urutan untuk baris yang TIDAK diubah klien: aplikasi mengirim
+       state utuh, jadi baris ini cuma pantulan salinan yang dipegang klien.
+       Yang lebih lama tidak boleh menimpa yang lebih baru di server. */
+    if (!$lolosBentrok && $verServer !== null && $ua < $verServer) continue;
+
+    $simpan['updatedAt'] = $ua;
+    $adaId[$id] = $simpan;
+  }
+
+  /* Penghapusan dibatasi `_sejak`, aturan yang SAMA dengan
+     hapus_yang_hilang(): baris yang lahir sesudah klien memuat tidak mungkin
+     ia ketahui, jadi ketiadaannya di kiriman bukan keputusan siapa pun.
+     Dua jaring lama ikut dipertahankan: `_sejak` yang tidak dikirim (klien
+     versi lama) tidak menghapus apa pun, dan kiriman kosong tidak pernah
+     mengosongkan daftar. */
+  $sejak = (int)$sejak;
+  $bolehHapus = ($sejak > 0 && count($kirimId) > 0);
+  $hasil = array();
+  foreach ($adaId as $id => $r) {
+    if (isset($kirimId[$id]) || !$bolehHapus) { $hasil[] = $r; continue; }
+    $v = ms_valid(isset($r['updatedAt']) ? $r['updatedAt'] : 0);
+    if ($v > $sejak) { $hasil[] = $r; continue; }   // lahir sesudah klien memuat: DILINDUNGI
+  }
+
+  put_setting($pdo, 'extra:' . $nama, $hasil);
+  return count($hasil);
+}
+
 /* ==================== SIMPAN ==================== */
 function save_all($state) {
   if (!is_array($state)) throw new Exception('Payload data kosong/invalid');
@@ -691,12 +865,27 @@ function save_all($state) {
        Dipakai HANYA untuk membatasi penghapusan — lihat hapus_yang_hilang(). */
     $sejak = isset($state['_sejak']) ? ms_valid($state['_sejak']) : 0;
     $known = array('activities', '_rev', '_sejak', '_versi');
+    /* Satu cap untuk SELURUH kiriman, diambil sekali. Dipanggil per baris, dua
+       baris yang disimpan bersamaan bisa dapat cap berbeda tanpa alasan. */
+    $nowMs = sekarang_ms();
 
     foreach (collections() as $nama => $c) {
       $known[] = $nama;
       if (!array_key_exists($nama, $state)) continue;      // tidak dikirim → lewati
       $rows = is_array($state[$nama]) ? $state[$nama] : array();
-      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $sejak);
+      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $sejak, $nowMs);
+    }
+
+    /* Koleksi yang tinggal di `settings` — digabung PER BARIS, bukan ditimpa.
+       WAJIB sebelum cabang `extra:` di bawah, dan namanya WAJIB masuk $known:
+       kalau tidak, put_setting() di sana menimpa balik hasil penggabungan ini
+       dengan salinan mentah dari kiriman, dan seluruh penjaga di atas jadi
+       hiasan yang tidak menahan apa pun. */
+    foreach (kol_settings() as $nama) {
+      $known[] = $nama;
+      if (!array_key_exists($nama, $state)) continue;   // tidak dikirim -> lewati
+      $rows = is_array($state[$nama]) ? $state[$nama] : array();
+      $hitung[$nama] = upsert_settings_collection($pdo, $nama, $rows, $bentrok, $sejak, $nowMs);
     }
 
     // ---- activities: append-only ----
