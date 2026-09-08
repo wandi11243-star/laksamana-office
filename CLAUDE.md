@@ -4542,15 +4542,21 @@ lagi?"* — dan jawabannya **belum**. `pulihkanBelumNaik()` masih membandingkan
 dua jam yang berbeda, dan yang ini **membuang pekerjaan**, bukan sekadar
 memunculkan modal:
 
+```
+tLok = cap di salinan lokal  -> jam KLIEN (stampChanges)
+tSrv = cap di salinan server -> jam SERVER (cap_tulis)
 
+if      (tLok > tSrv) selamatkan   // TIDAK PERNAH menyala
+else if (tLok < tSrv) kalah        // SELALU -> yang belum naik DIBUANG
+```
 
 Waktu selalu maju antara klien mencap dan server menulis, jadi cabang
- mati total. Suntingan yang benar-benar belum terkirim jatuh ke
- — dilaporkan di modal lalu **hilang**. Itulah bentuk keluhan *"input
+*selamatkan* mati total. Suntingan yang benar-benar belum terkirim jatuh ke
+*kalah* — dilaporkan di modal lalu **hilang**. Itulah bentuk keluhan *"input
 Database Client tidak tersimpan"*, dan itu pula yang memenuhi modal dengan
 sembilan nama yang tidak seorang pun sentuh.
 
-Sekarang penanda  ikut menyimpan **BASIS tiap baris yang kotor**
+Sekarang penanda `belum naik` ikut menyimpan **BASIS tiap baris yang kotor**
 (`KEY_PENDING_BASE` = `{"<koleksi>:<id>": versiServerYangKitaPegang}`), dan
 pemulihan membandingkan **basis vs versi server sekarang** — dua-duanya angka
 server. Pertanyaannya jadi benar: *apakah ada yang menyimpan baris ini sesudah
@@ -4563,7 +4569,7 @@ aku memuatnya?*
   berarti menimpa kerja orang lain atau membuang kerja sendiri, dua-duanya
   tanpa satu pun tanda — dan itulah yang memenuhi modal dengan nama asing.
 - **Catatan basis WAJIB ikut dibersihkan** `tandaiSudahNaik()`. Kalau tertinggal,
-  muat ulang berikutnya  baris yang sudah lama tersimpan dan
+  muat ulang berikutnya "memulihkan" baris yang sudah lama tersimpan dan
   menimpanya dengan salinan lama.
 
 > **Uji yang memanggil `pulihkanBelumNaik()` WAJIB menyetel `S = srv` lebih
