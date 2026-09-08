@@ -137,6 +137,24 @@ cek('_versi ikut menghitung koleksi settings',
     /foreach \(kol_settings\(\) as \$nama\) \{[\s\S]{0,200}versi_baris\(/.test(LIB_KODE),
     'tanpa ini baris VIP/Request baru tidak menaikkan versi, dan tab lain tidak pernah menariknya');
 
+/* Kecepatan simpan (8 Sep 2026): keluhan user "kenapa setiap save lambat".
+   Tiap saveAll jalan di dalam db_lock, jadi beban tetap apa pun menahan
+   penyimpanan berikutnya juga. Dua sumber beban tetap dipangkas. */
+const iSaveAll = LIB_KODE.indexOf('function save_all(');
+const BADAN_SAVE = iSaveAll > -1
+  ? LIB_KODE.slice(iSaveAll, LIB_KODE.indexOf('\nfunction ', iSaveAll + 40)) : '';
+cek('gc_receipts TIDAK dipanggil tiap simpan',
+    /(mt_rand|random_int)\([^)]*\)[^;]*\)?\s*\{?\s*(try\s*\{\s*)?\$buang\s*=\s*gc_receipts/.test(BADAN_SAVE) ||
+    /if \([^)]*mt_rand[\s\S]{0,120}gc_receipts\(/.test(BADAN_SAVE),
+    'gc_receipts memindai folder bukti transfer (puluhan MB) — jangan di setiap save');
+cek('activities: id yang SUDAH ada tidak di-INSERT ulang',
+    /SELECT id FROM activities WHERE id IN \(/.test(BADAN_SAVE) &&
+    /isset\(\$adaDb\[\$id\]\)\)\s*continue/.test(BADAN_SAVE),
+    'klien mengirim ~1000 activities tiap simpan; tanpa ini semuanya lewat INSERT IGNORE di dalam db_lock');
+cek('activities: pangkas hanya kalau ada baris baru',
+    /if \(\$baru > 0\) \{[\s\S]{0,120}DELETE FROM activities WHERE id NOT IN/.test(BADAN_SAVE),
+    'DELETE ... NOT IN (SELECT ...) memaksa temp table tiap kali — sia-sia kalau tabel tak tumbuh');
+
 /* ---------- 4. cap tulis dari JAM SERVER ---------- */
 console.log('\n-- cap urutan datang dari KLIEN, dan pergeserannya dikabarkan --');
 /* CAP SERVER SUDAH DICABUT (keputusan user 8 September 2026). Ia lahir untuk

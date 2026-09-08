@@ -948,14 +948,36 @@ function save_all($state) {
 
     // ---- activities: append-only ----
     if (isset($state['activities']) && is_array($state['activities'])) {
+      /* Klien mengirim BALIK seluruh activities yang ia pegang (getAll
+         memulangkan 1000 baris terakhir) tiap kali menyimpan — nyaris semuanya
+         SUDAH ada di tabel. Dulu tiap baris tetap melewati satu INSERT IGNORE,
+         yaitu ~1000 perjalanan ke MySQL di dalam db_lock pada SETIAP
+         penyimpanan. Keluhan user 8 September 2026: "kenapa setiap save lambat".
+         Sekarang: tanya dulu id mana yang sudah ada (SELECT, dipotong 500-an),
+         lalu INSERT hanya yang benar-benar baru. Tetap INSERT IGNORE — append-
+         only, jadi idempoten. */
+      $kirim = array();
+      foreach ($state['activities'] as $a) {
+        if (is_array($a) && !empty($a['id'])) $kirim[(string)$a['id']] = $a;
+      }
+      $adaDb = array();
+      $ids = array_keys($kirim);
+      for ($i = 0; $i < count($ids); $i += 500) {
+        $batch = array_slice($ids, $i, 500);
+        if (!$batch) continue;
+        $ph = implode(',', array_fill(0, count($batch), '?'));
+        $q = $pdo->prepare('SELECT id FROM activities WHERE id IN (' . $ph . ')');
+        $q->execute(array_values($batch));
+        foreach ($q as $row) $adaDb[$row['id']] = true;
+      }
       $ai = $pdo->prepare('INSERT IGNORE INTO activities
               (id, ref_type, ref_id, action, by_user, at_time, data)
               VALUES (:id,:ref_type,:ref_id,:action,:by_user,:at_time,:data)');
-      $n = 0;
-      foreach ($state['activities'] as $a) {
-        if (!is_array($a) || empty($a['id'])) continue;
+      $baru = 0;
+      foreach ($kirim as $id => $a) {
+        if (isset($adaDb[$id])) continue;
         $ai->execute(array(
-          ':id'       => (string)$a['id'],
+          ':id'       => $id,
           ':ref_type' => ambil($a, 'refType', 'str'),
           ':ref_id'   => ambil($a, 'refId', 'str'),
           ':action'   => ambil($a, 'action', 'str'),
@@ -963,12 +985,16 @@ function save_all($state) {
           ':at_time'  => ambil($a, 'at', 'datetime'),
           ':data'     => json_enc($a),
         ));
-        $n++;
+        $baru++;
       }
-      $hitung['activities'] = $n;
-      // batasi agar tidak tumbuh tanpa batas
-      $pdo->exec('DELETE FROM activities WHERE id NOT IN
-                  (SELECT id FROM (SELECT id FROM activities ORDER BY at_time DESC, id DESC LIMIT 5000) t)');
+      $hitung['activities'] = $baru;
+      /* Pangkas HANYA kalau memang ada yang baru masuk. Tanpa baris baru tabel
+         tidak tumbuh, dan `DELETE ... NOT IN (SELECT ...)` (yang memaksa temp
+         table tiap kali) jadi kerja sia-sia di dalam db_lock. */
+      if ($baru > 0) {
+        $pdo->exec('DELETE FROM activities WHERE id NOT IN
+                    (SELECT id FROM (SELECT id FROM activities ORDER BY at_time DESC, id DESC LIMIT 5000) t)');
+      }
     }
 
     // ---- settings & kunci non-daftar ----
@@ -994,9 +1020,18 @@ function save_all($state) {
   // Bersihkan berkas yatim SETELAH commit: menghapus file tidak bisa di-rollback,
   // jadi jangan sampai transaksi gagal tapi berkasnya sudah telanjur hilang.
   // Dijalankan di dalam kunci tulis (api.php membungkus saveAll dgn db_lock).
+  //
+  // TIDAK tiap simpan (8 September 2026). gc_receipts() memindai SELURUH folder
+  // bukti transfer — di produksi puluhan MB / puluhan file — di dalam db_lock,
+  // jadi ia menambah waktu ke SETIAP penyimpanan sekaligus menahan penyimpanan
+  // berikutnya di antrean GET_LOCK. Masa tenggang berkas yatim 7 hari
+  // (GC_JEDA_AMAN), jadi menjalankannya ~1 dari 20 simpan sudah jauh lebih
+  // sering daripada perlu. Keluhan user: "kenapa setiap save lambat".
   $buang = 0;
-  try { $buang = gc_receipts($pdo); }
-  catch (Throwable $e) { /* gagal bersih-bersih bukan alasan menggagalkan simpanan */ }
+  if (mt_rand(1, 20) === 1) {
+    try { $buang = gc_receipts($pdo); }
+    catch (Throwable $e) { /* gagal bersih-bersih bukan alasan menggagalkan simpanan */ }
+  }
 
   return array(
     'saved'   => true,
