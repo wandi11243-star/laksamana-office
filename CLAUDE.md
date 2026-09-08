@@ -4338,7 +4338,7 @@ pengganti menjalankan PHP-nya, dan itu dikatakan di kepala berkas ujinya.
 
 ```bash
 npm i php-parser        # sekali; atau setel PHP_PARSER_PATH
-node tools/uji-hilang-marketing.js   # 80 pemeriksaan, jsdom + php-parser
+node tools/uji-hilang-marketing.js   # 97 pemeriksaan, jsdom + php-parser
 ```
 
 **Yang dijaga adalah INVARIANNYA, bukan nama `designreqs`/`vip`**: setiap
@@ -4495,6 +4495,44 @@ versi pertama uji ini memang meloloskan mutasinya karena itu.
 
 Enam mutasi dicoba, keenamnya tertangkap — termasuk mengembalikan keadaan lama
 (tanpa buffering sama sekali) dan mengaku tersimpan sebelum server menjawab.
+
+
+**TIGA LAPIS, dan pemisahannya yang membuatnya tidak menyiksa** (permintaan
+lanjutan user: *"ketika menyimpan ke server dibuat tidak bisa klik apa-apa
+dulu, baru berhasil"*):
+
+| lapis | kapan | yang terjadi |
+|---|---|---|
+| 1. blokir **sunyi** | milidetik pertama | klik mati, layar TIDAK berubah |
+| 2. kartu terlihat | sesudah `ST_TUNDA` (250 ms) | hanya kalau simpannya lambat |
+| 3. jalan keluar | sesudah `ST_BATAS` (20 dtk) | kalau server tidak menjawab sama sekali |
+
+- **Lapis 1 dipasang LANGSUNG, bukan lewat `setTimeout`.** Diblokir hanya sesudah
+  kartunya muncul, masih ada celah 250 ms tempat tombol Simpan bisa ditekan dua
+  kali.
+- **LAPIS 3 WAJIB ADA, dan ia yang paling gampang dilupakan.** `fetch` di `save()`
+  **tidak punya batas waktu sendiri**. Tanpa jalan keluar, satu permintaan yang
+  menggantung mengunci SELURUH aplikasi selamanya, dan satu-satunya jalan
+  keluarnya menutup tab — yang justru membuang pekerjaan yang belum sempat naik.
+  **Mengunci layar tanpa jalan keluar lebih berbahaya daripada tidak mengunci
+  sama sekali.**
+- **Keberhasilan WAJIB melepas layarnya lagi** (`_stTutupTimer`). Simpan yang
+  BERHASIL tapi kartunya tidak pernah hilang mematikan seluruh aplikasi — dan
+  mutasi itu sempat LOLOS karena ujinya cuma memeriksa teks kartunya, bukan
+  menunggu sungguhan sampai lewat `ST_BERES`.
+- **Keadaannya disimpan di variabel (`_stKeadaan`), bukan dibaca dari nama
+  kelas.** `sunyi` dan `tampil` sama-sama memuat kata `on`, jadi memeriksa kelas
+  membuat simpan cepat ikut memunculkan kartu "Tersimpan" yang berkedip.
+- **Fokus dilepas (`blur()`) saat blokir mulai.** Lapisan itu menahan KLIK, bukan
+  papan ketik: tombol yang barusan ditekan masih memegang fokus, jadi Enter
+  akan menekannya lagi — kiriman kedua untuk satu tindakan.
+
+Uji jsdom untuk lapis 1 **wajib memeriksa SEGERA sesudah `save()`**, tanpa
+menunggu; yang langsung `await tunggu(400)` tidak akan pernah melihat celahnya.
+Dan penyimpanan yang sengaja digantung WAJIB dibereskan (`saveInFlight=false`)
+sebelum bagian uji berikutnya: kalau tidak, tiap `save()` sesudahnya cuma
+mengantre dan pemeriksaan berikutnya menguji sisa layar sebelumnya — tiga
+asersi sempat gagal karena itu, dan ketiganya cacat uji, bukan cacat produk.
 
 
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)

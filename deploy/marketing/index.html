@@ -2006,6 +2006,13 @@ div.dn-meja{cursor:default}   /* <div> hanya dipakai mode baca-saja; <button> te
   align-items:flex-start;justify-content:center;padding-top:14vh;
   background:rgba(5,10,16,.35);backdrop-filter:blur(2px)}
 #simpan-tunggu.on{display:flex}
+/* SUNYI = klik sudah diblokir, tapi belum ada apa pun di layar.
+   Dipakai pada 250 ms pertama tiap penyimpanan: kliknya harus mati SEJAK
+   MILIDETIK PERTAMA (permintaan user), sementara kartunya baru muncul kalau
+   penyimpanannya memang lambat. Tanpa lapisan ini, ada celah 250 ms di mana
+   tombol Simpan masih bisa ditekan dua kali. */
+#simpan-tunggu.sunyi{background:transparent;backdrop-filter:none;cursor:progress}
+#simpan-tunggu.sunyi .st-kartu{display:none}
 #simpan-tunggu .st-kartu{background:var(--card,#fff);border-radius:14px;
   box-shadow:0 18px 50px rgba(5,10,16,.28);padding:16px 20px;min-width:290px;
   max-width:min(460px,92vw);display:flex;gap:14px;align-items:center}
@@ -2762,8 +2769,31 @@ async function apiLoad(){
    Ditunda 250 ms sebelum tampil: penyimpanan yang selesai dalam sekejap tidak
    boleh membuat layar berkedip tiap kali ada yang dicentang. Yang lambat —
    yang justru perlu ditunggu — tetap tertangkap. */
-const ST_TUNDA=250, ST_BERES=1100;
-let _stTimer=null, _stTutupTimer=null;
+/* ---------- BUFFERING SIMPAN ----------
+   TIGA lapis, dan pemisahannya yang membuatnya tidak menyiksa:
+
+     1. blokir SUNYI  — sejak milidetik pertama, klik mati, layar tidak berubah
+     2. kartu terlihat — sesudah ST_TUNDA, kalau penyimpanannya memang lambat
+     3. jalan keluar   — sesudah ST_BATAS, kalau server tidak menjawab sama sekali
+
+   Lapis 1 permintaan user 8 September 2026: "ketika menyimpan ke server dibuat
+   tidak bisa klik apa-apa dulu, baru berhasil". Diblokir hanya sesudah kartunya
+   muncul, masih ada celah 250 ms di mana tombol Simpan bisa ditekan dua kali.
+
+   LAPIS 3 WAJIB ADA, dan ia yang paling gampang dilupakan: fetch di save()
+   TIDAK punya batas waktu sendiri. Tanpa jalan keluar, satu permintaan yang
+   menggantung — server mati, wifi putus di tengah jalan — mengunci SELURUH
+   aplikasi selamanya, dan satu-satunya jalan keluarnya menutup tab, yang justru
+   membuang pekerjaan yang belum sempat naik. Mengunci layar tanpa jalan keluar
+   lebih berbahaya daripada tidak mengunci sama sekali.
+
+   Keadaannya disimpan di variabel, BUKAN dibaca dari nama kelas: `sunyi` dan
+   `tampil` sama-sama memuat kata `on`, jadi memeriksa kelas membuat
+   penyimpanan cepat ikut memunculkan kartu "Tersimpan" yang berkedip tanpa
+   sempat dibaca siapa pun. */
+const ST_TUNDA=250, ST_BERES=1100, ST_BATAS=20000;
+let _stTimer=null, _stTutupTimer=null, _stBatasTimer=null;
+let _stKeadaan='diam';   // diam | sunyi | tampil | beres | gagal
 function _stEl(){ return document.getElementById('simpan-tunggu'); }
 function _stSetel(kelas, judul, sub, aksi){
   const el=_stEl(); if(!el) return;
@@ -2775,21 +2805,31 @@ function _stSetel(kelas, judul, sub, aksi){
   if(sp) sp.textContent = kelas==='beres' ? '✓' : (kelas==='gagal' ? '!' : '');
 }
 function stSembunyi(){
-  clearTimeout(_stTimer); clearTimeout(_stTutupTimer);
+  clearTimeout(_stTimer); clearTimeout(_stTutupTimer); clearTimeout(_stBatasTimer);
+  _stKeadaan='diam';
   const el=_stEl(); if(el) el.className='';
 }
 function tungguSimpanMulai(){
-  clearTimeout(_stTimer); clearTimeout(_stTutupTimer);
+  clearTimeout(_stTimer); clearTimeout(_stTutupTimer); clearTimeout(_stBatasTimer);
+  const el=_stEl(); if(!el) return;
+  /* Lapis 1, SEKARANG JUGA — bukan lewat setTimeout. */
+  el.className='on sunyi'; _stKeadaan='sunyi';
+  /* Fokus dilepas supaya Enter/Spasi tidak menekan ulang tombol yang barusan
+     ditekan: lapisan ini menahan KLIK, bukan papan ketik. */
+  try{ if(document.activeElement && document.activeElement.blur) document.activeElement.blur(); }catch(_){}
   _stTimer=setTimeout(function(){
+    _stKeadaan='tampil';
     _stSetel('','Menyimpan ke server…','Jangan tutup atau pindah halaman dulu.');
   }, ST_TUNDA);
+  _stBatasTimer=setTimeout(function(){ tungguSimpanSelesai('gagal', true); }, ST_BATAS);
 }
 /* hasil: 'ok' | 'gagal' | 'bentrok'
    'bentrok' TIDAK menampilkan apa-apa di sini — modal bentroknya sendiri yang
    menjelaskan, dan dua lapis pesan di layar yang sama membuat yang membacanya
    harus menebak mana yang berlaku. */
-function tungguSimpanSelesai(hasil){
+function tungguSimpanSelesai(hasil, kehabisanWaktu){
   clearTimeout(_stTimer);
+  if(!kehabisanWaktu) clearTimeout(_stBatasTimer);
   const el=_stEl(); if(!el) return;
   if(hasil==='bentrok'){ stSembunyi(); return; }
   if(hasil==='gagal'){
@@ -2798,21 +2838,26 @@ function tungguSimpanSelesai(hasil){
        yang membuat orang menutup tab sambil mengira pekerjaannya aman.
        Datanya TIDAK hilang: sudah di localStorage, dan kirim ulang otomatis
        masih berjalan. Itu dikatakan, supaya tidak ada yang mengetik ulang. */
-    _stSetel('gagal','Belum tersimpan di server',
+    _stKeadaan='gagal';
+    _stSetel('gagal', kehabisanWaktu?'Server belum menjawab':'Belum tersimpan di server',
+      (kehabisanWaktu
+        ? 'Kirimannya masih berjalan di latar. '
+        : '')+
       'Perubahanmu masih tersimpan di perangkat ini dan akan dicoba kirim lagi otomatis. '+
       '<b>Jangan tutup tab ini</b> sampai statusnya hijau.',
       '<button class="btn sm" onclick="save()">Coba lagi</button>'+
       '<button class="btn sm ghost" onclick="stSembunyi()">Tutup</button>');
     return;
   }
-  /* Berhasil. Hanya ditampilkan kalau overlaynya MEMANG sempat terlihat —
-     kalau tidak, penyimpanan cepat akan memunculkan kartu "tersimpan" yang
-     berkedip tanpa ada yang sempat membacanya. */
-  if(el.className.indexOf('on')<0){ stSembunyi(); return; }
+  /* Berhasil. Kartu "Tersimpan" hanya ditampilkan kalau kartu MENUNGGU-nya
+     memang sempat terlihat — kalau tidak, penyimpanan cepat memunculkan kartu
+     yang berkedip tanpa ada yang sempat membacanya. Blokir sunyi tidak dihitung
+     terlihat: itu memang tujuannya. */
+  if(_stKeadaan!=='tampil'){ stSembunyi(); return; }
+  _stKeadaan='beres';
   _stSetel('beres','Tersimpan di server','');
   _stTutupTimer=setTimeout(stSembunyi, ST_BERES);
 }
-
 let saveInFlight=false, savePending=false, _savePendingRamai=false;
 /* opsi.diam = jangan tampilkan buffering. Dipakai sinkronisasi roster Office
    yang berjalan sendiri saat modul dibuka: kru tidak menekan apa pun, jadi

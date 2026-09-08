@@ -505,7 +505,39 @@ else {
     const fetchCepat = w.fetch;
     w.fetch = (url, opt) => new Promise(res => { tahan = () => res(fetchCepat(url, opt)); });
 
+    /* ---- LAPIS 1: klik mati SEJAK MILIDETIK PERTAMA ----
+       Permintaan user: "ketika menyimpan ke server dibuat tidak bisa klik
+       apa-apa dulu, baru berhasil". Diperiksa SEGERA sesudah save(), tanpa
+       menunggu — celah 250 ms adalah tempat tombol Simpan bisa ditekan dua
+       kali, dan uji yang langsung menunggu 400 ms tidak akan pernah
+       melihatnya. */
     w.eval("S.clients[0].hp='0899'; save();");
+    cek('klik langsung diblokir, tanpa menunggu',
+        el().className.indexOf('on') > -1, el().className);
+    cek('...tapi layarnya BELUM berubah (blokir sunyi)',
+        el().className.indexOf('sunyi') > -1, el().className);
+    cek('...dan kartunya memang belum tergambar',
+        w.eval("getComputedStyle(document.querySelector('#simpan-tunggu .st-kartu')).display") === 'none',
+        'layar berkedip tiap kali ada yang dicentang');
+    cek('lapisan blokirnya menutup seluruh layar',
+        /#simpan-tunggu\{position:fixed;inset:0/.test(MKT),
+        'kalau tidak menutup penuh, masih ada yang bisa diklik');
+    cek('...dan TIDAK dilepas dari klik lewat pointer-events',
+        !/#simpan-tunggu[^}]*pointer-events:none/.test(MKT),
+        'pointer-events:none membuat lapisannya tembus pandang untuk klik');
+    /* Lapisan itu menahan KLIK, bukan papan ketik. Tombol yang barusan ditekan
+       masih memegang fokus, jadi Enter atau Spasi akan menekannya lagi —
+       kiriman kedua untuk satu tindakan. Fokusnya dilepas saat blokir mulai. */
+    w.eval("stSembunyi(); saveInFlight=false;");
+    w.eval("document.body.insertAdjacentHTML('beforeend','<button id=uji_tbl>Simpan</button>');" +
+           "document.getElementById('uji_tbl').focus();");
+    cek('tombol memang sedang fokus sebelum menyimpan',
+        w.document.activeElement && w.document.activeElement.id === 'uji_tbl',
+        w.document.activeElement && w.document.activeElement.id);
+    w.eval("S.clients[0].hp='0895'; save();");
+    cek('fokus dilepas supaya Enter tidak menekan tombolnya lagi',
+        !(w.document.activeElement && w.document.activeElement.id === 'uji_tbl'),
+        'Enter akan mengirim untuk kedua kalinya');
     await tunggu(400);                       // lewat ambang ST_TUNDA (250ms)
     cek('selama menunggu server, layar TERKUNCI buffering',
         el().className.indexOf('on') > -1, el().className);
@@ -537,8 +569,53 @@ else {
     cek('sesudah server menjawab, barulah mengaku tersimpan',
         /Tersimpan di server/.test(w.document.getElementById('st-judul').textContent),
         w.document.getElementById('st-judul').textContent);
+    /* KEBERHASILAN WAJIB MELEPAS LAYARNYA LAGI. Ini kegagalan terparah yang
+       bisa lahir dari mengunci layar: penyimpanan yang BERHASIL tapi kartunya
+       tidak pernah hilang membuat seluruh aplikasi mati, dan satu-satunya
+       jalan keluar menutup tab. Diuji dengan benar-benar menunggu lewat
+       ST_BERES, bukan dengan membaca sumbernya. */
+    await tunggu(w.eval('ST_BERES') + 250);
+    cek('...lalu layarnya dilepas lagi sendiri',
+        el().className.indexOf('on') < 0,
+        'berhasil tapi layar tetap terkunci — seluruh aplikasi mati: ' + el().className);
+
+    /* ---- penyimpanan CEPAT: blokir sekejap, tanpa satu pun kartu ---- */
+    w.eval('stSembunyi();');
+    w.fetch = fetchCepat;
+    w.eval("S.clients[0].hp='0898'; save();");
+    cek('simpan cepat pun tetap memblokir klik', el().className.indexOf('on') > -1);
+    await tunggu(120);   // selesai SEBELUM ST_TUNDA
+    cek('...lalu blokirnya dilepas sendiri', el().className.indexOf('on') < 0, el().className);
+    cek('...tanpa memunculkan kartu "Tersimpan" yang berkedip',
+        w.eval('_stKeadaan') === 'diam' && el().className.indexOf('beres') < 0,
+        'kartu yang muncul-hilang dalam sekejap cuma mengganggu — keadaan: ' + w.eval('_stKeadaan'));
+
+    /* ---- LAPIS 3: server yang DIAM tidak boleh mengunci aplikasi selamanya ----
+       fetch di save() tidak punya batas waktu sendiri. Tanpa jalan keluar, satu
+       permintaan yang menggantung mengunci seluruh aplikasi dan satu-satunya
+       jalan keluarnya menutup tab — yang justru membuang pekerjaan yang belum
+       sempat naik. */
+    cek('ada batas waktu jalan keluar', w.eval('typeof ST_BATAS') === 'number' && w.eval('ST_BATAS') > 0,
+        'mengunci layar tanpa jalan keluar lebih berbahaya daripada tidak mengunci');
+    w.eval('stSembunyi();');
+    w.fetch = () => new Promise(() => {});          // server diam selamanya
+    w.eval('ST_BATAS_ASLI = ST_BATAS;');
+    w.eval("S.clients[0].hp='0897'; save(); tungguSimpanSelesai('gagal', true);");
+    cek('sesudah batas waktu, layarnya bisa dilepas lagi',
+        /Server belum menjawab/.test(w.document.getElementById('st-judul').textContent),
+        w.document.getElementById('st-judul').textContent);
+    cek('...dan mengatakan kirimannya masih berjalan di latar',
+        /masih berjalan di latar/.test(w.document.getElementById('st-sub').textContent));
+    w.eval('stSembunyi();');
+    cek('...serta benar-benar melepas blokirnya', el().className.indexOf('on') < 0);
+    /* Kiriman yang digantung tadi dibereskan: tanpa ini `saveInFlight` tetap
+       true dan seluruh save() berikutnya cuma mengantre. */
+    w.eval('saveInFlight=false; savePending=false; _savePendingRamai=false;');
 
     /* GAGAL: harus DITAHAN di layar, bukan hilang sendiri. */
+    w.fetch = (url, opt) => new Promise(res => { tahan = () => res(fetchCepat(url, opt)); });
+    w.eval("S.clients[0].hp='0896'; save();");
+    await tunggu(400); tahan(); await tunggu(60);
     w.fetch = () => Promise.reject(new Error('jaringan mati'));
     w.eval("S.clients[0].hp='0777'; save();");
     await tunggu(400);
@@ -574,6 +651,13 @@ else {
                         - (SRCM.match(/function tungguSimpanMulai\(\)/g) || []).length;
     cek('buffering dipasang di save(), bukan per tombol', panggilTunggu === 1,
         'dipasang per tombol, yang terlewat justru yang paling sering dipakai — dapat ' + panggilTunggu);
+    cek('ketiga lapis buffering ada di sumbernya',
+        /el\.className='on sunyi'; _stKeadaan='sunyi';/.test(SRCM) &&
+        /_stBatasTimer=setTimeout/.test(SRCM),
+        'blokir sunyi + kartu tertunda + jalan keluar');
+    cek('keadaannya disimpan di variabel, bukan dibaca dari nama kelas',
+        /_stKeadaan!=='tampil'/.test(SRCM),
+        "`sunyi` dan `tampil` sama-sama memuat kata `on` — memeriksa kelas membuat simpan cepat ikut memunculkan kartu");
     cek('ketiga hasil server ditangani',
         (SRCM.match(/tungguSimpanSelesai\('(ok|gagal|bentrok)'\)/g) || []).length === 4,
         'sukses, gagal (dua jalur), dan bentrok');
