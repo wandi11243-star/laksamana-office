@@ -4777,10 +4777,29 @@ Tiga hal yang ikut ketahuan saat menulis ujinya, dan ketiganya cacat UJI:
   tidak pernah cocok. Tulis pola regex dengan `String.raw`.
 
 ```bash
-node tools/uji-hilang-marketing.js   # 126 pemeriksaan (1 melewat: stub reload)
+node tools/uji-hilang-marketing.js   # 130 pemeriksaan (1 melewat: stub reload)
 ```
 
-Tiga mutasi dicoba untuk babak ini, ketiganya tertangkap.
+**Dan yang kalah harus dilupakan SENDIRI, tanpa menunggu tombol ditekan.**
+Penanda `belum naik` hidup di localStorage yang **dibagi antar tab**: satu tab
+yang basi menulis ulang penandanya, lalu tab lain memungutnya saat dimuat.
+Kalau pembersihannya bergantung pada seseorang menekan tombol, tab yang tidak
+pernah dilihat orang akan terus meracuninya — dan modalnya muncul lagi di tab
+yang justru sudah bersih. `pulihkanBelumNaik()` karena itu memanggil
+`lupakanBentrok(kalah)` **sebelum** `kirimPemulihan()` berangkat: kiriman yang
+GAGAL pun tidak lagi meninggalkan mereka di catatan.
+
+- **Entri `kalah` WAJIB membawa `id`.** Daftar buatan lokal itu dulu cuma
+  membawa `{koleksi, nama}`, dan `lupakanBentrok()` melewatinya diam-diam
+  (`if(b && b.koleksi && b.id)`). Balasan server memang membawa `id`, jadi
+  jalur tombol tetap bekerja — bedanya tidak menimbulkan galat apa pun, dan
+  hanya ketahuan karena ujinya memaksa keadaan yang menuntutnya.
+- **Ujinya WAJIB punya baris yang MASIH MENUNGGU di samping yang kalah**, dan
+  `kirimPemulihan()` yang GAGAL. Tanpa keduanya `dipulihkan` kosong,
+  `tandaiSudahNaik()` membersihkan seluruh catatan, dan asersinya hijau walau
+  `lupakanBentrok()` dicabut — versi pertama uji ini memang meloloskannya.
+
+Tujuh mutasi dicoba untuk babak ini, ketujuhnya tertangkap.
 
 
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)

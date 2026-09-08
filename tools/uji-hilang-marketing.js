@@ -940,6 +940,79 @@ else {
         /toLocaleString\('id-ID',\{day:'2-digit',month:'short'/.test(SRC11),
         'angka yang dipajang untuk menjelaskan tidak boleh bisa dibaca terbalik');
 
+    /* ---------- 12. BARIS YANG KALAH TIDAK BOLEH KEMBALI SENDIRI ----------
+       Dilaporkan user 8 September 2026: modal muncul lagi dan lagi di dev,
+       untuk empat baris VIP & Request Design bercap BULAN AGUSTUS yang tidak
+       seorang pun sentuh.
+
+       Baris yang basisnya lebih tua daripada versi server TIDAK AKAN PERNAH
+       bisa menang. Selama ia tetap tinggal di catatan `belum naik`, tiap
+       pemuatan halaman memulihkannya lagi dan modalnya muncul lagi — tanpa kru
+       menyentuh apa pun.
+
+       Penanda itu hidup di localStorage yang DIBAGI ANTAR TAB, jadi
+       pembersihan yang bergantung pada seseorang menekan tombol tidak cukup:
+       tab yang tidak pernah dilihat orang akan terus meracuninya. */
+    console.log('\n-- baris yang kalah tidak kembali sendiri --');
+    w.eval('stSembunyi(); saveInFlight=false; savePending=false;');
+    w.eval('window.__BENTROK__=null;');
+
+    const capAgu = Date.UTC(2026, 7, 13, 5, 27, 0);       // 13 Agu 12:27 WIB
+    const basisTua = Date.UTC(2026, 7, 3, 5, 39, 0);      // 3 Agu 12:39 WIB
+    const srvAgu = { clients: [], events: [], designreqs: [],
+      vip: [{ id:'vAGU', nama:'ssss', tanggal:'2026-08-13', updatedAt: capAgu }] };
+
+    /* DUA baris sengaja, dan pemilihannya menentukan:
+         vAGU  -> KALAH  (isinya beda, basisnya lebih tua daripada server)
+         cBARU -> MENUNGGU (server belum punya, wajib diselamatkan)
+       Tanpa baris kedua, `dipulihkan` kosong dan tandaiSudahNaik() membersihkan
+       SELURUH catatan — asersinya lalu hijau walau lupakanBentrok() dicabut.
+       Versi pertama uji ini memang meloloskan mutasinya karena itu.
+
+       kirimPemulihan() juga dibuat GAGAL: kalau ia berhasil, ia memanggil
+       tandaiSudahNaik() sendiri dan sekali lagi menghapus jejak yang sedang
+       diperiksa. Kegagalan itu pula keadaan yang sesungguhnya berbahaya —
+       tanpa lupakanBentrok(), yang kalah tertinggal di catatan. */
+    w.eval('S = normalizeState(' + JSON.stringify(srvAgu) + ');');
+    w.eval('refreshSnapshot();');
+    w.eval("S.vip[0].nama='ssss-DIUBAH';");
+    w.eval("S.clients.push({id:'cBARU', nama:'Klien Baru', updatedAt:" + (capAgu + 1) + "});");
+    w.eval('localStorage.setItem(KEY, JSON.stringify(S));');
+    w.eval("localStorage.setItem(KEY_PENDING,'1');");
+    w.eval("localStorage.setItem(KEY_PENDING_BASE, JSON.stringify({'vip:vAGU':" + basisTua +
+           ", 'clients:cBARU':0}));");
+
+    /* Seperti apiLoad(): salinan server dipasang lebih dulu. */
+    w.eval('S = normalizeState(' + JSON.stringify(srvAgu) + ');');
+    w.fetch = () => Promise.reject(new Error('jaringan mati'));
+    await w.eval('pulihkanBelumNaik(' + JSON.stringify(srvAgu) + ')');
+    /* Modalnya TIDAK digambar di sini: begitu ada baris yang dipulihkan,
+       jalurnya lewat kirimPemulihan() — dan di skenario ini kirimannya sengaja
+       gagal. Yang diperiksa catatannya, bukan modalnya. */
+    const basisSisa = JSON.parse(w.eval('localStorage.getItem(KEY_PENDING_BASE)') || 'null');
+    cek('...dan LANGSUNG dilupakan, tanpa menunggu tombol ditekan',
+        !!basisSisa && !('vip:vAGU' in basisSisa),
+        'pemuatan berikutnya akan memunculkan modal yang sama lagi: ' + JSON.stringify(basisSisa));
+    cek('...sementara baris yang masih MENUNGGU tetap dijaga',
+        !!basisSisa && ('clients:cBARU' in basisSisa),
+        'yang belum pernah sampai ke server ikut terbuang: ' + JSON.stringify(basisSisa));
+
+    /* Pemuatan KEDUA: tidak boleh ada modal lagi untuk baris yang sudah kalah. */
+    w.eval('window.__BENTROK__=null;');
+    w.eval('S = normalizeState(' + JSON.stringify(srvAgu) + ');');
+    w.eval("S.clients.push({id:'cBARU', nama:'Klien Baru'});");   // masih menunggu
+    w.eval('localStorage.setItem(KEY, JSON.stringify(S));');
+    w.eval('S = normalizeState(' + JSON.stringify(srvAgu) + ');');
+    await w.eval('pulihkanBelumNaik(' + JSON.stringify(srvAgu) + ')');
+    cek('pemuatan berikutnya sudah bersih', (w.__BENTROK__ || []).length === 0,
+        'inilah bentuk keluhan `muncul terus`: ' + JSON.stringify(w.__BENTROK__));
+
+    const SRC12 = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8');
+    cek('dilupakan SEBELUM kirimPemulihan berangkat',
+        SRC12.indexOf('if(kalah.length) lupakanBentrok(kalah);') <
+        SRC12.indexOf('await kirimPemulihan(dipulihkan.length, kalah);'),
+        'kirimPemulihan yang gagal akan meninggalkan mereka di catatan');
+
     console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL' + (lewat ? ', ' + lewat + ' LEWAT' : ''));
     process.exit(gagal ? 1 : 0);
   })();
