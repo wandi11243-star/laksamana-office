@@ -4712,6 +4712,77 @@ Tiga mutasi dicoba untuk pencabutan ini — termasuk mengembalikan cap server �
 dan ketiganya tertangkap.
 
 
+#### "Muat ulang" yang tidak menyembuhkan apa pun (8 Sep 2026)
+
+Gejala terakhir, dan yang paling membingungkan user: modal bentrok muncul lagi
+dan lagi **di dev**, bahkan sesudah cap server dicabut — dengan nama-nama yang
+tidak seorang pun sedang menyentuh.
+
+**Angka yang dipajang di modalnya sendiri yang memecahkannya.** Diambil dari
+`getAll` dev, keempat baris itu bercap **BULAN AGUSTUS**:
+
+```
+123123132 (designreqs)  server = 22 Agu 15:49
+ssss      (vip)         server = 13 Agu 12:27
+shsfjosd  (vip)         server = 14 Agu 11:20
+sdssssss  (vip)         server = 21 Agu 19:06
+```
+
+Artinya tab itu memegang salinan **basi** dari baris Agustus, menandainya
+"belum terkirim", dan mengirimnya terus. Basisnya lebih tua daripada versi
+server, jadi kirimannya **tidak akan pernah bisa menang** — berapa kali pun
+diulang.
+
+**Dan "Muat ulang" tidak menyembuhkannya.** Baris yang KALAH tetap tinggal di
+cache lokal berikut penanda "belum naik"; sesudah halaman dimuat,
+`pulihkanBelumNaik()` mengembalikannya ke `S`, penyimpanan berikutnya
+mengirimnya lagi, server menolaknya lagi. Tombolnya memutar ulang masalahnya.
+
+> **Tombol yang menjanjikan penyembuhan tapi memutar ulang masalahnya adalah
+> yang paling merusak kepercayaan.** Yang menekannya berkali-kali akhirnya
+> berhenti membaca isinya — termasuk waktu suatu hari isinya benar.
+
+Sekarang `reloadFromServer(bentrok)` memanggil `lupakanBentrok()` lebih dulu:
+kunci baris yang kalah dibuang dari catatan basis, jadi sesudah muat ulang
+versi SERVER yang dipakai untuk baris itu — persis yang dijanjikan kalimat di
+modalnya. Baris lain yang masih menunggu kirim **tidak** ikut dibuang: yang
+belum pernah sampai ke server tetap harus diselamatkan.
+
+- **Melupakan WAJIB sebelum `location.reload()`** — sesudahnya, kodenya tidak
+  pernah sampai dijalankan. Diuji sebagai mutasi tersendiri.
+- Kalau tidak ada sisa yang menunggu, penandanya ikut dicabut; kalau tidak,
+  tiap muat ulang menjalankan pemulihan untuk daftar yang sudah kosong.
+
+**Angka versi di modal WAJIB memuat TANGGAL, bukan cuma jam.** Versi pertama
+menulis jam saja, dan itu menyesatkan: baris 13 Agustus tampil `12.27.59` di
+sebelah basis 12 Agustus `12.39.21` — terbaca seolah versi server lebih TUA
+daripada versi kita, padahal syarat bentroknya justru sebaliknya. Angka yang
+dipajang untuk MENJELASKAN sesuatu tidak boleh bisa dibaca terbalik; ia
+menyesatkan diagnosis selama satu putaran penuh.
+
+> **Modalnya sendiri yang akhirnya jadi alat diagnosisnya.** Sebelum angka itu
+> ada, tiga babak dihabiskan menebak. Kalau sebuah pesan galat dipakai orang
+> untuk melapor, isinya harus cukup untuk dilacak.
+
+Tiga hal yang ikut ketahuan saat menulis ujinya, dan ketiganya cacat UJI:
+
+- Uji memanggil `lupakanBentrok()` langsung, jadi tidak pernah membuktikan
+  `reloadFromServer()` memakainya — mutasi yang mencabut pemanggilannya LOLOS.
+- Stub `location.reload` gagal dipasang di jsdom, dan penanda kegagalannya
+  (`-1`) lolos syarat `!== 0` — asersi hampa lagi. Sekarang keadaan yang tidak
+  bisa diuji **MELEWAT dengan jelas**, dan kontraknya dijaga di sumber.
+- Pola regex yang ditulis lewat heredoc + string biasa kehilangan
+  backslash-nya dua kali, sehingga yang mendarat di berkas uji adalah pola
+  TANPA escape — `(` dan `{` terbaca sebagai grup dan kuantifier, dan polanya
+  tidak pernah cocok. Tulis pola regex dengan `String.raw`.
+
+```bash
+node tools/uji-hilang-marketing.js   # 126 pemeriksaan (1 melewat: stub reload)
+```
+
+Tiga mutasi dicoba untuk babak ini, ketiganya tertangkap.
+
+
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)
 
 Keluhan user: **Performa Marketing dan Performa Event di panel Kas Kecil tidak

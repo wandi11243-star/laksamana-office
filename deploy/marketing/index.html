@@ -3094,15 +3094,22 @@ window.addEventListener('beforeunload', function(e){
 // Sebagian perubahan ditolak karena orang lain menyimpan baris yang sama duluan.
 // Jangan timpa diam-diam — tunjukkan apa yang bentrok, lalu sarankan muat ulang.
 let _conflictShown=false;
+let _bentrokTerakhir=[];
 function showSaveConflict(bentrok){
   if(_conflictShown)return; _conflictShown=true;
+  _bentrokTerakhir = Array.isArray(bentrok) ? bentrok : [];
   const daftar=bentrok.slice(0,8).map(b=>{
     /* Angkanya ikut ditampilkan: tanpa itu tidak ada satu pun cara membedakan
        bentrok sungguhan dari bentrok palsu, dan sepanjang 8 September 2026
        modal ini muncul berkali-kali untuk baris yang tidak seorang pun
        sentuh — tanpa satu pun angka yang bisa dilacak. */
     const vk=+b.versiKamu||0, vs=+b.versiServer||0;
-    const jam=t=>t?new Date(t).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit',second:'2-digit'}):'—';
+    /* TANGGAL WAJIB IKUT. Versi pertama cuma menulis jam, dan itu MENYESATKAN:
+       baris dari 13 Agustus tampil sebagai `12.27.59` di sebelah basis dari 12
+       Agustus yang tampil `12.39.21` — seolah versi server LEBIH TUA daripada
+       versi kita, padahal syarat bentroknya justru sebaliknya. Angka yang
+       dipajang untuk menjelaskan sesuatu tidak boleh bisa dibaca terbalik. */
+    const jam=t=>t?new Date(t).toLocaleString('id-ID',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}):'—';
     const rinci = (vk||vs) ? ' <span class="cell-sub">· versimu '+jam(vk)+', di server '+jam(vs)+'</span>' : '';
     return '<li>'+esc(b.nama||b.id)+' <span class="cell-sub">('+esc(b.koleksi)+')</span>'+rinci+'</li>';
   }).join('');
@@ -3118,10 +3125,38 @@ function showSaveConflict(bentrok){
      +'tab yang lebih lama menyimpan salinannya sendiri, lalu tab ini menganggapnya orang lain. '
      +'Tutup tab Marketing yang lain, lalu muat ulang yang ini.</p>'
    +'</div><div class="modal-foot">'
-   +'<button class="btn pri" onclick="reloadFromServer()">Muat ulang (disarankan)</button>'
+   +'<button class="btn pri" onclick="reloadFromServer(_bentrokTerakhir)">Muat ulang (disarankan)</button>'
    +'</div>','wide');
 }
-function reloadFromServer(){ closeModal(); location.reload(); }
+/* MUAT ULANG HARUS BENAR-BENAR MENYEMBUHKAN, dan sebelum ini ia tidak.
+
+   Baris yang KALAH tetap tinggal di cache lokal berikut penanda `belum naik`.
+   Sesudah muat ulang, pulihkanBelumNaik() mengembalikannya ke S, penyimpanan
+   berikutnya mengirimnya lagi, server menolaknya lagi — dan modalnya muncul
+   lagi. Tombol yang menjanjikan penyembuhan tapi memutar ulang masalahnya
+   adalah yang paling merusak kepercayaan: yang menekannya berkali-kali
+   akhirnya berhenti membaca isinya.
+
+   Terbukti di dev 8 September 2026: empat baris VIP & Request Design dari
+   BULAN AGUSTUS tersangkut begitu — basisnya lebih tua daripada versi server,
+   jadi kirimannya tidak akan pernah bisa menang, berapa kali pun diulang.
+
+   Yang dilakukan sekarang: kunci baris yang KALAH dibuang dari catatan basis,
+   jadi sesudah muat ulang versi SERVER yang dipakai untuk baris itu — persis
+   yang dijanjikan kalimat di modalnya. Baris lain yang masih menunggu kirim
+   TIDAK ikut dibuang: yang belum pernah sampai ke server tetap harus
+   diselamatkan. */
+function lupakanBentrok(bentrok){
+  if(!Array.isArray(bentrok) || !bentrok.length) return;
+  try{
+    const basis = basisBelumNaik();
+    if(!basis) return;
+    bentrok.forEach(b=>{ if(b && b.koleksi && b.id) delete basis[b.koleksi+':'+b.id]; });
+    if(Object.keys(basis).length) localStorage.setItem(KEY_PENDING_BASE, JSON.stringify(basis));
+    else tandaiSudahNaik();      // tidak ada lagi yang menunggu
+  }catch(_){}
+}
+function reloadFromServer(bentrok){ lupakanBentrok(bentrok); closeModal(); location.reload(); }
 // Badge hanya tampil kalau ADA masalah — kalau semua lancar, topbar tetap bersih.
 function setSyncBadge(state){
   const el=document.getElementById('sync-badge'); if(!el)return;

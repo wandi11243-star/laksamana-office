@@ -861,6 +861,85 @@ else {
         /versimu '\+jam\(vk\)\+', di server '\+jam\(vs\)/.test(SRC10),
         'tanpa angka, bentrok sungguhan dan bentrok palsu terlihat sama persis');
 
+    /* ---------- 11. MUAT ULANG HARUS MENYEMBUHKAN ----------
+       Ditemukan dari data dev 8 September 2026: empat baris VIP & Request
+       Design dari BULAN AGUSTUS tersangkut selamanya. Basis yang dipegang tab
+       itu lebih tua daripada versi server, jadi kirimannya tidak akan pernah
+       bisa menang — berapa kali pun `Muat ulang` ditekan, karena baris yang
+       kalah tetap tinggal di catatan `belum naik` dan dipulihkan lagi sesudah
+       halaman dimuat.
+
+       Tombol yang menjanjikan penyembuhan tapi memutar ulang masalahnya adalah
+       yang paling merusak kepercayaan: yang menekannya berkali-kali akhirnya
+       berhenti membaca isinya. */
+    console.log('\n-- muat ulang benar-benar menyembuhkan --');
+    w.eval('stSembunyi(); saveInFlight=false; savePending=false;');
+    w.eval("localStorage.setItem(KEY_PENDING,'1');");
+    w.eval("localStorage.setItem(KEY_PENDING_BASE, JSON.stringify({" +
+           "'vip:vLAMA': 111, 'clients:cMENUNGGU': 222 }));");
+    w.eval("lupakanBentrok([{koleksi:'vip', id:'vLAMA', nama:'ssss'}]);");
+    const sisa = JSON.parse(w.eval('localStorage.getItem(KEY_PENDING_BASE)') || 'null');
+    cek('baris yang KALAH dibuang dari catatan belum-naik',
+        !!sisa && !('vip:vLAMA' in sisa),
+        'kalau tetap ada, muat ulang memulihkannya lagi dan modalnya kembali');
+    cek('...tapi baris lain yang masih menunggu TIDAK ikut dibuang',
+        !!sisa && ('clients:cMENUNGGU' in sisa),
+        'yang belum pernah sampai ke server tetap harus diselamatkan');
+
+    /* Kalau yang kalah adalah SATU-SATUNYA yang menunggu, penandanya ikut
+       dicabut — kalau tidak, tiap muat ulang menjalankan pemulihan untuk
+       daftar yang sudah kosong. */
+    w.eval("localStorage.setItem(KEY_PENDING,'1');");
+    w.eval("localStorage.setItem(KEY_PENDING_BASE, JSON.stringify({'vip:vLAMA':111}));");
+    w.eval("lupakanBentrok([{koleksi:'vip', id:'vLAMA', nama:'ssss'}]);");
+    cek('penanda belum-naik ikut dicabut kalau tidak ada sisa',
+        w.eval('localStorage.getItem(KEY_PENDING)') === null);
+
+    const SRC11 = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8');
+    cek('tombol Muat ulang mengoper daftar bentroknya',
+        /reloadFromServer\(_bentrokTerakhir\)/.test(SRC11),
+        'tanpa daftarnya, tombol itu tidak tahu baris mana yang harus dilupakan');
+    /* DIJALANKAN SUNGGUHAN, bukan cuma dibaca dari sumber. Uji sebelumnya
+       memanggil lupakanBentrok() langsung, jadi ia tidak pernah membuktikan
+       reloadFromServer() memakainya — dan mutasi yang mencabut pemanggilannya
+       LOLOS. location.reload() tidak ada di jsdom, jadi diganti pencatat. */
+    w.eval("localStorage.setItem(KEY_PENDING,'1');");
+    w.eval("localStorage.setItem(KEY_PENDING_BASE, JSON.stringify({'vip:vKALAH':111,'clients:cSISA':222}));");
+    w.eval('window.__RELOAD__=0;');
+    /* jsdom menolak menimpa `location.reload` lewat defineProperty pada
+       sebagian versi; kalau begitu seluruh objek `location`-nya yang diganti.
+       Kalau dua-duanya gagal, penandanya -1 dan pemeriksaannya MELEWAT. */
+    w.eval('try{ Object.defineProperty(window.location, "reload",' +
+           '{configurable:true, writable:true, value:function(){ window.__RELOAD__++; }});' +
+           'if(typeof window.location.reload !== "function") throw 0;' +
+           '} catch(e){ try{ Object.defineProperty(window, "location", {configurable:true,' +
+           'value:{ reload:function(){ window.__RELOAD__++; }, href:"", replace:function(){} }});' +
+           '}catch(e2){ window.__RELOAD__=-1; } }');
+    w.eval("reloadFromServer([{koleksi:'vip', id:'vKALAH', nama:'ssss'}]);");
+    const sisa2 = JSON.parse(w.eval('localStorage.getItem(KEY_PENDING_BASE)') || 'null');
+    cek('menekan Muat ulang benar-benar melupakan baris yang kalah',
+        !!sisa2 && !('vip:vKALAH' in sisa2) && ('clients:cSISA' in sisa2),
+        'tombolnya memutar ulang masalahnya: ' + JSON.stringify(sisa2));
+    const nReload = w.eval('window.__RELOAD__');
+    if (nReload === -1) skip('...dan tetap memuat ulang halamannya (stub location.reload tidak bisa dipasang)');
+    else cek('...dan tetap memuat ulang halamannya', nReload > 0,
+        'melupakan saja tanpa memuat ulang meninggalkan layar dengan data basi');
+    /* Angka di modal WAJIB memuat tanggal: baris 13 Agustus tampil sebagai
+       `12.27.59` di sebelah basis 12 Agustus `12.39.21` — terbaca seolah versi
+       server lebih TUA, padahal syarat bentroknya justru sebaliknya. */
+    /* Perilakunya MELEWAT di jsdom (location.reload tidak bisa distub), jadi
+       kontraknya yang dijaga di sumber — kalau tidak, mutasi yang mencabut
+       location.reload() lolos tanpa satu pun asersi yang berbunyi. */
+    cek('reloadFromServer tetap memuat ulang halamannya',
+        /function reloadFromServer\([^)]*\)\{[^}]*location\.reload\(\);/.test(SRC11),
+        'melupakan saja tanpa memuat ulang meninggalkan layar dengan data basi');
+    cek('...dan melupakan yang kalah SEBELUM memuat ulang',
+        /function reloadFromServer\([^)]*\)\{ lupakanBentrok\(bentrok\);/.test(SRC11),
+        'sesudah reload, kodenya tidak pernah sampai dijalankan');
+    cek('angka versi di modal memuat TANGGAL, bukan cuma jam',
+        /toLocaleString\('id-ID',\{day:'2-digit',month:'short'/.test(SRC11),
+        'angka yang dipajang untuk menjelaskan tidak boleh bisa dibaca terbalik');
+
     console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL' + (lewat ? ', ' + lewat + ' LEWAT' : ''));
     process.exit(gagal ? 1 : 0);
   })();
