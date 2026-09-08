@@ -4338,7 +4338,7 @@ pengganti menjalankan PHP-nya, dan itu dikatakan di kepala berkas ujinya.
 
 ```bash
 npm i php-parser        # sekali; atau setel PHP_PARSER_PATH
-node tools/uji-hilang-marketing.js   # 97 pemeriksaan, jsdom + php-parser
+node tools/uji-hilang-marketing.js   # 109 pemeriksaan, jsdom + php-parser
 ```
 
 **Yang dijaga adalah INVARIANNYA, bukan nama `designreqs`/`vip`**: setiap
@@ -4533,6 +4533,46 @@ Dan penyimpanan yang sengaja digantung WAJIB dibereskan (`saveInFlight=false`)
 sebelum bagian uji berikutnya: kalau tidak, tiap `save()` sesudahnya cuma
 mengantre dan pemeriksaan berikutnya menguji sisa layar sebelumnya — tiga
 asersi sempat gagal karena itu, dan ketiganya cacat uji, bukan cacat produk.
+
+
+#### Babak keempat: jalur PEMULIHAN membuang pekerjaan (8 Sep 2026)
+
+Pertanyaan user: *"apakah kamu sudah pastikan halaman ini tidak pernah muncul
+lagi?"* — dan jawabannya **belum**. `pulihkanBelumNaik()` masih membandingkan
+dua jam yang berbeda, dan yang ini **membuang pekerjaan**, bukan sekadar
+memunculkan modal:
+
+
+
+Waktu selalu maju antara klien mencap dan server menulis, jadi cabang
+ mati total. Suntingan yang benar-benar belum terkirim jatuh ke
+ — dilaporkan di modal lalu **hilang**. Itulah bentuk keluhan *"input
+Database Client tidak tersimpan"*, dan itu pula yang memenuhi modal dengan
+sembilan nama yang tidak seorang pun sentuh.
+
+Sekarang penanda  ikut menyimpan **BASIS tiap baris yang kotor**
+(`KEY_PENDING_BASE` = `{"<koleksi>:<id>": versiServerYangKitaPegang}`), dan
+pemulihan membandingkan **basis vs versi server sekarang** — dua-duanya angka
+server. Pertanyaannya jadi benar: *apakah ada yang menyimpan baris ini sesudah
+aku memuatnya?*
+
+- **Baris yang server BELUM punya selalu diselamatkan**, ada catatan basis atau
+  tidak: ia tidak mungkin milik orang lain. Ini juga jaring untuk penanda lama
+  yang dipasang versi sebelumnya.
+- **Baris yang TIDAK tercatat kotor dibiarkan apa adanya.** Menebak di sini
+  berarti menimpa kerja orang lain atau membuang kerja sendiri, dua-duanya
+  tanpa satu pun tanda — dan itulah yang memenuhi modal dengan nama asing.
+- **Catatan basis WAJIB ikut dibersihkan** `tandaiSudahNaik()`. Kalau tertinggal,
+  muat ulang berikutnya  baris yang sudah lama tersimpan dan
+  menimpanya dengan salinan lama.
+
+> **Uji yang memanggil `pulihkanBelumNaik()` WAJIB menyetel `S = srv` lebih
+> dulu**, seperti `apiLoad()`. Versi pertama uji ini memanggilnya sementara `S`
+> masih memegang salinan lokal — jadi asersinya benar apa pun keputusan
+> fungsinya, dan mutasi yang mengembalikan bug-nya LOLOS. Asersi hampa lebih
+> berbahaya daripada tidak ada asersi.
+
+Sembilan mutasi dicoba di babak ini, kesembilannya tertangkap.
 
 
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)

@@ -662,6 +662,132 @@ else {
         (SRCM.match(/tungguSimpanSelesai\('(ok|gagal|bentrok)'\)/g) || []).length === 4,
         'sukses, gagal (dua jalur), dan bentrok');
 
+    /* ---------- 9. PEMULIHAN: yang belum sempat naik harus DISELAMATKAN ----------
+       Pertanyaan user 8 September 2026: "apakah kamu sudah pastikan halaman ini
+       tidak pernah muncul lagi?" — dan jawabannya waktu itu belum, karena jalur
+       PEMULIHAN masih membandingkan dua jam yang berbeda:
+
+         tLok  = cap di salinan lokal   -> jam KLIEN (stampChanges)
+         tSrv  = cap di salinan server  -> jam SERVER (cap_tulis)
+
+       Sejak cap ditentukan server, tSrv SELALU lebih besar. Cabang `kita lebih
+       baru` karena itu tidak pernah menyala, dan suntingan yang benar-benar
+       belum terkirim jatuh ke cabang `kalah` — DIBUANG, sambil memunculkan
+       modal. Itu bukan modal yang mengganggu; itu pekerjaan yang hilang.
+
+       Sekarang yang dibandingkan BASIS yang kita pegang vs versi server
+       sekarang — dua-duanya angka server. */
+    console.log('\n-- pemulihan perubahan yang belum sempat naik --');
+    w.eval('stSembunyi(); saveInFlight=false; savePending=false;');
+
+    /* Keadaan awal: satu baris sudah tersimpan di server dengan cap server. */
+    const capServerAwal = jamServer + 5000;
+    simpanan['clients:c9'] = capServerAwal;
+    const srvPalsu = () => ({ clients: [{ id:'c9', nama:'Klien Server', hp:'0800', updatedAt: capServerAwal }],
+                              events:[], vip:[], designreqs:[] });
+
+    /* Kru menyunting baris itu; kirimannya GAGAL, jadi cuma ada di localStorage
+       dengan cap KLIEN (jauh lebih kecil daripada cap server). */
+    w.eval("S.clients=[{id:'c9', nama:'Klien Server', hp:'0800', updatedAt:" + capServerAwal + "}];");
+    w.eval('refreshSnapshot();');
+    w.eval("S.clients[0].hp='0899-DIUBAH'; stampChanges(); tandaiBelumNaik();");
+    w.eval('localStorage.setItem(KEY, JSON.stringify(S));');
+    cek('cap lokal memang LEBIH KECIL daripada cap server',
+        w.eval('S.clients[0].updatedAt') < capServerAwal,
+        'data ujinya tidak mewakili keadaan yang dilaporkan');
+    cek('basis baris kotor ikut dicatat',
+        !!(w.eval('basisBelumNaik()') && w.eval("basisBelumNaik()['clients:c9']") === capServerAwal),
+        'tanpa catatan basis, pemulihan harus menebak dari cap waktu');
+
+    /* Muat ulang: server BELUM berubah sejak basis kita.
+       fetch-nya WAJIB menjawab: pulihkanBelumNaik() memanggil kirimPemulihan()
+       untuk baris yang diselamatkan, dan fetch yang menggantung membuat
+       await-nya tidak pernah selesai — ujinya berhenti diam-diam di tengah,
+       tanpa satu pun baris GAGAL. */
+    w.fetch = fetchCepat;
+    /* Seperti apiLoad(): salinan SERVER dipasang lebih dulu. Tanpa ini S masih
+       memegang suntingan lokal dan asersinya benar tanpa fungsinya berbuat
+       apa-apa — mutasi `pemulihan membandingkan dua jam` memang lolos karena
+       itu. */
+    w.eval('S = normalizeState(' + JSON.stringify(srvPalsu()) + ');');
+    await w.eval('pulihkanBelumNaik(' + JSON.stringify(srvPalsu()) + ')');
+    cek('suntingan yang belum naik DISELAMATKAN, bukan dibuang',
+        w.eval("S.clients[0].hp") === '0899-DIUBAH',
+        'pekerjaan kru hilang tanpa satu pun tanda — dapat ' + w.eval('S.clients[0].hp'));
+
+    /* Sekarang orang lain BENAR-BENAR menyimpan baris itu sesudah basis kita. */
+    w.eval('stSembunyi(); saveInFlight=false; savePending=false;');
+    w.eval('window.__BENTROK__=null;');
+    w.eval("S.clients=[{id:'c9', nama:'Klien Server', hp:'0800', updatedAt:" + capServerAwal + "}];");
+    w.eval('refreshSnapshot();');
+    w.eval("S.clients[0].hp='0899-DIUBAH'; stampChanges(); tandaiBelumNaik();");
+    w.eval('localStorage.setItem(KEY, JSON.stringify(S));');
+    const srvDisalip = { clients: [{ id:'c9', nama:'Klien Server', hp:'0777-ORANG-LAIN',
+                                     updatedAt: capServerAwal + 9999 }],
+                         events:[], vip:[], designreqs:[] };
+    w.eval('S = normalizeState(' + JSON.stringify(srvDisalip) + ');');
+    await w.eval('pulihkanBelumNaik(' + JSON.stringify(srvDisalip) + ')');
+    cek('yang BENAR-BENAR disalip tetap dilaporkan',
+        (w.__BENTROK__ || []).length === 1,
+        'alarm yang sungguhan ikut mati: ' + JSON.stringify(w.__BENTROK__));
+
+    /* Baris yang TIDAK kotor tidak boleh ikut dilaporkan apa pun — inilah yang
+       memenuhi modal user dengan 9 nama yang tidak ia sentuh. */
+    w.eval('stSembunyi(); saveInFlight=false; savePending=false;');
+    w.eval('window.__BENTROK__=null;');
+    w.eval("S.clients=[{id:'c9', nama:'Klien Server', hp:'0800', updatedAt:" + capServerAwal + "}];");
+    w.eval('refreshSnapshot(); tandaiBelumNaik();');   // penanda ada, TAPI tidak ada yang kotor
+    w.eval('localStorage.setItem(KEY, JSON.stringify(S));');
+    w.eval('S = normalizeState(' + JSON.stringify(srvDisalip) + ');');
+    await w.eval('pulihkanBelumNaik(' + JSON.stringify(srvDisalip) + ')');
+    cek('baris yang TIDAK disunting tidak ikut dilaporkan bentrok',
+        (w.__BENTROK__ || []).length === 0,
+        'inilah yang memenuhi modal dengan nama yang tidak seorang pun sentuh: ' +
+        JSON.stringify(w.__BENTROK__));
+
+    /* BARIS BARU yang server belum punya — inilah bentuk keluhan `input
+       Database Client tidak tersimpan`. Ia WAJIB diselamatkan tanpa syarat:
+       baris yang tidak ada di server tidak mungkin milik orang lain, jadi
+       tidak ada yang bisa tertimpa. Ini juga jaring untuk penanda lama yang
+       belum punya catatan basis. */
+    w.eval('stSembunyi(); saveInFlight=false; savePending=false;');
+    w.eval('window.__BENTROK__=null;');
+    w.eval("S.clients=[{id:'c9', nama:'Klien Server', hp:'0800', updatedAt:" + capServerAwal + "}];");
+    w.eval('refreshSnapshot();');
+    w.eval("S.clients.push({id:'cBARU', nama:'Klien Baru Diketik', hp:'0813'});");
+    w.eval('stampChanges(); tandaiBelumNaik();');
+    w.eval('localStorage.setItem(KEY, JSON.stringify(S));');
+    w.eval('S = normalizeState(' + JSON.stringify(srvPalsu()) + ');');   // server belum punya
+    cek('server memang belum punya baris itu',
+        w.eval("S.clients.filter(c=>c.id==='cBARU').length") === 0);
+    await w.eval('pulihkanBelumNaik(' + JSON.stringify(srvPalsu()) + ')');
+    cek('baris BARU yang belum sempat naik diselamatkan',
+        w.eval("S.clients.filter(c=>c.id==='cBARU').length") === 1,
+        'inilah bentuk keluhan input Database Client yang hilang');
+    cek('...dan benar-benar dikirim ke server',
+        simpanan['clients:cBARU'] != null,
+        'diselamatkan di layar tapi tidak pernah sampai ke database');
+
+    const SRC9 = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8');
+    cek('pemulihan tidak lagi membandingkan cap lokal dengan cap server',
+        SRC9.indexOf('tLok>tSrv') < 0 && SRC9.indexOf('tLok<tSrv') < 0,
+        'dua jam yang berbeda tidak pernah bisa dibandingkan dengan benar');
+    cek('...melainkan basis server vs versi server',
+        /tSrv>tBasis/.test(SRC9));
+
+    /* Catatan basis WAJIB ikut dibersihkan begitu kiriman berhasil. Kalau
+       tertinggal, muat ulang berikutnya mencoba `memulihkan` baris yang
+       sebenarnya sudah lama tersimpan — dan menimpanya dengan salinan lama. */
+    w.eval('stSembunyi(); saveInFlight=false; savePending=false;');
+    w.fetch = fetchCepat;
+    w.eval("S.clients[0].hp='0855'; save();");
+    cek('catatan basis dipasang saat menyimpan',
+        w.eval('localStorage.getItem(KEY_PENDING_BASE)') !== null);
+    await tunggu(80);
+    cek('...dan dibersihkan begitu server menerima',
+        w.eval('localStorage.getItem(KEY_PENDING_BASE)') === null,
+        'muat ulang berikutnya akan menimpa data tersimpan dengan salinan lama');
+
     console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL' + (lewat ? ', ' + lewat + ' LEWAT' : ''));
     process.exit(gagal ? 1 : 0);
   })();

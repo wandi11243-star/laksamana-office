@@ -2207,8 +2207,38 @@ const KEY='lm_crm_v1';           // cache lokal (fallback offline)
    koneksi putus di tengah jalan, penanda itu masih ada saat halaman dibuka
    lagi — dan itulah satu-satunya cara kita tahu ada yang perlu diselamatkan. */
 const KEY_PENDING = KEY + '_pending';
-function tandaiBelumNaik(){ try{ localStorage.setItem(KEY_PENDING, String(Date.now())); }catch(_){} }
-function tandaiSudahNaik(){ try{ localStorage.removeItem(KEY_PENDING); }catch(_){} }
+/* Penanda `belum naik` ikut menyimpan BASIS tiap baris yang sedang kotor:
+   `{ '<koleksi>:<id>': versiServerYangKitaPegang }`.
+
+   Tanpa ini, pulihkanBelumNaik() harus MENEBAK baris mana yang punya
+   perubahan belum terkirim — dan tebakannya dulu membandingkan cap lokal
+   dengan cap server. Sejak cap ditentukan JAM SERVER, cap server SELALU lebih
+   besar daripada cap lokal (waktu maju antara klien mencap dan server
+   menulis), jadi suntingan yang benar-benar belum terkirim TIDAK PERNAH
+   dipulihkan — ia malah dilaporkan `kalah`, yaitu DIBUANG. Itu bukan modal
+   yang mengganggu, itu pekerjaan yang hilang.
+
+   Dengan basis ini, kedua sisi yang dibandingkan sama-sama ANGKA SERVER:
+   basis yang kita pegang vs versi server sekarang. Itu pertanyaan yang benar
+   — `apakah ada yang menyimpan baris ini sesudah aku memuatnya` — dan
+   jawabannya tidak bergantung jam siapa pun. */
+const KEY_PENDING_BASE = KEY_PENDING + '_base';
+function petaBasisKotor(){
+  const m={};
+  try{ _eachRow(S,(key,r)=>{ if(_dirty(key,r)) m[key]=_serverVer[key]||0; }); }catch(_){}
+  return m;
+}
+function tandaiBelumNaik(){ try{
+  localStorage.setItem(KEY_PENDING, String(Date.now()));
+  localStorage.setItem(KEY_PENDING_BASE, JSON.stringify(petaBasisKotor()));
+}catch(_){} }
+function tandaiSudahNaik(){ try{
+  localStorage.removeItem(KEY_PENDING); localStorage.removeItem(KEY_PENDING_BASE);
+}catch(_){} }
+function basisBelumNaik(){
+  try{ const v=JSON.parse(localStorage.getItem(KEY_PENDING_BASE)||'null');
+       return (v && typeof v==='object') ? v : null; }catch(_){ return null; }
+}
 function adaBelumNaik(){ try{ return !!localStorage.getItem(KEY_PENDING); }catch(_){ return false; } }
 let S = null;
 let API_READY = false;
@@ -2646,20 +2676,37 @@ async function pulihkanBelumNaik(srv){
   const verSrv={}; _eachRow(srv,(key,r)=>{ verSrv[key]=r.updatedAt||0; });
   const indexSrv={}; MKT_COLS.forEach(k=>{ indexSrv[k]={}; (srv[k]||[]).forEach(r=>{ if(r&&r.id) indexSrv[k][r.id]=r; }); });
 
+  /* BARIS MANA YANG PUNYA PERUBAHAN BELUM TERKIRIM — dijawab dari catatan,
+     bukan ditebak dari cap waktu. Lihat petaBasisKotor(): membandingkan cap
+     lokal dengan cap server berarti membandingkan DUA JAM yang berbeda, dan
+     sejak cap ditentukan server, jawabannya selalu `server lebih baru` —
+     sehingga suntingan yang belum terkirim dibuang, bukan diselamatkan. */
+  const basis=basisBelumNaik();
   const dipulihkan=[], kalah=[];
   MKT_COLS.forEach(k=>{
     (lok[k]||[]).forEach(r=>{
       if(!r||!r.id) return;
       const key=k+':'+r.id, adaDiSrv=indexSrv[k][r.id];
-      const tLok=r.updatedAt||0, tSrv=verSrv[key]||0;
-      if(!adaDiSrv){                       // baru dibuat, server belum punya
-        S[k].push(r); dipulihkan.push({koleksi:k, nama:r.nama||r.name||r.id});
-      }else if(tLok>tSrv){                 // kita lebih baru
+      const nama={koleksi:k, nama:r.nama||r.name||r.id};
+
+      /* Baris yang server BELUM punya selalu diselamatkan, ada catatan atau
+         tidak: ia tidak mungkin milik orang lain. Ini juga jaring untuk
+         penanda lama yang belum punya basis (dipasang versi sebelumnya). */
+      if(!adaDiSrv){ S[k].push(r); dipulihkan.push(nama); return; }
+
+      /* Tanpa catatan basis, kita TIDAK TAHU baris ini kotor atau cuma
+         salinan lama. Dibiarkan apa adanya — versi server yang dipakai.
+         Menebak di sini berarti menimpa kerja orang lain atau membuang kerja
+         sendiri, dan dua-duanya tanpa satu pun tanda. */
+      if(!basis || !(key in basis)) return;
+
+      const tSrv=verSrv[key]||0, tBasis=+basis[key]||0;
+      if(tSrv>tBasis && _sig(r)!==_sig(adaDiSrv)){
+        kalah.push(nama);            // orang lain menyimpan baris ini duluan
+      }else{
         const i=S[k].findIndex(x=>x&&x.id===r.id);
         if(i>=0) S[k][i]=r;
-        dipulihkan.push({koleksi:k, nama:r.nama||r.name||r.id});
-      }else if(tLok<tSrv && _sig(r)!==_sig(adaDiSrv)){
-        kalah.push({koleksi:k, nama:r.nama||r.name||r.id});   // server lebih baru & isinya beda
+        dipulihkan.push(nama);       // perubahan kita, belum sempat naik
       }
     });
   });
