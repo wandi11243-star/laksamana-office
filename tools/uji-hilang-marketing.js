@@ -165,6 +165,17 @@ cek('...berkunci <koleksi>:<id>, bentuk yang sama dengan _eachRow di klien',
 cek('...hanya baris yang capnya BERGESER yang dikirim balik',
     (LIB_KODE.match(/if \(\$ua !== \$uaKirim\)/g) || []).length === 2,
     'kiriman berisi ribuan baris client tidak perlu memantulkan angka yang tidak berubah');
+/* KETIGA jalur wajib memasangnya, bukan cuma yang sukses. Satu jalur yang
+   terlewat sudah cukup membuat capnya tidak pernah menyatu lagi. */
+cek('cap server dipasang di KETIGA jalur (sukses, bentrok, pemulihan)',
+    (MKT.match(/terapkanVersiServer\(j\.data\.versi\)/g) || []).length === 3,
+    'ditemukan ' + ((MKT.match(/terapkanVersiServer\(j\.data\.versi\)/g) || []).length) + ' dari 3');
+cek('...dan acuan bentrok ikut dibetulkan tanpa menunggu refreshSnapshot',
+    /_serverVer\[key\]=v;/.test(MKT),
+    'jalur bentrok & pemulihan tidak boleh memanggil refreshSnapshot apa adanya');
+cek('jalur bentrok TIDAK memanggil refreshSnapshot',
+    !/showSaveConflict\(bentrok\);[\s\S]{0,80}refreshSnapshot\(\)/.test(MKT),
+    'itu akan menghapus tanda berubah pada baris yang barusan DITOLAK');
 cek('klien memasang cap server SEBELUM mencatat acuan',
     MKT.indexOf('terapkanVersiServer(j.data.versi);') <
     MKT.indexOf('refreshSnapshot();     // …baru dicatat sebagai acuan bentrok berikutnya'),
@@ -437,6 +448,43 @@ else {
     lihatBentrok = w.__BENTROK__ || [];
     cek('bentrok SUNGGUHAN tetap dilaporkan', lihatBentrok.length === 1,
         'alarmnya ikut mati — itu lebih buruk daripada bentrok palsu');
+
+    /* ---- PUTARANNYA: sesudah satu bentrok, apakah berhenti? ----
+       Gejala produksi 8 September 2026 SESUDAH perbaikan pertama: modalnya
+       muncul terus. Sebabnya cap server cuma dipasang di cabang SUKSES, jadi
+       begitu ada satu bentrok, cap klien dan cap server tidak pernah menyatu
+       lagi — dan tiap penyimpanan berikutnya bentrok lagi.
+
+       Baris yang bentrok tadi disamakan dulu (seperti orang menekan Muat
+       ulang untuk baris itu saja); yang diuji baris LAIN, yang tidak pernah
+       bertabrakan dengan siapa pun. */
+    w.eval("window.__BENTROK__ = null;");
+    w.eval("S.vip[0].updatedAt = " + (simpanan['vip:v1'] || 0) + ";");   // baris itu diselaraskan
+    w.eval("S.clients = S.clients || []; S.clients.push({id:'c1', nama:'Klien Baru', hp:'08'});");
+    w.eval("save();");
+    await tunggu(60);
+    lihatBentrok = w.__BENTROK__ || [];
+    /* Baris yang benar-benar disalip SENGAJA tetap dilaporkan sampai dimuat
+       ulang — itu yang diinstruksikan modalnya, dan mendiamkannya berarti
+       perubahan yang ditolak hilang tanpa ada yang tahu. Yang dijaga di sini:
+       bentroknya TIDAK MELEBAR ke baris lain. */
+    cek('bentrok tidak melebar ke baris lain',
+        lihatBentrok.length === 1 && lihatBentrok[0].id === 'v1',
+        'baris yang tidak disalip ikut dilaporkan: ' + JSON.stringify(lihatBentrok));
+    cek('...dan baris barunya benar-benar sampai ke server',
+        simpanan['clients:c1'] != null, 'input Database Client hilang');
+
+    /* MUAT ULANG, seperti yang disuruh modalnya: acuan disegarkan dari versi
+       server. Sesudah itu SEMUANYA harus bersih — inilah yang dulu tidak
+       pernah terjadi, karena kirimPemulihan() mencatat cap KLIEN sebagai
+       acuan tiap kali halaman dimuat, jadi putarannya dimulai lagi. */
+    w.eval("window.__BENTROK__ = null;");
+    w.eval("S.vip[0].updatedAt = " + simpanan['vip:v1'] + "; refreshSnapshot();");
+    w.eval("S.clients[0].hp = '0812'; save();");
+    await tunggu(60);
+    lihatBentrok = w.__BENTROK__ || [];
+    cek('sesudah muat ulang, putarannya berhenti sepenuhnya',
+        lihatBentrok.length === 0, JSON.stringify(lihatBentrok));
 
     console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL' + (lewat ? ', ' + lewat + ' LEWAT' : ''));
     process.exit(gagal ? 1 : 0);

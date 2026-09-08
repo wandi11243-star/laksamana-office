@@ -4338,7 +4338,7 @@ pengganti menjalankan PHP-nya, dan itu dikatakan di kepala berkas ujinya.
 
 ```bash
 npm i php-parser        # sekali; atau setel PHP_PARSER_PATH
-node tools/uji-hilang-marketing.js   # 59 pemeriksaan, jsdom + php-parser
+node tools/uji-hilang-marketing.js   # 65 pemeriksaan, jsdom + php-parser
 ```
 
 **Yang dijaga adalah INVARIANNYA, bukan nama `designreqs`/`vip`**: setiap
@@ -4407,6 +4407,39 @@ dengan server tiruan yang jamnya sengaja dimajukan. **Satu siklus tidak cukup**:
 bentroknya baru lahir di siklus kedua, dan uji yang berhenti di siklus pertama
 akan hijau untuk kode yang rusak. Lima mutasi dicoba — termasuk mengembalikan
 gejala produksinya persis — dan kelimanya tertangkap.
+
+
+**Babak ketiga: satu jalur yang ditutup, dua yang terlewat.** Sesudah `versi`
+dipasang, modalnya MASIH muncul terus di produksi. Sebabnya cap server cuma
+dipasang di cabang SUKSES `save()`. Ada TIGA jalur yang menerima balasan
+server, dan ketiganya wajib memasangnya:
+
+| jalur | kapan berjalan |
+|---|---|
+| `save()` sukses bersih | penyimpanan biasa |
+| `save()` yang ADA bentroknya | baris lain TETAP tersimpan — capnya wajib ikut dipasang |
+| `kirimPemulihan()` | **tiap kali halaman dimuat** selama penanda "belum naik" masih ada |
+
+Begitu terjadi SATU bentrok, cap klien dan cap server tidak pernah menyatu
+lagi: penyimpanan berikutnya bentrok, penandanya tidak pernah dicabut, dan
+muat ulang — yang justru disarankan modalnya — menjalankan `kirimPemulihan()`
+yang mencatat cap KLIEN sebagai acuan. **Perbaikannya sendiri yang memutar
+ulang masalahnya.**
+
+- `terapkanVersiServer()` membetulkan `_serverVer` LANGSUNG, tidak menunggu
+  `refreshSnapshot()` — dua dari tiga jalur itu memang tidak boleh memanggilnya.
+- **Jalur bentrok SENGAJA tidak memanggil `refreshSnapshot()`**: ia akan
+  menghapus tanda "berubah" pada baris yang barusan DITOLAK, dan perubahan itu
+  lalu tidak pernah dicoba kirim lagi. Diuji sebagai mutasi tersendiri.
+- **Baris yang benar-benar disalip TETAP dilaporkan sampai dimuat ulang** —
+  itu yang diinstruksikan modalnya. Yang dijaga: bentroknya tidak MELEBAR ke
+  baris lain, dan input baru tetap tersimpan.
+
+> Pelajarannya sama dengan babak kedua, dan itu yang membuatnya layak dicatat
+> dua kali: perbaikan pertama menutup jalur yang paling terlihat lalu berhenti
+> mencari. Pertanyaan yang tidak diajukan: **siapa LAGI yang membaca angka
+> ini?** Jawabannya tiga tempat, dan dua di antaranya justru yang berjalan
+> paling sering.
 
 
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)

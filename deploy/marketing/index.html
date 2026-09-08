@@ -2630,6 +2630,13 @@ async function kirimPemulihan(jumlah, kalah){
       body:JSON.stringify({action:'saveAll', data:buildPayload()}), redirect:'follow'});
     const j=await res.json();
     if(j && j.ok && j.data){
+      /* Cap server DULU, baru acuan dicatat — alasan yang sama dengan cabang
+         sukses di save(). Jalur ini berjalan TIAP KALI halaman dimuat selama
+         masih ada penanda `belum naik`, jadi kalau ia mencatat cap klien
+         sebagai acuan, ia sendiri yang melahirkan bentrok palsu berikutnya —
+         dan muat ulang, yang justru disarankan modalnya, memutar ulang
+         masalahnya. */
+      terapkanVersiServer(j.data.versi);
       tandaiSudahNaik(); API_READY=true; setSyncBadge('ok'); refreshSnapshot();
       const bentrok=(j.data.bentrok||[]).concat(kalah);
       toast('Perubahan tertunda diselamatkan',
@@ -2660,7 +2667,14 @@ async function kirimPemulihan(jumlah, kalah){
    kunci di sini berarti `capmu sudah benar`, bukan `barisnya gagal`. */
 function terapkanVersiServer(versi){
   if(!versi || typeof versi!=='object') return;
-  _eachRow(S,(key,r)=>{ const v=+versi[key]; if(v) r.updatedAt=v; });
+  /* `_serverVer` DIBETULKAN LANGSUNG, tidak menunggu refreshSnapshot().
+     Dua jalur di bawah (simpan yang ada bentroknya, dan kirimPemulihan)
+     TIDAK boleh memanggil refreshSnapshot() apa adanya — yang pertama harus
+     mempertahankan tanda `berubah` pada baris yang DITOLAK supaya tidak
+     terlupakan, yang kedua sudah memanggilnya sendiri. Kalau acuannya cuma
+     ikut refreshSnapshot(), kedua jalur itu tetap memegang cap klien dan
+     bentrok palsunya kembali pada penyimpanan berikutnya. */
+  _eachRow(S,(key,r)=>{ const v=+versi[key]; if(v){ r.updatedAt=v; _serverVer[key]=v; } });
 }
 function refreshSnapshot(){
   const snap={}, ver={};
@@ -2719,6 +2733,20 @@ function save(){
       if(bentrok.length){
         // Sebagian perubahan ditolak karena orang lain menyimpan duluan.
         API_READY=false; setSyncBadge('conflict');
+        /* BARIS YANG TIDAK BERTABRAKAN TETAP TERSIMPAN — server memang cuma
+           melewati yang bentrok. Jadi capnya WAJIB ikut dipasang di sini
+           juga, bukan cuma di cabang sukses. Tanpa ini, satu bentrok saja
+           membuat cap klien dan cap server tidak pernah menyatu lagi:
+           penyimpanan berikutnya bentrok lagi, lalu berikutnya lagi, dan
+           modalnya muncul terus tanpa ada yang benar-benar menyalip.
+           Dilaporkan user 8 September 2026, SESUDAH perbaikan pertama —
+           perbaikan yang cuma menutup satu dari tiga jalur.
+
+           refreshSnapshot() SENGAJA tidak dipanggil: ia akan menghapus tanda
+           `berubah` pada baris yang barusan DITOLAK, dan perubahan itu lalu
+           tidak pernah dicoba kirim lagi. */
+        terapkanVersiServer(j.data.versi);
+        localStorage.setItem(KEY, JSON.stringify(S));
         showSaveConflict(bentrok);
       }else{
         API_READY=true; setSyncBadge('ok');
