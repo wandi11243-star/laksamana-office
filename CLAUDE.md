@@ -4801,6 +4801,32 @@ GAGAL pun tidak lagi meninggalkan mereka di catatan.
 
 Tujuh mutasi dicoba untuk babak ini, ketujuhnya tertangkap.
 
+#### Babak keenam: `baseUpdatedAt` yang BOCOR ke data tersimpan (8 Sep 2026)
+
+Modal masih muncul TIAP SIMPAN di dev — untuk baris Reservasi VIP & Request
+Design bercap Agustus yang tidak seorang pun sentuh. Bukan cache lokal seperti
+dugaan pertama: **`getAll` dev menunjukkan 202 baris menyimpan `baseUpdatedAt`
+DI DALAM barisnya sendiri** (`vip`, `designreqs`, `activities`) — warisan kode
+lama yang menulis koleksi settings sebagai gumpalan JSON mentah sebelum
+`unset($simpan['baseUpdatedAt'])` ada di jalur itu.
+
+`baseUpdatedAt` metadata kiriman: `buildPayload()` menambahkannya HANYA untuk
+baris yang diedit, `_sig()` membuangnya sebelum membandingkan. Begitu ia bocor
+ke `data` tersimpan → masuk `S` tiap muat → dikirim untuk baris yang tak
+disentuh → server (yang percaya `array_key_exists('baseUpdatedAt',$r)` = "baris
+ini diedit klien") membandingkan cap Agustus vs `updated_at` yang lebih baru →
+**bentrok, tiap simpan, tak bisa disembuhkan muat ulang.**
+
+`normalizeState()` sekarang membuang `baseUpdatedAt` dari tiap baris tiap
+MKT_COLS — satu tempat yang dilewati SEMUA jalur muat (getAll, cache
+localStorage, `pulihkanBelumNaik`). Data yang terlanjur bocor di server jadi
+inert karena klien berhenti memantulkannya. Baris yang BENAR-BENAR diedit tetap
+membawanya (metadata sah). Diuji `uji-hilang-marketing.js` (pemindai sumber).
+
+> **Endpoint `saveAll` TIDAK bisa menghapus baris TERAKHIR sebuah koleksi**
+> (`kiriman kosong tidak pernah mengosongkan daftar`). Baris uji sampah di dev
+> dibereskan lewat UI (hapus / `batalAt`) atau phpMyAdmin, bukan lewat API.
+
 
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)
 
