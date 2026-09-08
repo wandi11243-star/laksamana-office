@@ -101,6 +101,18 @@ cek('designreqs berpenjaga (regresi 8 Sep 2026)',
 cek('vip berpenjaga (regresi 8 Sep 2026)',
     kolSet.indexOf('vip') > -1 || kolServer.indexOf('vip') > -1);
 
+/* Regresi 8 Sep 2026 (babak kelima): `baseUpdatedAt` yang BOCOR ke data
+   tersimpan (baris vip/designreqs bercap Agustus di server dev) membuat klien
+   memantulkannya untuk baris yang tidak disentuh siapa pun, dan server
+   melaporkan bentrok palsu tiap simpan — modal yang tidak bisa disembuhkan
+   muat ulang. normalizeState() WAJIB membuangnya dari tiap baris tiap
+   MKT_COLS, di satu tempat yang dilewati semua jalur muat. */
+const iNorm = MKT.indexOf('function normalizeState(');
+const badanNorm = iNorm > -1 ? MKT.slice(iNorm, iNorm + 3000) : '';
+cek('normalizeState membuang baseUpdatedAt yang bocor ke data (regresi 8 Sep 2026)',
+    /delete r\.baseUpdatedAt/.test(badanNorm) && /MKT_COLS\.forEach/.test(badanNorm),
+    'tanpa ini baris vip/designreqs lama memicu bentrok palsu tak berujung');
+
 /* ---------- 3. KONTRAK save_all ---------- */
 console.log('\n-- penjaga di save_all --');
 const iKolSet = LIB_KODE.indexOf('foreach (kol_settings() as $nama)');

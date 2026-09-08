@@ -2274,6 +2274,26 @@ function migrateRoleAcc(oldNav, oldPerms){
 function normalizeState(s){
   s=s||{};
   MKT_COLS.forEach(k=>{ if(!Array.isArray(s[k])) s[k]=[]; });
+  /* `baseUpdatedAt` adalah METADATA KIRIMAN — dibangun di buildPayload() untuk
+     baris yang BENAR-BENAR diedit, dan `_sig()` sudah membuangnya sebelum
+     membandingkan. Ia tidak boleh pernah tinggal di objek S.
+
+     Kode lama sempat membiarkannya bocor ke `data` tersimpan: baris
+     settings-collection `vip` & `designreqs` bercap Agustus 2026 di server dev
+     menyimpan `baseUpdatedAt` di dalam barisnya sendiri. Begitu bocor, tiap
+     muat memasukkannya kembali ke S, tiap simpan mengirimkannya untuk baris
+     yang TIDAK disentuh siapa pun, dan server — yang mempercayai
+     `array_key_exists('baseUpdatedAt',$r)` sebagai tanda "baris ini diedit
+     klien" — melaporkan bentrok untuk cap lama vs cap tersimpan yang lebih
+     baru. Hasilnya modal "Sebagian Perubahan Tidak Tersimpan" yang muncul
+     tiap simpan dan TIDAK bisa disembuhkan muat ulang, untuk baris yang tidak
+     ada hubungannya dengan yang sedang dikerjakan.
+
+     Dibuang di sini — satu tempat yang dilewati SEMUA jalur muat: apiLoad()
+     dari getAll, fallback cache localStorage, dan pulihkanBelumNaik(). Data
+     yang sudah terlanjur bocor di server jadi tidak berbahaya lagi karena
+     klien berhenti memantulkannya. */
+  MKT_COLS.forEach(k=>{ (s[k]||[]).forEach(r=>{ if(r && typeof r==='object' && 'baseUpdatedAt' in r) delete r.baseUpdatedAt; }); });
   /* MIGRASI: tahap "Negotiation" dihapus (lihat PIPE_COLS).
      Event yang terlanjur berada di sana dipindahkan ke "Quotation Terkirim" —
      tahap terdekat yang maknanya sama: penawaran sudah di tangan client dan
