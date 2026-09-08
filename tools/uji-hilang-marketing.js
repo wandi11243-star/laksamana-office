@@ -126,8 +126,19 @@ cek('_versi ikut menghitung koleksi settings',
     'tanpa ini baris VIP/Request baru tidak menaikkan versi, dan tab lain tidak pernah menariknya');
 
 /* ---------- 4. cap tulis dari JAM SERVER ---------- */
-console.log('\n-- cap urutan tidak lagi bergantung jam perangkat --');
-cek('ada cap_tulis() yang memakai jam server', /function cap_tulis\(\$ua, \$lolosBentrok, \$verServer, \$nowMs\)/.test(LIB_KODE));
+console.log('\n-- cap urutan datang dari KLIEN, dan pergeserannya dikabarkan --');
+/* CAP SERVER SUDAH DICABUT (keputusan user 8 September 2026). Ia lahir untuk
+   menutup bahaya jam perangkat yang TIDAK PERNAH DIBUKTIKAN, dan akibatnya
+   pasti: klien mencatat acuan bentrok dari cap yang ia pegang, jadi begitu
+   server mencapnya dengan jam LAIN, kedua sisi membandingkan angka dari dua
+   jam berbeda dan modal bentrok muncul untuk baris yang tidak seorang pun
+   sentuh. Yang dijaga sekarang: capnya TETAP milik klien. */
+cek('cap tulis TIDAK memakai jam server',
+    /function cap_tulis\(\$ua, \$lolosBentrok, \$verServer\)/.test(LIB_KODE) &&
+    LIB_KODE.indexOf('sekarang_ms') < 0 && LIB_KODE.indexOf('$nowMs') < 0,
+    'cap dari jam server membuat acuan klien dan acuan server tidak pernah sama');
+cek('...melainkan cap yang dikirim klien, digeser HANYA kalau terhalang',
+    /return \$verServer \+ 1;/.test(LIB_KODE) && /return \$ua;/.test(LIB_KODE));
 /* Potong badan satu fungsi PHP: dari tanda tangannya sampai deklarasi
    fungsi BERIKUTNYA. Tanpa ini tiap pencarian di bawah bisa menemukan
    jawabannya di fungsi lain, dan asersinya lulus untuk fungsi yang justru
@@ -144,13 +155,11 @@ cek('kedua badan fungsinya bisa dipotong', BADAN_UPSERT.length > 200 && BADAN_SE
     BADAN_UPSERT.length + ' / ' + BADAN_SETTINGS.length);
 cek('...dipakai upsert_collection', BADAN_UPSERT.indexOf('cap_tulis(') > -1);
 cek('...dan upsert_settings_collection', BADAN_SETTINGS.indexOf('cap_tulis(') > -1);
-cek('upsert_collection TIDAK lagi memakai cap klien apa adanya',
-    !/\$ua = ms_valid\(isset\(\$simpan\['updatedAt'\]\)/.test(BADAN_UPSERT),
-    'cap dari jam perangkat kembali menentukan urutan');
-cek('$nowMs diambil SEKALI per kiriman, bukan per baris',
-    /\$nowMs = sekarang_ms\(\);/.test(LIB_KODE) &&
-    (LIB_KODE.match(/sekarang_ms\(\)/g) || []).length === 2,
-    'dua baris yang disimpan bersamaan tidak boleh dapat cap berbeda');
+cek('cap klien dipungut apa adanya lebih dulu',
+    /\$uaKirim = ms_valid\(isset\(\$simpan\['updatedAt'\]\)/.test(BADAN_UPSERT),
+    'cap yang dipakai harus berasal dari yang dikirim klien');
+/* Pergeseran cap (bump) tetap ada dan tetap harus dikabarkan — itulah yang
+   dijaga jalur `versi` di bawah. Yang hilang cuma sumber jamnya. */
 /* Cap yang dipakai WAJIB ikut tersimpan di `data`: klien membaca versinya dari
    sana lalu mengirimkannya balik sebagai baseUpdatedAt, sementara penjaga
    bentrok membandingkannya dengan KOLOM updated_at. Kalau keduanya berbeda,

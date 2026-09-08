@@ -473,38 +473,49 @@ function versi_baris($rows) {
   return $maks;
 }
 
-/* Cap tulis satu baris. SUMBERNYA JAM SERVER, bukan jam perangkat yang
-   menyimpan — dan itu inti perbaikan kedua 8 September 2026.
+/* Cap tulis satu baris. SUMBERNYA CAP DARI KLIEN.
 
-   `_versi` yang dipegang klien adalah cap TERTINGGI di seluruh data, dan
-   penghapusan dibatasi `updated_at <= _sejak`. Selama capnya datang dari jam
-   masing-masing perangkat, satu jam yang berjalan CEPAT menaikkan `_versi`
-   melampaui waktu sebenarnya — dan sejak itu setiap baris yang dibuat
-   perangkat berjam normal lahir dengan cap DI BAWAH `_sejak` orang lain,
-   sehingga sah dihapus. Gejalanya: event yang baru dibuat rekan lenyap
-   beberapa menit kemudian, tanpa galat di layar siapa pun.
+   SEMPAT DIPINDAH KE JAM SERVER (8 September 2026) untuk menutup satu bahaya
+   yang nyata: `_versi` adalah cap TERTINGGI di seluruh data dan penghapusan
+   dibatasi `updated_at <= _sejak`, jadi satu perangkat berjam CEPAT menaikkan
+   `_versi` melampaui waktu sebenarnya, dan sejak itu baris yang dibuat
+   perangkat berjam normal lahir DI BAWAH `_sejak` orang lain — sah dihapus.
 
-   Komentar lama di baca_state() menyatakan cara ini `tetap sahih walau jam
-   tiap perangkat berbeda`. Itu KELIRU, dan kekeliruannya yang membuat ini
-   bertahan: mengambil maksimum dari tabel tidak menyatukan jamnya — ia
-   justru memungut yang paling melenceng.
+   DICABUT HARI ITU JUGA, atas keputusan user, dan alasannya lebih kuat
+   daripada bahaya yang ditutupnya:
 
-   Baris yang DIUBAH klien (punya baseUpdatedAt) dicap jam server, minimal
-   satu di atas versi server supaya penjaga urutan tidak memblokir tulisan
-   yang benar. Baris yang TIDAK diubah dijepit ke jam server: capnya cuma
-   dipantulkan balik oleh klien, dan yang dipantulkan tidak boleh melompat ke
-   masa depan. */
-function cap_tulis($ua, $lolosBentrok, $verServer, $nowMs) {
-  if ($lolosBentrok) {
-    $ua = $nowMs;
-    if ($verServer !== null && $ua <= $verServer) $ua = $verServer + 1;
-    return $ua;
-  }
-  if ($ua > $nowMs) $ua = $nowMs;
+     1. Bahaya itu TIDAK PERNAH DIBUKTIKAN. Ia dugaan untuk satu keluhan
+        (event Oktober yang hilang) yang tidak pernah dicocokkan dengan isi
+        database. Menukar penyakit yang mungkin dengan penyakit yang pasti
+        bukan pertukaran yang baik.
+     2. Akibatnya PASTI dan langsung terasa. Klien mencatat acuan penjaga
+        bentroknya dari cap yang ia pegang; begitu server mencapnya dengan jam
+        LAIN, kedua sisi membandingkan angka dari dua jam yang berbeda. Waktu
+        selalu maju antara klien mencap dan server menulis, jadi cap server
+        selalu lebih besar — dan modal `Sebagian Perubahan Tidak Tersimpan`
+        muncul untuk baris yang tidak seorang pun sentuh. Empat babak
+        perbaikan berturut-turut mengejar akibat dari satu keputusan ini, dan
+        yang terakhir bahkan MEMBUANG suntingan yang belum sempat naik.
+
+   PELAJARANNYA, dan ini yang tidak boleh hilang: cap urutan itu KONTRAK DUA
+   SISI. Mengganti sumbernya di server saja tidak memperbaikinya — ia mengubah
+   artinya, sementara sisi klien tetap membaca dengan aturan lama. Kalau suatu
+   hari jam perangkat benar-benar terbukti jadi penyebab, yang perlu diganti
+   BUKAN sumber capnya melainkan bentuknya: nomor urut milik server yang tidak
+   ada hubungannya dengan jam mana pun, dipulangkan ke klien, dan dipakai
+   kedua sisi. Setengahnya saja lebih buruk daripada tidak sama sekali.
+
+   Yang TETAP dipertahankan dari babak itu, karena benar tanpa syarat:
+     - `$simpan['updatedAt'] = $ua` (cap yang dipakai ikut tersimpan di `data`)
+     - balasan `versi` (klien memasang cap yang benar-benar dipakai server)
+   Keduanya menutup kasus BUMP di bawah, yang tetap ada: kalau cap klien
+   kebetulan <= cap server, penjaga urutan `updated_at >=` akan memblokir
+   tulisan yang sebenarnya sah, jadi capnya dinaikkan satu — dan begitu
+   dinaikkan, klien WAJIB diberi tahu angka barunya. */
+function cap_tulis($ua, $lolosBentrok, $verServer) {
+  if ($lolosBentrok && $verServer !== null && $ua <= $verServer) return $verServer + 1;
   return $ua;
 }
-
-function sekarang_ms() { return (int)round(microtime(true) * 1000); }
 
 /* ==================== NORMALISASI NILAI ==================== */
 function tanggal_valid($d) {
@@ -650,7 +661,7 @@ function put_setting($pdo, $k, $v) {
 
    Bentrok dikumpulkan, bukan membatalkan seluruh simpanan — perubahan lain
    yang tidak bertabrakan tetap tersimpan. */
-function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, $nowMs, &$versi) {
+function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, &$versi) {
   $tabel = $c['table'];
   $cols  = $c['cols'];
   $adaCreated = !empty($c['created']);
@@ -712,7 +723,7 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, $no
     $simpan = $r; unset($simpan['baseUpdatedAt']);
 
     $uaKirim = ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0);
-    $ua = cap_tulis($uaKirim, $lolosBentrok, isset($verServer[$id]) ? $verServer[$id] : null, $nowMs);
+    $ua = cap_tulis($uaKirim, $lolosBentrok, isset($verServer[$id]) ? $verServer[$id] : null);
     /* Cap yang dipakai DIKEMBALIKAN ke klien kalau berbeda dari yang ia kirim.
        Lihat catatan panjang di save_all() — tanpa ini penjaga bentrok
        melaporkan bentrok pada setiap suntingan kedua. */
@@ -802,7 +813,7 @@ function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $sejak) {
    alasannya. Yang berbeda cuma tempat simpanannya: satu nilai JSON di tabel
    `settings`, bukan tabel tersendiri — jadi penggabungannya dikerjakan di
    PHP, bukan diserahkan ke ON DUPLICATE KEY UPDATE. */
-function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, $nowMs, &$versi) {
+function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, &$versi) {
   $lama = baris_settings($pdo, $nama);
 
   /* Baris yang sudah ada, dikunci id. Yang TIDAK ber-id sengaja tidak ikut:
@@ -846,7 +857,7 @@ function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, $nowM
     // baseUpdatedAt hanya metadata kiriman — jangan ikut tersimpan.
     $simpan = $r; unset($simpan['baseUpdatedAt']);
     $uaKirim = ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0);
-    $ua = cap_tulis($uaKirim, $lolosBentrok, $verServer, $nowMs);
+    $ua = cap_tulis($uaKirim, $lolosBentrok, $verServer);
     if ($ua !== $uaKirim) $versi[$nama . ':' . $id] = $ua;
 
     /* Penjaga urutan untuk baris yang TIDAK diubah klien: aplikasi mengirim
@@ -894,37 +905,33 @@ function save_all($state) {
        Dipakai HANYA untuk membatasi penghapusan — lihat hapus_yang_hilang(). */
     $sejak = isset($state['_sejak']) ? ms_valid($state['_sejak']) : 0;
     $known = array('activities', '_rev', '_sejak', '_versi');
-    /* Satu cap untuk SELURUH kiriman, diambil sekali. Dipanggil per baris, dua
-       baris yang disimpan bersamaan bisa dapat cap berbeda tanpa alasan. */
-    $nowMs = sekarang_ms();
     /* CAP YANG BENAR-BENAR DIPAKAI, dikembalikan ke klien.
 
-       Sejak cap ditentukan JAM SERVER (lihat cap_tulis), nilai yang tersimpan
-       hampir selalu BERBEDA dari yang dikirim klien — waktu memang sudah maju
-       antara klien mencap dan server menulis. Klien mencatat acuan bentroknya
-       sendiri lewat refreshSnapshot(), yang membaca `r.updatedAt` dari salinan
-       DI LAYARNYA; jadi acuannya cap klien, sementara yang dibandingkan server
-       cap server.
+       Cap yang dipakai server tidak selalu sama dengan yang dikirim klien:
+       kalau cap klien kebetulan <= cap tersimpan, penjaga urutan
+       `updated_at >=` akan memblokir tulisan yang sebenarnya sah, jadi
+       capnya dinaikkan satu (lihat cap_tulis).
 
-       Akibatnya SETIAP suntingan KEDUA pada baris yang sama dilaporkan
-       bentrok — `Sebagian Perubahan Tidak Tersimpan`, padahal tidak ada
-       seorang pun yang menyalip. Kejadian di produksi 8 September 2026,
-       beberapa jam setelah cap server dipasang, dan dilaporkan user sebagai
-       modal yang `muncul terus`.
+       Begitu dinaikkan, klien WAJIB diberi tahu angka barunya. Klien mencatat
+       acuan penjaga bentroknya dari `r.updatedAt` di salinan DI LAYARNYA;
+       kalau angka itu berbeda dari yang tersimpan, suntingan berikutnya pada
+       baris yang sama dilaporkan bentrok padahal tidak ada yang menyalip.
 
-       Dua penjaga yang membandingkan angka dari DUA JAM yang berbeda selalu
-       salah; yang menentukan bukan jamnya melainkan bahwa kedua sisi memakai
-       angka YANG SAMA. Karena itu server memberitahukan cap yang ia pakai,
-       dan klien memasangnya sebelum mencatat acuan berikutnya. Hanya baris
-       yang capnya BERGESER yang dikirim balik — kiriman utuh berisi ribuan
-       baris client tidak perlu ikut memantulkan angka yang tidak berubah. */
+       Sepanjang 8 September 2026 cap SELALU berbeda — waktu itu ia diambil
+       dari jam server — dan modal `Sebagian Perubahan Tidak Tersimpan` muncul
+       terus untuk baris yang tidak seorang pun sentuh. Cap server sudah
+       dicabut; yang tersisa cuma kasus bump di atas, yang jarang tapi nyata.
+
+       Hanya baris yang capnya BERGESER yang dikirim balik — kiriman utuh
+       berisi ribuan baris client tidak perlu memantulkan angka yang tidak
+       berubah. */
     $versi = array();
 
     foreach (collections() as $nama => $c) {
       $known[] = $nama;
       if (!array_key_exists($nama, $state)) continue;      // tidak dikirim → lewati
       $rows = is_array($state[$nama]) ? $state[$nama] : array();
-      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $sejak, $nowMs, $versi);
+      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $sejak, $versi);
     }
 
     /* Koleksi yang tinggal di `settings` — digabung PER BARIS, bukan ditimpa.
@@ -936,7 +943,7 @@ function save_all($state) {
       $known[] = $nama;
       if (!array_key_exists($nama, $state)) continue;   // tidak dikirim -> lewati
       $rows = is_array($state[$nama]) ? $state[$nama] : array();
-      $hitung[$nama] = upsert_settings_collection($pdo, $nama, $rows, $bentrok, $sejak, $nowMs, $versi);
+      $hitung[$nama] = upsert_settings_collection($pdo, $nama, $rows, $bentrok, $sejak, $versi);
     }
 
     // ---- activities: append-only ----

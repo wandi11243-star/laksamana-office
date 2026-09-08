@@ -4646,6 +4646,72 @@ dibungkus lalu dihitung berapa kali ia dipanggil per baris.
 Lima mutasi dicoba di babak ini, kelimanya tertangkap.
 
 
+#### CAP SERVER DICABUT — dan kenapa itu keputusan yang benar (8 Sep 2026)
+
+**Baca blok ini SEBELUM memindahkan sumber cap ke server lagi.**
+
+Cap urutan sempat dipindah dari jam KLIEN ke jam SERVER (`cap_tulis`) untuk
+menutup satu bahaya nyata: `_versi` adalah cap tertinggi di seluruh data dan
+penghapusan dibatasi `updated_at <= _sejak`, jadi satu perangkat berjam CEPAT
+menaikkan `_versi` melampaui waktu sebenarnya — dan sejak itu baris yang dibuat
+perangkat berjam normal lahir di bawah `_sejak` orang lain, sah dihapus.
+
+**Dicabut hari itu juga, atas keputusan user.** Dua alasannya:
+
+1. **Bahaya itu tidak pernah dibuktikan.** Ia dugaan untuk satu keluhan (event
+   Oktober yang hilang) yang tidak pernah dicocokkan dengan isi database.
+   Menukar penyakit yang MUNGKIN dengan penyakit yang PASTI bukan pertukaran
+   yang baik.
+2. **Akibatnya pasti dan langsung terasa.** Klien mencatat acuan penjaga
+   bentroknya dari cap yang ia pegang; begitu server mencapnya dengan jam LAIN,
+   kedua sisi membandingkan angka dari dua jam yang berbeda. Waktu selalu maju
+   antara klien mencap dan server menulis, jadi cap server selalu lebih besar —
+   dan modal *Sebagian Perubahan Tidak Tersimpan* muncul untuk baris yang tidak
+   seorang pun sentuh.
+
+**EMPAT babak perbaikan berturut-turut mengejar akibat dari satu keputusan
+itu**, dan yang keempat bahkan MEMBUANG suntingan yang belum sempat naik. Tiap
+babak menutup jalur yang paling terlihat lalu berhenti mencari:
+
+| babak | yang ditutup | yang terlewat |
+|---|---|---|
+| 1 | cabang sukses `save()` | jalur bentrok & `kirimPemulihan()` |
+| 2 | ketiga jalur simpan | `pulihkanBelumNaik()` |
+| 3 | buffering & penguncian layar | — |
+| 4 | `pulihkanBelumNaik()` | (cap servernya sendiri) |
+
+> **PELAJARANNYA: cap urutan itu KONTRAK DUA SISI.** Mengganti sumbernya di
+> server saja tidak memperbaikinya — ia mengubah ARTINYA, sementara sisi klien
+> tetap membaca dengan aturan lama. Pertanyaan yang tidak diajukan sejak awal:
+> *siapa LAGI yang membaca angka ini?* Jawabannya empat tempat.
+
+Kalau suatu hari jam perangkat benar-benar TERBUKTI jadi penyebab, yang perlu
+diganti **bukan sumber capnya melainkan bentuknya**: nomor urut milik server
+yang tidak ada hubungannya dengan jam mana pun, dipulangkan ke klien lewat
+`versi`, dan dipakai kedua sisi. Setengahnya saja lebih buruk daripada tidak
+sama sekali.
+
+**Yang TETAP dipertahankan dari babak-babak itu**, karena benar tanpa syarat
+dan tidak bergantung pada sumber cap:
+
+- `$simpan['updatedAt'] = $ua` — cap yang dipakai ikut tersimpan di `data`;
+- balasan `versi` + `terapkanVersiServer()` di KETIGA jalur — cap masih bisa
+  bergeser lewat **bump** (`$verServer + 1`) kalau cap klien kebetulan tidak
+  lebih besar daripada yang tersimpan, dan begitu bergeser klien wajib tahu;
+- `KEY_PENDING_BASE` di `pulihkanBelumNaik()` — membandingkan BASIS yang kita
+  pegang dengan versi server sekarang tetap lebih benar daripada membandingkan
+  dua cap, apa pun jam yang mencapnya;
+- guard `kol_settings` untuk `designreqs`/`vip`, buffering simpan, dan seluruh
+  perbaikan biaya menyimpan.
+
+```bash
+node tools/uji-hilang-marketing.js   # 118 pemeriksaan
+```
+
+Tiga mutasi dicoba untuk pencabutan ini — termasuk mengembalikan cap server —
+dan ketiganya tertangkap.
+
+
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)
 
 Keluhan user: **Performa Marketing dan Performa Event di panel Kas Kecil tidak
