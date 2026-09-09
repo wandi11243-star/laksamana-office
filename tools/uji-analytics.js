@@ -955,7 +955,23 @@ async function siap(w) {
        akhir pekan memang lebih ramai tanpa acara apa pun. */
     cek('mengatakan angkanya bukan bukti sebab-akibat', v.indexOf('bukan bukti sebab-akibat') > -1);
     cek('menyebutkan jumlah harinya', v.indexOf('hari ada acara vs') > -1);
+    /* Kepala kolomnya WAJIB menyebut syaratnya. Pertanyaan user 9 September
+       2026: kenapa rata-rata hari di sini beda dari halaman Hari & Jam —
+       jawabannya di sana SELURUH hari itu, di sini hanya yang TIDAK ada
+       acaranya. Syaratnya sudah tertulis di kalimat pengantar tabel sejak awal,
+       dan itu tidak cukup: pengantar dibaca sekali, kolomnya tiap baris. */
     cek('dibandingkan dengan hari yang sama', v.indexOf('Rata-rata hari sama') > -1);
+    cek('...dan kepala kolomnya menyebut syarat tanpa acara',
+        v.indexOf('Rata-rata hari sama tanpa acara') > -1,
+        'tanpa ini, dua halaman memajang dua angka berbeda untuk hari yang sama');
+    /* 1 Agu (Sabtu) berevent; Sabtu tanpa acara di data uji cuma 8 Agu — satu
+       hari. Angka itulah yang membuat bedanya dengan Hari & Jam terbaca
+       sendiri, tanpa perlu membuka halaman sebelah. */
+    cek('jumlah hari pembandingnya disebut', v.indexOf('1 Sabtu tanpa acara') > -1,
+        v.slice(v.indexOf('Rata-rata hari sama'), v.indexOf('Rata-rata hari sama') + 1400));
+    cek('sebab bedanya dengan Hari &amp; Jam dikatakan di layar',
+        v.indexOf('SENGAJA berbeda dari halaman Hari') > -1,
+        'pertanyaan yang lahir dari membandingkan dua layar harus dijawab di salah satunya');
     cek('selisih dihitung terhadap Sabtu biasa, bukan seluruh hari',
         v.indexOf('+33%') > -1, v.slice(v.indexOf('Hari Ada Acara, Satu per Satu'),
                                        v.indexOf('Hari Ada Acara, Satu per Satu') + 900));

@@ -1937,7 +1937,7 @@ tidak layak berdiri di sana.
 > dikunci sekarang.
 
 ```bash
-node tools/uji-analytics.js   # 257 pemeriksaan (dari 230)
+node tools/uji-analytics.js   # 260 pemeriksaan (dari 230)
 ```
 
 Dua belas mutasi dicoba; dua di antaranya lolos lebih dulu (keduanya di atas)
@@ -1977,6 +1977,26 @@ Bentuk akhirnya, dan **tidak ada yang hilang**:
   dibaca tiap kali — dan tiga putaran pertanyaan di atas lahir persis dari kolom
   bernama "Kontribusi" yang penyebutnya harus ditebak. Menamai ulang kolomnya
   saja TIDAK cukup; itu sudah dicoba di putaran pertama.
+- **DUA HALAMAN MEMAJANG "rata-rata omset hari" YANG BERBEDA, dan dua-duanya
+  benar** (ditanyakan user 9 September 2026):
+
+  | halaman | penyebutnya |
+  |---|---|
+  | Hari & Jam | SELURUH hari Minggu di bulan itu (mis. 5 hari) |
+  | Pengaruh Event → `Rata-rata hari sama tanpa acara` | hanya Minggu yang TIDAK ada acaranya (mis. 3 hari) |
+
+  Yang kedua memang harus begitu — ia **pembanding**. Hari berevent yang ikut
+  dijumlahkan ke pembandingnya berarti acaranya dibandingkan dengan dirinya
+  sendiri, dan selisihnya mengecil sendiri tanpa ada yang menyadarinya.
+
+  Syaratnya SUDAH tertulis di kalimat pengantar tabel sejak awal, dan itu
+  **tidak cukup**: pengantar dibaca sekali, kolomnya dibaca tiap baris — dan
+  yang membandingkannya dengan halaman sebelah cuma melihat kepala kolomnya.
+  Sekarang kepala kolomnya menyebut `tanpa acara`, tiap selnya menulis jumlah
+  hari pembandingnya (`3 Minggu tanpa acara`), dan kaki tabelnya menyebut
+  terang-terangan bahwa angkanya SENGAJA berbeda dari Hari & Jam. Angka yang
+  lahir dari membandingkan dua layar harus dijawab di salah satu layarnya.
+
 - **Boleh lewat 100%, dan TIDAK dijepit.** Nilai acara diketik finance
   sementara omset hari datang dari berkas POS; angka di atas 100% berarti
   keduanya memang berselisih, dan dijepit ke 100% selisihnya hilang tanpa satu
