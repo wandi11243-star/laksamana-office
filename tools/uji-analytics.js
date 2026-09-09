@@ -1018,8 +1018,10 @@ async function siap(w) {
        pembilangnya omset SEHARI PENUH. Kepala kolomnya sekarang menyebut
        pembilangnya, dan persentase acaranya sendiri ditulis di kolom acaranya.
        5.950.000 / 23.000.000 = 25,9%. */
-    cek('kepala kolom menyebut acaranya, bukan harinya', v.indexOf('Kontribusi acara') > -1,
-        'kolom ini dua kali ditanyakan user karena penyebutnya harus ditebak');
+    /* Nama kolomnya memuat PENYEBUTNYA. Kolom bernama "Kontribusi" saja sudah
+       tiga kali ditanyakan user karena penyebutnya harus ditebak. */
+    cek('kepala kolom menyebut penyebutnya', v.indexOf('Kontribusi hari itu') > -1,
+        'kolom ini tiga kali ditanyakan user karena penyebutnya harus ditebak');
     /* DIIRIS KE TABELNYA DULU. Kartu ringkas di atas halaman memajang kalimat
        yang bentuknya sama persis ('…% dari omset sebulan'), jadi asersi atas
        seluruh halaman COCOK DENGAN KARTU dan tidak pernah menyentuh sel
@@ -1033,7 +1035,7 @@ async function siap(w) {
     const tabelHari = v.slice(v.indexOf('Hari Ada Acara, Satu per Satu'));
     /* 5.950.000 / 12.000.000 = 49,6% — porsi acara terhadap HARI ITU, yang
        sekarang berdiri di kolomnya sendiri. */
-    cek('kolom Kontribusi acara memakai omset hari itu sebagai penyebut',
+    cek('kolom Kontribusi hari itu memakai omset hari itu sebagai penyebut',
         tabelHari.indexOf('49.6%') > -1, tabelHari.slice(0, 1200));
     /* Penyebutnya IKUT DI SELNYA. Kepala kolom cuma terbaca sekali, angkanya
        dibaca tiap kali — dan dua putaran pertanyaan user lahir persis dari

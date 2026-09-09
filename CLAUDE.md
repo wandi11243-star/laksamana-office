@@ -1965,9 +1965,15 @@ Bentuk akhirnya, dan **tidak ada yang hilang**:
 |---|---|---|
 | Omset hari itu | Rp27.797.629 | 3,8% dari omset sebulan |
 | Omset event saja | Rp14.580.550 | 2,0% dari omset sebulan |
-| **Kontribusi acara** | **52,5%** | dari omset hari itu |
+| **Kontribusi hari itu** | **52,5%** | dari omset hari itu |
 
-- **TIAP SEL MEMBAWA PENYEBUTNYA.** Kepala kolom cuma terbaca sekali, angkanya
+- **NAMA KOLOMNYA MEMUAT PENYEBUTNYA** (permintaan user): `Kontribusi hari itu`,
+  bukan `Kontribusi` saja. JANGAN TERTUKAR dengan `Kontribusi hari` yang sempat
+  ada beberapa jam di hari yang sama — yang itu omset hari / omset SEBULAN dan
+  sudah dicabut. Namanya mirip, artinya berbeda sama sekali.
+- **TIAP SEL JUGA MEMBAWA PENYEBUTNYA**, bukan cuma kepalanya: tabel panjang
+  membuat kepala kolom tergulir keluar layar, dan yang tersisa di layar
+  angkanya. Kepala kolom cuma terbaca sekali, angkanya
   dibaca tiap kali — dan tiga putaran pertanyaan di atas lahir persis dari kolom
   bernama "Kontribusi" yang penyebutnya harus ditebak. Menamai ulang kolomnya
   saja TIDAK cukup; itu sudah dicoba di putaran pertama.
