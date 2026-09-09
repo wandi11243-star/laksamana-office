@@ -531,18 +531,32 @@ else {
     cek('sesudah muat ulang, putarannya berhenti sepenuhnya',
         lihatBentrok.length === 0, JSON.stringify(lihatBentrok));
 
-    /* ---------- 8. BUFFERING SIMPAN (permintaan user 8 September 2026) ----------
-       "pastikan setiap submit ada buffering untuk memastikan data tersimpan di
-       server."
+    /* ---------- 8. SIMPAN YANG DIAM (keputusan user 9 September 2026) ----------
+       "buat sistem modul marketing jangan auto save, karena jadinya muncul popup
+       menyimpan ke server."
 
-       Yang diuji URUTANNYA, bukan adanya elemen: server tiruannya diberi jeda
-       buatan supaya keadaan SEDANG-MENGIRIM sempat diamati. Tanpa jeda itu,
-       jawabannya datang di microtask berikutnya dan ujinya hijau untuk kode
-       yang langsung mengaku sukses — pelajaran yang sudah dibayar di
-       tools/uji-simpan-basi.js. */
-    console.log('\n-- buffering simpan --');
+       Bagian ini dulu menjaga KEBALIKANNYA: blokir klik seluruh layar sejak
+       milidetik pertama, kartu "Menyimpan ke server..." yang tertunda, dan kartu
+       "Tersimpan di server". Ketiganya lahir dari permintaan 8 September 2026
+       yang menyebut "tiap submit" -- tapi save() dipanggil di lebih dari seratus
+       tempat yang BUKAN submit (centang job, geser kolom pipeline, hapus baris),
+       jadi yang sampai ke layar bukan satu konfirmasi per formulir melainkan
+       kuncian per klik.
+
+       Yang dijaga sekarang:
+         1. simpan yang BERHASIL tidak menggambar apa pun, dari awal sampai akhir
+         2. tidak ada satu pun keadaan yang memblokir klik
+         3. KEGAGALAN tetap terlihat, ditahan, dan tetap tidak memblokir
+
+       Yang pertama diperiksa SEGERA sesudah save() dan sekali lagi sesudah
+       server menjawab: uji yang cuma melihat salah satunya akan hijau untuk
+       kode yang memblokir sekejap lalu melepasnya, dan celah itu persis yang
+       dikeluhkan. Server tiruannya diberi jeda buatan supaya keadaan
+       SEDANG-MENGIRIM sempat diamati -- tanpa jeda itu jawabannya datang di
+       microtask berikutnya dan tidak ada satu pun keadaan yang bisa dilihat. */
+    console.log('\n-- simpan yang diam --');
     const el = () => w.document.getElementById('simpan-tunggu');
-    cek('overlay buffering ada di halaman', !!el());
+    cek('panel status simpan ada di halaman', !!el());
     cek('...dan tertutup saat menganggur', el().className.indexOf('on') < 0, el().className);
 
     /* Server dibuat lambat supaya keadaan menunggu bisa dilihat. */
@@ -550,57 +564,29 @@ else {
     const fetchCepat = w.fetch;
     w.fetch = (url, opt) => new Promise(res => { tahan = () => res(fetchCepat(url, opt)); });
 
-    /* ---- LAPIS 1: klik mati SEJAK MILIDETIK PERTAMA ----
-       Permintaan user: "ketika menyimpan ke server dibuat tidak bisa klik
-       apa-apa dulu, baru berhasil". Diperiksa SEGERA sesudah save(), tanpa
-       menunggu — celah 250 ms adalah tempat tombol Simpan bisa ditekan dua
-       kali, dan uji yang langsung menunggu 400 ms tidak akan pernah
-       melihatnya. */
-    w.eval("S.clients[0].hp='0899'; save();");
-    cek('klik langsung diblokir, tanpa menunggu',
-        el().className.indexOf('on') > -1, el().className);
-    cek('...tapi layarnya BELUM berubah (blokir sunyi)',
-        el().className.indexOf('sunyi') > -1, el().className);
-    cek('...dan kartunya memang belum tergambar',
-        w.eval("getComputedStyle(document.querySelector('#simpan-tunggu .st-kartu')).display") === 'none',
-        'layar berkedip tiap kali ada yang dicentang');
-    cek('lapisan blokirnya menutup seluruh layar',
-        /#simpan-tunggu\{position:fixed;inset:0/.test(MKT),
-        'kalau tidak menutup penuh, masih ada yang bisa diklik');
-    cek('...dan TIDAK dilepas dari klik lewat pointer-events',
-        !/#simpan-tunggu[^}]*pointer-events:none/.test(MKT),
-        'pointer-events:none membuat lapisannya tembus pandang untuk klik');
-    /* Lapisan itu menahan KLIK, bukan papan ketik. Tombol yang barusan ditekan
-       masih memegang fokus, jadi Enter atau Spasi akan menekannya lagi —
-       kiriman kedua untuk satu tindakan. Fokusnya dilepas saat blokir mulai. */
-    w.eval("stSembunyi(); saveInFlight=false;");
+    /* Tombol yang sedang fokus TIDAK boleh kehilangan fokusnya. Dulu ia sengaja
+       dilepas supaya Enter tidak menekan ulang tombol di balik lapisan blokir;
+       tanpa lapisan itu, melepas fokus cuma membuang tempat kursor orang yang
+       sedang mengetik -- dan save() berjalan di tiap centang. */
     w.eval("document.body.insertAdjacentHTML('beforeend','<button id=uji_tbl>Simpan</button>');" +
            "document.getElementById('uji_tbl').focus();");
-    cek('tombol memang sedang fokus sebelum menyimpan',
+    w.eval("S.clients[0].hp='0899'; save();");
+    cek('menyimpan TIDAK menggambar apa pun',
+        el().className.indexOf('on') < 0, el().className);
+    cek('...dan tidak merebut fokus dari yang sedang dipakai',
         w.document.activeElement && w.document.activeElement.id === 'uji_tbl',
-        w.document.activeElement && w.document.activeElement.id);
-    w.eval("S.clients[0].hp='0895'; save();");
-    cek('fokus dilepas supaya Enter tidak menekan tombolnya lagi',
-        !(w.document.activeElement && w.document.activeElement.id === 'uji_tbl'),
-        'Enter akan mengirim untuk kedua kalinya');
-    await tunggu(400);                       // lewat ambang ST_TUNDA (250ms)
-    cek('selama menunggu server, layar TERKUNCI buffering',
-        el().className.indexOf('on') > -1, el().className);
-    cek('...dan kalimatnya menyuruh tidak menutup halaman',
-        /Jangan tutup/.test(w.document.getElementById('st-sub').textContent));
-    cek('...belum mengaku tersimpan',
-        !/Tersimpan/.test(w.document.getElementById('st-judul').textContent),
-        w.document.getElementById('st-judul').textContent);
-    /* Penangannya DIBANGKITKAN sungguhan, bukan diperiksa lewat saveInFlight —
+        'kursor orang yang sedang mengetik ikut terbuang tiap save()');
+
+    /* beforeunload sekarang SATU-SATUNYA yang menahan tab ditutup di tengah
+       kiriman -- dulu lapisan blokir ikut menahannya secara tidak langsung.
+       Penangannya DIBANGKITKAN sungguhan, bukan diperiksa lewat saveInFlight:
        yang terakhir cuma menyatakan kiriman sedang jalan, bukan bahwa tab
        benar-benar ditahan.
 
-       Penanda `belum naik` sengaja DICABUT dulu supaya klausa saveInFlight
-       yang diuji, bukan penanda itu. Ini bukan keadaan mengada-ada:
-       tandaiBelumNaik() menelan galatnya sendiri, jadi di peramban yang
-       localStorage-nya ditolak (mode penyamaran, setelan privasi) penandanya
-       memang tidak pernah terpasang — dan saveInFlight jadi satu-satunya yang
-       menahan tab ditutup di tengah kiriman. */
+       Penanda `belum naik` sengaja DICABUT dulu supaya klausa saveInFlight yang
+       diuji. Ini bukan keadaan mengada-ada: tandaiBelumNaik() menelan galatnya
+       sendiri, jadi di peramban yang localStorage-nya ditolak (mode penyamaran)
+       penandanya memang tidak pernah terpasang. */
     w.eval('tandaiSudahNaik();');
     const ev = new w.Event('beforeunload', { cancelable: true });
     w.dispatchEvent(ev);
@@ -609,62 +595,35 @@ else {
         'tab bisa ditutup di tengah kiriman tanpa satu pun peringatan');
     w.eval('tandaiBelumNaik();');
 
+    await tunggu(400);                       // jauh lewat ambang lama (250 ms)
+    cek('...dan tetap diam walau penyimpanannya lambat',
+        el().className.indexOf('on') < 0,
+        'kartu "Menyimpan ke server" kembali: ' + el().className);
     tahan();                                  // server akhirnya menjawab
     await tunggu(80);
-    cek('sesudah server menjawab, barulah mengaku tersimpan',
-        /Tersimpan di server/.test(w.document.getElementById('st-judul').textContent),
-        w.document.getElementById('st-judul').textContent);
-    /* KEBERHASILAN WAJIB MELEPAS LAYARNYA LAGI. Ini kegagalan terparah yang
-       bisa lahir dari mengunci layar: penyimpanan yang BERHASIL tapi kartunya
-       tidak pernah hilang membuat seluruh aplikasi mati, dan satu-satunya
-       jalan keluar menutup tab. Diuji dengan benar-benar menunggu lewat
-       ST_BERES, bukan dengan membaca sumbernya. */
-    await tunggu(w.eval('ST_BERES') + 250);
-    cek('...lalu layarnya dilepas lagi sendiri',
-        el().className.indexOf('on') < 0,
-        'berhasil tapi layar tetap terkunci — seluruh aplikasi mati: ' + el().className);
+    cek('sesudah server menjawab pun tidak mengumumkan apa-apa',
+        el().className.indexOf('on') < 0 && w.eval('_stKeadaan') === 'diam',
+        'keberhasilan diumumkan di tiap klik: ' + w.document.getElementById('st-judul').textContent);
 
-    /* ---- penyimpanan CEPAT: blokir sekejap, tanpa satu pun kartu ---- */
-    w.eval('stSembunyi();');
-    w.fetch = fetchCepat;
-    w.eval("S.clients[0].hp='0898'; save();");
-    cek('simpan cepat pun tetap memblokir klik', el().className.indexOf('on') > -1);
-    await tunggu(120);   // selesai SEBELUM ST_TUNDA
-    cek('...lalu blokirnya dilepas sendiri', el().className.indexOf('on') < 0, el().className);
-    cek('...tanpa memunculkan kartu "Tersimpan" yang berkedip',
-        w.eval('_stKeadaan') === 'diam' && el().className.indexOf('beres') < 0,
-        'kartu yang muncul-hilang dalam sekejap cuma mengganggu — keadaan: ' + w.eval('_stKeadaan'));
+    /* Tidak boleh ada satu pun jalur yang memblokir klik. Diperiksa di SUMBER
+       CSS-nya, bukan cuma lewat keadaan yang kebetulan sedang berjalan: yang
+       menghidupkannya lagi akan menulis aturannya di sana. */
+    cek('panelnya tidak menutup layar',
+        !/#simpan-tunggu\{position:fixed;inset:0/.test(MKT),
+        'overlay penuh layar kembali -- itu yang dikeluhkan');
+    cek('...dan tembus untuk klik',
+        /#simpan-tunggu\{[^}]*pointer-events:none/.test(MKT),
+        'panel status tidak boleh menghentikan pekerjaan siapa pun');
+    cek('...sementara kartunya sendiri tetap bisa ditekan',
+        /#simpan-tunggu \.st-kartu\{pointer-events:auto/.test(MKT),
+        'tombol Coba lagi ikut mati');
 
-    /* ---- LAPIS 3: server yang DIAM tidak boleh mengunci aplikasi selamanya ----
-       fetch di save() tidak punya batas waktu sendiri. Tanpa jalan keluar, satu
-       permintaan yang menggantung mengunci seluruh aplikasi dan satu-satunya
-       jalan keluarnya menutup tab — yang justru membuang pekerjaan yang belum
-       sempat naik. */
-    cek('ada batas waktu jalan keluar', w.eval('typeof ST_BATAS') === 'number' && w.eval('ST_BATAS') > 0,
-        'mengunci layar tanpa jalan keluar lebih berbahaya daripada tidak mengunci');
-    w.eval('stSembunyi();');
-    w.fetch = () => new Promise(() => {});          // server diam selamanya
-    w.eval('ST_BATAS_ASLI = ST_BATAS;');
-    w.eval("S.clients[0].hp='0897'; save(); tungguSimpanSelesai('gagal', true);");
-    cek('sesudah batas waktu, layarnya bisa dilepas lagi',
-        /Server belum menjawab/.test(w.document.getElementById('st-judul').textContent),
-        w.document.getElementById('st-judul').textContent);
-    cek('...dan mengatakan kirimannya masih berjalan di latar',
-        /masih berjalan di latar/.test(w.document.getElementById('st-sub').textContent));
-    w.eval('stSembunyi();');
-    cek('...serta benar-benar melepas blokirnya', el().className.indexOf('on') < 0);
-    /* Kiriman yang digantung tadi dibereskan: tanpa ini `saveInFlight` tetap
-       true dan seluruh save() berikutnya cuma mengantre. */
-    w.eval('saveInFlight=false; savePending=false; _savePendingRamai=false;');
-
-    /* GAGAL: harus DITAHAN di layar, bukan hilang sendiri. */
-    w.fetch = (url, opt) => new Promise(res => { tahan = () => res(fetchCepat(url, opt)); });
-    w.eval("S.clients[0].hp='0896'; save();");
-    await tunggu(400); tahan(); await tunggu(60);
+    /* ---- KEGAGALAN: tetap terlihat, ditahan, tetap tidak memblokir ---- */
+    w.eval('stSembunyi(); saveInFlight=false; savePending=false; _savePendingRamai=false;');
     w.fetch = () => Promise.reject(new Error('jaringan mati'));
     w.eval("S.clients[0].hp='0777'; save();");
-    await tunggu(400);
-    cek('kegagalan ditampilkan, bukan didiamkan',
+    await tunggu(120);
+    cek('kegagalan tetap ditampilkan, bukan ikut didiamkan',
         /Belum tersimpan/.test(w.document.getElementById('st-judul').textContent),
         w.document.getElementById('st-judul').textContent);
     cek('...dan mengatakan datanya masih aman di perangkat',
@@ -675,35 +634,59 @@ else {
         el().className.indexOf('gagal') > -1,
         'kegagalan yang lenyap sendiri sama saja tidak pernah diberitahukan');
 
-    /* Sinkronisasi roster berjalan sendiri saat modul dibuka — tidak boleh
-       mengunci layar untuk sesuatu yang tidak ditekan siapa pun. */
-    w.eval("stSembunyi();");
-    w.fetch = (url, opt) => new Promise(res => { tahan = () => res(fetchCepat(url, opt)); });
-    w.eval("S.clients[0].hp='0666'; save({diam:true});");
-    await tunggu(400);
-    cek('simpan latar (roster Office) TIDAK mengunci layar',
-        el().className.indexOf('on') < 0, el().className);
-    tahan(); await tunggu(60);
+    /* ---- JALAN KELUAR: server yang DIAM tetap harus punya suara ----
+       fetch di save() tidak punya batas waktu sendiri, jadi server yang tidak
+       pernah menjawab tidak memanggil .then maupun .catch. Tanpa ST_BATAS,
+       kegagalan semacam itu tidak punya satu pun tanda di layar -- dan sejak
+       kartu sukses dicabut, tidak ada lagi ketiadaan kartu yang bisa dibaca
+       sebagai gejala. */
+    cek('ada batas waktu jalan keluar', w.eval('typeof ST_BATAS') === 'number' && w.eval('ST_BATAS') > 0,
+        'server yang diam selamanya tidak akan pernah dilaporkan');
+    w.eval('stSembunyi(); saveInFlight=false; savePending=false; _savePendingRamai=false;');
+    w.fetch = () => new Promise(() => {});          // server diam selamanya
+    w.eval("S.clients[0].hp='0897'; save(); tungguSimpanSelesai('gagal', true);");
+    cek('sesudah batas waktu, kegagalannya dilaporkan',
+        /Server belum menjawab/.test(w.document.getElementById('st-judul').textContent),
+        w.document.getElementById('st-judul').textContent);
+    cek('...dan mengatakan kirimannya masih berjalan di latar',
+        /masih berjalan di latar/.test(w.document.getElementById('st-sub').textContent));
+    /* Kiriman yang digantung tadi dibereskan: tanpa ini `saveInFlight` tetap
+       true dan seluruh save() berikutnya cuma mengantre. */
+    w.eval('stSembunyi(); saveInFlight=false; savePending=false; _savePendingRamai=false;');
 
     const SRCM = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8');
-    cek('sinkronisasi roster memang memakai jalur diam',
+    /* SIMPAN OTOMATISNYA TETAP ADA. Yang diminta user hilang tampilannya, bukan
+       penyimpanannya -- mencabut auto-save berarti data cuma naik saat ada yang
+       menekan tombol, dan tab yang ditutup lebih dulu kehilangan pekerjaannya
+       tanpa satu pun tanda. Angkanya dijaga longgar: yang dijaga bukan jumlah
+       persisnya melainkan bahwa jalur otomatisnya tidak dicabut diam-diam. */
+    const titikSave = (SRCM.match(/[^a-zA-Z_.$]save\(/g) || []).length;
+    cek('simpan otomatis TIDAK ikut dicabut', titikSave > 50,
+        'data cuma naik saat tombol ditekan -- dapat ' + titikSave + ' titik save()');
+    cek('sinkronisasi roster tetap memakai jalur diam',
         /save\(\{diam:true\}\); buildNav\(\);/.test(SRCM),
-        'kalau tidak, layar terkunci sendiri tiap modul dibuka');
-    /* Dihitung PEMANGGILANNYA saja — definisi fungsinya sendiri ikut cocok
+        'kalau tidak, ia ikut menggambar kegagalan untuk sesuatu yang tidak ditekan siapa pun');
+    /* Dihitung PEMANGGILANNYA saja -- definisi fungsinya sendiri ikut cocok
        dengan pola polos, jadi asersi yang menghitungnya selalu >= 2 dan tidak
        pernah bisa gagal. Pola yang sama dengan slice boundary di bagian 4. */
     const panggilTunggu = (SRCM.match(/tungguSimpanMulai\(\)/g) || []).length
                         - (SRCM.match(/function tungguSimpanMulai\(\)/g) || []).length;
-    cek('buffering dipasang di save(), bukan per tombol', panggilTunggu === 1,
-        'dipasang per tombol, yang terlewat justru yang paling sering dipakai — dapat ' + panggilTunggu);
-    cek('ketiga lapis buffering ada di sumbernya',
-        /el\.className='on sunyi'; _stKeadaan='sunyi';/.test(SRCM) &&
-        /_stBatasTimer=setTimeout/.test(SRCM),
-        'blokir sunyi + kartu tertunda + jalan keluar');
-    cek('keadaannya disimpan di variabel, bukan dibaca dari nama kelas',
-        /_stKeadaan!=='tampil'/.test(SRCM),
-        "`sunyi` dan `tampil` sama-sama memuat kata `on` — memeriksa kelas membuat simpan cepat ikut memunculkan kartu");
-    cek('ketiga hasil server ditangani',
+    cek('jalan keluarnya dipasang di save(), bukan per tombol', panggilTunggu === 1,
+        'dipasang per tombol, yang terlewat justru yang paling sering dipakai -- dapat ' + panggilTunggu);
+    /* Timernya diperiksa DI SUMBER, bukan lewat keadaan: asersi di atas
+       memanggil tungguSimpanSelesai('gagal', true) langsung, jadi ia tetap hijau
+       walau timernya sendiri dicabut. Sejak kartu sukses hilang, tidak ada lagi
+       ketiadaan kartu yang bisa dibaca sebagai gejala server yang menggantung. */
+    cek('...dan timernya benar-benar dipasang saat penyimpanan mulai',
+        /_stBatasTimer=setTimeout\(function\(\)\{ tungguSimpanSelesai\('gagal', true\); \}, ST_BATAS\);/.test(SRCM),
+        'server yang menggantung tidak akan pernah punya satu pun suara');
+    cek('lapisan blokir benar-benar dicabut dari sumbernya',
+        !/_stKeadaan='sunyi'/.test(SRCM) && !/className='on sunyi'/.test(SRCM),
+        'blokir klik seluruh layar kembali');
+    cek('...begitu juga kartu keberhasilannya',
+        !/'Tersimpan di server'/.test(SRCM),
+        'kartu sukses muncul lagi di tiap klik');
+    cek('ketiga hasil server tetap ditangani',
         (SRCM.match(/tungguSimpanSelesai\('(ok|gagal|bentrok)'\)/g) || []).length === 4,
         'sukses, gagal (dua jalur), dan bentrok');
 

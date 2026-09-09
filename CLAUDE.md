@@ -4828,6 +4828,68 @@ membawanya (metadata sah). Diuji `uji-hilang-marketing.js` (pemindai sumber).
 > dibereskan lewat UI (hapus / `batalAt`) atau phpMyAdmin, bukan lewat API.
 
 
+#### Simpan otomatis TETAP, tampilannya yang DICABUT (9 Sep 2026)
+
+Permintaan user: *"buat sistem modul marketing jangan auto save, karena
+jadinya muncul popup menyimpan ke server."* Yang dikerjakan **bukan** mencabut
+simpan otomatisnya — itu ditawarkan dan **user memilih yang diam** — melainkan
+mencabut seluruh tampilan keberhasilannya.
+
+**Kenapa auto-save tidak ikut dicabut.** Tanpa itu data cuma naik saat ada yang
+menekan tombol, dan tab yang ditutup lebih dulu kehilangan pekerjaannya **tanpa
+satu pun tanda** — persis bentuk kehilangan yang enam babak sebelumnya (blok-blok
+di atas) dipakai untuk menutupnya.
+
+**Kenapa lapisannya salah sejak awal.** Permintaan 8 September 2026 berbunyi
+*"pastikan setiap submit ada buffering"*, dan itu dipasang di `save()` — satu
+tempat, karena ada **101 titik `save()`**. Tapi sebagian besar titik itu **bukan
+submit**: centang job, geser kolom pipeline, hapus baris. Jadi yang sampai ke
+layar bukan satu konfirmasi per formulir melainkan **kuncian per klik**, dan
+kartu yang muncul di tiap tindakan berhenti dibaca orang — termasuk waktu suatu
+hari isinya benar.
+
+| | sebelum | sesudah |
+|---|---|---|
+| simpan berhasil | blokir klik + kartu "Menyimpan ke server…" + kartu "Tersimpan" | **tidak ada apa pun** |
+| simpan gagal | kartu di tengah layar, mengunci | panel pojok, **tidak mengunci** |
+| yang menandai keberhasilan | kartu | titik status di header (`setSyncBadge`) |
+
+Yang DICABUT, dan **jangan dikembalikan tanpa diminta**: `ST_TUNDA`, `ST_BERES`,
+`_stTimer`, `_stTutupTimer`, kelas `.sunyi`, kelas `.beres`, dan `blur()` di
+`tungguSimpanMulai()`. Melepas fokus dulu benar karena ada lapisan blokir yang
+menahan klik tapi bukan papan ketik; tanpa lapisan itu ia cuma membuang tempat
+kursor orang yang sedang mengetik, **di tiap centang**.
+
+Yang TETAP, dan ketiganya wajib:
+
+- **Panel kegagalan** — satu-satunya keadaan yang menuntut tindakan. Ia
+  `pointer-events:none` di wadahnya dan `auto` di kartunya: yang gagal harus
+  terlihat **tanpa menghentikan pekerjaan**, karena datanya justru masih perlu
+  diselamatkan. Kiri bawah, karena `.toast-wrap` sudah memakai kanan bawah.
+- **`ST_BATAS` (20 dtk)** — `fetch` di `save()` tidak punya batas waktu sendiri,
+  jadi server yang diam selamanya tidak memanggil `.then` maupun `.catch`.
+  Sejak kartu sukses dicabut, **tidak ada lagi ketiadaan kartu yang bisa dibaca
+  sebagai gejala**, jadi timer inilah satu-satunya suaranya. Ujinya memeriksanya
+  **di sumber**: asersi runtimenya memanggil `tungguSimpanSelesai(gagal,true)`
+  langsung, jadi ia tetap hijau walau timernya dicabut.
+- **`beforeunload`** — sekarang **satu-satunya** yang menahan tab ditutup di
+  tengah kiriman. Dulu lapisan blokir ikut menahannya secara tidak langsung.
+
+**Yang ikut kembali sebagai risiko, dan itu memang keadaan sebelum 8 September:**
+tombol submit bisa ditekan dua kali dalam satu detik. `save()` sendiri aman
+(`saveInFlight` mengantre), tapi penangan yang membuat baris bisa membuat dua.
+Kalau itu jadi keluhan, yang benar mematikan **tombolnya** di penangan itu —
+bukan mengunci seluruh layar lagi.
+
+```bash
+node tools/uji-hilang-marketing.js   # 126 pemeriksaan (1 melewat: stub reload)
+```
+
+Ujinya memeriksa keadaan diam **dua kali**: segera sesudah `save()` dan sekali
+lagi sesudah server menjawab. Yang cuma melihat salah satunya akan hijau untuk
+kode yang memblokir sekejap lalu melepasnya — dan celah itu persis yang
+dikeluhkan. Delapan mutasi dicoba, kedelapannya tertangkap.
+
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)
 
 Keluhan user: **Performa Marketing dan Performa Event di panel Kas Kecil tidak
