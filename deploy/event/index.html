@@ -5076,6 +5076,120 @@ function pevSelKontribusi(ev, omsetHari){
   return '<td class="num mono">' + (nilai / omsetHari * 100).toFixed(1) + '%'
        + '<div class="muted" style="font-size:11px;margin-top:2px">dari omset hari itu</div></td>';
 }
+/* ====== DAFTAR EVENT DIDEFINISIKAN DARI MODUL INI (permintaan user 9 Sep 2026) ======
+
+   Alasan dan aturannya SAMA PERSIS dengan modul Marketing — baca blok panjang
+   di sana. Yang berbeda cuma satu hal, dan itu menentukan bentuk kolomnya:
+
+   MODUL INI TIDAK MENYIMPAN NILAI RUPIAH EVENT. Sudah tertulis begitu di
+   serapOtomatis() deploy/finance/omset/ sejak baris event lahir di sana
+   ("Modul event tidak menyimpan nilai rupiah event, jadi tidak ada srcNominal
+   di sini"). Jadi tidak ada grand total yang bisa dipakai sebagai bawaan:
+   kolom Nominal di sini lahir KOSONG dan diisi orangnya, lalu disimpan di
+   event itu sendiri (`nominal`, ikut di blob `data` — kolom baru tidak perlu,
+   dan berkas migrasi di repo ini rutin tertinggal di produksi).
+
+   Yang kosong TIDAK ditebak dari baris breakdown. Menyalin angka finance ke
+   sini lalu memajangnya sebagai "menurut modul Event" membuat kedua kolomnya
+   selalu cocok — dan pembanding yang tidak pernah bisa berselisih tidak
+   membanding apa pun. */
+const PEV_LEWAT = ['Planning','Draft','Cancelled'];   // sama dengan events_hari()
+
+/* Tanggal WIB dari start_datetime. Ia INSTANT UTC: memotong
+   sepuluh huruf pertamanya menggeser acara lewat tengah malam ke hari
+   sebelumnya — jebakan yang sama sudah dibayar di isoDari() modul Analytics,
+   dan aturannya identik dengan tglWIB() di halaman Ide modul ini. */
+function pevTglWIB(x){
+  const t=Date.parse(x);
+  if(isNaN(t)) return String(x||'').slice(0,10);
+  return new Date(t+7*3600*1000).toISOString().slice(0,10);
+}
+function pevAcaraModul(bulan){
+  const out=[];
+  (DB.events||[]).forEach(function(e){
+    if(PEV_LEWAT.indexOf(e.status)>-1) return;
+    const tgl=pevTglWIB(e.start_datetime);
+    if(String(tgl).slice(0,7)!==bulan) return;
+    const ada=(e.nominal!=null && e.nominal!=='');
+    out.push({ srcId:'evt:'+e.id, sumber:'evt', date:tgl, name:e.title||'(tanpa nama)',
+      picId:e.createdById||'', picNama:e.pic||'',
+      asal:null, nominal: ada?(+e.nominal||0):null, timpa:false });
+  });
+  return out;
+}
+/* PIC kompas untuk sebuah acara modul ini. createdById DULU (id Office yang
+   menginput), nama cuma cadangan — kolom PIC di modul ini teks bebas dan di
+   produksi seluruhnya berisi "Event Manager", sebuah JABATAN. Urutan yang sama
+   dengan picAkun() di Breakdown Sumber. */
+function pevPicDari(r){
+  if(!PEV.data) return null;
+  const list=PEV.data.pic||[];
+  if(r.picId){
+    const q=list.find(function(x){ return x.officeUserId!=null && String(x.officeUserId)===String(r.picId); });
+    if(q) return q;
+  }
+  const nm=String(r.picNama||'').trim().toLowerCase();
+  return nm ? (list.find(function(x){ return String(x.name||'').trim().toLowerCase()===nm; })||null) : null;
+}
+function pevGabung(acara, bdEvents, pid){
+  const bdBySrc={}, pakai={}, out=[];
+  (bdEvents||[]).forEach(function(ev){ if(ev.srcId) bdBySrc[ev.srcId]=ev; });
+  (acara||[]).forEach(function(x){
+    if(pid!=='__all__'){
+      const q=pevPicDari(x);
+      if(!q || String(q.id)!==String(pid)) return;
+    }
+    const bd=bdBySrc[x.srcId]||null;
+    if(bd) pakai[x.srcId]=1;
+    out.push(Object.assign({}, x, { bd:bd }));
+  });
+  (bdEvents||[]).forEach(function(ev){
+    if(ev.srcId && pakai[ev.srcId]) return;
+    out.push({ srcId:String(ev.srcId||''), sumber:'bd', date:ev.date, name:ev.name||'(tanpa nama)',
+      picId:'', picNama:'', asal:null, nominal:null, timpa:false, bd:ev, hanyaBd:true });
+  });
+  return out.sort(function(x,y){
+    if(x.date!==y.date) return x.date<y.date?-1:1;
+    return String(x.name).localeCompare(String(y.name));
+  });
+}
+function pevSelNominal(r, i, bisa){
+  if(r.hanyaBd) return '<td class="num mono"><span class="muted">\u2014</span>'
+    +'<div class="muted" style="font-size:11px;margin-top:2px">hanya ada di Breakdown</div></td>';
+  const ket='<div class="muted" style="font-size:11px;margin-top:2px">'
+    +(r.nominal==null?'belum diisi':'diketik di modul ini')+'</div>';
+  if(!bisa) return '<td class="num mono">'+(r.nominal==null?'<span class="muted">\u2014</span>':pevRp(r.nominal))+ket+'</td>';
+  return '<td class="num"><div style="max-width:150px;margin-left:auto">'
+    +'<input class="inp" inputmode="numeric" style="text-align:right" placeholder="0" '
+    +'value="'+(r.nominal==null?'':uangFormat(r.nominal))+'" oninput="uangKetik(this)" '
+    +'data-src="'+esc(r.srcId)+'"></div>'+ket+'</td>';
+}
+function pevSelDiakui(r){
+  if(!r.bd) return '<td class="num mono"><span class="muted">\u2014</span>'
+    +'<div class="muted" style="font-size:11px;margin-top:2px">belum diinput finance</div></td>';
+  const d=+r.bd.porsi||0;
+  let ket='';
+  if(r.nominal!=null){
+    const beda=d-(+r.nominal||0);
+    ket = beda===0
+      ? '<div class="muted" style="font-size:11px;margin-top:2px">cocok</div>'
+      : '<div style="font-size:11px;margin-top:2px;color:var(--danger)">beda '
+        +(beda>0?'+':'\u2212')+pevRp(Math.abs(beda))+'</div>';
+  }
+  return '<td class="num mono">'+pevRp(d)+ket+'</td>';
+}
+/* Kosong = KEMBALI KOSONG, bukan nol. Nol berarti acaranya memang tidak
+   membawa apa-apa — keputusan yang berbeda dari belum diisi, dan dua keadaan
+   itu tidak boleh berbunyi sama. */
+function pevSetNominal(srcId, teks){
+  const id=String(srcId||'').split(':').slice(1).join(':');
+  const e=(DB.events||[]).find(function(x){ return String(x.id)===id; });
+  if(!e) return false;
+  const digit=String(teks==null?'':teks).replace(/\D/g,'');
+  if(digit==='') delete e.nominal; else e.nominal=+digit;
+  save();
+  return true;
+}
 function pevRp(n){ return (typeof pbRp==='function') ? pbRp(n) : ('Rp'+Math.round(n||0).toLocaleString('id-ID')); }
 
 function pevBulanIni(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
@@ -5282,7 +5396,12 @@ function renderPerformaOmsetEvent(){
        harinya dua kali dan seluruh kontribusinya mengecil separuh. */
     const omsetHari={};
     (PEV.data&&PEV.data.days||[]).forEach(function(d){ if(d&&d.date) omsetHari[d.date]=+d.omsetHari||0; });
-    const cnt=a.events.length, avg=cnt?a.real/cnt:0;
+    /* DAFTARNYA DARI MODUL INI, bukan dari breakdown saja. `nDiakui` tetap
+       menghitung baris breakdown: kartu Realisasi di sebelahnya memang uang
+       yang diakui finance. */
+    const acara=pevAcaraModul(PEV.bulan);
+    const nDiakui=a.events.length, avg=nDiakui?a.real/nDiakui:0;
+    const bisaUbahNom=bisaUbah('events');
     const totOb=a.events.reduce(function(s,x){ return s+(+x.ob||0); },0);
     /* Kolom Open Bill hanya muncul kalau ada yang punya. Tanpa kolomnya,
        "Diakui" tidak sama dengan setengah Nilai Event dan selisihnya akan
@@ -5290,18 +5409,26 @@ function renderPerformaOmsetEvent(){
        memajang satu kolom penuh Rp0. Aturan yang sama dengan Daftar Event di
        panel Finance. */
     const adaOb=totOb>0;
-    const evUrut=a.events.slice().sort(function(x,y){ return x.date<y.date?-1:1; });
+    const evUrut=pevGabung(acara, a.events, pid);
+    const cnt=evUrut.length, belum=evUrut.filter(function(x){ return !x.bd && !x.hanyaBd; }).length;
+    /* Acara yang PIC-nya belum cocok dengan roster kompas cuma muncul di
+       segmen Semua. Daftar yang menyusut tanpa keterangan dilaporkan sebagai
+       data hilang, bukan dibaca sebagai aturan. */
+    const takCocok=acara.filter(function(x){ return !pevPicDari(x); }).length;
     const totalHal=Math.max(1,Math.ceil(evUrut.length/PEV_PER_HAL));
     if(PEV.hal>totalHal) PEV.hal=totalHal;
     if(PEV.hal<1) PEV.hal=1;
     const mulai=(PEV.hal-1)*PEV_PER_HAL, akhir=Math.min(mulai+PEV_PER_HAL,evUrut.length);
-    const baris=evUrut.slice(mulai,akhir).map(function(ev){
-      return '<tr><td>'+esc(ev.date)+'</td><td>'+esc(ev.name||'—')
-        +(ev.pic?' <span class="muted" style="font-size:11px">· '+esc(ev.pic)+'</span>':'')+'</td>'
-        +'<td class="num mono">'+pevRp(ev.amount)+'</td>'
-        +(adaOb?'<td class="num mono">'+((+ev.ob||0)?pevRp(ev.ob):'<span class="muted">—</span>')+'</td>':'')
-        +'<td class="num mono">'+pevRp(ev.porsi)+'</td>'
-        +pevSelKontribusi(ev, omsetHari[ev.date])+'</tr>'; }).join('');
+    const baris=evUrut.slice(mulai,akhir).map(function(r,i){
+      const ev=r.bd;
+      return '<tr><td>'+esc(r.date)+'</td><td>'+esc(r.name)
+        +((ev&&ev.pic)?' <span class="muted" style="font-size:11px">· '+esc(ev.pic)+'</span>':'')+'</td>'
+        +pevSelNominal(r, mulai+i, bisaUbahNom)
+        +'<td class="num mono">'+(ev?pevRp(ev.amount):'<span class="muted">—</span>')+'</td>'
+        +(adaOb?'<td class="num mono">'+((ev&&+ev.ob)?pevRp(ev.ob):'<span class="muted">—</span>')+'</td>':'')
+        +pevSelDiakui(r)
+        +(ev?pevSelKontribusi(ev, omsetHari[r.date])
+            :'<td class="num mono"><span class="muted">—</span></td>')+'</tr>'; }).join('');
     const pager=totalHal>1
       ? '<div id="pev_pager" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px">'
         +'<button class="btn btn-ghost btn-sm" data-hal="'+(PEV.hal-1)+'"'+(PEV.hal<=1?' disabled':'')+'>‹ Sebelumnya</button>'
@@ -5323,24 +5450,39 @@ function renderPerformaOmsetEvent(){
       + '<div class="grid g3">'
       + '<div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">'+pevRp(a.real)+'</div>'
       + '<div class="foot">'+(a.comp?'sudah dipotong compliment '+pevRp(a.comp):'tanpa potongan compliment')+'</div></div>'
-      + '<div class="stat"><div class="lab">Jumlah Event</div><div class="val sm">'+cnt+'</div><div class="foot">avg '+pevRp(avg)+'/event</div></div>'
+      + '<div class="stat"><div class="lab">Jumlah Event</div><div class="val sm">'+cnt+'</div>'
+      + '<div class="foot">'+(belum?belum+' belum diakui finance · ':'')+'avg '+pevRp(avg)+'/event yang diakui</div></div>'
       + '<div class="stat"><div class="lab">Compliment Ditanggung</div><div class="val sm mono">'+pevRp(a.comp||0)+'</div>'
       + '<div class="foot">'+((a.compRows||[]).length)+' catatan</div></div>'
       + '</div>'
       + '<div class="card"><h3>Daftar Event</h3><div class="card-sub">'
+      + cnt+' acara menurut modul ini'
+      + (belum?' · <b>'+belum+' belum diinput finance</b>':'')+'. '
+      + '<b>Nominal</b> milik modul ini dan diketik di sini — modul Event memang tidak '
+      + 'menyimpan nilai rupiah event di tempat lain. <b>Diakui</b> dibaca dari '
+      + 'Finance › Omset › Breakdown Sumber; mengetik Nominal TIDAK mengubahnya. '
+      + 'Idealnya keduanya sama. '
       + '<b>Kontribusi hari itu</b> = nilai penuh acara (omset + tax + service'
       + (adaOb?' + Open Bill':'') + ') '
       + 'dibagi seluruh omset venue pada tanggal itu. Angka yang sama dengan kolom '
       + 'bernama sama di modul Analytics, jadi dua layar tidak berselisih. '
-      + 'Penyebutnya BUKAN kolom Diakui di sebelahnya.'+ketOb+'</div>'
+      + 'Penyebutnya BUKAN kolom Diakui di sebelahnya.'
+      + (takCocok?' <b>'+takCocok+' acara</b> belum cocok dengan PIC mana pun di roster kompas, jadi hanya muncul di segmen Semua.':'')
+      + ketOb+'</div>'
       + '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th>'
-      + '<th class="num">Nilai Event</th>'+(adaOb?'<th class="num">Open Bill</th>':'')
+      + '<th class="num">Nominal</th><th class="num">Nilai Event</th>'+(adaOb?'<th class="num">Open Bill</th>':'')
       + '<th class="num">Diakui</th><th class="num">Kontribusi hari itu</th></tr></thead>'
-      + '<tbody>'+(baris||'<tr><td colspan="'+(adaOb?6:5)+'" class="empty">Belum ada event.</td></tr>')+'</tbody></table></div>'+pager+'</div>'
+      + '<tbody>'+(baris||'<tr><td colspan="'+(adaOb?7:6)+'" class="empty">Belum ada acara bulan ini.</td></tr>')+'</tbody></table></div>'+pager+'</div>'
       + kartuBonusEv(BONUS, pid, e, a, list);
 
     Array.prototype.forEach.call(body.querySelectorAll('#pev_pager button'), function(b){
       if(!b.disabled) b.onclick=function(){ PEV.hal=+b.dataset.hal; gambar(pid); }; });
+    /* change, BUKAN input: uangKetik() sudah memformat tiap ketukan, dan
+       menggambar ulang di tiap ketukan membuat kotak yang sedang diketik
+       dibuat ulang — hanya huruf pertama yang masuk. */
+    Array.prototype.forEach.call(body.querySelectorAll('input[data-src]'), function(inp){
+      inp.onchange=function(){ if(pevSetNominal(inp.dataset.src, inp.value)) gambar(pid); };
+    });
   };
 
   Array.prototype.forEach.call(document.querySelectorAll('#pev_seg button'), function(b){

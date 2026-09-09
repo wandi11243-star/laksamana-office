@@ -231,6 +231,15 @@ function performa_divisi($divi, $dari, $sampai) {
         'obService' => isset($r['obService']) ? $r['obService'] : 0,
         'tiket'     => isset($r['tiket'])     ? $r['tiket'] : null,
         'srcPic'    => isset($r['srcPic'])    ? (string)$r['srcPic'] : '',
+        /* PENGENAL ACARA ASALNYA — `mkt:<id>` / `vip:<id>` / `evt:<id>`,
+           ditulis serapOtomatis() di deploy/finance/omset/. Sejak 9 September
+           2026 Daftar Event di modul Marketing & Event disusun dari acara
+           MILIK MODUL ITU, dan inilah satu-satunya kunci yang mencocokkan
+           baris breakdown dengan acaranya. Dicocokkan lewat NAMA, satu acara
+           yang namanya dibetulkan finance langsung berhenti punya pasangan
+           dan tampil dua kali: sekali sebagai "belum diinput", sekali
+           sebagai "hanya ada di Breakdown". */
+        'srcId'     => isset($r['srcId'])     ? (string)$r['srcId'] : '',
         /* Penentu "event corporate" di Skema 1 bonus. Nama kuncinya BERKAS
            KEMBAR dengan yang ditulis deploy/finance/omset/ dan yang dibaca
            pbAgregasi(); beda satu huruf tidak melempar apa pun, barisnya cuma

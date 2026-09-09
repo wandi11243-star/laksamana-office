@@ -45,14 +45,30 @@ const PIC = [
   { id: 'p2', name: 'Budi',  officeUserId: 'u2' },
   { id: 'p3', name: 'Citra', officeUserId: 'u3' },
 ];
-const ev = (pic, nama, amount) => ({ picId: pic, eventName: nama, amount: amount,
-  tax: Math.round(amount * 0.1), service: Math.round(amount * 0.05), srcJenis: 'Corporate Event' });
+const ev = (pic, nama, amount, srcId) => ({ picId: pic, eventName: nama, amount: amount,
+  tax: Math.round(amount * 0.1), service: Math.round(amount * 0.05), srcJenis: 'Corporate Event',
+  srcId: srcId || '' });
 const DAYS = [];
 for (let i = 0; i < 8; i++) {
   DAYS.push({ date: '2026-09-' + String(i + 1).padStart(2, '0'), omsetHari: 100000000,
     bd: { marketing: [ ev('p1', 'Ayu-' + i, 40000000 + i), ev('p2', 'Budi-' + i, 21000000 + i) ] } });
 }
-DAYS[0].bd.marketing.push(ev('p3', 'Citra-0', 9000000));
+DAYS[0].bd.marketing.push(ev('p3', 'Citra-0', 9000000));          // tanpa srcId: baris manual finance
+/* Tiga keadaan pembanding, semuanya milik Citra supaya pager Ayu tidak
+   bergeser: COCOK (mkt:E1), BEDA (vip:V1), dan BELUM DIINPUT (mkt:E2, yang
+   sengaja tidak punya baris breakdown sama sekali). */
+DAYS[1].bd.marketing.push(ev('p3', 'Gala Citra', 20000000, 'mkt:E1'));   // porsi 23.000.000
+DAYS[3].bd.marketing.push(ev('p3', 'VIP \u2014 Tamu VIP', 4000000, 'vip:V1')); // porsi 4.600.000
+/* Acara MENURUT MODUL INI. nominalDiakui dipakai supaya angkanya pasti —
+   eventFinance().grand dihitung dari rincian & setelan, dan fixture yang
+   bergantung padanya akan berubah sendiri begitu setelan bawaan disetel. */
+const ACARA_MKT = [
+  { id:'E1', status:'Deal', tanggal:'2026-09-02', nama:'Gala Citra',    mktPIC:'u3', detail:{}, payments:[], nominalDiakui:23000000 },
+  { id:'E2', status:'Deal', tanggal:'2026-09-03', nama:'Wedding Citra', mktPIC:'u3', detail:{}, payments:[], nominalDiakui:5000000 },
+];
+const ACARA_VIP = [
+  { id:'V1', jenis:'Assisted', tanggal:'2026-09-04', nama:'Tamu VIP', mktPIC:'u3', nominal:3000000 },
+];
 const DATA = { pic: PIC, days: DAYS, comps: [] };
 /* Salinan payload TANPA omsetHari — bentuk yang dipulangkan backend versi
    lama, dan juga bulan yang Input Omset Hariannya memang belum diisi. */
@@ -107,6 +123,8 @@ function buka(namaAku, jabatanAku, opsi) {
     ])};
     S.users[0].jabatan = ${JSON.stringify(jabatanAku)};
     ME = S.users.find(u=>u.name===${JSON.stringify(namaAku)});
+    S.events = ${JSON.stringify(ACARA_MKT)};
+    S.vip = ${JSON.stringify(ACARA_VIP)};
     PFO.st='ok'; PFO.bulan='2026-09'; PFO.dimuat='2026-09'; PFO.data=${JSON.stringify(opsi.tanpaOmsetHari ? DATA_TANPA_OMSET : DATA)}; PFO.pic='';
   `);
   if (opsi.role) w.eval('ME.role=' + JSON.stringify(opsi.role) + ';');
@@ -397,6 +415,70 @@ cek('...lewat kompas-api, bukan api modul ini',
   cek('...dari peta harian yang menjumlahkan baris daily ganda',
       /\$petaHari\s*=\s*kp_peta_harian\(\);/.test(PHP),
       'hari yang punya dua baris daily akan memulangkan separuh omsetnya');
+  /* srcId juga disediakan fixture, jadi sisi PHP-nya lewat tanpa disentuh.
+     Tanpa baris ini, di produksi TIDAK SATU PUN acara punya pasangan:
+     seluruhnya berbunyi "belum diinput finance" sementara barisnya berdiri
+     tepat di bawahnya sebagai "hanya ada di Breakdown" \u2014 daftar yang
+     panjangnya dua kali lipat dan tidak satu pun angkanya bisa dibandingkan. */
+  cek('server mengirim pengenal acara asalnya',
+      /'srcId'\s*=>/.test(PHP),
+      'srcId satu-satunya kunci yang mencocokkan baris breakdown dengan acaranya');
+
+  /* ---------- DAFTAR EVENT DARI MODUL INI (permintaan user 9 Sep 2026) ------
+     Sebelumnya tabel ini digambar dari baris Breakdown Sumber saja, jadi acara
+     yang finance belum memasukkannya TIDAK ADA di layar — dan layar kosong
+     terbaca sebagai "bulan ini sepi", bukan sebagai "finance belum mengisi".
+
+     Yang dijaga KETIGA KEADAANNYA sekaligus, bukan sekadar adanya kolom:
+     cocok, beda, dan belum diinput. Kolom yang cuma bisa berbunyi satu hal
+     tidak membanding apa pun. */
+  console.log('\n-- daftar event dari modul ini --');
+  const wD = buka('Ayu', 'Marketing, Head');
+  wD.eval("go('perfomset')");
+  wD.eval("(function(){ document.querySelector('#pfo_seg button[data-pic=\"p3\"]').click(); })()");
+  const bD = body(wD);
+  cek('kolom Nominal digambar', bD.indexOf('>Nominal<') > -1);
+  cek('acara yang finance BELUM input tetap tampil',
+      bD.indexOf('Wedding Citra') > -1 && bD.indexOf('belum diinput finance</div>') > -1,
+      'inilah sebab kolom ini ada: acaranya tidak boleh hilang dari layar');
+  cek('...dan nominalnya tetap terbaca', bD.indexOf('5.000.000') > -1);
+  cek('nominal yang sama dengan Diakui ditandai cocok', bD.indexOf('>cocok<') > -1,
+      'Gala Citra: nominal 23.000.000 vs diakui 20jt+2jt+1jt');
+  cek('...dan yang berselisih menyebut selisihnya',
+      bD.indexOf('beda +' + acuan.rp(1600000)) > -1,
+      'VIP: diakui 4.600.000 vs nominal 3.000.000; mencari beda +' + acuan.rp(1600000));
+  cek('baris breakdown tanpa pasangan tetap tergambar',
+      bD.indexOf('Citra-0') > -1 && bD.indexOf('hanya ada di Breakdown') > -1,
+      'membuangnya membuat jumlah kolom Diakui berhenti sama dengan kartu Realisasi');
+  /* Reservasi VIP mengambil KOLOM NOMINAL-nya, event mengambil grand total.
+     Keduanya disebut di selnya sendiri — kepala kolom dibaca sekali, angkanya
+     dibaca tiap baris. */
+  cek('sel menyebut dari mana nominalnya',
+      bD.indexOf('kolom Nominal reservasi') > -1 && bD.indexOf('grand total Surat Penawaran') > -1);
+
+  /* NOMINAL DISUNTING DI SINI, tersimpan ke modul ini. Yang diuji BUKAN
+     adanya kotak isian melainkan bahwa angkanya benar-benar mendarat di
+     S.events/S.vip — kotak yang isinya hilang begitu halaman digambar ulang
+     terlihat persis sama dengan yang bekerja. */
+  console.log('\n-- nominal disunting dari halaman ini --');
+  const nSblm = wD.eval("(S.vip.find(v=>v.id==='V1')||{}).nominal");
+  wD.eval("(function(){" +
+    " var i=document.querySelector('#pfo_body input[data-src=\"vip:V1\"]');" +
+    " if(!i) return; i.value='4.600.000';" +
+    " i.dispatchEvent(new Event('change',{bubbles:true}));" +
+  "})()");
+  sama('nominal VIP tersimpan ke modul ini', wD.eval("(S.vip.find(v=>v.id==='V1')||{}).nominal"), 4600000);
+  sama('...dan sebelumnya memang bukan angka itu', nSblm, 3000000);
+  cek('...lalu selisihnya hilang dari layar', body(wD).indexOf('beda +') < 0,
+      'baris lain sudah cocok sejak awal, jadi adanya kata "cocok" bukan bukti apa-apa');
+  /* Menyunting di sini TIDAK boleh menulis ke breakdown: satu angka satu
+     pemilik (keputusan user 9 September 2026). Yang dijaga di SUMBER, karena
+     server breakdown-nya tidak ada di uji ini. */
+  const srcNom = src.slice(awalPFO, akhirPFO);
+  cek('menyunting nominal TIDAK menulis ke breakdown kompas',
+      /function pfoSetNominal\(/.test(srcNom) && srcNom.indexOf('performaDivisi') > -1
+      && !/pfoSetNominal\([\s\S]{0,600}?fetch\(/.test(srcNom),
+      'dua pemilik untuk satu angka adalah bentuk kesalahan yang sudah empat kali memakan waktu di repo ini');
 
   console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
   process.exit(gagal ? 1 : 0);

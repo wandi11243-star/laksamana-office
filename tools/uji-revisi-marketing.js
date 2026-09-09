@@ -232,5 +232,39 @@ cek('...dan halamannya masih bisa dibuka', !!w.document.getElementById('pfo-wrap
 w.eval("go('performance')");
 cek('alamat lama tidak menjatuhkan halaman', view(w).length > 200, 'layar kosong / ReferenceError');
 
+/* ---------- PANEL "MULAI DINGIN" DICABUT (permintaan user 9 Sep 2026) ------
+   Dicabut dari Dashboard berikut seluruh pembantunya. Yang diperiksa
+   PEMAKAIANNYA, bukan namanya: sejarah kenapa sesuatu dicabut justru harus
+   tetap boleh menyebutnya, dan pemindai yang merah untuk komentar akan
+   dimatikan orang berikutnya.
+
+   Satu rujukan yang tertinggal untuk fungsi yang sudah dibuang adalah
+   ReferenceError, dan gejalanya LAYAR PUTIH tanpa satu kata pun yang menyebut
+   sebabnya \u2014 di Dashboard, halaman pertama yang dibuka tiap pagi. */
+console.log('\n-- panel Mulai Dingin dicabut --');
+['panelPerluDigarap', 'isStale', 'daysSinceFU', 'lastFUDate'].forEach(function (n) {
+  cek('tidak ada lagi yang memakai ' + n + '()', KODE.indexOf(n) < 0,
+    'sisa rujukan: ' + KODE.split(n).length + 'x');
+});
+cek('judul panelnya hilang dari Dashboard', KODE.indexOf('>Mulai Dingin<') < 0);
+/* Barisnya di Pengaturan ikut dicabut: setelan yang tidak dibaca satu pun
+   perhitungan adalah setelan mati, dan keterangannya menjanjikan panel yang
+   sudah tidak ada \u2014 janji yang tidak ditepati tiap kali dibaca. */
+cek('kotak isian Ambang Mulai Dingin ikut dicabut', KODE.indexOf('set_stale') < 0);
+/* Angkanya SENGAJA dibiarkan hidup di data: menghapus yang sudah tersimpan
+   demi kerapian layar bukan pertukaran yang baik (aturan yang sama dengan
+   companyMonthlyTarget saat Target dicabut). */
+cek('settings.staleDays tetap ada di bentuk data', SRC.indexOf('staleDays:7') > -1,
+  'menghapus angka tersimpan bukan bagian dari permintaannya');
+/* Dashboard tetap tergambar utuh sesudahnya \u2014 "tidak melempar" saja tidak
+   cukup, karena penggambar yang melempar meninggalkan halaman SEBELUMNYA di
+   layar dan itu terbaca sebagai halaman yang baik-baik saja. */
+{
+  const w = buka();
+  w.eval("go('dashboard')");
+  cek('Dashboard tetap tergambar sesudah panelnya dicabut', view(w).length > 400);
+  cek('...dan tidak lagi menyebut Mulai Dingin', view(w).indexOf('Mulai Dingin') < 0);
+}
+
 console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
 process.exit(gagal ? 1 : 0);

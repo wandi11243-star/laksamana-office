@@ -5304,6 +5304,159 @@ lewat `kp_tagihan_hari(`, dan petanya `kp_peta_harian()`. Fixture menyediakan
 disentuh — tiruan yang bentuknya beda dari yang ditiru tidak menguji apa pun.
 
 
+### Tiga revisi: Bulanan, Mulai Dingin, Daftar Event (9 September 2026)
+
+Tiga permintaan user dalam satu pesan. Yang ketiga menyentuh uang dan
+keputusannya diambil user lewat pertanyaan; dua yang pertama kecil.
+
+**1. Jadwal Bulanan selalu terbuka di tab "Semua"** (`divMasukHalaman`).
+Lembar bulanan satu-satunya tampilan yang menjawab *"malam Sabtu ini siapa saja
+yang masuk, di semua pos"*, dan mendarat di satu divisi berarti pertanyaan itu
+baru terjawab sesudah satu klik yang jawabannya selalu sama.
+
+- **DISETEL SAAT MASUK HALAMAN, bukan di `viewBulanan()`.** Di penggambar, tab
+  divisi yang barusan ditekan dipulihkan ke Semua pada render berikutnya —
+  render di modul ini TOTAL — dan tab yang menolak dipilih terbaca sebagai
+  halaman rusak, bukan sebagai aturan.
+- **TIGA pintu masuk, ketiganya wajib melewatinya**: `go()` (menekan menunya),
+  `terapkanHash()` (menekan Back, atau hash yang diketik), dan `boot()`
+  (membuka `#/bulanan` langsung dari alamat). Yang terlewat gagal DIAM.
+- **Di `boot()` letaknya SESUDAH `DIV = kuasa[0]`.** Dipasang lebih dulu, baris
+  itu menimpanya balik dan tab Semua tidak pernah terlihat.
+- **`DIV` tetap dipakai bersama dengan Input Mingguan**, dan yang berubah cuma
+  nilai AWALNYA saat lembar bulanan dibuka. Memberi lembar bulanan variabel
+  sendiri berarti `exportExcel`/`exportPNG` harus tahu ia sedang di halaman
+  mana, dan yang salah menebak mengunduh lembar divisi lain.
+
+```bash
+node tools/uji-bulanan-semua.js   # 12 pemeriksaan, jsdom
+```
+
+**BERKAS UJI KEDUA untuk modul Jadwal** (yang pertama `uji-impor-jadwal.js`,
+tanpa jsdom). `smoke-modul.js jadwal` merender delapan halamannya tapi tidak
+pernah menekan satu pun menu, jadi ia tidak bisa melihat divisi mana yang
+terpilih saat halaman itu dibuka.
+
+**2. Panel "Mulai Dingin" DICABUT dari Dashboard Marketing.** Ikut dicabut
+seluruh pembantunya — `panelPerluDigarap()`, `isStale()`, `daysSinceFU()`,
+`lastFUDate()` — dan barisnya di Pengaturan (*Ambang Mulai Dingin*).
+
+- **Setelan yang tidak dibaca satu pun perhitungan adalah setelan mati**, dan
+  keterangannya menjanjikan panel yang sudah tidak ada — janji yang tidak
+  ditepati tiap kali dibaca. Pelajaran yang sudah dibayar di `SET.buffer` modul
+  HPP, yang begitu selama dua minggu tanpa satu pun layar mengatakannya.
+- **`settings.staleDays` SENGAJA dibiarkan hidup di data.** Menghapus angka
+  yang sudah tersimpan demi kerapian layar bukan pertukaran yang baik — aturan
+  yang sama dengan `companyMonthlyTarget` saat Target dicabut.
+
+**3. Daftar Event di halaman Performa disusun DARI MODULNYA SENDIRI**, bukan
+menunggu Breakdown Sumber. Permintaan user: *"tab daftar event itu langsung
+di-define aja dari marketing, jadi tidak mesti nunggu diinput dari sisi
+breakdown sumber, tetapi jika belum diinput nanti yang tombol diakuinya itu
+masih kosong."*
+
+Sebelumnya tabel itu digambar dari baris breakdown saja, jadi acara yang
+finance belum sempat memasukkannya **TIDAK ADA di layar sama sekali** — dan
+layar kosong terbaca sebagai *"bulan ini memang sepi"*, bukan sebagai *"finance
+belum mengisi"*.
+
+| kolom | dari mana |
+|---|---|
+| Tanggal, Nama | acara milik modul itu |
+| **Nominal** | modul itu — grand total Surat Penawaran / kolom Nominal VIP |
+| Omset, Tax, Service, Open Bill | baris Breakdown Sumber, kosong kalau belum ada |
+| **Diakui** | baris Breakdown Sumber, *belum diinput finance* kalau belum ada |
+| Kontribusi hari itu | baris Breakdown Sumber |
+
+**SATU ANGKA SATU PEMILIK — keputusan user saat ditanya.** Menyunting Nominal
+di halaman Performa menulis ke event / Reservasi VIP di modul itu saja, dan
+**TIDAK** menulis ke baris breakdown di `kompas-mysql`. Finance tetap
+menariknya sendiri lewat tombol *"salin ke kolom"* yang sudah ada. Dua tempat
+yang sama-sama boleh mengubah satu angka pasti berselisih suatu hari, dan yang
+berselisih di sini uang — bentuk kesalahan yang di repo ini sudah empat kali
+memakan waktu (`porsiPic`, `potonganHari`, `hpp.php`, `cocokPic`).
+
+- **`srcId` (`mkt:` / `vip:` / `evt:`) adalah kunci pencocokannya**, dan ia
+  harus lolos dari `serapOtomatis()` → `performa_divisi()` → `pbAgregasi()` →
+  layar. Dicocokkan lewat NAMA, satu acara yang namanya dibetulkan finance
+  langsung berhenti punya pasangan dan tampil **dua kali**: sekali sebagai
+  "belum diinput", sekali sebagai "hanya ada di Breakdown".
+- **REALISASI DAN SELURUH BONUS TETAP DARI BREAKDOWN.** Yang ditambahkan cuma
+  pembandingnya. Kalau kartu Realisasi ikut memakai nominal modul, halaman ini
+  berhenti menyebut uang yang benar-benar diakui — dan itulah satu-satunya
+  angka yang dipakai membayar bonus.
+- **Baris breakdown TANPA pasangan tetap digambar** (*hanya ada di Breakdown*):
+  ia bisa baris manual finance, atau acara yang di modulnya PIC-nya lain.
+  Membuangnya membuat jumlah kolom Diakui berhenti sama dengan kartu Realisasi
+  di atasnya.
+- **`nominalDiakui` pada event Marketing DISIMPAN TERPISAH**, bukan ditulis
+  balik ke rincian: `eventFinance().grand` itu yang tercetak di Surat Penawaran
+  dan Invoice yang sudah dikirim ke client, dan mengubahnya dari papan performa
+  berarti dokumen yang beredar berbeda dari yang tersimpan. Yang ditimpa
+  dikatakan di selnya berikut angka asalnya dan tautan **pulihkan**.
+  Reservasi VIP tidak begitu — `v.nominal` memang angka yang diketik PIC-nya,
+  jadi menyuntingnya di sini SAMA dengan menyuntingnya di halaman VIP.
+- **IZIN MENYUNTING IKUT DATA ASALNYA** (`can('edit_event')` / `can('edit_vip')`),
+  bukan izin halaman `perfomset`. Dijadikan izin halaman, bawaannya cuma
+  **Lihat** dan tidak seorang pun bisa mengetik nominalnya sampai admin membuka
+  Kelola Akses — kotak yang tidak pernah bisa diketik dilaporkan sebagai rusak,
+  bukan dibaca sebagai izin.
+- **Acara yang PIC-nya belum cocok dengan roster kompas cuma muncul di segmen
+  Semua**, dan jumlahnya disebut. Daftar yang menyusut tanpa keterangan
+  dilaporkan sebagai data hilang.
+- **`change`, BUKAN `input`.** Menyimpan + menggambar ulang tiap ketukan
+  membuat kotak yang sedang diketik dibuat ulang, dan hanya huruf pertama yang
+  masuk — jebakan yang sama sudah dibayar di `queueF()` modul Konten.
+
+#### Modul Event: bedanya satu, dan itu menentukan bentuk kolomnya
+
+**MODUL EVENT TIDAK MENYIMPAN NILAI RUPIAH EVENT** — sudah tertulis begitu di
+`serapOtomatis()` sejak baris event lahir di sana. Jadi tidak ada grand total
+yang bisa jadi bawaan: kolom Nominal di sana **lahir kosong** dan diketik
+orangnya, lalu disimpan di event itu sendiri (`nominal`, ikut di blob `data` —
+tidak perlu kolom baru, dan berkas migrasi di repo ini rutin tertinggal di
+produksi).
+
+- **Yang kosong TIDAK ditebak dari baris breakdown.** Menyalin angka finance ke
+  sana lalu memajangnya sebagai "menurut modul Event" membuat kedua kolomnya
+  selalu cocok — dan pembanding yang tidak pernah bisa berselisih tidak
+  membanding apa pun.
+- **Dikosongkan = KEMBALI KOSONG, bukan nol.** Nol berarti acaranya memang
+  tidak membawa apa-apa; dua keadaan yang menuntut tindakan berbeda tidak boleh
+  berbunyi sama.
+- **Penyaring statusnya `['Planning','Draft','Cancelled']` — sama persis dengan
+  `events_hari()`.** Disaring dengan aturan lain, acara Draft muncul sebagai
+  "belum diinput finance" yang tidak akan pernah bisa dibereskan siapa pun.
+- **`pevTglWIB()`**: `start_datetime` INSTANT UTC, dan memotong sepuluh huruf
+  pertamanya menggeser acara lewat tengah malam ke hari sebelumnya. Jebakan
+  yang sama sudah dibayar di `isoDari()` modul Analytics.
+
+```bash
+node tools/uji-performa-marketing-modul.js   # 70 pemeriksaan, jsdom
+node tools/uji-performa-event-modul.js       # 93 pemeriksaan, jsdom
+node tools/uji-revisi-marketing.js           # 55 pemeriksaan, jsdom
+node tools/uji-bulanan-semua.js              # 12 pemeriksaan, jsdom
+```
+
+Dua puluh empat mutasi dicoba untuk ketiga revisi, dan **dua lolos di putaran
+pertama** — keduanya cacat UJI yang sudah punya nama di berkas ini:
+
+- **"php srcId tidak dikirim" LOLOS**: fixture-nya menyediakan `srcId` sendiri,
+  jadi seluruh sisi PHP lewat tanpa disentuh. Sama persis dengan kontrak
+  `omsetHari` sehari sebelumnya; ditutup dengan asersi atas SUMBER. Tanpa baris
+  PHP itu, di produksi **tidak satu pun** acara punya pasangan: seluruhnya
+  berbunyi "belum diinput finance" sementara barisnya berdiri tepat di bawahnya
+  sebagai "hanya ada di Breakdown".
+- **"yang belum diinput ditulis Rp0" LOLOS**: kalimat *belum diinput finance*
+  ada JUGA di `card-sub` ("3 belum diinput finance"), jadi asersi atas seluruh
+  badan halaman cocok dengan kartunya tanpa pernah menyentuh selnya. Ditutup
+  dengan menuntut penutup `</div>` milik selnya.
+
+Satu asersi lagi ketahuan **hampa** saat ditulis: "sesudah disamakan barisnya
+berbunyi cocok" — baris lain memang sudah cocok sejak awal, jadi adanya kata
+itu bukan bukti apa pun. Yang benar-benar bergerak **hilangnya** selisih.
+
+
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)
 
 Keluhan user: **Performa Marketing dan Performa Event di panel Kas Kecil tidak

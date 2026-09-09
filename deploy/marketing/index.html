@@ -4586,15 +4586,6 @@ function bookingConflicts(ev){
     return a===b;
   });
 }
-// Peluang yang sudah lama tidak dihubungi — "mulai dingin" (lihat panel
-// bernama sama di Dashboard, dan ambangnya di Pengaturan)
-function lastFUDate(ev){
-  const fs=S.followups.filter(f=>f.eventId===ev.id);
-  if(!fs.length) return ev.createdAt||'';
-  return fs.map(f=>String(f.at).slice(0,10)).sort().pop();
-}
-function daysSinceFU(ev){ const d=lastFUDate(ev); return d?Math.max(0,daysBetween(d,today())):0; }
-function isStale(ev){ return isOpenEvent(ev) && daysSinceFU(ev) >= (+S.settings.staleDays||7); }
 // Tanggal default untuk follow up berikutnya
 function nextFUDate(){ const d=new Date(); d.setDate(d.getDate()+(+S.settings.fuNextDays||3)); return tglLokal(d); }
 
@@ -5009,28 +5000,20 @@ function renderDashboard(V){
    +'<div class="cell-sub" style="margin-bottom:8px">Nilai event yang ditutup tiap marketing.</div>';
   h+=papanClosing();
 
-  /* Keterangan satuannya ditulis DI SINI, bukan diserahkan ke tooltip.
-     Angka telanjang di kanan nama event tidak menerangkan dirinya sendiri —
-     dan panel di atasnya (Pendapatan, Closing) sama-sama punya baris ini,
-     jadi yang satu ini tanpa keterangan justru jadi ganjil. Ambangnya
-     dibaca dari S.settings.staleDays, bukan ditulis 7: angkanya bisa diubah
-     di Pengaturan, dan keterangan yang menyebut angka mati akan berbohong
-     begitu ada yang mengubahnya. */
-  /* "Mulai Dingin", bukan "Perlu Digarap".
+  /* PANEL "MULAI DINGIN" DICABUT 9 September 2026 (permintaan user).
 
-     Yang pertama menyebut KEADAAN peluangnya — kosakata yang sudah
-     dipakai orang penjualan di mana pun: prospek yang lama tidak
-     disentuh mendingin, lalu mati. Yang kedua cuma menyebut tugas, dan
-     'digarap' bisa berarti apa saja: ditawar, dibuatkan brief, ditagih.
+     Ia memajang lima peluang aktif yang paling lama tidak dihubungi,
+     berikut umurnya dalam hari. Yang ikut dicabut: panelPerluDigarap(),
+     isStale(), daysSinceFU(), lastFUDate(), dan barisnya di Pengaturan —
+     fungsi yang tidak dipanggil siapa pun akan dipanggil lagi suatu hari
+     oleh yang mengira ia masih berarti sesuatu, dan setelan yang tidak
+     dibaca satu pun perhitungan adalah setelan mati (lihat SET.buffer di
+     modul HPP, yang begitu selama dua minggu tanpa satu pun layar
+     mengatakannya).
 
-     Namanya juga DISERAGAMKAN dengan halaman Pengaturan, yang dulu
-     menyebut hal yang sama "Perlu Ditindaklanjuti". Satu konsep dengan
-     dua nama di dua layar membuat orang mengira itu dua hitungan
-     berbeda, lalu mencari-cari bedanya. */
-  h+='<div class="divider"></div><h3 style="font-size:15px;margin-bottom:2px">Mulai Dingin</h3>'
-   +'<div class="cell-sub" style="margin-bottom:8px">Peluang aktif yang paling lama tidak dihubungi. '
-   +'Angka di kanan = <b>hari sejak kontak terakhir</b>; '+(+S.settings.staleDays||7)+' hari ke atas masuk daftar ini.</div>';
-  h+=panelPerluDigarap();
+     `settings.staleDays` SENGAJA dibiarkan hidup di data: menghapus angka
+     yang sudah tersimpan demi kerapian layar bukan pertukaran yang baik —
+     aturan yang sama dengan companyMonthlyTarget saat Target dicabut. */
   h+='</div>';
   V.innerHTML=h;
 }
@@ -5089,34 +5072,6 @@ function papanClosing(){
     return '<div class="lb-row"><span class="no">'+(i+1)+'</span>'
       +'<span class="nm">'+esc(r.nama)+'<span class="cell-sub"> \u00b7 '+r.n+' event</span></span>'
       +'<span class="vl">'+rp(r.v)+'</span></div>';
-  }).join('');
-}
-/* Peluang yang paling lama tidak disentuh. Inilah yang benar-benar hilang
-   kalau tidak ada yang menunjukkannya: peluang yang ditolak setidaknya
-   memberi kabar, sedangkan yang didiamkan mati tanpa suara. */
-function panelPerluDigarap(){
-  const list=(S.events||[]).filter(function(e){ return isOpenEvent(e) && isStale(e); })
-    .sort(function(a,b){ return daysSinceFU(b)-daysSinceFU(a); });
-  if(!list.length) return '<div class="muted" style="font-size:12.5px;padding:6px 0">'
-    +'Tidak ada yang mendingin \u2014 semua peluang aktif baru dihubungi. \u2693</div>';
-  return list.slice(0,5).map(function(e){
-    const d=daysSinceFU(e);
-    /* 'hari', BUKAN 'hr'. Singkatan itu terbaca sebagai JAM \u2014 dan "13 jam
-       belum dihubungi" tidak mendesak sama sekali, sementara "13 hari" adalah
-       peluang yang hampir hilang. Satu huruf yang membalik artinya.
-
-       lastFUDate() jatuh ke ev.createdAt kalau belum pernah ada follow up,
-       jadi angkanya tetap benar untuk peluang yang belum pernah disentuh:
-       dihitung sejak eventnya dibuat. Bedanya disebut di tooltip, karena
-       "belum pernah dihubungi sama sekali" dan "terakhir dihubungi 13 hari
-       lalu" menuntut tindakan yang berbeda. */
-    const pernah=S.followups.some(function(f){ return f.eventId===e.id; });
-    return '<div class="lb-row row-click" onclick="go(\'event\',\''+e.id+'\')" '
-      +'title="'+esc(e.nama)+' \u2014 '+d+' hari sejak '
-        +(pernah?'follow up terakhir':'eventnya dibuat; belum pernah di-follow up')+'">'
-      +'<span class="nm">'+esc(e.nama)
-        +'<span class="cell-sub"> \u00b7 '+esc(clientName(e.clientId))+'</span></span>'
-      +'<span class="vl" style="color:var(--danger);white-space:nowrap">'+d+' hari</span></div>';
   }).join('');
 }
 /* Kolom Kesiapan dan kolom penarik dropdown DICABUT.
@@ -14067,6 +14022,178 @@ function pfoSelKontribusi(ev, omsetHari){
   return '<td class="num mono">' + (nilai / omsetHari * 100).toFixed(1) + '%'
        + '<div class="muted" style="font-size:11px;margin-top:2px">dari omset hari itu</div></td>';
 }
+/* ====== DAFTAR EVENT DIDEFINISIKAN DARI MODUL INI (permintaan user 9 Sep 2026) ======
+
+   Sebelumnya tabel Daftar Event digambar dari baris Breakdown Sumber saja, jadi
+   acara yang finance belum sempat memasukkannya TIDAK ADA di layar sama sekali
+   — dan layar yang kosong terbaca sebagai "bulan ini memang sepi", bukan
+   sebagai "finance belum mengisi". Sekarang daftarnya disusun dari acara milik
+   modul ini, dan kolom Diakui yang dibiarkan kosong sampai finance mengisinya.
+
+   NOMINALNYA MILIK MODUL INI, dan itu keputusan user saat ditanya (9 September
+   2026): satu angka satu pemilik. Menyuntingnya di sini menulis ke event /
+   Reservasi VIP di modul ini saja — TIDAK menulis ke baris breakdown di
+   kompas-mysql. Dua tempat yang sama-sama boleh mengubah satu angka pasti
+   berselisih suatu hari, dan yang berselisih di sini uang; itu pula bentuk
+   kesalahan yang di repo ini sudah empat kali memakan waktu (porsiPic,
+   potonganHari, hpp.php, cocokPic). Finance tetap menariknya sendiri lewat
+   tombol "salin ke kolom" yang sudah ada di Breakdown Sumber.
+
+   REALISASI DAN SELURUH BONUS TETAP DARI BREAKDOWN. Yang ditambahkan cuma
+   pembandingnya. Kalau angka di kartu Realisasi ikut memakai nominal modul ini,
+   halaman ini berhenti menyebut uang yang benar-benar diakui — dan itulah satu-
+   satunya angka yang dipakai membayar bonus. */
+const PFO_TUTUP = ['Confirmed','Deal','Event Done'];   // sama dengan Reporting
+
+/* Nominal menurut modul ini.
+
+   EVENT: grand total Surat Penawaran (eventFinance().grand). Yang disunting di
+   halaman ini disimpan TERPISAH sebagai `nominalDiakui`, BUKAN ditulis balik
+   ke rincian — grand total itu yang tercetak di Surat Penawaran dan Invoice
+   yang sudah dikirim ke client, dan mengubahnya dari papan performa berarti
+   dokumen yang sudah beredar berbeda dari yang tersimpan, tanpa satu pun tanda.
+   Yang ditimpa DIKATAKAN di selnya berikut angka asalnya.
+
+   VIP: kolom Nominal apa adanya — di sana memang tidak ada rumus lain, dan
+   itulah angka yang diketik PIC-nya. Menyuntingnya di sini SAMA dengan
+   menyuntingnya di halaman Reservasi VIP. */
+function pfoNominalAsal(e){ return eventFinance(e).grand; }
+function pfoAdaTimpa(e){ return e && e.nominalDiakui!=null && e.nominalDiakui!==''; }
+function pfoAcaraModul(bulan){
+  const out=[];
+  (S.events||[]).forEach(function(e){
+    if(PFO_TUTUP.indexOf(e.status)<0) return;
+    const tgl=String(e.tanggal||'').slice(0,10);
+    if(tgl.slice(0,7)!==bulan) return;
+    const asal=pfoNominalAsal(e);
+    out.push({ srcId:'mkt:'+e.id, sumber:'mkt', date:tgl, name:e.nama||'(tanpa nama)',
+      picUser:e.mktPIC||'', asal:asal,
+      nominal: pfoAdaTimpa(e) ? (+e.nominalDiakui||0) : asal, timpa: pfoAdaTimpa(e) });
+  });
+  /* Reservasi VIP: hanya Assisted dan hanya yang belum dibatalkan — penyaring
+     yang SAMA dengan vip_hari() di marketing-mysql, yang menjadi baris
+     breakdown-nya. Disaring dengan aturan lain, dua layar memajang jumlah
+     acara yang berbeda untuk bulan yang sama. */
+  (S.vip||[]).forEach(function(v){
+    if(v.batalAt || v.jenis!=='Assisted') return;
+    const tgl=String(v.tanggal||'').slice(0,10);
+    if(tgl.slice(0,7)!==bulan) return;
+    /* Namanya ditulis PERSIS seperti serapOtomatis() menuliskannya di baris
+       breakdown, supaya satu reservasi tidak punya dua nama di dua layar. */
+    const pt=vipPerusahaan(v)?' ('+vipPerusahaan(v)+')':'';
+    const nom=vipNominal(v);
+    out.push({ srcId:'vip:'+v.id, sumber:'vip', date:tgl,
+      name:'VIP \u2014 '+(v.nama||'(tanpa nama)')+pt,
+      picUser:v.mktPIC||'', asal:nom, nominal:nom, timpa:false });
+  });
+  return out;
+}
+/* PIC kompas untuk sebuah id user modul ini. officeUserId DULU, nama cuma
+   cadangan — nama bisa berubah ejaannya di Office, id tidak. Aturan yang sama
+   dengan pfoAkuPic() dan compCocok(). Di modul ini S.users[].id MEMANG id
+   Office (lihat pfoPasangKeterangan). */
+function pfoPicDari(uid){
+  if(!uid || !PFO.data) return null;
+  const list=PFO.data.pic||[];
+  let p=list.find(function(x){ return x.officeUserId!=null && String(x.officeUserId)===String(uid); });
+  if(p) return p;
+  const u=(S.users||[]).find(function(x){ return String(x.id)===String(uid); });
+  const nm=u?String(u.name||'').trim().toLowerCase():'';
+  return nm ? (list.find(function(x){ return String(x.name||'').trim().toLowerCase()===nm; })||null) : null;
+}
+/* Gabungan acara modul ini + baris breakdown, dikunci lewat srcId.
+
+   Baris breakdown yang TIDAK punya pasangan tetap digambar. Ia bisa baris
+   manual yang diketik finance, atau acara yang di sini PIC-nya lain — dua-
+   duanya uang yang diakui, dan membuangnya dari daftar membuat jumlah kolom
+   Diakui berhenti sama dengan kartu Realisasi di atasnya. */
+function pfoGabung(acara, bdEvents, pid){
+  const bdBySrc={}, pakai={}, out=[];
+  (bdEvents||[]).forEach(function(ev){ if(ev.srcId) bdBySrc[ev.srcId]=ev; });
+  (acara||[]).forEach(function(x){
+    if(pid!=='__all__'){
+      const q=pfoPicDari(x.picUser);
+      if(!q || String(q.id)!==String(pid)) return;
+    }
+    const bd=bdBySrc[x.srcId]||null;
+    if(bd) pakai[x.srcId]=1;
+    out.push(Object.assign({}, x, { bd:bd }));
+  });
+  (bdEvents||[]).forEach(function(ev){
+    if(ev.srcId && pakai[ev.srcId]) return;
+    out.push({ srcId:String(ev.srcId||''), sumber:'bd', date:ev.date, name:ev.name||'(tanpa nama)',
+      picUser:'', asal:null, nominal:null, timpa:false, bd:ev, hanyaBd:true });
+  });
+  return out.sort(function(x,y){
+    if(x.date!==y.date) return x.date<y.date?-1:1;
+    return String(x.name).localeCompare(String(y.name));
+  });
+}
+/* Sel Nominal. Yang bisa diketik hanya baris yang punya asal di modul ini —
+   baris yang cuma ada di Breakdown tidak punya tempat untuk menyimpannya, dan
+   kotak isian yang isinya hilang begitu halaman digambar ulang lebih buruk
+   daripada kotak yang memang tidak ada. */
+/* IZINNYA IKUT DATA ASALNYA, bukan izin halaman ini. Yang disunting di sini
+   memang event / Reservasi VIP milik modul ini, jadi yang boleh mengubahnya di
+   halaman aslinya boleh mengubahnya dari sini juga. Dijadikan izin halaman
+   (perfomset), bawaannya cuma Lihat dan tidak seorang pun bisa mengetik
+   nominalnya tanpa admin membuka Kelola Akses lebih dulu — kotak yang tidak
+   pernah bisa diketik dilaporkan sebagai rusak, bukan dibaca sebagai izin. */
+function pfoBisaUbahNominal(r){
+  if(!r || r.hanyaBd) return false;
+  return r.sumber==='vip' ? can('edit_vip') : can('edit_event');
+}
+function pfoSelNominal(r, i){
+  const bisa=pfoBisaUbahNominal(r);
+  if(r.hanyaBd) return '<td class="num mono"><span class="muted">\u2014</span>'
+    +'<div class="muted" style="font-size:11px;margin-top:2px">hanya ada di Breakdown</div></td>';
+  const ket = r.timpa
+    ? '<div class="muted" style="font-size:11px;margin-top:2px">diubah manual \u00b7 asalnya '+pfoRp(r.asal)
+      +' \u00b7 <a href="#" data-reset="'+esc(r.srcId)+'">pulihkan</a></div>'
+    : '<div class="muted" style="font-size:11px;margin-top:2px">'
+      +(r.sumber==='vip'?'kolom Nominal reservasi':'grand total Surat Penawaran')+'</div>';
+  if(!bisa) return '<td class="num mono">'+pfoRp(r.nominal)+ket+'</td>';
+  return '<td class="num"><div style="max-width:170px;margin-left:auto">'
+    + rupiahInputHTML('pfo_nom_'+i, r.nominal, '', ' data-src="'+esc(r.srcId)+'"')
+    + '</div>'+ket+'</td>';
+}
+/* Sel Diakui — dan pembandingnya. Kolom ini yang menjadi pacuannya: idealnya
+   sama dengan Nominal, dan selisihnya justru informasi (pembayaran belum
+   penuh, Open Bill yang menambah, acara yang batal di hari-H). Yang BELUM
+   diinput dibedakan dari yang nilainya nol: nol berarti finance memutuskan
+   acaranya tidak membawa apa-apa, dan itu keputusan yang berbeda. */
+function pfoSelDiakui(r){
+  if(!r.bd) return '<td class="num mono"><span class="muted">\u2014</span>'
+    +'<div class="muted" style="font-size:11px;margin-top:2px">belum diinput finance</div></td>';
+  const d=+r.bd.porsi||0;
+  let ket='';
+  if(r.nominal!=null){
+    const beda=d-(+r.nominal||0);
+    ket = beda===0
+      ? '<div class="muted" style="font-size:11px;margin-top:2px">cocok</div>'
+      : '<div style="font-size:11px;margin-top:2px;color:var(--danger)">beda '
+        +(beda>0?'+':'\u2212')+pfoRp(Math.abs(beda))+'</div>';
+  }
+  return '<td class="num mono">'+pfoRp(d)+ket+'</td>';
+}
+/* Menyimpan nominal yang disunting. Kosong = KEMBALI KE ASALNYA untuk event
+   (penanda timpa dicabut), dan nol untuk VIP — di sana memang tidak ada angka
+   lain yang bisa dipulihkan. */
+function pfoSetNominal(srcId, teks){
+  const bagi=String(srcId||'').split(':'), jenis=bagi[0], id=bagi.slice(1).join(':');
+  const digit=rupiahDigits(teks);
+  if(jenis==='vip'){
+    const v=(S.vip||[]).find(function(x){ return String(x.id)===id; });
+    if(!v) return false;
+    v.nominal = digit===''?'':(+digit);
+  } else if(jenis==='mkt'){
+    const e=(S.events||[]).find(function(x){ return String(x.id)===id; });
+    if(!e) return false;
+    if(digit==='') delete e.nominalDiakui; else e.nominalDiakui=+digit;
+  } else return false;
+  save();
+  return true;
+}
 function pfoRp(n){ return (typeof pbRp==='function') ? pbRp(n) : ('Rp'+Math.round(n||0).toLocaleString('id-ID')); }
 
 function pfoBulanIni(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
@@ -14291,8 +14418,20 @@ function renderPerformaOmset(V){
     } else { e=list.find(x=>x.id===pid); a=agg[pid]; }
     if(!e||!a){ body.innerHTML='<div class="card"><div class="empty">PIC tidak ditemukan.</div></div>'; return; }
 
-    const cnt=a.events.length, avg=cnt?a.real/cnt:0;
-    const evUrut=[...a.events].sort((x,y)=>x.date<y.date?-1:1);
+    /* DAFTARNYA DARI MODUL INI, bukan dari breakdown saja. `nDiakui` tetap
+       menghitung baris breakdown: kartu Realisasi di sebelahnya memang uang
+       yang diakui finance, dan rata-rata yang dibagi jumlah acara menurut
+       marketing akan mengecil tiap kali ada acara yang belum diinput. */
+    const acara=pfoAcaraModul(PFO.bulan);
+    const evUrut=pfoGabung(acara, a.events, pid);
+    const nDiakui=a.events.length, avg=nDiakui?a.real/nDiakui:0;
+    const cnt=evUrut.length, belum=evUrut.filter(function(x){ return !x.bd && !x.hanyaBd; }).length;
+    /* Acara yang PIC-nya belum cocok dengan roster kompas tidak muncul di
+       satu pun segmen PIC — ia cuma ada di Semua. Daftar yang menyusut tanpa
+       keterangan dilaporkan sebagai data hilang, bukan dibaca sebagai
+       aturan. */
+    const takCocok=acara.filter(function(x){ return !pfoPicDari(x.picUser); }).length;
+
     const totalHal=Math.max(1,Math.ceil(evUrut.length/PFO_PER_HAL));
     if(PFO.hal>totalHal) PFO.hal=totalHal;
     if(PFO.hal<1) PFO.hal=1;
@@ -14302,11 +14441,18 @@ function renderPerformaOmset(V){
        menjumlahkan omset harinya dua kali. */
     const omsetHari={};
     (PFO.data&&PFO.data.days||[]).forEach(d=>{ if(d&&d.date) omsetHari[d.date]=+d.omsetHari||0; });
-    const baris=evUrut.slice(mulai,akhir).map(ev=>'<tr><td>'+esc(ev.date)+'</td><td>'+esc(ev.name||'—')
-      +(ev.pic?' <span class="muted" style="font-size:11px">· '+esc(ev.pic)+'</span>':'')+'</td>'
-      +'<td class="num mono">'+pfoRp(ev.amount)+'</td><td class="num mono">'+pfoRp(ev.tax||0)+'</td>'
-      +'<td class="num mono">'+pfoRp(ev.service||0)+'</td><td class="num mono">'+pfoRp(ev.porsi)+'</td>'
-      +pfoSelKontribusi(ev, omsetHari[ev.date])+'</tr>').join('');
+    const baris=evUrut.slice(mulai,akhir).map(function(r,i){
+      const bd=r.bd;
+      const kolBd=function(v){ return '<td class="num mono">'+(bd?pfoRp(v):'<span class="muted">\u2014</span>')+'</td>'; };
+      return '<tr><td>'+esc(r.date)+'</td><td>'+esc(r.name)
+        +((bd&&bd.pic)?' <span class="muted" style="font-size:11px">\u00b7 '+esc(bd.pic)+'</span>':'')+'</td>'
+        +pfoSelNominal(r, mulai+i)
+        +kolBd(bd?bd.amount:0)+kolBd(bd?(bd.tax||0):0)+kolBd(bd?(bd.service||0):0)
+        +pfoSelDiakui(r)
+        +(bd?pfoSelKontribusi(bd, omsetHari[r.date])
+            :'<td class="num mono"><span class="muted">\u2014</span></td>')
+        +'</tr>';
+    }).join('');
     const pager=totalHal>1
       ? '<div id="pfo_pager" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px">'
         +'<button class="btn btn-ghost btn-sm" data-hal="'+(PFO.hal-1)+'"'+(PFO.hal<=1?' disabled':'')+'>‹ Sebelumnya</button>'
@@ -14325,20 +14471,40 @@ function renderPerformaOmset(V){
       + '<div class="grid g3">'
       + '<div class="stat"><div class="lab">Realisasi</div><div class="val sm mono">'+pfoRp(a.real)+'</div>'
       + '<div class="foot">'+(a.comp?'sudah dipotong compliment '+pfoRp(a.comp):'tanpa potongan compliment')+'</div></div>'
-      + '<div class="stat"><div class="lab">Jumlah Event</div><div class="val sm">'+cnt+'</div><div class="foot">avg '+pfoRp(avg)+'/event</div></div>'
+      + '<div class="stat"><div class="lab">Jumlah Event</div><div class="val sm">'+cnt+'</div>'
+      + '<div class="foot">'+(belum?belum+' belum diakui finance \u00b7 ':'')+'avg '+pfoRp(avg)+'/event yang diakui</div></div>'
       + '<div class="stat"><div class="lab">Compliment Ditanggung</div><div class="val sm mono">'+pfoRp(a.comp||0)+'</div>'
       + '<div class="foot">'+((a.compRows||[]).length)+' catatan</div></div>'
       + '</div>'
-      + '<div class="card"><h3>Daftar Event</h3><div class="card-sub">'+cnt+' event · diakui <b>omset + tax + service</b>'
-      + ' · <b>Kontribusi hari itu</b> = nilai acara dibagi seluruh omset venue pada tanggal itu, '
-      + 'angka yang sama dengan kolom bernama sama di modul Analytics</div>'
-      + '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th><th class="num">Omset</th>'
+      + '<div class="card"><h3>Daftar Event</h3><div class="card-sub">'
+      + cnt+' acara menurut modul ini (event closing + Reservasi VIP Assisted)'
+      + (belum?' \u00b7 <b>'+belum+' belum diinput finance</b>':'')+'. '
+      + '<b>Nominal</b> milik modul ini \u2014 grand total Surat Penawaran, atau kolom Nominal '
+      + 'untuk Reservasi VIP \u2014 dan boleh disunting di sini. <b>Diakui</b> dibaca dari '
+      + 'Finance \u203a Omset \u203a Breakdown Sumber; menyunting Nominal TIDAK mengubahnya, '
+      + 'finance yang menariknya lewat tombol \u201csalin ke kolom\u201d di sana. Idealnya keduanya sama. '
+      + '<b>Kontribusi hari itu</b> = nilai acara dibagi seluruh omset venue pada tanggal itu, '
+      + 'angka yang sama dengan kolom bernama sama di modul Analytics.'
+      + (takCocok?' <b>'+takCocok+' acara</b> belum cocok dengan PIC mana pun di roster kompas, jadi hanya muncul di segmen Semua.':'')
+      + '</div>'
+      + '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th>'
+      + '<th class="num">Nominal</th><th class="num">Omset</th>'
       + '<th class="num">Tax</th><th class="num">Service</th><th class="num">Diakui</th>'
       + '<th class="num">Kontribusi hari itu</th></tr></thead>'
-      + '<tbody>'+(baris||'<tr><td colspan="7" class="empty">Belum ada event.</td></tr>')+'</tbody></table></div>'+pager+'</div>'
+      + '<tbody>'+(baris||'<tr><td colspan="8" class="empty">Belum ada acara bulan ini.</td></tr>')+'</tbody></table></div>'+pager+'</div>'
       + kartuBonusMk(BONUS, pid, e, a, list);
 
     body.querySelectorAll('#pfo_pager button').forEach(b=>{ if(!b.disabled) b.onclick=()=>{ PFO.hal=+b.dataset.hal; gambar(pid); }; });
+    /* change, BUKAN input: pemformat rupiah sudah jalan di tiap ketukan, dan
+       menyimpan + menggambar ulang di tiap ketukan berarti kotak yang sedang
+       diketik dibuat ulang — hanya huruf pertama yang masuk. Jebakan yang
+       sama sudah dibayar di queueF() modul Konten. */
+    body.querySelectorAll('input[data-src]').forEach(inp=>{
+      inp.onchange=()=>{ if(pfoSetNominal(inp.dataset.src, inp.value)) gambar(pid); };
+    });
+    body.querySelectorAll('a[data-reset]').forEach(el=>{
+      el.onclick=(e)=>{ e.preventDefault(); if(pfoSetNominal(el.dataset.reset,'')) gambar(pid); };
+    });
   };
 
   document.querySelectorAll('#pfo_seg button').forEach(b=>b.onclick=()=>{
@@ -19005,7 +19171,6 @@ function renderSettings(V){
    +setRow('Service Charge (%)',num('set_service',st.serviceCharge),'Dihitung dari subtotal setelah diskon.')
    +setRow('Target Follow Up / Hari',num('set_fu',st.fuTarget),'Dipakai di Dashboard & Sales Pipeline untuk mengukur target harian marketing.')
    +setRow('Jeda Follow Up Berikutnya (hari)',num('set_funext',(st.fuNextDays||3)),'Tanggal FU berikutnya diisi otomatis sejauh ini dari hari catat.')
-   +setRow('Ambang Mulai Dingin (hari)',num('set_stale',(st.staleDays||7)),'Peluang tanpa kontak selama ini dianggap <b>mulai dingin</b>: ditandai merah di Pipeline & muncul di panel Mulai Dingin pada Dashboard.')
    /* Template fasilitas gratis, dipakai SEMUA event yang tidak mengisi
       daftarnya sendiri di tab Finance. Ditaruh di sini supaya mengubah
       standar penawaran tidak perlu menyunting berkas. */
@@ -19060,7 +19225,7 @@ function saveSettings(){
   // discountThreshold DIBUANG bersama approval berbasis ambang diskon. Kotaknya
   // sudah tidak ada di halaman ini — membacanya berarti `null.value` dan
   // seluruh Simpan Pengaturan gagal tanpa pesan.
-  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,staleDays:+$('set_stale').value||7,
+  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,
     freeTemplate:($('set_free')?$('set_free').value:(S.settings.freeTemplate||''))});
   // S.baseline TIDAK dibaca lagi: kotaknya sudah tidak ada di halaman ini, dan
   // membacanya berarti `null.value` — persis kegagalan diam yang sudah pernah

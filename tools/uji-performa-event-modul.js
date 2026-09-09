@@ -59,16 +59,32 @@ const PIC = [
   { id: 'p2', name: 'Budi',  officeUserId: 'u2' },
   { id: 'p3', name: 'Citra', officeUserId: 'u3' },
 ];
-const ev = (pic, nama, amount, ob) => ({ picId: pic, eventName: nama, amount: amount,
+const ev = (pic, nama, amount, ob, srcId) => ({ picId: pic, eventName: nama, amount: amount,
   tax: Math.round(amount * 0.1), service: Math.round(amount * 0.05),
-  ob: ob ? 1 : 0, obAmount: ob || 0, obTax: 0, obService: 0 });
+  ob: ob ? 1 : 0, obAmount: ob || 0, obTax: 0, obService: 0, srcId: srcId || '' });
 const DAYS = [];
 for (let i = 0; i < 8; i++) {
   DAYS.push({ date: '2026-09-' + String(i + 1).padStart(2, '0'), omsetHari: 100000000,
     bd: { event: [ ev('p1', 'Ayu-' + i, 40000000 + i, i === 2 ? 750000 : 0),
                    ev('p2', 'Budi-' + i, 21000000 + i) ] } });
 }
-DAYS[0].bd.event.push(ev('p3', 'Citra-0', 9000000));
+DAYS[0].bd.event.push(ev('p3', 'Citra-0', 9000000));        // tanpa srcId: baris manual finance
+/* Tiga keadaan pembanding, semuanya milik Citra supaya pager Ayu tidak
+   bergeser. Ingat porsi event = amount/2 + Open Bill, BUKAN amount — dasar
+   yang berbeda dari modul Marketing, dan fixture yang menyamakannya akan
+   meloloskan pembilang yang tertukar. */
+DAYS[1].bd.event.push(ev('p3', 'Gala Citra', 20000000, 0, 'evt:X1'));  // porsi 10.000.000
+DAYS[2].bd.event.push(ev('p3', 'Pesta Citra', 8000000, 0, 'evt:X3'));  // porsi 4.000.000
+/* Acara MENURUT MODUL INI. start_datetime INSTANT UTC — 05:00Z = 12:00 WIB
+   di tanggal yang sama, jadi pergeseran zona punya tempat untuk muncul. */
+const ACARA_EV = [
+  { id:'X1', status:'Confirmed', title:'Gala Citra',   start_datetime:'2026-09-02T05:00:00.000Z', createdById:'u3', pic:'Citra', nominal:10000000 },
+  { id:'X2', status:'Confirmed', title:'Wedding Citra',start_datetime:'2026-09-05T05:00:00.000Z', createdById:'u3', pic:'Citra', nominal:5000000 },
+  { id:'X3', status:'Confirmed', title:'Pesta Citra',  start_datetime:'2026-09-03T05:00:00.000Z', createdById:'u3', pic:'Citra' },
+  /* Dilewati events_hari(), jadi harus dilewati di sini juga — dua layar yang
+     menyaring dengan aturan berbeda memajang jumlah acara yang berbeda. */
+  { id:'X4', status:'Draft',     title:'Draf Citra',   start_datetime:'2026-09-06T05:00:00.000Z', createdById:'u3', pic:'Citra', nominal:9000000 },
+];
 const DATA = { pic: PIC, days: DAYS, comps: [] };
 /* Salinan payload TANPA omsetHari — bentuk yang dipulangkan backend versi
    lama, dan juga bulan yang Input Omset Hariannya memang belum diisi. */
@@ -124,6 +140,7 @@ function buka(namaAku, jabatanAku, opsi) {
   if (opsi.isModuleAdmin) roster.find(r => r.name === namaAku).isModuleAdmin = true;
   w.eval(`
     EMS_ROSTER = ${JSON.stringify(roster)};
+    DB.events = ${JSON.stringify(ACARA_EV)};
     PEV.st='ok'; PEV.bulan='2026-09'; PEV.dimuat='2026-09'; PEV.data=${JSON.stringify(opsi.tanpaOmsetHari ? DATA_TANPA_OMSET : DATA)}; PEV.pic='';
   `);
   return w;
@@ -440,6 +457,59 @@ cek('...lewat kompas-api, bukan api modul ini',
   const bocor = blokCss.split('\n')
     .filter(b => /^[.#a-z@]/i.test(b.trim()) && b.indexOf('#pev-wrap') < 0);
   cek('tidak ada aturan yang lolos jadi global', bocor.length === 0, bocor.join(' | '));
+
+  /* ---------- DAFTAR EVENT DARI MODUL INI (permintaan user 9 Sep 2026) ------
+     Aturannya sama dengan modul Marketing; bedanya modul ini TIDAK menyimpan
+     nilai rupiah event di tempat lain, jadi kolom Nominal lahir kosong dan
+     diketik di sini. Yang dijaga KETIGA keadaannya: cocok, belum diisi, dan
+     belum diinput finance. */
+  console.log('\n-- daftar event dari modul ini --');
+  const wD = buka('Ayu', 'Event, Head');
+  bukaHal(wD);
+  wD.eval("(function(){ document.querySelector('#pev_seg button[data-pic=\"p3\"]').click(); })()");
+  const bD = body(wD);
+  cek('kolom Nominal digambar', bD.indexOf('>Nominal<') > -1);
+  cek('acara yang finance BELUM input tetap tampil',
+      bD.indexOf('Wedding Citra') > -1 && bD.indexOf('belum diinput finance</div>') > -1,
+      'inilah sebab kolom ini ada: acaranya tidak boleh hilang dari layar');
+  cek('nominal yang sama dengan Diakui ditandai cocok', bD.indexOf('>cocok<') > -1,
+      'Gala Citra: nominal 10.000.000 vs diakui 20.000.000/2');
+  cek('acara yang nominalnya belum diketik dibedakan dari nol',
+      bD.indexOf('belum diisi') > -1,
+      'nol berarti acaranya memang tidak membawa apa-apa \u2014 keputusan yang berbeda');
+  cek('baris breakdown tanpa pasangan tetap tergambar',
+      bD.indexOf('Citra-0') > -1 && bD.indexOf('hanya ada di Breakdown') > -1);
+  /* Penyaring status HARUS sama dengan events_hari(): Draft/Planning/Cancelled
+     tidak pernah punya baris breakdown, jadi menampilkannya di sini membuat
+     daftar "belum diinput finance" yang tidak akan pernah bisa dibereskan. */
+  cek('acara Draft tidak ikut, sama dengan events_hari()', bD.indexOf('Draf Citra') < 0);
+  /* start_datetime INSTANT UTC. Dipotong mentah, 2026-09-02T05:00Z tetap
+     terbaca 2 September di mesin ini — jadi angkanya saja tidak membuktikan
+     apa pun, dan kontraknya dijaga di SUMBER. */
+  cek('tanggalnya digeser ke WIB, bukan dipotong mentah',
+      /function pevTglWIB\([\s\S]{0,240}7\*3600\*1000/.test(src),
+      'acara lewat tengah malam akan pindah ke hari sebelumnya');
+
+  console.log('\n-- nominal diketik di halaman ini --');
+  wD.eval("(function(){" +
+    " var i=document.querySelector('#pev_body input[data-src=\"evt:X3\"]');" +
+    " if(!i) return; i.value='4.000.000';" +
+    " i.dispatchEvent(new Event('change',{bubbles:true}));" +
+  "})()");
+  sama('nominal tersimpan ke event modul ini', wD.eval("(DB.events.find(e=>e.id==='X3')||{}).nominal"), 4000000);
+  cek('...dan \u201cbelum diisi\u201d hilang dari baris itu',
+      body(wD).indexOf('Pesta Citra') > -1 && body(wD).indexOf('belum diisi') < 0,
+      'yang lain sudah terisi, jadi hilangnya kalimat itu memang gara-gara suntingan ini');
+  /* Kosong = KEMBALI KOSONG, bukan nol: dua keadaan yang menuntut tindakan
+     berbeda tidak boleh berbunyi sama. */
+  wD.eval("(function(){" +
+    " var i=document.querySelector('#pev_body input[data-src=\"evt:X3\"]');" +
+    " if(!i) return; i.value='';" +
+    " i.dispatchEvent(new Event('change',{bubbles:true}));" +
+  "})()");
+  cek('dikosongkan berarti belum diisi, bukan nol',
+      wD.eval("(DB.events.find(e=>e.id==='X3')||{}).nominal")===undefined
+      && body(wD).indexOf('belum diisi') > -1);
 
   console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
   process.exit(gagal ? 1 : 0);

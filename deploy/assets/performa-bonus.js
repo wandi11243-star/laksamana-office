@@ -114,11 +114,16 @@ function pbAgregasi(days, divi, list, comps){
         agg[r.picId].events.push({ date:d.date, name:r.eventName,
           amount:PB_NUM(r.amount), tax:PB_NUM(r.tax), service:PB_NUM(r.service),
           ob:pbObTotal(r), porsi:porsi, tiket:!!r.tiket,
+          /* Pengenal acara asalnya (`mkt:` / `vip:` / `evt:`). Dipakai modul
+             Marketing & Event untuk mencocokkan baris ini dengan acara milik
+             modulnya sendiri; kosong untuk baris manual yang diketik finance,
+             dan yang kosong memang tidak punya pasangan. */
+          srcId:String(r.srcId||''),
           /* Jenis dari modul Marketing, penentu "event corporate" di Skema 1.
              Yang kosong TIDAK ditebak — lihat mkCorporate(). */
           jenis:String(r.srcJenis||'') });
       } else if(PB_NUM(r.amount)>0 || r.eventName){
-        yatim.push({ date:d.date, name:r.eventName||'(tanpa nama)',
+        yatim.push({ date:d.date, name:r.eventName||'(tanpa nama)', srcId:String(r.srcId||''),
           amount:PB_NUM(r.amount), porsi:porsi, srcPic:r.srcPic||'', ada:!!r.picId });
       }
     });
