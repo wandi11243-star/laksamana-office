@@ -1937,11 +1937,19 @@ tidak layak berdiri di sana.
 > dikunci sekarang.
 
 ```bash
-node tools/uji-analytics.js   # 252 pemeriksaan (dari 230)
+node tools/uji-analytics.js   # 254 pemeriksaan (dari 230)
 ```
 
 Dua belas mutasi dicoba; dua di antaranya lolos lebih dulu (keduanya di atas)
 lalu tertangkap sesudah asersinya dibetulkan.
+
+**Kolomnya diganti nama jadi `Kontribusi hari` (9 September 2026)** sesudah user
+bertanya *"kontribusinya itu gimana bisa dapat angkanya segitu?"* — ia berdiri
+tepat di sebelah `Omset event saja`, jadi terbaca sebagai kontribusi ACARANYA,
+padahal pembilangnya omset SEHARI PENUH. Persentase acaranya sendiri sekarang
+ditulis kecil di kolom acaranya, dan keterangan tabel menyebut aritmetikanya
+utuh: angka yang tidak bisa dihitung ulang sendiri oleh yang membacanya akan
+ditanyakan lagi.
 
 #### Selisih POS vs Rekap dipecah PER HARI (6 September 2026)
 
@@ -5000,6 +5008,152 @@ Ujinya memeriksa keadaan diam **dua kali**: segera sesudah `save()` dan sekali
 lagi sesudah server menjawab. Yang cuma melihat salah satunya akan hijau untuk
 kode yang memblokir sekejap lalu melepasnya — dan celah itu persis yang
 dikeluhkan. Delapan mutasi dicoba, kedelapannya tertangkap.
+
+### Radar: Reservasi VIP punya cabangnya sendiri (9 September 2026)
+
+Permintaan user: panel detail Reservasi VIP di Radar diisi **PIC**, **jumlah
+orang**, dan **catatan** dari reservasinya di modul Marketing. Yang ditemukan
+saat mengerjakannya: panel itu memang **kosong seluruhnya**, dan sebabnya dua
+bug yang sama-sama gagal DIAM.
+
+**1. `drawerAgenda()` cuma punya dua cabang** — `mkt` dan `else`. VIP jatuh ke
+`else` milik modul Event dan dibaca sebagai event: `venue`, `category`,
+`capacity`, `pic`, `co_pic`. Tidak satu pun ada di baris VIP, jadi keenam
+kotaknya berbunyi `—` dan panelnya terbaca sebagai **data rusak**.
+
+> Bahayanya SUDAH tertulis di komentar pembangun AGENDA sejak VIP lahir
+> ("baris VIP yang menyamar sebagai event akan dibaca `drawerAgenda()` sebagai
+> event"), dan penjaganya cuma dipasang di cabang `mkt`. Sumber KETIGA yang
+> jatuh ke cabang terakhir adalah bentuk kesalahan yang sama persis dengan
+> `labelSumber()` — dan kali ini komentarnya pun sudah ada, cuma tidak diikuti.
+
+**2. `pax` VIP TIDAK PERNAH ADA.** Baris VIP menyimpan `paxMin`/`paxMax` (tamu
+memberi perkiraan rentang), sementara Radar membaca `v.pax`. Jadi kartu
+**Reservasi VIP** di Agenda selalu menulis **0 pax** walau ada tiga reservasi
+seratus orang — angka nol yang kelihatan wajar, tanpa satu pun galat.
+
+- **Yang dipakai BATAS ATAS** (`paxMax`, jatuh ke `paxMin`): angka ini dibaca
+  untuk menyiapkan tempat dan orang, dan menyiapkan kekurangan lebih mahal
+  daripada menyiapkan kelebihan. Karena ia perkiraan — bukan pax kontrak seperti
+  event — kartunya **mengatakan "(perkiraan atas)"**.
+- **Rentangnya ditulis SATU tempat** (`paxVipTeks`), dipakai kartu dan panel.
+  Dua penulis akan menyimpang, dan yang menyimpang di sini jumlah orang yang
+  disiapkan.
+- **Catatan reservasi ditampilkan UTUH**, tidak dipotong: isinya permintaan tamu
+  (dekorasi, alergi, susunan meja), dan potongan di tengah kalimat justru
+  menyembunyikan bagian yang membuatnya ditulis. Beda dari deskripsi acara modul
+  Event yang memang panjang dan dipotong 400 huruf.
+- **Judul bagian catatan tidak digambar kalau kosong** — "Catatan: —" membuat
+  orang mencari catatan yang memang tidak pernah ada.
+
+```bash
+node tools/uji-vip-radar.js   # 18 pemeriksaan, jsdom
+```
+
+**BERKAS UJI PERTAMA untuk modul Radar.** Sampai tanggal ini modul ini cuma
+"hanya boot yang diuji" di `smoke-modul.js` — routernya tidak terbaca dari luar,
+jadi tidak satu pun panel detailnya pernah dijalankan. Dua hal yang perlu
+diingat saat menambah ujinya:
+
+- **Seluruh skrip Radar terbungkus IIFE** dan yang ditempel ke `window` cuma
+  `APP`. Jembatan `eval` disuntikkan KE DALAM IIFE saat uji jalan — pola yang
+  sama dengan `uji-arsip-konten.js` dan `uji-vendor.js`.
+- **`document.body.innerHTML` di jsdom IKUT MEMUAT ISI `<script>`**, dan skrip
+  modul ini memang di dalam `<body>`. Asersi teks apa pun karena itu bisa cocok
+  dengan KOMENTAR di kodenya sendiri: mutasi yang mencabut kalimat "perkiraan
+  atas" dari layar **LOLOS**, karena kalimat itu masih tertulis di komentar yang
+  menjelaskannya. Buang tag `<script>` dulu sebelum mencari. Bentuk baru dari
+  jebakan yang sudah tercatat untuk `uji-tanpa-target.js`.
+
+**Fixture VIP di `uji-hilang-marketing.js` ikut dibetulkan** — ia mengarang
+field `pax` yang tidak pernah ada di produksi, jadi ia hijau untuk kode yang
+membaca `v.pax` dan tidak pernah bisa melihat bahwa seluruh pax VIP terhitung
+nol. **Tiruan yang bentuknya beda dari yang ditiru tidak menguji apa pun** —
+pelajaran yang sudah dibayar di stub `hpp.php`, dan terulang di sini.
+
+Delapan mutasi dicoba, kedelapannya tertangkap.
+
+### Ordering: rekap konfirmasi Central Kitchen (9 September 2026)
+
+Permintaan user: *"Minta dari CK dan Kirim ke CK, tolong buat confirmation
+send, rekapan seperti kirim orderan form order belanja."* Form belanja sudah
+punya rekapnya sejak lama (`pre-submit-modal`); dua form CK **langsung mengirim**
+begitu tombolnya ditekan.
+
+Bedanya bukan kenyamanan: satu MENAMBAH stok Central Kitchen dan satu menyuruh
+dapur menyiapkan barang, dan **keduanya tidak punya tombol batal sesudah
+terkirim** — salah ketik jumlah baru ketahuan saat barangnya datang.
+
+| | sebelum | sesudah |
+|---|---|---|
+| Minta dari CK | `submitCKOrder()` → cek duplikat → kirim | → **rekap** → cek duplikat → kirim |
+| Kirim ke CK | `submitKirimCK()` → catat mutasi | → **rekap** → catat mutasi |
+
+- **SATU modal untuk dua form** (`ck-konfirmasi-modal`), bukan dua. Yang berbeda
+  cuma judul, kata kerjanya, dan ada-tidaknya tanggal; dua modal yang isinya
+  nyaris sama akan menyimpang begitu salah satunya diperbaiki.
+- **Modal belanja TIDAK dipakai ulang**: di dalamnya ada pilihan batch
+  (baru/gabung) yang tidak berarti apa-apa untuk CK, dan memakainya berarti
+  menyembunyikan separuh isinya lewat `hidden` yang harus dijaga benar di dua
+  jalur sekaligus.
+- **Kata kerjanya DIBEDAKAN.** "Minta" dan "kirim" berlawanan arah; satu kalimat
+  untuk keduanya membuat yang salah membuka tab tidak punya satu pun tanda.
+  Jalur kirim menyebut **stok CK BERTAMBAH**.
+- **Tanggal hanya di jalur MINTA.** Untuk kirim, tanggalnya hari ini dan tidak
+  diketik siapa pun — kotak kosong cuma membuat orang mencari isian yang tidak
+  pernah ada.
+- **Catatan per baris IKUT di rekap.** Justru catatan yang paling sering salah
+  tempat, dan tanpa rekap tidak ada satu pun layar yang memperlihatkannya
+  sebelum terkirim.
+- **Rekap dulu, baru pemeriksa duplikat** — urutan yang sama dengan form
+  belanja. Dibalik, orang menjawab peringatan tentang pengajuan ORANG LAIN
+  sebelum sempat melihat pengajuannya sendiri.
+- **Rekap DITUTUP sebelum modal duplikat dibuka.** Dua modal penuh layar yang
+  bertumpuk membuat dua tombol "Batal" berdiri berdekatan, dan yang menekan
+  salah satunya tidak tahu mana yang berlaku.
+- **Yang dikunci tombol DI MODAL**, bukan tombol di form: modal menutupi
+  formnya, jadi tombol form tidak bisa ditekan dua kali — tapi tombol modal
+  bisa, dan tiap tekan mengirim seluruh daftarnya lagi.
+- **Nama barang di-escape** (`escHtmlCK`). Ia diketik orang; digambar lewat
+  `innerHTML` tanpa escape, satu nama yang memuat `<` merusak seluruh daftar
+  rekap — dan rekap yang rusak dibaca sebagai "barangnya tidak ikut".
+- **`textContent`, bukan `innerText`.** Untuk teks polos `textContent` memang
+  yang benar, dan `innerText` tidak ada di jsdom sama sekali: menyetelnya di
+  sana cuma membuat properti JS biasa, jadi teksnya tidak pernah sampai ke DOM
+  dan tidak satu pun uji bisa membacanya.
+
+```bash
+node tools/uji-konfirmasi-ck.js   # 34 pemeriksaan, jsdom
+```
+
+**Yang dijaga URUTANNYA, bukan adanya modal.** Rekap yang muncul SESUDAH
+barangnya terkirim tidak menahan apa pun, dan itulah kegagalan yang paling
+mungkin kalau alurnya "dirapikan" nanti — jadi tiap pemanggilan `fetch`
+dihitung, dan diperiksa bahwa hitungannya masih **NOL** selagi rekapnya
+terbuka. Empat hal yang memakan waktu kalau tidak diketahui lebih dulu:
+
+- **Skrip CDN dibuang, skrip LOKAL disisipkan inline.** Membuang keduanya
+  membuat `LaksForecast is not defined` melempar DI TENGAH blok skrip utama;
+  fungsi tetap terbaca (deklarasi fungsi terangkat) sementara `let` di bawahnya
+  masih di TDZ, jadi ujinya gagal dengan galat yang tidak ada hubungannya dengan
+  yang diuji. Boot dianggap selesai kalau `let`-nya sudah keluar TDZ — bukan
+  kalau fungsinya terbaca.
+- **`tailwind` perlu distub**: blok inline halaman ini menyetel `tailwind.config`.
+- **Kotak tanggal BUKAN `<input>` di markup** melainkan `<div data-kal>` yang
+  diisi `pasangKalender()`; satuan barang juga `<select>` KOSONG yang diisi
+  `onPilihBarangCK()` dari `packSatuan`. Disetel paksa lewat `.value`, keduanya
+  jadi string kosong dan formnya ditolak sebelum sampai ke rekap.
+- **`closeModal()` mencabut `modal-active` lewat `setTimeout` 300 ms.** Modal
+  yang dibuka lagi sebelum jadwal itu jalan akan ditutup oleh jadwal LAMA — dan
+  asersi "rekap ditutup" lalu hijau apa pun yang dilakukan kodenya.
+
+> **Satu asersi sempat LOLOS mutasi**, dan sebabnya layak diingat: jalur SUKSES
+> menutup modalnya sendiri lewat `kirimCKKeServer()`, jadi "rekap ditutup
+> sesudah dikonfirmasi" benar walau `tutupKonfirmasiCK()` dicabut. Yang
+> benar-benar menuntut penutupan adalah jalur **DUPLIKAT**, dan di situlah
+> asersinya sekarang berdiri.
+
+Sembilan mutasi dicoba, kesembilannya tertangkap.
 
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)
 

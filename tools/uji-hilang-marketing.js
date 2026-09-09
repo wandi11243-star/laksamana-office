@@ -309,12 +309,17 @@ else {
     D.mkt = { events: [
         { id: 'e1', nama: 'Event Klien', tanggal: '2026-10-05', status: 'Deal', pax: 100, detail: {} } ],
       vip: [
-        { id: 'v1', nama: 'VIP Aurel',  tanggal: '2026-09-10', status: 'Confirmed', pax: 8,
+        /* paxMin/paxMax — BENTUK YANG SESUNGGUHNYA. Baris VIP produksi tidak
+           punya `pax` sama sekali; fixture lama mengarangnya, dan karena itu
+           ia hijau untuk kode yang membaca v.pax sementara pax VIP di Radar
+           terhitung nol untuk SELURUH reservasi. */
+        { id: 'v1', nama: 'VIP Aurel',  tanggal: '2026-09-10', status: 'Confirmed',
+          paxMin: '6', paxMax: '8',
           jenis: 'Assisted', meja: ['A1', 'A2'], jamMulai: '19:00', jamSelesai: '22:00' },
-        { id: 'v2', nama: 'VIP Batal',  tanggal: '2026-09-11', status: 'Confirmed', pax: 4,
+        { id: 'v2', nama: 'VIP Batal',  tanggal: '2026-09-11', status: 'Confirmed', paxMin: '4',
           jenis: 'Assisted', batalAt: '2026-09-08T02:00:00Z' },
-        { id: 'v3', nama: 'VIP Cancel', tanggal: '2026-09-12', status: 'Cancelled', pax: 6, jenis: 'Assisted' },
-        { id: 'v4', nama: 'VIP Tanpa Tanggal', status: 'Confirmed', pax: 2 } ] };
+        { id: 'v3', nama: 'VIP Cancel', tanggal: '2026-09-12', status: 'Cancelled', paxMin: '6', jenis: 'Assisted' },
+        { id: 'v4', nama: 'VIP Tanpa Tanggal', status: 'Confirmed', paxMin: '2' } ] };
     D.evt = { events: [] };
     D.rsv = { reservations: [] };
     D.bd = null;
@@ -360,7 +365,7 @@ else {
   cek('pax VIP TIDAK dijumlahkan ke Total pax',
       !!mTotal && mTotal[1].indexOf('paxVip') < 0,
       'reservasi VIP juga mengunci meja di database Reservasi — tamunya bisa terhitung dua kali');
-  cek('...tapi tetap DIHITUNG dan ditampilkan terpisah', /paxVip\+' pax · tidak ikut Total'/.test(SRC),
+  cek('...tapi tetap DIHITUNG dan ditampilkan terpisah', /paxVip\+' pax[^']*tidak ikut Total'/.test(SRC),
       'menyembunyikannya sama saja tidak menjawab permintaannya');
   cek('...dan pemisahannya dikatakan di layar', /tidak ikut Total/.test(SRC));
 }

@@ -821,12 +821,29 @@ function satukan(){
      `status` adalah kesalahan yang sudah pernah dibayar di modul ini —
      lihat resBatal(): Radar sempat mencari kata `batal` yang TIDAK PERNAH
      dipakai, sehingga yang batal ikut terhitung sebagai booking hidup. */
+  /* RESERVASI VIP TIDAK PUNYA FIELD `pax` SAMA SEKALI. Yang ada `paxMin` dan
+     `paxMax` — tamu memberi perkiraan rentang, bukan satu angka. Sampai
+     9 September 2026 baris ini membaca `v.pax`, jadi SELURUH pax VIP terhitung
+     NOL: kartu "Reservasi VIP" di Agenda selalu menulis 0 pax walau ada tiga
+     reservasi seratus orang, dan tidak ada satu pun galat yang menyebutkannya.
+
+     Yang dipakai BATAS ATAS (paxMax, jatuh ke paxMin kalau kosong): angka ini
+     dibaca untuk menyiapkan tempat dan orang, dan menyiapkan kekurangan lebih
+     mahal daripada menyiapkan kelebihan. Karena ia perkiraan atas — bukan
+     angka pasti seperti pax kontrak event — kartunya MENGATAKAN itu. */
+  function paxVipAngka(v){ return +((v&&v.paxMax)||0) || +((v&&v.paxMin)||0) || 0; }
+  function paxVipTeks(v){
+    var a=+((v&&v.paxMin)||0), b=+((v&&v.paxMax)||0);
+    if(a && b && b!==a) return a+'–'+b+' orang';
+    return (b||a) ? (b||a)+' orang' : '';
+  }
+  APP_paxVipTeks = paxVipTeks;
   (D.mkt&&D.mkt.vip||[]).forEach(function(v){
     if(!v||!v.tanggal||v.batalAt) return;
     var meja=Array.isArray(v.meja)?v.meja.join(', '):String(v.meja||'');
     AGENDA.push({sumber:'vip', id:v.id, tgl:v.tanggal, judul:v.nama||'(tanpa nama)',
       jam:v.jamMulai||'', selesai:v.jamSelesai||'',
-      tempat:meja, status:v.status||'', pax:+v.pax||0,
+      tempat:meja, status:v.status||'', pax:paxVipAngka(v),
       jenis:v.jenis||'', fb:'', mentah:v});
   });
   /* Agenda tanpa jam diletakkan di AKHIR hari, bukan awal. Sebagian besar
@@ -1724,7 +1741,7 @@ function vAgendaList(){
     stat('Pax Marketing', paxMkt, list.filter(function(a){return a.sumber==='mkt';}).length+' event klien','')+
     stat('Pax Event', paxEvt, list.filter(function(a){return a.sumber==='evt';}).length+' acara modul Event','tl')+
     stat('Reservasi VIP', list.filter(function(a){return a.sumber==='vip';}).length,
-         paxVip+' pax · tidak ikut Total','se')+
+         paxVip+' pax (perkiraan atas) · tidak ikut Total','se')+
     stat('Total pax', paxMkt+paxEvt, 'Marketing + Event','se')+
   '</div>';
   h+='<div class="filters">'+
@@ -1916,6 +1933,10 @@ function vResList(){
 }
 
 /* ---------- PANEL DETAIL (read-only) ---------- */
+/* Diisi saat AGENDA dibangun — drawer VIP memakai penulis rentang yang SAMA,
+   bukan menyusunnya sendiri. Dua penulis untuk satu rentang akan menyimpang,
+   dan yang menyimpang di sini adalah jumlah orang yang disiapkan. */
+var APP_paxVipTeks=function(){ return ''; };
 function namaMkt(id){
   if(!id) return '';
   var u=(D.mkt&&D.mkt.users||[]).filter(function(x){return String(x.id)===String(id);})[0];
@@ -2200,6 +2221,50 @@ function drawerAgenda(a){
        Ringkasannya TIDAK ikut hilang: pil "Siap 62%" tetap berdiri di deretan
        pil atas drawer, dan rincian per divisi lengkap tetap ada di halaman
        Detail Lengkap — satu tombol di bawah. */
+  }else if(a.sumber==='vip'){
+    /* RESERVASI VIP PUNYA CABANGNYA SENDIRI (permintaan user 9 Sep 2026).
+
+       Sebelum ini ia jatuh ke cabang `else` milik modul Event dan dibaca
+       sebagai event: venue, category, capacity, pic, co_pic — TIDAK SATU PUN
+       ada di baris VIP, jadi keenam kotaknya berbunyi "—". Yang tampil bukan
+       galat melainkan panel kosong yang terbaca sebagai data rusak.
+
+       Bahaya ini SUDAH tertulis di komentar pembangun AGENDA ("baris VIP yang
+       menyamar sebagai event akan dibaca drawerAgenda() sebagai event"), dan
+       penjaganya cuma dipasang di cabang `mkt`. Sumber KETIGA yang jatuh ke
+       cabang terakhir adalah bentuk kesalahan yang sama dengan labelSumber()
+       — lihat catatannya di CLAUDE.md. */
+    var v=a.mentah, clv=klienMkt(v.clientId);
+    h+='<div class="kv">'+
+      kvRow('Waktu', (a.jam||'—')+(a.selesai?'–'+a.selesai:''))+
+      kvRow('Meja', esc(a.tempat||''))+
+      kvRow('Jumlah orang', esc(APP_paxVipTeks(v)))+
+      kvRow('Jenis', esc(a.jenis||''))+
+      kvRow('Marketing PIC', esc(namaMkt(v.mktPIC)))+
+      kvRow('Kontak', esc(v.hp||''))+
+    '</div>';
+    /* Nama di judul panel adalah nama RESERVASI; yang di sini nama klien
+       terdaftar berikut perusahaannya. Keduanya sering beda — reservasi
+       diketik atas nama orang yang datang, klien tercatat atas nama yang
+       membayar — dan yang menelepon perlu tahu keduanya. */
+    if(clv || v.perusahaan) h+='<div class="kv">'+
+      kvRow('Klien', esc((clv&&(clv.nama||clv.name))||''))+
+      kvRow('Perusahaan', esc(v.perusahaan||(clv&&clv.perusahaan)||''))+
+    '</div>';
+    /* CATATAN ditampilkan UTUH, tidak dipotong. Isinya permintaan tamu yang
+       ditulis marketing — dekorasi, alergi, susunan meja — dan catatan yang
+       terpotong di tengah kalimat justru menyembunyikan bagian yang membuatnya
+       ditulis. Beda dari deskripsi acara modul Event yang memang panjang dan
+       dipotong 400 huruf.
+
+       Digambar lewat esc() + white-space:pre-wrap: ia diketik di kotak teks
+       biasa, jadi baris barunya berarti, dan tidak ada HTML yang boleh hidup. */
+    var catVip=String(v.catatan||'').trim();
+    if(catVip){
+      h+='<div class="sec-h" style="margin-top:6px"><h2>Catatan reservasi</h2><span class="rule"></span></div>'+
+        '<div style="font-size:13px;color:var(--sand-dim);line-height:1.6;margin-bottom:14px;padding:12px 14px;background:#fff;border:1px solid var(--line-soft);border-radius:10px;white-space:pre-wrap">'+
+        esc(catVip)+'</div>';
+    }
   }else{
     var e2=a.mentah, tal=talentEvt(a.id);
     h+='<div class="kv">'+

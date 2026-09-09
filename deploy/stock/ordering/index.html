@@ -929,6 +929,41 @@
         </div>
     </div>
 
+    <!-- Rekap konfirmasi Central Kitchen (minta & kirim) — lihat catatan di
+         bukaKonfirmasiCK(). z-[65]: DI ATAS modal rekap belanja (60) tapi DI
+         BAWAH modal duplikat (70), yang memang harus menang atas segalanya. -->
+    <div id="ck-konfirmasi-modal" class="fixed inset-0 bg-slate-900/70 z-[65] flex items-center justify-center backdrop-blur-sm transition-opacity opacity-0 pointer-events-none">
+        <div class="bg-white rounded-3xl shadow-2xl p-6 max-w-md w-full mx-4 transform scale-95 opacity-0 transition-all duration-300 flex flex-col max-h-[90vh]" id="ck-konfirmasi-modal-content">
+            <div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
+                <h3 class="text-lg font-black text-slate-800 flex items-center gap-2">
+                    <i class="fa-solid fa-clipboard-check text-teal-600"></i>
+                    <span id="ck-konfirmasi-judul">Konfirmasi</span>
+                </h3>
+                <button onclick="tutupKonfirmasiCK()" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark text-xl"></i></button>
+            </div>
+
+            <p id="ck-konfirmasi-sub" class="text-[11px] font-semibold text-slate-500 leading-relaxed mb-3"></p>
+
+            <div class="flex gap-4 mb-3 text-xs font-bold bg-slate-50 p-3 rounded-xl border border-slate-100">
+                <div class="flex-1 text-slate-600"><span class="block text-[9px] uppercase text-slate-400">PIC</span><span id="ck-konfirmasi-pic" class="text-teal-700"></span></div>
+                <div class="flex-1 text-slate-600 hidden" id="ck-konfirmasi-tgl-box"><span class="block text-[9px] uppercase text-slate-400">Dibutuhkan</span><span id="ck-konfirmasi-tgl" class="text-teal-700"></span></div>
+            </div>
+
+            <div class="flex items-center justify-between mb-2">
+                <div class="text-[10px] font-black uppercase text-slate-400 tracking-wider">Daftar Barang (Pastikan Benar)</div>
+                <div id="ck-konfirmasi-jml" class="text-[10px] font-black text-slate-500"></div>
+            </div>
+            <div id="ck-konfirmasi-list" class="flex-1 overflow-y-auto mb-5 space-y-1.5 border border-slate-100 rounded-xl p-2 bg-slate-50 min-h-[100px]"></div>
+
+            <div class="flex gap-3 mt-auto">
+                <button onclick="tutupKonfirmasiCK()" class="flex-1 py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl text-xs transition-all border border-slate-200">Batal (Edit Form)</button>
+                <button id="btn-ck-konfirmasi" onclick="lanjutKonfirmasiCK()" class="flex-1 py-3.5 bg-teal-600 hover:bg-teal-700 text-white font-bold rounded-xl text-xs transition-all shadow-md shadow-teal-500/30 flex items-center justify-center gap-2">
+                    <i class="fa-solid fa-paper-plane"></i> Kirim
+                </button>
+            </div>
+        </div>
+    </div>
+
     <!-- 2. Confirmation Duplicate Modal -->
     <div id="duplicate-modal" class="fixed inset-0 bg-slate-900/80 z-[70] flex items-center justify-center backdrop-blur-sm transition-opacity opacity-0 pointer-events-none">
         <div class="bg-white rounded-3xl shadow-2xl p-6 max-w-sm w-full mx-4 transform scale-95 opacity-0 transition-all duration-300" id="duplicate-modal-content">
@@ -2573,10 +2608,32 @@
                untuk barang yang sama pada hari yang sama lolos begitu saja.
                Yang kedua itulah yang benar-benar merugikan: dapur menyiapkan
                dua kali untuk satu kebutuhan. */
+            CK_KONFIRM = { mode:'minta', pesanan: pesanan, tgl: tgl, pic: pic };
+            bukaKonfirmasiCK();
+        }
+
+        /* Pemeriksa duplikat + kiriman yang sesungguhnya. Dipisah dari
+           submitCKOrder() supaya rekap konfirmasi berdiri di antara keduanya.
+
+           URUTANNYA MENGIKUTI FORM BELANJA: rekap dulu, baru pemeriksa duplikat.
+           Keduanya menjawab pertanyaan yang berbeda — rekap menanyakan "apa ini
+           yang kamu maksud", duplikat memperingatkan "orang lain sudah
+           mengajukan barang yang sama". Dibalik, orang menjawab peringatan
+           tentang pengajuan orang lain sebelum sempat melihat pengajuannya
+           sendiri.
+
+           PEMERIKSA DUPLIKAT SISI CK (10 Agustus 2026). Sebelumnya form ini
+           tidak punya sama sekali — hanya form belanja yang memilikinya, dan
+           pemeriksa itu justru mengadu CK dengan belanja (dua hal yang memang
+           boleh berbarengan) sambil membiarkan dua pengajuan CK untuk barang
+           yang sama pada hari yang sama lolos begitu saja. Yang kedua itulah
+           yang benar-benar merugikan: dapur menyiapkan dua kali untuk satu
+           kebutuhan. */
+        async function lanjutCKOrder(pesanan, tgl, pic) {
             // Tombol dikunci SELAMA pemeriksaan juga, bukan cuma saat mengirim:
             // pemeriksaannya menembak jaringan, dan klik kedua di sela itu
             // menghasilkan dua pengajuan yang dua-duanya lolos.
-            const btnCek = document.getElementById('btn-ck-submit');
+            const btnCek = document.getElementById('btn-ck-konfirmasi');
             const htmlCek = btnCek ? btnCek.innerHTML : '';
             if (btnCek) {
                 btnCek.disabled = true;
@@ -2586,12 +2643,114 @@
             try { dup = await cekDuplikatCK(pesanan, tgl); }
             finally { if (btnCek) { btnCek.disabled = false; btnCek.innerHTML = htmlCek; } }
 
+            /* Modal rekap DITUTUP sebelum modal duplikat dibuka. Keduanya modal
+               penuh layar; ditumpuk, yang di bawah tetap terlihat di tepinya dan
+               tombol "Batal" milik dua modal berdiri berdekatan. */
+            tutupKonfirmasiCK();
             if (dup.length) {
                 pendingSubmission = { ck: true, pesanan: pesanan, tgl: tgl, pic: pic };
                 showDuplicateModal(dup, tgl, false);
                 return;
             }
             await kirimCKKeServer(pesanan, tgl, pic);
+        }
+
+        /* ================= REKAP KONFIRMASI CENTRAL KITCHEN =================
+           Permintaan user 9 September 2026: "Minta dari CK dan Kirim ke CK,
+           tolong buat confirmation send, rekapan seperti kirim orderan form
+           order belanja."
+
+           Form belanja sudah punya rekapnya sejak lama (pre-submit-modal); dua
+           form CK langsung mengirim begitu tombolnya ditekan. Bedanya bukan
+           kenyamanan: yang satu MENAMBAH stok Central Kitchen dan yang satu
+           menyuruh dapur menyiapkan barang, dan keduanya tidak punya tombol
+           batal setelah terkirim — salah ketik jumlah baru ketahuan saat
+           barangnya datang.
+
+           SATU modal untuk dua form, bukan dua modal. Yang berbeda cuma judul,
+           kata kerjanya, dan ada-tidaknya tanggal; dua modal yang isinya nyaris
+           sama akan menyimpang begitu salah satunya diperbaiki, dan yang
+           membacanya tidak punya cara tahu mana yang berlaku.
+
+           Modal belanja TIDAK dipakai ulang: di dalamnya ada pilihan batch
+           (baru/gabung) yang tidak berarti apa-apa untuk CK, dan memakainya
+           berarti menyembunyikan separuh isinya lewat kelas `hidden` yang harus
+           dijaga benar di dua jalur sekaligus. */
+        let CK_KONFIRM = null;
+
+        function bukaKonfirmasiCK() {
+            const k = CK_KONFIRM;
+            if (!k) return;
+            const minta = k.mode === 'minta';
+            const baris = minta ? k.pesanan : k.daftar;
+
+            document.getElementById('ck-konfirmasi-judul').textContent =
+                minta ? 'Konfirmasi Permintaan ke CK' : 'Konfirmasi Kiriman ke CK';
+            /* Kata kerjanya DIBEDAKAN. "Minta" dan "kirim" berlawanan arah, dan
+               satu kalimat untuk keduanya membuat yang salah membuka tab tidak
+               punya satu pun tanda bahwa ia sedang di form yang keliru. */
+            document.getElementById('ck-konfirmasi-sub').textContent = minta
+                ? 'Dapur akan menyiapkan barang di bawah ini. Pastikan jumlahnya benar — permintaan yang sudah terkirim tidak bisa dibatalkan sendiri.'
+                : 'Stok Central Kitchen akan BERTAMBAH sebanyak daftar di bawah. Pastikan jumlahnya benar — mutasi yang sudah tercatat harus dibetulkan manual.';
+            document.getElementById('ck-konfirmasi-pic').textContent = k.pic || '—';
+
+            /* Tanggal cuma ada di jalur MINTA. Untuk kirim, tanggalnya hari ini
+               dan ditentukan server-side (isoLokal), jadi memajang kotak kosong
+               di sana cuma membuat orang mencari isian yang tidak pernah ada. */
+            const boxTgl = document.getElementById('ck-konfirmasi-tgl-box');
+            if (minta) {
+                boxTgl.classList.remove('hidden');
+                const dObj = new Date(k.tgl);
+                document.getElementById('ck-konfirmasi-tgl').textContent =
+                    isNaN(dObj) ? k.tgl : dObj.toLocaleDateString('id-ID', { weekday:'short', day:'numeric', month:'short' });
+            } else {
+                boxTgl.classList.add('hidden');
+            }
+
+            /* Catatan per baris IKUT di rekap. Justru catatan yang paling sering
+               salah tempat — ia diketik di baris yang keliru, dan tanpa rekap
+               tidak ada satu pun layar yang memperlihatkannya sebelum terkirim. */
+            document.getElementById('ck-konfirmasi-list').innerHTML = baris.map(function (o) {
+                const nama = o.item;
+                const qty = minta ? o.qty : o.qtyInput;
+                const unit = minta ? o.unit : o.unitInput;
+                const note = minta ? o.note : o.catatan;
+                const catatan = (note && note !== '-') ? note : '';
+                return '<div class="bg-white p-2 rounded-lg border border-slate-100 shadow-sm">'
+                     + '<div class="flex justify-between items-center gap-2">'
+                     + '<span class="text-xs font-bold text-slate-700">' + escHtmlCK(nama) + '</span>'
+                     + '<span class="text-[10px] font-black text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-100 shrink-0">'
+                     + escHtmlCK(String(qty)) + ' ' + escHtmlCK(String(unit || '')) + '</span></div>'
+                     + (catatan ? '<div class="text-[10px] text-slate-400 font-semibold mt-1">' + escHtmlCK(catatan) + '</div>' : '')
+                     + '</div>';
+            }).join('');
+
+            /* Jumlah barisnya DISEBUT. Daftar yang panjang digulir, dan yang
+               menggulirnya tidak punya cara tahu ia sudah sampai ujungnya. */
+            document.getElementById('ck-konfirmasi-jml').textContent = baris.length + ' barang';
+            const btn = document.getElementById('btn-ck-konfirmasi');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fa-solid fa-paper-plane"></i> ' + (minta ? 'Kirim Permintaan' : 'Catat Kiriman');
+            openModal('ck-konfirmasi-modal');
+        }
+
+        function tutupKonfirmasiCK() { closeModal('ck-konfirmasi-modal'); }
+
+        /* Nama barang diketik orang, jadi ia bisa memuat < atau &. Digambar
+           lewat innerHTML tanpa di-escape, satu nama yang aneh merusak seluruh
+           daftar rekap — dan rekap yang rusak justru dibaca sebagai "barangnya
+           tidak ikut". */
+        function escHtmlCK(s) {
+            return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+                return ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' })[c];
+            });
+        }
+
+        function lanjutKonfirmasiCK() {
+            const k = CK_KONFIRM;
+            if (!k) return tutupKonfirmasiCK();
+            if (k.mode === 'minta') lanjutCKOrder(k.pesanan, k.tgl, k.pic);
+            else lanjutKirimCK(k.daftar, k.pic);
         }
 
         /* Rekap pengajuan CK yang masih aktif untuk tanggal itu, lalu cocokkan
@@ -2825,10 +2984,23 @@
             if (adaBarisRusak) return showToast("Baris Belum Lengkap", "Ada baris yang barangnya atau jumlahnya belum diisi.", "warning");
             if (!daftar.length) return showToast("Belum Ada Barang", "Pilih minimal satu barang.", "warning");
 
-            const btn = document.getElementById('btn-kirim-submit');
-            const htmlAsli = btn.innerHTML;
-            btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Mencatat ${daftar.length} barang...`;
-            btn.disabled = true;
+            CK_KONFIRM = { mode:'kirim', daftar: daftar, pic: pic };
+            bukaKonfirmasiCK();
+        }
+
+        /* Bagian KIRIM yang sesungguhnya. Dipisah dari submitKirimCK() supaya
+           rekap konfirmasi berdiri di antara keduanya — lihat catatan di
+           bukaKonfirmasiCK(). */
+        async function lanjutKirimCK(daftar, pic) {
+            /* Yang dikunci tombol DI MODAL, bukan tombol di form: modal menutupi
+               formnya, jadi tombol form tidak bisa ditekan dua kali — tapi tombol
+               modal bisa, dan tiap tekan mengirim seluruh daftarnya lagi. */
+            const btn = document.getElementById('btn-ck-konfirmasi');
+            const htmlAsli = btn ? btn.innerHTML : '';
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Mencatat ${daftar.length} barang...`;
+            }
 
             const tgl = isoLokal(new Date());
             const tim = timSaatIni();
@@ -2850,8 +3022,11 @@
                 if (!pesanGagal) pesanGagal = String(e.message || e);
             }
 
-            btn.innerHTML = htmlAsli;
-            btn.disabled = false;
+            if (btn) { btn.disabled = false; btn.innerHTML = htmlAsli; }
+            /* Modal ditutup SEBELUM hasilnya diumumkan, berhasil maupun gagal:
+               toast muncul di atas layar, dan yang gagal perlu melihat formnya
+               lagi untuk mencoba ulang. */
+            tutupKonfirmasiCK();
 
             if (sukses) {
                 // Sebagian berhasil tetap dilaporkan apa adanya — melaporkan
@@ -2859,11 +3034,11 @@
                 // hilang tanpa ada yang tahu.
                 const pesan = sukses === daftar.length
                     ? 'Stok Central Kitchen sudah bertambah.'
-                    : `${sukses} dari ${daftar.length} tercatat. Sisanya gagal: ${pesanGagal}`;
+                    : sukses + ' dari ' + daftar.length + ' tercatat. Sisanya gagal: ' + pesanGagal;
                 showToast(sukses === daftar.length ? "Kiriman Tercatat" : "Sebagian Tercatat", pesan,
                           sukses === daftar.length ? "success" : "warning");
                 buangDraf('kirim', true);         // sudah tercatat — drafnya tidak berlaku lagi
-            document.getElementById('kirim-rows-wrapper').innerHTML = '';
+                document.getElementById('kirim-rows-wrapper').innerHTML = '';
                 for (let i = 0; i < 2; i++) addKirimRow();
                 updateKirimSummary();
                 muatRiwayatKiriman();

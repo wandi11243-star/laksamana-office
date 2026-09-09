@@ -1011,6 +1011,16 @@ async function siap(w) {
        pertama berarti angkanya belum diketik, yang kedua berarti acaranya
        memang tidak membawa omset. */
     cek('hari tanpa baris breakdown ditulis belum diisi', v.indexOf('belum diisi') > -1);
+    /* Pertanyaan user 9 September 2026: "kontribusinya gimana bisa dapat angka
+       segitu?" Kolom bernama "Kontribusi" berdiri tepat di sebelah "Omset
+       event saja", jadi terbaca sebagai kontribusi ACARANYA — padahal
+       pembilangnya omset SEHARI PENUH. Kepala kolomnya sekarang menyebut
+       pembilangnya, dan persentase acaranya sendiri ditulis di kolom acaranya.
+       5.950.000 / 23.000.000 = 25,9%. */
+    cek('kepala kolom menyebut pembilangnya', v.indexOf('Kontribusi hari') > -1);
+    cek('kontribusi acaranya sendiri ditulis terpisah',
+        v.indexOf('25.9% dari omset sebulan') > -1,
+        v.slice(v.indexOf('Omset event saja'), v.indexOf('Omset event saja') + 300));
 
     /* ---------- TOP 3, menggantikan kartu pembanding kasar ---------- */
     cek('kartu pembanding kasar sudah tidak digambar',
