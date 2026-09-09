@@ -49,11 +49,15 @@ const ev = (pic, nama, amount) => ({ picId: pic, eventName: nama, amount: amount
   tax: Math.round(amount * 0.1), service: Math.round(amount * 0.05), srcJenis: 'Corporate Event' });
 const DAYS = [];
 for (let i = 0; i < 8; i++) {
-  DAYS.push({ date: '2026-09-' + String(i + 1).padStart(2, '0'),
+  DAYS.push({ date: '2026-09-' + String(i + 1).padStart(2, '0'), omsetHari: 100000000,
     bd: { marketing: [ ev('p1', 'Ayu-' + i, 40000000 + i), ev('p2', 'Budi-' + i, 21000000 + i) ] } });
 }
 DAYS[0].bd.marketing.push(ev('p3', 'Citra-0', 9000000));
 const DATA = { pic: PIC, days: DAYS, comps: [] };
+/* Salinan payload TANPA omsetHari — bentuk yang dipulangkan backend versi
+   lama, dan juga bulan yang Input Omset Hariannya memang belum diisi. */
+const DATA_TANPA_OMSET = { pic: PIC, comps: [],
+  days: DAYS.map(d => ({ date: d.date, bd: d.bd })) };
 
 /* opsi: { adminModules, role } — dipakai menguji pengecualian admin modul.
    Keduanya dipisah karena sumbernya memang dua: adminModules jawaban Office,
@@ -103,7 +107,7 @@ function buka(namaAku, jabatanAku, opsi) {
     ])};
     S.users[0].jabatan = ${JSON.stringify(jabatanAku)};
     ME = S.users.find(u=>u.name===${JSON.stringify(namaAku)});
-    PFO.st='ok'; PFO.bulan='2026-09'; PFO.dimuat='2026-09'; PFO.data=${JSON.stringify(DATA)}; PFO.pic='';
+    PFO.st='ok'; PFO.bulan='2026-09'; PFO.dimuat='2026-09'; PFO.data=${JSON.stringify(opsi.tanpaOmsetHari ? DATA_TANPA_OMSET : DATA)}; PFO.pic='';
   `);
   if (opsi.role) w.eval('ME.role=' + JSON.stringify(opsi.role) + ';');
   return w;
@@ -331,6 +335,68 @@ cek('...lewat kompas-api, bukan api modul ini',
   cek('tidak ada aturan yang lolos jadi global', bocor.length === 0, bocor.join(' | '));
   cek('kartu aset benar-benar memakai kelas itu',
       /class="stat accent"|class="stat "/.test(body(w4)) || /class="stat/.test(body(w4)));
+
+  /* ---------- KOLOM KONTRIBUSI HARI ITU (permintaan user 9 Sep 2026) ----------
+     Penyebutnya omset venue pada tanggal itu — dikirim backend sebagai
+     `omsetHari` — dan BUKAN total acara sebulan. Konvensi yang sama persis
+     dengan kolom bernama sama di modul Analytics, supaya dua layar tidak
+     memajang angka berbeda untuk acara yang sama.
+
+     Ayu-0: 40.000.000 + tax 4.000.000 + service 2.000.000 = 46.000.000, dibagi
+     omset hari 100.000.000 = 46,0%. Yang dijaga ANGKANYA, bukan adanya kolom:
+     penyebut yang tertukar tetap memberi persen yang terlihat wajar. */
+  console.log('\n-- kontribusi hari itu --');
+  const w9 = buka('Ayu', 'Marketing, Head');
+  w9.eval("go('perfomset')");
+  cek('kolom Kontribusi hari itu digambar', body(w9).indexOf('>Kontribusi hari itu<') > -1);
+  cek('...dihitung dari omset hari itu', body(w9).indexOf('46.0%') > -1,
+      body(w9).slice(body(w9).indexOf('Daftar Event'), body(w9).indexOf('Daftar Event') + 1400));
+  cek('...dan selnya membawa penyebutnya sendiri',
+      body(w9).indexOf('dari omset hari itu') > -1,
+      'kepala kolom cuma terbaca sekali, angkanya dibaca tiap baris');
+  /* Hari yang omsetnya BELUM diinput dibedakan dari yang nol: menuliskannya 0%
+     membuat acaranya terbaca seolah tidak membawa apa-apa. */
+  const w10 = buka('Ayu', 'Marketing, Head', { tanpaOmsetHari: true });
+  w10.eval("go('perfomset')");
+  cek('hari tanpa omset ditulis apa adanya, bukan 0%',
+      body(w10).indexOf('belum ada omset') > -1 && body(w10).indexOf('0.0%') < 0,
+      body(w10).slice(body(w10).indexOf('Daftar Event'), body(w10).indexOf('Daftar Event') + 900));
+
+  /* ---------- KONTRAK BACKEND ----------
+     Penyebut kolom Kontribusi hari itu datang dari server (`omsetHari`), dan
+     fixture di atas menyediakannya sendiri — jadi seluruh sisi PHP-nya lewat
+     tanpa disentuh. Yang dijaga di sini kontraknya atas SUMBER, pola yang sama
+     dengan uji-simpan-basi.js: tiruan yang bentuknya beda dari yang ditiru
+     tidak menguji apa pun.
+
+     `kp_tagihan_hari` disebut namanya dengan sengaja. TIGA konvensi penjualan
+     hidup berdampingan di Office (net / tagihan / netSales); yang dipakai
+     Analytics tagihan, dan salinan rumusnya yang ditulis ulang di sini akan
+     menyimpang suatu hari — salahnya muncul sebagai uang, bukan sebagai galat. */
+  /* Dikunci di sumber, bukan di angka: di modul ini kolom Diakui kebetulan
+     bernilai sama dengan pembilang ini, jadi tidak ada angka di layar yang
+     bisa membedakan keduanya. Di modul Event `porsi` cuma separuh nilai
+     acara — dan dua halaman yang memakai rumus bernama sama akan menyimpang
+     begitu salah satunya disetel. */
+  const MKT = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'latin1');
+  const badanSel = MKT.slice(MKT.indexOf('function pfoSelKontribusi'),
+                             MKT.indexOf('function pfoRp'));
+  cek('pembilangnya nilai penuh acara, bukan kolom Diakui',
+      new RegExp("\\+ev\\.amount[\\s\\S]*\\+ev\\.tax[\\s\\S]*\\+ev\\.service[\\s\\S]*\\+ev\\.ob").test(badanSel)
+      && badanSel.indexOf('ev.porsi') < 0,
+      'ev.porsi hari ini bernilai sama; besok belum tentu, dan bedanya uang');
+
+  console.log('\n-- kontrak backend performaDivisi --');
+  const PHP = fs.readFileSync(path.join(ROOT, 'kompas-mysql/lib_kompas_mysql.php'), 'utf8');
+  cek('server mengirim omset harian di tiap hari',
+      PHP.indexOf("'omsetHari' =>") > -1,
+      'tanpa ini seluruh kolomnya berbunyi "belum ada omset" di produksi');
+  cek('...dihitung lewat kp_tagihan_hari(), bukan rumus salinan',
+      /'omsetHari'\s*=>[^;]*kp_tagihan_hari\(/.test(PHP),
+      'net dan tagihan berbeda sebesar tax + service — persennya ikut salah tanpa satu pun galat');
+  cek('...dari peta harian yang menjumlahkan baris daily ganda',
+      /\$petaHari\s*=\s*kp_peta_harian\(\);/.test(PHP),
+      'hari yang punya dua baris daily akan memulangkan separuh omsetnya');
 
   console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
   process.exit(gagal ? 1 : 0);

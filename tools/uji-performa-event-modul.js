@@ -64,12 +64,16 @@ const ev = (pic, nama, amount, ob) => ({ picId: pic, eventName: nama, amount: am
   ob: ob ? 1 : 0, obAmount: ob || 0, obTax: 0, obService: 0 });
 const DAYS = [];
 for (let i = 0; i < 8; i++) {
-  DAYS.push({ date: '2026-09-' + String(i + 1).padStart(2, '0'),
+  DAYS.push({ date: '2026-09-' + String(i + 1).padStart(2, '0'), omsetHari: 100000000,
     bd: { event: [ ev('p1', 'Ayu-' + i, 40000000 + i, i === 2 ? 750000 : 0),
                    ev('p2', 'Budi-' + i, 21000000 + i) ] } });
 }
 DAYS[0].bd.event.push(ev('p3', 'Citra-0', 9000000));
 const DATA = { pic: PIC, days: DAYS, comps: [] };
+/* Salinan payload TANPA omsetHari — bentuk yang dipulangkan backend versi
+   lama, dan juga bulan yang Input Omset Hariannya memang belum diisi. */
+const DATA_TANPA_OMSET = { pic: PIC, comps: [],
+  days: DAYS.map(d => ({ date: d.date, bd: d.bd })) };
 
 const ROSTER = (jabatanAku) => ([
   { id: 'u1', name: 'Ayu',   username: 'ayu',   keterangan: jabatanAku, active: true, isModuleAdmin: false },
@@ -120,7 +124,7 @@ function buka(namaAku, jabatanAku, opsi) {
   if (opsi.isModuleAdmin) roster.find(r => r.name === namaAku).isModuleAdmin = true;
   w.eval(`
     EMS_ROSTER = ${JSON.stringify(roster)};
-    PEV.st='ok'; PEV.bulan='2026-09'; PEV.dimuat='2026-09'; PEV.data=${JSON.stringify(DATA)}; PEV.pic='';
+    PEV.st='ok'; PEV.bulan='2026-09'; PEV.dimuat='2026-09'; PEV.data=${JSON.stringify(opsi.tanpaOmsetHari ? DATA_TANPA_OMSET : DATA)}; PEV.pic='';
   `);
   return w;
 }
@@ -349,13 +353,40 @@ cek('...lewat kompas-api, bukan api modul ini',
   bukaHal(w5);
   w5.eval("(function(){ const b=document.querySelector('#pev_seg button[data-pic=\"p1\"]'); b.click(); })()");
   const nilaiAyu = acuan.agg.p1.events.reduce((s, x) => s + x.amount, 0);
-  cek('Daftar Event menyebut nilai total (net)', body(w5).indexOf(acuan.rp(nilaiAyu)) > -1,
-      'mencari ' + acuan.rp(nilaiAyu));
-  cek('...dan mengatakan yang diakui 50%', /diakui <b>50%<\/b>/.test(body(w5)));
+  /* Kalimat "N event · nilai total … · diakui 50%, kasir tidak dipotong"
+     DICABUT atas permintaan user 9 September 2026. Yang dijaga sekarang
+     KETIADAANNYA — asersi lama justru akan menahannya tetap ada. */
+  cek('kalimat nilai total & diakui 50% sudah dicabut',
+      body(w5).indexOf('diakui <b>50%<') < 0 && body(w5).indexOf('kasir tidak dipotong') < 0,
+      body(w5).slice(body(w5).indexOf('Daftar Event'), body(w5).indexOf('Daftar Event') + 400));
+  /* KOLOM KONTRIBUSI HARI ITU (permintaan user 9 September 2026). Penyebutnya
+     omset venue pada tanggal itu — dikirim backend sebagai `omsetHari` — BUKAN
+     kolom Diakui di sebelahnya, dan bukan total acara sebulan.
+
+     Ayu-0: 40.000.000 + tax 4.000.000 + service 2.000.000 = 46.000.000, dibagi
+     omset hari 100.000.000 = 46,0%. Kalau pembilangnya tertukar jadi kolom
+     Diakui (separuh), angkanya jadi 23,0% — dan 23,0% tetap terlihat wajar,
+     jadi yang menjaganya harus ANGKA, bukan adanya kolom. */
+  cek('kolom Kontribusi hari itu digambar',
+      body(w5).indexOf('>Kontribusi hari itu<') > -1);
+  cek('...dihitung dari omset hari itu, bukan dari kolom Diakui',
+      body(w5).indexOf('46.0%') > -1,
+      '23,0% berarti memakai kolom Diakui (separuh) sebagai pembilang');
+  cek('...dan selnya membawa penyebutnya sendiri',
+      body(w5).indexOf('dari omset hari itu') > -1,
+      'kepala kolom cuma terbaca sekali, angkanya dibaca tiap baris');
+  /* Hari yang omsetnya BELUM diinput dibedakan dari yang nol: menuliskannya
+     0% membuat acaranya terbaca seolah tidak membawa apa-apa, dan itu angka
+     yang tidak akan dipertanyakan siapa pun. */
+  const w5c = buka('Ayu', 'Event, Head', { tanpaOmsetHari: true });
+  bukaHal(w5c);
+  cek('hari tanpa omset ditulis apa adanya, bukan 0%',
+      body(w5c).indexOf('belum ada omset') > -1 && body(w5c).indexOf('0.0%') < 0,
+      body(w5c).slice(body(w5c).indexOf('Daftar Event'), body(w5c).indexOf('Daftar Event') + 900));
   cek('kolom Open Bill muncul karena ada yang punya', /<th class="num">Open Bill<\/th>/.test(body(w5)));
   const w5b = buka('Budi', 'Event');
   bukaHal(w5b);
-  cek('...dan TIDAK muncul untuk yang tidak punya', !/Open Bill/.test(body(w5b)),
+  cek('...dan TIDAK muncul untuk yang tidak punya', body(w5b).indexOf('>Open Bill<') < 0,
       'satu kolom penuh Rp0 di mayoritas periode');
   cek('kartu bonus dari aset ikut tergambar', /Bonus Tunai/.test(body(w5)),
       'kartuBonusEv() tidak dipanggil');

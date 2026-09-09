@@ -5070,6 +5070,12 @@ const PEV_PER_HAL = 5;
    bentuk yang sama, tapi kartu bonus di halaman ini digambar aset — memakai dua
    pemformat berarti satu perubahan di salah satunya membuat dua kolom yang
    bersebelahan berbeda bentuk tanpa satu pun galat. */
+function pevSelKontribusi(ev, omsetHari){
+  const nilai = (+ev.amount||0) + (+ev.tax||0) + (+ev.service||0) + (+ev.ob||0);
+  if (!omsetHari) return '<td class="num mono"><span class="muted">belum ada omset</span></td>';
+  return '<td class="num mono">' + (nilai / omsetHari * 100).toFixed(1) + '%'
+       + '<div class="muted" style="font-size:11px;margin-top:2px">dari omset hari itu</div></td>';
+}
 function pevRp(n){ return (typeof pbRp==='function') ? pbRp(n) : ('Rp'+Math.round(n||0).toLocaleString('id-ID')); }
 
 function pevBulanIni(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
@@ -5271,8 +5277,12 @@ function renderPerformaOmsetEvent(){
     } else { e=list.find(function(x){ return x.id===pid; }); a=agg[pid]; }
     if(!e||!a){ body.innerHTML='<div class="card"><div class="empty">PIC tidak ditemukan.</div></div>'; return; }
 
+    /* Peta tanggal -> omset hari itu, dari payload MENTAH. Dibangun dari
+       a.events, satu tanggal yang punya dua acara akan menjumlahkan omset
+       harinya dua kali dan seluruh kontribusinya mengecil separuh. */
+    const omsetHari={};
+    (PEV.data&&PEV.data.days||[]).forEach(function(d){ if(d&&d.date) omsetHari[d.date]=+d.omsetHari||0; });
     const cnt=a.events.length, avg=cnt?a.real/cnt:0;
-    const nilaiEv=a.events.reduce(function(s,x){ return s+x.amount; },0);
     const totOb=a.events.reduce(function(s,x){ return s+(+x.ob||0); },0);
     /* Kolom Open Bill hanya muncul kalau ada yang punya. Tanpa kolomnya,
        "Diakui" tidak sama dengan setengah Nilai Event dan selisihnya akan
@@ -5290,7 +5300,8 @@ function renderPerformaOmsetEvent(){
         +(ev.pic?' <span class="muted" style="font-size:11px">· '+esc(ev.pic)+'</span>':'')+'</td>'
         +'<td class="num mono">'+pevRp(ev.amount)+'</td>'
         +(adaOb?'<td class="num mono">'+((+ev.ob||0)?pevRp(ev.ob):'<span class="muted">—</span>')+'</td>':'')
-        +'<td class="num mono">'+pevRp(ev.porsi)+'</td></tr>'; }).join('');
+        +'<td class="num mono">'+pevRp(ev.porsi)+'</td>'
+        +pevSelKontribusi(ev, omsetHari[ev.date])+'</tr>'; }).join('');
     const pager=totalHal>1
       ? '<div id="pev_pager" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px">'
         +'<button class="btn btn-ghost btn-sm" data-hal="'+(PEV.hal-1)+'"'+(PEV.hal<=1?' disabled':'')+'>‹ Sebelumnya</button>'
@@ -5306,7 +5317,7 @@ function renderPerformaOmsetEvent(){
 
     /* Open Bill disebut TERPISAH, bukan dilebur ke kalimat rumusnya: ia satu-
        satunya bagian yang tidak dipotong dari kasir mana pun. */
-    const ketOb=totOb?' · termasuk <b>Open Bill '+pevRp(totOb)+'</b> yang tidak dipotong dari kasir mana pun':'';
+    const ketOb=totOb?' Termasuk <b>Open Bill '+pevRp(totOb)+'</b> yang tidak dipotong dari kasir mana pun.':'';
 
     body.innerHTML = pitaYatim
       + '<div class="grid g3">'
@@ -5316,11 +5327,16 @@ function renderPerformaOmsetEvent(){
       + '<div class="stat"><div class="lab">Compliment Ditanggung</div><div class="val sm mono">'+pevRp(a.comp||0)+'</div>'
       + '<div class="foot">'+((a.compRows||[]).length)+' catatan</div></div>'
       + '</div>'
-      + '<div class="card"><h3>Daftar Event</h3><div class="card-sub">'+cnt+' event · nilai total '+pevRp(nilaiEv)
-      + ' · diakui <b>50%</b>, kasir tidak dipotong'+ketOb+'</div>'
+      + '<div class="card"><h3>Daftar Event</h3><div class="card-sub">'
+      + '<b>Kontribusi hari itu</b> = nilai penuh acara (omset + tax + service'
+      + (adaOb?' + Open Bill':'') + ') '
+      + 'dibagi seluruh omset venue pada tanggal itu. Angka yang sama dengan kolom '
+      + 'bernama sama di modul Analytics, jadi dua layar tidak berselisih. '
+      + 'Penyebutnya BUKAN kolom Diakui di sebelahnya.'+ketOb+'</div>'
       + '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th>'
-      + '<th class="num">Nilai Event</th>'+(adaOb?'<th class="num">Open Bill</th>':'')+'<th class="num">Diakui</th></tr></thead>'
-      + '<tbody>'+(baris||'<tr><td colspan="'+(adaOb?5:4)+'" class="empty">Belum ada event.</td></tr>')+'</tbody></table></div>'+pager+'</div>'
+      + '<th class="num">Nilai Event</th>'+(adaOb?'<th class="num">Open Bill</th>':'')
+      + '<th class="num">Diakui</th><th class="num">Kontribusi hari itu</th></tr></thead>'
+      + '<tbody>'+(baris||'<tr><td colspan="'+(adaOb?6:5)+'" class="empty">Belum ada event.</td></tr>')+'</tbody></table></div>'+pager+'</div>'
       + kartuBonusEv(BONUS, pid, e, a, list);
 
     Array.prototype.forEach.call(body.querySelectorAll('#pev_pager button'), function(b){

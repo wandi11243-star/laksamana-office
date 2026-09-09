@@ -5227,6 +5227,83 @@ terbuka. Empat hal yang memakan waktu kalau tidak diketahui lebih dulu:
 
 Sembilan mutasi dicoba, kesembilannya tertangkap.
 
+### Kolom "Kontribusi hari itu" di Daftar Event (9 September 2026)
+
+Permintaan user: kolom kontribusi omset di Daftar Event **modul Marketing dan
+modul Event**, *"tanpa menampilkan total omset di hari itu"*. Penyebutnya
+dipilih user sendiri lewat pertanyaan: **omset hari itu, seperti di Analytics**.
+
+Namanya sama persis dengan kolom di halaman *Pengaruh Event* modul Analytics,
+dan itu disengaja: tiga layar yang memajang "kontribusi" dengan penyebut
+berbeda adalah pertanyaan yang pasti datang — dan sudah datang empat kali
+berturut-turut sepanjang hari itu.
+
+```
+Kontribusi hari itu = (omset + tax + service + Open Bill) / omset venue hari itu
+```
+
+- **PENYEBUTNYA DARI SERVER**, field baru `omsetHari` di tiap hari yang
+  dipulangkan `performaDivisi`. Dihitung `kp_peta_harian()` +
+  `kp_tagihan_hari()`, **bukan** dijumlahkan sendiri di sana: tiga konvensi
+  penjualan hidup berdampingan di Office (net / tagihan / netSales), dan
+  salinan keempat rumusnya pasti menyimpang suatu hari — salahnya muncul
+  sebagai **uang**, bukan sebagai galat. Petanya juga yang menjumlahkan hari
+  yang punya lebih dari satu baris `daily`; dihitung dari satu baris saja, hari
+  seperti itu memulangkan separuh omsetnya dan kontribusinya jadi dua kali
+  lipat dari yang benar.
+- **TIAP SEL MEMBAWA PENYEBUTNYA SENDIRI** (`dari omset hari itu` di bawah
+  angkanya). Kepala kolom dibaca sekali, angkanya dibaca tiap baris — itu
+  pelajaran dari empat putaran pertanyaan yang sama di modul Analytics, dan
+  yang paling mahal untuk diulang.
+- **PENYEBUTNYA BUKAN kolom Diakui di sebelahnya**, dan itu dikatakan di
+  `card-sub` modul Event. Di sana Diakui cuma **separuh** nilai acara, jadi
+  memakainya membuat persennya separuh — dan separuh tetap terlihat wajar.
+- **Peta tanggal → omset dibangun dari payload MENTAH** (`PFO.data.days` /
+  `PEV.data.days`), bukan dari `a.events`. Dibangun dari daftar acara, satu
+  tanggal yang punya dua acara menjumlahkan omset harinya dua kali dan seluruh
+  kontribusi di hari itu mengecil separuh.
+- **Hari yang omsetnya BELUM diinput ditulis "belum ada omset", bukan 0%.**
+  Nol membuat acaranya terbaca seolah tidak membawa apa-apa — angka yang tidak
+  akan dipertanyakan siapa pun. Ini juga bentuk yang dipulangkan backend yang
+  belum ter-deploy, jadi ia bukan keadaan yang langka.
+- `colspan` keadaan kosong ikut naik satu di kedua modul. Yang tertinggal
+  membuat baris "Belum ada event" melenceng satu kolom.
+
+**Kalimat "N event · nilai total Rp… · diakui 50%, kasir tidak dipotong" di
+modul Event DICABUT** (permintaan user di pesan yang sama). Keterangan Open
+Bill yang dulu menumpang di ujungnya ditulis ulang berdiri sendiri — kalau
+tidak, ia jadi anak kalimat tanpa induk. `const nilaiEv` yang tinggal dipakai
+kalimat itu ikut dibuang; nilai yang tidak dipanggil siapa pun akan dipanggil
+lagi suatu hari oleh yang mengira ia masih berarti sesuatu.
+
+```bash
+node tools/uji-performa-marketing-modul.js   # 58 pemeriksaan, jsdom
+node tools/uji-performa-event-modul.js       # 83 pemeriksaan, jsdom
+```
+
+Tiga belas mutasi dicoba, dan **dua di antaranya lolos di putaran pertama** —
+keduanya cacat yang khas di repo ini:
+
+- **"hari tanpa omset ditulis 0%" LOLOS di modul Event**: seluruh hari di
+  fixture-nya punya `omsetHari`, jadi cabang itu tidak pernah dijalankan sekali
+  pun. Cabang yang tidak punya data untuk menjalankannya sama saja tidak
+  diuji. Ditutup dengan `DATA_TANPA_OMSET` + opsi `tanpaOmsetHari` pada
+  `buka()` — lewat jalur yang SAMA, bukan harness kedua yang bisa menyimpang
+  dari yang sungguhan dipakai.
+- **"pembilang jadi `ev.porsi`" LOLOS di modul Marketing, dan itu BUKAN cacat
+  uji.** Di sana kolom Diakui memang omset+tax+service+Open Bill, jadi keduanya
+  hari ini memulangkan angka yang sama persis — tidak ada satu angka pun di
+  layar yang bisa membedakannya. Yang membuatnya tetap perlu dijaga: di modul
+  Event `porsi` cuma separuh nilai acara, dan kedua halaman memakai rumus
+  bernama sama. Dikunci lewat **asersi atas SUMBER**, pola yang sama dengan
+  kontrak backend di bawah.
+
+Ujinya juga menjaga **kontrak backend-nya**: `'omsetHari' =>` ada, dihitung
+lewat `kp_tagihan_hari(`, dan petanya `kp_peta_harian()`. Fixture menyediakan
+`omsetHari` sendiri, jadi tanpa asersi itu seluruh sisi PHP-nya lewat tanpa
+disentuh — tiruan yang bentuknya beda dari yang ditiru tidak menguji apa pun.
+
+
 ### Delegasi ke aset yang lupa diekspor: Performa Kas mati senyap (8 Sep 2026)
 
 Keluhan user: **Performa Marketing dan Performa Event di panel Kas Kecil tidak

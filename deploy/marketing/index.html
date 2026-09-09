@@ -14061,6 +14061,12 @@ const PFO_PER_HAL = 5;
 /* Pemformat DIPAKAI dari asetnya (pbRp), bukan rp() milik modul ini: kartu
    bonus di halaman ini digambar aset, jadi memakai dua pemformat membuat satu
    layar memajang "Rp1.000.000" dan "Rp 1.000.000" berdampingan. */
+function pfoSelKontribusi(ev, omsetHari){
+  const nilai = (+ev.amount||0) + (+ev.tax||0) + (+ev.service||0) + (+ev.ob||0);
+  if (!omsetHari) return '<td class="num mono"><span class="muted">belum ada omset</span></td>';
+  return '<td class="num mono">' + (nilai / omsetHari * 100).toFixed(1) + '%'
+       + '<div class="muted" style="font-size:11px;margin-top:2px">dari omset hari itu</div></td>';
+}
 function pfoRp(n){ return (typeof pbRp==='function') ? pbRp(n) : ('Rp'+Math.round(n||0).toLocaleString('id-ID')); }
 
 function pfoBulanIni(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
@@ -14291,10 +14297,16 @@ function renderPerformaOmset(V){
     if(PFO.hal>totalHal) PFO.hal=totalHal;
     if(PFO.hal<1) PFO.hal=1;
     const mulai=(PFO.hal-1)*PFO_PER_HAL, akhir=Math.min(mulai+PFO_PER_HAL,evUrut.length);
+    /* Peta tanggal -> omset hari itu, dari payload MENTAH. Lihat catatan yang
+       sama di modul Event: dibangun dari evUrut, tanggal yang punya dua acara
+       menjumlahkan omset harinya dua kali. */
+    const omsetHari={};
+    (PFO.data&&PFO.data.days||[]).forEach(d=>{ if(d&&d.date) omsetHari[d.date]=+d.omsetHari||0; });
     const baris=evUrut.slice(mulai,akhir).map(ev=>'<tr><td>'+esc(ev.date)+'</td><td>'+esc(ev.name||'—')
       +(ev.pic?' <span class="muted" style="font-size:11px">· '+esc(ev.pic)+'</span>':'')+'</td>'
       +'<td class="num mono">'+pfoRp(ev.amount)+'</td><td class="num mono">'+pfoRp(ev.tax||0)+'</td>'
-      +'<td class="num mono">'+pfoRp(ev.service||0)+'</td><td class="num mono">'+pfoRp(ev.porsi)+'</td></tr>').join('');
+      +'<td class="num mono">'+pfoRp(ev.service||0)+'</td><td class="num mono">'+pfoRp(ev.porsi)+'</td>'
+      +pfoSelKontribusi(ev, omsetHari[ev.date])+'</tr>').join('');
     const pager=totalHal>1
       ? '<div id="pfo_pager" style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;margin-top:10px">'
         +'<button class="btn btn-ghost btn-sm" data-hal="'+(PFO.hal-1)+'"'+(PFO.hal<=1?' disabled':'')+'>‹ Sebelumnya</button>'
@@ -14317,10 +14329,13 @@ function renderPerformaOmset(V){
       + '<div class="stat"><div class="lab">Compliment Ditanggung</div><div class="val sm mono">'+pfoRp(a.comp||0)+'</div>'
       + '<div class="foot">'+((a.compRows||[]).length)+' catatan</div></div>'
       + '</div>'
-      + '<div class="card"><h3>Daftar Event</h3><div class="card-sub">'+cnt+' event · diakui <b>omset + tax + service</b></div>'
+      + '<div class="card"><h3>Daftar Event</h3><div class="card-sub">'+cnt+' event · diakui <b>omset + tax + service</b>'
+      + ' · <b>Kontribusi hari itu</b> = nilai acara dibagi seluruh omset venue pada tanggal itu, '
+      + 'angka yang sama dengan kolom bernama sama di modul Analytics</div>'
       + '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Event</th><th class="num">Omset</th>'
-      + '<th class="num">Tax</th><th class="num">Service</th><th class="num">Diakui</th></tr></thead>'
-      + '<tbody>'+(baris||'<tr><td colspan="6" class="empty">Belum ada event.</td></tr>')+'</tbody></table></div>'+pager+'</div>'
+      + '<th class="num">Tax</th><th class="num">Service</th><th class="num">Diakui</th>'
+      + '<th class="num">Kontribusi hari itu</th></tr></thead>'
+      + '<tbody>'+(baris||'<tr><td colspan="7" class="empty">Belum ada event.</td></tr>')+'</tbody></table></div>'+pager+'</div>'
       + kartuBonusMk(BONUS, pid, e, a, list);
 
     body.querySelectorAll('#pfo_pager button').forEach(b=>{ if(!b.disabled) b.onclick=()=>{ PFO.hal=+b.dataset.hal; gambar(pid); }; });

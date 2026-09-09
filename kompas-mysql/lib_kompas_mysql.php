@@ -194,6 +194,21 @@ function performa_divisi($divi, $dari, $sampai) {
   /* Baris breakdown, DISARING ke kolom yang benar-benar dipakai penghitung.
      Mengirim barisnya apa adanya berarti ikut mengirim `shift` (daftar kasir
      yang dipotong) — data kasir yang tidak ada urusannya dengan halaman ini. */
+  /* OMSET HARI ITU ikut dikirim sejak 9 September 2026 (permintaan user):
+     modul Marketing & Event memakainya sebagai PENYEBUT kolom Kontribusi hari
+     itu, konvensi yang sama dengan halaman Pengaruh Event di modul Analytics.
+
+     Yang dikirim TAGIHAN (net + service + pajak) — angka yang benar-benar
+     ditagihkan ke tamu, dan itu pula yang dibandingkan Analytics. Dihitung
+     lewat kp_peta_harian() + kp_tagihan_hari(), BUKAN dijumlahkan sendiri di
+     sini: tiga konvensi penjualan hidup berdampingan di Office (net /
+     tagihan / netSales) dan salinan keempat rumusnya pasti menyimpang suatu
+     hari — salahnya pun muncul sebagai uang, bukan sebagai galat.
+
+     Petanya juga yang MENJUMLAHKAN hari yang punya lebih dari satu baris
+     `daily`. Dihitung dari $d saja, hari seperti itu memulangkan separuh
+     omsetnya dan kontribusinya jadi dua kali lipat dari yang benar. */
+  $petaHari = kp_peta_harian();
   $days = array();
   $daily = isset($s['daily']) && is_array($s['daily']) ? $s['daily'] : array();
   foreach ($daily as $d) {
@@ -223,7 +238,11 @@ function performa_divisi($divi, $dari, $sampai) {
         'srcJenis'  => isset($r['srcJenis'])  ? (string)$r['srcJenis'] : '',
       );
     }
-    $days[] = array('date' => $tgl, 'bd' => array($divi => $rows));
+    $days[] = array(
+      'date'      => $tgl,
+      'omsetHari' => isset($petaHari[$tgl]) ? kp_tagihan_hari($petaHari[$tgl]) : 0,
+      'bd'        => array($divi => $rows),
+    );
   }
 
   /* Compliment dalam rentang yang MENYANGKUT PIC divisi ini saja — sisi PIC
