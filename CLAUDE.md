@@ -1832,6 +1832,117 @@ user). Yang menahan bug diam-diam:
 node tools/uji-kontribusi-analytics.js   # 54 pemeriksaan, jsdom
 ```
 
+#### Pengaruh Event & Marketing: tanggal UTC, omset dijabarkan, Top 3 (9 Sep 2026)
+
+Empat revisi user dalam satu pesan, dan yang pertama **bug tanggal yang nyata**.
+
+**1. `start_datetime` adalah INSTANT UTC, dan memotongnya mentah menggeser
+acara MUNDUR SEHARI.** Keluhan user: tanggal beberapa acara di halaman ini
+berbeda dari tanggal yang sama di modul Event. Dibuktikan dari data dev, bukan
+ditebak — `getAll` event-api memulangkan `2026-07-29T18:00:00.000Z`, yaitu
+**30 Juli 01:00 WIB**, sementara `isoDari()` memotong sepuluh huruf pertama dan
+menulisnya 29 Juli.
+
+Modul Event **sudah mencatat jebakan yang sama persis** di `tglWIB()`
+(“memotong string UTC mentah akan menggeser acara lewat tengah malam ke hari
+sebelumnya”), dan Analytics tetap melakukannya. Sekarang `isoDari()` menggeser
++7 dulu, tapi **hanya untuk string yang MENYATAKAN zona** (`Z` atau `±hh:mm`):
+
+| bentuk | contoh | diperlakukan |
+|---|---|---|
+| ber-zona | `2026-08-02T18:00:00.000Z` | digeser → `2026-08-03` |
+| tanggal polos | `2026-08-01` (Marketing, POS) | **tidak disentuh** |
+| datetime tanpa zona | `2026-08-03 19:00` | **tidak disentuh** |
+
+- **Digeser +7 TETAP, bukan zona peramban.** Tanggal POS dan tanggal Breakdown
+  Sumber yang dibandingkan dengannya adalah tanggal usaha WIB; laptop yang
+  zonanya tersetel lain akan memindahkan acaranya sendiri.
+- **Yang KELEBIHAN digeser sama berbahayanya**: menggeser tanggal polos
+  memindahkan tanggal yang tadinya benar ke hari yang salah.
+
+> **ASERSI RUNTIME-NYA TIDAK CUKUP, dan ini pelajaran ujinya.** Di mesin
+> berzona WIB, mencabut penjaga zonanya memberi hasil yang SAMA untuk keempat
+> bentuk di atas — geser +7 atas tanggal polos tetap jatuh di hari yang sama.
+> Mutasi “penanda zona diabaikan” karena itu **LOLOS** dari seluruh
+> pemeriksaan runtime dan cuma merah di laptop yang zonanya lain, yaitu tempat
+> yang tidak pernah menjalankan uji ini. Yang menangkapnya asersi SUMBER atas
+> syaratnya sendiri.
+
+**2. Omsetnya dijabarkan** (permintaan user). Kartu atas sekarang: hari ada
+acara · **Omset hari itu** · **Omset event saja** · rata-rata omset hari ada
+acara, dan tabel per hari dapat kolom **Omset event saja**.
+
+**DUA SUMBER YANG BERBEDA, dan itu inti kartunya:**
+
+| | isinya |
+|---|---|
+| `hari[t].grand` | SELURUH tagihan hari itu menurut berkas POS |
+| baris `bd.event` / `bd.marketing` | nilai acaranya SENDIRI, diketik finance di Breakdown Sumber |
+
+- **Selisih keduanya BUKAN “omset non-event”**, dan itu dikatakan di layar.
+  Selisih POS vs ketikan harian memang selalu ada — halaman Ringkasan punya
+  kartunya sendiri untuk itu.
+- **Rumus barisnya `amount + tax + service + Open Bill`** — yang benar-benar
+  DITAGIHKAN ke tamu, sebanding dengan Grand Total POS. **BUKAN `porsiPic()`**:
+  itu aturan bagi-hasil bonus (event dibagi dua), dan memakainya membuat
+  kontribusi acara tampak separuh tanpa satu pun tanda.
+- **Open Bill DIDELEGASIKAN ke `deploy/assets/performa-bonus.js`** lewat
+  `pbObTotal`, tidak disalin. `obAktif`/`obTotal`/`porsiPic` sudah berkas kembar
+  di tiga berkas; salinan KELIMA akan menyimpang dengan cara yang sama. Asetnya
+  karena itu dimuat halaman ini — dan **uji jsdom WAJIB menyisipkannya inline**,
+  kalau tidak jalur Open Bill lewat tanpa disentuh dan angkanya cuma lebih kecil.
+- **Hari yang BELUM diisi finance dibedakan dari yang nilainya NOL**
+  (`belum diisi`). Disamakan, orang menyimpulkan acaranya gagal padahal
+  angkanya belum pernah diketik.
+- `BD_DIVISI` **berkas kembar** dengan `d.bd.marketing`/`d.bd.event` di
+  `kompas-mysql`. Beda satu huruf tidak melempar — kolomnya cuma berhenti terisi
+  dan terbaca sebagai “finance belum mengisi”.
+
+**3 & 4. Kartu “Selisihnya — pembanding kasar” DICABUT**, diganti **Tiga Acara
+Penyumbang Omset Terbesar** — di KEDUA tab sekaligus, karena penggambarnya satu
+(`vDampak`).
+
+Kenapa yang lama dicabut, dan **jangan dikembalikan tanpa diminta**: ia
+membandingkan rata-rata hari berevent dengan rata-rata SELURUH hari biasa.
+Acara hampir selalu ditaruh di akhir pekan, dan akhir pekan memang lebih ramai
+tanpa acara apa pun — angkanya memuji acara untuk sesuatu yang sudah terjadi
+dengan sendirinya. Kartunya sampai harus memasang peringatan yang membantah
+angkanya sendiri, dan angka yang perlu dibantah di tempatnya berdiri memang
+tidak layak berdiri di sana.
+
+- **Peringatan sebab-akibatnya PINDAH ke tabel per hari, bukan ikut terbuang.**
+  Kolom `vs hari sama` di sanalah yang sekarang memikul seluruh perbandingannya.
+- **Dikelompokkan per NAMA** (huruf besar-kecil diabaikan): acara lintas hari
+  punya satu baris di tiap tanggalnya, dan menampilkannya terpisah membuat acara
+  yang sama muncul dua kali sambil masing-masing terlihat lebih kecil — lalu
+  kalah dari acara yang seharusnya di bawahnya.
+- **Baris TANPA NAMA tidak ikut dikelompokkan**: menggabungkannya jadi satu
+  “(tanpa nama)” berarti menjumlahkan acara yang tidak ada hubungannya lalu
+  memajangnya sebagai satu acara besar — dan itu bisa merebut peringkat pertama.
+  Jumlahnya disebut berikut cara membetulkannya.
+- **Nilai nol disaring.** Acara Rp0 menyumbang 0% dan cuma mendorong turun yang
+  benar-benar membawa omset.
+- **TETAP digambar di jalan buntu “tidak ada acara”.** Barisnya datang dari
+  Breakdown Sumber, bukan dari daftar acara — nama acara sering cuma diketik
+  finance dan tidak pernah dibuatkan barisnya di modul Event. Disembunyikan,
+  halaman ini menjawab layar kosong untuk pertanyaan yang sudah ada jawabannya.
+- **TIDAK ikut tapis kategori**, dan itu dikatakan: baris breakdown tidak
+  menyimpan kategori sama sekali, dan mencocokkannya lewat nama acara adalah
+  tebakan yang diam-diam salah begitu ada dua acara bernama mirip.
+
+> **Asersi “Acara C tidak muncul” juga sempat LOLOS mutasi.** Dengan nilai nol
+> ikut diperingkatkan, ia tetap terurut paling bawah dan tetap tidak masuk tiga
+> besar — jadi ketiadaannya bukan bukti apa pun. Yang benar-benar bergerak
+> JUMLAH sisanya (`1 acara lain tidak ditampilkan` → `2`), dan itulah yang
+> dikunci sekarang.
+
+```bash
+node tools/uji-analytics.js   # 252 pemeriksaan (dari 230)
+```
+
+Dua belas mutasi dicoba; dua di antaranya lolos lebih dulu (keduanya di atas)
+lalu tertangkap sesudah asersinya dibetulkan.
+
 #### Selisih POS vs Rekap dipecah PER HARI (6 September 2026)
 
 Pertanyaan user: *"selisihnya datang dari mana? tanggal berapa yang berbeda?"*

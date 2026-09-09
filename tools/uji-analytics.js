@@ -32,10 +32,22 @@ const { JSDOM } = (() => {
    Pola yang sama dengan uji-bukti-dp.js untuk venue-layouts.js. */
 const ASET_XLSX = fs.readFileSync(path.join(ROOT, 'deploy', 'assets', 'xlsx-baca.js'), 'utf8');
 const HTML_ASLI = fs.readFileSync(path.join(ROOT, 'deploy', 'analytics', 'index.html'), 'utf8');
-const HTML = HTML_ASLI.replace(
+let HTML = HTML_ASLI.replace(
   '<script src="../assets/xlsx-baca.js"><' + '/script>',
   () => '<script>' + ASET_XLSX + '<' + '/script>');
 if (HTML === HTML_ASLI) { console.error('tag xlsx-baca.js tidak ketemu di sumber analytics'); process.exit(2); }
+
+/* performa-bonus.js dimuat halaman ini sejak 9 September 2026 — hanya untuk
+   pbObTotal(), supaya Open Bill tidak jadi salinan KELIMA. Kalau tag-nya tidak
+   ikut disisipkan di sini, `window.pbObTotal` tidak pernah ada dan jalur Open
+   Bill lewat tanpa disentuh: angkanya cuma lebih kecil, dan uji yang tidak
+   memakai Open Bill di datanya akan tetap hijau untuk kode yang salah. */
+const ASET_PB = fs.readFileSync(path.join(ROOT, 'deploy', 'assets', 'performa-bonus.js'), 'utf8');
+const HTML_PB = HTML.replace(
+  '<script src="../assets/performa-bonus.js"><' + '/script>',
+  () => '<script>' + ASET_PB + '<' + '/script>');
+if (HTML_PB === HTML) { console.error('tag performa-bonus.js tidak ketemu di sumber analytics'); process.exit(2); }
+HTML = HTML_PB;
 
 let lulus = 0, gagal = 0;
 const cek = (nama, syarat, ket) => {
@@ -897,7 +909,20 @@ async function siap(w) {
       hari, jam:Array.from({length:24},()=>({bill:0,grand:0})), menu:{},
       ringkas:{ bill:100, grand:23000000 }
     } }, setting:{} }, akses:{}, peran:{} };
-    const { dom } = domAnalytics({ an,
+    /* Baris Breakdown Sumber: inilah "omset event saja". Tax & service ikut,
+       dan SATU baris sengaja punya Open Bill supaya jalur pbObTotal() benar-
+       benar dijalankan — tanpa itu, angkanya tetap benar walau Open Bill
+       diam-diam tidak ikut dihitung.
+
+       3 Agustus SENGAJA tidak diberi baris: hari yang belum diisi finance
+       harus dibedakan dari hari yang nilainya nol. */
+    const kp = { daily:[
+      { date:'2026-08-01', bd:{
+          event:[{ eventName:'Live Music Agustusan', amount:5000000, tax:500000, service:250000,
+                   ob:1, obAmount:200000, obTax:0, obService:0 }],
+          marketing:[{ eventName:'Promo Merdeka', amount:3000000 }] } }
+    ] };
+    const { dom } = domAnalytics({ an, kp,
       event: [{ start_datetime:'2026-08-01 19:00', title:'Live Music Agustusan', category:'Live Music' },
               { start_datetime:'2026-08-03 19:00', title:'Akustik Senin',        category:'Live Music' }],
       mkt:   [{ tanggal:'2026-08-01', nama:'Promo Merdeka', jenis:'Promo' }] });
@@ -940,6 +965,163 @@ async function siap(w) {
     cek('kontribusi hari itu terhadap total omset ditulis', v.indexOf('52.2%') > -1,
         v.slice(v.indexOf('Kontribusi'), v.indexOf('Kontribusi') + 400));
     cek('kartu Omset hari itu ada', v.indexOf('Omset hari itu') > -1);
+
+    /* ---------- TANGGAL BER-ZONA (keluhan user 9 September 2026) ----------
+       `start_datetime` di modul Event disimpan sebagai INSTANT UTC berakhiran
+       Z. Memotong stringnya mentah membuat acara yang mulai lewat tengah malam
+       WIB MUNDUR SEHARI — tanggal di halaman ini lalu berbeda dari tanggal
+       acara yang sama di modul Event, tanpa satu pun galat.
+
+       Keempatnya diperiksa bersama karena yang berbahaya BUKAN cuma yang
+       kurang digeser, tapi juga yang KELEBIHAN digeser: menggeser tanggal
+       polos memindahkan tanggal yang tadinya benar ke hari yang salah. */
+    const isoCek = (masuk, harap, nama) => { const dp = w.eval('isoDari(' + JSON.stringify(masuk) + ')');
+      cek(nama, dp === harap, 'dapat ' + dp + ', harusnya ' + harap); };
+    isoCek('2026-08-02T18:00:00.000Z', '2026-08-03', 'UTC lewat tengah malam WIB maju sehari');
+    isoCek('2026-08-01T12:00:00.000Z', '2026-08-01', '...yang belum lewat tengah malam tetap di harinya');
+    isoCek('2026-08-01',               '2026-08-01', 'tanggal polos TIDAK ikut digeser');
+    isoCek('2026-08-03 19:00',         '2026-08-03', 'datetime tanpa zona TIDAK ikut digeser');
+    /* ASERSI SUMBER, dan ia WAJIB ada di samping keempat asersi runtime di
+       atas. Di mesin berzona WIB keduanya memberi hasil yang SAMA walau
+       penjaga zonanya dicabut: menggeser tanggal polos +7 jam tetap jatuh di
+       hari yang sama, dan datetime tanpa zona pun diurai sebagai waktu lokal
+       +7 lalu digeser +7 kembali ke harinya sendiri.
+
+       Mutasi "penanda zona diabaikan" karena itu LOLOS dari keempat
+       pemeriksaan runtime — ia baru merah di laptop yang zonanya lain, yaitu
+       tempat yang tidak pernah menjalankan uji ini. Yang benar-benar
+       membedakannya syaratnya sendiri: pergeseran hanya boleh untuk string
+       yang MENYATAKAN zona, bukan untuk setiap tanggal yang punya jam. */
+    cek('pergeseran WIB dijaga penanda zona, bukan sekadar adanya jam',
+        HTML_ASLI.indexOf("/(Z|[+-]\\d{2}:?\\d{2})$/.test(s)") > -1,
+        'tanpa penjaga ini tanggal polos ikut digeser, dan salahnya cuma muncul di zona lain');
+
+    /* ---------- OMSET EVENT SAJA (permintaan user 9 September 2026) ----------
+       Angkanya dibandingkan lewat rp0() milik halamannya sendiri, bukan lewat
+       'Rp5.950.000' yang diketik di sini: pemisah ribuan id-ID bergantung ICU
+       Node, dan uji yang mematok teksnya akan merah di mesin lain untuk kode
+       yang benar. Yang dijaga ANGKANYA, bukan cara menulisnya. */
+    const rpH = n => w.eval('rp0(' + n + ')');
+    cek('kartu Omset event saja ada', v.indexOf('Omset event saja') > -1);
+    /* 5.000.000 + 500.000 + 250.000 + Open Bill 200.000. Kalau Open Bill
+       lepas, angkanya 5.750.000 dan asersi ini yang berbunyi. */
+    cek('nilainya omset + tax + service + Open Bill', v.indexOf(rpH(5950000)) > -1,
+        'Open Bill / tax / service tidak ikut — ' + v.slice(v.indexOf('Omset event saja'), v.indexOf('Omset event saja') + 260));
+    /* Hari yang belum diisi finance TIDAK boleh terbaca sebagai Rp0: yang
+       pertama berarti angkanya belum diketik, yang kedua berarti acaranya
+       memang tidak membawa omset. */
+    cek('hari tanpa baris breakdown ditulis belum diisi', v.indexOf('belum diisi') > -1);
+
+    /* ---------- TOP 3, menggantikan kartu pembanding kasar ---------- */
+    cek('kartu pembanding kasar sudah tidak digambar',
+        v.indexOf('pembanding kasar') < 0 && v.indexOf('Beda rata-rata') < 0,
+        'kartu yang dicabut 9 September 2026 kembali');
+    cek('kartu Top 3 digambar', v.indexOf('Penyumbang Omset Terbesar') > -1);
+    const top3 = t => t.slice(t.indexOf('Penyumbang Omset Terbesar'),
+                             t.indexOf('Penyumbang Omset Terbesar') + 1600);
+    /* Divisi Breakdown-nya WAJIB ikut sumbernya. Kalau tertukar, halaman Event
+       memajang omset Marketing dengan angka yang tetap kelihatan wajar. */
+    cek('Top 3 halaman Event membaca bd.event',
+        top3(v).indexOf('Live Music Agustusan') > -1 && top3(v).indexOf('Promo Merdeka') < 0,
+        top3(v).slice(0, 500));
+
+    w.go('marketing'); await tunggu(60);
+    const vm = d.getElementById('app-view').innerHTML;
+    cek('Top 3 halaman Marketing membaca bd.marketing',
+        top3(vm).indexOf('Promo Merdeka') > -1 && top3(vm).indexOf('Live Music Agustusan') < 0,
+        top3(vm).slice(0, 500));
+    cek('...dengan angkanya sendiri', vm.indexOf(rpH(3000000)) > -1);
+    dom.window.close();
+  }
+
+  /* ================= 7c. tanggal ber-zona sampai ke layar ================= */
+  console.log('\n== Acara lewat tengah malam WIB ==');
+  {
+    /* Uji satuan isoDari saja tidak cukup: yang dilaporkan user bukan nilai
+       kembalian sebuah fungsi melainkan acara yang muncul di tanggal yang
+       salah. Kalau bug-nya kembali, acaranya jatuh ke 2 Agustus yang TIDAK
+       punya data POS — halamannya lalu berbunyi "tidak ada acara" dan
+       acaranya hilang sama sekali, bukan cuma bergeser. */
+    const hari = { '2026-08-03': { bill:40, grand:5000000 },
+                   '2026-08-04': { bill:10, grand:1000000 } };
+    const an = { data:{ laporan:{ '2026-08': {
+      diunggah:'2026-08-28', oleh:'W', berkas:'x.xlsx', jenis:'bill',
+      hari, jam:Array.from({length:24},()=>({bill:0,grand:0})), menu:{},
+      ringkas:{ bill:50, grand:6000000 }
+    } }, setting:{} }, akses:{}, peran:{} };
+    const { dom } = domAnalytics({ an,
+      event: [{ start_datetime:'2026-08-02T18:00:00.000Z', title:'Lewat Tengah Malam', category:'Party' }] });
+    await siap(dom.window);
+    const w = dom.window, d = w.document;
+    w.go('event'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    cek('acaranya tidak hilang ke hari yang tidak punya data POS',
+        v.indexOf('Lewat Tengah Malam') > -1 && v.indexOf('belum ada yang bisa dibandingkan') < 0,
+        v.slice(0, 600));
+    cek('...dan mendarat di 3 Agustus, bukan 2 Agustus',
+        v.indexOf(w.eval("fmtTgl('2026-08-03')")) > -1
+        && v.indexOf(w.eval("fmtTgl('2026-08-02')")) < 0,
+        v.slice(v.indexOf('Hari Ada Acara'), v.indexOf('Hari Ada Acara') + 700));
+    dom.window.close();
+  }
+
+  /* ================= 7d. peringkat Top 3 ================= */
+  console.log('\n== Top 3 penyumbang omset ==');
+  {
+    /* TIDAK ada satu pun acara di modul Marketing di sini, dan itu disengaja:
+       nama acara sering cuma diketik finance di Breakdown Sumber. Halaman ini
+       tetap harus bisa menjawab "acara mana yang membawa omset" — kalau Top 3
+       ikut disembunyikan bersama jalan buntu "tidak ada acara", pertanyaan
+       yang sudah ada jawabannya dijawab dengan layar kosong. */
+    const hari = { '2026-08-01': { bill:40, grand:6000000 },
+                   '2026-08-02': { bill:40, grand:4000000 } };
+    const an = { data:{ laporan:{ '2026-08': {
+      diunggah:'2026-08-28', oleh:'W', berkas:'x.xlsx', jenis:'bill',
+      hari, jam:Array.from({length:24},()=>({bill:0,grand:0})), menu:{},
+      ringkas:{ bill:80, grand:10000000 }
+    } }, setting:{} }, akses:{}, peran:{} };
+    /* Acara A tersebar di DUA tanggal dan salah satunya beda huruf besar-kecil
+       — kalau tidak dikelompokkan, ia muncul tiga kali sambil masing-masing
+       terlihat lebih kecil daripada yang sebenarnya, lalu kalah dari acara
+       yang seharusnya di bawahnya. */
+    const kp = { daily:[
+      { date:'2026-08-01', bd:{ marketing:[
+          { eventName:'Acara A', amount:1100000 },
+          { eventName:'',        amount:4000000 },
+          { eventName:'Acara C', amount:0 } ] } },
+      { date:'2026-08-02', bd:{ marketing:[
+          { eventName:'Acara A', amount:2500000 },
+          { eventName:'acara a', amount:500000  },
+          { eventName:'Acara D', amount:900000  },
+          { eventName:'Acara E', amount:700000  } ] } }
+    ] };
+    const { dom } = domAnalytics({ an, kp });
+    await siap(dom.window);
+    const w = dom.window, d = w.document;
+    w.go('marketing'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    const rpH = n => w.eval('rp0(' + n + ')');
+
+    cek('Top 3 tetap digambar walau tidak ada acara tercatat',
+        v.indexOf('Penyumbang Omset Terbesar') > -1, v.slice(0, 500));
+    cek('satu acara lintas hari dijumlahkan, bukan dipecah',
+        v.indexOf(rpH(4100000)) > -1,
+        '1.100.000 + 2.500.000 + 500.000 (beda huruf besar-kecil ikut) = 4.100.000');
+    /* Baris tanpa nama TIDAK digabung jadi satu acara besar — tapi jumlahnya
+       DISEBUT, karena baris tanpa nama tidak akan pernah bisa dikenali di layar
+       mana pun kalau tidak ada yang menyuruh membetulkannya. */
+    cek('baris tanpa nama ditandai, bukan disembunyikan',
+        v.indexOf('(tanpa nama)') > -1 && v.indexOf('belum punya Nama Event') > -1);
+    cek('acara bernilai nol tidak ikut diperingkatkan', v.indexOf('Acara C') < 0,
+        'acara Rp0 menyumbang 0% dan cuma mendorong turun yang benar-benar membawa omset');
+    cek('yang keempat tidak ditampilkan', v.indexOf('Acara E') < 0);
+    cek('...tapi disebut ada berapa, dan angkanya benar',
+        v.indexOf('1 acara lain tidak ditampilkan') > -1,
+        'daftar yang dipotong tanpa keterangan terbaca sebagai `cuma segitu acaranya`');
+    /* Kontribusi dihitung terhadap SELURUH omset bulan itu (10jt), bukan
+       terhadap jumlah baris breakdown. 4.100.000 / 10.000.000 = 41,0%. */
+    cek('kontribusi dihitung dari total omset sebulan', v.indexOf('41.0%') > -1,
+        v.slice(v.indexOf('Penyumbang Omset Terbesar'), v.indexOf('Penyumbang Omset Terbesar') + 1400));
     dom.window.close();
   }
 

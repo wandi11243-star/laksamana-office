@@ -34,6 +34,11 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="../assets/xlsx-baca.js"></script>
+<!-- Open Bill dipakai halaman Pengaruh Event/Marketing lewat pbObTotal().
+     Dimuat dari aset, BUKAN disalin: obAktif/obTotal/porsiPic sudah berkas
+     kembar di tiga berkas, dan salinan berikutnya yang tertinggal akan
+     membuat omset event di sini berbeda dari angka yang sama di Finance. -->
+<script src="../assets/performa-bonus.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 /* ===== TEMA OFFICE LAKSAMANA (emas di atas krem/putih, tanpa hitam) ===== */
@@ -765,9 +770,36 @@ function fmtTgl(iso) { if (!iso) return '—'; const p = String(iso).split('-');
    ('2026-08-01'), dan dd-mm-yyyy. Satu pembaca untuk ketiganya — tiga pembaca
    berarti tiga tempat yang bisa menyimpang, dan tanggal yang menyimpang
    memindahkan omset ke hari yang salah tanpa satu pun galat. */
+const WIB_MS = 7 * 3600 * 1000;
 function isoDari(v) {
   if (v == null || v === '') return '';
   const s = String(v).trim();
+  /* DATETIME BER-ZONA DIGESER KE WIB DULU, baru dipotong.
+
+     `start_datetime` di modul Event disimpan sebagai INSTANT UTC berakhiran Z
+     (lihat tglWIB() di deploy/event/index.html, yang sudah mencatat jebakan
+     yang sama). Acara yang mulai lewat tengah malam WIB — 3 Agu 01:00 WIB
+     tersimpan sebagai 2026-08-02T18:00:00.000Z — MUNDUR SEHARI kalau
+     stringnya dipotong mentah.
+
+     Gejalanya bukan galat: acaranya cuma pindah ke hari sebelumnya, omsetnya
+     dibandingkan dengan hari yang salah, dan tanggal di halaman ini berbeda
+     dari tanggal acara yang sama di modul Event tanpa satu pun tanda.
+     Dilaporkan user 9 September 2026.
+
+     Yang TIDAK ikut digeser, dan itu menentukan: tanggal polos 'YYYY-MM-DD'
+     (modul Marketing, tanggal POS) dan datetime TANPA zona. Keduanya tidak
+     pernah menyatakan sebuah instant, jadi menggesernya justru memindahkan
+     tanggal yang tadinya benar ke hari yang salah — kesalahan yang sama
+     persis, cuma ke arah sebaliknya.
+
+     Digeser +7 TETAP, bukan zona peramban: tanggal POS dan tanggal Breakdown
+     Sumber yang dibandingkan dengannya adalah tanggal usaha WIB, dan laptop
+     yang zonanya tersetel lain akan memindahkan acaranya sendiri. */
+  if (/^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}/.test(s) && /(Z|[+-]\d{2}:?\d{2})$/.test(s)) {
+    const tz = Date.parse(s);
+    if (!isNaN(tz)) return new Date(tz + WIB_MS).toISOString().slice(0, 10);
+  }
   if (/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0, 10);
   if (/^\d+(\.\d+)?$/.test(s)) {
     /* Serial Excel: hari sejak 1899-12-30, jadi 25569 = 1970-01-01. Dihitung
@@ -985,6 +1017,41 @@ async function postJson(url, data) {
    dijumlahkan adalah angka yang berhenti dipercaya. */
 const KAT_KOSONG = '(tanpa kategori)';
 function katEvent(v) { const s = String(v == null ? '' : v).trim(); return s || KAT_KOSONG; }
+
+/* Nama divisi di Breakdown Sumber untuk tiap sumber acara. BERKAS KEMBAR
+   dengan `d.bd.marketing` / `d.bd.event` di kompas-mysql — beda satu huruf
+   tidak melempar apa pun, kolom omset event-nya cuma berhenti terisi dan
+   terbaca sebagai "finance belum mengisi". */
+const BD_DIVISI = { Event:'event', Marketing:'marketing' };
+
+/* Open Bill DIDELEGASIKAN ke deploy/assets/performa-bonus.js, tidak disalin.
+   obAktif/obTotal/porsiPic sudah jadi berkas kembar di tiga berkas dan repo
+   ini sudah empat kali kehilangan waktu karena salinan yang tertinggal;
+   salinan KELIMA di sini akan menyimpang dengan cara yang sama persis.
+
+   Kalau asetnya tidak termuat, Open Bill dihitung NOL dan itu DIKATAKAN di
+   kartunya — angka yang diam-diam kurang terbaca persis seperti angka yang
+   benar, dan tidak ada satu pun tanda yang menunjukkan bedanya. */
+const obAda = () => typeof window.pbObTotal === 'function';
+function omsetBarisBd(r) {
+  return num(r && r.amount) + num(r && r.tax) + num(r && r.service)
+       + (obAda() ? window.pbObTotal(r) : 0);
+}
+function barisBd(sumber, b) {
+  const kunci = BD_DIVISI[sumber];
+  const daily = (KP && Array.isArray(KP.daily)) ? KP.daily : [];
+  const out = [];
+  if (!kunci) return out;
+  daily.forEach(d => {
+    const t = isoDari(d && d.date);
+    if (!t || blnDari(t) !== b) return;
+    const bd = (d && d.bd) || {};
+    (Array.isArray(bd[kunci]) ? bd[kunci] : []).forEach(r => {
+      out.push({ tgl:t, nama:String((r && r.eventName) || '').trim(), omset:omsetBarisBd(r) });
+    });
+  });
+  return out;
+}
 
 async function muatSemua() {
   setSync('saving', 'Memuat…');
@@ -2270,6 +2337,78 @@ function katPilih(sumber, k) { KAT_PILIH[sumber] = k; render(); }
 function vEvent()     { vDampak('Event'); }
 function vMarketing() { vDampak('Marketing'); }
 
+/* Tiga acara penyumbang omset terbesar bulan itu, dari baris Breakdown Sumber.
+
+   DIKELOMPOKKAN PER NAMA, bukan per baris: acara lintas hari punya satu baris
+   di tiap tanggalnya, dan menampilkannya terpisah membuat acara yang sama
+   muncul dua kali sambil masing-masing terlihat lebih kecil daripada yang
+   sebenarnya — lalu kalah dari acara lain yang seharusnya di bawahnya.
+
+   Baris TANPA NAMA sengaja TIDAK ikut dikelompokkan: menggabungkan seluruhnya
+   jadi satu "(tanpa nama)" berarti menjumlahkan acara-acara yang tidak ada
+   hubungannya lalu memajangnya sebagai satu acara besar — dan itu bisa
+   merebut peringkat pertama dari acara yang sungguhan. Jumlahnya disebut
+   berikut cara membetulkannya, karena baris tanpa nama tidak akan pernah bisa
+   dikenali siapa pun di layar mana pun.
+
+   Nilai NOL disaring: acara bernilai Rp0 menyumbang 0% dan cuma mendorong
+   turun acara yang benar-benar membawa omset. */
+function kartuTop3(sumber, rows, totalBulan, b) {
+  const judul = 'Tiga Acara ' + esc(sumber) + ' Penyumbang Omset Terbesar';
+  if (!KP) return '<div class="card"><h3>' + judul + '</h3>'
+    + '<div class="notice warn">⚠ <div><b>Breakdown Sumber tidak terbaca.</b> '
+    + esc(KP_ERR || 'Rekap Penjualan tidak menjawab') + '</div></div></div>';
+
+  const pakai = rows.filter(r => r.omset > 0);
+  const tanpaNama = pakai.filter(r => !r.nama).length;
+  const peta = {}, daftar = [];
+  pakai.forEach(r => {
+    if (!r.nama) { daftar.push({ nama:'(tanpa nama)', omset:r.omset, tgl:[r.tgl] }); return; }
+    const k = r.nama.toLowerCase();
+    if (!peta[k]) { peta[k] = { nama:r.nama, omset:0, tgl:[] }; daftar.push(peta[k]); }
+    peta[k].omset += r.omset;
+    if (peta[k].tgl.indexOf(r.tgl) < 0) peta[k].tgl.push(r.tgl);
+  });
+  /* Yang sama besar dipisah namanya supaya urutannya tidak berubah-ubah tiap
+     halaman digambar ulang — peringkat yang bergoyang sendiri berhenti dipercaya. */
+  daftar.sort((x, y) => y.omset - x.omset || String(x.nama).localeCompare(String(y.nama)));
+  const top = daftar.slice(0, 3);
+
+  let h = '<div class="card"><h3>' + judul + '</h3>'
+    + '<div class="card-sub">Nilai acaranya SENDIRI dari Breakdown Sumber — bukan omset satu hari '
+    + 'penuh — dan berapa persennya dari seluruh omset ' + esc(fmtBln(b)) + ' ('
+    + rp0(totalBulan) + '). Daftar ini TIDAK ikut tapis kategori di atas: baris breakdown tidak '
+    + 'menyimpan kategori sama sekali, dan mencocokkannya lewat nama acara adalah tebakan yang '
+    + 'diam-diam salah begitu ada dua acara bernama mirip.</div>';
+
+  if (!top.length) return h + '<div class="notice info">ℹ <div>Belum ada baris ' + esc(sumber)
+    + ' bernilai di Breakdown Sumber untuk ' + esc(fmtBln(b))
+    + '. Isinya di panel Finance → Dashboard Omset → Breakdown Sumber.</div></div></div>';
+
+  h += '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Acara</th><th>Tanggal</th>'
+    + '<th class="num">Omset event</th><th class="num">Kontribusi</th></tr></thead><tbody>'
+    + top.map((x, i) => '<tr><td class="mono">' + (i + 1) + '</td>'
+        + '<td><b>' + esc(x.nama) + '</b></td>'
+        + '<td class="mono">' + x.tgl.slice().sort().map(t => esc(fmtTgl(t))).join(', ') + '</td>'
+        + '<td class="num mono">' + rp0(x.omset) + '</td>'
+        + '<td class="num mono">' + (totalBulan ? (x.omset / totalBulan * 100).toFixed(1) + '%' : '—') + '</td>'
+        + '</tr>').join('')
+    + '</tbody></table></div>';
+
+  /* Yang tidak ditampilkan DISEBUT jumlah dan nilainya. Daftar yang dipotong
+     tanpa keterangan terbaca sebagai "cuma segitu acaranya bulan ini". */
+  if (daftar.length > 3) h += '<div class="helper">' + (daftar.length - 3)
+    + ' acara lain tidak ditampilkan · seluruh acara ' + esc(sumber) + ' bulan ini '
+    + rp0(daftar.reduce((a, x) => a + x.omset, 0)) + '.</div>';
+  if (tanpaNama) h += '<div class="notice info" style="margin-top:12px">ℹ <div><b>' + tanpaNama
+    + ' baris belum punya Nama Event</b>, jadi tidak bisa dikenali di daftar ini. '
+    + 'Isi kolom Nama Event-nya di Breakdown Sumber.</div></div>';
+  if (!obAda()) h += '<div class="notice warn" style="margin-top:12px">⚠ <div>'
+    + '<b>Open Bill belum ikut dihitung.</b> deploy/assets/performa-bonus.js tidak termuat, jadi '
+    + 'angkanya bisa lebih kecil daripada angka yang sama di panel Finance.</div></div>';
+  return h + '</div>';
+}
+
 function vDampak(sumber) {
   const V = document.getElementById('app-view');
   const b = blnAktif(), d = lap(b);
@@ -2303,8 +2442,32 @@ function vDampak(sumber) {
   const tanpa = tgl.filter(t => !peta[t]);
   const rata = arr => arr.length ? arr.reduce((a, t) => a + (hari[t].grand || 0), 0) / arr.length : 0;
   const rEv = rata(adaEv), rNo = rata(tanpa);
-  const beda = rNo ? (rEv - rNo) / rNo * 100 : 0;
   const omsetEv = adaEv.reduce((a, t) => a + (hari[t].grand || 0), 0);
+
+  /* ---- OMSET EVENT SAJA, dari Breakdown Sumber di modul Finance ----
+     Permintaan user 9 September 2026: omsetnya dijabarkan, bukan cuma satu
+     angka "omset hari itu".
+
+     DUA SUMBER YANG BERBEDA, dan bedanya WAJIB dikatakan di layar:
+
+       hari[t].grand  = SELURUH tagihan hari itu menurut berkas POS
+       baris bd       = nilai acaranya SENDIRI, yang diketik finance di
+                        Breakdown Sumber
+
+     Yang membaca keduanya sebagai satu sumber akan mengurangkannya lalu
+     menyebut sisanya "omset non-event" — padahal selisih POS vs ketikan
+     harian memang selalu ada (halaman Ringkasan punya kartunya sendiri untuk
+     itu), jadi sisanya bukan angka yang berarti.
+
+     Rumus barisnya = amount + tax + service + Open Bill: itulah yang
+     BENAR-BENAR DITAGIHKAN ke tamu, sebanding dengan Grand Total POS. BUKAN
+     porsiPic() — yang itu aturan bagi-hasil bonus (untuk event dibagi dua),
+     bukan omset, dan memakainya di sini membuat kontribusi acara tampak
+     separuh dari yang sebenarnya tanpa satu pun tanda. */
+  const bdRows = barisBd(sumber, b);
+  const bdHari = {};
+  bdRows.forEach(r => { bdHari[r.tgl] = (bdHari[r.tgl] || 0) + r.omset; });
+  const omsetSaja = adaEv.reduce((a, t) => a + (bdHari[t] || 0), 0);
 
   /* Tapis kategori. Angkanya dihitung dari SELURUH acara bulan itu, bukan dari
      yang sedang tersaring — kalau ikut, tombol yang tidak dipilih selalu
@@ -2328,53 +2491,66 @@ function vDampak(sumber) {
       + '</div></div>';
   }
 
+  /* EMPAT ANGKA YANG DIMINTA USER (9 September 2026), dan pemisahannya yang
+     jadi intinya: "omset hari itu" dan "omset event saja" TIDAK sama, dan
+     yang mengira keduanya satu hal akan membaca kontribusi acara berkali-kali
+     lipat daripada yang sebenarnya. Kartu ketiga karena itu menyebut DUA
+     penyebut sekaligus — terhadap omset hari itu, dan terhadap omset sebulan. */
+  const pBulan = n => totalBulan ? (n / totalBulan * 100).toFixed(1) + '%' : '—';
   h += '<div class="grid g4" style="margin-bottom:18px">'
     + kartu('Hari ada acara', adaEv.length, 'dari ' + tgl.length + ' hari' + (kat ? ' · ' + esc(kat) : ''))
     + kartu('Omset hari itu', rp0(omsetEv),
-            (totalBulan ? (omsetEv / totalBulan * 100).toFixed(1) + '% dari omset bulan ini' : 'belum ada omset'))
-    + kartu('Rata-rata hari ada acara', rp0(rEv), adaEv.length ? adaEv.length + ' hari' : 'belum ada')
-    + kartu('Rata-rata hari biasa', rp0(rNo), tanpa.length + ' hari')
+            totalBulan ? pBulan(omsetEv) + ' dari omset ' + fmtBln(b) + ' · seluruh tagihan hari itu'
+                       : 'belum ada omset')
+    + kartu('Omset event saja', KP ? rp0(omsetSaja) : '—',
+            !KP ? 'Breakdown Sumber tidak terbaca'
+                : (omsetEv ? (omsetSaja / omsetEv * 100).toFixed(1) + '% dari omset hari itu · '
+                             + pBulan(omsetSaja) + ' dari omset sebulan'
+                           : 'belum ada nilai acara'))
+    /* Jumlah hari KEDUA sisi disebut, bukan cuma rata-ratanya: rata-rata dari
+       dua hari dan rata-rata dari dua puluh hari terbaca sama persis, dan yang
+       membacanya tidak punya cara tahu mana yang layak dipercaya. */
+    + kartu('Rata-rata omset hari ada acara', rp0(rEv),
+            adaEv.length + ' hari ada acara vs ' + tanpa.length + ' hari biasa (rata-rata '
+            + rp0(rNo) + ')')
     + '</div>';
 
   if (!adaEv.length) {
     h += '<div class="notice info">ℹ <div>Tidak ada acara ' + esc(sumber)
       + (kat ? ' berkategori <b>' + esc(kat) + '</b>' : '')
       + ' yang tanggalnya punya data POS untuk ' + esc(fmtBln(b)) + ', jadi belum ada yang bisa dibandingkan.</div></div>';
+    /* TOP 3 TETAP DIGAMBAR di jalan buntu ini. Barisnya datang dari Breakdown
+       Sumber, BUKAN dari daftar acara — jadi "acara mana yang membawa omset"
+       tetap punya jawaban walau tidak satu pun acaranya tercatat di modul
+       asalnya. Itu keadaan yang biasa: nama acara sering cuma diketik finance
+       di Breakdown, dan tidak pernah dibuatkan barisnya di modul Event.
+       Disembunyikan, halaman ini menjawab "tidak ada apa-apa" untuk
+       pertanyaan yang sebenarnya sudah ada jawabannya. */
+    h += kartuTop3(sumber, bdRows, totalBulan, b);
     V.innerHTML = h; return;
   }
 
-  /* DUA ANGKA BERNAMA "SELISIH" DI SATU HALAMAN, dan pembandingnya BERBEDA
-     (ditanyakan user 7 September 2026: "selisih itu apa?").
+  /* ---- TIGA ACARA PENYUMBANG OMSET TERBESAR ----
+     Menggantikan kartu "Selisihnya — pembanding kasar" (permintaan user
+     9 September 2026: "dihapus saja, diganti event mana yang top 3
+     kontribusi omset"), di KEDUA tab sekaligus karena penggambarnya satu.
 
-       kartu di sini  : rata-rata hari berevent vs rata-rata SELURUH hari biasa
-       kolom di tabel : hari itu vs rata-rata hari yang SAMA tanpa acara
+     KENAPA YANG LAMA DICABUT, dan jangan dikembalikan tanpa diminta: ia
+     membandingkan rata-rata hari berevent dengan rata-rata SELURUH hari
+     biasa. Acara hampir selalu ditaruh di akhir pekan, dan akhir pekan memang
+     lebih ramai tanpa acara apa pun — jadi angkanya memuji acara untuk
+     sesuatu yang sudah terjadi dengan sendirinya, lalu dibaca sebagai
+     capaian. Kartunya sendiri harus memasang peringatan yang membantah
+     angkanya sendiri, dan angka yang perlu dibantah di tempatnya berdiri
+     memang tidak layak berdiri di sana.
 
-     Yang pertama kasar dan hampir selalu terlalu memuji — acara ditaruh di
-     akhir pekan, dan akhir pekan memang lebih ramai tanpa acara apa pun. Yang
-     kedua itulah yang berarti. Karena keduanya dulu sama-sama disebut
-     "selisih", yang membaca tidak punya cara tahu ia sedang melihat yang
-     mana; sekarang masing-masing menyebut pembandingnya di kartunya sendiri,
-     dan kolom tabel memakai nama yang SAMA dengan tabel Per Kategori
-     ("vs hari sama") karena keduanya memang menghitung hal yang sama. */
-  h += '<div class="card"><h3>Selisihnya — pembanding kasar</h3>'
-    + '<div class="card-sub">Rata-rata hari berevent dibandingkan dengan rata-rata '
-    + '<b>seluruh</b> hari biasa — tanpa memandang hari apa. Pembanding yang adil ada di '
-    + 'tabel paling bawah, yang mencocokkan Sabtu dengan Sabtu.</div>'
-    + '<div class="grid g2">'
-    + kartu('Beda rata-rata', (beda >= 0 ? '+' : '') + beda.toFixed(0) + '%',
-            rp0(rEv) + ' vs ' + rp0(rNo) + ' · beda ' + rp0(rEv - rNo) + '/hari')
-    + kartu('Cukup untuk disimpulkan?', (adaEv.length >= 6 && tanpa.length >= 6) ? 'Mungkin' : 'Belum',
-            adaEv.length + ' hari ada acara vs ' + tanpa.length + ' hari biasa')
-    + '</div>'
-    /* Peringatan ini TIDAK boleh dihapus supaya halamannya terlihat lebih
-       tegas. Acara ditaruh di akhir pekan, dan akhir pekan memang lebih ramai
-       tanpa acara apa pun — angka mentah di atas akan memuji acara untuk
-       sesuatu yang sudah terjadi dengan sendirinya. */
-    + '<div class="notice warn" style="margin-top:12px">⚠ <div><b>Angka di atas bukan bukti sebab-akibat.</b> '
-    + 'Acara hampir selalu ditaruh di akhir pekan, dan akhir pekan memang lebih ramai tanpa acara apa pun. '
-    + 'Pembanding yang lebih adil ada di tabel bawah: tiap hari dibandingkan dengan '
-    + 'rata-rata hari yang SAMA di bulan ini.</div></div>'
-    + '</div>';
+     Pembanding yang adil (tiap hari vs rata-rata hari yang SAMA) TETAP ADA
+     di tabel paling bawah, berikut peringatan sebab-akibatnya — yang pindah
+     ke sana, bukan ikut terbuang.
+
+     Yang menggantikannya menjawab pertanyaan yang benar-benar dibawa orang ke
+     halaman ini: acara MANA yang membawa omsetnya. */
+  h += kartuTop3(sumber, bdRows, totalBulan, b);
 
   /* Pembanding per hari yang sama — inilah yang membuat angkanya berarti. */
   const dowRata = Array.from({ length: 7 }, () => ({ n:0, g:0 }));
@@ -2433,7 +2609,8 @@ function vDampak(sumber) {
     + '<b>tanpa acara</b> di bulan ini. Sabtu berevent dibandingkan dengan Sabtu biasa, bukan '
     + 'dengan rata-rata seluruh hari.</div>'
     + '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Hari</th><th>Acara</th>'
-    + '<th class="num">Omset</th><th class="num">Kontribusi</th>'
+    + '<th class="num">Omset hari itu</th><th class="num">Omset event saja</th>'
+    + '<th class="num">Kontribusi</th>'
     + '<th class="num">Rata-rata hari sama</th><th class="num">vs hari sama</th>'
     + '</tr></thead><tbody>'
     + adaEv.map(t => {
@@ -2441,11 +2618,18 @@ function vDampak(sumber) {
         const pemb = k.n ? k.g / k.n : 0;
         const g = hari[t].grand || 0;
         const s = pemb ? (g - pemb) / pemb * 100 : 0;
+        const ev = bdHari[t];
         return '<tr><td class="mono">' + esc(fmtTgl(t)) + '</td>'
           + '<td>' + NAMA_HARI[dw] + '</td>'
           + '<td>' + peta[t].map(e => esc(e.judul)
               + ' <span class="helper" style="margin:0">' + esc(e.kategori) + '</span>').join('<br>') + '</td>'
           + '<td class="num mono">' + rp0(g) + '</td>'
+          /* Hari yang BELUM punya baris breakdown dibedakan dari yang nilainya
+             NOL: yang pertama berarti finance belum mengisinya, yang kedua
+             berarti acaranya memang tidak membawa omset. Disamakan, orang akan
+             menyimpulkan acaranya gagal padahal angkanya belum pernah diketik. */
+          + '<td class="num mono">' + (ev == null
+              ? '<span style="color:var(--muted-2)">belum diisi</span>' : rp0(ev)) + '</td>'
           + '<td class="num mono">' + (totalBulan ? (g / totalBulan * 100).toFixed(1) + '%' : '—') + '</td>'
           + '<td class="num mono">' + (k.n ? rp0(pemb) : '<span style="color:var(--muted-2)">tidak ada pembanding</span>') + '</td>'
           + '<td class="num mono" style="color:' + (s >= 0 ? 'var(--ok)' : 'var(--danger)') + '">'
@@ -2453,13 +2637,21 @@ function vDampak(sumber) {
           + '</tr>';
       }).join('')
     + '</tbody></table></div>'
-    /* Hari yang seluruh pembandingnya juga berevent tidak punya dasar
-       pembanding sama sekali — itu dikatakan, bukan diisi nol. Nol terbaca
-       sebagai "tidak berpengaruh". */
-    + '<div class="helper">Kolom <b>Kontribusi</b> = omset hari itu dibagi seluruh omset '
+    /* PERINGATAN SEBAB-AKIBAT PINDAH KE SINI dari kartu "pembanding kasar"
+       yang dicabut 9 September 2026 — bukan ikut terbuang bersamanya. Kolom
+       "vs hari sama" di tabel inilah yang sekarang memikul seluruh
+       perbandingannya, jadi di sinilah batasnya harus dikatakan. */
+    + '<div class="notice warn" style="margin-top:12px">⚠ <div><b>Angka di atas bukan bukti sebab-akibat.</b> '
+    + 'Acara hampir selalu ditaruh di akhir pekan, dan akhir pekan memang lebih ramai tanpa acara apa pun. '
+    + 'Kolom <b>vs hari sama</b> sudah membandingkan Sabtu dengan Sabtu, tapi ia tetap tidak bisa '
+    + 'membuktikan acaranyalah yang menyebabkan selisihnya.</div></div>'
+    + '<div class="helper">Kolom <b>Omset hari itu</b> = seluruh tagihan hari itu menurut berkas POS. '
+    + 'Kolom <b>Omset event saja</b> = nilai acaranya sendiri yang diketik finance di Breakdown Sumber '
+    + '(omset + tax + service + Open Bill). Keduanya DUA SUMBER YANG BERBEDA, jadi selisihnya '
+    + 'BUKAN "omset non-event". Kolom <b>Kontribusi</b> = omset hari itu dibagi seluruh omset '
     + esc(fmtBln(b)) + '. Kolom <b>vs hari sama</b> = berapa persen omset hari itu di ATAS '
-    + '(atau di bawah) rata-rata hari yang sama tanpa acara — Sabtu berevent dibanding Sabtu biasa, bukan dibanding rata-rata seluruh hari. Itu sebabnya angkanya bisa berbeda jauh '
-    + 'dari kartu <b>Beda rata-rata</b> di atas, yang pembandingnya seluruh hari biasa sekaligus. '
+    + '(atau di bawah) rata-rata hari yang sama tanpa acara — Sabtu berevent dibanding Sabtu biasa, '
+    + 'bukan dibanding rata-rata seluruh hari. '
     + 'Hari yang seluruh pembandingnya juga ada acara ditulis '
     + '"tidak ada pembanding" — bukan nol, karena nol terbaca sebagai tidak berpengaruh.</div>'
     + '</div>';
