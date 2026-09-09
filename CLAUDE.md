@@ -1937,11 +1937,36 @@ tidak layak berdiri di sana.
 > dikunci sekarang.
 
 ```bash
-node tools/uji-analytics.js   # 254 pemeriksaan (dari 230)
+node tools/uji-analytics.js   # 255 pemeriksaan (dari 230)
 ```
 
 Dua belas mutasi dicoba; dua di antaranya lolos lebih dulu (keduanya di atas)
 lalu tertangkap sesudah asersinya dibetulkan.
+
+
+**Dan porsinya terhadap HARI ITU ditambahkan** sesudah user bertanya lagi:
+*"bukannya secara hitungan 50%?"* — betul. Rp14.580.550 dari omset hari
+Rp27.797.629 memang **52,5%**, dan angka itu satu-satunya yang TIDAK ada di
+tabel: yang tampil cuma dua rasio terhadap SEBULAN (3,8% dan 2,0%), dan
+keduanya menjawab pertanyaan lain daripada yang dibawa orang ke baris acara.
+
+| rasio | angka | ada di |
+|---|---|---|
+| nilai acara ÷ omset hari itu | 52,5% | **belum ada** — sekarang ditambahkan |
+| omset hari itu ÷ omset sebulan | 3,8% | kolom Kontribusi hari |
+| nilai acara ÷ omset sebulan | 2,0% | baris kecil di bawah nilai acara |
+
+Kartu ringkas di atas halaman SUDAH memajang keduanya sejak awal; tabelnya yang
+tertinggal satu. **Bisa lebih dari 100%, dan itu tidak dijepit**: nilai acara
+diketik finance sementara omset hari datang dari POS, jadi angka di atas 100%
+berarti keduanya memang berselisih — dan itu justru yang perlu terlihat.
+
+> **Asersi ujinya sempat HAMPA, dan sebabnya khas.** Kartu ringkas memajang
+> kalimat yang bentuknya sama persis (`…% dari omset sebulan`), jadi asersi atas
+> SELURUH halaman cocok dengan KARTU dan tidak pernah menyentuh sel tabelnya —
+> ia tetap hijau waktu kalimat di tabelnya diganti seluruhnya. Sekarang
+> halamannya diiris ke tabelnya dulu, dan angka kartu vs tabel sengaja dibuat
+> berbeda (45,8% vs 49,6%) supaya keduanya tidak bisa tertukar lagi.
 
 **Kolomnya diganti nama jadi `Kontribusi hari` (9 September 2026)** sesudah user
 bertanya *"kontribusinya itu gimana bisa dapat angkanya segitu?"* — ia berdiri

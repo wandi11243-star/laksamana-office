@@ -1018,9 +1018,23 @@ async function siap(w) {
        pembilangnya, dan persentase acaranya sendiri ditulis di kolom acaranya.
        5.950.000 / 23.000.000 = 25,9%. */
     cek('kepala kolom menyebut pembilangnya', v.indexOf('Kontribusi hari') > -1);
-    cek('kontribusi acaranya sendiri ditulis terpisah',
-        v.indexOf('25.9% dari omset sebulan') > -1,
-        v.slice(v.indexOf('Omset event saja'), v.indexOf('Omset event saja') + 300));
+    /* DIIRIS KE TABELNYA DULU. Kartu ringkas di atas halaman memajang kalimat
+       yang bentuknya sama persis ('…% dari omset sebulan'), jadi asersi atas
+       seluruh halaman COCOK DENGAN KARTU dan tidak pernah menyentuh sel
+       tabelnya — versi pertama asersi ini memang hampa karena itu, dan tetap
+       hijau waktu kalimat di tabelnya diganti seluruhnya.
+
+       Angkanya pun sengaja berbeda antara kartu dan tabel: kartu memakai
+       SELURUH hari berevent (5.950.000 / 13.000.000 = 45,8%), baris tabel
+       memakai harinya sendiri (5.950.000 / 12.000.000 = 49,6%). Bedanya itu
+       yang membuat asersinya tidak bisa lagi tertukar. */
+    const tabelHari = v.slice(v.indexOf('Hari Ada Acara, Satu per Satu'));
+    cek('baris acara menyebut porsinya terhadap omset HARI ITU',
+        tabelHari.indexOf('49.6% dari omset hari itu') > -1,
+        tabelHari.slice(0, 900));
+    cek('...dan terhadap omset sebulan',
+        tabelHari.indexOf('25.9% dari sebulan') > -1,
+        tabelHari.slice(0, 900));
 
     /* ---------- TOP 3, menggantikan kartu pembanding kasar ---------- */
     cek('kartu pembanding kasar sudah tidak digambar',
