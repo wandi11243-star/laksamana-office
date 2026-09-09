@@ -920,7 +920,8 @@ async function siap(w) {
       { date:'2026-08-01', bd:{
           event:[{ eventName:'Live Music Agustusan', amount:5000000, tax:500000, service:250000,
                    ob:1, obAmount:200000, obTax:0, obService:0 }],
-          marketing:[{ eventName:'Promo Merdeka', amount:3000000 }] } }
+          marketing:[{ eventName:'Promo Merdeka', amount:3000000 },
+                     { eventName:'Gathering Korporat', amount:19000000 }] } }
     ] };
     const { dom } = domAnalytics({ an, kp,
       event: [{ start_datetime:'2026-08-01 19:00', title:'Live Music Agustusan', category:'Live Music' },
@@ -1017,7 +1018,8 @@ async function siap(w) {
        pembilangnya omset SEHARI PENUH. Kepala kolomnya sekarang menyebut
        pembilangnya, dan persentase acaranya sendiri ditulis di kolom acaranya.
        5.950.000 / 23.000.000 = 25,9%. */
-    cek('kepala kolom menyebut pembilangnya', v.indexOf('Kontribusi hari') > -1);
+    cek('kepala kolom menyebut acaranya, bukan harinya', v.indexOf('Kontribusi acara') > -1,
+        'kolom ini dua kali ditanyakan user karena penyebutnya harus ditebak');
     /* DIIRIS KE TABELNYA DULU. Kartu ringkas di atas halaman memajang kalimat
        yang bentuknya sama persis ('…% dari omset sebulan'), jadi asersi atas
        seluruh halaman COCOK DENGAN KARTU dan tidak pernah menyentuh sel
@@ -1029,12 +1031,22 @@ async function siap(w) {
        memakai harinya sendiri (5.950.000 / 12.000.000 = 49,6%). Bedanya itu
        yang membuat asersinya tidak bisa lagi tertukar. */
     const tabelHari = v.slice(v.indexOf('Hari Ada Acara, Satu per Satu'));
-    cek('baris acara menyebut porsinya terhadap omset HARI ITU',
-        tabelHari.indexOf('49.6% dari omset hari itu') > -1,
-        tabelHari.slice(0, 900));
-    cek('...dan terhadap omset sebulan',
-        tabelHari.indexOf('25.9% dari sebulan') > -1,
-        tabelHari.slice(0, 900));
+    /* 5.950.000 / 12.000.000 = 49,6% — porsi acara terhadap HARI ITU, yang
+       sekarang berdiri di kolomnya sendiri. */
+    cek('kolom Kontribusi acara memakai omset hari itu sebagai penyebut',
+        tabelHari.indexOf('49.6%') > -1, tabelHari.slice(0, 1200));
+    /* Penyebutnya IKUT DI SELNYA. Kepala kolom cuma terbaca sekali, angkanya
+       dibaca tiap kali — dan dua putaran pertanyaan user lahir persis dari
+       kolom yang penyebutnya harus ditebak. */
+    cek('...dan selnya membawa penyebutnya sendiri',
+        tabelHari.indexOf('dari omset hari itu') > -1, tabelHari.slice(0, 1200));
+    /* Diiris ke tabelnya dulu: kartu ringkas di atas memajang kalimat yang
+       bentuknya sama persis, dan asersi atas seluruh halaman akan cocok dengan
+       KARTU tanpa pernah menyentuh sel tabelnya. */
+    cek('rupiahnya masing-masing membawa porsi bulanannya',
+        tabelHari.indexOf('52.2% dari omset sebulan') > -1
+        && tabelHari.indexOf('25.9% dari omset sebulan') > -1,
+        tabelHari.slice(0, 1200));
 
     /* ---------- TOP 3, menggantikan kartu pembanding kasar ---------- */
     cek('kartu pembanding kasar sudah tidak digambar',
@@ -1055,6 +1067,13 @@ async function siap(w) {
         top3(vm).indexOf('Promo Merdeka') > -1 && top3(vm).indexOf('Live Music Agustusan') < 0,
         top3(vm).slice(0, 500));
     cek('...dengan angkanya sendiri', vm.indexOf(rpH(3000000)) > -1);
+    /* 23.000.000 nilai acara / 12.000.000 omset hari = 191,7%. TIDAK dijepit ke
+       100%: dijepit, selisih antara angka finance dan angka POS hilang tanpa
+       satu pun tanda — padahal justru selisih itu yang perlu dilihat. */
+    const tabelM = vm.slice(vm.indexOf('Hari Ada Acara, Satu per Satu'));
+    cek('porsi acara boleh lewat 100% dan tidak dijepit',
+        tabelM.indexOf('183.3%') > -1 && tabelM.indexOf('100.0%') < 0,
+        tabelM.slice(0, 1200));
     dom.window.close();
   }
 

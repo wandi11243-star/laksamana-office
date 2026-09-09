@@ -1937,44 +1937,65 @@ tidak layak berdiri di sana.
 > dikunci sekarang.
 
 ```bash
-node tools/uji-analytics.js   # 255 pemeriksaan (dari 230)
+node tools/uji-analytics.js   # 257 pemeriksaan (dari 230)
 ```
 
 Dua belas mutasi dicoba; dua di antaranya lolos lebih dulu (keduanya di atas)
 lalu tertangkap sesudah asersinya dibetulkan.
 
 
-**Dan porsinya terhadap HARI ITU ditambahkan** sesudah user bertanya lagi:
-*"bukannya secara hitungan 50%?"* — betul. Rp14.580.550 dari omset hari
-Rp27.797.629 memang **52,5%**, dan angka itu satu-satunya yang TIDAK ada di
-tabel: yang tampil cuma dua rasio terhadap SEBULAN (3,8% dan 2,0%), dan
-keduanya menjawab pertanyaan lain daripada yang dibawa orang ke baris acara.
+**KOLOM ITU SEKARANG PORSI ACARA TERHADAP HARI ITU** — ditanyakan user TIGA
+kali berturut-turut, dan tiap jawaban setengah cuma memancing pertanyaan
+berikutnya:
 
-| rasio | angka | ada di |
+| putaran | yang ditanya | yang dikerjakan | hasilnya |
+|---|---|---|---|
+| 1 | "kontribusinya gimana dapat angkanya?" | kolom diganti nama `Kontribusi hari` | masih ditanya |
+| 2 | "bukannya secara hitungan 50%?" | 52,5% ditambahkan sebagai baris kecil | "ini masih settingan lama" |
+| 3 | — | **angkanya dipindah ke kolomnya** | selesai |
+
+Rp14.580.550 dari omset hari Rp27.797.629 memang **52,5%**, dan itulah angka
+yang dibawa orang ke baris sebuah acara. Yang dulu berdiri di kolom itu —
+omset hari ÷ omset sebulan (3,8%) — menjawab pertanyaan yang tidak dibawa
+siapa pun: ia praktis cuma mengatakan "hari ini sepertiga puluh bulan ini".
+
+Bentuk akhirnya, dan **tidak ada yang hilang**:
+
+| kolom | isinya | baris kecil di bawahnya |
 |---|---|---|
-| nilai acara ÷ omset hari itu | 52,5% | **belum ada** — sekarang ditambahkan |
-| omset hari itu ÷ omset sebulan | 3,8% | kolom Kontribusi hari |
-| nilai acara ÷ omset sebulan | 2,0% | baris kecil di bawah nilai acara |
+| Omset hari itu | Rp27.797.629 | 3,8% dari omset sebulan |
+| Omset event saja | Rp14.580.550 | 2,0% dari omset sebulan |
+| **Kontribusi acara** | **52,5%** | dari omset hari itu |
 
-Kartu ringkas di atas halaman SUDAH memajang keduanya sejak awal; tabelnya yang
-tertinggal satu. **Bisa lebih dari 100%, dan itu tidak dijepit**: nilai acara
-diketik finance sementara omset hari datang dari POS, jadi angka di atas 100%
-berarti keduanya memang berselisih — dan itu justru yang perlu terlihat.
+- **TIAP SEL MEMBAWA PENYEBUTNYA.** Kepala kolom cuma terbaca sekali, angkanya
+  dibaca tiap kali — dan tiga putaran pertanyaan di atas lahir persis dari kolom
+  bernama "Kontribusi" yang penyebutnya harus ditebak. Menamai ulang kolomnya
+  saja TIDAK cukup; itu sudah dicoba di putaran pertama.
+- **Boleh lewat 100%, dan TIDAK dijepit.** Nilai acara diketik finance
+  sementara omset hari datang dari berkas POS; angka di atas 100% berarti
+  keduanya memang berselisih, dan dijepit ke 100% selisihnya hilang tanpa satu
+  pun tanda.
 
-> **Asersi ujinya sempat HAMPA, dan sebabnya khas.** Kartu ringkas memajang
+> **Data uji harus dipilih supaya tiap angka punya sidik jarinya sendiri.**
+> Baris uji sempat bernilai 20 juta, yang kebetulan membuat porsi bulanannya
+> tepat `100.0%` — dan angka itu bertabrakan dengan asersi "tidak dijepit ke
+> 100%", membuatnya merah untuk kode yang benar. Diganti 19 juta: 183,3% dan
+> 95,7%, tidak ada yang bisa tertukar.
+
+> **Dua asersi ujinya sempat HAMPA**, dan keduanya jenis yang sama — cocok
+> dengan sesuatu yang BUKAN yang diuji. Kartu ringkas di atas halaman memajang
 > kalimat yang bentuknya sama persis (`…% dari omset sebulan`), jadi asersi atas
-> SELURUH halaman cocok dengan KARTU dan tidak pernah menyentuh sel tabelnya —
-> ia tetap hijau waktu kalimat di tabelnya diganti seluruhnya. Sekarang
-> halamannya diiris ke tabelnya dulu, dan angka kartu vs tabel sengaja dibuat
-> berbeda (45,8% vs 49,6%) supaya keduanya tidak bisa tertukar lagi.
+> SELURUH halaman cocok dengan KARTU tanpa pernah menyentuh sel tabelnya;
+> halamannya sekarang diiris ke tabelnya dulu, dan angka kartu vs tabel sengaja
+> berbeda (45,8% vs 49,6%). Yang kedua: tanpa satu baris bernilai di atas omset
+> harinya, mutasi "dijepit ke 100%" tidak mengubah satu angka pun dan LOLOS.
 
-**Kolomnya diganti nama jadi `Kontribusi hari` (9 September 2026)** sesudah user
-bertanya *"kontribusinya itu gimana bisa dapat angkanya segitu?"* — ia berdiri
-tepat di sebelah `Omset event saja`, jadi terbaca sebagai kontribusi ACARANYA,
-padahal pembilangnya omset SEHARI PENUH. Persentase acaranya sendiri sekarang
-ditulis kecil di kolom acaranya, dan keterangan tabel menyebut aritmetikanya
-utuh: angka yang tidak bisa dihitung ulang sendiri oleh yang membacanya akan
-ditanyakan lagi.
+**Yang sudah DICOBA dan tidak cukup, jangan diulang:** kolomnya sempat cuma
+DIGANTI NAMA jadi `Kontribusi hari` (putaran 1), lalu porsi acaranya
+ditambahkan sebagai baris kecil di bawah nilai rupiahnya (putaran 2). Dua-duanya
+benar secara isi dan dua-duanya tetap ditanyakan lagi — selama angka yang dicari
+tidak berdiri di KOLOM yang orang baca, menamai ulang dan menambah keterangan
+tidak menyelesaikan apa pun.
 
 #### Selisih POS vs Rekap dipecah PER HARI (6 September 2026)
 
