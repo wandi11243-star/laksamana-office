@@ -876,9 +876,73 @@ async function siap(w) {
        namanya sendiri tidak memindahkan porsi ke mana pun, dan yang menekan
        tombolnya mengira sudah selesai. */
     const saran = w.eval('saranKode')('MATCHA02', Object.keys(NM.gab).concat(['REGULAR (PACKAGE) · MATCHA02']));
-    cek('saran kode tidak menawarkan baris paket', saran.every(x => x.indexOf('(PACKAGE)') < 0),
+    cek('saran kode tidak menawarkan baris paket', saran.utama.every(x => x.indexOf('(PACKAGE)') < 0),
         JSON.stringify(saran));
-    cek('saran kode menemukan menu yang mirip', saran.indexOf('MATCHA LATTE') > -1, JSON.stringify(saran));
+    cek('saran kode menemukan menu yang mirip', saran.utama.indexOf('MATCHA LATTE') > -1, JSON.stringify(saran));
+
+    /* ---- SARAN DIJEPIT KE UKURAN BARIS PAKETNYA (10 September 2026,
+       permintaan user) ----
+
+       Laporan POS tidak punya satu pun menu yang namanya menyebut ukuran —
+       diperiksa atas Agustus 2026, NOL dari 259 menu. Ukurannya cuma hidup di
+       nama baris paket dan di kodenya. Jadi selama sarannya cuma diambil dari
+       nama menu laporan, kode LARGE tidak akan pernah punya satu pun tombol
+       yang benar: yang ditawarkan selalu menu regular, dan menekannya
+       meleburkan porsi large ke sana tanpa satu pun tanda. */
+    cek('ukuran dibaca dari nama baris paket',
+        w.eval("ukuranPaket('LARGE (PACKAGE)')") === 'LARGE'
+        && w.eval("ukuranPaket('LARGE KOPI (PACKAGE)')") === 'LARGE'
+        && w.eval("ukuranPaket('REGULAR (PACKAGE)')") === 'REGULAR'
+        && w.eval("ukuranPaket('MINERAL WATER (PACKAGE)')") === '');
+    /* KATA UTUH, bukan potongan — aturan yang sama dengan pbHead() yang
+       mencari "Head" dan sengaja menolak "Overhead". */
+    cek('kata ukuran dicocokkan utuh',
+        w.eval("punyaKataUkuran('LARGE MATCHA LATTE','LARGE')") === true
+        && w.eval("punyaKataUkuran('ENLARGED MATCHA','LARGE')") === false);
+    const namaGab = Object.keys(NM.gab);
+    const sL = w.eval('saranKode')('MATCHA02', namaGab, 'LARGE');
+    cek('kode LARGE tidak menawarkan menu regular sebagai pilihan utama',
+        sL.utama.length === 0, JSON.stringify(sL));
+    /* Jalan keluarnya TETAP ada — tanpa itu kode LARGE tidak punya satu pun
+       tombol sampai resepnya dibuat, dan porsinya berdiri sendiri
+       berbulan-bulan. Yang berubah: akibatnya dikatakan. */
+    cek('...tapi tetap menyediakan jalan gabung ke regular',
+        sL.cadangan.indexOf('MATCHA LATTE') > -1, JSON.stringify(sL));
+    const sR = w.eval('saranKode')('MATCHA01', namaGab, 'REGULAR');
+    cek('kode REGULAR tetap menawarkan menu biasa',
+        sR.utama.indexOf('MATCHA LATTE') > -1, JSON.stringify(sR));
+
+    /* Dengan resep ber-kata LARGE di Daftar Resep HPP, kode LARGE
+       menawarkannya — dan itulah inti permintaannya. Diuji lewat dom KEDUA
+       karena stub HPP disetel saat boot. */
+    {
+      const { dom: dl } = domAnalytics({ hpp: { resep: [
+        { nama:'LARGE MATCHA LATTE', tipe:'dish', yield_qty:1, bahan:[] },
+        /* `base` bahan olahan, BUKAN menu yang bisa dijual. Memasangkan kode
+           paket ke sana memindahkan porsinya ke sesuatu yang tidak pernah
+           muncul di daftar menu mana pun. */
+        { nama:'LARGE MATCHA BASE',  tipe:'base', yield_qty:1, bahan:[] }
+      ] } });
+      await siap(dl.window);
+      const s2 = dl.window.eval('saranKode')('MATCHA02', namaGab, 'LARGE');
+      cek('resep HPP ber-kata LARGE ditawarkan untuk kode LARGE',
+          s2.utama.indexOf('LARGE MATCHA LATTE') > -1, JSON.stringify(s2));
+      cek('resep base TIDAK pernah ditawarkan sebagai menu',
+          s2.utama.indexOf('LARGE MATCHA BASE') < 0
+          && s2.cadangan.indexOf('LARGE MATCHA BASE') < 0, JSON.stringify(s2));
+      const s3 = dl.window.eval('saranKode')('MATCHA01', namaGab, 'REGULAR');
+      cek('resep LARGE tidak pernah ditawarkan untuk kode REGULAR',
+          s3.utama.indexOf('LARGE MATCHA LATTE') < 0, JSON.stringify(s3));
+      /* Nama resep HPP ikut ditawarkan di Pengaturan lewat <datalist>, jadi
+         yang mengetiknya tidak perlu mengingat ejaannya. Kotaknya TETAP teks
+         bebas: menu yang belum punya resep harus tetap bisa dipasangkan. */
+      dl.window.go('pengaturan');
+      const hp = dl.window.document.getElementById('app-view').innerHTML;
+      cek('daftar resep HPP ditawarkan di Pengaturan',
+          hp.indexOf('id="pk_resep"') > -1 && hp.indexOf('LARGE MATCHA LATTE') > -1);
+      cek('kotak pasangan tetap teks bebas', hp.indexOf('list="pk_resep"') > -1);
+      dl.window.close();
+    }
 
     /* ---- 2: halaman kategori ---- */
     cek('kategori terbaca dari laporan', Object.keys(u.kategori).length === 6,

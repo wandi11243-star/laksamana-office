@@ -1609,6 +1609,71 @@ Dua bentuk, dan bedanya menentukan bisa-tidaknya ia dihitung:
   saran. Kodenya **dibakukan huruf besar di satu tempat** — ia diketik kasir,
   jadi `Matcha02` dan `MATCHA02` pasti bercampur.
 
+#### Saran pasangan dijepit ke UKURAN, dan ikut membaca Daftar Resep HPP (10 Sep 2026)
+
+Permintaan user: kode yang muncul sebagai `LARGE (PACKAGE)` *"bisa didefine
+menu yg menggunakan kata large di modul HPP & Resep → daftar resep"*.
+
+**SEBABNYA: laporan POS tidak punya satu pun menu yang namanya menyebut
+ukuran** — diperiksa atas Agustus 2026, **nol dari 259 menu**. Ukurannya cuma
+hidup di nama baris paket (`LARGE (PACKAGE)`) dan di kodenya (`...001` regular,
+`...002` large). Selama sarannya cuma diambil dari nama menu laporan, kode
+LARGE **tidak akan pernah punya satu pun tombol yang benar**: yang ditawarkan
+selalu menu regular, dan menekannya meleburkan porsi large ke sana.
+
+Agustus 2026 itu bukan selisih kecil — `KOPISUSU001` 640 porsi dan
+`KOPISUSU002` 195 porsi dipasangkan ke nama yang sama jadi **satu baris 835
+porsi**, dan bahan bakunya dihitung seolah 835-nya ukuran regular.
+
+- **Sumber sarannya sekarang nama menu di laporan DITAMBAH nama resep di
+  HPP**, diambil dari `resepPeta()` yang SAMA dengan yang dipakai `kenal()` di
+  halaman Menu. Itu yang menjamin saran di sini tidak pernah menawarkan nama
+  yang justru akan mendarat di daftar *belum ada resep*. Dua sumber nama resep
+  akan menyimpang, dan yang menyimpang di sini adalah tombol yang menjanjikan
+  bahan bakunya ikut terhitung padahal tidak.
+- **Resep `base` DIBUANG** (`tipe === 'dish'` saja). Ia bahan olahan, bukan
+  menu yang bisa dijual — memasangkan kode paket ke sana memindahkan porsinya
+  ke sesuatu yang tidak pernah muncul di daftar menu mana pun.
+- **DIJEPIT KE UKURAN BARISNYA.** Kode `LARGE` hanya ditawari nama yang memuat
+  kata LARGE; kode `REGULAR` **tidak pernah** ditawari nama berukuran. Salah
+  arah mana pun menghitung bahan baku dengan takaran yang salah, dan angkanya
+  tetap terlihat wajar.
+- **KATA UTUH, bukan potongan** (`\bLARGE\b`). "ENLARGED" dan "LARGEMOUTH"
+  tidak boleh membuat sebuah resep dianggap berukuran large. Aturan yang sama
+  dengan `pbHead()` yang mencari "Head" dan menolak "Overhead". Diuji.
+- **JALAN GABUNG KE REGULAR TETAP ADA**, sebagai `cadangan` yang terpisah dan
+  **akibatnya dikatakan** (*porsinya melebur dan bahan bakunya terhitung
+  sebagai regular*). Dicabut, kode LARGE tidak punya satu pun tombol sampai
+  resepnya dibuat — dan porsinya berdiri sendiri berbulan-bulan.
+- **TIGA keadaan kosong dibedakan**, karena bentuk datanya sama (daftar saran
+  kosong) tapi tindakannya berbeda, dan kalimat yang salah menyuruh orang
+  membetulkan sesuatu yang sudah benar:
+
+  | keadaan | yang dikatakan |
+  |---|---|
+  | `HP` null | daftar resep HPP tidak terbaca, berikut `HP_ERR` |
+  | belum ada resep ber-kata LARGE | buat resepnya di HPP → Daftar Resep, berikut CONTOH namanya |
+  | kodenya memang tidak mirip apa pun | isi manual di Pengaturan |
+
+- **`saranKode()` memulangkan `{utama, cadangan}`, bukan array.** Pemanggil
+  lama yang memperlakukannya sebagai array tidak melempar — `.length` pada
+  objek memulangkan `undefined`, jadi daftarnya cuma diam-diam kosong.
+- **Kotak di Pengaturan tetap TEKS BEBAS**, nama resep cuma ditawarkan lewat
+  `<datalist>`. Menu yang belum punya resep harus tetap bisa dipasangkan; yang
+  tidak boleh cuma menebaknya. Pola yang sama dengan kotak Vendor di lembar
+  pembayaran Brankas.
+
+`menuNormal()` tidak perlu diubah sama sekali: ia sudah memakai nama tujuan apa
+adanya, jadi kode yang dipasangkan ke `LARGE ICE AMERICANO` otomatis berdiri
+sebagai barisnya sendiri dan cocok dengan resep HPP bernama sama.
+
+```bash
+node tools/uji-analytics.js   # 354 pemeriksaan (dari 344)
+```
+
+Enam mutasi dicoba, keenamnya tertangkap.
+
+
 **HALAMAN `Kategori Menu` BERDIRI SENDIRI** (permintaan user). Dari kolom
 `Menu Category Detail`; Agustus 2026 ada 23 kategori, termasuk **EVENT**
 (Rp27,4 juta). Dipisahkan dari peringkat menu bukan demi kerapian: kategori

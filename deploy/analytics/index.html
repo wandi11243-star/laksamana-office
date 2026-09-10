@@ -1850,21 +1850,88 @@ function menuNormal(d) {
   ev.nama.sort();
   return { gab, takKenal, digabung, ev };
 }
-/* Tebakan pasangan untuk sebuah kode, dari menu yang MEMANG ada di laporan
-   bulan itu. Cuma SARAN — tidak pernah dipakai sendiri: kode "SALTED01" cocok
-   ke "SALTED EGG" maupun "SALTED CARAMEL LATTE", dan menebak salah satunya
-   memindahkan porsi ke menu yang salah tanpa satu pun tanda. */
-function saranKode(kode, namaAda) {
+/* Ukuran dari nama baris paket: "LARGE (PACKAGE)" -> "LARGE".
+   Nama seperti "LARGE KOPI (PACKAGE)" tetap terbaca LARGE — yang dipakai kata
+   PERTAMANYA, karena sisanya sudah menyebut jenis minumannya. */
+const UKURAN_PAKET = ['LARGE', 'REGULAR', 'SMALL', 'MEDIUM'];
+function ukuranPaket(nm) {
+  const s = String(nm || '').replace(PAKET_RE, '').trim().toUpperCase();
+  const m = s.match(/^(LARGE|REGULAR|SMALL|MEDIUM)\b/);
+  return m ? m[1] : '';
+}
+/* KATA UTUH, bukan potongan. "LARGEMOUTH" atau "ENLARGED" tidak boleh membuat
+   sebuah resep dianggap berukuran large — aturan yang sama dengan pbHead()
+   yang mencari kata "Head" dan sengaja menolak "Overhead". */
+function punyaKataUkuran(nama, kata) {
+  return new RegExp('\\b' + kata + '\\b', 'i').test(String(nama || ''));
+}
+/* Nama resep MENU JADI dari modul HPP (10 September 2026, permintaan user:
+   kode ukuran large dipasangkan ke "menu yang menggunakan kata large di modul
+   HPP & Resep -> Daftar Resep").
+
+   KENAPA HPP, BUKAN CUMA NAMA MENU DI LAPORAN POS: laporan POS tidak punya
+   satu pun menu yang namanya menyebut ukuran — diperiksa atas Agustus 2026,
+   nol dari 259 menu. Ukurannya cuma hidup di baris paket ("LARGE (PACKAGE)")
+   dan di kodenya. Jadi selama sarannya cuma diambil dari nama menu laporan,
+   kode LARGE tidak akan pernah punya satu pun tombol yang benar, dan
+   satu-satunya jalan adalah mengetiknya manual di Pengaturan.
+
+   `base` SENGAJA dibuang: ia bahan olahan, bukan menu yang bisa dijual.
+   Memasangkan kode paket ke sana memindahkan porsinya ke sesuatu yang tidak
+   pernah muncul di daftar menu mana pun.
+
+   Diambil dari resepPeta() yang SAMA dengan yang dipakai kenal() di halaman
+   Menu — itu yang menjamin saran di sini tidak pernah menawarkan nama yang
+   justru akan mendarat di daftar "belum ada resep". Dua sumber nama resep
+   akan menyimpang, dan yang menyimpang di sini adalah tombol yang menjanjikan
+   bahan bakunya ikut terhitung padahal tidak. */
+function hppNamaMenu() {
+  const peta = resepPeta();
+  const out = [];
+  Object.keys(peta).forEach(k => { const r = peta[k];
+    if (r && r.nama && r.tipe === 'dish') out.push(String(r.nama).trim()); });
+  return out;
+}
+/* Tebakan pasangan untuk sebuah kode. Memulangkan { utama, cadangan }:
+
+     utama    — yang ukurannya COCOK dengan baris paketnya
+     cadangan — nama tanpa ukuran, hanya untuk kode berukuran yang belum punya
+                resep ukurannya sendiri; ditawarkan TERPISAH dan dikatakan
+                akibatnya, karena memilihnya berarti porsi large melebur ke
+                menu regular dan bahan bakunya terhitung sebagai regular.
+
+   Cuma SARAN — tidak pernah dipakai sendiri: kode "SALTED01" cocok ke "SALTED
+   EGG" maupun "KOPI SUSU SALTED AREN", dan menebak salah satunya memindahkan
+   porsi ke menu yang salah tanpa satu pun tanda. */
+function saranKode(kode, namaAda, ukuran) {
   const inti = String(kode || '').replace(/[0-9_.\-]+$/, '').toUpperCase();
-  if (inti.length < 3) return [];
-  return namaAda.filter(n => String(n).toUpperCase().replace(/[^A-Z]/g, '').indexOf(inti) > -1)
-                /* Baris paket yang BELUM dipetakan ikut ada di daftar nama, dan
-                   namanya memuat kodenya sendiri ("REGULAR (PACKAGE) · MATCHA01")
-                   — jadi ia selalu cocok dengan kodenya dan selalu jadi saran
-                   teratas. Memasangkannya ke situ memetakan kode ke dirinya
-                   sendiri: porsinya tidak pindah ke mana pun, dan yang menekan
-                   tombolnya mengira sudah selesai. */
-                .filter(n => !/\(PACKAGE\)/i.test(n)).slice(0, 4);
+  if (inti.length < 3) return { utama: [], cadangan: [] };
+  const norm = n => String(n).toUpperCase().replace(/[^A-Z]/g, '');
+  /* Nama laporan + nama resep HPP, dibuang duplikatnya tanpa memandang huruf
+     besar-kecil. Ejaan yang MENANG yang dari laporan POS kalau ada di
+     kedua-duanya — itu ejaan yang benar-benar dipakai menghitung porsinya. */
+  const kumpul = {};
+  (namaAda || []).concat(hppNamaMenu()).forEach(n => {
+    const s = String(n || '').trim();
+    /* Baris paket yang BELUM dipetakan ikut ada di daftar nama, dan namanya
+       memuat kodenya sendiri ("REGULAR (PACKAGE) · MATCHA01") — jadi ia selalu
+       cocok dengan kodenya dan selalu jadi saran teratas. Memasangkannya ke
+       situ memetakan kode ke dirinya sendiri: porsinya tidak pindah ke mana
+       pun, dan yang menekan tombolnya mengira sudah selesai. */
+    if (!s || /\(PACKAGE\)/i.test(s)) return;
+    const k = s.toLowerCase();
+    if (kumpul[k] === undefined) kumpul[k] = s;
+  });
+  const cocok = Object.keys(kumpul).map(k => kumpul[k]).filter(n => norm(n).indexOf(inti) > -1);
+  /* Nama yang menyebut ukuran LAIN tidak pernah ditawarkan untuk kode ini —
+     memasangkan kode regular ke resep large (atau sebaliknya) menghitung
+     bahan baku dengan takaran yang salah, dan angkanya tetap terlihat wajar. */
+  const berukuran = n => UKURAN_PAKET.some(u => u !== 'REGULAR' && punyaKataUkuran(n, u));
+  if (!ukuran || ukuran === 'REGULAR') return { utama: cocok.filter(n => !berukuran(n)).slice(0, 4), cadangan: [] };
+  return {
+    utama: cocok.filter(n => punyaKataUkuran(n, ukuran)).slice(0, 4),
+    cadangan: cocok.filter(n => !berukuran(n)).slice(0, 4)
+  };
 }
 
 /* ---- KATEGORI MENU (4 September 2026, permintaan user) ----
@@ -2357,7 +2424,15 @@ function mnPaketHtml(NM, namaAda) {
     + '<div class="card-sub">Baris paket yang namanya cuma menyebut ukuran '
     + '(<i>LARGE (PACKAGE)</i>, <i>REGULAR (PACKAGE)</i>) tidak memberi tahu minumannya. '
     + 'Yang memberi tahu <b>kode</b>-nya, dan pasangan kode → menu diisi sekali di '
-    + '<b>Pengaturan</b>; sesudah itu berlaku untuk <b>seluruh bulan</b> yang pernah diunggah.</div>'
+    + '<b>Pengaturan</b>; sesudah itu berlaku untuk <b>seluruh bulan</b> yang pernah diunggah. '
+    /* Sarannya sekarang ikut mengambil nama dari Daftar Resep HPP — laporan
+       POS tidak punya satu pun menu yang namanya menyebut ukuran, jadi tanpa
+       itu kode LARGE tidak akan pernah punya tombol yang benar. */
+    + 'Yang ditawarkan diambil dari menu di laporan ini <b>dan</b> dari '
+    + '<b>HPP &amp; Resep → Daftar Resep</b>, dan <b>dijepit ke ukuran barisnya</b>: '
+    + 'kode <i>LARGE</i> hanya ditawari resep yang namanya memuat kata <b>LARGE</b>, '
+    + 'supaya porsinya tidak melebur ke menu regular dan bahan bakunya tidak '
+    + 'terhitung dengan takaran yang salah.</div>'
     + '<div class="notice warn">⚠ <div><b>' + kd.length + ' kode</b> senilai '
     + totQ.toLocaleString('id-ID') + ' porsi belum punya pasangan. Porsinya <b>tetap dihitung</b> '
     + '(berdiri sendiri dengan nama berkodenya), tapi belum masuk ke menu aslinya dan '
@@ -2367,18 +2442,40 @@ function mnPaketHtml(NM, namaAda) {
     + kd.map(k => {
         const x = NM.takKenal[k];
         /* Saran DITAWARKAN, tidak dipakai sendiri: "SALTED01" cocok ke
-           "SALTED EGG" maupun "SALTED CARAMEL LATTE", dan menebak salah
+           "SALTED EGG" maupun "KOPI SUSU SALTED AREN", dan menebak salah
            satunya memindahkan porsi ke menu yang salah tanpa satu pun tanda. */
-        const s = saranKode(k, namaAda);
+        const uk = ukuranPaket(x.dari);
+        const s = saranKode(k, namaAda, uk);
+        const tbl = nm => '<button class="btn btn-ghost btn-sm" style="margin:2px 4px 2px 0" '
+          + 'onclick="mnPasangKode(' + esc(JSON.stringify(k)).replace(/"/g, '&quot;') + ','
+          + esc(JSON.stringify(nm)).replace(/"/g, '&quot;') + ')">' + esc(nm) + '</button>';
+        let sel;
+        if (s.utama.length) sel = s.utama.map(tbl).join('');
+        else if (uk && uk !== 'REGULAR') {
+          /* TIGA keadaan yang bentuk datanya sama — daftar saran kosong — tapi
+             menuntut tindakan yang berbeda, jadi kalimatnya dibedakan. Kalimat
+             yang salah menyuruh orang membetulkan sesuatu yang sudah benar:
+             yang satu menyuruh memeriksa modul HPP, yang satu menyuruh MEMBUAT
+             resep ukurannya. */
+          sel = !HP
+            ? '<span class="helper" style="margin:0">Daftar resep HPP tidak terbaca, jadi menu ukuran <b>'
+              + esc(uk) + '</b> tidak bisa ditawarkan di sini. ' + esc(HP_ERR || '') + '</span>'
+            : '<span class="helper" style="margin:0">Belum ada resep yang namanya memuat kata <b>'
+              + esc(uk) + '</b> dan cocok dengan kode ini. Buat resepnya di <b>HPP &amp; Resep → '
+              + 'Daftar Resep</b> (mis. <i>' + esc(uk + ' ' + (s.cadangan[0] || 'NAMA MENU')) + '</i>) — '
+              + 'tombolnya muncul sendiri di sini begitu resepnya ada.</span>';
+          /* Jalan keluar TETAP disediakan, tapi akibatnya dikatakan. Tanpa ini
+             kode LARGE tidak punya satu pun tombol sampai resepnya dibuat, dan
+             porsinya berdiri sendiri berbulan-bulan. */
+          if (s.cadangan.length) sel += '<div style="margin-top:8px">'
+            + '<span class="helper" style="margin:0">Atau gabungkan ke menu regular — porsinya '
+            + 'melebur jadi satu baris dan bahan bakunya terhitung sebagai <b>regular</b>:</span><br>'
+            + s.cadangan.map(tbl).join('') + '</div>';
+        } else sel = '<span class="helper" style="margin:0">tidak ada nama yang mirip — isi manual di Pengaturan</span>';
         return '<tr><td><b class="mono">' + esc(k) + '</b></td>'
           + '<td style="font-size:12px;color:var(--muted)">' + esc(x.dari) + '</td>'
           + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
-          + '<td>' + (s.length
-              ? s.map(n => '<button class="btn btn-ghost btn-sm" style="margin:2px 4px 2px 0" '
-                  + 'onclick="mnPasangKode(' + esc(JSON.stringify(k)).replace(/"/g, '&quot;') + ','
-                  + esc(JSON.stringify(n)).replace(/"/g, '&quot;') + ')">' + esc(n) + '</button>').join('')
-              : '<span class="helper" style="margin:0">tidak ada nama yang mirip — isi manual di Pengaturan</span>')
-          + '</td></tr>';
+          + '<td>' + sel + '</td></tr>';
       }).join('')
     + '</tbody></table></div></div>';
   return h;
@@ -4487,7 +4584,14 @@ function vPengaturan() {
     + '<div class="qa-sheet" style="grid-template-columns:1fr 1fr auto">'
     + '<div class="hd">Kode di POS</div><div class="hd">Menu yang dimaksud</div><div class="hd"></div>'
     + '<div class="cel c1"><input id="pk_kode" placeholder="mis. AMERICANO02"></div>'
-    + '<div class="cel"><input id="pk_menu" placeholder="mis. ICE AMERICANO"></div>'
+    /* Nama resep HPP DITAWARKAN lewat <datalist>, tidak dipaksakan: kotaknya
+       tetap teks bebas. Menu yang belum punya resep tetap boleh dipasangkan —
+       yang tidak boleh cuma menebaknya. Pola yang sama dengan kotak Vendor di
+       lembar pembayaran Brankas. */
+    + '<div class="cel"><input id="pk_menu" list="pk_resep" placeholder="mis. LARGE ICE AMERICANO">'
+    + '<datalist id="pk_resep">'
+    + hppNamaMenu().sort().map(x => '<option value="' + esc(x) + '"></option>').join('')
+    + '</datalist></div>'
     + '<div class="cel aksi"><button class="btn btn-primary" onclick="kodeTambah()">+ Pasangkan</button></div>'
     + kk.map(k => '<div class="qa-sel c1 mono" data-l="Kode">' + esc(k) + '</div>'
         + '<div class="qa-sel" data-l="Menu">' + esc(pk[k]) + '</div>'
