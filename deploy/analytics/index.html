@@ -1786,11 +1786,111 @@ function menuKatLewat(d) {
 
    Memulangkan { list, takKenal, digabung } — `list` sudah digabung dan diurut,
    `takKenal` kode paket yang belum punya pasangan. */
-function petaKode() {
+/* ---- KODE MENU: SUMBERNYA HPP & RESEP (10 September 2026, permintaan user) ----
+
+   "dari di HPP & Resep bisa masukin menu code, jadi kalau misalnya menu
+   code-nya ada yg sama brrti menu nya itu nama menu yg di ambil dari hpp &
+   resep."
+
+   Tiap resep MENU JADI di HPP sekarang punya kolom `kode` — kode menu di POS.
+   Baris paket "LARGE (PACKAGE)" di laporan POS membawa kodenya sendiri, jadi
+   begitu keduanya cocok, menunya diketahui TANPA daftar pasangan terpisah.
+
+   KENAPA DI HPP, BUKAN DI SINI: pasangannya jadi hidup di tempat yang sama
+   dengan resepnya, dan itu satu-satunya tempat yang benar-benar tahu resep
+   mana yang dimaksud. Daftar pasangan di Pengaturan modul ini menyimpan NAMA
+   sebagai teks — nama resep yang diperbaiki ejaannya di HPP diam-diam berhenti
+   cocok, dan gejalanya cuma porsi yang berhenti masuk ke menunya. Ukuran pun
+   selesai dengan sendirinya: resep large-nya yang memegang kode large.
+
+   DUA SUMBER, DAN URUTANNYA MENENTUKAN:
+
+     HPP     menang — itu yang diminta user, dan itu sumber yang tahu resepnya
+     manual  cadangan, untuk kode yang belum diisi di HPP
+
+   Dibalik (manual menang), mengisi kode di HPP tidak akan mengubah apa pun
+   selama pasangan lamanya masih ada — perubahan yang GAGAL DIAM-DIAM, dan
+   yang mengisinya tidak punya satu pun cara tahu kenapa. Kalau keduanya ada
+   dan BERBEDA, selisihnya DISEBUT di layar, bukan dipilih diam-diam. */
+function petaKodeManual() {
   const p = (AN && AN.data && AN.data.setting && AN.data.setting.petaKode) || {};
   const out = {};
   Object.keys(p).forEach(k => { const v = String(p[k] || '').trim(); if (v) out[String(k).toUpperCase()] = v; });
   return out;
+}
+function petaKodeHpp() {
+  const out = {}, dobel = {};
+  ((HP && HP.resep) || []).forEach(r => {
+    /* `base` tidak pernah dijual, jadi ia tidak bisa jadi tujuan sebuah baris
+       paket. Kalau ikut, porsinya pindah ke sesuatu yang tidak pernah muncul
+       di daftar menu mana pun. */
+    if (!r || r.tipe !== 'dish') return;
+    const kd = String(r.kode || '').trim().toUpperCase();
+    const nm = String(r.nama || '').trim();
+    if (!kd || !nm) return;
+    if (out[kd] === undefined) { out[kd] = nm; return; }
+    if (out[kd] === nm) return;
+    if (!dobel[kd]) dobel[kd] = [out[kd]];
+    if (dobel[kd].indexOf(nm) < 0) dobel[kd].push(nm);
+  });
+  /* SATU KODE DIPAKAI DUA RESEP: tidak dipasangkan ke mana pun, dan
+     DILAPORKAN. Memilih salah satunya berarti menebak resep mana yang dapat
+     porsinya — tebakan tentang bahan baku yang tidak akan pernah dipertanyakan
+     siapa pun, karena kedua jawabannya sama-sama terlihat wajar. Yang tidak
+     dipasangkan tetap berdiri sebagai barisnya sendiri, jadi porsinya tidak
+     hilang dan sebabnya terlihat di layar. */
+  Object.keys(dobel).forEach(k => { delete out[k]; });
+  return { peta: out, dobel: dobel };
+}
+function petaKode() {
+  const out = petaKodeManual();
+  const h = petaKodeHpp().peta;
+  Object.keys(h).forEach(k => { out[k] = h[k]; });
+  return out;
+}
+/* Yang perlu DIKATAKAN di layar tentang kedua sumber itu. Dikumpulkan sekali
+   supaya kartu paket tidak menghitungnya sendiri — dua tempat yang
+   menyimpulkan bentrok akan menyebut jumlah yang berbeda. */
+function kodeCatatan() {
+  const man = petaKodeManual(), h = petaKodeHpp();
+  const bentrok = Object.keys(h.peta)
+    .filter(k => man[k] && man[k] !== h.peta[k])
+    .map(k => ({ kode:k, hpp:h.peta[k], manual:man[k] }));
+  return { bentrok: bentrok, dobel: h.dobel,
+           nHpp: Object.keys(h.peta).length, nManual: Object.keys(man).length };
+}
+/* Bentrok & kode kembar DIKATAKAN, bukan diselesaikan diam-diam — keduanya
+   keadaan yang tidak bisa dilihat dari angka mana pun di layar: apa pun yang
+   menang tetap menghasilkan baris yang terlihat wajar.
+
+   Digambar DI LUAR kartu "kode yang belum dipasangkan", karena kartu itu cuma
+   muncul kalau ADA yang belum dipasangkan — dan bentrok justru keadaan waktu
+   semuanya sudah terpasang, cuma ke tujuan yang berbeda. Di dalam kartu itu,
+   peringatan ini akan tersembunyi persis pada satu-satunya keadaan yang
+   melahirkannya. */
+function kodeCatatanHtml() {
+  const c = kodeCatatan();
+  let h = '';
+  const dob = Object.keys(c.dobel);
+  if (dob.length) {
+    h += '<div class="notice bad">&#9888; <div><b>' + dob.length + ' kode dipakai lebih dari satu resep</b> '
+      + 'di HPP, jadi porsinya <b>tidak dipasangkan ke mana pun</b> — memilih salah satunya berarti '
+      + 'menebak resep mana yang dapat porsinya berikut bahan bakunya, dan kedua jawabannya sama-sama '
+      + 'terlihat wajar. Porsinya tetap dihitung, berdiri sebagai barisnya sendiri. Betulkan di '
+      + '<b>HPP &amp; Resep &rarr; Daftar Resep</b>:<br>'
+      + dob.map(k => '<b class="mono">' + esc(k) + '</b> &rarr; ' + esc(c.dobel[k].join(' · '))).join('<br>')
+      + '</div></div>';
+  }
+  if (c.bentrok.length) {
+    h += '<div class="notice warn">&#9888; <div><b>' + c.bentrok.length + ' kode punya dua pasangan yang berbeda.</b> '
+      + 'Yang dipakai <b>yang dari HPP</b>; pasangan di Pengaturan modul ini tidak berlaku lagi untuk kode '
+      + 'itu dan sebaiknya dihapus — dua jawaban untuk satu pertanyaan akan menyesatkan yang '
+      + 'membacanya berikutnya:<br>'
+      + c.bentrok.map(x => '<b class="mono">' + esc(x.kode) + '</b> &rarr; HPP: <b>' + esc(x.hpp)
+          + '</b> · Pengaturan: ' + esc(x.manual)).join('<br>')
+      + '</div></div>';
+  }
+  return h;
 }
 function menuNormal(d) {
   const mentah = (d && d.menu) || {};
@@ -2360,6 +2460,7 @@ function vMenu() {
     + kartu('Nilai Menu', rp0(totNilai), 'sebelum service & pajak')
     + kartu('Belum Ada Resep', tanpaResep.length, peta ? 'dari ' + urut.length + ' menu' : 'HPP tidak terbaca')
     + '</div>'
+    + kodeCatatanHtml()
     + mnPaketHtml(NM, Object.keys(gab));
 
   /* ---- 1. daftar penjualan menu ----
@@ -2433,6 +2534,17 @@ function mnPaketHtml(NM, namaAda) {
     + 'kode <i>LARGE</i> hanya ditawari resep yang namanya memuat kata <b>LARGE</b>, '
     + 'supaya porsinya tidak melebur ke menu regular dan bahan bakunya tidak '
     + 'terhitung dengan takaran yang salah.</div>'
+    /* Jalan yang DIANJURKAN sekarang mengisi kodenya di resepnya sendiri —
+       pasangannya jadi hidup di tempat yang sama dengan resepnya, dan ukuran
+       selesai sendiri karena resep large-nya yang memegang kode large.
+       Dikatakan di kartunya, bukan cuma di CLAUDE.md: yang membuka halaman ini
+       sedang mencari cara membereskannya. */
+    + '<div class="notice info">&#8505; <div><b>Cara yang lebih tahan lama: isi '
+    + '<i>Kode menu di POS</i> di resepnya sendiri</b> — <b>HPP &amp; Resep &rarr; Daftar Resep</b>, '
+    + 'kotaknya ada di tiap resep <i>Menu Jadi</i>. Begitu kodenya cocok, porsinya masuk sendiri ke '
+    + 'menu itu di <b>seluruh bulan</b> tanpa perlu dipasangkan di sini, dan resep ukuran '
+    + '<i>large</i> cukup memegang kode large-nya. Pasangan yang diisi di Pengaturan modul ini tetap '
+    + 'berlaku sebagai <b>cadangan</b> untuk kode yang belum diisi di HPP.</div></div>'
     + '<div class="notice warn">⚠ <div><b>' + kd.length + ' kode</b> senilai '
     + totQ.toLocaleString('id-ID') + ' porsi belum punya pasangan. Porsinya <b>tetap dihitung</b> '
     + '(berdiri sendiri dengan nama berkodenya), tapi belum masuk ke menu aslinya dan '
@@ -4580,7 +4692,14 @@ function vPengaturan() {
     + '<div class="card-sub">Baris <i>LARGE (PACKAGE)</i> dan <i>REGULAR (PACKAGE)</i> di laporan POS '
     + 'tidak menyebut minumannya — yang menyebut <b>kode</b>-nya (mis. <span class="mono">AMERICANO02</span>). '
     + 'Pasangkan sekali di sini, dan porsinya digabungkan ke menu aslinya di <b>seluruh bulan</b> '
-    + 'yang pernah diunggah — termasuk yang sudah tersimpan sebelum pemetaan ini dibuat.</div>'
+    + 'yang pernah diunggah — termasuk yang sudah tersimpan sebelum pemetaan ini dibuat.<br>'
+    /* Daftar ini sekarang CADANGAN, dan itu harus tertulis di tempatnya
+       sendiri: yang membukanya perlu tahu bahwa kode yang sama di HPP akan
+       mengalahkan apa yang ia ketik di sini — kalau tidak, ia mengisi lalu
+       heran kenapa tidak berubah. */
+    + '<b>Sumber utamanya sekarang kolom <i>Kode menu di POS</i> di HPP &amp; Resep &rarr; Daftar Resep.</b> '
+    + 'Daftar di bawah ini <b>cadangan</b> — dipakai hanya untuk kode yang belum diisi di sana, dan '
+    + 'kode yang diisi di HPP <b>mengalahkan</b> pasangan di sini.</div>'
     + '<div class="qa-sheet" style="grid-template-columns:1fr 1fr auto">'
     + '<div class="hd">Kode di POS</div><div class="hd">Menu yang dimaksud</div><div class="hd"></div>'
     + '<div class="cel c1"><input id="pk_kode" placeholder="mis. AMERICANO02"></div>'

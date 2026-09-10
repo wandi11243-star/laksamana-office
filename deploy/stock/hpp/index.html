@@ -1025,7 +1025,7 @@ function tabelResep(tipe,judul,sub,mana){
   hal.forEach(r=>{
     const m=modalMenu(r), y=num(r.yield_qty)||1, mati=(r.aktif===0);
     h+=`<tr class="${mati?'mati':''}">
-      <td><b>${esc(r.nama)}</b>${m.hilang.length?` <span class="chip bad" title="${esc([...new Set(m.hilang)].join(', '))}">${m.hilang.length} bahan hilang</span>`:''}${m.siklus?' <span class="chip bad">resep berputar</span>':''}${m.manual?' <span class="chip mute">modal manual</span>':''}${
+      <td><b>${esc(r.nama)}</b>${r.kode?` <span class="chip mute mono" title="Kode menu di POS — dipakai modul Analytics mengenali baris paket">${esc(r.kode)}</span>`:''}${m.hilang.length?` <span class="chip bad" title="${esc([...new Set(m.hilang)].join(', '))}">${m.hilang.length} bahan hilang</span>`:''}${m.siklus?' <span class="chip bad">resep berputar</span>':''}${m.manual?' <span class="chip mute">modal manual</span>':''}${
         (m.campur&&m.campur.length)?` <span class="chip warn" title="${esc([...new Set(m.campur)].join(', '))} — satuan takarannya tidak sebanding dengan satuan harga bahannya (mis. Pcs vs Gram), jadi angkanya dipakai apa adanya. Kg↔Gram dan Liter↔ML dikonversi otomatis dan tidak muncul di sini.">${[...new Set(m.campur)].length} satuan campur</span>`:''}</td>
       <td>${r.jenis==='drink'?'<span class="chip teal">Minuman</span>':'<span class="chip violet">Makanan</span>'}</td>
       <td style="font-size:11.5px;color:var(--muted)">${esc(r.seksi||'—')}</td>
@@ -1098,7 +1098,7 @@ function bukaResep(id){
   const r=S.resep.find(x=>x.id===id);
   ED=r?JSON.parse(JSON.stringify(r))
       :{id:'',nama:'',jenis:'food',tipe:'base',seksi:'',yield_qty:1,yield_unit:'Porsi',
-        harga_baru:0,harga_upsize:0,modal_manual:0,catatan:'',bahan:[],aktif:1,di_purchasing:0};
+        harga_baru:0,harga_upsize:0,modal_manual:0,catatan:'',bahan:[],aktif:1,di_purchasing:0,kode:''};
   gambarEditor();
 }
 function tutupModal(){ ED=null; $('modal').innerHTML=''; }
@@ -1232,9 +1232,11 @@ function gambarEditor(){
         <div class="field"><label>Hasil (yield)</label><input type="number" step="any" value="${r.yield_qty}" oninput="ED.yield_qty=this.value;segarSub()"></div>
         <div class="field"><label>Satuan hasil</label><input value="${esc(r.yield_unit||'')}" placeholder="Porsi / Gr / Pcs" oninput="ED.yield_unit=this.value"></div>
       </div>
-      ${r.tipe==='dish'?`<div class="g2">
+      ${r.tipe==='dish'?`<div class="g3">
         <div class="field"><label>Harga jual (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_baru)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.harga_baru=v});segarSub()"></div>
-        <div class="field"><label>Harga upsize (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_upsize)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.harga_upsize=v})"></div></div>`:''}
+        <div class="field"><label>Harga upsize (Rp)</label><input inputmode="numeric" value="${fmtIn(r.harga_upsize)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.harga_upsize=v})"></div>
+        <div class="field"><label>Kode menu di POS</label><input value="${esc(r.kode||'')}" placeholder="mis. KOPISUSU002" oninput="ED.kode=this.value"></div></div>
+      <div class="ket" style="font-size:11.5px;color:var(--muted-2);margin:-6px 0 12px">Kode ini yang dipakai modul <b>Analytics</b> mengenali baris <i>LARGE (PACKAGE)</i> / <i>REGULAR (PACKAGE)</i> di laporan POS — begitu kodenya cocok, porsinya masuk ke menu ini berikut bahan bakunya. Kosongkan kalau menu ini tidak pernah dijual sebagai paket. Satu kode hanya boleh dipakai satu resep.</div>`:''}
       ${r.tipe==='base'?`<label style="display:flex;align-items:center;gap:8px;font-size:12.5px;font-weight:600;color:var(--ink);margin-bottom:6px">
         <input type="checkbox" ${r.di_purchasing?'checked':''} onchange="ED.di_purchasing=this.checked?1:0">
         Base ini juga <b>berdiri di Purchasing</b> — barang produksi Central Kitchen yang dipesan outlet</label>
@@ -2535,8 +2537,13 @@ function jalankanImpor(){
    drink sekaligus (mis. "Simple Syrup"), dan mencocokkan dengan nama saja akan
    menimpa resep minuman dengan isi resep makanan tanpa satu pun galat — persis
    alasan PR dipetakan per jenis di petakan(). */
+/* 'Kode POS' ikut di ekspor DAN di impor. Kalau cuma salah satu, satu putaran
+   ekspor-sunting-impor MENGOSONGKAN kodenya di seluruh resep — server menulis
+   SELURUH kolom tiap simpan, jadi kolom yang tidak ada di berkas terhapus jadi
+   kosong. Yang menyadarinya adalah orang yang membuka Analytics minggu depan
+   dan mendapati seluruh baris paket kembali tidak dikenali. */
 const KOL_RESEP=['Nama Resep','Jenis','Tipe','Seksi','Yield Qty','Yield Unit',
-                 'Harga Jual','Modal Manual','Aktif','Bahan','Qty','Satuan','Ref',
+                 'Harga Jual','Modal Manual','Aktif','Kode POS','Bahan','Qty','Satuan','Ref',
                  'Modal (otomatis)'];
 /* Urutannya: Menu Jadi dulu lalu Base, masing-masing menurut nama. Sama dengan
    urutan tab di layar — berkas yang urutannya berbeda dari layar membuat orang
@@ -2557,8 +2564,8 @@ function barisEksporResep(){
     const kepala=[r.nama, r.jenis==='drink'?'Minuman':'Makanan',
                   r.tipe==='base'?'Base':'Menu Jadi', r.seksi||'',
                   num(r.yield_qty)||1, r.yield_unit||'', num(r.harga_baru)||0,
-                  num(r.modal_manual)||0, capYa(r.aktif!==0)];
-    const kosong=['','','','','','','','',''];
+                  num(r.modal_manual)||0, capYa(r.aktif!==0), r.kode||''];
+    const kosong=['','','','','','','','','',''];
     /* Baris CATATAN (mis. "bumbu blender saring") IKUT, ditandai Ref=Catatan.
        Di berkas HPP aslinya baris itu memisahkan tahap memasak, dan resep
        tanpa tahapnya tidak bisa dibaca juru masak. Kalau tidak diekspor, satu
@@ -2662,6 +2669,10 @@ function bacaResepRows(rows){
         harga_baru: angkaImpor(amb(b,'Harga Jual')),
         modal_manual: angkaImpor(amb(b,'Modal Manual')),
         aktif: /^(t|n|0)/.test(low(String(amb(b,'Aktif')||'ya'))) ? 0 : 1,
+        /* Dibakukan huruf besar di server (hpp_simpan_resep), jadi di sini
+           cukup dipangkas — dua tempat yang membakukan akan menyimpang begitu
+           salah satunya diperbaiki. */
+        kode: String(amb(b,'Kode POS')||'').trim(),
         bahan: []
       };
       out.push(kini);
@@ -2715,6 +2726,7 @@ function siapkanImporResep(list,bolong){
     const sbl=sidik(cocok.bahan), ssd=sidik(rec.bahan);
     const beda=sbl!==ssd
       || ['seksi','yield_unit'].some(k=>String(rec[k]||'')!==String(cocok[k]||''))
+      || String(rec.kode||'').toUpperCase()!==String(cocok.kode||'').toUpperCase()
       || ['yield_qty','harga_baru','modal_manual'].some(k=>num(rec[k])!==num(cocok[k]))
       || (rec.aktif===0)!==(cocok.aktif===0)
       || rec.tipe!==cocok.tipe;

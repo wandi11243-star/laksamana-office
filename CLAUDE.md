@@ -1609,7 +1609,87 @@ Dua bentuk, dan bedanya menentukan bisa-tidaknya ia dihitung:
   saran. Kodenya **dibakukan huruf besar di satu tempat** — ia diketik kasir,
   jadi `Matcha02` dan `MATCHA02` pasti bercampur.
 
+#### KODE MENU DIISI DI HPP & RESEP — sumber utamanya sekarang di sana (10 Sep 2026)
+
+Permintaan user: *"dari di HPP & Resep bisa masukin menu code, jadi kalau
+misalnya menu code-nya ada yg sama brrti menu nya itu nama menu yg di ambil
+dari hpp & resep."*
+
+Tiap resep **Menu Jadi** di `deploy/stock/hpp/` sekarang punya kotak **Kode menu
+di POS** (`hpp_resep.kode`). Baris paket `LARGE (PACKAGE)` di laporan POS
+membawa kodenya sendiri, jadi begitu keduanya cocok menunya diketahui **tanpa
+daftar pasangan terpisah** — dan ukuran selesai dengan sendirinya, karena resep
+large-nya yang memegang kode large.
+
+**KENAPA DI HPP, BUKAN DI PENGATURAN ANALYTICS.** Pasangannya jadi hidup di
+tempat yang sama dengan resepnya — satu-satunya tempat yang benar-benar tahu
+resep mana yang dimaksud. Daftar pasangan di Pengaturan menyimpan **nama sebagai
+teks**: nama resep yang diperbaiki ejaannya di HPP diam-diam berhenti cocok, dan
+gejalanya cuma porsi yang berhenti masuk ke menunya.
+
+**DUA SUMBER, DAN URUTANNYA MENENTUKAN:**
+
+| | |
+|---|---|
+| `kode` di HPP | **menang** |
+| `setting.petaKode` (Pengaturan Analytics) | **cadangan**, untuk kode yang belum diisi di HPP |
+
+Dibalik, mengisi kode di HPP **tidak akan mengubah apa pun** selama pasangan
+lamanya masih ada — perubahan yang gagal DIAM-DIAM, dan yang mengisinya tidak
+punya satu pun cara tahu kenapa. Kalau keduanya ada dan **berbeda**, selisihnya
+**disebut di layar** berikut kedua nilainya, bukan dipilih diam-diam.
+
+- **`base` TIDAK PERNAH jadi tujuan sebuah kode** (`tipe === 'dish'` saja). Ia
+  tidak dijual — porsinya akan pindah ke sesuatu yang tidak pernah muncul di
+  daftar menu mana pun.
+- **SATU KODE DIPAKAI DUA RESEP → tidak dipasangkan ke mana pun**, dan
+  dilaporkan berikut nama kedua resepnya. Memilih salah satunya berarti menebak
+  resep mana yang dapat porsinya berikut bahan bakunya, dan **kedua jawabannya
+  sama-sama terlihat wajar**. Porsinya tetap dihitung, berdiri sebagai barisnya
+  sendiri dengan nama yang menyebut kodenya — jadi sebabnya terlihat.
+- **Kode dibakukan huruf besar DI SATU TEMPAT: server** (`hpp_simpan_resep`).
+  Ia diketik orang lewat dua jalur (form dan impor Excel), jadi `Matcha02` dan
+  `MATCHA02` pasti bercampur — dan yang bercampur tidak pernah cocok dengan kode
+  dari POS, tanpa satu pun galat. `strtoupper`, **bukan** `mb_strtoupper`:
+  fungsi mbstring yang tidak terpasang mematikan SELURUH endpoint folder itu.
+- **Kolomnya lahir lewat `hpp_pastikan_kolom()`, BUKAN berkas migrasi.**
+  Migrasi di repo ini rutin tertinggal di produksi, dan `CREATE TABLE IF NOT
+  EXISTS` tidak pernah menyentuh tabel yang sudah berisi. Ditambahkan di
+  **dua** tempat: daftar ALTER itu, dan `CREATE TABLE` untuk pemasangan baru.
+- **`Kode POS` WAJIB ikut di ekspor DAN impor Excel** (`KOL_RESEP`, `kepala`,
+  `kosong`, dan pembacanya). Kalau cuma salah satu, satu putaran
+  ekspor–sunting–impor **mengosongkan kodenya di seluruh resep** — server
+  menulis SELURUH kolom tiap simpan. Yang menyadarinya adalah orang yang
+  membuka Analytics minggu depan dan mendapati seluruh baris paket kembali
+  tidak dikenali. Dijaga uji putaran penuh di `uji-excel-resep.js`.
+- **Catatan bentrok & kode kembar digambar DI LUAR kartu "kode yang belum
+  dipasangkan"** — kartu itu cuma muncul kalau ADA yang belum dipasangkan, dan
+  bentrok justru keadaan waktu semuanya sudah terpasang tapi ke tujuan yang
+  berbeda. Di dalamnya, peringatan itu tersembunyi persis pada satu-satunya
+  keadaan yang melahirkannya.
+
+`menuNormal()` tidak diubah sama sekali — ia sudah memakai nama tujuan apa
+adanya. Daftar `petaKode` lama juga tidak dicabut: ia tetap jalan keluar untuk
+menu yang belum punya resep di HPP.
+
+```bash
+node tools/uji-analytics.js     # 369 pemeriksaan (dari 354)
+node tools/uji-excel-resep.js   # 65 pemeriksaan (dari 58)
+```
+
+Enam mutasi dicoba untuk aturan kodenya, keenamnya tertangkap. Sisi PHP-nya
+**tidak bisa dijalankan** di mesin pengembangan, jadi kontraknya dijaga
+terhadap SUMBERNYA di `uji-excel-resep.js` — server tiruan menerima apa saja,
+dan kolom yang tidak pernah ditulis tidak menimbulkan galat di satu sisi pun.
+Pelajaran yang sudah dibayar di stub `hpp.php` pada `uji-analytics` dan di
+kontrak `omsetHari`.
+
+
 #### Saran pasangan dijepit ke UKURAN, dan ikut membaca Daftar Resep HPP (10 Sep 2026)
+
+> **Bagian di bawah ini jalur CADANGAN.** Sejak kode diisi di HPP (lihat
+> bagian di atas), sarannya cuma dipakai untuk kode yang belum punya resep
+> berkode di sana. Aturan ukurannya tetap berlaku.
 
 Permintaan user: kode yang muncul sebagai `LARGE (PACKAGE)` *"bisa didefine
 menu yg menggunakan kata large di modul HPP & Resep → daftar resep"*.

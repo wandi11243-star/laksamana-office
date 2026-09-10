@@ -50,7 +50,11 @@ const RESEP = [
     harga_lama: 5000, catatan: 'catatan resep yang tidak ada di berkas',
     bahan: [{ nama: 'Beras', qty: 500, satuan: 'Gr', ref: 'bahan' },
             { catatan: 'tanak 20 menit' }] },
-  { id: 'r2', nama: 'Ayam Goreng', jenis: 'food', tipe: 'dish', seksi: 'Kitchen',
+  /* `kode` (10 September 2026): kode menu di POS. Ikut di fixture justru
+     supaya putaran ekspor-impor punya tempat untuk kehilangannya — kolom yang
+     lolos ekspor tapi tidak terbaca impor TIDAK menimbulkan galat di kedua
+     sisinya, dan gejalanya baru muncul di modul Analytics minggu berikutnya. */
+  { id: 'r2', nama: 'Ayam Goreng', jenis: 'food', tipe: 'dish', seksi: 'Kitchen', kode: 'AYAM01',
     yield_qty: 1, yield_unit: 'Porsi', harga_baru: 35000, modal_manual: 0, aktif: 1,
     bahan: [{ nama: 'Ayam', qty: 200, satuan: 'Gr', ref: 'bahan' },
             { nama: 'Nasi Putih', qty: 1, satuan: 'Porsi', ref: 'resep' }] },
@@ -307,6 +311,43 @@ function pasang(w, bahan, resep) {
   cek('yang gagal dipulangkan namanya ke layar', /'galat' => \$galat/.test(fn));
   cek('menulis lewat penyimpan yang sama (satu aturan)',
       /hpp_simpan_resep\(\$pdo, \$r, \$by\)/.test(fn));
+
+  /* ---- KOLOM `kode` (10 September 2026, permintaan user) ----
+     PHP tidak bisa dijalankan di mesin pengembangan, jadi kontraknya dijaga
+     terhadap SUMBERNYA — pola yang sama dengan uji-simpan-basi.js. Tanpa ini
+     seluruh sisi server lewat tanpa disentuh: server tiruan di uji ini
+     menerima apa saja, dan kolom yang tidak pernah ditulis tidak menimbulkan
+     galat di satu sisi pun. Pelajaran yang sudah dibayar di stub hpp.php pada
+     uji-analytics dan di kontrak omsetHari. */
+  const simpanFn = php.slice(php.indexOf('function hpp_simpan_resep('),
+                             php.indexOf('function hpp_impor_resep('));
+  cek('kode ikut ditulis saat menyimpan resep',
+      /INSERT INTO hpp_resep \([^)]*\bkode\b/.test(simpanFn)
+      && /kode=VALUES\(kode\)/.test(simpanFn), 'kolom kode tidak ada di INSERT/UPDATE');
+  cek('kode diikat sebagai penanda tersendiri', /':kd' =>/.test(simpanFn));
+  /* Dibakukan huruf besar DI SATU TEMPAT, dan tempatnya server: kode diketik
+     orang lewat dua jalur (form dan impor Excel), jadi "Matcha02" dan
+     "MATCHA02" pasti bercampur — dan yang bercampur tidak pernah cocok dengan
+     kode dari POS, tanpa satu pun galat. */
+  cek('kode dibakukan huruf besar di server', /strtoupper\(hpp_txt\(isset\(\$d->kode\)/.test(simpanFn));
+  /* Fungsi mbstring akan mematikan SELURUH endpoint folder ini di server yang
+     tidak memasangnya. DIPERIKSA TANPA KOMENTAR: penjelasan di atas barisnya
+     menyebut nama fungsi yang dilarang itu apa adanya — sejarah kenapa sesuatu
+     tidak dipakai justru harus tetap boleh menyebut namanya, dan pemindai yang
+     merah untuk komentar akan dimatikan orang berikutnya. Aturan yang sama
+     dengan uji-tanpa-target.js. */
+  const simpanKode = simpanFn.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/^\s*\/\/.*$/gm, ' ');
+  cek('tidak memakai fungsi mbstring untuk kode', !/mb_strtoupper/.test(simpanKode),
+      (simpanKode.match(/mb_strtoupper[^\n]*/) || [''])[0]);
+  /* Kolomnya lahir lewat ALTER, BUKAN berkas migrasi: migrasi di repo ini
+     rutin tertinggal di produksi, dan CREATE TABLE IF NOT EXISTS tidak pernah
+     menyentuh tabel yang sudah berisi. */
+  cek('kolom kode lahir sendiri lewat hpp_pastikan_kolom',
+      /array\('hpp_resep', 'kode',/.test(php));
+  cek('kode juga ada di CREATE TABLE untuk pemasangan baru',
+      /kode\s+VARCHAR\(64\)/.test(php));
+  cek('tidak ada berkas migrasi baru untuk kolom ini',
+      !fs.readdirSync(path.join(ROOT, 'stock-mysql')).some(f => /^migrasi.*kode/i.test(f)));
 
   w.close();
   console.log('\n---------------------------------------');

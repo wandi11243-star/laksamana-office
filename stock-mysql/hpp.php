@@ -56,6 +56,7 @@ function hpp_pastikan_tabel($pdo) {
        jenis        VARCHAR(16)  NOT NULL DEFAULT \'food\',
        tipe         VARCHAR(16)  NOT NULL DEFAULT \'base\',
        seksi        VARCHAR(96)  NOT NULL DEFAULT \'\',
+       kode         VARCHAR(64)  NOT NULL DEFAULT \'\',
        yield_qty    DOUBLE       NOT NULL DEFAULT 1,
        yield_unit   VARCHAR(32)  NOT NULL DEFAULT \'\',
        harga_lama   DOUBLE       NOT NULL DEFAULT 0,
@@ -146,7 +147,14 @@ function hpp_pastikan_kolom($pdo) {
   foreach (array(array('hpp_bahan', 'di_purchasing', 'TINYINT(1) NOT NULL DEFAULT 1'),
                  array('hpp_bahan', 'dibeli_jadi',   'TINYINT(1) NOT NULL DEFAULT 0'),
                  array('hpp_bahan', 'sisi_harga',    "VARCHAR(8) NOT NULL DEFAULT ''"),
-                 array('hpp_resep', 'di_purchasing', 'TINYINT(1) NOT NULL DEFAULT 0')) as $k) {
+                 array('hpp_resep', 'di_purchasing', 'TINYINT(1) NOT NULL DEFAULT 0'),
+                 /* kode (10 September 2026, permintaan user): kode menu di POS,
+                    supaya baris paket "LARGE (PACKAGE)" di modul Analytics bisa
+                    dikenali menunya TANPA daftar pasangan terpisah. Ditambahkan
+                    lewat ALTER, bukan berkas migrasi — migrasi di repo ini rutin
+                    tertinggal di produksi, dan tabelnya sudah berisi di kedua
+                    server jadi CREATE TABLE IF NOT EXISTS tidak menyentuhnya. */
+                 array('hpp_resep', 'kode',          "VARCHAR(64) NOT NULL DEFAULT ''")) as $k) {
     $cek->execute(array(':t' => $k[0], ':c' => $k[1]));
     if ((int)$cek->fetchColumn()) continue;
     $pdo->exec('ALTER TABLE `' . $k[0] . '` ADD COLUMN `' . $k[1] . '` ' . $k[2]);
@@ -386,11 +394,11 @@ function hpp_simpan_resep($pdo, $d, $by) {
     }
   }
   $st = $pdo->prepare(
-    'INSERT INTO hpp_resep (id,nama,jenis,tipe,seksi,yield_qty,yield_unit,
+    'INSERT INTO hpp_resep (id,nama,jenis,tipe,seksi,kode,yield_qty,yield_unit,
        harga_lama,harga_baru,harga_upsize,modal_manual,catatan,bahan,aktif,di_purchasing,updated_at,updated_by)
-     VALUES (:i,:n,:j,:t,:s,:yq,:yu,:hl,:hb,:hu,:mm,:c,:b,:a,:dp,:ua,:ub)
+     VALUES (:i,:n,:j,:t,:s,:kd,:yq,:yu,:hl,:hb,:hu,:mm,:c,:b,:a,:dp,:ua,:ub)
      ON DUPLICATE KEY UPDATE nama=VALUES(nama), jenis=VALUES(jenis), tipe=VALUES(tipe),
-       seksi=VALUES(seksi), yield_qty=VALUES(yield_qty), yield_unit=VALUES(yield_unit),
+       seksi=VALUES(seksi), kode=VALUES(kode), yield_qty=VALUES(yield_qty), yield_unit=VALUES(yield_unit),
        harga_lama=VALUES(harga_lama), harga_baru=VALUES(harga_baru),
        harga_upsize=VALUES(harga_upsize), modal_manual=VALUES(modal_manual),
        catatan=VALUES(catatan), bahan=VALUES(bahan),
@@ -402,6 +410,13 @@ function hpp_simpan_resep($pdo, $d, $by) {
     ':j' => (isset($d->jenis) && $d->jenis === 'drink') ? 'drink' : 'food',
     ':t' => (isset($d->tipe) && $d->tipe === 'dish') ? 'dish' : 'base',
     ':s' => hpp_txt(isset($d->seksi) ? $d->seksi : '', 96),
+    /* KODE DIBAKUKAN HURUF BESAR DI SATU TEMPAT, dan tempatnya di sini.
+       Ia diketik orang di dua jalur (form dan impor Excel), jadi "Matcha02"
+       dan "MATCHA02" pasti bercampur — dan yang bercampur tidak pernah cocok
+       dengan kode dari POS, tanpa satu pun galat. strtoupper, bukan
+       mb_strtoupper: kode menu ASCII, dan fungsi mbstring yang tidak terpasang
+       mematikan SELURUH endpoint folder ini. */
+    ':kd' => strtoupper(hpp_txt(isset($d->kode) ? $d->kode : '', 64)),
     /* Yield nol dilarang: modal per satuan = total / yield, dan nol di sana
        memulangkan pembagian nol yang menjalar jadi Infinity ke SEMUA dish yang
        memakai base ini. Dijatuhkan ke 1 — angka yang salah tapi terlihat. */

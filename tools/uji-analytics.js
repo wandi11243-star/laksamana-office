@@ -944,6 +944,98 @@ async function siap(w) {
       dl.window.close();
     }
 
+    /* ---- KODE MENU DIISI DI HPP (10 September 2026, permintaan user) ----
+
+       "dari di HPP & Resep bisa masukin menu code, jadi kalau misalnya menu
+       code-nya ada yg sama brrti menu nya itu nama menu yg di ambil dari hpp
+       & resep."
+
+       Pasangannya jadi hidup di tempat yang sama dengan resepnya, dan ukuran
+       selesai sendiri: resep large-nya yang memegang kode large. */
+    {
+      const { dom: dk } = domAnalytics({ hpp: { resep: [
+        { nama:'LARGE MATCHA LATTE', tipe:'dish', kode:'MATCHA02', yield_qty:1, bahan:[] },
+        { nama:'ICE MATCHA LATTE',   tipe:'dish', kode:'matcha01', yield_qty:1, bahan:[] },
+        /* `base` tidak pernah dijual, jadi ia tidak bisa jadi tujuan sebuah
+           baris paket — porsinya akan pindah ke sesuatu yang tidak pernah
+           muncul di daftar menu mana pun. */
+        { nama:'MATCHA BASE',        tipe:'base', kode:'MATCHA09', yield_qty:1, bahan:[] }
+      ] } });
+      await siap(dk.window);
+      const wk = dk.window;
+      wk.eval('AN.data.setting.petaKode = {}');
+      const ph = wk.eval('petaKodeHpp')();
+      cek('kode dibaca dari resep HPP', ph.peta['MATCHA02'] === 'LARGE MATCHA LATTE', JSON.stringify(ph.peta));
+      /* Kode diketik orang di dua jalur (form & impor Excel), jadi "matcha01"
+         dan "MATCHA01" pasti bercampur — dan yang bercampur tidak pernah cocok
+         dengan kode dari POS, tanpa satu pun galat. */
+      cek('kode dibakukan huruf besar', ph.peta['MATCHA01'] === 'ICE MATCHA LATTE', JSON.stringify(ph.peta));
+      cek('resep base tidak pernah jadi tujuan kode', ph.peta['MATCHA09'] === undefined, JSON.stringify(ph.peta));
+
+      /* Porsi baris paket masuk ke menunya TANPA satu pun daftar pasangan. */
+      const NK = wk.eval('menuNormal')(u);
+      cek('porsi paket masuk ke resep lewat kodenya',
+          !!NK.gab['LARGE MATCHA LATTE'], JSON.stringify(Object.keys(NK.gab)));
+      cek('...dan tidak lagi berdiri sebagai baris berkode',
+          !NK.gab['LARGE (PACKAGE) · MATCHA02'], JSON.stringify(Object.keys(NK.gab)));
+      cek('kode yang sudah dikenali tidak lagi dilaporkan belum dipasangkan',
+          NK.takKenal['MATCHA02'] === undefined, JSON.stringify(Object.keys(NK.takKenal)));
+
+      /* HPP MENANG atas pasangan manual. Dibalik, mengisi kode di HPP tidak
+         mengubah apa pun selama pasangan lamanya masih ada — perubahan yang
+         GAGAL DIAM-DIAM, dan yang mengisinya tidak punya satu pun cara tahu
+         kenapa. */
+      wk.eval("AN.data.setting.petaKode = { MATCHA02:'MATCHA LATTE', ZZZ01:'MENU Z' }");
+      cek('kode dari HPP mengalahkan pasangan manual',
+          wk.eval("petaKode()['MATCHA02']") === 'LARGE MATCHA LATTE',
+          wk.eval("petaKode()['MATCHA02']"));
+      /* Daftar manual tidak boleh mati begitu saja — ia tetap berlaku untuk
+         kode yang belum diisi di HPP. */
+      cek('pasangan manual tetap berlaku untuk kode di luar HPP',
+          wk.eval("petaKode()['ZZZ01']") === 'MENU Z');
+      cek('bentroknya DISEBUT, bukan didiamkan',
+          wk.eval('kodeCatatan()').bentrok.length === 1,
+          JSON.stringify(wk.eval('kodeCatatan()').bentrok));
+      wk.eval('AN.data.laporan["2026-08"] = ' + JSON.stringify(u));
+      wk.go('menu'); await tunggu(60);
+      const isiK = wk.document.getElementById('app-view').innerHTML;
+      cek('bentrok tergambar di halaman Menu', isiK.indexOf('dua pasangan yang berbeda') > -1);
+      dk.window.close();
+    }
+
+    /* SATU KODE DIPAKAI DUA RESEP: tidak dipasangkan ke mana pun, dan
+       DILAPORKAN. Memilih salah satunya berarti menebak resep mana yang dapat
+       porsinya berikut bahan bakunya — dan kedua jawabannya sama-sama terlihat
+       wajar, jadi tidak akan pernah dipertanyakan siapa pun. */
+    {
+      const { dom: dd } = domAnalytics({ hpp: { resep: [
+        { nama:'MATCHA A', tipe:'dish', kode:'MATCHA02', yield_qty:1, bahan:[] },
+        { nama:'MATCHA B', tipe:'dish', kode:'MATCHA02', yield_qty:1, bahan:[] }
+      ] } });
+      await siap(dd.window);
+      const wd = dd.window;
+      wd.eval('AN.data.setting.petaKode = {}');
+      cek('kode kembar tidak dipasangkan ke mana pun',
+          wd.eval("petaKode()['MATCHA02']") === undefined, wd.eval("String(petaKode()['MATCHA02'])"));
+      cek('kode kembar dilaporkan berikut nama resepnya',
+          wd.eval("kodeCatatan().dobel['MATCHA02'].length") === 2,
+          wd.eval("JSON.stringify(kodeCatatan().dobel)"));
+      const ND = wd.eval('menuNormal')(u);
+      /* Porsinya TIDAK hilang — ia tetap dihitung, berdiri sebagai barisnya
+         sendiri dengan nama yang menyebut kodenya, jadi sebabnya terlihat. */
+      cek('porsinya tetap dihitung sebagai barisnya sendiri',
+          !!ND.gab['LARGE (PACKAGE) · MATCHA02'], JSON.stringify(Object.keys(ND.gab)));
+      wd.eval('AN.data.laporan["2026-08"] = ' + JSON.stringify(u));
+      wd.go('menu'); await tunggu(60);
+      const isiD = wd.document.getElementById('app-view').innerHTML;
+      cek('kode kembar tergambar di halaman Menu', isiD.indexOf('lebih dari satu resep') > -1);
+      /* Anjuran mengisi kode di HPP hidup DI DALAM kartu "kode yang belum
+         dipasangkan" — ia memang cuma berarti selama masih ada yang belum
+         terpasang, jadi diuji di dom yang punya kode belum terpasang. */
+      cek('halaman menganjurkan mengisi kode di HPP', isiD.indexOf('Kode menu di POS') > -1);
+      dd.window.close();
+    }
+
     /* ---- 2: halaman kategori ---- */
     cek('kategori terbaca dari laporan', Object.keys(u.kategori).length === 6,
         JSON.stringify(Object.keys(u.kategori)));
