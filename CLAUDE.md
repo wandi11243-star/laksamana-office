@@ -2191,6 +2191,108 @@ melaporkannya.
 **Berkas lama tetap harus diunggah ulang** — dan kali ini pesannya benar.
 
 
+##### Putaran kedua: pitanya dicabut, OTHERS ikut keluar, dan pencarian
+
+Tiga permintaan user sehari kemudian, dan yang pertama mencabut apa yang baru
+dipasang kemarin.
+
+**1. KEDUA PITA ℹ DI HALAMAN MENU DICABUT.** Pita *"N menu kategori EVENT tidak
+ikut di halaman ini"* menyebut nama seluruh menu yang dikeluarkan — di produksi
+**20 nama sekaligus** — dan mendorong tabel yang jadi isi halaman itu turun satu
+layar penuh. Pita *"N porsi dari menu paket sudah digabung"* ikut dicabut.
+
+- **Yang hilang dengannya, dan itu memang pertukarannya:** keempat kartu di atas
+  (Menu Berbeda, Porsi Terjual, Nilai Menu) tidak lagi sama dengan berkas POS,
+  dan tidak ada satu kalimat pun di halaman itu yang menyebut sebabnya. Yang
+  masih menjawabnya halaman **Kategori Menu** — kategori yang dikeluarkan
+  berdiri utuh di sana dan barisnya menyebut sendiri *tidak ikut di Menu & Bahan
+  Baku*. **Jangan dipasang lagi tanpa diminta.**
+- **Kartu "Kode paket yang belum dipasangkan" TIDAK ikut dicabut** — ia bukan
+  keterangan melainkan pekerjaan yang menunggu, berikut tombol saran
+  pasangannya.
+- **`NM.digabung` tetap dihitung** walau tidak lagi dipajang: angkanya yang
+  membuktikan penggabungannya benar-benar terjadi, dan mencabut hitungannya
+  berarti tidak ada lagi yang bisa membuktikannya di uji.
+
+**2. SELURUH KELOMPOK `OTHERS` IKUT DIKELUARKAN dari Menu & Bahan Baku.** Kolom
+`Menu Category` di POS cuma punya tiga nilai — FOOD, BEVERAGES, OTHERS — dan yang
+ketiga isinya rokok, kemasan, dan sejenisnya: barang yang dijual apa adanya,
+tidak punya resep, dan tidak pernah keluar dari gudang bahan.
+
+- **DUA aturan yang ditulis TERPISAH** (`katEventKah` untuk kategori detail
+  `EVENT`, `kelLewatKah` untuk kelompok atas `OTHERS`), walau di data produksi
+  EVENT kebetulan berkelompok OTHERS sehingga aturan kedua sudah mencakupnya.
+  Aturan yang menumpang kebetulan itu akan diam-diam berhenti berlaku begitu
+  EVENT dipindah ke kelompok lain.
+- Keduanya **sama persis, bukan awalan**, dan dipangkas + huruf besar: isinya
+  diketik di POS. Awalan akan menelan `OTHERS LAIN` / `EVENT LAIN`.
+
+> **FIXTURE-nya harus membuat kedua aturan bisa dibedakan.** Selama seluruh
+> baris EVENT berkelompok OTHERS, mencabut aturan EVENT tidak mengubah satu
+> angka pun dan mutasinya LOLOS. Sekarang ada baris `PRASMANAN` berkategori
+> EVENT tapi berkelompok **FOOD**, dan ia ditaruh DULUAN supaya
+> `kategori['EVENT'].kat` terisi FOOD (yang pertama menang).
+
+**3. KOTAK CARI DI TIGA DAFTAR** halaman Menu & Bahan Baku — Penjualan Menu,
+Perkiraan Bahan Baku, dan Menu yang belum ada di HPP. **Tiga kotak terpisah**:
+ketiganya menjawab pertanyaan yang berbeda, dan satu kotak untuk ketiganya
+berarti mencari satu bahan ikut memangkas tabel menu di atasnya.
+
+- **YANG DIGAMBAR ULANG HANYA WADAHNYA** (`#mn_isi_menu` / `#mn_isi_bahan` /
+  `#mn_isi_resep`), bukan halamannya. `render()` di modul ini TOTAL, jadi kotak
+  yang sedang diketik akan dibuat ulang dan **hanya huruf pertama yang masuk** —
+  jebakan yang sudah dibayar di `queueF()` modul Konten. Pola pemisahannya sama
+  dengan `prodQueue()`/`renderQueueTable()`. **Jangan** "perbaiki" dengan
+  menyimpan-mengembalikan posisi kursor.
+- **`MN_CACHE` menyimpan hasil hitungan render terakhir.** `uraiResep()` diurai
+  bertingkat untuk tiap menu; mengulangnya tiap ketukan terasa di jari yang
+  mengetik cepat. Diisi ulang tiap `vMenu()`, jadi ganti bulan / ganti urutan /
+  peta kode yang berubah selalu menyegarkannya.
+- **Saat mencari, batas 20 teratas DILEPAS.** Kalau tidak, mencari menu
+  peringkat ke-50 memulangkan tabel kosong — dan kosong terbaca sebagai
+  "menunya tidak ada bulan ini". Penyaring dan pemotongnya karena itu ada di
+  SATU tempat (`mnIsiMenuHtml`).
+- **Panjang batangnya tetap diukur terhadap SELURUH menu**, bukan terhadap yang
+  tersaring: kalau ikut menyusut, menu kecil yang kebetulan sendirian di hasil
+  pencarian tergambar sepanjang menu terlaris.
+- **Kata kunci tanpa hasil DIKATAKAN**, bukan tabel kosong. Tiga keadaan kosong
+  di daftar bahan tidak boleh berbunyi sama: *tidak ada base yang dipakai*
+  (sah), *belum ada bahan sama sekali* (resep belum diisi), dan *tidak ada yang
+  cocok dengan pencarian*.
+- **Angka di tombol Bahan Mentah / Bahan Prep tetap menghitung seluruhnya** —
+  itu jumlah yang benar-benar keluar, bukan hasil pencarian.
+- **Kotak salin di "Menu yang belum ada di HPP" tetap memuat daftar PENUH.**
+  Gunanya memindahkan seluruh menu yang belum punya resep ke Excel; menyalin
+  hasil pencarian akan diunggah balik orang sebagai "seluruh daftar" — aturan
+  yang sama dengan ekspor bahan di modul HPP.
+- CSS-nya kelas **`.cari` sendiri**, bukan menyetel `input` global: modul ini
+  punya kotak isian di enam halaman lain.
+
+```bash
+node tools/uji-analytics.js   # 295 pemeriksaan (dari 279)
+```
+
+Delapan belas mutasi dicoba, **empat lolos di putaran pertama** — dan keempatnya
+cacat FIXTURE atau ASERSI, bukan cacat produk:
+
+- *"penggabungan paket berhenti dihitung"* LOLOS — `digabung > 0` masih benar
+  karena cabang kode-yang-dipetakan juga menaikkannya. Angkanya sekarang
+  **dipatok** (9), jadi tiap cabang punya tempat untuk gagal.
+- *"kategori EVENT tidak lagi dikeluarkan"* LOLOS — kebetulan yang dikomentari
+  di sumbernya, dan fixture-nya sendiri yang menutupinya. Ditutup dengan baris
+  EVENT berkelompok FOOD.
+- *"penentu kelompok jadi awalan"* LOLOS — tidak ada kelompok yang berawalan
+  `OTHERS` tanpa sama dengannya. Ditutup dengan asersi unit langsung.
+- *"cari bahan tidak menyaring apa pun"* LOLOS — HPP tiruan blok itu tidak punya
+  satu resep pun, jadi daftar bahannya memang selalu kosong dan penyaringnya
+  tidak pernah dijalankan sekali pun. Sekarang ada resepnya, dan yang diuji
+  bukan cuma kata kunci yang GAGAL cocok tapi juga yang COCOK.
+
+Yang paling menentukan di antara asersi pencariannya: **identitas elemen
+kotaknya** sebelum & sesudah diketik. Kotak yang diganti elemen baru terlihat
+persis sama di layar sampai ada yang mengetik huruf kedua.
+
+
 ### HPP: SPARE MODAL, sekali dan hanya di menu jadi (2 September 2026)
 
 `deploy/stock/hpp/`, kunci izin **`hpp`** (bukan `stock` — panel ini berdiri

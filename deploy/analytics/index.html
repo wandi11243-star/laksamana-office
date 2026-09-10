@@ -104,6 +104,11 @@ input,select,textarea{font-family:inherit}
 .kkd input,.kkd select{width:100%;padding:8px 9px;border:1.5px solid var(--line);border-radius:8px;background:var(--surface);color:var(--text);font-size:13.5px}
 .kkd input:focus,.kkd select:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
 .kkd input[type=checkbox]{width:auto;padding:0}
+/* Kotak cari halaman Menu & Bahan Baku. Kelas SENDIRI, bukan menyetel
+   `input` global — modul ini punya kotak isian di enam halaman lain, dan
+   aturan global akan menggeser semuanya. */
+.cari{padding:8px 10px;border:1.5px solid var(--line);border-radius:8px;
+  background:var(--surface);color:var(--text);font-size:13px;max-width:260px;flex:1 1 180px}
 .kkd td{vertical-align:middle;padding:7px 8px}
 .kkd .num input{text-align:right}
 
@@ -1706,15 +1711,35 @@ const KAT_TANPA = '(tanpa kategori)';
    sampai ada yang mengisinya, dan setelan yang tidak dibaca siapa pun sudah
    pernah hidup dua minggu di modul HPP tanpa satu pun layar mengatakannya. */
 const KAT_EVENT = 'EVENT';
+/* KELOMPOK ATAS yang seluruh isinya tidak ikut (permintaan user 10 September
+   2026: "di bagian menu & bahan baku tidak perlu ditampilkan ada menu
+   Category Others"). Kolom `Menu Category` di POS cuma punya tiga nilai —
+   FOOD, BEVERAGES, OTHERS — dan yang ketiga isinya rokok, kemasan, dan
+   sejenisnya: barang yang dijual apa adanya, tidak punya resep, dan tidak
+   pernah keluar dari gudang bahan. Di halaman ini ia cuma menambah baris
+   "belum ada resep" yang tidak akan pernah bisa dibereskan siapa pun.
+
+   EVENT sendiri kebetulan berkelompok OTHERS di data produksi, jadi aturan
+   ini sudah mencakupnya. Keduanya TETAP ditulis terpisah: kalau suatu hari
+   EVENT dipindah ke kelompok lain, aturan yang menumpang kebetulan itu akan
+   diam-diam berhenti berlaku. */
+const KEL_LEWAT = 'OTHERS';
+function kelLewatKah(k) { return String(k || '').trim().toUpperCase() === KEL_LEWAT; }
 function katEventKah(n) { return String(n || '').trim().toUpperCase() === KAT_EVENT; }
-/* Nama menu yang ada di kategori acara. Dipulangkan sebagai peta supaya
-   penyaringnya O(1) — daftar menu sebulan bisa 259 baris, dan penyaring yang
-   memindai array untuk tiap menu jadi 259x23 perbandingan tiap render. */
-function menuKatEvent(d) {
+/* Nama menu yang TIDAK ikut di halaman Menu & Bahan Baku. Dipulangkan sebagai
+   peta supaya penyaringnya O(1) — daftar menu sebulan bisa 259 baris, dan
+   penyaring yang memindai array untuk tiap menu jadi 259x23 perbandingan
+   tiap render.
+
+   DUA aturan, dan keduanya dibaca dari kategori DETAIL-nya: namanya EVENT,
+   atau kelompok atasnya OTHERS. Kelompok atas diambil dari `kategori[k].kat`
+   — satu-satunya tempat ia tersimpan; `katMenu` cuma memuat nama menunya. */
+function menuKatLewat(d) {
   const km = (d && d.katMenu) || {};
+  const kat = (d && d.kategori) || {};
   const out = {};
   Object.keys(km).forEach(k => {
-    if (!katEventKah(k)) return;
+    if (!katEventKah(k) && !kelLewatKah((kat[k] || {}).kat)) return;
     Object.keys(km[k] || {}).forEach(n => { out[n] = true; });
   });
   return out;
@@ -1751,7 +1776,7 @@ function menuNormal(d) {
      kartu Porsi Terjual & Nilai Menu berhenti sama dengan berkas POS begitu
      ini menyala, dan daftar yang menyusut tanpa keterangan dilaporkan
      sebagai data hilang. */
-  const lewat = menuKatEvent(d);
+  const lewat = menuKatLewat(d);
   const ev = { nama: [], qty: 0, nilai: 0 };
   const tambah = (nama, q, n) => {
     if (!gab[nama]) gab[nama] = { qty:0, nilai:0 };
@@ -1949,6 +1974,138 @@ let MN_SEMUA = false;      // false = 20 teratas, true = seluruh menu
 let MN_BUKA = '';          // nama menu yang rinciannya sedang dibuka
 let MN_BAHAN = 'mentah';   // 'mentah' | 'prep'
 const MN_TOP = 20;
+/* PENCARIAN DI TIGA DAFTAR (permintaan user 10 September 2026: "ada tombol
+   bisa search utk masing masing"). Tiga kotak terpisah — Penjualan Menu, Bahan
+   Baku, dan Menu yang belum ada di HPP menjawab tiga pertanyaan berbeda, dan
+   satu kotak untuk ketiganya berarti mencari satu bahan ikut memangkas tabel
+   menu di atasnya.
+
+   YANG DIGAMBAR ULANG HANYA WADAHNYA, bukan halamannya. render() di modul ini
+   TOTAL, jadi kotak yang sedang diketik akan dibuat ulang dan hanya huruf
+   pertama yang masuk — jebakan yang sudah dibayar di queueF() modul Konten,
+   dan yang JANGAN diperbaiki dengan menyimpan-mengembalikan posisi kursor:
+   yang menggambar ulang kotak yang sedang diketik akan selalu punya masalah
+   berikutnya (teks terpilih, komposisi IME, autocomplete). Pola pemisahannya
+   sama dengan prodQueue()/renderQueueTable(). */
+let MN_Q = '';             // cari di Penjualan Menu
+let MN_QB = '';            // cari di Perkiraan Bahan Baku
+let MN_QR = '';            // cari di Menu yang belum ada di HPP
+/* Hasil hitungan render terakhir. Pencarian TIDAK menghitung ulang: uraiResep()
+   diurai bertingkat untuk tiap menu, dan mengulangnya tiap ketukan terasa di
+   jari yang mengetik cepat. Diisi ulang tiap vMenu(), jadi ganti bulan, ganti
+   urutan, atau peta kode yang berubah selalu menyegarkannya. */
+let MN_CACHE = null;
+const mnCocok = (t, q) => !q || String(t).toLowerCase().indexOf(q) > -1;
+function mnKotakCari(id, nilai, ph) {
+  return '<input id="' + id + '" class="cari" type="search" autocomplete="off" placeholder="'
+    + esc(ph) + '" value="' + esc(nilai) + '" oninput="mnCari(this)">';
+}
+function mnIsi(id, html) { const e = document.getElementById(id); if (e) e.innerHTML = html; }
+function mnCari(el) {
+  const q = String((el && el.value) || '').trim().toLowerCase();
+  if (el.id === 'mn_q')  { MN_Q  = q; mnIsi('mn_isi_menu',  mnIsiMenuHtml()); }
+  if (el.id === 'mn_qb') { MN_QB = q; mnIsi('mn_isi_bahan', mnIsiBahanHtml()); }
+  if (el.id === 'mn_qr') { MN_QR = q; mnIsi('mn_isi_resep', mnIsiResepHtml()); }
+}
+/* Isi tabel Penjualan Menu. Saat ada kata kunci, batas 20 teratas DILEPAS —
+   kalau tidak, mencari menu peringkat ke-50 memulangkan tabel kosong, dan
+   kosong terbaca sebagai "menunya tidak ada bulan ini". */
+function mnIsiMenuHtml() {
+  const C = MN_CACHE;
+  if (!C) return '';
+  const cocok = C.urut.filter(x => mnCocok(x.n, MN_Q));
+  const tampil = (MN_SEMUA || MN_Q) ? cocok : cocok.slice(0, MN_TOP);
+  /* Panjang batangnya tetap diukur terhadap SELURUH menu, bukan terhadap yang
+     tersaring — kalau ikut menyusut, menu kecil yang kebetulan sendirian di
+     hasil pencarian tergambar sepanjang menu terlaris. */
+  const pun = C.urut.length
+    ? (C.urut.reduce((a, x) => Math.max(a, MN_URUT === 'qty' ? x.qty : x.nilai), 0) || 1) : 1;
+  const kenal = n => C.peta ? !!C.peta[String(n).trim().toLowerCase()] : false;
+  let h = '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Menu</th><th class="num">Qty</th>'
+    + '<th class="num">Nilai</th><th class="num">% dari nilai menu</th><th style="width:22%"></th></tr></thead><tbody>';
+  if (!tampil.length) {
+    h += '<tr><td colspan="6" class="empty">Tidak ada menu yang namanya memuat "' + esc(MN_Q) + '".</td></tr>';
+  }
+  tampil.forEach((x, i) => {
+    const nilaiUrut = MN_URUT === 'qty' ? x.qty : x.nilai;
+    h += '<tr style="cursor:pointer" onclick="mnBuka(' + esc(JSON.stringify(x.n)).replace(/"/g, '&quot;') + ')">'
+      + '<td>' + (i + 1) + '</td>'
+      + '<td><b>' + esc(x.n) + '</b>'
+        + (C.peta && !kenal(x.n)
+            ? ' <span class="chip" style="background:var(--warn-bg);color:var(--warn)">belum ada resep</span>' : '')
+        + '</td>'
+      + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
+      + '<td class="num mono">' + rp0(x.nilai) + '</td>'
+      + '<td class="num">' + pct(x.nilai, C.totNilai) + '%</td>'
+      + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
+        + '<div style="width:' + Math.round(nilaiUrut / pun * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
+      + '</tr>';
+    if (MN_BUKA === x.n) h += '<tr><td colspan="6" style="background:var(--paper)">' + mnRincian(x, C.peta) + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+  /* Kaki tabel menyebut keadaannya sendiri. Tiga keadaan, dan yang disamakan
+     membuat daftar yang menyusut karena pencarian terbaca sebagai data hilang. */
+  if (MN_Q) {
+    h += '<div class="helper">' + tampil.length + ' dari ' + C.urut.length + ' menu cocok dengan "'
+      + esc(MN_Q) + '". Saat mencari, batas ' + MN_TOP + ' teratas tidak berlaku — '
+      + 'seluruh menu ikut dicari.</div>';
+  } else if (!MN_SEMUA && C.urut.length > MN_TOP) {
+    h += '<div class="helper">' + MN_TOP + ' teratas dari ' + C.urut.length + ' menu — tekan <b>Seluruhnya</b> '
+      + 'untuk melihat sisanya. Yang tersembunyi ' + (C.urut.length - MN_TOP) + ' menu senilai '
+      + rp0(C.urut.slice(MN_TOP).reduce((a, x) => a + x.nilai, 0)) + '.</div>';
+  } else {
+    h += '<div class="helper">Seluruh ' + C.urut.length + ' menu ditampilkan.</div>';
+  }
+  return h;
+}
+/* Isi tabel Perkiraan Bahan Baku. Yang disaring cuma tampilannya — angka di
+   tombol Bahan Mentah / Bahan Prep tetap menghitung seluruhnya, karena itu
+   jumlah yang benar-benar keluar dan bukan hasil pencarian. */
+function mnIsiBahanHtml() {
+  const B = MN_CACHE && MN_CACHE.bahan;
+  if (!B) return '';
+  const isi = MN_BAHAN === 'prep' ? B.prep : B.keluar;
+  const semua = Object.keys(isi).sort((a, b) => isi[b] - isi[a]);
+  const daftar = semua.filter(k => mnCocok(k, MN_QB));
+  if (!daftar.length) {
+    return '<div class="empty">' + (MN_QB
+      ? 'Tidak ada bahan yang namanya memuat "' + esc(MN_QB) + '".'
+      : (MN_BAHAN === 'prep'
+          ? 'Tidak ada menu terjual yang memakai base — seluruh resepnya langsung dari bahan mentah.'
+          : 'Belum ada bahan yang bisa dihitung.')) + '</div>';
+  }
+  return '<div class="tbl-wrap"><table><thead><tr><th>#</th>'
+    + '<th>' + (MN_BAHAN === 'prep' ? 'Base / bahan prep' : 'Bahan mentah') + '</th>'
+    + '<th class="num">Perkiraan keluar</th></tr></thead><tbody>'
+    + daftar.slice(0, 200).map((k, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(k) + '</td>'
+        + '<td class="num mono">' + mnBulat(isi[k]) + '</td></tr>').join('')
+    + '</tbody></table></div>'
+    + (MN_QB
+        ? '<div class="helper">' + daftar.length + ' dari ' + semua.length + ' bahan cocok dengan "' + esc(MN_QB) + '".</div>'
+        : (semua.length > 200 ? '<div class="helper">200 teratas dari ' + semua.length + ' bahan.</div>' : ''));
+}
+/* Isi tabel Menu yang belum ada di HPP. Kotak salin di bawahnya SENGAJA tetap
+   memuat daftar PENUH: gunanya memindahkan seluruh menu yang belum punya resep
+   ke Excel, dan menyalin hasil pencarian akan diunggah balik orang sebagai
+   "seluruh daftar" — aturan yang sama dengan ekspor bahan di modul HPP. */
+function mnIsiResepHtml() {
+  const C = MN_CACHE;
+  if (!C) return '';
+  const semua = C.tanpaResep || [];
+  const daftar = semua.filter(x => mnCocok(x.n, MN_QR));
+  let h = '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Nama menu di POS</th>'
+    + '<th class="num">Qty</th><th class="num">Nilai</th></tr></thead><tbody>';
+  if (!daftar.length) {
+    h += '<tr><td colspan="4" class="empty">Tidak ada menu yang namanya memuat "' + esc(MN_QR) + '".</td></tr>';
+  }
+  h += daftar.map((x, i) => '<tr><td>' + (i + 1) + '</td><td><b>' + esc(x.n) + '</b></td>'
+      + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
+      + '<td class="num mono">' + rp0(x.nilai) + '</td></tr>').join('')
+    + '</tbody></table></div>'
+    + (MN_QR ? '<div class="helper">' + daftar.length + ' dari ' + semua.length + ' menu cocok dengan "'
+        + esc(MN_QR) + '". Kotak salin di bawah tetap memuat seluruhnya.</div>' : '');
+  return h;
+}
 function mnUrut(v) { MN_URUT = v; render(); }
 function mnSemua(v) { MN_SEMUA = !!v; render(); }
 function mnBahan(v) { MN_BAHAN = v; render(); }
@@ -1957,23 +2114,23 @@ function mnBahan(v) { MN_BAHAN = v; render(); }
    terjebak dengan rincian yang tidak bisa dihilangkan. */
 function mnBuka(n) { MN_BUKA = (MN_BUKA === n) ? '' : n; render(); }
 
-/* Pita "yang tidak ikut". Menyebut NAMA menunya, bukan cuma jumlahnya:
-   daftarnya pendek (tiga baris di produksi) dan yang membacanya sedang
-   memeriksa apakah yang dikeluarkan memang yang seharusnya. Angka porsi &
-   nilainya ikut supaya kartu di atasnya bisa dijumlahkan kembali menjadi
-   angka yang sama dengan berkas POS — tanpa itu selisihnya dicari orang di
-   tempat yang salah. */
-function mnEventHtml(ev) {
-  if (!ev || !ev.nama.length) return '';
-  return '<div class="notice info">\u2139 <div><b>' + ev.nama.length + ' menu kategori '
-    + esc(KAT_EVENT) + ' tidak ikut di halaman ini</b> \u2014 '
-    + ev.nama.map(n => esc(n)).join(', ') + '. '
-    + 'Totalnya ' + ev.qty.toLocaleString('id-ID') + ' porsi, ' + rp0(ev.nilai) + ', dan '
-    + 'angka itu SUDAH dikeluarkan dari keempat kartu di atas maupun dari perkiraan bahan baku '
-    + 'di bawah. Menu acara dijual per paket dan tidak punya resep di modul HPP, jadi kalau ikut '
-    + 'ia cuma menambah baris <i>belum ada resep</i> yang tidak akan pernah bisa dibereskan. '
-    + 'Angkanya tetap utuh di halaman <b>Kategori Menu</b>.</div></div>';
-}
+/* PITA "yang tidak ikut" DICABUT 10 September 2026 atas permintaan user,
+   sehari sesudah dipasang. Ia menyebut nama seluruh menu yang dikeluarkan —
+   di produksi 20 nama sekaligus — dan mendorong tabel yang jadi isi halaman
+   ini turun satu layar penuh. Pita panjang yang muncul tiap kali halaman
+   dibuka berhenti dibaca orang.
+
+   YANG HILANG DENGANNYA, dan itu memang pertukarannya: keempat kartu di atas
+   (Menu Berbeda, Porsi Terjual, Nilai Menu) tidak lagi sama dengan berkas
+   POS, dan tidak ada satu kalimat pun di halaman ini yang mengatakan
+   sebabnya. Yang masih menjawabnya: halaman Kategori Menu, tempat kategori
+   yang dikeluarkan berdiri utuh dan barisnya menyebut sendiri bahwa ia tidak
+   ikut di sini. Jangan dipasang lagi tanpa diminta.
+
+   Pita "N porsi menu paket sudah digabung" ikut dicabut di baris yang sama,
+   atas permintaan yang sama. Kartu "Kode paket yang belum dipasangkan" TIDAK
+   ikut — itu bukan keterangan melainkan pekerjaan yang menunggu, berikut
+   tombol saran pasangannya. */
 function vMenu() {
   const V = document.getElementById('app-view');
   const b = blnAktif(), d = lap(b);
@@ -2016,6 +2173,10 @@ function vMenu() {
   const peta = HP ? resepPeta() : null;
   const kenal = n => peta ? !!peta[String(n).trim().toLowerCase()] : false;
   const tanpaResep = peta ? urut.filter(x => !kenal(x.n)) : [];
+  /* Cache untuk pencarian. Diisi SEBELUM kartunya dirakit — mnIsiMenuHtml()
+     di bawah membacanya, dan yang mengisinya belakangan menggambar tabel
+     kosong pada render pertama tiap kali halaman ini dibuka. */
+  MN_CACHE = { urut: urut, peta: peta, totNilai: totNilai, tanpaResep: tanpaResep, bahan: null };
 
   h += '<div class="grid g4" style="margin-bottom:18px">'
     + kartu('Menu Berbeda', urut.length, 'yang pernah terjual bulan ini')
@@ -2023,13 +2184,12 @@ function vMenu() {
     + kartu('Nilai Menu', rp0(totNilai), 'sebelum service & pajak')
     + kartu('Belum Ada Resep', tanpaResep.length, peta ? 'dari ' + urut.length + ' menu' : 'HPP tidak terbaca')
     + '</div>'
-    + mnEventHtml(NM.ev)
     + mnPaketHtml(NM, Object.keys(gab));
 
-  /* ---- 1. daftar penjualan menu: top-N ATAU seluruhnya ---- */
-  const tampil = MN_SEMUA ? urut : urut.slice(0, MN_TOP);
-  const punNilai = urut.length ? (urut.reduce((a, x) => Math.max(a, MN_URUT === 'qty' ? x.qty : x.nilai), 0) || 1) : 1;
-
+  /* ---- 1. daftar penjualan menu ----
+     Pemotongan top-N dan penyaring pencariannya pindah ke mnIsiMenuHtml():
+     keduanya menentukan BARIS MANA yang tampil, dan dua tempat yang
+     memutuskannya akan menyimpang begitu salah satunya disetel. */
   h += '<div class="card"><h3>Penjualan Menu</h3>'
     + '<div class="card-sub">Diurut menurut ' + (MN_URUT === 'qty' ? '<b>jumlah porsi</b>' : '<b>nilai</b>')
     + '. Keduanya menjawab hal yang berbeda: menu murah yang terjual ratusan porsi menghabiskan '
@@ -2044,35 +2204,12 @@ function vMenu() {
       + '<button class="' + (!MN_SEMUA ? 'active' : '') + '" onclick="mnSemua(false)">' + MN_TOP + ' Teratas</button>'
       + '<button class="' + (MN_SEMUA ? 'active' : '') + '" onclick="mnSemua(true)">Seluruhnya (' + urut.length + ')</button>'
     + '</div>'
+    + mnKotakCari('mn_q', MN_Q, 'Cari menu\u2026')
     + '<span class="helper" style="margin:0 0 0 auto">Klik satu baris untuk melihat bahan bakunya sendiri</span>'
     + '</div>'
-    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Menu</th><th class="num">Qty</th>'
-    + '<th class="num">Nilai</th><th class="num">% dari nilai menu</th><th style="width:22%"></th></tr></thead><tbody>';
-
-  tampil.forEach((x, i) => {
-    const nilaiUrut = MN_URUT === 'qty' ? x.qty : x.nilai;
-    const buka = MN_BUKA === x.n;
-    h += '<tr style="cursor:pointer" onclick="mnBuka(' + esc(JSON.stringify(x.n)).replace(/"/g, '&quot;') + ')">'
-      + '<td>' + (i + 1) + '</td>'
-      + '<td><b>' + esc(x.n) + '</b>'
-        + (peta && !kenal(x.n)
-            ? ' <span class="chip" style="background:var(--warn-bg);color:var(--warn)">belum ada resep</span>' : '')
-        + '</td>'
-      + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
-      + '<td class="num mono">' + rp0(x.nilai) + '</td>'
-      + '<td class="num">' + pct(x.nilai, totNilai) + '%</td>'
-      + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
-        + '<div style="width:' + Math.round(nilaiUrut / punNilai * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
-      + '</tr>';
-    if (buka) h += '<tr><td colspan="6" style="background:var(--paper)">' + mnRincian(x, peta) + '</td></tr>';
-  });
-
-  h += '</tbody></table></div>'
-    + (!MN_SEMUA && urut.length > MN_TOP
-        ? '<div class="helper">' + MN_TOP + ' teratas dari ' + urut.length + ' menu — tekan <b>Seluruhnya</b> '
-          + 'untuk melihat sisanya. Yang tersembunyi ' + (urut.length - MN_TOP) + ' menu senilai '
-          + rp0(urut.slice(MN_TOP).reduce((a, x) => a + x.nilai, 0)) + '.</div>'
-        : '<div class="helper">Seluruh ' + urut.length + ' menu ditampilkan.</div>')
+    /* Isinya digambar terpisah supaya pencarian bisa menyegarkan tabelnya
+       TANPA membuat ulang kotak yang sedang diketik. */
+    + '<div id="mn_isi_menu">' + mnIsiMenuHtml() + '</div>'
     /* PENYEBUTNYA DISEBUT ANGKANYA (7 September 2026, ditanyakan user: "%
        nilai itu apa?"). Kolom persen tanpa penyebut cuma bisa ditebak, dan
        tebakan yang paling wajar di halaman omset justru yang SALAH: orang
@@ -2100,13 +2237,12 @@ function vMenu() {
    kalau tidak ia menyimpulkan menunya memang sepi. */
 function mnPaketHtml(NM, namaAda) {
   const kd = Object.keys(NM.takKenal);
+  /* Pita "N porsi sudah digabung" DICABUT 10 September 2026 (permintaan
+     user). Penggabungannya sendiri tetap berjalan — yang dicabut cuma
+     keterangannya. `NM.digabung` masih dihitung dan masih dijaga ujinya:
+     angkanya yang membuktikan penggabungannya terjadi, dan mencabut
+     hitungannya berarti tidak ada lagi yang bisa membuktikannya. */
   let h = '';
-  if (NM.digabung) {
-    h += '<div class="notice info">ℹ <div><b>' + NM.digabung.toLocaleString('id-ID')
-      + ' porsi dari menu paket sudah digabung</b> ke menu aslinya — baris berakhiran '
-      + '<i>(PACKAGE)</i> di POS bukan menu tersendiri, ia menu yang sama yang diberikan '
-      + 'sebagai bagian paket.</div></div>';
-  }
   if (!kd.length) return h;
   const totQ = kd.reduce((a, k) => a + NM.takKenal[k].qty, 0);
   /* Diurut menurut porsi: yang paling banyak yang paling merugikan kalau
@@ -2210,12 +2346,10 @@ function mnTakDikenalHtml(tanpaResep, totNilai) {
     + 'Daftar Resep — senilai ' + rp0(nilai) + ' (' + pct(nilai, totNilai) + '% dari nilai penjualan menu). '
     + 'Bahan bakunya <b>tidak ikut</b> di perkiraan di atas, jadi angka di sana lebih kecil daripada yang '
     + 'sebenarnya keluar.</div>'
-    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Nama menu di POS</th>'
-    + '<th class="num">Qty</th><th class="num">Nilai</th></tr></thead><tbody>'
-    + tanpaResep.map((x, i) => '<tr><td>' + (i + 1) + '</td><td><b>' + esc(x.n) + '</b></td>'
-        + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
-        + '<td class="num mono">' + rp0(x.nilai) + '</td></tr>').join('')
-    + '</tbody></table></div>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 12px">'
+    + mnKotakCari('mn_qr', MN_QR, 'Cari menu\u2026')
+    + '</div>'
+    + '<div id="mn_isi_resep">' + mnIsiResepHtml() + '</div>'
     + '<div style="margin-top:12px">'
     + '<div style="font-weight:700;font-size:13px;margin-bottom:6px">Salin daftarnya</div>'
     + '<div class="helper" style="margin:0 0 6px">Satu baris = satu menu, dipisah TAB '
@@ -2350,8 +2484,8 @@ function bahanBakuHtml(urut) {
      base-nya di daftar yang sama membuat barang yang sama terhitung dua kali.
      Keduanya juga menjawab pertanyaan berbeda — yang satu buat memesan ke
      supplier, yang satu buat menyusun jadwal prep dapur. */
-  const isi = MN_BAHAN === 'prep' ? prep : keluar;
-  const daftar = Object.keys(isi).sort((a, b) => isi[b] - isi[a]);
+  /* Disimpan supaya pencarian tidak mengurai ulang resep tiap ketukan. */
+  if (MN_CACHE) MN_CACHE.bahan = { keluar: keluar, prep: prep };
   const nPrep = Object.keys(prep).length, nMentah = Object.keys(keluar).length;
   let h = '<div class="card"><h3>Perkiraan Bahan Baku Keluar</h3>'
     + '<div class="card-sub">Jumlah menu terjual dikalikan resepnya di modul HPP. Inilah yang '
@@ -2381,22 +2515,15 @@ function bahanBakuHtml(urut) {
       + 'Perlu dibetulkan di modul HPP.</div></div>';
   }
 
-  if (!daftar.length) {
-    /* Kosongnya dibedakan: "tidak ada satu pun base yang dipakai" adalah
-       jawaban yang sah, sementara "tidak ada bahan sama sekali" hampir selalu
-       berarti resepnya belum diisi. Dua keadaan itu tidak boleh berbunyi sama. */
-    return h + '<div class="empty">' + (MN_BAHAN === 'prep'
-        ? 'Tidak ada menu terjual yang memakai base — seluruh resepnya langsung dari bahan mentah.'
-        : 'Belum ada bahan yang bisa dihitung.') + '</div></div>';
-  }
-
-  h += '<div class="tbl-wrap"><table><thead><tr><th>#</th>'
-    + '<th>' + (MN_BAHAN === 'prep' ? 'Base / bahan prep' : 'Bahan mentah') + '</th>'
-    + '<th class="num">Perkiraan keluar</th></tr></thead><tbody>'
-    + daftar.slice(0, 200).map((k, i) => '<tr><td>' + (i + 1) + '</td><td>' + esc(k) + '</td>'
-        + '<td class="num mono">' + mnBulat(isi[k]) + '</td></tr>').join('')
-    + '</tbody></table></div>'
-    + (daftar.length > 200 ? '<div class="helper">200 teratas dari ' + daftar.length + ' bahan.</div>' : '')
+  /* Kosongnya dibedakan di mnIsiBahanHtml(): "tidak ada satu pun base yang
+     dipakai" adalah jawaban yang sah, "tidak ada bahan sama sekali" hampir
+     selalu berarti resepnya belum diisi, dan "tidak ada yang cocok dengan
+     pencarian" adalah hal ketiga lagi. Ketiganya tidak boleh berbunyi sama. */
+  h += '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 12px">'
+    + mnKotakCari('mn_qb', MN_QB, 'Cari bahan\u2026')
+    + '<span class="helper" style="margin:0">Angka di kedua tombol di atas tetap menghitung seluruhnya</span>'
+    + '</div>'
+    + '<div id="mn_isi_bahan">' + mnIsiBahanHtml() + '</div>'
     + '<div class="helper">Satuannya mengikuti satuan yang ditulis di baris resep HPP — '
     + 'bukan satuan beli. Bahan yang dibeli per Kg tapi ditakar per Gram akan muncul dalam Gram.</div>'
     + '</div>';

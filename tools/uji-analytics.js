@@ -680,9 +680,24 @@ async function siap(w) {
       /* Kolom kode juga dipakai kasir menulis catatan — tidak boleh jadi kode. */
       { a:'2026-08-01', b:'B4', c:'LARGE (PACKAGE)',         d:'Setengah mateng', e:'', f:'1', g:'5000', h:'BEVERAGES', i:'TEA COLLECTION' },
       { a:'2026-08-01', b:'B5', c:'NASI GORENG',             d:'', e:'', f:'6',  g:'300000', h:'FOOD', i:'NUSANTARA' },
-      { a:'2026-08-01', b:'B6', c:'DJ PERFORMANCE',          d:'', e:'', f:'1',  g:'500000', h:'OTHERS', i:'EVENT' }
+      /* EVENT berkelompok FOOD, dan ia DULUAN supaya `kategori['EVENT'].kat`
+         terisi FOOD (yang pertama menang). Tanpa baris ini kedua aturan tidak
+         bisa dibedakan: di produksi EVENT kebetulan berkelompok OTHERS, jadi
+         mencabut aturan EVENT tidak mengubah satu angka pun. */
+      { a:'2026-08-01', b:'B6', c:'PRASMANAN',               d:'', e:'', f:'3',  g:'900000', h:'FOOD',   i:'EVENT' },
+      { a:'2026-08-01', b:'B6', c:'DJ PERFORMANCE',          d:'', e:'', f:'1',  g:'500000', h:'OTHERS', i:'EVENT' },
+      /* Kelompok OTHERS, kategori BUKAN EVENT. Rokok dijual apa adanya, tidak
+         punya resep, dan tidak pernah keluar dari gudang bahan. */
+      { a:'2026-08-01', b:'B7', c:'ROKOK SAMPOERNA',         d:'', e:'', f:'2',  g:'60000',  h:'OTHERS', i:'ROKOK' }
     ];
-    const { dom } = domAnalytics({});
+    /* HPP tiruan diberi SATU resep supaya daftar bahan baku benar-benar ada
+       isinya — tanpa itu daftarnya selalu kosong dan penyaring pencariannya
+       tidak pernah dijalankan sekali pun. */
+    const { dom } = domAnalytics({ hpp: { resep: [
+      { nama:'NASI GORENG', yield_qty:1, bahan:[
+        { nama:'BERAS', qty:200, satuan:'Gr' },
+        { nama:'TELUR', qty:1, satuan:'Btr' } ] }
+    ] } });
     await siap(dom.window);
     const w = dom.window, d = w.document;
     const u = w.eval('ringkasPos')(rows, 'x.xlsx');
@@ -761,11 +776,12 @@ async function siap(w) {
     cek('saran kode menemukan menu yang mirip', saran.indexOf('MATCHA LATTE') > -1, JSON.stringify(saran));
 
     /* ---- 2: halaman kategori ---- */
-    cek('kategori terbaca dari laporan', Object.keys(u.kategori).length === 5,
+    cek('kategori terbaca dari laporan', Object.keys(u.kategori).length === 6,
         JSON.stringify(Object.keys(u.kategori)));
-    cek('EVENT jadi kategorinya sendiri', !!u.kategori['EVENT'] && u.kategori['EVENT'].nilai === 500000,
+    cek('EVENT jadi kategorinya sendiri', !!u.kategori['EVENT'] && u.kategori['EVENT'].nilai === 1400000,
         JSON.stringify(u.kategori['EVENT']));
-    cek('kelompok atas ikut disimpan', u.kategori['EVENT'].kat === 'OTHERS');
+    cek('kelompok atas ikut disimpan', u.kategori['EVENT'].kat === 'FOOD',
+        JSON.stringify(u.kategori['EVENT']));
     cek('menu di dalam kategori ikut disimpan',
         !!(u.katMenu['NUSANTARA'] || {})['NASI GORENG']);
 
@@ -802,9 +818,31 @@ async function siap(w) {
     const NMs = w.eval('menuNormal')(simpan);
     cek('menu kategori EVENT dikeluarkan dari daftar menu',
         !NMs.gab['DJ PERFORMANCE'], JSON.stringify(Object.keys(NMs.gab)));
+    /* ATURAN KEDUA (10 September 2026): seluruh kelompok OTHERS ikut keluar.
+       ROKOK bukan kategori EVENT, jadi penyaring yang cuma memeriksa EVENT
+       akan meloloskannya — dan barisnya lalu berdiri di daftar "belum ada
+       resep" selamanya. */
+    cek('seluruh kelompok OTHERS ikut dikeluarkan, bukan cuma EVENT',
+        !NMs.gab['ROKOK SAMPOERNA'], JSON.stringify(Object.keys(NMs.gab)));
+    /* PRASMANAN keluar lewat aturan EVENT (kelompoknya FOOD), ROKOK lewat
+       aturan OTHERS, DJ PERFORMANCE kena keduanya. Mencabut salah satu aturan
+       karena itu selalu ada yang bocor. */
+    cek('menu EVENT yang kelompoknya BUKAN Others tetap dikeluarkan',
+        !NMs.gab['PRASMANAN'], JSON.stringify(Object.keys(NMs.gab)));
     cek('...dan yang dikeluarkan dihitung, bukan dibuang',
-        NMs.ev.qty === 1 && NMs.ev.nilai === 500000 && NMs.ev.nama.indexOf('DJ PERFORMANCE') > -1,
+        NMs.ev.qty === 6 && NMs.ev.nilai === 1460000 && NMs.ev.nama.length === 3,
         JSON.stringify(NMs.ev));
+    /* FOOD & BEVERAGES tidak boleh ikut terbawa. */
+    cek('kelompok lain tidak ikut terkena',
+        !!NMs.gab['NASI GORENG'] && !!NMs.gab['MATCHA LATTE'], JSON.stringify(Object.keys(NMs.gab)));
+    /* Sama persis, BUKAN awalan: 'OTHERS LAIN' berawalan sama tapi kelompok
+       yang berbeda, dan awalan akan menelannya tanpa satu pun tanda. */
+    cek('penentu kelompoknya tanpa peduli huruf besar & spasi',
+        w.eval("kelLewatKah(' others ')") === true && w.eval("kelLewatKah('OTHER')") === false);
+    cek('...dan sama persis, bukan awalan',
+        w.eval("kelLewatKah('OTHERS LAIN')") === false);
+    cek('...begitu juga penentu kategori acaranya',
+        w.eval("katEventKah('EVENT LAIN')") === false);
     /* Nama kategorinya diketik di POS, jadi 'Event' dan 'EVENT ' pasti
        bercampur. Yang tidak cocok tidak melempar apa pun — ia cuma diam-diam
        ikut lagi ke perkiraan bahan baku. */
@@ -816,18 +854,93 @@ async function siap(w) {
     cek('laporan tanpa katMenu tidak mengeluarkan apa pun',
         w.eval('menuNormal')({ menu: simpan.menu }).ev.nama.length === 0);
 
+    /* Peta kode dikosongkan lagi supaya kartu 'Kode paket yang belum
+       dipasangkan' punya isi — dengan seluruh kode sudah dipetakan, kartunya
+       memang tidak digambar, dan asersi di bawah akan merah untuk kode yang
+       benar. */
+    w.eval('AN.data.setting.petaKode = {}');
     w.go('menu'); await tunggu(60);
     const vm = d.getElementById('app-view').innerHTML;
-    cek('halaman Menu menyebut apa yang tidak ikut',
-        vm.indexOf('tidak ikut di halaman ini') > -1, vm.slice(0, 300));
-    cek('...berikut nama menunya', vm.indexOf('DJ PERFORMANCE') > -1);
-    /* Angkanya wajib disebut: keempat kartu di atasnya berhenti sama dengan
-       berkas POS begitu penyaring ini menyala, dan selisih tanpa keterangan
-       dicari orang di tempat yang salah. */
-    cek('...berikut porsi & nilainya', /1 porsi/.test(vm) && vm.indexOf(w.eval('rp0')(500000)) > -1,
-        vm.slice(vm.indexOf('tidak ikut di halaman ini') - 200, vm.indexOf('tidak ikut di halaman ini') + 400));
-    cek('menu EVENT tidak lagi dihitung sebagai belum ada resep',
-        vm.indexOf('DJ PERFORMANCE</td>') < 0);
+    /* KEDUA PITA ℹ DICABUT 10 September 2026 (permintaan user), sehari sesudah
+       yang pertama dipasang. Yang dijaga sekarang KETIADAANNYA — asersi lama
+       justru akan menahannya tetap ada. */
+    cek('pita "yang tidak ikut" sudah dicabut',
+        vm.indexOf('tidak ikut di halaman ini') < 0);
+    cek('pita "porsi paket sudah digabung" sudah dicabut',
+        vm.indexOf('sudah digabung') < 0);
+    /* Penggabungannya sendiri TETAP berjalan — yang dicabut cuma
+       keterangannya, dan angkanya yang membuktikannya masih dihitung. */
+    /* ANGKANYA DIPATOK, bukan cuma "lebih dari nol": penggabungan punya DUA
+       cabang (nama jelas, dan kode yang dipetakan), dan yang lebih-dari-nol
+       tetap benar walau salah satunya dicabut.
+         MINERAL WATER (PACKAGE) 3 + MATCHA02 4 + MATCHA01 2 = 9 */
+    cek('...tapi penggabungannya tetap berjalan', NMs.digabung === 9, String(NMs.digabung));
+    /* Kartu "Kode paket yang belum dipasangkan" BUKAN keterangan melainkan
+       pekerjaan yang menunggu, jadi ia tidak ikut dicabut. */
+    cek('kartu kode paket yang belum dipasangkan TIDAK ikut dicabut',
+        vm.indexOf('Kode paket yang belum dipasangkan') > -1);
+    cek('menu yang dikeluarkan tidak lagi dihitung sebagai belum ada resep',
+        vm.indexOf('DJ PERFORMANCE</b>') < 0 && vm.indexOf('ROKOK SAMPOERNA</b>') < 0);
+
+    /* ---- PENCARIAN DI TIGA DAFTAR (permintaan user 10 September 2026) ----
+       Yang paling menentukan BUKAN adanya kotaknya melainkan bahwa mengetik
+       tidak membuat ulang kotaknya: render() di modul ini TOTAL, dan kotak
+       yang dibuat ulang kehilangan fokus sehingga hanya huruf pertama yang
+       masuk. Karena itu yang diperiksa IDENTITAS elemennya. */
+    cek('tiga kotak cari digambar',
+        !!d.getElementById('mn_q') && !!d.getElementById('mn_qb') && !!d.getElementById('mn_qr'));
+    {
+      const kotak = d.getElementById('mn_q');
+      kotak.value = 'nasi';
+      kotak.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(30);
+      cek('kotak yang sedang diketik TIDAK dibuat ulang',
+          d.getElementById('mn_q') === kotak && kotak.value === 'nasi',
+          'kotaknya diganti elemen baru — hanya huruf pertama yang akan masuk');
+      const isi = d.getElementById('mn_isi_menu').innerHTML;
+      cek('...dan tabelnya tersaring', isi.indexOf('NASI GORENG') > -1 && isi.indexOf('MATCHA LATTE') < 0,
+          isi.slice(0, 400));
+      cek('...kakinya menyebut berapa yang cocok', isi.indexOf('cocok dengan') > -1);
+      /* Kata kunci yang tidak cocok dengan apa pun harus DIKATAKAN — tabel
+         kosong tanpa keterangan terbaca sebagai data yang hilang. */
+      kotak.value = 'zzz';
+      kotak.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(30);
+      cek('kata kunci tanpa hasil dikatakan, bukan tabel kosong',
+          d.getElementById('mn_isi_menu').innerHTML.indexOf('Tidak ada menu yang namanya memuat') > -1);
+      kotak.value = '';
+      kotak.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(30);
+    }
+    /* Saat mencari, batas 20 teratas DILEPAS — kalau tidak, mencari menu
+       peringkat ke-50 memulangkan tabel kosong dan itu dibaca sebagai
+       "menunya tidak ada bulan ini". */
+    cek('batas 20 teratas dilepas saat mencari',
+        /MN_SEMUA \|\| MN_Q/.test(HTML_ASLI), 'penyaring dan pemotongnya harus di satu tempat');
+    {
+      const kb = d.getElementById('mn_qb');
+      kb.value = 'zzz';
+      kb.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(30);
+      cek('cari bahan menyaring daftarnya sendiri',
+          d.getElementById('mn_isi_bahan').innerHTML.indexOf('Tidak ada bahan yang namanya memuat') > -1,
+          d.getElementById('mn_isi_bahan').innerHTML.slice(0, 300));
+      /* Kata kunci yang COCOK harus menyisakan yang cocok saja — tanpa ini,
+         penyaring yang tidak menyaring apa pun tetap lulus selama daftarnya
+         kebetulan kosong. */
+      kb.value = 'beras';
+      kb.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(30);
+      {
+        const ib = d.getElementById('mn_isi_bahan').innerHTML;
+        cek('...dan menyisakan yang cocok saja',
+            ib.indexOf('BERAS') > -1 && ib.indexOf('TELUR') < 0, ib.slice(0, 300));
+      }
+      cek('...dan tabel menu di atasnya TIDAK ikut tersaring',
+          d.getElementById('mn_isi_menu').innerHTML.indexOf('NASI GORENG') > -1,
+          'tiga daftar menjawab tiga pertanyaan; satu kotak untuk ketiganya memangkas yang lain');
+      kb.value = ''; kb.dispatchEvent(new w.Event('input', { bubbles:true })); await tunggu(30);
+    }
 
     w.eval('AN.data.laporan = null');
     w.eval('AN.data.laporan = {}');
