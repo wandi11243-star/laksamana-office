@@ -163,7 +163,7 @@ async function siap(w) {
         (panggilan.find(p => p.url && p.url.indexOf('kompas') > -1) || {}).url);
     cek('tidak ada alamat dua tingkat yang tertinggal', HTML.indexOf("'../../") < 0, 'ada ../../ di sumber');
 
-    for (const v of ['ringkasan','hari','menu','event','unggah','pengaturan','akses']) {
+    for (const v of ['ringkasan','hari','menu','kategori','kunjungan','tren','marketing','event','unggah','pengaturan','akses']) {
       w.go(v); await tunggu(30);
       const isi = d.getElementById('app-view').innerHTML;
       cek('halaman ' + v + ' tergambar', isi.length > 50, String(isi.length));
@@ -602,11 +602,20 @@ async function siap(w) {
         vp.slice(vp.indexOf('Base / bahan prep')).indexOf('Biji Kopi') < 0);
     w.eval("mnBahan('mentah')"); await tunggu(60);
 
-    /* ===== 2. top menu, ATAU seluruh menu ===== */
+    /* ===== 2. saklar urutan & ukuran halaman =====
+       Saklar "20 Teratas / Seluruhnya" DICABUT 10 September 2026 (permintaan
+       user), diganti pemilih 20/50/100 baris per halaman. Yang dijaga di sini
+       ketiganya ditawarkan — pemilih yang cuma menawarkan satu ukuran adalah
+       saklar lama dengan nama baru. */
     const v2 = d.getElementById('app-view').innerHTML;
-    cek('ada saklar urutan & jumlah baris',
-        /Menurut Nilai/.test(v2) && /Menurut Porsi/.test(v2) && /Seluruhnya \(3\)/.test(v2),
+    cek('ada saklar urutan',
+        /Menurut Nilai/.test(v2) && /Menurut Porsi/.test(v2),
         v2.slice(v2.indexOf('Penjualan Menu'), v2.indexOf('Penjualan Menu') + 700));
+    cek('saklar "20 Teratas / Seluruhnya" sudah dicabut',
+        v2.indexOf('Teratas<') < 0 && !/Seluruhnya \(/.test(v2));
+    cek('ketiga ukuran halaman ditawarkan',
+        /mnPer\(20\)/.test(v2) && /mnPer\(50\)/.test(v2) && /mnPer\(100\)/.test(v2),
+        v2.slice(v2.indexOf('Tampilkan'), v2.indexOf('Tampilkan') + 400));
     /* Urutan menurut porsi menjawab pertanyaan yang BERBEDA: menu murah yang
        terjual ratusan porsi menghabiskan paling banyak bahan, sementara menu
        mahal menyumbang paling banyak omset. */
@@ -671,7 +680,7 @@ async function siap(w) {
        pembanding yang tidak boleh ikut berubah. */
     const rows = [
       { a:'Sales Date', b:'Bill Number', c:'Menu', d:'Custom Menu Name', e:'Menu Code',
-        f:'Qty', g:'Subtotal', h:'Menu Category', i:'Menu Category Detail' },
+        f:'Qty', g:'Subtotal', h:'Menu Category', i:'Menu Category Detail', j:'Visit Purpose' },
       { a:'2026-08-01', b:'B1', c:'MINERAL WATER',           d:'', e:'', f:'10', g:'100000', h:'BEVERAGES', i:'GRAB AND GO' },
       { a:'2026-08-01', b:'B1', c:'MINERAL WATER (PACKAGE)', d:'', e:'', f:'3',  g:'0',      h:'BEVERAGES', i:'GRAB AND GO' },
       { a:'2026-08-01', b:'B2', c:'LARGE (PACKAGE)',         d:'MATCHA02', e:'', f:'4', g:'20000', h:'BEVERAGES', i:'SIGNATURE NON COFFEE' },
@@ -784,6 +793,10 @@ async function siap(w) {
         JSON.stringify(u.kategori['EVENT']));
     cek('menu di dalam kategori ikut disimpan',
         !!(u.katMenu['NUSANTARA'] || {})['NASI GORENG']);
+    /* Kolomnya tidak diisi di fixture ini, jadi seluruh barisnya jatuh ke
+       "(tanpa keterangan)" — yang diuji di sini bukan angkanya melainkan
+       bahwa kuncinya IKUT TERSIMPAN lewat daftar kunci tertutup di bawah. */
+    cek('metode kunjungan ikut terbaca pengurainya', !!u.kunjung, JSON.stringify(u.kunjung));
 
     /* ---- PUTARAN SIMPAN, dan inilah yang selama ini tidak pernah dijalankan.
        Seluruh asersi di atas menguji KELUARAN PENGURAINYA (`u`); yang tersimpan
@@ -807,6 +820,12 @@ async function siap(w) {
     cek('katMenu ikut tersimpan', !!(simpan && simpan.katMenu && simpan.katMenu['NUSANTARA']),
         JSON.stringify(simpan && Object.keys(simpan)));
     cek('paket ikut tersimpan', !!(simpan && simpan.paket && simpan.paket['LARGE (PACKAGE)']),
+        JSON.stringify(simpan && Object.keys(simpan)));
+    /* DAFTAR KUNCI TERTUTUP di anSimpanUnggah() adalah tempat `paket`,
+       `kategori`, dan `katMenu` tertinggal selama lima hari sementara 260
+       pemeriksaan tetap hijau. `kunjung` lahir 10 September 2026 dan lewat
+       jalur yang sama persis. */
+    cek('kunjung ikut tersimpan', !!(simpan && simpan.kunjung),
         JSON.stringify(simpan && Object.keys(simpan)));
     /* Kalau ini merah, penggabungan (PACKAGE) mati untuk laporan yang benar-benar
        tersimpan walau `u` di atas hijau. */
@@ -912,11 +931,10 @@ async function siap(w) {
       kotak.dispatchEvent(new w.Event('input', { bubbles:true }));
       await tunggu(30);
     }
-    /* Saat mencari, batas 20 teratas DILEPAS — kalau tidak, mencari menu
-       peringkat ke-50 memulangkan tabel kosong dan itu dibaca sebagai
-       "menunya tidak ada bulan ini". */
-    cek('batas 20 teratas dilepas saat mencari',
-        /MN_SEMUA \|\| MN_Q/.test(HTML_ASLI), 'penyaring dan pemotongnya harus di satu tempat');
+    /* RESET HALAMAN SAAT MENCARI diuji di blok pagination, bukan di sini:
+       fixture ini cuma punya beberapa menu, jadi hasil pencarian apa pun
+       selalu muat di satu halaman dan PENJEPIT RENTANG-nya menutupi resetnya.
+       Asersi di sini akan hijau apa pun keputusan kodenya. */
     {
       const kb = d.getElementById('mn_qb');
       kb.value = 'zzz';
@@ -1572,7 +1590,7 @@ async function siap(w) {
      terjual PALING BANYAK supaya urutan menurut porsi benar-benar berbeda
      dari urutan menurut nilai. Tanpa keduanya, asersinya tidak menguji apa
      pun — sudah terbukti sekali. */
-  console.log('\n== Penjualan menu: top-N & dua urutan ==');
+  console.log('\n== Penjualan menu: halaman 20/50/100 & dua urutan ==');
   {
     const menu = { 'Air Mineral': { qty: 900, nilai: 4500000 } };   // murah, paling laku
     for (let i = 1; i <= 24; i++) {
@@ -1601,19 +1619,48 @@ async function siap(w) {
         .map(x => x.replace(/<[^>]*>/g, ''));
     };
 
-    /* Bawaannya 20 teratas, dan yang TERSEMBUNYI disebut jumlah & nilainya —
-       daftar yang menyusut tanpa keterangan terbaca sebagai data yang hilang. */
-    cek('bawaannya 20 teratas, bukan seluruhnya', w.eval('MN_SEMUA') === false);
+    /* HALAMAN 20/50/100 menggantikan saklar "20 Teratas / Seluruhnya"
+       (permintaan user 10 September 2026). Bedanya yang menentukan: yang
+       tersembunyi sekarang BISA DICAPAI, bukan cuma disebut jumlahnya. */
+    cek('bawaannya 20 baris per halaman', w.eval('MN_PER') === 20 && w.eval('MN_HAL') === 1);
     let v = d.getElementById('app-view').innerHTML;
-    cek('cuma 20 menu tergambar', baris().length === 20, String(baris().length));
-    cek('yang tersembunyi disebut jumlahnya', /5 menu senilai/.test(v),
-        v.slice(v.indexOf('teratas dari'), v.indexOf('teratas dari') + 200));
+    cek('halaman 1 menggambar 20 baris', baris().length === 20, String(baris().length));
+    cek('kakinya menyebut yang sedang ditampilkan', /Menampilkan 1.{1,8}20 dari 25 menu/.test(v),
+        v.slice(v.indexOf('Menampilkan'), v.indexOf('Menampilkan') + 200));
+    cek('nomor halaman berikutnya digambar', /mnHal\(2\)/.test(v));
 
-    /* Seluruhnya: 25 baris. */
-    w.eval('mnSemua(true)'); await tunggu(60);
-    cek('Seluruhnya menggambar 25 baris', baris().length === 25, String(baris().length));
-    v = d.getElementById('app-view').innerHTML;
-    cek('...dan mengatakan semuanya sudah tampil', /Seluruh 25 menu ditampilkan/.test(v));
+    /* KOTAK CARI HIDUP DI LUAR WADAH TABEL, jadi menekan nomor halaman tidak
+       boleh membuatnya ulang: render() penuh membuat ulang seluruh halaman,
+       dan yang sedang mengetik kehilangan fokusnya — DAN gulir melompat balik
+       ke atas persis saat orang membaca tabel di bawah. Karena itu yang
+       diperiksa IDENTITAS elemennya, bukan adanya elemennya. */
+    const kotakMn = d.getElementById('mn_q');
+    w.eval('mnHal(2)'); await tunggu(60);
+    cek('menekan nomor halaman TIDAK membuat ulang kotak cari',
+        d.getElementById('mn_q') === kotakMn,
+        'wadahnya digambar ulang lewat render() penuh');
+    cek('halaman 2 menggambar sisanya', baris().length === 5, String(baris().length));
+    v = d.getElementById('mn_isi_menu').innerHTML;
+    /* Kolom pertama itu PERINGKAT menu, bukan nomor baris di layar. Dimulai
+       ulang tiap halaman, menu ke-21 berdiri sebagai "1" dan halaman 2 terbaca
+       seolah punya menu terlarisnya sendiri. */
+    cek('nomor peringkatnya melanjutkan, bukan mulai dari 1 lagi',
+        v.indexOf('<td>21</td>') > -1 && v.indexOf('<td>1</td>') < 0, v.slice(0, 400));
+    cek('...dan kakinya ikut menyebutnya', /Menampilkan 21.{1,8}25 dari 25 menu/.test(v),
+        v.slice(v.indexOf('Menampilkan'), v.indexOf('Menampilkan') + 200));
+
+    /* Halaman di luar rentang DIJEPIT, tidak memulangkan tabel kosong. */
+    w.eval('mnHal(9)'); await tunggu(60);
+    cek('halaman di luar rentang dijepit, bukan tabel kosong',
+        w.eval('MN_HAL') === 2 && baris().length === 5, w.eval('MN_HAL') + '/' + baris().length);
+
+    /* 50 per halaman: seluruh 25 menu muat, dan nomor halaman ikut hilang. */
+    w.eval('mnPer(50)'); await tunggu(60);
+    cek('50 per halaman memuat seluruh 25 menu', baris().length === 25, String(baris().length));
+    cek('...dan kembali ke halaman 1', w.eval('MN_HAL') === 1);
+    v = d.getElementById('mn_isi_menu').innerHTML;
+    cek('...nomor halaman tidak digambar kalau cuma ada satu halaman',
+        v.indexOf('mnHal(2)') < 0, v.slice(v.indexOf('Tampilkan'), v.indexOf('Tampilkan') + 400));
 
     /* Air Mineral: PALING BANYAK porsinya (900), tapi nilainya paling KECIL.
        Menurut nilai ia terakhir; menurut porsi ia pertama. Kalau saklarnya
@@ -1627,11 +1674,207 @@ async function siap(w) {
        menjawab pertanyaan apa pun. */
     cek('kedua urutan benar-benar berbeda', baris()[0] !== 'Menu 01' || false);
 
+    /* GANTI URUTAN KEMBALI KE HALAMAN 1: yang diurut ulang SELURUH daftarnya,
+       jadi halaman 2 sesudahnya memuat menu yang tidak ada hubungannya dengan
+       yang barusan dilihat. Dijepit tidak menolong — halaman 2 memang ada. */
+    w.eval('mnPer(20)'); await tunggu(60);
+    w.eval('mnHal(2)'); await tunggu(60);
+    w.eval("mnUrut('nilai')"); await tunggu(60);
+    cek('ganti urutan kembali ke halaman 1',
+        w.eval('MN_HAL') === 1 && baris()[0] === 'Menu 01', w.eval('MN_HAL') + ' | ' + baris()[0]);
+
+    /* PENCARIAN MENYAPU SELURUH MENU, bukan halaman yang sedang terbuka:
+       "Menu 24" ada di halaman 2, dan mencarinya dari halaman 1 harus tetap
+       menemukannya. Penyaring yang jalan SESUDAH pemotongan halaman akan
+       memulangkan tabel kosong, dan kosong terbaca sebagai "menunya tidak ada
+       bulan ini". */
+    {
+      const kt = d.getElementById('mn_q');
+      kt.value = 'menu 24';
+      kt.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(40);
+      cek('mencari dari halaman 1 tetap menemukan menu di halaman 2',
+          baris().length === 1 && baris()[0] === 'Menu 24', baris().join(' | '));
+
+      /* MENGETIK KATA KUNCI KEMBALI KE HALAMAN 1, dan itu HARUS diuji dengan
+         kata kunci yang hasilnya MASIH lebih dari satu halaman: kalau hasilnya
+         muat di satu halaman, MN_HAL jatuh ke 1 karena DIJEPIT dan resetnya
+         tidak pernah terbukti ada. "menu" cocok dengan 24 menu = dua halaman,
+         jadi halaman 2 tetap sah — dan yang membedakan tinggal barisnya.
+
+         KATA KUNCINYA DIKOSONGKAN DULU. Menekan halaman 2 selagi "menu 24"
+         masih terpasang cuma memberi satu halaman, jadi penjepitnya menarik
+         MN_HAL balik ke 1 sebelum kata kunci berikutnya diketik — dan
+         asersinya lalu hijau apa pun keputusan kodenya. */
+      kt.value = ''; kt.dispatchEvent(new w.Event('input', { bubbles:true })); await tunggu(40);
+      w.eval('mnHal(2)'); await tunggu(40);
+      cek('...dan halaman 2 benar-benar terbuka sebelum kata kuncinya diketik',
+          w.eval('MN_HAL') === 2 && baris()[0] === 'Menu 21', w.eval('MN_HAL') + ' | ' + baris()[0]);
+      kt.value = 'menu';
+      kt.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(40);
+      cek('mengetik kata kunci kembali ke halaman 1',
+          w.eval('MN_HAL') === 1 && baris()[0] === 'Menu 01', w.eval('MN_HAL') + ' | ' + baris()[0]);
+
+      kt.value = ''; kt.dispatchEvent(new w.Event('input', { bubbles:true })); await tunggu(40);
+      cek('mengosongkan kata kunci mengembalikan seluruh halaman 1',
+          baris().length === 20, String(baris().length));
+    }
+
+    /* GANTI UKURAN HALAMAN JUGA KEMBALI KE HALAMAN 1. Diuji dengan ukuran yang
+       SEDANG BERLAKU — itu satu-satunya keadaan yang bisa membedakan resetnya
+       dari penjepit rentang: ukuran yang membesar selalu memperkecil jumlah
+       halaman, jadi MN_HAL jatuh ke 1 dengan sendirinya dan mutasi "resetnya
+       dicabut" lolos tanpa satu pun asersi merah. Menekan ukuran yang sedang
+       berlaku tetap tindakan yang nyata, dan jawabannya memang halaman 1. */
+    w.eval('mnHal(2)'); await tunggu(40);
+    w.eval('mnPer(20)'); await tunggu(40);
+    cek('ganti ukuran halaman kembali ke halaman 1',
+        w.eval('MN_HAL') === 1 && baris().length === 20 && baris()[0] === 'Menu 01',
+        w.eval('MN_HAL') + ' | ' + baris().length + ' | ' + baris()[0]);
+
     /* Seluruh menu di sini tidak punya resep — kartunya harus menyebut
        semuanya, bukan memotongnya seperti chip yang lama. */
     const ta = d.getElementById('mn-teks');
     cek('teks salin memuat SELURUH menu tak dikenal, tidak dipotong',
         !!ta && ta.value.split('\n').length === 25, ta && String(ta.value.split('\n').length));
+    dom.window.close();
+  }
+
+  /* ================= METODE KUNJUNGAN (Visit Purpose) =================
+     Permintaan user 10 September 2026. Yang paling gampang lepas TANPA satu
+     pun galat: jumlah transaksi dihitung dari JUMLAH BARIS, bukan dari nomor
+     bill yang berbeda. Di Detail Report satu bill tersebar di beberapa baris
+     menu, jadi salahnya cuma tampil sebagai angka yang lebih besar dan
+     rata-rata per transaksi yang lebih kecil — dua angka yang sama-sama
+     terlihat masuk akal. Fixture di bawah karena itu memberi B1 dan B3 lebih
+     dari satu baris. */
+  console.log('\n== Metode Kunjungan (Visit Purpose) ==');
+  {
+    const rows = [
+      { a:'Sales Date', b:'Bill Number', c:'Menu', d:'Qty', e:'Subtotal',
+        f:'Total After Bill Discount', g:'Visit Purpose' },
+      /* B1: DUA baris menu, SATU transaksi. */
+      { a:'2026-08-01', b:'B1', c:'NASI GORENG', d:'1', e:'50000',  f:'50000',  g:'DINE IN' },
+      { a:'2026-08-01', b:'B1', c:'ES TEH',      d:'2', e:'20000',  f:'20000',  g:'DINE IN' },
+      /* Huruf kecil: metode yang SAMA, bukan metode kelima. */
+      { a:'2026-08-01', b:'B2', c:'NASI GORENG', d:'1', e:'30000',  f:'30000',  g:'dine in' },
+      { a:'2026-08-01', b:'B3', c:'ES TEH',      d:'1', e:'20000',  f:'20000',  g:'DINE IN' },
+      /* B3 juga punya baris ONLINE — satu bill yang barisnya memuat dua
+         metode. Ini yang membuat jumlah transaksi di halaman ini boleh lebih
+         besar daripada di Ringkasan, dan cabang pemberitahuannya baru punya
+         data untuk dijalankan karena baris ini ada. */
+      { a:'2026-08-01', b:'B3', c:'KOPI',        d:'1', e:'15000',  f:'15000',  g:'ONLINE' },
+      /* SATU transaksi, tapi omsetnya PALING BESAR. Kalau tabelnya diurut
+         menurut omset alih-alih jumlah transaksi, baris inilah yang naik ke
+         paling atas — dan halaman ini menjawab pertanyaan yang tidak dibawa
+         siapa pun. */
+      { a:'2026-08-02', b:'B4', c:'PAKET AYAM',  d:'1', e:'500000', f:'500000', g:'ESB ORDER' },
+      /* Rp45.000, bukan Rp40.000: Rp40.000 adalah rata-rata per transaksi
+         DINE IN (120.000 / 3), dan angka yang bertabrakan membuat asersi
+         rata-rata cocok dengan sel omset baris ini tanpa pernah menyentuh yang
+         diuji. Tiap angka di data uji harus punya sidik jarinya sendiri. */
+      { a:'2026-08-02', b:'B5', c:'KOPI',        d:'1', e:'45000',  f:'45000',  g:'TIKTOK GO' },
+      /* Kolomnya kosong: diberi namanya sendiri, tidak dibuang dan tidak
+         dijatuhkan ke metode pertama. */
+      { a:'2026-08-02', b:'B6', c:'KOPI',        d:'1', e:'25000',  f:'25000',  g:'' }
+    ];
+    const { dom } = domAnalytics({});
+    await siap(dom.window);
+    const w = dom.window, d = w.document;
+    const u = w.eval('ringkasPos')(rows, 'x.xlsx');
+
+    /* ---- pengurai ---- */
+    const kj = u.kunjung || {};
+    cek('metode kunjungan terbaca dari kolom Visit Purpose',
+        Object.keys(kj).length === 5, JSON.stringify(Object.keys(kj)));
+    cek('TRANSAKSI dihitung dari nomor bill yang berbeda, bukan jumlah baris',
+        kj['DINE IN'] && kj['DINE IN'].bill === 3,
+        'DINE IN = ' + JSON.stringify(kj['DINE IN']) + ' (4 berarti barisnya yang dihitung)');
+    cek('omsetnya dijumlahkan per baris', kj['DINE IN'].grand === 120000,
+        String(kj['DINE IN'].grand));
+    cek('huruf kecil jatuh ke metode yang sama', !kj['dine in'], JSON.stringify(Object.keys(kj)));
+    cek('yang kolomnya kosong diberi namanya sendiri, tidak dibuang',
+        !!kj['(tanpa keterangan)'] && kj['(tanpa keterangan)'].grand === 25000,
+        JSON.stringify(kj['(tanpa keterangan)']));
+    /* Kolom omset WAJIB tetap berjumlah pas ke total sebulan — kalau tidak,
+       yang menjumlahkannya sendiri menyimpulkan ada omset yang hilang. */
+    cek('jumlah omset seluruh metode sama dengan total sebulan',
+        Object.keys(kj).reduce((a, k) => a + kj[k].grand, 0) === u.ringkas.grand,
+        Object.keys(kj).reduce((a, k) => a + kj[k].grand, 0) + ' vs ' + u.ringkas.grand);
+
+    /* ---- lewat JALUR SIMPANNYA, bukan disuntikkan langsung ----
+       Daftar kunci tertutup di anSimpanUnggah() adalah tempat tiga kunci
+       tertinggal 4 September 2026 sementara 260 pemeriksaan tetap hijau. */
+    w.eval('AN.data.laporan = {}');
+    w.eval('UNGGAH_HASIL = Object.assign({ diunggah:"2026-09-10", oleh:"Uji" }, '
+      + JSON.stringify(u) + ')');
+    await w.eval('anSimpanUnggah()');
+    cek('kunjung bertahan lewat putaran simpan',
+        !!w.eval('AN.data.laporan["2026-08"].kunjung'));
+
+    w.go('kunjungan'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    const tbl = v.slice(v.indexOf('Per Metode'));
+    const nama = (tbl.match(/<td><b>[^<]+<\/b><\/td>/g) || []).map(x => x.replace(/<[^>]*>/g, ''));
+
+    cek('halaman Metode Kunjungan menggambar tabelnya', nama.length === 5, nama.join(' | '));
+    /* DIURUT MENURUT JUMLAH TRANSAKSI, bukan omset. ESB ORDER membawa
+       Rp500.000 dari satu transaksi sementara DINE IN cuma Rp120.000 dari
+       tiga — diurut menurut omset, ESB ORDER yang naik ke atas. */
+    cek('diurut menurut jumlah transaksi, bukan omset',
+        nama[0] === 'DINE IN', nama.join(' | '));
+    cek('kartu Paling Sering menyebut metodenya',
+        v.indexOf('Paling Sering') > -1 && v.slice(v.indexOf('Paling Sering'),
+          v.indexOf('Paling Sering') + 300).indexOf('DINE IN') > -1,
+        v.slice(v.indexOf('Paling Sering'), v.indexOf('Paling Sering') + 300));
+    cek('jumlah transaksi & omsetnya tergambar di barisnya',
+        tbl.indexOf('>3</td>') > -1 && tbl.indexOf(w.eval('rp0')(120000)) > -1,
+        tbl.slice(0, 900));
+    /* Rata-rata per transaksi memakai jumlah bill, bukan jumlah baris:
+       120.000 / 3 = 40.000, sementara 120.000 / 4 = 30.000. */
+    cek('rata-rata per transaksi dihitung dari transaksi, bukan baris',
+        tbl.indexOf(w.eval('rp0')(40000)) > -1, tbl.slice(0, 900));
+    cek('barisnya berjumlah total di kaki tabel',
+        tbl.indexOf('<tfoot>') > -1 && tbl.indexOf(w.eval('rp0')(705000)) > -1,
+        tbl.slice(tbl.indexOf('<tfoot>'), tbl.indexOf('<tfoot>') + 400));
+    /* Laporan per menu: satu transaksi punya beberapa baris, dan itu WAJIB
+       dikatakan — yang membandingkannya dengan jumlah baris berkas akan
+       mengira ada yang hilang. */
+    cek('laporan per menu dikatakan menghitung nomor bill yang berbeda',
+        v.indexOf('nomor bill yang berbeda') > -1);
+    /* B3 punya baris DINE IN dan ONLINE, jadi ia dihitung di kedua-duanya:
+       7 di sini vs 6 di Ringkasan. Didiamkan, selisihnya dilaporkan sebagai
+       angka yang salah di salah satu halaman. */
+    cek('selisih dengan jumlah bill di Ringkasan dikatakan, bukan didiamkan',
+        v.indexOf('sementara Ringkasan menyebut') > -1,
+        v.slice(v.indexOf('Batangnya'), v.indexOf('Batangnya') + 600));
+    dom.window.close();
+  }
+
+  /* Laporan LAMA tidak punya `kunjung` sama sekali, dan itu bukan galat —
+     kolomnya baru dibaca 10 September 2026. Yang dibedakan: menyuruh mengunggah
+     ulang, bukan menggambar tabel kosong yang terbaca sebagai "tidak ada
+     transaksi bulan ini". */
+  {
+    const an = { data: { laporan: { '2026-08': {
+      diunggah:'2026-08-28', oleh:'Wandi', berkas:'x.xlsx', jenis:'menu',
+      hari: { '2026-08-01': { bill:10, grand:1000000 } },
+      jam: Array.from({ length: 24 }, () => ({ bill:0, grand:0 })),
+      menu: { 'NASI GORENG': { qty:1, nilai:50000 } },
+      ringkas: { bill:10, grand:1000000, net:900000, svc:0, tax:0, sub:900000,
+                 discMenu:0, discBill:0, discVoucher:0, pax:0, billPax:0 }
+    } }, setting: {} }, akses: {}, peran: {} };
+    const { dom } = domAnalytics({ an });
+    await siap(dom.window);
+    const w = dom.window, d = w.document;
+    w.go('kunjungan'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    cek('laporan lama: dikatakan sebabnya, bukan tabel kosong',
+        v.indexOf('belum memuat metode kunjungan') > -1, v.slice(0, 400));
+    cek('...berikut cara membetulkannya', v.indexOf('Unggah ulang berkas bulan itu') > -1);
+    cek('...dan kemungkinan keduanya: berkas POS tanpa kolom itu',
+        v.indexOf('memang tidak punya kolom itu') > -1);
     dom.window.close();
   }
 

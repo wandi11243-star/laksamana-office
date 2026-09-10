@@ -356,6 +356,9 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
 .seg{display:inline-flex;background:var(--gold-soft);border-radius:10px;padding:3px;gap:2px;margin-bottom:16px;flex-wrap:wrap}
 .seg button{border:none;background:transparent;padding:7px 15px;border-radius:8px;font-size:13px;font-weight:600;color:var(--muted)}
 .seg button.active{background:var(--surface);color:var(--ink);box-shadow:var(--shadow)}
+/* Panah halaman yang sudah mentok harus TERLIHAT mentok. Tombol yang bisa
+   ditekan tapi tidak melakukan apa-apa dibaca sebagai halaman rusak. */
+.seg button[disabled]{opacity:.38;cursor:not-allowed}
 .divlabel{display:inline-block;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;padding:3px 9px;border-radius:6px;margin-bottom:12px}
 .divlabel.mk{background:var(--info-bg);color:var(--info)}
 .divlabel.ev{background:var(--violet-bg);color:var(--violet)}
@@ -668,6 +671,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
         <a data-view="hari"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span> Hari &amp; Jam</a>
         <a data-view="menu"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h12"/></svg></span> Menu &amp; Bahan Baku</a>
         <a data-view="kategori"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span> Kategori Menu</a>
+        <a data-view="kunjungan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg></span> Metode Kunjungan</a>
         <a data-view="event"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.1 4.3 4.7.7-3.4 3.3.8 4.7L12 13.8 7.8 16l.8-4.7L5.2 8l4.7-.7Z"/></svg></span> Pengaruh Event</a>
         <a data-view="marketing"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-8-8 18-2-8Z"/></svg></span> Pengaruh Marketing</a>
       </div>
@@ -1160,6 +1164,7 @@ const TITLES = {
   hari      :['Hari & Jam','Omset per hari dalam seminggu, dan sebaran jamnya'],
   menu      :['Menu & Bahan Baku','Menu terlaris dan perkiraan bahan yang seharusnya keluar'],
   kategori  :['Kategori Menu','Omset per kategori menu — termasuk EVENT, terpisah dari peringkat menu'],
+  kunjungan :['Metode Kunjungan','Metode yang paling sering dipakai tamu — dari kolom Visit Purpose'],
   tren      :['Tren Bulanan','Total omset bulan ke bulan, dan perbandingan dua bulan'],
   /* DIPISAH jadi dua halaman (2 September 2026, permintaan user). Sebelumnya
      satu halaman yang mencampur acara dari modul Event dan modul Marketing —
@@ -1181,7 +1186,7 @@ function blnAktif() {
   return a.length ? a[0] : '';
 }
 function lap(b) { return (AN.data.laporan || {})[b || blnAktif()] || null; }
-function blnPilih(b) { BLN = b; render(); }
+function blnPilih(b) { BLN = b; MN_HAL = 1; render(); }
 
 /* Batas shift. Bawaannya 10:00–18:00 dan 18:00–24:00 (ditetapkan user 28
    Agustus 2026), tapi DISETEL, bukan dikunci: jam buka berubah, dan angka yang
@@ -1692,6 +1697,11 @@ function vHari() {
    event: menu tanpa kategori tetap membawa omset, dan membuangnya membuat
    jumlah kategori tidak pernah sama dengan totalnya. */
 const KAT_TANPA = '(tanpa kategori)';
+/* Baris yang kolom Visit Purpose-nya kosong DIBERI NAMANYA SENDIRI, tidak
+   dibuang dan tidak dijatuhkan ke metode pertama. Ia tetap membawa omset, dan
+   membuangnya membuat jumlah metode berhenti sama dengan totalnya — aturan
+   yang sama dengan KAT_TANPA di atas. */
+const KUN_TANPA = '(tanpa keterangan)';
 /* KATEGORI ACARA — permintaan user 10 September 2026: isinya (Prasmanan,
    Nasi Kotak, Snack Box) TIDAK ikut di halaman Menu & Bahan Baku, tapi TETAP
    berdiri di halaman Kategori Menu berikut rincian menunya.
@@ -1970,10 +1980,21 @@ function ktRincian(d, x) {
    TOTAL — halaman digambar ulang tiap kali, jadi apa pun yang cuma ada di DOM
    ikut hilang. */
 let MN_URUT = 'nilai';     // 'nilai' | 'qty'
-let MN_SEMUA = false;      // false = 20 teratas, true = seluruh menu
 let MN_BUKA = '';          // nama menu yang rinciannya sedang dibuka
 let MN_BAHAN = 'mentah';   // 'mentah' | 'prep'
-const MN_TOP = 20;
+/* HALAMAN (permintaan user 10 September 2026), MENGGANTIKAN saklar "20
+   Teratas / Seluruhnya". Saklar itu cuma punya dua jawaban dan keduanya salah
+   untuk daftar 259 menu: yang pertama menyembunyikan 239 menu, yang kedua
+   menggelar seluruhnya jadi tabel sepanjang sebelas layar.
+
+   Yang tersembunyi dulu WAJIB disebut jumlah & nilainya justru karena tidak
+   ada cara mencapainya. Dengan nomor halaman seluruh menu bisa dicapai, jadi
+   keterangan itu berganti jadi "menampilkan 21–40 dari 259" — bukan
+   dicabut. Daftar yang menyusut tanpa keterangan tetap terbaca sebagai data
+   yang hilang. */
+const MN_PER_OPSI = [20, 50, 100];
+let MN_PER = 20;           // baris per halaman
+let MN_HAL = 1;            // halaman yang sedang dibuka
 /* PENCARIAN DI TIGA DAFTAR (permintaan user 10 September 2026: "ada tombol
    bisa search utk masing masing"). Tiga kotak terpisah — Penjualan Menu, Bahan
    Baku, dan Menu yang belum ada di HPP menjawab tiga pertanyaan berbeda, dan
@@ -2003,18 +2024,31 @@ function mnKotakCari(id, nilai, ph) {
 function mnIsi(id, html) { const e = document.getElementById(id); if (e) e.innerHTML = html; }
 function mnCari(el) {
   const q = String((el && el.value) || '').trim().toLowerCase();
-  if (el.id === 'mn_q')  { MN_Q  = q; mnIsi('mn_isi_menu',  mnIsiMenuHtml()); }
+  /* Kembali ke halaman 1: hasil pencarian yang cuma tiga baris tidak punya
+     halaman 5, dan yang tertinggal di sana melihat tabel kosong untuk kata
+     kunci yang sebenarnya ketemu. */
+  if (el.id === 'mn_q')  { MN_Q  = q; MN_HAL = 1; mnIsi('mn_isi_menu',  mnIsiMenuHtml()); }
   if (el.id === 'mn_qb') { MN_QB = q; mnIsi('mn_isi_bahan', mnIsiBahanHtml()); }
   if (el.id === 'mn_qr') { MN_QR = q; mnIsi('mn_isi_resep', mnIsiResepHtml()); }
 }
-/* Isi tabel Penjualan Menu. Saat ada kata kunci, batas 20 teratas DILEPAS —
-   kalau tidak, mencari menu peringkat ke-50 memulangkan tabel kosong, dan
-   kosong terbaca sebagai "menunya tidak ada bulan ini". */
+/* Isi tabel Penjualan Menu, sudah dipotong per halaman. PENCARIAN MENYARING
+   SELURUH MENU, bukan halaman yang sedang terbuka — mencari menu peringkat
+   ke-50 dari halaman 1 harus tetap menemukannya, dan tabel kosong terbaca
+   sebagai "menunya tidak ada bulan ini". */
 function mnIsiMenuHtml() {
   const C = MN_CACHE;
   if (!C) return '';
   const cocok = C.urut.filter(x => mnCocok(x.n, MN_Q));
-  const tampil = (MN_SEMUA || MN_Q) ? cocok : cocok.slice(0, MN_TOP);
+  /* HALAMANNYA DIJEPIT KE RENTANG YANG BENAR-BENAR ADA. Daftarnya bisa
+     menyusut karena tiga hal — kata kunci, ganti bulan, dan ukuran halaman
+     yang membesar — dan yang tertinggal di halaman 7 melihat tabel kosong
+     yang terbaca sebagai data hilang. Dijepit di sini, satu tempat, karena
+     ketiga sebabnya masuk lewat jalan yang berbeda-beda. */
+  const nHal = Math.max(1, Math.ceil(cocok.length / MN_PER));
+  if (MN_HAL > nHal) MN_HAL = nHal;
+  if (MN_HAL < 1) MN_HAL = 1;
+  const mulai = (MN_HAL - 1) * MN_PER;
+  const tampil = cocok.slice(mulai, mulai + MN_PER);
   /* Panjang batangnya tetap diukur terhadap SELURUH menu, bukan terhadap yang
      tersaring — kalau ikut menyusut, menu kecil yang kebetulan sendirian di
      hasil pencarian tergambar sepanjang menu terlaris. */
@@ -2024,12 +2058,22 @@ function mnIsiMenuHtml() {
   let h = '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Menu</th><th class="num">Qty</th>'
     + '<th class="num">Nilai</th><th class="num">% dari nilai menu</th><th style="width:22%"></th></tr></thead><tbody>';
   if (!tampil.length) {
-    h += '<tr><td colspan="6" class="empty">Tidak ada menu yang namanya memuat "' + esc(MN_Q) + '".</td></tr>';
+    /* Kosongnya DIBEDAKAN: kata kunci yang tidak cocok dengan apa pun adalah
+       hal lain daripada bulan yang memang belum punya menu, dan yang disamakan
+       membuat orang mencari sebabnya di tempat yang salah. */
+    h += '<tr><td colspan="6" class="empty">'
+      + (MN_Q ? 'Tidak ada menu yang namanya memuat "' + esc(MN_Q) + '".'
+              : 'Belum ada menu yang bisa ditampilkan.')
+      + '</td></tr>';
   }
+  /* Nomornya MELANJUTKAN halaman sebelumnya, tidak mulai dari 1 lagi. Kolom
+     itu peringkat menu, bukan nomor baris di layar — dimulai ulang, menu
+     ke-21 berdiri sebagai "1" dan halaman 2 terbaca seolah punya menu
+     terlarisnya sendiri. */
   tampil.forEach((x, i) => {
     const nilaiUrut = MN_URUT === 'qty' ? x.qty : x.nilai;
     h += '<tr style="cursor:pointer" onclick="mnBuka(' + esc(JSON.stringify(x.n)).replace(/"/g, '&quot;') + ')">'
-      + '<td>' + (i + 1) + '</td>'
+      + '<td>' + (mulai + i + 1) + '</td>'
       + '<td><b>' + esc(x.n) + '</b>'
         + (C.peta && !kenal(x.n)
             ? ' <span class="chip" style="background:var(--warn-bg);color:var(--warn)">belum ada resep</span>' : '')
@@ -2042,21 +2086,60 @@ function mnIsiMenuHtml() {
       + '</tr>';
     if (MN_BUKA === x.n) h += '<tr><td colspan="6" style="background:var(--paper)">' + mnRincian(x, C.peta) + '</td></tr>';
   });
-  h += '</tbody></table></div>';
-  /* Kaki tabel menyebut keadaannya sendiri. Tiga keadaan, dan yang disamakan
-     membuat daftar yang menyusut karena pencarian terbaca sebagai data hilang. */
-  if (MN_Q) {
-    h += '<div class="helper">' + tampil.length + ' dari ' + C.urut.length + ' menu cocok dengan "'
-      + esc(MN_Q) + '". Saat mencari, batas ' + MN_TOP + ' teratas tidak berlaku — '
-      + 'seluruh menu ikut dicari.</div>';
-  } else if (!MN_SEMUA && C.urut.length > MN_TOP) {
-    h += '<div class="helper">' + MN_TOP + ' teratas dari ' + C.urut.length + ' menu — tekan <b>Seluruhnya</b> '
-      + 'untuk melihat sisanya. Yang tersembunyi ' + (C.urut.length - MN_TOP) + ' menu senilai '
-      + rp0(C.urut.slice(MN_TOP).reduce((a, x) => a + x.nilai, 0)) + '.</div>';
-  } else {
-    h += '<div class="helper">Seluruh ' + C.urut.length + ' menu ditampilkan.</div>';
-  }
+  h += '</tbody></table></div>' + mnPagerHtml(cocok.length, C.urut.length, nHal, mulai, tampil.length);
   return h;
+}
+/* Kaki tabel: ukuran halaman, nomor halaman, dan keterangan isinya.
+
+   DIGAMBAR DI DALAM #mn_isi_menu bersama tabelnya, bukan di kerangka halaman.
+   Kalau ukuran & nomor halaman dikendalikan dari luar wadah itu, menekannya
+   harus memanggil render() — dan render() di modul ini TOTAL, jadi gulir
+   melompat kembali ke atas halaman persis saat orang sedang membaca tabel di
+   bawah, DAN kotak cari ikut dibuat ulang. Jebakan yang sama sudah dibayar di
+   gambarDaftar() panel Kas Kecil. */
+function mnPagerHtml(nCocok, nSemua, nHal, mulai, nTampil) {
+  const seg = '<div class="seg" style="margin:0">'
+    + MN_PER_OPSI.map(v => '<button class="' + (MN_PER === v ? 'active' : '')
+        + '" onclick="mnPer(' + v + ')">' + v + '</button>').join('')
+    + '</div>';
+
+  let nav = '';
+  if (nHal > 1) {
+    /* Jendela LIMA nomor di sekitar halaman aktif. 259 menu dengan 20 per
+       halaman berarti 13 tombol, dan deretan nomor yang membungkus jadi dua
+       baris lebih sulit dibaca daripada tidak ada nomornya sama sekali.
+       Aturan yang sama dengan pemangkas nomor halaman di halaman investor. */
+    const dari = Math.max(1, Math.min(MN_HAL - 2, nHal - 4));
+    const sampai = Math.min(nHal, dari + 4);
+    let nomor = '';
+    for (let i = dari; i <= sampai; i++)
+      nomor += '<button class="' + (i === MN_HAL ? 'active' : '') + '" onclick="mnHal(' + i + ')">' + i + '</button>';
+    nav = '<div class="seg" style="margin:0">'
+      + '<button' + (MN_HAL <= 1 ? ' disabled' : '') + ' onclick="mnHal(' + (MN_HAL - 1) + ')">\u2039</button>'
+      + nomor
+      + '<button' + (MN_HAL >= nHal ? ' disabled' : '') + ' onclick="mnHal(' + (MN_HAL + 1) + ')">\u203a</button>'
+      + '</div>';
+  }
+
+  /* Tiga keadaan, dan yang disamakan membuat daftar yang menyusut karena
+     pencarian terbaca sebagai data yang hilang. */
+  let ket;
+  if (!nCocok) {
+    ket = MN_Q ? 'Tidak ada satu pun menu yang cocok dengan "' + esc(MN_Q) + '".' : 'Belum ada menu.';
+  } else if (MN_Q) {
+    ket = 'Menampilkan ' + (mulai + 1) + '\u2013' + (mulai + nTampil) + ' dari ' + nCocok
+      + ' menu yang cocok dengan "' + esc(MN_Q) + '" \u2014 dari ' + nSemua + ' menu bulan ini. '
+      + 'Pencariannya menyapu seluruh menu, bukan halaman yang sedang terbuka.';
+  } else {
+    ket = 'Menampilkan ' + (mulai + 1) + '\u2013' + (mulai + nTampil) + ' dari ' + nSemua + ' menu.';
+  }
+
+  return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px">'
+    + '<span class="helper" style="margin:0">Tampilkan</span>' + seg
+    + '<span class="helper" style="margin:0">baris per halaman</span>'
+    + (nav ? '<div style="margin-left:auto">' + nav + '</div>' : '')
+    + '<div class="helper" style="flex:1 0 100%;margin:0">' + ket + '</div>'
+    + '</div>';
 }
 /* Isi tabel Perkiraan Bahan Baku. Yang disaring cuma tampilannya — angka di
    tombol Bahan Mentah / Bahan Prep tetap menghitung seluruhnya, karena itu
@@ -2106,8 +2189,13 @@ function mnIsiResepHtml() {
         + esc(MN_QR) + '". Kotak salin di bawah tetap memuat seluruhnya.</div>' : '');
   return h;
 }
-function mnUrut(v) { MN_URUT = v; render(); }
-function mnSemua(v) { MN_SEMUA = !!v; render(); }
+/* GANTI URUTAN KEMBALI KE HALAMAN 1. Yang diurut ulang SELURUH daftarnya, jadi
+   halaman 3 sesudahnya memuat menu yang tidak ada hubungannya dengan yang
+   barusan dilihat — dan yang menekannya sedang mencari yang teratas. */
+function mnUrut(v) { MN_URUT = v; MN_HAL = 1; render(); }
+/* Keduanya menggambar ulang WADAHNYA saja — lihat alasannya di mnPagerHtml(). */
+function mnPer(v) { MN_PER = v; MN_HAL = 1; mnIsi('mn_isi_menu', mnIsiMenuHtml()); }
+function mnHal(n) { MN_HAL = n; mnIsi('mn_isi_menu', mnIsiMenuHtml()); }
 function mnBahan(v) { MN_BAHAN = v; render(); }
 /* Menekan baris yang sedang terbuka menutupnya — kalau tidak, satu-satunya
    cara menutupnya adalah membuka baris lain, dan yang membuka baris terakhir
@@ -2199,10 +2287,6 @@ function vMenu() {
     + '<div class="seg" style="margin:0">'
       + '<button class="' + (MN_URUT === 'nilai' ? 'active' : '') + '" onclick="mnUrut(\'nilai\')">Menurut Nilai</button>'
       + '<button class="' + (MN_URUT === 'qty' ? 'active' : '') + '" onclick="mnUrut(\'qty\')">Menurut Porsi</button>'
-    + '</div>'
-    + '<div class="seg" style="margin:0">'
-      + '<button class="' + (!MN_SEMUA ? 'active' : '') + '" onclick="mnSemua(false)">' + MN_TOP + ' Teratas</button>'
-      + '<button class="' + (MN_SEMUA ? 'active' : '') + '" onclick="mnSemua(true)">Seluruhnya (' + urut.length + ')</button>'
     + '</div>'
     + mnKotakCari('mn_q', MN_Q, 'Cari menu\u2026')
     + '<span class="helper" style="margin:0 0 0 auto">Klik satu baris untuk melihat bahan bakunya sendiri</span>'
@@ -2528,6 +2612,122 @@ function bahanBakuHtml(urut) {
     + 'bukan satuan beli. Bahan yang dibeli per Kg tapi ditakar per Gram akan muncul dalam Gram.</div>'
     + '</div>';
   return h;
+}
+
+/* ============ HALAMAN: METODE KUNJUNGAN ============
+   Dari kolom `Visit Purpose` di laporan POS — DINE IN, ESB ORDER, ONLINE,
+   TIKTOK GO. Permintaan user 10 September 2026: "melihat metode yang sering
+   diambil, diambil jumlah omset dan jumlah transaksi".
+
+   DIURUT MENURUT JUMLAH TRANSAKSI, bukan omset — yang ditanya metode mana yang
+   paling SERING dipakai. Keduanya sering menjawab berbeda: ESB Order bisa
+   membawa omset lebih besar dengan transaksi jauh lebih sedikit, dan halaman
+   yang diurut omset akan menjawab pertanyaan yang tidak dibawa siapa pun.
+   Omsetnya tetap ada di kolomnya sendiri, jadi tidak ada yang hilang. */
+function vKunjungan() {
+  const V = document.getElementById('app-view');
+  const b = blnAktif(), d = lap(b);
+  let h = pilihBulan();
+  if (!d) { V.innerHTML = h + kosongBelumAda(); return; }
+
+  const kj = d.kunjung || {};
+  const nama = Object.keys(kj);
+  if (!nama.length) {
+    /* Dua sebab, dan yang keliru menebaknya akan mengunggah berkas yang salah
+       lagi: laporannya diunggah sebelum kolom ini dibaca, atau berkas POS-nya
+       memang tidak punya kolom itu. Keduanya disebut. */
+    V.innerHTML = h + '<div class="notice warn">⚠ <div><b>Laporan bulan ini belum memuat metode kunjungan.</b> '
+      + 'Kolom <i>Visit Purpose</i> baru ikut dibaca sejak 10 September 2026, jadi ringkasan yang '
+      + 'disimpan sebelum itu tidak menyimpannya. <b>Unggah ulang berkas bulan itu</b> — ringkasannya '
+      + 'akan ditimpa, dan metodenya ikut terbaca.<br>Kalau sesudah diunggah ulang halaman ini tetap '
+      + 'kosong, berkas POS-nya memang tidak punya kolom itu — ekspor ulang dari POS dengan kolom '
+      + '<i>Visit Purpose</i> ikut dicentang.</div></div>';
+    return;
+  }
+
+  const list = nama.map(n => ({ n, grand:kj[n].grand || 0, bill:kj[n].bill || 0 }))
+                   /* Yang sama banyak dipisah NAMANYA supaya urutannya tidak
+                      berubah-ubah tiap render. */
+                   .sort((a, x) => (x.bill - a.bill) || (x.grand - a.grand) || (a.n < x.n ? -1 : 1));
+
+  /* PENYEBUTNYA DIHITUNG DARI TABELNYA SENDIRI, bukan dari ringkas.grand /
+     ringkas.bill. Untuk omset keduanya memang sama, tapi untuk transaksi TIDAK
+     harus: jumlah bill per metode dihitung dari nomor bill yang berbeda, dan
+     satu bill yang barisnya bercampur dua metode ikut di kedua-duanya. Memakai
+     ringkas.bill sebagai penyebut membuat kolom persennya berhenti berjumlah
+     100% tanpa satu pun tanda — persis kesalahan yang sudah dibayar di kolom
+     Kontribusi halaman Hari & Jam. */
+  const totG = list.reduce((a, x) => a + x.grand, 0);
+  const totB = list.reduce((a, x) => a + x.bill, 0);
+  const teratas = list[0];
+  const billRingkas = (d.ringkas || {}).bill || 0;
+
+  h += '<div class="grid g3" style="margin-bottom:18px">'
+    + kartu('Paling Sering', esc(teratas.n),
+        teratas.bill.toLocaleString('id-ID') + ' transaksi · ' + pct(teratas.bill, totB) + '% dari seluruh transaksi')
+    + kartu('Jumlah Transaksi', totB.toLocaleString('id-ID'), list.length + ' metode berbeda')
+    + kartu('Jumlah Omset', rp0(totG), 'seluruh metode digabung')
+    + '</div>';
+
+  h += '<div class="card"><h3>Per Metode</h3>'
+    + '<div class="card-sub">Dari kolom <i>Visit Purpose</i> di laporan POS. Diurut menurut '
+    + '<b>jumlah transaksi</b> — yang ditanya metode mana yang paling sering dipakai, bukan mana '
+    + 'yang paling besar omsetnya; keduanya sering menjawab berbeda, dan kolom omsetnya tetap ada '
+    + 'di sebelahnya.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Metode</th>'
+    + '<th class="num">Jumlah Transaksi</th><th class="num">% transaksi</th>'
+    + '<th class="num">Jumlah Omset</th><th class="num">% omset</th>'
+    + '<th class="num">Rata-rata per transaksi</th><th style="width:16%"></th></tr></thead><tbody>';
+
+  const punB = list.reduce((a, x) => Math.max(a, x.bill), 0) || 1;
+  list.forEach((x, i) => {
+    h += '<tr><td>' + (i + 1) + '</td>'
+      + '<td><b>' + esc(x.n) + '</b></td>'
+      + '<td class="num">' + x.bill.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + pct(x.bill, totB) + '%</td>'
+      + '<td class="num mono">' + rp0(x.grand) + '</td>'
+      + '<td class="num">' + pct(x.grand, totG) + '%</td>'
+      /* Rata-rata per transaksi DITAHAN kalau metodenya tidak punya satu pun
+         transaksi terbaca — membaginya dengan nol memberi angka yang terlihat
+         sangat meyakinkan, dan itu bentuk kesalahan yang sama dengan rata-rata
+         per tamu yang disembunyikan waktu kolom Pax jarang terisi. */
+      + '<td class="num mono">' + (x.bill ? rp0(x.grand / x.bill) : '—') + '</td>'
+      + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
+        + '<div style="width:' + Math.round(x.bill / punB * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
+      + '</tr>';
+  });
+
+  h += '</tbody><tfoot><tr><th></th><th>Total</th>'
+    + '<th class="num">' + totB.toLocaleString('id-ID') + '</th><th class="num">100%</th>'
+    + '<th class="num mono">' + rp0(totG) + '</th><th class="num">100%</th>'
+    + '<th class="num mono">' + (totB ? rp0(totG / totB) : '—') + '</th><th></th></tr></tfoot></table></div>';
+
+  /* Batangnya mengikuti kolom TRANSAKSI, bukan omset — batang selalu dibaca
+     sebagai gambar dari kolom di sebelahnya, dan di sini yang di sebelahnya
+     dua-duanya. Karena itu dikatakan. */
+  h += '<div class="helper">Batangnya menggambarkan <b>jumlah transaksi</b>, bukan omset.</div>';
+
+  if (d.jenis === 'menu') {
+    /* Detail Report: satu bill tersebar di belasan baris menu. Transaksinya
+       dihitung dari nomor bill yang berbeda, jadi angkanya tetap benar — tapi
+       itu WAJIB dikatakan, karena yang membandingkannya dengan jumlah baris
+       berkas akan mengira ada yang hilang. */
+    h += '<div class="helper">Berkasnya laporan per menu, jadi satu transaksi punya beberapa baris. '
+      + 'Yang dihitung di sini <b>nomor bill yang berbeda</b>, bukan jumlah barisnya.</div>';
+  }
+  if (billRingkas && totB !== billRingkas) {
+    /* Selisih yang mungkin dan sah: satu bill yang barisnya memuat dua metode
+       ikut dihitung di kedua-duanya. Didiamkan, selisihnya dilaporkan sebagai
+       angka yang salah di salah satu halaman. */
+    h += '<div class="notice info">ℹ <div>Jumlah transaksi di sini <b>' + totB.toLocaleString('id-ID')
+      + '</b>, sementara Ringkasan menyebut <b>' + billRingkas.toLocaleString('id-ID') + '</b>. '
+      + 'Bedanya bukan omset yang hilang: satu bill yang barisnya memuat lebih dari satu metode '
+      + 'ikut dihitung di masing-masing metodenya, sementara Ringkasan menghitungnya sekali. '
+      + 'Kolom omset tetap berjumlah pas.</div></div>';
+  }
+  h += '</div>';
+
+  V.innerHTML = h;
 }
 
 /* ============ HALAMAN: PENGARUH EVENT ============
@@ -3215,6 +3415,12 @@ const KOL_CARI = {
   tax   : ['tax total','tax','pb1','pb 1'],
   pax   : ['pax total','pax','guest','cover'],
   bill  : ['bill number','sales number','receipt number','no bill'],
+  /* METODE KUNJUNGAN (permintaan user 10 September 2026). Isinya DINE IN,
+     ESB ORDER, ONLINE, TIKTOK GO. Nama kolomnya dicari seperti kolom lain —
+     menurut NAMA, bukan posisinya. Kolom yang tidak dikenali TIDAK melempar:
+     halamannya cuma kosong dan menyuruh mengunggah ulang, jadi kalau POS
+     suatu hari menamainya lain, yang perlu ditambah daftar di bawah ini. */
+  kunjung : ['visit purpose','visit purpose name','visit type','order type','sales type','order channel'],
   menu  : ['menu','menu name','product','product name','item','item name','nama menu'],
   qty   : ['qty','quantity','jumlah','qty sold','sold'],
   nilai : ['menu total','item total','total menu','sales amount','subtotal'],
@@ -3354,6 +3560,8 @@ function ringkasPos(baris, namaBerkas) {
   const paket = {};
   /* kategori[detail] = {qty, nilai, kat} — kat = FOOD/BEVERAGES/OTHERS. */
   const kategori = {}, katMenu = {};
+  /* kunjung[metode] = {grand, bill} — dari kolom Visit Purpose. */
+  const kunjung = {}, bKunjung = {};
   const r = { bill:0, grand:0, net:0, sub:0, svc:0, tax:0,
               discMenu:0, discBill:0, discVoucher:0, pax:0, billPax:0 };
   let nLewat = 0, nRow = 0;
@@ -3400,7 +3608,25 @@ function ringkasPos(baris, namaBerkas) {
 
     const jm = K.jam ? jamDari(b[K.jam]) : -1;
     if (jm >= 0) { jam[jm].grand += g; if (!punyaBill) jam[jm].bill++; }
-    catatBill(String(b[K.bill] || '').trim(), t, jm);
+    const noBill = String(b[K.bill] || '').trim();
+    catatBill(noBill, t, jm);
+
+    /* METODE KUNJUNGAN. TRANSAKSINYA DIHITUNG DARI NOMOR BILL YANG BERBEDA,
+       bukan dari jumlah baris — jebakan yang sama persis dengan r.bill di
+       atas. Di Detail Report satu bill tersebar di belasan baris menu, jadi
+       menghitung baris memberi angka empat kali lipat dan "rata-rata per
+       transaksi" jatuh ke seperempatnya. Dua angka yang terlihat masuk akal
+       dan tidak akan dipertanyakan siapa pun.
+
+       Omsetnya tetap DIJUMLAHKAN PER BARIS: di kedua bentuk laporan, kolom
+       grand memang berjumlah pas ke total sebulan. */
+    if (K.kunjung) {
+      const vp = String(b[K.kunjung] || '').trim().toUpperCase() || KUN_TANPA;
+      if (!kunjung[vp]) kunjung[vp] = { grand:0, bill:0 };
+      kunjung[vp].grand += g;
+      if (punyaBill) (bKunjung[vp] = bKunjung[vp] || new Set()).add(noBill);
+      else kunjung[vp].bill++;
+    }
 
     if (jenis === 'menu') {
       const nm = String(b[K.menu] || '').trim();
@@ -3444,6 +3670,7 @@ function ringkasPos(baris, namaBerkas) {
     r.bill = bSemua.size;
     Object.keys(hari).forEach(t => { hari[t].bill = bHari[t] ? bHari[t].size : 0; });
     for (let j = 0; j < 24; j++) jam[j].bill = bJam[j] ? bJam[j].size : 0;
+    Object.keys(bKunjung).forEach(k => { kunjung[k].bill = bKunjung[k].size; });
   }
   if (!nRow) throw new Error('Tidak ada satu pun baris yang punya tanggal terbaca.');
 
@@ -3458,7 +3685,7 @@ function ringkasPos(baris, namaBerkas) {
   Object.keys(hari).forEach(t => { if (blnDari(t) !== bulan) delete hari[t]; });
   const tglU = Object.keys(hari).sort();
 
-  return { bulan, jenis, berkas:namaBerkas, hari, jam, menu, paket, kategori, katMenu, ringkas:r,
+  return { bulan, jenis, berkas:namaBerkas, hari, jam, menu, paket, kategori, katMenu, kunjung, ringkas:r,
            nBaris:nRow, nLewat, blnLain, billDariBaris:!punyaBill,
            tglAwal:tglU[0] || '', tglAkhir:tglU[tglU.length - 1] || '' };
 }
@@ -3519,7 +3746,7 @@ async function anSimpanUnggah() {
   AN.data.laporan[u.bulan] = {
     diunggah: u.diunggah, oleh: u.oleh, berkas: u.berkas, jenis: u.jenis,
     hari: u.hari, jam: u.jam, menu: u.menu, paket: u.paket,
-    kategori: u.kategori, katMenu: u.katMenu, ringkas: u.ringkas
+    kategori: u.kategori, katMenu: u.katMenu, kunjung: u.kunjung, ringkas: u.ringkas
   };
   if (await simpan()) {
     UNGGAH_HASIL = null; BLN = u.bulan;
@@ -3578,7 +3805,7 @@ function render() {
     return;
   }
   ({ ringkasan:vRingkasan, tren:vTren, hari:vHari, menu:vMenu, kategori:vKategori,
-     event:vEvent, marketing:vMarketing, unggah:vUnggah,
+     kunjungan:vKunjungan, event:vEvent, marketing:vMarketing, unggah:vUnggah,
      pengaturan:vPengaturan, akses:vAkses }[CURRENT] || vRingkasan)();
   terapkanKunci();
 }

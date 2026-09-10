@@ -2251,7 +2251,10 @@ berarti mencari satu bahan ikut memangkas tabel menu di atasnya.
 - **Saat mencari, batas 20 teratas DILEPAS.** Kalau tidak, mencari menu
   peringkat ke-50 memulangkan tabel kosong — dan kosong terbaca sebagai
   "menunya tidak ada bulan ini". Penyaring dan pemotongnya karena itu ada di
-  SATU tempat (`mnIsiMenuHtml`).
+  SATU tempat (`mnIsiMenuHtml`). *(Batas 20 teratas sendiri sudah DICABUT
+  sehari kemudian — lihat putaran ketiga di bawah. Yang tetap berlaku:
+  pencariannya menyapu SELURUH menu, bukan halaman yang sedang terbuka, dan
+  penyaring + pemotongnya tetap di satu tempat.)*
 - **Panjang batangnya tetap diukur terhadap SELURUH menu**, bukan terhadap yang
   tersaring: kalau ikut menyusut, menu kecil yang kebetulan sendirian di hasil
   pencarian tergambar sepanjang menu terlaris.
@@ -2292,6 +2295,127 @@ Yang paling menentukan di antara asersi pencariannya: **identitas elemen
 kotaknya** sebelum & sesudah diketik. Kotak yang diganti elemen baru terlihat
 persis sama di layar sampai ada yang mengetik huruf kedua.
 
+
+##### Putaran ketiga: halaman 20/50/100, dan Metode Kunjungan
+
+Tiga permintaan user 10 September 2026, dan yang kedua mencabut saklar yang
+baru dipakai sehari sebelumnya.
+
+**1 & 2. SAKLAR "20 TERATAS / SELURUHNYA" DICABUT, diganti pagination
+20/50/100.** Saklar itu cuma punya dua jawaban dan keduanya salah untuk daftar
+259 menu: yang pertama menyembunyikan 239 menu, yang kedua menggelar seluruhnya
+jadi tabel sepanjang sebelas layar.
+
+| | sebelum | sesudah |
+|---|---|---|
+| keadaan | `MN_SEMUA` (bool), `MN_TOP=20` | `MN_PER` (20/50/100) + `MN_HAL` |
+| yang tersembunyi | disebut jumlah & nilainya, tidak bisa dicapai | **bisa dicapai** lewat nomor halaman |
+| kaki tabel | "20 teratas dari 259 — tekan Seluruhnya" | "Menampilkan 21–40 dari 259 menu" |
+
+- **KETERANGANNYA TIDAK DICABUT, cuma berganti isi.** Yang tersembunyi dulu
+  WAJIB disebut jumlah & nilainya justru karena tidak ada cara mencapainya;
+  sekarang yang perlu disebut baris ke berapa sampai ke berapa. Daftar yang
+  menyusut tanpa keterangan tetap terbaca sebagai data yang hilang.
+- **NOMOR PERINGKAT MELANJUTKAN, tidak mulai dari 1 lagi tiap halaman.** Kolom
+  pertama itu peringkat menu, bukan nomor baris di layar — dimulai ulang, menu
+  ke-21 berdiri sebagai "1" dan halaman 2 terbaca seolah punya menu
+  terlarisnya sendiri.
+- **UKURAN & NOMOR HALAMAN DIGAMBAR DI DALAM `#mn_isi_menu`**, bersama
+  tabelnya — bukan di kerangka halaman. Dikendalikan dari luar wadah itu,
+  menekannya harus memanggil `render()`: gulir melompat balik ke atas persis
+  saat orang membaca tabel di bawah, DAN kotak cari ikut dibuat ulang. Jebakan
+  yang sama sudah dibayar di `gambarDaftar()` panel Kas Kecil dan di
+  `queueF()` modul Konten.
+- **EMPAT hal mengembalikan ke halaman 1**, dan tiap-tiapnya lewat jalan yang
+  berbeda: kata kunci (`mnCari`), ukuran halaman (`mnPer`), urutan
+  (`mnUrut`), dan ganti bulan (`blnPilih`). Yang terlewat tidak melempar —
+  ia cuma memajang tabel kosong atau baris yang tidak ada hubungannya dengan
+  yang barusan ditekan.
+- **Penjepit rentang tetap ada di `mnIsiMenuHtml()`, SATU tempat**, karena
+  daftarnya bisa menyusut dari tiga arah sekaligus. Ia BUKAN pengganti keempat
+  reset di atas — lihat pelajaran ujinya di bawah.
+- **Panah yang sudah mentok digambar `disabled`**: tombol yang bisa ditekan
+  tapi tidak melakukan apa pun dibaca sebagai halaman rusak.
+- **Jendela LIMA nomor** di sekitar halaman aktif. 259 menu × 20 = 13 tombol,
+  dan deretan nomor yang membungkus dua baris lebih sulit dibaca daripada tidak
+  ada nomornya sama sekali.
+
+**3. HALAMAN BARU `Metode Kunjungan`**, dari kolom `Visit Purpose` — DINE
+IN, ESB ORDER, ONLINE, TIKTOK GO. Isinya **jumlah omset dan jumlah transaksi**
+per metode.
+
+- **TRANSAKSI DIHITUNG DARI NOMOR BILL YANG BERBEDA, bukan jumlah baris.**
+  Jebakan yang sama persis dengan `r.bill`: di Detail Report satu bill
+  tersebar di belasan baris menu, jadi menghitung baris memberi angka empat
+  kali lipat dan "rata-rata per transaksi" jatuh ke seperempatnya — dua angka
+  yang sama-sama terlihat masuk akal dan tidak akan dipertanyakan siapa pun.
+  Omsetnya tetap dijumlahkan per baris; di kedua bentuk laporan kolom grand
+  memang berjumlah pas ke total sebulan.
+- **DIURUT MENURUT JUMLAH TRANSAKSI, bukan omset.** Yang ditanya metode mana
+  yang paling SERING dipakai. Keduanya sering menjawab berbeda — ESB Order bisa
+  membawa omset jauh lebih besar dari transaksi yang jauh lebih sedikit — dan
+  halaman yang diurut omset menjawab pertanyaan yang tidak dibawa siapa pun.
+  Kolom omsetnya tetap berdiri di sebelahnya, jadi tidak ada yang hilang.
+- **Nilainya dibakukan huruf besar** (`trim().toUpperCase()`): isinya diketik
+  di POS, jadi `Dine In` dan `DINE IN` pasti bercampur — dan yang tidak
+  disatukan berdiri sebagai metode kelima yang porsinya diam-diam terbelah.
+- **Yang kolomnya kosong diberi NAMANYA SENDIRI** (`(tanpa keterangan)`),
+  tidak dibuang dan tidak dijatuhkan ke metode pertama: ia tetap membawa omset,
+  dan membuangnya membuat jumlah metode berhenti sama dengan totalnya. Aturan
+  yang sama dengan `KAT_TANPA` dan `katEvent()`.
+- **PENYEBUT PERSENNYA DIHITUNG DARI TABELNYA SENDIRI**, bukan dari
+  `ringkas.bill`. Untuk omset keduanya memang sama, tapi untuk transaksi
+  TIDAK harus: satu bill yang barisnya memuat dua metode ikut dihitung di
+  kedua-duanya. Memakai `ringkas.bill` membuat kolom persennya berhenti
+  berjumlah 100% tanpa satu pun tanda — kesalahan yang sudah dibayar di kolom
+  Kontribusi halaman Hari & Jam. **Selisihnya DISEBUT** kalau ada, berikut
+  sebabnya; didiamkan, ia dilaporkan sebagai angka yang salah di salah satu
+  halaman.
+- **Rata-rata per transaksi DITAHAN** (`—`) kalau metodenya tidak punya satu
+  pun transaksi terbaca — membaginya dengan nol memberi angka yang terlihat
+  sangat meyakinkan.
+- **Batangnya mengikuti kolom TRANSAKSI, dan itu dikatakan.** Batang selalu
+  dibaca sebagai gambar dari kolom di sebelahnya, dan di sini yang di
+  sebelahnya dua-duanya.
+- **`kunjung` WAJIB disebut di daftar kunci tertutup `anSimpanUnggah()`.**
+  Itu tempat `paket`, `kategori`, dan `katMenu` tertinggal selama lima
+  hari sementara 260 pemeriksaan tetap hijau — dan kunci baru lewat jalur yang
+  sama persis. Ujinya menyimpannya lewat `anSimpanUnggah()` sungguhan, bukan
+  menyuntikkannya ke `AN.data.laporan`.
+- **Laporan lama tidak punya `kunjung`, dan halamannya MENGATAKAN sebabnya**
+  berikut DUA kemungkinannya: diunggah sebelum kolomnya dibaca (unggah ulang),
+  atau berkas POS-nya memang tidak punya kolom itu (ekspor ulang dengan
+  kolomnya dicentang). Yang keliru menebaknya akan mengunggah berkas yang salah
+  lagi — aturan yang sama dengan pesan di halaman Kategori Menu.
+- Nama kolomnya dicari menurut NAMA lewat `KOL_CARI.kunjung`, dan yang tidak
+  dikenali **tidak melempar**: halamannya cuma kosong dan menyuruh mengunggah
+  ulang.
+
+```bash
+node tools/uji-analytics.js   # 333 pemeriksaan (dari 295)
+```
+
+Dua puluh lima mutasi dicoba, dan **tiga lolos di putaran pertama** — ketiganya
+cacat UJI, dan dua di antaranya bentuk yang sama:
+
+- *"ganti ukuran halaman bertahan di halaman lama"* dan *"mencari bertahan di
+  halaman lama"* LOLOS karena **PENJEPIT RENTANG MENUTUPI RESETNYA**. Ukuran
+  halaman yang membesar selalu memperkecil jumlah halaman, jadi `MN_HAL`
+  jatuh ke 1 dengan sendirinya; begitu juga kata kunci yang hasilnya muat di
+  satu halaman. Ditutup dengan keadaan yang jumlah halamannya TIDAK berubah:
+  menekan ukuran yang sedang berlaku, dan kata kunci yang hasilnya masih dua
+  halaman (`menu` → 24 menu). **Reset dan penjepit dua hal yang berbeda, dan
+  uji yang tidak bisa membedakannya tidak menguji resetnya.**
+- *"rata-rata per transaksi dibagi jumlah baris"* LOLOS karena **angkanya
+  bertabrakan**: Rp40.000 kebetulan juga omset TIKTOK GO, jadi asersinya cocok
+  dengan sel yang bukan yang diuji. Angkanya diganti Rp45.000. Tiap angka di
+  data uji harus punya sidik jarinya sendiri — pelajaran yang sudah dibayar di
+  kolom Kontribusi hari itu.
+
+Satu lagi yang perlu diingat saat menambah mutasi di berkas ini: **mutasi yang
+cuma memangkas separuh kalimat tidak membuktikan apa pun** kalau frasa yang
+diuji masih tertinggal di separuh berikutnya — dan frasa yang sama juga hidup
+di KOMENTAR `ringkasPos()`. Yang dipotong harus seluruh pernyataannya.
 
 ### HPP: SPARE MODAL, sekali dan hanya di menu jadi (2 September 2026)
 
