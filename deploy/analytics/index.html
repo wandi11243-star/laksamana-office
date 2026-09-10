@@ -672,6 +672,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
         <a data-view="menu"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h12"/></svg></span> Menu &amp; Bahan Baku</a>
         <a data-view="kategori"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span> Kategori Menu</a>
         <a data-view="kunjungan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg></span> Metode Kunjungan</a>
+        <a data-view="promo"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9h.01M15 15h.01M16 8l-8 8"/><rect x="3" y="3" width="18" height="18" rx="4"/></svg></span> Promo &amp; Klaim</a>
         <a data-view="event"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.1 4.3 4.7.7-3.4 3.3.8 4.7L12 13.8 7.8 16l.8-4.7L5.2 8l4.7-.7Z"/></svg></span> Pengaruh Event</a>
         <a data-view="marketing"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-8-8 18-2-8Z"/></svg></span> Pengaruh Marketing</a>
       </div>
@@ -933,6 +934,7 @@ const DEFAULT_PERMS = {
   tren      :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
   event     :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
   marketing :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
+  promo     :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW },
   unggah    :{ staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_NONE },
   pengaturan:{ staf:PERM_EDIT, manajemen:PERM_NONE, viewer:PERM_NONE },
   akses     :{ staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW }
@@ -1077,6 +1079,11 @@ async function muatSemua() {
   if (!AN.data) AN.data = {};
   if (!AN.data.laporan || typeof AN.data.laporan !== 'object' || Array.isArray(AN.data.laporan)) AN.data.laporan = {};
   if (!AN.data.setting || typeof AN.data.setting !== 'object') AN.data.setting = {};
+  /* Laporan promo — wadah TERPISAH dari 'laporan', lihat catatan di
+     ringkasPromo(). Bentuknya dipastikan di sini, bukan saat halamannya
+     dibuka: halaman yang harus menuliskan bentuk bawaannya sendiri akan
+     menyimpang dari yang menulisnya begitu ada field baru. */
+  if (!AN.data.promo || typeof AN.data.promo !== 'object' || Array.isArray(AN.data.promo)) AN.data.promo = {};
 
   if (b.status === 'fulfilled' && b.value && b.value.ok) { KP = b.value.data || {}; KP_ERR = ''; }
   else { KP = null; KP_ERR = 'Rekap Penjualan tidak terbaca, jadi angka POS tidak bisa dibandingkan dengan yang diinput manual.'; }
@@ -1165,6 +1172,7 @@ const TITLES = {
   menu      :['Menu & Bahan Baku','Menu terlaris dan perkiraan bahan yang seharusnya keluar'],
   kategori  :['Kategori Menu','Omset per kategori menu — termasuk EVENT, terpisah dari peringkat menu'],
   kunjungan :['Metode Kunjungan','Metode yang paling sering dipakai tamu — dari kolom Visit Purpose'],
+  promo     :['Promo & Klaim','Promo mana yang paling banyak diklaim, barang apa, dan jam berapa'],
   tren      :['Tren Bulanan','Total omset bulan ke bulan, dan perbandingan dua bulan'],
   /* DIPISAH jadi dua halaman (2 September 2026, permintaan user). Sebelumnya
      satu halaman yang mencampur acara dari modul Event dan modul Marketing —
@@ -2743,6 +2751,236 @@ function vKunjungan() {
   V.innerHTML = h;
 }
 
+/* ============ HALAMAN: PROMO & KLAIM ============
+   Dari berkas *Promotion Report* POS. Menjawab tiga pertanyaan user
+   (10 September 2026): promo mana yang paling banyak diklaim, barang apa yang
+   paling banyak diklaim, dan jam berapa saja klaimnya terjadi.
+
+   BULANNYA PUNYA PEMILIH SENDIRI (BLN_PROMO), terpisah dari BLN milik laporan
+   penjualan. Keduanya diunggah sendiri-sendiri, jadi bulan yang ada di satu
+   sisi belum tentu ada di sisi lain — dan pemilih bersama akan memajang bulan
+   yang halaman ini tidak punya datanya, lalu terbaca sebagai data hilang. */
+let BLN_PROMO = null;
+let PR_URUT = 'trx';    /* 'trx' | 'qty' | 'nilai' */
+const blnAdaPromo = () => Object.keys((AN && AN.data && AN.data.promo) || {}).sort().reverse();
+function blnAktifPromo() {
+  const a = blnAdaPromo();
+  if (BLN_PROMO && a.indexOf(BLN_PROMO) >= 0) return BLN_PROMO;
+  return a.length ? a[0] : '';
+}
+function lapPromo(b) { return ((AN && AN.data && AN.data.promo) || {})[b || blnAktifPromo()] || null; }
+function blnPilihPromo(b) { BLN_PROMO = b; render(); }
+function prUrut(v) { PR_URUT = v; render(); }
+
+function pilihBulanPromo() {
+  const a = blnAdaPromo(), b = blnAktifPromo();
+  if (!a.length) return '';
+  const d = lapPromo(b);
+  return '<div class="card" style="padding:14px 18px;margin-bottom:16px">'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<b style="font-size:13px">Bulan</b>'
+    + a.map(x => '<span class="qa-chip' + (x === b ? ' on' : '') + '" data-b="' + esc(x) + '"'
+        + ' onclick="blnPilihPromo(this.dataset.b)">' + esc(fmtBln(x)) + '</span>').join('')
+    + '<span style="flex:1"></span>'
+    + '<span class="helper" style="margin:0">' + (d ? esc('Promotion Report · diunggah ' + fmtTgl(d.diunggah) + (d.oleh ? ' oleh ' + d.oleh : '')) : '')
+    + '</span></div></div>';
+}
+
+function vPromo() {
+  const V = document.getElementById('app-view');
+  const b = blnAktifPromo(), d = lapPromo(b);
+  let h = pilihBulanPromo();
+
+  if (!d) {
+    V.innerHTML = h + '<div class="empty"><div class="big">%</div>'
+      + '<b>Belum ada laporan promo yang diunggah.</b>'
+      + '<div style="margin-top:6px">Buka <b>Unggah Laporan</b> lalu pilih berkas '
+      + '<i>Promotion Report</i> dari POS. Jenis berkasnya dikenali sendiri, jadi '
+      + 'tidak ada kotak unggah yang perlu dipilih.</div></div>';
+    return;
+  }
+
+  const r = d.ringkas || {};
+  const pr = d.promo || {};
+  const nama = Object.keys(pr);
+  if (!nama.length) { V.innerHTML = h + '<div class="notice warn">&#9888; <div><b>Laporan promo bulan ini kosong.</b> '
+    + 'Tidak ada satu baris promo pun yang terbaca. Unggah ulang berkasnya.</div></div>'; return; }
+
+  /* Penyebutnya DIHITUNG DARI TABELNYA SENDIRI, bukan dari ringkas.bill.
+     Satu bill bisa memakai dua promo berbeda dan ikut dihitung di kedua
+     barisnya, jadi jumlah kolom Transaksi memang boleh lebih besar daripada
+     jumlah bill yang benar-benar berpromo. Memakai ringkas.bill sebagai
+     penyebut membuat kolom persennya berhenti berjumlah 100% tanpa satu pun
+     tanda — kesalahan yang sudah dibayar di kolom Kontribusi halaman
+     Hari & Jam dan di halaman Metode Kunjungan. */
+  const list = nama.map(n => {
+    const p = pr[n];
+    const tp = Object.keys(p.tipe || {}).sort((a, x) => (p.tipe[x] - p.tipe[a]) || (a < x ? -1 : 1));
+    return { n, tipe:tp, baris:p.baris || 0, bill:p.bill || 0, qty:p.qty || 0,
+             nilai:p.nilai || 0, nilaiDisc:p.nilaiDisc || 0, nilaiGratis:p.nilaiGratis || 0 };
+  });
+  const kunciUrut = { trx:'bill', qty:'qty', nilai:'nilai' }[PR_URUT] || 'bill';
+  /* Yang sama besar dipisah NAMANYA, supaya urutannya tidak berubah-ubah
+     tiap render dan orang tidak mengira daftarnya bergerak sendiri. */
+  list.sort((a, x) => (x[kunciUrut] - a[kunciUrut]) || (x.bill - a.bill) || (a.n < x.n ? -1 : 1));
+
+  const totB = list.reduce((a, x) => a + x.bill, 0);
+  const totR = list.reduce((a, x) => a + x.baris, 0);
+  const totQ = list.reduce((a, x) => a + x.qty, 0);
+  const totN = list.reduce((a, x) => a + x.nilai, 0);
+  const teratas = list.reduce((a, x) => (x.bill > a.bill ? x : a), list[0]);
+
+  const jam = Array.isArray(d.jam) ? d.jam : [];
+  const jamPuncak = jam.reduce((a, x, i) => ((x && x.bill || 0) > (a.v) ? { j:i, v:x.bill || 0 } : a), { j:-1, v:0 });
+
+  h += '<div class="grid g4" style="margin-bottom:18px">'
+    + kartu('Paling Sering Diklaim', esc(teratas.n),
+        teratas.bill.toLocaleString('id-ID') + ' transaksi · ' + pct(teratas.bill, totB) + '% dari seluruh klaim')
+    + kartu('Transaksi Berpromo', (r.bill || 0).toLocaleString('id-ID'),
+        r.promoBeda + ' promo berbeda · ' + totR.toLocaleString('id-ID') + ' baris')
+    + kartu('Jam Paling Ramai', jamPuncak.j >= 0 ? String(jamPuncak.j).padStart(2, '0') + ':00' : '—',
+        jamPuncak.j >= 0 ? jamPuncak.v.toLocaleString('id-ID') + ' transaksi diklaim di jam itu' : 'jam klaim tidak terbaca')
+    + kartu('Nilai Promo', rp0(r.nilai),
+        'diskon ' + rp0(r.nilaiDisc) + ' + barang dilepas ' + rp0(r.nilaiGratis))
+    + '</div>';
+
+  /* NILAINYA DUA JENIS BIAYA YANG BERBEDA, dan itu wajib dikatakan. Diskon
+     memotong uang yang ditagihkan; barang gratis tidak pernah masuk omset
+     sama sekali (POS mencatatnya berharga nol). Keduanya boleh dijumlahkan —
+     tidak ada baris yang masuk keduanya — tapi yang membandingkannya dengan
+     Net Sales harus tahu bahwa yang kedua TIDAK pernah ada di dalamnya. */
+  h += '<div class="notice info">&#8505; <div><b>Nilai promo di halaman ini dua jenis biaya yang berbeda.</b> '
+    + '<b>Diskon</b> (' + rp0(r.nilaiDisc) + ') adalah uang yang dipotong dari tagihan, jadi ia sudah '
+    + 'ikut mengurangi omset di laporan penjualan. <b>Barang dilepas</b> (' + rp0(r.nilaiGratis) + ') '
+    + 'dihitung dari <i>Original Price</i> &times; Qty — POS mencatat barang gratis berharga nol, jadi '
+    + 'nilai itu <b>tidak pernah ada di dalam omset</b> dan tidak boleh dikurangkan lagi darinya. '
+    + 'Keduanya boleh dijumlahkan karena tidak ada satu baris pun yang masuk ke dua-duanya.</div></div>';
+
+  /* ---- per promo ---- */
+  const segK = (v, t) => '<span class="qa-chip' + (PR_URUT === v ? ' on' : '') + '" onclick="prUrut(\'' + v + '\')">' + t + '</span>';
+  h += '<div class="card"><h3>Promo yang Diklaim</h3>'
+    + '<div class="card-sub">Diurut menurut '
+    + (PR_URUT === 'trx' ? '<b>jumlah transaksi</b>' : PR_URUT === 'qty' ? '<b>jumlah item</b>' : '<b>nilai</b>')
+    + '. <b>Transaksi</b> dihitung dari nomor bill yang berbeda, bukan dari jumlah baris — satu bill '
+    + 'bisa punya belasan baris promo kalau diskonnya menempel di tiap menu, dan diurut per baris '
+    + 'promo semacam itu melompat ke peringkat yang tidak pernah ia duduki.</div>'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:12px">'
+    + '<b style="font-size:13px">Urut</b>' + segK('trx', 'Transaksi') + segK('qty', 'Jumlah item') + segK('nilai', 'Nilai')
+    + '</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Promo</th><th>Tipe</th>'
+    + '<th class="num">Transaksi</th><th class="num">% klaim</th><th class="num">Baris</th>'
+    + '<th class="num">Item</th><th class="num">Nilai</th><th style="width:14%"></th></tr></thead><tbody>';
+
+  const pun = list.reduce((a, x) => Math.max(a, x[kunciUrut]), 0) || 1;
+  list.forEach((x, i) => {
+    h += '<tr><td>' + (i + 1) + '</td>'
+      + '<td><b>' + esc(x.n) + '</b></td>'
+      + '<td><span class="helper" style="margin:0">' + esc(x.tipe.join(' · ')) + '</span></td>'
+      + '<td class="num">' + x.bill.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + pct(x.bill, totB) + '%</td>'
+      /* Baris DIPAJANG, tidak disembunyikan: selisihnya dari kolom Transaksi
+         justru yang menunjukkan promo mana yang menempel di tiap menu. */
+      + '<td class="num">' + x.baris.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
+      + '<td class="num mono">' + rp0(x.nilai) + '</td>'
+      + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
+        + '<div style="width:' + Math.round(x[kunciUrut] / pun * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
+      + '</tr>';
+  });
+  h += '</tbody><tfoot><tr><th></th><th>Total</th><th></th>'
+    + '<th class="num">' + totB.toLocaleString('id-ID') + '</th><th class="num">100%</th>'
+    + '<th class="num">' + totR.toLocaleString('id-ID') + '</th>'
+    + '<th class="num">' + totQ.toLocaleString('id-ID') + '</th>'
+    + '<th class="num mono">' + rp0(totN) + '</th><th></th></tr></tfoot></table></div>';
+  h += '<div class="helper">Batangnya menggambarkan kolom yang sedang dipakai mengurutkan.</div>';
+
+  /* Satu bill boleh memakai lebih dari satu promo, jadi jumlah kolom
+     Transaksi memang boleh melebihi jumlah bill berpromo. Didiamkan, selisih
+     itu dilaporkan sebagai angka yang salah di salah satu tempat. */
+  if ((r.bill || 0) && totB !== r.bill) {
+    h += '<div class="notice info">&#8505; <div>Jumlah kolom Transaksi <b>' + totB.toLocaleString('id-ID')
+      + '</b>, sementara transaksi berpromo <b>' + (r.bill || 0).toLocaleString('id-ID') + '</b>. '
+      + 'Bedanya bukan data yang hilang: satu bill yang memakai lebih dari satu promo ikut dihitung '
+      + 'di masing-masing promonya, sementara kartu di atas menghitungnya sekali.</div></div>';
+  }
+  h += '</div>';
+
+  /* ---- jam ---- */
+  h += '<div class="card"><h3>Jam Klaim</h3>'
+    + '<div class="card-sub">Menurut jam bill dibuka. Jam yang tidak punya satu klaim pun tidak '
+    + 'digambar barisnya — aturan yang sama dengan Sebaran per Jam di halaman Hari &amp; Jam.</div>';
+
+  const totJB = jam.reduce((a, x) => a + ((x && x.bill) || 0), 0);
+  if (!totJB) {
+    h += '<div class="notice warn">&#9888; <div><b>Jam klaim tidak bisa dibaca dari berkas ini.</b> '
+      + 'Promotion Report tidak punya kolom jam, jadi jamnya diturunkan dari nomor bill — dan nomor '
+      + 'bill di berkas ini bukan stempel waktu. Angka jam yang ditebak akan terisi rapi dan '
+      + 'sepenuhnya karangan, jadi lebih baik tidak ditampilkan sama sekali.</div></div>';
+  } else {
+    const punJ = jam.reduce((a, x) => Math.max(a, (x && x.bill) || 0), 0) || 1;
+    h += '<div class="tbl-wrap"><table><thead><tr><th>Jam</th><th class="num">Transaksi</th>'
+      + '<th class="num">% klaim</th><th class="num">Baris</th><th class="num">Item</th>'
+      + '<th class="num">Nilai</th><th style="width:30%"></th></tr></thead><tbody>'
+      + jam.map((x, j) => {
+          const bl = (x && x.bill) || 0;
+          if (!bl) return '';
+          return '<tr><td class="mono">' + String(j).padStart(2, '0') + ':00</td>'
+            + '<td class="num">' + bl.toLocaleString('id-ID') + '</td>'
+            + '<td class="num">' + pct(bl, totJB) + '%</td>'
+            + '<td class="num">' + ((x.baris || 0)).toLocaleString('id-ID') + '</td>'
+            + '<td class="num">' + ((x.qty || 0)).toLocaleString('id-ID') + '</td>'
+            + '<td class="num mono">' + rp0(x.nilai) + '</td>'
+            + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
+              + '<div style="width:' + Math.round(bl / punJ * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td></tr>';
+        }).join('')
+      + '</tbody></table></div>';
+    /* Jam yang tidak terbaca DISEBUT jumlahnya — kalau tidak, jumlah kolom di
+       sini lebih kecil daripada tabel promo di atas dan yang mencocokkannya
+       akan mengira ada klaim yang hilang. */
+    if (r.jamGelap) {
+      h += '<div class="notice warn">&#9888; <div><b>' + r.jamGelap.toLocaleString('id-ID')
+        + ' baris tidak terbaca jamnya</b> dan tidak ikut di tabel ini, jadi jumlahnya memang lebih '
+        + 'kecil daripada tabel promo di atas. Jam diturunkan dari nomor bill, dan yang dipakai hanya '
+        + 'kalau tanggal di dalam nomor itu cocok dengan tanggal barisnya — yang tidak cocok sengaja '
+        + 'tidak ditebak.</div></div>';
+    }
+  }
+  h += '</div>';
+
+  /* ---- menu ---- */
+  const mn = d.menu || {};
+  const mlist = Object.keys(mn).map(n => ({ n, qty:mn[n].qty || 0, nilai:mn[n].nilai || 0, baris:mn[n].baris || 0 }))
+                      .sort((a, x) => (x.qty - a.qty) || (x.nilai - a.nilai) || (a.n < x.n ? -1 : 1));
+  h += '<div class="card"><h3>Barang yang Diklaim</h3>'
+    + '<div class="card-sub">Menu yang digratiskan atau didiskon, diurut menurut <b>jumlah item</b>. '
+    + 'Diskon tingkat bill tidak menempel di satu menu pun, jadi barisnya memang tidak ada di sini.</div>';
+  if (!mlist.length) {
+    h += '<div class="empty">Tidak ada promo yang menempel di sebuah menu bulan ini — seluruhnya diskon tingkat bill.</div>';
+  } else {
+    const totMQ = mlist.reduce((a, x) => a + x.qty, 0);
+    const totMN = mlist.reduce((a, x) => a + x.nilai, 0);
+    const punM = mlist[0].qty || 1;
+    h += '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Menu</th><th class="num">Item</th>'
+      + '<th class="num">% item</th><th class="num">Nilai</th><th style="width:24%"></th></tr></thead><tbody>'
+      + mlist.map((x, i) => '<tr><td>' + (i + 1) + '</td><td><b>' + esc(x.n) + '</b></td>'
+          + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
+          + '<td class="num">' + pct(x.qty, totMQ) + '%</td>'
+          + '<td class="num mono">' + rp0(x.nilai) + '</td>'
+          + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
+            + '<div style="width:' + Math.round(x.qty / punM * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td></tr>').join('')
+      + '</tbody><tfoot><tr><th></th><th>Total</th><th class="num">' + totMQ.toLocaleString('id-ID') + '</th>'
+      + '<th class="num">100%</th><th class="num mono">' + rp0(totMN) + '</th><th></th></tr></tfoot></table></div>';
+    /* Selisihnya dari total di tabel promo DISEBUT, bukan didiamkan. */
+    if (r.tanpaMenu) {
+      h += '<div class="helper">' + r.tanpaMenu.toLocaleString('id-ID') + ' baris promo tidak menempel '
+        + 'di satu menu pun (diskon tingkat bill), jadi jumlah di sini lebih kecil daripada tabel promo di atas.</div>';
+    }
+  }
+  h += '</div>';
+
+  V.innerHTML = h;
+}
+
 /* ============ HALAMAN: PENGARUH EVENT ============
    Pertanyaannya "apakah event berpengaruh ke omset". Yang bisa dijawab jujur
    dari data ini cuma: hari berevent rata-rata sekian, hari biasa sekian.
@@ -3309,8 +3547,14 @@ function vUnggah() {
       + 'CSV tetap bisa dibaca di sini.</div></div>';
   }
 
-  h += '<div class="card" data-aks><h3>Unggah Sales Recapitulation</h3>'
-    + '<div class="card-sub">Berkas <b>.xlsx</b> atau <b>.csv</b> hasil ekspor POS. '
+  /* SATU kotak untuk kedua jenis laporan. Dua kotak berarti berkas promo bisa
+     dijatuhkan ke kotak penjualan, dan ringkasPos() TIDAK melempar untuknya —
+     ia menyimpan Bill Report beromset Rp0 yang menimpa ringkasan bulan itu.
+     Lihat catatan di uraiBerkas(). */
+  h += '<div class="card" data-aks><h3>Unggah Laporan POS</h3>'
+    + '<div class="card-sub">Berkas <b>.xlsx</b> atau <b>.csv</b> hasil ekspor POS — '
+    + '<b>Sales Recapitulation</b> (omset, menu, jam) atau <b>Promotion Report</b> (promo yang '
+    + 'diklaim). Jenisnya dikenali sendiri dari kolomnya, jadi tidak ada kotak yang perlu dipilih. '
     + 'Diurai di peramban ini — yang dikirim ke server cuma ringkasannya, bukan barisnya.</div>'
     + '<input type="file" id="an_file" accept=".xlsx,.csv" onchange="anPilihBerkas(this)">'
     + '<div id="an_status" class="helper" style="margin-top:10px"></div>'
@@ -3340,10 +3584,36 @@ function vUnggah() {
       + '</tbody></table></div>'
     : '<div class="empty">Belum ada laporan tersimpan.</div>';
   h += '</div>';
+
+  /* DAFTAR TERPISAH, bukan kolom tambahan di tabel di atas: laporan promo
+     punya periodenya sendiri dan bulannya belum tentu sama, jadi digabung ia
+     akan memajang baris kosong untuk bulan yang cuma punya salah satunya. */
+  const ap = blnAdaPromo();
+  h += '<div class="card"><h3>Laporan Promo Tersimpan</h3>';
+  h += ap.length
+    ? '<div class="tbl-wrap"><table><thead><tr><th>Bulan</th><th class="num">Transaksi</th>'
+      + '<th class="num">Promo</th><th class="num">Item</th><th class="num">Nilai</th>'
+      + '<th>Diunggah</th><th></th></tr></thead><tbody>'
+      + ap.map(b => { const d = AN.data.promo[b], r = d.ringkas || {};
+          return '<tr><td><b>' + esc(fmtBln(b)) + '</b></td>'
+            + '<td class="num">' + (r.bill || 0).toLocaleString('id-ID') + '</td>'
+            + '<td class="num">' + (r.promoBeda || 0) + '</td>'
+            + '<td class="num">' + (r.qty || 0).toLocaleString('id-ID') + '</td>'
+            + '<td class="num mono">' + rp0(r.nilai) + '</td>'
+            + '<td><span class="helper" style="margin:0">' + esc(fmtTgl(d.diunggah))
+              + (d.oleh ? ' · ' + esc(d.oleh) : '') + '</span></td>'
+            + '<td data-aks style="text-align:right"><button class="btn btn-ghost btn-xs" data-b="' + esc(b) + '"'
+              + ' onclick="anHapusPromo(this.dataset.b)">Hapus</button></td></tr>';
+        }).join('')
+      + '</tbody></table></div>'
+    : '<div class="empty">Belum ada laporan promo tersimpan.</div>';
+  h += '</div>';
+
   V.innerHTML = h;
 }
 
 function pratinjauUnggah(u) {
+  if (u.kind === 'promo') return pratinjauPromo(u);
   const b = u.bulan;
   const lama = (AN.data.laporan || {})[b];
   const r = u.ringkas;
@@ -3469,17 +3739,22 @@ const KOL_CARI = {
   kat   : ['menu category','category','kategori'],
   katD  : ['menu category detail','sub category','subcategory','kategori detail']
 };
-function petaKolomPos(kepala) {
+/* GENERIK, dipakai DUA daftar kolom: KOL_CARI (laporan penjualan) dan
+   KOL_PROMO (laporan promo). Ditulis dua kali, yang satu pasti tertinggal
+   saat aturan pencocokannya diperbaiki — dan pencocokan kolom yang menyimpang
+   memulangkan kolom yang salah tanpa satu pun galat. */
+function petaKolom(kepala, def) {
   const p = {};
   Object.keys(kepala).forEach(k => {
     const nm = String(kepala[k] || '').trim().toLowerCase().replace(/\s+/g, ' ');
     if (nm && p[nm] === undefined) p[nm] = k;
   });
-  const cari = jenis => { for (const nm of KOL_CARI[jenis]) if (p[nm]) return p[nm]; return null; };
+  const cari = jenis => { for (const nm of def[jenis]) if (p[nm]) return p[nm]; return null; };
   const out = {};
-  Object.keys(KOL_CARI).forEach(j => { out[j] = cari(j); });
+  Object.keys(def).forEach(j => { out[j] = cari(j); });
   return out;
 }
+function petaKolomPos(kepala) { return petaKolom(kepala, KOL_CARI); }
 /* Baris kepala = baris pertama yang punya minimal lima sel berisi teks.
    Berkas POS punya belasan baris judul & penyaring di atasnya, dan menganggap
    baris pertama sebagai kepala membuat SELURUH kolom tidak dikenali. */
@@ -3712,6 +3987,243 @@ function ringkasPos(baris, namaBerkas) {
            tglAwal:tglU[0] || '', tglAkhir:tglU[tglU.length - 1] || '' };
 }
 
+
+/* ============ LAPORAN PROMO (10 September 2026, permintaan user) ============
+   Berkas *Promotion Report* dari POS — satu baris per promo yang dipakai di
+   sebuah bill. Menjawab tiga hal yang tidak terjawab dari laporan penjualan:
+   promo mana yang paling banyak diklaim, barang apa yang paling banyak
+   dilepas, dan jam berapa klaimnya terjadi.
+
+   DISIMPAN TERPISAH di AN.data.promo, BUKAN di dalam AN.data.laporan[bulan].
+   Keduanya laporan berbeda dengan periode yang bisa berbeda pula, dan menaruh
+   keduanya di satu objek berarti mengunggah salah satunya bisa menimpa
+   ringkasan satunya lagi. Backend TIDAK perlu diubah sama sekali: an_simpan()
+   menulis blob apa adanya, tanpa daftar kunci tertutup — beda dari
+   brankas_simpan(). Yang wajib diingat justru daftar kunci tertutup di KLIEN
+   (anSimpanUnggah), tempat `paket`/`kategori`/`katMenu` pernah tertinggal
+   lima hari tanpa satu pun galat.
+
+   TIGA JEBAKAN, ketiganya sudah dibuktikan atas berkas Agustus 2026, dan
+   tidak satu pun melempar galat:
+
+   1. BARIS TERAKHIR BERKAS ADALAH BARIS TOTAL, dan angkanya berformat
+      Indonesia ("6.890.800,95") — beda dari baris data ("57000.0000").
+      angka() membuang non-digit lalu parseFloat, dan hasilnya salah DENGAN
+      CARA YANG BERBEDA-BEDA di tiap kolom — diukur, bukan dikira-kira:
+
+        "6.890.800,95"  -> 6,89     parseFloat berhenti di titik KEDUA
+        "554,00"        -> 55.400   tidak punya pemisah ribuan, jadi seratus
+                                    kali lipat
+
+      Satu baris itu karena itu bisa MELIPATGANDAKAN jumlah item sekaligus
+      MENGECILKAN nilainya, dan tidak satu pun melempar galat.
+
+      Yang membuangnya: barisnya tidak punya Promotion Name maupun Sales
+      Number. Tanggalnya yang kosong hari ini sebenarnya sudah cukup — tapi
+      penjaga nama+nomor itu yang menahan dua bentuk yang lebih berbahaya dan
+      tidak bisa ditolong penjaga tanggal: baris total yang PUNYA tanggal, dan
+      baris data yang nomor bill-nya kosong. Yang kedua paling halus —
+      seluruhnya akan menumpuk jadi satu "transaksi" hantu bernama string
+      kosong, sehingga jumlah klaimnya terbaca 1.
+
+   2. KLAIM DIHITUNG DARI NOMOR BILL YANG BERBEDA, bukan dari jumlah baris.
+      Satu bill bisa punya belasan baris promo — satu untuk tiap menu yang
+      kena diskon. Agustus 2026: `BUDRUN 26 DISC 15%` punya 60 baris untuk
+      cuma 12 transaksi, dan `DISC 17% KEMERDEKAAN` 10 baris untuk 1
+      transaksi. Diurut per baris, keduanya melompat ke peringkat yang tidak
+      pernah mereka duduki — dan angkanya tetap terlihat wajar. Jebakan yang
+      sama persis dengan `r.bill` di Detail Report penjualan.
+
+   3. NILAI PROMO ADA DI DUA KOLOM YANG BERBEDA, tergantung jenis promonya:
+
+        diskon  (DISCOUNT %, DISCOUNT LIMIT %, BILL DISCOUNT RP)
+                -> `Discount Total` terisi; `Original Price` sering kosong
+        gratis  (FREE ITEM, BUY X GET FREE Y)
+                -> `Discount Total` KOSONG; nilainya `Original Price` x Qty
+
+      Barang gratis dicatat POS berharga NOL di laporan penjualan — dibuktikan
+      atas Detail Report: baris menunya total=0, nett=0, disc=0 — jadi kolom
+      `Original Price` di berkas INI satu-satunya tempat nilainya pernah
+      tercatat. Kalau cuma `Discount Total` yang dijumlahkan, 148 dari 434
+      baris Agustus 2026 berbunyi Rp0 dan sepertiga promonya terlihat tidak
+      memakan biaya apa pun.
+
+      YANG MEMUTUSKAN ADA-TIDAKNYA SEL `Discount Total`, bukan nama tipenya.
+      Nama tipe disetel per POS dan daftar tertutup di sini akan diam-diam
+      basi; bentuk datanya tidak. Sel yang berisi "0" tetap dibaca sebagai
+      diskon bernilai nol — itu memang diskon yang kebetulan tidak memotong
+      apa pun, bukan barang yang dilepas. */
+const KOL_PROMO = {
+  tgl   : ['sales date','date','tanggal','trx date','transaction date'],
+  jam   : ['sales in time','order time','time','jam','transaction time'],
+  bill  : ['sales number','bill number','receipt number','no bill'],
+  nama  : ['promotion name','promo name','nama promo'],
+  tipe  : ['promotion type','promo type','jenis promo'],
+  menu  : ['menu name','menu','item name','product name','nama menu'],
+  qty   : ['qty','quantity','jumlah','qty sold'],
+  harga : ['original price','normal price','harga normal'],
+  disc  : ['discount total','total discount','discount amount']
+};
+
+/* JAM KLAIM — DITURUNKAN DARI NOMOR BILL, karena kolom jam memang TIDAK ADA
+   di Promotion Report. `Sales Date` di sana serial Excel BULAT (46235), yaitu
+   tanggal tanpa jam, dan jamDari() memang memulangkan -1 untuknya.
+
+   Nomor bill POS ini berbentuk SLMCL + 12 digit, dan sepuluh digit
+   pertamanya epoch detik. Itu BUKAN tebakan: dibuktikan atas 4.785 bill
+   Agustus 2026 dengan mencocokkannya ke kolom `Sales In Time` di Bill Report
+   — 4.747 (99,2%) cocok DETIK PER DETIK, 38 sisanya meleset tepat satu detik
+   (pembulatan ekor sentidetiknya), dan NOL cocok kalau dibaca sebagai UTC.
+
+   PENJAGANYA TANGGAL BARISNYA SENDIRI. Jam hasil pembacaan hanya dipakai
+   kalau tanggal yang ikut terbaca dari nomor itu SAMA PERSIS dengan kolom
+   Sales Date baris tersebut. Tanpa penjaga itu, POS lain yang penomorannya
+   bukan stempel waktu akan menghasilkan 24 kolom jam yang terisi rapi dan
+   sepenuhnya karangan — dan tidak ada satu pun cara membedakannya dari yang
+   benar. Dengan penjaga itu, yang tidak cocok memulangkan -1, dihitung, lalu
+   DILAPORKAN di layar. Agustus 2026: 434 dari 434 baris lolos.
+
+   Digeser +7 TETAP, bukan zona peramban — alasan yang sama dengan isoDari(). */
+const PROMO_EPOCH_MIN = 1262304000;   /* 2010-01-01 */
+const PROMO_EPOCH_MAX = 4102444800;   /* 2100-01-01 */
+function jamNomorBill(nomor, tglIso) {
+  const s = String(nomor == null ? '' : nomor).trim();
+  const m = s.match(/(\d{10})\d*$/);
+  if (!m || !tglIso) return -1;
+  const dtk = Number(m[1]);
+  if (!(dtk >= PROMO_EPOCH_MIN && dtk <= PROMO_EPOCH_MAX)) return -1;
+  const d = new Date((dtk * 1000) + WIB_MS);
+  if (d.toISOString().slice(0, 10) !== tglIso) return -1;
+  return d.getUTCHours();
+}
+
+/* Baris mentah -> ringkasan promo sebulan. Bentuknya sengaja sejajar dengan
+   ringkasPos(): bulan diambil dari yang barisnya paling banyak, dan bulan
+   sebelahnya DILAPORKAN, bukan ikut tersimpan diam-diam. */
+function ringkasPromo(baris, iH, K, namaBerkas) {
+  if (!K.tgl)  throw new Error('Kolom tanggal tidak ketemu di berkas promo. Yang dicari: ' + KOL_PROMO.tgl.join(', ') + '.');
+  if (!K.bill) throw new Error('Kolom nomor bill tidak ketemu. Yang dicari: ' + KOL_PROMO.bill.join(', ') + '. '
+    + 'Tanpa nomor bill, jumlah klaim tidak bisa dibedakan dari jumlah baris.');
+
+  const promo = {}, tipe = {}, menu = {}, perBln = {};
+  const jam = Array.from({ length: 24 }, () => ({ baris:0, qty:0, nilai:0, bill:new Set() }));
+  const bAll = new Set();
+  const tgls = [];
+  let nRow = 0, nLewat = 0, nJamGelap = 0, nTanpaMenu = 0;
+  const r = { baris:0, bill:0, qty:0, nilai:0, nilaiDisc:0, nilaiGratis:0 };
+  /* Barisnya dikumpulkan dulu dan baru dihitung sesudah bulannya diputuskan.
+     Dihitung sambil jalan, baris bulan sebelahnya sudah terlanjur masuk ke
+     seluruh peta sebelum ada yang tahu bulan mana yang menang. */
+  const kumpul = [];
+
+  for (let i = iH + 1; i < baris.length; i++) {
+    const b = baris[i];
+    if (!b) continue;
+    if (!Object.keys(b).some(k => String(b[k]).trim() !== '')) continue;
+    nRow++;
+    const nm = String(b[K.nama] == null ? '' : b[K.nama]).trim();
+    const no = String(b[K.bill] == null ? '' : b[K.bill]).trim();
+    const t  = isoDari(b[K.tgl]);
+    /* Baris TOTAL di kaki berkas gugur di sini — ia tidak punya nama promo
+       maupun nomor bill. Dihitung sebagai dilewati, bukan dibuang diam-diam. */
+    if (!nm || !no || !t) { nLewat++; continue; }
+    kumpul.push({ nm, no, t, b });
+    const bl = blnDari(t);
+    perBln[bl] = (perBln[bl] || 0) + 1;
+  }
+
+  const blnUrut = Object.keys(perBln).sort((a, b) => perBln[b] - perBln[a]);
+  if (!blnUrut.length) throw new Error('Tidak ada satu baris promo pun yang bisa dibaca. '
+    + 'Pastikan berkasnya *Promotion Report* hasil ekspor POS, bukan berkas yang sudah disunting.');
+  const bulan = blnUrut[0];
+  const blnLain = blnUrut.slice(1).map(b => ({ b, n:perBln[b] }));
+
+  kumpul.forEach(({ nm, no, t, b }) => {
+    if (blnDari(t) !== bulan) return;
+    const tp = String(b[K.tipe] == null ? '' : b[K.tipe]).trim() || '(tanpa tipe)';
+    const q  = K.qty ? angka(b[K.qty]) : 1;
+
+    /* Lihat catatan 3 di kepala bagian ini: yang memutuskan ADA-TIDAKNYA sel
+       Discount Total, bukan nama tipenya. */
+    const selDisc = K.disc ? String(b[K.disc] == null ? '' : b[K.disc]).trim() : '';
+    const adaDisc = selDisc !== '';
+    const nDisc   = adaDisc ? angka(selDisc) : 0;
+    const nGratis = adaDisc ? 0 : (K.harga ? angka(b[K.harga]) * q : 0);
+    const nilai   = adaDisc ? nDisc : nGratis;
+
+    tgls.push(t);
+    bAll.add(no);
+    r.baris++; r.qty += q; r.nilai += nilai;
+    r.nilaiDisc += nDisc; r.nilaiGratis += nGratis;
+
+    const p = promo[nm] || (promo[nm] = { tipe:{}, baris:0, qty:0, nilai:0, nilaiDisc:0, nilaiGratis:0, _b:new Set() });
+    p.tipe[tp] = (p.tipe[tp] || 0) + 1;
+    p.baris++; p.qty += q; p.nilai += nilai; p.nilaiDisc += nDisc; p.nilaiGratis += nGratis; p._b.add(no);
+
+    const tt = tipe[tp] || (tipe[tp] = { baris:0, qty:0, nilai:0, _b:new Set() });
+    tt.baris++; tt.qty += q; tt.nilai += nilai; tt._b.add(no);
+
+    /* Menu hanya ada untuk promo yang menempel di sebuah menu. Diskon tingkat
+       BILL menuliskan "-", dan itu memang benar: diskonnya tidak menempel di
+       satu menu pun. Barisnya dilewati DAN jumlahnya disebut di layar — kalau
+       tidak, jumlah tabel menu berhenti sama dengan total promo dan
+       selisihnya dicari orang di tempat yang salah. */
+    const mn = K.menu ? String(b[K.menu] == null ? '' : b[K.menu]).trim() : '';
+    if (mn && mn !== '-') {
+      const mm = menu[mn] || (menu[mn] = { baris:0, qty:0, nilai:0 });
+      mm.baris++; mm.qty += q; mm.nilai += nilai;
+    } else nTanpaMenu++;
+
+    let j = K.jam ? jamDari(b[K.jam]) : -1;
+    if (j < 0) j = jamNomorBill(no, t);
+    if (j < 0) { nJamGelap++; return; }
+    jam[j].baris++; jam[j].qty += q; jam[j].nilai += nilai; jam[j].bill.add(no);
+  });
+
+  /* Set -> angka. Set tidak bisa di-JSON-kan: dikirim apa adanya ia jadi {}
+     dan SELURUH jumlah klaim berbunyi nol, tanpa satu pun galat. */
+  r.bill = bAll.size;
+  const promoOut = {};
+  Object.keys(promo).forEach(k => { const p = promo[k];
+    promoOut[k] = { tipe:p.tipe, baris:p.baris, bill:p._b.size, qty:p.qty,
+                    nilai:p.nilai, nilaiDisc:p.nilaiDisc, nilaiGratis:p.nilaiGratis }; });
+  const tipeOut = {};
+  Object.keys(tipe).forEach(k => { const t = tipe[k];
+    tipeOut[k] = { baris:t.baris, bill:t._b.size, qty:t.qty, nilai:t.nilai }; });
+  const jamOut = jam.map(x => ({ baris:x.baris, bill:x.bill.size, qty:x.qty, nilai:x.nilai }));
+
+  tgls.sort();
+  r.promoBeda = Object.keys(promoOut).length;
+  r.jamGelap = nJamGelap;
+  r.tanpaMenu = nTanpaMenu;
+  r.tglAwal = tgls[0] || '';
+  r.tglAkhir = tgls[tgls.length - 1] || '';
+
+  return { bulan, berkas:namaBerkas, promo:promoOut, tipe:tipeOut, jam:jamOut, menu, ringkas:r,
+           nBaris:nRow, nLewat, blnLain };
+}
+
+/* SATU PINTU untuk kedua jenis berkas, dan itu disengaja.
+
+   Dua kotak unggah terpisah berarti berkas promo bisa dijatuhkan ke kotak
+   penjualan — dan ringkasPos() TIDAK melempar untuk berkas itu: ia menemukan
+   'sales date' dan 'sales number', tidak menemukan satu pun kolom nilai yang
+   dikenalnya, lalu menyimpan sebuah Bill Report beromset Rp0 yang MENIMPA
+   ringkasan bulan itu. Itu kesalahan termahal yang mungkin terjadi di halaman
+   ini, dan satu-satunya cara benar-benar menutupnya adalah tidak pernah
+   menyuruh orang memilih kotak.
+
+   Jenisnya dikenali dari ADANYA kolom Promotion Name + Promotion Type, bukan
+   dari nama berkasnya: nama berkas diketik orang dan tidak pernah bisa
+   dipercaya. Aturan yang sama dengan pembeda Menu Report vs Bill Report. */
+function uraiBerkas(baris, namaBerkas) {
+  const iH = cariBarisKepala(baris);
+  if (iH < 0) throw new Error('Baris kepala kolom tidak ketemu. Pastikan berkasnya hasil ekspor POS, bukan berkas yang sudah disunting.');
+  const P = petaKolom(baris[iH], KOL_PROMO);
+  if (P.nama && P.tipe) { const u = ringkasPromo(baris, iH, P, namaBerkas); u.kind = 'promo'; return u; }
+  const u = ringkasPos(baris, namaBerkas); u.kind = 'pos'; return u;
+}
+
 async function anPilihBerkas(el) {
   const f = el && el.files && el.files[0];
   if (!f) return;
@@ -3728,7 +4240,7 @@ async function anPilihBerkas(el) {
       'Pembaca berkas (assets/xlsx-baca.js) tidak termuat, jadi berkasnya tidak bisa dibuka. '
       + 'Muat ulang halaman; kalau tetap begitu, berkas itu belum ter-deploy ke server.');
     const baris = await bacaBerkasTabel(f);
-    UNGGAH_HASIL = ringkasPos(baris, f.name);
+    UNGGAH_HASIL = uraiBerkas(baris, f.name);
     UNGGAH_HASIL.diunggah = todayISO();
     UNGGAH_HASIL.oleh = (CURRENT_USER && CURRENT_USER.name) || '';
     setSync('ok', '✓ Terbaca');
@@ -3743,6 +4255,7 @@ function anBatalUnggah() { UNGGAH_HASIL = null; render(); }
 async function anSimpanUnggah() {
   if (!bolehAksi('unggah') || !UNGGAH_HASIL) return;
   const u = UNGGAH_HASIL;
+  if (u.kind === 'promo') return anSimpanPromo(u);
   const lama = AN.data.laporan[u.bulan];
   if (lama && !confirm('Ringkasan ' + fmtBln(u.bulan) + ' sudah ada dan akan DITIMPA.\n\n'
       + 'Yang sekarang: ' + (lama.ringkas || {}).bill + ' bill.\n'
@@ -3790,6 +4303,92 @@ async function anHapus(b) {
   if (await simpan()) { if (BLN === b) BLN = null; toast('Dihapus.'); render(); }
   else { AN.data.laporan[b] = sebelum; render(); }
 }
+
+/* DAFTAR KUNCI TERTUTUP, sama berbahayanya dengan yang di anSimpanUnggah:
+   kunci yang dihasilkan ringkasPromo() tapi tidak disebut di sini DIBUANG di
+   klien, tanpa satu pun galat — layar tetap menggambar dari memori sehingga
+   terlihat tersimpan, dan baru lenyap saat halaman dimuat ulang. Itu persis
+   yang terjadi pada 'paket'/'kategori'/'katMenu' selama lima hari.
+
+   Yang SENGAJA tidak ikut: nBaris, nLewat, blnLain, kind — keempatnya cuma
+   dibaca layar pratinjau, tidak pernah dari laporan tersimpan. */
+async function anSimpanPromo(u) {
+  const lama = (AN.data.promo || {})[u.bulan];
+  if (lama && !confirm('Laporan promo ' + fmtBln(u.bulan) + ' sudah ada dan akan DITIMPA.\n\n'
+      + 'Yang sekarang: ' + ((lama.ringkas || {}).bill || 0) + ' transaksi.\n'
+      + 'Yang baru   : ' + u.ringkas.bill + ' transaksi.\n\nLanjut?')) return;
+  if (!AN.data.promo) AN.data.promo = {};
+  const sebelum = AN.data.promo[u.bulan];
+  AN.data.promo[u.bulan] = {
+    diunggah: u.diunggah, oleh: u.oleh, berkas: u.berkas,
+    promo: u.promo, tipe: u.tipe, jam: u.jam, menu: u.menu, ringkas: u.ringkas
+  };
+  if (await simpan()) {
+    UNGGAH_HASIL = null; BLN_PROMO = u.bulan;
+    toast('Laporan promo ' + fmtBln(u.bulan) + ' tersimpan.');
+    go('promo');
+  } else {
+    /* Gagal simpan mengembalikan keadaan — ringkasan yang tertinggal di layar
+       padahal server tidak menerimanya akan dibaca sebagai sudah tersimpan. */
+    if (sebelum) AN.data.promo[u.bulan] = sebelum; else delete AN.data.promo[u.bulan];
+    render();
+  }
+}
+async function anHapusPromo(b) {
+  if (!bolehAksi('unggah')) return;
+  if (!confirm('Hapus laporan promo ' + fmtBln(b) + '?\n\nBerkas aslinya tidak ikut terhapus — '
+      + 'bisa diunggah lagi kapan saja.')) return;
+  const sebelum = (AN.data.promo || {})[b];
+  delete AN.data.promo[b];
+  if (await simpan()) { if (BLN_PROMO === b) BLN_PROMO = null; toast('Dihapus.'); render(); }
+  else { AN.data.promo[b] = sebelum; render(); }
+}
+
+/* Pratinjau berkas promo. Bentuknya sejajar dengan pratinjauUnggah() supaya
+   yang sudah terbiasa dengan satu tidak perlu belajar membaca yang lain. */
+function pratinjauPromo(u) {
+  const b = u.bulan, r = u.ringkas;
+  const lama = (AN.data.promo || {})[b];
+  return '<div class="card" data-aks><h3>Siap Disimpan — Laporan Promo</h3>'
+    + '<div class="card-sub">Diurai dari <b>' + esc(u.berkas) + '</b>. Berkasnya dikenali sebagai '
+    + '<b>Promotion Report</b> dari kolom <i>Promotion Name</i> + <i>Promotion Type</i>, bukan dari '
+    + 'namanya. Menyimpan akan menimpa laporan promo bulan ini kalau sudah ada.</div>'
+    + '<div class="grid g4">'
+    + kartu('Bulan', fmtBln(b), 'Promotion Report')
+    + kartu('Baris terbaca', u.nBaris.toLocaleString('id-ID'),
+        u.nLewat ? u.nLewat + ' dilewati (termasuk baris total)' : 'semuanya terbaca')
+    + kartu('Transaksi', (r.bill || 0).toLocaleString('id-ID'),
+        r.promoBeda + ' promo berbeda · ' + (r.qty || 0).toLocaleString('id-ID') + ' item')
+    + kartu('Nilai Promo', rp0(r.nilai), 'diskon ' + rp0(r.nilaiDisc) + ' + gratis ' + rp0(r.nilaiGratis))
+    + '</div>'
+    /* Jam yang tidak terbaca DISEBUT SEBELUM disimpan, bukan sesudah: kalau
+       nomor bill POS-nya bukan stempel waktu, halaman Promo & Klaim memang
+       tidak akan punya tabel jam sama sekali, dan itu lebih baik diketahui
+       saat berkasnya masih di tangan. */
+    + (r.jamGelap
+        ? '<div class="notice warn">&#9888; <div><b>' + r.jamGelap.toLocaleString('id-ID')
+          + ' dari ' + (r.baris || 0).toLocaleString('id-ID') + ' baris tidak terbaca jamnya.</b> '
+          + 'Promotion Report tidak punya kolom jam, jadi jamnya diturunkan dari nomor bill dan hanya '
+          + 'dipakai kalau tanggal di dalam nomor itu cocok dengan tanggal barisnya. Yang tidak cocok '
+          + 'sengaja tidak ditebak — 24 kolom jam yang terisi rapi tapi karangan tidak bisa dibedakan '
+          + 'dari yang benar.</div></div>'
+        : '')
+    + (u.blnLain.length
+        ? '<div class="notice warn">&#9888; <div><b>Berkasnya memuat lebih dari satu bulan:</b> '
+          + u.blnLain.map(x => esc(fmtBln(x.b)) + ' (' + x.n + ' baris)').join(', ')
+          + '. Yang disimpan cuma <b>' + esc(fmtBln(b)) + '</b> — bulan yang barisnya paling banyak. '
+          + 'Ekspor per bulan supaya tidak ada yang tertinggal.</div></div>'
+        : '')
+    + (lama
+        ? '<div class="notice warn">&#9888; <div><b>' + esc(fmtBln(b)) + ' sudah ada</b> (diunggah '
+          + esc(fmtTgl(lama.diunggah)) + (lama.oleh ? ' oleh ' + esc(lama.oleh) : '')
+          + ', ' + ((lama.ringkas || {}).bill || 0) + ' transaksi). Menyimpan akan menimpanya.</div></div>'
+        : '')
+    + '<div class="draf-kaki">'
+    + '<button class="btn btn-primary" onclick="anSimpanUnggah()">Simpan ke ' + esc(fmtBln(b)) + '</button>'
+    + '<button class="btn btn-ghost" onclick="anBatalUnggah()">Batal</button>'
+    + '</div></div>';
+}
 function go(view) {
   if (!TITLES[view] || !bolehLihat(view)) { const p = halPertamaBoleh(); if (!p) { CURRENT = ''; render(); return; } view = p; }
   /* Hasil urai yang belum disimpan lenyap begitu halaman berganti. Ditanya
@@ -3827,7 +4426,7 @@ function render() {
     return;
   }
   ({ ringkasan:vRingkasan, tren:vTren, hari:vHari, menu:vMenu, kategori:vKategori,
-     kunjungan:vKunjungan, event:vEvent, marketing:vMarketing, unggah:vUnggah,
+     kunjungan:vKunjungan, promo:vPromo, event:vEvent, marketing:vMarketing, unggah:vUnggah,
      pengaturan:vPengaturan, akses:vAkses }[CURRENT] || vRingkasan)();
   terapkanKunci();
 }

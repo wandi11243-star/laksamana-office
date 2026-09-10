@@ -2532,6 +2532,152 @@ cuma memangkas separuh kalimat tidak membuktikan apa pun** kalau frasa yang
 diuji masih tertinggal di separuh berikutnya — dan frasa yang sama juga hidup
 di KOMENTAR `ringkasPos()`. Yang dipotong harus seluruh pernyataannya.
 
+### Analytics: Promotion Report → halaman Promo & Klaim (10 September 2026)
+
+Permintaan user: unggah *Promotion Report* dari POS lalu tahu promo mana yang
+paling banyak diklaim, barang apa yang paling banyak diklaim, dan jam berapa
+saja klaimnya terjadi. Menu baru **Promo & Klaim** (kunci view `promo`).
+
+**Backend TIDAK disentuh sama sekali.** `an_simpan()` menulis blob apa adanya
+tanpa daftar kunci tertutup — beda dari `brankas_simpan()` — jadi wadah baru
+cukup dinormalkan di `muatSemua()`.
+
+**DISIMPAN DI `AN.data.promo`, TERPISAH dari `AN.data.laporan`.** Keduanya
+laporan berbeda dengan periode yang bisa berbeda pula; di satu objek,
+mengunggah salah satunya bisa menimpa ringkasan satunya lagi. Pemilih bulannya
+pun sendiri (`BLN_PROMO`) — bulan yang ada di satu sisi belum tentu ada di
+sisi lain, dan pemilih bersama akan memajang bulan yang halaman ini tidak
+punya datanya lalu terbaca sebagai data hilang.
+
+**SATU KOTAK UNGGAH, jenisnya dikenali sendiri** (`uraiBerkas()`), dan ini yang
+paling penting di seluruh bagian ini. Dua kotak terpisah berarti berkas promo
+bisa dijatuhkan ke kotak penjualan — dan `ringkasPos()` **TIDAK melempar**
+untuknya: ia menemukan `sales date` dan `sales number`, tidak menemukan satu
+pun kolom nilai yang dikenalnya, lalu menyimpan **Bill Report beromset Rp0
+yang MENIMPA ringkasan bulan itu**. Dikenali dari ADANYA kolom `Promotion
+Name` + `Promotion Type`, bukan dari nama berkasnya — nama berkas diketik
+orang. Aturan yang sama dengan pembeda Menu Report vs Bill Report.
+
+`petaKolomPos()` karena itu dipecah jadi **`petaKolom(kepala, def)` generik**
+yang dipakai `KOL_CARI` dan `KOL_PROMO`. Dua salinan pencocok kolom pasti
+menyimpang, dan yang menyimpang memulangkan kolom yang salah tanpa satu pun
+galat.
+
+**KLAIM DIHITUNG DARI NOMOR BILL YANG BERBEDA, bukan dari jumlah baris.** Satu
+bill punya satu baris untuk tiap menu yang kena diskon. Agustus 2026:
+
+| promo | baris | transaksi |
+|---|---|---|
+| `BUDRUN 26 DISC 15%` | 60 | **12** |
+| `DISC 17% KEMERDEKAAN` | 10 | **1** |
+| `DISC BOOSTER 15%` | 6 | **1** |
+
+Diurut per baris, ketiganya melompat ke peringkat yang tidak pernah mereka
+duduki — dan angkanya tetap terlihat wajar. Jebakan yang sama persis dengan
+`r.bill` di Detail Report penjualan. Kolom Baris tetap **dipajang**: selisihnya
+dari kolom Transaksi justru yang menunjukkan promo mana yang menempel per menu.
+
+**NILAI PROMO ADA DI DUA KOLOM YANG BERBEDA**, dan salah pakai membuat
+sepertiga promonya berbunyi Rp0:
+
+| jenis | nilainya |
+|---|---|
+| diskon (`DISCOUNT %`, `DISCOUNT LIMIT %`, `BILL DISCOUNT(RP)`) | `Discount Total` |
+| gratis (`FREE ITEM`, `BUY X GET FREE Y`) | `Original Price` × `Qty` |
+
+**Barang gratis dicatat POS berharga NOL di laporan penjualan** — dibuktikan
+atas Detail Report: baris menunya `total=0`, `nett=0`, `disc=0` — jadi
+`Original Price` di berkas promo satu-satunya tempat nilainya pernah tercatat.
+Agustus 2026: 148 dari 434 baris (Rp6.795.000) akan berbunyi Rp0 kalau cuma
+`Discount Total` yang dijumlahkan.
+
+- **YANG MEMUTUSKAN ADA-TIDAKNYA SEL `Discount Total`, bukan nama tipenya.**
+  Nama tipe disetel per POS dan daftar tertutup di kode akan diam-diam basi;
+  bentuk datanya tidak. Sel berisi `"0"` tetap dibaca sebagai diskon bernilai
+  nol — itu memang diskon yang tidak memotong apa pun, bukan barang dilepas.
+- **Keduanya dipajang TERPISAH dan sebabnya dikatakan di layar.** Diskon sudah
+  ikut mengurangi omset; barang gratis **tidak pernah ada di dalam omset**,
+  jadi mengurangkannya lagi dari Net Sales menghitungnya dua kali. Boleh
+  dijumlahkan karena tidak ada satu baris pun yang masuk ke dua-duanya.
+
+**JAM KLAIM DITURUNKAN DARI NOMOR BILL — Promotion Report tidak punya kolom
+jam.** `Sales Date` di sana serial Excel **BULAT** (46235), yaitu tanggal tanpa
+jam, dan `jamDari()` memang memulangkan `-1` untuknya.
+
+Nomor bill POS ini `SLMCL` + 12 digit, dan **sepuluh digit pertamanya epoch
+detik**. Itu bukan tebakan — dibuktikan atas 4.785 bill Agustus 2026 dengan
+mencocokkannya ke kolom `Sales In Time` di Bill Report:
+
+```
+epoch+7 jam == Sales In Time : 4.747 (99,21%) cocok DETIK PER DETIK
+38 sisanya                   : meleset tepat 1 detik (pembulatan sentidetik)
+dibaca UTC                   : 0 cocok
+```
+
+- **PENJAGANYA TANGGAL BARISNYA SENDIRI** (`jamNomorBill(nomor, tglIso)`). Jam
+  hanya dipakai kalau tanggal yang ikut terbaca dari nomor itu SAMA PERSIS
+  dengan kolom Sales Date baris tersebut. Tanpa itu, POS lain yang penomoran
+  bill-nya bukan stempel waktu menghasilkan **24 kolom jam yang terisi rapi dan
+  sepenuhnya karangan** — dan tidak ada satu pun cara membedakannya dari yang
+  benar. Yang tidak cocok memulangkan `-1`, dihitung, dan **dilaporkan di
+  layar** serta di pratinjau sebelum disimpan. Agustus 2026: 434 dari 434 lolos.
+- **Kolom jam sungguhan tetap menang** kalau suatu hari ekspornya punya — yang
+  diturunkan cuma cadangan.
+- Digeser **+7 TETAP**, bukan zona peramban. Alasan yang sama dengan `isoDari()`.
+
+**BARIS TERAKHIR BERKAS ADALAH BARIS TOTAL**, dan angkanya berformat Indonesia.
+`angka()` salah membacanya **dengan cara yang berbeda di tiap kolom** — diukur,
+bukan dikira-kira:
+
+```
+"6.890.800,95"  -> 6,89     parseFloat berhenti di titik KEDUA
+"554,00"        -> 55.400   tidak punya pemisah ribuan, seratus kali lipat
+```
+
+Satu baris itu bisa **melipatgandakan jumlah item sekaligus mengecilkan
+nilainya**. Dibuang karena tidak punya `Promotion Name` maupun `Sales Number`.
+
+> Tanggalnya yang kosong sebenarnya sudah cukup membuangnya, dan itu berarti
+> **berkas asli tidak bisa membuktikan penjaga nama+nomor bill berfungsi** —
+> mutasi yang mencabutnya memang LOLOS seluruh asersi atas berkas asli. Yang
+> menuntutnya baris buatan di uji: baris total yang PUNYA tanggal, dan baris
+> data yang nomor bill-nya kosong (yang kedua paling halus — seluruhnya
+> menumpuk jadi satu "transaksi" hantu bernama string kosong).
+
+**Diskon tingkat bill tidak menempel di satu menu pun** (`Menu Name` = `-`),
+jadi tabel Barang yang Diklaim memang berjumlah lebih kecil daripada tabel
+promo. Jumlah barisnya disebut di layar; didiamkan, selisihnya dicari orang di
+tempat yang salah.
+
+**DAFTAR KUNCI TERTUTUP DI KLIEN (`anSimpanPromo`) tetap ada dan tetap
+berbahaya** — sama persis dengan `anSimpanUnggah()`, tempat `paket`,
+`kategori`, dan `katMenu` tertinggal lima hari tanpa satu pun galat. Ujinya
+menjaganya sebagai **invarian**: tiap kunci yang dibaca halaman wajib ada di
+blok simpan, bukan daftar nama yang harus diingat orang.
+
+**Set WAJIB diubah jadi angka sebelum disimpan.** `Set` tidak bisa di-JSON-kan:
+dikirim apa adanya ia jadi `{}` dan SELURUH jumlah klaim berbunyi nol, tanpa
+satu pun galat.
+
+```bash
+node tools/uji-promo.js   # 71 pemeriksaan, jsdom + berkas POS asli
+```
+
+Ujinya memakai **berkas asli** kalau ada di root repo; kalau tidak, bagian itu
+MELEWAT dengan jelas. Berkasnya **jangan di-commit** (sudah di `.gitignore`:
+`Promotion Report*.xlsx`) — satu berkas memuat seluruh klaim promo sebulan
+berikut nomor bill-nya, dan nomor bill di POS ini memuat stempel waktu
+transaksinya.
+
+Asersi terkuatnya membandingkan hasil urai dengan **baris total di kaki
+berkasnya sendiri** (Qty 554, Discount Total 6.890.800,95). Baris itu ditulis
+POS, bukan oleh kode yang diuji, jadi ia satu-satunya pemeriksaan di sana yang
+tidak bisa basi sendiri. Delapan mutasi dicoba, kedelapannya tertangkap.
+
+`smoke-modul.js analytics` **tidak cukup** untuk halaman ini — ia cuma
+melaporkan halamannya tidak melempar.
+
+
 ### HPP: SPARE MODAL, sekali dan hanya di menu jadi (2 September 2026)
 
 `deploy/stock/hpp/`, kunci izin **`hpp`** (bukan `stock` — panel ini berdiri
