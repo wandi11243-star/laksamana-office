@@ -1868,6 +1868,29 @@ function kodeCatatan() {
    semuanya sudah terpasang, cuma ke tujuan yang berbeda. Di dalam kartu itu,
    peringatan ini akan tersembunyi persis pada satu-satunya keadaan yang
    melahirkannya. */
+/* Keadaan yang TIDAK bisa dibetulkan dari layar ini, dan karena itu wajib
+   dikatakan berikut cara membetulkannya. Porsi yang tidak ikut dihitung tanpa
+   keterangan akan dilaporkan sebagai data yang hilang. */
+function ukCatatanHtml(NM) {
+  let h = '';
+  const lama = (NM && NM.ukLama) || { qty:0 };
+  if (lama.qty > 0) {
+    h += '<div class="notice warn">&#9888; <div><b>Laporan bulan ini diunggah sebelum ukuran bisa dipisahkan.</b> '
+      + lama.qty.toLocaleString('id-ID') + ' porsi baris <i>LARGE/REGULAR (PACKAGE)</i> '
+      + '<b>tidak ikut dihitung</b> di halaman ini. Baris itu mengulang qty minuman tepat di atasnya, '
+      + 'jadi menjumlahkannya menghitung minuman yang sama dua kali — dan memisahkannya butuh '
+      + 'URUTAN BARIS yang sudah tidak ada di ringkasan tersimpan. <b>Unggah ulang berkas bulan '
+      + 'itu</b> supaya porsi <i>large</i> berdiri sebagai barisnya sendiri.</div></div>';
+  }
+  const t = (NM && NM.ukTotal) || {};
+  if (t.minus > 0) {
+    h += '<div class="notice warn">&#9888; <div><b>' + t.minus.toLocaleString('id-ID')
+      + ' porsi berukuran tidak bisa dipisahkan dari menu induknya</b> — induknya tidak punya '
+      + 'cukup porsi untuk dikurangi. Porsinya dibiarkan di baris induknya; memaksanya membuat '
+      + 'baris induk minus, angka yang tidak akan pernah bisa dijelaskan.</div></div>';
+  }
+  return h;
+}
 function kodeCatatanHtml() {
   const c = kodeCatatan();
   let h = '';
@@ -1895,6 +1918,14 @@ function kodeCatatanHtml() {
 function menuNormal(d) {
   const mentah = (d && d.menu) || {};
   const paket = (d && d.paket) || {};
+  /* Laporan yang diunggah SEBELUM 10 September 2026 tidak menyimpan induk
+     baris ukuran, dan urutan barisnya sudah hilang — jadi porsinya tidak bisa
+     dipisahkan maupun dijumlahkan dengan benar. Yang dilakukan: TIDAK
+     dihitung sama sekali (menjumlahkannya berarti menghitung minuman yang
+     sama dua kali), dan jumlahnya DISEBUT di layar berikut cara
+     membetulkannya. */
+  const uk = (d && d.ukuran) || null;
+  const ukLama = { qty:0, nilai:0 };
   const pk = petaKode();
   const gab = {}, takKenal = {};
   let digabung = 0;
@@ -1956,30 +1987,84 @@ function menuNormal(d) {
        peta apa pun, dan justru inilah sebagian besar barisnya. */
     if (!paketGenerik(nm)) { tambah(paketNamaAsli(nm), m.qty || 0, m.nilai || 0); digabung += m.qty || 0; return; }
 
-    /* Bernama ukuran saja: minumannya ada di kodenya. Rinciannya dipakai kalau
-       ada; kalau laporannya lama (belum menyimpan `paket`), barisnya dibiarkan
-       apa adanya — DIBIARKAN, bukan ditebak, dan itu terlihat di layar sebagai
-       menu bernama "LARGE (PACKAGE)" yang memang belum bisa diuraikan. */
-    const rinci = paket[nm];
-    if (!rinci) { tambah(nm, m.qty || 0, m.nilai || 0); return; }
-    Object.keys(rinci).forEach(kd => {
-      const x = rinci[kd];
-      const tuju = kd && pk[kd];
-      if (tuju) { tambah(tuju, x.qty || 0, x.nilai || 0); digabung += x.qty || 0; return; }
-      /* Belum dipetakan: TETAP DIHITUNG, dengan nama yang menyebut kodenya —
-         supaya porsinya tidak hilang dari total dan yang memetakannya tahu
-         persis baris mana yang dimaksud. Dibuang, jumlah porsi di halaman ini
-         berhenti sama dengan jumlah di berkas POS. */
-      const label = kd ? nm + ' · ' + kd : nm;
-      tambah(label, x.qty || 0, x.nilai || 0);
-      if (kd) {
-        if (!takKenal[kd]) takKenal[kd] = { qty:0, nilai:0, dari:nm };
-        takKenal[kd].qty += x.qty || 0; takKenal[kd].nilai += x.nilai || 0;
+    /* BERNAMA UKURAN SAJA: BUKAN minuman tersendiri, jadi qty-nya TIDAK
+       ditambahkan ke mana pun di sini — ia sudah terhitung di baris induknya.
+       Yang dikerjakan justru sebaliknya, di bawah: MEMINDAHKAN porsi berukuran
+       tidak-standar KELUAR dari baris induknya. */
+    if (!uk) { ukLama.qty += m.qty || 0; ukLama.nilai += m.nilai || 0; }
+    return;
+  });
+
+  /* ---- UKURAN: DIPISAHKAN dari induknya, bukan dijumlahkan ----
+
+     Permintaan user 10 September 2026, dan angkanya yang membuktikan modelnya:
+     "Reguler + ice kopi laksamana (package) gabung jadi 672, large jadi 195".
+     ICE KOPI LAKSAMANA Agustus 2026 = 834 (baris biasa) + 33 (paket bernama)
+     = 867, dan 867 - 195 = 672 PERSIS.
+
+     Jadi baris LARGE bukan porsi tambahan — ia menandai 195 dari 867 porsi itu
+     berukuran large. Yang benar memindahkannya, bukan menjumlahkannya.
+
+       REGULAR  -> tetap di induknya (ia ukuran bawaan; nilainya Rp0)
+       LARGE/…  -> pindah ke barisnya sendiri, berikut biaya upsize-nya
+
+     NILAI YANG IKUT PINDAH diambil dari baris induknya sendiri (`u.induk`,
+     dicatat saat mengurai), jadi total nilai halaman ini TIDAK berubah — yang
+     berubah cuma ke baris mana ia dicatatkan. */
+  const ukTotal = { qty:0, pindah:0, sendiri:0, minus:0 };
+  Object.keys(uk || {}).forEach(ind => {
+    Object.keys(uk[ind] || {}).forEach(lbl => {
+      Object.keys(uk[ind][lbl] || {}).forEach(kd => {
+      const u = uk[ind][lbl][kd] || {};
+      const q = u.qty || 0, nSur = u.nilai || 0, nInd = u.induk || 0;
+      ukTotal.qty += q;
+      const namaResep = kd && pk[kd];
+      /* TANPA INDUK: tidak ada baris minuman tepat di atasnya, jadi baris ini
+         SENDIRI yang mewakili minumannya — DITAMBAHKAN, bukan dipindahkan.
+         Menghitungnya tidak menggandakan apa pun. */
+      if (!ind) {
+        const t = namaResep || (kd ? lbl + ' (PACKAGE) · ' + kd : lbl + ' (PACKAGE)');
+        tambah(t, q, nSur);
+        ukTotal.sendiri += q;
+        if (kd && !namaResep) {
+          if (!takKenal[kd]) takKenal[kd] = { qty:0, nilai:0, dari:lbl + ' (PACKAGE)', induk:'' };
+          takKenal[kd].qty += q; takKenal[kd].nilai += nSur;
+        }
+        return;
       }
+      /* Induk yang dikeluarkan (kategori acara) membawa serta ukurannya —
+         kalau tidak, biaya upsize-nya tetap masuk daftar menu sementara
+         minumannya sudah tidak ada di sana. */
+      if (lewat[ind]) { ev.nilai += nSur; return; }
+      /* Ukuran BAWAAN tidak dipisah: yang diminta cuma large berdiri sendiri.
+         Biaya upsize-nya (Rp0 di POS ini) tetap ditambahkan ke induknya supaya
+         jumlah nilainya tidak berubah kalau suatu hari POS menagihkannya. */
+      if (!lbl || lbl === UKURAN_BAWAAN) { if (nSur) tambah(ind, 0, nSur); return; }
+
+      const dasar = gab[String(ind).trim().toUpperCase()];
+      /* Induknya tidak punya cukup porsi untuk dipindahkan (mis. berkasnya
+         disunting): TIDAK dipindahkan, dan dilaporkan. Memaksanya membuat
+         baris induknya minus — angka yang tidak akan pernah bisa dijelaskan. */
+      if (!dasar || dasar.qty < q) { ukTotal.minus += q; return; }
+      dasar.qty -= q; dasar.nilai -= nInd;
+
+      /* NAMANYA: resep di HPP kalau kodenya sudah dipasangkan — itu yang
+         membuat bahan bakunya ikut terhitung. Kalau belum, dipakai nama
+         induknya + ukurannya, yang tetap terbaca orang: "LYCHEE TEA (LARGE)"
+         jauh lebih berguna daripada "LARGE (PACKAGE) · LYCHEE02". */
+      const tuju = namaResep || (ind + ' (' + lbl + ')');
+      tambah(tuju, q, nInd + nSur);
+      ukTotal.pindah += q;
+      if (kd && !namaResep) {
+        if (!takKenal[kd]) takKenal[kd] = { qty:0, nilai:0, dari:lbl + ' (PACKAGE)', induk:ind };
+        takKenal[kd].qty += q; takKenal[kd].nilai += nInd + nSur;
+      }
+      });
     });
   });
+
   ev.nama.sort();
-  return { gab, takKenal, digabung, ev };
+  return { gab, takKenal, digabung, ev, ukTotal, ukLama, adaUkuran: !!d.ukuran };
 }
 /* Ukuran dari nama baris paket: "LARGE (PACKAGE)" -> "LARGE".
    Nama seperti "LARGE KOPI (PACKAGE)" tetap terbaca LARGE — yang dipakai kata
@@ -2491,6 +2576,7 @@ function vMenu() {
     + kartu('Nilai Menu', rp0(totNilai), 'sebelum service & pajak')
     + kartu('Belum Ada Resep', tanpaResep.length, peta ? 'dari ' + urut.length + ' menu' : 'HPP tidak terbaca')
     + '</div>'
+    + ukCatatanHtml(NM)
     + kodeCatatanHtml()
     + mnPaketHtml(NM, Object.keys(gab));
 
@@ -2616,7 +2702,11 @@ function mnPaketHtml(NM, namaAda) {
             + s.cadangan.map(tbl).join('') + '</div>';
         } else sel = '<span class="helper" style="margin:0">tidak ada nama yang mirip — isi manual di Pengaturan</span>';
         return '<tr><td><b class="mono">' + esc(k) + '</b></td>'
-          + '<td style="font-size:12px;color:var(--muted)">' + esc(x.dari) + '</td>'
+          /* INDUKNYA disebut kalau ada: "LARGE (PACKAGE) di ICE AMERICANO"
+             langsung memberi tahu minuman mana yang dimaksud, dan itulah
+             pertanyaan pertama yang dibawa orang ke tabel ini. */
+          + '<td style="font-size:12px;color:var(--muted)">' + esc(x.dari)
+            + (x.induk ? '<br>di <b>' + esc(x.induk) + '</b>' : '') + '</td>'
           + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
           + '<td>' + sel + '</td></tr>';
       }).join('')
@@ -4052,6 +4142,11 @@ const PAKET_RE = /\s*\(PACKAGE\)\s*$/i;
    tidak ada di sini dianggap bernama jelas — menambah pola baru harus
    disengaja, bukan ditebak dari kata pertama. */
 const PAKET_GENERIK = /^(REGULAR|LARGE|LARGE KOPI|LARGE TEH|SMALL|MEDIUM)$/i;
+/* Ukuran BAWAAN — yang tidak dipisahkan jadi barisnya sendiri. Di POS ini
+   REGULAR-lah yang berarti "ukuran biasa", dan biaya upsize-nya memang Rp0
+   (diukur: 2.488 porsi, Rp0). Memisahkannya berarti tiap menu berdiri dua
+   baris tanpa satu pun pertanyaan yang terjawab olehnya. */
+const UKURAN_BAWAAN = 'REGULAR';
 function paketGenerik(nama) {
   const s = String(nama || '').trim();
   return PAKET_RE.test(s) && PAKET_GENERIK.test(s.replace(PAKET_RE, '').trim());
@@ -4095,6 +4190,33 @@ function ringkasPos(baris, namaBerkas) {
      saat MENGGAMBAR (menuNormal()), jadi satu perbaikan peta langsung berlaku
      untuk seluruh bulan yang pernah diunggah. */
   const paket = {};
+  /* ukuran[namaMenuInduk][LABEL] = { qty, nilai, induk, kode:{KODE:qty} }
+
+     BARIS "REGULAR (PACKAGE)" / "LARGE (PACKAGE)" BUKAN MINUMAN TERSENDIRI —
+     ia baris UKURAN yang menempel di baris TEPAT DI ATASNYA, dan mengulang
+     qty-nya. Dibuktikan atas Detail Report Agustus 2026: 2.619 dari 2.620
+     baris ukuran berdiri persis sesudah baris menu biasa DENGAN QTY YANG SAMA
+     PERSIS (100%):
+
+       ICE KOPI LAKSAMANA q=2  ->  REGULAR (PACKAGE) q=2  kode=KOPISUSU001
+       LYCHEE TEA         q=1  ->  LARGE (PACKAGE)   q=1  kode=LYCHEE02
+
+     Jadi menjumlahkannya ke daftar menu MENGHITUNG MINUMAN YANG SAMA DUA KALI
+     — 3.217 porsi hantu di Agustus 2026, dan tidak satu pun melempar galat.
+     Yang benar: qty-nya BUKAN tambahan, melainkan keterangan UKURAN dari
+     porsi yang sudah terhitung di baris induknya.
+
+     INDUKNYA WAJIB DICATAT DI SINI, saat urutan barisnya masih ada. Sesudah
+     berkasnya diringkas per nama menu, urutan itu hilang selamanya dan tidak
+     ada satu pun cara memulihkannya — itu sebabnya laporan lama tidak bisa
+     dipisahkan ukurannya tanpa diunggah ulang.
+
+     Field "nilai" = biaya upsize di baris ukurannya sendiri (REGULAR Rp0, LARGE
+     ~Rp5.600/porsi). Field "induk" = nilai porsi itu di baris induknya, diambil DARI
+     BARIS INDUKNYA LANGSUNG — bukan dibagi rata belakangan, yang cuma
+     perkiraan. */
+  const ukuran = {};
+  let indukAkhir = null, nUkYatim = 0;
   /* kategori[detail] = {qty, nilai, kat} — kat = FOOD/BEVERAGES/OTHERS. */
   const kategori = {}, katMenu = {};
   /* kunjung[metode] = {grand, bill} — dari kolom Visit Purpose. */
@@ -4181,6 +4303,46 @@ function ringkasPos(baris, namaBerkas) {
           if (!paket[nm]) paket[nm] = {};
           if (!paket[nm][kd]) paket[nm][kd] = { qty:0, nilai:0 };
           paket[nm][kd].qty += q; paket[nm][kd].nilai += nl;
+
+          /* Baris UKURAN dicatat berikut INDUKNYA. Lihat catatan di deklarasi
+             `ukuran` — tanpa ini porsinya terhitung dua kali. */
+          if (paketGenerik(nm)) {
+            const lbl = nm.replace(PAKET_RE, '').trim().toUpperCase();
+            /* Induknya wajib dari BILL YANG SAMA: baris pertama sebuah bill
+               tidak boleh mewarisi baris terakhir bill sebelumnya. Yang tidak
+               punya induk DIHITUNG dan dilaporkan, bukan ditebak. */
+            const punya = !!(indukAkhir && indukAkhir.bill === noBill && indukAkhir.nama);
+            /* TANPA INDUK -> disimpan di bawah kunci kosong, BUKAN dibuang.
+               Ada paket yang cuma menuliskan baris ukurannya tanpa baris
+               minumannya sama sekali (Agustus 2026: 1 porsi, kopi large di
+               dalam paket nasi). Di situ baris ukurannya SENDIRI yang mewakili
+               minumannya, jadi menghitungnya tidak menggandakan apa pun —
+               kebalikan persis dari yang berinduk. Dibuang, porsinya hilang
+               dari daftar menu tanpa satu pun tanda. */
+            /* DIPECAH SAMPAI KODENYA — ukuran[induk][LABEL][KODE] — bukan
+               berhenti di labelnya. Dua baris LARGE berkode berbeda adalah dua
+               minuman yang berbeda, dan mengelompokkannya jadi satu membuat
+               porsi yang kodenya tidak terbaca ikut terbawa ke menu yang
+               kebetulan kodenya paling banyak. Bentuknya sengaja sejajar
+               dengan paket[nm][kd] yang sudah ada. */
+            const ind = punya ? indukAkhir.nama : '';
+            if (!ukuran[ind]) ukuran[ind] = {};
+            if (!ukuran[ind][lbl]) ukuran[ind][lbl] = {};
+            if (!ukuran[ind][lbl][kd]) ukuran[ind][lbl][kd] = { qty:0, nilai:0, induk:0 };
+            const u = ukuran[ind][lbl][kd];
+            u.qty += q; u.nilai += nl;
+            if (punya) u.induk += indukAkhir.qty > 0 ? indukAkhir.nilai * (q / indukAkhir.qty) : 0;
+            if (!punya) nUkYatim += q;
+          }
+          /* INDUKNYA WAJIB BARIS TEPAT DI ATASNYA, bukan baris menu biasa
+             TERAKHIR. Baris paket bernama boleh berdiri di antaranya, dan
+             kalau ia tidak memutus rantai, baris ukuran sebuah minuman bisa
+             menempel ke makanan dua baris sebelumnya — porsinya lalu
+             dikurangkan dari menu yang salah, tanpa satu pun galat. */
+          indukAkhir = null;
+        } else {
+          /* Baris menu biasa: jadi calon induk untuk baris ukuran berikutnya. */
+          indukAkhir = { bill: noBill, nama: nm, qty: q, nilai: nl };
         }
 
         if (K.katD || K.kat) {
@@ -4222,7 +4384,8 @@ function ringkasPos(baris, namaBerkas) {
   Object.keys(hari).forEach(t => { if (blnDari(t) !== bulan) delete hari[t]; });
   const tglU = Object.keys(hari).sort();
 
-  return { bulan, jenis, berkas:namaBerkas, hari, jam, menu, paket, kategori, katMenu, kunjung, ringkas:r,
+  r.ukYatim = nUkYatim;
+  return { bulan, jenis, berkas:namaBerkas, hari, jam, menu, paket, ukuran, kategori, katMenu, kunjung, ringkas:r,
            nBaris:nRow, nLewat, blnLain, billDariBaris:!punyaBill,
            tglAwal:tglU[0] || '', tglAkhir:tglU[tglU.length - 1] || '' };
 }
@@ -4520,7 +4683,7 @@ async function anSimpanUnggah() {
      tidak pernah dari laporan tersimpan. */
   AN.data.laporan[u.bulan] = {
     diunggah: u.diunggah, oleh: u.oleh, berkas: u.berkas, jenis: u.jenis,
-    hari: u.hari, jam: u.jam, menu: u.menu, paket: u.paket,
+    hari: u.hari, jam: u.jam, menu: u.menu, paket: u.paket, ukuran: u.ukuran,
     kategori: u.kategori, katMenu: u.katMenu, kunjung: u.kunjung, ringkas: u.ringkas
   };
   if (await simpan()) {

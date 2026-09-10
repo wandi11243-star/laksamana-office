@@ -785,6 +785,25 @@ async function siap(w) {
       /* Kolom kode juga dipakai kasir menulis catatan — tidak boleh jadi kode. */
       { a:'2026-08-01', b:'B4', c:'LARGE (PACKAGE)',         d:'Setengah mateng', e:'', f:'1', g:'5000', h:'BEVERAGES', i:'TEA COLLECTION' },
       { a:'2026-08-01', b:'B5', c:'NASI GORENG',             d:'', e:'', f:'6',  g:'300000', h:'FOOD', i:'NUSANTARA' },
+      /* PASANGAN SUNGGUHAN: baris minuman lalu baris UKURANNYA, qty sama —
+         bentuk yang benar-benar ditulis POS (2.619 dari 2.620 baris ukuran
+         Agustus 2026). Tanpa pasangan seperti ini, seluruh baris ukuran di
+         fixture ini yatim dan jalur PEMINDAHAN tidak pernah dijalankan sekali
+         pun — mutasi "ukuran dijumlahkan lagi" akan LOLOS. Kategorinya sengaja
+         yang sudah ada, supaya jumlah kategori tidak ikut berubah. */
+      { a:'2026-08-01', b:'B8', c:'ICE AMERICANO',           d:'', e:'', f:'3',  g:'90000',  h:'BEVERAGES', i:'SIGNATURE NON COFFEE' },
+      { a:'2026-08-01', b:'B8', c:'LARGE (PACKAGE)',         d:'AMERICANO02', e:'', f:'3', g:'15000', h:'BEVERAGES', i:'SIGNATURE NON COFFEE' },
+      { a:'2026-08-01', b:'B8', c:'ICE AMERICANO',           d:'', e:'', f:'7',  g:'210000', h:'BEVERAGES', i:'SIGNATURE NON COFFEE' },
+      { a:'2026-08-01', b:'B8', c:'REGULAR (PACKAGE)',       d:'AMERICANO01', e:'', f:'7', g:'0', h:'BEVERAGES', i:'SIGNATURE NON COFFEE' },
+      /* RANTAI INDUK PUTUS: baris ukuran KEDUA di bill ini tidak punya
+         baris minuman tepat di atasnya — yang di atasnya baris ukuran juga.
+         Bentuk ini ADA di produksi (paket yang cuma menuliskan baris
+         ukuran kopinya, induknya justru nasi dua baris sebelumnya), dan
+         tanpa fixture ini mutasi 'rantai induk tidak diputus' LOLOS:
+         porsinya lalu dikurangkan dari menu yang sama sekali lain. */
+      { a:'2026-08-01', b:'B9', c:'NASI GORENG',             d:'', e:'', f:'2', g:'100000', h:'FOOD', i:'NUSANTARA' },
+      { a:'2026-08-01', b:'B9', c:'REGULAR (PACKAGE)',       d:'NASIGOR01', e:'', f:'2', g:'0', h:'BEVERAGES', i:'SIGNATURE NON COFFEE' },
+      { a:'2026-08-01', b:'B9', c:'LARGE (PACKAGE)',         d:'TEHTARIK02', e:'', f:'1', g:'5000', h:'BEVERAGES', i:'SIGNATURE NON COFFEE' },
       /* EVENT berkelompok FOOD, dan ia DULUAN supaya `kategori['EVENT'].kat`
          terisi FOOD (yang pertama menang). Tanpa baris ini kedua aturan tidak
          bisa dibedakan: di produksi EVENT kebetulan berkelompok OTHERS, jadi
@@ -835,7 +854,7 @@ async function siap(w) {
     /* Yang namanya cuma ukuran BELUM bisa digabung — tapi porsinya TETAP
        dihitung, dengan nama yang menyebut kodenya. Dibuang, jumlah porsi di
        halaman ini berhenti sama dengan jumlah di berkas POS. */
-    cek('kode yang belum dipetakan dilaporkan', Object.keys(NM.takKenal).length === 2,
+    cek('kode yang belum dipetakan dilaporkan', Object.keys(NM.takKenal).length === 4,
         JSON.stringify(Object.keys(NM.takKenal)));
     cek('...porsinya tetap dihitung dengan nama berkode',
         !!NM.gab['LARGE (PACKAGE) · MATCHA02'], JSON.stringify(Object.keys(NM.gab)));
@@ -850,22 +869,77 @@ async function siap(w) {
        asersinya berarti membuang penjaganya. Bentuk ini menjaga DUA hal
        sekaligus: penggabungan tidak menghilangkan porsi, dan penyaring acara
        tidak membuang porsi tanpa melaporkannya. */
-    cek('porsi total tidak berubah karena penggabungan',
-        totQ(NM.gab) + NM.ev.qty === totQ(u.menu),
-        totQ(NM.gab) + '+' + NM.ev.qty + ' vs ' + totQ(u.menu));
+    cek('jumlah porsi tidak berubah karena penggabungan',
+        totQ(NM.gab) + NM.ev.qty + (NM.ukTotal.qty - NM.ukTotal.sendiri) === totQ(u.menu),
+        totQ(NM.gab) + '+' + NM.ev.qty + '+' + (NM.ukTotal.qty - NM.ukTotal.sendiri) + ' vs ' + totQ(u.menu));
     cek('nilai total tidak berubah karena penggabungan',
         totN(NM.gab) + NM.ev.nilai === totN(u.menu),
         totN(NM.gab) + '+' + NM.ev.nilai + ' vs ' + totN(u.menu));
+
+    /* ---- BARIS UKURAN BUKAN PORSI TAMBAHAN (10 September 2026) ----
+
+       "REGULAR (PACKAGE)" / "LARGE (PACKAGE)" mengulang qty baris minuman
+       tepat di atasnya, jadi menjumlahkannya menghitung minuman yang sama DUA
+       KALI — 3.217 porsi hantu di Agustus 2026, tanpa satu pun galat.
+
+       Ini asersi yang paling menentukan di seluruh blok ini: 3 + 7 = 10,
+       BUKAN 20. */
+    cek('porsi large PINDAH dari induknya, bukan ditambahkan',
+        NM.gab['ICE AMERICANO'] && NM.gab['ICE AMERICANO'].qty === 7,
+        JSON.stringify(NM.gab['ICE AMERICANO']));
+    cek('...dan berdiri sebagai barisnya sendiri',
+        NM.gab['ICE AMERICANO (LARGE)'] && NM.gab['ICE AMERICANO (LARGE)'].qty === 3,
+        JSON.stringify(NM.gab['ICE AMERICANO (LARGE)']));
+    cek('...jumlah keduanya SAMA dengan porsi mentahnya, bukan dua kali lipat',
+        NM.gab['ICE AMERICANO'].qty + NM.gab['ICE AMERICANO (LARGE)'].qty === u.menu['ICE AMERICANO'].qty,
+        NM.gab['ICE AMERICANO'].qty + '+' + NM.gab['ICE AMERICANO (LARGE)'].qty
+          + ' vs ' + u.menu['ICE AMERICANO'].qty);
+    /* Ukuran BAWAAN tidak dipisah — kalau ikut, tiap menu berdiri dua baris
+       tanpa satu pun pertanyaan yang terjawab olehnya. */
+    cek('ukuran REGULAR tidak dipisah jadi barisnya sendiri',
+        !NM.gab['ICE AMERICANO (REGULAR)'], JSON.stringify(Object.keys(NM.gab)));
+    /* NILAI ikut pindah dari baris induknya (diambil dari baris induknya
+       sendiri saat mengurai), plus biaya upsize di baris ukurannya. Kalau
+       nilainya tidak ikut, baris large berdiri dengan 3 porsi seharga biaya
+       upsize saja — dan rata-rata per porsi induknya melonjak. */
+    cek('nilainya ikut pindah, berikut biaya upsize-nya',
+        NM.gab['ICE AMERICANO'].nilai === 210000
+        && NM.gab['ICE AMERICANO (LARGE)'].nilai === 105000,
+        NM.gab['ICE AMERICANO'].nilai + ' / ' + NM.gab['ICE AMERICANO (LARGE)'].nilai);
+    /* Induknya dicatat saat MENGURAI — sesudah diringkas per nama menu, urutan
+       barisnya hilang selamanya. Laporan lama karena itu tidak bisa
+       dipisahkan tanpa diunggah ulang, dan itu dikatakan di layar. */
+    cek('induk baris ukuran ikut tersimpan di hasil urai',
+        !!(u.ukuran && u.ukuran['ICE AMERICANO'] && u.ukuran['ICE AMERICANO']['LARGE']),
+        JSON.stringify(Object.keys(u.ukuran || {})));
+    /* Baris ukuran yang TIDAK punya induk tepat di atasnya adalah minumannya
+       SENDIRI — ditambahkan, bukan dipindahkan. Kalau ikut dibuang, porsinya
+       hilang dari daftar menu tanpa satu pun tanda. */
+    cek('baris ukuran tanpa induk tetap dihitung',
+        NM.ukTotal.sendiri === 8, String(NM.ukTotal.sendiri));
+    /* Baris ukuran yang di atasnya baris ukuran juga TIDAK boleh mewarisi
+       menu dua baris sebelumnya — porsinya akan dikurangkan dari menu yang
+       sama sekali lain, tanpa satu pun galat. */
+    cek('rantai induk diputus baris paket',
+        !NM.gab['NASI GORENG (LARGE)'] && NM.gab['NASI GORENG'].qty === 8,
+        JSON.stringify(NM.gab['NASI GORENG']) + ' / ' + JSON.stringify(Object.keys(NM.gab)));
 
     /* Dipetakan: porsinya pindah ke menu aslinya. */
     w.eval("AN.data.setting.petaKode = { MATCHA02:'MATCHA LATTE', MATCHA01:'MATCHA LATTE' }");
     NM = w.eval('menuNormal')(u);
     cek('kode yang dipetakan pindah ke menu aslinya',
         NM.gab['MATCHA LATTE'].qty === 11, String(NM.gab['MATCHA LATTE'].qty));
-    cek('...dan totalnya tetap sama', totQ(NM.gab) + NM.ev.qty === totQ(u.menu),
-        totQ(NM.gab) + '+' + NM.ev.qty + ' vs ' + totQ(u.menu));
-    cek('...sisa kode yang belum dipetakan tinggal yang tanpa kode',
-        Object.keys(NM.takKenal).length === 0, JSON.stringify(Object.keys(NM.takKenal)));
+    cek('...dan totalnya tetap sama',
+        totQ(NM.gab) + NM.ev.qty + (NM.ukTotal.qty - NM.ukTotal.sendiri) === totQ(u.menu),
+        totQ(NM.gab) + '+' + NM.ev.qty + '+' + (NM.ukTotal.qty - NM.ukTotal.sendiri) + ' vs ' + totQ(u.menu));
+    /* AMERICANO02 sengaja TIDAK ikut dipetakan: ia baris ukuran yang PUNYA
+       induk, jadi ia satu-satunya yang membuktikan kode berinduk pun tetap
+       dilaporkan kalau resepnya belum ada. */
+    cek('...sisa kode yang belum dipetakan tinggal yang berinduk',
+        Object.keys(NM.takKenal).sort().join(',') === 'AMERICANO02,TEHTARIK02', JSON.stringify(Object.keys(NM.takKenal)));
+    cek('...dan yang berinduk menyebut induknya',
+        NM.takKenal['AMERICANO02'].induk === 'ICE AMERICANO',
+        JSON.stringify(NM.takKenal['AMERICANO02']));
     /* Peta dipakai saat MENGGAMBAR, bukan saat mengurai: kalau dibakukan ke
        laporan tersimpan, peta yang dibetulkan bulan depan tidak akan pernah
        memperbaiki bulan yang sudah diunggah. */
@@ -1172,11 +1246,17 @@ async function siap(w) {
         vm.indexOf('sudah digabung') < 0);
     /* Penggabungannya sendiri TETAP berjalan — yang dicabut cuma
        keterangannya, dan angkanya yang membuktikannya masih dihitung. */
-    /* ANGKANYA DIPATOK, bukan cuma "lebih dari nol": penggabungan punya DUA
-       cabang (nama jelas, dan kode yang dipetakan), dan yang lebih-dari-nol
-       tetap benar walau salah satunya dicabut.
-         MINERAL WATER (PACKAGE) 3 + MATCHA02 4 + MATCHA01 2 = 9 */
-    cek('...tapi penggabungannya tetap berjalan', NMs.digabung === 9, String(NMs.digabung));
+    /* ANGKANYA DIPATOK, bukan cuma "lebih dari nol".
+
+       `digabung` sekarang menghitung paket BERNAMA saja (MINERAL WATER
+       (PACKAGE) 3). Baris UKURAN tidak lagi ikut di sini karena ia memang
+       tidak digabungkan ke mana pun — ia DIPINDAHKAN, dan itu dihitung
+       terpisah di ukTotal. Dulu angkanya 9 (3 + MATCHA02 4 + MATCHA01 2),
+       dan 4+2 itulah porsi yang ternyata dihitung dua kali. */
+    cek('...tapi penggabungannya tetap berjalan', NMs.digabung === 3, String(NMs.digabung));
+    cek('...dan porsi ukuran dihitung terpisah, bukan sebagai penggabungan',
+        NMs.ukTotal.pindah === 3 && NMs.ukTotal.sendiri === 8,
+        JSON.stringify(NMs.ukTotal));
     /* Kartu "Kode paket yang belum dipasangkan" BUKAN keterangan melainkan
        pekerjaan yang menunggu, jadi ia tidak ikut dicabut. */
     cek('kartu kode paket yang belum dipasangkan TIDAK ikut dicabut',
@@ -1274,11 +1354,11 @@ async function siap(w) {
       const m = tr.match(/<td class="num">([\s\S]*?)<\/td>/);
       return m ? m[1].replace(/<[^>]*>/g, '').trim() : null;
     };
-    /* NUSANTARA berisi satu menu, SIGNATURE NON COFFEE berisi tiga —
+    /* NUSANTARA berisi satu menu, SIGNATURE NON COFFEE berisi empat —
        angkanya HARUS berbeda, kalau tidak kolom yang menulis angka mati pun
        akan lulus. */
     cek('...jumlahnya dibaca dari isi kategorinya',
-        selJml(v, 'NUSANTARA') === '1' && selJml(v, 'SIGNATURE NON COFFEE') === '3',
+        selJml(v, 'NUSANTARA') === '1' && selJml(v, 'SIGNATURE NON COFFEE') === '4',
         JSON.stringify([selJml(v, 'NUSANTARA'), selJml(v, 'SIGNATURE NON COFFEE')]));
     /* Kategori acara dibuka SENDIRI — yang dicari orang di halaman ini nama
        menunya (Prasmanan, Nasi Kotak, Snack Box), bukan totalnya. */

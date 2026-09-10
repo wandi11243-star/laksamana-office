@@ -1568,7 +1568,12 @@ Dua bentuk, dan bedanya menentukan bisa-tidaknya ia dihitung:
 | bentuk | contoh | caranya |
 |---|---|---|
 | bernama JELAS (905 porsi) | `MINERAL WATER (PACKAGE)` | buang akhirannya, selesai |
-| bernama UKURAN (3.218 porsi) | `LARGE (PACKAGE)`, `REGULAR (PACKAGE)` | minumannya ada di KODE-nya |
+| bernama UKURAN (3.218 porsi) | `LARGE (PACKAGE)`, `REGULAR (PACKAGE)` | ~~minumannya ada di KODE-nya~~ **KELIRU — lihat blok di bawah** |
+
+> **BARIS UKURAN TERNYATA BUKAN PORSI TAMBAHAN.** Baris kedua di tabel itu
+> menyuruh MENGGABUNGKAN porsinya ke menu yang ditunjuk kodenya, dan itu
+> menghitung minuman yang sama dua kali. Dibetulkan 10 September 2026 —
+> lihat **BARIS UKURAN BUKAN MINUMAN TERSENDIRI** di bawah.
 
 - **Digabungkan saat MENGGAMBAR (`menuNormal()`), bukan saat mengurai.**
   Dibakukan ke laporan tersimpan, peta kode yang dibetulkan bulan depan tidak
@@ -1608,6 +1613,126 @@ Dua bentuk, dan bedanya menentukan bisa-tidaknya ia dihitung:
   Kode Menu Paket**, dan bisa diisi langsung dari halaman Menu lewat tombol
   saran. Kodenya **dibakukan huruf besar di satu tempat** — ia diketik kasir,
   jadi `Matcha02` dan `MATCHA02` pasti bercampur.
+
+#### BARIS UKURAN BUKAN MINUMAN TERSENDIRI — ia menempel di baris di atasnya (10 Sep 2026)
+
+Keluhan user: *"jangan kaya gini, bukan dijumlahin — Reguler + ice kopi
+laksamana (package) gabung jadi 672, large jadi 195."*
+
+**Angkanya yang membuktikan modelnya.** 672 + 195 = **867**, dan 867 itu persis
+`ICE KOPI LAKSAMANA` (834 baris biasa + 33 paket bernama) sebelum kode paket
+dipakai. Jadi 195 porsi LARGE bukan porsi TAMBAHAN — ia **menandai 195 dari 867
+porsi itu** berukuran large.
+
+**DIBUKTIKAN ATAS DETAIL REPORT AGUSTUS 2026, bukan disimpulkan dari angkanya:**
+
+```
+2.619 dari 2.620 baris ukuran (100%) berdiri TEPAT SESUDAH baris menu biasa,
+dengan qty SAMA PERSIS:
+
+  ICE AMERICANO      q=1  ->  REGULAR (PACKAGE) q=1  kode=AMERICANO01
+  ICE KOPI LAKSAMANA q=2  ->  REGULAR (PACKAGE) q=2  kode=KOPISUSU001
+  LYCHEE TEA         q=1  ->  LARGE (PACKAGE)   q=1  kode=LYCHEE02
+```
+
+| baris ukuran | porsi | nilai | artinya |
+|---|---|---|---|
+| `REGULAR (PACKAGE)` | 2.488 | **Rp0** | penanda ukuran murni |
+| `LARGE` / `LARGE KOPI` / `LARGE TEH` | 729 | Rp4.097.233 | **biaya upsize** (~Rp5.600/porsi) |
+
+**Jadi menjumlahkannya MENGHITUNG MINUMAN YANG SAMA DUA KALI — 3.218 porsi
+hantu di Agustus 2026, tanpa satu pun galat.** Halaman Menu memajang 24.598
+porsi untuk 21.381 porsi yang benar-benar terjual, dan tiap menu berminuman
+paket terbaca lebih laris daripada kenyataannya.
+
+> **YANG TERCATAT DI BERKAS INI SEBELUMNYA KELIRU**, dan kekeliruannya yang
+> membuat ini bertahan: baris "bernama UKURAN (3.218 porsi) → minumannya ada di
+> KODE-nya" di bagian *menu paket & Kategori Menu* menyuruh MENGGABUNGKANNYA ke
+> menu yang ditunjuk kodenya. Kodenya memang menunjuk minuman yang benar — yang
+> salah adalah menganggap porsinya belum terhitung. Contoh keenam di repo ini
+> sesudah `hpp.php`, `cocokPic()`, `save_all()` kompas, pengurai .xlsx, dan
+> `baca_state()` marketing. **Kalau sebuah baris terlihat seperti item
+> tersendiri, buka urutan barisnya di satu bill sebelum menuliskannya sebagai
+> fakta.**
+
+**Yang dikerjakan sekarang:**
+
+```
+REGULAR  -> tetap di induknya (ukuran bawaan; biaya upsize Rp0)
+LARGE/…  -> PINDAH ke barisnya sendiri, berikut biaya upsize-nya
+
+ICE KOPI LAKSAMANA        673      (867 - 194 yang berukuran large)
+ICE KOPI LAKSAMANA LARGE  195
+```
+
+- **INDUKNYA DICATAT SAAT MENGURAI** (`ukuran[induk][LABEL][KODE]`), karena
+  sesudah berkasnya diringkas per nama menu **urutan barisnya hilang
+  selamanya**. Itu pula sebabnya laporan lama tidak bisa dibetulkan dari layar:
+  ia harus diunggah ulang, dan halamannya mengatakan itu.
+- **INDUKNYA HARUS BARIS TEPAT DI ATASNYA, bukan baris menu biasa TERAKHIR.**
+  Ada bill yang menyelipkan baris paket bernama di antaranya; kalau rantainya
+  tidak diputus, baris ukuran sebuah kopi menempel ke **nasi dua baris
+  sebelumnya** dan porsinya dikurangkan dari menu yang sama sekali lain.
+  Sudah kejadian saat ditulis — `indukAkhir = null` di tiap baris paket yang
+  menutupnya.
+- **BARIS UKURAN TANPA INDUK adalah minumannya SENDIRI** (disimpan di bawah
+  kunci `''`) — ada paket yang cuma menuliskan baris ukurannya tanpa baris
+  minumannya sama sekali (Agustus 2026: 1 porsi, kopi large di dalam paket
+  nasi). Di situ menghitungnya tidak menggandakan apa pun; dibuang, porsinya
+  hilang dari daftar tanpa satu pun tanda. **Kebalikan persis dari yang
+  berinduk** — dan itu sebabnya keduanya tidak boleh diperlakukan sama.
+- **DIPECAH SAMPAI KODENYA**, bukan berhenti di labelnya. Dua baris LARGE
+  berkode berbeda adalah dua minuman berbeda; dikelompokkan per label saja,
+  porsi yang kodenya tidak terbaca ikut terbawa ke menu yang kebetulan kodenya
+  paling banyak. Sudah kejadian di uji.
+- **NILAI IKUT PINDAH, dan diambil dari baris induknya sendiri** (`u.induk`,
+  dicatat saat mengurai) — bukan dibagi rata belakangan, yang cuma perkiraan.
+  Total nilai halaman ini karena itu **tidak berubah**; yang berubah cuma ke
+  baris mana ia dicatatkan. Kalau nilainya tidak ikut, baris large berdiri
+  dengan tiga porsi seharga biaya upsize saja dan rata-rata per porsi induknya
+  melonjak.
+- **REGULAR TIDAK dipisah.** Yang diminta cuma large berdiri sendiri; memisah
+  keduanya membuat tiap menu berdiri dua baris tanpa satu pun pertanyaan yang
+  terjawab olehnya.
+- **NAMANYA resep HPP kalau kodenya sudah dipasangkan** — itu yang membuat
+  bahan bakunya terhitung. Kalau belum: `LYCHEE TEA (LARGE)`, yang tetap
+  terbaca orang — jauh lebih berguna daripada `LARGE (PACKAGE) · LYCHEE02` yang
+  dipakai sebelumnya.
+- **`ukuran` WAJIB ada di daftar kunci tertutup `anSimpanUnggah()`.** Itu
+  tempat `paket`/`kategori`/`katMenu` tertinggal lima hari tanpa satu pun
+  galat; kunci baru lewat jalur yang sama persis.
+- **Induk yang porsinya tidak cukup TIDAK dipaksa** (`ukTotal.minus`) —
+  memaksanya membuat baris induk minus, angka yang tidak akan pernah bisa
+  dijelaskan. Dilaporkan di layar.
+
+**INVARIANNYA BERUBAH, dan itu memang intinya:**
+
+```
+sebelum : gab + dikeluarkan            === menu mentah
+sekarang: gab + dikeluarkan + (ukuran − ukuran tanpa induk) === menu mentah
+```
+
+Menurunkannya berarti membuang penjaga paling menentukan di berkas itu; yang
+benar menyatakan ulang apa yang sekarang BUKAN porsi. Nilai tetap
+`gab + dikeluarkan === menu mentah` — tidak ada rupiah yang hilang.
+
+**`digabung` sekarang menghitung paket BERNAMA saja** (Agustus 2026: 905
+porsi). Baris ukuran tidak lagi ikut di sana karena ia memang tidak digabungkan
+ke mana pun — ia dipindahkan, dan itu dihitung terpisah di `ukTotal`.
+
+**Laporan lama tetap harus diunggah ulang**, dan halamannya mengatakannya
+berikut sebabnya. Porsinya sementara itu **tidak dihitung sama sekali** —
+menjumlahkannya mengembalikan hitung-ganda yang baru saja ditutup.
+
+```bash
+node tools/uji-analytics.js   # 383 pemeriksaan (dari 373)
+```
+
+Delapan mutasi dicoba, kedelapannya tertangkap. Yang terakhir — *"rantai induk
+tidak diputus baris paket"* — **LOLOS di putaran pertama** karena fixture-nya
+belum punya bill berbentuk begitu, padahal bentuk itu ADA di produksi dan
+justru itulah bug yang ditemukan saat menulisnya.
+
 
 #### KODE MENU DIISI DI HPP & RESEP — sumber utamanya sekarang di sana (10 Sep 2026)
 
@@ -1673,7 +1798,7 @@ adanya. Daftar `petaKode` lama juga tidak dicabut: ia tetap jalan keluar untuk
 menu yang belum punya resep di HPP.
 
 ```bash
-node tools/uji-analytics.js     # 373 pemeriksaan (dari 354)
+node tools/uji-analytics.js     # 383 pemeriksaan (dari 354)
 node tools/uji-excel-resep.js   # 65 pemeriksaan (dari 58)
 ```
 
