@@ -1673,7 +1673,7 @@ adanya. Daftar `petaKode` lama juga tidak dicabut: ia tetap jalan keluar untuk
 menu yang belum punya resep di HPP.
 
 ```bash
-node tools/uji-analytics.js     # 369 pemeriksaan (dari 354)
+node tools/uji-analytics.js     # 373 pemeriksaan (dari 354)
 node tools/uji-excel-resep.js   # 65 pemeriksaan (dari 58)
 ```
 
@@ -1683,6 +1683,65 @@ terhadap SUMBERNYA di `uji-excel-resep.js` — server tiruan menerima apa saja,
 dan kolom yang tidak pernah ditulis tidak menimbulkan galat di satu sisi pun.
 Pelajaran yang sudah dibayar di stub `hpp.php` pada `uji-analytics` dan di
 kontrak `omsetHari`.
+
+
+##### Nama menu dibakukan HURUF BESAR — dan itu yang menghapus baris gandanya
+
+Permintaan user 10 September 2026: *"saya ingin nya ice kopi laksamana tidak
+perlu ada duplikasi… terus namanya di capslock saja khusus utk bagian analytics
+biar ngikuti yang lain saja."*
+
+Dua permintaan, satu sebab. Nama menu di halaman ini datang dari **dua sumber
+yang menulisnya dengan gaya berbeda**:
+
+```
+POS  ->  "ICE KOPI LAKSAMANA"   (semua huruf besar)
+HPP  ->  "Ice Kopi Laksamana"   (diketik orang)
+```
+
+Keduanya bertemu begitu sebuah kode paket dipasangkan ke resep — dan karena
+`gab` dikunci **string persis**, satu minuman yang sama berdiri sebagai DUA
+baris:
+
+| | porsi | nilai |
+|---|---|---|
+| `ICE KOPI LAKSAMANA` (nama dari POS) | 867 | Rp23.712.000 |
+| `Ice Kopi Laksamana` (nama resep HPP, lewat kodenya) | 640 | Rp0 |
+
+Tidak satu pun melempar galat. Yang terjadi: **menu terlarisnya terbaca separuh
+dari yang sebenarnya**, dan bahan bakunya terpecah dua — lalu yang
+mencocokkannya dengan stok gudang mencari selisih yang tidak pernah ada.
+Sesudah dibakukan: **1.507 porsi dalam satu baris**.
+
+- **Dibakukan di SATU tempat: `tambah()` di dalam `menuNormal()`.** Seluruh
+  layar Menu & Bahan Baku (daftar penjualan, perkiraan bahan, "belum ada
+  resep", kotak salinnya) diturunkan dari `gab`, jadi membakukannya per layar
+  berarti dua layar menyebut jumlah menu yang berbeda untuk bulan yang sama.
+- **AMAN terhadap pencocokan resep**, dan itu yang harus diperiksa sebelum
+  menyentuhnya lagi: seluruh pembacaan resep memakai `resepPeta()` yang dikunci
+  huruf **kecil** (`peta[nama.toLowerCase()]`), jadi nama yang dibesarkan tetap
+  menemukan resepnya di HPP. Yang berubah cuma yang TAMPIL dan yang
+  DIKELOMPOKKAN.
+- **Yang beda UKURAN tetap terpisah.** `ICE KOPI LAKSAMANA` dan `ICE KOPI
+  LAKSAMANA LARGE` dua baris, dan memang harus: takarannya berbeda. Yang
+  disatukan nama yang SAMA, bukan menu yang mirip.
+- **Aturan penggabungan `(PACKAGE)` tidak disentuh** — yang berubah kunci
+  kelompoknya, bukan aturannya. `ICE KOPI LAKSAMANA (PACKAGE)` tetap melebur ke
+  `ICE KOPI LAKSAMANA` seperti sebelumnya (Agustus 2026: 905 porsi dari baris
+  paket bernama jelas).
+- **Fixture di uji SENGAJA tetap Title Case** (`Kopi Susu Aren`, `Menu Tanpa
+  Resep`, `Menu 01`) — justru itu yang membuktikan pembakuannya bekerja.
+  Fixture yang ikut dibesarkan membuat mutasi "pembakuan dicabut" LOLOS tanpa
+  satu asersi pun bergerak.
+
+> **Paket event: omsetnya dan bahan bakunya memang terpisah, dan itu benar.**
+> Diukur atas Agustus 2026: baris header paket (`LEMKARI`, `BIRTHDAY 17 SIDIK`)
+> berkategori **EVENT** → dikeluarkan dari Menu & Bahan Baku, sementara minuman
+> yang disertakan di dalamnya (`ICE KOPI LAKSAMANA (PACKAGE)`, Rp0) berkategori
+> **BEVERAGES** → ikut, digabung, menambah porsi tanpa menambah nilai. Itu yang
+> diinginkan untuk bahan baku — 33 kopi itu sungguh diseduh. Akibatnya
+> rata-rata harga per porsinya sedikit turun; uangnya tidak hilang, ia ada di
+> kategori EVENT di halaman Kategori Menu.
 
 
 #### Saran pasangan dijepit ke UKURAN, dan ikut membaca Daftar Resep HPP (10 Sep 2026)

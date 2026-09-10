@@ -648,10 +648,10 @@ async function siap(w) {
     w.go('menu'); await tunggu(60);
     const v = d.getElementById('app-view').innerHTML;
 
-    cek('menu terlaris tergambar', v.indexOf('Kopi Susu Aren') > -1);
+    cek('menu terlaris tergambar', v.indexOf('KOPI SUSU AREN') > -1);
     /* Diurut menurut NILAI, bukan qty: menu murah yang terjual ratusan porsi
        bisa menyumbang lebih sedikit daripada satu menu mahal. */
-    cek('diurut menurut nilai', v.indexOf('Kopi Susu Aren') < v.indexOf('Roti Bakar'));
+    cek('diurut menurut nilai', v.indexOf('KOPI SUSU AREN') < v.indexOf('ROTI BAKAR'));
     cek('perkiraan bahan baku dihitung', v.indexOf('Perkiraan Bahan Baku') > -1);
     /* 100 Kopi Susu x 18 Gr = 1.800 Gr biji kopi. */
     cek('bahan langsung dikalikan benar', v.indexOf('1.800') > -1, v.slice(v.indexOf('Biji Kopi') - 60, v.indexOf('Biji Kopi') + 200));
@@ -666,7 +666,7 @@ async function siap(w) {
     /* Menu tanpa resep DILAPORKAN. Tanpa itu perkiraan terlihat lengkap
        padahal sebagian menunya tidak pernah ikut dihitung. */
     cek('menu tanpa resep dilaporkan', v.indexOf('Menu yang belum ada di HPP') > -1);
-    cek('menu tanpa resep disebut namanya', v.indexOf('Menu Tanpa Resep') > -1);
+    cek('menu tanpa resep disebut namanya', v.indexOf('MENU TANPA RESEP') > -1);
     cek('disebut berapa persen nilainya yang tidak terhitung', /% dari nilai penjualan menu/.test(v));
     /* Barisnya ikut ditandai DI TABEL PENJUALAN, bukan cuma di kartu bawah:
        yang melihat menu terlaris harus langsung tahu mana yang bahannya tidak
@@ -718,28 +718,28 @@ async function siap(w) {
     w.eval("mnUrut('qty')"); await tunggu(60);
     const vq = d.getElementById('app-view').innerHTML;
     cek('urutan menurut porsi benar-benar berubah',
-        vq.indexOf('>Kopi Susu Aren<') < vq.indexOf('>Roti Bakar<') &&
-        vq.indexOf('>Roti Bakar<') < vq.indexOf('>Menu Tanpa Resep<'));
+        vq.indexOf('>KOPI SUSU AREN<') < vq.indexOf('>ROTI BAKAR<') &&
+        vq.indexOf('>ROTI BAKAR<') < vq.indexOf('>MENU TANPA RESEP<'));
     w.eval("mnUrut('nilai')"); await tunggu(60);
 
     /* ===== rincian bahan PER PRODUK ===== */
-    w.eval("mnBuka('Kopi Susu Aren')"); await tunggu(60);
+    w.eval("mnBuka('KOPI SUSU AREN')"); await tunggu(60);
     const vr = d.getElementById('app-view').innerHTML;
     cek('rincian per produk memisahkan mentah & prep',
         vr.indexOf('Bahan mentah') > -1 && vr.indexOf('Bahan prep / base') > -1,
-        vr.slice(vr.indexOf('porsi Kopi Susu Aren') - 200, vr.indexOf('porsi Kopi Susu Aren') + 400));
-    cek('rinciannya menyebut jumlah porsi yang dihitung', /100<\/b> porsi Kopi Susu Aren/.test(vr));
+        vr.slice(vr.indexOf('porsi KOPI SUSU AREN') - 200, vr.indexOf('porsi KOPI SUSU AREN') + 400));
+    cek('rinciannya menyebut jumlah porsi yang dihitung', /100<\/b> porsi KOPI SUSU AREN/.test(vr));
     /* Menekan baris yang sedang terbuka harus MENUTUPNYA — kalau tidak,
        satu-satunya cara menutupnya adalah membuka baris lain, dan yang membuka
        baris terakhir terjebak dengan rincian yang tidak bisa dihilangkan. */
-    w.eval("mnBuka('Kopi Susu Aren')"); await tunggu(60);
+    w.eval("mnBuka('KOPI SUSU AREN')"); await tunggu(60);
     cek('menekan baris yang terbuka menutupnya', w.eval('MN_BUKA') === '');
     /* Menu tanpa resep: rinciannya MENGATAKAN sebabnya, bukan kosong. Kosong
        terbaca sebagai "menu ini tidak butuh bahan apa-apa". */
-    w.eval("mnBuka('Menu Tanpa Resep')"); await tunggu(60);
+    w.eval("mnBuka('MENU TANPA RESEP')"); await tunggu(60);
     const vt = d.getElementById('app-view').innerHTML;
     cek('rincian menu tanpa resep menjelaskan sebabnya', /belum punya resep di HPP/.test(vt),
-        vt.slice(vt.indexOf('Menu Tanpa Resep'), vt.indexOf('Menu Tanpa Resep') + 400));
+        vt.slice(vt.indexOf('MENU TANPA RESEP'), vt.indexOf('MENU TANPA RESEP') + 400));
 
     /* ===== 3. daftar menu tak dikenal sebagai TEKS yang bisa disalin ===== */
     const ta = d.getElementById('mn-teks');
@@ -748,7 +748,7 @@ async function siap(w) {
         !!ta && ta.value.split('\n').length === 1 && ta.value.split('\t').length === 3,
         ta && JSON.stringify(ta.value));
     cek('...memuat nama, qty, dan nilainya',
-        !!ta && ta.value.indexOf('Menu Tanpa Resep') === 0 && ta.value.indexOf('\t5\t150000') > -1,
+        !!ta && ta.value.indexOf('MENU TANPA RESEP') === 0 && ta.value.indexOf('\t5\t150000') > -1,
         ta && JSON.stringify(ta.value));
     /* readonly, BUKAN disabled: yang disabled tidak bisa diblok untuk disalin
        manual, dan itu jalan keluar terakhir kalau izin clipboard ditolak. */
@@ -756,7 +756,7 @@ async function siap(w) {
         !!ta && ta.readOnly === true && ta.disabled === false);
     cek('ada tombol salin & unduh',
         vt.indexOf('mnSalin()') > -1 && vt.indexOf('mnUnduhTak()') > -1);
-    w.eval("mnBuka('Menu Tanpa Resep')"); await tunggu(60);
+    w.eval("mnBuka('MENU TANPA RESEP')"); await tunggu(60);
     dom.window.close();
   }
 
@@ -955,7 +955,10 @@ async function siap(w) {
     {
       const { dom: dk } = domAnalytics({ hpp: { resep: [
         { nama:'LARGE MATCHA LATTE', tipe:'dish', kode:'MATCHA02', yield_qty:1, bahan:[] },
-        { nama:'ICE MATCHA LATTE',   tipe:'dish', kode:'matcha01', yield_qty:1, bahan:[] },
+        /* Sengaja ditulis Title Case seperti orang mengetiknya di HPP, dan
+           sengaja bernama SAMA dengan menu yang sudah ada di laporan POS
+           ("MATCHA LATTE") — itu bentuk yang melahirkan baris ganda. */
+        { nama:'Matcha Latte',       tipe:'dish', kode:'matcha01', yield_qty:1, bahan:[] },
         /* `base` tidak pernah dijual, jadi ia tidak bisa jadi tujuan sebuah
            baris paket — porsinya akan pindah ke sesuatu yang tidak pernah
            muncul di daftar menu mana pun. */
@@ -969,7 +972,7 @@ async function siap(w) {
       /* Kode diketik orang di dua jalur (form & impor Excel), jadi "matcha01"
          dan "MATCHA01" pasti bercampur — dan yang bercampur tidak pernah cocok
          dengan kode dari POS, tanpa satu pun galat. */
-      cek('kode dibakukan huruf besar', ph.peta['MATCHA01'] === 'ICE MATCHA LATTE', JSON.stringify(ph.peta));
+      cek('kode dibakukan huruf besar', ph.peta['MATCHA01'] === 'Matcha Latte', JSON.stringify(ph.peta));
       cek('resep base tidak pernah jadi tujuan kode', ph.peta['MATCHA09'] === undefined, JSON.stringify(ph.peta));
 
       /* Porsi baris paket masuk ke menunya TANPA satu pun daftar pasangan. */
@@ -980,6 +983,34 @@ async function siap(w) {
           !NK.gab['LARGE (PACKAGE) · MATCHA02'], JSON.stringify(Object.keys(NK.gab)));
       cek('kode yang sudah dikenali tidak lagi dilaporkan belum dipasangkan',
           NK.takKenal['MATCHA02'] === undefined, JSON.stringify(Object.keys(NK.takKenal)));
+
+      /* ---- NAMA DIBAKUKAN HURUF BESAR (10 September 2026, permintaan user) ----
+
+         Ini SEKALIGUS yang menghapus baris gandanya, dan dua hal itu sebabnya
+         satu: POS menulis "MATCHA LATTE", HPP diketik "Matcha Latte". Dikunci
+         string persis, satu minuman yang sama berdiri sebagai DUA baris —
+         menu terlarisnya terbaca separuh dari yang sebenarnya, dan bahan
+         bakunya terpecah dua. Tidak satu pun melempar galat. */
+      cek('seluruh nama menu huruf besar',
+          Object.keys(NK.gab).every(x => x === x.toUpperCase()),
+          JSON.stringify(Object.keys(NK.gab).filter(x => x !== x.toUpperCase())));
+      cek('nama resep HPP tidak berdiri sebagai baris kedua',
+          !NK.gab['Matcha Latte'], JSON.stringify(Object.keys(NK.gab)));
+      /* Porsi dari kodenya MENYATU dengan porsi menu yang sama dari POS —
+         angkanya dihitung dari fixture, bukan dipatok, supaya ia ikut benar
+         kalau fixture-nya berubah. */
+      {
+        const dariPos = (u.menu['MATCHA LATTE'] || {}).qty || 0;
+        const dariKode = ((u.paket['REGULAR (PACKAGE)'] || {})['MATCHA01'] || {}).qty || 0;
+        cek('porsinya menyatu, bukan terpecah dua baris',
+            dariKode > 0 && NK.gab['MATCHA LATTE']
+            && NK.gab['MATCHA LATTE'].qty === dariPos + dariKode,
+            (NK.gab['MATCHA LATTE'] || {}).qty + ' vs ' + dariPos + '+' + dariKode);
+      }
+      /* Yang beda UKURAN tetap terpisah — dedupe-nya menyatukan nama yang
+         sama, bukan menu yang mirip. */
+      cek('menu ukuran large tetap barisnya sendiri',
+          !!NK.gab['LARGE MATCHA LATTE'], JSON.stringify(Object.keys(NK.gab)));
 
       /* HPP MENANG atas pasangan manual. Dibalik, mengisi kode di HPP tidak
          mengubah apa pun selama pasangan lamanya masih ada — perubahan yang
@@ -1831,7 +1862,7 @@ async function siap(w) {
         d.getElementById('app-view').innerHTML.indexOf('tidak menjawab') > -1);
     w.go('menu'); await tunggu(40);
     const v = d.getElementById('app-view').innerHTML;
-    cek('HPP mati: menu terlaris tetap terbaca', v.indexOf('Kopi') > -1);
+    cek('HPP mati: menu terlaris tetap terbaca', v.indexOf('KOPI') > -1);
     cek('HPP mati: bahan baku dikatakan tidak bisa dihitung', v.indexOf('Resep dari modul HPP tidak terbaca') > -1);
     dom.window.close();
   }
@@ -1918,13 +1949,13 @@ async function siap(w) {
        Menurut nilai ia terakhir; menurut porsi ia pertama. Kalau saklarnya
        tidak bekerja, kedua daftar ini akan sama. */
     cek('menurut NILAI, menu murah ada di paling bawah',
-        baris()[24] === 'Air Mineral', baris().slice(-3).join(' | '));
+        baris()[24] === 'AIR MINERAL', baris().slice(-3).join(' | '));
     w.eval("mnUrut('qty')"); await tunggu(60);
     cek('menurut PORSI, menu murah naik ke paling atas',
-        baris()[0] === 'Air Mineral', baris().slice(0, 3).join(' | '));
+        baris()[0] === 'AIR MINERAL', baris().slice(0, 3).join(' | '));
     /* Dan itu memang dua jawaban yang berbeda — kalau sama, saklarnya tidak
        menjawab pertanyaan apa pun. */
-    cek('kedua urutan benar-benar berbeda', baris()[0] !== 'Menu 01' || false);
+    cek('kedua urutan benar-benar berbeda', baris()[0] !== 'MENU 01' || false);
 
     /* GANTI URUTAN KEMBALI KE HALAMAN 1: yang diurut ulang SELURUH daftarnya,
        jadi halaman 2 sesudahnya memuat menu yang tidak ada hubungannya dengan
@@ -1933,7 +1964,7 @@ async function siap(w) {
     w.eval('mnHal(2)'); await tunggu(60);
     w.eval("mnUrut('nilai')"); await tunggu(60);
     cek('ganti urutan kembali ke halaman 1',
-        w.eval('MN_HAL') === 1 && baris()[0] === 'Menu 01', w.eval('MN_HAL') + ' | ' + baris()[0]);
+        w.eval('MN_HAL') === 1 && baris()[0] === 'MENU 01', w.eval('MN_HAL') + ' | ' + baris()[0]);
 
     /* PENCARIAN MENYAPU SELURUH MENU, bukan halaman yang sedang terbuka:
        "Menu 24" ada di halaman 2, dan mencarinya dari halaman 1 harus tetap
@@ -1946,7 +1977,7 @@ async function siap(w) {
       kt.dispatchEvent(new w.Event('input', { bubbles:true }));
       await tunggu(40);
       cek('mencari dari halaman 1 tetap menemukan menu di halaman 2',
-          baris().length === 1 && baris()[0] === 'Menu 24', baris().join(' | '));
+          baris().length === 1 && baris()[0] === 'MENU 24', baris().join(' | '));
 
       /* MENGETIK KATA KUNCI KEMBALI KE HALAMAN 1, dan itu HARUS diuji dengan
          kata kunci yang hasilnya MASIH lebih dari satu halaman: kalau hasilnya
@@ -1961,12 +1992,12 @@ async function siap(w) {
       kt.value = ''; kt.dispatchEvent(new w.Event('input', { bubbles:true })); await tunggu(40);
       w.eval('mnHal(2)'); await tunggu(40);
       cek('...dan halaman 2 benar-benar terbuka sebelum kata kuncinya diketik',
-          w.eval('MN_HAL') === 2 && baris()[0] === 'Menu 21', w.eval('MN_HAL') + ' | ' + baris()[0]);
+          w.eval('MN_HAL') === 2 && baris()[0] === 'MENU 21', w.eval('MN_HAL') + ' | ' + baris()[0]);
       kt.value = 'menu';
       kt.dispatchEvent(new w.Event('input', { bubbles:true }));
       await tunggu(40);
       cek('mengetik kata kunci kembali ke halaman 1',
-          w.eval('MN_HAL') === 1 && baris()[0] === 'Menu 01', w.eval('MN_HAL') + ' | ' + baris()[0]);
+          w.eval('MN_HAL') === 1 && baris()[0] === 'MENU 01', w.eval('MN_HAL') + ' | ' + baris()[0]);
 
       kt.value = ''; kt.dispatchEvent(new w.Event('input', { bubbles:true })); await tunggu(40);
       cek('mengosongkan kata kunci mengembalikan seluruh halaman 1',
@@ -1982,7 +2013,7 @@ async function siap(w) {
     w.eval('mnHal(2)'); await tunggu(40);
     w.eval('mnPer(20)'); await tunggu(40);
     cek('ganti ukuran halaman kembali ke halaman 1',
-        w.eval('MN_HAL') === 1 && baris().length === 20 && baris()[0] === 'Menu 01',
+        w.eval('MN_HAL') === 1 && baris().length === 20 && baris()[0] === 'MENU 01',
         w.eval('MN_HAL') + ' | ' + baris().length + ' | ' + baris()[0]);
 
     /* Seluruh menu di sini tidak punya resep — kartunya harus menyebut
