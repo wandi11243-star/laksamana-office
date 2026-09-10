@@ -91,14 +91,52 @@
      menyimpan teks: sharedStrings (t="s") dan inline (t="inlineStr"). Berkas
      yang diunggah user memakai inline; berkas dari POS lain memakai
      sharedStrings, dan yang cuma mengenal satu bentuk memulangkan seluruh kolom
-     teks sebagai angka indeks. */
+     teks sebagai angka indeks.
+
+     SEL KOSONG DITULIS SELF-CLOSING (`<c r="M12" s="9"/>`) — dan itu bentuk
+     yang PALING SERING ada di berkas POS, bukan kasus tepi. Pola lama menuntut
+     penutup `</c>`, jadi begitu ia mulai mencocokkan sel self-closing,
+     pencarian penutupnya BERLANJUT KE SEL BERIKUTNYA dan menelannya utuh:
+     kolom sesudah tiap kolom kosong hilang tanpa satu pun galat, dan nilainya
+     terbaca sebagai kosong.
+
+     Diukur atas kedua berkas POS Agustus 2026 (10 September 2026), dan
+     akibatnya bukan cuma satu kolom:
+
+       Detail Report  N  Visit Purpose              19.734 baris (100%)
+                      AF Order Mode                 17.812 baris (90%)
+                      AD Menu Code                   2.800 baris (14%)
+                      AE Menu Notes                  1.913 baris (10%)
+                      AB Menu                            4 baris
+                      AR Total After Bill Discount       2 baris   <- UANG
+       Bill Report    M  Visit Purpose               4.785 baris (100%)
+                      AA Pax Total                   4.461 baris (93%)
+                      AM Voucher Sales Total         4.785 baris (100%)
+
+     DUA "fakta" yang selama ini tercatat di CLAUDE.md sebenarnya GEJALA bug
+     ini, bukan bentuk datanya: (1) "Menu Code ADA tapi KOSONG di seluruh
+     19.734 baris" — 2.800 baris di antaranya memang berisi; (2) "kolom Pax
+     jarang terisi, cuma 318 dari 4.087 bill" — Pax Total ditelan di 93% baris.
+     Keduanya sudah dibetulkan di sana.
+
+     Yang paling berbahaya bukan Visit Purpose yang kosong seluruhnya (itu
+     kelihatan), melainkan kolom UANG yang ditelan di beberapa baris saja:
+     nilainya jatuh ke nol dan totalnya tetap terlihat wajar. */
   function uraiSheet(xml, ss) {
     const baris = [];
     for (const mr of xml.matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
       const sel = {};
-      for (const mc of mr[1].matchAll(/<c r="([A-Z]+)\d+"([^>]*)>([\s\S]*?)<\/c>/g)) {
+      /* Dua bentuk sel dalam satu pola: self-closing, atau berpasangan.
+         `[^>]*?` harus LAZY — kalau rakus, ia melewati `/>` sel ini dan
+         mencari `>` di sel berikutnya, yaitu bug yang sama dengan bentuk
+         lain. */
+      for (const mc of mr[1].matchAll(/<c r="([A-Z]+)\d+"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
         const tipe = (mc[2].match(/ t="([^"]*)"/) || [])[1] || 'n';
-        const dalam = mc[3];
+        /* Sel self-closing tidak punya isi — TETAP dicatat sebagai kosong,
+           bukan dilewati: kolomnya memang ada di baris itu, dan yang membaca
+           `Object.keys` untuk menghitung lebar baris tidak boleh melihatnya
+           berbeda dari sel kosong berpasangan. */
+        const dalam = mc[3] === undefined ? '' : mc[3];
         let v;
         if (tipe === 's') {
           const ix = (dalam.match(/<v>([\s\S]*?)<\/v>/) || [])[1];

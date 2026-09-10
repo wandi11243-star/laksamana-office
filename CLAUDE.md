@@ -1486,9 +1486,15 @@ Yang menahan bug diam-diam:
   jumlah kedua shift tidak sama dengan total di Ringkasan.
 - **Shift boleh melewati tengah malam** (`diRentang()` melingkar). Perbandingan
   lurus `a<=j&&j<b` memulangkan kosong untuk seluruh shift 18–02.
-- **Rata-rata per TAMU disembunyikan kalau kolom Pax jarang terisi** — di data
-  produksi cuma 318 dari 4.087 bill. Membaginya memberi angka belasan kali
-  lipat dari kenyataan, dan angka semacam itu terlihat sangat meyakinkan.
+- **Rata-rata per TAMU disembunyikan kalau kolom Pax jarang terisi.**
+  Membaginya memberi angka belasan kali lipat dari kenyataan, dan angka
+  semacam itu terlihat sangat meyakinkan. ~~di data produksi cuma 318 dari
+  4.087 bill~~ — **angka itu KELIRU dan sudah dibetulkan 10 September 2026**:
+  Pax Total terisi di SELURUH baris (Agustus 2026: 4.829 pax di 4.785 bill),
+  dan yang membuatnya terbaca kosong adalah bug pengurai .xlsx — lihat
+  **Pengurai .xlsx menelan sel sesudah tiap sel kosong** di bawah. Yang perlu
+  diketahui saat membacanya sekarang: POS-nya diisi **1 pax per bill** di 4.759
+  dari 4.785 bill, jadi angkanya praktis sama dengan rata-rata per bill.
 
 **DUA BENTUK LAPORAN, dan bedanya menentukan apa yang bisa dijawab:**
 
@@ -1573,11 +1579,20 @@ Dua bentuk, dan bedanya menentukan bisa-tidaknya ia dihitung:
   kodenya (`LARGE (PACKAGE) · MATCHA02`). Dibuang, jumlah porsi di halaman ini
   berhenti sama dengan jumlah di berkas POS — dan ujinya memeriksa persis itu:
   total porsi & nilai **tidak boleh berubah** karena penggabungan.
-- **`Menu Code` ADA tapi KOSONG di seluruh 19.734 baris**; yang berisi kodenya
-  `Custom Menu Name`. Kolom yang ada tapi kosong adalah jebakan yang tidak bisa
-  ditangkap dengan memilih kolom sekali di depan — `menu code` menang karena
-  kolomnya memang ada, dan nol kode terbaca tanpa satu pun galat. Karena itu
-  `KOL_CARI.kode` dan `kode2` dipilih **PER BARIS**.
+- **`KOL_CARI.kode` dan `kode2` dipilih PER BARIS.** Kolom yang ADA tapi
+  kosong adalah jebakan yang tidak bisa ditangkap dengan memilih kolom sekali
+  di depan — `menu code` menang karena kolomnya memang ada, dan nol kode
+  terbaca tanpa satu pun galat.
+
+  ~~`Menu Code` ADA tapi KOSONG di seluruh 19.734 baris; yang berisi kodenya
+  `Custom Menu Name`~~ — **itu TERBALIK, dibetulkan 10 September 2026.**
+  Diukur ulang sesudah bug pengurai .xlsx ditutup: **Menu Code (AD) terisi di
+  2.620 dari 2.811 baris (PACKAGE)**, sementara **Custom Menu Name (AC) kosong
+  seluruhnya**. Selama bug itu hidup TIDAK SATU PUN kode paket pernah terbaca —
+  AC yang kosong menelan AD — jadi penggabungan baris berkode dan halaman
+  *Pengaturan → Kode Menu Paket* tidak pernah bekerja atas data sungguhan.
+  Pemilihan per baris tetap dipertahankan: ia sekarang menemukan kodenya di
+  kolom pertama, dan tetap punya cadangan kalau POS memindahkannya lagi.
 - **`Custom Menu Name` juga dipakai kasir menulis catatan** ("Setengah
   mateng", "Takeaway", "No sugar") — 860 nilai berbeda. `kodeMenu()`
   menyaringnya: diawali huruf, diakhiri angka, hanya huruf/angka/`._-` di
@@ -1770,6 +1785,106 @@ seluruh transaksi sebulan.
 ```bash
 node tools/uji-analytics.js   # 230 pemeriksaan
 ```
+
+#### Pengurai .xlsx menelan sel sesudah tiap sel kosong (10 Sep 2026)
+
+Pertanyaan user: *"kenapa tertulis tanpa keterangan, padahal di Excel ada
+Visit Purpose DINE IN, ONLINE dll"* — halaman Metode Kunjungan menulis
+**(tanpa keterangan) 4.785 transaksi (100%)**.
+
+**Kolomnya bukan salah nama, dan bukan pula kosong di berkasnya.** XML
+mentahnya:
+
+```xml
+<c r="L12" s="9" t="inlineStr"><is><t>Pekanbaru</t></is></c>
+<c r="M12" s="9"/>                                        <-- Area, KOSONG
+<c r="N12" s="9" t="inlineStr"><is><t>DINE IN</t></is></c> <-- Visit Purpose
+```
+
+Pola sel di `uraiSheet()` menuntut penutup `</c>`:
+
+```js
+/<c r="([A-Z]+)\d+"([^>]*)>([\s\S]*?)<\/c>/g
+```
+
+Begitu ia mulai mencocokkan `<c r="M12" s="9"/>`, `([^>]*)` menelan
+` s="9"/` lalu pencarian `</c>` **BERLANJUT KE SEL BERIKUTNYA** dan
+menghabiskannya. Akibatnya M terbaca kosong dan **N tidak pernah ada sama
+sekali** — jadi tiap kolom yang berdiri tepat sesudah kolom kosong hilang
+tanpa satu pun galat.
+
+**DAMPAKNYA JAUH LEBIH LUAS DARIPADA KELUHANNYA**, diukur atas kedua berkas
+POS Agustus 2026 (74.458 sel self-closing di satu berkas):
+
+| berkas | kolom | hilang |
+|---|---|---|
+| Detail | `Visit Purpose` | 19.734 baris (100%) |
+| Detail | `Order Mode` | 17.812 (90%) |
+| Detail | `Menu Code` | 2.800 (14%) |
+| Detail | `Menu Notes` | 1.913 (10%) |
+| Detail | `Menu` | 4 baris |
+| Detail | **`Total After Bill Discount`** | **2 baris — UANG** |
+| Bill | `Visit Purpose` | 4.785 (100%) |
+| Bill | `Pax Total` | 4.461 (93%) |
+| Bill | `Voucher Sales Total` | 4.785 (100%) |
+
+**Yang paling berbahaya bukan kolom yang hilang seluruhnya — itu kelihatan.
+Yang berbahaya kolom UANG yang ditelan di beberapa baris saja:** nilainya
+jatuh ke nol, totalnya tetap terlihat wajar, dan tidak ada satu pun layar yang
+menyebutkannya.
+
+Polanya sekarang mengerti kedua bentuk sel:
+
+```js
+/<c r="([A-Z]+)\d+"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g
+```
+
+- **`[^>]*?` WAJIB LAZY.** Rakus, ia melewati `/>` sel ini dan mencari `>`
+  di sel berikutnya — bug yang sama dengan bentuk lain.
+- **Sel self-closing TETAP dicatat sebagai kosong**, bukan dilewati: kolomnya
+  memang ada di baris itu, dan yang membaca `Object.keys` untuk menghitung
+  lebar baris tidak boleh melihatnya berbeda dari sel kosong berpasangan —
+  lihat aturan **LEBAR TSV DARI KOLOM TERJAUH** di impor Jadwal.
+- **`mc[3]` undefined untuk sel self-closing** dan wajib dijatuhkan ke `''`;
+  diteruskan apa adanya, `.match()` melempar dan seluruh pembacaan berkas mati.
+
+**DUA "FAKTA" DI BERKAS INI TERNYATA GEJALA BUG INI**, dan keduanya sudah
+dibetulkan di tempatnya (dengan teks lamanya dicoret, bukan dihapus — supaya
+yang pernah membacanya tahu apa yang berubah):
+
+| yang tercatat | yang sebenarnya |
+|---|---|
+| "`Menu Code` ADA tapi KOSONG di seluruh 19.734 baris; yang berisi kodenya `Custom Menu Name`" | TERBALIK — Menu Code terisi 2.620 dari 2.811 baris (PACKAGE), Custom Menu Name kosong seluruhnya |
+| "kolom Pax jarang terisi — cuma 318 dari 4.087 bill" | Pax Total terisi di SELURUH baris: 4.829 pax di 4.785 bill |
+
+> **PELAJARANNYA bukan soal regex.** Kedua kalimat itu ditulis dari HASIL
+> PEMBACAAN, bukan dari berkasnya — jadi bug pengurainya tercatat sebagai
+> sifat data POS, lalu dipakai membenarkan keputusan lain (pemilihan kolom per
+> baris, penyembunyian kartu Pax). Komentar yang salah lebih berbahaya
+> daripada tidak ada komentar; ini contoh keempat di repo ini sesudah
+> `hpp.php`, `cocokPic()`, dan `save_all()` kompas. **Kalau sebuah kolom
+> terbaca kosong, buka XML-nya sebelum menuliskannya sebagai fakta.**
+
+Efeknya **berlaku surut hanya untuk yang diunggah ulang**: laporan yang sudah
+tersimpan menyimpan hasil pembacaan lama. Bulan yang perlu Visit Purpose,
+Menu Code, atau Pax-nya benar harus diunggah ulang.
+
+```bash
+node tools/uji-analytics.js   # 344 pemeriksaan (dari 333)
+```
+
+Ujinya menguji `uraiSheet()` sebagai **UNIT, tanpa jsdom dan tanpa berkas POS
+asli** — berkas POS tidak boleh di-commit, jadi asersi yang cuma ada di jalur
+berkas asli MELEWAT diam-diam di mesin yang tidak punya berkasnya, yaitu tempat
+yang paling mungkin menjalankan uji ini. Yang atas berkas asli tetap ada
+sebagai penguat: kalau ia merah sementara asersi unitnya hijau, berarti POS
+mengganti nama atau bentuk kolomnya — dua sebab berbeda yang layak dipisahkan.
+
+Enam mutasi dicoba, lima tertangkap, dan **yang keenam EKUIVALEN** — bukan
+cacat uji: membalik urutan cabang (`>…` sebelum `/>`) tidak mengubah apa pun,
+karena kedua cabang menuntut karakter yang BERBEDA di posisi yang sama
+(`>` vs `/`) sehingga tidak pernah bisa sama-sama cocok pada satu panjang
+`[^>]*?`. Dibuktikan dengan menjalankan kedua pola atas enam bentuk sel.
 
 ### Analytics: jembatan tiga layar & kolom Kontribusi (6 September 2026)
 

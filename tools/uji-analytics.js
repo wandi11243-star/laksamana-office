@@ -50,6 +50,16 @@ if (HTML_PB === HTML) { console.error('tag performa-bonus.js tidak ketemu di sum
 HTML = HTML_PB;
 
 let lulus = 0, gagal = 0;
+/* Membaca berkas .xlsx dengan aset yang SAMA, di luar jsdom — dipakai asersi
+   "berkas asli" supaya ia tidak bergantung pada boot halaman. */
+async function winXlsxBaris(jalur) {
+  const w = { console };
+  new Function('window', ASET_XLSX)(w);
+  const buf = fs.readFileSync(jalur);
+  const f = new Blob([buf]);
+  f.name = path.basename(jalur);
+  return await w.bacaBerkasTabel(f);
+}
 const cek = (nama, syarat, ket) => {
   if (syarat) { lulus++; console.log('  OK   ' + nama); }
   else { gagal++; console.log('  GAGAL ' + nama + (ket ? '  -> ' + ket : '')); }
@@ -177,6 +187,73 @@ async function siap(w) {
     dom.window.close();
   }
 
+  /* ================= PENGURAI SEL .xlsx =================
+     SEL KOSONG DI BERKAS POS DITULIS SELF-CLOSING (<c r="M12" s="9"/>), dan
+     pola lama menuntut penutup </c> — jadi begitu ia mulai mencocokkan sel
+     seperti itu, pencarian penutupnya BERLANJUT KE SEL BERIKUTNYA dan
+     menelannya utuh. Kolom sesudah tiap kolom kosong karena itu hilang tanpa
+     satu pun galat, dan nilainya terbaca sebagai kosong.
+
+     Diukur atas kedua berkas POS Agustus 2026: Visit Purpose hilang di 100%
+     baris (keluhan yang melahirkan uji ini), Pax Total 93%, Order Mode 90%,
+     Menu Code 14% — dan Total After Bill Discount di 2 baris, yaitu UANG.
+
+     Diuji sebagai UNIT di sini, bukan lewat berkas asli: berkas POS tidak
+     boleh di-commit, jadi asersi yang cuma ada di sana MELEWAT diam-diam di
+     mesin yang tidak punya berkasnya — yaitu tempat yang paling mungkin
+     menjalankan uji ini. */
+  console.log('\n== Pengurai sel .xlsx ==');
+  {
+    const winX = { console };
+    new Function('window', ASET_XLSX)(winX);
+    const urai = winX.uraiSheet;
+
+    /* Bentuk yang benar-benar dipulangkan POS: inlineStr, dan sel kosong
+       self-closing di antara dua sel berisi. */
+    const xml1 = '<row r="12">'
+      + '<c r="L12" s="9" t="inlineStr"><is><t>Pekanbaru</t></is></c>'
+      + '<c r="M12" s="9"/>'
+      + '<c r="N12" s="9" t="inlineStr"><is><t>DINE IN</t></is></c>'
+      + '<c r="O12" s="9" t="inlineStr"><is><t>Non Member</t></is></c>'
+      + '</row>';
+    const b1 = urai(xml1, [])[0];
+    cek('sel sesudah sel kosong TIDAK ditelan', b1.N === 'DINE IN',
+        'N=' + JSON.stringify(b1.N) + ' seluruh baris=' + JSON.stringify(b1));
+    cek('...sel kosongnya sendiri tetap tercatat sebagai kosong', b1.M === '',
+        JSON.stringify(b1.M));
+    cek('...dan sel sesudahnya lagi ikut utuh', b1.O === 'Non Member', JSON.stringify(b1.O));
+    cek('...sel sebelum yang kosong tidak terpengaruh', b1.L === 'Pekanbaru', JSON.stringify(b1.L));
+
+    /* Beberapa sel kosong berurutan — bentuk yang ada di kolom metadata POS. */
+    const b2 = urai('<row r="3">'
+      + '<c r="A3" s="1"/><c r="B3" s="1"/><c r="C3" s="1"/>'
+      + '<c r="D3"><v>12345.67</v></c></row>', [])[0];
+    cek('beberapa sel kosong berurutan tidak menelan yang berikutnya',
+        b2.D === '12345.67', JSON.stringify(b2));
+    /* INI YANG PALING MAHAL: kolom UANG tepat sesudah kolom kosong. Nilainya
+       jatuh ke nol dan totalnya tetap terlihat wajar — tidak ada satu pun
+       galat yang menyebutnya. */
+    cek('...termasuk kalau yang berikutnya kolom angka', Number(b2.D) === 12345.67);
+
+    /* sharedStrings tetap terbaca, dan sel kosong di depannya tidak
+       menggesernya. */
+    const b3 = urai('<row r="4"><c r="A4" s="1"/><c r="B4" t="s"><v>1</v></c></row>',
+        ['nol', 'satu'])[0];
+    cek('sharedStrings tetap terbaca sesudah sel kosong', b3.B === 'satu', JSON.stringify(b3));
+
+    /* Baris tanpa satu pun sel kosong harus tetap sama seperti dulu — perbaikan
+       ini tidak boleh mengubah apa pun untuk bentuk yang memang sudah benar. */
+    const b4 = urai('<row r="5"><c r="A5" t="inlineStr"><is><t>x</t></is></c>'
+      + '<c r="B5"><v>7</v></c></row>', [])[0];
+    cek('baris tanpa sel kosong tidak berubah artinya', b4.A === 'x' && b4.B === '7',
+        JSON.stringify(b4));
+
+    /* Entity XML tetap dibalikkan. */
+    const b5 = urai('<row r="6"><c r="A6" s="1"/>'
+      + '<c r="B6" t="inlineStr"><is><t>Kopi &amp; Susu</t></is></c></row>', [])[0];
+    cek('entity XML tetap dibalikkan', b5.B === 'Kopi & Susu', JSON.stringify(b5));
+  }
+
   /* ================= 2. baca berkas POS ASLI ================= */
   console.log('\n== Baca berkas .xlsx asli ==');
   const bp = berkasPos();
@@ -196,6 +273,25 @@ async function siap(w) {
        di sebagian versi — disediakan supaya yang diuji tetap kode modulnya. */
     file.arrayBuffer = async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
     file.text = async () => buf.toString('utf8');
+
+    /* Visit Purpose di berkas ASLI. Kalau ini merah sementara asersi unit di
+       atas hijau, berarti POS mengganti nama atau bentuk kolomnya — dua sebab
+       yang berbeda, dan memisahkannya menghemat satu putaran penuh. */
+    {
+      const barisAsli = await winXlsxBaris(bp);
+      const iH = barisAsli.findIndex(r => Object.values(r).filter(x => x && isNaN(Number(x))).length >= 5);
+      const kol = Object.keys(barisAsli[iH] || {})
+        .find(k => String(barisAsli[iH][k] || '').trim().toLowerCase() === 'visit purpose');
+      cek('berkas asli: kolom Visit Purpose ketemu', !!kol, 'kepala baris ' + iH);
+      if (kol) {
+        let isi = 0;
+        for (let i = iH + 1; i < barisAsli.length; i++)
+          if (String(barisAsli[i][kol] || '').trim()) isi++;
+        const nData = barisAsli.length - iH - 1;
+        cek('berkas asli: Visit Purpose benar-benar terisi, bukan kosong seluruhnya',
+            isi > nData * 0.9, isi + ' dari ' + nData + ' baris terisi');
+      }
+    }
 
     const t0 = Date.now();
     await w.anPilihBerkas({ files: [file] });
