@@ -2079,6 +2079,118 @@ Ujinya memakai **berkas POS asli** di root repo kalau ada (kalau tidak, bagian
 itu MELEWAT dengan jelas). `DecompressionStream`/`Blob`/`Response` ada di Node
 18+, jadi jalur yang dipakai peramban benar-benar dijalankan — bukan ditiru.
 
+#### Kategori Menu yang tidak pernah tersimpan, dan kategori acara (10 Sep 2026)
+
+Pertanyaan user: *"ini kenapa?"* atas peringatan **"Laporan bulan ini belum
+memuat kategori menu… unggah ulang berkas bulan itu"** — untuk berkas yang
+memang Detail Report dan memang baru diunggah.
+
+**PERINGATANNYA BENAR, SARANNYA TIDAK BISA DITEPATI.** Yang membuang
+kategorinya bukan berkasnya, melainkan langkah simpannya:
+
+```js
+AN.data.laporan[u.bulan] = {
+  diunggah, oleh, berkas, jenis, hari, jam, menu, ringkas   // <- daftar TERTUTUP
+};
+```
+
+`uraiPos()` menghasilkan `paket`, `kategori`, dan `katMenu`; ketiganya tidak
+disebut di sana, jadi **dibuang di klien** — sebelum menyentuh server
+(`an_simpan()` sendiri menulis blob apa adanya, tanpa penyaringan). Bentuknya
+sama persis dengan `brankas_simpan()`; bedanya di sini menggigit lebih cepat,
+karena yang dibuang tidak pernah sempat ada di memori.
+
+**DUA fitur karena itu tidak pernah bekerja sekali pun sejak 4 September 2026:**
+
+| | akibatnya |
+|---|---|
+| halaman **Kategori Menu** | `d.kategori` selalu kosong → peringatan itu SELALU muncul |
+| penggabungan baris **(PACKAGE)** | `d.paket` kosong → `menuNormal()` tidak bisa menguraikan `LARGE (PACKAGE)`; ~4.123 porsi Agustus 2026 tetap berdiri sebagai menu palsu dan bahan bakunya tidak ikut terhitung |
+
+Halaman **Pengaturan → Kode Menu Paket** ikut jadi setelan mati: petanya diisi
+orang tapi tidak pernah dibaca siapa pun.
+
+Porsinya sendiri tidak hilang — baris `(PACKAGE)` tetap masuk `menu[]`; yang
+hilang cuma kemampuan menggabungkannya.
+
+> **KENAPA 260 PEMERIKSAAN TETAP HIJAU.** Seluruh asersi kategori & paket
+> menguji **keluaran pengurainya** (`u`), lalu menyuntikkan `u` LANGSUNG ke
+> `AN.data.laporan` — melewati persis baris yang rusak. Uji yang berhenti tepat
+> sebelum jalur yang rusak tidak menguji apa pun di sana. Sekarang ada
+> **putaran simpan sungguhan** lewat `anSimpanUnggah()`, dan itu yang akan
+> menangkap kunci BERIKUTNYA yang tertinggal.
+>
+> Yang SENGAJA tidak ikut disimpan: `nBaris`, `nLewat`, `blnLain`,
+> `billDariBaris`, `tglAwal`, `tglAkhir` — keenamnya cuma dibaca layar
+> pratinjau, tidak pernah dari laporan tersimpan.
+
+**KATEGORI ACARA TIDAK IKUT DI MENU & BAHAN BAKU** (permintaan user di pesan
+yang sama). `Menu Category Detail` bernilai `EVENT` — isinya Prasmanan, Nasi
+Kotak, Snack Box — dikeluarkan dari halaman Menu, dan **tetap utuh** di halaman
+Kategori Menu berikut rincian menunya.
+
+- **Disaring di `menuNormal()`, SATU tempat.** Halaman Menu, daftar *belum ada
+  resep*, dan perkiraan bahan baku semuanya diturunkan dari `gab`; menyaringnya
+  di salah satu layar saja berarti dua layar menyebut jumlah menu yang berbeda
+  untuk bulan yang sama.
+- **Sebabnya bukan kerapian.** Menu acara dijual per paket dan tidak punya
+  resep di HPP, jadi kalau ikut ia cuma menambah baris *belum ada resep* yang
+  tidak akan pernah bisa dibereskan siapa pun — dan justru daftar itu yang
+  dipakai orang untuk tahu resep mana yang masih kurang. Bahan acara pun
+  dibelanjakan terpisah, bukan dari stok yang dicocokkan halaman itu.
+- **YANG DIKELUARKAN DIHITUNG DAN DISEBUT** (`NM.ev`), bukan dibuang diam-diam:
+  nama menunya, porsinya, dan nilainya ditulis di pita halaman Menu. Keempat
+  kartu di atasnya berhenti sama dengan berkas POS begitu penyaring ini
+  menyala, dan selisih tanpa keterangan dicari orang di tempat yang salah.
+- **Dicocokkan `trim().toUpperCase() === 'EVENT'`**, sama persis — bukan
+  awalan. Isinya diketik di POS jadi `Event` dan `EVENT ` pasti bercampur, dan
+  yang tidak cocok tidak melempar apa pun: ia cuma diam-diam ikut lagi.
+  Awalan akan menelan kategori lain yang kebetulan berawalan sama.
+- **BUKAN setelan.** Setelan yang harus diisi lebih dulu berarti fitur ini mati
+  sampai ada yang mengisinya — dan setelan yang tidak dibaca siapa pun sudah
+  pernah hidup dua minggu di modul HPP tanpa satu pun layar mengatakannya.
+- **Laporan tanpa `katMenu` tidak mengeluarkan apa pun**, dan TIDAK menebak
+  dari nama menunya: menebak berarti membuang menu biasa yang kebetulan
+  bernama mirip.
+
+**KOLOM `Jumlah Menu` di Kategori Menu** (permintaan user). Dihitung dari
+`katMenu`, bukan disimpan sebagai angka tersendiri — kolom yang tidak cocok
+dengan daftar yang muncul saat barisnya dibuka adalah kolom yang berhenti
+dipercaya. Laporan lama menulis **—**, bukan **0**: nol berarti kategori itu
+memang tidak punya menu.
+
+**Kategori acara TERBUKA SENDIRI** saat halaman itu pertama digambar — yang
+dicari orang di sana nama menunya, bukan totalnya. `KT_BUKA` karena itu punya
+tiga keadaan: `null` (belum pernah disentuh), `''` (sengaja ditutup), dan nama
+kategori. Dua yang pertama disamakan, yang sudah menutupnya dibukakan lagi tiap
+render. Barisnya juga menyebut sendiri *tidak ikut di Menu & Bahan Baku* — yang
+membandingkan kedua halaman berdiri di sini.
+
+```bash
+node tools/uji-analytics.js   # 279 pemeriksaan (dari 260)
+```
+
+Tujuh belas mutasi dicoba, **dua lolos di putaran pertama** dan keduanya cacat
+ASERSI, bukan cacat produk:
+
+- *"Jumlah Menu tidak dihitung dari isi kategorinya"* LOLOS — asersinya
+  menghitung sendiri dari fixture lalu membandingkannya dengan hitungannya
+  sendiri, tidak pernah menyentuh sel yang digambar. Kolom yang menulis angka
+  mati pun lulus. Sekarang angkanya **dibaca dari selnya**.
+- *"laporan lama menulis 0, bukan tanda hubung"* LOLOS — keadaan itu tidak
+  pernah dijalankan sekali pun.
+
+Invarian **"total tidak berubah karena penggabungan"** DIPERKUAT, bukan
+dilonggarkan: sejak kategori acara disaring, `gab` memang tidak lagi sama
+dengan menu mentah — tapi menurunkan asersinya berarti membuang pemeriksaan
+paling menentukan di berkas itu. Sekarang berbunyi **`gab` + yang dikeluarkan
+=== menu mentah**, jadi ia menjaga dua hal sekaligus: penggabungan tidak
+menghilangkan porsi, dan penyaring acara tidak membuang porsi tanpa
+melaporkannya.
+
+**Berkas lama tetap harus diunggah ulang** — dan kali ini pesannya benar.
+
+
 ### HPP: SPARE MODAL, sekali dan hanya di menu jadi (2 September 2026)
 
 `deploy/stock/hpp/`, kunci izin **`hpp`** (bukan `stock` — panel ini berdiri

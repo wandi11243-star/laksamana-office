@@ -725,18 +725,25 @@ async function siap(w) {
        menggandakan porsi tidak akan terlihat di layar mana pun. */
     const totQ = o => Object.keys(o).reduce((a, k) => a + o[k].qty, 0);
     const totN = o => Object.keys(o).reduce((a, k) => a + o[k].nilai, 0);
+    /* gab + yang DIKELUARKAN harus sama dengan menu mentah. Membandingkan gab
+       saja sudah tidak benar sejak kategori acara disaring — tapi menurunkan
+       asersinya berarti membuang penjaganya. Bentuk ini menjaga DUA hal
+       sekaligus: penggabungan tidak menghilangkan porsi, dan penyaring acara
+       tidak membuang porsi tanpa melaporkannya. */
     cek('porsi total tidak berubah karena penggabungan',
-        totQ(NM.gab) === totQ(u.menu), totQ(NM.gab) + ' vs ' + totQ(u.menu));
+        totQ(NM.gab) + NM.ev.qty === totQ(u.menu),
+        totQ(NM.gab) + '+' + NM.ev.qty + ' vs ' + totQ(u.menu));
     cek('nilai total tidak berubah karena penggabungan',
-        totN(NM.gab) === totN(u.menu), totN(NM.gab) + ' vs ' + totN(u.menu));
+        totN(NM.gab) + NM.ev.nilai === totN(u.menu),
+        totN(NM.gab) + '+' + NM.ev.nilai + ' vs ' + totN(u.menu));
 
     /* Dipetakan: porsinya pindah ke menu aslinya. */
     w.eval("AN.data.setting.petaKode = { MATCHA02:'MATCHA LATTE', MATCHA01:'MATCHA LATTE' }");
     NM = w.eval('menuNormal')(u);
     cek('kode yang dipetakan pindah ke menu aslinya',
         NM.gab['MATCHA LATTE'].qty === 11, String(NM.gab['MATCHA LATTE'].qty));
-    cek('...dan totalnya tetap sama', totQ(NM.gab) === totQ(u.menu),
-        totQ(NM.gab) + ' vs ' + totQ(u.menu));
+    cek('...dan totalnya tetap sama', totQ(NM.gab) + NM.ev.qty === totQ(u.menu),
+        totQ(NM.gab) + '+' + NM.ev.qty + ' vs ' + totQ(u.menu));
     cek('...sisa kode yang belum dipetakan tinggal yang tanpa kode',
         Object.keys(NM.takKenal).length === 0, JSON.stringify(Object.keys(NM.takKenal)));
     /* Peta dipakai saat MENGGAMBAR, bukan saat mengurai: kalau dibakukan ke
@@ -762,6 +769,66 @@ async function siap(w) {
     cek('menu di dalam kategori ikut disimpan',
         !!(u.katMenu['NUSANTARA'] || {})['NASI GORENG']);
 
+    /* ---- PUTARAN SIMPAN, dan inilah yang selama ini tidak pernah dijalankan.
+       Seluruh asersi di atas menguji KELUARAN PENGURAINYA (`u`); yang tersimpan
+       ditulis anSimpanUnggah() dengan daftar kunci tertutup, dan `paket`,
+       `kategori`, `katMenu` tertinggal di sana sejak 4 September 2026. Dua
+       fitur karena itu mati lima hari sementara 260 pemeriksaan tetap hijau.
+
+       Uji yang menyuntikkan `u` langsung ke AN.data.laporan melewati persis
+       baris yang rusak — dan itu yang dikerjakan blok di bawah ini sebelum
+       hari ini. Yang benar: lewat jalur simpannya sendiri. */
+    w.eval('AN.data.laporan = {}');
+    w.eval('UNGGAH_HASIL = Object.assign({ diunggah:"2026-09-10", oleh:"Uji" }, '
+      + JSON.stringify(u) + ')');
+    await w.eval('anSimpanUnggah()');
+    const simpan = w.eval('AN.data.laporan["2026-08"]');
+    cek('putaran simpan menyimpan laporannya', !!simpan);
+    /* Ketiganya DIBACA dari laporan tersimpan (menuNormal & halaman Kategori),
+       jadi yang hilang di sini mematikan fiturnya tanpa satu pun galat. */
+    cek('kategori ikut tersimpan', !!(simpan && simpan.kategori && simpan.kategori['EVENT']),
+        JSON.stringify(simpan && Object.keys(simpan)));
+    cek('katMenu ikut tersimpan', !!(simpan && simpan.katMenu && simpan.katMenu['NUSANTARA']),
+        JSON.stringify(simpan && Object.keys(simpan)));
+    cek('paket ikut tersimpan', !!(simpan && simpan.paket && simpan.paket['LARGE (PACKAGE)']),
+        JSON.stringify(simpan && Object.keys(simpan)));
+    /* Kalau ini merah, penggabungan (PACKAGE) mati untuk laporan yang benar-benar
+       tersimpan walau `u` di atas hijau. */
+    cek('...jadi penggabungan paket bekerja atas laporan TERSIMPAN',
+        !w.eval('menuNormal')(simpan).gab['MINERAL WATER (PACKAGE)']);
+
+    /* ---- KATEGORI ACARA TIDAK IKUT DI MENU & BAHAN BAKU (10 Sep 2026) ----
+       DJ PERFORMANCE ada di kategori EVENT: 1 porsi, Rp500.000. */
+    const NMs = w.eval('menuNormal')(simpan);
+    cek('menu kategori EVENT dikeluarkan dari daftar menu',
+        !NMs.gab['DJ PERFORMANCE'], JSON.stringify(Object.keys(NMs.gab)));
+    cek('...dan yang dikeluarkan dihitung, bukan dibuang',
+        NMs.ev.qty === 1 && NMs.ev.nilai === 500000 && NMs.ev.nama.indexOf('DJ PERFORMANCE') > -1,
+        JSON.stringify(NMs.ev));
+    /* Nama kategorinya diketik di POS, jadi 'Event' dan 'EVENT ' pasti
+       bercampur. Yang tidak cocok tidak melempar apa pun — ia cuma diam-diam
+       ikut lagi ke perkiraan bahan baku. */
+    cek('cocoknya tanpa peduli huruf besar & spasi',
+        w.eval("katEventKah(' event ')") === true && w.eval("katEventKah('EVENTS')") === false);
+    /* Laporan lama tidak punya katMenu — tidak ada yang bisa dikeluarkan, dan
+       menebak dari NAMA menunya berarti membuang menu biasa yang kebetulan
+       bernama mirip. */
+    cek('laporan tanpa katMenu tidak mengeluarkan apa pun',
+        w.eval('menuNormal')({ menu: simpan.menu }).ev.nama.length === 0);
+
+    w.go('menu'); await tunggu(60);
+    const vm = d.getElementById('app-view').innerHTML;
+    cek('halaman Menu menyebut apa yang tidak ikut',
+        vm.indexOf('tidak ikut di halaman ini') > -1, vm.slice(0, 300));
+    cek('...berikut nama menunya', vm.indexOf('DJ PERFORMANCE') > -1);
+    /* Angkanya wajib disebut: keempat kartu di atasnya berhenti sama dengan
+       berkas POS begitu penyaring ini menyala, dan selisih tanpa keterangan
+       dicari orang di tempat yang salah. */
+    cek('...berikut porsi & nilainya', /1 porsi/.test(vm) && vm.indexOf(w.eval('rp0')(500000)) > -1,
+        vm.slice(vm.indexOf('tidak ikut di halaman ini') - 200, vm.indexOf('tidak ikut di halaman ini') + 400));
+    cek('menu EVENT tidak lagi dihitung sebagai belum ada resep',
+        vm.indexOf('DJ PERFORMANCE</td>') < 0);
+
     w.eval('AN.data.laporan = null');
     w.eval('AN.data.laporan = {}');
     w.eval('AN.data.laporan["2026-08"] = ' + JSON.stringify(u));
@@ -778,6 +845,51 @@ async function siap(w) {
     cek('...tapi tetap menunjuk ke sana supaya angkanya bisa dibandingkan',
         v.indexOf('Penjualan Menu') > -1);
     cek('persentasenya dihitung dari total omset menu', /% omset menu/.test(v));
+    /* ---- JUMLAH MENU PER KATEGORI (permintaan user 10 September 2026) ----
+       Dihitung dari katMenu, bukan disimpan tersendiri: kolom yang tidak cocok
+       dengan daftar yang muncul saat barisnya dibuka berhenti dipercaya. */
+    cek('kolom Jumlah Menu digambar', v.indexOf('>Jumlah Menu<') > -1);
+    /* DIBACA DARI SELNYA, bukan dihitung ulang di dalam uji: asersi yang
+       menghitung sendiri dari fixture lalu membandingkannya dengan hitungannya
+       sendiri lulus juga untuk kolom yang selalu menulis angka yang sama.
+       Sel Jumlah Menu adalah `td.num` PERTAMA sesudah nama kategorinya. */
+    const selJml = (html, nama) => {
+      const i = html.indexOf('<b>' + nama + '</b>');
+      if (i < 0) return null;
+      const tr = html.slice(i, html.indexOf('</tr>', i));
+      const m = tr.match(/<td class="num">([\s\S]*?)<\/td>/);
+      return m ? m[1].replace(/<[^>]*>/g, '').trim() : null;
+    };
+    /* NUSANTARA berisi satu menu, SIGNATURE NON COFFEE berisi tiga —
+       angkanya HARUS berbeda, kalau tidak kolom yang menulis angka mati pun
+       akan lulus. */
+    cek('...jumlahnya dibaca dari isi kategorinya',
+        selJml(v, 'NUSANTARA') === '1' && selJml(v, 'SIGNATURE NON COFFEE') === '3',
+        JSON.stringify([selJml(v, 'NUSANTARA'), selJml(v, 'SIGNATURE NON COFFEE')]));
+    /* Kategori acara dibuka SENDIRI — yang dicari orang di halaman ini nama
+       menunya (Prasmanan, Nasi Kotak, Snack Box), bukan totalnya. */
+    cek('kategori EVENT terbuka sendiri berikut nama menunya',
+        w.eval('KT_BUKA') === 'EVENT' && v.indexOf('DJ PERFORMANCE') > -1,
+        'KT_BUKA=' + JSON.stringify(w.eval('KT_BUKA')));
+    cek('...dan barisnya menyebut kenapa ia tidak ada di Menu & Bahan Baku',
+        v.indexOf('tidak ikut di Menu') > -1);
+    /* Yang sudah menutupnya tidak boleh dibukakan lagi tiap render — `null`
+       (belum disentuh) dan `''` (sengaja ditutup) memang dua keadaan berbeda. */
+    w.eval("ktBuka('EVENT')"); w.go('kategori'); await tunggu(60);
+    cek('...tapi yang sudah ditutup tidak dibuka lagi', w.eval('KT_BUKA') === '');
+    /* Laporan yang diunggah sebelum katMenu ikut disimpan tidak punya isi
+       kategori sama sekali. Kolomnya lalu berbunyi \u2014, BUKAN 0: nol berarti
+       kategori itu memang tidak punya menu, dan itu jawaban yang salah untuk
+       pertanyaan yang tidak pernah ditanyakan. */
+    w.eval('delete AN.data.laporan["2026-08"].katMenu');
+    w.go('kategori'); await tunggu(60);
+    {
+      const vk = d.getElementById('app-view').innerHTML;
+      const sel = selJml(vk, 'NUSANTARA');
+      cek('laporan tanpa katMenu menulis tanda hubung, bukan 0',
+          sel === '\u2014', JSON.stringify(sel));
+    }
+    w.eval('AN.data.laporan["2026-08"].katMenu = ' + JSON.stringify(u.katMenu));
     /* Baris kategori bisa dibuka untuk melihat isinya. */
     w.eval("ktBuka('NUSANTARA')"); await tunggu(60);
     const v2 = d.getElementById('app-view').innerHTML;

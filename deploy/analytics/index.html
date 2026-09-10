@@ -1687,6 +1687,38 @@ function vHari() {
    event: menu tanpa kategori tetap membawa omset, dan membuangnya membuat
    jumlah kategori tidak pernah sama dengan totalnya. */
 const KAT_TANPA = '(tanpa kategori)';
+/* KATEGORI ACARA — permintaan user 10 September 2026: isinya (Prasmanan,
+   Nasi Kotak, Snack Box) TIDAK ikut di halaman Menu & Bahan Baku, tapi TETAP
+   berdiri di halaman Kategori Menu berikut rincian menunya.
+
+   Sebabnya bukan kerapian. Menu acara dijual sebagai paket per orang dan
+   tidak punya resep di modul HPP, jadi di halaman Menu ia cuma menambah
+   baris "belum ada resep" yang tidak akan pernah bisa dibereskan siapa pun —
+   dan justru daftar itu yang dipakai orang untuk tahu resep mana yang masih
+   kurang. Perkiraan bahan bakunya pun tidak boleh memuatnya: bahan acara
+   dibelanjakan terpisah, bukan dari stok yang dicocokkan halaman itu.
+
+   DIBANDINGKAN HURUF BESAR & DIPANGKAS. Isinya diketik di POS, jadi 'Event'
+   dan 'EVENT ' pasti bercampur — dan yang tidak cocok tidak menimbulkan
+   galat apa pun, ia cuma diam-diam ikut lagi ke Menu & Bahan Baku.
+
+   BUKAN setelan. Setelan yang harus diisi lebih dulu berarti fitur ini mati
+   sampai ada yang mengisinya, dan setelan yang tidak dibaca siapa pun sudah
+   pernah hidup dua minggu di modul HPP tanpa satu pun layar mengatakannya. */
+const KAT_EVENT = 'EVENT';
+function katEventKah(n) { return String(n || '').trim().toUpperCase() === KAT_EVENT; }
+/* Nama menu yang ada di kategori acara. Dipulangkan sebagai peta supaya
+   penyaringnya O(1) — daftar menu sebulan bisa 259 baris, dan penyaring yang
+   memindai array untuk tiap menu jadi 259x23 perbandingan tiap render. */
+function menuKatEvent(d) {
+  const km = (d && d.katMenu) || {};
+  const out = {};
+  Object.keys(km).forEach(k => {
+    if (!katEventKah(k)) return;
+    Object.keys(km[k] || {}).forEach(n => { out[n] = true; });
+  });
+  return out;
+}
 
 /* ---- NORMALISASI MENU PAKET, dikerjakan saat MENGGAMBAR ----
 
@@ -1710,12 +1742,27 @@ function menuNormal(d) {
   const pk = petaKode();
   const gab = {}, takKenal = {};
   let digabung = 0;
+  /* Menu kategori acara dikeluarkan DI SINI, satu tempat — halaman Menu,
+     daftar "belum ada resep", dan perkiraan bahan baku semuanya diturunkan
+     dari `gab`, jadi menyaringnya di salah satu layar saja berarti dua layar
+     menyebut jumlah menu yang berbeda untuk bulan yang sama.
+
+     Yang dikeluarkan DIHITUNG dan dipulangkan, bukan dibuang diam-diam:
+     kartu Porsi Terjual & Nilai Menu berhenti sama dengan berkas POS begitu
+     ini menyala, dan daftar yang menyusut tanpa keterangan dilaporkan
+     sebagai data hilang. */
+  const lewat = menuKatEvent(d);
+  const ev = { nama: [], qty: 0, nilai: 0 };
   const tambah = (nama, q, n) => {
     if (!gab[nama]) gab[nama] = { qty:0, nilai:0 };
     gab[nama].qty += q; gab[nama].nilai += n;
   };
   Object.keys(mentah).forEach(nm => {
     const m = mentah[nm];
+    /* Disaring SEBELUM cabang (PACKAGE): yang keluar keluar seutuhnya, dan
+       menaruhnya sesudah berarti menu acara yang kebetulan bernama akhiran
+       (PACKAGE) tetap lolos lewat jalur penggabungan. */
+    if (lewat[nm]) { ev.nama.push(nm); ev.qty += m.qty || 0; ev.nilai += m.nilai || 0; return; }
     if (!PAKET_RE.test(nm)) { tambah(nm, m.qty || 0, m.nilai || 0); return; }
 
     /* Bernama jelas: "MINERAL WATER (PACKAGE)" -> "MINERAL WATER". Tidak butuh
@@ -1744,7 +1791,8 @@ function menuNormal(d) {
       }
     });
   });
-  return { gab, takKenal, digabung };
+  ev.nama.sort();
+  return { gab, takKenal, digabung, ev };
 }
 /* Tebakan pasangan untuk sebuah kode, dari menu yang MEMANG ada di laporan
    bulan itu. Cuma SARAN — tidak pernah dipakai sendiri: kode "SALTED01" cocok
@@ -1774,7 +1822,11 @@ function saranKode(kode, namaAda) {
    Datanya dari kolom `Menu Category Detail` di Detail Report POS. Laporan lama
    (diunggah sebelum tanggal ini) TIDAK punya kolom itu — halamannya
    mengatakannya, bukan menggambar tabel kosong. */
-let KT_BUKA = '';                 // kategori yang menunya sedang dibuka
+/* `null` = BELUM PERNAH DISENTUH, `''` = sengaja ditutup orangnya. Dua keadaan
+   itu harus dibedakan: kategori acara dibuka sendiri saat halaman ini pertama
+   digambar (permintaan user \u2014 nama menunya yang dicari, bukan totalnya),
+   tapi yang sudah menutupnya tidak boleh dibukakan lagi tiap render. */
+let KT_BUKA = null;               // kategori yang menunya sedang dibuka
 function ktBuka(k) { KT_BUKA = (KT_BUKA === k) ? '' : k; render(); }
 
 function vKategori() {
@@ -1800,8 +1852,24 @@ function vKategori() {
     return;
   }
 
-  const list = nama.map(n => ({ n, qty:kat[n].qty || 0, nilai:kat[n].nilai || 0, kat:kat[n].kat || KAT_TANPA }))
+  const km = d.katMenu || null;
+  /* JUMLAH MENU per kategori (permintaan user 10 September 2026) dihitung dari
+     `katMenu`, bukan disimpan sebagai angka tersendiri: dua tempat yang
+     menghitungnya sendiri-sendiri akan berselisih begitu penggabungan menu
+     berubah, dan kolom yang tidak cocok dengan daftar yang muncul saat
+     barisnya dibuka adalah kolom yang berhenti dipercaya.
+
+     Laporan lama tidak punya `katMenu`; kolomnya lalu berbunyi \u2014, BUKAN 0.
+     Nol berarti kategori itu memang tidak punya menu, dan itu jawaban yang
+     salah untuk pertanyaan yang tidak pernah ditanyakan. */
+  const list = nama.map(n => ({ n, qty:kat[n].qty || 0, nilai:kat[n].nilai || 0, kat:kat[n].kat || KAT_TANPA,
+                               nMenu: km ? Object.keys(km[n] || {}).length : null }))
                    .sort((a, x) => x.nilai - a.nilai);
+  /* Dibuka sendiri sekali, hanya kalau orangnya belum pernah menyentuh apa pun. */
+  if (KT_BUKA === null) {
+    const ev = list.find(x => katEventKah(x.n));
+    KT_BUKA = ev ? ev.n : '';
+  }
   const tot = list.reduce((a, x) => a + x.nilai, 0);
   const totQ = list.reduce((a, x) => a + x.qty, 0);
 
@@ -1824,21 +1892,28 @@ function vKategori() {
     + '<div class="card-sub">Dari kolom <i>Menu Category Detail</i> di laporan POS. '
     + 'Diurut menurut nilai. Klik satu baris untuk melihat menu apa saja yang ada di dalamnya.</div>'
     + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Kategori</th><th>Kelompok</th>'
+    + '<th class="num">Jumlah Menu</th>'
     + '<th class="num">Porsi</th><th class="num">Nilai</th><th class="num">% omset menu</th>'
     + '<th style="width:20%"></th></tr></thead><tbody>';
   const pun = list.length ? (list[0].nilai || 1) : 1;
   list.forEach((x, i) => {
     h += '<tr style="cursor:pointer" onclick="ktBuka(' + esc(JSON.stringify(x.n)).replace(/"/g, '&quot;') + ')">'
       + '<td>' + (i + 1) + '</td>'
-      + '<td><b>' + esc(x.n) + '</b></td>'
+      + '<td><b>' + esc(x.n) + '</b>'
+        /* Penandanya di BARISNYA, bukan cuma di halaman sebelah: yang
+           membandingkan kedua halaman berdiri di sini, dan selisih jumlah
+           menu tanpa keterangan dibaca sebagai data yang hilang. */
+        + (katEventKah(x.n) ? '<div class="helper" style="margin:2px 0 0">tidak ikut di Menu &amp; Bahan Baku</div>' : '')
+      + '</td>'
       + '<td><span class="chip">' + esc(x.kat) + '</span></td>'
+      + '<td class="num">' + (x.nMenu === null ? '<span class="helper">\u2014</span>' : x.nMenu.toLocaleString('id-ID')) + '</td>'
       + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
       + '<td class="num mono">' + rp0(x.nilai) + '</td>'
       + '<td class="num">' + pct(x.nilai, tot) + '%</td>'
       + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
         + '<div style="width:' + Math.round(x.nilai / pun * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
       + '</tr>';
-    if (KT_BUKA === x.n) h += '<tr><td colspan="7" style="background:var(--paper)">' + ktRincian(d, x) + '</td></tr>';
+    if (KT_BUKA === x.n) h += '<tr><td colspan="8" style="background:var(--paper)">' + ktRincian(d, x) + '</td></tr>';
   });
   h += '</tbody></table></div>'
     + '<div class="helper">Total ' + rp0(tot) + ' dari ' + totQ.toLocaleString('id-ID') + ' porsi. '
@@ -1882,6 +1957,23 @@ function mnBahan(v) { MN_BAHAN = v; render(); }
    terjebak dengan rincian yang tidak bisa dihilangkan. */
 function mnBuka(n) { MN_BUKA = (MN_BUKA === n) ? '' : n; render(); }
 
+/* Pita "yang tidak ikut". Menyebut NAMA menunya, bukan cuma jumlahnya:
+   daftarnya pendek (tiga baris di produksi) dan yang membacanya sedang
+   memeriksa apakah yang dikeluarkan memang yang seharusnya. Angka porsi &
+   nilainya ikut supaya kartu di atasnya bisa dijumlahkan kembali menjadi
+   angka yang sama dengan berkas POS — tanpa itu selisihnya dicari orang di
+   tempat yang salah. */
+function mnEventHtml(ev) {
+  if (!ev || !ev.nama.length) return '';
+  return '<div class="notice info">\u2139 <div><b>' + ev.nama.length + ' menu kategori '
+    + esc(KAT_EVENT) + ' tidak ikut di halaman ini</b> \u2014 '
+    + ev.nama.map(n => esc(n)).join(', ') + '. '
+    + 'Totalnya ' + ev.qty.toLocaleString('id-ID') + ' porsi, ' + rp0(ev.nilai) + ', dan '
+    + 'angka itu SUDAH dikeluarkan dari keempat kartu di atas maupun dari perkiraan bahan baku '
+    + 'di bawah. Menu acara dijual per paket dan tidak punya resep di modul HPP, jadi kalau ikut '
+    + 'ia cuma menambah baris <i>belum ada resep</i> yang tidak akan pernah bisa dibereskan. '
+    + 'Angkanya tetap utuh di halaman <b>Kategori Menu</b>.</div></div>';
+}
 function vMenu() {
   const V = document.getElementById('app-view');
   const b = blnAktif(), d = lap(b);
@@ -1931,6 +2023,7 @@ function vMenu() {
     + kartu('Nilai Menu', rp0(totNilai), 'sebelum service & pajak')
     + kartu('Belum Ada Resep', tanpaResep.length, peta ? 'dari ' + urut.length + ' menu' : 'HPP tidak terbaca')
     + '</div>'
+    + mnEventHtml(NM.ev)
     + mnPaketHtml(NM, Object.keys(gab));
 
   /* ---- 1. daftar penjualan menu: top-N ATAU seluruhnya ---- */
@@ -3279,9 +3372,27 @@ async function anSimpanUnggah() {
       + 'Yang sekarang: ' + (lama.ringkas || {}).bill + ' bill.\n'
       + 'Yang baru   : ' + u.ringkas.bill + ' bill.\n\nLanjut?')) return;
   const sebelum = AN.data.laporan[u.bulan];
+  /* DAFTAR KUNCI TERTUTUP, dan itu yang membuatnya berbahaya: kunci yang
+     dihasilkan uraiPos() tapi tidak disebut di sini DIBUANG tanpa satu pun
+     galat — di klien, sebelum menyentuh server (an_simpan() sendiri menulis
+     blob apa adanya). Bentuk kesalahan yang sama persis dengan
+     brankas_simpan(); bedanya di sini menggigit lebih cepat, karena yang
+     dibuang tidak pernah sempat ada di memori.
+
+     `paket`, `kategori`, dan `katMenu` TERTINGGAL sejak 4 September 2026,
+     dan dua fitur karena itu tidak pernah bekerja sekali pun: halaman
+     Kategori Menu selalu kosong (peringatannya menyuruh mengunggah ulang —
+     pekerjaan yang tidak akan pernah menolong), dan penggabungan baris
+     (PACKAGE) tidak pernah terjadi sehingga ~4.123 porsi Agustus 2026 tetap
+     berdiri sebagai menu palsu berikut bahan bakunya yang tidak terhitung.
+
+     Yang SENGAJA tidak ikut: nBaris, nLewat, blnLain, billDariBaris,
+     tglAwal, tglAkhir. Keenamnya cuma dibaca di layar pratinjau (`u`),
+     tidak pernah dari laporan tersimpan. */
   AN.data.laporan[u.bulan] = {
     diunggah: u.diunggah, oleh: u.oleh, berkas: u.berkas, jenis: u.jenis,
-    hari: u.hari, jam: u.jam, menu: u.menu, ringkas: u.ringkas
+    hari: u.hari, jam: u.jam, menu: u.menu, paket: u.paket,
+    kategori: u.kategori, katMenu: u.katMenu, ringkas: u.ringkas
   };
   if (await simpan()) {
     UNGGAH_HASIL = null; BLN = u.bulan;
