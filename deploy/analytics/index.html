@@ -3991,7 +3991,20 @@ function talOmset(peta, kunci) {
 }
 function talKunci(slot) { return slot.jam.map(x => x.tgl + '|' + x.jam); }
 
+/* PER MALAM (11 September 2026, revisi user: "tidak perlu menampilkan jam tapi
+   secara hari saja ... dibandingkan dengan omset hari H secara keseluruhan").
+
+   Bingkainya pindah dari JAM ke HARI. Jam tampilnya tetap dipakai menghitung —
+   itu yang membuat angkanya berarti — tapi yang dibaca orang tanggalnya. */
+let TN_SORT = { k:'tgl', turun:false };
+let TN_CACHE = null;
+function tnSort(k) { sortKlik(TN_SORT, k); const e = document.getElementById('tn_isi'); if (e) e.innerHTML = tnIsiHtml(); }
 let TL_SORT = { k:'omset', turun:true };
+/* Penampil yang rinciannya sedang dibuka (revisi user: "band A tampil di hari
+   selasa, terus band A tampil di senin depan, nah itu saya pengen tau secara
+   per harinya juga"). */
+let TL_BUKA = '';
+function tlBuka(n) { TL_BUKA = (TL_BUKA === n) ? '' : n; const e = document.getElementById('tl_isi'); if (e) e.innerHTML = tlIsiHtml(); }
 let TL_Q = '';
 function tlSort(k) { sortKlik(TL_SORT, k); render(); }
 function tlCari(el) {
@@ -4054,6 +4067,41 @@ function vTalent() {
 
   const totBulan = Object.keys(d.hari || {}).reduce((a, t) => a + ((d.hari[t] || {}).grand || 0), 0);
 
+  /* ---- SATU BARIS PER PENAMPILAN ----
+
+     PENYEBUT KONTRIBUSINYA OMSET TANGGAL PENAMPILAN, dan pembilangnya HANYA
+     jam yang jatuh di tanggal itu juga. Jam sesudah tengah malam memang bagian
+     dari malam yang sama, tapi di POS ia tercatat di TANGGAL BERIKUTNYA —
+     dimasukkan ke pembilang sementara penyebutnya tetap tanggal penampilan,
+     persennya jadi angka yang tidak punya arti dan bisa melewati 100% tanpa
+     sebab yang bisa dijelaskan.
+
+     Jadi yang sesudah tengah malam DIPISAH dan disebut sendiri, bukan dibuang
+     dan bukan dicampur. Dua angka dengan dua penyebut yang jelas selalu lebih
+     berguna daripada satu angka yang harus ditebak dasarnya. */
+  const malam = isi.map(x => {
+    const t = x.s.tgl;
+    const kSama = x.kunci.filter(k => k.slice(0, 10) === t);
+    const kLewat = x.kunci.filter(k => k.slice(0, 10) !== t);
+    const oSama = talOmset(hj, kSama), oLewat = talOmset(hj, kLewat);
+    const hariG = ((d.hari || {})[t] || {}).grand || 0;
+    return {
+      tgl: t, hari: NAMA_HARI[dowDari(t)], n: x.s.nama, kel: x.s.kategori || TAL_TANPA_KAT,
+      jam: (x.s.mulai || '?') + '\u2013' + (x.s.selesai || '?'),
+      jamN: oSama.jamBerdata + oLewat.jamBerdata,
+      omset: oSama.omset + oLewat.omset,
+      omsetHari: oSama.omset,          // yang jatuh di tanggal penampilan
+      omsetLewat: oLewat.omset,        // yang jatuh sesudah tengah malam
+      hariOmset: hariG,
+      /* null = tanggal itu tidak punya data POS sama sekali. DIBEDAKAN dari
+         0%: nol berarti tidak ada satu rupiah pun masuk di jam tampilnya,
+         dan itu jawaban yang salah untuk hari yang berkasnya memang belum
+         diunggah. */
+      pct: hariG ? oSama.omset / hariG * 100 : null
+    };
+  });
+  TN_CACHE = { baris: malam };
+
   /* ---- 1. PER JAM: ada penampil vs tidak ----
      Dihitung dari jam-hari yang BENAR-BENAR punya bill, di kedua sisi. */
   const adaJam = {};
@@ -4102,10 +4150,20 @@ function vTalent() {
       + 'Jam seperti itu tidak dihitung di kedua sisi.</div></div>';
   }
 
+  /* ---- TABEL PER MALAM ---- */
+  h += '<div class="card"><h3>Per Malam</h3>'
+    + '<div class="card-sub">Satu baris = satu penampilan. <b>Kontribusi hari itu</b> = omset yang '
+    + 'masuk selama jam tampilnya, dibagi omset <b>seluruh hari</b> itu \u2014 jadi jamnya tetap yang '
+    + 'menghitung, tapi yang dibaca tanggalnya. Klik satu baris penampil di tabel di bawah untuk '
+    + 'melihat seluruh malam orang itu berjajar.</div>'
+    + '<div id="tn_isi">' + tnIsiHtml() + '</div>'
+    + '</div>';
+
   /* ---- tabel per jam ---- */
   const adaJamTabel = perJam.filter(p => p.adaN || p.takN);
-  h += '<div class="card"><h3>Jam Tampil Dibanding Jam Yang Sama Tanpa Penampil</h3>'
-    + '<div class="card-sub">Inilah pembanding yang menjawab \u201ckontribusinya tinggi atau tidak\u201d. '
+  h += '<div class="card"><h3>Pembanding: Jam Tampil vs Jam Yang Sama Tanpa Penampil</h3>'
+    + '<div class="card-sub">Tabel ini menjawab satu hal yang tidak bisa dijawab tabel per malam di atas: '
+    + 'apakah jam tampilnya memang lebih besar daripada jam yang sama saat tidak ada penampil. '
     + 'Penampil dijadwalkan di jam ramai, jadi membandingkan omset jam tampil dengan rata-rata seluruh '
     + 'jam cuma memuji mereka untuk sesuatu yang sudah terjadi dengan sendirinya \u2014 yang dibandingkan '
     + 'di sini <b>jam yang sama</b>. Aturan yang sama dengan <i>vs hari sama</i> di halaman Pengaruh Event, '
@@ -4236,12 +4294,153 @@ function vTalent() {
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
     + '<input id="tl_q" class="cari" type="search" autocomplete="off" placeholder="Cari penampil\u2026" '
     + 'value="' + esc(TL_Q) + '" oninput="tlCari(this)">'
-    + '<span class="helper" style="margin:0">Tekan kepala kolom untuk mengurutkannya</span>'
+    + '<span class="helper" style="margin:0">Klik satu baris untuk melihat malam demi malamnya \u00b7 '
+    + 'tekan kepala kolom untuk mengurutkan</span>'
     + '</div>'
     + '<div id="tl_isi">' + tlIsiHtml() + '</div>'
     + '</div>';
 
   V.innerHTML = h;
+}
+/* Sel "kontribusi hari itu". DIPAKAI BERSAMA tabel Per Malam dan rincian per
+   penampil — dua penggambar untuk angka yang sama akan menyimpang, dan yang
+   menyimpang di sini adalah dua layar yang menyebut porsi berbeda untuk malam
+   yang sama.
+
+   TIGA KEADAAN, dan yang disamakan menyuruh orang mencari sebab di tempat yang
+   salah:
+     null  tanggal itu belum punya data POS   -> dikatakan, bukan 0%
+     0     ada datanya, tidak ada yang masuk  -> 0%
+     >0    porsinya                            */
+function selKontribusi(x) {
+  if (x.pct === null) {
+    return '<td class="num"><span class="helper">belum ada data POS</span></td>';
+  }
+  return '<td class="num"><b>' + (Math.round(x.pct * 10) / 10).toLocaleString('id-ID') + '%</b>'
+    + '<div class="helper" style="margin:1px 0 0">dari ' + rp0(x.hariOmset) + ' hari itu</div></td>';
+}
+/* Keterangan jam yang jatuh sesudah tengah malam. Digambar HANYA kalau ada —
+   baris "sesudah tengah malam: Rp0" membuat orang mencari sesuatu yang memang
+   tidak pernah terjadi. */
+function selOmsetSlot(x) {
+  /* hariOmset nol = tanggalnya tidak ada di berkas POS sama sekali (lihat
+     d.hari). Bukan "omsetnya nol" — itu keadaan lain, dan yang disamakan
+     membuat malam yang belum diunggah terbaca sebagai malam yang sepi. */
+  if (!x.hariOmset) {
+    return '<td class="num"><span class="helper">belum ada data POS</span></td>';
+  }
+  return '<td class="num mono">' + rp0(x.omset)
+    + (x.omsetLewat ? '<div class="helper" style="margin:1px 0 0;font-weight:600">'
+        + rp0(x.omsetLewat) + ' sesudah tengah malam</div>' : '')
+    + '</td>';
+}
+/* Isi tabel Per Malam. Dipisah supaya menekan kepala kolom cukup menggambar
+   ulang wadahnya — render() di modul ini TOTAL, dan kotak cari di kartu
+   Per Penampil di bawahnya ikut dibuat ulang kalau halamannya digambar ulang. */
+function tnIsiHtml() {
+  const C = TN_CACHE;
+  if (!C || !C.baris.length) return '<div class="empty">Belum ada penampilan yang jamnya bisa dibaca.</div>';
+  const baris = urutKolom(C.baris, TN_SORT);
+  let h = '<div class="tbl-wrap"><table><thead><tr>'
+    + thSort('tgl', 'Tanggal', TN_SORT, 'tnSort')
+    + thSort('hari', 'Hari', TN_SORT, 'tnSort')
+    + thSort('n', 'Penampil', TN_SORT, 'tnSort')
+    + thSort('kel', 'Kategori', TN_SORT, 'tnSort')
+    + '<th>Jam tampil</th>'
+    + thSort('omset', 'Omset di jam tampil', TN_SORT, 'tnSort', 'num')
+    + thSort('hariOmset', 'Omset hari itu', TN_SORT, 'tnSort', 'num')
+    + thSort('pct', 'Kontribusi hari itu', TN_SORT, 'tnSort', 'num')
+    + '</tr></thead><tbody>';
+  baris.forEach(x => {
+    h += '<tr><td><b>' + esc(fmtTgl(x.tgl)) + '</b></td>'
+      + '<td>' + esc(x.hari) + '</td>'
+      + '<td><b>' + esc(x.n) + '</b></td>'
+      + '<td><span class="chip">' + esc(x.kel) + '</span></td>'
+      + '<td class="mono">' + esc(x.jam) + '</td>'
+      + selOmsetSlot(x)
+      + '<td class="num mono">' + (x.hariOmset ? rp0(x.hariOmset) : '<span class="helper">\u2014</span>') + '</td>'
+      + selKontribusi(x)
+      + '</tr>';
+  });
+  return h + '</tbody></table></div>'
+    + '<div class="helper"><b>Kolom Kontribusi tidak bisa dijumlahkan.</b> Dua penampil di malam yang '
+    + 'sama bisa menempati jam yang beririsan (band 20:00\u201323:00 dan DJ 22:30\u201301:30 sama-sama '
+    + 'memakai jam 22), dan omset jam itu terhitung di kedua barisnya. '
+    + 'Omset yang masuk <b>sesudah tengah malam</b> ikut di kolom Omset di jam tampil, tapi TIDAK ikut di '
+    + 'kolom Kontribusi \u2014 di berkas POS ia tercatat di tanggal berikutnya, sementara penyebutnya '
+    + 'omset tanggal penampilan. Angkanya disebut sendiri di barisnya.</div>';
+}
+/* RINCIAN SATU PENAMPIL, malam demi malam (11 September 2026, revisi user:
+   "band A tampil di hari selasa, terus band A tampil di senin depan, nah itu
+   saya pengen tau secara per harinya juga").
+
+   Dibaca dari TN_CACHE yang SAMA dengan tabel Per Malam di atas — bukan
+   dihitung ulang. Dua tempat yang menghitung porsi malam yang sama akan
+   menyimpang, dan yang menyimpang di sini dua angka untuk satu malam di satu
+   layar.
+
+   RINGKASAN PER HARI ikut digambar di bawahnya. Hari dalam seminggu menentukan
+   omset jauh lebih besar daripada siapa yang tampil — band yang selalu dapat
+   Selasa tidak bisa diadu dengan band yang selalu dapat Sabtu lewat total
+   omsetnya, dan tanpa pengelompokan ini yang membandingkannya akan
+   menyimpulkan yang satu jauh lebih menarik daripada yang lain. */
+function tlRincianHtml(nama) {
+  const C = TN_CACHE;
+  const baris = ((C && C.baris) || []).filter(x => x.n === nama)
+    .sort((a, b) => String(a.tgl).localeCompare(String(b.tgl)));
+  if (!baris.length) {
+    return '<div class="helper" style="padding:8px 2px">Tidak ada penampilan yang jamnya bisa dibaca '
+      + 'untuk <b>' + esc(nama) + '</b> bulan ini.</div>';
+  }
+  /* Per hari dalam seminggu. Rata-rata, BUKAN jumlah: band yang tampil empat
+     kali di Sabtu akan selalu mengalahkan yang tampil sekali, dan itu bukan
+     jawaban atas "hari mana yang paling besar untuk dia". */
+  const perHari = {};
+  baris.forEach(x => {
+    const k = perHari[x.hari] || (perHari[x.hari] = { n:0, omset:0, pct:0, nPct:0 });
+    k.n++; k.omset += x.omset;
+    if (x.pct !== null) { k.pct += x.pct; k.nPct++; }
+  });
+  const hariUrut = NAMA_HARI.filter(h => perHari[h]);
+
+  let h = '<div style="padding:6px 2px 10px">'
+    + '<div class="helper" style="margin:0 0 8px"><b>' + esc(nama) + '</b> tampil '
+    + baris.length + ' kali bulan ini.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Hari</th><th>Jam tampil</th>'
+    + '<th class="num">Omset di jam tampil</th><th class="num">Omset hari itu</th>'
+    + '<th class="num">Kontribusi hari itu</th></tr></thead><tbody>'
+    + baris.map(x => '<tr><td><b>' + esc(fmtTgl(x.tgl)) + '</b></td>'
+        + '<td>' + esc(x.hari) + '</td>'
+        + '<td class="mono">' + esc(x.jam) + '</td>'
+        + selOmsetSlot(x)
+        + '<td class="num mono">' + (x.hariOmset ? rp0(x.hariOmset) : '<span class="helper">\u2014</span>') + '</td>'
+        + selKontribusi(x)
+        + '</tr>').join('')
+    + '</tbody></table></div>';
+
+  /* Digambar hanya kalau ia benar-benar tampil di LEBIH DARI SATU hari —
+     ringkasan satu baris yang mengulang tabel di atasnya tidak menjawab apa
+     pun, dan cuma membuat rinciannya lebih panjang. */
+  if (hariUrut.length > 1) {
+    h += '<div class="helper" style="margin:12px 0 6px"><b>Per hari dalam seminggu</b> \u2014 '
+      + 'rata-rata, bukan jumlah: tampil empat kali di Sabtu tidak membuat Sabtu lebih besar '
+      + 'daripada Selasa yang cuma sekali.</div>'
+      + '<div class="tbl-wrap"><table><thead><tr><th>Hari</th><th class="num">Tampil</th>'
+      + '<th class="num">Rata-rata omset di jam tampil</th>'
+      + '<th class="num">Rata-rata kontribusi</th></tr></thead><tbody>'
+      + hariUrut.map(hh => {
+          const k = perHari[hh];
+          return '<tr><td><b>' + esc(hh) + '</b></td>'
+            + '<td class="num">' + k.n + '</td>'
+            + '<td class="num mono">' + rp0(k.omset / k.n) + '</td>'
+            + '<td class="num">' + (k.nPct
+                ? (Math.round(k.pct / k.nPct * 10) / 10).toLocaleString('id-ID') + '%'
+                : '<span class="helper">belum ada data POS</span>') + '</td>'
+            + '</tr>';
+        }).join('')
+      + '</tbody></table></div>';
+  }
+  return h + '</div>';
 }
 /* Isi tabel per penampil. Dipisah supaya mengetik di kotak cari tidak
    menggambar ulang halaman — render() di modul ini TOTAL, dan kotak yang
@@ -4268,7 +4467,8 @@ function tlIsiHtml() {
               : 'Belum ada penampil yang bisa dihitung.') + '</td></tr>';
   }
   cocok.forEach(x => {
-    h += '<tr><td><b>' + esc(x.n) + '</b></td>'
+    h += '<tr style="cursor:pointer" onclick="tlBuka(' + esc(JSON.stringify(x.n)).replace(/"/g, '&quot;') + ')">'
+      + '<td><b>' + esc(x.n) + '</b></td>'
       + '<td><span class="chip">' + esc(x.kat) + '</span></td>'
       + '<td class="num">' + x.tampil.toLocaleString('id-ID') + '</td>'
       + '<td class="num">' + x.jam.toLocaleString('id-ID') + '</td>'
@@ -4279,6 +4479,12 @@ function tlIsiHtml() {
       + '<td class="num">' + (x.pctMalam === null ? '<span class="helper">\u2014</span>'
           : (Math.round(x.pctMalam) + '%<div class="helper" style="margin:1px 0 0">dari omset malam itu</div>')) + '</td>'
       + '</tr>';
+    /* Menekan baris yang sedang terbuka menutupnya — kalau tidak, satu-satunya
+       cara menutup rincian adalah membuka baris lain, dan yang membuka baris
+       terakhir terjebak dengan rincian yang tidak bisa dihilangkan. Aturan
+       yang sama dengan mnBuka() di halaman Menu. */
+    if (TL_BUKA === x.n) h += '<tr><td colspan="8" style="background:var(--paper)">'
+      + tlRincianHtml(x.n) + '</td></tr>';
   });
   return h + '</tbody></table></div>'
     + '<div class="helper">' + cocok.length + ' dari ' + C.baris.length + ' penampil'

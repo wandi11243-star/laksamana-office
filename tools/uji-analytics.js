@@ -2936,7 +2936,8 @@ async function siap(w) {
       { id:'t3', name:'Pennykids',     category:'MC DJ' },
       { id:'t4', name:'Amerta',        category:'Band' },
       { id:'t5', name:'Vie',           category:'DJ' },
-      { id:'t6', name:'A Deeps',       category:'DJ' }
+      { id:'t6', name:'A Deeps',       category:'DJ' },
+      { id:'t7', name:'Minor Feel',     category:'Band' }
     ];
     const schedules = [
       { id:'s1', talent_id:'t1', date:'2026-09-02', start_time:'20:00', end_time:'23:00', status:'Done' },
@@ -2954,7 +2955,12 @@ async function siap(w) {
          gabungan dari penjumlahan: gabungan 13,2jt, dijumlahkan 26,4jt. */
       { id:'s6', talent_id:'t3', date:'2026-09-02', start_time:'22:30', end_time:'01:30', status:'Done' },
       /* Jamnya tidak terbaca: TIDAK ditebak, dan disebut di layar. */
-      { id:'s7', talent_id:'t6', date:'2026-09-05', start_time:'', end_time:'', status:'Done' }
+      { id:'s7', talent_id:'t6', date:'2026-09-05', start_time:'', end_time:'', status:'Done' },
+      /* TANGGAL YANG TIDAK ADA DI BERKAS POS. Kontribusinya tidak bisa
+         dihitung, dan itu harus DIKATAKAN — bukan ditulis 0%, yang berarti
+         tidak ada satu rupiah pun masuk di jam tampilnya. Tanpa baris ini,
+         cabang itu tidak pernah dijalankan sekali pun. */
+      { id:'s8', talent_id:'t7', date:'2026-09-08', start_time:'20:00', end_time:'22:00', status:'Done' }
     ];
 
     const { dom } = domAnalytics({ event: [], eventRaw: { talents, schedules } });
@@ -3041,11 +3047,19 @@ async function siap(w) {
                      total 22.000.000, 5 jam
        Fuego         2 Sep 22,23 + 3 Sep 0,1 = 4+5+2,5+1,7 = 13.200.000, 4 jam
        Amerta        4 Sep 20,21 = 13.000.000, 2 jam                            */
-    const barisOrang = nama => {
-      const i = vw().indexOf('<b>' + nama + '</b>');
+    /* Potongan satu kartu, dicari dari judulnya. */
+    const kartuHtml = judul => {
+      const v = vw(), i = v.indexOf('<h3>' + judul + '</h3>');
       if (i < 0) return '';
-      return vw().slice(vw().lastIndexOf('<tr', i), vw().indexOf('</tr>', i));
+      const j = v.indexOf('<h3>', i + 4);
+      return v.slice(i, j < 0 ? v.length : j);
     };
+    const barisDi = (html, nama) => {
+      const i = html.indexOf('<b>' + nama + '</b>');
+      if (i < 0) return '';
+      return html.slice(html.lastIndexOf('<tr', i), html.indexOf('</tr>', i));
+    };
+    const barisOrang = nama => barisDi(kartuHtml('Per Penampil'), nama);
     cek('omset penampil dihitung dari jam tampilnya sendiri',
         barisOrang('James Project').indexOf('Rp22.000.000') > -1, barisOrang('James Project'));
     cek('...termasuk jam sesudah tengah malam, di tanggal berikutnya',
@@ -3063,8 +3077,7 @@ async function siap(w) {
        4 Sep: James Project & Amerta sama-sama jam 20 & 21. Kategori Band
        karena itu = 9jt (2 Sep) + 13jt (4 Sep) = 22jt, BUKAN 22jt + 13jt. */
     {
-      const i = vw().indexOf('Per Kategori Penampil');
-      const blok = vw().slice(i, vw().indexOf('</table>', i));
+      const blok = kartuHtml('Per Kategori Penampil');
       const brs = blok.slice(blok.indexOf('<b>Band</b>'));
       cek('kategori menggabungkan jam yang sama, bukan menjumlahkannya',
           brs.indexOf('Rp22.000.000') > -1 && brs.indexOf('Rp35.000.000') < 0, brs.slice(0, 400));
@@ -3096,8 +3109,7 @@ async function siap(w) {
        (Rp1.400.000). Jadi Rp/jam saat ada 4jt, saat tanpa 1,4jt.
        Jam 19: TIDAK PERNAH ada penampil -> sisi "ada" kosong.               */
     {
-      const i = vw().indexOf('Jam Tampil Dibanding');
-      const blok = vw().slice(i, vw().indexOf('</table>', i));
+      const blok = kartuHtml('Pembanding: Jam Tampil vs Jam Yang Sama Tanpa Penampil');
       const brsJam = jj => {
         const k = blok.indexOf('<b>' + jj + ':00</b>');
         return k < 0 ? '' : blok.slice(blok.lastIndexOf('<tr', k), blok.indexOf('</tr>', k));
@@ -3165,6 +3177,150 @@ async function siap(w) {
           d.getElementById('tl_isi').innerHTML.indexOf('Fuego') > -1
           && d.getElementById('tl_isi').innerHTML.indexOf('James Project') < 0);
       kotak.value = ''; kotak.dispatchEvent(new w.Event('input', { bubbles:true })); await tunggu(40);
+    }
+
+
+    /* ---- PER MALAM & RINCIAN PER PENAMPIL (revisi user 11 September 2026) ----
+
+       "tidak perlu menampilkan jam tapi secara hari saja ... dibandingkan
+       dengan omset hari H secara keseluruhan kontribusinya berapa persen", dan
+       "band A tampil di hari selasa, terus band A tampil di senin depan, nah
+       itu saya pengen tau secara per harinya juga".
+
+       Angka fixture-nya:
+         2 Sep  jam 19..23 = 1+2+3+4+5 jt  -> omset hari 15.000.000
+         James Project 20:00-23:00 -> jam 20,21,22 = 9.000.000 -> 60,0%
+         Fuego 22:30-01:30 -> jam 22,23 (2 Sep) = 9.000.000
+                            + jam 0,1 (3 Sep)  = 4.200.000  SESUDAH TENGAH MALAM
+           kontribusinya 9.000.000 / 15.000.000 = 60,0%, BUKAN 13,2/15 = 88%    */
+    {
+      const blokMalam = kartuHtml('Per Malam');
+      cek('tabel Per Malam tergambar', !!blokMalam && blokMalam.indexOf('Kontribusi hari itu') > -1,
+          blokMalam.slice(0, 300));
+      cek('...berisi tanggal dan nama harinya', blokMalam.indexOf('2 Sep 2026') > -1
+          && blokMalam.indexOf('Rabu') > -1, blokMalam.slice(0, 600));
+
+      const brsJP = barisDi(blokMalam, 'James Project');
+      cek('kontribusi dibagi omset SELURUH hari itu',
+          brsJP.indexOf('60%') > -1 && brsJP.indexOf('Rp15.000.000') > -1, brsJP);
+      /* PENYEBUTNYA DISEBUT DI SELNYA, bukan cuma di kepala kolom: kepala
+         kolom dibaca sekali, angkanya dibaca tiap baris. Pelajaran empat
+         putaran pertanyaan di kolom Kontribusi halaman Pengaruh Event. */
+      cek('...dan penyebutnya disebut di selnya sendiri',
+          brsJP.indexOf('dari Rp15.000.000 hari itu') > -1, brsJP);
+
+      /* JAM SESUDAH TENGAH MALAM: ikut di kolom omset, TIDAK ikut di persen.
+         Dicampur ke pembilang sementara penyebutnya tetap tanggal penampilan,
+         Fuego akan berbunyi 88% dari hari yang omsetnya tidak pernah memuat
+         jam 0 dan 1 itu. */
+      const brsFu = barisDi(blokMalam, 'Fuego');
+      cek('omset sesudah tengah malam ikut di kolom omset jam tampil',
+          brsFu.indexOf('Rp13.200.000') > -1, brsFu);
+      cek('...disebut sendiri, bukan dicampur diam-diam',
+          brsFu.indexOf('Rp4.200.000 sesudah tengah malam') > -1, brsFu);
+      cek('...dan TIDAK ikut di kolom kontribusi',
+          brsFu.indexOf('60%') > -1 && brsFu.indexOf('88') < 0, brsFu);
+      cek('tumpang tindih antar penampil semalam dikatakan',
+          blokMalam.indexOf('Kolom Kontribusi tidak bisa dijumlahkan') > -1);
+
+      /* HARI YANG TIDAK PUNYA DATA POS: dikatakan, bukan 0%. Nol berarti tidak
+         ada satu rupiah pun masuk di jam tampilnya, dan itu jawaban yang salah
+         untuk hari yang berkasnya memang belum diunggah. */
+      {
+        const brsMF = barisDi(blokMalam, 'Minor Feel');
+        cek('malam yang tanggalnya tidak ada di berkas POS ikut tampil', !!brsMF,
+            'barisnya hilang — penampilannya lenyap tanpa satu pun tanda');
+        cek('...kontribusinya DIKATAKAN belum ada datanya, bukan ditulis 0%',
+            brsMF.indexOf('belum ada data POS') > -1 && brsMF.indexOf('0%') < 0, brsMF);
+        cek('...dan omset harinya tanda hubung, bukan Rp0',
+            brsMF.indexOf('Rp0') < 0, brsMF);
+      }
+
+      /* Kepala kolomnya bisa diurut, dan yang digambar ulang WADAHNYA saja —
+         kotak cari di kartu Per Penampil di bawahnya tidak boleh ikut dibuat
+         ulang. */
+      {
+        const kotak = d.getElementById('tl_q');
+        w.eval("tnSort('omset')"); await tunggu(40);
+        const b2 = kartuHtml('Per Malam');
+        const urutNama = [...b2.slice(b2.indexOf('<tbody>')).matchAll(/<td><b>([^<]+)<\/b><\/td><td>/g)]
+          .map(m => m[1]);
+        cek('tabel Per Malam bisa diurut menurut omset',
+            urutNama.length > 0, JSON.stringify(urutNama));
+        cek('...tanpa membuat ulang kotak cari di kartu bawahnya',
+            d.getElementById('tl_q') === kotak);
+        w.eval("tnSort('tgl')"); await tunggu(40);
+      }
+    }
+
+    /* ---- RINCIAN SATU PENAMPIL ---- */
+    {
+      w.eval("tlBuka('James Project')"); await tunggu(60);
+      const blokP = kartuHtml('Per Penampil');
+      cek('baris penampil bisa dibuka', blokP.indexOf('tampil 2 kali bulan ini') > -1,
+          blokP.slice(blokP.indexOf('James Project'), blokP.indexOf('James Project') + 600));
+      /* Dua malamnya berjajar — inilah yang diminta: 2 Sep (Rabu) dan
+         4 Sep (Jumat). */
+      cek('...seluruh malamnya berjajar berikut nama harinya',
+          blokP.indexOf('2 Sep 2026') > -1 && blokP.indexOf('4 Sep 2026') > -1
+          && blokP.indexOf('Jumat') > -1, blokP.slice(0, 900));
+      /* 4 Sep: jam 20,21 = 13 jt dari omset hari 13 jt -> 100% */
+      cek('...tiap malam membawa kontribusinya sendiri',
+          blokP.indexOf('100%') > -1, blokP.slice(0, 1200));
+      /* RINGKASAN PER HARI: dua hari berbeda, jadi tabelnya digambar. */
+      cek('...berikut ringkasan per hari dalam seminggu',
+          blokP.indexOf('Per hari dalam seminggu') > -1);
+      cek('...yang dirata-rata, bukan dijumlahkan',
+          blokP.indexOf('rata-rata, bukan jumlah') > -1);
+
+      w.eval("tlBuka('James Project')"); await tunggu(60);
+      cek('menekan lagi menutupnya',
+          kartuHtml('Per Penampil').indexOf('tampil 2 kali bulan ini') < 0);
+
+      /* Penampil yang cuma tampil di SATU hari tidak diberi ringkasan per
+         hari — ringkasan satu baris yang mengulang tabel di atasnya tidak
+         menjawab apa pun. */
+      w.eval("tlBuka('Amerta')"); await tunggu(60);
+      {
+        const bA = kartuHtml('Per Penampil');
+        cek('penampil yang cuma satu hari tidak diberi ringkasan per hari',
+            bA.indexOf('tampil 1 kali bulan ini') > -1
+            && bA.indexOf('Per hari dalam seminggu') < 0, bA.slice(0, 700));
+      }
+      w.eval("tlBuka('Amerta')"); await tunggu(60);
+    }
+
+    /* ---- DUA ATURAN YANG DIJAGA DI SUMBERNYA ----
+
+       Keduanya memulangkan hasil yang SAMA saat dijalankan di mesin ini, jadi
+       asersi runtime apa pun akan hijau untuk kode yang salah. Yang dijaga
+       karena itu sumbernya — pola yang sama dengan penjaga zona di isoDari(),
+       yang mutasinya juga lolos seluruh pemeriksaan runtime di mesin berzona
+       WIB dan cuma merah di laptop yang zonanya lain. */
+    {
+      const SRC = fs.readFileSync(path.join(ROOT, 'deploy', 'analytics', 'index.html'), 'utf8');
+      const blok = SRC.slice(SRC.indexOf('function tlRincianHtml'),
+                             SRC.indexOf('function tlIsiHtml'));
+      /* RINGKASAN PER HARI DIRATA-RATA, bukan dijumlahkan. Di fixture ini tiap
+         penampil cuma tampil sekali per hari, jadi jumlah dan rata-rata
+         memulangkan angka yang sama persis — dan mutasinya lolos. Di produksi
+         bedanya besar: band yang tampil empat kali di Sabtu akan selalu
+         mengalahkan yang tampil sekali, dan itu bukan jawaban atas "hari mana
+         yang paling besar untuk dia". */
+      cek('ringkasan per hari dirata-rata, bukan dijumlahkan',
+          blok.indexOf('rp0(k.omset / k.n)') > -1 && blok.indexOf("rp0(k.omset)") < 0,
+          'jumlah membuat yang sering tampil selalu menang');
+      cek('...begitu juga rata-rata kontribusinya', blok.indexOf('k.pct / k.nPct') > -1);
+
+      /* NAMA HARI DARI UTC. new Date(t).getDay() dibaca di zona peramban: di
+         WIB hasilnya kebetulan sama, tapi laptop berzona barat akan menyebut
+         hari yang berbeda untuk tanggal yang sama. */
+      const blokMalamSrc = SRC.slice(SRC.indexOf('const malam = isi.map'),
+                                     SRC.indexOf('TN_CACHE = { baris: malam };'));
+      cek('nama hari dibaca UTC, bukan zona peramban',
+          blokMalamSrc.indexOf('NAMA_HARI[dowDari(t)]') > -1
+          && blokMalamSrc.indexOf('getDay()') < 0,
+          'zona peramban membuat laptop di zona lain menyebut hari yang berbeda');
     }
 
     /* ---- laporan lama: tidak punya hariJam sama sekali ---- */

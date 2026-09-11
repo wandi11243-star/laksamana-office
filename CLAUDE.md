@@ -2080,6 +2080,107 @@ Satu jebakan uji yang layak diingat: nama kategori `KOPI & TEH` digambar
 kode yang benar. Fixture-nya sengaja TETAP memuat `&` supaya escaping-nya ikut
 terjaga; yang dibetulkan pembaca selnya (`teksSel`), bukan fixture-nya.
 
+
+##### Revisi: bingkainya PER HARI, bukan per jam (11 September 2026)
+
+Dua permintaan user sehari setelah halamannya lahir.
+
+**1. "Tidak perlu menampilkan jam tapi secara hari saja."** Jamnya tetap yang
+MENGHITUNG — itu yang membuat angkanya berarti — tapi yang dibaca orang
+tanggalnya. Tabel **Per Malam** jadi tabel utama: satu baris = satu
+penampilan, dengan **Kontribusi hari itu** = omset selama jam tampilnya dibagi
+omset **seluruh hari** itu.
+
+**JAM SESUDAH TENGAH MALAM DIPISAH, bukan dibuang dan bukan dicampur.** Slot
+22:30–01:30 menempati jam 0 & 1 yang di POS tercatat di **tanggal berikutnya**,
+sementara penyebut kontribusinya omset **tanggal penampilan**. Dicampur ke
+pembilang, persennya jadi angka yang tidak punya arti dan bisa melewati 100%
+tanpa sebab yang bisa dijelaskan — di data uji Fuego akan berbunyi 88% dari
+hari yang omsetnya tidak pernah memuat jam 0 dan 1 itu. Jadi:
+
+| kolom | isinya |
+|---|---|
+| Omset di jam tampil | SELURUH jam tampil, termasuk sesudah tengah malam |
+| └ baris kecil di bawahnya | berapa dari situ yang jatuh sesudah tengah malam |
+| Kontribusi hari itu | hanya jam yang jatuh di tanggal penampilan ÷ omset hari itu |
+
+Dua angka dengan dua penyebut yang jelas selalu lebih berguna daripada satu
+angka yang harus ditebak dasarnya.
+
+- **Penyebutnya disebut DI SELNYA** (*dari Rp15.000.000 hari itu*), bukan cuma
+  di kepala kolom. Kepala kolom dibaca sekali, angkanya dibaca tiap baris —
+  pelajaran empat putaran pertanyaan di kolom Kontribusi halaman Pengaruh
+  Event.
+- **Hari yang belum punya data POS ditulis “belum ada data POS”, bukan 0%.**
+  Nol berarti tidak ada satu rupiah pun masuk di jam tampilnya, dan itu jawaban
+  yang salah untuk hari yang berkasnya memang belum diunggah.
+- **Kolom Kontribusi tidak bisa dijumlahkan**, dan itu dikatakan: dua penampil
+  semalam bisa menempati jam yang beririsan.
+- **Tabel per jam TIDAK dicabut**, cuma turun ke bawah dan berganti judul jadi
+  *Pembanding: Jam Tampil vs Jam Yang Sama Tanpa Penampil*. Ia menjawab satu
+  hal yang tabel per malam tidak bisa: apakah jam tampilnya memang lebih besar
+  daripada jam yang sama saat tidak ada penampil. Mencabutnya berarti halaman
+  ini kehilangan satu-satunya kendali yang jujur atas pertanyaan "tinggi atau
+  tidak".
+
+**2. "Band A tampil di hari Selasa, terus Senin depan — saya pengen tau secara
+per harinya."** Baris di tabel **Per Penampil** sekarang bisa diklik, dan
+membukanya memperlihatkan seluruh malam orang itu berjajar: tanggal, nama hari,
+jam, omset di jamnya, omset hari itu, kontribusinya.
+
+- **Dibaca dari `TN_CACHE` yang SAMA dengan tabel Per Malam**, bukan dihitung
+  ulang. Dua tempat yang menghitung porsi malam yang sama akan menyimpang, dan
+  yang menyimpang di sini dua angka untuk satu malam di satu layar.
+- **RINGKASAN PER HARI DALAM SEMINGGU ikut**, dan angkanya **rata-rata, bukan
+  jumlah**: band yang tampil empat kali di Sabtu akan selalu mengalahkan yang
+  tampil sekali, dan itu bukan jawaban atas "hari mana yang paling besar untuk
+  dia". Hari dalam seminggu menentukan omset jauh lebih besar daripada siapa
+  yang tampil — tanpa pengelompokan ini, band yang selalu dapat Selasa dan band
+  yang selalu dapat Sabtu dibandingkan lewat total, dan yang membacanya
+  menyimpulkan yang satu jauh lebih menarik daripada yang lain.
+- **Digambar HANYA kalau ia tampil di lebih dari satu hari** — ringkasan satu
+  baris yang mengulang tabel di atasnya tidak menjawab apa pun.
+- Menekan baris yang sedang terbuka **menutupnya**, aturan yang sama dengan
+  `mnBuka()` di halaman Menu.
+- **Nama hari dari `dowDari()` (UTC)**, bukan `new Date(t).getDay()`: yang
+  kedua dibaca di zona peramban, dan laptop berzona lain akan menyebut hari
+  yang berbeda untuk tanggal yang sama. Aturan yang sama dengan `isoDari()`.
+
+```bash
+node tools/uji-analytics.js   # 526 pemeriksaan (dari 503)
+```
+
+**Sebelas mutasi dicoba, kesebelasnya tertangkap** — tiga baru tertangkap
+sesudah ujinya dibetulkan, dan ketiganya bentuk yang berbeda:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| hari tanpa data POS ditulis 0% | **cacat fixture** — tiap tanggal penampilan punya data POS, jadi cabangnya tidak pernah dijalankan | penampilan di 8 Sep, tanggal yang sengaja tidak ada di berkas |
+| ringkasan per hari menjumlahkan, bukan merata-rata | tiap penampil cuma tampil sekali per hari, jadi jumlah = rata-rata | **asersi SUMBER** |
+| nama hari dari zona peramban | di WIB hasilnya kebetulan sama | **asersi SUMBER** |
+
+Dua yang terakhir **tidak bisa dibedakan saat dijalankan di mesin ini**, jadi
+yang dijaga sumbernya — pola yang sama dengan penjaga zona di `isoDari()`, yang
+mutasinya juga lolos seluruh pemeriksaan runtime di mesin berzona WIB dan cuma
+merah di laptop yang zonanya lain.
+
+> **SATU CACAT PRODUK DITEMUKAN OLEH ASERSI BARU ITU SENDIRI**: kolom *Omset di
+> jam tampil* menulis **Rp0** untuk tanggal yang tidak ada di berkas POS. Nol di
+> situ berarti "tidak ada satu rupiah pun masuk selama ia tampil" — kesimpulan
+> tentang malam yang datanya belum pernah dibaca siapa pun, dan persis konflasi
+> yang sudah dijaga di kolom Kontribusi **tepat di sebelahnya**. Dua kolom di
+> satu baris tidak boleh menjawab pertanyaan yang sama dengan keyakinan yang
+> berbeda. Sekarang keduanya berbunyi *belum ada data POS*.
+
+> **PENCARI BARIS DI UJI WAJIB DIJEPIT KE KARTUNYA.** Halaman ini sekarang
+> punya DUA tabel yang sama-sama menulis nama penampil di dalam `<b>` — Per
+> Malam dan Per Penampil — jadi pencari yang menyapu seluruh halaman menemukan
+> yang teratas, dan asersi tentang tabel kedua diuji atas tabel pertama.
+> Tujuh asersi lama langsung merah karenanya saat tabel baru ini dipasang, dan
+> itu bentuk yang sama dengan asersi hampa di kolom Kontribusi: cocok dengan
+> sel yang bukan yang diuji. Sekarang ada `kartuHtml(judul)` dan
+> `barisDi(html, nama)`.
+
 #### KODE MENU DIISI DI HPP & RESEP — sumber utamanya sekarang di sana (10 Sep 2026)
 
 Permintaan user: *"dari di HPP & Resep bisa masukin menu code, jadi kalau
