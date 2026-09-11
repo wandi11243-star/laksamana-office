@@ -135,7 +135,8 @@ function domAnalytics(opt) {
           : Object.assign({ bahan:[], resep:[], setting:{}, ts:'2026-09-04' }, opt.hpp || {}));
         if (u.indexOf('account-api') > -1) return jawab({ ok:true, members: opt.roster || [] });
         if (u.indexOf('event-api') > -1) return jawab(opt.eventGagal
-          ? { ok:false } : { ok:true, data:{ events: opt.event || [] } });
+          ? { ok:false }
+          : { ok:true, data: Object.assign({ events: opt.event || [] }, opt.eventRaw || {}) });
         if (u.indexOf('marketing-api') > -1) return jawab(opt.mktGagal
           ? { ok:false } : { ok:true, data:{ events: opt.mkt || [] } });
         if (u.indexOf('action=getAll') > -1) return jawab(opt.kpGagal
@@ -2873,6 +2874,328 @@ async function siap(w) {
           w.eval('menuNormal')({ menu: bulanAgu.menu }).adaKel === false
           && w.eval('menuNormal')(bulanAgu).adaKel === true);
     }
+    dom.window.close();
+  }
+
+  /* ================= 13. Performa Talent =====================================
+     Permintaan user 11 September 2026: kontribusi omset tiap penampil,
+     "sesuai dengan jamnya".
+
+     Yang diuji di sini BUKAN tampilannya melainkan ARITMETIKANYA, dan tiap
+     angka di fixture dipilih supaya punya sidik jarinya sendiri — dua sel yang
+     kebetulan bernilai sama membuat asersi cocok dengan sel yang bukan diuji,
+     pelajaran yang sudah dibayar di kolom Kontribusi dan di rata-rata per
+     transaksi Metode Kunjungan.
+
+     BERKAS POS-nya DIBUAT DI SINI sebagai CSV dan didorong lewat jalur unggah
+     yang SUNGGUHAN (anPilihBerkas -> uraiPos -> anSimpanUnggah). Menyuntikkan
+     hariJam langsung ke AN.data.laporan akan melewati persis baris yang paling
+     mungkin rusak: daftar kunci tertutup di anSimpanUnggah(), tempat paket,
+     kategori, dan katMenu pernah tertinggal lima hari tanpa satu pun galat
+     sementara 260 pemeriksaan tetap hijau. */
+  console.log('\n== Performa Talent ==');
+  {
+    /* ---- berkas POS tiruan ----
+       Empat malam, dan tiap malam dirancang menjawab satu pertanyaan:
+
+         2026-09-02  band 20-23 + DJ 22:30-01:30  -> tumpang tindih di jam 22,
+                                                     DJ menyeberang tengah malam
+         2026-09-03  TANPA penampil               -> pembanding jam yang sama
+         2026-09-04  dua band di jam yang sama    -> gabungan, bukan jumlah
+         2026-09-05  penampil dibatalkan          -> tidak boleh ikut
+
+       Nilai tiap jam BERBEDA supaya salah jam punya tempat untuk ketahuan. */
+    const JAM = {
+      '2026-09-02': { 19:1000000, 20:2000000, 21:3000000, 22:4000000, 23:5000000 },
+      '2026-09-03': { 19:1100000, 20:1200000, 21:1300000, 22:1400000, 23:1500000 },
+      '2026-09-04': { 20:6000000, 21:7000000 },
+      '2026-09-05': { 20:800000, 21:900000 },
+      /* Jam dini hari milik malam tanggal 2 — di POS ia tercatat di tanggal
+         berikutnya, dan itu yang membuat penyeberangan tengah malam bisa diuji. */
+      '2026-09-03T': {}
+    };
+    JAM['2026-09-03'][0] = 2500000;
+    JAM['2026-09-03'][1] = 1700000;
+    delete JAM['2026-09-03T'];
+
+    const baris = ['Sales Date,Sales Number,Sales In Time,Visit Purpose,Grand Total,Net Sales,Service Charge,Tax Total'];
+    let no = 0;
+    Object.keys(JAM).sort().forEach(t => {
+      Object.keys(JAM[t]).forEach(j => {
+        no++;
+        baris.push(t + ',SLM' + String(100000 + no) + ',' + String(j).padStart(2, '0') + ':15:00'
+          + ',DINE IN,' + JAM[t][j] + ',' + JAM[t][j] + ',0,0');
+      });
+    });
+    const csv = baris.join('\n');
+
+    /* ---- jadwal talent tiruan, lewat event-api ---- */
+    const talents = [
+      { id:'t1', name:'James Project', category:'Band' },
+      { id:'t2', name:'Fuego',         category:'DJ' },
+      { id:'t3', name:'Pennykids',     category:'MC DJ' },
+      { id:'t4', name:'Amerta',        category:'Band' },
+      { id:'t5', name:'Vie',           category:'DJ' },
+      { id:'t6', name:'A Deeps',       category:'DJ' }
+    ];
+    const schedules = [
+      { id:'s1', talent_id:'t1', date:'2026-09-02', start_time:'20:00', end_time:'23:00', status:'Done' },
+      /* Menyeberang tengah malam: jam 22 & 23 tanggal 2, lalu jam 0 & 1
+         tanggal 3. Jam 22 juga diklaim band di atas — tumpang tindih. */
+      { id:'s2', talent_id:'t2', date:'2026-09-02', start_time:'22:30', end_time:'01:30', status:'Confirmed' },
+      /* Dua band di jam yang SAMA: kategorinya harus menggabungkan jamnya,
+         bukan menjumlahkannya. */
+      { id:'s3', talent_id:'t1', date:'2026-09-04', start_time:'20:00', end_time:'22:00', status:'Done' },
+      { id:'s4', talent_id:'t4', date:'2026-09-04', start_time:'20:00', end_time:'22:00', status:'Done' },
+      /* Dibatalkan: tidak pernah tampil, jadi omset jam itu bukan miliknya. */
+      { id:'s5', talent_id:'t5', date:'2026-09-05', start_time:'20:00', end_time:'22:00', status:'Cancelled' },
+      /* BERPASANGAN dengan DJ di jam yang SAMA (s2) — inilah bentuk yang
+         dikatakan user, dan yang membuat baris "DJ + MC DJ" bisa membedakan
+         gabungan dari penjumlahan: gabungan 13,2jt, dijumlahkan 26,4jt. */
+      { id:'s6', talent_id:'t3', date:'2026-09-02', start_time:'22:30', end_time:'01:30', status:'Done' },
+      /* Jamnya tidak terbaca: TIDAK ditebak, dan disebut di layar. */
+      { id:'s7', talent_id:'t6', date:'2026-09-05', start_time:'', end_time:'', status:'Done' }
+    ];
+
+    const { dom } = domAnalytics({ event: [], eventRaw: { talents, schedules } });
+    const w = dom.window, d = w.document;
+    await siap(w);
+
+    /* ---- unggah lewat jalur sungguhan ---- */
+    const file = new w.File([csv], 'pos-sep.csv', { type:'text/csv' });
+    file.text = async () => csv;
+    file.arrayBuffer = async () => new TextEncoder().encode(csv).buffer;
+    w.eval('UNGGAH_HASIL = null');
+    await w.anPilihBerkas({ files: [file] });
+    for (let i = 0; i < 200 && !w.eval('UNGGAH_HASIL'); i++) await tunggu(25);
+    const u = w.eval('UNGGAH_HASIL');
+    cek('berkas POS tiruan terbaca', !!u && u.bulan === '2026-09', u ? u.bulan : 'null');
+
+    /* ---- hariJam: diurai DAN tersimpan ---- */
+    cek('omset diurai per tanggal per jam',
+        !!(u.hariJam && u.hariJam['2026-09-02'] && u.hariJam['2026-09-02'][21]),
+        JSON.stringify(Object.keys(u.hariJam || {})));
+    cek('...angkanya per jam, bukan diratakan',
+        u.hariJam['2026-09-02'][21].g === 3000000 && u.hariJam['2026-09-02'][22].g === 4000000,
+        JSON.stringify(u.hariJam['2026-09-02']));
+    /* Jumlah per tanggal WAJIB sama dengan hari[].grand — dua penjumlahan
+       untuk angka yang sama pasti berbeda suatu hari, dan yang berbeda di sini
+       membuat kolom persen berhenti berjumlah masuk akal. */
+    {
+      let cocokSemua = true;
+      Object.keys(u.hari).forEach(t => {
+        const jum = Object.keys(u.hariJam[t] || {}).reduce((a, j) => a + u.hariJam[t][j].g, 0);
+        if (Math.abs(jum - u.hari[t].grand) > 1) cocokSemua = false;
+      });
+      cek('jumlah per jam sama dengan omset hari itu', cocokSemua);
+    }
+    /* DAFTAR KUNCI TERTUTUP — tempat tiga kunci pernah tertinggal lima hari. */
+    await w.eval('anSimpanUnggah()'); await tunggu(150);
+    cek('hariJam ikut TERSIMPAN, tidak dibuang daftar kunci tertutup',
+        !!w.eval('AN.data.laporan["2026-09"].hariJam'),
+        JSON.stringify(Object.keys(w.eval('AN.data.laporan["2026-09"]') || {})));
+
+    /* ---- talSlot: jam yang diklaim satu penampilan ---- */
+    {
+      const sl = w.eval('talSlot')({ tgl:'2026-09-02', mulai:'20:00', selesai:'23:00' });
+      cek('20:00-23:00 menempati jam 20, 21, 22 — bukan 23',
+          sl.jam.map(x => x.jam).join(',') === '20,21,22', JSON.stringify(sl.jam));
+      const w2 = w.eval('talSlot')({ tgl:'2026-09-02', mulai:'22:30', selesai:'01:30' });
+      cek('yang lewat tengah malam pindah TANGGAL, bukan membungkus di hari yang sama',
+          w2.jam.map(x => x.tgl + '|' + x.jam).join(' ')
+            === '2026-09-02|22 2026-09-02|23 2026-09-03|0 2026-09-03|1',
+          JSON.stringify(w2.jam));
+      const w3 = w.eval('talSlot')({ tgl:'2026-09-02', mulai:'20:00', selesai:'22:30' });
+      cek('jam yang tersentuh sebagian tetap ikut',
+          w3.jam.map(x => x.jam).join(',') === '20,21,22', JSON.stringify(w3.jam));
+      cek('jam yang tidak terbaca memulangkan null, bukan ditebak',
+          w.eval('talSlot')({ tgl:'2026-09-02', mulai:'', selesai:'' }) === null
+          && w.eval('talSlot')({ tgl:'2026-09-02', mulai:'20:00', selesai:'' }) === null);
+      cek('...dan jam di luar 0-23 ditolak',
+          w.eval('talMenit')('25:00') === null && w.eval('talMenit')('20:75') === null
+          && w.eval('talMenit')('20:00') === 1200);
+    }
+
+    /* ---- halamannya ---- */
+    w.eval("BLN='2026-09'; TL_Q=''; TL_SORT={k:'omset',turun:true};");
+    w.go('talent'); await tunggu(80);
+    const vw = () => d.getElementById('app-view').innerHTML;
+    cek('halaman Performa Talent tergambar', vw().indexOf('Per Penampil') > -1, vw().slice(0, 300));
+    cek('kartu omset di jam tampil menggabungkan jam, bukan menjumlahkannya',
+        vw().indexOf('Rp31.200.000') > -1,
+        vw().slice(vw().indexOf('Omset di Jam Tampil') - 200, vw().indexOf('Omset di Jam Tampil') + 120));
+    cek('...dan persennya memakai omset SELURUH bulan sebagai penyebut',
+        vw().indexOf('77% dari omset bulan ini') > -1,
+        vw().slice(vw().indexOf('Omset di Jam Tampil') - 200, vw().indexOf('Omset di Jam Tampil') + 200));
+
+    /* Yang DIBATALKAN tidak boleh ikut — ia tidak pernah naik panggung. */
+    cek('jadwal yang dibatalkan tidak ikut dihitung', vw().indexOf('>Vie<') < 0, 'Vie dibatalkan');
+    /* Jam tak terbaca DISEBUT, bukan ditebak dan bukan dibuang diam-diam. */
+    cek('penampilan tanpa jam yang terbaca disebut, bukan ditebak',
+        vw().indexOf('tidak punya jam') > -1 && vw().indexOf('A Deeps') > -1,
+        vw().slice(vw().indexOf('tidak punya jam') - 100, vw().indexOf('tidak punya jam') + 300));
+
+    /* ---- angka per penampil ----
+       James Project 2 Sep (jam 20,21,22) = 2jt+3jt+4jt = 9jt
+                     4 Sep (jam 20,21)    = 6jt+7jt     = 13jt
+                     total 22.000.000, 5 jam
+       Fuego         2 Sep 22,23 + 3 Sep 0,1 = 4+5+2,5+1,7 = 13.200.000, 4 jam
+       Amerta        4 Sep 20,21 = 13.000.000, 2 jam                            */
+    const barisOrang = nama => {
+      const i = vw().indexOf('<b>' + nama + '</b>');
+      if (i < 0) return '';
+      return vw().slice(vw().lastIndexOf('<tr', i), vw().indexOf('</tr>', i));
+    };
+    cek('omset penampil dihitung dari jam tampilnya sendiri',
+        barisOrang('James Project').indexOf('Rp22.000.000') > -1, barisOrang('James Project'));
+    cek('...termasuk jam sesudah tengah malam, di tanggal berikutnya',
+        barisOrang('Fuego').indexOf('Rp13.200.000') > -1, barisOrang('Fuego'));
+    /* Rp/jam: 22jt / 5 = 4,4jt — dan itulah pembanding yang adil antara slot
+       tiga jam dan slot satu setengah jam. */
+    cek('Rp per jam dihitung dari jumlah jamnya',
+        barisOrang('James Project').indexOf('Rp4.400.000') > -1, barisOrang('James Project'));
+    /* 22.000.000 / 40.400.000 = 54,5%. Penyebut yang salah (mis. omset jam
+       tampil saja) memberi 70,5% — angka yang sama-sama terlihat wajar. */
+    cek('...dan persennya dibagi omset SELURUH bulan',
+        barisOrang('James Project').indexOf('54,5%') > -1, barisOrang('James Project'));
+
+    /* ---- kategori: GABUNGAN jam, bukan penjumlahan ----
+       4 Sep: James Project & Amerta sama-sama jam 20 & 21. Kategori Band
+       karena itu = 9jt (2 Sep) + 13jt (4 Sep) = 22jt, BUKAN 22jt + 13jt. */
+    {
+      const i = vw().indexOf('Per Kategori Penampil');
+      const blok = vw().slice(i, vw().indexOf('</table>', i));
+      const brs = blok.slice(blok.indexOf('<b>Band</b>'));
+      cek('kategori menggabungkan jam yang sama, bukan menjumlahkannya',
+          brs.indexOf('Rp22.000.000') > -1 && brs.indexOf('Rp35.000.000') < 0, brs.slice(0, 400));
+      /* DJ + MC DJ: MC DJ satu-satunya jadwalnya tanpa jam, jadi pasangannya
+         sama dengan DJ saja — dan itu benar, bukan bug. */
+      cek('baris pasangan DJ + MC DJ digambar', blok.indexOf('DJ + MC DJ') > -1, blok.slice(0, 600));
+      /* DJ dan MC DJ tampil di jam yang SAMA. Gabungan = 13,2jt; dijumlahkan =
+         26,4jt, dan pasangannya selalu terlihat lebih besar daripada
+         kenyataannya. Keduanya angka yang sama-sama terlihat wajar. */
+      {
+        const brsP = blok.slice(blok.indexOf('DJ + MC DJ'));
+        cek('...dan jamnya DIGABUNG, bukan dijumlahkan',
+            brsP.indexOf('Rp13.200.000') > -1 && brsP.indexOf('Rp26.400.000') < 0, brsP.slice(0, 400));
+        /* PENAMPILAN & ORANG tetap DIJUMLAHKAN — yang digabung jamnya, bukan
+           jumlah orang yang naik panggung. Dua angka ini pula satu-satunya
+           yang bergerak kalau daftar kategori pasangannya salah: DJ dan MC DJ
+           menempati jam yang sama, jadi kolom omsetnya tidak bergeser sedikit
+           pun walau MC DJ dicabut dari pasangannya. */
+        const angkaP = [...brsP.matchAll(/<td class="num">(\d+)<\/td>/g)].map(m => m[1]);
+        cek('...dan pasangannya benar-benar memuat DJ DAN MC DJ',
+            angkaP[0] === '2' && angkaP[1] === '2', JSON.stringify(angkaP) + ' :: ' + brsP.slice(0, 400));
+      }
+      cek('...dan ditandai tidak boleh dijumlahkan dengan barisnya sendiri',
+          blok.indexOf('jangan dijumlahkan') > -1);
+    }
+
+    /* ---- pembanding per jam ----
+       Jam 22: ada penampil hanya 2 Sep (Rp4.000.000). Tanpa penampil 3 Sep
+       (Rp1.400.000). Jadi Rp/jam saat ada 4jt, saat tanpa 1,4jt.
+       Jam 19: TIDAK PERNAH ada penampil -> sisi "ada" kosong.               */
+    {
+      const i = vw().indexOf('Jam Tampil Dibanding');
+      const blok = vw().slice(i, vw().indexOf('</table>', i));
+      const brsJam = jj => {
+        const k = blok.indexOf('<b>' + jj + ':00</b>');
+        return k < 0 ? '' : blok.slice(blok.lastIndexOf('<tr', k), blok.indexOf('</tr>', k));
+      };
+      cek('jam yang sama dibandingkan ada-penampil vs tanpa',
+          brsJam('22').indexOf('Rp4.000.000') > -1 && brsJam('22').indexOf('Rp1.400.000') > -1,
+          brsJam('22'));
+      cek('...berikut selisihnya',
+          brsJam('22').indexOf('+Rp2.600.000') > -1, brsJam('22'));
+      /* Jam yang tidak punya sisi pembanding harus DIKATAKAN, bukan diisi
+         angka yang dikarang. Jam 23 hanya pernah ada penampil (2 Sep) dan
+         pernah tanpa (3 Sep) — jadi yang dipakai jam 19, yang tidak pernah
+         ada penampilnya. */
+      cek('jam tanpa pembanding dikatakan, bukan diisi angka',
+          brsJam('19').indexOf('tidak ada pembandingnya') > -1, brsJam('19'));
+      /* Sisi yang kosong ditulis tanda hubung, BUKAN Rp0 — nol berarti jam itu
+         pernah ada penampilnya dan omsetnya memang nol, dan itu jawaban yang
+         salah untuk pertanyaan yang tidak pernah ditanyakan. */
+      cek('...dan sisi yang memang kosong ditulis tanda hubung, bukan Rp0',
+          brsJam('19').indexOf('Rp0') < 0, brsJam('19'));
+      cek('...dan aturan "jam tanpa bill tidak dihitung" dikatakan di layar',
+          vw().indexOf('benar-benar punya bill') > -1);
+      /* Jam 10 tidak punya satu pun bill di berkas mana pun. Ia tidak boleh
+         berdiri sebagai baris, dan tidak boleh ikut sebagai Rp0 di sisi
+         "tanpa penampil" — kalau ikut, rata-rata sisi itu jatuh ke hampir nol
+         dan SETIAP penampil terlihat luar biasa. */
+      cek('jam yang tidak punya satu pun bill tidak digambar sama sekali',
+          brsJam('10') === '', brsJam('10').slice(0, 200));
+      /* Jam 22 punya data di 2 Sep (ada penampil) dan 3 Sep (tanpa). Jadi
+         hitungannya persis 1 dan 1 — bukan 4 hari dikurangi 1. */
+      {
+        const b22 = brsJam('22');
+        const angka = [...b22.matchAll(/<td class="num">(\d+)<\/td>/g)].map(m => m[1]);
+        cek('...dan jam-hari tiap sisi dihitung dari hari yang punya data saja',
+            angka[0] === '1' && angka[1] === '1', JSON.stringify(angka) + ' :: ' + b22);
+      }
+    }
+
+    /* ---- tumpang tindih DIKATAKAN, bukan dijepit ke 100% ---- */
+    cek('tumpang tindih antar penampil dikatakan',
+        vw().indexOf('tidak bisa dijumlahkan') > -1 && vw().indexOf('lebih dari 100%') > -1);
+
+    /* ---- urut & cari ---- */
+    {
+      const urutan = () => {
+        const i = vw().indexOf('Per Penampil');
+        const body = vw().slice(vw().indexOf('<tbody>', i));
+        return [...body.matchAll(/<td><b>([^<]+)<\/b>/g)].map(m => m[1]);
+      };
+      cek('bawaan diurut menurut omset', urutan()[0] === 'James Project', JSON.stringify(urutan()));
+      w.eval("tlSort('perJam')"); await tunggu(60);
+      /* Amerta Rp6.500.000/jam mengalahkan James Project Rp4.400.000/jam —
+         itulah gunanya kolom ini: slot pendek yang padat kalah di total tapi
+         menang di Rp/jam. */
+      cek('kolom Rp/jam mengurutkannya berbeda dari omset',
+          urutan()[0] === 'Amerta', JSON.stringify(urutan()));
+      w.eval("tlSort('omset')"); await tunggu(60);
+      const kotak = d.getElementById('tl_q');
+      kotak.value = 'fue';
+      kotak.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(40);
+      cek('mencari penampil tidak membuat ulang kotaknya',
+          d.getElementById('tl_q') === kotak && kotak.value === 'fue');
+      cek('...dan tabelnya tersaring',
+          d.getElementById('tl_isi').innerHTML.indexOf('Fuego') > -1
+          && d.getElementById('tl_isi').innerHTML.indexOf('James Project') < 0);
+      kotak.value = ''; kotak.dispatchEvent(new w.Event('input', { bubbles:true })); await tunggu(40);
+    }
+
+    /* ---- laporan lama: tidak punya hariJam sama sekali ---- */
+    w.eval('delete AN.data.laporan["2026-09"].hariJam');
+    w.go('talent'); await tunggu(60);
+    cek('laporan tanpa hariJam mengatakan sebabnya dan cara membetulkannya',
+        vw().indexOf('belum memuat omset per jam per tanggal') > -1 && vw().indexOf('Unggah ulang') > -1,
+        vw().slice(0, 400));
+    /* DIBEDAKAN dari modul Event yang mati — dua keadaan, dua tindakan. */
+    cek('...dan itu BEDA dari pesan modul Event tidak menjawab',
+        vw().indexOf('Jadwal talent tidak terbaca') < 0);
+    dom.window.close();
+  }
+
+  /* Modul Event yang tidak menjawab: daftar kosong yang sebenarnya berarti
+     "servernya mati" tidak membuat siapa pun memeriksa apa pun. */
+  {
+    const { dom } = domAnalytics({ eventGagal: true });
+    const w = dom.window;
+    await siap(w);
+    w.eval('AN.data.laporan = {}');
+    w.eval('AN.data.laporan["2026-09"] = ' + JSON.stringify({
+      diunggah:'2026-09-11', oleh:'W', berkas:'x.csv', jenis:'bill',
+      hari:{ '2026-09-02':{ bill:5, grand:1000000 } }, jam:[],
+      hariJam:{ '2026-09-02':{ 20:{ g:1000000, b:5 } } }, ringkas:{ bill:5, grand:1000000 }
+    }));
+    w.eval("BLN='2026-09'");
+    w.go('talent'); await tunggu(60);
+    const v = w.document.getElementById('app-view').innerHTML;
+    cek('modul Event yang mati dikatakan, bukan dibaca sebagai tidak ada jadwal',
+        v.indexOf('Jadwal talent tidak terbaca') > -1, v.slice(0, 300));
     dom.window.close();
   }
 

@@ -864,6 +864,143 @@ node tools/uji-jejak-omset.js   # 21 pemeriksaan, jsdom
 daftarnya cuma memuat `finance`, halaman pemilih panel. Uji di atas adalah
 satu-satunya yang pernah menjalankan `saveDaily()`.
 
+
+### Analytics: Performa Talent — omset di JAM TAMPILNYA (11 September 2026)
+
+Permintaan user: *"utk khususnya performa Band dan DJ (partner dengan MC DJ),
+saya ingin kontribusi hadirnya band sama DJ itu kontribusi omsetnya tinggi atau
+tidak, terus per masing masing performance juga begitu apakah kontribusinya
+juga brp persen dari omset. ingat sesuai dengan jam nya."*
+
+Halaman baru **Performa Talent** (kunci view `talent`), mempertemukan dua
+sumber yang sebelumnya tidak pernah bertemu:
+
+| | dari |
+|---|---|
+| jadwal talent | modul **Event** → Talent Schedule (`schedules` + `talents`) |
+| omset per jam | berkas POS → **`hariJam[tgl][jam]`**, wadah baru |
+
+#### Wadah baru `hariJam` — tanpa itu pertanyaannya tidak bisa dijawab
+
+`jam[]` yang sudah ada **diringkas untuk sebulan penuh** dan `hari[]` tidak
+punya dimensi jam, jadi tidak satu pun dari keduanya bisa menjawab *"jam 20
+tanggal 2 berapa"* — dan itu persis pertanyaan yang dibawa jadwal talent.
+
+**Menebaknya dari sebaran jam sebulan dikali omset harian terdengar masuk akal
+dan SELALU salah dengan cara yang sama:** tiap malam jadi berbentuk identik,
+sehingga penampil yang benar-benar menarik tamu dan yang tidak memulangkan
+angka yang sama persis. Angka seperti itu tidak akan dipertanyakan siapa pun.
+
+- **Diisi di BARIS YANG SAMA dengan `jam[]`**, dari `jm` yang sama. Dua tempat
+  yang memutuskan jam sebuah baris akan menyimpang, dan yang menyimpang di sini
+  membuat halaman ini menyebut angka lain daripada Sebaran per Jam untuk bulan
+  yang sama.
+- **Dibuang dengan aturan yang SAMA PERSIS dengan `hari[]`** untuk bulan
+  sebelah — kalau tidak, halaman ini menghitung jam bulan lain sementara
+  halaman lain tidak.
+- **WAJIB ada di daftar kunci tertutup `anSimpanUnggah()`.** Itu tempat
+  `paket`, `kategori`, dan `katMenu` tertinggal lima hari tanpa satu pun
+  galat sementara 260 pemeriksaan tetap hijau; kunci baru lewat jalur yang sama
+  persis. Ujinya mendorong berkas CSV lewat jalur unggah SUNGGUHAN, bukan
+  menyuntikkan `hariJam` ke `AN.data.laporan`.
+- **Laporan lama tidak punya `hariJam`**, dan halamannya mengatakan sebabnya
+  berikut cara membetulkannya (unggah ulang) — dibedakan dari modul Event yang
+  tidak menjawab, karena dua keadaan itu menuntut tindakan yang berbeda.
+
+#### Jam yang diklaim satu penampilan
+
+`talSlot()` memulangkan daftar `{tgl, jam}`.
+
+- **Jam terakhir dihitung dari MENIT TERAKHIRNYA** (`m1 + durasi - 1`), bukan
+  dari jam selesainya: 20:00–23:00 menempati jam **20, 21, 22** — bukan 23,
+  karena pada pukul 23:00 ia sudah selesai. Dibaca sampai 23, tiap penampilan
+  mencuri satu jam penuh milik penampil berikutnya.
+- **Lewat tengah malam PINDAH TANGGAL**: 22:30–01:30 menempati jam 22 & 23 di
+  tanggalnya sendiri lalu jam 0 & 1 di tanggal **berikutnya**. Di POS bill jam
+  01:00 memang tercatat di tanggal berikutnya, jadi menagihkannya ke tanggal
+  penampilan berarti membaca omset malam yang salah.
+- **Jam yang tidak terbaca TIDAK DITEBAK** — menebaknya berarti menagihkan
+  omset satu jam kepada penampil yang mungkin belum naik panggung. Jumlahnya
+  **disebut di layar** berikut nama & tanggalnya.
+- **Jadwal `Cancelled` tidak ikut**; status lain (Scheduled/Confirmed/Done)
+  semuanya ikut — jadwal yang lupa ditandai Done tetap penampilan yang
+  benar-benar terjadi, dan membuangnya menghapus malam yang sedang dianalisa.
+
+#### Pembandingnya JAM YANG SAMA, bukan rata-rata seluruh jam
+
+Ini yang menjawab *"kontribusinya tinggi atau tidak"*, dan aturannya sama
+dengan **vs hari sama** di halaman Pengaruh Event — diturunkan satu tingkat ke
+jam. Penampil dijadwalkan di jam ramai (20:00 ke atas), dan jam itu memang
+lebih besar tanpa penampil apa pun; angka yang membandingkannya dengan jam 11
+siang cuma memuji mereka untuk sesuatu yang sudah terjadi dengan sendirinya.
+
+- **JAM YANG TIDAK PUNYA SATU PUN BILL TIDAK DIHITUNG DI KEDUA SISI.** Venue
+  tutup lewat tengah malam, jadi jam 3 pagi sampai jam 10 pagi tidak punya
+  baris sama sekali. Menghitungnya sebagai Rp0 di sisi *tanpa penampil* akan
+  menyeret rata-ratanya ke nol dan membuat **setiap** penampil terlihat luar
+  biasa. Dikatakan di layar.
+- **Jam yang tidak pernah sekali pun tanpa penampil memang tidak punya
+  pembanding**, dan itu ditulis di barisnya — bukan diisi +100% yang dikarang.
+- Sisi yang kosong ditulis **tanda hubung, bukan Rp0**: nol berarti jam itu
+  pernah ada penampilnya dan omsetnya memang nol.
+
+#### Yang digabung, dan yang tidak boleh dijumlahkan
+
+- **Di dalam satu kategori jamnya DIGABUNG (union), bukan dijumlahkan.** Dua
+  band yang tampil di jam yang sama tidak boleh membuat jam itu terhitung dua
+  kali untuk kategorinya sendiri.
+- **Antar kategori tetap tumpang tindih**, dan itu **dikatakan**: band
+  20:00–23:00 dan DJ 22:30–01:30 sama-sama menempati jam 22. Menjepitnya supaya
+  berjumlah 100% berarti membagi omset satu jam dengan aturan yang tidak pernah
+  diputuskan siapa pun. Kolom **% omset bulan** karena itu boleh berjumlah
+  lebih dari 100%.
+- **Baris `DJ + MC DJ`** (dikatakan user: keduanya berpasangan) dihitung dari
+  **gabungan jam keduanya**, bukan penjumlahan dua barisnya — dijumlahkan, jam
+  yang mereka tempati bersama terhitung dua kali dan pasangannya selalu
+  terlihat lebih besar daripada kenyataannya. Barisnya menandai dirinya sendiri
+  *jangan dijumlahkan dengan dua baris di atasnya*.
+- **`Rp / jam` yang paling adil dibandingkan**, bukan totalnya: slot band tiga
+  jam dan slot DJ satu setengah jam tidak bisa diadu lewat total. Di data uji
+  Amerta (Rp6,5 jt/jam) mengalahkan James Project (Rp4,4 jt/jam) yang totalnya
+  jauh lebih besar — dan itu justru gunanya kolom ini.
+- **Penyebut kolom persen adalah omset SELURUH bulan**, dan itu disebut
+  angkanya di tiap selnya. Pelajaran empat putaran pertanyaan di kolom
+  Kontribusi: kepala kolom dibaca sekali, angkanya dibaca tiap baris.
+- **`% malam itu` dirata-rata ANTAR MALAM**, bukan dijumlahkan lalu dibagi —
+  kalau tidak, satu malam yang kebetulan ramai menentukan seluruh angkanya.
+
+```bash
+node tools/uji-analytics.js   # 503 pemeriksaan (dari 464)
+```
+
+Fixture-nya empat malam, dan tiap malam dirancang menjawab satu pertanyaan:
+tumpang tindih jam (2 Sep), pembanding jam yang sama (3 Sep tanpa penampil),
+gabungan dalam satu kategori (4 Sep dua band di jam yang sama), dan jadwal yang
+dibatalkan (5 Sep). Angkanya dipilih supaya **tiap kesalahan memberi hasil yang
+berbeda**: jam 22 terhitung dua kali → Rp35,2 jt, jam sesudah tengah malam
+hilang → Rp27 jt, yang benar → **Rp31,2 jt**.
+
+> **Berkas POS-nya DIBUAT DI UJI sebagai CSV** dan didorong lewat
+> `anPilihBerkas` → `uraiPos` → `anSimpanUnggah` yang sungguhan.
+> `cariBarisKepala()` menuntut **minimal lima sel non-angka** di baris kepala
+> (itu yang membedakannya dari sepuluh baris judul di berkas POS asli), jadi
+> CSV tiruan berkolom empat ditolak dengan pesan yang menyebut berkasnya
+> disunting — bukan kolomnya kurang.
+
+**Enam belas mutasi dicoba, keenam belasnya tertangkap** — tiga di antaranya
+baru tertangkap sesudah ujinya dibetulkan, dan ketiganya bentuk yang berbeda:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| pasangan DJ + MC DJ menjumlahkan, bukan menggabungkan | **cacat fixture** — satu-satunya jadwal MC DJ tidak punya jam, jadi ia tidak menyumbang satu jam pun dan gabungan = penjumlahan | Pennykids tampil BERPASANGAN dengan Fuego di jam yang sama (13,2 jt vs 26,4 jt) |
+| jam tanpa bill dihitung sebagai Rp0 | **mutasinya sendiri inert** — jam yang dipilihnya justru diklaim DJ yang menyeberang tengah malam | mutasi diganti "seluruh 24 jam dihitung", plus asersi bahwa jam 10 tidak digambar sama sekali |
+| daftar kategori pasangan salah (isi hanya DJ) | **asersinya tidak membaca kolom tempat kesalahannya muncul** — DJ & MC DJ menempati jam yang sama, jadi kolom omsetnya tidak bergeser sedikit pun | kolom **Penampilan** & **Orang** ikut dikunci (2 dan 2) |
+
+> Yang ketiga layak diingat terpisah: datanya sudah cukup dan mutasinya
+> berjalan — **asersinya** yang berhenti satu kolom sebelum tempat kesalahan
+> itu muncul. Memeriksa kolom yang paling jelas saja tidak cukup kalau kolom
+> itu kebetulan tidak bergerak.
+
 ### Analytics: dua label yang tidak menjelaskan dirinya (7 September 2026)
 
 Dua pertanyaan user, dan keduanya pertanyaan yang wajar — labelnya memang

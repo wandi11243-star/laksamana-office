@@ -682,6 +682,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
         <a data-view="menu"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h12"/></svg></span> Menu &amp; Bahan Baku</a>
         <a data-view="kategori"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span> Kategori Menu</a>
         <a data-view="kunjungan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg></span> Metode Kunjungan</a>
+        <a data-view="talent"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span> Performa Talent</a>
         <a data-view="promo"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9h.01M15 15h.01M16 8l-8 8"/><rect x="3" y="3" width="18" height="18" rx="4"/></svg></span> Promo &amp; Klaim</a>
         <a data-view="event"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.1 4.3 4.7.7-3.4 3.3.8 4.7L12 13.8 7.8 16l.8-4.7L5.2 8l4.7-.7Z"/></svg></span> Pengaruh Event</a>
         <a data-view="marketing"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-8-8 18-2-8Z"/></svg></span> Pengaruh Marketing</a>
@@ -868,6 +869,19 @@ let HP = null;                 // {bahan,resep,setting,ts} dari modul HPP — pa
 let HP_ERR = '';               // sebab kenapa tidak terbaca, untuk dikatakan di layar
 let EV = [];                   // {tgl,judul,sumber,kategori} dari Event + Marketing
 let EV_ERR = [];               // modul agenda yang tidak menjawab
+/* JADWAL TALENT dari modul Event (11 September 2026, permintaan user).
+   {tgl, mulai, selesai, nama, kategori, status, tipe}
+
+   DIBACA DARI BALASAN event-api YANG SUDAH DITARIK untuk EV di atas — satu
+   permintaan HTTP, bukan dua. Menambah permintaan kedua ke endpoint yang sama
+   berarti boot halaman ini membayar dua kali untuk data yang sudah di tangan.
+
+   TAL_ERR dibedakan dari daftar kosong: modul Event yang tidak menjawab dan
+   bulan yang memang tidak punya jadwal adalah dua keadaan yang menuntut
+   tindakan berbeda, dan daftar kosong yang sebenarnya berarti "servernya mati"
+   tidak membuat siapa pun memeriksa apa pun. */
+let TAL = [];
+let TAL_ERR = false;
 let KP_ERR = '';
 /* Bulan yang sedang dilihat. null = bulan terbaru yang ada laporannya —
    dihitung saat render, bukan disimpan, supaya mengunggah bulan baru
@@ -1137,7 +1151,39 @@ async function muatSemua() {
       if (t) EV.push({ tgl:t, judul:String((x && x.title) || '(tanpa judul)'),
                        sumber:'Event', kategori:katEvent(x && x.category) });
     });
-  } else EV_ERR.push('Event');
+    /* JADWAL TALENT dari balasan yang SAMA. Nama & kategorinya digabungkan di
+       sini, bukan di layar: baris jadwal cuma menyimpan talent_id, dan dua
+       tempat yang menyambungkannya ke daftar talent akan menyimpang begitu ada
+       talent yang namanya diperbaiki.
+
+       NAMA FIELDNYA BERKAS KEMBAR dengan modul Event: baris jadwal di sana
+       ditulis sebagai {date, start_time, end_time, talent_id, status,
+       performance_type}, dan baca_state() memulangkan blob itu apa adanya
+       (pemetaan kolom di collections() cuma untuk kolom terindeks saat
+       menulis). Beda satu huruf tidak melempar apa pun — daftarnya cuma
+       diam-diam kosong, dan halamannya akan mengatakan "belum ada jadwal". */
+    {
+      const kat = {};
+      ((d.value.data || {}).talents || []).forEach(t => {
+        if (t && t.id) kat[t.id] = { nama:String(t.name || '(tanpa nama)'),
+                                     kategori:String(t.category || '').trim() || TAL_TANPA_KAT };
+      });
+      ((d.value.data || {}).schedules || []).forEach(x => {
+        const t = isoDari(x && x.date);
+        if (!t) return;
+        /* YANG DIBATALKAN TIDAK IKUT — ia tidak pernah tampil, jadi omset di
+           jamnya bukan miliknya. Status lain (Scheduled/Confirmed/Done)
+           semuanya ikut: jadwal bulan lalu yang lupa ditandai Done tetap
+           penampilan yang benar-benar terjadi, dan membuangnya menghapus
+           malam-malam yang justru sedang dianalisa. */
+        if (String(x.status || '') === 'Cancelled') return;
+        const k = kat[x.talent_id] || { nama:'(talent terhapus)', kategori:TAL_TANPA_KAT };
+        TAL.push({ tgl:t, mulai:String(x.start_time || ''), selesai:String(x.end_time || ''),
+                   nama:k.nama, kategori:k.kategori, status:String(x.status || ''),
+                   tipe:String(x.performance_type || '') });
+      });
+    }
+  } else { EV_ERR.push('Event'); TAL_ERR = true; }
   if (e.status === 'fulfilled' && e.value && e.value.ok) {
     ((e.value.data || {}).events || []).forEach(x => {
       const t = isoDari(x && x.tanggal);
@@ -1182,6 +1228,7 @@ const TITLES = {
   menu      :['Menu & Bahan Baku','Menu terlaris dan perkiraan bahan yang seharusnya keluar'],
   kategori  :['Kategori Menu','Omset per kategori menu — termasuk EVENT, terpisah dari peringkat menu'],
   kunjungan :['Metode Kunjungan','Metode yang paling sering dipakai tamu — dari kolom Visit Purpose'],
+  talent    :['Performa Talent','Kontribusi omset tiap penampil, dihitung dari jam tampilnya sendiri'],
   promo     :['Promo & Klaim','Promo mana yang paling banyak diklaim, barang apa, dan jam berapa'],
   tren      :['Tren Bulanan','Total omset bulan ke bulan, dan perbandingan dua bulan'],
   /* DIPISAH jadi dua halaman (2 September 2026, permintaan user). Sebelumnya
@@ -3843,6 +3890,403 @@ function vPromo() {
   V.innerHTML = h;
 }
 
+
+/* ============ HALAMAN: PERFORMA TALENT (11 September 2026) ============
+
+   Permintaan user: "utk khususnya performa Band dan DJ (partner dengan MC DJ),
+   saya ingin kontribusi hadirnya band sama DJ itu kontribusi omsetnya tinggi
+   atau tidak, terus per masing masing performance juga begitu apakah
+   kontribusinya juga brp persen dari omset. ingat sesuai dengan jam nya."
+
+   Dua sumber yang dipertemukan:
+
+     jadwal talent   modul Event -> {tgl, mulai, selesai, nama, kategori}
+     omset per jam   berkas POS  -> hariJam[tgl][jam]
+
+   ---- KENAPA ADA TABEL "PER JAM" DI ATAS TABEL PER KATEGORI ----
+
+   Pertanyaan "kontribusi band tinggi atau tidak" TIDAK bisa dijawab dengan
+   membandingkan omset jam tampil terhadap rata-rata seluruh jam. Penampil
+   dijadwalkan di jam ramai — 20:00 ke atas — dan jam itu memang lebih besar
+   tanpa penampil apa pun. Angka yang membandingkannya dengan jam 11 siang cuma
+   memuji penampil untuk sesuatu yang sudah terjadi dengan sendirinya.
+
+   Jadi pembandingnya JAM YANG SAMA: jam 21 saat ada band dibanding jam 21 saat
+   tidak ada band. Itu aturan yang sama dengan "vs hari sama" di halaman
+   Pengaruh Event, cuma diturunkan satu tingkat ke jam. Peringatannya jangan
+   dihapus supaya halamannya terlihat lebih tegas.
+
+   ---- JAM YANG TIDAK PUNYA SATU PUN BILL TIDAK DIHITUNG DI KEDUA SISI ----
+
+   Venue tutup lewat tengah malam, jadi jam 3 pagi sampai jam 10 pagi tidak
+   punya baris sama sekali. Menghitungnya sebagai Rp0 di sisi "tanpa penampil"
+   akan menyeret rata-ratanya ke nol dan membuat SETIAP penampil terlihat luar
+   biasa — angka yang tidak akan dipertanyakan siapa pun. Yang dihitung cuma
+   jam-hari yang benar-benar punya bill, di KEDUA sisi. Itu dikatakan di layar.
+
+   ---- KOLOMNYA TIDAK BISA DIJUMLAHKAN, DAN ITU DIKATAKAN ----
+
+   Band 20:00-23:00 dan DJ 22:30-01:30 sama-sama mengklaim jam 22. Omset jam
+   itu karena itu terhitung di kedua-duanya. Menjepitnya supaya berjumlah 100%
+   berarti membagi omset satu jam dengan aturan yang tidak pernah diputuskan
+   siapa pun; yang benar membiarkannya dan MENYEBUTKAN tumpang tindihnya.
+*/
+const TAL_TANPA_KAT = '(tanpa kategori)';
+/* DJ dan MC DJ tampil berpasangan (dikatakan user). Barisnya DIHITUNG dari
+   GABUNGAN jam keduanya, bukan dijumlahkan — kalau dijumlahkan, jam yang
+   mereka tempati bersama terhitung dua kali dan pasangannya selalu terlihat
+   lebih besar daripada kenyataannya. */
+const TAL_PASANGAN = { nama:'DJ + MC DJ', isi:['DJ', 'MC DJ'] };
+
+/* "20:00" -> 1200. Memulangkan null untuk yang tidak terbaca — ditebak, jam
+   sebuah penampilan jadi karangan, dan seluruh omsetnya ikut salah alamat. */
+function talMenit(x) {
+  const m = String(x == null ? '' : x).trim().match(/^(\d{1,2})[:.](\d{2})/);
+  if (!m) return null;
+  const j = +m[1], n = +m[2];
+  if (j > 23 || n > 59) return null;
+  return j * 60 + n;
+}
+function tglGeser(iso, n) {
+  const d = new Date(iso + 'T00:00:00Z');
+  if (isNaN(d)) return iso;
+  d.setUTCDate(d.getUTCDate() + n);
+  return d.toISOString().slice(0, 10);
+}
+/* Jam-jam yang diklaim satu penampilan, sebagai daftar {tgl, jam}.
+
+   JAM TERAKHIR DIHITUNG DARI MENIT TERAKHIRNYA (m1 + durasi - 1), bukan dari
+   jam selesainya: 20:00-23:00 menempati jam 20, 21, 22 — BUKAN 23, karena pada
+   pukul 23:00 ia sudah selesai. Dibaca sampai jam 23, tiap penampilan mencuri
+   satu jam penuh milik penampil berikutnya.
+
+   LEWAT TENGAH MALAM ikut, dan pindah TANGGAL: 22:30-01:30 menempati jam 22 &
+   23 di tanggalnya sendiri lalu jam 0 & 1 di tanggal BERIKUTNYA. Di POS bill
+   jam 01:00 memang tercatat di tanggal berikutnya, jadi menagihkannya ke
+   tanggal penampilan berarti membaca omset malam yang salah. */
+function talSlot(s) {
+  const m1 = talMenit(s.mulai), m2 = talMenit(s.selesai);
+  if (m1 === null || m2 === null) return null;
+  let durasi = m2 - m1;
+  if (durasi <= 0) durasi += 1440;
+  const hMulai = Math.floor(m1 / 60);
+  const hAkhir = Math.floor((m1 + durasi - 1) / 60);
+  const out = [];
+  for (let h = hMulai; h <= hAkhir; h++) {
+    const geser = Math.floor(h / 24);
+    out.push({ tgl: geser ? tglGeser(s.tgl, geser) : s.tgl, jam: h % 24 });
+  }
+  return { jam: out, menit: durasi };
+}
+/* Omset sekumpulan jam-hari. Kuncinya "tgl|jam" supaya jam yang sama tidak
+   terhitung dua kali di dalam satu kumpulan — itu yang membuat baris KATEGORI
+   dan baris PASANGAN benar walau dua penampil tampil di jam yang sama. */
+function talOmset(peta, kunci) {
+  let g = 0, adaData = 0, luar = 0;
+  kunci.forEach(k => {
+    const p = k.split('|'), sel = (peta[p[0]] || {})[+p[1]];
+    if (sel) { g += sel.g || 0; adaData++; } else luar++;
+  });
+  return { omset:g, jamBerdata:adaData, jamKosong:luar };
+}
+function talKunci(slot) { return slot.jam.map(x => x.tgl + '|' + x.jam); }
+
+let TL_SORT = { k:'omset', turun:true };
+let TL_Q = '';
+function tlSort(k) { sortKlik(TL_SORT, k); render(); }
+function tlCari(el) {
+  TL_Q = String((el && el.value) || '').trim().toLowerCase();
+  const e = document.getElementById('tl_isi'); if (e) e.innerHTML = tlIsiHtml();
+}
+let TL_CACHE = null;
+
+function vTalent() {
+  const V = document.getElementById('app-view');
+  const b = blnAktif(), d = lap(b);
+  let h = pilihBulan();
+  if (!d) { V.innerHTML = h + kosongBelumAda(); return; }
+
+  /* TIGA KEADAAN KOSONG YANG BERBEDA, dan yang disamakan menyuruh orang
+     membetulkan sesuatu yang sudah benar. */
+  if (TAL_ERR) {
+    V.innerHTML = h + '<div class="notice bad">\u26a0 <div><b>Jadwal talent tidak terbaca.</b> '
+      + 'Modul <b>Event</b> tidak menjawab, jadi halaman ini tidak tahu siapa tampil kapan. '
+      + 'Omset per jamnya sendiri baik-baik saja — yang kurang jadwalnya.</div></div>';
+    return;
+  }
+  const hj = d.hariJam || null;
+  if (!hj) {
+    V.innerHTML = h + '<div class="notice warn">\u26a0 <div><b>Laporan bulan ini belum memuat omset per jam per tanggal.</b> '
+      + 'Halaman ini membandingkan jam tampil tiap penampil dengan omset pada jam itu juga, dan '
+      + 'itu butuh omset dipecah <b>per tanggal DAN per jam</b> \u2014 yang baru ikut disimpan sejak '
+      + '11 September 2026. <b>Unggah ulang berkas ' + esc(fmtBln(b)) + '</b>; ringkasannya akan ditimpa '
+      + 'dan sisanya tidak berubah.'
+      + '<div style="margin-top:6px;font-size:12px">Sebaran per Jam di halaman <b>Hari &amp; Jam</b> tetap '
+      + 'terbaca untuk bulan ini \u2014 yang itu diringkas sebulan penuh, jadi ia tidak bisa dipakai '
+      + 'di sini.</div></div></div>';
+    return;
+  }
+
+  /* Jadwal bulan ini saja. Penampilan yang MELEWATI tengah malam tetap milik
+     tanggal mulainya — itu tanggal yang tertulis di kalender talent, dan
+     memindahkannya ke tanggal berikutnya membuat lembar jadwal dan halaman ini
+     menyebut malam yang berbeda untuk penampilan yang sama. */
+  const jadwal = TAL.filter(x => blnDari(x.tgl) === b);
+  if (!jadwal.length) {
+    V.innerHTML = h + '<div class="empty"><div class="big">\u266a</div>'
+      + '<b>Belum ada jadwal talent di ' + esc(fmtBln(b)) + '.</b>'
+      + '<div style="margin-top:6px">Jadwalnya disusun di modul <b>Event \u2192 Talent Schedule</b>. '
+      + 'Begitu ada, halaman ini menghitung sendiri omset di jam tampilnya.</div></div>';
+    return;
+  }
+
+  /* ---- slot tiap penampilan ---- */
+  const tanpaJam = [];
+  const isi = [];
+  jadwal.forEach(x => {
+    const sl = talSlot(x);
+    /* Jam yang tidak terbaca TIDAK DITEBAK dan tidak dibuang diam-diam:
+       menebaknya berarti menagihkan omset satu jam ke penampil yang mungkin
+       belum naik panggung. Jumlahnya disebut di layar. */
+    if (!sl) { tanpaJam.push(x); return; }
+    isi.push({ s:x, slot:sl, kunci:talKunci(sl) });
+  });
+
+  const totBulan = Object.keys(d.hari || {}).reduce((a, t) => a + ((d.hari[t] || {}).grand || 0), 0);
+
+  /* ---- 1. PER JAM: ada penampil vs tidak ----
+     Dihitung dari jam-hari yang BENAR-BENAR punya bill, di kedua sisi. */
+  const adaJam = {};
+  isi.forEach(x => x.kunci.forEach(k => { adaJam[k] = 1; }));
+  const perJam = [];
+  for (let j = 0; j < 24; j++) perJam.push({ j:j, adaG:0, adaN:0, takG:0, takN:0 });
+  let jamTalentKosong = 0;
+  Object.keys(hj).forEach(t => {
+    Object.keys(hj[t]).forEach(js => {
+      const j = +js, sel = hj[t][js] || {};
+      const p = perJam[j];
+      if (adaJam[t + '|' + j]) { p.adaG += sel.g || 0; p.adaN++; }
+      else { p.takG += sel.g || 0; p.takN++; }
+    });
+  });
+  Object.keys(adaJam).forEach(k => {
+    const p = k.split('|');
+    if (!(hj[p[0]] || {})[+p[1]]) jamTalentKosong++;
+  });
+
+  const jamAdaTot = perJam.reduce((a, p) => a + p.adaN, 0);
+  const omsetAda = perJam.reduce((a, p) => a + p.adaG, 0);
+  const malamAda = {}; isi.forEach(x => { malamAda[x.s.tgl] = 1; });
+  const nMalamData = Object.keys(hj).length;
+
+  h += '<div class="grid g4" style="margin-bottom:18px">'
+    + kartu('Malam Ada Penampil', Object.keys(malamAda).length,
+            'dari ' + nMalamData + ' hari yang ada datanya')
+    + kartu('Jam Tampil', jamAdaTot.toLocaleString('id-ID'), 'jam-hari yang ada penampilnya')
+    + kartu('Omset di Jam Tampil', rp0(omsetAda), pct(omsetAda, totBulan) + '% dari omset bulan ini')
+    + kartu('Penampilan', isi.length, jadwal.length + ' jadwal bulan ini')
+    + '</div>';
+
+  if (tanpaJam.length) {
+    h += '<div class="notice warn">\u26a0 <div><b>' + tanpaJam.length + ' penampilan tidak punya jam '
+      + 'yang bisa dibaca</b> dan tidak ikut dihitung sama sekali \u2014 menebak jamnya berarti '
+      + 'menagihkan omset satu jam kepada penampil yang mungkin belum naik panggung. '
+      + 'Betulkan jam mulai &amp; selesainya di <b>Event \u2192 Talent Schedule</b>: '
+      + esc(tanpaJam.slice(0, 6).map(x => x.nama + ' (' + x.tgl + ')').join(', '))
+      + (tanpaJam.length > 6 ? ', dan ' + (tanpaJam.length - 6) + ' lagi' : '') + '.</div></div>';
+  }
+  if (jamTalentKosong) {
+    h += '<div class="notice info">\u2139 <div><b>' + jamTalentKosong + ' jam tampil tidak punya satu pun '
+      + 'bill</b> di berkas POS \u2014 entah karena jamnya di luar bulan ini (penampilan yang lewat '
+      + 'tengah malam di tanggal terakhir), atau karena memang tidak ada transaksi di jam itu. '
+      + 'Jam seperti itu tidak dihitung di kedua sisi.</div></div>';
+  }
+
+  /* ---- tabel per jam ---- */
+  const adaJamTabel = perJam.filter(p => p.adaN || p.takN);
+  h += '<div class="card"><h3>Jam Tampil Dibanding Jam Yang Sama Tanpa Penampil</h3>'
+    + '<div class="card-sub">Inilah pembanding yang menjawab \u201ckontribusinya tinggi atau tidak\u201d. '
+    + 'Penampil dijadwalkan di jam ramai, jadi membandingkan omset jam tampil dengan rata-rata seluruh '
+    + 'jam cuma memuji mereka untuk sesuatu yang sudah terjadi dengan sendirinya \u2014 yang dibandingkan '
+    + 'di sini <b>jam yang sama</b>. Aturan yang sama dengan <i>vs hari sama</i> di halaman Pengaruh Event, '
+    + 'diturunkan satu tingkat ke jam.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Jam</th>'
+    + '<th class="num">Jam-hari ada penampil</th><th class="num">Rp / jam saat ada</th>'
+    + '<th class="num">Jam-hari tanpa penampil</th><th class="num">Rp / jam saat tanpa</th>'
+    + '<th class="num">Selisih</th></tr></thead><tbody>';
+  if (!adaJamTabel.length) h += '<tr><td colspan="6" class="empty">Belum ada jam yang bisa dibandingkan.</td></tr>';
+  adaJamTabel.forEach(p => {
+    const rA = p.adaN ? p.adaG / p.adaN : null;
+    const rT = p.takN ? p.takG / p.takN : null;
+    /* Selisih hanya digambar kalau KEDUA sisinya ada. Jam yang tidak pernah
+       sekali pun tanpa penampil memang tidak punya pembanding, dan menuliskan
+       +100% di sana adalah angka yang dikarang. */
+    const bisa = rA !== null && rT !== null && rT > 0;
+    h += '<tr><td><b>' + String(p.j).padStart(2, '0') + ':00</b></td>'
+      + '<td class="num">' + p.adaN.toLocaleString('id-ID') + '</td>'
+      + '<td class="num mono">' + (rA === null ? '<span class="helper">\u2014</span>' : rp0(rA)) + '</td>'
+      + '<td class="num">' + p.takN.toLocaleString('id-ID') + '</td>'
+      + '<td class="num mono">' + (rT === null ? '<span class="helper">\u2014</span>' : rp0(rT)) + '</td>'
+      + (bisa ? selSelisih(Math.round(rA - rT), Math.round((rA - rT) / rT * 100))
+              : '<td class="num"><span class="helper">tidak ada pembandingnya</span></td>')
+      + '</tr>';
+  });
+  h += '</tbody></table></div>'
+    + '<div class="helper">Yang dihitung hanya <b>jam-hari yang benar-benar punya bill</b>, di kedua sisi. '
+    + 'Jam tutup (dini hari sampai siang) tidak punya baris sama sekali di berkas POS, dan menghitungnya '
+    + 'sebagai Rp0 di sisi \u201ctanpa penampil\u201d akan menyeret rata-ratanya ke nol \u2014 lalu '
+    + 'setiap penampil terlihat luar biasa, dengan angka yang tidak akan dipertanyakan siapa pun. '
+    + 'Jam yang <b>tidak pernah sekali pun tanpa penampil</b> memang tidak punya pembanding, dan itu '
+    + 'dikatakan di barisnya, bukan diisi angka.</div>'
+    + '</div>';
+
+  /* ---- 2. PER KATEGORI ----
+     Jamnya DIGABUNG (union) di dalam satu kategori: dua band yang tampil di jam
+     yang sama tidak boleh membuat jam itu terhitung dua kali untuk kategorinya
+     sendiri. Antar kategori tetap boleh tumpang tindih, dan itu dikatakan. */
+  const kat = {};
+  isi.forEach(x => {
+    const k = x.s.kategori || TAL_TANPA_KAT;
+    const c = kat[k] || (kat[k] = { n:0, kunci:{}, orang:{} });
+    c.n++; c.orang[x.s.nama] = 1;
+    x.kunci.forEach(q => { c.kunci[q] = 1; });
+  });
+  const barisKat = Object.keys(kat).map(k => {
+    const kn = Object.keys(kat[k].kunci);
+    const o = talOmset(hj, kn);
+    return { n:k, tampil:kat[k].n, orang:Object.keys(kat[k].orang).length,
+             jam:o.jamBerdata, omset:o.omset,
+             perJam: o.jamBerdata ? o.omset / o.jamBerdata : null };
+  }).sort((a, x) => x.omset - a.omset);
+  /* Baris pasangan DJ + MC DJ: GABUNGAN jamnya, bukan jumlah kedua barisnya. */
+  const knPas = {};
+  TAL_PASANGAN.isi.forEach(k => Object.keys((kat[k] || {}).kunci || {}).forEach(q => { knPas[q] = 1; }));
+  const adaPas = TAL_PASANGAN.isi.some(k => kat[k]);
+  const pas = adaPas ? (function () {
+    const kn = Object.keys(knPas), o = talOmset(hj, kn);
+    const n = TAL_PASANGAN.isi.reduce((a, k) => a + ((kat[k] || {}).n || 0), 0);
+    const org = {}; TAL_PASANGAN.isi.forEach(k => Object.keys((kat[k] || {}).orang || {}).forEach(x => { org[x] = 1; }));
+    return { n:TAL_PASANGAN.nama, tampil:n, orang:Object.keys(org).length, jam:o.jamBerdata,
+             omset:o.omset, perJam: o.jamBerdata ? o.omset / o.jamBerdata : null, gabungan:true };
+  })() : null;
+
+  h += '<div class="card"><h3>Per Kategori Penampil</h3>'
+    + '<div class="card-sub">Jam di dalam satu kategori <b>digabung</b>, bukan dijumlahkan \u2014 dua band '
+    + 'yang tampil di jam yang sama tidak boleh membuat jam itu terhitung dua kali. '
+    + '<b>Rp / jam</b> yang paling adil dibandingkan: slot band tiga jam dan slot DJ satu setengah jam '
+    + 'tidak bisa diadu lewat totalnya.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Kategori</th><th class="num">Penampilan</th>'
+    + '<th class="num">Orang</th><th class="num">Jam</th><th class="num">Omset di jamnya</th>'
+    + '<th class="num">Rp / jam</th><th class="num">% dari omset bulan</th></tr></thead><tbody>';
+  const barisKatSemua = barisKat.concat(pas && barisKat.length > 1 ? [pas] : []);
+  barisKatSemua.forEach(x => {
+    h += '<tr' + (x.gabungan ? ' style="background:var(--paper)"' : '') + '>'
+      + '<td><b>' + esc(x.n) + '</b>'
+      + (x.gabungan ? '<div class="helper" style="margin:2px 0 0">gabungan \u2014 jangan dijumlahkan '
+          + 'dengan dua baris di atasnya</div>' : '') + '</td>'
+      + '<td class="num">' + x.tampil.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + x.orang.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + x.jam.toLocaleString('id-ID') + '</td>'
+      + '<td class="num mono">' + rp0(x.omset) + '</td>'
+      + '<td class="num mono">' + (x.perJam === null ? '<span class="helper">\u2014</span>' : rp0(x.perJam)) + '</td>'
+      + '<td class="num">' + pct(x.omset, totBulan) + '%'
+        + '<div class="helper" style="margin:1px 0 0">dari ' + rp0(totBulan) + '</div></td>'
+      + '</tr>';
+  });
+  h += '</tbody></table></div>'
+    + '<div class="helper"><b>Kolomnya tidak bisa dijumlahkan.</b> Band 20:00\u201323:00 dan DJ '
+    + '22:30\u201301:30 sama-sama menempati jam 22, dan omset jam itu terhitung di kedua-duanya. '
+    + 'Menjepitnya supaya berjumlah 100% berarti membagi omset satu jam dengan aturan yang tidak pernah '
+    + 'diputuskan siapa pun. Penyebut kolom persen adalah <b>omset seluruh bulan</b> '
+    + '(' + rp0(totBulan) + ').</div>'
+    + '</div>';
+
+  /* ---- 3. PER PENAMPIL ---- */
+  const org = {};
+  isi.forEach(x => {
+    const o = org[x.s.nama] || (org[x.s.nama] = { kat:x.s.kategori || TAL_TANPA_KAT, n:0, kunci:{}, malam:{} });
+    o.n++; o.malam[x.s.tgl] = 1;
+    x.kunci.forEach(q => { o.kunci[q] = 1; });
+  });
+  TL_CACHE = { baris: Object.keys(org).map(nm => {
+    const kn = Object.keys(org[nm].kunci), o = talOmset(hj, kn);
+    /* RATA-RATA PORSI MALAMNYA: omset di jamnya dibagi omset MALAM ITU, lalu
+       dirata-rata antar malamnya sendiri. Dihitung dari omset sebulan dibagi
+       omset sebulan, angkanya akan didominasi malam yang kebetulan ramai. */
+    let porsi = 0, nP = 0;
+    Object.keys(org[nm].malam).forEach(t => {
+      const hariG = ((d.hari || {})[t] || {}).grand || 0;
+      if (!hariG) return;
+      const kt = kn.filter(k => k.split('|')[0] === t);
+      const om = talOmset(hj, kt).omset;
+      porsi += om / hariG; nP++;
+    });
+    return { n:nm, kat:org[nm].kat, tampil:org[nm].n, malam:Object.keys(org[nm].malam).length,
+             jam:o.jamBerdata, omset:o.omset,
+             perJam: o.jamBerdata ? o.omset / o.jamBerdata : null,
+             pctBulan: totBulan ? o.omset / totBulan * 100 : 0,
+             pctMalam: nP ? porsi / nP * 100 : null };
+  }), totBulan: totBulan };
+
+  h += '<div class="card"><h3>Per Penampil</h3>'
+    + '<div class="card-sub">Tiap penampil dihitung dari <b>jam tampilnya sendiri</b>. '
+    + '<b>% malam itu</b> adalah rata-rata porsi omset yang jatuh di jamnya pada malam-malam ia tampil '
+    + '\u2014 dirata-rata antar malam, bukan dijumlahkan lalu dibagi, supaya satu malam yang kebetulan '
+    + 'ramai tidak menentukan seluruh angkanya.</div>'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
+    + '<input id="tl_q" class="cari" type="search" autocomplete="off" placeholder="Cari penampil\u2026" '
+    + 'value="' + esc(TL_Q) + '" oninput="tlCari(this)">'
+    + '<span class="helper" style="margin:0">Tekan kepala kolom untuk mengurutkannya</span>'
+    + '</div>'
+    + '<div id="tl_isi">' + tlIsiHtml() + '</div>'
+    + '</div>';
+
+  V.innerHTML = h;
+}
+/* Isi tabel per penampil. Dipisah supaya mengetik di kotak cari tidak
+   menggambar ulang halaman — render() di modul ini TOTAL, dan kotak yang
+   dibuat ulang kehilangan fokus sehingga hanya huruf pertama yang masuk. */
+function tlIsiHtml() {
+  const C = TL_CACHE;
+  if (!C) return '';
+  const cocok = urutKolom(C.baris.filter(x => !TL_Q
+    || String(x.n).toLowerCase().indexOf(TL_Q) > -1
+    || String(x.kat).toLowerCase().indexOf(TL_Q) > -1), TL_SORT);
+  let h = '<div class="tbl-wrap"><table><thead><tr>'
+    + thSort('n', 'Penampil', TL_SORT, 'tlSort')
+    + thSort('kat', 'Kategori', TL_SORT, 'tlSort')
+    + thSort('tampil', 'Tampil', TL_SORT, 'tlSort', 'num')
+    + thSort('jam', 'Jam', TL_SORT, 'tlSort', 'num')
+    + thSort('omset', 'Omset di jamnya', TL_SORT, 'tlSort', 'num')
+    + thSort('perJam', 'Rp / jam', TL_SORT, 'tlSort', 'num')
+    + thSort('pctBulan', '% omset bulan', TL_SORT, 'tlSort', 'num')
+    + thSort('pctMalam', '% malam itu', TL_SORT, 'tlSort', 'num')
+    + '</tr></thead><tbody>';
+  if (!cocok.length) {
+    h += '<tr><td colspan="8" class="empty">'
+      + (TL_Q ? 'Tidak ada penampil yang namanya memuat "' + esc(TL_Q) + '".'
+              : 'Belum ada penampil yang bisa dihitung.') + '</td></tr>';
+  }
+  cocok.forEach(x => {
+    h += '<tr><td><b>' + esc(x.n) + '</b></td>'
+      + '<td><span class="chip">' + esc(x.kat) + '</span></td>'
+      + '<td class="num">' + x.tampil.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + x.jam.toLocaleString('id-ID') + '</td>'
+      + '<td class="num mono">' + rp0(x.omset) + '</td>'
+      + '<td class="num mono">' + (x.perJam === null ? '<span class="helper">\u2014</span>' : rp0(x.perJam)) + '</td>'
+      + '<td class="num">' + (Math.round(x.pctBulan * 10) / 10).toLocaleString('id-ID') + '%'
+        + '<div class="helper" style="margin:1px 0 0">dari omset bulan</div></td>'
+      + '<td class="num">' + (x.pctMalam === null ? '<span class="helper">\u2014</span>'
+          : (Math.round(x.pctMalam) + '%<div class="helper" style="margin:1px 0 0">dari omset malam itu</div>')) + '</td>'
+      + '</tr>';
+  });
+  return h + '</tbody></table></div>'
+    + '<div class="helper">' + cocok.length + ' dari ' + C.baris.length + ' penampil'
+    + (TL_Q ? ' cocok dengan "' + esc(TL_Q) + '"' : '') + '. '
+    + 'Penampil yang tampil di jam yang sama sama-sama diakui atas omset jam itu, jadi kolom '
+    + '<b>% omset bulan</b> boleh berjumlah lebih dari 100%.</div>';
+}
+
 /* ============ HALAMAN: PENGARUH EVENT ============
    Pertanyaannya "apakah event berpengaruh ke omset". Yang bisa dijawab jujur
    dari data ini cuma: hari berevent rata-rata sekian, hari biasa sekian.
@@ -4769,6 +5213,21 @@ function ringkasPos(baris, namaBerkas) {
      Kalau kolom nomor bill tidak ada, jatuh ke hitungan baris — dan itu
      DIKATAKAN di pratinjau, bukan didiamkan. */
   const bSemua = new Set(), bHari = {}, bJam = {};
+  /* OMSET PER TANGGAL PER JAM (11 September 2026, permintaan user: kontribusi
+     tiap penampil "sesuai dengan jamnya").
+
+     Wadah jam[] di atas diringkas untuk SEBULAN PENUH, dan hari[] tidak punya
+     dimensi jam — jadi tidak satu pun dari keduanya bisa menjawab "jam 20
+     tanggal 2 berapa", dan itu persis pertanyaan yang dibawa jadwal talent.
+
+     MENEBAKNYA dari sebaran jam sebulan dikali omset harian terdengar masuk
+     akal dan SELALU salah dengan cara yang sama: tiap malam jadi terlihat
+     berbentuk identik, sehingga penampil yang benar-benar menarik tamu dan
+     yang tidak memulangkan angka yang sama persis. Angka seperti itu tidak
+     akan dipertanyakan siapa pun.
+
+     Disimpan JARANG — hanya jam yang benar-benar punya baris. */
+  const hariJam = {}, bHariJam = {};
   const punyaBill = !!K.bill;
   const catatBill = (no, t, jm) => {
     if (!punyaBill) return;
@@ -4799,8 +5258,19 @@ function ringkasPos(baris, namaBerkas) {
 
     const jm = K.jam ? jamDari(b[K.jam]) : -1;
     if (jm >= 0) { jam[jm].grand += g; if (!punyaBill) jam[jm].bill++; }
+    /* DIISI DI BARIS YANG SAMA dengan jam[] di atas, dan dari jm yang sama —
+       dua tempat yang memutuskan jam sebuah baris akan menyimpang, dan yang
+       menyimpang di sini membuat halaman Performa Talent menyebut angka lain
+       daripada Sebaran per Jam untuk bulan yang sama. */
+    if (jm >= 0) {
+      const hj = hariJam[t] || (hariJam[t] = {});
+      const sel = hj[jm] || (hj[jm] = { g:0, b:0 });
+      sel.g += g;
+      if (!punyaBill) sel.b++;
+    }
     const noBill = String(b[K.bill] || '').trim();
     catatBill(noBill, t, jm);
+    if (punyaBill && jm >= 0) (bHariJam[t + '|' + jm] = bHariJam[t + '|' + jm] || new Set()).add(noBill);
 
     /* METODE KUNJUNGAN. TRANSAKSINYA DIHITUNG DARI NOMOR BILL YANG BERBEDA,
        bukan dari jumlah baris — jebakan yang sama persis dengan r.bill di
@@ -4901,6 +5371,14 @@ function ringkasPos(baris, namaBerkas) {
     r.bill = bSemua.size;
     Object.keys(hari).forEach(t => { hari[t].bill = bHari[t] ? bHari[t].size : 0; });
     for (let j = 0; j < 24; j++) jam[j].bill = bJam[j] ? bJam[j].size : 0;
+    /* Bill yang sama boleh ikut di dua jam (pesan lagi belakangan), jadi jumlah
+       kolom ini boleh lebih besar daripada bill hari itu — aturan yang sama
+       dengan jam[] di atas, dan itu memang benar untuk pertanyaan "jam berapa
+       ramai". */
+    Object.keys(bHariJam).forEach(k => {
+      const p = k.split('|'), t = p[0], j = +p[1];
+      if (hariJam[t] && hariJam[t][j]) hariJam[t][j].b = bHariJam[k].size;
+    });
     Object.keys(bKunjung).forEach(k => { kunjung[k].bill = bKunjung[k].size; });
   }
   if (!nRow) throw new Error('Tidak ada satu pun baris yang punya tanggal terbaca.');
@@ -4914,10 +5392,14 @@ function ringkasPos(baris, namaBerkas) {
   /* Hanya bulan terpilih yang disimpan — kalau tidak, omset bulan sebelahnya
      ikut terhitung di bulan ini tanpa ada yang menyadarinya. */
   Object.keys(hari).forEach(t => { if (blnDari(t) !== bulan) delete hari[t]; });
+  /* Dibuang dengan aturan yang SAMA PERSIS dengan hari[] — kalau tidak, halaman
+     Performa Talent menghitung jam-jam bulan sebelah sementara kartu di halaman
+     lain tidak, dan selisihnya tidak akan pernah bisa dijelaskan. */
+  Object.keys(hariJam).forEach(t => { if (blnDari(t) !== bulan) delete hariJam[t]; });
   const tglU = Object.keys(hari).sort();
 
   r.ukYatim = nUkYatim;
-  return { bulan, jenis, berkas:namaBerkas, hari, jam, menu, paket, ukuran, kategori, katMenu, kunjung, ringkas:r,
+  return { bulan, jenis, berkas:namaBerkas, hari, jam, hariJam, menu, paket, ukuran, kategori, katMenu, kunjung, ringkas:r,
            nBaris:nRow, nLewat, blnLain, billDariBaris:!punyaBill,
            tglAwal:tglU[0] || '', tglAkhir:tglU[tglU.length - 1] || '' };
 }
@@ -5215,7 +5697,7 @@ async function anSimpanUnggah() {
      tidak pernah dari laporan tersimpan. */
   AN.data.laporan[u.bulan] = {
     diunggah: u.diunggah, oleh: u.oleh, berkas: u.berkas, jenis: u.jenis,
-    hari: u.hari, jam: u.jam, menu: u.menu, paket: u.paket, ukuran: u.ukuran,
+    hari: u.hari, jam: u.jam, hariJam: u.hariJam, menu: u.menu, paket: u.paket, ukuran: u.ukuran,
     kategori: u.kategori, katMenu: u.katMenu, kunjung: u.kunjung, ringkas: u.ringkas
   };
   if (await simpan()) {
@@ -5361,7 +5843,7 @@ function render() {
     return;
   }
   ({ ringkasan:vRingkasan, tren:vTren, hari:vHari, menu:vMenu, kategori:vKategori,
-     kunjungan:vKunjungan, promo:vPromo, event:vEvent, marketing:vMarketing, unggah:vUnggah,
+     kunjungan:vKunjungan, talent:vTalent, promo:vPromo, event:vEvent, marketing:vMarketing, unggah:vUnggah,
      pengaturan:vPengaturan, akses:vAkses }[CURRENT] || vRingkasan)();
   terapkanKunci();
 }
