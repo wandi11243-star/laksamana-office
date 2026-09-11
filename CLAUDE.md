@@ -5907,6 +5907,93 @@ ulang masalahnya.**
 > paling sering.
 
 
+
+#### Babak ketujuh: yang menyalip ternyata BROWSER-NYA SENDIRI (11 Sep 2026)
+
+Keluhan user: modal *Sebagian Perubahan Tidak Tersimpan* muncul untuk event
+yang ia input sendiri — *"kenapa bisa terjadi overlapping yg diinput sendiri?"*
+— dan datanya nyangkut lagi. Di layar yang sama muncul toast *"4 data yang
+belum sempat naik sudah masuk ke database"*.
+
+**TIDAK ADA REKAN KERJA YANG MENYALIP.** Yang menyalip otomasi di modul ini
+sendiri:
+
+```
+boot()  ->  autoCloseEvents()  ->  save()
+```
+
+`autoCloseEvents()` mengubah status event yang tanggalnya sudah lewat jadi
+*Event Done* dan **menyimpannya**. Ia berjalan **di SETIAP tab, setiap kali
+halaman dibuka**. Jadi dua tab yang dibuka berdekatan sama-sama membaca versi
+lama, tab pertama menulis, dan tab kedua ditolak sebagai *"orang lain menyimpan
+duluan"* — untuk baris yang isinya **persis sama** dengan yang barusan ditulis
+tab pertama.
+
+**DIREPRODUKSI, bukan disimpulkan.** Dua jsdom menghadap satu server tiruan
+yang setia pada aturan `lib_marketing_mysql.php`:
+
+```
+GET  tab A  -> versi V0, status Confirmed
+GET  tab B  -> versi V0, status Confirmed
+POST tab A  -> diterima, status "Event Done", versi naik
+POST tab B  -> BENTROK 1        <- basisnya masih V0
+```
+
+Dan bentroknya **berulang tiap percobaan kirim berikutnya** — itulah bentuk
+"nyangkut lagi": basis tab B tidak pernah menyusul.
+
+**PERBAIKANNYA DI SERVER, satu aturan: TULISAN YANG TIDAK MENGUBAH APA PUN
+BUKAN BENTROK.** Sebelum sebuah baris dilaporkan bentrok, isinya dibandingkan
+dengan yang tersimpan (`sidik_baris()`); kalau sama, kiriman itu diterima
+diam-diam dan **versi server dipulangkan lewat `versi`** supaya acuan bentrok
+di klien menyusul.
+
+- **KUNCINYA DIURUTKAN BERTINGKAT** (`urut_dalam()`). Urutan kunci JSON yang
+  tersimpan sudah pernah melewati `json_decode`/`json_encode` PHP, sementara
+  kiriman menuruti urutan properti di JavaScript. Dibandingkan apa adanya, dua
+  baris yang identik terbaca berbeda — dan penjaganya berhenti menolong persis
+  pada kasus yang ia diadakan untuk menolongnya.
+- **Daftar berindeks angka TIDAK diurutkan** — urutan isinya berarti (daftar
+  pembayaran, daftar tamu).
+- **`updatedAt` & `baseUpdatedAt` dibuang** sebelum dibandingkan: yang pertama
+  memang selalu berbeda (itu inti persoalannya), yang kedua tidak pernah
+  tersimpan.
+- **Dipasang di KEDUA penjaga** — `upsert_collection()` dan
+  `upsert_settings_collection()`. Yang dilonggarkan cuma di salah satunya
+  membuat `designreqs` & `vip` tetap melaporkan bentrok palsu sementara
+  `events` berhenti, dan bedanya mustahil dijelaskan.
+- **Pemeriksaannya MENDAHULUI pendorongan `$bentrok`.** Ditaruh sesudahnya,
+  barisnya tetap dilaporkan dan seluruh perbaikan ini tidak mengubah apa pun
+  di layar.
+- **Bentrok SUNGGUHAN tidak ikut dilonggarkan**, dan itu dijaga asersi
+  tersendiri: melonggarkan alarmnya lebih berbahaya daripada bentrok palsu.
+
+**`autoCloseEvents()` SENGAJA TIDAK DICABUT.** Ia memang harus menutup event
+yang sudah lewat, dan mencabutnya berarti menukar satu masalah dengan masalah
+lain. Yang salah bukan otomasinya, melainkan penjaga bentrok yang
+memperlakukan kesimpulan yang sama dari dua klien sebagai perebutan.
+
+> **PELAJARANNYA: "siapa yang menyalip" tidak selalu manusia.** Enam babak
+> sebelumnya seluruhnya mengejar cap waktu, jam perangkat, dan jalur pemulihan
+> — dan tidak satu pun bertanya **apa yang sebenarnya berubah** pada baris yang
+> dilaporkan bentrok. Jawabannya: tidak ada. Kalau sebuah penjaga melaporkan
+> perebutan, periksa dulu apakah kedua pihak benar-benar menulis hal yang
+> berbeda.
+
+```bash
+npm i php-parser        # sekali; atau setel PHP_PARSER_PATH
+node tools/uji-hilang-marketing.js   # 142 pemeriksaan (dari 130)
+```
+
+Ujinya dua lapis, dan keduanya perlu: **reproduksi dua tab** (dua jsdom, satu
+server tiruan — yang dijaga JUMLAH BENTROK dari server, bukan ada-tidaknya
+modal di layar, karena teks modal itu juga hidup sebagai string di dalam
+`<script>` halaman dan asersi atas `body.textContent` cocok dengan KODENYA)
+dan **kontrak atas sumber PHP** (tiruan yang bentuknya beda dari yang ditiru
+tidak menguji apa pun). Tiga mutasi dicoba — mencabut jalurnya di PHP, tidak
+memulangkan versinya, dan membuat tiruannya berhenti memaafkan — ketiganya
+tertangkap.
+
 #### Buffering simpan di modul Marketing (8 September 2026)
 
 Permintaan user: *"pastikan setiap submit ada buffering untuk memastikan data

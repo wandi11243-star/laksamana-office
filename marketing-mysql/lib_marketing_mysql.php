@@ -461,6 +461,38 @@ function baris_settings($pdo, $nama) {
   return is_array($v) ? $v : array();
 }
 
+/* SIDIK ISI SEBUAH BARIS — tanpa cap waktu dan tanpa metadata kiriman.
+
+   Dipakai penjaga bentrok untuk menjawab satu pertanyaan: kalau kiriman ini
+   ditulis, apakah ADA yang berubah? Kalau tidak ada, ia bukan bentrok — dua
+   pihak cuma sampai pada kesimpulan yang sama.
+
+   KUNCINYA DIURUTKAN, BERTINGKAT. Urutan kunci di JSON yang tersimpan tidak
+   dijamin sama dengan urutan di kiriman: yang tersimpan sudah pernah melewati
+   json_decode/json_encode PHP, sementara kiriman menuruti urutan properti di
+   JavaScript. Dibandingkan apa adanya, dua baris yang isinya identik akan
+   terbaca berbeda — dan penjaganya berhenti menolong persis pada kasus yang
+   ia diadakan untuk menolongnya.
+
+   updatedAt dan baseUpdatedAt dibuang: yang pertama memang selalu berbeda
+   (itu inti persoalannya), yang kedua tidak pernah tersimpan. */
+function urut_dalam($v) {
+  if (!is_array($v)) return $v;
+  $out = array();
+  foreach ($v as $k => $x) $out[$k] = urut_dalam($x);
+  /* Daftar berindeks angka TIDAK diurutkan — urutan isinya berarti. */
+  $kunci = array_keys($out);
+  $asosiatif = false;
+  foreach ($kunci as $k) if (!is_int($k)) { $asosiatif = true; break; }
+  if ($asosiatif) ksort($out);
+  return $out;
+}
+function sidik_baris($r) {
+  if (!is_array($r)) return '';
+  unset($r['updatedAt'], $r['baseUpdatedAt']);
+  return json_encode(urut_dalam($r));
+}
+
 /* Cap tertinggi di sebuah daftar baris. Dipakai baca_state() supaya koleksi
    yang tinggal di settings ikut menaikkan `_versi`. */
 function versi_baris($rows) {
@@ -670,11 +702,18 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, &$v
   $kirimIds = array();
   foreach ($rows as $r) if (is_array($r) && !empty($r['id'])) $kirimIds[] = (string)$r['id'];
   $verServer = array();
+  /* ISI yang tersimpan ikut diambil — dipakai penjaga bentrok untuk memastikan
+     kiriman ini benar-benar MENGUBAH sesuatu sebelum ia dilaporkan bentrok.
+     Satu kolom tambahan di query yang memang sudah berjalan; bukan query baru. */
+  $dataServer = array();
   if ($kirimIds) {
     $place = implode(',', array_fill(0, count($kirimIds), '?'));
-    $q = $pdo->prepare('SELECT id, updated_at FROM ' . $tabel . ' WHERE id IN (' . $place . ')');
+    $q = $pdo->prepare('SELECT id, updated_at, data FROM ' . $tabel . ' WHERE id IN (' . $place . ')');
     $q->execute($kirimIds);
-    foreach ($q as $row) $verServer[$row['id']] = (int)$row['updated_at'];
+    foreach ($q as $row) {
+      $verServer[$row['id']] = (int)$row['updated_at'];
+      $dataServer[$row['id']] = json_decode((string)$row['data'], true);
+    }
   }
 
   $names = array_merge(array('id'), array_keys($cols), array('updated_at'));
@@ -706,6 +745,33 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, &$v
     if (array_key_exists('baseUpdatedAt', $r)) {
       $base = ms_valid($r['baseUpdatedAt']);
       if (isset($verServer[$id]) && $verServer[$id] > $base) {
+        /* TULISAN YANG TIDAK MENGUBAH APA PUN BUKAN BENTROK (11 September
+           2026, dilaporkan user: modal bentrok muncul untuk event yang ia
+           input sendiri, tanpa ada rekan kerja yang menyentuhnya).
+
+           Sebabnya otomasi, bukan orang: boot() di modul Marketing
+           menjalankan autoCloseEvents() lalu save() — jadi SETIAP tab yang
+           dibuka menulis baris event yang tanggalnya sudah lewat. Dua tab yang
+           dibuka berdekatan sama-sama membaca versi lama, tab pertama menulis,
+           dan tab kedua dilaporkan bentrok — untuk baris yang isinya PERSIS
+           SAMA dengan yang barusan ditulis tab pertama.
+
+           Direproduksi dengan dua jsdom menghadap satu server tiruan; lihat
+           uji "dua tab, satu otomasi" di tools/uji-hilang-marketing.js.
+
+           Di sini tidak ada yang bisa hilang: yang kita tulis sama dengan yang
+           sudah ada. Melaporkannya sebagai bentrok cuma melatih orang menekan
+           "Muat ulang" pada peringatan yang tidak pernah benar — dan modal yang
+           selalu muncul berhenti dibaca, termasuk waktu suatu hari ia benar.
+
+           Versinya DIPULANGKAN lewat versi supaya acuan bentrok di klien
+           menyusul ke versi server. Tanpa itu klien tetap memegang capnya
+           sendiri, dan penyimpanan berikutnya bisa bentrok lagi karena sebab
+           yang sama. */
+        if (isset($dataServer[$id]) && sidik_baris($dataServer[$id]) === sidik_baris($r)) {
+          $versi[$namaKoleksi . ':' . $id] = $verServer[$id];
+          continue;   // tidak ada yang berubah, tidak ada yang perlu ditulis
+        }
         $bentrok[] = array(
           'koleksi'   => $namaKoleksi,
           'id'        => $id,
@@ -842,6 +908,15 @@ function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, &$ver
     if (array_key_exists('baseUpdatedAt', $r)) {
       $base = ms_valid($r['baseUpdatedAt']);
       if ($verServer !== null && $verServer > $base) {
+        /* Aturan yang SAMA PERSIS dengan upsert_collection() di atas — lihat
+           catatan panjangnya di sana. Ditulis di kedua tempat karena keduanya
+           punya penjaga bentroknya sendiri; yang dilonggarkan cuma di salah
+           satunya akan membuat designreqs & vip tetap melaporkan bentrok palsu
+           sementara events berhenti, dan bedanya mustahil dijelaskan. */
+        if (isset($adaId[$id]) && sidik_baris($adaId[$id]) === sidik_baris($r)) {
+          $versi[$nama . ':' . $id] = $verServer;
+          continue;   // tidak ada yang berubah, tidak ada yang perlu ditulis
+        }
         $bentrok[] = array(
           'koleksi'     => $nama,
           'id'          => $id,

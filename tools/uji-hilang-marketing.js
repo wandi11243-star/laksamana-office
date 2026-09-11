@@ -1025,6 +1025,196 @@ else {
     cek('pemuatan berikutnya sudah bersih', (w.__BENTROK__ || []).length === 0,
         'inilah bentuk keluhan `muncul terus`: ' + JSON.stringify(w.__BENTROK__));
 
+
+    /* ---------- DUA TAB, SATU OTOMASI (11 September 2026) ----------
+
+       Dilaporkan user: modal "Sebagian Perubahan Tidak Tersimpan" muncul untuk
+       event yang ia input SENDIRI, tanpa ada rekan kerja yang menyentuhnya.
+
+       Sebabnya otomasi, bukan orang. boot() menjalankan autoCloseEvents() lalu
+       save(), jadi SETIAP tab yang dibuka menulis baris event yang tanggalnya
+       sudah lewat. Dua tab yang dibuka berdekatan sama-sama membaca versi
+       lama; tab pertama menulis, dan tab kedua dilaporkan bentrok — untuk
+       baris yang isinya PERSIS SAMA dengan yang barusan ditulis tab pertama.
+
+       Yang diuji di sini JUMLAH BENTROK dari server tiruan, bukan ada-tidaknya
+       modal di layar: teks modal itu juga hidup sebagai string di dalam
+       <script> halaman, jadi memeriksa body.textContent cocok dengan KODENYA
+       dan hijau apa pun yang terjadi. Jebakan yang sudah dibayar di
+       uji-vip-radar.js. */
+    {
+      const V0 = 1700000000000;
+      const lalu = new Date(Date.now() - 10 * 86400000).toISOString().slice(0, 10);
+      const DB = {
+        events: { e_ab: { id:'e_ab', nama:'Birthday 5 Tahun Abraham', tanggal:lalu,
+                          status:'Confirmed', pipeCol:'Confirmed', updatedAt:V0, createdAt:V0 } },
+        ver: { e_ab: V0 }
+      };
+      let nBentrok = 0, nPost = 0;
+
+      /* Cerminan sidik_baris() di lib_marketing_mysql.php. Bentuknya dijaga
+         terpisah lewat asersi SUMBER di bagian PHP — tiruan yang bentuknya
+         beda dari yang ditiru tidak menguji apa pun. */
+      const sidik = r => {
+        if (!r || typeof r !== 'object') return '';
+        const c = JSON.parse(JSON.stringify(r));
+        delete c.updatedAt; delete c.baseUpdatedAt;
+        const urut = v => Array.isArray(v) ? v.map(urut)
+          : (v && typeof v === 'object'
+              ? Object.keys(v).sort().reduce((o, k) => { o[k] = urut(v[k]); return o; }, {})
+              : v);
+        return JSON.stringify(urut(c));
+      };
+      const simpanServer = body => {
+        const bentrok = [], versi = {};
+        nPost++;
+        ((body.data && body.data.events) || []).forEach(r => {
+          if (!r || !r.id) return;
+          if (Object.prototype.hasOwnProperty.call(r, 'baseUpdatedAt')) {
+            const base = +r.baseUpdatedAt || 0;
+            if (DB.ver[r.id] && DB.ver[r.id] > base) {
+              /* ISI SAMA = BUKAN BENTROK, dan versinya dipulangkan. */
+              if (sidik(DB.events[r.id]) === sidik(r)) { versi['events:' + r.id] = DB.ver[r.id]; return; }
+              bentrok.push({ koleksi:'events', id:r.id, nama:r.nama || r.id,
+                             versiKamu:base, versiServer:DB.ver[r.id] });
+              return;
+            }
+          }
+          const simpan = Object.assign({}, r); delete simpan.baseUpdatedAt;
+          DB.events[r.id] = simpan; DB.ver[r.id] = +simpan.updatedAt || 0;
+        });
+        nBentrok += bentrok.length;
+        return { ok:true, data:{ bentrok, versi } };
+      };
+
+      const htmlTab = MKT
+        .replace(/<script[^>]*\ssrc="[^"]*performa-bonus\.js"[^>]*><\/script>/i,
+          '<script>' + fs.readFileSync(path.join(ROOT, 'deploy/assets/performa-bonus.js'), 'utf8') + '</script>')
+        .replace(/<script[^>]*\ssrc="[^"]*venue-layouts\.js"[^>]*><\/script>/i,
+          '<script>' + fs.readFileSync(path.join(ROOT, 'deploy/assets/venue-layouts.js'), 'utf8') + '</script>')
+        .replace(/<script[^>]*\ssrc=[^>]*><\/script>/gi, '');
+      const buatTab = () => {
+        const vc2 = new VirtualConsole(); vc2.on('jsdomError', () => {});
+        return new JSDOM(htmlTab, { virtualConsole: vc2, runScripts: 'dangerously',
+          url: 'https://dev.laksamanamuda.id/marketing/',
+          beforeParse(w) {
+            w.localStorage.setItem('lm_session', JSON.stringify({ id:'u1', name:'Uji',
+              modules:['marketing'], adminModules:['marketing'], token:'t', expiry: Date.now() + 86400000 }));
+            w.matchMedia = () => ({ matches:false, addListener(){}, removeListener(){}, addEventListener(){}, removeEventListener(){} });
+            w.print = () => {}; w.confirm = () => true; w.alert = () => {};
+            w.Chart = class { destroy(){} update(){} };
+            w.HTMLCanvasElement.prototype.getContext = () => ({});
+            w.fetch = async (url, init) => {
+              const u = String(url);
+              const b = init && init.body ? JSON.parse(init.body) : {};
+              const bal = o => ({ ok:true, status:200, text: async () => JSON.stringify(o), json: async () => o });
+              if (u.indexOf('account-api') > -1) return bal({ ok:true, members: [] });
+              if (b.action === 'saveAll') return bal(simpanServer(b));
+              return bal({ ok:true, data:{ events:[Object.assign({}, DB.events.e_ab)],
+                                           clients:[], users:[], _versi: DB.ver.e_ab } });
+            };
+          } });
+      };
+      const tunggu2 = ms => new Promise(r => setTimeout(r, ms));
+      const siap2 = async w => { for (let i = 0; i < 200; i++) {
+        try { if (w.eval('typeof S !== "undefined" && S && Array.isArray(S.events) && S.events.length')) return; } catch (e) {}
+        await tunggu2(50); } };
+
+      const tA = buatTab(), tB = buatTab();
+      await Promise.all([siap2(tA.window), siap2(tB.window)]);
+      await tunggu2(900);
+
+      /* Otomasi itu memang MENULIS — kalau suatu hari ia berhenti menulis,
+         ujinya harus berbunyi, bukan diam-diam jadi hijau karena tidak ada
+         penyimpanan sama sekali. */
+      cek('otomasi boot benar-benar menulis ke server', nPost > 0,
+          'tanpa penyimpanan, nol bentrok tidak membuktikan apa pun');
+      cek('status event ditutup otomatis oleh boot', DB.events.e_ab.status === 'Event Done',
+          DB.events.e_ab.status);
+      cek('dua tab yang menulis kesimpulan yang SAMA tidak dilaporkan bentrok',
+          nBentrok === 0, nBentrok + ' baris dilaporkan bentrok — inilah keluhan aslinya');
+      /* Acuan bentrok di tab kedua WAJIB menyusul ke versi server. Tanpa itu ia
+         tetap memegang capnya sendiri, dan penyimpanan berikutnya bentrok lagi
+         karena sebab yang sama — persis bentuk "nyangkut lagi". */
+      sama('acuan bentrok tab kedua menyusul ke versi server',
+           tB.window.eval("_serverVer['events:e_ab']"), DB.ver.e_ab);
+
+      /* JARING: bentrok SUNGGUHAN tidak boleh ikut dilonggarkan. Isi yang
+         BERBEDA harus tetap dilaporkan — melonggarkannya lebih berbahaya
+         daripada bentrok palsu. */
+      {
+        const r = simpanServer({ data:{ events:[{ id:'e_ab', nama:'Judul lain sama sekali',
+          tanggal:lalu, status:'Confirmed', pipeCol:'Confirmed',
+          baseUpdatedAt: V0, updatedAt: Date.now() }] } });
+        cek('bentrok SUNGGUHAN tetap dilaporkan', (r.data.bentrok || []).length === 1,
+            JSON.stringify(r.data.bentrok));
+      }
+      tA.window.close(); tB.window.close();
+    }
+
+
+    /* ---------- KONTRAK "ISI SAMA BUKAN BENTROK" DI SUMBER PHP ----------
+
+       Server tiruan di blok dua-tab di atas MENIRU aturan ini. Tiruan yang
+       bentuknya beda dari yang ditiru tidak menguji apa pun — pelajaran yang
+       sudah dibayar di stub hpp.php pada uji-analytics dan di kontrak
+       omsetHari. Jadi yang dijaga di sini SUMBERNYA, bukan tiruannya. */
+    {
+      const LIB = fs.readFileSync(path.join(ROOT, 'marketing-mysql/lib_marketing_mysql.php'), 'utf8');
+      cek('sidik_baris() ada', /function\s+sidik_baris\s*\(/.test(LIB));
+      /* Cap waktu WAJIB dibuang sebelum dibandingkan — kalau tidak, dua baris
+         yang isinya identik selalu terbaca berbeda (capnya memang selalu
+         beda), dan penjaganya berhenti menolong persis pada kasus yang ia
+         diadakan untuk menolongnya. */
+      cek('...membuang updatedAt & baseUpdatedAt sebelum membandingkan',
+          /unset\(\$r\['updatedAt'\],\s*\$r\['baseUpdatedAt'\]\)/.test(LIB));
+      /* Kunci DIURUTKAN bertingkat: urutan kunci JSON tersimpan (lewat
+         json_decode/encode PHP) tidak dijamin sama dengan urutan properti dari
+         JavaScript. */
+      cek('...dan mengurutkan kuncinya bertingkat',
+          /function\s+urut_dalam\s*\(/.test(LIB) && /ksort\(\$out\)/.test(LIB));
+      /* Daftar berindeks angka TIDAK boleh ikut diurutkan — urutan isinya
+         berarti (mis. daftar pembayaran, daftar tamu). */
+      cek('...tanpa mengurutkan daftar berindeks angka', /is_int\(\$k\)/.test(LIB));
+
+      /* Isi tersimpan memang diambil dari database — tanpa kolom data,
+         perbandingannya tidak punya bahan dan penjaganya mati diam-diam. */
+      cek('isi tersimpan ikut diambil di query yang sudah ada',
+          /SELECT id, updated_at, data FROM/.test(LIB));
+
+      /* KEDUA penjaga bentrok harus memakainya. Yang dilonggarkan cuma di
+         salah satunya membuat designreqs & vip tetap melaporkan bentrok palsu
+         sementara events berhenti, dan bedanya mustahil dijelaskan. */
+      const pakai = LIB.split('sidik_baris(').length - 1;
+      cek('kedua penjaga bentrok memakainya (4 pemanggilan + 1 definisi)',
+          pakai >= 5, 'ditemukan ' + pakai + ' penyebutan');
+      cek('dipakai di upsert_collection',
+          /\$dataServer\[\$id\]\)\s*&&\s*sidik_baris\(\$dataServer\[\$id\]\)\s*===\s*sidik_baris\(\$r\)/.test(LIB));
+      cek('dipakai di upsert_settings_collection',
+          /\$adaId\[\$id\]\)\s*&&\s*sidik_baris\(\$adaId\[\$id\]\)\s*===\s*sidik_baris\(\$r\)/.test(LIB));
+
+      /* PEMERIKSAANNYA HARUS MENDAHULUI pendorongan $bentrok. Ditaruh
+         sesudahnya, barisnya tetap dilaporkan bentrok dan seluruh perbaikan
+         ini tidak mengubah apa pun di layar. */
+      const potongUpsert = LIB.slice(LIB.indexOf('function upsert_collection'),
+                                     LIB.indexOf('function hapus_yang_hilang'));
+      cek('diperiksa SEBELUM baris didorong ke daftar bentrok',
+          potongUpsert.indexOf('sidik_baris(') < potongUpsert.indexOf("'versiServer' => $verServer[$id]"),
+          'ditaruh sesudahnya, barisnya tetap dilaporkan bentrok');
+
+      /* Versi server DIPULANGKAN supaya acuan bentrok di klien menyusul.
+         Tanpa itu klien tetap memegang capnya sendiri, dan penyimpanan
+         berikutnya bentrok lagi karena sebab yang sama — bentuk "nyangkut
+         lagi" yang dikeluhkan user. */
+      cek('versi server dipulangkan pada jalur isi-sama',
+          /\$versi\[\$namaKoleksi \. ':' \. \$id\] = \$verServer\[\$id\];/.test(LIB)
+          && /\$versi\[\$nama \. ':' \. \$id\] = \$verServer;/.test(LIB));
+
+      /* JARING: penjaga bentroknya sendiri tidak boleh ikut dicabut. */
+      cek('penjaga bentrok untuk isi yang BERBEDA tetap ada',
+          (LIB.split('JANGAN timpa kerja orang lain').length - 1) === 2);
+    }
+
     const SRC12 = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8');
     cek('dilupakan SEBELUM kirimPemulihan berangkat',
         SRC12.indexOf('if(kalah.length) lupakanBentrok(kalah);') <
