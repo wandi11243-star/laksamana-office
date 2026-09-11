@@ -2324,6 +2324,558 @@ async function siap(w) {
         LIB.indexOf('`an_akses`') > -1 && LIB.indexOf('`an_peran`') > -1);
   }
 
+  /* ================= 12. tapis kelompok, urut kolom, bulan pembanding =======
+     Tiga permintaan user 11 September 2026, dan ketiganya menyentuh DUA
+     halaman sekaligus (Menu & Bahan Baku dan Kategori Menu) lewat penggambar
+     yang sama — thSort/urutKolom/kelOpsi/gabungBanding. Yang diuji karena itu
+     bukan "tombolnya ada" melainkan bahwa angka di layar benar-benar berubah
+     mengikutinya, di KEDUA halaman.
+
+     FIXTURE-nya sengaja dibuat supaya tiap kesalahan punya tempat untuk
+     muncul:
+
+       - nilai tiap menu BERBEDA, jadi tiap sel punya sidik jarinya sendiri
+         (pelajaran dari kolom Kontribusi: Rp40.000 yang kebetulan juga nilai
+         sebuah baris lain membuat asersi cocok dengan sel yang bukan diuji);
+       - urutan menurut NILAI berbeda dari urutan menurut PORSI, kalau tidak
+         mutasi "kolom qty diurut pakai nilai" tidak mengubah satu baris pun;
+       - urutan menurut ABJAD berbeda dari keduanya;
+       - ada menu yang HANYA ada di bulan pembanding, dan ada yang hanya di
+         bulan ini — dua-duanya perlu, karena penggabung yang cuma menyalin
+         satu arah tetap hijau kalau salah satunya tidak ada;
+       - FOOD dan BEVERAGES sama-sama berisi lebih dari satu menu, jadi tapis
+         yang tidak menyaring apa pun punya tempat untuk ketahuan. */
+  console.log('\n== Tapis kelompok, urut kolom, bulan pembanding ==');
+  {
+    /* Nilai & porsi dipilih supaya KETIGA urutan berbeda:
+         nilai  : ZUPPA(900rb) > AYAM(500rb) > MATCHA(300rb) > BIR(120rb)
+         porsi  : BIR(60)      > MATCHA(40)  > AYAM(20)      > ZUPPA(9)
+         abjad  : AYAM, BIR, MATCHA, ZUPPA                                  */
+    const bulanAgu = {
+      diunggah:'2026-09-01', oleh:'W', berkas:'agu.xlsx', jenis:'menu',
+      hari:{ '2026-08-01':{ bill:10, grand:2000000 } }, jam:{},
+      menu:{
+        'AYAM GORENG':   { qty:20, nilai:500000 },
+        'ZUPPA SOUP':    { qty:9,  nilai:900000 },
+        'MATCHA LATTE':  { qty:40, nilai:300000 },
+        /* Baris paket tanpa kategori sendiri — ia melebur ke MATCHA LATTE dan
+           membawa kelompok KOSONG. Itu yang membuat penjaga "yang kosong tidak
+           menimpa" punya tempat untuk gagal; tanpa baris ini, mencabut penjaga
+           itu tidak mengubah satu angka pun. */
+        'MATCHA LATTE (PACKAGE)': { qty:3, nilai:0 },
+        'BIR BINTANG':   { qty:60, nilai:120000 },
+        'ROKOK SAMPOERNA': { qty:5, nilai:75000 }
+      },
+      kategori:{
+        'NUSANTARA':      { qty:29, nilai:1400000, kat:'FOOD' },
+        'KOPI & TEH':     { qty:40, nilai:300000,  kat:'BEVERAGES' },
+        'MINUMAN KERAS':  { qty:60, nilai:120000,  kat:'BEVERAGES' },
+        'TEMBAKAU':       { qty:5,  nilai:75000,   kat:'OTHERS' }
+      },
+      katMenu:{
+        'NUSANTARA':     { 'AYAM GORENG':{qty:20,nilai:500000}, 'ZUPPA SOUP':{qty:9,nilai:900000} },
+        'KOPI & TEH':    { 'MATCHA LATTE':{qty:40,nilai:300000} },
+        'MINUMAN KERAS': { 'BIR BINTANG':{qty:60,nilai:120000} },
+        'TEMBAKAU':      { 'ROKOK SAMPOERNA':{qty:5,nilai:75000} }
+      },
+      ringkas:{ bill:10, grand:2000000 }
+    };
+    /* Juli: AYAM & MATCHA ada di kedua bulan (nilainya BERBEDA supaya
+       selisihnya punya tanda yang jelas — satu naik, satu turun), SOTO BETAWI
+       hanya ada di Juli, ZUPPA & BIR tidak ada di Juli. Kategori SEAFOOD juga
+       hanya ada di Juli. */
+    const bulanJul = {
+      diunggah:'2026-08-01', oleh:'W', berkas:'jul.xlsx', jenis:'menu',
+      hari:{ '2026-07-01':{ bill:8, grand:1500000 } }, jam:{},
+      menu:{
+        'AYAM GORENG':  { qty:12, nilai:400000 },
+        'MATCHA LATTE': { qty:50, nilai:375000 },
+        'SOTO BETAWI':  { qty:30, nilai:660000 }
+      },
+      kategori:{
+        'NUSANTARA': { qty:42, nilai:1060000, kat:'FOOD' },
+        'KOPI & TEH':{ qty:50, nilai:375000,  kat:'BEVERAGES' },
+        'SEAFOOD':   { qty:7,  nilai:210000,  kat:'FOOD' }
+      },
+      katMenu:{
+        'NUSANTARA': { 'AYAM GORENG':{qty:12,nilai:400000}, 'SOTO BETAWI':{qty:30,nilai:660000} },
+        'KOPI & TEH':{ 'MATCHA LATTE':{qty:50,nilai:375000} },
+        'SEAFOOD':   { 'UDANG GORENG':{qty:7,nilai:210000} }
+      },
+      ringkas:{ bill:8, grand:1500000 }
+    };
+    const an = { data:{ laporan:{ '2026-08':bulanAgu, '2026-07':bulanJul }, setting:{} },
+                 akses:{}, peran:{} };
+    /* Resep HPP diberikan supaya perkiraan bahan baku & daftar "belum ada
+       resep" benar-benar terhitung — tanpa resep, tapis yang tidak menyaring
+       daftar bahan tetap hijau karena daftarnya memang selalu kosong.
+       Pelajaran yang sudah dibayar di mutasi "cari bahan tidak menyaring". */
+    const hpp = { bahan:[{ id:'b1', nama:'Beras' }, { id:'b2', nama:'Bubuk Matcha' }],
+      resep:[
+        { id:'r1', nama:'Ayam Goreng',  tipe:'dish', jenis:'food',  yield_qty:1, yield_satuan:'Porsi',
+          bahan:[{ ref:'bahan', nama:'Beras', qty:100, satuan:'Gr' }] },
+        { id:'r2', nama:'Matcha Latte', tipe:'dish', jenis:'drink', yield_qty:1, yield_satuan:'Porsi',
+          bahan:[{ ref:'bahan', nama:'Bubuk Matcha', qty:8, satuan:'Gr' }] }
+      ], setting:{} };
+
+    const { dom } = domAnalytics({ an, hpp });
+    const w = dom.window, d = w.document;
+    await siap(w);
+    w.eval("BLN='2026-08'; BLN_BANDING=''; MN_KEL=''; KT_KEL=''; MN_Q='';");
+    w.eval("MN_SORT={k:'nilai',turun:true}; KT_SORT={k:'nilai',turun:true}; MN_HAL=1; MN_BUKA='';");
+    w.go('menu'); await tunggu(80);
+
+    const vw = () => d.getElementById('app-view').innerHTML;
+    const tbl = () => d.getElementById('mn_isi_menu').innerHTML;
+    /* Urutan nama menu SEPERTI YANG TERGAMBAR di tabel — dibaca dari selnya,
+       bukan dihitung ulang di dalam uji. Asersi yang menghitung sendiri lalu
+       membandingkannya dengan hitungannya sendiri lulus juga untuk tabel yang
+       tidak pernah diurut. */
+    /* &amp; diurai balik. Nama kategori "KOPI & TEH" digambar ter-escape, dan
+       itu memang benar — yang tidak boleh adalah asersinya ikut menuliskannya
+       ter-escape: kesalahan urutan lalu tenggelam di antara noise, dan yang
+       membaca kegagalannya mengira escaping-nya yang rusak. Fixture-nya
+       sengaja TETAP memuat "&" supaya escaping-nya ikut terjaga. */
+    const teksSel = t => String(t).replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+    const urutanTabel = html => {
+      const body = html.slice(html.indexOf('<tbody>'));
+      return [...body.matchAll(/<td><b>([^<]+)<\/b>/g)].map(m => teksSel(m[1]));
+    };
+    /* Satu baris tabel menu, dipotong dari <tr> sampai </tr>. */
+    const barisMenu = (html, nama) => {
+      const i = html.indexOf('<b>' + nama + '</b>');
+      if (i < 0) return '';
+      return html.slice(html.lastIndexOf('<tr', i), html.indexOf('</tr>', i));
+    };
+
+    /* ---- 1. TAPIS KELOMPOK di halaman Menu ---- */
+    cek('tapis kelompok digambar di halaman Menu',
+        /onclick="mnKel\(&quot;FOOD&quot;\)"/.test(vw()) && /onclick="mnKel\(&quot;BEVERAGES&quot;\)"/.test(vw()),
+        vw().slice(vw().indexOf('Penjualan Menu'), vw().indexOf('Penjualan Menu') + 900));
+    /* OTHERS sudah dikeluarkan seluruhnya dari halaman ini sejak 10 September
+       2026. Tombolnya karena itu TIDAK boleh ada — tombol yang menyaring ke
+       daftar yang selalu kosong dilaporkan sebagai halaman rusak. */
+    cek('...tanpa OTHERS, yang memang tidak ikut di halaman ini',
+        !/onclick="mnKel\(&quot;OTHERS&quot;\)"/.test(vw()));
+    cek('...dan sebelum ditekan seluruh menu tampil',
+        urutanTabel(tbl()).length === 4, JSON.stringify(urutanTabel(tbl())));
+
+    w.eval("mnKel('BEVERAGES')"); await tunggu(60);
+    {
+      const isi = tbl(), semua = vw();
+      cek('tapis BEVERAGES menyisakan minuman saja',
+          urutanTabel(isi).join('|') === 'MATCHA LATTE|BIR BINTANG', JSON.stringify(urutanTabel(isi)));
+      /* KARTU IKUT TERSARING. Kartu yang tetap menulis 4 di atas tabel berisi
+         2 adalah selisih yang dilaporkan sebagai data hilang. */
+      cek('...kartu Menu Berbeda ikut tersaring',
+          semua.replace(/\s+/g, ' ').indexOf('Menu Berbeda</div><div class="val mono">2</div>') > -1,
+          semua.slice(semua.indexOf('Menu Berbeda') - 40, semua.indexOf('Menu Berbeda') + 160));
+      /* Nilai menu = 300.000 + 120.000 = 420.000, BUKAN 1.895.000. */
+      cek('...kartu Nilai Menu ikut tersaring', semua.indexOf('Rp420.000') > -1,
+          semua.slice(semua.indexOf('Nilai Menu') - 200, semua.indexOf('Nilai Menu') + 120));
+      /* BAHAN BAKU ikut: Ayam Goreng (Beras) keluar, Matcha Latte tetap. */
+      const bahan = d.getElementById('mn_isi_bahan').innerHTML;
+      cek('...perkiraan bahan baku ikut tersaring',
+          bahan.indexOf('Bubuk Matcha') > -1 && bahan.indexOf('Beras') < 0, bahan.slice(0, 400));
+      /* Daftar "belum ada resep" ikut: BIR BINTANG belum punya resep,
+         ZUPPA SOUP (food) tidak boleh ikut muncul. */
+      const resep = d.getElementById('mn_isi_resep');
+      cek('...daftar menu tanpa resep ikut tersaring',
+          !!resep && resep.innerHTML.indexOf('BIR BINTANG') > -1 && resep.innerHTML.indexOf('ZUPPA SOUP') < 0,
+          resep ? resep.innerHTML.slice(0, 400) : 'kartu tidak digambar');
+      cek('...dan tapis yang menyala dikatakan di layar',
+          /sedang disaring ke kelompok/.test(semua));
+      /* Penyebut kolom persen ikut menyusut — kalau tidak, kolomnya berhenti
+         berjumlah 100% tanpa satu pun tanda. */
+      cek('...penyebut kolom persen ikut menyebut kelompoknya',
+          /yang berkelompok <\/b>?BEVERAGES|berkelompok BEVERAGES/.test(semua.replace(/<b>|<\/b>/g, '')),
+          semua.slice(semua.indexOf('% dari nilai menu</b>'), semua.indexOf('% dari nilai menu</b>') + 400));
+    }
+    w.eval("mnKel('')"); await tunggu(60);
+    cek('melepas tapis mengembalikan seluruh menu', urutanTabel(tbl()).length === 4);
+
+    /* ---- 2. URUT KOLOM di halaman Menu ---- */
+    cek('kepala kolom bisa ditekan', /<th class="srt[^"]*" onclick="mnSort\(&quot;qty&quot;\)"/.test(tbl()),
+        tbl().slice(0, 500));
+    cek('urutan bawaan menurut nilai, dari terbesar',
+        urutanTabel(tbl()).join('|') === 'ZUPPA SOUP|AYAM GORENG|MATCHA LATTE|BIR BINTANG',
+        JSON.stringify(urutanTabel(tbl())));
+    w.eval("mnSort('qty')"); await tunggu(40);
+    cek('menekan Qty mengurutkannya menurut porsi',
+        urutanTabel(tbl()).join('|') === 'BIR BINTANG|MATCHA LATTE|AYAM GORENG|ZUPPA SOUP',
+        JSON.stringify(urutanTabel(tbl())));
+    /* BATANGNYA IKUT KOLOM YANG DIURUT. Batang nilai di sebelah tabel terurut
+       porsi memajang baris teratas dengan batang TERPENDEK, dan itu terbaca
+       sebagai salah hitung — bukan sebagai salah kolom. */
+    {
+      const brs = barisMenu(tbl(), 'BIR BINTANG');
+      cek('...dan batangnya ikut kolom itu, bukan tetap nilai',
+          /width:100%/.test(brs), brs.slice(-260));
+    }
+    w.eval("mnSort('qty')"); await tunggu(40);
+    cek('menekan kolom yang sama membalik arahnya',
+        urutanTabel(tbl()).join('|') === 'ZUPPA SOUP|AYAM GORENG|MATCHA LATTE|BIR BINTANG',
+        JSON.stringify(urutanTabel(tbl())));
+    w.eval("mnSort('n')"); await tunggu(40);
+    cek('kolom nama mulai dari A, bukan dari Z',
+        urutanTabel(tbl()).join('|') === 'AYAM GORENG|BIR BINTANG|MATCHA LATTE|ZUPPA SOUP',
+        JSON.stringify(urutanTabel(tbl())));
+    cek('...dan urutan yang sedang berlaku disebut di kaki tabel',
+        tbl().indexOf('Diurut menurut') > -1 && tbl().indexOf('nama menu') > -1,
+        tbl().slice(tbl().indexOf('Menampilkan'), tbl().indexOf('Menampilkan') + 400));
+    /* KAKI TABELNYA ADA DI DALAM WADAH YANG DIGAMBAR ULANG. Kalimat urutan
+       yang ditulis di card-sub (di LUAR #mn_isi_menu) akan membeku di urutan
+       pertama dan berbohong sejak klik pertama. */
+    cek('...dan kalimat itu TIDAK ditulis di luar wadahnya',
+        vw().indexOf('<div class="card-sub">Diurut menurut') < 0);
+    /* Menekan kepala kolom TIDAK boleh membuat ulang kotak cari — render()
+       di modul ini TOTAL, dan kotak yang dibuat ulang kehilangan fokus.
+       Jebakan yang sama sudah dibayar di queueF() modul Konten. */
+    {
+      const kotak = d.getElementById('mn_q');
+      w.eval("mnSort('nilai')"); await tunggu(40);
+      cek('mengurutkan TIDAK membuat ulang kotak cari',
+          d.getElementById('mn_q') === kotak,
+          'kotaknya diganti elemen baru — fokus hilang dan hanya huruf pertama yang masuk');
+    }
+    /* Saklar "Menurut Nilai / Menurut Porsi" dan kepala kolom memakai SATU
+       keadaan. Dua keadaan membuat saklar menyala di Nilai sementara tabelnya
+       terurut porsi, tanpa satu pun galat. */
+    /* SAKLAR IKUT MENYALA MENGIKUTI KEPALA KOLOM. Keadaannya memang sudah satu
+       (MN_SORT), tapi saklarnya berdiri di LUAR #mn_isi_menu — tanpa penyegar
+       tersendiri ia membeku di urutan terakhir kali halaman digambar, dan
+       tabelnya terurut porsi sementara saklarnya menyala di "Nilai". */
+    w.eval("mnSort('qty')"); await tunggu(40);
+    {
+      const seg = d.getElementById('mn_seg_urut');
+      const isi = seg ? seg.innerHTML : '';
+      cek('saklar lama ikut menyala mengikuti kepala kolom',
+          /class="active"[^>]*onclick="mnUrut\('qty'\)"/.test(isi)
+          && !/class="active"[^>]*onclick="mnUrut\('nilai'\)"/.test(isi), isi);
+      /* Wadah saklarnya BOLEH dibuat ulang isinya, tapi elemen wadahnya sendiri
+         tidak perlu diganti — dan kotak cari di baris yang sama TIDAK BOLEH
+         ikut tersentuh. */
+      const kotak = d.getElementById('mn_q');
+      w.eval("mnSort('nilai')"); await tunggu(40);
+      cek('...tanpa menyentuh kotak cari di baris yang sama',
+          d.getElementById('mn_q') === kotak);
+      cek('...dan menyala balik ke Nilai',
+          /class="active"[^>]*onclick="mnUrut\('nilai'\)"/.test(d.getElementById('mn_seg_urut').innerHTML));
+    }
+    w.eval("mnSort('qty')"); await tunggu(40);
+    w.eval("mnUrut('nilai')"); await tunggu(40);
+    cek('...dan menekan saklarnya mengurutkan tabelnya',
+        urutanTabel(tbl())[0] === 'ZUPPA SOUP', JSON.stringify(urutanTabel(tbl())));
+
+    /* ---- 3. BULAN PEMBANDING di halaman Menu ---- */
+    cek('pemilih bulan pembanding digambar', vw().indexOf('Bandingkan dengan') > -1);
+    /* Bulan yang SEDANG dibuka tidak ditawarkan: membandingkan sebuah bulan
+       dengan dirinya sendiri memajang kolom selisih nol yang tidak menjawab
+       apa pun. */
+    {
+      const i = vw().indexOf('bandingPilih');
+      const sel = vw().slice(i, vw().indexOf('</select>', i));
+      cek('...tanpa menawarkan bulan yang sedang dibuka',
+          sel.indexOf('value="2026-07"') > -1 && sel.indexOf('value="2026-08"') < 0, sel);
+    }
+    w.eval("bandingPilih('2026-07')"); await tunggu(80);
+    {
+      const isi = tbl();
+      cek('kolom bulan pembanding ditambahkan',
+          isi.indexOf('Nilai Jul 2026') > -1 && isi.indexOf('Selisih nilai') > -1, isi.slice(0, 700));
+      /* AYAM GORENG: 500.000 vs 400.000 -> +100.000 (+25%) */
+      const a = barisMenu(isi, 'AYAM GORENG');
+      cek('...angka bulan pembanding dibaca dari bulan itu',
+          a.indexOf('Rp400.000') > -1 && a.indexOf('>12<') > -1, a);
+      cek('...selisihnya bertanda dan berpersen',
+          a.indexOf('+Rp100.000') > -1 && a.indexOf('+25%') > -1, a);
+      /* MATCHA LATTE: 300.000 vs 375.000 -> turun 75.000 (-20%) */
+      const m = barisMenu(isi, 'MATCHA LATTE');
+      cek('...yang turun diberi tanda minus, bukan tanda yang sama',
+          m.indexOf('−Rp75.000') > -1 && m.indexOf('−20%') > -1, m);
+      cek('...dan diberi kelas warna yang berbeda',
+          /class="num naik"/.test(a) && /class="num turun"/.test(m));
+      /* MENU YANG HANYA ADA DI BULAN PEMBANDING wajib ikut — itu justru
+         pertanyaan yang paling sering dibawa orang ke pembanding: menu apa
+         yang HILANG bulan ini. */
+      const st = barisMenu(isi, 'SOTO BETAWI');
+      cek('menu yang hanya ada di bulan pembanding tetap muncul', !!st, 'barisnya tidak digambar');
+      cek('...ditandai, bukan dibiarkan terbaca sebagai terjual nol porsi',
+          st.indexOf('tidak ada bulan ini') > -1, st);
+      cek('...dan nilainya bulan ini nol, bukan disalin dari pembandingnya',
+          st.indexOf('Rp0') > -1 && st.indexOf('Rp660.000') > -1, st);
+      /* ZUPPA SOUP tidak ada di Juli: kolom pembandingnya nol, dan persennya
+         DITAHAN — menu yang bulan lalu tidak ada tidak punya persen
+         pertumbuhan yang berarti, dan angka yang dikarang di sana dibaca
+         sebagai lonjakan yang sesungguhnya. */
+      const z = barisMenu(isi, 'ZUPPA SOUP');
+      cek('...persen ditahan kalau pembandingnya nol',
+          z.indexOf('+Rp900.000') > -1 && !/[+−]\d+%/.test(z), z);
+    }
+    /* INVARIAN TERPENTING: pembanding TIDAK boleh menggeser satu pun angka
+       bulan ini. Kartu, penyebut persen, dan perkiraan bahan baku semuanya
+       tetap milik bulan yang sedang dibuka — kalau ikut bergerak, halaman ini
+       berhenti bisa dibandingkan dengan berkas POS-nya sendiri. */
+    {
+      const semua = vw();
+      cek('kartu Menu Berbeda TIDAK ikut menghitung baris pembanding',
+          semua.replace(/\s+/g, ' ').indexOf('Menu Berbeda</div><div class="val mono">4</div>') > -1,
+          semua.slice(semua.indexOf('Menu Berbeda') - 40, semua.indexOf('Menu Berbeda') + 160));
+      cek('...begitu juga kartu Nilai Menu', semua.indexOf('Rp1.820.000') > -1,
+          semua.slice(semua.indexOf('Nilai Menu') - 220, semua.indexOf('Nilai Menu') + 120));
+      /* Bahan baku: Beras dari 20 porsi Ayam Goreng bulan INI = 2.000 Gr.
+         Kalau porsi Juli ikut (12 porsi), angkanya jadi 3.200. */
+      const bahan = d.getElementById('mn_isi_bahan').innerHTML;
+      cek('perkiraan bahan baku tetap dari porsi bulan ini saja',
+          bahan.indexOf('2.000') > -1 && bahan.indexOf('3.200') < 0, bahan.slice(0, 500));
+      /* Selisih jumlah baris tabel vs kartu WAJIB dikatakan — kaki tabel
+         menulis 5 sementara kartunya 4, dan selisih tanpa keterangan
+         dilaporkan sebagai salah hitung. */
+      cek('selisih jumlah baris terhadap kartunya dikatakan',
+          tbl().indexOf('tidak ada bulan ini dan ikut karena') > -1,
+          tbl().slice(tbl().indexOf('Menampilkan'), tbl().indexOf('Menampilkan') + 400));
+    }
+    /* Kolom pembanding ikut bisa diurut — "menu mana yang paling anjlok"
+       adalah pertanyaan yang cuma bisa dijawab dengan mengurutkan selisihnya,
+       dan itu justru alasan kolomnya ada. */
+    w.eval("mnSort('dnilai')"); await tunggu(40);
+    cek('kolom selisih bisa diurut', urutanTabel(tbl())[0] === 'ZUPPA SOUP',
+        JSON.stringify(urutanTabel(tbl())));
+    w.eval("mnSort('dnilai')"); await tunggu(40);
+    cek('...dan dibalik, yang paling anjlok berdiri paling atas',
+        urutanTabel(tbl())[0] === 'SOTO BETAWI', JSON.stringify(urutanTabel(tbl())));
+    w.eval("mnSort('nilai')"); await tunggu(40);
+
+    /* Rincian satu menu ikut menyebut bulan pembanding — barisnya sendiri
+       terdorong ke atas layar begitu rinciannya terbuka. */
+    w.eval("mnBuka('AYAM GORENG')"); await tunggu(60);
+    cek('rincian menu menyebut porsi bulan pembanding',
+        vw().indexOf('Bulan Jul 2026') > -1 && vw().indexOf('porsi. Bahan di bawah') > -1,
+        vw().slice(vw().indexOf('Untuk <b>'), vw().indexOf('Untuk <b>') + 400));
+    w.eval("mnBuka('AYAM GORENG')"); await tunggu(60);
+
+    /* Bulan pembanding yang laporannya Bill Report tidak punya satu pun nama
+       menu. Itu DIKATAKAN — kolom penuh nol terbaca sebagai "bulan itu tidak
+       menjual apa-apa", dan kolom yang tidak muncul sama sekali terbaca
+       sebagai halaman rusak. */
+    w.eval('AN.data.laporan["2026-07"] = ' + JSON.stringify({
+      diunggah:'2026-08-01', oleh:'W', berkas:'jul.xlsx', jenis:'bill',
+      hari:{ '2026-07-01':{ bill:8, grand:1500000 } }, jam:{}, menu:{},
+      ringkas:{ bill:8, grand:1500000 }
+    }));
+    w.go('menu'); await tunggu(80);
+    cek('pembanding tanpa nama menu dikatakan sebabnya',
+        vw().indexOf('tidak bisa dibandingkan di halaman ini') > -1
+        && vw().indexOf('Bill Report') > -1, vw().slice(0, 400));
+    cek('...dan kolom pembandingnya tidak digambar', tbl().indexOf('Selisih nilai') < 0);
+    w.eval('AN.data.laporan["2026-07"] = ' + JSON.stringify(bulanJul));
+
+    /* ---- 4. HALAMAN KATEGORI: tapis, urut, pembanding ---- */
+    w.eval("BLN_BANDING=''; KT_KEL=''; KT_SORT={k:'nilai',turun:true}; KT_BUKA='';");
+    w.go('kategori'); await tunggu(80);
+    const urutanKat = html => {
+      const body = html.slice(html.indexOf('<tbody>'));
+      return [...body.matchAll(/<td><b>([^<]+)<\/b>/g)].map(m => teksSel(m[1]));
+    };
+    cek('tapis kelompok digambar di halaman Kategori',
+        /onclick="ktKel\(&quot;FOOD&quot;\)"/.test(vw()) && /onclick="ktKel\(&quot;OTHERS&quot;\)"/.test(vw()),
+        vw().slice(vw().indexOf('Per Kategori'), vw().indexOf('Per Kategori') + 900));
+    /* OTHERS MEMANG ADA di halaman ini — beda dari halaman Menu, tempat ia
+       dikeluarkan seluruhnya. Tombol yang tidak digambar untuknya berarti
+       barisnya tidak bisa dicapai dari mana pun. */
+    cek('...termasuk OTHERS, yang di halaman ini memang tampil',
+        urutanKat(vw()).indexOf('TEMBAKAU') > -1, JSON.stringify(urutanKat(vw())));
+    cek('urutan bawaan kategori menurut nilai',
+        urutanKat(vw()).join('|') === 'NUSANTARA|KOPI & TEH|MINUMAN KERAS|TEMBAKAU',
+        JSON.stringify(urutanKat(vw())));
+    w.eval("ktSort('qty')"); await tunggu(60);
+    cek('kepala kolom kategori bisa diurut menurut porsi',
+        urutanKat(vw()).join('|') === 'MINUMAN KERAS|KOPI & TEH|NUSANTARA|TEMBAKAU',
+        JSON.stringify(urutanKat(vw())));
+    w.eval("ktSort('n')"); await tunggu(60);
+    cek('...dan menurut nama, dari A',
+        urutanKat(vw())[0] === 'KOPI & TEH', JSON.stringify(urutanKat(vw())));
+    w.eval("ktSort('nilai')"); await tunggu(60);
+
+    w.eval("ktKel('BEVERAGES')"); await tunggu(60);
+    {
+      const semua = vw();
+      cek('tapis kategori menyisakan kelompoknya saja',
+          urutanKat(semua).join('|') === 'KOPI & TEH|MINUMAN KERAS', JSON.stringify(urutanKat(semua)));
+      /* KARTUNYA SENGAJA TIDAK IKUT TERSARING — ia justru jawaban atas
+         "seberapa besar tiap kelompok", yang hilang kalau ia menyusut jadi
+         satu kartu. Bedanya dari halaman Menu, dan perbedaan itu dikatakan. */
+      /* DIBACA DARI LABEL KARTUNYA (kartu() menulis <div class="lab">…</div>),
+         BUKAN dari '>FOOD<' — tombol tapis di halaman yang sama juga berbunyi
+         >FOOD</button>, jadi asersi itu cocok dengan tombolnya dan hijau walau
+         kartunya ikut tersaring. Asersi hampa lebih berbahaya daripada tidak
+         ada asersi. */
+      cek('...tapi ketiga kartu kelompok TIDAK ikut tersaring',
+          semua.indexOf('<div class="lab">FOOD</div>') > -1
+          && semua.indexOf('<div class="lab">OTHERS</div>') > -1,
+          semua.slice(semua.indexOf('grid g3'), semua.indexOf('grid g3') + 700));
+      cek('...dan perbedaannya dikatakan di layar',
+          semua.indexOf('tetap menghitung seluruh kelompok') > -1);
+      cek('...kaki tabel menyebut tapisnya', semua.indexOf('kelompok <b>BEVERAGES</b> saja') > -1,
+          semua.slice(semua.indexOf('Total Rp'), semua.indexOf('Total Rp') + 300));
+    }
+    w.eval("ktKel('')"); await tunggu(60);
+
+    w.eval("bandingPilih('2026-07')"); await tunggu(80);
+    {
+      const semua = vw();
+      cek('kolom pembanding ditambahkan di halaman Kategori',
+          semua.indexOf('Nilai Jul 2026') > -1, semua.slice(semua.indexOf('Per Kategori'), semua.indexOf('Per Kategori') + 1200));
+      /* NUSANTARA: 1.400.000 vs 1.060.000 -> +340.000 */
+      const i = semua.indexOf('<b>NUSANTARA</b>');
+      const brs = semua.slice(semua.lastIndexOf('<tr', i), semua.indexOf('</tr>', i));
+      cek('...angkanya dari bulan itu berikut selisihnya',
+          brs.indexOf('Rp1.060.000') > -1 && brs.indexOf('+Rp340.000') > -1, brs);
+      /* SEAFOOD hanya ada di Juli — dan kelompoknya (FOOD) harus ikut
+         terbaca, kalau tidak ia lenyap begitu tapis FOOD ditekan. */
+      cek('kategori yang hanya ada di bulan pembanding ikut muncul',
+          urutanKat(semua).indexOf('SEAFOOD') > -1, JSON.stringify(urutanKat(semua)));
+      const j = semua.indexOf('<b>SEAFOOD</b>');
+      const brsS = semua.slice(semua.lastIndexOf('<tr', j), semua.indexOf('</tr>', j));
+      cek('...ditandai tidak ada bulan ini', brsS.indexOf('tidak ada bulan ini') > -1, brsS);
+      cek('...dan kelompoknya tetap terbaca dari bulan pembandingnya',
+          brsS.indexOf('>FOOD<') > -1, brsS);
+      /* Jumlah Menu-nya milik BULAN INI, dan untuk baris yang tidak ada
+         bulan ini ia tanda hubung — bukan 0, yang berarti kategori itu
+         memang tidak punya menu. */
+      cek('...jumlah menunya tanda hubung, bukan 0',
+          brsS.indexOf('—') > -1, brsS);
+    }
+    /* Kategori yang cuma ada di bulan pembanding TIDAK boleh ikut ke penyebut
+       persen maupun total — ia tidak membawa satu rupiah pun bulan ini. */
+    cek('total kaki tabel tetap milik bulan ini',
+        vw().indexOf('Total Rp1.895.000') > -1,
+        vw().slice(vw().indexOf('Total Rp'), vw().indexOf('Total Rp') + 200));
+    /* Tapis kelompok harus tetap bisa menjangkau baris pembanding. */
+    w.eval("ktKel('FOOD')"); await tunggu(60);
+    cek('baris pembanding ikut tersaring kelompoknya, bukan lenyap',
+        urutanKat(vw()).indexOf('SEAFOOD') > -1 && urutanKat(vw()).indexOf('TEMBAKAU') < 0,
+        JSON.stringify(urutanKat(vw())));
+    w.eval("ktKel('')"); await tunggu(60);
+
+    /* ---- 5. RINCIAN KATEGORI: perbandingan per menu ----
+       Inilah tempat "analisa masing-masing sub menu bisa dibandingin dengan
+       bulan lain" benar-benar dijawab per menu. */
+    w.eval("ktBuka('NUSANTARA')"); await tunggu(60);
+    {
+      const semua = vw();
+      const i = semua.indexOf('menu di kategori');
+      const blok = semua.slice(i, semua.indexOf('</table>', i));
+      cek('rincian kategori memuat kolom bulan pembanding',
+          blok.indexOf('Nilai Jul 2026') > -1, blok.slice(0, 600));
+      cek('...AYAM GORENG berdampingan dengan angka Juli-nya',
+          blok.indexOf('Rp400.000') > -1 && blok.indexOf('+Rp100.000') > -1, blok.slice(0, 900));
+      /* SOTO BETAWI ada di NUSANTARA Juli tapi tidak bulan ini — dan itu
+         justru baris yang paling dicari orang saat membandingkan. */
+      cek('...dan menu yang hilang bulan ini ikut disebut',
+          blok.indexOf('SOTO BETAWI') > -1 && blok.indexOf('tidak ada bulan ini') > -1,
+          blok.slice(0, 1200));
+      cek('...berikut jumlahnya di kepala rinciannya',
+          semua.indexOf('yang tidak ada bulan ini') > -1,
+          semua.slice(i - 200, i + 200));
+    }
+    /* Tanpa pembanding, rinciannya kembali ke bentuk semula — kepala kolom
+       yang tetap tergambar untuk bulan yang tidak dipilih memajang dua kolom
+       kosong yang terbaca sebagai data gagal dimuat. */
+    w.eval("bandingPilih('')"); await tunggu(80);
+    w.eval("ktBuka('NUSANTARA')");
+    if (w.eval('KT_BUKA') !== 'NUSANTARA') { w.eval("ktBuka('NUSANTARA')"); }
+    await tunggu(60);
+    {
+      const semua = vw();
+      const i = semua.indexOf('menu di kategori');
+      const blok = semua.slice(i, semua.indexOf('</table>', i));
+      cek('tanpa pembanding rinciannya kembali dua kolom',
+          blok.indexOf('Nilai Jul 2026') < 0 && blok.indexOf('AYAM GORENG') > -1, blok.slice(0, 500));
+    }
+
+    /* ---- 6. bulan pembanding yang tidak lagi masuk akal ----
+       Bulan aktif bisa BERGANTI sesudah pembandingnya dipilih. Kalau syaratnya
+       cuma diperiksa saat memilih, sebuah bulan bisa berakhir membandingkan
+       dirinya sendiri — satu kolom selisih nol yang tidak menjawab apa pun. */
+    w.eval("bandingPilih('2026-07'); BLN='2026-07';");
+    cek('pembanding yang sama dengan bulan aktif dimatikan sendiri',
+        w.eval('blnBandingAktif()') === '');
+    w.eval("BLN='2026-08';");
+    cek('...dan hidup lagi begitu bulan aktifnya berpindah',
+        w.eval('blnBandingAktif()') === '2026-07');
+    w.eval("BLN_BANDING='2026-01';");
+    cek('bulan pembanding yang laporannya tidak ada dimatikan sendiri',
+        w.eval('blnBandingAktif()') === '');
+    w.eval("BLN_BANDING='';");
+
+    /* ---- 7. urutKolom: yang kosong selalu di bawah ----
+       Diuji sebagai UNIT. Kolom pembanding untuk baris yang tidak ada di bulan
+       itu bernilai null, dan kalau ia ikut diurut sebagai nol maka membalik
+       arah memajang satu layar penuh baris kosong — persis di tempat yang
+       paling dicari. */
+    {
+      const baris = [{ n:'A', v:5 }, { n:'B', v:null }, { n:'C', v:9 }];
+      const t = w.eval('urutKolom')(baris, { k:'v', turun:true }).map(x => x.n).join('');
+      const n = w.eval('urutKolom')(baris, { k:'v', turun:false }).map(x => x.n).join('');
+      cek('yang kosong di bawah saat menurun', t === 'CAB', t);
+      cek('...dan tetap di bawah saat menaik', n === 'ACB', n);
+      /* Memulangkan SALINAN: daftar yang dipakai kartu di atas tabel tidak
+         boleh ikut berubah urutannya. */
+      cek('...dan daftar aslinya tidak ikut diurut', baris.map(x => x.n).join('') === 'ABC');
+      /* Yang sama besar dipisah NAMANYA — urutan yang berubah sendiri tiap
+         render membuat baris melompat saat halaman digambar ulang. */
+      const sama = [{ n:'Z', v:5 }, { n:'A', v:5 }];
+      cek('...yang sama besar diurut menurut nama, bukan dibiarkan',
+          w.eval('urutKolom')(sama, { k:'v', turun:true }).map(x => x.n).join('') === 'AZ');
+    }
+
+    /* ---- 7b. INVARIAN YANG MEMBUAT DUA MUTASI JADI EKUIVALEN ----
+
+       Dua mutasi sengaja dibiarkan LOLOS di uji mutasi, dan keduanya
+       EKUIVALEN — bukan cacat uji:
+
+         - penyebut kolom persen memakai `baris` alih-alih `urut`
+         - total kaki tabel Kategori memakai `list` alih-alih `listKini`
+
+       Keduanya memulangkan angka yang SAMA PERSIS, dan sebabnya satu: baris
+       yang hanya ada di bulan pembanding selalu bernilai NOL untuk bulan ini,
+       jadi ia tidak menggeser satu penjumlahan pun.
+
+       Ekuivalensi itu BERGANTUNG pada invarian ini, bukan pada kebetulan
+       fixture — jadi yang dikunci invariannya. Kalau suatu hari gabungBanding
+       ikut membawa nilai bulan pembanding ke kolom bulan ini, kedua mutasi itu
+       berhenti ekuivalen DAN asersi ini yang berbunyi lebih dulu. */
+    {
+      const g = w.eval('gabungBanding')(
+        [{ n:'A', qty:1, nilai:10, kel:'FOOD' }],
+        { 'A': { qty:2, nilai:20 }, 'B': { qty:5, nilai:50, kel:'BEVERAGES' } });
+      const a = g.find(x => x.n === 'A'), b = g.find(x => x.n === 'B');
+      cek('baris bulan ini tidak ikut ditimpa nilai pembandingnya',
+          a.qty === 1 && a.nilai === 10 && a.bqty === 2 && a.bnilai === 20, JSON.stringify(a));
+      cek('baris yang HANYA ada di bulan pembanding bernilai NOL bulan ini',
+          b.qty === 0 && b.nilai === 0 && b.bqty === 5 && b.bnilai === 50, JSON.stringify(b));
+      cek('...dan ditandai, bukan disamakan dengan yang terjual nol porsi',
+          b.ada === false && a.ada === true);
+      cek('...kelompoknya diambil dari bulan pembandingnya', b.kel === 'BEVERAGES');
+      cek('selisihnya dihitung dua-duanya', a.dnilai === -10 && b.dnilai === -50);
+    }
+
+    /* ---- 8. kelMenu: laporan lama tidak punya kelompok sama sekali ---- */
+    {
+      const kel = w.eval('kelMenu')(bulanAgu);
+      cek('kelompok dibaca lewat kategori detailnya',
+          kel['AYAM GORENG'] === 'FOOD' && kel['MATCHA LATTE'] === 'BEVERAGES',
+          JSON.stringify(kel));
+      cek('laporan tanpa katMenu memulangkan peta kosong',
+          Object.keys(w.eval('kelMenu')({ menu: bulanAgu.menu })).length === 0);
+      cek('...dan menuNormal menandainya, bukan menyamakannya dengan kosong',
+          w.eval('menuNormal')({ menu: bulanAgu.menu }).adaKel === false
+          && w.eval('menuNormal')(bulanAgu).adaKel === true);
+    }
+    dom.window.close();
+  }
+
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);

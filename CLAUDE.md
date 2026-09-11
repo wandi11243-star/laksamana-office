@@ -1734,6 +1734,215 @@ belum punya bill berbentuk begitu, padahal bentuk itu ADA di produksi dan
 justru itulah bug yang ditemukan saat menulisnya.
 
 
+
+#### Tapis kelompok, urut kolom, dan bulan pembanding (11 September 2026)
+
+Empat permintaan user dalam satu pesan, dan ketiganya yang pertama menyentuh
+**dua halaman sekaligus** — Menu & Bahan Baku dan Kategori Menu. Penggambarnya
+karena itu **satu**: `thSort()`, `urutKolom()`, `sortKlik()`, `kelOpsi()`,
+`kelSegHtml()`, `gabungBanding()`, `selSelisih()`, `pctUbah()`. Dua halaman
+yang cara mengurutkannya berbeda membuat yang berpindah antar keduanya harus
+belajar dua kali, dan dua penggambar panah yang sendiri-sendiri akan menyimpang
+begitu salah satunya diperbaiki — panah yang menunjuk arah BERLAWANAN dengan
+urutan barisnya tidak melempar apa pun, dan yang membacanya menyimpulkan
+datanya yang salah.
+
+**1. Tapis FOOD / BEVERAGES.** Kelompok atas TIDAK tersimpan per menu — yang
+tersimpan cuma `kategori[detail].kat`, jadi jalurnya menu → kategori detail →
+kelompok (`kelMenu()`, sejajar dengan `menuKatLewat()` yang menempuh jalur
+sama untuk pertanyaan lain). Kelompoknya lalu **menempel di tiap baris `gab`**
+lewat argumen keempat `tambah()`.
+
+- **PILIHANNYA DIHITUNG DARI DATANYA**, bukan daftar tertutup FOOD/BEVERAGES.
+  Halaman Kategori Menu juga memuat **OTHERS**, dan tombol yang tidak pernah
+  digambar untuknya berarti barisnya tidak bisa dicapai dari mana pun.
+  Di halaman Menu, OTHERS memang tidak muncul — ia sudah dikeluarkan seluruhnya
+  sejak 10 September 2026, dan tombol yang menyaring ke daftar yang selalu
+  kosong dilaporkan sebagai halaman rusak.
+- **LABELNYA NILAI APA ADANYA DARI POS**, tidak diterjemahkan jadi
+  Makanan/Minuman: kolom Kelompok di tabel yang sama menulis FOOD/BEVERAGES,
+  dan tapis bertuliskan "Minuman" di atas kolom bertuliskan "BEVERAGES" membuat
+  orang mencari hubungan yang tidak perlu ada. (Beda dari `namaJenis()` di
+  Daftar Resep HPP — di sana nilainya `food`/`drink`, yang memang bukan kata
+  yang pernah dilihat siapa pun di layar lain.)
+- **YANG KOSONG TIDAK PERNAH MENIMPA yang sudah terbaca.** Satu baris gabungan
+  diisi dari beberapa nama mentah (menu biasa + baris paketnya + baris
+  ukurannya), dan sebagian memang tidak punya kelompok. Kalau yang kosong boleh
+  menimpa, kelompok sebuah menu bergantung pada **URUTAN baris di berkas POS** —
+  dan itu berubah tiap ekspor.
+- **Baris ukuran TANPA induk memang tidak punya kelompok**, dan sengaja tidak
+  ditebak: `ukuran` dikunci induk+label+kode, jadi nama mentahnya sudah hilang.
+  Menebaknya "pasti minuman" salah diam-diam begitu ada paket makanan
+  berukuran. Jumlahnya **disebut di layar** saat tapisnya menyala.
+
+**KARTU DI ATAS TABEL: IKUT di halaman Menu, TIDAK IKUT di halaman Kategori** —
+dan perbedaan itu disengaja, bukan kelalaian:
+
+| | kartunya | sebabnya |
+|---|---|---|
+| Menu & Bahan Baku | **IKUT** tersaring | kartunya menggambarkan DAFTARNYA; "Menu Berbeda 259" di atas tabel berisi 120 adalah selisih yang dilaporkan sebagai data hilang |
+| Kategori Menu | **TIDAK** ikut | kartunya menggambarkan KELOMPOKNYA — justru yang hilang kalau ia menyusut jadi satu kartu begitu tapisnya menyala |
+
+Di halaman Menu tapisnya **menyaring seluruh halaman**: daftar menu, perkiraan
+bahan baku, dan daftar "belum ada resep" ketiganya diturunkan dari daftar yang
+sama, jadi menyaring salah satunya saja berarti dua bagian di satu layar
+menyebut jumlah menu yang berbeda untuk bulan yang sama. Itu **dikatakan di
+layar**, berikut cara melepasnya.
+
+**2. Kolom yang bisa diurut.** Saklar *Menurut Nilai / Menurut Porsi*
+**SENGAJA tidak dicabut** — ia yang membawa keterangan kenapa nilai dan porsi
+menjawab hal yang berbeda, dan itu bacaan yang tidak punya tempat lain. Yang
+tidak boleh dua adalah **KEADAANNYA**: keduanya membaca `MN_SORT` yang sama,
+karena saklar yang menyimpan urutannya sendiri akan menyala di "Nilai"
+sementara tabelnya terurut menurut porsi, tanpa satu pun galat.
+
+- **PENGURUTAN DIKERJAKAN DI DALAM `mnIsiMenuHtml()`**, bukan di `vMenu()`.
+  Itu yang membuat menekan kepala kolom cukup menggambar ulang **wadahnya**;
+  lewat `render()` yang TOTAL, gulir melompat ke atas persis saat orang
+  menekan kepala kolom di tabel bagian bawah, DAN kotak cari yang sedang
+  diketik ikut dibuat ulang. Jebakan yang sudah dibayar di `queueF()` modul
+  Konten dan `gambarDaftar()` panel Kas Kecil.
+- **KALIMAT "Diurut menurut …" PINDAH KE KAKI TABEL**, ke dalam wadah itu. Di
+  `card-sub` (di luar wadahnya) ia tidak ikut digambar ulang, jadi ia membeku
+  di urutan pertama lalu **berbohong sejak klik pertama**.
+- **SAKLARNYA PUNYA WADAH SENDIRI** (`#mn_seg_urut`, disegarkan
+  `mnGambarUrut()`). Masalah yang sama dengan kalimat di atas, dan ia
+  **ketahuan saat menulis ujinya, bukan dari uji mutasi**: keadaannya memang
+  sudah satu, tapi saklarnya berdiri di LUAR wadah yang digambar ulang —
+  sesudah menekan kolom Qty, tabelnya terurut porsi sementara saklarnya tetap
+  menyala di "Nilai". Yang dipisah wadahnya **saklarnya saja**, bukan seluruh
+  barisnya: kotak cari berdiri di baris yang sama dan tidak boleh ikut dibuat
+  ulang. Dijaga dua mutasi — yang tidak menyegarkannya, dan yang
+  menyegarkannya lewat `render()` yang menyeret kotak carinya.
+- **Halaman Kategori memanggil `render()`**, dan itu benar: tabelnya digambar
+  langsung ke `#app-view` dan tidak punya kotak isian yang perlu diselamatkan
+  fokusnya. Memberinya wadah terpisah cuma demi ini berarti menyalin pola
+  pemisahannya tanpa ada yang diselamatkan.
+- **Kolom "% dari nilai menu" TIDAK bisa diurut**: penyebutnya sama untuk
+  seluruh baris, jadi urutannya persis sama dengan kolom Nilai — dan dua kepala
+  kolom yang memulangkan urutan yang sama membuat panahnya menyala di tempat
+  yang tidak dicari orang.
+- **BATANGNYA MENGIKUTI KOLOM YANG DIURUT** kalau itu qty atau nilai. Batang
+  selalu dibaca sebagai gambar dari kolom di sebelahnya; batang nilai di
+  sebelah tabel terurut porsi memajang baris teratas dengan batang TERPENDEK,
+  dan itu terbaca sebagai salah hitung, bukan sebagai salah kolom.
+- **YANG KOSONG SELALU DI BAWAH**, ke arah mana pun urutannya. Kolom pembanding
+  untuk baris yang tidak ada di bulan itu bernilai null; ikut diurut sebagai
+  nol, membalik arah memajang satu layar penuh baris kosong — persis di tempat
+  yang paling dicari.
+- **Yang sama besar dipisah NAMANYA**, bukan dibiarkan: urutan yang berubah
+  sendiri tiap render membuat baris melompat saat halaman digambar ulang.
+- `urutKolom()` **selalu memulangkan SALINAN** — `sort` menyunting di tempat,
+  dan daftar yang dipakai kartu di atas tabel tidak boleh ikut berubah.
+
+**3. Bulan pembanding.** `BLN_BANDING` **satu kendali dipakai bersama** kedua
+halaman: dua pemilih yang berdiri sendiri-sendiri akan menyimpang, dan yang
+membandingkan kedua halaman untuk bulan yang sama tidak punya cara tahu bulan
+pembanding mana yang berlaku di sebelah.
+
+- **BULAN YANG SEDANG DIBUKA TIDAK DITAWARKAN.** Bulan aktif bisa **BERGANTI**
+  sesudah pembandingnya dipilih, jadi syaratnya diperiksa lagi tiap kali dibaca
+  (`blnBandingAktif()`) — bukan cuma saat memilih. Kalau tidak, sebuah bulan
+  bisa berakhir membandingkan dirinya sendiri: satu kolom selisih nol yang
+  tidak menjawab apa pun, dan yang melihatnya menyimpulkan pembandingnya rusak.
+- **DAFTARNYA GABUNGAN KEDUA BULAN** (`gabungBanding()`). Menu yang bulan lalu
+  terjual 500 porsi lalu bulan ini HILANG justru pertanyaan yang paling sering
+  dibawa orang ke pembanding, dan daftar yang cuma memuat bulan ini tidak bisa
+  menjawabnya sama sekali. Barisnya ditandai **tidak ada bulan ini** — `ada` /
+  `adaB` DIBEDAKAN dari qty nol: menu yang ada di daftar tapi tidak terjual
+  satu porsi pun adalah hal lain.
+- **PEMBANDING TIDAK BOLEH MENGGESER SATU PUN ANGKA BULAN INI**, dan inilah
+  invarian terpentingnya. Kartu, penyebut kolom persen, perkiraan bahan baku,
+  dan total kaki tabel semuanya dihitung dari baris yang `ada !== false`.
+  Kalau ikut bergerak, halaman ini berhenti bisa dibandingkan dengan berkas
+  POS-nya sendiri — dan selisihnya tidak akan pernah bisa dijelaskan.
+- **Jumlah baris tabel karena itu LEBIH BESAR daripada kartu "Menu Berbeda"**,
+  dan itu **disebut di kaki tabel** berikut sebabnya. Selisih tanpa keterangan
+  dilaporkan sebagai salah hitung.
+- **PERSEN PERTUMBUHAN DITAHAN kalau pembandingnya nol** (`pctUbah` → null),
+  bukan ditulis 100% atau ∞. Menu yang bulan lalu tidak ada sama sekali tidak
+  punya persen pertumbuhan yang berarti, dan angka yang dikarang di sana dibaca
+  sebagai lonjakan yang sesungguhnya.
+- **Selisih NOL tidak diberi warna maupun tanda**: hijau untuk "tidak berubah"
+  membuat mata mencari perubahan yang memang tidak ada.
+- **Bentuk baris pembanding WAJIB disamakan dulu.** `kategori[n]` menyimpan
+  kelompoknya di `.kat` sementara baris halaman ini memakai `.kel`; diserahkan
+  mentah ke `gabungBanding()`, kategori yang HANYA ada di bulan pembanding
+  lahir tanpa kelompok dan **lenyap begitu tapisnya menyala**, tanpa satu pun
+  galat.
+- **Pembanding yang tidak bisa dipakai DIKATAKAN** — bulan yang laporannya Bill
+  Report tidak punya satu pun nama menu, dan bulan yang laporannya lama tidak
+  punya kolom kategori. Kolom penuh nol terbaca sebagai "bulan itu tidak
+  menjual apa-apa"; kolom yang tidak muncul sama sekali terbaca sebagai halaman
+  rusak.
+- **Perkiraan bahan baku TETAP dari porsi bulan ini saja**, dan itu dikatakan
+  di rincian menunya. Menjumlahkannya dengan bulan pembanding memberi angka
+  yang tidak pernah keluar dari gudang mana pun.
+
+**4. Rincian kategori ikut membandingkan menunya** (`ktRincian(d, x, B)`).
+Inilah tempat *"analisa masing-masing sub menu bisa dibandingin dengan bulan
+lain"* benar-benar dijawab per menu: barisnya dibuka, dan tiap menu di dalamnya
+berdiri berdampingan dengan angkanya di bulan pembanding — termasuk menu yang
+bulan lalu ada di kategori itu lalu bulan ini hilang.
+
+> **Yang BELUM dikerjakan, dan itu disengaja:** pembanding ini cuma ada di
+> **Menu & Bahan Baku** dan **Kategori Menu** — dua halaman yang jadi isi
+> permintaan yang sama. Halaman lain (Hari & Jam, Metode Kunjungan, Promo &
+> Klaim) masih menuntut berpindah bulan. Kalau suatu hari diminta, yang perlu
+> dipakai ulang `pilihBanding()` + `gabungBanding()` yang sudah ada — jangan
+> menulis pemilih bulan pembanding kedua.
+
+```bash
+node tools/uji-analytics.js   # 464 pemeriksaan (dari 383)
+```
+
+**Delapan belas mutasi dicoba; enam belas tertangkap, dan DUA sisanya
+EKUIVALEN** — bukan cacat uji:
+
+| mutasi | kenapa ekuivalen |
+|---|---|
+| penyebut kolom persen memakai `baris`, bukan `urut` | baris yang hanya ada di bulan pembanding **selalu bernilai NOL bulan ini** |
+| total kaki tabel Kategori memakai `list`, bukan `listKini` | sebab yang sama persis |
+
+Keduanya memulangkan angka yang sama karena satu invarian, jadi yang dikunci
+**invariannya** (`gabungBanding` diuji sebagai unit): kalau suatu hari baris
+pembanding ikut membawa nilai ke kolom bulan ini, kedua mutasi itu berhenti
+ekuivalen DAN asersi invariannya berbunyi lebih dulu. Kodenya tetap memakai
+`urut`/`listKini` — yang benar menurut maksudnya, bukan yang kebetulan sama
+hasilnya.
+
+**Empat mutasi LOLOS di putaran pertama**, dan dua di antaranya cacat uji yang
+sudah ditutup — keduanya bentuk yang sudah punya nama di berkas ini:
+
+- *"kelompok kosong boleh menimpa yang sudah terbaca"* LOLOS karena **tidak
+  satu pun menu di fixture ditulis DUA KALI**: tanpa baris `(PACKAGE)`,
+  argumen kelompok tidak pernah datang dua kali untuk nama yang sama dan
+  penjaganya tidak pernah dijalankan. Ditutup dengan
+  `MATCHA LATTE (PACKAGE)` yang sengaja TIDAK didaftarkan di `katMenu` —
+  begitulah bentuknya di produksi.
+- *"kartu kelompok di halaman Kategori ikut tersaring"* LOLOS karena asersinya
+  mencari `>FOOD<`, dan **tombol tapis di halaman yang sama juga berbunyi
+  `>FOOD</button>`** — jadi ia cocok dengan tombolnya tanpa pernah menyentuh
+  kartunya. Sekarang yang dibaca label kartunya sendiri
+  (`<div class="lab">FOOD</div>`). Bentuk yang sama dengan asersi hampa di
+  kolom Kontribusi dan di pita "belum diinput finance".
+
+Fixture-nya dibuat supaya tiap kesalahan punya tempat
+untuk muncul, dan itu yang paling menentukan di bagian ini: **urutan menurut
+nilai, menurut porsi, dan menurut abjad ketiganya BERBEDA** — kalau tidak,
+mutasi "kolom qty diurut pakai nilai" tidak mengubah satu baris pun dan lolos
+tanpa bunyi. Begitu juga harus ada menu yang **hanya** ada di bulan pembanding
+DAN yang hanya ada di bulan ini: penggabung yang cuma menyalin satu arah tetap
+hijau kalau salah satunya tidak ada. Resep HPP ikut diberikan justru supaya
+daftar bahan baku benar-benar terisi — tanpa resep, tapis yang tidak menyaring
+daftar bahan tetap hijau karena daftarnya memang selalu kosong (pelajaran yang
+sudah dibayar di mutasi *"cari bahan tidak menyaring"*).
+
+Satu jebakan uji yang layak diingat: nama kategori `KOPI & TEH` digambar
+**ter-escape** (`&amp;`), dan asersi yang membandingkan teks mentah gagal untuk
+kode yang benar. Fixture-nya sengaja TETAP memuat `&` supaya escaping-nya ikut
+terjaga; yang dibetulkan pembaca selnya (`teksSel`), bukan fixture-nya.
+
 #### KODE MENU DIISI DI HPP & RESEP — sumber utamanya sekarang di sana (10 Sep 2026)
 
 Permintaan user: *"dari di HPP & Resep bisa masukin menu code, jadi kalau

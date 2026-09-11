@@ -291,6 +291,16 @@ th{text-align:left;font-size:11px;font-weight:700;text-transform:uppercase;lette
 td{padding:10px 12px;border-bottom:1px solid var(--line);color:var(--text)}
 tr:last-child td{border-bottom:none}
 td.num,th.num{text-align:right;font-variant-numeric:tabular-nums}
+/* Kepala kolom yang bisa diurut. Panahnya SELALU digambar (⇅ untuk yang
+   belum dipakai) — kolom yang baru memperlihatkan dirinya bisa diklik setelah
+   disentuh tidak akan pernah disentuh siapa pun. */
+th.srt{cursor:pointer;user-select:none}
+th.srt:hover{color:var(--ink)}
+th.srt.on{color:var(--ink)}
+th.srt .ar{margin-left:5px;font-size:10px;opacity:.35}
+th.srt.on .ar{opacity:1;color:var(--gold)}
+td.naik{color:var(--ok)}
+td.turun{color:var(--danger)}
 .tbl-wrap{overflow-x:auto}
 tbody tr:hover{background:var(--gold-soft)}
 
@@ -1776,6 +1786,37 @@ function menuKatLewat(d) {
   return out;
 }
 
+/* Kelompok atas (FOOD / BEVERAGES / OTHERS) untuk tiap NAMA MENU MENTAH
+   (11 September 2026, permintaan user: halaman Menu & Bahan Baku bisa ditapis
+   food/beverage).
+
+   Kelompoknya TIDAK tersimpan per menu — yang tersimpan cuma
+   `kategori[detail].kat`, jadi jalurnya menu -> kategori detail -> kelompok.
+   Bentuknya sengaja sejajar dengan menuKatLewat() di atas, yang menempuh jalur
+   yang sama untuk pertanyaan yang berbeda.
+
+   YANG PERTAMA MENANG kalau satu nama menu muncul di dua kategori detail yang
+   kelompoknya berbeda. Memilih yang porsinya terbesar terdengar lebih pintar,
+   tapi ia menukar kesalahan yang jarang dengan kesalahan yang tidak bisa
+   ditelusuri: yang pertama setidaknya selalu memberi kelompok yang sama untuk
+   nama yang sama.
+
+   Laporan LAMA tidak punya `katMenu` sama sekali dan petanya lalu kosong. Itu
+   bukan galat, dan halaman yang memakainya WAJIB membedakannya dari "menunya
+   kebetulan tidak berkelompok": tapis yang digambar untuk peta kosong tidak
+   punya satu pun tombol yang bisa ditekan. */
+function kelMenu(d) {
+  const km = (d && d.katMenu) || {};
+  const kat = (d && d.kategori) || {};
+  const out = {};
+  Object.keys(km).forEach(k => {
+    const ka = String((kat[k] || {}).kat || '').trim().toUpperCase();
+    if (!ka || ka === KAT_TANPA.toUpperCase()) return;
+    Object.keys(km[k] || {}).forEach(n => { if (!out[n]) out[n] = ka; });
+  });
+  return out;
+}
+
 /* ---- NORMALISASI MENU PAKET, dikerjakan saat MENGGAMBAR ----
 
    Dinormalkan saat mengurai, peta kode yang dibetulkan bulan depan tidak akan
@@ -1927,6 +1968,9 @@ function menuNormal(d) {
   const uk = (d && d.ukuran) || null;
   const ukLama = { qty:0, nilai:0 };
   const pk = petaKode();
+  /* Kelompok atas per nama menu MENTAH. Dibaca sekali di depan, bukan di dalam
+     loop: 259 menu x 23 kategori kalau dihitung ulang tiap baris. */
+  const KEL = kelMenu(d);
   const gab = {}, takKenal = {};
   let digabung = 0;
   /* Menu kategori acara dikeluarkan DI SINI, satu tempat — halaman Menu,
@@ -1970,10 +2014,17 @@ function menuNormal(d) {
 
      Baris "(PACKAGE)" tetap digabung seperti sebelumnya — yang berubah cuma
      kunci kelompoknya, bukan aturan penggabungannya. */
-  const tambah = (nama, q, n) => {
+  /* `kel` = kelompok atas (FOOD/BEVERAGES). YANG PERTAMA MENANG, dan yang
+     KOSONG tidak pernah menimpa yang sudah ada: satu baris gabungan bisa diisi
+     dari beberapa nama mentah (menu biasa + baris paketnya + baris ukurannya),
+     dan sebagian di antaranya memang tidak punya kelompok yang bisa dibaca.
+     Kalau yang kosong boleh menimpa, kelompok sebuah menu jadi bergantung pada
+     URUTAN baris di berkas POS — dan itu berubah tiap ekspor. */
+  const tambah = (nama, q, n, kel) => {
     const k = String(nama == null ? '' : nama).trim().toUpperCase();
-    if (!gab[k]) gab[k] = { qty:0, nilai:0 };
+    if (!gab[k]) gab[k] = { qty:0, nilai:0, kel:'' };
     gab[k].qty += q; gab[k].nilai += n;
+    if (!gab[k].kel && kel) gab[k].kel = kel;
   };
   Object.keys(mentah).forEach(nm => {
     const m = mentah[nm];
@@ -1981,11 +2032,11 @@ function menuNormal(d) {
        menaruhnya sesudah berarti menu acara yang kebetulan bernama akhiran
        (PACKAGE) tetap lolos lewat jalur penggabungan. */
     if (lewat[nm]) { ev.nama.push(nm); ev.qty += m.qty || 0; ev.nilai += m.nilai || 0; return; }
-    if (!PAKET_RE.test(nm)) { tambah(nm, m.qty || 0, m.nilai || 0); return; }
+    if (!PAKET_RE.test(nm)) { tambah(nm, m.qty || 0, m.nilai || 0, KEL[nm]); return; }
 
     /* Bernama jelas: "MINERAL WATER (PACKAGE)" -> "MINERAL WATER". Tidak butuh
        peta apa pun, dan justru inilah sebagian besar barisnya. */
-    if (!paketGenerik(nm)) { tambah(paketNamaAsli(nm), m.qty || 0, m.nilai || 0); digabung += m.qty || 0; return; }
+    if (!paketGenerik(nm)) { tambah(paketNamaAsli(nm), m.qty || 0, m.nilai || 0, KEL[nm]); digabung += m.qty || 0; return; }
 
     /* BERNAMA UKURAN SAJA: BUKAN minuman tersendiri, jadi qty-nya TIDAK
        ditambahkan ke mana pun di sini — ia sudah terhitung di baris induknya.
@@ -2024,7 +2075,14 @@ function menuNormal(d) {
          Menghitungnya tidak menggandakan apa pun. */
       if (!ind) {
         const t = namaResep || (kd ? lbl + ' (PACKAGE) · ' + kd : lbl + ' (PACKAGE)');
-        tambah(t, q, nSur);
+        /* TANPA KELOMPOK, dan sengaja tidak ditebak. Baris ukuran tidak
+           menyimpan nama mentahnya sendiri (`ukuran` dikunci induk+label+kode),
+           jadi tidak ada jalan membaca kategorinya — dan menebaknya "pasti
+           minuman" karena paket ukuran biasanya minuman adalah tebakan yang
+           diam-diam salah begitu ada paket makanan berukuran. Barisnya tetap
+           dihitung; yang kehilangan kelompok cuma TAPISNYA, dan halaman Menu
+           menyebut jumlahnya saat tapisnya menyala. */
+        tambah(t, q, nSur, '');
         ukTotal.sendiri += q;
         if (kd && !namaResep) {
           if (!takKenal[kd]) takKenal[kd] = { qty:0, nilai:0, dari:lbl + ' (PACKAGE)', induk:'' };
@@ -2039,7 +2097,7 @@ function menuNormal(d) {
       /* Ukuran BAWAAN tidak dipisah: yang diminta cuma large berdiri sendiri.
          Biaya upsize-nya (Rp0 di POS ini) tetap ditambahkan ke induknya supaya
          jumlah nilainya tidak berubah kalau suatu hari POS menagihkannya. */
-      if (!lbl || lbl === UKURAN_BAWAAN) { if (nSur) tambah(ind, 0, nSur); return; }
+      if (!lbl || lbl === UKURAN_BAWAAN) { if (nSur) tambah(ind, 0, nSur, KEL[ind]); return; }
 
       const dasar = gab[String(ind).trim().toUpperCase()];
       /* Induknya tidak punya cukup porsi untuk dipindahkan (mis. berkasnya
@@ -2053,7 +2111,10 @@ function menuNormal(d) {
          induknya + ukurannya, yang tetap terbaca orang: "LYCHEE TEA (LARGE)"
          jauh lebih berguna daripada "LARGE (PACKAGE) · LYCHEE02". */
       const tuju = namaResep || (ind + ' (' + lbl + ')');
-      tambah(tuju, q, nInd + nSur);
+      /* Kelompoknya dari INDUKNYA: versi large sebuah minuman tetap minuman,
+         dan induknya satu-satunya nama mentah di jalur ini yang kategorinya
+         benar-benar tercatat. */
+      tambah(tuju, q, nInd + nSur, KEL[ind]);
       ukTotal.pindah += q;
       if (kd && !namaResep) {
         if (!takKenal[kd]) takKenal[kd] = { qty:0, nilai:0, dari:lbl + ' (PACKAGE)', induk:ind };
@@ -2064,7 +2125,11 @@ function menuNormal(d) {
   });
 
   ev.nama.sort();
-  return { gab, takKenal, digabung, ev, ukTotal, ukLama, adaUkuran: !!d.ukuran };
+  /* `adaKel` DIBEDAKAN dari "tidak ada satu pun menu berkelompok": laporan
+     lama tidak menyimpan katMenu sama sekali, dan tapis yang digambar untuk
+     laporan seperti itu tidak punya satu pun tombol yang bisa ditekan. */
+  return { gab, takKenal, digabung, ev, ukTotal, ukLama, adaUkuran: !!d.ukuran,
+           adaKel: Object.keys(KEL).length > 0 };
 }
 /* Ukuran dari nama baris paket: "LARGE (PACKAGE)" -> "LARGE".
    Nama seperti "LARGE KOPI (PACKAGE)" tetap terbaca LARGE — yang dipakai kata
@@ -2161,12 +2226,155 @@ function saranKode(kode, namaAda, ukuran) {
    Datanya dari kolom `Menu Category Detail` di Detail Report POS. Laporan lama
    (diunggah sebelum tanggal ini) TIDAK punya kolom itu — halamannya
    mengatakannya, bukan menggambar tabel kosong. */
+/* ---- KOLOM YANG BISA DIURUT (11 September 2026, permintaan user) ----
+
+   SATU penggambar kepala kolom dan SATU pembanding untuk halaman Penjualan
+   Menu dan Per Kategori. Dua tempat yang menulisnya sendiri-sendiri akan
+   menyimpang begitu salah satunya diperbaiki, dan yang menyimpang di sini
+   adalah panah yang menunjuk arah BERLAWANAN dengan urutan barisnya — tidak
+   melempar apa pun, dan yang membacanya menyimpulkan datanya yang salah.
+
+   `fn` nama fungsi yang dipanggil saat kepalanya ditekan; tiap halaman punya
+   miliknya sendiri karena yang digambar ulang sesudahnya berbeda. */
+function thSort(k, teks, st, fn, kelas) {
+  const on = st.k === k;
+  return '<th class="srt' + (on ? ' on' : '') + (kelas ? ' ' + kelas : '') + '"'
+    + ' onclick="' + fn + '(&quot;' + k + '&quot;)">' + teks
+    + '<span class="ar">' + (on ? (st.turun ? '\u25be' : '\u25b4') : '\u21c5') + '</span></th>';
+}
+/* Menekan kolom yang SAMA membalik arahnya; kolom baru mulai dari arah yang
+   paling sering dicari — teks dari A, angka dari yang TERBESAR. Angka yang
+   mulai dari terkecil memajang deretan menu Rp0 di layar pertama, dan yang
+   menekannya sedang mencari yang teratas. */
+function sortKlik(st, k) {
+  if (st.k === k) st.turun = !st.turun;
+  else { st.k = k; st.turun = (k !== 'n'); }
+}
+/* SELALU memulangkan SALINAN — `sort` menyunting di tempat, dan daftar yang
+   dipakai kartu di atas tabel tidak boleh ikut berubah urutannya. */
+function urutKolom(rows, st) {
+  const k = st.k, t = st.turun ? -1 : 1;
+  const nm = (a, b) => String(a.n).localeCompare(String(b.n), 'id');
+  return rows.slice().sort((a, b) => {
+    const x = a[k], y = b[k];
+    /* KOSONG selalu di BAWAH, ke arah mana pun urutannya. Kolom pembanding
+       untuk baris yang tidak ada di bulan itu bernilai null, dan kalau ia ikut
+       diurut sebagai nol maka membalik arah memajang satu layar penuh baris
+       kosong — persis di tempat yang paling dicari. */
+    const xk = (x === null || x === undefined), yk = (y === null || y === undefined);
+    if (xk && yk) return nm(a, b);
+    if (xk) return 1;
+    if (yk) return -1;
+    if (typeof x === 'string' || typeof y === 'string')
+      return (t * String(x).localeCompare(String(y), 'id')) || nm(a, b);
+    /* Yang sama besar dipisah NAMANYA, bukan dibiarkan: urutan yang berubah
+       sendiri tiap render membuat baris melompat saat halaman digambar ulang. */
+    return (t * (x - y)) || nm(a, b);
+  });
+}
+
+/* ---- TAPIS KELOMPOK (11 September 2026, permintaan user) ----
+
+   PILIHANNYA DIHITUNG DARI DATANYA, bukan daftar tertutup FOOD/BEVERAGES.
+   Halaman Kategori Menu juga memuat OTHERS, dan tombol yang tidak pernah
+   digambar untuknya berarti barisnya tidak bisa dicapai dari mana pun. Kalau
+   suatu hari POS menambah kelompok keempat, tombolnya muncul sendiri.
+
+   LABELNYA NILAI APA ADANYA DARI POS, tidak diterjemahkan jadi
+   Makanan/Minuman: kolom Kelompok di tabel yang sama menulis FOOD/BEVERAGES,
+   dan tapis bertuliskan "Minuman" yang berdiri di atas kolom bertuliskan
+   "BEVERAGES" membuat orang mencari hubungan yang tidak perlu ada.
+
+   Di bawah dua pilihan tapisnya TIDAK digambar: satu tombol "Semua" di
+   sebelah satu tombol kelompok tidak menyaring apa pun. */
+function kelOpsi(rows) {
+  const t = {};
+  rows.forEach(x => { const k = x.kel || ''; if (k) t[k] = (t[k] || 0) + (x.nilai || 0); });
+  return Object.keys(t).sort((a, b) => t[b] - t[a]);
+}
+function kelSegHtml(opsi, aktif, fn) {
+  if (opsi.length < 2) return '';
+  return '<div class="seg" style="margin:0">'
+    + '<button class="' + (aktif ? '' : 'active') + '" onclick="' + fn + '(&quot;&quot;)">Semua</button>'
+    + opsi.map(k => '<button class="' + (aktif === k ? 'active' : '')
+        + '" onclick="' + fn + '(&quot;' + esc(k) + '&quot;)">' + esc(k) + '</button>').join('')
+    + '</div>';
+}
+
+/* ---- BULAN PEMBANDING (11 September 2026, permintaan user: "untuk analisa
+   masing masing sub menu bisa di bandingin dengan bulan yg lain gitu jadi bisa
+   di compare, kalau saat ini harus pindah pindah bulan") ----
+
+   SATU kendali dipakai bersama halaman Menu & Bahan Baku dan Kategori Menu.
+   Dua pemilih yang berdiri sendiri-sendiri akan menyimpang, dan yang
+   membandingkan kedua halaman untuk bulan yang sama tidak punya cara tahu
+   bulan pembanding mana yang sedang berlaku di halaman sebelah.
+
+   BULAN YANG SEDANG DIBUKA TIDAK DITAWARKAN: membandingkan sebuah bulan dengan
+   dirinya sendiri memajang satu kolom selisih nol yang tidak menjawab apa pun,
+   dan yang memilihnya akan menyimpulkan pembandingnya rusak. Bulan aktif bisa
+   BERGANTI sesudah pembandingnya dipilih, jadi syarat itu diperiksa lagi tiap
+   kali dibaca (blnBandingAktif) — bukan cuma saat memilih. */
+let BLN_BANDING = '';
+function blnBandingAktif() {
+  if (!BLN_BANDING || BLN_BANDING === blnAktif()) return '';
+  return (AN.data.laporan || {})[BLN_BANDING] ? BLN_BANDING : '';
+}
+function bandingPilih(v) { BLN_BANDING = v || ''; MN_HAL = 1; render(); }
+function pilihBanding(catatan) {
+  const a = blnAda().filter(x => x !== blnAktif());
+  if (!a.length) return '';
+  const bb = blnBandingAktif();
+  return '<div class="card" style="padding:12px 18px;margin-bottom:16px">'
+    + '<div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
+    + '<b style="font-size:13px">Bandingkan dengan</b>'
+    + '<select class="cari" onchange="bandingPilih(this.value)">'
+    + '<option value="">\u2014 tidak dibandingkan \u2014</option>'
+    + a.map(x => '<option value="' + esc(x) + '"' + (x === bb ? ' selected' : '') + '>'
+        + esc(fmtBln(x)) + '</option>').join('')
+    + '</select>'
+    + '<span class="helper" style="margin:0">'
+    + (bb ? esc(catatan || 'Kolom pembanding & selisih ditambahkan di tabel di bawah.')
+          : 'Pilih satu bulan untuk melihat kolom pembandingnya \u2014 tanpa berpindah bulan.')
+    + '</span></div></div>';
+}
+/* Sel selisih. NOL tidak diberi warna maupun tanda: hijau untuk "tidak
+   berubah" membuat mata mencari perubahan yang memang tidak ada.
+
+   Persennya DITAHAN (null) kalau pembandingnya nol — bukan ditulis 100% atau
+   ∞. Menu yang bulan lalu tidak ada sama sekali tidak punya persen
+   pertumbuhan yang berarti, dan angka yang dikarang di sana akan dibaca
+   sebagai lonjakan yang sesungguhnya. */
+function selSelisih(d, persen) {
+  const kelas = d > 0 ? 'num naik' : (d < 0 ? 'num turun' : 'num');
+  const tanda = d > 0 ? '+' : (d < 0 ? '\u2212' : '');
+  return '<td class="' + kelas + '"><span class="mono">' + tanda + rp0(Math.abs(d)) + '</span>'
+    + (persen === null || persen === undefined ? ''
+       : '<div class="helper" style="margin:1px 0 0;font-weight:600">'
+         + tanda + Math.abs(persen) + '%</div>')
+    + '</td>';
+}
+/* Persen perubahan, atau null kalau pembandingnya nol — lihat selSelisih(). */
+function pctUbah(kini, dulu) { return dulu ? Math.round((kini - dulu) / dulu * 100) : null; }
+
 /* `null` = BELUM PERNAH DISENTUH, `''` = sengaja ditutup orangnya. Dua keadaan
    itu harus dibedakan: kategori acara dibuka sendiri saat halaman ini pertama
    digambar (permintaan user \u2014 nama menunya yang dicari, bukan totalnya),
    tapi yang sudah menutupnya tidak boleh dibukakan lagi tiap render. */
 let KT_BUKA = null;               // kategori yang menunya sedang dibuka
+/* Urutan & tapis halaman Kategori Menu (11 September 2026, permintaan user).
+   Bentuknya SAMA PERSIS dengan MN_SORT/MN_KEL di halaman Menu, dan penggambar
+   kepala kolomnya pun sama (thSort) — dua halaman yang cara mengurutkannya
+   berbeda membuat yang berpindah antar keduanya harus belajar dua kali. */
+let KT_SORT = { k: 'nilai', turun: true };
+let KT_KEL = '';
 function ktBuka(k) { KT_BUKA = (KT_BUKA === k) ? '' : k; render(); }
+/* Keduanya memanggil render(): tabel Per Kategori digambar langsung ke
+   #app-view, tidak punya wadahnya sendiri seperti #mn_isi_menu. Memberinya
+   wadah terpisah cuma demi ini berarti menyalin pola pemisahannya ke halaman
+   kedua tanpa ada kotak isian yang perlu diselamatkan fokusnya. */
+function ktSort(k) { sortKlik(KT_SORT, k); render(); }
+function ktKel(v) { KT_KEL = v || ''; KT_BUKA = ''; render(); }
 
 function vKategori() {
   const V = document.getElementById('app-view');
@@ -2201,40 +2409,119 @@ function vKategori() {
      Laporan lama tidak punya `katMenu`; kolomnya lalu berbunyi \u2014, BUKAN 0.
      Nol berarti kategori itu memang tidak punya menu, dan itu jawaban yang
      salah untuk pertanyaan yang tidak pernah ditanyakan. */
-  const list = nama.map(n => ({ n, qty:kat[n].qty || 0, nilai:kat[n].nilai || 0, kat:kat[n].kat || KAT_TANPA,
-                               nMenu: km ? Object.keys(km[n] || {}).length : null }))
-                   .sort((a, x) => x.nilai - a.nilai);
+  /* `kel` — BUKAN `kat`. Namanya disamakan dengan baris di halaman Menu
+     supaya kelOpsi()/urutKolom() yang sama bisa dipakai keduanya; dua nama
+     untuk satu hal berarti penggambar bersamanya harus menebak sedang membaca
+     baris dari halaman mana. */
+  const listSemua = nama.map(n => ({ n, qty:kat[n].qty || 0, nilai:kat[n].nilai || 0,
+                                     kel:kat[n].kat || KAT_TANPA,
+                                     nMenu: km ? Object.keys(km[n] || {}).length : null }));
+
+  /* ---- BULAN PEMBANDING ----
+     Laporan pembanding bisa tidak punya kategori sama sekali (Bill Report,
+     atau Detail Report yang diunggah sebelum kolomnya dibaca). Itu DIKATAKAN,
+     bukan digambar sebagai kolom penuh nol. */
+  const bb = blnBandingAktif();
+  const dB = bb ? lap(bb) : null;
+  const katB = (dB && dB.kategori) || null;
+  const bPunyaKat = !!(katB && Object.keys(katB).length);
+  const katBRow = {};
+  if (bPunyaKat) Object.keys(katB).forEach(n => {
+    katBRow[n] = { qty: katB[n].qty || 0, nilai: katB[n].nilai || 0, kel: katB[n].kat || KAT_TANPA };
+  });
+  const list0 = bPunyaKat
+    ? gabungBanding(listSemua, katBRow)
+    : listSemua.map(x => Object.assign({}, x, { ada: true }));
+  /* Baris yang cuma ada di bulan pembanding tidak punya jumlah menu bulan ini
+     — dan null-nya BERARTI, lihat kolom Jumlah Menu di bawah. */
+  list0.forEach(x => { if (x.ada === false && x.nMenu === undefined) x.nMenu = null; });
+
+  /* ---- TAPIS KELOMPOK ---- */
+  const kelOps = kelOpsi(list0);
+  if (KT_KEL && kelOps.indexOf(KT_KEL) < 0) KT_KEL = '';
+  const list = urutKolom(KT_KEL ? list0.filter(x => x.kel === KT_KEL) : list0, KT_SORT);
+
   /* Dibuka sendiri sekali, hanya kalau orangnya belum pernah menyentuh apa pun. */
   if (KT_BUKA === null) {
     const ev = list.find(x => katEventKah(x.n));
     KT_BUKA = ev ? ev.n : '';
   }
-  const tot = list.reduce((a, x) => a + x.nilai, 0);
-  const totQ = list.reduce((a, x) => a + x.qty, 0);
+  /* TOTAL & PENYEBUT PERSEN dari baris BULAN INI yang lolos tapis — bukan dari
+     list0. Baris yang cuma ada di bulan pembanding tidak membawa satu rupiah
+     pun bulan ini, dan memasukkannya ke penyebut membuat kolom persen berhenti
+     berjumlah 100% tanpa satu pun tanda. */
+  const listKini = list.filter(x => x.ada !== false);
+  const tot = listKini.reduce((a, x) => a + x.nilai, 0);
+  const totQ = listKini.reduce((a, x) => a + x.qty, 0);
 
   /* Kelompok atas (FOOD / BEVERAGES / OTHERS) dihitung dari kategori detailnya,
      bukan disimpan terpisah — dua tempat yang menjumlahkan sendiri-sendiri
-     akan berselisih suatu hari, dan yang selisih itu omset. */
+     akan berselisih suatu hari, dan yang selisih itu omset.
+
+     KARTUNYA TIDAK IKUT TAPIS, dan dihitung dari SELURUH kategori bulan ini
+     (listSemua). Ia memang jawaban atas "seberapa besar tiap kelompok" — yang
+     persis hilang kalau ia ikut menyusut jadi satu kartu begitu tapisnya
+     menyala. Bedanya dari halaman Menu, tempat kartunya justru IKUT: di sana
+     kartunya menggambarkan daftarnya, di sini kartunya menggambarkan
+     kelompoknya. Perbedaannya dikatakan di card-sub tabel di bawah. */
   const atas = {};
-  list.forEach(x => {
-    if (!atas[x.kat]) atas[x.kat] = { qty:0, nilai:0, n:0 };
-    atas[x.kat].qty += x.qty; atas[x.kat].nilai += x.nilai; atas[x.kat].n++;
+  listSemua.forEach(x => {
+    if (!atas[x.kel]) atas[x.kel] = { qty:0, nilai:0, n:0 };
+    atas[x.kel].qty += x.qty; atas[x.kel].nilai += x.nilai; atas[x.kel].n++;
   });
+  const totSemua = listSemua.reduce((a, x) => a + x.nilai, 0);
   const atasUrut = Object.keys(atas).sort((a, b) => atas[b].nilai - atas[a].nilai);
+
+  h += pilihBanding('Tiap baris kategori dapat kolom porsi & nilai bulan '
+        + fmtBln(bb) + ', berikut selisihnya.');
+
+  if (bb && !bPunyaKat) {
+    h += '<div class="notice warn">\u26a0 <div><b>' + esc(fmtBln(bb)) + ' tidak bisa dibandingkan di halaman ini.</b> '
+      + 'Laporan bulan itu tidak memuat kolom <i>Menu Category Detail</i> \u2014 entah karena berkasnya '
+      + '<b>Bill Report</b>, atau karena ia Detail Report yang diunggah sebelum kolom itu ikut dibaca. '
+      + 'Unggah ulang berkas ' + esc(fmtBln(bb)) + ' untuk memakainya sebagai pembanding.</div></div>';
+  }
 
   h += '<div class="grid g3" style="margin-bottom:18px">'
     + atasUrut.slice(0, 3).map(k => kartu(k, rp0(atas[k].nilai),
-        pct(atas[k].nilai, tot) + '% · ' + atas[k].n + ' kategori · ' + atas[k].qty.toLocaleString('id-ID') + ' porsi')).join('')
+        pct(atas[k].nilai, totSemua) + '% · ' + atas[k].n + ' kategori · ' + atas[k].qty.toLocaleString('id-ID') + ' porsi')).join('')
     + '</div>';
 
   h += '<div class="card"><h3>Per Kategori</h3>'
     + '<div class="card-sub">Dari kolom <i>Menu Category Detail</i> di laporan POS. '
-    + 'Diurut menurut nilai. Klik satu baris untuk melihat menu apa saja yang ada di dalamnya.</div>'
-    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Kategori</th><th>Kelompok</th>'
-    + '<th class="num">Jumlah Menu</th>'
-    + '<th class="num">Porsi</th><th class="num">Nilai</th><th class="num">% omset menu</th>'
-    + '<th style="width:20%"></th></tr></thead><tbody>';
-  const pun = list.length ? (list[0].nilai || 1) : 1;
+    + 'Tekan kepala kolom untuk mengurutkannya. Klik satu baris untuk melihat menu apa saja '
+    + 'yang ada di dalamnya.'
+    + (kelOps.length > 1 ? ' Tapis kelompok di bawah menyaring <b>tabel ini saja</b> \u2014 '
+        + 'ketiga kartu di atas tetap menghitung seluruh kelompok, karena justru itu yang '
+        + 'ditanyakan orang ke kartunya.' : '')
+    + '</div>'
+    + (kelOps.length > 1
+        ? '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
+          + kelSegHtml(kelOps, KT_KEL, 'ktKel') + '</div>'
+        : '')
+    + '<div class="tbl-wrap"><table><thead><tr><th>#</th>'
+    + thSort('n', 'Kategori', KT_SORT, 'ktSort')
+    + thSort('kel', 'Kelompok', KT_SORT, 'ktSort')
+    + thSort('nMenu', 'Jumlah Menu', KT_SORT, 'ktSort', 'num')
+    + thSort('qty', 'Porsi', KT_SORT, 'ktSort', 'num')
+    + thSort('nilai', 'Nilai', KT_SORT, 'ktSort', 'num')
+    + '<th class="num">% omset menu</th>'
+    + (bPunyaKat ? thSort('bqty', 'Porsi ' + esc(fmtBln(bb)), KT_SORT, 'ktSort', 'num')
+                 + thSort('bnilai', 'Nilai ' + esc(fmtBln(bb)), KT_SORT, 'ktSort', 'num')
+                 + thSort('dnilai', 'Selisih nilai', KT_SORT, 'ktSort', 'num') : '')
+    + '<th style="width:' + (bPunyaKat ? '9%' : '20%') + '"></th></tr></thead><tbody>';
+  const nKol = bPunyaKat ? 10 : 8;
+  /* Panjang batang diukur terhadap baris TERBESAR yang tampil, dan kolomnya
+     mengikuti yang sedang diurut kalau itu porsi atau nilai — batang nilai di
+     sebelah tabel terurut porsi memajang baris teratas dengan batang
+     terpendek, dan itu terbaca sebagai salah hitung. */
+  const bark = (KT_SORT.k === 'qty' || KT_SORT.k === 'nilai') ? KT_SORT.k : 'nilai';
+  const pun = list.reduce((a, x) => Math.max(a, x[bark] || 0), 0) || 1;
+  if (!list.length) {
+    h += '<tr><td colspan="' + nKol + '" class="empty">'
+      + (KT_KEL ? 'Tidak ada kategori berkelompok ' + esc(KT_KEL) + ' bulan ini.'
+                : 'Belum ada kategori yang bisa ditampilkan.') + '</td></tr>';
+  }
   list.forEach((x, i) => {
     h += '<tr style="cursor:pointer" onclick="ktBuka(' + esc(JSON.stringify(x.n)).replace(/"/g, '&quot;') + ')">'
       + '<td>' + (i + 1) + '</td>'
@@ -2243,47 +2530,106 @@ function vKategori() {
            membandingkan kedua halaman berdiri di sini, dan selisih jumlah
            menu tanpa keterangan dibaca sebagai data yang hilang. */
         + (katEventKah(x.n) ? '<div class="helper" style="margin:2px 0 0">tidak ikut di Menu &amp; Bahan Baku</div>' : '')
+        /* Kategori yang HANYA ada di bulan pembanding. Tanpa penanda ini ia
+           terbaca sebagai kategori bulan ini yang kebetulan kosong — dan
+           kategori yang hilang dari daftar bulan ini adalah hal lain. */
+        + (x.ada === false ? ' <span class="chip mute">tidak ada bulan ini</span>' : '')
       + '</td>'
-      + '<td><span class="chip">' + esc(x.kat) + '</span></td>'
-      + '<td class="num">' + (x.nMenu === null ? '<span class="helper">\u2014</span>' : x.nMenu.toLocaleString('id-ID')) + '</td>'
+      + '<td><span class="chip">' + esc(x.kel) + '</span></td>'
+      + '<td class="num">' + (x.nMenu === null || x.nMenu === undefined
+          ? '<span class="helper">\u2014</span>' : x.nMenu.toLocaleString('id-ID')) + '</td>'
       + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
       + '<td class="num mono">' + rp0(x.nilai) + '</td>'
       + '<td class="num">' + pct(x.nilai, tot) + '%</td>'
+      + (bPunyaKat ? '<td class="num">' + (x.bqty || 0).toLocaleString('id-ID') + '</td>'
+           + '<td class="num mono">' + rp0(x.bnilai || 0) + '</td>'
+           + selSelisih(x.dnilai || 0, pctUbah(x.nilai, x.bnilai || 0)) : '')
       + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
-        + '<div style="width:' + Math.round(x.nilai / pun * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
+        + '<div style="width:' + Math.round((x[bark] || 0) / pun * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
       + '</tr>';
-    if (KT_BUKA === x.n) h += '<tr><td colspan="8" style="background:var(--paper)">' + ktRincian(d, x) + '</td></tr>';
+    if (KT_BUKA === x.n) h += '<tr><td colspan="' + nKol + '" style="background:var(--paper)">' + ktRincian(d, x, bPunyaKat ? { bulan: bb, kat: katB } : null) + '</td></tr>';
   });
+  const NAMA_KOL_KT = { n:'nama kategori', kel:'kelompok', nMenu:'jumlah menu', qty:'porsi',
+                        nilai:'nilai', bqty:'porsi bulan pembanding',
+                        bnilai:'nilai bulan pembanding', dnilai:'selisih nilai' };
   h += '</tbody></table></div>'
-    + '<div class="helper">Total ' + rp0(tot) + ' dari ' + totQ.toLocaleString('id-ID') + ' porsi. '
+    + '<div class="helper">Total ' + rp0(tot) + ' dari ' + totQ.toLocaleString('id-ID') + ' porsi'
+    + (KT_KEL ? ' \u2014 kelompok <b>' + esc(KT_KEL) + '</b> saja' : '') + '. '
     + 'Angka ini <b>nilai menu sebelum service &amp; pajak</b> — sama dasarnya dengan tabel Penjualan Menu, '
-    + 'jadi keduanya bisa dibandingkan langsung.</div>'
+    + 'jadi keduanya bisa dibandingkan langsung. '
+    + 'Diurut menurut <b>' + (NAMA_KOL_KT[KT_SORT.k] || KT_SORT.k) + '</b> '
+    + (KT_SORT.turun ? 'dari yang terbesar' : 'dari yang terkecil') + '.'
+    + (bPunyaKat ? ' Kolom <b>% omset menu</b> memakai penyebut nilai menu <b>bulan ini</b>, jadi baris '
+        + 'yang tidak ada bulan ini berbunyi 0%.' : '')
+    + '</div>'
     + '</div>';
   V.innerHTML = h;
 }
 /* Menu di dalam satu kategori. Laporan menyimpan kategori sebagai TOTAL, bukan
    per menu — jadi rinciannya cuma bisa disebut kalau ada; yang tidak ada
    dikatakan, bukan digambar kosong. */
-function ktRincian(d, x) {
+/* `B` = { bulan, kat } bulan pembanding, atau null. INILAH tempat pertanyaan
+   "menu ini bulan lalu bagaimana" benar-benar dijawab per menu: barisnya
+   dibuka, dan tiap menu di dalamnya berdiri berdampingan dengan angkanya di
+   bulan pembanding.
+
+   Daftarnya GABUNGAN kedua bulan — menu yang bulan lalu ada di kategori ini
+   lalu bulan ini hilang justru yang paling dicari, dan daftar yang cuma memuat
+   bulan ini tidak bisa menyebutkannya sama sekali. */
+function ktRincian(d, x, B) {
   const pm = (d && d.katMenu && d.katMenu[x.n]) || null;
-  if (!pm) {
+  const pb = B ? (((lap(B.bulan) || {}).katMenu || {})[x.n] || null) : null;
+  if (!pm && !pb) {
     return '<div class="helper" style="padding:8px 2px">Rincian menu per kategori belum tersimpan untuk bulan ini. '
       + 'Unggah ulang berkasnya untuk melihat isi kategori ini.</div>';
   }
-  const nm = Object.keys(pm).sort((a, b) => pm[b].nilai - pm[a].nilai);
+  const kini = Object.keys(pm || {}).map(n => ({ n:n, qty:(pm[n].qty || 0), nilai:(pm[n].nilai || 0) }));
+  const baris = pb ? gabungBanding(kini, pb) : kini.map(y => Object.assign({}, y, { ada:true }));
+  baris.sort((a, b) => (b.nilai - a.nilai) || String(a.n).localeCompare(String(b.n), 'id'));
+  const hanyaB = baris.filter(y => y.ada === false).length;
   return '<div style="padding:6px 2px 10px">'
-    + '<div class="helper" style="margin:0 0 8px">' + nm.length + ' menu di kategori <b>' + esc(x.n) + '</b>.</div>'
-    + '<table style="width:100%"><tbody>'
-    + nm.map(n => '<tr><td style="padding:3px 0">' + esc(n) + '</td>'
-        + '<td class="num" style="padding:3px 0;width:90px">' + (pm[n].qty || 0).toLocaleString('id-ID') + '</td>'
-        + '<td class="num mono" style="padding:3px 0;width:130px">' + rp0(pm[n].nilai || 0) + '</td></tr>').join('')
+    + '<div class="helper" style="margin:0 0 8px">' + baris.length + ' menu di kategori <b>' + esc(x.n) + '</b>'
+    + (pb ? ' \u2014 berdampingan dengan <b>' + esc(fmtBln(B.bulan)) + '</b>'
+            + (hanyaB ? ', termasuk <b>' + hanyaB + '</b> yang tidak ada bulan ini' : '') : '')
+    + '.</div>'
+    + '<table style="width:100%">'
+    + (pb ? '<thead><tr><th>Menu</th><th class="num">Porsi</th><th class="num">Nilai</th>'
+            + '<th class="num">Porsi ' + esc(fmtBln(B.bulan)) + '</th>'
+            + '<th class="num">Nilai ' + esc(fmtBln(B.bulan)) + '</th>'
+            + '<th class="num">Selisih</th></tr></thead>' : '')
+    + '<tbody>'
+    + baris.map(y => '<tr><td style="padding:3px 0">' + esc(y.n)
+        + (y.ada === false ? ' <span class="chip mute">tidak ada bulan ini</span>' : '') + '</td>'
+        + '<td class="num" style="padding:3px 0;width:90px">' + y.qty.toLocaleString('id-ID') + '</td>'
+        + '<td class="num mono" style="padding:3px 0;width:130px">' + rp0(y.nilai) + '</td>'
+        + (pb ? '<td class="num" style="padding:3px 0;width:90px">' + (y.bqty || 0).toLocaleString('id-ID') + '</td>'
+              + '<td class="num mono" style="padding:3px 0;width:130px">' + rp0(y.bnilai || 0) + '</td>'
+              + selSelisih(y.dnilai || 0, pctUbah(y.nilai, y.bnilai || 0)) : '')
+        + '</tr>').join('')
     + '</tbody></table></div>';
 }
 
 /* Kendali halaman Menu & Bahan Baku. Di luar DOM karena render di modul ini
    TOTAL — halaman digambar ulang tiap kali, jadi apa pun yang cuma ada di DOM
    ikut hilang. */
-let MN_URUT = 'nilai';     // 'nilai' | 'qty'
+/* URUTAN TABEL. Menggantikan MN_URUT ('nilai'|'qty') 11 September 2026, saat
+   kepala kolomnya jadi bisa ditekan (permintaan user).
+
+   SATU keadaan untuk DUA kendali — saklar "Menurut Nilai / Menurut Porsi" dan
+   kepala kolomnya. Saklar itu SENGAJA tidak dicabut: ia yang membawa
+   keterangan kenapa nilai dan porsi menjawab hal yang berbeda, dan itu bacaan
+   yang tidak punya tempat lain. Yang tidak boleh dua adalah KEADAANNYA —
+   saklar yang menyimpan urutannya sendiri akan menyala di "Nilai" sementara
+   tabelnya terurut menurut porsi, dan tidak ada satu pun galat yang muncul. */
+let MN_SORT = { k: 'nilai', turun: true };
+/* TAPIS KELOMPOK (FOOD / BEVERAGES), permintaan user 11 September 2026.
+   MENYARING SELURUH HALAMAN — daftar menu, perkiraan bahan baku, dan daftar
+   "belum ada resep" semuanya diturunkan dari daftar yang sama, jadi menyaring
+   salah satunya saja berarti dua bagian di satu layar menyebut jumlah menu
+   yang berbeda untuk bulan yang sama. Keempat kartu di atas ikut, dan itu
+   DIKATAKAN: kartu yang tidak ikut tapisnya menulis "259 menu" di atas tabel
+   berisi 120. */
+let MN_KEL = '';
 let MN_BUKA = '';          // nama menu yang rinciannya sedang dibuka
 let MN_BAHAN = 'mentah';   // 'mentah' | 'prep'
 /* HALAMAN (permintaan user 10 September 2026), MENGGANTIKAN saklar "20
@@ -2342,7 +2688,11 @@ function mnCari(el) {
 function mnIsiMenuHtml() {
   const C = MN_CACHE;
   if (!C) return '';
-  const cocok = C.urut.filter(x => mnCocok(x.n, MN_Q));
+  /* SARING dulu, URUT sesudahnya — dan keduanya di sini, bukan di vMenu().
+     Kalau pengurutan dikerjakan di vMenu() maka menekan kepala kolom harus
+     memanggil render(), dan seluruh alasan memisahkan wadah ini hilang. */
+  const cocok = urutKolom(C.baris.filter(x => mnCocok(x.n, MN_Q)), MN_SORT);
+  const B = C.banding;
   /* HALAMANNYA DIJEPIT KE RENTANG YANG BENAR-BENAR ADA. Daftarnya bisa
      menyusut karena tiga hal — kata kunci, ganti bulan, dan ukuran halaman
      yang membesar — dan yang tertinggal di halaman 7 melihat tabel kosong
@@ -2356,18 +2706,37 @@ function mnIsiMenuHtml() {
   /* Panjang batangnya tetap diukur terhadap SELURUH menu, bukan terhadap yang
      tersaring — kalau ikut menyusut, menu kecil yang kebetulan sendirian di
      hasil pencarian tergambar sepanjang menu terlaris. */
-  const pun = C.urut.length
-    ? (C.urut.reduce((a, x) => Math.max(a, MN_URUT === 'qty' ? x.qty : x.nilai), 0) || 1) : 1;
+  /* BATANGNYA MENGIKUTI KOLOM YANG SEDANG DIURUT kalau itu qty atau nilai,
+     dan tetap nilai untuk kolom lain. Batang selalu dibaca sebagai gambar dari
+     kolom di sebelahnya; batang nilai di sebelah tabel yang terurut menurut
+     porsi memajang baris teratas dengan batang terpendek, dan itu terbaca
+     sebagai salah hitung. */
+  const bark = (MN_SORT.k === 'qty' || MN_SORT.k === 'nilai') ? MN_SORT.k : 'nilai';
+  const pun = C.baris.length
+    ? (C.baris.reduce((a, x) => Math.max(a, x[bark] || 0), 0) || 1) : 1;
   const kenal = n => C.peta ? !!C.peta[String(n).trim().toLowerCase()] : false;
-  let h = '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Menu</th><th class="num">Qty</th>'
-    + '<th class="num">Nilai</th><th class="num">% dari nilai menu</th><th style="width:22%"></th></tr></thead><tbody>';
+  /* Kolom "% dari nilai menu" SENGAJA tidak bisa diurut: penyebutnya sama
+     untuk seluruh baris, jadi urutannya persis sama dengan kolom Nilai — dan
+     dua kepala kolom yang memulangkan urutan yang sama membuat panahnya
+     menyala di tempat yang tidak dicari orang. */
+  let h = '<div class="tbl-wrap"><table><thead><tr><th>#</th>'
+    + thSort('n', 'Menu', MN_SORT, 'mnSort')
+    + thSort('qty', 'Qty', MN_SORT, 'mnSort', 'num')
+    + thSort('nilai', 'Nilai', MN_SORT, 'mnSort', 'num')
+    + '<th class="num">% dari nilai menu</th>'
+    + (B ? thSort('bqty', 'Qty ' + esc(fmtBln(B.bulan)), MN_SORT, 'mnSort', 'num')
+         + thSort('bnilai', 'Nilai ' + esc(fmtBln(B.bulan)), MN_SORT, 'mnSort', 'num')
+         + thSort('dnilai', 'Selisih nilai', MN_SORT, 'mnSort', 'num') : '')
+    + '<th style="width:' + (B ? '10%' : '22%') + '"></th></tr></thead><tbody>';
+  const nKol = B ? 9 : 6;
   if (!tampil.length) {
     /* Kosongnya DIBEDAKAN: kata kunci yang tidak cocok dengan apa pun adalah
        hal lain daripada bulan yang memang belum punya menu, dan yang disamakan
        membuat orang mencari sebabnya di tempat yang salah. */
-    h += '<tr><td colspan="6" class="empty">'
+    h += '<tr><td colspan="' + nKol + '" class="empty">'
       + (MN_Q ? 'Tidak ada menu yang namanya memuat "' + esc(MN_Q) + '".'
-              : 'Belum ada menu yang bisa ditampilkan.')
+              : (MN_KEL ? 'Tidak ada menu berkelompok ' + esc(MN_KEL) + ' bulan ini.'
+                        : 'Belum ada menu yang bisa ditampilkan.'))
       + '</td></tr>';
   }
   /* Nomornya MELANJUTKAN halaman sebelumnya, tidak mulai dari 1 lagi. Kolom
@@ -2375,22 +2744,30 @@ function mnIsiMenuHtml() {
      ke-21 berdiri sebagai "1" dan halaman 2 terbaca seolah punya menu
      terlarisnya sendiri. */
   tampil.forEach((x, i) => {
-    const nilaiUrut = MN_URUT === 'qty' ? x.qty : x.nilai;
     h += '<tr style="cursor:pointer" onclick="mnBuka(' + esc(JSON.stringify(x.n)).replace(/"/g, '&quot;') + ')">'
       + '<td>' + (mulai + i + 1) + '</td>'
       + '<td><b>' + esc(x.n) + '</b>'
         + (C.peta && !kenal(x.n)
             ? ' <span class="chip" style="background:var(--warn-bg);color:var(--warn)">belum ada resep</span>' : '')
+        /* Baris yang HANYA ada di bulan pembanding ditandai di barisnya
+           sendiri. Tanpa itu ia terbaca sebagai menu bulan ini yang kebetulan
+           terjual nol porsi — dan nol porsi untuk menu yang memang tidak ada
+           di daftar bulan ini adalah dua hal yang berbeda. */
+        + (x.ada === false
+            ? ' <span class="chip mute">tidak ada bulan ini</span>' : '')
         + '</td>'
       + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
       + '<td class="num mono">' + rp0(x.nilai) + '</td>'
       + '<td class="num">' + pct(x.nilai, C.totNilai) + '%</td>'
+      + (B ? '<td class="num">' + x.bqty.toLocaleString('id-ID') + '</td>'
+           + '<td class="num mono">' + rp0(x.bnilai) + '</td>'
+           + selSelisih(x.dnilai, pctUbah(x.nilai, x.bnilai)) : '')
       + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
-        + '<div style="width:' + Math.round(nilaiUrut / pun * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
+        + '<div style="width:' + Math.round((x[bark] || 0) / pun * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
       + '</tr>';
-    if (MN_BUKA === x.n) h += '<tr><td colspan="6" style="background:var(--paper)">' + mnRincian(x, C.peta) + '</td></tr>';
+    if (MN_BUKA === x.n) h += '<tr><td colspan="' + nKol + '" style="background:var(--paper)">' + mnRincian(x, C.peta, B) + '</td></tr>';
   });
-  h += '</tbody></table></div>' + mnPagerHtml(cocok.length, C.urut.length, nHal, mulai, tampil.length);
+  h += '</tbody></table></div>' + mnPagerHtml(cocok.length, C.baris.length, nHal, mulai, tampil.length);
   return h;
 }
 /* Kaki tabel: ukuran halaman, nomor halaman, dan keterangan isinya.
@@ -2425,6 +2802,17 @@ function mnPagerHtml(nCocok, nSemua, nHal, mulai, nTampil) {
       + '</div>';
   }
 
+  /* URUTAN YANG SEDANG BERLAKU DISEBUT DI SINI, bukan di card-sub di atas
+     tabel: kepala kolom bisa ditekan, jadi urutannya berubah tanpa halaman
+     digambar ulang — dan kalimat di luar wadah ini akan membeku di urutan
+     pertama lalu berbohong sejak klik pertama. */
+  const NAMA_KOL = { n:'nama menu', qty:'jumlah porsi', nilai:'nilai',
+                     bqty:'porsi bulan pembanding', bnilai:'nilai bulan pembanding',
+                     dnilai:'selisih nilai' };
+  const ketUrut = ' Diurut menurut <b>' + (NAMA_KOL[MN_SORT.k] || MN_SORT.k) + '</b> '
+    + (MN_SORT.turun ? 'dari yang terbesar' : 'dari yang terkecil')
+    + ' \u2014 tekan kepala kolom untuk mengubahnya.';
+
   /* Tiga keadaan, dan yang disamakan membuat daftar yang menyusut karena
      pencarian terbaca sebagai data yang hilang. */
   let ket;
@@ -2436,6 +2824,13 @@ function mnPagerHtml(nCocok, nSemua, nHal, mulai, nTampil) {
       + 'Pencariannya menyapu seluruh menu, bukan halaman yang sedang terbuka.';
   } else {
     ket = 'Menampilkan ' + (mulai + 1) + '\u2013' + (mulai + nTampil) + ' dari ' + nSemua + ' menu.';
+  }
+  if (nCocok) {
+    const C = MN_CACHE;
+    const nLuar = (C && C.banding && C.baris) ? C.baris.filter(x => x.ada === false).length : 0;
+    if (nLuar) ket += ' <b>' + nLuar + '</b> di antaranya tidak ada bulan ini dan ikut karena '
+      + 'dibandingkan \u2014 itu sebabnya angkanya lebih besar daripada kartu <b>Menu Berbeda</b> di atas.';
+    ket += ketUrut;
   }
 
   return '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:12px">'
@@ -2495,8 +2890,37 @@ function mnIsiResepHtml() {
 }
 /* GANTI URUTAN KEMBALI KE HALAMAN 1. Yang diurut ulang SELURUH daftarnya, jadi
    halaman 3 sesudahnya memuat menu yang tidak ada hubungannya dengan yang
-   barusan dilihat — dan yang menekannya sedang mencari yang teratas. */
-function mnUrut(v) { MN_URUT = v; MN_HAL = 1; render(); }
+   barusan dilihat — dan yang menekannya sedang mencari yang teratas.
+
+   MENGGAMBAR ULANG WADAHNYA SAJA, bukan halamannya. Pengurutan dikerjakan di
+   dalam mnIsiMenuHtml(), jadi tidak ada satu pun angka di luar wadah itu yang
+   ikut berubah — dan render() TOTAL akan melemparkan gulir kembali ke atas
+   persis saat orang menekan kepala kolom di tabel bagian bawah, sekaligus
+   membuat ulang kotak cari yang sedang diketik. */
+/* Isi saklar urutan. DIGAMBAR ULANG bersama tabelnya — ia berdiri di LUAR
+   #mn_isi_menu, jadi tanpa ini ia membeku di urutan terakhir kali halaman
+   digambar: menekan kepala kolom Qty membuat tabelnya terurut porsi sementara
+   saklarnya tetap menyala di "Nilai". Keadaannya memang sudah satu; yang
+   menyimpang TAMPILANNYA, dan itu sama membingungkannya.
+
+   Wadahnya tidak memuat satu pun kotak isian, jadi menggambarnya ulang aman —
+   beda dari kotak cari yang berdiri di baris yang sama, dan itu sebabnya yang
+   dipisah wadahnya SAKLARNYA, bukan seluruh barisnya. */
+function mnSegUrutHtml() {
+  return '<button class="' + (MN_SORT.k === 'nilai' ? 'active' : '') + '" onclick="mnUrut(\'nilai\')">Menurut Nilai</button>'
+    + '<button class="' + (MN_SORT.k === 'qty' ? 'active' : '') + '" onclick="mnUrut(\'qty\')">Menurut Porsi</button>';
+}
+function mnGambarUrut() {
+  mnIsi('mn_isi_menu', mnIsiMenuHtml());
+  mnIsi('mn_seg_urut', mnSegUrutHtml());
+}
+function mnUrut(v) { MN_SORT = { k: v, turun: true }; MN_HAL = 1; mnGambarUrut(); }
+function mnSort(k) { sortKlik(MN_SORT, k); MN_HAL = 1; mnGambarUrut(); }
+/* Tapis kelompok MEMANGGIL render(): ia menggeser kartu di atas tabel,
+   perkiraan bahan baku, dan daftar "belum ada resep" — bukan cuma isi tabel.
+   Menggambar ulang wadahnya saja meninggalkan ketiganya memajang angka
+   kelompok sebelumnya, tanpa satu pun tanda. */
+function mnKel(v) { MN_KEL = v || ''; MN_HAL = 1; MN_BUKA = ''; render(); }
 /* Keduanya menggambar ulang WADAHNYA saja — lihat alasannya di mnPagerHtml(). */
 function mnPer(v) { MN_PER = v; MN_HAL = 1; mnIsi('mn_isi_menu', mnIsiMenuHtml()); }
 function mnHal(n) { MN_HAL = n; mnIsi('mn_isi_menu', mnIsiMenuHtml()); }
@@ -2523,6 +2947,42 @@ function mnBuka(n) { MN_BUKA = (MN_BUKA === n) ? '' : n; render(); }
    atas permintaan yang sama. Kartu "Kode paket yang belum dipasangkan" TIDAK
    ikut — itu bukan keterangan melainkan pekerjaan yang menunggu, berikut
    tombol saran pasangannya. */
+/* Menggabungkan baris bulan ini dengan baris bulan pembanding.
+
+   HASILNYA GABUNGAN KEDUANYA, bukan cuma yang ada di bulan ini — menu yang
+   bulan lalu terjual 500 porsi lalu bulan ini HILANG sama sekali justru
+   pertanyaan yang paling sering dibawa orang ke pembanding, dan daftar yang
+   cuma memuat bulan ini tidak bisa menjawabnya sama sekali.
+
+   `ada` / `adaB` DIBEDAKAN dari qty nol: menu yang memang ada di daftar bulan
+   ini tapi tidak terjual satu porsi pun adalah hal lain daripada menu yang
+   tidak ada di bulan itu, dan keduanya tidak boleh berbunyi sama.
+
+   SALINAN, bukan baris aslinya — daftar yang sama dipakai kartu di atas tabel
+   dan perkiraan bahan baku, dan menyuntingnya di tempat berarti keduanya ikut
+   membawa kolom pembanding yang tidak pernah mereka minta. */
+function gabungBanding(kini, gb) {
+  const peta = {};
+  const out = kini.map(x => {
+    const r = Object.assign({}, x, { bqty: 0, bnilai: 0, ada: true, adaB: false });
+    peta[r.n] = r; return r;
+  });
+  Object.keys(gb || {}).forEach(n => {
+    const g = gb[n] || {};
+    let r = peta[n];
+    if (!r) {
+      r = { n: n, qty: 0, nilai: 0, kel: g.kel || '', bqty: 0, bnilai: 0, ada: false, adaB: true };
+      peta[n] = r; out.push(r);
+    }
+    r.bqty += g.qty || 0; r.bnilai += g.nilai || 0; r.adaB = true;
+    /* Kelompok dari bulan pembanding hanya dipakai kalau bulan ini tidak
+       punya: yang menentukan tapisnya bulan yang sedang dibuka. */
+    if (!r.kel && g.kel) r.kel = g.kel;
+  });
+  out.forEach(r => { r.dqty = r.qty - r.bqty; r.dnilai = r.nilai - r.bnilai; });
+  return out;
+}
+
 function vMenu() {
   const V = document.getElementById('app-view');
   const b = blnAktif(), d = lap(b);
@@ -2558,8 +3018,32 @@ function vMenu() {
      menu berbeda dan keduanya turun peringkat sendiri-sendiri. */
   const NM = menuNormal(d);
   const gab = NM.gab;
-  const urut = Object.keys(gab).map(n => ({ n, qty:gab[n].qty || 0, nilai:gab[n].nilai || 0 }))
-                   .sort((a, x) => (MN_URUT === 'qty' ? x.qty - a.qty : x.nilai - a.nilai));
+  const kini = Object.keys(gab).map(n => ({ n, qty:gab[n].qty || 0, nilai:gab[n].nilai || 0, kel:gab[n].kel || '' }));
+
+  /* ---- BULAN PEMBANDING ----
+     Laporan pembanding bisa saja Bill Report, yang tidak memuat satu pun nama
+     menu. Itu DIKATAKAN, bukan digambar sebagai kolom penuh nol — kolom nol
+     terbaca sebagai "bulan itu tidak menjual apa-apa". */
+  const bb = blnBandingAktif();
+  const dB = bb ? lap(bb) : null;
+  const bPunyaMenu = !!(dB && Object.keys(dB.menu || {}).length);
+  const NB = bPunyaMenu ? menuNormal(dB) : null;
+  const semua = NB ? gabungBanding(kini, NB.gab)
+                   : kini.map(x => Object.assign({}, x, { ada: true }));
+
+  /* ---- TAPIS KELOMPOK ----
+     Dijepit ke kelompok yang BENAR-BENAR ADA bulan ini. Bulan lain bisa tidak
+     punya kelompok yang sedang dipilih, dan tapis yang bertahan di kelompok
+     yang tidak ada memajang tabel kosong yang terbaca sebagai data hilang. */
+  const kelOps = kelOpsi(semua);
+  if (MN_KEL && kelOps.indexOf(MN_KEL) < 0) MN_KEL = '';
+  const baris = MN_KEL ? semua.filter(x => x.kel === MN_KEL) : semua;
+  /* Baris BULAN INI saja — dasar kartu, perkiraan bahan baku, dan penyebut
+     kolom persen. Baris yang cuma ada di bulan pembanding tidak boleh ikut:
+     bahan bakunya tidak pernah keluar bulan ini, dan porsinya nol. */
+  const urut = baris.filter(x => x.ada !== false);
+  const nTanpaKel = semua.filter(x => !x.kel).length;
+
   const totQty = urut.reduce((a, x) => a + x.qty, 0);
   const totNilai = urut.reduce((a, x) => a + x.nilai, 0);
   const peta = HP ? resepPeta() : null;
@@ -2568,12 +3052,26 @@ function vMenu() {
   /* Cache untuk pencarian. Diisi SEBELUM kartunya dirakit — mnIsiMenuHtml()
      di bawah membacanya, dan yang mengisinya belakangan menggambar tabel
      kosong pada render pertama tiap kali halaman ini dibuka. */
-  MN_CACHE = { urut: urut, peta: peta, totNilai: totNilai, tanpaResep: tanpaResep, bahan: null };
+  MN_CACHE = { baris: baris, peta: peta, totNilai: totNilai, tanpaResep: tanpaResep,
+               bahan: null, banding: NB ? { bulan: bb } : null };
+
+  h += pilihBanding('Tiap baris menu dapat kolom porsi & nilai bulan '
+        + fmtBln(bb) + ', berikut selisihnya.');
+
+  /* Pembanding yang DIMINTA tapi tidak bisa dipakai wajib dikatakan — kalau
+     tidak, kolomnya cuma tidak muncul dan yang memilihnya mengira halamannya
+     rusak. */
+  if (bb && !bPunyaMenu) {
+    h += '<div class="notice warn">\u26a0 <div><b>' + esc(fmtBln(bb)) + ' tidak bisa dibandingkan di halaman ini.</b> '
+      + 'Laporan bulan itu <b>Bill Report</b> — satu baris per bill, tanpa satu pun nama menu. '
+      + 'Yang memuat nama menu <b>Sales Recapitulation Detail Report</b>; unggah berkas itu untuk '
+      + esc(fmtBln(bb)) + ', lalu pembandingnya jalan sendiri.</div></div>';
+  }
 
   h += '<div class="grid g4" style="margin-bottom:18px">'
-    + kartu('Menu Berbeda', urut.length, 'yang pernah terjual bulan ini')
-    + kartu('Porsi Terjual', totQty.toLocaleString('id-ID'), 'jumlah seluruh qty')
-    + kartu('Nilai Menu', rp0(totNilai), 'sebelum service & pajak')
+    + kartu('Menu Berbeda', urut.length, 'yang pernah terjual bulan ini' + (MN_KEL ? ' \u00b7 ' + MN_KEL : ''))
+    + kartu('Porsi Terjual', totQty.toLocaleString('id-ID'), 'jumlah seluruh qty' + (MN_KEL ? ' \u00b7 ' + MN_KEL : ''))
+    + kartu('Nilai Menu', rp0(totNilai), 'sebelum service & pajak' + (MN_KEL ? ' \u00b7 ' + MN_KEL : ''))
     + kartu('Belum Ada Resep', tanpaResep.length, peta ? 'dari ' + urut.length + ' menu' : 'HPP tidak terbaca')
     + '</div>'
     + ukCatatanHtml(NM)
@@ -2585,18 +3083,35 @@ function vMenu() {
      keduanya menentukan BARIS MANA yang tampil, dan dua tempat yang
      memutuskannya akan menyimpang begitu salah satunya disetel. */
   h += '<div class="card"><h3>Penjualan Menu</h3>'
-    + '<div class="card-sub">Diurut menurut ' + (MN_URUT === 'qty' ? '<b>jumlah porsi</b>' : '<b>nilai</b>')
-    + '. Keduanya menjawab hal yang berbeda: menu murah yang terjual ratusan porsi menghabiskan '
-    + 'paling banyak bahan, sementara menu mahal menyumbang paling banyak omset — dan yang '
-    + 'terlaris menurut salah satunya sering bukan yang terlaris menurut yang lain.</div>'
+    + '<div class="card-sub">Bisa diurut menurut <b>nilai</b> atau <b>jumlah porsi</b> \u2014 keduanya '
+    + 'menjawab hal yang berbeda: menu murah yang terjual ratusan porsi menghabiskan paling banyak '
+    + 'bahan, sementara menu mahal menyumbang paling banyak omset, dan yang terlaris menurut salah '
+    + 'satunya sering bukan yang terlaris menurut yang lain. Kolom lain diurut dengan menekan '
+    + 'kepala kolomnya; urutan yang sedang berlaku disebut di bawah tabel.</div>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:12px">'
-    + '<div class="seg" style="margin:0">'
-      + '<button class="' + (MN_URUT === 'nilai' ? 'active' : '') + '" onclick="mnUrut(\'nilai\')">Menurut Nilai</button>'
-      + '<button class="' + (MN_URUT === 'qty' ? 'active' : '') + '" onclick="mnUrut(\'qty\')">Menurut Porsi</button>'
-    + '</div>'
+    + '<div class="seg" id="mn_seg_urut" style="margin:0">' + mnSegUrutHtml() + '</div>'
+    + kelSegHtml(kelOps, MN_KEL, 'mnKel')
     + mnKotakCari('mn_q', MN_Q, 'Cari menu\u2026')
     + '<span class="helper" style="margin:0 0 0 auto">Klik satu baris untuk melihat bahan bakunya sendiri</span>'
     + '</div>'
+    /* TAPIS YANG MENYALA WAJIB DIKATAKAN, berikut apa saja yang ikut
+       tersaring. Keempat kartu di atas, perkiraan bahan baku, dan daftar
+       "belum ada resep" semuanya ikut — dan kartu yang menyusut tanpa
+       keterangan dilaporkan sebagai data yang hilang. */
+    + (MN_KEL
+        ? '<div class="notice info">\u2139 <div>Seluruh halaman ini sedang disaring ke kelompok '
+          + '<b>' + esc(MN_KEL) + '</b> \u2014 kartu di atas, perkiraan bahan baku, dan daftar '
+          + 'menu tanpa resep ikut. Tekan <b>Semua</b> untuk melepasnya.'
+          /* Baris ukuran tanpa induk tidak punya kelompok yang bisa dibaca
+             (lihat menuNormal). Jumlahnya disebut supaya selisihnya tidak
+             dicari orang di tempat yang salah. */
+          + (nTanpaKel ? ' <b>' + nTanpaKel + ' menu</b> tidak punya keterangan kelompok di laporan '
+                       + 'bulan ini, jadi ia hanya muncul di <b>Semua</b>.' : '')
+          + '</div></div>'
+        : (kelOps.length < 2 && NM.adaKel === false
+            ? '<div class="helper">Laporan bulan ini belum memuat kategori menu, jadi tapis '
+              + 'food/beverage belum bisa digambar. Unggah ulang berkas bulan itu.</div>'
+            : ''))
     /* Isinya digambar terpisah supaya pencarian bisa menyegarkan tabelnya
        TANPA membuat ulang kotak yang sedang diketik. */
     + '<div id="mn_isi_menu">' + mnIsiMenuHtml() + '</div>'
@@ -2610,10 +3125,17 @@ function vMenu() {
        Ditulis juga bahwa kolomnya berjumlah 100% — itu yang membuatnya bisa
        dipakai: porsi tiap menu terhadap seluruh menu, bukan terhadap omset. */
     + '<div class="helper"><b>% dari nilai menu</b> = nilai menu itu dibagi '
-    + '<b>' + rp0(totNilai) + '</b>, yaitu jumlah nilai SELURUH ' + urut.length + ' menu bulan ini '
-    + '(sebelum service &amp; pajak, dan tanpa memandang saklar 20 teratas di atas). '
+    + '<b>' + rp0(totNilai) + '</b>, yaitu jumlah nilai SELURUH ' + urut.length + ' menu bulan ini'
+    + (MN_KEL ? ' <b>yang berkelompok ' + esc(MN_KEL) + '</b>' : '')
+    + ' (sebelum service &amp; pajak, dan tanpa memandang halaman yang sedang terbuka). '
     + 'Kolomnya berjumlah 100%. Ini BUKAN persen terhadap omset — omset memuat service '
-    + '&amp; pajak yang tidak pernah masuk nilai menu.</div>'
+    + '&amp; pajak yang tidak pernah masuk nilai menu.'
+    /* Baris yang cuma ada di bulan pembanding bernilai nol bulan ini, jadi
+       persennya 0% — dan tanpa kalimat ini, baris bernilai besar di kolom
+       pembanding yang berbunyi 0% terbaca sebagai salah hitung. */
+    + (MN_CACHE.banding ? ' Baris yang <b>tidak ada bulan ini</b> berbunyi 0% \u2014 '
+        + 'penyebutnya memang nilai menu bulan ini.' : '')
+    + '</div>'
     + '</div>';
 
   h += bahanBakuHtml(urut);
@@ -2732,7 +3254,11 @@ async function mnPasangKode(kode, menu) {
 
 /* Rincian bahan SATU menu. Dihitung ulang khusus untuk baris ini — total di
    bawah sudah dijumlahkan lintas menu dan tidak bisa dipecah balik. */
-function mnRincian(x, peta) {
+/* `B` = keterangan bulan pembanding, atau null. Porsinya disebut DI SINI juga
+   walau kolomnya sudah ada di baris tabelnya: rincian yang terbuka mendorong
+   barisnya sendiri ke atas layar, dan yang membaca bahan bakunya tidak lagi
+   melihat angka yang jadi dasarnya. */
+function mnRincian(x, peta, B) {
   if (!peta) return '<div class="helper">Resep dari modul HPP tidak terbaca, jadi bahan per menu belum bisa dirinci.</div>';
   if (!peta[String(x.n).trim().toLowerCase()]) {
     return '<div class="notice warn" style="margin:0">⚠ <div><b>' + esc(x.n) + '</b> belum punya resep di HPP, '
@@ -2753,7 +3279,13 @@ function mnRincian(x, peta) {
   };
   return '<div style="padding:4px 2px 10px">'
     + '<div class="helper" style="margin:0 0 8px">Untuk <b>' + x.qty.toLocaleString('id-ID')
-      + '</b> porsi ' + esc(x.n) + ' yang terjual bulan ini.</div>'
+      + '</b> porsi ' + esc(x.n) + ' yang terjual bulan ini.'
+      /* Bahan bakunya SENGAJA tetap dihitung dari porsi BULAN INI saja —
+         menjumlahkannya dengan bulan pembanding memberi angka yang tidak
+         pernah keluar dari gudang mana pun. Yang disebut cuma porsinya. */
+      + (B ? ' Bulan ' + esc(fmtBln(B.bulan)) + ': <b>' + (x.bqty || 0).toLocaleString('id-ID')
+             + '</b> porsi. Bahan di bawah dihitung dari porsi <b>bulan ini</b> saja.' : '')
+      + '</div>'
     + '<div class="grid g2">'
       + kol('Bahan mentah', r.mentah, 'Resepnya tidak menyebut satu bahan mentah pun.')
       + kol('Bahan prep / base', r.prep, 'Menu ini tidak memakai base — seluruhnya bahan mentah.')
