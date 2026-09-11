@@ -3119,17 +3119,40 @@ async function siap(w) {
           brsJam('22'));
       cek('...berikut selisihnya',
           brsJam('22').indexOf('+Rp2.600.000') > -1, brsJam('22'));
-      /* Jam yang tidak punya sisi pembanding harus DIKATAKAN, bukan diisi
-         angka yang dikarang. Jam 23 hanya pernah ada penampil (2 Sep) dan
-         pernah tanpa (3 Sep) — jadi yang dipakai jam 19, yang tidak pernah
-         ada penampilnya. */
+      /* Jam yang ADA penampilnya tapi TIDAK PERNAH tanpa: jam 0, yang cuma ada
+         di 3 Sep dan seluruhnya diklaim DJ yang menyeberang tengah malam.
+         Pembandingnya memang tidak ada, dan itu harus DIKATAKAN — bukan diisi
+         +100% yang dikarang. */
       cek('jam tanpa pembanding dikatakan, bukan diisi angka',
-          brsJam('19').indexOf('tidak ada pembandingnya') > -1, brsJam('19'));
+          brsJam('00').indexOf('tidak ada pembandingnya') > -1, brsJam('00'));
       /* Sisi yang kosong ditulis tanda hubung, BUKAN Rp0 — nol berarti jam itu
-         pernah ada penampilnya dan omsetnya memang nol, dan itu jawaban yang
+         pernah tanpa penampil dan omsetnya memang nol, dan itu jawaban yang
          salah untuk pertanyaan yang tidak pernah ditanyakan. */
       cek('...dan sisi yang memang kosong ditulis tanda hubung, bukan Rp0',
-          brsJam('19').indexOf('Rp0') < 0, brsJam('19'));
+          brsJam('00').indexOf('Rp0') < 0, brsJam('00'));
+
+      /* ---- JAM YANG TIDAK PERNAH ADA PENAMPILNYA TIDAK DIGAMBAR ----
+         (11 September 2026, ditanyakan user "ini maksudnya apa?" atas tabel
+         yang di produksi berisi 20-an baris "tidak ada pembandingnya".)
+
+         Tabelnya ada untuk MEMBANDINGKAN. Jam yang tidak pernah sekali pun ada
+         penampilnya tidak punya sisi kiri, dan barisnya cuma mengubur empat
+         sampai enam baris yang benar-benar menjawab pertanyaannya. */
+      cek('jam yang tidak pernah ada penampilnya tidak digambar',
+          brsJam('19') === '', brsJam('19').slice(0, 200));
+      cek('...tapi jumlahnya DISEBUT, bukan hilang diam-diam',
+          blok.indexOf('tidak digambar sama sekali karena') > -1,
+          blok.slice(blok.indexOf('Jam yang <b>tidak pernah'), blok.indexOf('Jam yang <b>tidak pernah') + 500));
+      /* Jam yang memang ada penampilnya tetap digambar — kalau penyaringnya
+         terlalu rakus, seluruh tabelnya ikut hilang. */
+      cek('...dan jam yang ada penampilnya tetap digambar',
+          brsJam('20') !== '' && brsJam('22') !== '');
+
+      /* Penjelasannya memakai CONTOH BARIS, bukan cuma menyebut aturannya —
+         yang lama sudah menyebut aturannya dan tetap ditanyakan. */
+      cek('penjelasannya memberi contoh cara membaca satu baris',
+          blok.indexOf('Cara membaca satu baris') > -1 && blok.indexOf('21:00') > -1,
+          blok.slice(0, 700));
       cek('...dan aturan "jam tanpa bill tidak dihitung" dikatakan di layar',
           vw().indexOf('benar-benar punya bill') > -1);
       /* Jam 10 tidak punya satu pun bill di berkas mana pun. Ia tidak boleh
@@ -3251,6 +3274,65 @@ async function siap(w) {
             d.getElementById('tl_q') === kotak);
         w.eval("tnSort('tgl')"); await tunggu(40);
       }
+    }
+
+    /* ---- CARI NAMA BAND DI TABEL PER MALAM (permintaan user 11 Sep 2026) ----
+
+       Yang paling menentukan BUKAN adanya kotaknya melainkan bahwa mengetik
+       tidak membuat ulang kotaknya: render() di modul ini TOTAL, dan kotak yang
+       dibuat ulang kehilangan fokus sehingga hanya huruf pertama yang masuk.
+       Karena itu yang diperiksa IDENTITAS elemennya. */
+    {
+      const kotak = d.getElementById('tn_q');
+      cek('kotak cari di tabel Per Malam digambar', !!kotak);
+      kotak.value = 'james';
+      kotak.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(40);
+      cek('...mengetik TIDAK membuat ulang kotaknya',
+          d.getElementById('tn_q') === kotak && kotak.value === 'james',
+          'kotaknya diganti elemen baru — hanya huruf pertama yang akan masuk');
+      {
+        const isi = d.getElementById('tn_isi').innerHTML;
+        cek('...dan tabelnya tersaring ke band itu saja',
+            isi.indexOf('James Project') > -1 && isi.indexOf('Fuego') < 0, isi.slice(0, 600));
+        /* Dua malam James Project harus tetap utuh — mencari nama band gunanya
+           justru melihat seluruh malamnya berjajar. */
+        cek('...berikut SELURUH malamnya, bukan cuma yang pertama',
+            isi.indexOf('2 Sep 2026') > -1 && isi.indexOf('4 Sep 2026') > -1, isi.slice(0, 900));
+        cek('...kakinya menyebut berapa yang cocok', isi.indexOf('cocok dengan') > -1);
+      }
+      /* Dicari juga di KATEGORI dan NAMA HARI — tiga pertanyaan yang sama-sama
+         wajar dibawa ke tabel ini, dan kotak yang cuma mencari nama akan
+         terasa rusak untuk dua yang lain. */
+      kotak.value = 'mc dj';
+      kotak.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(40);
+      cek('bisa dicari menurut kategorinya',
+          d.getElementById('tn_isi').innerHTML.indexOf('Pennykids') > -1
+          && d.getElementById('tn_isi').innerHTML.indexOf('James Project') < 0);
+      kotak.value = 'jumat';
+      kotak.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(40);
+      {
+        const isi = d.getElementById('tn_isi').innerHTML;
+        cek('...dan menurut nama harinya',
+            isi.indexOf('4 Sep 2026') > -1 && isi.indexOf('2 Sep 2026') < 0, isi.slice(0, 600));
+      }
+      /* Kata kunci tanpa hasil DIKATAKAN — tabel kosong tanpa keterangan
+         terbaca sebagai data yang hilang. */
+      kotak.value = 'zzz';
+      kotak.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(40);
+      cek('kata kunci tanpa hasil dikatakan, bukan tabel kosong',
+          d.getElementById('tn_isi').innerHTML.indexOf('Tidak ada penampilan yang cocok') > -1);
+      /* Kotak di kartu Per Penampil TIDAK ikut tersaring — dua tabel menjawab
+         pertanyaan yang berbeda, dan satu kotak untuk keduanya berarti mencari
+         satu nama ikut memangkas tabel di sebelahnya. */
+      cek('...dan tabel Per Penampil TIDAK ikut tersaring',
+          d.getElementById('tl_isi').innerHTML.indexOf('James Project') > -1);
+      kotak.value = '';
+      kotak.dispatchEvent(new w.Event('input', { bubbles:true }));
+      await tunggu(40);
     }
 
     /* ---- RINCIAN SATU PENAMPIL ---- */

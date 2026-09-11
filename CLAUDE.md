@@ -2181,6 +2181,54 @@ merah di laptop yang zonanya lain.
 > sel yang bukan yang diuji. Sekarang ada `kartuHtml(judul)` dan
 > `barisDi(html, nama)`.
 
+
+###### Tabel pembanding jam: disaring, dan dijelaskan dengan contoh
+
+Ditanyakan user 11 September 2026: *"Pembanding: Jam Tampil vs Jam Yang Sama
+Tanpa Penampil, ini maksudnya apa?"* — dengan layar yang memperlihatkan **jam
+00:00 sampai 16:00 seluruhnya berbunyi "tidak ada pembandingnya"**.
+
+**Pertanyaannya wajar, dan tabelnya memang rusak bacaannya.** Penampil di venue
+ini mulai tampil jam 20:00, jadi jam siang tidak pernah punya sisi kiri — dan
+20-an baris kosong itu **mengubur empat sampai enam baris** yang justru berisi
+jawabannya.
+
+- **Hanya jam yang `adaN > 0` yang digambar.** Tabelnya ada untuk
+  MEMBANDINGKAN; jam yang tidak pernah sekali pun ada penampilnya tidak punya
+  apa-apa untuk dibandingkan.
+- **Jumlah jam yang disembunyikan DISEBUT** berikut sebabnya. Daftar yang
+  menyusut tanpa keterangan terbaca sebagai data yang hilang.
+- **Penyaringnya JANGAN dibuat `adaN > 0 && takN > 0`.** Jam yang selalu ada
+  penampilnya memang tidak punya pembanding — tapi barisnya tetap perlu berdiri,
+  karena "tidak pernah sekali pun tanpa penampil" itu sendiri jawaban. Dijaga
+  mutasi tersendiri.
+- **Penjelasannya sekarang memberi CONTOH satu baris** (baris 21:00 dibaca
+  bagaimana), bukan cuma menyebut aturannya. Aturannya sudah disebut sejak
+  halaman ini lahir dan ternyata tidak cukup — yang menolong contohnya.
+
+###### Cari nama band di tabel Per Malam
+
+Permintaan user di pesan yang sama. Dicari di **nama penampil, kategori, dan
+nama hari** sekaligus: "fuego", "band", dan "sabtu" tiga pertanyaan yang
+sama-sama wajar dibawa ke tabel ini, dan kotak yang cuma mencari nama akan
+terasa rusak untuk dua yang lain.
+
+- **Kotaknya SENDIRI**, terpisah dari kotak di kartu Per Penampil. Dua tabel itu
+  menjawab pertanyaan yang berbeda — yang satu "malam apa saja", yang satu
+  "siapa saja" — dan satu kotak untuk keduanya berarti mencari satu nama ikut
+  memangkas tabel di sebelahnya. Pola yang sama dengan tiga kotak cari di
+  halaman Menu & Bahan Baku.
+- **Menggambar ulang WADAHNYA saja** (`tnGambar()`), bukan halamannya: kotak
+  yang dibuat ulang kehilangan fokus dan hanya huruf pertama yang masuk.
+- **Kata kunci tanpa hasil DIKATAKAN**, bukan tabel kosong.
+
+```bash
+node tools/uji-analytics.js   # 539 pemeriksaan (dari 526)
+```
+
+Delapan mutasi dicoba, kedelapannya tertangkap — termasuk penyaring yang
+terlalu rakus dan kotak cari yang cuma mencari nama.
+
 #### KODE MENU DIISI DI HPP & RESEP — sumber utamanya sekarang di sana (10 Sep 2026)
 
 Permintaan user: *"dari di HPP & Resep bisa masukin menu code, jadi kalau
