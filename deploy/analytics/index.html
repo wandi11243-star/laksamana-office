@@ -1227,7 +1227,7 @@ const TITLES = {
   hari      :['Hari & Jam','Omset per hari dalam seminggu, dan sebaran jamnya'],
   menu      :['Menu & Bahan Baku','Menu terlaris dan perkiraan bahan yang seharusnya keluar'],
   kategori  :['Kategori Menu','Omset per kategori menu — termasuk EVENT, terpisah dari peringkat menu'],
-  kunjungan :['Metode Kunjungan','Metode yang paling sering dipakai tamu — dari kolom Visit Purpose'],
+  kunjungan :['Metode Kunjungan','Cara tamu datang DAN cara mereka membayar — Visit Purpose dan Payment Method'],
   talent    :['Performa Talent','Kontribusi omset tiap penampil, dihitung dari jam tampilnya sendiri'],
   promo     :['Promo & Klaim','Promo mana yang paling banyak diklaim, barang apa, dan jam berapa'],
   tren      :['Tren Bulanan','Total omset bulan ke bulan, dan perbandingan dua bulan'],
@@ -3545,8 +3545,19 @@ function bahanBakuHtml(urut) {
 }
 
 /* ============ HALAMAN: METODE KUNJUNGAN ============
-   Dari kolom `Visit Purpose` di laporan POS — DINE IN, ESB ORDER, ONLINE,
-   TIKTOK GO. Permintaan user 10 September 2026: "melihat metode yang sering
+   DUA DIMENSI, dan bedanya yang membuat halaman ini ada:
+
+     Visit Purpose    CARA TAMU DATANG   DINE IN, ESB ORDER, ONLINE, TIKTOK GO
+     Payment Method   CARA MEREKA BAYAR  QRIS, CASH, EDC, GRABFOOD, GOFOOD
+
+   Payment Method ditambahkan 13 September 2026 atas permintaan user —
+   "metode ini jangan dilihat dari visit purpose, tapi berdasarkan juga payment
+   method; semisalnya payment methodnya online, itu ada yg grabfood ada yg
+   gofood, minta bantu juga dijabarkan". Jawabannya ada di tabel kedua: tiap
+   cara datang dirinci per metode bayarnya, jadi ONLINE berdiri sebagai
+   GRABFOOD (78 transaksi Agustus 2026) dan GOFOOD (7).
+
+   Permintaan user 10 September 2026: "melihat metode yang sering
    diambil, diambil jumlah omset dan jumlah transaksi".
 
    DIURUT MENURUT JUMLAH TRANSAKSI, bukan omset — yang ditanya metode mana yang
@@ -3592,19 +3603,127 @@ function vKunjungan() {
   const teratas = list[0];
   const billRingkas = (d.ringkas || {}).bill || 0;
 
-  h += '<div class="grid g3" style="margin-bottom:18px">'
-    + kartu('Paling Sering', esc(teratas.n),
+  /* ---- METODE PEMBAYARAN (13 September 2026) ----
+     Pembayaran gabungan sudah DIPECAH jadi komponennya saat mengurai (lihat
+     pecahBayar), jadi yang berdiri di sini nama metode yang sesungguhnya —
+     bukan 90-an string gabungan yang masing-masing dipakai satu dua kali. */
+  const by = d.bayar || {};
+  const listBayar = Object.keys(by)
+    .map(n => ({ n, grand: by[n].grand || 0, bill: by[n].bill || 0 }))
+    .sort((a, x) => (x.bill - a.bill) || (x.grand - a.grand) || (a.n < x.n ? -1 : 1));
+  const totBG = listBayar.reduce((a, x) => a + x.grand, 0);
+  const totBB = listBayar.reduce((a, x) => a + x.bill, 0);
+  const bayarTeratas = listBayar[0];
+
+  /* Silang cara-datang x metode-bayar, kuncinya "<cara datang>|<metode>". */
+  const kbPeta = d.kunjungBayar || {};
+  const bayarDari = vp => Object.keys(kbPeta)
+    .filter(k => k.slice(0, vp.length + 1) === vp + '|')
+    .map(k => ({ n: k.slice(vp.length + 1), grand: kbPeta[k].grand || 0, bill: kbPeta[k].bill || 0 }))
+    .sort((a, x) => (x.bill - a.bill) || (x.grand - a.grand) || (a.n < x.n ? -1 : 1));
+
+  /* KEDUA kartu teratas menyebut DIMENSINYA di labelnya, bukan cuma "Paling
+     Sering". Sejak halaman ini memajang dua dimensi sekaligus, label yang
+     tidak menyebut yang mana persis mengulang pertanyaan yang sudah empat kali
+     datang di kolom Kontribusi. */
+  h += '<div class="grid g4" style="margin-bottom:18px">'
+    + kartu('Cara Datang Terbanyak', esc(teratas.n),
         teratas.bill.toLocaleString('id-ID') + ' transaksi · ' + pct(teratas.bill, totB) + '% dari seluruh transaksi')
-    + kartu('Jumlah Transaksi', totB.toLocaleString('id-ID'), list.length + ' metode berbeda')
-    + kartu('Jumlah Omset', rp0(totG), 'seluruh metode digabung')
+    + kartu('Metode Bayar Terbanyak', bayarTeratas ? esc(bayarTeratas.n) : '—',
+        bayarTeratas ? (bayarTeratas.bill.toLocaleString('id-ID') + ' transaksi · '
+          + pct(bayarTeratas.bill, totBB) + '% dari seluruh transaksi')
+          : 'kolom Payment Method belum terbaca')
+    + kartu('Jumlah Transaksi', totB.toLocaleString('id-ID'), list.length + ' cara datang berbeda')
+    + kartu('Jumlah Omset', rp0(totG), 'seluruh cara datang digabung')
     + '</div>';
 
-  h += '<div class="card"><h3>Per Metode</h3>'
+  /* ---- TABEL 1: METODE PEMBAYARAN ---- */
+  h += '<div class="card"><h3>Metode Pembayaran</h3>';
+  if (!listBayar.length) {
+    /* DUA SEBAB, dan yang keliru menebaknya akan mengekspor ulang berkas yang
+       salah berkali-kali. Bill Report TIDAK PUNYA kolom Payment Method sama
+       sekali — diperiksa atas kedua berkas POS Agustus 2026 — jadi menyuruh
+       "centang kolomnya saat ekspor" adalah pekerjaan yang tidak akan pernah
+       menolong di sana. */
+    h += '<div class="notice warn">⚠ <div><b>Metode pembayaran belum terbaca untuk bulan ini.</b> '
+      + (d.jenis === 'bill'
+        ? 'Laporan bulan ini <b>Bill Report</b>, dan bentuk itu memang tidak punya kolom '
+          + '<i>Payment Method</i> sama sekali — mencentang kolomnya saat ekspor tidak akan menolong. '
+          + 'Yang memuatnya <b>Sales Recapitulation DETAIL Report</b>; unggah berkas itu untuk bulan yang sama.'
+        : 'Kolom <i>Payment Method</i> baru ikut dibaca sejak 13 September 2026, jadi ringkasan yang '
+          + 'disimpan sebelum itu tidak menyimpannya. <b>Unggah ulang berkas bulan itu</b> — ringkasannya '
+          + 'akan ditimpa, dan metodenya ikut terbaca.<br>Kalau sesudah diunggah ulang tetap kosong, '
+          + 'berkas POS-nya memang tidak punya kolom itu — ekspor ulang dengan <i>Payment Method</i> '
+          + 'ikut dicentang.')
+      + '</div></div>';
+  } else {
+    h += '<div class="card-sub">Dari kolom <i>Payment Method</i> di laporan POS. Bill yang dibayar '
+      + 'lebih dari satu metode <b>sudah dipecah</b> jadi komponennya — POS menulisnya sebagai satu '
+      + 'baris ("VOUCHER (25.000), QRIS MANDIRI (15.250)"), dan dibiarkan begitu ia berdiri sebagai '
+      + 'metode tersendiri yang cuma dipakai sekali dua kali. Diurut menurut <b>jumlah transaksi</b>, '
+      + 'sama dengan tabel di bawahnya.</div>'
+      + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Metode Bayar</th>'
+      + '<th class="num">Jumlah Transaksi</th><th class="num">% transaksi</th>'
+      + '<th class="num">Jumlah Omset</th><th class="num">% omset</th>'
+      + '<th class="num">Rata-rata per transaksi</th><th style="width:16%"></th></tr></thead><tbody>';
+    const punBB = listBayar.reduce((a, x) => Math.max(a, x.bill), 0) || 1;
+    listBayar.forEach((x, i) => {
+      h += '<tr><td>' + (i + 1) + '</td>'
+        + '<td><b>' + esc(x.n) + '</b></td>'
+        + '<td class="num">' + x.bill.toLocaleString('id-ID') + '</td>'
+        + '<td class="num">' + pct(x.bill, totBB) + '%</td>'
+        + '<td class="num mono">' + rp0(x.grand) + '</td>'
+        + '<td class="num">' + pct(x.grand, totBG) + '%</td>'
+        + '<td class="num mono">' + (x.bill ? rp0(x.grand / x.bill) : '—') + '</td>'
+        + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
+          + '<div style="width:' + Math.round(x.bill / punBB * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
+        + '</tr>';
+    });
+    h += '</tbody><tfoot><tr><th></th><th>Total</th>'
+      + '<th class="num">' + totBB.toLocaleString('id-ID') + '</th><th class="num">100%</th>'
+      + '<th class="num mono">' + rp0(totBG) + '</th><th class="num">100%</th>'
+      + '<th class="num mono">' + (totBB ? rp0(totBG / totBB) : '—') + '</th><th></th></tr></tfoot></table></div>';
+
+    /* KOLOM OMSET BOLEH DIJUMLAHKAN, KOLOM TRANSAKSI TIDAK — dan bedanya wajib
+       dikatakan, karena keduanya berdiri bersebelahan di satu baris. Omsetnya
+       dibagi menurut nominal tiap metode, jadi ia berjumlah pas ke total
+       sebulan; transaksinya dihitung utuh di tiap metode yang dipakai bill itu,
+       jadi satu bill gabungan muncul di dua baris. */
+    if (billRingkas && totBB > billRingkas) {
+      h += '<div class="notice info">ℹ <div>Jumlah transaksi di tabel ini <b>'
+        + totBB.toLocaleString('id-ID') + '</b>, sementara transaksi sungguhan bulan ini <b>'
+        + billRingkas.toLocaleString('id-ID') + '</b>. Selisihnya <b>'
+        + (totBB - billRingkas).toLocaleString('id-ID') + '</b> bill yang dibayar dengan lebih dari '
+        + 'satu metode — tiap bill seperti itu dihitung penuh di masing-masing metodenya, jadi '
+        + '<b>kolom transaksi tidak bisa dijumlahkan</b>. Kolom omsetnya bisa: nominalnya dibagi '
+        + 'menurut yang benar-benar dibayar lewat tiap metode, dan jumlahnya pas ke omset sebulan.</div></div>';
+    }
+    /* Nominal tunai adalah uang yang DISERAHKAN — kembaliannya dipotong dari
+       komponen tunainya, bukan dibagi rata. Itu keputusan tentang uang, jadi
+       ia disebut di layar, bukan cuma di komentar kodenya. */
+    h += '<div class="helper">Untuk bill yang dibayar sebagian tunai, nominal tunai yang dicatat POS '
+      + 'adalah <b>uang yang diserahkan</b> — kembaliannya sudah dipotong dari baris tunai di sini, '
+      + 'bukan dibagi rata ke metode lain. Batangnya menggambarkan <b>jumlah transaksi</b>.</div>';
+    if ((d.ringkas || {}).bayarRata) {
+      h += '<div class="notice info">ℹ <div><b>' + (d.ringkas.bayarRata).toLocaleString('id-ID')
+        + ' transaksi</b> ditulis POS dengan beberapa metode tapi <b>tanpa nominal</b>, jadi omsetnya '
+        + 'dibagi rata ke tiap metodenya. Itu perkiraan — jumlah totalnya tetap benar, pembagiannya '
+        + 'yang tidak bisa dipastikan.</div></div>';
+    }
+  }
+  h += '</div>';
+
+  h += '<div class="card"><h3>Cara Tamu Datang</h3>'
     + '<div class="card-sub">Dari kolom <i>Visit Purpose</i> di laporan POS. Diurut menurut '
-    + '<b>jumlah transaksi</b> — yang ditanya metode mana yang paling sering dipakai, bukan mana '
+    + '<b>jumlah transaksi</b> — yang ditanya cara mana yang paling sering dipakai, bukan mana '
     + 'yang paling besar omsetnya; keduanya sering menjawab berbeda, dan kolom omsetnya tetap ada '
-    + 'di sebelahnya.</div>'
-    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Metode</th>'
+    + 'di sebelahnya.'
+    + (Object.keys(kbPeta).length
+      ? ' Tiap barisnya <b>dirinci per metode bayar</b> di baris-baris di bawahnya — di situlah '
+        + 'ONLINE berdiri sebagai GrabFood dan GoFood.'
+      : '')
+    + '</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Cara Datang</th>'
     + '<th class="num">Jumlah Transaksi</th><th class="num">% transaksi</th>'
     + '<th class="num">Jumlah Omset</th><th class="num">% omset</th>'
     + '<th class="num">Rata-rata per transaksi</th><th style="width:16%"></th></tr></thead><tbody>';
@@ -3625,6 +3744,27 @@ function vKunjungan() {
       + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
         + '<div style="width:' + Math.round(x.bill / punB * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
       + '</tr>';
+
+    /* RINCIAN PER METODE BAYAR — inilah jawaban "ONLINE itu GrabFood atau
+       GoFood". Digambar LANGSUNG, bukan di balik klik: yang membuka halaman ini
+       sedang membawa pertanyaan itu, dan jawaban yang harus dicari dulu sama
+       saja belum dijawab.
+
+       PENYEBUT KEDUA KOLOM PERSENNYA BARIS INDUKNYA, bukan sebulan — dan itu
+       DISEBUT DI SELNYA, bukan cuma di kepala kolom. Kepala kolom dibaca
+       sekali, angkanya dibaca tiap baris; pelajaran empat putaran pertanyaan
+       di kolom Kontribusi halaman Pengaruh Event. */
+    bayarDari(x.n).forEach(y => {
+      h += '<tr style="background:var(--panel2)">'
+        + '<td></td>'
+        + '<td style="padding-left:24px" class="muted">↳ ' + esc(y.n) + '</td>'
+        + '<td class="num">' + y.bill.toLocaleString('id-ID') + '</td>'
+        + '<td class="num">' + pct(y.bill, x.bill) + '% <span class="muted">dari ' + esc(x.n) + '</span></td>'
+        + '<td class="num mono">' + rp0(y.grand) + '</td>'
+        + '<td class="num">' + pct(y.grand, x.grand) + '% <span class="muted">dari ' + esc(x.n) + '</span></td>'
+        + '<td class="num mono">' + (y.bill ? rp0(y.grand / y.bill) : '—') + '</td>'
+        + '<td></td></tr>';
+    });
   });
 
   h += '</tbody><tfoot><tr><th></th><th>Total</th>'
@@ -5277,6 +5417,13 @@ const KOL_CARI = {
      halamannya cuma kosong dan menyuruh mengunggah ulang, jadi kalau POS
      suatu hari menamainya lain, yang perlu ditambah daftar di bawah ini. */
   kunjung : ['visit purpose','visit purpose name','visit type','order type','sales type','order channel'],
+  /* METODE PEMBAYARAN (permintaan user 13 September 2026). HANYA ADA DI DETAIL
+     REPORT — diperiksa atas kedua berkas POS Agustus 2026: Bill Report tidak
+     punya kolom ini sama sekali, jadi ketiadaannya di sana BUKAN berarti
+     kolomnya lupa dicentang saat ekspor. Halamannya membedakan kedua sebab
+     itu; disamakan, yang membacanya akan mengekspor ulang Bill Report
+     berkali-kali untuk kolom yang memang tidak pernah ada di sana. */
+  bayar : ['payment method','payment methods','payment type','metode pembayaran','payment'],
   menu  : ['menu','menu name','product','product name','item','item name','nama menu'],
   qty   : ['qty','quantity','jumlah','qty sold','sold'],
   nilai : ['menu total','item total','total menu','sales amount','subtotal'],
@@ -5339,6 +5486,108 @@ function cariBarisKepala(baris) {
   return -1;
 }
 const angka = v => { const n = parseFloat(String(v == null ? '' : v).replace(/[^0-9.\-]/g, '')); return isNaN(n) ? 0 : n; };
+/* ANGKA YANG DITULIS UNTUK DIBACA ORANG, bukan nilai sel mentah.
+
+   angka() di atas benar untuk sel .xlsx numerik — di sana titik memang pemisah
+   DESIMAL. Ia SALAH untuk angka yang ditulis sebagai TEKS berformat Indonesia,
+   dan salahnya berbeda besarnya di tiap bentuk:
+
+     "4.167.925"  -> 4,167   parseFloat berhenti di titik KEDUA
+     "25.000"     -> 25      seribu kali lebih kecil
+
+   Itu bukan kemungkinan yang dikarang: nominal di kolom Payment Method ditulis
+   persis begitu — "QRIS BRI (500.000),QRIS MANDIRI (4.167.925)" — dan dibaca
+   angka(), rasio pembagiannya jadi 500 : 4,167 yaitu 99% untuk QRIS BRI
+   padahal yang benar 11%. Jebakan yang sama sudah dibayar di baris total
+   Promotion Report. */
+const angkaTampil = t => {
+  let s = String(t == null ? '' : t).trim().replace(/[^0-9.,\-]/g, '');
+  if (!s) return 0;
+  const dot = s.lastIndexOf('.'), com = s.lastIndexOf(',');
+  /* Yang MUNCUL PALING BELAKANG adalah pemisah desimalnya. Aturan itu benar
+     untuk "1.234,56" (Indonesia) maupun "1,234.56" (Inggris), jadi berkas yang
+     suatu hari berganti setelan tidak diam-diam terbaca seribu kali lipat. */
+  if (dot > -1 && com > -1) s = (com > dot) ? s.replace(/\./g, '').replace(',', '.') : s.replace(/,/g, '');
+  else if (com > -1) s = /,\d{1,2}$/.test(s) ? s.replace(',', '.') : s.replace(/,/g, '');
+  else if (dot > -1 && /^-?\d{1,3}(\.\d{3})+$/.test(s)) s = s.replace(/\./g, '');
+  const n = parseFloat(s);
+  return isNaN(n) ? 0 : n;
+};
+
+/* ---- SATU BILL BISA DIBAYAR LEBIH DARI SATU METODE ----
+   (13 September 2026, permintaan user: "berdasarkan juga payment method".)
+
+   POS menulis pembayaran gabungan sebagai SATU STRING berikut nominalnya:
+
+     "VOUCHER (25.000),QRIS MANDIRI (15.250)"
+
+   Dikelompokkan apa adanya, string itu berdiri sebagai metode tersendiri —
+   Agustus 2026 menghasilkan 90-an "metode" yang masing-masing dipakai satu
+   dua kali, dan yang sungguhan (QRIS, CASH, EDC) terkubur di antaranya.
+   Karena itu dipecah jadi komponennya.
+
+   DIPECAH PADA KOMA DI LUAR KURUNG. Nominal di berkas ini memakai titik
+   sebagai pemisah ribuan, jadi koma polos aman hari ini — tapi berkas yang
+   suatu hari menulis "CASH (1,500)" akan terbelah di tengah angkanya dan
+   melahirkan dua metode hantu bernama "CASH (1" dan "500)". */
+const pecahBayar = teks => {
+  const t = String(teks == null ? '' : teks).trim();
+  if (!t) return [];
+  const out = [];
+  t.split(/,(?![^()]*\))/).forEach(p => {
+    const x = p.trim();
+    if (!x) return;
+    const m = x.match(/^(.*?)\s*\(([^()]*)\)\s*$/);
+    /* Tanpa kurung berarti metode TUNGGAL — nominalnya seluruh tagihan, dan
+       itu ditandai null BUKAN 0, supaya bisa dibedakan dari nominal nol yang
+       memang tertulis ("VOUCHER (0),QRIS MANDIRI (45.000)"). */
+    if (m) out.push({ nama: m[1].trim().toUpperCase(), nom: angkaTampil(m[2]) });
+    else out.push({ nama: x.toUpperCase(), nom: null });
+  });
+  return out;
+};
+
+/* NOMINAL TUNAI ADALAH UANG YANG DISERAHKAN, BUKAN YANG DITERIMA —
+   kembaliannya dikembalikan, jadi jumlah nominal sebuah bill bisa LEBIH BESAR
+   daripada tagihannya.
+
+   Bukan dugaan. Dari 393 bill berpembayaran gabungan di Agustus 2026, 115 yang
+   jumlah nominalnya tidak sama dengan tagihan SELURUHNYA punya komponen tunai,
+   selisihnya selalu MUAT di komponen itu, dan tidak satu pun yang jumlahnya
+   lebih KECIL daripada tagihan. Membagi selisihnya rata ke semua komponen
+   membuat VOUCHER Agustus berbunyi Rp3.248.559 — padahal voucher di sini
+   kelipatan Rp25.000 dan yang benar Rp3.617.500. */
+const BAYAR_TUNAI = /\bCASH\b|\bTUNAI\b/;
+
+/* Porsi tiap komponen terhadap tagihan bill. SELALU berjumlah 1, apa pun
+   bentuk nominalnya — itu yang menjaga kolom omset halaman Metode Kunjungan
+   tetap berjumlah pas ke total sebulan, dan itu satu-satunya pemeriksaan di
+   halaman itu yang tidak bisa basi sendiri. */
+function porsiBayar(parts, grand) {
+  const n = parts.length;
+  if (!n) return { porsi: [], rata: false };
+  if (n === 1) return { porsi: [1], rata: false };
+  const nom = parts.map(p => (p.nom == null || p.nom < 0) ? 0 : p.nom);
+  let jum = nom.reduce((a, x) => a + x, 0);
+  const lebih = jum - grand;
+  if (lebih > 0) {
+    const i = parts.findIndex(p => BAYAR_TUNAI.test(p.nama));
+    /* Dipotong dari komponen TUNAInya, bukan dibagi rata — lihat BAYAR_TUNAI.
+       Kalau tidak ada komponen tunai (atau nominalnya tidak cukup menampung
+       selisihnya), kelebihannya dibiarkan dan porsinya tetap menurut nominal:
+       menebak siapa yang menerima kembalian berarti menggeser uang ke metode
+       yang tidak pernah menerimanya. */
+    if (i > -1 && nom[i] >= lebih) { nom[i] -= lebih; jum = grand; }
+  }
+  /* Nominalnya tidak terbaca sama sekali — string gabungan tanpa satu pun
+     kurung. Dibagi RATA, bukan diberikan penuh ke masing-masing: yang kedua
+     membuat omset halaman ini lebih besar daripada omset bulan itu, dan
+     selisih semacam itu dicari orang di tempat yang salah. Jumlahnya DISEBUT
+     di layar; ditebak diam-diam, tidak ada yang bisa memeriksanya. */
+  if (jum <= 0) return { porsi: parts.map(() => 1 / n), rata: true };
+  return { porsi: nom.map(x => x / jum), rata: false };
+}
+
 /* JAM dari tiga bentuk yang semuanya muncul di berkas POS, memulangkan -1
    kalau tidak ada jam yang bisa dibaca:
 
@@ -5464,6 +5713,23 @@ function ringkasPos(baris, namaBerkas) {
   const kategori = {}, katMenu = {};
   /* kunjung[metode] = {grand, bill} — dari kolom Visit Purpose. */
   const kunjung = {}, bKunjung = {};
+  /* METODE PEMBAYARAN (13 September 2026), dari kolom Payment Method.
+
+     DIKUMPULKAN PER BILL DULU, bukan langsung per baris — dan itu bukan
+     pilihan gaya: porsi tiap metode baru bisa dihitung sesudah TAGIHAN
+     SELURUH BILL diketahui, karena nominal tunai adalah uang yang diserahkan
+     dan kembaliannya baru bisa dipotong kalau tagihannya sudah lengkap (lihat
+     porsiBayar). Dibagi per baris, nominal yang sama dipakai berkali-kali —
+     sekali untuk tiap menu di bill itu.
+
+       pbBill[kunciBill] = { pm, grand, vp:{ visitPurpose: omsetBarisnya } }
+
+     vp ikut dicatat supaya silang "cara datang x metode bayar" lahir dari
+     pembagian yang SAMA. Dihitung di tempat kedua, halaman ini akan menyebut
+     angka lain daripada tabel di atasnya untuk bulan yang sama. */
+  const pbBill = {};
+  const bayar = {}, bBayar = {}, kunjungBayar = {}, bKunjungBayar = {};
+  let nBayarRata = 0;
   const r = { bill:0, grand:0, net:0, sub:0, svc:0, tax:0,
               discMenu:0, discBill:0, discVoucher:0, pax:0, billPax:0 };
   let nLewat = 0, nRow = 0;
@@ -5554,6 +5820,22 @@ function ringkasPos(baris, namaBerkas) {
       kunjung[vp].grand += g;
       if (punyaBill) (bKunjung[vp] = bKunjung[vp] || new Set()).add(noBill);
       else kunjung[vp].bill++;
+    }
+
+    /* METODE PEMBAYARAN — dikumpulkan, dibaginya sesudah loop ini selesai.
+       Kuncinya nomor bill; berkas tanpa nomor bill memperlakukan tiap baris
+       sebagai satu transaksi, aturan yang sama dengan r.bill di atas. */
+    if (K.bayar) {
+      const kb = punyaBill ? noBill : ('#' + nRow);
+      const pb = pbBill[kb] || (pbBill[kb] = { pm:'', grand:0, vp:{} });
+      /* Yang PERTAMA TERISI yang dipakai. Diukur atas Agustus 2026: tidak ada
+         satu pun bill yang barisnya menyebut metode berbeda — kolom ini
+         memang milik bill, bukan milik baris menu. Yang mungkin terjadi cuma
+         sebagian barisnya kosong. */
+      if (!pb.pm) pb.pm = String(b[K.bayar] || '').trim();
+      pb.grand += g;
+      const vpb = K.kunjung ? (String(b[K.kunjung] || '').trim().toUpperCase() || KUN_TANPA) : KUN_TANPA;
+      pb.vp[vpb] = (pb.vp[vpb] || 0) + g;
     }
 
     if (jenis === 'menu') {
@@ -5648,6 +5930,45 @@ function ringkasPos(baris, namaBerkas) {
     });
     Object.keys(bKunjung).forEach(k => { kunjung[k].bill = bKunjung[k].size; });
   }
+  /* ---- METODE PEMBAYARAN: bagi tiap bill ke komponennya ----
+     Dikerjakan sesudah seluruh baris dibaca, karena porsinya butuh tagihan
+     bill yang lengkap. */
+  Object.keys(pbBill).forEach(kb => {
+    const pb = pbBill[kb];
+    const parts = pecahBayar(pb.pm);
+    /* Kolomnya kosong: diberi NAMANYA SENDIRI, tidak dibuang dan tidak
+       dijatuhkan ke metode pertama — ia tetap membawa omset, dan membuangnya
+       membuat jumlah metode berhenti sama dengan totalnya. Aturan yang sama
+       dengan KAT_TANPA dan katEvent(). */
+    if (!parts.length) parts.push({ nama: KUN_TANPA, nom: null });
+    const bagi = porsiBayar(parts, pb.grand);
+    if (bagi.rata) nBayarRata++;
+    parts.forEach((p, i) => {
+      const nm = p.nama;
+      if (!bayar[nm]) bayar[nm] = { grand:0, bill:0 };
+      bayar[nm].grand += pb.grand * bagi.porsi[i];
+      (bBayar[nm] = bBayar[nm] || new Set()).add(kb);
+      /* Silang cara-datang x metode-bayar, dan inilah yang menjawab
+         "pembayarannya ONLINE itu GoFood atau GrabFood". Bill yang barisnya
+         memuat lebih dari satu Visit Purpose dibagi menurut omset barisnya
+         sendiri — dijatuhkan ke salah satunya, jumlah baris silang berhenti
+         sama dengan baris induknya di tabel yang sama. */
+      Object.keys(pb.vp).forEach(vp => {
+        const k = vp + '|' + nm;
+        if (!kunjungBayar[k]) kunjungBayar[k] = { grand:0, bill:0 };
+        kunjungBayar[k].grand += pb.vp[vp] * bagi.porsi[i];
+        (bKunjungBayar[k] = bKunjungBayar[k] || new Set()).add(kb);
+      });
+    });
+  });
+  /* Set WAJIB diubah jadi angka sebelum disimpan — Set tidak bisa di-JSON-kan,
+     dan dikirim apa adanya ia jadi {} sehingga SELURUH jumlah transaksi
+     berbunyi nol tanpa satu pun galat. Pelajaran yang sudah dibayar di
+     halaman Promo & Klaim. */
+  Object.keys(bBayar).forEach(k => { bayar[k].bill = bBayar[k].size; });
+  Object.keys(bKunjungBayar).forEach(k => { kunjungBayar[k].bill = bKunjungBayar[k].size; });
+  r.bayarRata = nBayarRata;
+
   if (!nRow) throw new Error('Tidak ada satu pun baris yang punya tanggal terbaca.');
 
   /* Bulan dengan baris terbanyak yang dipakai. Berkas yang menyeberang bulan
@@ -5666,7 +5987,8 @@ function ringkasPos(baris, namaBerkas) {
   const tglU = Object.keys(hari).sort();
 
   r.ukYatim = nUkYatim;
-  return { bulan, jenis, berkas:namaBerkas, hari, jam, hariJam, menu, paket, ukuran, kategori, katMenu, kunjung, ringkas:r,
+  return { bulan, jenis, berkas:namaBerkas, hari, jam, hariJam, menu, paket, ukuran, kategori, katMenu,
+           kunjung, bayar, kunjungBayar, ringkas:r,
            nBaris:nRow, nLewat, blnLain, billDariBaris:!punyaBill,
            tglAwal:tglU[0] || '', tglAkhir:tglU[tglU.length - 1] || '' };
 }
@@ -5965,7 +6287,8 @@ async function anSimpanUnggah() {
   AN.data.laporan[u.bulan] = {
     diunggah: u.diunggah, oleh: u.oleh, berkas: u.berkas, jenis: u.jenis,
     hari: u.hari, jam: u.jam, hariJam: u.hariJam, menu: u.menu, paket: u.paket, ukuran: u.ukuran,
-    kategori: u.kategori, katMenu: u.katMenu, kunjung: u.kunjung, ringkas: u.ringkas
+    kategori: u.kategori, katMenu: u.katMenu, kunjung: u.kunjung,
+    bayar: u.bayar, kunjungBayar: u.kunjungBayar, ringkas: u.ringkas
   };
   if (await simpan()) {
     UNGGAH_HASIL = null; BLN = u.bulan;

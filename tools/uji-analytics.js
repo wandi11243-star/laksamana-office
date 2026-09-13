@@ -2179,7 +2179,9 @@ async function siap(w) {
 
     w.go('kunjungan'); await tunggu(60);
     const v = d.getElementById('app-view').innerHTML;
-    const tbl = v.slice(v.indexOf('Per Metode'));
+    /* Judulnya "Per Metode" sampai 13 September 2026; sejak halaman ini
+       memajang dua dimensi, tabelnya dinamai dimensinya sendiri. */
+    const tbl = v.slice(v.indexOf('Cara Tamu Datang'));
     const nama = (tbl.match(/<td><b>[^<]+<\/b><\/td>/g) || []).map(x => x.replace(/<[^>]*>/g, ''));
 
     cek('halaman Metode Kunjungan menggambar tabelnya', nama.length === 5, nama.join(' | '));
@@ -2188,10 +2190,13 @@ async function siap(w) {
        tiga — diurut menurut omset, ESB ORDER yang naik ke atas. */
     cek('diurut menurut jumlah transaksi, bukan omset',
         nama[0] === 'DINE IN', nama.join(' | '));
-    cek('kartu Paling Sering menyebut metodenya',
-        v.indexOf('Paling Sering') > -1 && v.slice(v.indexOf('Paling Sering'),
-          v.indexOf('Paling Sering') + 300).indexOf('DINE IN') > -1,
-        v.slice(v.indexOf('Paling Sering'), v.indexOf('Paling Sering') + 300));
+    /* Label kartunya menyebut DIMENSINYA. Sejak halaman ini memajang cara
+       datang DAN metode bayar, "Paling Sering" saja tidak mengatakan yang mana
+       — bentuk pertanyaan yang sama dengan kolom "Kontribusi" tanpa penyebut. */
+    cek('kartu Cara Datang Terbanyak menyebut caranya',
+        v.indexOf('Cara Datang Terbanyak') > -1 && v.slice(v.indexOf('Cara Datang Terbanyak'),
+          v.indexOf('Cara Datang Terbanyak') + 300).indexOf('DINE IN') > -1,
+        v.slice(v.indexOf('Cara Datang Terbanyak'), v.indexOf('Cara Datang Terbanyak') + 300));
     cek('jumlah transaksi & omsetnya tergambar di barisnya',
         tbl.indexOf('>3</td>') > -1 && tbl.indexOf(w.eval('rp0')(120000)) > -1,
         tbl.slice(0, 900));
@@ -2240,6 +2245,335 @@ async function siap(w) {
     cek('...dan kemungkinan keduanya: berkas POS tanpa kolom itu',
         v.indexOf('memang tidak punya kolom itu') > -1);
     dom.window.close();
+  }
+
+
+  /* ================= METODE PEMBAYARAN (Payment Method) =================
+     Permintaan user 13 September 2026: "metode ini jangan dilihat dari visit
+     purpose, tapi berdasarkan juga payment method; semisalnya payment
+     methodnya online, itu ada yg grabfood ada yg gofood, minta bantu juga
+     dijabarkan".
+
+     TIGA hal yang gagal TANPA satu pun galat kalau lepas, dan fixture di bawah
+     dirancang supaya ketiganya punya tempat untuk muncul:
+
+       1. Pembayaran gabungan TIDAK dipecah — "VOUCHER (25.000),CASH (50.000)"
+          berdiri sebagai metode tersendiri. Di produksi ini melahirkan 90-an
+          metode palsu yang mengubur yang sungguhan.
+       2. Nominalnya dibaca angka() alih-alih angkaTampil() — "1.234.567"
+          terbaca 1,234 sehingga rasio pembagiannya jungkir balik.
+       3. Kembalian tunai dibagi rata — nominal tunai adalah uang yang
+          DISERAHKAN, jadi jumlahnya melebihi tagihan.
+
+     Angkanya dipilih supaya tiap kesalahan memberi hasil yang BERBEDA, dan
+     tidak satu pun bertabrakan dengan angka lain di halaman yang sama. */
+  console.log('\n== Metode Pembayaran ==');
+  {
+    const { dom } = domAnalytics({});
+    await siap(dom.window);
+    const w = dom.window, d = w.document;
+
+    /* ---- helper sebagai UNIT ---- */
+    const angkaTampil = w.eval('angkaTampil'), pecahBayar = w.eval('pecahBayar'),
+          porsiBayar = w.eval('porsiBayar');
+    /* angka() yang sudah ada BENAR untuk sel .xlsx numerik dan SALAH untuk
+       angka berformat tampilan. Kedua bentuk di bawah dipakai POS di kolom
+       Payment Method, dan salahnya berbeda besarnya di tiap bentuk. */
+    cek('angkaTampil membaca titik sebagai pemisah RIBUAN',
+        angkaTampil('4.167.925') === 4167925 && angkaTampil('25.000') === 25000,
+        angkaTampil('4.167.925') + ' / ' + angkaTampil('25.000'));
+    cek('...angka() yang lama memang salah membacanya (sebab helper ini ada)',
+        w.eval('angka')('4.167.925') !== 4167925, String(w.eval('angka')('4.167.925')));
+    cek('...koma tetap dibaca sebagai desimal kalau ia yang paling belakang',
+        angkaTampil('1.234,56') === 1234.56, String(angkaTampil('1.234,56')));
+    cek('...nol tetap nol, bukan dianggap tidak terbaca', angkaTampil('0') === 0);
+
+    cek('pecahBayar memecah pembayaran gabungan jadi komponennya',
+        pecahBayar('VOUCHER (25.000),QRIS MANDIRI (15.250)').length === 2);
+    /* DIPECAH PADA KOMA DI LUAR KURUNG. Nominal berkoma akan terbelah di
+       tengah angkanya dan melahirkan dua metode hantu. */
+    cek('...tapi TIDAK pada koma di dalam kurung',
+        pecahBayar('CASH (1,500)').length === 1
+        && pecahBayar('CASH (1,500)')[0].nama === 'CASH'
+        && pecahBayar('CASH (1,500)')[0].nom === 1500,
+        JSON.stringify(pecahBayar('CASH (1,500)')));
+    /* null, BUKAN 0 — supaya bisa dibedakan dari nominal nol yang memang
+       tertulis ("VOUCHER (0),QRIS MANDIRI (45.000)"). */
+    cek('metode tunggal tidak punya nominal, dan itu null bukan 0',
+        pecahBayar('QRIS MANDIRI')[0].nom === null,
+        JSON.stringify(pecahBayar('QRIS MANDIRI')));
+
+    /* Tagihan Rp40.000 dibayar voucher Rp25.000 + tunai Rp50.000 diserahkan.
+       Kembaliannya Rp35.000, dan itu DIPOTONG DARI TUNAINYA — dibagi rata,
+       voucher berbunyi Rp13.333 padahal voucher di sini kelipatan Rp25.000. */
+    {
+      const p = porsiBayar([{ nama:'VOUCHER', nom:25000 }, { nama:'CASH', nom:50000 }], 40000);
+      cek('kembalian dipotong dari komponen TUNAInya, bukan dibagi rata',
+          Math.abs(p.porsi[0] * 40000 - 25000) < 0.001 && Math.abs(p.porsi[1] * 40000 - 15000) < 0.001,
+          JSON.stringify(p.porsi.map(x => x * 40000)));
+    }
+    /* Tanpa komponen tunai, kelebihannya TIDAK ditebak jatuh ke mana pun —
+       porsinya tetap menurut nominal. */
+    cek('porsi selalu berjumlah 1, apa pun bentuk nominalnya',
+        Math.abs(porsiBayar([{ nama:'A', nom:3 }, { nama:'B', nom:1 }], 100).porsi
+          .reduce((a, x) => a + x, 0) - 1) < 1e-9);
+    {
+      const p = porsiBayar([{ nama:'A', nom:null }, { nama:'B', nom:null }], 100);
+      cek('nominal yang tidak terbaca dibagi rata DAN ditandai', p.rata === true);
+      /* Diberikan PENUH ke masing-masing, omset halaman ini jadi lebih besar
+         daripada omset bulan itu — dan selisih semacam itu dicari orang di
+         tempat yang salah. Yang dijaga PORSINYA, bukan penandanya. */
+      cek('...dan porsinya tetap berjumlah 1, bukan 1 untuk masing-masing',
+          Math.abs(p.porsi.reduce((a, x) => a + x, 0) - 1) < 1e-9, JSON.stringify(p.porsi));
+    }
+
+    /* ---- pengurai atas fixture ---- */
+    const rows = [
+      { a:'Sales Date', b:'Bill Number', c:'Menu', d:'Qty', e:'Subtotal',
+        f:'Total After Bill Discount', g:'Visit Purpose', h:'Payment Method' },
+      /* B1: DUA baris menu, SATU transaksi, metode tunggal. */
+      { a:'2026-08-01', b:'B1', c:'NASI GORENG', d:'1', e:'50000', f:'50000', g:'DINE IN', h:'QRIS MANDIRI' },
+      { a:'2026-08-01', b:'B1', c:'ES TEH',      d:'2', e:'20000', f:'20000', g:'DINE IN', h:'QRIS MANDIRI' },
+      /* B2: gabungan voucher + TUNAI YANG DISERAHKAN Rp50.000 untuk tagihan
+         Rp40.000. Dua baris menu — kalau porsinya dihitung per BARIS alih-alih
+         per BILL, voucher berbunyi Rp28.333, bukan Rp25.000. */
+      { a:'2026-08-01', b:'B2', c:'KOPI',  d:'1', e:'30000', f:'30000', g:'DINE IN', h:'VOUCHER (25.000),CASH (50.000)' },
+      { a:'2026-08-01', b:'B2', c:'ROTI',  d:'1', e:'10000', f:'10000', g:'DINE IN', h:'VOUCHER (25.000),CASH (50.000)' },
+      /* ONLINE pecah jadi DUA metode — inilah yang ditanyakan user. */
+      { a:'2026-08-01', b:'B3', c:'PAKET', d:'1', e:'60000', f:'60000', g:'ONLINE', h:'GRABFOOD' },
+      { a:'2026-08-01', b:'B4', c:'PAKET', d:'1', e:'24000', f:'24000', g:'ONLINE', h:'GOFOOD' },
+      /* B5: gabungan yang nominalnya PAS — tidak ada kembalian. */
+      { a:'2026-08-02', b:'B5', c:'STEAK', d:'1', e:'100000', f:'100000', g:'DINE IN', h:'QRIS BRI (100.000),QRIS MANDIRI (80.000)' },
+      { a:'2026-08-02', b:'B5', c:'WINE',  d:'1', e:'80000',  f:'80000',  g:'DINE IN', h:'QRIS BRI (100.000),QRIS MANDIRI (80.000)' },
+      /* Kolomnya kosong: diberi namanya sendiri, tidak dibuang. */
+      { a:'2026-08-02', b:'B6', c:'KOPI',  d:'1', e:'14000', f:'14000', g:'ESB ORDER', h:'' },
+      /* Nominal berpemisah ribuan TIGA kelompok. Dibaca angka(), "1.234.567"
+         jadi 1,234 dan "500.000" jadi 500 — rasionya jungkir balik dari
+         29:71 jadi 99:1, dan TRANSFER berbunyi Rp1,7 juta. */
+      { a:'2026-08-02', b:'B7', c:'PESTA', d:'1', e:'1000000', f:'1000000', g:'DINE IN', h:'TRANSFER (500.000),QRIS MANDIRI (1.234.567)' },
+      { a:'2026-08-02', b:'B7', c:'DEKOR', d:'1', e:'734567',  f:'734567',  g:'DINE IN', h:'TRANSFER (500.000),QRIS MANDIRI (1.234.567)' },
+      /* B8: gabungan TANPA satu pun nominal. Omsetnya dibagi RATA — dan yang
+         dijaga porsinya tetap berjumlah 1, bukan 1 untuk masing-masing. */
+      { a:'2026-08-02', b:'B8', c:'SNACK', d:'1', e:'8000', f:'8000', g:'DINE IN', h:'EDC BCA,MEMBER DEPOSIT' },
+      /* B9: GOFOOD dipakai bill KEDUA. Tanpa ini, urutan menurut jumlah
+         transaksi kebetulan SAMA PERSIS dengan urutan menurut omset, dan
+         mutasi "diurut menurut omset" tidak menggeser satu baris pun. */
+      { a:'2026-08-02', b:'B9', c:'PAKET', d:'1', e:'6000', f:'6000', g:'ONLINE', h:'GOFOOD' },
+      /* B10: SATU bill, DUA cara datang. Tanpa bentuk ini, pb.vp[vp] selalu
+         sama dengan pb.grand — jadi silang yang dibagi menurut tagihan BILL
+         (bukan menurut omset baris cara datangnya) memberi angka yang sama
+         persis, dan kesalahannya tidak punya tempat untuk muncul. */
+      { a:'2026-08-02', b:'B10', c:'MEJA', d:'1', e:'12000', f:'12000', g:'DINE IN', h:'QRIS BRI' },
+      { a:'2026-08-02', b:'B10', c:'ANTAR', d:'1', e:'3000', f:'3000', g:'ONLINE', h:'QRIS BRI' }
+    ];
+    const u = w.eval('ringkasPos')(rows, 'x.xlsx');
+    const by = u.bayar || {};
+
+    cek('metode pembayaran terbaca dari kolom Payment Method',
+        Object.keys(by).length === 10, JSON.stringify(Object.keys(by)));
+    /* Kalau gabungannya TIDAK dipecah, string utuhnya berdiri sebagai metode. */
+    cek('pembayaran gabungan dipecah, bukan berdiri sebagai metode sendiri',
+        !by['VOUCHER (25.000),CASH (50.000)'] && !!by['VOUCHER'] && !!by['CASH'],
+        JSON.stringify(Object.keys(by)));
+    cek('voucher menerima nominalnya sendiri, bukan porsi rata',
+        Math.abs(by['VOUCHER'].grand - 25000) < 0.01, String(by['VOUCHER'].grand));
+    cek('tunai menerima SISANYA, bukan uang yang diserahkan',
+        Math.abs(by['CASH'].grand - 15000) < 0.01, String(by['CASH'].grand));
+    cek('nominal berpemisah ribuan dibaca utuh',
+        Math.abs(by['TRANSFER'].grand - 500000) < 0.01, String(by['TRANSFER'].grand));
+    /* Satu metode yang dipakai tiga bill berbeda — dua di antaranya lewat
+       pembayaran gabungan. */
+    cek('satu metode menjumlahkan seluruh bill yang memakainya',
+        by['QRIS MANDIRI'].bill === 3 && Math.abs(by['QRIS MANDIRI'].grand - 1384567) < 0.01,
+        JSON.stringify(by['QRIS MANDIRI']));
+    cek('yang kolomnya kosong diberi namanya sendiri, tidak dibuang',
+        !!by['(tanpa keterangan)'] && by['(tanpa keterangan)'].grand === 14000,
+        JSON.stringify(by['(tanpa keterangan)']));
+    /* TRANSAKSI dari nomor bill yang berbeda, bukan jumlah baris: B1, B2, B5,
+       dan B7 masing-masing dua baris. */
+    cek('transaksi dihitung dari nomor bill yang berbeda, bukan jumlah baris',
+        by['VOUCHER'].bill === 1 && by['GRABFOOD'].bill === 1,
+        JSON.stringify({ voucher: by['VOUCHER'].bill, grab: by['GRABFOOD'].bill }));
+
+    /* INVARIAN TERKUAT DI BAGIAN INI: kolom omset WAJIB berjumlah pas ke total
+       sebulan. Ia yang menangkap pembagian apa pun yang salah — proporsional
+       yang keliru, nominal yang salah baca, atau porsi yang tidak berjumlah 1. */
+    cek('jumlah omset seluruh metode bayar sama dengan total sebulan',
+        Math.abs(Object.keys(by).reduce((a, k) => a + by[k].grand, 0) - u.ringkas.grand) < 0.01,
+        Object.keys(by).reduce((a, k) => a + by[k].grand, 0) + ' vs ' + u.ringkas.grand);
+    /* ...sementara kolom transaksinya TIDAK boleh dijumlahkan: tiga bill di
+       fixture ini dibayar dua metode, jadi 10 > 7. Itu bukan galat, tapi WAJIB
+       dikatakan di layar (diuji di bawah). */
+    cek('jumlah transaksi per metode LEBIH BESAR daripada bill sungguhan',
+        Object.keys(by).reduce((a, k) => a + by[k].bill, 0) === 14 && u.ringkas.bill === 10,
+        Object.keys(by).reduce((a, k) => a + by[k].bill, 0) + ' vs ' + u.ringkas.bill);
+
+    /* Gabungan tanpa nominal: dibagi RATA, dan jumlahnya DICATAT supaya bisa
+       disebut di layar. Perkiraan yang tidak dikatakan tidak bisa diperiksa
+       siapa pun. */
+    cek('gabungan tanpa nominal dibagi rata ke tiap metodenya',
+        Math.abs(by['EDC BCA'].grand - 4000) < 0.01 && Math.abs(by['MEMBER DEPOSIT'].grand - 4000) < 0.01,
+        JSON.stringify({ bca: by['EDC BCA'].grand, dep: by['MEMBER DEPOSIT'].grand }));
+    cek('...dan jumlahnya dicatat untuk disebut di layar', u.ringkas.bayarRata === 1,
+        String(u.ringkas.bayarRata));
+
+    /* ---- SILANG cara datang x metode bayar ---- */
+    const kb = u.kunjungBayar || {};
+    cek('ONLINE dirinci jadi GrabFood dan GoFood',
+        Math.abs((kb['ONLINE|GRABFOOD'] || {}).grand - 60000) < 0.01
+        && Math.abs((kb['ONLINE|GOFOOD'] || {}).grand - 30000) < 0.01,
+        JSON.stringify(Object.keys(kb).filter(k => k.indexOf('ONLINE|') === 0)));
+    /* B10 satu bill dua cara datang: silangnya dibagi menurut OMSET BARISNYA,
+       bukan menurut tagihan bill. Dibagi menurut tagihan bill, keduanya
+       menerima Rp15.000 dan rincian tiap cara datang berhenti berjumlah sama
+       dengan baris induknya (diuji tepat di bawah). */
+    cek('bill yang barisnya dua cara datang dibagi menurut omset barisnya',
+        Math.abs((kb['ONLINE|QRIS BRI'] || {}).grand - 3000) < 0.01
+        && Math.abs((kb['DINE IN|QRIS BRI'] || {}).grand - 112000) < 0.01,
+        JSON.stringify({ on: (kb['ONLINE|QRIS BRI'] || {}).grand, di: (kb['DINE IN|QRIS BRI'] || {}).grand }));
+    /* INVARIAN: rincian tiap cara datang WAJIB berjumlah sama dengan baris
+       induknya. Kalau tidak, dua angka untuk hal yang sama berdiri di satu
+       tabel — dan yang membandingkannya tidak punya cara tahu mana yang benar. */
+    Object.keys(u.kunjung).forEach(vp => {
+      const g = Object.keys(kb).filter(k => k.slice(0, vp.length + 1) === vp + '|')
+                  .reduce((a, k) => a + kb[k].grand, 0);
+      cek('rincian ' + vp + ' berjumlah sama dengan baris induknya',
+          Math.abs(g - u.kunjung[vp].grand) < 0.01, g + ' vs ' + u.kunjung[vp].grand);
+    });
+
+    /* ---- lewat JALUR SIMPANNYA, bukan disuntikkan langsung ----
+       Daftar kunci tertutup di anSimpanUnggah() adalah tempat paket,
+       kategori, dan katMenu tertinggal lima hari tanpa satu pun galat. */
+    w.eval('AN.data.laporan = {}');
+    w.eval('UNGGAH_HASIL = Object.assign({ diunggah:"2026-09-13", oleh:"Uji" }, '
+      + JSON.stringify(u) + ')');
+    await w.eval('anSimpanUnggah()');
+    cek('bayar & kunjungBayar bertahan lewat putaran simpan',
+        !!w.eval('AN.data.laporan["2026-08"].bayar')
+        && !!w.eval('AN.data.laporan["2026-08"].kunjungBayar'));
+
+    /* ---- layarnya ---- */
+    w.go('kunjungan'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+    const iBayar = v.indexOf('Metode Pembayaran'), iDatang = v.indexOf('Cara Tamu Datang');
+    cek('kedua tabelnya digambar', iBayar > -1 && iDatang > iBayar,
+        'bayar=' + iBayar + ' datang=' + iDatang);
+    const tBayar = v.slice(iBayar, iDatang), tDatang = v.slice(iDatang);
+    const namaDi = html => (html.match(/<td><b>[^<]+<\/b><\/td>/g) || []).map(x => x.replace(/<[^>]*>/g, ''));
+
+    const nb = namaDi(tBayar);
+    cek('tabel metode bayar memuat kesepuluh metodenya', nb.length === 10, nb.join(' | '));
+    /* DIURUT MENURUT JUMLAH TRANSAKSI, sama dengan tabel di bawahnya.
+       Memeriksa baris PERTAMA saja tidak cukup: QRIS MANDIRI kebetulan
+       teratas menurut kedua-duanya. Yang membedakan baris KEDUA — QRIS BRI
+       dipakai 2 bill dengan omset Rp115.000, sementara TRANSFER cuma 1 bill
+       tapi Rp500.000. Diurut menurut omset, TRANSFER yang naik. */
+    cek('diurut menurut jumlah transaksi, bukan omset',
+        nb[0] === 'QRIS MANDIRI' && nb[1] === 'QRIS BRI', nb.join(' | '));
+    cek('GrabFood & GoFood berdiri sebagai metodenya sendiri',
+        nb.indexOf('GRABFOOD') > -1 && nb.indexOf('GOFOOD') > -1, nb.join(' | '));
+    cek('omset tiap metode tergambar', tBayar.indexOf(w.eval('rp0')(500000)) > -1, tBayar.slice(0, 900));
+    cek('kaki tabelnya berjumlah total sebulan',
+        tBayar.indexOf(w.eval('rp0')(2151567)) > -1, tBayar.slice(tBayar.indexOf('<tfoot>'), tBayar.indexOf('<tfoot>') + 400));
+    cek('pembagian rata yang cuma perkiraan dikatakan di layar',
+        tBayar.indexOf('dibagi rata ke tiap metodenya') > -1, tBayar.slice(-900));
+
+    /* Kolom transaksi TIDAK bisa dijumlahkan, kolom omset bisa — dan keduanya
+       berdiri bersebelahan di satu baris, jadi bedanya wajib dikatakan. */
+    cek('kolom transaksi yang tidak bisa dijumlahkan DIKATAKAN, berikut angkanya',
+        tBayar.indexOf('tidak bisa dijumlahkan') > -1 && tBayar.indexOf('>14<') > -1,
+        tBayar.slice(tBayar.indexOf('<tfoot>')));
+    /* Kembalian tunai adalah keputusan tentang uang — disebut di LAYAR, bukan
+       cuma di komentar kodenya. */
+    cek('aturan kembalian tunai dikatakan di layar',
+        tBayar.indexOf('uang yang diserahkan') > -1, tBayar.slice(-700));
+
+    /* ---- rincian di tabel cara datang: jawaban pertanyaan aslinya ---- */
+    const barisVp = n => {
+      const i = tDatang.indexOf('<td><b>' + n + '</b></td>');
+      if (i < 0) return '';
+      const sisa = tDatang.slice(i + 1);
+      const j = sisa.indexOf('<td><b>');
+      return j < 0 ? sisa : sisa.slice(0, j);
+    };
+    const bOnline = barisVp('ONLINE');
+    cek('baris ONLINE dirinci jadi GrabFood dan GoFood, TANPA harus diklik',
+        bOnline.indexOf('GRABFOOD') > -1 && bOnline.indexOf('GOFOOD') > -1, bOnline.slice(0, 900));
+    cek('...berikut jumlah transaksi & omsetnya masing-masing',
+        bOnline.indexOf(w.eval('rp0')(60000)) > -1 && bOnline.indexOf(w.eval('rp0')(30000)) > -1,
+        bOnline.slice(0, 900));
+    /* PENYEBUT KOLOM PERSEN DI BARIS RINCIAN ADALAH INDUKNYA, bukan sebulan —
+       dan itu disebut DI SELNYA. Kepala kolom dibaca sekali, angkanya dibaca
+       tiap baris; pelajaran empat putaran pertanyaan di kolom Kontribusi.
+
+       DIHITUNG, bukan cuma dicari kata "dari ONLINE": ONLINE punya tiga baris
+       rincian dan tiap barisnya punya DUA kolom persen, jadi enam. Mencari
+       katanya saja meloloskan mutasi yang mencabutnya dari salah satu kolom —
+       bentuk asersi hampa yang sudah dibayar di kolom Kontribusi. */
+    cek('penyebut persen baris rincian disebut di KEDUA kolomnya',
+        (bOnline.match(/dari ONLINE/g) || []).length === 6,
+        String((bOnline.match(/dari ONLINE/g) || []).length) + ' dari 6');
+    /* Dan angkanya memang dihitung terhadap induknya: GrabFood 1 dari 4
+       transaksi ONLINE (25%) dan Rp60.000 dari Rp93.000 (65%). Terhadap
+       sebulan angkanya 7% dan 3% — tidak ada yang bisa tertukar. */
+    {
+      const i = bOnline.indexOf('GRABFOOD');
+      const sel = bOnline.slice(i, i + 700);
+      cek('...dan angkanya dihitung terhadap induknya, bukan terhadap sebulan',
+          sel.indexOf('>' + w.eval('pct')(1, 4) + '% ') > -1
+          && sel.indexOf('>' + w.eval('pct')(60000, 93000) + '% ') > -1, sel);
+    }
+    /* Rincian DINE IN tidak boleh bocor ke baris ONLINE. */
+    cek('rincian sebuah baris tidak bocor ke baris lain',
+        bOnline.indexOf('TRANSFER') < 0 && barisVp('DINE IN').indexOf('TRANSFER') > -1,
+        bOnline.slice(0, 900));
+    dom.window.close();
+  }
+
+  /* Dua keadaan kosong yang bentuk datanya SAMA (sama-sama tanpa metode bayar) tapi
+     tindakannya BERBEDA — dan kalimat yang salah menyuruh orang mengerjakan
+     sesuatu yang tidak akan pernah menolong. */
+  {
+    const dasar = jenis => ({ data: { laporan: { '2026-08': {
+      diunggah:'2026-08-28', oleh:'Wandi', berkas:'x.xlsx', jenis,
+      hari: { '2026-08-01': { bill:10, grand:1000000 } },
+      jam: Array.from({ length: 24 }, () => ({ bill:0, grand:0 })),
+      menu: {}, kunjung: { 'DINE IN': { grand:1000000, bill:10 } },
+      ringkas: { bill:10, grand:1000000, net:900000, svc:0, tax:0, sub:900000,
+                 discMenu:0, discBill:0, discVoucher:0, pax:0, billPax:0 }
+    } }, setting: {} }, akses: {}, peran: {} });
+
+    /* BILL REPORT TIDAK PUNYA kolom Payment Method sama sekali — diperiksa
+       atas kedua berkas POS Agustus 2026. Menyuruh mencentang kolomnya saat
+       ekspor adalah pekerjaan yang tidak akan pernah menolong di sana. */
+    {
+      const { dom } = domAnalytics({ an: dasar('bill') });
+      await siap(dom.window);
+      const w = dom.window;
+      w.go('kunjungan'); await tunggu(60);
+      const v = w.document.getElementById('app-view').innerHTML;
+      cek('Bill Report: dikatakan bentuk laporannya yang tidak punya kolom itu',
+          v.indexOf('DETAIL Report') > -1, v.slice(v.indexOf('Metode Pembayaran'), v.indexOf('Metode Pembayaran') + 800));
+      cek('...dan TIDAK menyuruh mencentang kolomnya saat ekspor',
+          v.slice(v.indexOf('Metode Pembayaran'), v.indexOf('Cara Tamu Datang')).indexOf('ikut dicentang') < 0,
+          v.slice(v.indexOf('Metode Pembayaran'), v.indexOf('Cara Tamu Datang')));
+      dom.window.close();
+    }
+    /* DETAIL REPORT yang diunggah sebelum kolomnya dibaca: unggah ulang. */
+    {
+      const { dom } = domAnalytics({ an: dasar('menu') });
+      await siap(dom.window);
+      const w = dom.window;
+      w.go('kunjungan'); await tunggu(60);
+      const v = w.document.getElementById('app-view').innerHTML;
+      const kartu = v.slice(v.indexOf('Metode Pembayaran'), v.indexOf('Cara Tamu Datang'));
+      cek('Detail Report lama: disuruh unggah ulang, bukan ganti bentuk laporan',
+          kartu.indexOf('Unggah ulang berkas bulan itu') > -1 && kartu.indexOf('DETAIL Report') < 0, kartu);
+      /* Tabel cara datangnya TETAP digambar — yang kurang cuma satu dimensi,
+         bukan seluruh halamannya. */
+      cek('...tabel cara datang tetap digambar', v.indexOf('Cara Tamu Datang') > -1);
+      dom.window.close();
+    }
   }
 
   /* ================= 9. simpan & timpa ================= */

@@ -2229,6 +2229,179 @@ node tools/uji-analytics.js   # 539 pemeriksaan (dari 526)
 Delapan mutasi dicoba, kedelapannya tertangkap — termasuk penyaring yang
 terlalu rakus dan kotak cari yang cuma mencari nama.
 
+
+#### Metode Kunjungan dapat dimensi kedua: METODE PEMBAYARAN (13 Sep 2026)
+
+Permintaan user: *"saya ingin metode ini jangan dilihat dari visit purpose,
+tapi berdasarkan juga payment method. Nah semisalnya di payment methodnya
+online, itu ada yg grab food ada yg gofood, minta bantu juga di jabarkan."*
+
+Halamannya sekarang memajang **dua dimensi yang berbeda**, dan bedanya yang
+membuat keduanya perlu berdiri bersama:
+
+| kolom POS | menjawab | isinya (Agustus 2026) |
+|---|---|---|
+| `Visit Purpose` | **cara tamu datang** | DINE IN, ESB ORDER, ONLINE, TIKTOK GO |
+| `Payment Method` | **cara mereka bayar** | QRIS, CASH, EDC, GRABFOOD, GOFOOD, VOUCHER, … |
+
+Pertanyaan aslinya dijawab tabel **Cara Tamu Datang**, yang tiap barisnya
+dirinci per metode bayar tepat di bawahnya: **ONLINE → GRABFOOD 78 transaksi,
+GOFOOD 7**. Digambar LANGSUNG, bukan di balik klik — yang membuka halaman ini
+sedang membawa pertanyaan itu, dan jawaban yang harus dicari dulu sama saja
+belum dijawab.
+
+##### `Payment Method` HANYA ADA DI DETAIL REPORT
+
+Diperiksa atas kedua berkas POS Agustus 2026: **Bill Report tidak punya kolom
+itu sama sekali** (45 kolomnya sudah diperiksa satu per satu). Jadi
+ketiadaannya di sana BUKAN berarti kolomnya lupa dicentang saat ekspor, dan
+halamannya membedakan kedua sebab itu:
+
+| keadaan | yang dikatakan |
+|---|---|
+| laporannya Bill Report | bentuk itu memang tidak punya kolomnya — **unggah Detail Report** |
+| Detail Report lama | kolomnya baru dibaca 13 Sep 2026 — **unggah ulang**, lalu kalau tetap kosong ekspor ulang dengan kolomnya dicentang |
+
+Disamakan, yang membacanya akan mengekspor ulang Bill Report berkali-kali
+untuk kolom yang memang tidak pernah ada di sana. **Tabel Cara Tamu Datang
+TETAP digambar** — yang kurang satu dimensi, bukan seluruh halamannya.
+
+##### SATU BILL BISA DIBAYAR BEBERAPA METODE, dan POS menulisnya SATU STRING
+
+```
+VOUCHER (25.000),QRIS MANDIRI (15.250)
+QRIS BRI (500.000),QRIS MANDIRI (4.167.925)
+```
+
+Dikelompokkan apa adanya, string itu berdiri sebagai metode tersendiri —
+Agustus 2026 menghasilkan **90-an "metode"** yang masing-masing dipakai satu
+dua kali, dan yang sungguhan (QRIS, CASH, EDC) terkubur di antaranya.
+`pecahBayar()` memecahnya jadi komponen.
+
+- **DIPECAH PADA KOMA DI LUAR KURUNG** (`/,(?![^()]*))/`). Nominal di berkas
+  ini memakai titik sebagai pemisah ribuan, jadi koma polos aman **hari ini** —
+  tapi berkas yang suatu hari menulis `CASH (1,500)` akan terbelah di tengah
+  angkanya dan melahirkan dua metode hantu bernama `CASH (1` dan `500)`.
+- **Metode tunggal bernominal `null`, BUKAN 0** — supaya bisa dibedakan dari
+  nominal nol yang memang tertulis (`VOUCHER (0),QRIS MANDIRI (45.000)`).
+
+**`angka()` TIDAK BISA MEMBACA NOMINAL ITU, dan salahnya berbeda besarnya di
+tiap bentuk.** Ia benar untuk sel .xlsx numerik — di sana titik memang pemisah
+DESIMAL — dan salah untuk angka yang ditulis sebagai TEKS berformat Indonesia:
+
+```
+"4.167.925"  -> 4,167   parseFloat berhenti di titik KEDUA
+"25.000"     -> 25      seribu kali lebih kecil
+```
+
+Dibaca begitu, rasio `QRIS BRI (500.000),QRIS MANDIRI (4.167.925)` jadi
+**500 : 4,167 yaitu 99% untuk QRIS BRI**, padahal yang benar 11%. Karena itu
+ada `angkaTampil()` — pemisah desimalnya yang MUNCUL PALING BELAKANG, jadi
+`"1.234,56"` (Indonesia) maupun `"1,234.56"` (Inggris) sama-sama benar.
+Jebakan yang sama sudah dibayar di baris total Promotion Report.
+
+##### NOMINAL TUNAI ADALAH UANG YANG DISERAHKAN, BUKAN YANG DITERIMA
+
+Ini yang paling mudah salah dan paling tidak kelihatan salahnya.
+
+```
+QRIS BRI (100.000),CASH (30.000)   tagihan 128.500   jumlah nominal 130.000
+```
+
+Selisih Rp1.500 itu **kembalian**. Bukan dugaan — dari **393 bill
+berpembayaran gabungan** Agustus 2026, **115** yang jumlah nominalnya tidak
+sama dengan tagihan **SELURUHNYA** punya komponen tunai, selisihnya **selalu
+MUAT** di komponen itu, dan **tidak satu pun** yang jumlahnya lebih KECIL
+daripada tagihan.
+
+Jadi kelebihannya dipotong dari komponen tunainya (`BAYAR_TUNAI`), bukan dibagi
+rata. Bedanya terlihat: dibagi rata, **VOUCHER Agustus berbunyi Rp3.248.559** —
+padahal voucher di sini kelipatan Rp25.000 dan yang benar **Rp3.617.500**.
+Angka yang tidak bulat di kolom yang isinya kelipatan bulat adalah satu-satunya
+tanda yang pernah ada, dan tidak ada yang akan menyadarinya.
+
+- **Tanpa komponen tunai, kelebihannya TIDAK ditebak jatuh ke mana pun** —
+  porsinya tetap menurut nominal. Menebak siapa yang menerima kembalian berarti
+  menggeser uang ke metode yang tidak pernah menerimanya.
+- Aturannya **DISEBUT DI LAYAR**, bukan cuma di komentar kodenya: ia keputusan
+  tentang uang.
+
+##### Dikumpulkan PER BILL, dibaginya sesudah seluruh baris dibaca
+
+`pbBill[kunciBill] = { pm, grand, vp:{ visitPurpose: omsetBarisnya } }`
+
+- **Bukan pilihan gaya.** Porsi tiap metode baru bisa dihitung sesudah TAGIHAN
+  SELURUH BILL diketahui — kembaliannya tidak bisa dipotong dari tagihan yang
+  belum lengkap. Dibagi per baris, nominal yang sama dipakai berkali-kali
+  (sekali untuk tiap menu), dan di data uji VOUCHER berbunyi Rp28.333 alih-alih
+  Rp25.000.
+- **`vp` ikut dicatat di wadah yang sama** supaya silang "cara datang ×
+  metode bayar" lahir dari PEMBAGIAN YANG SAMA. Dihitung di tempat kedua,
+  rincian sebuah baris berhenti berjumlah sama dengan baris induknya — dua
+  angka untuk hal yang sama, di satu tabel.
+- **`bayar` dan `kunjungBayar` WAJIB ada di daftar kunci tertutup
+  `anSimpanUnggah()`.** Itu tempat `paket`, `kategori`, dan `katMenu`
+  tertinggal lima hari tanpa satu pun galat. Diuji lewat putaran simpan
+  SUNGGUHAN, bukan dengan menyuntikkannya ke `AN.data.laporan`.
+- **Set diubah jadi angka sebelum disimpan** — Set tidak bisa di-JSON-kan, dan
+  dikirim apa adanya ia jadi `{}` sehingga SELURUH jumlah transaksi berbunyi
+  nol tanpa satu pun galat.
+
+##### Kolom OMSET boleh dijumlahkan, kolom TRANSAKSI tidak
+
+Dan keduanya berdiri bersebelahan di satu baris, jadi bedanya wajib dikatakan:
+
+| kolom | boleh dijumlahkan? | sebabnya |
+|---|---|---|
+| omset | **YA**, pas ke total sebulan | porsinya selalu berjumlah 1 |
+| transaksi | **TIDAK** | satu bill gabungan dihitung PENUH di tiap metodenya |
+
+Agustus 2026: 5.180 di kolom transaksi untuk 4.785 bill sungguhan. Selisihnya
+**disebut angkanya** di layar berikut sebabnya; didiamkan, ia dilaporkan
+sebagai angka yang salah di salah satu halaman.
+
+**Invarian omset itu pemeriksaan terkuat di bagian ini** dan satu-satunya yang
+tidak bisa basi sendiri: ia menangkap pembagian apa pun yang salah — nominal
+yang salah baca, kembalian yang dibagi rata, atau porsi yang tidak berjumlah 1.
+
+##### Yang lain
+
+- **Kartu teratas menyebut DIMENSINYA** — *Cara Datang Terbanyak* dan *Metode
+  Bayar Terbanyak*, bukan "Paling Sering" saja. Sejak halaman ini memajang dua
+  dimensi, label yang tidak menyebut yang mana persis mengulang pertanyaan yang
+  sudah empat kali datang di kolom Kontribusi.
+- **Penyebut persen di baris rincian adalah INDUKNYA, bukan sebulan**, dan itu
+  ditulis DI SELNYA (`65% dari ONLINE`). Kepala kolom dibaca sekali, angkanya
+  dibaca tiap baris.
+- **Yang kolomnya kosong diberi namanya sendiri** (`(tanpa keterangan)`), tidak
+  dibuang dan tidak dijatuhkan ke metode pertama — aturan yang sama dengan
+  `KAT_TANPA` dan `katEvent()`.
+- **Judul tabel Visit Purpose diganti** dari *Per Metode* jadi **Cara Tamu
+  Datang**: dua tabel yang sama-sama berjudul "metode" di satu halaman membuat
+  yang membacanya harus menebak yang mana.
+
+```bash
+node tools/uji-analytics.js   # 586 pemeriksaan (dari 539)
+```
+
+**Sembilan belas mutasi dicoba; EMPAT lolos di putaran pertama**, dan
+keempatnya cacat FIXTURE atau ASERSI — bukan cacat produk. Ketiga bentuknya
+sudah punya nama di berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| nominal tak terbaca diberikan PENUH ke tiap metode | tidak ada satu pun bill gabungan TANPA nominal di fixture — cabangnya tidak pernah dijalankan, dan asersi unitnya cuma membaca penandanya, tidak pernah porsinya | bill `EDC BCA,MEMBER DEPOSIT` + asersi porsinya berjumlah 1 |
+| diurut menurut omset, bukan transaksi | QRIS MANDIRI kebetulan teratas menurut KEDUA-DUANYA, dan asersinya cuma membaca baris pertama | satu metode berbill DUA tapi beromset kecil; yang dikunci baris KEDUA |
+| penyebut persen rincian memakai total sebulan | mutasinya cuma menyentuh SATU dari dua kolom persen, dan asersinya cuma mencari kata "dari ONLINE" — masih ketemu di kolom satunya | jumlah kemunculannya DIHITUNG (6), plus angkanya dibandingkan |
+| silang dibagi menurut tagihan bill | tidak ada bill yang barisnya memuat DUA cara datang, jadi `pb.vp[vp]` selalu sama dengan `pb.grand` | bill B10: satu bill, baris DINE IN dan ONLINE |
+
+Fixture-nya dirancang supaya tiap kesalahan memberi hasil yang BERBEDA dan
+tidak satu pun angkanya bertabrakan: bill bermenu dua baris (supaya pembagian
+per baris punya tempat gagal), gabungan bernominal PAS, gabungan dengan tunai
+yang dilebihkan, gabungan tanpa nominal sama sekali, nominal berpemisah ribuan
+tiga kelompok (supaya `angka()` vs `angkaTampil()` menjungkirkan rasionya),
+ONLINE yang pecah jadi dua metode, dan satu bill yang barisnya dua cara datang.
+
 #### KODE MENU DIISI DI HPP & RESEP — sumber utamanya sekarang di sana (10 Sep 2026)
 
 Permintaan user: *"dari di HPP & Resep bisa masukin menu code, jadi kalau
