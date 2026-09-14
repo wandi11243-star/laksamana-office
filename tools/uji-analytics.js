@@ -2695,6 +2695,225 @@ async function siap(w) {
   }
 
   /* ================= 9. simpan & timpa ================= */
+  /* ================= ERROR & KOREKSI BILL =================
+     Permintaan user 15 September 2026: tab Error gabungan, berikut detail
+     bill, catatannya, dan siapa yang memegangnya.
+
+     DUA BENTUK LAPORAN diuji terpisah, dan itu bukan kelebihan: POS menaruh
+     penandanya di kolom yang BERBEDA di tiap bentuk, dan kolom yang bisa
+     diisi karena itu juga berbeda. Menguji salah satunya saja meloloskan
+     seluruh jalur yang satunya lagi. */
+  console.log('\n== Error & Koreksi Bill ==');
+  {
+    const { dom } = domAnalytics({});
+    await siap(dom.window);
+    const w = dom.window, d = w.document;
+
+    /* ---- DETAIL REPORT: penandanya di Payment Method ---- */
+    const rowsDetail = [
+      { a:'Sales Date', b:'Bill Number', c:'Menu', d:'Qty', e:'Subtotal',
+        f:'Total After Bill Discount', g:'Visit Purpose', h:'Payment Method',
+        i:'Waiter', j:'Menu Notes' },
+      /* E1: SATU bill, DUA baris menu. Dikumpulkan per BARIS, ia berdiri dua
+         kali dan nilainya terhitung separuh-separuh. */
+      { a:'2026-08-08', b:'E1', c:'LONTONG', d:'1', e:'30000', f:'30000', g:'DINE IN', h:'ERROR KASIR', i:'SULIS', j:'' },
+      { a:'2026-08-08', b:'E1', c:'BUBUR',   d:'1', e:'39000', f:'39000', g:'DINE IN', h:'ERROR KASIR', i:'SPV',   j:'dadar' },
+      /* E2: label yang MEMANG disebut user. */
+      { a:'2026-08-21', b:'E2', c:'NASGOR',  d:'1', e:'48300', f:'48300', g:'DINE IN', h:'ERROR FLOOR', i:'ANDY',  j:'' },
+      /* E3: penandanya di dalam PEMBAYARAN GABUNGAN — labelnya wajib komponen
+         yang berawalan ERROR, bukan seluruh string yang tidak akan pernah
+         bisa dikelompokkan. */
+      { a:'2026-08-22', b:'E3', c:'STEAK',   d:'1', e:'20000', f:'20000', g:'DINE IN', h:'CASH (15.000),ERROR BAR (5.000)', i:'-', j:'' },
+      /* BUKAN error — dan namanya sengaja MEMUAT kata yang mirip. */
+      { a:'2026-08-23', b:'E4', c:'KOPI',    d:'1', e:'10000', f:'10000', g:'DINE IN', h:'QRIS MANDIRI', i:'RIZKI', j:'' },
+      /* BULAN SEBELAH. Berkas POS rutin memuat baris yang tanggalnya
+         menyeberang, dan bill ber-error di sana harus dibuang dengan aturan
+         yang SAMA PERSIS dengan hari[] dan hariJam[] — kalau tidak, halaman
+         ini memajang bill bulan lain sementara seluruh halaman lain tidak. */
+      { a:'2026-07-30', b:'E9', c:'SATE',    d:'1', e:'11000', f:'11000', g:'DINE IN', h:'ERROR FLOOR', i:'ANDY',  j:'' }
+    ];
+    const uD = w.eval('ringkasPos')(rowsDetail, 'x.xlsx');
+    cek('bill ber-error dikumpulkan PER BILL, bukan per baris menu',
+        uD.error.length === 3, JSON.stringify(uD.error.map(e => e.bill)));
+    const e1 = uD.error.filter(x => x.bill === 'E1')[0];
+    cek('...dan nilainya dijumlahkan seluruh barisnya',
+        !!e1 && Math.abs(e1.grand - 69000) < 0.01, e1 ? String(e1.grand) : '-');
+    /* PENANDANYA AWALAN ERROR, BUKAN DAFTAR LIMA NAMA. Agustus 2026 justru
+       berisi ERROR KASIR — yang TIDAK disebut user — dan daftar tertutup akan
+       membuangnya tanpa satu pun tanda. */
+    cek('ERROR KASIR ikut walau TIDAK ada di daftar lima yang disebut',
+        !!e1 && e1.label.indexOf('ERROR KASIR') > -1, JSON.stringify(e1 && e1.label));
+    cek('metode yang bukan error TIDAK ikut',
+        uD.error.filter(x => x.bill === 'E4').length === 0, JSON.stringify(uD.error.map(x => x.bill)));
+    cek('bill ber-error BULAN SEBELAH dibuang, aturan yang sama dengan hari[]',
+        uD.error.filter(x => x.bill === 'E9').length === 0, JSON.stringify(uD.error.map(x => x.bill)));
+    const e3 = uD.error.filter(x => x.bill === 'E3')[0];
+    cek('penanda di dalam pembayaran gabungan dipecah jadi labelnya sendiri',
+        !!e3 && e3.label.length === 1 && e3.label[0] === 'ERROR BAR', JSON.stringify(e3 && e3.label));
+    /* "-" itu kolom kosong versi POS ini, bukan nama orang — diukur atas
+       Agustus 2026: 15.918 dari 19.739 baris Employee Name berisi "-". */
+    cek('waiter "-" tidak dibaca sebagai nama orang',
+        !!e3 && e3.waiter.length === 0, JSON.stringify(e3 && e3.waiter));
+    cek('waiter per baris menu dikumpulkan seluruhnya',
+        !!e1 && e1.waiter.join(',') === 'SULIS,SPV', JSON.stringify(e1 && e1.waiter));
+    cek('rincian menunya ikut, berikut catatan memasaknya',
+        !!e1 && e1.menu.length === 2 && e1.menu[1].c === 'dadar', JSON.stringify(e1 && e1.menu));
+    cek('kolom penandanya DICATAT, bukan disimpulkan dari daftar kosong',
+        (uD.ringkas.errSumber || []).indexOf('Payment Method') > -1,
+        JSON.stringify(uD.ringkas.errSumber));
+
+    /* ---- lewat JALUR SIMPAN SUNGGUHAN ----
+       Daftar kunci tertutup di anSimpanUnggah() adalah tempat paket,
+       kategori, dan katMenu tertinggal lima hari tanpa satu pun galat. */
+    w.eval('AN.data.laporan = {}');
+    w.eval('UNGGAH_HASIL = Object.assign({ diunggah:"2026-09-15", oleh:"Uji" }, '
+      + JSON.stringify(uD) + ')');
+    await w.eval('anSimpanUnggah()');
+    cek('error bertahan lewat putaran simpan',
+        (w.eval('AN.data.laporan["2026-08"].error') || []).length === 3);
+
+    /* ---- layarnya ---- */
+    /* Penggambar yang MELEMPAR meninggalkan halaman sebelumnya di layar —
+       gejala yang sama dengan Performa Kas yang mati senyap. Ditangkap di
+       sini supaya ia jadi asersi merah, bukan suite yang mati di tengah. */
+    let lempar = '';
+    try { w.go('error'); } catch (err) { lempar = String(err && err.message || err); }
+    await tunggu(60);
+    cek('halaman Error tidak melempar saat digambar', !lempar, lempar);
+    let v = d.getElementById('app-view').innerHTML;
+    const kErr = kartuJudul(v, 'Bill yang Ditandai Error');
+    cek('ketiga bill tergambar berikut nomornya', !!kErr
+        && kErr.indexOf('E1') > -1 && kErr.indexOf('E2') > -1 && kErr.indexOf('E3') > -1, kErr.slice(0, 700));
+    cek('nilainya tergambar', kErr.indexOf(w.eval('rp0')(69000)) > -1, kErr.slice(0, 900));
+    cek('jenis errornya tergambar berikut yang di luar daftar lima',
+        kErr.indexOf('ERROR KASIR') > -1 && kErr.indexOf('ERROR BAR') > -1, kErr.slice(0, 900));
+    /* Detail Report TIDAK punya Cashier & Additional Info — dan itu wajib
+       DIKATAKAN berikut laporan mana yang memuatnya. Sel kosong tanpa
+       keterangan terbaca sebagai data hilang, dan yang membacanya akan
+       mengekspor ulang berkas yang sama berkali-kali. */
+    cek('kolom yang TIDAK bisa diisi dikatakan, berikut laporan yang memuatnya',
+        v.indexOf('tidak memuat') > -1 && v.indexOf('hanya ada di') > -1,
+        v.slice(v.indexOf('tidak memuat') - 200, v.indexOf('tidak memuat') + 400));
+    const kJenis = kartuJudul(v, 'Per Jenis Error');
+    cek('rekap per jenis dihitung dari penanda yang benar-benar ada',
+        !!kJenis && kJenis.indexOf('ERROR KASIR') > -1 && kJenis.indexOf('ERROR BAR') > -1,
+        kJenis.slice(0, 600));
+
+    /* Baris bisa dibuka, dan menekannya lagi MENUTUPNYA — kalau tidak,
+       satu-satunya cara menutup rincian adalah membuka baris lain. */
+    cek('rincian menu belum tergambar sebelum barisnya dibuka',
+        kErr.indexOf('LONTONG') < 0, kErr.slice(0, 400));
+    w.eval('errBuka("E1")'); await tunggu(40);
+    v = d.getElementById('app-view').innerHTML;
+    cek('baris bisa dibuka dan rincian menunya tergambar',
+        kartuJudul(v, 'Bill yang Ditandai Error').indexOf('LONTONG') > -1);
+    w.eval('errBuka("E1")'); await tunggu(40);
+    cek('menekan baris yang sedang terbuka menutupnya',
+        kartuJudul(d.getElementById('app-view').innerHTML, 'Bill yang Ditandai Error').indexOf('LONTONG') < 0);
+    dom.window.close();
+  }
+
+  /* ---- BILL REPORT: penandanya di Additional Info ---- */
+  {
+    const { dom } = domAnalytics({});
+    await siap(dom.window);
+    const w = dom.window;
+    const rowsBill = [
+      { a:'Sales Date', b:'Bill Number', c:'Grand Total', d:'Visit Purpose',
+        e:'Waiter', f:'Cashier', g:'Additional Info' },
+      { a:'2026-08-08', b:'E1', c:'69000', d:'DINE IN', e:'TASYA', f:'ANDY', g:'ERROR CASHIER' },
+      { a:'2026-08-21', b:'E2', c:'48300', d:'DINE IN', e:'ANDY',  f:'ANDY', g:'ERROR FLOOR' },
+      /* Additional Info di bill biasa berisi NAMA TAMU — diukur atas Agustus
+         2026: "CHRISTI", "INDAH OFFICE", "office wandi". Ia BUKAN penanda
+         error dengan sendirinya, dan membaca kolomnya sebagai penanda akan
+         menandai separuh bulan sebagai error. */
+      { a:'2026-08-22', b:'E3', c:'50000', d:'DINE IN', e:'FEILA', f:'RIZKI', g:'INDAH OFFICE' }
+    ];
+    const uB = w.eval('ringkasPos')(rowsBill, 'x.xlsx');
+    cek('Bill Report: error terbaca dari Additional Info',
+        uB.error.length === 2, JSON.stringify(uB.error.map(e => e.bill)));
+    cek('...dan Additional Info berisi NAMA TAMU tidak dianggap error',
+        uB.error.filter(e => e.bill === 'E3').length === 0, JSON.stringify(uB.error.map(e => e.bill)));
+    /* DIJAGA dari daftar kosong: asersi yang membaca error[0] apa adanya akan
+       MELEMPAR begitu sebuah mutasi mengosongkan daftarnya, dan suite-nya mati
+       sebelum sempat mencetak ringkasan — mutasinya lalu terbaca "uji tidak
+       selesai", bukan "tertangkap". */
+    const b1 = uB.error[0] || {};
+    cek('...kasirnya ikut — kolom yang TIDAK ada di Detail Report',
+        b1.kasir === 'ANDY', String(b1.kasir));
+    cek('...begitu juga catatan bebasnya, apa adanya',
+        b1.catatan === 'ERROR CASHIER', String(b1.catatan));
+
+    w.eval('AN.data.laporan = {}');
+    w.eval('UNGGAH_HASIL = Object.assign({ diunggah:"2026-09-15", oleh:"Uji" }, '
+      + JSON.stringify(uB) + ')');
+    await w.eval('anSimpanUnggah()');
+    w.go('error'); await tunggu(60);
+    const v = w.document.getElementById('app-view').innerHTML;
+    cek('layar Bill Report menyebut kasirnya', v.indexOf('ANDY') > -1);
+    cek('...dan yang kurang di sini RINCIAN MENU, bukan kasir',
+        v.indexOf('Rincian menu') > -1 && v.indexOf('kolom <i>Cashier</i>') < 0,
+        v.slice(v.indexOf('tidak memuat') - 100, v.indexOf('tidak memuat') + 400));
+    dom.window.close();
+  }
+
+  /* ---- TIGA keadaan kosong, bentuk datanya nyaris sama, tindakannya beda ---- */
+  {
+    const dasar = extra => ({ data: { laporan: { '2026-08': Object.assign({
+      diunggah:'2026-08-28', oleh:'Wandi', berkas:'x.xlsx', jenis:'menu',
+      hari: { '2026-08-01': { bill:10, grand:1000000 } },
+      jam: Array.from({ length: 24 }, () => ({ bill:0, grand:0 })),
+      menu: {}, kunjung: { 'DINE IN': { grand:1000000, bill:10 } },
+      ringkas: { bill:10, grand:1000000, net:900000, svc:0, tax:0, sub:900000,
+                 discMenu:0, discBill:0, discVoucher:0, pax:0, billPax:0 }
+    }, extra) }, setting: {} }, akses: {}, peran: {} });
+
+    /* 1. Laporan LAMA — kunci error belum pernah ada. */
+    {
+      const { dom } = domAnalytics({ an: dasar({}) });
+      await siap(dom.window);
+      let lempar = '';
+      try { dom.window.go('error'); } catch (err) { lempar = String(err && err.message || err); }
+      await tunggu(60);
+      cek('...dan halaman Error tidak melempar untuk bentuk data ini', !lempar, lempar);
+      const v = dom.window.document.getElementById('app-view').innerHTML;
+      cek('laporan lama: disuruh unggah ulang', v.indexOf('Unggah ulang berkas bulan itu') > -1, v.slice(0, 700));
+      dom.window.close();
+    }
+    /* 2. Sudah dibaca, dan memang TIDAK ADA yang error — itu JAWABAN. */
+    {
+      const { dom } = domAnalytics({ an: dasar({ error: [],
+        ringkas: { bill:10, grand:1000000, errSumber:['Payment Method'] } }) });
+      await siap(dom.window);
+      let lempar = '';
+      try { dom.window.go('error'); } catch (err) { lempar = String(err && err.message || err); }
+      await tunggu(60);
+      cek('...dan halaman Error tidak melempar untuk bentuk data ini', !lempar, lempar);
+      const v = dom.window.document.getElementById('app-view').innerHTML;
+      cek('tidak ada error: dikatakan sebagai JAWABAN, bukan data yang belum terbaca',
+          v.indexOf('Tidak ada satu pun bill yang ditandai error') > -1
+          && v.indexOf('Unggah ulang') < 0, v.slice(0, 700));
+      dom.window.close();
+    }
+    /* 3. Berkasnya tidak punya kolom penandanya sama sekali — BUKAN bulan
+       yang bersih, dan menyamakannya membuat yang membacanya menyimpulkan
+       tidak ada masalah padahal tidak ada satu pun yang pernah diperiksa. */
+    {
+      const { dom } = domAnalytics({ an: dasar({ error: [],
+        ringkas: { bill:10, grand:1000000, errSumber: [] } }) });
+      await siap(dom.window);
+      let lempar = '';
+      try { dom.window.go('error'); } catch (err) { lempar = String(err && err.message || err); }
+      await tunggu(60);
+      cek('...dan halaman Error tidak melempar untuk bentuk data ini', !lempar, lempar);
+      const v = dom.window.document.getElementById('app-view').innerHTML;
+      cek('berkas tanpa kolom penanda DIBEDAKAN dari bulan yang bersih',
+          v.indexOf('tidak punya kolom penanda error') > -1
+          && v.indexOf('Tidak ada satu pun bill') < 0, v.slice(0, 700));
+      dom.window.close();
+    }
+  }
+
   console.log('\n== Simpan ringkasan ==');
   {
     const { dom, panggilan } = domAnalytics({});

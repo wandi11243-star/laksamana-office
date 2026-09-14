@@ -683,6 +683,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
         <a data-view="kategori"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span> Kategori Menu</a>
         <a data-view="kunjungan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg></span> Metode Kunjungan</a>
         <a data-view="talent"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span> Performa Talent</a>
+        <a data-view="error"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg></span> Error &amp; Koreksi</a>
         <a data-view="promo"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 9h.01M15 15h.01M16 8l-8 8"/><rect x="3" y="3" width="18" height="18" rx="4"/></svg></span> Promo &amp; Klaim</a>
         <a data-view="event"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m12 3 2.1 4.3 4.7.7-3.4 3.3.8 4.7L12 13.8 7.8 16l.8-4.7L5.2 8l4.7-.7Z"/></svg></span> Pengaruh Event</a>
         <a data-view="marketing"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-8-8 18-2-8Z"/></svg></span> Pengaruh Marketing</a>
@@ -1229,6 +1230,7 @@ const TITLES = {
   kategori  :['Kategori Menu','Omset per kategori menu — termasuk EVENT, terpisah dari peringkat menu'],
   kunjungan :['Metode Kunjungan','Rekap kanal, cara tamu datang, dan cara mereka membayar'],
   talent    :['Performa Talent','Kontribusi omset tiap penampil, dihitung dari jam tampilnya sendiri'],
+  error     :['Error & Koreksi Bill','Bill yang ditandai error — sebabnya, nilainya, dan siapa yang memegangnya'],
   promo     :['Promo & Klaim','Promo mana yang paling banyak diklaim, barang apa, dan jam berapa'],
   tren      :['Tren Bulanan','Total omset bulan ke bulan, dan perbandingan dua bulan'],
   /* DIPISAH jadi dua halaman (2 September 2026, permintaan user). Sebelumnya
@@ -3932,6 +3934,202 @@ function vKunjungan() {
   V.innerHTML = h;
 }
 
+/* ============ HALAMAN: ERROR & KOREKSI BILL ============
+   Permintaan user 15 September 2026: "tambahkan menu tab baru namanya Error
+   gabungan dari (Error Floor, Error System, Error Kitchen, Error Bar, Error
+   Customer) dan didalam error ini saya ingin melihat detail bill dan notes nya
+   kenapa hal itu bisa terjadi, saya ingin yang menginput bill disaat itu siapa
+   juga".
+
+   PENANDANYA AWALAN "ERROR", BUKAN KELIMA NAMA ITU. Diukur atas Agustus 2026:
+   yang benar-benar ada di data ERROR KASIR dan ERROR FLOOR — dan ERROR KASIR
+   TIDAK ADA di daftar yang disebut. Daftar tertutup akan membuangnya tanpa
+   satu pun tanda, dan bulan yang punya dua bill bermasalah terbaca bersih.
+
+   APA YANG BISA DIJAWAB BERGANTUNG BENTUK LAPORANNYA, dan itu bukan pilihan
+   kita — POS memang menaruh penandanya di dua kolom yang berbeda:
+
+     Detail Report : Payment Method  -> rincian menu + waiter per baris,
+                                        TANPA kasir & tanpa catatan bebas
+     Bill Report   : Additional Info -> kasir + catatan bebas + waiter bill,
+                                        TANPA rincian menu
+
+   Keduanya dibaca, dan yang TIDAK bisa diisi DIKATAKAN di layar berikut
+   laporan mana yang memuatnya. Sel kosong tanpa keterangan terbaca sebagai
+   data hilang, dan yang membacanya akan mengekspor ulang berkas yang sama
+   berkali-kali. */
+function vError() {
+  const V = document.getElementById('app-view');
+  const b = blnAktif(), d = lap(b);
+  let h = pilihBulan();
+  if (!d) { V.innerHTML = h + kosongBelumAda(); return; }
+
+  /* TIGA keadaan yang bentuk datanya nyaris sama tapi tindakannya berbeda. */
+  if (!Array.isArray(d.error)) {
+    V.innerHTML = h + '<div class="notice warn">⚠ <div><b>Laporan bulan ini belum memuat catatan error.</b> '
+      + 'Bill yang ditandai error baru ikut dibaca sejak 15 September 2026, jadi ringkasan yang '
+      + 'disimpan sebelum itu tidak menyimpannya. <b>Unggah ulang berkas bulan itu</b> — ringkasannya '
+      + 'akan ditimpa, dan catatannya ikut terbaca.</div></div>';
+    return;
+  }
+  const sumber = (d.ringkas || {}).errSumber || [];
+  const daftar = d.error;
+
+  if (!daftar.length) {
+    /* Berkas yang tidak punya satu pun kolom penanda BUKAN berkas yang bersih. */
+    V.innerHTML = h + (sumber.length
+      ? '<div class="notice ok">✓ <div><b>Tidak ada satu pun bill yang ditandai error bulan ini.</b> '
+        + 'Diperiksa dari kolom <i>' + sumber.map(esc).join('</i> dan <i>') + '</i>. Itu jawabannya, '
+        + 'bukan data yang belum terbaca.</div></div>'
+      : '<div class="notice warn">⚠ <div><b>Berkas bulan ini tidak punya kolom penanda error.</b> '
+        + 'Yang dibaca <i>Payment Method</i> (ada di Sales Recapitulation <b>Detail</b> Report) dan '
+        + '<i>Additional Info</i> (ada di <b>Bill</b> Report). Berkas yang diunggah tidak punya '
+        + 'keduanya, jadi halaman ini tidak bisa menyimpulkan apa pun — bukan berarti tidak ada '
+        + 'bill bermasalah.</div></div>');
+    return;
+  }
+
+  const totN = daftar.reduce((a, x) => a + (x.grand || 0), 0);
+  /* Dikelompokkan per LABEL — satu bill boleh punya lebih dari satu label
+     (pembayaran gabungan), jadi kolom jumlahnya tidak bisa dijumlahkan dan
+     itu dikatakan. */
+  const perJenis = {};
+  daftar.forEach(e => (e.label && e.label.length ? e.label : ['(tanpa label)'])
+    .forEach(l => { const o = perJenis[l] || (perJenis[l] = { n:0, nilai:0 }); o.n++; o.nilai += e.grand || 0; }));
+  const jenisUrut = Object.keys(perJenis)
+    .sort((a, x) => (perJenis[x].n - perJenis[a].n) || (a < x ? -1 : 1));
+
+  /* SIAPA YANG PALING SERING — dihitung dari KASIR kalau ada, kalau tidak dari
+     waiter. Keduanya orang yang berbeda perannya, jadi kartunya menyebut yang
+     mana; digabung jadi satu angka, yang membacanya tidak tahu ia sedang
+     melihat yang memproses bill atau yang mencatat pesanan. */
+  const adaKasir = daftar.some(e => e.kasir);
+  const orang = {};
+  daftar.forEach(e => {
+    const nm = adaKasir ? (e.kasir || '') : (e.waiter || []).join(', ');
+    if (nm) orang[nm] = (orang[nm] || 0) + 1;
+  });
+  const orangUrut = Object.keys(orang).sort((a, x) => orang[x] - orang[a]);
+
+  h += '<div class="grid g4" style="margin-bottom:18px">'
+    + kartu('Bill Ditandai Error', daftar.length.toLocaleString('id-ID'),
+        jenisUrut.length + ' jenis berbeda')
+    + kartu('Nilai Total', rp0(totN), 'tagihan bill yang ditandai')
+    + kartu('Jenis Terbanyak', jenisUrut.length ? esc(jenisUrut[0]) : '—',
+        jenisUrut.length ? perJenis[jenisUrut[0]].n + ' bill' : '')
+    + kartu(adaKasir ? 'Kasir Terbanyak' : 'Waiter Terbanyak',
+        orangUrut.length ? esc(orangUrut[0]) : '—',
+        orangUrut.length ? orang[orangUrut[0]] + ' bill'
+          : (adaKasir ? '' : 'kolom Cashier tidak ada di laporan ini'))
+    + '</div>';
+
+  /* ---- apa yang TIDAK bisa diisi, dan laporan mana yang memuatnya ---- */
+  const kurang = [];
+  if (!adaKasir) kurang.push('<b>Kasir</b> (kolom <i>Cashier</i>)');
+  if (!daftar.some(e => e.catatan)) kurang.push('<b>Catatan bebas</b> (kolom <i>Additional Info</i>)');
+  if (!daftar.some(e => (e.menu || []).length)) kurang.push('<b>Rincian menu</b>');
+  if (kurang.length) {
+    h += '<div class="notice info">ℹ <div>Laporan bulan ini <b>'
+      + (d.jenis === 'menu' ? 'Sales Recapitulation DETAIL Report' : 'Bill Report')
+      + '</b>, dan bentuk itu tidak memuat ' + kurang.join(', ') + '. '
+      + (d.jenis === 'menu'
+        ? 'Kasir dan catatan bebas hanya ada di <b>Bill Report</b>.'
+        : 'Rincian menu hanya ada di <b>Detail Report</b>.')
+      + ' Keduanya tidak bisa diunggah sekaligus — satu bulan menyimpan satu laporan — jadi pilih '
+      + 'bentuk yang menjawab pertanyaan yang sedang dibawa.</div></div>';
+  }
+
+  /* ---- tabel utama ---- */
+  h += '<div class="card"><h3>Bill yang Ditandai Error</h3>'
+    + '<div class="card-sub">Diurut menurut <b>waktu kejadiannya</b>, bukan nilainya — yang dicari '
+    + 'di sini urutan peristiwa, bukan mana yang terbesar. Tekan sebuah baris untuk melihat '
+    + 'rinciannya.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Jam</th><th>No. Bill</th>'
+    + '<th>Jenis Error</th><th class="num">Nilai</th><th>Kasir</th><th>Waiter</th>'
+    + '<th>Catatan</th></tr></thead><tbody>';
+  daftar.forEach(e => {
+    const bisaBuka = (e.menu || []).length > 0;
+    h += '<tr' + (bisaBuka ? ' style="cursor:pointer" onclick="errBuka(' + esc(JSON.stringify(e.bill)).replace(/"/g, '&quot;') + ')"' : '') + '>'
+      + '<td>' + esc(fmtTgl(e.tgl)) + '</td>'
+      /* Jam yang tidak terbaca ditulis tanda hubung, BUKAN 00:00 — tengah
+         malam adalah jam yang benar-benar ada di venue ini, jadi nol di sana
+         tidak akan pernah dicurigai. */
+      + '<td>' + (e.jam >= 0 ? String(e.jam).padStart(2, '0') + ':00' : '—') + '</td>'
+      + '<td class="mono">' + esc(e.bill || '—') + (bisaBuka ? ' <span class="muted">▾</span>' : '') + '</td>'
+      + '<td><b>' + esc((e.label || []).join(', ') || '(tanpa label)') + '</b></td>'
+      + '<td class="num mono">' + rp0(e.grand || 0) + '</td>'
+      + '<td>' + esc(e.kasir || '—') + '</td>'
+      + '<td>' + esc((e.waiter || []).join(', ') || '—') + '</td>'
+      + '<td>' + (e.catatan ? esc(e.catatan) : '<span class="muted">—</span>') + '</td>'
+      + '</tr>';
+    if (bisaBuka && ERR_BUKA === e.bill) {
+      h += '<tr style="background:var(--panel2)"><td colspan="8" style="padding:10px 14px">'
+        + '<div class="helper" style="margin:0 0 6px">Menu di bill ini — '
+        + 'kolom <b>Waiter</b>-nya per baris, jadi satu bill bisa menyebut lebih dari satu nama.</div>'
+        + '<table style="width:100%"><thead><tr><th>Menu</th><th class="num">Qty</th>'
+        + '<th class="num">Nilai</th><th>Catatan menu</th><th>Waiter</th></tr></thead><tbody>';
+      e.menu.forEach(m => {
+        h += '<tr><td>' + esc(m.n) + '</td>'
+          + '<td class="num">' + (m.q || 0).toLocaleString('id-ID') + '</td>'
+          + '<td class="num mono">' + rp0(m.v || 0) + '</td>'
+          /* Catatan menu itu catatan MEMASAK ("dadar", "Less sugar"), bukan
+             sebab bill dibatalkan — dan itu dikatakan, supaya yang mencari
+             alasan tidak membacanya sebagai alasan. */
+          + '<td>' + (m.c ? esc(m.c) : '<span class="muted">—</span>') + '</td>'
+          + '<td>' + esc(m.w || '—') + '</td></tr>';
+      });
+      h += '</tbody></table></div></td></tr>';
+    }
+  });
+  h += '</tbody><tfoot><tr><th colspan="4">Total</th>'
+    + '<th class="num mono">' + rp0(totN) + '</th><th colspan="3"></th></tr></tfoot></table></div>';
+
+  if (daftar.some(e => (e.menu || []).length)) {
+    h += '<div class="helper">Catatan di rincian menu adalah <b>catatan memasak</b> ("dadar", '
+      + '"less sugar"), bukan sebab bill dibatalkan. Sebabnya ada di kolom <b>Catatan</b> di tabel '
+      + 'atas, dan kolom itu cuma terisi kalau laporannya <b>Bill Report</b>.</div>';
+  }
+  if ((d.ringkas || {}).errLewat) {
+    h += '<div class="notice warn">⚠ <div><b>' + d.ringkas.errLewat.toLocaleString('id-ID')
+      + ' bill ber-error lagi tidak ikut disimpan</b> — daftarnya dipotong supaya ringkasan bulan '
+      + 'ini tidak membengkak. Yang tampil di atas yang pertama terbaca.</div></div>';
+  }
+  h += '</div>';
+
+  /* ---- rekap per jenis ---- */
+  h += '<div class="card"><h3>Per Jenis Error</h3>'
+    + '<div class="card-sub">Dari penanda yang benar-benar tertulis di berkas POS — bukan daftar '
+    + 'tetap. Jenis yang tidak pernah dipakai bulan ini memang tidak muncul.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Jenis Error</th>'
+    + '<th class="num">Jumlah Bill</th><th class="num">% bill</th>'
+    + '<th class="num">Nilai</th></tr></thead><tbody>';
+  jenisUrut.forEach((k, i) => {
+    h += '<tr><td>' + (i + 1) + '</td><td><b>' + esc(k) + '</b></td>'
+      + '<td class="num">' + perJenis[k].n.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + pct(perJenis[k].n, daftar.length) + '%</td>'
+      + '<td class="num mono">' + rp0(perJenis[k].nilai) + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+  /* Satu bill berpembayaran gabungan bisa membawa DUA label, jadi kolom
+     jumlahnya boleh melampaui jumlah bill — dan itu disebut angkanya. */
+  const jml = jenisUrut.reduce((a, k) => a + perJenis[k].n, 0);
+  if (jml > daftar.length) {
+    h += '<div class="notice info">ℹ <div>Jumlah kolom di atas <b>' + jml + '</b>, sementara bill '
+      + 'yang ditandai <b>' + daftar.length + '</b>. Bedanya bill yang membawa lebih dari satu '
+      + 'penanda — tiap penanda dihitung penuh di barisnya sendiri.</div></div>';
+  }
+  h += '</div>';
+
+  V.innerHTML = h;
+}
+/* Baris yang sedang terbuka. Di LUAR penggambar: render di modul ini TOTAL,
+   jadi apa pun yang cuma hidup di DOM ikut hilang tiap halaman digambar
+   ulang. Menekan baris yang sedang terbuka MENUTUPNYA — aturan yang sama
+   dengan mnBuka() di halaman Menu; kalau tidak, satu-satunya cara menutup
+   rincian adalah membuka baris lain. */
+let ERR_BUKA = '';
+function errBuka(no) { ERR_BUKA = (ERR_BUKA === no) ? '' : no; render(); }
+
 /* ============ HALAMAN: PROMO & KLAIM ============
    Dari berkas *Promotion Report* POS. Menjawab tiga pertanyaan user
    (10 September 2026): promo mana yang paling banyak diklaim, barang apa yang
@@ -5556,6 +5754,34 @@ const KOL_CARI = {
      itu; disamakan, yang membacanya akan mengekspor ulang Bill Report
      berkali-kali untuk kolom yang memang tidak pernah ada di sana. */
   bayar : ['payment method','payment methods','payment type','metode pembayaran','payment'],
+  /* SIAPA YANG MEMEGANG BILL & CATATANNYA (permintaan user 15 September
+     2026: "saya ingin melihat detail bill dan notes nya kenapa hal itu bisa
+     terjadi, saya ingin yang menginput bill disaat itu siapa juga").
+
+     KETIGANYA TIDAK PERNAH ADA DI SATU BENTUK LAPORAN — diperiksa atas kedua
+     berkas POS Agustus 2026, dan inilah yang menentukan bentuk halaman Error:
+
+       Bill Report   : Waiter, Cashier, Additional Info   TANPA Payment Method
+       Detail Report : Waiter, Menu Notes                 TANPA Cashier & Additional Info
+
+     Jadi laporan mana pun yang diunggah, ada kolom yang memang tidak bisa
+     diisi — dan halamannya MENGATAKAN yang mana, bukan memajang sel kosong
+     yang terbaca sebagai data hilang.
+
+     Kolom "employee name" SENGAJA TIDAK DIPAKAI sebagai "siapa": diukur atas
+     Agustus 2026 isinya "-" di 15.918 dari 19.739 baris. Yang benar-benar
+     berisi nama adalah Waiter (99,97%) dan Cashier. */
+  waiter: ['waiter','server','pramusaji'],
+  kasir : ['cashier','kasir'],
+  /* CATATAN BEBAS di tingkat BILL. Namanya "Additional Info" di POS ini, dan
+     untuk bill yang dibatalkan isinya persis sebabnya: "ERROR FLOOR",
+     "ERROR CASHIER". Untuk bill biasa isinya nama tamu — jadi ia BUKAN
+     penanda error dengan sendirinya, cuma tempat sebabnya ditulis. */
+  info  : ['additional info','additional information','keterangan','remark','remarks'],
+  /* Catatan per BARIS MENU — "dadar", "Dingin", "Less sugar". Ini catatan
+     MEMASAK, bukan sebab bill dibatalkan; dipajang apa adanya di rincian
+     menu dan tidak pernah dibaca sebagai alasan. */
+  catatan: ['menu notes','note','notes','item notes'],
   menu  : ['menu','menu name','product','product name','item','item name','nama menu'],
   qty   : ['qty','quantity','jumlah','qty sold','sold'],
   nilai : ['menu total','item total','total menu','sales amount','subtotal'],
@@ -5862,6 +6088,30 @@ function ringkasPos(baris, namaBerkas) {
   const pbBill = {};
   const bayar = {}, bBayar = {}, kunjungBayar = {}, bKunjungBayar = {};
   let nBayarRata = 0;
+  /* BILL YANG DITANDAI ERROR (permintaan user 15 September 2026).
+
+     POS menandainya di DUA tempat yang berbeda, dan mana yang terpakai
+     bergantung bentuk laporannya:
+
+       Detail Report : Payment Method  = "ERROR KASIR", "ERROR FLOOR"
+       Bill Report   : Additional Info = "ERROR CASHIER", "ERROR FLOOR"
+
+     Keduanya dibaca. Yang ditemukan lebih dulu jadi labelnya; Additional Info
+     tetap disimpan utuh sebagai catatan, karena di sanalah sebabnya ditulis
+     orang.
+
+     PENANDANYA AWALAN "ERROR", BUKAN DAFTAR TERTUTUP. User menyebut lima
+     (Floor, System, Kitchen, Bar, Customer), tapi Agustus 2026 justru berisi
+     ERROR KASIR — yang tidak ada di daftar itu — dan tidak satu pun dari
+     empat yang lain. Daftar tertutup akan MEMBUANG ERROR KASIR tanpa satu pun
+     tanda, dan yang membacanya menyimpulkan bulan itu memang bersih. */
+  const ERR_RE = /\bERROR\b/i;
+  const errBill = {};
+  let nErrLewat = 0;
+  /* Batas wajar. Di produksi sebulan cuma 3 bill, tapi POS yang suatu hari
+     menandai seluruh bill error akan membuat blob ringkasan ini meledak —
+     dan yang terpotong DISEBUT angkanya, bukan dibuang diam-diam. */
+  const ERR_MAKS = 400;
   const r = { bill:0, grand:0, net:0, sub:0, svc:0, tax:0,
               discMenu:0, discBill:0, discVoucher:0, pax:0, billPax:0 };
   let nLewat = 0, nRow = 0;
@@ -5968,6 +6218,50 @@ function ringkasPos(baris, namaBerkas) {
       pb.grand += g;
       const vpb = K.kunjung ? (String(b[K.kunjung] || '').trim().toUpperCase() || KUN_TANPA) : KUN_TANPA;
       pb.vp[vpb] = (pb.vp[vpb] || 0) + g;
+    }
+
+    /* BILL BER-ERROR. Dikumpulkan PER BILL — satu bill Detail Report tersebar
+       di beberapa baris menu, dan tiap barisnya membawa penanda yang sama. */
+    if (K.bayar || K.info) {
+      const pmT   = K.bayar ? String(b[K.bayar] || '').trim() : '';
+      const infoT = K.info  ? String(b[K.info]  || '').trim() : '';
+      if (ERR_RE.test(pmT) || ERR_RE.test(infoT)) {
+        const kb = punyaBill ? noBill : ('#' + nRow);
+        let e = errBill[kb];
+        if (!e && Object.keys(errBill).length >= ERR_MAKS) nErrLewat++;
+        else if (!e) e = errBill[kb] = { bill:noBill, tgl:t, jam:jm, grand:0,
+                                         label:[], catatan:'', vp:'', kasir:'', waiter:[], menu:[] };
+        if (e) {
+          e.grand += g;
+          if (e.jam < 0 && jm >= 0) e.jam = jm;
+          /* LABELNYA komponen yang BERAWALAN ERROR, bukan seluruh string:
+             pembayaran gabungan "CASH (10.000),ERROR FLOOR (5.000)" harus
+             berdiri sebagai ERROR FLOOR, bukan sebagai satu label panjang
+             yang tidak akan pernah bisa dikelompokkan. */
+          if (pmT) pecahBayar(pmT).forEach(p => {
+            if (/^ERROR\b/.test(p.nama) && e.label.indexOf(p.nama) < 0) e.label.push(p.nama);
+          });
+          if (!e.label.length && ERR_RE.test(infoT)) {
+            const L = infoT.toUpperCase();
+            if (e.label.indexOf(L) < 0) e.label.push(L);
+          }
+          if (!e.catatan && infoT) e.catatan = infoT;
+          if (!e.vp && K.kunjung) e.vp = String(b[K.kunjung] || '').trim().toUpperCase();
+          if (!e.kasir && K.kasir) e.kasir = String(b[K.kasir] || '').trim();
+          if (K.waiter) {
+            /* "-" itu kolom kosong versi POS ini, bukan nama orang. */
+            const wt = String(b[K.waiter] || '').trim();
+            if (wt && wt !== '-' && e.waiter.indexOf(wt) < 0) e.waiter.push(wt);
+          }
+          if (jenis === 'menu' && K.menu) {
+            const nmm = String(b[K.menu] || '').trim();
+            if (nmm && e.menu.length < 40) e.menu.push({
+              n: nmm, q: angka(b[K.qty]) || 0, v: K.nilai ? angka(b[K.nilai]) : g,
+              c: K.catatan ? String(b[K.catatan] || '').trim() : '',
+              w: K.waiter ? String(b[K.waiter] || '').trim() : '' });
+          }
+        }
+      }
     }
 
     if (jenis === 'menu') {
@@ -6116,11 +6410,27 @@ function ringkasPos(baris, namaBerkas) {
      Performa Talent menghitung jam-jam bulan sebelah sementara kartu di halaman
      lain tidak, dan selisihnya tidak akan pernah bisa dijelaskan. */
   Object.keys(hariJam).forEach(t => { if (blnDari(t) !== bulan) delete hariJam[t]; });
+  /* Dibuang untuk bulan sebelah dengan aturan yang SAMA PERSIS dengan hari[]
+     dan hariJam[] — kalau tidak, halaman Error memajang bill bulan lain
+     sementara seluruh halaman lain tidak. */
+  const error = Object.keys(errBill).map(k => errBill[k])
+    .filter(e => blnDari(e.tgl) === bulan)
+    .sort((a, x) => (a.tgl < x.tgl ? -1 : a.tgl > x.tgl ? 1 : (a.jam - x.jam)));
+  r.errLewat = nErrLewat;
+  /* KOLOM PENANDANYA DICATAT, bukan disimpulkan dari daftar yang kosong.
+     "Tidak ada bill error bulan ini" dan "berkasnya tidak punya kolom
+     penandanya" memulangkan bentuk data yang SAMA PERSIS — daftar kosong —
+     tapi yang pertama jawaban dan yang kedua pekerjaan yang belum selesai.
+     Disamakan, yang membacanya menyimpulkan bulan itu bersih padahal tidak
+     ada satu pun yang pernah diperiksa. */
+  r.errSumber = [];
+  if (K.bayar) r.errSumber.push('Payment Method');
+  if (K.info) r.errSumber.push('Additional Info');
   const tglU = Object.keys(hari).sort();
 
   r.ukYatim = nUkYatim;
   return { bulan, jenis, berkas:namaBerkas, hari, jam, hariJam, menu, paket, ukuran, kategori, katMenu,
-           kunjung, bayar, kunjungBayar, ringkas:r,
+           kunjung, bayar, kunjungBayar, error, ringkas:r,
            nBaris:nRow, nLewat, blnLain, billDariBaris:!punyaBill,
            tglAwal:tglU[0] || '', tglAkhir:tglU[tglU.length - 1] || '' };
 }
@@ -6420,7 +6730,7 @@ async function anSimpanUnggah() {
     diunggah: u.diunggah, oleh: u.oleh, berkas: u.berkas, jenis: u.jenis,
     hari: u.hari, jam: u.jam, hariJam: u.hariJam, menu: u.menu, paket: u.paket, ukuran: u.ukuran,
     kategori: u.kategori, katMenu: u.katMenu, kunjung: u.kunjung,
-    bayar: u.bayar, kunjungBayar: u.kunjungBayar, ringkas: u.ringkas
+    bayar: u.bayar, kunjungBayar: u.kunjungBayar, error: u.error, ringkas: u.ringkas
   };
   if (await simpan()) {
     UNGGAH_HASIL = null; BLN = u.bulan;
@@ -6565,7 +6875,7 @@ function render() {
     return;
   }
   ({ ringkasan:vRingkasan, tren:vTren, hari:vHari, menu:vMenu, kategori:vKategori,
-     kunjungan:vKunjungan, talent:vTalent, promo:vPromo, event:vEvent, marketing:vMarketing, unggah:vUnggah,
+     kunjungan:vKunjungan, talent:vTalent, error:vError, promo:vPromo, event:vEvent, marketing:vMarketing, unggah:vUnggah,
      pengaturan:vPengaturan, akses:vAkses }[CURRENT] || vRingkasan)();
   terapkanKunci();
 }

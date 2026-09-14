@@ -2489,6 +2489,120 @@ berkas ini:
 > yang mengiris SATU kartu menurut `<h3>`-nya. Bentuk yang sama persis dengan
 > pencari baris di halaman Performa Talent — dan ini kali kedua ia menggigit.
 
+
+#### Halaman Error & Koreksi Bill (15 September 2026)
+
+Permintaan user: *"tambahkan menu tab baru namanya Error gabungan dari (Error
+Floor, Error System, Error Kitchen, Error Bar, Error Customer) dan didalam
+error ini saya ingin melihat detail bill dan notes nya kenapa hal itu bisa
+terjadi, saya ingin yang menginput bill disaat itu siapa juga"*. Kunci view
+`error`.
+
+**PENANDANYA AWALAN "ERROR", BUKAN KELIMA NAMA ITU.** Diukur atas Agustus 2026,
+yang benar-benar ada di data cuma dua — dan salah satunya **tidak disebut di
+permintaan**:
+
+```
+  Payment Method (Detail Report) : ERROR KASIR, ERROR FLOOR
+  Additional Info (Bill Report)  : ERROR CASHIER, ERROR FLOOR
+```
+
+Tidak satu pun dari Error System / Kitchen / Bar / Customer muncul bulan itu.
+Daftar tertutup berisi lima nama yang disebut akan **MEMBUANG ERROR KASIR
+tanpa satu pun tanda**, dan bulan yang punya bill bermasalah terbaca bersih.
+
+##### Penandanya di DUA kolom berbeda, dan itu menentukan bentuk halamannya
+
+Ini yang paling menentukan di bagian ini, dan bukan pilihan kita — POS memang
+menaruhnya di tempat berbeda di tiap bentuk laporan:
+
+| | penanda | yang IKUT | yang TIDAK ADA |
+|---|---|---|---|
+| **Detail Report** | `Payment Method` | rincian menu + waiter per baris | **Cashier**, **Additional Info** |
+| **Bill Report** | `Additional Info` | kasir + catatan bebas + waiter bill | **rincian menu** |
+
+**Keduanya dibaca**, dan yang tidak bisa diisi **DIKATAKAN di layar** berikut
+laporan mana yang memuatnya. Sel kosong tanpa keterangan terbaca sebagai data
+hilang, dan yang membacanya akan mengekspor ulang berkas yang sama
+berkali-kali — aturan yang sama dengan pesan Payment Method di halaman Metode
+Kunjungan.
+
+> **Satu bulan menyimpan SATU laporan**, jadi kasir dan rincian menu memang
+> tidak bisa ada bersamaan. Itu disebut di layarnya, bukan didiamkan. Kalau
+> suatu hari keduanya harus ada sekaligus, yang perlu diubah model "satu bulan
+> satu laporan" — bukan halaman ini.
+
+##### Yang gampang salah, dan sudah diukur
+
+- **`Additional Info` BUKAN penanda error dengan sendirinya.** Untuk bill biasa
+  isinya **nama tamu** — "CHRISTI", "INDAH OFFICE", "office wandi" (2.030 dari
+  4.786 bill terisi). Yang menandai error cuma isinya yang memuat kata ERROR.
+  Membaca kolomnya sebagai penanda akan menandai separuh bulan sebagai error.
+- **`Menu Notes` BUKAN sebab bill dibatalkan.** Isinya catatan MEMASAK —
+  "dadar" (134x), "Dingin", "Less sugar". Dipajang apa adanya di rincian menu,
+  dan **dikatakan** bahwa ia bukan alasan; yang mencari sebabnya akan
+  membacanya sebagai sebab kalau tidak.
+- **`Employee Name` TIDAK dipakai sebagai "siapa".** Diukur: isinya "-" di
+  **15.918 dari 19.739 baris**. Yang benar-benar berisi nama **Waiter**
+  (99,97%) dan **Cashier**. Nilai "-" juga disaring di sini — ia kolom kosong
+  versi POS ini, bukan nama orang.
+- **Kasir dan waiter DIBEDAKAN, tidak digabung jadi satu angka.** Bill
+  LMCL202608080396 waiter-nya TASYA di Bill Report tapi SULIS & SPV per baris
+  menu di Detail Report, sementara kasirnya ANDY. Digabung, yang membacanya
+  tidak tahu ia sedang melihat yang memproses bill atau yang mencatat pesanan.
+  Kartu "terbanyak" karena itu menyebut yang mana.
+- **Dikumpulkan PER BILL, bukan per baris.** Satu bill Detail Report tersebar
+  di beberapa baris menu dan tiap barisnya membawa penanda yang sama —
+  dikumpulkan per baris, satu bill berdiri dua kali dan nilainya terpecah.
+- **Label diambil dari KOMPONEN yang berawalan ERROR**, bukan seluruh string.
+  Pembayaran gabungan "CASH (15.000),ERROR BAR (5.000)" harus berdiri sebagai
+  ERROR BAR; dibiarkan utuh, ia label yang tidak akan pernah bisa
+  dikelompokkan dengan apa pun.
+- **`error` WAJIB disebut di daftar kunci tertutup `anSimpanUnggah()`.** Itu
+  tempat `paket`, `kategori`, dan `katMenu` tertinggal lima hari tanpa satu
+  pun galat. Diuji lewat putaran simpan SUNGGUHAN.
+- **Bulan sebelah dibuang** dengan aturan yang SAMA PERSIS dengan `hari[]` dan
+  `hariJam[]` — kalau tidak, halaman ini memajang bill bulan lain sementara
+  seluruh halaman lain tidak.
+- **Daftarnya dipotong di 400 bill** (`ERR_MAKS`), dan yang terpotong DISEBUT
+  angkanya. Di produksi sebulan cuma 3 bill, tapi POS yang suatu hari menandai
+  seluruh bill error akan membuat blob ringkasannya meledak.
+
+##### TIGA keadaan kosong, dan ketiganya menuntut tindakan berbeda
+
+| keadaan | yang dikatakan |
+|---|---|
+| `error` tidak ada (laporan lama) | **unggah ulang** berkas bulan itu |
+| `error` kosong, kolom penandanya ADA | **tidak ada bill error bulan ini** — itu JAWABAN |
+| `error` kosong, kolom penandanya TIDAK ADA | berkasnya **tidak punya kolom penandanya**; halaman ini tidak bisa menyimpulkan apa pun |
+
+Yang ketiga itu sebabnya `ringkas.errSumber` ada: **ketiadaan kolom penanda dan
+bulan yang benar-benar bersih memulangkan bentuk data yang SAMA PERSIS**.
+Disamakan, yang membacanya menyimpulkan tidak ada masalah padahal tidak ada
+satu pun yang pernah diperiksa.
+
+```bash
+node tools/uji-analytics.js   # 633 pemeriksaan (dari 601)
+```
+
+**Empat belas mutasi dicoba, keempat belasnya tertangkap** — tapi TIGA di
+antaranya baru sesudah ujinya dibetulkan, dan ketiganya bentuk yang sama:
+
+> **ASERSI YANG MELEMPAR MEMBUNUH SELURUH SUITE, dan mutasinya lalu terbaca
+> "uji tidak selesai" — bukan "tertangkap".** Dua asersi membaca
+> `error[0].kasir` apa adanya, dan ketiga blok keadaan kosong memanggil
+> `go('error')` tanpa penjaga. Begitu sebuah mutasi mengosongkan daftarnya
+> atau membuat penggambarnya melempar, node mati sebelum ringkasan tercetak
+> dan hasil mutasinya **tidak bisa dibaca sama sekali**. Sekarang
+> `go('error')` dibungkus `try` dan kegagalannya jadi asersi merah
+> tersendiri — yang sekaligus menjaga perilaku yang benar: penggambar yang
+> melempar meninggalkan **halaman SEBELUMNYA** di layar, utuh dan
+> menyesatkan, persis gejala Performa Kas yang mati senyap.
+
+Satu mutasi lagi LOLOS bersih sebelum ditutup: **"bill bulan sebelah ikut
+terbawa"** — tidak ada satu pun asersi yang menjaganya. Ditutup dengan baris
+30 Juli di fixture-nya sendiri, bukan di fixture bersama.
+
 #### KODE MENU DIISI DI HPP & RESEP — sumber utamanya sekarang di sana (10 Sep 2026)
 
 Permintaan user: *"dari di HPP & Resep bisa masukin menu code, jadi kalau
