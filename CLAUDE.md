@@ -7205,17 +7205,87 @@ array, `compliments` yang bukan array, dan baris compliment **tanpa `date`**
 suatu hari benar-benar ada; kalau muncul, gejalanya akan sama persis dengan
 yang baru saja dibereskan.
 
-### Deploy gagal ETIMEDOUT: servernya sehat, IP runner-nya diblokir (7 Sep 2026)
+### Deploy gagal ETIMEDOUT — DUA SEBAB YANG BENTUKNYA SAMA PERSIS
 
 ```
 Error: connect ETIMEDOUT 202.10.43.196:21 (control socket)
 ```
 
-Jangan mencari sebabnya di repo. Ini **kegagalan jaringan sebelum satu byte
-pun terkirim** — bukan berkas, bukan kredensial, bukan commit yang barusan
-di-push. Dibuktikan dengan menghubungi port 21 dari jaringan lain: server
-menjawab banner Pure-FTPd seketika, sementara runner GitHub menunggu sampai
-habis waktu.
+Ini **kegagalan jaringan sebelum satu byte pun terkirim** — bukan berkas,
+bukan kredensial, bukan commit yang barusan di-push.
+
+> **DUA SEBAB BERBEDA MEMULANGKAN PESAN YANG SAMA PERSIS**, dan sampai
+> 14 September 2026 berkas ini cuma menyebut yang pertama. Yang kedua ada DI
+> DALAM KENDALI KITA, dan selama tidak diketahui ia menghabiskan berhari-hari
+> menunggu support hosting mencabut blokir yang tidak pernah ada.
+>
+> | | yang membedakannya di log |
+> |---|---|
+> | **blokir firewall** (CSF DROP) | probe curl di langkah yang sama JUGA gagal |
+> | **Happy Eyeballs Node** | probe curl **BERHASIL**, aksi FTP gagal beberapa detik kemudian, dan jejaknya memuat `internalConnectMultipleTimeout` |
+>
+> **Periksa hasil probe-nya dulu.** Ia curl, jadi ia tidak kena masalah kedua —
+> itulah gunanya ia berdiri terpisah. Probe hijau + aksi FTP merah berarti
+> servernya bisa dihubungi dan yang salah ada di sisi kita.
+
+#### Sebab kedua: Node menyerah sesudah 250 ms (14 September 2026)
+
+Dari run `34807363038`, dan inilah bukti yang memutuskannya:
+
+```
+04:48:18  probe curl  -> kode 0, login berhasil, root terbaca
+04:48:19  aksi FTP    -> AggregateError [ETIMEDOUT]
+                         at Timeout.internalConnectMultipleTimeout
+```
+
+**Satu detik, IP sama, runner sama.** Firewall tidak bisa berbalik secepat itu,
+dan `internalConnectMultipleTimeout` cuma ada di jalur `autoSelectFamily` Node —
+batas waktu **PER ALAMAT** yang bawaannya **250 ms**, bukan batas soketnya
+(aksinya sendiri menyetel 300 detik).
+
+Nama host FTP-nya punya A **dan** AAAA. Runner GitHub tidak punya IPv6
+(`ENETUNREACH 2001:df0:…` ikut di daftar galatnya), dan jabat tangan TCP ke
+Indonesia dari runner sering **lebih lama daripada 250 ms** — jadi IPv4-nya
+dibatalkan tepat sebelum SYN-ACK-nya sampai. curl tidak punya batas itu, jadi
+ia lolos.
+
+Itu juga yang menjelaskan dua hal yang sebelumnya tidak masuk akal:
+
+- **"Dari dulu bisa kok"** — memang bisa, selama latensinya kebetulan di bawah
+  250 ms. Yang berubah bukan repo dan bukan hosting.
+- **Rumahweb menjawab "bukan di kami"** — dan mereka benar. Port 21-nya
+  menjawab `530` dari laptop di jaringan mana pun.
+
+**PERBAIKANNYA: server FTP dihubungi lewat ALAMAT IPv4, bukan nama host.**
+Langkah `Resolve IPv4 server FTP` menerjemahkannya sekali di awal job, dan
+SELURUH aksi FTP (29 di dev, 32 di produksi) memakai keluarannya. Host berupa
+IP literal melewati DNS, jadi Node tidak pernah masuk jalur multi-alamat itu
+sama sekali.
+
+- **Gagal resolve JATUH KEMBALI ke nama host.** Yang sebelumnya kadang berhasil
+  tidak boleh berubah jadi tidak pernah berhasil gara-gara langkah bantuan.
+- **Yang tertinggal satu saja gagal dengan cara yang sama persis**, dan di log
+  ia terlihat identik dengan yang sudah diperbaiki. Karena itu penggantiannya
+  diperiksa jumlahnya, bukan ditulis satu-satu.
+- **SENGAJA BUKAN `NODE_OPTIONS`.** Nama flag-nya berganti antar versi
+  (`--autoselect-family-attempt-timeout` lalu
+  `--network-family-autoselection-attempt-timeout`), dan flag yang tidak
+  dikenal membuat Node **menolak start** — deploy mati total karena
+  perbaikannya sendiri, di runner yang versinya tidak kita kendalikan.
+- **Probe-nya sengaja TETAP memakai nama host + curl.** Ia pembanding: kalau
+  suatu hari probe ikut merah, barulah sebabnya benar-benar di jaringan.
+
+**Ringkasan tiap run sekarang mencetak IP publik runner-nya** — GitHub tidak
+pernah mencetaknya sendiri, dan tanpa satu angka pun permintaan "tolong cabut
+blokir firewall" tidak bisa dikerjakan support siapa pun. 13 September 2026
+satu hari habis persis di situ.
+
+#### Sebab pertama: blokir firewall CSF
+
+Dibuktikan dengan menghubungi port 21 dari jaringan lain: server menjawab
+banner Pure-FTPd seketika, sementara runner GitHub menunggu sampai habis
+waktu — **dan probe curl di run itu ikut gagal.** Tanpa syarat terakhir itu,
+yang sedang dilihat kemungkinan besar sebab kedua di atas.
 
 **ETIMEDOUT vs ECONNREFUSED menentukan ke mana harus melapor**, dan bedanya
 sempat salah dipetakan di kedua workflow:
@@ -7232,14 +7302,20 @@ membacanya memeriksa server yang sehat. Sudah dibetulkan di `deploy.yml` dan
 `deploy-dev.yml`; jangan disamakan lagi jadi satu pesan — dua gejala itu
 menuntut dua tindakan yang berbeda.
 
-- **Tindakan pertama: JALANKAN ULANG workflow-nya.** Runner baru berarti IP
-  baru, dan itu sering langsung lolos. Percobaan ulang 3× di dalam job TIDAK
-  menolong: ketiganya dari IP yang sama.
+- **Tindakan pertama: JALANKAN ULANG workflow-nya** — tapi **hanya kalau
+  probe curl-nya ikut merah**. Runner baru berarti IP baru, dan itu sering
+  langsung lolos. Percobaan ulang 3× di dalam job TIDAK menolong: ketiganya
+  dari IP yang sama. Kalau probe-nya HIJAU, mengulang tidak akan pernah
+  menolong — yang salah sebab kedua, dan itu tidak berganti dengan IP baru.
 - Kalau berulang, minta support Rumahweb mencabut blokirnya. Menambah
   whitelist rentang IP GitHub Actions bukan jalan keluar yang bertahan —
   rentangnya besar dan berganti.
-- Peringatan **"Node 20 is being deprecated"** di log yang sama TIDAK ada
-  hubungannya dengan kegagalan ini.
+- ~~Peringatan **"Node 20 is being deprecated"** di log yang sama TIDAK ada
+  hubungannya dengan kegagalan ini.~~ **Kalimat itu menutup arah yang benar
+  selama seminggu.** Versi Node yang menjalankan aksinya justru yang
+  menentukan apakah `autoSelectFamily` menyala dan berapa batas waktunya —
+  lihat sebab kedua di atas. Peringatannya sendiri memang bukan penyebab, tapi
+  ia menunjuk ke tempat yang benar.
 
 ### Monarx memblokir langkah verifikasi backend (29 Agustus 2026)
 

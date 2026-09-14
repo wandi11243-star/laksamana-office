@@ -30,6 +30,45 @@ jobs:
       # Beda dari produksi cuma dua: secret DEV_* dan server-dir `/`
       # (di dev seluruh isi ./deploy/ diunggah ke root akun).
       # ==================================================================
+
+      # ================================================================
+      # IPv4 FTP — lihat catatan panjang di bagian ini pada commit yang
+      # melahirkannya. Ringkasnya: aksi FTP memakai Node, dan Node memberi
+      # tiap alamat hasil DNS hanya 250 ms untuk connect (autoSelectFamily).
+      # Nama host ini punya AAAA yang tidak bisa dicapai runner DAN A yang
+      # jabat tangannya ke Indonesia sering lebih lama daripada 250 ms, jadi
+      # koneksinya dibatalkan sebelum sempat jadi — muncul sebagai ETIMEDOUT
+      # yang PERSIS sama bentuknya dengan blokir firewall, padahal bukan.
+      #
+      # IP literal melewati DNS seluruhnya, jadi jalur multi-alamat itu tidak
+      # pernah dipakai. Gagal resolve JATUH KEMBALI ke nama host: yang
+      # sebelumnya kadang berhasil tidak boleh berubah jadi tidak pernah
+      # berhasil gara-gara langkah bantuan.
+      # ================================================================
+      - name: Resolve IPv4 server FTP dev
+        id: ftpip
+        continue-on-error: true
+        env:
+          FTP_SERVER: ${{ secrets.DEV_FTP_SERVER }}
+        run: |
+          set +e
+          HOST="${FTP_SERVER#ftp://}"; HOST="${HOST#ftps://}"; HOST="${HOST%/}"
+          IP=$(getent ahostsv4 "$HOST" 2>/dev/null | awk '{print $1; exit}')
+          # Yang sudah berupa IPv4 dipakai apa adanya — getent memulangkannya
+          # juga, tapi memeriksanya di sini membuat sebabnya terbaca di log.
+          case "$HOST" in *[!0-9.]*) ;; *) IP="$HOST" ;; esac
+          if [ -z "$IP" ]; then
+            echo "IPv4 tidak bisa di-resolve — dipakai nama hostnya, seperti sebelumnya."
+            IP="$HOST"
+          fi
+          echo "host=$IP" >> "$GITHUB_OUTPUT"
+          {
+            echo ""
+            echo "Server FTP dihubungi lewat IPv4 \`$IP\` — bukan nama host, supaya"
+            echo "Node tidak masuk jalur multi-alamat yang membatalkan koneksi"
+            echo "sesudah 250 ms (itu yang selama ini terbaca sebagai blokir firewall)."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
       - name: Probe FTP & tulis diagnosis ke ringkasan run
         if: always()
         continue-on-error: true
@@ -114,7 +153,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./deploy/
@@ -151,7 +190,7 @@ jobs:
         if: steps.ftp1.outcome == 'failure'
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./deploy/
@@ -168,7 +207,7 @@ jobs:
         if: steps.ftp1.outcome == 'failure' && steps.ftp2.outcome == 'failure'
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./deploy/
@@ -205,7 +244,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./account-mysql/
@@ -224,7 +263,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./account-mysql/
@@ -243,7 +282,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./stock-mysql/
@@ -262,7 +301,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./stock-mysql/
@@ -289,7 +328,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./marketing-mysql/
@@ -308,7 +347,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./marketing-mysql/
@@ -333,7 +372,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./event-mysql/
@@ -352,7 +391,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./event-mysql/
@@ -380,7 +419,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./ticketing-mysql/
@@ -399,7 +438,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./ticketing-mysql/
@@ -421,7 +460,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./kompas-mysql/
@@ -440,7 +479,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./kompas-mysql/
@@ -466,7 +505,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./finance-mysql/
@@ -485,7 +524,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./finance-mysql/
@@ -514,7 +553,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./bd-mysql/
@@ -533,7 +572,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./bd-mysql/
@@ -552,7 +591,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./jadwal-mysql/
@@ -571,7 +610,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./jadwal-mysql/
@@ -593,7 +632,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./dw-mysql/
@@ -612,7 +651,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./dw-mysql/
@@ -644,7 +683,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./absensi/
@@ -660,7 +699,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./absensi/
@@ -672,7 +711,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./absensi-mysql/
@@ -691,7 +730,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./absensi-mysql/
@@ -755,7 +794,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./deploy/
@@ -791,7 +830,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.DEV_FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host }}
           username: ${{ secrets.DEV_FTP_USERNAME }}
           password: ${{ secrets.DEV_FTP_PASSWORD }}
           local-dir: ./deploy/
