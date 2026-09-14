@@ -1227,7 +1227,7 @@ const TITLES = {
   hari      :['Hari & Jam','Omset per hari dalam seminggu, dan sebaran jamnya'],
   menu      :['Menu & Bahan Baku','Menu terlaris dan perkiraan bahan yang seharusnya keluar'],
   kategori  :['Kategori Menu','Omset per kategori menu — termasuk EVENT, terpisah dari peringkat menu'],
-  kunjungan :['Metode Kunjungan','Cara tamu datang DAN cara mereka membayar — Visit Purpose dan Payment Method'],
+  kunjungan :['Metode Kunjungan','Rekap kanal, cara tamu datang, dan cara mereka membayar'],
   talent    :['Performa Talent','Kontribusi omset tiap penampil, dihitung dari jam tampilnya sendiri'],
   promo     :['Promo & Klaim','Promo mana yang paling banyak diklaim, barang apa, dan jam berapa'],
   tren      :['Tren Bulanan','Total omset bulan ke bulan, dan perbandingan dua bulan'],
@@ -3565,6 +3565,72 @@ function bahanBakuHtml(urut) {
    membawa omset lebih besar dengan transaksi jauh lebih sedikit, dan halaman
    yang diurut omset akan menjawab pertanyaan yang tidak dibawa siapa pun.
    Omsetnya tetap ada di kolomnya sendiri, jadi tidak ada yang hilang. */
+/* KANAL PEMESANAN — metode bayar yang sebenarnya CARA TAMU MEMESAN, bukan
+   cara ia membayar (permintaan user 15 September 2026: "metode kunjungan ini
+   di rekap, Dine in, GrabFood, Gofood, Tiktok go, ESB Order").
+
+   SEBABNYA: POS menulis GrabFood MAUPUN GoFood sebagai satu Visit Purpose yang
+   sama — ONLINE — dan bedanya cuma terbaca di kolom Payment Method. Diukur
+   atas Agustus 2026: ONLINE 88 bill, isinya GRABFOOD 78, GOFOOD 7, dan TIGA
+   bill yang metodenya bukan kanal sama sekali (EDC BRI, CASH, dan satu
+   pembayaran gabungan QRIS).
+
+   Ketiga bill terakhir itulah sebabnya rekap ini TIDAK boleh sekadar membuang
+   baris ONLINE: dibuang, omset rekap berhenti sama dengan omset Cara Tamu
+   Datang di halaman yang sama, dan selisihnya tidak akan bisa dijelaskan siapa
+   pun. Yang tersisa berdiri sebagai barisnya sendiri, tetap bernama ONLINE,
+   dan nama metodenya DISEBUT di layar.
+
+   DAFTARNYA TERTUTUP, dan itu memang bisa basi — kanal baru yang belum disebut
+   di sini tidak akan dipecah. Tapi gagalnya TERLIHAT, bukan diam: bill-nya
+   tetap dihitung di baris induknya, dan nama metodenya ikut ditulis di
+   keterangan bawah tabel. Itu yang membuat kanal berikutnya ketahuan tanpa ada
+   yang perlu memeriksa kode. */
+const KANAL_BAYAR = /\b(GRAB\s*FOOD|GO\s*FOOD|SHOPEE\s*FOOD|TIKTOK\s*GO|MAXIM|TRAVELOKA)\b/;
+const kanalKah = n => KANAL_BAYAR.test(String(n || '').toUpperCase());
+
+/* Cara datang DIGABUNG dengan kanal bayarnya jadi SATU daftar — inilah rekap
+   yang diminta. Dihitung saat MENGGAMBAR, bukan saat mengurai: daftar kanalnya
+   bisa bertambah bulan depan, dan laporan yang sudah tersimpan tidak akan
+   pernah bisa ikut membaik kalau hasilnya dibakukan ke dalam ringkasan. Pola
+   yang sama dengan menuNormal() di halaman Menu.
+
+   INVARIANNYA: jumlah omset rekap ini SAMA PERSIS dengan jumlah omset tabel
+   Cara Tamu Datang. Tiap baris induk dipecah jadi (kanal…) + sisa, dan sisanya
+   dihitung sebagai PENGURANGAN — bukan dijumlahkan ulang dari metode yang
+   tidak dikenal, yang akan meleset begitu ada bill berpembayaran gabungan. */
+function rekapKanal(kj, kb) {
+  const out = {}, takKanal = {};
+  const tambah = (n, g, b, dari) => {
+    const o = out[n] || (out[n] = { n: n, grand: 0, bill: 0, dari: [] });
+    o.grand += g; o.bill += b;
+    if (dari && n !== dari && o.dari.indexOf(dari) < 0) o.dari.push(dari);
+  };
+  Object.keys(kj).forEach(function (vp) {
+    const g = kj[vp].grand || 0, b = kj[vp].bill || 0;
+    const pecah = Object.keys(kb)
+      .filter(k => k.slice(0, vp.length + 1) === vp + '|')
+      .map(k => ({ n: k.slice(vp.length + 1), grand: kb[k].grand || 0, bill: kb[k].bill || 0 }));
+    const kanal = pecah.filter(x => kanalKah(x.n));
+    if (!kanal.length) { tambah(vp, g, b, ''); return; }
+    let sg = 0, sb = 0;
+    kanal.forEach(x => { tambah(x.n, x.grand, x.bill, vp); sg += x.grand; sb += x.bill; });
+    /* SISA BILL dijepit ke nol: satu bill yang dibayar kanal DAN metode lain
+       ikut dihitung di kedua-duanya, jadi jumlah bill pecahannya bisa
+       melampaui bill induknya. Omsetnya tidak begitu — porsinya selalu
+       berjumlah 1 — jadi omset sisa dipakai apa adanya. */
+    const sisaG = g - sg, sisaB = Math.max(0, b - sb);
+    if (sisaG > 0.5 || sisaB > 0) {
+      tambah(vp, sisaG, sisaB, '');
+      const lain = pecah.filter(x => !kanalKah(x.n)).map(x => x.n);
+      if (lain.length) takKanal[vp] = lain;
+    }
+  });
+  const baris = Object.keys(out).map(k => out[k])
+    .sort((a, x) => (x.bill - a.bill) || (x.grand - a.grand) || (a.n < x.n ? -1 : 1));
+  return { baris: baris, takKanal: takKanal };
+}
+
 function vKunjungan() {
   const V = document.getElementById('app-view');
   const b = blnAktif(), d = lap(b);
@@ -3636,6 +3702,72 @@ function vKunjungan() {
     + kartu('Jumlah Transaksi', totB.toLocaleString('id-ID'), list.length + ' cara datang berbeda')
     + kartu('Jumlah Omset', rp0(totG), 'seluruh cara datang digabung')
     + '</div>';
+
+  /* ---- TABEL 0: REKAP KANAL (permintaan user 15 September 2026) ----
+     Satu daftar yang menjawab "dari kanal mana tamunya datang": DINE IN,
+     GRABFOOD, GOFOOD, TIKTOK GO, ESB ORDER. Berdiri PALING ATAS karena itulah
+     pertanyaan yang dibawa orang ke halaman ini; dua tabel di bawahnya
+     menjawab pertanyaan yang lebih rinci dan tetap berdiri apa adanya. */
+  {
+    const RK = rekapKanal(kj, kbPeta);
+    const rkG = RK.baris.reduce((a, x) => a + x.grand, 0);
+    const rkB = RK.baris.reduce((a, x) => a + x.bill, 0);
+    const adaPecah = RK.baris.some(x => x.dari.length);
+    h += '<div class="card"><h3>Rekap Kanal</h3>'
+      + '<div class="card-sub">Cara tamu datang, dengan <b>ONLINE dipecah jadi kanalnya masing-masing</b> '
+      + '— GrabFood dan GoFood tidak pernah berdiri sendiri di kolom <i>Visit Purpose</i>; POS menulis '
+      + 'keduanya ONLINE, dan bedanya cuma terbaca di kolom <i>Payment Method</i>. Diurut menurut '
+      + '<b>jumlah transaksi</b>.'
+      + (Object.keys(kbPeta).length ? '' : ' <b>Bulan ini belum bisa dipecah</b> — metode bayarnya belum '
+        + 'terbaca, jadi yang tampil masih cara datang apa adanya.')
+      + '</div>'
+      + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Kanal</th>'
+      + '<th class="num">Jumlah Transaksi</th><th class="num">% transaksi</th>'
+      + '<th class="num">Jumlah Omset</th><th class="num">% omset</th>'
+      + '<th class="num">Rata-rata per transaksi</th><th style="width:16%"></th></tr></thead><tbody>';
+    const punRK = RK.baris.reduce((a, x) => Math.max(a, x.bill), 0) || 1;
+    RK.baris.forEach((x, i) => {
+      h += '<tr><td>' + (i + 1) + '</td>'
+        + '<td><b>' + esc(x.n) + '</b>'
+        /* Kanal yang lahir dari pemecahan MENYEBUT induknya. Tanpa itu, yang
+           membandingkan rekap ini dengan tabel Cara Tamu Datang di bawahnya
+           akan mencari GRABFOOD di sana dan menyimpulkan keduanya tidak
+           sinkron — padahal ia memang tidak pernah ada di Visit Purpose. */
+        + (x.dari.length ? ' <span class="muted">· dari ' + esc(x.dari.join(', ')) + '</span>' : '')
+        + '</td>'
+        + '<td class="num">' + x.bill.toLocaleString('id-ID') + '</td>'
+        + '<td class="num">' + pct(x.bill, rkB) + '%</td>'
+        + '<td class="num mono">' + rp0(x.grand) + '</td>'
+        + '<td class="num">' + pct(x.grand, rkG) + '%</td>'
+        + '<td class="num mono">' + (x.bill ? rp0(x.grand / x.bill) : '—') + '</td>'
+        + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
+          + '<div style="width:' + Math.round(x.bill / punRK * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
+        + '</tr>';
+    });
+    h += '</tbody><tfoot><tr><th></th><th>Total</th>'
+      + '<th class="num">' + rkB.toLocaleString('id-ID') + '</th><th class="num">100%</th>'
+      + '<th class="num mono">' + rp0(rkG) + '</th><th class="num">100%</th>'
+      + '<th class="num mono">' + (rkB ? rp0(rkG / rkB) : '—') + '</th><th></th></tr></tfoot></table></div>'
+      + '<div class="helper">Batangnya menggambarkan <b>jumlah transaksi</b>. Omsetnya berjumlah pas '
+      + 'dengan tabel <b>Cara Tamu Datang</b> di bawah — yang berubah cuma ke baris mana ia dicatatkan.</div>';
+    /* METODE YANG TERSISA DISEBUT NAMANYA. Itulah yang membuat kanal baru
+       ketahuan tanpa ada yang perlu memeriksa kode: kalau suatu hari muncul
+       ShopeeFood yang belum dikenal, namanya berdiri di kalimat ini. */
+    const sisaVp = Object.keys(RK.takKanal);
+    if (sisaVp.length) {
+      h += '<div class="notice info">ℹ <div>'
+        + sisaVp.map(vp => '<b>' + esc(vp) + '</b> masih menyisakan transaksi yang metode bayarnya bukan '
+            + 'kanal pemesanan: ' + esc(RK.takKanal[vp].join(', '))).join('<br>')
+        + '.<br>Barisnya tetap berdiri dengan nama induknya — dibuang, omset rekap ini berhenti sama '
+        + 'dengan tabel Cara Tamu Datang. Kalau salah satu nama di atas sebenarnya kanal pemesanan baru '
+        + '(mis. ShopeeFood), ia perlu didaftarkan supaya ikut dipecah.</div></div>';
+    }
+    if (!adaPecah && Object.keys(kbPeta).length) {
+      h += '<div class="helper">Bulan ini tidak ada cara datang yang perlu dipecah — tidak satu pun '
+        + 'transaksinya dibayar lewat kanal pemesanan.</div>';
+    }
+    h += '</div>';
+  }
 
   /* ---- TABEL 1: METODE PEMBAYARAN ---- */
   h += '<div class="card"><h3>Metode Pembayaran</h3>';

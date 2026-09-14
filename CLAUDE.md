@@ -2402,6 +2402,93 @@ yang dilebihkan, gabungan tanpa nominal sama sekali, nominal berpemisah ribuan
 tiga kelompok (supaya `angka()` vs `angkaTampil()` menjungkirkan rasionya),
 ONLINE yang pecah jadi dua metode, dan satu bill yang barisnya dua cara datang.
 
+
+##### REKAP KANAL: ONLINE dipecah jadi GrabFood & GoFood (15 Sep 2026)
+
+Permintaan user: *"metode kunjungan ini di rekap, Dine in, GrabFood, Gofood,
+Tiktok go, ESB Order"*. Halamannya sekarang dibuka tabel **Rekap Kanal** —
+satu daftar yang menjawab "dari kanal mana tamunya datang", berdiri di atas
+dua tabel yang sudah ada.
+
+**SEBABNYA satu kolom tidak cukup, dan itu bisa diukur:** POS menulis GrabFood
+MAUPUN GoFood sebagai Visit Purpose yang sama — **ONLINE** — dan bedanya cuma
+hidup di kolom Payment Method. Diukur atas Detail Report Agustus 2026:
+
+```
+  3626 trx   Rp597.034.359   DINE IN
+  1060 trx   Rp123.522.200   ESB ORDER
+    78 trx     Rp7.184.400   GRABFOOD    (dari ONLINE)
+    11 trx       Rp496.126   TIKTOK GO
+     7 trx       Rp748.050   GOFOOD      (dari ONLINE)
+     3 trx     Rp1.267.500   ONLINE      <- SISA, bukan kanal
+```
+
+**TIGA BILL TERAKHIR ITU YANG MENENTUKAN BENTUKNYA.** ONLINE punya 88 bill;
+85 di antaranya ojol, TIGA sisanya dibayar EDC BRI, CASH, dan satu pembayaran
+gabungan QRIS. Kalau baris ONLINE sekadar DIBUANG sesudah dipecah, omset rekap
+berhenti sama dengan tabel **Cara Tamu Datang** di halaman yang sama — dan
+selisih Rp1.267.500 itu tidak akan bisa dijelaskan siapa pun. Sisanya karena
+itu tetap berdiri sebagai barisnya sendiri, memakai nama induknya.
+
+- **DIHITUNG SAAT MENGGAMBAR** (`rekapKanal()`), bukan saat mengurai. Daftar
+  kanalnya bisa bertambah bulan depan, dan laporan yang sudah tersimpan tidak
+  akan pernah bisa ikut membaik kalau hasilnya dibakukan ke dalam ringkasan.
+  Aturan yang sama dengan `menuNormal()`. **Tidak ada kunci baru di
+  `anSimpanUnggah()`**, dan tidak ada yang perlu diunggah ulang.
+- **INVARIANNYA: omset rekap SAMA PERSIS dengan omset Cara Tamu Datang.** Itu
+  pemeriksaan terkuat di bagian ini dan satu-satunya yang tidak bisa basi
+  sendiri — ia menangkap pemecahan apa pun yang salah: sisa yang dibuang,
+  kanal yang dihitung dua kali, atau induk yang tidak dikurangi. Di data
+  produksi ia berbunyi **Rp730.252.635**, sama dengan `ringkas.grand`.
+- **Sisanya dihitung sebagai PENGURANGAN** (`g - sg`), bukan dijumlahkan ulang
+  dari metode yang bukan kanal. Keduanya kebetulan sama besar — porsi tiap
+  metode selalu berjumlah 1 — jadi mutasinya EKUIVALEN; yang dipakai tetap
+  pengurangan karena itu yang benar menurut maksudnya.
+- **SISA BILL DIJEPIT KE NOL.** Bill pecahan dihitung PENUH di tiap kanalnya,
+  jadi jumlahnya bisa melampaui bill induknya (satu bill dibayar GrabFood DAN
+  GoFood). Tanpa dijepit, barisnya berbunyi **"-1 transaksi"** — angka yang
+  tidak akan pernah bisa dijelaskan, sekelas dengan baris induk minus yang
+  sudah dijaga `ukTotal.minus`. Omsetnya TIDAK ikut dijepit: porsinya memang
+  selalu berjumlah 1.
+- **DAFTAR KANALNYA TERTUTUP** (`KANAL_BAYAR`), dan itu memang bisa basi. Tapi
+  gagalnya TERLIHAT, bukan diam: bill-nya tetap dihitung di baris induknya,
+  dan **nama metodenya ditulis di layar** ("ONLINE masih menyisakan… EDC BRI,
+  CASH, QRIS BRI"). Itu yang membuat kanal berikutnya ketahuan tanpa ada yang
+  perlu memeriksa kode.
+- **KATA UTUH, bukan potongan** (`\bGO\s*FOOD\b`). **GOPAY metode bayar, bukan
+  kanal pemesanan** — aturan potongan akan memecah DINE IN jadi baris GOPAY
+  yang tidak pernah diminta siapa pun. Aturan yang sama dengan `pbHead()` yang
+  mencari "Head" dan menolak "Overhead".
+- **Kanal hasil pemecahan MENYEBUT induknya** (*· dari ONLINE*). Tanpa itu,
+  yang membandingkan rekap ini dengan tabel Cara Tamu Datang akan mencari
+  GRABFOOD di sana dan menyimpulkan keduanya tidak sinkron — padahal ia memang
+  tidak pernah ada di Visit Purpose.
+- **DINE IN tidak ikut dipecah.** Yang dipecah hanya cara datang yang metode
+  bayarnya berupa kanal; memecah semuanya membuat tiap cara datang berdiri
+  lima baris tanpa satu pun pertanyaan yang terjawab olehnya.
+
+```bash
+node tools/uji-analytics.js   # 601 pemeriksaan (dari 586)
+```
+
+**Sembilan mutasi dicoba, kesembilannya tertangkap** — dua di antaranya baru
+sesudah asersinya ditambah, dan keduanya bentuk yang sudah punya nama di
+berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| `kanalKah` jadi potongan, bukan kata utuh | fixture tidak punya satu pun metode yang namanya MEMUAT nama kanal tanpa menjadi kanal | asersi UNIT: GOPAY, GRABPAY, MANGO FOODS ketiganya bukan kanal |
+| sisa bill tidak dijepit ke nol | bentuk pemicunya (satu bill DUA kanal) tidak ada di fixture | asersi UNIT atas `rekapKanal()`, bukan menambah bill ke fixture bersama |
+
+> **SEMBILAN ASERSI LAMA LANGSUNG MERAH saat kartu ini dipasang**, dan
+> semuanya cacat UJI: asersinya mengiris halaman dengan
+> `v.indexOf('Cara Tamu Datang')`, sementara kartu baru di ATASNYA memang
+> menyebut frasa itu di prosanya — karena omsetnya wajib berjumlah sama dengan
+> tabel itu, dan kalimat yang menyebutnya justru yang menahan orang
+> menyimpulkan keduanya tidak sinkron. Sekarang ada `kartuJudul(html, judul)`,
+> yang mengiris SATU kartu menurut `<h3>`-nya. Bentuk yang sama persis dengan
+> pencari baris di halaman Performa Talent — dan ini kali kedua ia menggigit.
+
 #### KODE MENU DIISI DI HPP & RESEP — sumber utamanya sekarang di sana (10 Sep 2026)
 
 Permintaan user: *"dari di HPP & Resep bisa masukin menu code, jadi kalau
