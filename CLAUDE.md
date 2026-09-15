@@ -5325,6 +5325,94 @@ ini: asersi yang cocok dengan teks di LUAR tempat yang diujinya.
 | `permintaan_id` tidak ikut disalin ke pengganti | kata itu masih hidup di baris yang MEMBACANYA (`$pm = ...`), jadi asersi yang menyapu seluruh badan fungsi tetap hijau | yang dibaca **daftar kolom INSERT**-nya, dan `:pm` di daftar VALUES-nya |
 | pengganti tidak dicek bentrok jamnya | mutasi `$B = null && bentrok_ajuan_row(...)` meninggalkan teks panggilannya UTUH — yang dibuang hasilnya | hasilnya wajib DIPAKAI: `$B = bentrok_ajuan_row(` lalu `if ($B)` |
 
+### DW: keterangan WAJIB di tiap pengajuan (15 September 2026)
+
+Permintaan user: *"kirim pengajuan DW wajib mengisi keterangan"*.
+
+**SATU ATURAN UNTUK KETIGA PINTUNYA**, dan itu yang paling menentukan di
+bagian ini. Modul ini punya TIGA form yang sama-sama melahirkan baris di
+antrean HRD, dan sampai tanggal ini ketiganya membiarkan kotak catatannya
+kosong:
+
+| form | kotak | tombolnya | pengirimnya |
+|---|---|---|---|
+| Minta DW | `mtCat` | *Kirim permintaan* | `kirimMinta()` |
+| sel kalender Input Mingguan | `selCat` | *Kirim pengajuan* | `simpanSelDW()` |
+| Ajukan DW (Kalender Tamu / Rekap Pegawai) | `ajtCat` | *Kirim Ajuan* | `kirimAjukanTgl()` |
+
+Dipasang di satu form saja, dua sisanya jadi jalan pintas yang tetap mengirim
+baris tanpa keterangan — HRD kembali menerima antrean yang tidak bisa dibaca
+sebabnya, dan aturannya cuma menyusahkan yang menurutinya.
+
+**WAJIB HANYA UNTUK YANG MENGIRIMKANNYA KE ORANG LAIN** (`catatanWajibDW()` =
+`!isHR()`). Yang ditanyakan di sini *kenapa DW-nya dibutuhkan*, dan yang
+membacanya HRD sebelum memutuskan. HRD yang menugaskan sendiri dari kalender
+memasukkan lima orang berturut-turut untuk satu malam (lihat komentar
+`ajukanTgl`); menuntut alasan tertulis kepada dirinya sendiri lima kali
+menghasilkan lima catatan asal-asalan — dan catatan asal-asalan **lebih buruk
+daripada kolom yang kosong**, karena ia terbaca seolah pertanyaannya sudah
+dijawab. Kalau suatu hari HRD harus ikut, yang perlu diubah satu baris itu.
+
+- **KIRIMANNYA DITAHAN, bukan cuma diperingatkan.** Pita merah yang muncul
+  sementara barisnya tetap berangkat adalah kebalikan dari yang diminta, dan
+  dari layar keduanya terlihat sama persis. `tahanCatatanKosong()` memulangkan
+  `true` dan pemanggilnya **berhenti di situ**.
+- **Letaknya SESUDAH penjaga tanggal lampau** di kedua form kalender: yang
+  tanggalnya sudah lewat menutup modalnya sendiri, dan menyuruh mengetik
+  keterangan ke modal yang sedang ditutup adalah pekerjaan yang dibuang. Di
+  `kirimAjukanTgl()` ia juga **MENDAHULUI** kotak bentrok & kotak panduan —
+  keduanya memanggil fungsi itu lagi, jadi pemeriksaan di belakangnya menyuruh
+  mengisi keterangan sesudah dua pertanyaan dijawab.
+- **Spasi saja bukan keterangan** (`.trim()`).
+- **Ditandai DI KOTAKNYA** (`.field textarea.err`), bukan cuma lewat pita:
+  pita menyebut aturannya, dan yang membacanya masih harus mencari kotak mana
+  yang dimaksud di form berisi tujuh kotak. Aturan yang sama dengan `.rpin.err`
+  di panel Kas Kecil. Kursornya juga ditaruh di kotak itu.
+- **Sebabnya disebut SEBELUM tombolnya ditekan** — label bertanda `*` plus
+  `Wajib diisi — HRD memutuskan dari keterangan ini`. Aturan yang cuma muncul
+  sesudah orang menekan kirim dibaca sebagai halaman yang menolak, bukan
+  sebagai syarat.
+- **MENGETIK TIDAK MENGGAMBAR ULANG MODALNYA** (`catatanKetikDW`). Kotak yang
+  dibuat ulang kehilangan fokus dan hanya huruf pertama yang masuk — jebakan
+  yang sudah dibayar di `queueF()` modul Konten. Pitanya dicabut lewat DOM
+  (`n.remove()`), bukan lewat penggambar ulang.
+- **Penandanya (`b.catErr`) ikut dicabut**, bukan cuma pitanya dihapus dari
+  layar. Ketiga form ini digambar ulang tiap ganti divisi/jam/posisi; penanda
+  yang tertinggal membuat pita "belum diisi" muncul lagi di atas kotak yang
+  jelas-jelas sudah terisi, dan peringatan yang keliru itulah yang melatih
+  orang berhenti membacanya.
+- **Kotaknya digambar SATU tempat** (`fieldCatatanDW`). Label, tanda wajib,
+  contoh isian, dan pita merahnya harus berbunyi sama di pintu mana pun ia
+  muncul; tiga penggambar yang sendiri-sendiri akan menyimpang, dan yang
+  menyimpang di sini adalah pintu yang diam-diam berhenti menuntut apa pun.
+- **DI LAYAR SAJA, tidak di server** — dan itu disengaja. Ini aturan
+  kelengkapan isian, bukan gerbang hak akses: yang mengakalinya lewat devtools
+  cuma merugikan dirinya sendiri. Pola yang sama dengan `adaBuktiDp()` di modul
+  Reservasi. Menegakkannya di PHP juga berarti head mendapat penolakan yang
+  membingungkan pada jendela waktu antara PHP dan HTML mendarat — urutan
+  pendaratan FTP di repo ini memang tidak bisa dijamin.
+
+```bash
+node tools/uji-catatan-wajib-dw.js   # 50 pemeriksaan, jsdom
+```
+
+**Yang dihitung ujinya JUMLAH POST-nya, bukan ada-tidaknya pita di layar** —
+itu satu-satunya asersi yang bisa membedakan "ditahan" dari "diperingatkan lalu
+tetap dikirim", dan mutasi yang persis begitu memang dicoba. Tombolnya
+**ditekan** lewat `jalankanAksiModal()`, bukan pengirimnya dipanggil langsung:
+pelajaran `putuskan()` di modul Jadwal, yang sempat mengirim status salah
+sementara ujinya hijau.
+
+Lima belas mutasi dicoba, kelima belasnya tertangkap — tapi **enam di antaranya
+mula-mula terbaca `gagal=-1`, yaitu ujinya MATI, bukan menangkap**. Sebabnya
+bentuk yang sudah punya nama di berkas ini: begitu sebuah mutasi meloloskan
+kiriman yang seharusnya ditahan, modalnya sudah tertutup pada langkah
+berikutnya — `jalankanAksiModal()` melempar dan asersi yang langsung menyentuh
+elemen kotaknya ikut melempar, jadi ringkasannya tidak pernah tercetak dan
+hasil mutasinya tidak bisa dibaca sama sekali. Sekarang penekanan tombolnya
+dibungkus `try` dan keberadaan kotaknya jadi **asersi tersendiri**, yang
+sekaligus menjaga perilaku yang benar: form yang ditahan harus tetap terbuka.
+
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
 ```

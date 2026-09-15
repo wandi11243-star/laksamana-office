@@ -635,6 +635,10 @@ tr.wkhdr th span{font-weight:600;letter-spacing:.02em;text-transform:none;
   border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:14.5px}
 .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
 .field textarea{resize:vertical;min-height:62px}
+/* Kotak wajib yang masih kosong ditandai DI KOTAKNYA, bukan cuma lewat pita
+   di bawahnya: yang membaca pita harus mencari sendiri kotak mana yang
+   dimaksud. Aturan yang sama dengan .rpin.err di panel Kas Kecil. */
+.field textarea.err,.field input.err{border-color:var(--danger);background:var(--danger-bg)}
 .field .hint{font-size:11.5px;color:var(--muted-2);margin-top:4px}
 .duo{display:flex;gap:10px}
 .duo .field{flex:1}
@@ -3098,6 +3102,73 @@ function mintaUntukOrang(dwId){
   gambarMinta();
 }
 
+/* ---------- KETERANGAN WAJIB DI TIAP PENGAJUAN DW (15 September 2026) ----
+   Permintaan user: "kirim pengajuan DW wajib mengisi keterangan".
+
+   SATU ATURAN UNTUK KETIGA FORMNYA, dan itu yang menentukan: modul ini punya
+   TIGA pintu yang sama-sama melahirkan baris di antrean HRD — Minta DW
+   (`mtCat`), pengajuan dari sel kalender (`selCat`), dan Ajukan DW dari
+   Kalender Tamu / Rekap Pegawai (`ajtCat`). Dipasang di satu form saja, dua
+   sisanya jadi jalan pintas yang tetap mengirim baris tanpa keterangan; HRD
+   kembali menerima antrean yang tidak bisa dibaca sebabnya, dan aturannya
+   cuma menyusahkan yang menurutinya.
+
+   WAJIB HANYA UNTUK YANG MENGIRIMKANNYA KE ORANG LAIN (`!isHR()`). Yang
+   ditanyakan di sini "kenapa DW-nya dibutuhkan", dan yang membacanya HRD
+   sebelum memutuskan. HRD yang menugaskan sendiri dari kalender memasukkan
+   lima orang berturut-turut untuk satu malam (lihat komentar `ajukanTgl`);
+   menuntut alasan tertulis kepada dirinya sendiri lima kali menghasilkan lima
+   catatan asal-asalan — dan catatan asal-asalan lebih buruk daripada kolom
+   yang kosong, karena ia terbaca seolah pertanyaannya sudah dijawab. */
+function catatanWajibDW(){ return !isHR(); }
+
+/* Kotaknya digambar SATU tempat: label, tanda wajib, contoh isian, dan pita
+   merahnya harus berbunyi sama di pintu mana pun ia muncul. */
+function fieldCatatanDW(pfx, label, nilai, contoh, salah){
+  const wajib=catatanWajibDW();
+  return '<div class="field" style="margin-top:10px">'
+    +'<label>'+esc(label)+(wajib?' *':'')+'</label>'
+    +'<textarea id="'+pfx+'Cat"'+(salah?' class="err"':'')
+      +' oninput="catatanKetikDW(&#39;'+pfx+'&#39;)"'
+      +' placeholder="'+esc(contoh)+'">'+esc(nilai||'')+'</textarea>'
+    +(salah
+      ? '<div class="note w" id="'+pfx+'CatErr" style="margin-top:6px">'
+        +'Keterangannya belum diisi. Tulis kenapa DW-nya dibutuhkan — itu yang '
+        +'dibaca HRD sebelum memutuskan.</div>'
+      : (wajib?'<div class="hint">Wajib diisi — HRD memutuskan dari keterangan ini.</div>':''))
+  +'</div>';
+}
+function catatanFormDW(pfx){
+  if(pfx==='mt')  return MINTA  ? {b:MINTA,  k:'catatan'} : null;
+  if(pfx==='sel') return SEL_DW ? {b:SEL_DW, k:'catatan'} : null;
+  return AJT ? {b:AJT, k:'cat'} : null;
+}
+/* Mengetik MEMBERSIHKAN pitanya TANPA menggambar ulang modalnya. Yang digambar
+   ulang membuang fokus kotaknya, dan hanya huruf pertama yang masuk — jebakan
+   yang sudah dibayar di queueF() modul Konten. */
+function catatanKetikDW(pfx){
+  const f=catatanFormDW(pfx), el=document.getElementById(pfx+'Cat');
+  if(!f||!el) return;
+  f.b[f.k]=el.value;
+  if(!f.b.catErr || !String(el.value).trim()) return;
+  f.b.catErr=false;
+  el.classList.remove('err');
+  const n=document.getElementById(pfx+'CatErr'); if(n) n.remove();
+}
+/* Memulangkan true kalau pengirimannya DITAHAN — pemanggilnya berhenti di situ.
+   Formnya digambar ulang supaya pitanya muncul, lalu kursornya ditaruh di kotak
+   yang dimaksud: pesan yang tidak menunjukkan kotaknya membuat orang mencari
+   isian yang salah di form berisi tujuh kotak. */
+function tahanCatatanKosong(b, k, pfx, gambar){
+  if(!catatanWajibDW()) return false;
+  if(String((b&&b[k])||'').trim()) return false;
+  b.catErr=true;
+  gambar();
+  const el=document.getElementById(pfx+'Cat'); if(el) el.focus();
+  toast('Isi dulu keterangannya', true);
+  return true;
+}
+
 /* ---------- Head: form minta jumlah ---------- */
 let MINTA=null;
 function bukaMinta(id){
@@ -3252,8 +3323,8 @@ function gambarMinta(){
     +'</select>'
     +'<div class="hint">Pilihannya mengikuti divisi '+esc(namaDivisi(b.divisi))+'.</div></div>'
     +pilihOrangHTML(b)
-    +'<div class="field"><label>Catatan untuk HRD</label>'
-      +'<textarea id="mtCat" placeholder="Mis. ada acara 300 pax, butuh yang sudah pernah handle banquet">'+esc(b.catatan||'')+'</textarea></div>'
+    +fieldCatatanDW('mt', 'Catatan untuk HRD', b.catatan,
+        'Mis. ada acara 300 pax, butuh yang sudah pernah handle banquet', b.catErr)
     /* PERKIRAAN BIAYA DISEBUT DI FORM PERMINTAAN, bukan baru saat HRD
        menugaskan. Head-lah yang memutuskan berapa orang, tapi selama ini ia
        memutuskannya tanpa pernah melihat angkanya sama sekali — yang melihat
@@ -3388,6 +3459,7 @@ function biayaPermintaanHTML(b){
 async function kirimMinta(){
   const b=MINTA; if(!b) return;
   serapMinta();
+  if(tahanCatatanKosong(b,'catatan','mt',gambarMinta)) return;
   try{
     const d=await apiPost({action:'simpanPermintaan', row:{
       id:b.id, tgl:b.tgl, divisi:b.divisi, m:b.m, s:b.s,
@@ -4967,9 +5039,8 @@ function gambarSelDW(){
       ? '<div class="pilih-grid">'+kartu+'</div>'
       : (q?'<div class="empty">Tidak ada yang cocok dengan "'+esc(b.cari)+'".</div>'
          : kosongKandidatHTML(DIV, b.posisi)))
-    +'<div class="field" style="margin-top:10px"><label>Catatan'+(hrd?'':' untuk HRD')+'</label>'
-      +'<textarea id="selCat" placeholder="Mis. ada acara 300 pax, minta yang sudah pernah handle banquet">'
-      +esc(b.catatan||'')+'</textarea></div>'
+    +fieldCatatanDW('sel', 'Catatan'+(hrd?'':' untuk HRD'), b.catatan,
+        'Mis. ada acara 300 pax, minta yang sudah pernah handle banquet', b.catErr)
     +biayaPermintaanHTML({posisi:b.posisi, jumlah:Math.max(1,n)}),
     [{t:(hrd?'Assign ':'Kirim pengajuan ')+(n||''),c:'btn-primary',
       f:function(){ simpanSelDW(); return false; }}],
@@ -4983,6 +5054,10 @@ async function simpanSelDW(){
      lama, dan tengah malam lewat sementara ia terbuka. */
   if(tglLampau(b.tgl)){ SEL_DW=null; tutupModal();
     return toast('Tanggal ini sudah lewat — tidak bisa diajukan lagi', true); }
+  /* SESUDAH penjaga tanggal: yang tanggalnya lampau sudah menutup modalnya,
+     dan menyuruh mengetik keterangan ke modal yang sedang ditutup adalah
+     pekerjaan yang dibuang. */
+  if(tahanCatatanKosong(b,'catatan','sel',gambarSelDW)) return;
 
   const hrd=isHR();
   const ids=b.pilih.slice();
@@ -5468,7 +5543,8 @@ function gambarAjukanTgl(){
         +opsiPosisi(b.div, b.pos)
       +'</select></div>'
     +'</div>'
-    +'<div class="field"><label>Catatan untuk HR</label><textarea id="ajtCat" placeholder="Mis. dipanggil karena acara 300 pax">'+esc(b.cat)+'</textarea></div>'
+    +fieldCatatanDW('ajt', 'Catatan untuk HR', b.cat,
+        'Mis. dipanggil karena acara 300 pax', b.catErr)
     +'<p class="mutedhint">Ajuan yang dibuat dari sini langsung masuk antrean seperti biasa. '
     +'Modal tetap terbuka setelah dikirim supaya bisa menambah orang berikutnya untuk hari yang sama.</p>';
 
@@ -5486,6 +5562,10 @@ async function kirimAjukanTgl(){
     toast('Tanggal ini sudah lewat — tidak bisa diajukan lagi', true);
     return gambarAjukanTgl();
   }
+  /* Ditahan SEBELUM kotak bentrok & kotak panduan: keduanya memanggil
+     kirimAjukanTgl() lagi, jadi pemeriksaan yang ditaruh di belakangnya
+     menyuruh mengisi keterangan sesudah dua pertanyaan dijawab. */
+  if(tahanCatatanKosong(b,'cat','ajt',gambarAjukanTgl)) return;
   /* Panduan diperiksa SEBELUM dikirim, bukan sesudah. Yang dihitung di sini
      termasuk yang masih menunggu: orangnya sudah dipesan, dan menambah orang
      keenam ke hari berpanduan empat tetap keputusan yang layak ditanyakan
