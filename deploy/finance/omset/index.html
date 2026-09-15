@@ -1021,10 +1021,30 @@ function kirimSekarang(){
         selesai();
       },err=>{
         SAVING=false; DIRTY=true;
+        /* KONFLIK TULIS-BASI: TIDAK dicoba ulang, dan pesannya berbeda.
+           Cabang ini sempat TIDAK ADA di sini padahal sudah ada di kirim()
+           dan di berkas kembarnya (deploy/cashier/) — dan jalur INILAH yang
+           dipakai setiap tombol Simpan. Akibatnya konflik ikut dijadwalkan
+           ulang 5s/10s/20s/40s/60s, padahal ulangannya DIJAMIN ditolak
+           selama versinya masih beda; komentar di kirim() pun sudah menulis
+           bahwa ulangan itu justru berbahaya kalau suatu hari penjaganya
+           lewat. Dilaporkan user 15 September 2026 dari Report Daily.
+
+           `err` DITERUSKAN APA ADANYA, bukan dibungkus Error baru: penanda
+           .konflik-nya yang membuat simpanTunggu() bisa mencetak pesan yang
+           benar. Dibungkus ulang, penandanya hilang dan kotak di formulir
+           menjanjikan percobaan ulang yang tidak pernah dijadwalkan. */
+        if(err&&err.konflik){
+          const oleh=err.oleh?(' oleh <b>'+esc(err.oleh)+'</b>'):'';
+          clearTimeout(RETRY_TIMER); RETRY_KE=0;
+          setSync('err','&#9888; <b>TIDAK tersimpan.</b> Data di server sudah diubah'+oleh+
+            ' sejak halaman ini dibuka. Penyimpanan ditolak — kalau diteruskan, perubahan mereka yang terhapus.');
+          gagal(err); return;
+        }
         const sebab=(err&&err.message?String(err.message):'penyebab tidak diketahui').slice(0,200);
         const detik=Math.round(jadwalkanUlang()/1000);
         setSync('err',`Gagal simpan — tersimpan lokal, coba lagi ${detik}s.<br><span style="opacity:.85;font-size:11px">${esc(sebab)}</span>`);
-        gagal(new Error(sebab));
+        gagal(err);
       });
     })();
   });
@@ -1065,9 +1085,27 @@ function simpanTunggu(idBox, idTombol, pesanOk, sesudah){
     if(sesudah) sesudah();
   },err=>{
     if(btn){ btn.disabled=false; btn.innerHTML=semula; }
+    /* DUA KEGAGALAN, DUA TINDAKAN — dan menyamakannya membuat yang satu
+       menunggu selamanya. Jaringan putus: ulangan otomatis memang berjalan,
+       jadi menunggu status di pojok berubah jadi Tersimpan itu benar.
+       KONFLIK tulis-basi: ulangan SENGAJA tidak dijadwalkan, karena selama
+       versinya beda ia dijamin ditolak — jadi status itu TIDAK AKAN PERNAH
+       berubah jadi Tersimpan, dan kalimat lama menyuruh orang menunggu
+       sesuatu yang tidak akan datang. Dilaporkan user 15 September 2026.
+
+       Yang benar: catat dulu isiannya, baru muat ulang. JANGAN sediakan
+       tombol muat-ulang di sini — memuat ulang membuang ketikan yang belum
+       naik, dan tombol yang gampang ditekan akan ditekan sebelum sempat
+       dicatat. Alasan yang sama sudah ditulis di cabang konflik kirim(). */
+    const konflik=!!(err&&err.konflik);
     if(box) box.innerHTML='<div class="notice bad"><div>✕ <b>BELUM tersimpan ke server.</b> '
       +esc((err&&err.message)||'gagal')
-      +'<br><span style="opacity:.9;font-size:11px">Yang barusan Anda isi <b>masih ada di layar ini</b> dan belum hilang, dan percobaan ulang otomatis masih berjalan. Jangan tutup halaman sebelum status di pojok berubah jadi Tersimpan.</span></div></div>';
+      +'<br><span style="opacity:.9;font-size:11px">Yang barusan Anda isi <b>masih ada di layar ini</b> dan belum hilang. '
+      +(konflik
+        ? '<b>Percobaan ulang otomatis TIDAK berjalan untuk kasus ini</b> — selama versinya masih beda, ulangannya pasti ditolak lagi. '
+          +'<b>Catat dulu</b> yang barusan Anda isi, lalu <b>muat ulang halaman ini</b> dan isi lagi.'
+        : 'Percobaan ulang otomatis masih berjalan. Jangan tutup halaman sebelum status di pojok berubah jadi Tersimpan.')
+      +'</span></div></div>';
   });
 }
 /* Perubahan yang belum sampai ke server TIDAK boleh hilang diam-diam saat

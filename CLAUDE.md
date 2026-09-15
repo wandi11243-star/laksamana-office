@@ -5907,8 +5907,62 @@ palsu: blob di tab itu memang sudah basi, dan menyimpannya memang akan
 menghapus hasil endpoint sempit tadi.
 
 ```bash
-node tools/uji-simpan-basi.js   # 38 pemeriksaan, jsdom
+node tools/uji-simpan-basi.js   # 76 pemeriksaan, jsdom
 ```
+
+#### Konflik yang menyuruh menunggu selamanya (15 September 2026)
+
+Keluhan user dari **Report Daily**: kotak merah di formulir berbunyi
+
+> *"...percobaan ulang otomatis masih berjalan. Jangan tutup halaman sebelum
+> status di pojok berubah jadi Tersimpan."*
+
+untuk kegagalan **KONFLIK** — padahal ulangan SENGAJA tidak dijadwalkan untuk
+konflik. Statusnya karena itu **tidak akan pernah** berubah jadi Tersimpan, dan
+yang membacanya menunggu sesuatu yang tidak akan datang.
+
+**DUA CACAT, dan yang kedua berkas kembar yang tertinggal:**
+
+| | |
+|---|---|
+| `simpanTunggu()` mencetak SATU pesan untuk semua kegagalan | **kedua** berkas |
+| `kirimSekarang()` tidak punya cabang konflik sama sekali | **hanya** `deploy/finance/omset/` |
+
+Yang kedua lebih berbahaya, dan jalur itulah yang dipakai **setiap tombol
+Simpan**: konflik ikut dijadwalkan ulang 5s/10s/20s/40s/60s, padahal
+ulangannya **dijamin ditolak** selama versinya masih beda — dan komentar di
+`kirim()` sudah menulis sejak awal bahwa ulangan itu justru berbahaya kalau
+suatu hari penjaganya lewat. `gagal(new Error(sebab))` di sana juga **membuang
+penanda `.konflik`**, jadi `simpanTunggu()` tidak punya apa pun untuk
+dibedakan. Cashier sudah benar sejak 7 September 2026; Omset tidak pernah ikut.
+
+- **Pesannya dibedakan, bukan diseragamkan.** Jaringan putus: ulangan memang
+  berjalan, jadi menunggu status Tersimpan itu benar. Konflik: *catat dulu,
+  lalu muat ulang dan isi lagi*.
+- **JANGAN sediakan tombol muat-ulang di kotak itu.** Memuat ulang membuang
+  ketikan yang belum naik, dan tombol yang gampang ditekan akan ditekan
+  sebelum sempat dicatat. Alasan yang sama sudah tertulis di cabang konflik
+  `kirim()`.
+- **Sebabnya sendiri BUKAN bug**: blob omset dipakai bersama `deploy/cashier/`,
+  dan endpoint sempit (`simpanRekap`, setoran) ikut memajukan `updated_at`.
+  Tab yang sudah lama terbuka memang basi. Yang salah cuma pesannya.
+
+> **ASERSI LAMA "TIDAK ada percobaan ulang otomatis" TIDAK PERNAH BISA
+> MENANGKAPNYA.** Ia menunggu **1,2 detik**, sementara ulangan pertama
+> dijadwalkan **5 detik** — jadi ia hijau apa pun yang dilakukan kodenya. Yang
+> baru memperkecil `RETRY_JEDA[0]` jadi 200ms lewat `eval` (const array, tapi
+> isinya tetap bisa diubah) supaya jendela tunggunya benar-benar melewati
+> jadwal ulangan.
+
+> **`jejakSimpan` DIPAKAI BERSAMA SELURUH BERKAS UJI, dan tab dari seksi
+> sebelumnya masih hidup.** Ulangan mereka ikut terhitung dan membuat asersi
+> ini merah untuk kode yang benar — yang menyusup tab `Segar` milik uji
+> penyegar otomatis. Hitungannya sekarang dijepit `x.tab === nama`. Simpan
+> terjadwal dari boot tab itu sendiri juga dibersihkan dulu sebelum jendelanya
+> dibuka.
+
+Empat mutasi dicoba, keempatnya tertangkap — yang pertama mereproduksi persis
+gejala aslinya (dua kiriman untuk satu konflik).
 
 Ujinya membuka **DUA jsdom terpisah** — satu Cashier, satu Omset, localStorage
 masing-masing — menghadap SATU server tiruan. Itu simulasi dua tab yang

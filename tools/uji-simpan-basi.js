@@ -286,6 +286,110 @@ const taxDi = w => {
   cek('penyimpanan TETAP jalan — urutan deploy tidak boleh mematikan simpan',
       jejakSimpan.length > n0 && jejakSimpan[jejakSimpan.length - 1].diterima === true);
 
+  /* ---- 5c. KOTAK DI FORMULIR: konflik vs jaringan putus (15 September 2026)
+     Keluhan user dari Report Daily: kotak merah berbunyi "percobaan ulang
+     otomatis masih berjalan ... jangan tutup halaman sebelum status di pojok
+     berubah jadi Tersimpan" untuk kegagalan KONFLIK — padahal ulangan sengaja
+     TIDAK dijadwalkan untuk konflik, jadi status itu tidak akan pernah berubah
+     jadi Tersimpan dan yang membacanya menunggu selamanya.
+
+     DUA CACAT, dan yang kedua cuma ada di panel Omset:
+       1. simpanTunggu() mencetak SATU pesan untuk semua kegagalan (kedua
+          berkas).
+       2. kirimSekarang() di deploy/finance/omset/ TIDAK punya cabang konflik
+          sama sekali — berkas kembarnya di cashier punya. Jadi konflik ikut
+          dijadwalkan ulang, DAN penanda .konflik-nya hilang karena errornya
+          dibungkus Error baru sebelum ditolak ke pemanggil.
+
+     JEDA ULANGAN DIPERKECIL supaya cacat nomor 2 bisa ditangkap dalam waktu
+     wajar: ulangan pertama aslinya 5 detik, dan asersi lama yang cuma menunggu
+     1,2 detik TIDAK PERNAH bisa melihatnya. RETRY_JEDA itu const array, tapi
+     isinya tetap bisa diubah. */
+  console.log('\n-- kotak formulir: konflik vs jaringan putus --');
+  for (const [nama, berkas, modul, url] of [
+    ['Omset3', 'deploy/finance/omset/index.html', 'kompas', 'https://dev.laksamanamuda.id/finance/omset/'],
+    ['Kasir3', 'deploy/cashier/index.html', 'cashier', 'https://dev.laksamanamuda.id/cashier/'],
+  ]) {
+    const w = bukaTab(nama, berkas, modul, url);
+    await tunggu(600);
+    w.eval("RETRY_JEDA[0]=200; RETRY_KE=0;");
+    w.document.body.insertAdjacentHTML('beforeend', '<div id="ujiBox"></div>');
+
+    /* --- KONFLIK: server bergerak sesudah tab ini memuat --- */
+    server.by = 'Orang Lain';
+    server.ts += 1;
+    /* SIMPAN YANG SUDAH TERJADWAL DARI BOOT DIBERSIHKAN DULU. Panel Kasir
+       memanggil save() saat boot (sinkronisasi roster), dan save() menunda
+       kirimannya satu detik — kalau ia mendarat di tengah jendela tunggu di
+       bawah, ia terhitung sebagai "ulangan" padahal bukan. Yang sedang diuji
+       ULANGAN AKIBAT KONFLIK, jadi jendelanya harus bersih dari kiriman lain.
+       Tanpa ini asersinya merah untuk kode yang benar. */
+    w.eval('clearTimeout(SAVE_TIMER); clearTimeout(RETRY_TIMER); DIRTY=false;');
+    await tunggu(150);
+    const sebelum = jejakSimpan.length;
+    w.eval("simpanTunggu('ujiBox', null, '<b>ok</b>')");
+    await tunggu(500);
+    const kotak = w.document.getElementById('ujiBox').innerHTML;
+    cek(nama + ': kotak mengatakan BELUM tersimpan', /BELUM tersimpan/.test(kotak),
+        kotak.slice(0, 120));
+    cek(nama + ': ...dan menyebut ulangan TIDAK berjalan untuk konflik',
+        /TIDAK berjalan/.test(kotak), kotak.slice(0, 260));
+    cek(nama + ': ...menyuruh CATAT DULU lalu muat ulang',
+        /Catat dulu/i.test(kotak) && /muat ulang/i.test(kotak), kotak.slice(0, 260));
+    /* Kalimat lama tidak boleh tertinggal: ia yang menyuruh menunggu sesuatu
+       yang tidak akan datang. */
+    cek(nama + ': ...TIDAK lagi menjanjikan ulangan otomatis',
+        !/otomatis masih berjalan/.test(kotak), kotak.slice(0, 260));
+    cek(nama + ': ...dan tidak menyuruh menunggu status Tersimpan',
+        !/sebelum status di pojok/.test(kotak), kotak.slice(0, 260));
+
+    /* Ulangan untuk konflik memang tidak dijadwalkan. Dengan jeda 200ms,
+       menunggu 900ms sudah cukup melihatnya kalau ia ada. */
+    await tunggu(900);
+    /* DIJEPIT KE TAB INI. jejakSimpan dipakai bersama seluruh berkas uji, dan
+       tab dari seksi sebelumnya masih hidup — ulangan mereka ikut terhitung
+       dan membuat asersi ini merah untuk kode yang benar. Sudah kejadian:
+       yang menyusup tab "Segar" milik uji penyegar otomatis. */
+    const punyaTab = jejakSimpan.slice(sebelum).filter(x => x.tab === nama);
+    sama(nama + ': konflik TIDAK dicoba ulang', punyaTab.length, 1);
+
+    /* --- JARINGAN PUTUS: pesannya harus KEMBALI menjanjikan ulangan --- */
+    w.eval("BASE_TS=0;");           // supaya bukan konflik lagi
+    server.paksaGagal = true;
+    w.eval("simpanTunggu('ujiBox', null, '<b>ok</b>')");
+    await tunggu(500);
+    const kotak2 = w.document.getElementById('ujiBox').innerHTML;
+    cek(nama + ': galat biasa TETAP menjanjikan ulangan otomatis',
+        /otomatis masih berjalan/.test(kotak2) && !/TIDAK berjalan/.test(kotak2),
+        kotak2.slice(0, 260));
+    server.paksaGagal = false;
+    w.eval("clearTimeout(RETRY_TIMER); clearTimeout(SAVE_TIMER);");
+    w.close();
+  }
+
+  /* Kontraknya dijaga di SUMBER juga: cabang konflik di kirimSekarang() wajib
+     MENDAHULUI jadwalkanUlang(), dan errornya diteruskan apa adanya. Asersi
+     runtime di atas bisa saja hijau untuk kode yang menjadwalkan ulang dengan
+     jeda yang kebetulan lebih panjang daripada jendela tunggunya. */
+  console.log('\n-- kontrak sumber: konflik tidak pernah dijadwalkan ulang --');
+  for (const [nama, berkas] of [
+    ['omset', 'deploy/finance/omset/index.html'],
+    ['cashier', 'deploy/cashier/index.html'],
+  ]) {
+    const src = fs.readFileSync(path.join(ROOT, berkas), 'utf8');
+    const i = src.indexOf('function kirimSekarang');
+    const blok = src.slice(i, i + 2200);
+    const iKonflik = blok.indexOf('err.konflik');
+    const iUlang = blok.indexOf('jadwalkanUlang');
+    cek(nama + ': kirimSekarang() punya cabang konflik', iKonflik > -1);
+    cek(nama + ': ...dan cabang itu MENDAHULUI jadwalkanUlang()',
+        iKonflik > -1 && iUlang > -1 && iKonflik < iUlang, iKonflik + ' vs ' + iUlang);
+    /* Dibungkus Error baru, penanda .konflik hilang dan simpanTunggu tidak
+       bisa membedakan apa pun. */
+    cek(nama + ': ...errornya diteruskan apa adanya, bukan dibungkus ulang',
+        blok.indexOf('gagal(new Error(') < 0, 'masih membungkus err jadi Error baru');
+  }
+
   /* ---- 7. kontraknya cocok dengan SUMBER PHP ---- */
   console.log('\n-- kontrak dengan kompas-mysql --');
   const LF = t => t.replace(/\r\n/g, '\n');
