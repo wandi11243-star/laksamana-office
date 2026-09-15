@@ -5413,6 +5413,121 @@ hasil mutasinya tidak bisa dibaca sama sekali. Sekarang penekanan tombolnya
 dibungkus `try` dan keberadaan kotaknya jadi **asersi tersendiri**, yang
 sekaligus menjaga perilaku yang benar: form yang ditahan harus tetap terbuka.
 
+### DW: tombolnya di baris, dan Dashboard disaring per divisi (15 Sep 2026)
+
+Dua permintaan user dalam satu pesan, dan yang pertama mencabut apa yang baru
+dipasang pagi yang sama.
+
+**1. "Tombol konfirmasi kehadiran, chat itu letaknya jangan di detail."**
+Keduanya sempat berdiri sebagai aksi modal **Detail** (`bukaAjuan`) dengan
+alasan yang terdengar masuk akal — modal itulah yang terbuka dari Dashboard.
+Yang tidak terpikir waktu itu: keduanya jadi tombol yang baru terlihat SESUDAH
+satu klik yang tujuannya lain, dan tombol yang harus dicari dulu di balik
+"Detail" praktis tidak pernah dipakai.
+
+Letaknya sekarang **di barisnya**, kolom terakhir tabel Dashboard, berikut pil
+kehadirannya — jadi keadaan dan tindakannya terbaca tanpa membuka apa pun.
+**Jangan dikembalikan ke modal Detail.**
+
+- **Barisnya BISA DIKLIK** (ia membuka Detail), jadi kedua tombol wajib
+  `event.stopPropagation()`. Tanpa itu menekan Chat justru membuka modal yang
+  tombolnya baru saja dicabut. Dijaga dua mutasi.
+- **Aturan tanggal ada DI DALAM `tombolKehadiran()`, bukan di pemanggilnya.**
+  Tanggal yang belum lewat tidak ditawari tombol — aturan yang sama dengan
+  `hadirTertunggak()`: shift nanti malam memang belum bisa dikonfirmasi, dan
+  tombol yang selalu ada di baris minggu depan membuat penandanya berhenti
+  berarti. Diputuskan di pemanggilnya, pemanggil berikutnya tidak akan tahu
+  aturannya ada. **Tombol Chat TIDAK ikut dibatasi** — justru sebelum harinya
+  ia berguna ("jadi datang tidak?").
+- **`bukaKonfirmasi()` menyetel `HADIR_TGL` ke tanggal BARIS ITU**, bukan
+  membiarkannya di tanggal yang kebetulan terbuka. Yang menekannya dari baris
+  12 September tidak sedang bertanya tentang hari ini.
+- **Gerbangnya di FUNGSINYA**, bukan cuma dengan tidak menggambar tombolnya:
+  `onclick` di baris tabel bisa dipanggil dari console dalam sepuluh detik.
+  Aturan yang sama dengan gerbang `draw()` di Performa Kasir.
+
+**2. Dashboard hanya menampilkan divisi orangnya sendiri**, kecuali HRD /
+admin modul. `divisiTampakDW()` yang memutuskan, `lihatSemuaDivisiDW()` yang
+membuka kuncinya.
+
+- **`isHR() || isAdmin()`, bukan salah satunya.** Keduanya memang hampir selalu
+  beriringan — admin modul `dw` otomatis dianggap HRD di account-api — tapi
+  daftar `hr` yang SUDAH DIISI di Pengaturan bisa memuat orang yang bukan admin
+  modul, dan sebaliknya. Memakai satu penentu saja membuat salah satu dari
+  keduanya mendadak kehilangan pandangan atas divisi lain tanpa ada yang
+  mengubah haknya. Dijaga mutasi tersendiri.
+- **SELURUH daftar DAN angkanya disaring.** Disaring separuh jauh lebih buruk
+  daripada tidak disaring sama sekali: kartu "Menunggu (semua) 9" yang berdiri
+  di atas daftar berisi 2 membuat yang membacanya mencari tujuh baris yang
+  memang sengaja tidak ada. Ujinya karena itu membaca **angka kartunya**, bukan
+  cuma isi daftarnya.
+- **Panel "Permintaan head yang menunggu" ikut** — itu yang paling mudah
+  terlewat karena ia panel tersendiri di bawah tabelnya.
+- **Peringatan panduan (`lebih`) ikut disaring**, walau di data mana pun ia
+  sudah aman dengan sendirinya: `lebih` menghitung dari `setuju` yang SUDAH
+  disaring, jadi divisi lain tidak pernah bisa melampaui panduannya di layar
+  head. Penyaringnya tetap ditulis supaya maksudnya terbaca — dan mutasi yang
+  mencabutnya memang **EKUIVALEN**, bukan cacat uji.
+- **Saringannya DIKATAKAN** (`Halaman ini hanya menampilkan divisi Bar`).
+  Daftar yang menyusut tanpa keterangan dilaporkan sebagai data hilang, dan
+  yang mencarinya akan memeriksa database untuk penyaring yang bekerja dengan
+  benar.
+- **Head yang belum punya divisi sama sekali dibedakan** dari "hari ini memang
+  sepi": pita kuning yang menyebut sebabnya berikut di mana membetulkannya
+  (modul Jadwal Shift → Pengaturan → Head Divisi).
+- **INI PENYARING TAMPILAN, BUKAN GERBANG DATA.** `baca_semua()` tetap
+  memulangkan seluruh divisi kepada siapa pun yang boleh membuka modul ini
+  (lihat `dw_boleh_lihat`), dan halaman lain — Kalender DW, Rekap Pegawai —
+  memang masih memperlihatkan divisi lain. Kalau suatu hari harus benar-benar
+  dirahasiakan, yang perlu diubah `baca_semua()` di server.
+
+#### Halaman Konfirmasi Kehadiran TIDAK PERNAH BISA DIBUKA — `TITLES` yang hilang
+
+Ditemukan uji ini, bukan dari laporan: halaman yang lahir 15 September 2026
+punya entri `NAV_DEF`, punya cabang router, dan punya `bolehBuka()` — tapi
+**tidak punya baris di `TITLES`**.
+
+```
+go('hadir')  ->  VIEW='hadir', location.hash='#/hadir'
+             ->  hashchange  ->  terapkanHash()
+             ->  halamanSah('hadir') === false   (TITLES['hadir'] kosong)
+             ->  VIEW='dashboard'
+```
+
+Jadi menunya terbuka sekejap lalu **memantul balik ke Dashboard**, dan memuat
+ulang / menekan Back / mem-bookmark `#/hadir` berakhir di Dashboard juga.
+Kepala halamannya pun jatuh ke bawaan *Daily Worker · Laksamana Muda*.
+Tidak ada satu pun galat.
+
+> **Aturannya sudah tertulis di berkas ini** — waktu halaman Ranking PIC
+> dicabut dari panel Kas Kecil: *"yang benar-benar mengunci halamannya adalah
+> TITLES"*. Yang dicatat waktu itu cara MENCABUT halaman; yang tidak ikut
+> tercatat adalah kebalikannya, bahwa menambah halaman WAJIB menambah judulnya.
+> Sekarang komentarnya berdiri di atas `TITLES` itu sendiri.
+
+> **Kenapa tidak satu pun uji melihatnya**, dan ini yang layak diingat: semua
+> uji memanggil `go()` lalu membaca `VIEW` **sebelum** `hashchange` sempat
+> jalan — di jsdom ia asinkron. `smoke-modul.js dw` pun melaporkan 11 halaman
+> dirender dengan selamat. Yang menangkapnya asersi yang memanggil
+> `terapkanHash()` **langsung**, jadi tidak bergantung pada urutan waktu.
+
+Yang menjaganya sekarang **invarian, bukan daftar nama**: tiap kunci di
+`NAV_DEF` wajib punya judul di `TITLES`. Itu yang akan menangkap halaman
+BERIKUTNYA yang ditambahkan ke sidebar tanpa judul.
+
+```bash
+node tools/uji-dashboard-dw.js   # 53 pemeriksaan, jsdom
+```
+
+Tujuh belas mutasi dicoba, **enam belas tertangkap dan satu EKUIVALEN**
+(penyaring `lebih` di atas). Dua di antaranya baru tertangkap sesudah ujinya
+dibetulkan, dan keduanya bentuk yang sudah punya nama di berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| tombol Kehadiran membuka tanggal HARI INI, bukan tanggal barisnya | barisnya diuji atas shift HARI INI, jadi `hariIni()` memulangkan angka yang sama persis | baris uji bertanggal **kemarin** |
+| head bisa menandai kehadiran divisi lain | blok sebelumnya berpindah halaman → muat ulang → state kosong, jadi `bukaKonfirmasi` berhenti di `if(!a) return` dan asersinya hijau apa pun keputusan gerbangnya | fixture dipasang ulang + asersi **barisnya memang ada** lebih dulu |
+
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
 ```

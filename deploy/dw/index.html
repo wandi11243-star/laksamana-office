@@ -2387,8 +2387,19 @@ function buildNav(){
     foot.innerHTML = 'DW aktif: '+(S&&S.pekerja||[]).filter(p=>p.status==='AKTIF').length;
   }
 }
+/* JUDUL TIAP HALAMAN — dan ini BUKAN sekadar teks di kepala layar.
+   `halamanSah()` memakai TITLES sebagai daftar halaman yang SAH, jadi kunci
+   yang tidak disebut di sini praktis TIDAK BISA DIBUKA: go() menulis hash,
+   hashchange memanggil terapkanHash(), dan halaman yang tidak punya judul
+   dijatuhkan kembali ke Dashboard. Gejalanya bukan galat melainkan menu yang
+   terbuka sekejap lalu memantul balik — dan itu persis yang terjadi pada
+   Konfirmasi Kehadiran sejak halamannya lahir (15 September 2026) sampai
+   barisnya ditambahkan di bawah. Aturan yang sama sudah tertulis di CLAUDE.md
+   waktu halaman Ranking PIC dicabut dari panel Kas Kecil: yang benar-benar
+   mengunci sebuah halaman adalah TITLES, bukan menu sidebarnya. */
 const TITLES={
   dashboard: ['Dashboard','Daily worker yang masuk hari ini'],
+  hadir:     ['Konfirmasi Kehadiran','Siapa yang benar-benar datang — inilah dasar pembayarannya'],
   permintaan:['Permintaan DW','Riwayat permintaan divisi berikut putusannya'],
   antrean:   ['Antrean Pengajuan','Pengajuan yang menunggu keputusan HR'],
   kalender:  ['Kalender DW','Sebulan penuh per divisi'],
@@ -2609,15 +2620,22 @@ function panduanAwalDWHTML(){
 }
 function viewDashboard(){
   const t=dashTgl();
-  const hariItu=(S.ajuan||[]).filter(a=>a.tgl===t);
+  /* SELURUH DAFTAR & ANGKA DI HALAMAN INI DISARING MENURUT DIVISI — lihat
+     divisiTampakDW(). Disaring separuh (daftarnya saja, angkanya tidak) jauh
+     lebih buruk daripada tidak disaring sama sekali: kartu "Menunggu (semua)"
+     yang menyebut 9 di atas daftar berisi 2 membuat yang membacanya mencari
+     tujuh baris yang memang sengaja tidak ada di sana. */
+  const tampak=divisiTampakDW();
+  const punya=x=>tampak.indexOf(String((x&&x.divisi)||''))>-1;
+  const hariItu=(S.ajuan||[]).filter(a=>a.tgl===t && punya(a));
   const setuju=hariItu.filter(a=>a.status==='DISETUJUI');
-  const tunggu=(S.ajuan||[]).filter(a=>a.status==='MENUNGGU');
+  const tunggu=(S.ajuan||[]).filter(a=>a.status==='MENUNGGU' && punya(a));
   /* Permintaan yang menunggu IKUT di layar pertama. Sebelumnya Dashboard cuma
      menyebut ajuan, jadi HRD yang membukanya tiap pagi tidak pernah tahu ada
      head yang sudah meminta tiga orang untuk Sabtu — kecuali ia kebetulan
      membuka halaman Permintaan. Yang tidak terlihat di layar pertama sama saja
      dengan yang tidak ada. */
-  const mintaTunggu=(S.permintaan||[]).filter(x=>x.status==='MENUNGGU');
+  const mintaTunggu=(S.permintaan||[]).filter(x=>x.status==='MENUNGGU' && punya(x));
   const tungguHariItu=hariItu.filter(a=>a.status==='MENUNGGU');
   const biaya=setuju.reduce((n,a)=>n+biayaAjuan(a),0);
   const jam=setuju.reduce((n,a)=>n+durasiJam(a.m,a.s),0);
@@ -2633,9 +2651,17 @@ function viewDashboard(){
        cuma memberi tahu bahwa ada sesuatu yang disembunyikan, dan itu
        pertanyaan yang tidak perlu dimunculkan di halaman kerja harian. */
     const uang=bolehLihatUang();
+    const lewat=t<=hariIni();
     tabel='<div class="tablewrap"><table class="list">'
       +'<thead><tr><th class="no">No.</th><th>Daily Worker</th><th>Divisi</th><th>Posisi</th><th>Jam</th><th>Durasi</th>'
-      +(uang?'<th class="kanan">Est. Biaya</th>':'')+'</tr></thead><tbody>'
+      +(uang?'<th class="kanan">Est. Biaya</th>':'')
+      /* Pil kehadiran hanya untuk tanggal yang SUDAH LEWAT ATAU HARI INI —
+         aturan yang sama dengan hadirTertunggak(). Shift nanti malam memang
+         belum bisa dikonfirmasi, dan kolom berisi "Belum dikonfirmasi" di
+         seluruh baris minggu depan membuat penanda itu berhenti berarti. */
+      +(lewat?'<th>Kehadiran</th>':'')
+      +'<th class="noprint"></th>'
+      +'</tr></thead><tbody>'
       +setuju.map((a,i)=>'<tr class="klik" onclick="bukaAjuan(\''+escJs(a.id)+'\')">'
         +'<td class="no">'+(i+1)+'</td>'
         +'<td class="nama">'+esc(namaDW(a.dwId))+'</td>'
@@ -2643,14 +2669,24 @@ function viewDashboard(){
         +'<td>'+esc(a.posisi||'—')+'</td>'
         +'<td class="mono">'+esc(jamAjuan(a))+'</td>'
         +'<td class="mono">'+durasiJam(a.m,a.s)+' jam</td>'
-        +(uang?'<td class="kanan mono">'+esc(rp(biayaAjuan(a)))+'</td>':'')+'</tr>').join('')
+        +(uang?'<td class="kanan mono">'+esc(rp(biayaAjuan(a)))+'</td>':'')
+        +(lewat?'<td>'+pilHadir(a)+'</td>':'')
+        /* Tombolnya WAJIB menahan klik barisnya (event.stopPropagation di
+           dalam tombolWA & tombolKehadiran): baris ini membuka Detail, jadi
+           tanpa itu menekan Chat justru membuka modal yang baru saja dicabut
+           tombolnya. */
+        +'<td class="noprint">'+tombolWA(a)+tombolKehadiran(a)+'</td>'
+        +'</tr>').join('')
       +'</tbody></table></div>';
   }
 
   /* Peringatan panduan: dihitung per divisi untuk tanggal yang sedang dilihat,
      dengan angka yang sesuai KONTEKS hari itu (biasa / akhir pekan / event).
      Bukan larangan — lihat komentar di bagian PANDUAN JUMLAH DW. */
-  const lebih=DIVISI.map(function(d){
+  /* Peringatan panduan ikut disaring: "Kitchen 7/5" menyebut jumlah shift
+     divisi lain yang disetujui hari itu — angka pengajuan juga, cuma dalam
+     bentuk lain. */
+  const lebih=DIVISI.filter(d=>tampak.indexOf(d.k)>-1).map(function(d){
     const n=setuju.filter(a=>a.divisi===d.k).length;
     const k=kuotaDiv(d.k,t);
     return (k>0 && n>k) ? (d.n+' '+n+'/'+k) : '';
@@ -2661,6 +2697,18 @@ function viewDashboard(){
     +'<div class="rowbar"><h2>'+esc(tglPanjang(t))+'</h2><div class="spacer"></div>'
     +navTanggal('dashGeser','dashSet','dashHariIni',t)+'</div>'
     +'<p class="mutedhint" style="margin:-4px 0 12px">'+esc(panduanTeks(t))+'</p>'
+    /* DAFTAR YANG MENYUSUT WAJIB MENYEBUT SEBABNYA. Tanpa kalimat ini, head
+       Bar yang kemarin melihat sembilan baris lalu hari ini melihat dua akan
+       melaporkannya sebagai data yang hilang — dan yang mencarinya akan
+       memeriksa database untuk penyaring yang bekerja dengan benar. */
+    +(lihatSemuaDivisiDW() ? ''
+       : (tampak.length
+          ? '<div class="note i">Halaman ini hanya menampilkan divisi '
+            +'<b>'+esc(tampak.map(namaDivisi).join(', '))+'</b>. '
+            +'HRD melihat seluruh divisi.</div>'
+          : '<div class="note w">Akun Anda belum tercatat sebagai head divisi mana pun, '
+            +'jadi belum ada pengajuan yang bisa ditampilkan di sini. '
+            +'Yang menetapkannya HRD, di modul Jadwal Shift → Pengaturan.</div>'))
     +(lebih.length?'<div class="note w">Lebih dari panduan: <b>'+esc(lebih.join(', '))+'</b>. Bukan larangan — pastikan saja anggarannya memang disiapkan.</div>':'')
     +'<div class="stats">'
       +statBox(setuju.length,'DW Masuk')
@@ -6453,6 +6501,30 @@ function hadirHariIni(){ HADIR_TGL=hariIni(); muatDanGambar(); }
    dw-mysql/api.php: HRD semua divisi, head hanya divisinya sendiri. Layar
    yang lebih longgar memajang tombol yang selalu ditolak server; yang lebih
    ketat menyembunyikan pekerjaan dari orang yang harus mengerjakannya. */
+/* ---------- SARINGAN DIVISI DI DASHBOARD (15 September 2026) ----------
+   Permintaan user: "di bagian dashboard pengajuannya hanya bisa lihat yang
+   mengajukan dari divisi masing-masing, kecuali superadmin atau HRD bisa
+   lihat keseluruhan".
+
+   `isHR() || isAdmin()`, bukan salah satunya. Keduanya memang hampir selalu
+   beriringan — admin modul dw otomatis dianggap HRD di account-api — tapi
+   daftar `hr` yang SUDAH DIISI di Pengaturan bisa memuat orang yang bukan
+   admin modul, dan sebaliknya. Memakai satu penentu saja berarti salah satu
+   dari keduanya mendadak kehilangan pandangan atas divisi lain tanpa ada
+   yang mengubah haknya.
+
+   INI PENYARING TAMPILAN, BUKAN GERBANG DATA. `baca_semua()` tetap
+   memulangkan seluruh divisi kepada siapa pun yang boleh membuka modul ini
+   (lihat dw_boleh_lihat), dan halaman lain — Kalender DW, Rekap Pegawai —
+   memang masih memperlihatkan divisi lain. Kalau suatu hari harus benar-
+   benar dirahasiakan, yang perlu diubah `baca_semua()` di server, bukan
+   fungsi ini. */
+function lihatSemuaDivisiDW(){ return isHR() || isAdmin(); }
+function divisiTampakDW(){
+  return lihatSemuaDivisiDW() ? DIVISI.map(d=>d.k) : divisiKuasaDW();
+}
+function divisiTampakKah(k){ return divisiTampakDW().indexOf(String(k||''))>-1; }
+
 function bolehKonfirmasi(a){
   if(!a || a.status!=='DISETUJUI') return false;
   if(isHR()) return true;
@@ -6563,6 +6635,36 @@ function waAjuan(id){
      yang bermasalah, bukan datanya yang belum lengkap. */
   if(!no){ toast('Nomor HP '+namaDW(a.dwId)+' belum diisi di Database DW', true); return; }
   window.open('https://wa.me/'+no+'?text='+encodeURIComponent(waTeksAjuan(a)), '_blank', 'noopener');
+}
+/* Menuju halaman Konfirmasi Kehadiran PADA TANGGAL BARIS ITU. Tanggalnya ikut
+   disetel, bukan dibiarkan di tanggal yang kebetulan terbuka: yang menekannya
+   dari baris 12 September tidak sedang bertanya tentang hari ini, dan halaman
+   yang terbuka di tanggal lain terbaca sebagai shift-nya hilang. */
+function bukaKonfirmasi(id){
+  const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
+  /* Dijaga ulang di sini, bukan cuma dengan tidak menggambar tombolnya:
+     onclick di baris tabel bisa dipanggil dari console sepuluh detik.
+     Aturan yang sama dengan gerbang draw() di Performa Kasir. */
+  if(!bolehKonfirmasi(a)){ toast('Anda tidak berhak menandai shift divisi itu', true); return; }
+  tutupModal();
+  HADIR_TGL=a.tgl;
+  go('hadir');
+}
+function tombolKehadiran(a){
+  if(!bolehKonfirmasi(a)) return '';
+  /* TANGGAL YANG BELUM LEWAT TIDAK DITAWARI TOMBOL — aturan yang sama dengan
+     hadirTertunggak(). Shift nanti malam memang belum bisa dikonfirmasi, dan
+     tombol yang selalu ada di baris minggu depan membuat penandanya berhenti
+     berarti. Diputuskan DI SINI, bukan di pemanggilnya: pemanggil berikutnya
+     tidak akan tahu aturannya ada. */
+  if(String(a.tgl||'')>hariIni()) return '';
+  /* Kata kerjanya DIBEDAKAN antara yang belum dan yang sudah ditandai. Satu
+     kata untuk keduanya membuat baris yang sudah berbunyi "Tidak hadir"
+     tetap menawarkan "Konfirmasi", dan yang menekannya mengira penandaannya
+     belum tersimpan. */
+  return '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();bukaKonfirmasi(&#39;'+escJs(a.id)+'&#39;)" '
+    +'title="Tandai siapa yang benar-benar hadir — upah mengikuti penandaan ini">'
+    +(hadirBelum(a)?'✓ Kehadiran':'Ubah kehadiran')+'</button>';
 }
 function tombolWA(a){
   const p=pekerjaById(a.dwId);
@@ -8138,17 +8240,17 @@ function bukaAjuan(id){
   if(boleh && a.status!=='MENUNGGU')  aksi.push({t:'↩ Kembalikan ke antrean',c:'btn-ghost',f:function(){ tutupModal(); kembalikanAjuan(id); return false; }});
   if(boleh && a.status!=='DISETUJUI') aksi.push({t:'Setujui',c:'btn-ok',f:function(){ tutupModal(); setujuiAjuan(id); return false; }});
   if(boleh && a.status!=='DITOLAK')   aksi.push({t:'Tolak',c:'btn-danger',f:function(){ tutupModal(); tolakAjuan(id); return false; }});
-  /* CHAT & KONFIRMASI KEHADIRAN ada DI SINI JUGA, bukan cuma di halaman
-     Konfirmasi Kehadiran: modal ini yang terbuka dari Dashboard dan dari sel
-     Kalender DW, dan itulah layar yang sedang dibuka orang saat pertanyaan
-     "dia jadi datang tidak?" muncul. Menyuruhnya pindah halaman dulu untuk
-     satu tombol adalah cara tercepat membuat tombol itu tidak pernah dipakai. */
-  if(a.status==='DISETUJUI' && p && waNomor(p.hp)){
-    aksi.push({t:'💬 Chat',c:'btn-ghost',f:function(){ waAjuan(id); return false; }});
-  }
-  if(bolehKonfirmasi(a)){
-    aksi.push({t:'Konfirmasi kehadiran',c:'btn-ghost',f:function(){ tutupModal(); HADIR_TGL=a.tgl; go('hadir'); return false; }});
-  }
+  /* CHAT & KONFIRMASI KEHADIRAN SENGAJA TIDAK DI SINI (15 September 2026,
+     permintaan user: "tombol konfirmasi kehadiran, chat itu letaknya jangan
+     di detail"). Keduanya sempat berdiri sebagai aksi modal ini dengan alasan
+     yang terdengar masuk akal — modal ini yang terbuka dari Dashboard. Yang
+     tidak terpikir waktu itu: keduanya jadi tombol yang baru terlihat SESUDAH
+     satu klik yang tujuannya lain, dan tombol yang harus dicari dulu di balik
+     "Detail" praktis tidak pernah dipakai.
+
+     Letaknya sekarang DI BARISNYA — kolom terakhir tabel Dashboard — berikut
+     pil kehadirannya, jadi keadaan dan tindakannya terbaca tanpa membuka apa
+     pun. Lihat tombolWA() & tombolKehadiran(). Jangan dikembalikan ke sini. */
 
   modal('Ajuan — '+esc(namaDW(a.dwId)),
     '<div class="rowbar">'+pilStatus(a.status)
