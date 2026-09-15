@@ -132,6 +132,26 @@ function wajib_minta($body, $divisi) {
   }
   return $u;
 }
+/* KEHADIRAN & PENGGANTI: HRD, atau HEAD DIVISI SHIFT ITU.
+   ---------------------------------------------------------------------
+   Beda dari menyetujui, yang tetap HRD saja. Yang tahu siapa benar-benar
+   datang malam itu adalah orang yang ada di lokasi, dan itu head divisinya —
+   menguncinya untuk HRD berarti HRD menelepon empat head tiap pagi sebelum
+   bisa membayar siapa pun, dan yang ditunggu-tunggu begitu akhirnya diisi
+   asal-asalan. Persis itu yang mematikan pencatatan kehadiran versi pertama
+   (dicabut 6 Agustus 2026).
+
+   Ini MENYENTUH UANG, jadi dua hal wajib ada dan sudah ada: `hadir_oleh` +
+   `hadir_at` mencatat siapa dan kapan, dan divisinya dijepit per baris —
+   head Bar tidak bisa menandai kehadiran shift Kitchen. Divisinya dibaca
+   dari BARIS di database, bukan dari yang dikirim layar. */
+function wajib_hadir($body, $id) {
+  $a = ajuan_by_id($id);
+  /* Baris yang tidak ada tetap melewati gerbang umum, lalu lib yang
+     melemparkan pesan yang benar. Menolaknya di sini sebagai 'tidak berhak'
+     membuat id yang salah ketik terbaca sebagai masalah hak akses. */
+  return wajib_minta($body, $a ? (string)$a['divisi'] : '');
+}
 function wajib_admin($body, $apa) {
   $u = wajib_office($body);
   if (!dw_admin($u)) sesi_tolak_tak_berhak($apa . ' hanya bisa dilakukan admin modul Daily Worker.');
@@ -266,9 +286,18 @@ try {
       keluar(array('ok' => true, 'data' => hapus_ajuan(ambil($body, 'id'))));
 
     case 'simpanHadir': {
-      $u = wajib_hrd($body, 'Mencatat kehadiran');
+      $u = wajib_hadir($body, ambil($body, 'id'));
       keluar(array('ok' => true, 'data' => simpan_hadir(
         ambil($body, 'id'), ambil($body, 'hadir'),
+        ambil($body, 'nota'), nama_pemanggil($u))));
+    }
+
+    /* Pengganti di lokasi. Gerbangnya SAMA dengan kehadiran: yang tahu siapa
+       yang akhirnya datang adalah orang yang ada di sana. */
+    case 'gantiOrang': {
+      $u = wajib_hadir($body, ambil($body, 'id'));
+      keluar(array('ok' => true, 'data' => ganti_orang(
+        ambil($body, 'id'), ambil($body, 'dwBaru'),
         ambil($body, 'nota'), nama_pemanggil($u))));
     }
 

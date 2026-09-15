@@ -5204,6 +5204,127 @@ sehari pun sama saja. Bukan `DITOLAK`: tidak ada manusia yang menolaknya.
 Hari ini dihitung **WIB**, kalau UTC maka setiap sore lewat 17.00 permintaan
 untuk HARI INI ikut tertutup.
 
+### DW: konfirmasi kehadiran & pengganti di lokasi (15 September 2026)
+
+Permintaan user: *"HRD udh approve, terus ternyata di lokasi ada kondisi —
+orang yg di-approve tidak bisa hadir dan bisa digantikan orang lain, atau
+jadinya statusnya tidak hadir. Sudah di-approve pengajuan 3 orang, tapi
+realita datang 2 orang. Ini butuh ada tombol konfirmasi yang hadir siapa,
+karna nnti sistem pembayaran sesuai dengan orang yg beneran hadir itu."*
+Plus: *"tombol nomor untuk chat untuk memastikan apakah dia bisa hadir."*
+
+Halaman baru **Konfirmasi Kehadiran** (kunci view `hadir`), satu tanggal per
+layar, berisi shift `DISETUJUI` divisi yang jadi kuasa orangnya.
+
+**KOLOM KEHADIRANNYA SUDAH ADA DI DATABASE SEJAK LAMA** (`hadir`,
+`hadir_nota`, `hadir_oleh`, `hadir_at`) berikut endpoint `simpanHadir` —
+yang dicabut 6 Agustus 2026 cuma LAYARNYA, dengan komentar di
+`normalizeState` yang berbunyi "SENGAJA tidak dibaca". Alasan pencabutan itu
+masih berlaku waktu itu dan **tidak berlaku lagi sekarang**: dulu tidak ada
+satu pun angka yang bergantung padanya, jadi ia kolom yang diisi orang tanpa
+ada yang membacanya. Yang membuatnya hidup kali ini justru **upahnya yang
+mengikutinya**.
+
+#### Yang menentukan uang: `hadirDibayar()`
+
+```
+ALFA        -> TIDAK dibayar
+HADIR/TELAT -> dibayar PENUH
+''  (kosong)-> dibayar PENUH
+```
+
+- **`''` TETAP DIBAYAR, dan itu bukan kelalaian.** Seluruh baris produksi yang
+  lahir sebelum tanggal ini kolomnya kosong; diperlakukan sebagai tidak hadir,
+  **seluruh riwayat pembayaran DW berbulan-bulan jatuh ke Rp0 sekaligus** —
+  tanpa satu pun galat, dengan angka yang kelihatan wajar di tiap barisnya.
+  Yang belum dikonfirmasi karena itu **dihitung terpisah** (`belum`) dan
+  disebut angkanya di halaman Pembayaran serta di dashboard.
+- **TELAT dibayar PENUH.** Potongan keterlambatan belum pernah diputuskan
+  siapa pun, dan memotongnya diam-diam adalah keputusan tentang uang orang
+  yang tidak pernah diambil. Kalau suatu hari diputuskan, yang perlu diubah
+  `hadirDibayar()` — satu tempat.
+- **`rekapBayar()` dan `rekapBebanDW()` memakai predikat yang SAMA.** Dua
+  tempat yang memutuskan siapa dibayar akan menyimpang, dan yang menyimpang di
+  sini selisih yang baru ketahuan waktu uangnya dihitung di amplop. `masuk` di
+  Rekap Pegawai tetap menghitung SEMUA yang disetujui — yang ditanya di sana
+  berapa kali ia dijadwalkan, bukan berapa kali ia datang.
+
+#### Ganti orang: baris LAMA tidak diubah orangnya dan tidak dihapus
+
+`ganti_orang()` menandai baris lama **ALFA** berikut sebabnya ("Digantikan
+<nama>"), lalu **MELAHIRKAN BARIS BARU** yang sudah `DISETUJUI` + `HADIR`.
+
+- **Mengganti `dw_id` di tempat memang satu baris SQL, dan itu yang salah.**
+  Jejak bahwa si A pernah disetujui lalu berhalangan hilang seluruhnya, dan
+  yang membuka riwayatnya bulan depan melihat seakan si B memang dijadwalkan
+  sejak awal. Riwayat no-show adalah angka yang dicari HR sebelum memanggil
+  orang yang sama lagi.
+- **`permintaan_id` IKUT DISALIN.** Tanpa itu permintaan head yang
+  melahirkannya berbunyi "terpenuhi 0 dari 1" begitu orangnya diganti — dan
+  HRD menugaskan orang KEDUA untuk shift yang sudah punya pengganti.
+- **SATU TRANSAKSI.** Berhenti di tengah meninggalkan shift tanpa siapa pun
+  (yang lama sudah ALFA, yang baru belum lahir) atau dua orang untuk satu
+  slot; dua-duanya muncul sebagai uang, bukan sebagai galat.
+- **Bentrok jam penggantinya tetap diperiksa** (`bentrok_ajuan_row`) — ia bisa
+  sudah dijadwalkan di divisi lain pada jam yang sama, dan dua shift bertindih
+  untuk satu orang adalah uang untuk waktu yang tidak mungkin ia kerjakan.
+- **Tiap penanda bernama dipakai SEKALI** (`:t1/:t2/:t3`, `:by1/:by2/:by3`)
+  walau nilainya sama persis. `PDO::ATTR_EMULATE_PREPARES => false` mengikat
+  penanda MENURUT POSISI; satu nama yang dipakai dua kali gagal dengan
+  `SQLSTATE[HY093]` yang tidak menyebut kolom apa pun. Sudah kejadian
+  5 Agustus 2026 di `simpan_pekerja`.
+
+#### Gerbangnya BUKAN HRD-saja
+
+`simpanHadir` dan `gantiOrang` memakai `wajib_hadir()` → `wajib_minta()`:
+**head divisi itu atau HRD**. Yang menandai kehadiran orang yang berdiri di
+lapangan adalah head yang ada di sana; menuntut HRD menekannya berarti
+konfirmasi baru masuk keesokan harinya — dan yang terlambat dikonfirmasi
+tidak pernah dikonfirmasi.
+
+- **Divisinya dibaca dari BARIS (`ajuan_by_id`), bukan dari kiriman layar.**
+  Dibaca dari kiriman, head Bar tinggal mengirim `divisi:'bar'` untuk shift
+  Kitchen dan gerbangnya jadi hiasan.
+- **`simpan_hadir()` menolak baris yang belum `DISETUJUI`** — kehadiran untuk
+  shift yang belum disetujui adalah upah yang tidak pernah diajukan.
+
+#### Tombol chat WhatsApp
+
+`wa.me/<62…>` dengan pesan terisi (nama, tanggal, jam, divisi/posisi).
+
+- **Nomornya dinormalkan `08…` → `628…`** (`waNomor`). Dikirim apa adanya,
+  tautannya membuka percakapan kosong ke nomor yang tidak ada.
+- **Yang belum punya nomor DIKATAKAN**, bukan tombol mati tanpa sebab.
+
+#### Yang gampang lepas
+
+- **`el()` BUKAN global** di modul ini — ia variabel lokal di beberapa fungsi.
+  Memakainya di fungsi baru melempar `ReferenceError`, dan gejalanya tombol
+  yang ditekan tanpa reaksi apa pun.
+- **`hadirTertunggak()` dipakai dashboard DAN halaman Pembayaran.** Yang belum
+  dikonfirmasi tapi sudah lewat tanggalnya adalah pekerjaan yang menggantung;
+  tanpa disebut di dua tempat itu, ia cuma terlihat kalau ada yang membuka
+  halaman Konfirmasi Kehadiran di tanggal yang tepat.
+
+```bash
+node tools/uji-kehadiran-dw.js   # 64 pemeriksaan, jsdom + php-parser
+```
+
+**BERKAS UJI PERTAMA untuk modul DW.** Sampai tanggal ini modul ini cuma
+"hanya boot yang diuji" di `smoke-modul.js` — routernya tidak terbaca dari
+luar, jadi tidak satu pun halamannya pernah dijalankan. PHP tidak bisa
+dijalankan di mesin ini, jadi sisi servernya dijaga sebagai **kontrak atas
+sumbernya** (pola `uji-simpan-basi.js`).
+
+Enam belas mutasi dicoba, keenam belasnya tertangkap — **dua baru sesudah
+asersinya dibetulkan**, dan keduanya bentuk yang sudah punya nama di berkas
+ini: asersi yang cocok dengan teks di LUAR tempat yang diujinya.
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| `permintaan_id` tidak ikut disalin ke pengganti | kata itu masih hidup di baris yang MEMBACANYA (`$pm = ...`), jadi asersi yang menyapu seluruh badan fungsi tetap hijau | yang dibaca **daftar kolom INSERT**-nya, dan `:pm` di daftar VALUES-nya |
+| pengganti tidak dicek bentrok jamnya | mutasi `$B = null && bentrok_ajuan_row(...)` meninggalkan teks panggilannya UTUH — yang dibuang hasilnya | hasilnya wajib DIPAKAI: `$B = bentrok_ajuan_row(` lalu `if ($B)` |
+
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
 ```

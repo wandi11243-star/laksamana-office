@@ -678,6 +678,12 @@ function bentuk_ajuan($r) {
     'hadir' => $r['hadir'],
     'hadirNota' => isset($r['hadir_nota']) ? $r['hadir_nota'] : '',
     'hadirOleh' => isset($r['hadir_oleh']) ? $r['hadir_oleh'] : '',
+    /* WAKTUNYA ikut, dan itu bukan kelengkapan: kehadiran menentukan siapa
+       yang dibayar, jadi "siapa yang mengonfirmasi dan kapan" adalah satu-
+       satunya jejak yang bisa ditanyakan kembali kalau angkanya diperdebatkan.
+       Sempat tidak ikut sama sekali — layar punya namanya tapi tidak
+       pernah punya jamnya. */
+    'hadirAt' => isset($r['hadir_at']) ? (int)$r['hadir_at'] : 0,
     /* Penghubung ke permintaan head yang melahirkannya. isset() karena
        kolomnya lahir belakangan: baris dari tabel yang belum sempat di-ALTER
        tidak punya kuncinya. Tanpa baris ini kolomnya tertulis di database tapi
@@ -1500,6 +1506,17 @@ function simpan_hadir($id, $hadir, $nota, $by) {
   if (!in_array($hadir, array('', 'HADIR', 'TELAT', 'ALFA'), true)) {
     throw new Exception('Kehadiran tidak dikenal: ' . $hadir);
   }
+  /* HANYA SHIFT YANG SUDAH DISETUJUI. Kehadiran di baris yang masih
+     MENUNGGU tidak berarti apa pun — orangnya belum dijadwalkan —
+     dan sejak upah mengikuti kehadiran (15 September 2026) ia justru
+     menyesatkan: barisnya tampak sudah dikonfirmasi padahal tidak akan
+     pernah ikut dibayar. Dijaga di sini, bukan cuma di layar: layar tidak
+     pernah jadi penjaga. */
+  $ada = ajuan_by_id($id);
+  if (!$ada) throw new Exception('Ajuan tidak ditemukan: ' . s($id));
+  if ($ada['status'] !== 'DISETUJUI') {
+    throw new Exception('Kehadiran hanya bisa dicatat untuk shift yang sudah disetujui.');
+  }
   $st = $pdo->prepare(
     'UPDATE `dw_ajuan` SET `hadir`=:h, `hadir_nota`=:n, `hadir_oleh`=:by, `hadir_at`=:t
       WHERE `id`=:id');
@@ -1510,8 +1527,130 @@ function simpan_hadir($id, $hadir, $nota, $by) {
   return array('saved' => true, 'id' => s($id));
 }
 
-/* Satu ajuan apa adanya — dipakai penjaga di api.php untuk memastikan yang
-   membatalkan sebuah ajuan memang pemiliknya. */
+/* ===================================================================
+   GANTI ORANG — yang disetujui berhalangan, digantikan orang lain
+   (permintaan user 15 September 2026)
+
+   BARIS LAMA TIDAK DIUBAH ORANGNYA DAN TIDAK DIHAPUS. Mengganti `dw_id` di
+   tempat memang satu baris SQL, dan itu yang salah: jejak bahwa si A pernah
+   disetujui lalu berhalangan hilang seluruhnya, dan yang membuka riwayatnya
+   bulan depan melihat seakan si B memang yang dijadwalkan sejak awal. Riwayat
+   no-show adalah angka yang dicari HR sebelum memanggil orang yang sama lagi;
+   menghapusnya demi satu baris yang rapi adalah pertukaran yang buruk.
+
+   Jadi: yang lama ditandai TIDAK HADIR berikut sebabnya, yang baru lahir
+   sebagai baris SENDIRI yang sudah DISETUJUI dan sudah HADIR. Upah mengikuti
+   kehadiran, jadi tanpa satu pun langkah tambahan uangnya sudah berpindah ke
+   orang yang benar-benar datang.
+
+   `permintaan_id` IKUT DISALIN. Tanpa itu permintaan head yang melahirkannya
+   berbunyi "terpenuhi 0 dari 1" begitu orangnya diganti — dan HRD menugaskan
+   orang KEDUA untuk shift yang sudah punya pengganti.
+
+   SATU TRANSAKSI. Berhenti di tengah meninggalkan shift tanpa siapa pun (yang
+   lama sudah ditandai tidak hadir, yang baru belum lahir) atau dua orang untuk
+   satu slot — dan dua-duanya muncul sebagai uang, bukan sebagai galat.
+   =================================================================== */
+function ganti_orang($id, $dw_baru, $nota, $by) {
+  $pdo = db();
+  pastikan_tabel($pdo);
+  $id = s($id);
+  $dw_baru = pot($dw_baru, 32);
+  if ($id === '' || $dw_baru === '') throw new Exception('Butuh shift dan penggantinya');
+
+  $a = ajuan_by_id($id);
+  if (!$a) throw new Exception('Shift tidak ditemukan: ' . $id);
+  if ($a['status'] !== 'DISETUJUI') {
+    throw new Exception('Hanya shift yang sudah disetujui yang bisa diganti orangnya.');
+  }
+  if ((string)$a['dw_id'] === (string)$dw_baru) {
+    throw new Exception('Penggantinya orang yang sama.');
+  }
+
+  $q = $pdo->prepare('SELECT `nama`,`status` FROM `dw_pekerja` WHERE `id`=:id');
+  $q->execute(array(':id' => $dw_baru));
+  $baru = $q->fetch();
+  if (!$baru) throw new Exception('Pengganti tidak ditemukan: ' . $dw_baru);
+  if ($baru['status'] === 'NONAKTIF' || $baru['status'] === 'BLOKIR') {
+    throw new Exception($baru['nama'] . ' berstatus tidak aktif dan tidak bisa dijadwalkan.');
+  }
+
+  /* BENTROK JAM tetap diperiksa untuk penggantinya. Ia bisa saja sudah
+     dijadwalkan di divisi lain pada jam yang sama, dan dua shift bertindih
+     untuk satu orang adalah uang yang dibayarkan untuk waktu yang tidak
+     mungkin ia kerjakan. */
+  $B = bentrok_ajuan_row($pdo, $dw_baru, $a['tgl'], $a['jam_mulai'], $a['jam_selesai'], $a['divisi']);
+  if ($B) {
+    throw new Exception($baru['nama'] . ' sudah punya shift yang jamnya bertindih di tanggal itu ('
+      . $B['tgl'] . ' ' . $B['m'] . '-' . $B['s'] . ').');
+  }
+
+  $q2 = $pdo->prepare('SELECT `nama` FROM `dw_pekerja` WHERE `id`=:id');
+  $q2->execute(array(':id' => $a['dw_id']));
+  $r2 = $q2->fetch();
+  $nama_lama = $r2 ? $r2['nama'] : $a['dw_id'];
+
+  $t = ms();
+  $id_baru = id_baru('AJ');
+  $pm = isset($a['permintaan_id']) ? $a['permintaan_id'] : '';
+  $nota = s($nota);
+  $ekor = ($nota !== '') ? ' - ' . $nota : '';
+
+  $pdo->beginTransaction();
+  try {
+    $u = $pdo->prepare(
+      'UPDATE `dw_ajuan`
+          SET `hadir`=\'ALFA\', `hadir_nota`=:n, `hadir_oleh`=:by, `hadir_at`=:t
+        WHERE `id`=:id');
+    $u->execute(array(
+      ':n'  => pot('Digantikan ' . $baru['nama'] . $ekor, 255),
+      ':by' => pot($by, 120), ':t' => $t, ':id' => $id,
+    ));
+
+    /* PENANDA BERNAMA DIPAKAI SEKALI MASING-MASING. Backend ini menyetel
+       PDO::ATTR_EMULATE_PREPARES => false, jadi penanda diikat MENURUT POSISI:
+       satu nama yang dipakai dua kali dalam satu prepare() gagal dengan
+       SQLSTATE[HY093] yang tidak menyebut kolom apa pun. Sudah kejadian
+       5 Agustus 2026 di simpan_pekerja — itu sebabnya waktu dan nama di bawah
+       punya penandanya sendiri-sendiri walau nilainya sama persis. */
+    $ins = $pdo->prepare(
+      'INSERT INTO `dw_ajuan`
+         (`id`,`dw_id`,`tgl`,`jam_mulai`,`jam_selesai`,`divisi`,`posisi`,`catatan`,
+          `status`,`dibuat_at`,`dibuat_oleh`,`putus_at`,`putus_oleh`,`putus_nota`,
+          `hadir`,`hadir_nota`,`hadir_oleh`,`hadir_at`,`permintaan_id`)
+       VALUES (:id,:dw,:tg,:m,:s,:dv,:ps,:ct,
+               \'DISETUJUI\',:t1,:by1,:t2,:by2,:pn,
+               \'HADIR\',:hn,:by3,:t3,:pm)');
+    $ins->execute(array(
+      ':id' => $id_baru, ':dw' => $dw_baru, ':tg' => $a['tgl'],
+      ':m'  => $a['jam_mulai'], ':s' => $a['jam_selesai'],
+      ':dv' => $a['divisi'], ':ps' => $a['posisi'],
+      ':ct' => pot('Pengganti ' . $nama_lama, 255),
+      ':t1' => $t, ':by1' => pot($by, 120),
+      ':t2' => $t, ':by2' => pot($by, 120),
+      ':pn' => pot('Pengganti ' . $nama_lama . $ekor, 255),
+      ':hn' => pot('Hadir sebagai pengganti ' . $nama_lama, 255),
+      ':by3' => pot($by, 120), ':t3' => $t,
+      ':pm' => pot($pm, 32),
+    ));
+    $pdo->commit();
+  } catch (Throwable $e) {
+    $pdo->rollBack();
+    throw $e;
+  }
+
+  $lama = ajuan_by_id($id);
+  $bar  = ajuan_by_id($id_baru);
+  return array(
+    'saved' => true,
+    'lama'  => $lama ? bentuk_ajuan($lama) : null,
+    'baru'  => $bar  ? bentuk_ajuan($bar)  : null,
+  );
+}
+
+/* Satu ajuan apa adanya, BARIS MENTAH (bukan bentuk_ajuan): penjaga di
+   api.php membacanya untuk tahu DIVISI dan STATUS sebuah shift sebelum
+   memutuskan siapa yang boleh menyentuhnya. */
 function ajuan_by_id($id) {
   $pdo = db();
   pastikan_tabel($pdo);

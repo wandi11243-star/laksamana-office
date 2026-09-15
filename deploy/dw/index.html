@@ -597,6 +597,14 @@ tr.wkhdr th span{font-weight:600;letter-spacing:.02em;text-transform:none;
 /* Kelabu seperti BATAL, bukan merah seperti DITOLAK: lewat tanggal bukan
    penolakan, dan warna merah membuat head mengira permintaannya ditolak. */
 .st-KEDALUWARSA{background:var(--paper);color:var(--muted-2);font-style:italic}
+/* Pil kehadiran. Sengaja SEWARNA dengan pil status ajuan di sebelahnya
+   (hijau/kuning/merah yang sama) — dua skala warna di satu baris membuat
+   mata mencari arti yang tidak ada. Yang BELUM dikonfirmasi memakai .stpill
+   polos: ia bukan keadaan baik dan bukan keadaan buruk, ia pekerjaan yang
+   belum dikerjakan. */
+.hd-ok{background:var(--ok-bg);color:var(--ok)}
+.hd-w{background:var(--warn-bg);color:var(--warn)}
+.hd-b{background:var(--danger-bg);color:var(--danger)}
 .st-AKTIF{background:var(--ok-bg);color:var(--ok)}
 
 
@@ -1090,6 +1098,47 @@ const STATUS_DW_LAMA = {PANTAU:'AKTIF', BLOKIR:'NONAKTIF'};
    terbaca sebagai penolakan: tidak ada yang menolaknya, cuma waktunya habis. */
 const STATUS_AJU = {MENUNGGU:'Menunggu HR', DISETUJUI:'Disetujui', DITOLAK:'Ditolak',
                     BATAL:'Dibatalkan', KEDALUWARSA:'Lewat tanggal'};
+
+/* ================= KEHADIRAN =================
+   Empat keadaan, dan yang PERTAMA yang paling menentukan:
+
+     ''      belum dikonfirmasi — TETAP DIBAYAR
+     HADIR   datang                dibayar
+     TELAT   datang, terlambat     dibayar penuh (potongan telat belum ada)
+     ALFA    tidak datang          TIDAK dibayar
+
+   KOSONG TETAP DIBAYAR, dan itu bukan kelonggaran yang bisa dirapikan.
+   SELURUH baris yang sudah ada di produksi bernilai kosong — kolomnya tidak
+   pernah diisi sejak layarnya dicabut 6 Agustus 2026. Kalau kosong berarti
+   tidak dibayar, seluruh riwayat pembayaran yang pernah ada berubah jadi Rp0
+   dalam sekali deploy, tanpa satu pun galat dan tanpa satu pun layar yang
+   menyebutkan sebabnya. Arah gagalnya disengaja: yang belum dikonfirmasi
+   DISEBUT di halaman Pembayaran supaya tidak diam-diam lolos, bukan
+   dihilangkan dari daftar transfer.
+
+   TELAT dibayar PENUH. Memotongnya adalah aturan upah yang belum pernah
+   diputuskan siapa pun, dan menebaknya di sini berarti orang menerima lebih
+   sedikit daripada yang dijanjikan tanpa ada yang bisa menjelaskan angkanya.
+   Bedanya dengan HADIR tetap tercatat — itu gunanya keadaan ini. */
+const HADIR_LBL = {
+  HADIR:{n:'Hadir',        c:'ok'},
+  TELAT:{n:'Telat',        c:'w'},
+  ALFA :{n:'Tidak hadir',  c:'b'}
+};
+function hadirNilai(a){ return String((a&&a.hadir)||''); }
+/* SATU tempat yang memutuskan sebuah shift ikut dibayar atau tidak.
+   Dipakai halaman Pembayaran DAN Rekap Pegawai; dua aturan untuk satu
+   pertanyaan berarti dua halaman menyebut upah yang berbeda untuk orang dan
+   minggu yang sama, dan yang selisih itu uang. */
+function hadirDibayar(a){ return hadirNilai(a)!=='ALFA'; }
+/* Shift yang sudah disetujui tapi kehadirannya belum dikonfirmasi. */
+function hadirBelum(a){ return a && a.status==='DISETUJUI' && hadirNilai(a)===''; }
+function pilHadir(a){
+  const v=hadirNilai(a);
+  if(!v) return '<span class="stpill">Belum dikonfirmasi</span>';
+  const d=HADIR_LBL[v]||{n:v,c:''};
+  return '<span class="stpill hd-'+esc(d.c)+'">'+esc(d.n)+'</span>';
+}
 /* Tujuan pembayaran DW. Tiga saja: transfer bank, GoPay, DANA — dua yang
    terakhir memakai nomor HP, bukan nomor rekening, dan itulah satu-satunya
    yang membedakan bentuk isiannya. Menambah kanal lain (OVO, ShopeePay)
@@ -1177,6 +1226,8 @@ function svg(p){ return '<svg width="16" height="16" viewBox="0 0 24 24" fill="n
 const NAV_DEF = [
   {s:'Operasional'},
   {k:'dashboard', t:'Dashboard',      ic:'dash',     sub:'DW yang masuk hari ini'},
+  {k:'hadir',     t:'Konfirmasi Kehadiran', ic:'rekap',
+   sub:'Siapa yang benar-benar datang — inilah dasar pembayarannya'},
   {k:'tamu',      t:'Kalender Tamu',  ic:'kalender', sub:'Pax dari Marketing, Event & Reservasi — klik hari untuk ajukan DW'},
   /* Kalender DW pindah ke kelompok ini (14 Agustus 2026): ia menjawab
      pertanyaan yang sama dengan dua halaman di bawahnya — "siapa yang masuk,
@@ -1425,15 +1476,23 @@ function normalizeState(d){
       divisi:String(a.divisi||''), posisi:String(a.posisi||''),
       catatan:String(a.catatan||''), status:String(a.status||'MENUNGGU'),
       dibuatAt:+a.dibuatAt||0, dibuatOleh:String(a.dibuatOleh||''),
-      /* Kolom kehadiran (hadir / hadirNota / hadirOleh) SENGAJA tidak dibaca
-         lagi. Pencatatan kehadiran dihapus dari modul ini 6 Agustus 2026:
-         yang dijanjikan halaman itu — "siapa datang, siapa telat" — hanya
-         benar kalau ada yang mengisinya tiap pagi setelah shift lewat, dan
-         itu tidak pernah terjadi. Daftar tertunggak yang memanjang lalu
-         angka alfa yang selalu nol membuat seluruh statistiknya berbohong ke
-         arah yang paling berbahaya: seakan tidak pernah ada yang mangkir.
-         Kolomnya masih ADA di database dan backend supaya catatan lama tidak
-         hilang — cuma tidak lagi dibaca maupun ditulis dari layar. */
+      /* KOLOM KEHADIRAN DIBACA LAGI (15 September 2026, permintaan user).
+         ---------------------------------------------------------------
+         Pencatatan kehadiran sempat dicabut 6 Agustus 2026, dan alasannya
+         masih benar untuk bentuknya waktu itu: halaman yang menjanjikan
+         "siapa datang, siapa telat" hanya benar kalau ada yang mengisinya
+         tiap pagi, dan itu tidak pernah terjadi — daftar tertunggak
+         memanjang lalu angka alfa selalu nol, yang berbohong ke arah paling
+         berbahaya: seakan tidak pernah ada yang mangkir.
+
+         YANG BERUBAH SEKARANG BUKAN LAYARNYA, MELAINKAN AKIBATNYA: upah
+         mengikuti kehadiran. Yang ditandai tidak hadir tidak ikut di daftar
+         transfer. Itu yang dulu tidak ada — tidak satu pun angka bergerak
+         kalau kolomnya dibiarkan kosong, jadi mengisinya adalah pekerjaan
+         tanpa akibat. Kalau suatu hari upah dilepas lagi dari kehadiran,
+         halaman ini akan mati untuk kedua kalinya dengan sebab yang sama. */
+      hadir:String(a.hadir||''), hadirNota:String(a.hadirNota||''),
+      hadirOleh:String(a.hadirOleh||''), hadirAt:+a.hadirAt||0,
       putusAt:+a.putusAt||0, putusOleh:String(a.putusOleh||''), putusNota:String(a.putusNota||''),
       /* Penghubung ke permintaan head yang melahirkannya. Kosong = ajuan yang
          dibuat langsung (head menunjuk orangnya sendiri, atau HRD
@@ -2193,6 +2252,13 @@ function bolehBukaBawaan(k, peran){
      sudah memegangnya (simpanSetting mempertahankan `hr` kalau penyimpannya
      bukan admin); ini membuat layarnya jujur soal itu. */
   if(k==='akses') return admin;
+  /* KONFIRMASI KEHADIRAN: HRD **dan** head divisi — sama dengan gerbang di
+     server (wajib_hadir di dw-mysql/api.php). Yang tahu siapa benar-benar
+     datang malam itu adalah orang yang ada di lokasi. Layar dan server harus
+     berbunyi sama: layar yang lebih longgar memajang tombol yang selalu
+     ditolak, layar yang lebih ketat menyembunyikan pekerjaan dari orang yang
+     memang harus mengerjakannya. */
+  if(k==='hadir') return lihat;
   /* Pembayaran: HRD/admin saja — lihat HALAMAN_HR di atas. */
   if(k==='bayar') return hrd;
   /* Pengaturan: admin modul DAN HRD. Yang menyetel tarif, kuota, dan jam
@@ -2403,6 +2469,7 @@ function render(){
     return;
   }
   if(VIEW==='dashboard')       V.innerHTML=viewDashboard();
+  else if(VIEW==='hadir')      V.innerHTML=viewHadir();
   else if(VIEW==='permintaan') V.innerHTML=viewPermintaan();
   else if(VIEW==='antrean')    V.innerHTML=viewAntrean();
   else if(VIEW==='kalender')   V.innerHTML=viewKalender();
@@ -2596,6 +2663,14 @@ function viewDashboard(){
       +statBox(tungguHariItu.length,'Menunggu (hari ini)')
       +statBox(tunggu.length,'Menunggu (semua)')
       +statBox(mintaTunggu.length,'Permintaan Head')
+      /* KEHADIRAN YANG BELUM DIKONFIRMASI ikut di layar pertama, dan itu
+         yang menentukan halaman Konfirmasi Kehadiran dibuka atau tidak.
+         Versi pertama pencatatan kehadiran (dicabut 6 Agustus 2026) tidak
+         punya satu pun angka di Dashboard — halamannya cuma ada di sidebar,
+         dan yang tidak terlihat di layar pertama sama saja dengan yang tidak
+         ada. Hanya shift yang tanggalnya SUDAH LEWAT yang dihitung; lihat
+         hadirTertunggak(). */
+      +statBox(hadirTertunggak().length,'Belum dikonfirmasi')
       +statBox(Math.round(jam*10)/10,'Total Jam')
       +(bolehLihatUang()?statUang(rp(biaya),'Est. Biaya'):'')
     +'</div>'
@@ -6263,6 +6338,238 @@ function waNomor(hp){
   return d.slice(0,1)==='0' ? '62'+d.slice(1) : d;
 }
 /* =====================================================================
+   HALAMAN — KONFIRMASI KEHADIRAN (15 September 2026, permintaan user)
+
+   Pertanyaan yang dijawab: "sudah disetujui 3 orang, yang benar-benar datang
+   siapa?" — dan jawabannya menentukan siapa yang dibayar.
+
+   KENAPA HALAMAN INI ADA LAGI. Pencatatan kehadiran pernah dicabut
+   6 Agustus 2026 karena tidak pernah diisi, dan itu bukan soal malas: tidak
+   satu pun angka bergerak kalau kolomnya dibiarkan kosong, jadi mengisinya
+   adalah pekerjaan tanpa akibat. Yang berubah sekarang bukan layarnya
+   melainkan akibatnya — yang ditandai tidak hadir tidak ikut di daftar
+   transfer. Kalau suatu hari upah dilepas lagi dari kehadiran, halaman ini
+   akan mati untuk kedua kalinya dengan sebab yang persis sama.
+
+   HALAMAN SENDIRI, bukan ditumpuk ke Dashboard. Dashboard menjawab "siapa
+   yang masuk hari ini" dan dibaca; ini diisi, sesudah shiftnya lewat. Yang
+   menghubungkan keduanya satu angka di Dashboard yang menyebut berapa shift
+   masih menunggu konfirmasi — tanpa itu halaman ini tidak akan pernah dibuka
+   siapa pun, dan itu persis cara matinya versi pertama.
+
+   TIGA hal yang bisa dikerjakan di satu baris, dan ketiganya keadaan nyata
+   yang disebut user:
+     - hadir / telat / tidak hadir
+     - orangnya berhalangan, DIGANTIKAN orang lain
+     - menghubungi orangnya lewat WhatsApp sebelum hari-H
+   ===================================================================== */
+let HADIR_TGL='';
+function hadirTgl(){ return HADIR_TGL||hariIni(); }
+function hadirGeser(n){ HADIR_TGL=addD(hadirTgl(),n); muatDanGambar(); }
+function hadirSet(v){ if(v){ HADIR_TGL=v; muatDanGambar(); } }
+function hadirHariIni(){ HADIR_TGL=hariIni(); muatDanGambar(); }
+
+/* Siapa yang boleh menyentuh baris ini. SAMA PERSIS dengan wajib_hadir() di
+   dw-mysql/api.php: HRD semua divisi, head hanya divisinya sendiri. Layar
+   yang lebih longgar memajang tombol yang selalu ditolak server; yang lebih
+   ketat menyembunyikan pekerjaan dari orang yang harus mengerjakannya. */
+function bolehKonfirmasi(a){
+  if(!a || a.status!=='DISETUJUI') return false;
+  if(isHR()) return true;
+  return divisiKuasaDW().indexOf(a.divisi)>-1;
+}
+
+/* Shift yang perlu dikonfirmasi, SELURUH tanggal yang termuat — dipakai
+   lencana di Dashboard. Hari yang belum lewat sengaja TIDAK dihitung:
+   shift nanti malam memang belum bisa dikonfirmasi, dan memasukkannya ke
+   angka "tertunggak" membuat angka itu tidak pernah bisa nol. Itu yang
+   membuat daftar tertunggak versi pertama berhenti dibaca. */
+function hadirTertunggak(){
+  const t=hariIni();
+  return (S.ajuan||[]).filter(a=>hadirBelum(a) && a.tgl<=t && bolehKonfirmasi(a));
+}
+
+async function setHadir(id, nilai){
+  const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
+  if(!bolehKonfirmasi(a)){ toast('Anda tidak berhak menandai shift divisi itu', true); return; }
+  try{
+    await apiPost({action:'simpanHadir', id:id, hadir:nilai, nota:''});
+    /* Layar disegarkan dari server, bukan disetel sendiri lalu dipercaya:
+       nilai yang gagal tersimpan tapi terlanjur tergambar adalah uang yang
+       dikira sudah diputuskan. */
+    await muatDanGambar(true);
+    toast(nilai==='ALFA' ? 'Ditandai tidak hadir — tidak ikut dibayar'
+        : nilai==='TELAT' ? 'Ditandai telat — tetap dibayar penuh'
+        : 'Ditandai hadir');
+  }catch(e){ toast(e.message||'Gagal menyimpan kehadiran', true); }
+}
+
+/* ---------- PENGGANTI ---------- */
+function bukaGantiOrang(id){
+  const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
+  if(!bolehKonfirmasi(a)){ toast('Anda tidak berhak mengubah shift divisi itu', true); return; }
+  /* Kandidatnya dijepit ke divisi & posisi shift ITU, dan urutannya 'lama'
+     (paling lama tidak dipakai di atas) — sama dengan modal Tunjuk milik HRD.
+     Yang sedang dicari pengganti mendadak, dan giliran adalah cara paling
+     masuk akal menawarkannya. */
+  const kand=kandidatDW(a.divisi, a.posisi, 'lama').list.filter(p=>p.id!==a.dwId);
+  if(!kand.length){
+    modal('Ganti orang — '+esc(namaDW(a.dwId)),
+      '<div class="empty"><div class="ic">🙁</div>'
+      +'Tidak ada daily worker lain yang berposisi <b>'+esc(a.posisi||'—')+'</b> di '
+      +esc(namaDivisi(a.divisi))+'.'
+      +'<div class="mutedhint" style="margin-top:6px">Tambahkan orangnya di <b>Database DW</b> dulu, '
+      +'atau tandai shift ini <b>Tidak hadir</b> kalau memang tidak ada yang menggantikan.</div></div>',
+      [], false);
+    return;
+  }
+  modal('Ganti orang — '+esc(tglPanjang(a.tgl)),
+    '<div class="row"><div class="who"><b>Yang berhalangan</b><span>'+esc(namaDW(a.dwId))
+      +' · '+esc(ikonDivisi(a.divisi)+' '+namaDivisi(a.divisi))+' · '+esc(a.posisi||'—')
+      +' · '+esc(jamAjuan(a))+'</span></div></div>'
+    +'<div class="field"><label>Penggantinya</label>'
+      +'<select id="gantiDw" class="inp">'
+      +kand.map(p=>'<option value="'+escJs(p.id)+'">'+esc(p.nama)
+          +(p.terakhirKerja?' — terakhir '+esc(tglManusia(p.terakhirKerja)):' — belum pernah')
+          +'</option>').join('')
+      +'</select></div>'
+    +'<div class="field"><label>Alasan (boleh kosong)</label>'
+      +'<input id="gantiNota" class="inp" placeholder="mis. sakit, ada acara keluarga"></div>'
+    /* AKIBATNYA DISEBUT SEBELUM DITEKAN. Ini menggeser uang: satu orang
+       berhenti dibayar dan satu orang lain mulai dibayar, dan dua-duanya
+       tidak menimbulkan galat apa pun kalau salah orang. */
+    +'<div class="note i">Yang berhalangan ditandai <b>tidak hadir</b> dan '
+      +'<b>tidak ikut dibayar</b>. Penggantinya masuk sebagai shift baru yang sudah '
+      +'disetujui dan sudah hadir, jadi dialah yang muncul di daftar transfer. '
+      +'Riwayat keduanya tetap tersimpan.</div>',
+    [{t:'Ganti orangnya',c:'btn-primary',f:function(){
+        /* `el` di modul ini BUKAN helper global — ia variabel lokal di
+           beberapa fungsi. Memakainya di sini melempar ReferenceError, dan
+           modalnya tertutup lebih dulu jadi galatnya tidak terlihat di layar. */
+        const g=id=>{ const n=document.getElementById(id); return n?n.value:''; };
+        const dw=g('gantiDw'), nota=g('gantiNota');
+        tutupModal(); gantiOrangKirim(id, dw, nota); return false;
+      }}], false);
+}
+async function gantiOrangKirim(id, dwBaru, nota){
+  if(!dwBaru){ toast('Pilih dulu penggantinya', true); return; }
+  try{
+    await apiPost({action:'gantiOrang', id:id, dwBaru:dwBaru, nota:nota});
+    await muatDanGambar(true);
+    toast('Pengganti dicatat — '+namaDW(dwBaru)+' yang dibayar');
+  }catch(e){ toast(e.message||'Gagal mengganti orang', true); }
+}
+
+/* ---------- WHATSAPP ----------
+   Permintaan user: sesudah disetujui dan jumlah orangnya diketahui, ada
+   tombol untuk menghubungi orangnya dan memastikan ia bisa hadir.
+
+   Pesannya DIISIKAN, bukan cuma membuka chat kosong. Yang mengetik ulang
+   tanggal dan jam untuk sepuluh orang akan salah ketik pada salah satunya,
+   dan DW yang datang di jam yang salah tetap harus dibayar. */
+function waTeksAjuan(a){
+  return 'Halo '+namaDW(a.dwId)+', konfirmasi part time di Laksamana Muda:'
+    +'\n\nTanggal : '+tglPanjang(a.tgl)
+    +'\nJam     : '+jamAjuan(a)
+    +'\nPosisi  : '+(a.posisi||'-')+' ('+namaDivisi(a.divisi)+')'
+    +'\n\nApakah bisa hadir? Mohon balas ya, terima kasih.';
+}
+function waAjuan(id){
+  const a=(S.ajuan||[]).find(x=>x.id===id); if(!a) return;
+  const p=pekerjaById(a.dwId);
+  const no=waNomor(p&&p.hp);
+  /* Nomor kosong DIKATAKAN, bukan membuka wa.me yang langsung memulangkan
+     halaman galat WhatsApp — yang membacanya akan menyimpulkan WhatsApp-nya
+     yang bermasalah, bukan datanya yang belum lengkap. */
+  if(!no){ toast('Nomor HP '+namaDW(a.dwId)+' belum diisi di Database DW', true); return; }
+  window.open('https://wa.me/'+no+'?text='+encodeURIComponent(waTeksAjuan(a)), '_blank', 'noopener');
+}
+function tombolWA(a){
+  const p=pekerjaById(a.dwId);
+  const ada=!!waNomor(p&&p.hp);
+  return ada
+    ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();waAjuan(\''+escJs(a.id)+'\')" '
+      +'title="Tanya lewat WhatsApp apakah bisa hadir">💬 Chat</button>'
+    : '<span class="kecil" title="Isi No. HP di Database DW">no. HP kosong</span>';
+}
+
+function viewHadir(){
+  if(!bisaLihat()){
+    return '<div class="panel"><div class="empty"><div class="ic">🔒</div>'
+      +'Halaman ini untuk HRD dan head divisi.</div></div>';
+  }
+  const t=hadirTgl();
+  const kuasa=divisiKuasaDW();
+  /* Head hanya melihat divisinya. Bukan cuma soal tombol: daftar berisi shift
+     divisi lain yang tidak bisa ia sentuh cuma membuat angka "belum
+     dikonfirmasi" di layarnya tidak pernah bisa nol. */
+  const hariItu=(S.ajuan||[]).filter(a=>a.tgl===t && a.status==='DISETUJUI'
+    && (isHR() || kuasa.indexOf(a.divisi)>-1))
+    .sort((x,y)=>String(x.divisi).localeCompare(String(y.divisi))
+      || String(namaDW(x.dwId)).localeCompare(String(namaDW(y.dwId))));
+
+  const belum=hariItu.filter(hadirBelum).length;
+  const hadir=hariItu.filter(a=>hadirNilai(a)==='HADIR'||hadirNilai(a)==='TELAT').length;
+  const alfa =hariItu.filter(a=>hadirNilai(a)==='ALFA').length;
+  const nanti=(t>hariIni());
+
+  let isi;
+  if(!hariItu.length){
+    isi='<div class="empty"><div class="ic">🗓️</div>'
+      +'Tidak ada daily worker yang disetujui untuk '+esc(tglManusia(t))+'.</div>';
+  }else{
+    isi='<div class="tablewrap"><table class="list"><thead><tr>'
+      +'<th class="no">No.</th><th>Daily Worker</th><th>Divisi / Posisi</th><th>Jam</th>'
+      +'<th>Kehadiran</th><th>Tindakan</th></tr></thead><tbody>'
+      +hariItu.map(function(a,i){
+        const boleh=bolehKonfirmasi(a);
+        const v=hadirNilai(a);
+        const tb=(nilai,label,kelas)=>'<button class="btn '+kelas+' btn-sm"'
+          +(v===nilai?' disabled':'')
+          +' onclick="setHadir(\''+escJs(a.id)+'\',\''+nilai+'\')">'+label+'</button>';
+        return '<tr>'
+          +'<td class="no">'+(i+1)+'</td>'
+          +'<td class="nama">'+esc(namaDW(a.dwId))
+            +(a.hadirNota?'<div class="kecil">'+esc(a.hadirNota)+'</div>':'')+'</td>'
+          +'<td>'+esc(ikonDivisi(a.divisi)+' '+namaDivisi(a.divisi))
+            +'<div class="kecil">'+esc(a.posisi||'—')+'</div></td>'
+          +'<td class="mono">'+esc(jamAjuan(a))+'</td>'
+          +'<td>'+pilHadir(a)
+            +(a.hadirOleh?'<div class="kecil">'+esc(jejakTeks('oleh',a.hadirOleh,a.hadirAt))+'</div>':'')+'</td>'
+          +'<td><div class="rowbar" style="gap:6px;flex-wrap:wrap">'
+            +(boleh
+              ? tb('HADIR','Hadir','btn-ok')+tb('TELAT','Telat','btn-ghost')+tb('ALFA','Tidak hadir','btn-danger')
+                +'<button class="btn btn-ghost btn-sm" onclick="bukaGantiOrang(\''+escJs(a.id)+'\')">↔ Ganti orang</button>'
+              : '<span class="kecil">divisi lain</span>')
+            +tombolWA(a)
+          +'</div></td>'
+        +'</tr>';
+      }).join('')
+      +'</tbody></table></div>';
+  }
+
+  return '<div class="panel">'
+    +'<div class="rowbar"><h2>'+esc(tglPanjang(t))+'</h2><div class="spacer"></div>'
+    +navTanggal('hadirGeser','hadirSet','hadirHariIni',t)+'</div>'
+    +'<p class="mutedhint" style="margin:-4px 0 12px">Yang ditandai <b>tidak hadir</b> tidak ikut '
+      +'di daftar transfer. Yang <b>belum dikonfirmasi</b> tetap dibayar — supaya riwayat lama yang '
+      +'memang tidak pernah punya catatan kehadiran tidak mendadak jadi Rp 0 — tapi jumlahnya '
+      +'disebut di halaman Pembayaran.</p>'
+    +(nanti
+      ? '<div class="note i">Tanggal ini <b>belum lewat</b>. Kehadiran biasanya dikonfirmasi sesudah '
+        +'shiftnya selesai; sebelum itu yang berguna tombol <b>Chat</b> untuk memastikan orangnya bisa hadir.</div>'
+      : '')
+    +'<div class="stats">'
+      +statBox(hariItu.length,'Disetujui')
+      +statBox(hadir,'Hadir / Telat')
+      +statBox(alfa,'Tidak hadir')
+      +statBox(belum,'Belum dikonfirmasi')
+    +'</div>'
+    +isi
+    +'</div>';
+}
+
+/* =====================================================================
    HALAMAN — PEMBAYARAN MINGGUAN
 
    Pertanyaan yang dijawab: "minggu ini si A masuk berapa kali, dan berapa
@@ -6411,12 +6718,22 @@ function rekapAjuanDW(dwId,mk){
    benar-benar dibayar. Keduanya tetap dilaporkan, terpisah. */
 function rekapBebanDW(dwId,mk){
   const list=rekapAjuanDW(dwId,mk);
+  /* UPAH MENGIKUTI KEHADIRAN, sama persis dengan halaman Pembayaran — lewat
+     hadirDibayar() yang sama, bukan syarat kedua yang ditulis ulang di sini.
+     Dua aturan untuk satu pertanyaan berarti Rekap dan Pembayaran menyebut
+     angka berbeda untuk orang dan bulan yang sama.
+     `masuk` sengaja TETAP menghitung seluruh yang disetujui: ia menjawab
+     "dijadwalkan berapa kali", dan yang tidak hadir memang tetap pernah
+     dijadwalkan. Yang tidak dibayar cuma uangnya. */
   const setuju=list.filter(x=>x.status==='DISETUJUI');
+  const dibayar=setuju.filter(hadirDibayar);
   const out={ masuk:setuju.length, jam:0, upah:0, wknd:0, maxBeruntun:0,
+              alfa:setuju.length-dibayar.length,
+              belum:setuju.filter(hadirBelum).length,
               menunggu:list.filter(x=>x.status==='MENUNGGU').length,
               ditolak:list.filter(x=>x.status==='DITOLAK').length,
               perDivisi:{}, perPosisi:{} };
-  setuju.forEach(function(x){
+  dibayar.forEach(function(x){
     out.jam+=durasiJam(x.m,x.s);
     out.upah+=biayaAjuan(x);
     if(idxHari(x.tgl)>=5) out.wknd++;
@@ -6427,7 +6744,7 @@ function rekapBebanDW(dwId,mk){
   /* Hari masuk beruntun — dihitung dari TANGGALNYA, bukan dari jumlah baris:
      dua ajuan pada hari yang sama (mis. dipindah divisi) adalah SATU hari
      masuk, dan menghitungnya dua kali membuat "beruntun" melompat. */
-  const tgl=[...new Set(setuju.map(x=>x.tgl))].sort();
+  const tgl=[...new Set(dibayar.map(x=>x.tgl))].sort();
   let run=0;
   tgl.forEach(function(t,i){
     run = (i>0 && addD(tgl[i-1],1)===t) ? run+1 : 1;
@@ -6631,7 +6948,14 @@ function rekapBayar(senin){
     if(a.tgl<dari || a.tgl>sampai) return;
     const p=pekerjaById(a.dwId);
     const k=a.dwId;
-    if(!peta[k]) peta[k]={id:k, p:p, nama:namaDW(k), kali:0, jam:0, total:0, tgl:[]};
+    if(!peta[k]) peta[k]={id:k, p:p, nama:namaDW(k), kali:0, jam:0, total:0, tgl:[], belum:0, alfa:0};
+    /* YANG TIDAK HADIR TIDAK DIBAYAR, dan barisnya tidak ikut dihitung
+       sebagai shift — "3 shift" yang salah satunya tidak pernah dikerjakan
+       adalah angka yang dicocokkan orangnya dengan ingatannya sendiri, lalu
+       ditanyakan. Jumlahnya tetap DICATAT supaya halamannya bisa menyebut
+       kenapa daftarnya lebih pendek daripada jadwal yang disetujui. */
+    if(!hadirDibayar(a)){ peta[k].alfa++; return; }
+    if(hadirBelum(a)) peta[k].belum++;
     peta[k].kali++;
     peta[k].jam+=durasiJam(a.m,a.s);
     peta[k].total+=biayaAjuan(a);
@@ -6664,6 +6988,15 @@ function viewBayar(){
   }
   const totalRp=baris.reduce((n,x)=>n+x.total,0);
   const totalKali=baris.reduce((n,x)=>n+x.kali,0);
+  /* DUA ANGKA YANG WAJIB DISEBUT, dan keduanya menjelaskan kenapa daftar ini
+     bisa berbeda dari jadwal yang disetujui:
+       alfa  — shift yang orangnya tidak datang. Sudah DIKELUARKAN dari total.
+       belum — shift yang kehadirannya belum dikonfirmasi. MASIH dihitung.
+     Yang kedua yang paling mudah lolos: angkanya ikut ditransfer, dan tanpa
+     kalimat di layar tidak ada satu pun tanda bahwa ia belum diperiksa
+     siapa pun. Lihat catatan di HADIR_LBL kenapa yang kosong tetap dibayar. */
+  const totalAlfa =baris.reduce((n,x)=>n+(x.alfa||0),0);
+  const totalBelum=baris.reduce((n,x)=>n+(x.belum||0),0);
 
   /* Berapa transfer yang benar-benar perlu dilakukan — bukan berapa orang.
      Angka inilah yang dicari sebelum membuka m-banking. */
@@ -6688,6 +7021,17 @@ function viewBayar(){
     return semua.filter(x=>bayarJenisSah(x.p&&x.p.bayarJenis)===k).length;
   };
 
+  /* Pita kehadiran digambar DI ATAS daftar, bukan di kakinya: yang membuka
+     halaman ini sedang bersiap mentransfer, dan keterangan yang baru terbaca
+     sesudah menggulir 20 baris terbaca sesudah uangnya keluar. */
+  const pitaHadir=
+     (totalAlfa?'<div class="note w"><b>'+totalAlfa+' shift</b> tidak ikut dibayar karena '
+        +'ditandai <b>tidak hadir</b>. Daftar di bawah karena itu lebih pendek daripada jadwal '
+        +'yang disetujui — itu memang yang diinginkan.</div>':'')
+    +(totalBelum?'<div class="note i"><b>'+totalBelum+' shift</b> kehadirannya <b>belum dikonfirmasi</b> '
+        +'dan tetap ikut dihitung di sini. Periksa dulu di '
+        +'<a href="#" onclick="go(&#39;hadir&#39;);return false"><b>Konfirmasi Kehadiran</b></a> '
+        +'kalau angkanya mau dipastikan.</div>':'');
   let isi;
   if(!baris.length){
     isi='<div class="empty"><div class="ic">💸</div>Tidak ada shift disetujui pada '+esc(rentangMinggu(senin))+
@@ -6786,8 +7130,10 @@ function viewBayar(){
       +'<button class="btn btn-ghost btn-sm noprint" onclick="salinBayar()">📋 Salin daftar</button>'
       +'<button class="btn btn-ghost btn-sm noprint" onclick="window.print()">🖨️ Print</button>'
     +'</div>'
+    +pitaHadir
     +isi
-    +'<p class="mutedhint" style="margin-top:10px">Yang dihitung hanya shift yang <b>sudah disetujui</b> pada '
+    +'<p class="mutedhint" style="margin-top:10px">Yang dihitung hanya shift yang <b>sudah disetujui</b> dan '
+    +'<b>tidak ditandai tidak hadir</b> pada '
     +esc(rentangMinggu(senin))+'. Nominalnya dari tarif per posisi di Pengaturan — '
     +'kalau tarifnya berubah, angka minggu yang sudah lewat ikut berubah.</p>'
     +'</div>';
@@ -7712,6 +8058,17 @@ function bukaAjuan(id){
   if(boleh && a.status!=='MENUNGGU')  aksi.push({t:'↩ Kembalikan ke antrean',c:'btn-ghost',f:function(){ tutupModal(); kembalikanAjuan(id); return false; }});
   if(boleh && a.status!=='DISETUJUI') aksi.push({t:'Setujui',c:'btn-ok',f:function(){ tutupModal(); setujuiAjuan(id); return false; }});
   if(boleh && a.status!=='DITOLAK')   aksi.push({t:'Tolak',c:'btn-danger',f:function(){ tutupModal(); tolakAjuan(id); return false; }});
+  /* CHAT & KONFIRMASI KEHADIRAN ada DI SINI JUGA, bukan cuma di halaman
+     Konfirmasi Kehadiran: modal ini yang terbuka dari Dashboard dan dari sel
+     Kalender DW, dan itulah layar yang sedang dibuka orang saat pertanyaan
+     "dia jadi datang tidak?" muncul. Menyuruhnya pindah halaman dulu untuk
+     satu tombol adalah cara tercepat membuat tombol itu tidak pernah dipakai. */
+  if(a.status==='DISETUJUI' && p && waNomor(p.hp)){
+    aksi.push({t:'💬 Chat',c:'btn-ghost',f:function(){ waAjuan(id); return false; }});
+  }
+  if(bolehKonfirmasi(a)){
+    aksi.push({t:'Konfirmasi kehadiran',c:'btn-ghost',f:function(){ tutupModal(); HADIR_TGL=a.tgl; go('hadir'); return false; }});
+  }
 
   modal('Ajuan — '+esc(namaDW(a.dwId)),
     '<div class="rowbar">'+pilStatus(a.status)
@@ -7722,6 +8079,15 @@ function bukaAjuan(id){
        head. Lihat bolehLihatUang(). */
     +(bolehLihatUang()?'<div class="row"><div class="who"><b>Estimasi biaya</b><span class="mono">'+esc(rp(biayaAjuan(a)))+'</span></div></div>':'')
     +(p&&boleh?'<div class="row"><div class="who"><b>Kontak</b><span class="mono">'+esc(p.hp)+(p.bank?' · '+esc(p.bank):'')+'</span></div></div>':'')
+    /* Kehadiran cuma berarti untuk shift yang sudah disetujui — untuk yang
+       lain ia baris kosong yang membuat orang mencari tombol yang memang
+       tidak ada di sana. */
+    +(a.status==='DISETUJUI'
+      ? '<div class="row"><div class="who"><b>Kehadiran</b><span>'
+        +(a.hadirOleh?esc(jejakTeks('dicatat',a.hadirOleh,a.hadirAt)):'belum dikonfirmasi')
+        +'</span></div>'+pilHadir(a)+'</div>'
+      : '')
+    +(a.hadirNota?'<div class="note w"><b>Catatan kehadiran:</b> '+esc(a.hadirNota)+'</div>':'')
     +(a.catatan?'<div class="note i"><b>Catatan DW:</b> '+esc(a.catatan)+'</div>':'')
     +(a.putusNota?'<div class="note w"><b>Catatan HR:</b> '+esc(a.putusNota)+'</div>':'')
     /* JEJAK LENGKAP, DUA BARIS — dan yang kedua muncul walau tidak ada catatan
