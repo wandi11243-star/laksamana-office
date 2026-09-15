@@ -264,6 +264,37 @@ async function siap(w) {
         HTML_KAS.indexOf('<link rel="icon" type="image/png" href="../../assets/laksamana-muda.png">') > -1);
     cek('kop lembar PDF memakainya',
         HTML_KAS.indexOf('class="ph-logo" src="../../assets/laksamana-muda.png"') > -1);
+    /* LOGO YANG TAMPIL DI LAYAR — dan inilah yang terlewat di putaran
+       pertama. Favicon dan kop lembar PDF dua-duanya benar, tapi tidak satu
+       pun dari keduanya kelihatan di halaman: yang berdiri di sidebar sejak
+       modul ini lahir adalah KOTAK EMAS BERHURUF F. Jadi logo sudah diganti,
+       layarnya tidak berubah sedikit pun, dan yang melaporkannya menyebut
+       logonya "masih kosong".
+
+       Diperiksa di DOM, bukan di sumber: rujukan yang benar di berkas tidak
+       membuktikan ada gambar yang benar-benar digambar. */
+    {
+      const wl = domKas().window;
+      await siap(wl);
+      const mark = wl.document.querySelector('.brand img.logo');
+      cek('sidebar menggambar logo sebagai <img>, bukan huruf', !!mark,
+          'isi .brand: ' + (wl.document.querySelector('.brand') || {}).innerHTML);
+      cek('...dan sumbernya tanda kapal Laksamana',
+          !!mark && mark.getAttribute('src') === '../../assets/laksamana-mark.png',
+          mark ? mark.getAttribute('src') : '-');
+      /* Kotak huruf F tidak boleh tertinggal di mana pun. */
+      cek('kotak huruf F sudah tidak ada', HTML_KAS.indexOf('<div class="logo">F</div>') < 0);
+      wl.close();
+    }
+    const MARK = path.join(ROOT, 'deploy', 'assets', 'laksamana-mark.png');
+    cek('berkas tanda kapalnya ada', fs.existsSync(MARK));
+    if (fs.existsSync(MARK)) {
+      const m = fs.readFileSync(MARK);
+      cek('...berupa PNG ber-alpha',
+          m[0] === 0x89 && m.toString('latin1', 1, 4) === 'PNG' && m[25] === 6,
+          'colour type ' + m[25]);
+      cek('...dan ringan', m.length < 60 * 1024, Math.round(m.length / 1024) + ' KB');
+    }
     cek('tidak ada rujukan tertinggal ke logo lama',
         HTML_KAS.indexOf('LaksamanaMudaLogo') < 0,
         'masih ada rujukan LaksamanaMudaLogo.jpeg di panel Kas');

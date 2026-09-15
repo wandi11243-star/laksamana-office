@@ -685,11 +685,30 @@ transparan, dan taglinenya emas — bukan hitam.
   suatu hari disapu, `deploy/assets/laksamanamuda-warna.jpg` dan
   `LaksamanaMudaLogo.jpeg` yang perlu dicari.
 
+- **LOGONYA HARUS TAMPIL DI LAYAR, dan itu terlewat di putaran pertama.**
+  Favicon dan kop lembar PDF dua-duanya benar, tapi **tidak satu pun dari
+  keduanya kelihatan di halaman**: yang berdiri di sidebar sejak modul ini
+  lahir adalah **kotak emas berhuruf F**, bukan logo Laksamana. Jadi logonya
+  sudah diganti, layarnya tidak berubah sedikit pun, dan yang melaporkannya
+  menyebut logonya *"masih kosong"*. Sekarang kotak itu diganti
+  `deploy/assets/laksamana-mark.png`.
+- **YANG DI SIDEBAR TANDA KAPALNYA SAJA, bukan logo penuh.** Slotnya 38px dan
+  **tetap 38px di mode `nav-mini`** (sidebar menyusut 72px, seluruh teks brand
+  disembunyikan) — logo penuh berikut wordmark-nya tidak akan terbaca di
+  sana sama sekali. Wordmark-nya toh sudah berdiri sebagai teks di sebelahnya.
+  Tandanya dipotong dari `Logo.png` lewat kotak-batas kanal alphanya, lalu
+  ditengahkan di kanvas persegi — potongan persegi langsung dari tengah logo
+  ikut menyeret potongan wordmark di bawahnya.
+- **Uji DOM, bukan uji sumber.** Rujukan yang benar di berkas tidak
+  membuktikan ada gambar yang benar-benar digambar; asersi sumber di putaran
+  pertama hijau seluruhnya untuk layar yang tidak berubah apa pun. Yang
+  menjaganya sekarang `document.querySelector('.brand img.logo')`.
+
 ```bash
-node tools/uji-realisasi-tagihan.js   # 45 pemeriksaan (dari 27)
+node tools/uji-realisasi-tagihan.js   # 51 pemeriksaan (dari 27)
 ```
 
-Lima mutasi dicoba, kelimanya tertangkap.
+Tujuh mutasi dicoba, ketujuhnya tertangkap.
 
 > **KOMENTAR HTML DI DALAM TEMPLATE LITERAL IKUT TERKIRIM KE `innerHTML`**,
 > dan itu menggigit dua kali saat perubahan ini ditulis. Pertama: asersi
