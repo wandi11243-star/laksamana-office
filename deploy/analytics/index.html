@@ -2406,11 +2406,20 @@ function selSelisih(d, persen) {
 /* Persen perubahan, atau null kalau pembandingnya nol — lihat selSelisih(). */
 function pctUbah(kini, dulu) { return dulu ? Math.round((kini - dulu) / dulu * 100) : null; }
 
-/* `null` = BELUM PERNAH DISENTUH, `''` = sengaja ditutup orangnya. Dua keadaan
-   itu harus dibedakan: kategori acara dibuka sendiri saat halaman ini pertama
-   digambar (permintaan user \u2014 nama menunya yang dicari, bukan totalnya),
-   tapi yang sudah menutupnya tidak boleh dibukakan lagi tiap render. */
-let KT_BUKA = null;               // kategori yang menunya sedang dibuka
+/* SELURUH KATEGORI LAHIR TERTUTUP (permintaan user 15 September 2026).
+   Sampai tanggal itu kategori acara MEMBUKA DIRINYA SENDIRI saat halaman ini
+   pertama digambar, jadi `KT_BUKA` punya TIGA keadaan: `null` (belum pernah
+   disentuh), `''` (sengaja ditutup), dan nama kategori. Akibatnya yang
+   membuka halaman ini mendarat di tengah daftar menu EVENT yang terbentang,
+   bukan di tabel kategorinya \u2014 padahal tabel itulah isi halamannya.
+   Sekarang dua keadaan saja: `''` tertutup, atau nama kategori.
+
+   JANGAN dikembalikan jadi `null` tanpa diminta. Keadaan ketiga itu tidak
+   punya arti lagi begitu tidak ada yang dibuka sendiri, dan `ktBuka()`
+   membandingkannya dengan `===`: `null` yang tertinggal tanpa blok yang
+   menerjemahkannya adalah bentuk data yang tidak satu pun baris di halaman
+   ini menjaga artinya. */
+let KT_BUKA = '';                 // kategori yang menunya sedang dibuka
 /* Urutan & tapis halaman Kategori Menu (11 September 2026, permintaan user).
    Bentuknya SAMA PERSIS dengan MN_SORT/MN_KEL di halaman Menu, dan penggambar
    kepala kolomnya pun sama (thSort) — dua halaman yang cara mengurutkannya
@@ -2490,11 +2499,6 @@ function vKategori() {
   if (KT_KEL && kelOps.indexOf(KT_KEL) < 0) KT_KEL = '';
   const list = urutKolom(KT_KEL ? list0.filter(x => x.kel === KT_KEL) : list0, KT_SORT);
 
-  /* Dibuka sendiri sekali, hanya kalau orangnya belum pernah menyentuh apa pun. */
-  if (KT_BUKA === null) {
-    const ev = list.find(x => katEventKah(x.n));
-    KT_BUKA = ev ? ev.n : '';
-  }
   /* TOTAL & PENYEBUT PERSEN dari baris BULAN INI yang lolos tapis — bukan dari
      list0. Baris yang cuma ada di bulan pembanding tidak membawa satu rupiah
      pun bulan ini, dan memasukkannya ke penyebut membuat kolom persen berhenti
@@ -3597,10 +3601,17 @@ const kanalKah = n => KANAL_BAYAR.test(String(n || '').toUpperCase());
    pernah bisa ikut membaik kalau hasilnya dibakukan ke dalam ringkasan. Pola
    yang sama dengan menuNormal() di halaman Menu.
 
-   INVARIANNYA: jumlah omset rekap ini SAMA PERSIS dengan jumlah omset tabel
-   Cara Tamu Datang. Tiap baris induk dipecah jadi (kanal…) + sisa, dan sisanya
-   dihitung sebagai PENGURANGAN — bukan dijumlahkan ulang dari metode yang
-   tidak dikenal, yang akan meleset begitu ada bill berpembayaran gabungan. */
+   INVARIANNYA: jumlah omset rekap ini SAMA PERSIS dengan jumlah omset
+   d.kunjung, yaitu seluruh omset bulan itu. Tiap baris induk dipecah jadi
+   (kanal—) + sisa, dan sisanya dihitung sebagai PENGURANGAN — bukan
+   dijumlahkan ulang dari metode yang tidak dikenal, yang akan meleset begitu
+   ada bill berpembayaran gabungan.
+
+   SAMPAI 15 September 2026 invarian itu bisa dilihat di layar: tabel Cara
+   Tamu Datang berdiri tepat di bawahnya dengan angka yang sama. Tabel itu
+   sudah DICABUT atas permintaan user, jadi yang menjaganya sekarang cuma
+   tools/uji-analytics.js — dan kalau asersi itu ikut hilang, pemecahan
+   kanal yang salah tidak punya satu pun tempat untuk ketahuan. */
 function rekapKanal(kj, kb) {
   const out = {}, takKanal = {};
   const tambah = (n, g, b, dari) => {
@@ -3633,6 +3644,31 @@ function rekapKanal(kj, kb) {
   return { baris: baris, takKanal: takKanal };
 }
 
+/* ============ HALAMAN: METODE KUNJUNGAN ============
+   Isinya SATU tabel: Rekap Kanal.
+
+   DUA TABEL DICABUT 15 September 2026 atas permintaan user: Metode Pembayaran
+   (90-an metode hasil pemecahan pembayaran gabungan) dan Cara Tamu Datang
+   (kolom Visit Purpose apa adanya, berikut rincian per metode bayar di bawah
+   tiap barisnya). Yang hilang bersamanya, dan itu memang pertukarannya:
+
+     - daftar metode bayar berikut rinciannya per cara datang;
+     - PEMBANDING DI LAYAR yang dulu membuktikan omset Rekap Kanal berjumlah
+       sama persis dengan omset Cara Tamu Datang.
+
+   Yang kedua itu pemeriksaan terkuat di halaman ini, dan sekarang tidak ada
+   satu pun mata yang bisa melakukannya. Ia PINDAH KE UJI: jumlah omset RK
+   wajib sama persis dengan jumlah omset d.kunjung, dihitung dari datanya
+   sendiri dan bukan dari tabel yang sudah tidak digambar. Kalau penjagaan itu
+   suatu hari ikut dicabut, pemecahan kanal yang salah tidak punya satu pun
+   tempat untuk ketahuan.
+
+   DATANYA TIDAK IKUT DICABUT. `d.bayar` dan `d.kunjungBayar` tetap diurai dan
+   tetap disimpan: yang kedua justru yang memecah ONLINE jadi GrabFood &
+   GoFood, jadi mencabutnya berarti mencabut tabel yang diminta berdiri.
+   Keterangan yang dulu menumpang di tabel pembayaran juga ikut pindah ke
+   sini, bukan ikut dibuang - kembalian tunai, pembagian rata, dan metode
+   tersisa yang bukan kanal ketiganya menjelaskan angka yang masih dipajang. */
 function vKunjungan() {
   const V = document.getElementById('app-view');
   const b = blnAktif(), d = lap(b);
@@ -3645,289 +3681,157 @@ function vKunjungan() {
     /* Dua sebab, dan yang keliru menebaknya akan mengunggah berkas yang salah
        lagi: laporannya diunggah sebelum kolom ini dibaca, atau berkas POS-nya
        memang tidak punya kolom itu. Keduanya disebut. */
-    V.innerHTML = h + '<div class="notice warn">⚠ <div><b>Laporan bulan ini belum memuat metode kunjungan.</b> '
+    V.innerHTML = h + '<div class="notice warn">&#9888; <div><b>Laporan bulan ini belum memuat metode kunjungan.</b> '
       + 'Kolom <i>Visit Purpose</i> baru ikut dibaca sejak 10 September 2026, jadi ringkasan yang '
-      + 'disimpan sebelum itu tidak menyimpannya. <b>Unggah ulang berkas bulan itu</b> — ringkasannya '
+      + 'disimpan sebelum itu tidak menyimpannya. <b>Unggah ulang berkas bulan itu</b> &mdash; ringkasannya '
       + 'akan ditimpa, dan metodenya ikut terbaca.<br>Kalau sesudah diunggah ulang halaman ini tetap '
-      + 'kosong, berkas POS-nya memang tidak punya kolom itu — ekspor ulang dari POS dengan kolom '
+      + 'kosong, berkas POS-nya memang tidak punya kolom itu &mdash; ekspor ulang dari POS dengan kolom '
       + '<i>Visit Purpose</i> ikut dicentang.</div></div>';
     return;
   }
 
-  const list = nama.map(n => ({ n, grand:kj[n].grand || 0, bill:kj[n].bill || 0 }))
-                   /* Yang sama banyak dipisah NAMANYA supaya urutannya tidak
-                      berubah-ubah tiap render. */
-                   .sort((a, x) => (x.bill - a.bill) || (x.grand - a.grand) || (a.n < x.n ? -1 : 1));
-
-  /* PENYEBUTNYA DIHITUNG DARI TABELNYA SENDIRI, bukan dari ringkas.grand /
-     ringkas.bill. Untuk omset keduanya memang sama, tapi untuk transaksi TIDAK
-     harus: jumlah bill per metode dihitung dari nomor bill yang berbeda, dan
-     satu bill yang barisnya bercampur dua metode ikut di kedua-duanya. Memakai
-     ringkas.bill sebagai penyebut membuat kolom persennya berhenti berjumlah
-     100% tanpa satu pun tanda — persis kesalahan yang sudah dibayar di kolom
-     Kontribusi halaman Hari & Jam. */
-  const totG = list.reduce((a, x) => a + x.grand, 0);
-  const totB = list.reduce((a, x) => a + x.bill, 0);
-  const teratas = list[0];
+  /* Silang cara-datang x metode-bayar, kuncinya "<cara datang>|<metode>".
+     Inilah SATU-SATUNYA jalan memecah ONLINE jadi GrabFood & GoFood: POS
+     menulis keduanya sebagai Visit Purpose yang sama. */
+  const kbPeta = d.kunjungBayar || {};
+  const adaBayar = Object.keys(kbPeta).length > 0;
   const billRingkas = (d.ringkas || {}).bill || 0;
 
-  /* ---- METODE PEMBAYARAN (13 September 2026) ----
-     Pembayaran gabungan sudah DIPECAH jadi komponennya saat mengurai (lihat
-     pecahBayar), jadi yang berdiri di sini nama metode yang sesungguhnya —
-     bukan 90-an string gabungan yang masing-masing dipakai satu dua kali. */
-  const by = d.bayar || {};
-  const listBayar = Object.keys(by)
-    .map(n => ({ n, grand: by[n].grand || 0, bill: by[n].bill || 0 }))
-    .sort((a, x) => (x.bill - a.bill) || (x.grand - a.grand) || (a.n < x.n ? -1 : 1));
-  const totBG = listBayar.reduce((a, x) => a + x.grand, 0);
-  const totBB = listBayar.reduce((a, x) => a + x.bill, 0);
-  const bayarTeratas = listBayar[0];
+  const RK = rekapKanal(kj, kbPeta);
+  const rkG = RK.baris.reduce((a, x) => a + x.grand, 0);
+  const rkB = RK.baris.reduce((a, x) => a + x.bill, 0);
+  const adaPecah = RK.baris.some(x => x.dari.length);
+  const teratas = RK.baris[0] || { n: '—', bill: 0, grand: 0 };
 
-  /* Silang cara-datang x metode-bayar, kuncinya "<cara datang>|<metode>". */
-  const kbPeta = d.kunjungBayar || {};
-  const bayarDari = vp => Object.keys(kbPeta)
-    .filter(k => k.slice(0, vp.length + 1) === vp + '|')
-    .map(k => ({ n: k.slice(vp.length + 1), grand: kbPeta[k].grand || 0, bill: kbPeta[k].bill || 0 }))
-    .sort((a, x) => (x.bill - a.bill) || (x.grand - a.grand) || (a.n < x.n ? -1 : 1));
-
-  /* KEDUA kartu teratas menyebut DIMENSINYA di labelnya, bukan cuma "Paling
-     Sering". Sejak halaman ini memajang dua dimensi sekaligus, label yang
-     tidak menyebut yang mana persis mengulang pertanyaan yang sudah empat kali
-     datang di kolom Kontribusi. */
+  /* KEEMPAT KARTU DIHITUNG DARI TABEL DI BAWAHNYA, bukan dari d.kunjung atau
+     ringkas.bill. Sejak Cara Tamu Datang dicabut, tabel ini satu-satunya yang
+     berdiri di halaman ini - kartu yang dihitung dari sumber lain akan
+     menyebut angka yang tidak ada di baris mana pun, dan yang paling mungkin
+     berselisih justru kartu teratas: memecah ONLINE MENGECILKAN baris ONLINE,
+     jadi "cara datang terbanyak" dan "kanal terbanyak" tidak selalu sama. */
   h += '<div class="grid g4" style="margin-bottom:18px">'
-    + kartu('Cara Datang Terbanyak', esc(teratas.n),
-        teratas.bill.toLocaleString('id-ID') + ' transaksi · ' + pct(teratas.bill, totB) + '% dari seluruh transaksi')
-    + kartu('Metode Bayar Terbanyak', bayarTeratas ? esc(bayarTeratas.n) : '—',
-        bayarTeratas ? (bayarTeratas.bill.toLocaleString('id-ID') + ' transaksi · '
-          + pct(bayarTeratas.bill, totBB) + '% dari seluruh transaksi')
-          : 'kolom Payment Method belum terbaca')
-    + kartu('Jumlah Transaksi', totB.toLocaleString('id-ID'), list.length + ' cara datang berbeda')
-    + kartu('Jumlah Omset', rp0(totG), 'seluruh cara datang digabung')
+    + kartu('Kanal Terbanyak', esc(teratas.n),
+        teratas.bill.toLocaleString('id-ID') + ' transaksi &middot; ' + pct(teratas.bill, rkB) + '% dari seluruh transaksi')
+    + kartu('Jumlah Transaksi', rkB.toLocaleString('id-ID'), RK.baris.length + ' kanal berbeda')
+    + kartu('Jumlah Omset', rp0(rkG), 'seluruh kanal digabung')
+    + kartu('Rata-rata per Transaksi', rkB ? rp0(rkG / rkB) : '—', 'omset dibagi jumlah transaksi')
     + '</div>';
 
-  /* ---- TABEL 0: REKAP KANAL (permintaan user 15 September 2026) ----
-     Satu daftar yang menjawab "dari kanal mana tamunya datang": DINE IN,
-     GRABFOOD, GOFOOD, TIKTOK GO, ESB ORDER. Berdiri PALING ATAS karena itulah
-     pertanyaan yang dibawa orang ke halaman ini; dua tabel di bawahnya
-     menjawab pertanyaan yang lebih rinci dan tetap berdiri apa adanya. */
-  {
-    const RK = rekapKanal(kj, kbPeta);
-    const rkG = RK.baris.reduce((a, x) => a + x.grand, 0);
-    const rkB = RK.baris.reduce((a, x) => a + x.bill, 0);
-    const adaPecah = RK.baris.some(x => x.dari.length);
-    h += '<div class="card"><h3>Rekap Kanal</h3>'
-      + '<div class="card-sub">Cara tamu datang, dengan <b>ONLINE dipecah jadi kanalnya masing-masing</b> '
-      + '— GrabFood dan GoFood tidak pernah berdiri sendiri di kolom <i>Visit Purpose</i>; POS menulis '
-      + 'keduanya ONLINE, dan bedanya cuma terbaca di kolom <i>Payment Method</i>. Diurut menurut '
-      + '<b>jumlah transaksi</b>.'
-      + (Object.keys(kbPeta).length ? '' : ' <b>Bulan ini belum bisa dipecah</b> — metode bayarnya belum '
-        + 'terbaca, jadi yang tampil masih cara datang apa adanya.')
-      + '</div>'
-      + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Kanal</th>'
-      + '<th class="num">Jumlah Transaksi</th><th class="num">% transaksi</th>'
-      + '<th class="num">Jumlah Omset</th><th class="num">% omset</th>'
-      + '<th class="num">Rata-rata per transaksi</th><th style="width:16%"></th></tr></thead><tbody>';
-    const punRK = RK.baris.reduce((a, x) => Math.max(a, x.bill), 0) || 1;
-    RK.baris.forEach((x, i) => {
-      h += '<tr><td>' + (i + 1) + '</td>'
-        + '<td><b>' + esc(x.n) + '</b>'
-        /* Kanal yang lahir dari pemecahan MENYEBUT induknya. Tanpa itu, yang
-           membandingkan rekap ini dengan tabel Cara Tamu Datang di bawahnya
-           akan mencari GRABFOOD di sana dan menyimpulkan keduanya tidak
-           sinkron — padahal ia memang tidak pernah ada di Visit Purpose. */
-        + (x.dari.length ? ' <span class="muted">· dari ' + esc(x.dari.join(', ')) + '</span>' : '')
-        + '</td>'
-        + '<td class="num">' + x.bill.toLocaleString('id-ID') + '</td>'
-        + '<td class="num">' + pct(x.bill, rkB) + '%</td>'
-        + '<td class="num mono">' + rp0(x.grand) + '</td>'
-        + '<td class="num">' + pct(x.grand, rkG) + '%</td>'
-        + '<td class="num mono">' + (x.bill ? rp0(x.grand / x.bill) : '—') + '</td>'
-        + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
-          + '<div style="width:' + Math.round(x.bill / punRK * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
-        + '</tr>';
-    });
-    h += '</tbody><tfoot><tr><th></th><th>Total</th>'
-      + '<th class="num">' + rkB.toLocaleString('id-ID') + '</th><th class="num">100%</th>'
-      + '<th class="num mono">' + rp0(rkG) + '</th><th class="num">100%</th>'
-      + '<th class="num mono">' + (rkB ? rp0(rkG / rkB) : '—') + '</th><th></th></tr></tfoot></table></div>'
-      + '<div class="helper">Batangnya menggambarkan <b>jumlah transaksi</b>. Omsetnya berjumlah pas '
-      + 'dengan tabel <b>Cara Tamu Datang</b> di bawah — yang berubah cuma ke baris mana ia dicatatkan.</div>';
-    /* METODE YANG TERSISA DISEBUT NAMANYA. Itulah yang membuat kanal baru
-       ketahuan tanpa ada yang perlu memeriksa kode: kalau suatu hari muncul
-       ShopeeFood yang belum dikenal, namanya berdiri di kalimat ini. */
-    const sisaVp = Object.keys(RK.takKanal);
-    if (sisaVp.length) {
-      h += '<div class="notice info">ℹ <div>'
-        + sisaVp.map(vp => '<b>' + esc(vp) + '</b> masih menyisakan transaksi yang metode bayarnya bukan '
-            + 'kanal pemesanan: ' + esc(RK.takKanal[vp].join(', '))).join('<br>')
-        + '.<br>Barisnya tetap berdiri dengan nama induknya — dibuang, omset rekap ini berhenti sama '
-        + 'dengan tabel Cara Tamu Datang. Kalau salah satu nama di atas sebenarnya kanal pemesanan baru '
-        + '(mis. ShopeeFood), ia perlu didaftarkan supaya ikut dipecah.</div></div>';
-    }
-    if (!adaPecah && Object.keys(kbPeta).length) {
-      h += '<div class="helper">Bulan ini tidak ada cara datang yang perlu dipecah — tidak satu pun '
-        + 'transaksinya dibayar lewat kanal pemesanan.</div>';
-    }
-    h += '</div>';
-  }
+  h += '<div class="card"><h3>Rekap Kanal</h3>'
+    + '<div class="card-sub">Cara tamu datang, dengan <b>ONLINE dipecah jadi kanalnya masing-masing</b> '
+    + '&mdash; GrabFood dan GoFood tidak pernah berdiri sendiri di kolom <i>Visit Purpose</i>; POS menulis '
+    + 'keduanya ONLINE, dan bedanya cuma terbaca di kolom <i>Payment Method</i>. Diurut menurut '
+    + '<b>jumlah transaksi</b>.</div>';
 
-  /* ---- TABEL 1: METODE PEMBAYARAN ---- */
-  h += '<div class="card"><h3>Metode Pembayaran</h3>';
-  if (!listBayar.length) {
-    /* DUA SEBAB, dan yang keliru menebaknya akan mengekspor ulang berkas yang
-       salah berkali-kali. Bill Report TIDAK PUNYA kolom Payment Method sama
-       sekali — diperiksa atas kedua berkas POS Agustus 2026 — jadi menyuruh
-       "centang kolomnya saat ekspor" adalah pekerjaan yang tidak akan pernah
-       menolong di sana. */
-    h += '<div class="notice warn">⚠ <div><b>Metode pembayaran belum terbaca untuk bulan ini.</b> '
+  /* METODE BAYAR YANG TIDAK TERBACA = TABEL INI TIDAK BISA DIPECAH, dan itu
+     dulu dijelaskan di kartu Metode Pembayaran yang sekarang sudah tidak ada.
+     Penjelasannya pindah ke sini, BERIKUT KEDUA SEBABNYA: Bill Report memang
+     TIDAK PUNYA kolom Payment Method sama sekali (diperiksa atas kedua berkas
+     POS Agustus 2026), jadi menyuruh "centang kolomnya saat ekspor" adalah
+     pekerjaan yang tidak akan pernah menolong di sana. Disamakan, yang
+     membacanya mengekspor ulang berkas yang salah berkali-kali. */
+  if (!adaBayar) {
+    h += '<div class="notice warn">&#9888; <div><b>Bulan ini belum bisa dipecah</b> &mdash; metode bayarnya '
+      + 'belum terbaca, jadi yang tampil masih cara datang apa adanya: ONLINE berdiri sebagai satu baris, '
+      + 'bukan sebagai GrabFood dan GoFood.<br>'
       + (d.jenis === 'bill'
         ? 'Laporan bulan ini <b>Bill Report</b>, dan bentuk itu memang tidak punya kolom '
-          + '<i>Payment Method</i> sama sekali — mencentang kolomnya saat ekspor tidak akan menolong. '
+          + '<i>Payment Method</i> sama sekali &mdash; mencentang kolomnya saat ekspor tidak akan menolong. '
           + 'Yang memuatnya <b>Sales Recapitulation DETAIL Report</b>; unggah berkas itu untuk bulan yang sama.'
         : 'Kolom <i>Payment Method</i> baru ikut dibaca sejak 13 September 2026, jadi ringkasan yang '
-          + 'disimpan sebelum itu tidak menyimpannya. <b>Unggah ulang berkas bulan itu</b> — ringkasannya '
-          + 'akan ditimpa, dan metodenya ikut terbaca.<br>Kalau sesudah diunggah ulang tetap kosong, '
-          + 'berkas POS-nya memang tidak punya kolom itu — ekspor ulang dengan <i>Payment Method</i> '
+          + 'disimpan sebelum itu tidak menyimpannya. <b>Unggah ulang berkas bulan itu</b> &mdash; ringkasannya '
+          + 'akan ditimpa, dan metodenya ikut terbaca. Kalau sesudah diunggah ulang tetap begini, '
+          + 'berkas POS-nya memang tidak punya kolom itu &mdash; ekspor ulang dengan <i>Payment Method</i> '
           + 'ikut dicentang.')
       + '</div></div>';
-  } else {
-    h += '<div class="card-sub">Dari kolom <i>Payment Method</i> di laporan POS. Bill yang dibayar '
-      + 'lebih dari satu metode <b>sudah dipecah</b> jadi komponennya — POS menulisnya sebagai satu '
-      + 'baris ("VOUCHER (25.000), QRIS MANDIRI (15.250)"), dan dibiarkan begitu ia berdiri sebagai '
-      + 'metode tersendiri yang cuma dipakai sekali dua kali. Diurut menurut <b>jumlah transaksi</b>, '
-      + 'sama dengan tabel di bawahnya.</div>'
-      + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Metode Bayar</th>'
-      + '<th class="num">Jumlah Transaksi</th><th class="num">% transaksi</th>'
-      + '<th class="num">Jumlah Omset</th><th class="num">% omset</th>'
-      + '<th class="num">Rata-rata per transaksi</th><th style="width:16%"></th></tr></thead><tbody>';
-    const punBB = listBayar.reduce((a, x) => Math.max(a, x.bill), 0) || 1;
-    listBayar.forEach((x, i) => {
-      h += '<tr><td>' + (i + 1) + '</td>'
-        + '<td><b>' + esc(x.n) + '</b></td>'
-        + '<td class="num">' + x.bill.toLocaleString('id-ID') + '</td>'
-        + '<td class="num">' + pct(x.bill, totBB) + '%</td>'
-        + '<td class="num mono">' + rp0(x.grand) + '</td>'
-        + '<td class="num">' + pct(x.grand, totBG) + '%</td>'
-        + '<td class="num mono">' + (x.bill ? rp0(x.grand / x.bill) : '—') + '</td>'
-        + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
-          + '<div style="width:' + Math.round(x.bill / punBB * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
-        + '</tr>';
-    });
-    h += '</tbody><tfoot><tr><th></th><th>Total</th>'
-      + '<th class="num">' + totBB.toLocaleString('id-ID') + '</th><th class="num">100%</th>'
-      + '<th class="num mono">' + rp0(totBG) + '</th><th class="num">100%</th>'
-      + '<th class="num mono">' + (totBB ? rp0(totBG / totBB) : '—') + '</th><th></th></tr></tfoot></table></div>';
-
-    /* KOLOM OMSET BOLEH DIJUMLAHKAN, KOLOM TRANSAKSI TIDAK — dan bedanya wajib
-       dikatakan, karena keduanya berdiri bersebelahan di satu baris. Omsetnya
-       dibagi menurut nominal tiap metode, jadi ia berjumlah pas ke total
-       sebulan; transaksinya dihitung utuh di tiap metode yang dipakai bill itu,
-       jadi satu bill gabungan muncul di dua baris. */
-    if (billRingkas && totBB > billRingkas) {
-      h += '<div class="notice info">ℹ <div>Jumlah transaksi di tabel ini <b>'
-        + totBB.toLocaleString('id-ID') + '</b>, sementara transaksi sungguhan bulan ini <b>'
-        + billRingkas.toLocaleString('id-ID') + '</b>. Selisihnya <b>'
-        + (totBB - billRingkas).toLocaleString('id-ID') + '</b> bill yang dibayar dengan lebih dari '
-        + 'satu metode — tiap bill seperti itu dihitung penuh di masing-masing metodenya, jadi '
-        + '<b>kolom transaksi tidak bisa dijumlahkan</b>. Kolom omsetnya bisa: nominalnya dibagi '
-        + 'menurut yang benar-benar dibayar lewat tiap metode, dan jumlahnya pas ke omset sebulan.</div></div>';
-    }
-    /* Nominal tunai adalah uang yang DISERAHKAN — kembaliannya dipotong dari
-       komponen tunainya, bukan dibagi rata. Itu keputusan tentang uang, jadi
-       ia disebut di layar, bukan cuma di komentar kodenya. */
-    h += '<div class="helper">Untuk bill yang dibayar sebagian tunai, nominal tunai yang dicatat POS '
-      + 'adalah <b>uang yang diserahkan</b> — kembaliannya sudah dipotong dari baris tunai di sini, '
-      + 'bukan dibagi rata ke metode lain. Batangnya menggambarkan <b>jumlah transaksi</b>.</div>';
-    if ((d.ringkas || {}).bayarRata) {
-      h += '<div class="notice info">ℹ <div><b>' + (d.ringkas.bayarRata).toLocaleString('id-ID')
-        + ' transaksi</b> ditulis POS dengan beberapa metode tapi <b>tanpa nominal</b>, jadi omsetnya '
-        + 'dibagi rata ke tiap metodenya. Itu perkiraan — jumlah totalnya tetap benar, pembagiannya '
-        + 'yang tidak bisa dipastikan.</div></div>';
-    }
   }
-  h += '</div>';
 
-  h += '<div class="card"><h3>Cara Tamu Datang</h3>'
-    + '<div class="card-sub">Dari kolom <i>Visit Purpose</i> di laporan POS. Diurut menurut '
-    + '<b>jumlah transaksi</b> — yang ditanya cara mana yang paling sering dipakai, bukan mana '
-    + 'yang paling besar omsetnya; keduanya sering menjawab berbeda, dan kolom omsetnya tetap ada '
-    + 'di sebelahnya.'
-    + (Object.keys(kbPeta).length
-      ? ' Tiap barisnya <b>dirinci per metode bayar</b> di baris-baris di bawahnya — di situlah '
-        + 'ONLINE berdiri sebagai GrabFood dan GoFood.'
-      : '')
-    + '</div>'
-    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Cara Datang</th>'
+  h += '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Kanal</th>'
     + '<th class="num">Jumlah Transaksi</th><th class="num">% transaksi</th>'
     + '<th class="num">Jumlah Omset</th><th class="num">% omset</th>'
     + '<th class="num">Rata-rata per transaksi</th><th style="width:16%"></th></tr></thead><tbody>';
-
-  const punB = list.reduce((a, x) => Math.max(a, x.bill), 0) || 1;
-  list.forEach((x, i) => {
+  const punRK = RK.baris.reduce((a, x) => Math.max(a, x.bill), 0) || 1;
+  RK.baris.forEach((x, i) => {
     h += '<tr><td>' + (i + 1) + '</td>'
-      + '<td><b>' + esc(x.n) + '</b></td>'
+      + '<td><b>' + esc(x.n) + '</b>'
+      /* Kanal yang lahir dari pemecahan MENYEBUT induknya. Tanpa itu, yang
+         mencocokkan halaman ini dengan kolom Visit Purpose di berkas POS akan
+         mencari GRABFOOD di sana dan menyimpulkan keduanya tidak sinkron -
+         padahal ia memang tidak pernah ada sebagai Visit Purpose. */
+      + (x.dari.length ? ' <span class="muted">&middot; dari ' + esc(x.dari.join(', ')) + '</span>' : '')
+      + '</td>'
       + '<td class="num">' + x.bill.toLocaleString('id-ID') + '</td>'
-      + '<td class="num">' + pct(x.bill, totB) + '%</td>'
+      + '<td class="num">' + pct(x.bill, rkB) + '%</td>'
       + '<td class="num mono">' + rp0(x.grand) + '</td>'
-      + '<td class="num">' + pct(x.grand, totG) + '%</td>'
-      /* Rata-rata per transaksi DITAHAN kalau metodenya tidak punya satu pun
-         transaksi terbaca — membaginya dengan nol memberi angka yang terlihat
-         sangat meyakinkan, dan itu bentuk kesalahan yang sama dengan rata-rata
-         per tamu yang disembunyikan waktu kolom Pax jarang terisi. */
+      + '<td class="num">' + pct(x.grand, rkG) + '%</td>'
       + '<td class="num mono">' + (x.bill ? rp0(x.grand / x.bill) : '—') + '</td>'
       + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
-        + '<div style="width:' + Math.round(x.bill / punB * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
+        + '<div style="width:' + Math.round(x.bill / punRK * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
       + '</tr>';
-
-    /* RINCIAN PER METODE BAYAR — inilah jawaban "ONLINE itu GrabFood atau
-       GoFood". Digambar LANGSUNG, bukan di balik klik: yang membuka halaman ini
-       sedang membawa pertanyaan itu, dan jawaban yang harus dicari dulu sama
-       saja belum dijawab.
-
-       PENYEBUT KEDUA KOLOM PERSENNYA BARIS INDUKNYA, bukan sebulan — dan itu
-       DISEBUT DI SELNYA, bukan cuma di kepala kolom. Kepala kolom dibaca
-       sekali, angkanya dibaca tiap baris; pelajaran empat putaran pertanyaan
-       di kolom Kontribusi halaman Pengaruh Event. */
-    bayarDari(x.n).forEach(y => {
-      h += '<tr style="background:var(--panel2)">'
-        + '<td></td>'
-        + '<td style="padding-left:24px" class="muted">↳ ' + esc(y.n) + '</td>'
-        + '<td class="num">' + y.bill.toLocaleString('id-ID') + '</td>'
-        + '<td class="num">' + pct(y.bill, x.bill) + '% <span class="muted">dari ' + esc(x.n) + '</span></td>'
-        + '<td class="num mono">' + rp0(y.grand) + '</td>'
-        + '<td class="num">' + pct(y.grand, x.grand) + '% <span class="muted">dari ' + esc(x.n) + '</span></td>'
-        + '<td class="num mono">' + (y.bill ? rp0(y.grand / y.bill) : '—') + '</td>'
-        + '<td></td></tr>';
-    });
   });
-
   h += '</tbody><tfoot><tr><th></th><th>Total</th>'
-    + '<th class="num">' + totB.toLocaleString('id-ID') + '</th><th class="num">100%</th>'
-    + '<th class="num mono">' + rp0(totG) + '</th><th class="num">100%</th>'
-    + '<th class="num mono">' + (totB ? rp0(totG / totB) : '—') + '</th><th></th></tr></tfoot></table></div>';
+    + '<th class="num">' + rkB.toLocaleString('id-ID') + '</th><th class="num">100%</th>'
+    + '<th class="num mono">' + rp0(rkG) + '</th><th class="num">100%</th>'
+    + '<th class="num mono">' + (rkB ? rp0(rkG / rkB) : '—') + '</th><th></th></tr></tfoot></table></div>';
 
-  /* Batangnya mengikuti kolom TRANSAKSI, bukan omset — batang selalu dibaca
-     sebagai gambar dari kolom di sebelahnya, dan di sini yang di sebelahnya
-     dua-duanya. Karena itu dikatakan. */
-  h += '<div class="helper">Batangnya menggambarkan <b>jumlah transaksi</b>, bukan omset.</div>';
+  h += '<div class="helper">Batangnya menggambarkan <b>jumlah transaksi</b>, bukan omset. '
+    + 'Kolom omsetnya berjumlah pas ke omset sebulan: tiap bill dibagi menurut nominal yang '
+    + 'benar-benar dibayar lewat tiap metode, dan porsinya selalu berjumlah satu.</div>';
+
+  /* KOLOM OMSET BOLEH DIJUMLAHKAN, KOLOM TRANSAKSI TIDAK - dan bedanya wajib
+     dikatakan, karena keduanya berdiri bersebelahan di satu baris. Satu bill
+     yang dibayar lewat dua kanal dihitung PENUH di kedua-duanya, jadi jumlah
+     transaksi di sini bisa melampaui jumlah bill sungguhan. Didiamkan, ia
+     dilaporkan sebagai angka yang salah di salah satu halaman. */
+  if (billRingkas && rkB !== billRingkas) {
+    h += '<div class="notice info">&#8505; <div>Jumlah transaksi di tabel ini <b>'
+      + rkB.toLocaleString('id-ID') + '</b>, sementara Ringkasan menyebut <b>'
+      + billRingkas.toLocaleString('id-ID') + '</b>. Bedanya bukan omset yang hilang: satu bill yang '
+      + 'dibayar lewat lebih dari satu kanal &mdash; atau yang barisnya memuat lebih dari satu cara datang '
+      + '&mdash; dihitung penuh di masing-masing barisnya, sementara Ringkasan menghitungnya sekali. '
+      + '<b>Kolom transaksi karena itu tidak bisa dijumlahkan</b>; kolom omsetnya bisa.</div></div>';
+  }
+
+  /* METODE YANG TERSISA DISEBUT NAMANYA. Itulah yang membuat kanal baru
+     ketahuan tanpa ada yang perlu memeriksa kode: kalau suatu hari muncul
+     ShopeeFood yang belum dikenal, namanya berdiri di kalimat ini. */
+  const sisaVp = Object.keys(RK.takKanal);
+  if (sisaVp.length) {
+    h += '<div class="notice info">&#8505; <div>'
+      + sisaVp.map(vp => '<b>' + esc(vp) + '</b> masih menyisakan transaksi yang metode bayarnya bukan '
+          + 'kanal pemesanan: ' + esc(RK.takKanal[vp].join(', '))).join('<br>')
+      + '.<br>Barisnya tetap berdiri dengan nama induknya &mdash; dibuang, omset tabel ini berhenti sama '
+      + 'dengan omset sebulan dan selisihnya tidak akan bisa dijelaskan siapa pun. Kalau salah satu nama '
+      + 'di atas sebenarnya kanal pemesanan baru (mis. ShopeeFood), ia perlu didaftarkan supaya ikut '
+      + 'dipecah.</div></div>';
+  }
+  if (!adaPecah && adaBayar) {
+    h += '<div class="helper">Bulan ini tidak ada cara datang yang perlu dipecah &mdash; tidak satu pun '
+      + 'transaksinya dibayar lewat kanal pemesanan.</div>';
+  }
+
+  /* Nominal tunai adalah uang yang DISERAHKAN - kembaliannya dipotong dari
+     komponen tunainya, bukan dibagi rata. Itu keputusan tentang uang, dan ia
+     menggeser omset tiap kanal di tabel di atas, jadi ia disebut di layar. */
+  if (adaBayar) {
+    h += '<div class="helper">Untuk bill yang dibayar sebagian tunai, nominal tunai yang dicatat POS '
+      + 'adalah <b>uang yang diserahkan</b> &mdash; kembaliannya sudah dipotong dari komponen tunainya, '
+      + 'bukan dibagi rata ke metode lain.</div>';
+  }
+  if ((d.ringkas || {}).bayarRata) {
+    h += '<div class="notice info">&#8505; <div><b>' + (d.ringkas.bayarRata).toLocaleString('id-ID')
+      + ' transaksi</b> ditulis POS dengan beberapa metode tapi <b>tanpa nominal</b>, jadi omsetnya '
+      + 'dibagi rata ke tiap metodenya. Itu perkiraan &mdash; jumlah totalnya tetap benar, pembagiannya '
+      + 'yang tidak bisa dipastikan.</div></div>';
+  }
 
   if (d.jenis === 'menu') {
     /* Detail Report: satu bill tersebar di belasan baris menu. Transaksinya
-       dihitung dari nomor bill yang berbeda, jadi angkanya tetap benar — tapi
+       dihitung dari nomor bill yang berbeda, jadi angkanya tetap benar - tapi
        itu WAJIB dikatakan, karena yang membandingkannya dengan jumlah baris
        berkas akan mengira ada yang hilang. */
     h += '<div class="helper">Berkasnya laporan per menu, jadi satu transaksi punya beberapa baris. '
       + 'Yang dihitung di sini <b>nomor bill yang berbeda</b>, bukan jumlah barisnya.</div>';
-  }
-  if (billRingkas && totB !== billRingkas) {
-    /* Selisih yang mungkin dan sah: satu bill yang barisnya memuat dua metode
-       ikut dihitung di kedua-duanya. Didiamkan, selisihnya dilaporkan sebagai
-       angka yang salah di salah satu halaman. */
-    h += '<div class="notice info">ℹ <div>Jumlah transaksi di sini <b>' + totB.toLocaleString('id-ID')
-      + '</b>, sementara Ringkasan menyebut <b>' + billRingkas.toLocaleString('id-ID') + '</b>. '
-      + 'Bedanya bukan omset yang hilang: satu bill yang barisnya memuat lebih dari satu metode '
-      + 'ikut dihitung di masing-masing metodenya, sementara Ringkasan menghitungnya sekali. '
-      + 'Kolom omset tetap berjumlah pas.</div></div>';
   }
   h += '</div>';
 

@@ -1375,17 +1375,30 @@ async function siap(w) {
     cek('...jumlahnya dibaca dari isi kategorinya',
         selJml(v, 'NUSANTARA') === '1' && selJml(v, 'SIGNATURE NON COFFEE') === '4',
         JSON.stringify([selJml(v, 'NUSANTARA'), selJml(v, 'SIGNATURE NON COFFEE')]));
-    /* Kategori acara dibuka SENDIRI — yang dicari orang di halaman ini nama
-       menunya (Prasmanan, Nasi Kotak, Snack Box), bukan totalnya. */
-    cek('kategori EVENT terbuka sendiri berikut nama menunya',
-        w.eval('KT_BUKA') === 'EVENT' && v.indexOf('DJ PERFORMANCE') > -1,
+    /* TIDAK ADA KATEGORI YANG TERBUKA SENDIRI (permintaan user 15 September
+       2026). Sampai tanggal itu kategori acara membuka dirinya sendiri, jadi
+       yang membuka halaman ini mendarat di tengah daftar menu EVENT yang
+       terbentang alih-alih di tabel kategorinya.
+
+       YANG DIUJI ISI RINCIANNYA, bukan cuma KT_BUKA: nama menu di dalam
+       EVENT (DJ PERFORMANCE) tidak boleh tergambar sebelum ada yang
+       menekannya. Memeriksa KT_BUKA saja meloloskan penggambar yang tetap
+       membuka barisnya lewat jalan lain. */
+    cek('tidak ada kategori yang terbuka sendiri',
+        w.eval('KT_BUKA') === '' && v.indexOf('DJ PERFORMANCE') < 0,
         'KT_BUKA=' + JSON.stringify(w.eval('KT_BUKA')));
     cek('...dan barisnya menyebut kenapa ia tidak ada di Menu & Bahan Baku',
         v.indexOf('tidak ikut di Menu') > -1);
-    /* Yang sudah menutupnya tidak boleh dibukakan lagi tiap render — `null`
-       (belum disentuh) dan `''` (sengaja ditutup) memang dua keadaan berbeda. */
-    w.eval("ktBuka('EVENT')"); w.go('kategori'); await tunggu(60);
-    cek('...tapi yang sudah ditutup tidak dibuka lagi', w.eval('KT_BUKA') === '');
+    /* Ditekan, ia tetap terbuka — yang dicabut cuma pembukaan otomatisnya. */
+    w.eval("ktBuka('EVENT')"); await tunggu(60);
+    {
+      const vev = d.getElementById('app-view').innerHTML;
+      cek('...kategori EVENT tetap bisa dibuka kalau ditekan',
+          w.eval('KT_BUKA') === 'EVENT' && vev.indexOf('DJ PERFORMANCE') > -1,
+          'KT_BUKA=' + JSON.stringify(w.eval('KT_BUKA')));
+    }
+    w.eval("ktBuka('EVENT')"); await tunggu(60);
+    cek('...dan ditekan lagi menutupnya', w.eval('KT_BUKA') === '');
     /* Laporan yang diunggah sebelum katMenu ikut disimpan tidak punya isi
        kategori sama sekali. Kolomnya lalu berbunyi \u2014, BUKAN 0: nol berarti
        kategori itu memang tidak punya menu, dan itu jawaban yang salah untuk
@@ -2193,10 +2206,19 @@ async function siap(w) {
 
     w.go('kunjungan'); await tunggu(60);
     const v = d.getElementById('app-view').innerHTML;
-    /* Judulnya "Per Metode" sampai 13 September 2026; sejak halaman ini
-       memajang dua dimensi, tabelnya dinamai dimensinya sendiri. */
-    const tbl = v.slice(v.indexOf('Cara Tamu Datang'));
-    const nama = (tbl.match(/<td><b>[^<]+<\/b><\/td>/g) || []).map(x => x.replace(/<[^>]*>/g, ''));
+    /* SATU TABEL SAJA sejak 15 September 2026 — Metode Pembayaran dan Cara
+       Tamu Datang dicabut atas permintaan user. Diiris per KARTU menurut
+       <h3>-nya, bukan lewat indexOf frasa: prosa di kartu ini menyebut nama
+       kedua tabel yang dicabut, dan asersi yang menyapu seluruh halaman akan
+       cocok dengan kalimat itu tanpa pernah menyentuh tabelnya. Bentuk yang
+       sudah dua kali menggigit di berkas ini. */
+    const tbl = kartuJudul(v, 'Rekap Kanal');
+    cek('Rekap Kanal berdiri sebagai satu-satunya tabel halaman ini',
+        !!tbl && v.indexOf('<h3>Metode Pembayaran</h3>') < 0
+             && v.indexOf('<h3>Cara Tamu Datang</h3>') < 0,
+        'rekap=' + !!tbl + ' bayar=' + v.indexOf('<h3>Metode Pembayaran</h3>')
+          + ' datang=' + v.indexOf('<h3>Cara Tamu Datang</h3>'));
+    const nama = (tbl.match(/<td><b>[^<]+<\/b>/g) || []).map(x => x.replace(/<[^>]*>/g, ''));
 
     cek('halaman Metode Kunjungan menggambar tabelnya', nama.length === 5, nama.join(' | '));
     /* DIURUT MENURUT JUMLAH TRANSAKSI, bukan omset. ESB ORDER membawa
@@ -2204,13 +2226,14 @@ async function siap(w) {
        tiga — diurut menurut omset, ESB ORDER yang naik ke atas. */
     cek('diurut menurut jumlah transaksi, bukan omset',
         nama[0] === 'DINE IN', nama.join(' | '));
-    /* Label kartunya menyebut DIMENSINYA. Sejak halaman ini memajang cara
-       datang DAN metode bayar, "Paling Sering" saja tidak mengatakan yang mana
-       — bentuk pertanyaan yang sama dengan kolom "Kontribusi" tanpa penyebut. */
-    cek('kartu Cara Datang Terbanyak menyebut caranya',
-        v.indexOf('Cara Datang Terbanyak') > -1 && v.slice(v.indexOf('Cara Datang Terbanyak'),
-          v.indexOf('Cara Datang Terbanyak') + 300).indexOf('DINE IN') > -1,
-        v.slice(v.indexOf('Cara Datang Terbanyak'), v.indexOf('Cara Datang Terbanyak') + 300));
+    /* KARTU TERATAS DIHITUNG DARI TABEL DI BAWAHNYA. Sejak Cara Tamu Datang
+       dicabut, kartu yang masih membaca d.kunjung akan menyebut nama yang
+       tidak ada di baris mana pun begitu ONLINE dipecah — memecahnya
+       MENGECILKAN baris induknya. */
+    cek('kartu Kanal Terbanyak menyebut kanalnya',
+        v.indexOf('Kanal Terbanyak') > -1 && v.slice(v.indexOf('Kanal Terbanyak'),
+          v.indexOf('Kanal Terbanyak') + 300).indexOf('DINE IN') > -1,
+        v.slice(v.indexOf('Kanal Terbanyak'), v.indexOf('Kanal Terbanyak') + 300));
     cek('jumlah transaksi & omsetnya tergambar di barisnya',
         tbl.indexOf('>3</td>') > -1 && tbl.indexOf(w.eval('rp0')(120000)) > -1,
         tbl.slice(0, 900));
@@ -2469,93 +2492,66 @@ async function siap(w) {
     /* ---- layarnya ---- */
     w.go('kunjungan'); await tunggu(60);
     const v = d.getElementById('app-view').innerHTML;
-    const tBayar = kartuJudul(v, 'Metode Pembayaran'), tDatang = kartuJudul(v, 'Cara Tamu Datang');
-    cek('kedua tabelnya digambar', !!tBayar && !!tDatang,
-        'bayar=' + tBayar.length + ' datang=' + tDatang.length);
-    /* REKAP KANAL berdiri di atas keduanya (15 September 2026) dan memang
-       menyebut "Cara Tamu Datang" di keterangannya — itu sebabnya ketiga
-       potongan ini diiris menurut KARTUNYA, bukan menurut posisi frasa di
-       seluruh halaman. */
+    /* KEDUA TABEL LAMA DICABUT (permintaan user 15 September 2026): Metode
+       Pembayaran dan Cara Tamu Datang. Yang diuji KETIADAANNYA — mencabutnya
+       setengah jalan (tabelnya hilang tapi penggambarnya masih dipanggil)
+       tidak menimbulkan galat apa pun.
+
+       DIPERIKSA LEWAT <h3>-nya, bukan lewat frasanya: kartu Rekap Kanal
+       menyebut nama kedua tabel itu di prosa dan komentarnya, dan asersi
+       yang menyapu seluruh halaman akan cocok dengan kalimat itu tanpa
+       pernah menyentuh tabelnya. Sudah dua kali menggigit di berkas ini. */
     const tRekap = kartuJudul(v, 'Rekap Kanal');
-    cek('Rekap Kanal berdiri PALING ATAS, di atas kedua tabel lama',
-        !!tRekap && v.indexOf('<h3>Rekap Kanal</h3>') < v.indexOf('<h3>Metode Pembayaran</h3>'),
-        String(v.indexOf('<h3>Rekap Kanal</h3>')) + ' vs ' + v.indexOf('<h3>Metode Pembayaran</h3>'));
-    const namaDi = html => (html.match(/<td><b>[^<]+<\/b><\/td>/g) || []).map(x => x.replace(/<[^>]*>/g, ''));
+    cek('tabel Metode Pembayaran sudah tidak digambar',
+        v.indexOf('<h3>Metode Pembayaran</h3>') < 0,
+        String(v.indexOf('<h3>Metode Pembayaran</h3>')));
+    cek('tabel Cara Tamu Datang sudah tidak digambar',
+        v.indexOf('<h3>Cara Tamu Datang</h3>') < 0,
+        String(v.indexOf('<h3>Cara Tamu Datang</h3>')));
+    /* Rincian per metode bayar di bawah tiap baris ikut hilang bersamanya.
+       Diperiksa lewat PANAH selnya, bukan lewat nama metodenya: GRABFOOD &
+       GOFOOD justru WAJIB masih ada, sebagai baris kanal di Rekap Kanal. */
+    cek('...berikut baris rinciannya di bawah tiap cara datang',
+        v.indexOf('↳') < 0, String(v.indexOf('↳')));
+    /* TIGA KETERANGAN PINDAH KE KARTU REKAP KANAL, bukan ikut dibuang:
+       ketiganya menjelaskan angka yang MASIH dipajang. Kembalian tunai dan
+       pembagian rata menggeser omset tiap kanal; kolom transaksi yang tidak
+       bisa dijumlahkan menjelaskan kaki tabelnya sendiri. */
+    cek('aturan kembalian tunai ikut pindah ke kartu Rekap Kanal',
+        tRekap.indexOf('uang yang diserahkan') > -1, tRekap.slice(-900));
+    cek('pembagian rata yang cuma perkiraan ikut pindah',
+        tRekap.indexOf('dibagi rata ke tiap metodenya') > -1, tRekap.slice(-900));
+    /* Transaksi di tabel lebih banyak daripada bill sungguhan — selisihnya
+       disebut ANGKANYA, bukan cuma dikatakan ada. */
+    /* KARTU DIHITUNG DARI TABELNYA, bukan dari Ringkasan. Fixture inilah
+       satu-satunya yang bisa membedakannya: bill pecahan membuat jumlah
+       transaksi rekap MELAMPAUI jumlah bill sungguhan, jadi kedua sumber
+       memulangkan angka yang berbeda. Di fixture Visit Purpose keduanya
+       kebetulan sama dan asersi seperti ini akan hampa di sana.
 
-    const nb = namaDi(tBayar);
-    cek('tabel metode bayar memuat kesepuluh metodenya', nb.length === 10, nb.join(' | '));
-    /* DIURUT MENURUT JUMLAH TRANSAKSI, sama dengan tabel di bawahnya.
-       Memeriksa baris PERTAMA saja tidak cukup: QRIS MANDIRI kebetulan
-       teratas menurut kedua-duanya. Yang membedakan baris KEDUA — QRIS BRI
-       dipakai 2 bill dengan omset Rp115.000, sementara TRANSFER cuma 1 bill
-       tapi Rp500.000. Diurut menurut omset, TRANSFER yang naik. */
-    cek('diurut menurut jumlah transaksi, bukan omset',
-        nb[0] === 'QRIS MANDIRI' && nb[1] === 'QRIS BRI', nb.join(' | '));
-    cek('GrabFood & GoFood berdiri sebagai metodenya sendiri',
-        nb.indexOf('GRABFOOD') > -1 && nb.indexOf('GOFOOD') > -1, nb.join(' | '));
-    cek('omset tiap metode tergambar', tBayar.indexOf(w.eval('rp0')(500000)) > -1, tBayar.slice(0, 900));
-    cek('kaki tabelnya berjumlah total sebulan',
-        tBayar.indexOf(w.eval('rp0')(2151567)) > -1, tBayar.slice(tBayar.indexOf('<tfoot>'), tBayar.indexOf('<tfoot>') + 400));
-    cek('pembagian rata yang cuma perkiraan dikatakan di layar',
-        tBayar.indexOf('dibagi rata ke tiap metodenya') > -1, tBayar.slice(-900));
-
-    /* Kolom transaksi TIDAK bisa dijumlahkan, kolom omset bisa — dan keduanya
-       berdiri bersebelahan di satu baris, jadi bedanya wajib dikatakan. */
-    cek('kolom transaksi yang tidak bisa dijumlahkan DIKATAKAN, berikut angkanya',
-        tBayar.indexOf('tidak bisa dijumlahkan') > -1 && tBayar.indexOf('>14<') > -1,
-        tBayar.slice(tBayar.indexOf('<tfoot>')));
-    /* Kembalian tunai adalah keputusan tentang uang — disebut di LAYAR, bukan
-       cuma di komentar kodenya. */
-    cek('aturan kembalian tunai dikatakan di layar',
-        tBayar.indexOf('uang yang diserahkan') > -1, tBayar.slice(-700));
-
-    /* ---- rincian di tabel cara datang: jawaban pertanyaan aslinya ---- */
-    const barisVp = n => {
-      const i = tDatang.indexOf('<td><b>' + n + '</b></td>');
-      if (i < 0) return '';
-      const sisa = tDatang.slice(i + 1);
-      const j = sisa.indexOf('<td><b>');
-      return j < 0 ? sisa : sisa.slice(0, j);
-    };
-    const bOnline = barisVp('ONLINE');
-    cek('baris ONLINE dirinci jadi GrabFood dan GoFood, TANPA harus diklik',
-        bOnline.indexOf('GRABFOOD') > -1 && bOnline.indexOf('GOFOOD') > -1, bOnline.slice(0, 900));
-    cek('...berikut jumlah transaksi & omsetnya masing-masing',
-        bOnline.indexOf(w.eval('rp0')(60000)) > -1 && bOnline.indexOf(w.eval('rp0')(30000)) > -1,
-        bOnline.slice(0, 900));
-    /* PENYEBUT KOLOM PERSEN DI BARIS RINCIAN ADALAH INDUKNYA, bukan sebulan —
-       dan itu disebut DI SELNYA. Kepala kolom dibaca sekali, angkanya dibaca
-       tiap baris; pelajaran empat putaran pertanyaan di kolom Kontribusi.
-
-       DIHITUNG, bukan cuma dicari kata "dari ONLINE": ONLINE punya tiga baris
-       rincian dan tiap barisnya punya DUA kolom persen, jadi enam. Mencari
-       katanya saja meloloskan mutasi yang mencabutnya dari salah satu kolom —
-       bentuk asersi hampa yang sudah dibayar di kolom Kontribusi. */
-    cek('penyebut persen baris rincian disebut di KEDUA kolomnya',
-        (bOnline.match(/dari ONLINE/g) || []).length === 6,
-        String((bOnline.match(/dari ONLINE/g) || []).length) + ' dari 6');
-    /* Dan angkanya memang dihitung terhadap induknya: GrabFood 1 dari 4
-       transaksi ONLINE (25%) dan Rp60.000 dari Rp93.000 (65%). Terhadap
-       sebulan angkanya 7% dan 3% — tidak ada yang bisa tertukar. */
+       Syarat bT !== ringkas.bill ikut dikunci: kalau suatu hari fixture-nya
+       berubah sampai keduanya sama, asersi ini berbunyi — bukan diam-diam
+       berhenti menguji apa pun. */
     {
-      const i = bOnline.indexOf('GRABFOOD');
-      const sel = bOnline.slice(i, i + 700);
-      cek('...dan angkanya dihitung terhadap induknya, bukan terhadap sebulan',
-          sel.indexOf('>' + w.eval('pct')(1, 4) + '% ') > -1
-          && sel.indexOf('>' + w.eval('pct')(60000, 93000) + '% ') > -1, sel);
+      const RKc = w.eval('rekapKanal')(u.kunjung, u.kunjungBayar);
+      const bT = RKc.baris.reduce((a, x) => a + x.bill, 0);
+      const kJml = v.slice(v.indexOf('Jumlah Transaksi'), v.indexOf('Jumlah Transaksi') + 300);
+      cek('kartu Jumlah Transaksi dihitung dari tabelnya, bukan dari Ringkasan',
+          bT !== u.ringkas.bill && kJml.indexOf(bT.toLocaleString('id-ID')) > -1
+          && kJml.indexOf('>' + u.ringkas.bill.toLocaleString('id-ID') + '<') < 0,
+          'RK=' + bT + ' ringkas=' + u.ringkas.bill + ' | ' + kJml);
     }
-    /* Rincian DINE IN tidak boleh bocor ke baris ONLINE. */
-    cek('rincian sebuah baris tidak bocor ke baris lain',
-        bOnline.indexOf('TRANSFER') < 0 && barisVp('DINE IN').indexOf('TRANSFER') > -1,
-        bOnline.slice(0, 900));
+    cek('kolom transaksi yang tidak bisa dijumlahkan DIKATAKAN, berikut angkanya',
+        tRekap.indexOf('tidak bisa dijumlahkan') > -1
+        && tRekap.indexOf('sementara Ringkasan menyebut') > -1, tRekap.slice(-1400));
 
     /* ---- REKAP KANAL (permintaan user 15 September 2026) ----
        "metode kunjungan ini di rekap, Dine in, GrabFood, Gofood, Tiktok go,
        ESB Order" — satu daftar yang memecah ONLINE jadi kanal pemesanannya. */
     {
-      /* Nama baris rekap: kanal hasil pemecahan membawa "· dari ONLINE" di
-         sel yang sama, jadi pencarinya tidak boleh menuntut </td> langsung
-         sesudah </b> seperti namaDi(). */
+      /* Nama baris rekap: kanal hasil pemecahan membawa "— dari ONLINE"
+         di sel yang sama, jadi pencarinya berhenti di </b> dan tidak boleh
+         menuntut </td> langsung sesudahnya. */
       /* KATA UTUH, bukan potongan — dan ini diuji sebagai UNIT karena
          fixture-nya tidak punya metode yang namanya memuat nama kanal tanpa
          menjadi kanal. GOPAY metode bayar, bukan kanal pemesanan; aturan
@@ -2670,7 +2666,11 @@ async function siap(w) {
       const w = dom.window;
       w.go('kunjungan'); await tunggu(60);
       const v = w.document.getElementById('app-view').innerHTML;
-      const kBill = kartuJudul(v, 'Metode Pembayaran');
+      /* Pesannya PINDAH ke kartu Rekap Kanal: sejak tabel Metode Pembayaran
+         dicabut, di situlah satu-satunya tempat ketiadaan kolom itu bisa
+         dikatakan — dan ia memang perlu dikatakan di sana, karena kolom
+         itulah yang memecah ONLINE jadi GrabFood & GoFood. */
+      const kBill = kartuJudul(v, 'Rekap Kanal');
       cek('Bill Report: dikatakan bentuk laporannya yang tidak punya kolom itu',
           kBill.indexOf('DETAIL Report') > -1, kBill.slice(0, 800));
       cek('...dan TIDAK menyuruh mencentang kolomnya saat ekspor',
@@ -2684,12 +2684,15 @@ async function siap(w) {
       const w = dom.window;
       w.go('kunjungan'); await tunggu(60);
       const v = w.document.getElementById('app-view').innerHTML;
-      const kartu = kartuJudul(v, 'Metode Pembayaran');
+      const kartu = kartuJudul(v, 'Rekap Kanal');
       cek('Detail Report lama: disuruh unggah ulang, bukan ganti bentuk laporan',
           kartu.indexOf('Unggah ulang berkas bulan itu') > -1 && kartu.indexOf('DETAIL Report') < 0, kartu);
-      /* Tabel cara datangnya TETAP digambar — yang kurang cuma satu dimensi,
-         bukan seluruh halamannya. */
-      cek('...tabel cara datang tetap digambar', v.indexOf('Cara Tamu Datang') > -1);
+      /* TABELNYA TETAP DIGAMBAR — yang kurang cuma pemecahannya, bukan
+         seluruh halamannya. Barisnya berdiri apa adanya sebagai cara datang,
+         dan ONLINE tetap satu baris. */
+      cek('...tabel rekapnya tetap digambar, cuma tidak dipecah',
+          kartu.indexOf('<tbody>') > -1 && kartu.indexOf('DINE IN') > -1,
+          kartu.slice(0, 600));
       dom.window.close();
     }
   }

@@ -2490,6 +2490,81 @@ berkas ini:
 > pencari baris di halaman Performa Talent — dan ini kali kedua ia menggigit.
 
 
+##### Dua tabel lama DICABUT — tinggal Rekap Kanal (15 Sep 2026)
+
+Permintaan user beberapa jam sesudah Rekap Kanal lahir: *"Metode Pembayaran
+dan Cara Tamu Datang di hapus saja"*. Halaman Metode Kunjungan sekarang
+berisi **SATU tabel**.
+
+| yang dicabut | isinya |
+|---|---|
+| **Metode Pembayaran** | 90-an metode hasil pemecahan pembayaran gabungan |
+| **Cara Tamu Datang** | kolom Visit Purpose apa adanya, berikut rincian per metode bayar di bawah tiap barisnya |
+
+**DATANYA TIDAK IKUT DICABUT.** `d.bayar` dan `d.kunjungBayar` tetap diurai
+dan tetap disimpan — yang kedua justru yang memecah ONLINE jadi GrabFood &
+GoFood, jadi mencabutnya berarti mencabut tabel yang diminta berdiri. Tidak
+ada kunci yang hilang dari `anSimpanUnggah()`, dan tidak ada yang perlu
+diunggah ulang.
+
+**PEMBANDING DI LAYAR HILANG BERSAMANYA, dan itu yang paling mahal.** Omset
+Rekap Kanal wajib berjumlah sama persis dengan omset Cara Tamu Datang —
+pemeriksaan terkuat di halaman itu, dan satu-satunya yang tidak bisa basi
+sendiri. Selama kedua tabel berdiri bersebelahan, siapa pun bisa
+membuktikannya dengan mata. Sekarang yang menjaganya **hanya**
+`tools/uji-analytics.js`, dan asersinya dihitung dari `d.kunjung` langsung
+**bukan dari tabel yang sudah tidak digambar**. Kalau asersi itu suatu hari
+ikut dicabut, pemecahan kanal yang salah tidak punya satu pun tempat untuk
+ketahuan. Komentar di atas `rekapKanal()` mengatakan itu di tempatnya.
+
+**TIGA KETERANGAN PINDAH, bukan ikut dibuang** — ketiganya menjelaskan angka
+yang MASIH dipajang, dan tanpa mereka baris kanalnya jadi angka yang harus
+ditebak dasarnya:
+
+| keterangan | kenapa masih perlu |
+|---|---|
+| kembalian tunai dipotong dari komponen tunainya | menggeser omset tiap kanal |
+| pembagian rata untuk bill tanpa nominal | menggeser omset tiap kanal |
+| kolom transaksi tidak bisa dijumlahkan | menjelaskan kaki tabelnya sendiri |
+
+Yang keempat juga pindah: **penjelasan kenapa bulan itu tidak bisa dipecah**,
+berikut KEDUA sebabnya (Bill Report memang tidak punya kolom Payment Method
+vs Detail Report yang diunggah sebelum kolomnya dibaca). Dulu ia hidup di
+kartu Metode Pembayaran; disamakan atau dibuang, yang membacanya mengekspor
+ulang berkas yang salah berkali-kali.
+
+**KEEMPAT KARTU DI ATASNYA DIHITUNG DARI TABEL ITU**, bukan dari `d.kunjung`
+atau `ringkas.bill`. Kartu *Cara Datang Terbanyak* diganti **Kanal
+Terbanyak** dan dibaca dari `RK.baris[0]`; kartu *Metode Bayar Terbanyak*
+dicabut bersama tabelnya. Sebabnya bukan kerapian: memecah ONLINE
+**MENGECILKAN** baris induknya, jadi "cara datang terbanyak" dan "kanal
+terbanyak" tidak selalu sama — dan kartu yang menyebut nama yang tidak ada
+di baris mana pun adalah selisih yang berdiri di satu layar.
+
+```bash
+node tools/uji-analytics.js   # 627 pemeriksaan (dari 633)
+```
+
+Jumlahnya **TURUN**, dan itu memang benar: 13 asersi yang menguji kedua tabel
+itu ikut dicabut, diganti 7 yang menguji KETIADAANNYA plus pindahnya ketiga
+keterangan. Sepuluh mutasi dicoba, kesepuluhnya tertangkap — termasuk
+memasang kembali salah satu tabelnya dan membaca kartu dari `ringkas.bill`.
+
+> **Asersi ketiadaan diperiksa lewat `<h3>`-nya, bukan lewat frasanya.** Kartu
+> Rekap Kanal menyebut nama kedua tabel yang dicabut di prosa dan komentarnya
+> — justru supaya yang membandingkannya dengan berkas POS tidak menyimpulkan
+> keduanya tidak sinkron. Asersi yang menyapu seluruh halaman akan cocok
+> dengan kalimat itu tanpa pernah menyentuh tabelnya. Ini **kali ketiga**
+> bentuk itu menggigit di berkas ini.
+
+> **Mutasi "kartu dibaca dari Ringkasan" HANYA bisa dibedakan di fixture yang
+> punya bill pecahan**, tempat jumlah transaksi rekap MELAMPAUI jumlah bill
+> sungguhan. Di fixture Visit Purpose keduanya sama, dan asersi yang sama
+> persis akan hampa di sana. Syarat `bT !== ringkas.bill` karena itu ikut
+> dikunci di asersinya: kalau fixture-nya suatu hari berubah sampai keduanya
+> sama, ia berbunyi — bukan diam-diam berhenti menguji apa pun.
+
+
 #### Halaman Error & Koreksi Bill (15 September 2026)
 
 Permintaan user: *"tambahkan menu tab baru namanya Error gabungan dari (Error
@@ -3472,12 +3547,25 @@ dengan daftar yang muncul saat barisnya dibuka adalah kolom yang berhenti
 dipercaya. Laporan lama menulis **—**, bukan **0**: nol berarti kategori itu
 memang tidak punya menu.
 
-**Kategori acara TERBUKA SENDIRI** saat halaman itu pertama digambar — yang
-dicari orang di sana nama menunya, bukan totalnya. `KT_BUKA` karena itu punya
-tiga keadaan: `null` (belum pernah disentuh), `''` (sengaja ditutup), dan nama
-kategori. Dua yang pertama disamakan, yang sudah menutupnya dibukakan lagi tiap
-render. Barisnya juga menyebut sendiri *tidak ikut di Menu & Bahan Baku* — yang
-membandingkan kedua halaman berdiri di sini.
+**TIDAK ADA KATEGORI YANG TERBUKA SENDIRI** (15 September 2026, permintaan
+user: *"ketika buka kategori menu, kategorinya jangan langsung terbuka
+detailnya"*). Sampai tanggal itu kategori acara MEMBUKA DIRINYA SENDIRI saat
+halaman ini pertama digambar, dengan alasan yang terdengar masuk akal — nama
+menunya yang dicari, bukan totalnya. Yang terjadi di layar berbeda: EVENT di
+produksi berisi 20 menu, jadi yang membuka halaman ini mendarat di tengah
+daftar menu yang terbentang dan harus menggulir balik ke atas untuk melihat
+tabel kategorinya — padahal tabel itulah isi halamannya.
+
+- **`KT_BUKA` tinggal DUA keadaan**: `''` (tertutup) atau nama kategori.
+  Keadaan ketiga `null` (belum pernah disentuh) dicabut bersama pembukaan
+  otomatisnya; **jangan dikembalikan tanpa diminta** — ia tidak punya arti
+  lagi kalau tidak ada yang dibuka sendiri, dan `ktBuka()` membandingkannya
+  dengan `===`.
+- **Yang dijaga uji ISI RINCIANNYA, bukan cuma nilai `KT_BUKA`**: nama menu di
+  dalam EVENT tidak boleh tergambar sebelum ada yang menekannya. Memeriksa
+  `KT_BUKA` saja meloloskan penggambar yang tetap membukanya lewat jalan lain.
+- Barisnya tetap menyebut sendiri *tidak ikut di Menu & Bahan Baku* — yang
+  membandingkan kedua halaman berdiri di sini.
 
 ```bash
 node tools/uji-analytics.js   # 279 pemeriksaan (dari 260)
