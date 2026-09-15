@@ -10,6 +10,67 @@ user. Istilah teknis (commit, merge, pager, endpoint) dibiarkan apa adanya.
 
 ---
 
+## 0. ATURAN MUTLAK: Claude TIDAK BOLEH MENGHAPUS DATA
+
+**Claude tidak pernah boleh menghapus, mengosongkan, atau menimpa data yang
+ada di database situs ini — di produksi maupun di dev.** Aturan ini di atas
+segalanya di berkas ini: kalau sebuah tugas hanya bisa diselesaikan dengan
+menghapus data, tugas itu BERHENTI dan ditanyakan ke user, bukan dikerjakan.
+
+Yang dilarang, tanpa pengecualian dan tanpa perlu diminta izin dulu (jawabannya
+sudah tidak):
+
+| dilarang | contohnya |
+|---|---|
+| SQL perusak | `DELETE`, `TRUNCATE`, `DROP TABLE`, `DROP DATABASE`, `UPDATE` massal tanpa `WHERE` |
+| memanggil endpoint yang menghapus | `hapusUser`, `rosterHapusUser`, `designReqSet` yang membuang, aksi `*Hapus*` mana pun |
+| menimpa blob | `saveAll` / `brankasSave` / `an_simpan` dengan state yang disusun Claude sendiri |
+| "merapikan" data | membuang baris uji, baris ganda, atau baris yang kelihatan salah |
+| memulihkan dengan menimpa | menulis ulang tabel dari salinan/seed demi "membetulkan" |
+| menjalankan migrasi | `migrasi-*.sql` di server yang hidup |
+
+**Yang BOLEH, dan memang berguna saat menelusuri masalah:** membaca. `getAll`,
+`stats`, `ping`, dan aksi baca lain silakan dipanggil — semuanya GET dan tidak
+mengubah apa pun. Menulis KODE yang kelak menghapus (mis. memperbaiki fungsi
+hapus di modul) juga boleh: yang dilarang Claude SENDIRI yang mengeksekusi
+penghapusan terhadap data yang hidup.
+
+**Kalau user memintanya pun, jangan langsung kerjakan.** Sebutkan persis baris
+apa yang akan hilang dan berapa banyak, lalu minta user yang menjalankannya
+sendiri lewat phpMyAdmin atau UI modulnya. Data yang terhapus di sini **tidak
+bisa dikembalikan**: tidak ada snapshot, tidak ada undo, dan `activities` cuma
+menyimpan 5000 baris terakhir berupa JEJAK — bukan isinya.
+
+> **Ini bukan aturan pencegahan yang mengada-ada.** Repo ini sudah punya
+> riwayatnya sendiri: `hapus_yang_hilang()` di marketing-mysql PERNAH menghapus
+> kerja orang lain tanpa satu pun galat (8 Agustus 2026), dan `saveAll` yang
+> menimpa buta pernah menghilangkan seluruh Reservasi VIP & Request Desain tiap
+> kali di-refresh (2 September 2026). Keduanya lahir dari kode yang berniat
+> baik. Penghapusan yang dijalankan tanpa berpikir dua kali jauh lebih cepat
+> merusaknya.
+
+### Kalau user melaporkan data hilang
+
+Telusuri, jangan menebak — dan JANGAN memperbaikinya dengan menulis ulang data.
+Urutan yang sudah terbukti berguna (15 September 2026):
+
+1. **`?action=stats`** — jumlah baris per tabel. Aman, tidak memuat isi.
+2. **Tabel `activities`** — append-only, 5000 baris terakhir, berisi
+   `action` / `detail` / `by` / `at`. Penghapusan lewat UI TERCATAT di sini
+   (`Event dihapus permanen`, `Client dihapus permanen`) berikut NAMA dan
+   WAKTUNYA. Inilah alat forensik satu-satunya yang dipunyai repo ini.
+3. **Cap waktu vs jam sekarang** — `_versi` dan `updatedAt` tiap baris.
+   `_versi` yang berada di MASA DEPAN berarti ada perangkat berjam cepat, dan
+   itu membuat `hapus_yang_hilang()` boleh membuang baris yang baru lahir.
+
+**BATAS YANG WAJIB DIKATAKAN saat melapor:** `hapus_yang_hilang()` berjalan di
+server dan **TIDAK menulis satu baris pun ke `activities`**. Jadi log itu
+membuktikan penghapusan yang MEMANG lewat tombol, tapi **tidak bisa menyangkal**
+adanya penghapusan senyap. Menyimpulkan "berarti tidak ada bug" dari log yang
+bersih adalah kesimpulan yang tidak ditanggung datanya.
+
+---
+
 ## 1. Peta repo — jangan `find` lagi
 
 ```
