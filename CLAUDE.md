@@ -642,6 +642,66 @@ daftarnya cuma memuat `finance`, yaitu halaman PEMILIH panel yang tidak berisi
 aplikasi apa pun. Seluruh Dashboard Omset selama ini lolos tanpa satu baris pun
 dijalankan. Uji di atas yang menutupnya; jangan mengandalkan smoke di sini.
 
+#### Mode harian tidak lagi memajang angka sebulan, & logo baru (15 Sep 2026)
+
+Dua permintaan user di Dashboard Omset.
+
+**1. Kartu "Realisasi Bulan Berjalan" DICABUT DARI LAYAR** (*"jika di pilih
+tanggal harian, tidak perlu menampilkan omset bulannya karna sudah terfilter
+harian"*). Ia dulu digambar HANYA di mode harian, dengan alasan yang masuk
+akal — di mode bulanan angkanya sama persis dengan kartu Realisasi di atas.
+Yang tidak terpikir waktu itu: di mode harian pun ia **membantah pemilih
+tanggalnya sendiri**. Layar yang saklarnya berbunyi *Harian* dan tanggalnya
+satu hari memajang angka sebulan sebagai kartu setara di bawahnya, dan
+dua-duanya tampak wajar.
+
+- **`bulan` TETAP DIHITUNG dan tetap masuk `RINGKAS_OMSET`.** Lembar PDF dan
+  ringkasan WhatsApp masih memakainya, dan di sana ia memang berguna:
+  penerima pesan tidak punya saklar bulanan untuk diklik. Aturan *"laporan
+  memakai HASIL YANG SAMA dengan layar"* **tidak dilanggar** — yang dijaganya
+  SATU perhitungan untuk satu angka, bukan daftar isi yang identik.
+- **Jangan membuang `bulan` dari `viewBulanan()`** kalau suatu hari blok
+  bulanan di laporan ikut dicabut. Yang perlu disentuh `waDashboardOmset()`
+  dan `cetakDashboardOmset()`, yang dua-duanya membaca `r.bulan`; dibuang di
+  sini, keduanya jatuh dengan **TypeError** — bukan sekadar kehilangan satu
+  baris. Dijaga asersi tersendiri.
+- **Yang dijaga uji ANGKANYA, bukan judul kartunya.** Judul bisa diganti
+  sementara angkanya tetap berdiri di kartu lain, dan yang membaca layar
+  bertanya tentang angka. Data ujinya dipilih supaya keduanya tidak mungkin
+  tertukar: 1 Agustus bertagihan Rp152.000.000, sebulan Rp259.000.000.
+
+**2. Logo Laksamana Muda diganti** ke `deploy/assets/laksamana-muda.png`.
+Yang lama `LaksamanaMudaLogo.jpeg` **JPEG berlatar putih OPAK**, jadi di atas
+latar apa pun yang bukan putih ia tampil sebagai kotak putih; yang baru PNG
+transparan, dan taglinenya emas — bukan hitam.
+
+- **Dikecilkan ke 512x512 (41 KB)** dari 4500x4500 (385 KB). Ia digambar 52 px
+  di kop lembar PDF dan 32 px sebagai favicon; berkas sepuluh kali lipat
+  kebutuhannya ikut terunduh tiap halaman dibuka. Ukurannya dikunci uji
+  (< 120 KB) berikut keberadaan kanal alpha-nya — PNG tanpa alpha
+  mengembalikan persis kotak putih yang baru saja ditutup.
+- **Baru dipakai di `deploy/finance/kas/`** (favicon + kop lembar PDF), sesuai
+  lingkup permintaannya. **17 tempat lain masih memakai logo lama** — kalau
+  suatu hari disapu, `deploy/assets/laksamanamuda-warna.jpg` dan
+  `LaksamanaMudaLogo.jpeg` yang perlu dicari.
+
+```bash
+node tools/uji-realisasi-tagihan.js   # 45 pemeriksaan (dari 27)
+```
+
+Lima mutasi dicoba, kelimanya tertangkap.
+
+> **KOMENTAR HTML DI DALAM TEMPLATE LITERAL IKUT TERKIRIM KE `innerHTML`**,
+> dan itu menggigit dua kali saat perubahan ini ditulis. Pertama: asersi
+> *"kartu Realisasi Bulan Berjalan tidak digambar"* MERAH untuk kode yang
+> benar — yang cocok komentar penjelasnya sendiri, yang menyebut nama kartu
+> itu. Kedua, dan ini yang mematikan: komentar itu memuat **backtick**, yang
+> MENUTUP template literal-nya dan menjatuhkan SELURUH panel dengan
+> SyntaxError. Penjelasan panjang karena itu ditaruh sebagai komentar JS di
+> luar literalnya; yang di dalam cuma satu baris penunjuk. Jangan sekali pun
+> menulis backtick atau `${` di komentar yang berada di dalam template
+> literal.
+
 #### Daftar Event berhalaman (7 September 2026)
 
 Permintaan user. **LIMA baris per halaman** (`PF_PER_HAL`), sengaja BEDA dari

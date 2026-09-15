@@ -189,6 +189,86 @@ async function siap(w) {
       (SRC_OMSET.match(/function tagihanOf/g) || []).length === 1 &&
       (HTML_KAS.match(/function tagihanOf/g) || []).length === 1);
 
+  /* ============ Mode HARIAN: tidak ada angka sebulan di layar ============
+     Permintaan user 15 September 2026: "jika di pilih tanggal harian, tidak
+     perlu menampilkan omset bulannya karna sudah terfilter harian".
+
+     YANG DIJAGA ANGKANYA, bukan judul kartunya. Judul bisa diganti sementara
+     angkanya tetap berdiri di kartu lain, dan yang membaca layar bertanya
+     tentang ANGKA. Tanggal 1 Agustus bertagihan Rp152.000.000 sementara
+     sebulan Rp259.000.000 — dua angka yang tidak mungkin tertukar. */
+  console.log('\n== Mode harian: omset bulanan tidak dipajang ==');
+  {
+    const TAG_HARI1 = 152000000;   // (100+50-10) + 5 + 7
+    const w3 = domKas().window;
+    await siap(w3);
+    w3.eval("VIEWMODE='hari'; VIEWDATE='2026-08-01'; PERIOD='2026-08';");
+    w3.go('bulanan');
+    await tunggu(120);
+    const vh = w3.document.getElementById('app-view').innerHTML;
+
+    cek('halaman tergambar di mode harian', vh.indexOf('Rasio Komposisi Omset') > -1,
+        String(vh.length));
+    cek('kartu atas memajang tagihan HARI ITU ' + rp(TAG_HARI1),
+        vh.indexOf(rp(TAG_HARI1)) > -1, vh.slice(0, 300));
+    /* INI ASERSI INTINYA: angka sebulan tidak boleh berdiri di layar harian. */
+    cek('angka sebulan ' + rp(TAGIHAN) + ' TIDAK muncul di layar harian',
+        vh.indexOf(rp(TAGIHAN)) < 0,
+        'masih ada di: ' + vh.slice(Math.max(0, vh.indexOf(rp(TAGIHAN)) - 160),
+                                    vh.indexOf(rp(TAGIHAN)) + 60));
+    cek('kartu "Realisasi Bulan Berjalan" tidak digambar',
+        vh.indexOf('Realisasi Bulan Berjalan') < 0);
+    /* Dan net sebulan pun tidak, lewat pintu belakang foot kartunya. */
+    cek('net sebulan ' + rp(NET) + ' juga tidak muncul di layar harian',
+        vh.indexOf(rp(NET)) < 0);
+
+    /* LAPORANNYA TETAP MEMBAWANYA, dan itu disengaja: penerima PDF/WhatsApp
+       tidak punya saklar bulanan untuk diklik. Asersi ini yang menahan orang
+       membuang `bulan` dari viewBulanan() sekalian — kalau ia hilang, lembar
+       PDF dan pesan WA jatuh dengan TypeError, bukan cuma kehilangan satu
+       baris. */
+    const B = JSON.parse(w3.eval('JSON.stringify(RINGKAS_OMSET.bulan||null)'));
+    cek('RINGKAS_OMSET.bulan tetap ada untuk laporan', !!B, String(B));
+    cek('...dan angkanya tagihan sebulan ' + rp(TAGIHAN),
+        !!B && B.tagihan === TAGIHAN, B ? String(B.tagihan) : '-');
+    cek('...berikut net & jumlah harinya',
+        !!B && B.real === NET && B.hari === 2, B ? B.real + '/' + B.hari : '-');
+    cek('RINGKAS_OMSET.harian menandai modenya', w3.eval('RINGKAS_OMSET.harian') === true);
+    /* Blok bulanan di WA & PDF masih dirakit dari r.bulan. */
+    cek('blok Bulan Berjalan masih ada di ringkasan WhatsApp (sumber)',
+        HTML_KAS.indexOf('*Bulan Berjalan') > -1 && HTML_KAS.indexOf('fmtRp(r.bulan.tagihan)') > -1);
+    cek('pita bulan berjalan masih ada di lembar PDF (sumber)',
+        HTML_KAS.indexOf("['Realisasi Bulan Ini', fmtRp(b.tagihan)") > -1);
+  }
+
+  /* ============ Logo Laksamana Muda ============
+     Permintaan user 15 September 2026. Yang lama LaksamanaMudaLogo.jpeg:
+     JPEG berlatar PUTIH OPAK, jadi di atas latar apa pun yang bukan putih ia
+     tampil sebagai kotak putih. Yang baru PNG transparan, dan taglinenya
+     emas — bukan hitam. */
+  console.log('\n== Logo ==');
+  {
+    const LOGO = path.join(ROOT, 'deploy', 'assets', 'laksamana-muda.png');
+    cek('berkas asetnya ada', fs.existsSync(LOGO));
+    if (fs.existsSync(LOGO)) {
+      const b = fs.readFileSync(LOGO);
+      cek('...berupa PNG', b[0] === 0x89 && b.toString('latin1', 1, 4) === 'PNG');
+      /* RGBA (colour type 6) — tanpa alpha, latarnya kembali jadi kotak. */
+      cek('...dengan kanal alpha', b[25] === 6, 'colour type ' + b[25]);
+      /* Ukuran layarnya 52px; berkas 4500x4500 (385 KB) ikut terunduh tiap
+         halaman dibuka untuk sesuatu yang digambar sebesar perangko. */
+      cek('...dan tidak berlebihan besarnya', b.length < 120 * 1024,
+          Math.round(b.length / 1024) + ' KB');
+    }
+    cek('favicon panel Kas memakainya',
+        HTML_KAS.indexOf('<link rel="icon" type="image/png" href="../../assets/laksamana-muda.png">') > -1);
+    cek('kop lembar PDF memakainya',
+        HTML_KAS.indexOf('class="ph-logo" src="../../assets/laksamana-muda.png"') > -1);
+    cek('tidak ada rujukan tertinggal ke logo lama',
+        HTML_KAS.indexOf('LaksamanaMudaLogo') < 0,
+        'masih ada rujukan LaksamanaMudaLogo.jpeg di panel Kas');
+  }
+
   /* ============ Halaman pertama panel Kas ============
      Permintaan user 7 September 2026: masuk ke Kas, yang terbuka Dashboard
      Omset. Sehari sebelumnya grup menunya sudah dinaikkan ke paling atas;
