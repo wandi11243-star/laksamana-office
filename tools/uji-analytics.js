@@ -1558,9 +1558,13 @@ async function siap(w) {
                      { eventName:'Gathering Korporat', amount:19000000 }] } }
     ] };
     const { dom } = domAnalytics({ an, kp,
-      event: [{ start_datetime:'2026-08-01 19:00', title:'Live Music Agustusan', category:'Live Music' },
-              { start_datetime:'2026-08-03 19:00', title:'Akustik Senin',        category:'Live Music' }],
-      mkt:   [{ tanggal:'2026-08-01', nama:'Promo Merdeka', jenis:'Promo' }] });
+      /* status IKUT, persis seperti produksi — 16 September 2026 seluruh acara
+         di kedua modul punya field ini. Fixture tanpa status membuat halaman
+         Pengaruh kosong, dan asersinya gagal karena sebab yang tidak ada
+         hubungannya dengan yang diuji. */
+      event: [{ start_datetime:'2026-08-01 19:00', title:'Live Music Agustusan', category:'Live Music', status:'Event Done' },
+              { start_datetime:'2026-08-03 19:00', title:'Akustik Senin',        category:'Live Music', status:'Event Done' }],
+      mkt:   [{ tanggal:'2026-08-01', nama:'Promo Merdeka', jenis:'Promo', status:'Event Done' }] });
     await siap(dom.window);
     const w = dom.window, d = w.document;
 
@@ -1729,6 +1733,91 @@ async function siap(w) {
     dom.window.close();
   }
 
+  /* ================= 7b. HANYA acara "Event Done" ================= */
+  console.log('\n== Pengaruh: hanya acara yang sudah terjadi ==');
+  {
+    /* Permintaan user 16 September 2026. Yang diukur halaman itu PENGARUH
+       acara terhadap omset; acara yang masih Upcoming/Planning/Lead/Lost
+       belum tentu pernah terjadi, jadi menghitung omset harinya berarti
+       menuliskan pengaruh kepada sesuatu yang tidak ada.
+
+       FIXTURE-nya dirancang supaya tiap kesalahan memberi hasil BERBEDA:
+
+         1 Agu  Rp12jt  acara SELESAI      -> sisi "ada acara"
+         8 Agu  Rp 9jt  acara BELUM selesai-> dikeluarkan dari KEDUA sisi
+        15 Agu  Rp 9jt  tidak ada acara    -> pembanding yang bersih
+
+       penyaring dicabut      -> "Hari ada acara" jadi 2
+       hari abu-abu jadi      -> pembandingnya 2 hari, bukan 1
+         pembanding
+       yang benar             -> ada acara 1, pembanding 1 hari */
+    const hari = {};
+    hari['2026-08-01'] = { bill:10, grand:12000000 };   // Sabtu, acara SELESAI
+    hari['2026-08-08'] = { bill:10, grand:9000000  };   // Sabtu, acara BELUM selesai
+    hari['2026-08-15'] = { bill:10, grand:9000000  };   // Sabtu, tidak ada acara
+    const an = { data:{ laporan:{ '2026-08': {
+      diunggah:'2026-08-28', oleh:'W', berkas:'x.xlsx', jenis:'bill',
+      hari, jam:Array.from({length:24},()=>({bill:0,grand:0})), menu:{},
+      ringkas:{ bill:30, grand:30000000 }
+    } }, setting:{} }, akses:{}, peran:{} };
+    const kp = { daily:[] };
+    const { dom } = domAnalytics({ an, kp,
+      event: [
+        { start_datetime:'2026-08-01 19:00', title:'Sudah Terjadi',  category:'Live Music', status:'Event Done' },
+        { start_datetime:'2026-08-08 19:00', title:'Belum Selesai',  category:'Live Music', status:'Upcoming' }
+      ],
+      mkt: [
+        { tanggal:'2026-08-01', nama:'Promo Selesai', jenis:'Promo', status:'Event Done' },
+        { tanggal:'2026-08-08', nama:'Promo Lead',    jenis:'Promo', status:'Lead' },
+        { tanggal:'2026-08-15', nama:'Promo Lost',    jenis:'Promo', status:'Lost' }
+      ] });
+    await siap(dom.window);
+    const w = dom.window, d = dom.window.document;
+
+    w.go('event'); await tunggu(60);
+    const v = d.getElementById('app-view').innerHTML;
+
+    cek('acara Event Done tetap tergambar', v.indexOf('Sudah Terjadi') > -1);
+    /* YANG DIUJI ANGKANYA, bukan ketiadaan namanya: judul acara yang belum
+       selesai memang tidak pernah ditulis di halaman ini walau ikut dihitung,
+       jadi mencarinya tidak membuktikan apa pun. */
+    const kartuAda = v.slice(v.indexOf('Hari ada acara'), v.indexOf('Hari ada acara') + 220);
+    cek('hari ada acara cuma yang SELESAI', /class="val mono">1</.test(kartuAda), kartuAda);
+
+    /* Hari yang acaranya belum selesai TIDAK boleh jadi pembanding "hari
+       tanpa acara" — kalau ikut, hari yang sebenarnya punya acara dipakai
+       mengukur hari biasa dan selisihnya mengecil sendiri. Sabtu tanpa acara
+       di fixture ini cuma 15 Agu = SATU hari. */
+    cek('hari abu-abu tidak jadi pembanding', v.indexOf('1 Sabtu tanpa acara') > -1,
+        v.slice(v.indexOf('Rata-rata hari sama'), v.indexOf('Rata-rata hari sama') + 900));
+
+    /* Daftar yang menyusut tanpa keterangan dilaporkan sebagai data hilang. */
+    cek('saringannya dikatakan di layar', /hanya menghitung acara berstatus/i.test(v),
+        'tanpa ini, halaman yang menyusut dibaca sebagai data yang hilang');
+    cek('...berikut berapa acara yang tidak ikut', /1 acara Event/.test(v),
+        v.slice(v.indexOf('hanya menghitung'), v.indexOf('hanya menghitung') + 320));
+    cek('...dan berapa hari yang dikeluarkan dari pembanding',
+        /1 hari<\/b> yang acaranya belum selesai/.test(v),
+        v.slice(v.indexOf('hanya menghitung'), v.indexOf('hanya menghitung') + 420));
+
+    /* KEDUA halaman memakai penggambar yang sama, tapi daftar acaranya
+       berbeda — yang lolos di satu sisi belum tentu lolos di sisi lain. */
+    w.go('marketing'); await tunggu(60);
+    const vm = d.getElementById('app-view').innerHTML;
+    const kartuM = vm.slice(vm.indexOf('Hari ada acara'), vm.indexOf('Hari ada acara') + 220);
+    cek('Pengaruh Marketing ikut disaring', /class="val mono">1</.test(kartuM), kartuM);
+    cek('...dan menyebut DUA acara yang tidak ikut', /2 acara Marketing/.test(vm),
+        vm.slice(vm.indexOf('hanya menghitung'), vm.indexOf('hanya menghitung') + 320));
+
+    /* Huruf besar-kecil diketik orang di dua modul yang berbeda. "Event done"
+       yang lolos satu huruf akan diam-diam hilang dari halaman ini. */
+    cek('penentunya tidak peka huruf besar-kecil',
+        w.eval('evSelesai({status:" EVENT DONE "})') === true);
+    cek('...dan status lain tetap ditolak', w.eval('evSelesai({status:"Upcoming"})') === false);
+    cek('...termasuk yang tidak punya status sama sekali', w.eval('evSelesai({})') === false);
+    dom.window.close();
+  }
+
   /* ================= 7c. tanggal ber-zona sampai ke layar ================= */
   console.log('\n== Acara lewat tengah malam WIB ==');
   {
@@ -1745,7 +1834,7 @@ async function siap(w) {
       ringkas:{ bill:50, grand:6000000 }
     } }, setting:{} }, akses:{}, peran:{} };
     const { dom } = domAnalytics({ an,
-      event: [{ start_datetime:'2026-08-02T18:00:00.000Z', title:'Lewat Tengah Malam', category:'Party' }] });
+      event: [{ start_datetime:'2026-08-02T18:00:00.000Z', title:'Lewat Tengah Malam', category:'Party', status:'Event Done' }] });
     await siap(dom.window);
     const w = dom.window, d = w.document;
     w.go('event'); await tunggu(60);
@@ -1835,9 +1924,9 @@ async function siap(w) {
       ringkas:{ bill:130, grand:28000000 }
     } }, setting:{} }, akses:{}, peran:{} };
     const { dom } = domAnalytics({ an,
-      event: [{ start_datetime:'2026-08-01 19:00', title:'Band A', category:'Live Music' },
-              { start_datetime:'2026-08-15 19:00', title:'Kelas Kopi', category:'Workshop' },
-              { start_datetime:'2026-08-01 21:00', title:'Tanpa Label' }] });
+      event: [{ start_datetime:'2026-08-01 19:00', title:'Band A', category:'Live Music', status:'Event Done' },
+              { start_datetime:'2026-08-15 19:00', title:'Kelas Kopi', category:'Workshop', status:'Event Done' },
+              { start_datetime:'2026-08-01 21:00', title:'Tanpa Label', status:'Event Done' }] });
     await siap(dom.window);
     const w = dom.window, d = w.document;
     w.go('event'); await tunggu(60);

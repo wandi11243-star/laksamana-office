@@ -6004,6 +6004,85 @@ Yang perlu diputuskan sebelum mengerjakannya: memindahkan foto ke disk berarti
 keputusan user — bukan efek samping dari perbaikan bug.
 
 
+#### Pengaruh Event & Marketing: hanya acara "Event Done" (16 Sep 2026)
+
+Permintaan user: *"pengaruh event dan pengaruh marketing yang ada di analytics,
+hanya menampilkan event yang event done"*.
+
+Alasannya masuk akal dan halamannya memang salah tanpa itu: yang diukur di sana
+**pengaruh acara terhadap omset hari itu**. Acara yang masih Upcoming,
+Planning, Lead, atau Lost belum tentu pernah terjadi — sebagian memang tidak
+pernah — jadi menghitung omset harinya sebagai "hari ada acara" berarti
+menuliskan pengaruh kepada sesuatu yang tidak ada.
+
+**KEDUA MODUL MEMAKAI NILAI YANG SAMA PERSIS**, dan itu diukur atas produksi
+16 September 2026, bukan ditebak:
+
+```
+modul Event      17 Event Done · 6 Upcoming · 2 Planning              (25)
+modul Marketing  30 Event Done · 6 Lead · 5 Lost · 4 Deal             (45)
+```
+
+Jadi satu penentu cukup: `evSelesai()`, dicocokkan **huruf kecil + dipangkas**
+— bukan sama persis. Nilainya diketik orang di dua modul yang berbeda, dan
+`Event done` yang lolos satu huruf akan diam-diam hilang dari halaman ini tanpa
+satu pun galat.
+
+**HARI YANG ACARANYA BELUM SELESAI DIKELUARKAN DARI KEDUA SISI**, bukan
+dijatuhkan ke "hari tanpa acara". Ini bagian yang paling mudah salah: kalau
+hari seperti itu ikut jadi pembanding, hari yang sebenarnya PUNYA acara besar —
+cuma belum ditandai Event Done — ikut menaikkan rata-rata "hari biasa", dan
+selisihnya mengecil sendiri tanpa ada yang menyadarinya. Bentuk kesalahan yang
+sama persis sudah dijaga di kolom `vs hari sama`: acara yang dibandingkan
+dengan dirinya sendiri.
+
+Hari yang punya SATU acara selesai tetap masuk sisi "ada acara" walau di hari
+itu ada acara lain yang belum selesai — yang ditanya apakah hari itu ada acara,
+dan jawabannya ya.
+
+- **Statusnya IKUT DIBAWA ke `EV`, penyaringnya di layar** (`vDampak`), bukan
+  saat memuat. Daftar yang sudah dipotong saat dimuat tidak bisa lagi menyebut
+  BERAPA yang dikeluarkan — dan daftar yang menyusut tanpa angka dilaporkan
+  sebagai data hilang. `EV` memang cuma dipakai `vDampak`, jadi tidak ada
+  halaman lain yang ikut terpotong diam-diam.
+- **SARINGANNYA DIKATAKAN**, berikut dua angkanya: berapa acara yang tidak
+  ikut, dan berapa hari yang dikeluarkan dari pembanding.
+- **Kartu "Tiga Acara Penyumbang Omset Terbesar" TIDAK ikut disaring**, dan
+  sebabnya ditulis di kartunya sendiri: ia dibaca dari baris **Breakdown
+  Sumber**, yang isinya `{tgl, nama, omset}` — **tidak menyimpan status acara
+  sama sekali**. Mencocokkannya lewat nama acara adalah tebakan yang diam-diam
+  salah begitu ada dua acara bernama mirip; itu sudah jadi alasan kartu ini
+  tidak ikut tapis kategori sejak 9 September 2026, dan alasannya sama.
+- **Acara TANPA status ikut ditolak.** Di produksi tidak ada satu pun acara
+  seperti itu (100% terisi di kedua modul), jadi keadaannya tidak pernah
+  muncul; kalau suatu hari muncul, pitanya menyebutkan jumlahnya.
+
+```bash
+node tools/uji-analytics.js   # 638 pemeriksaan (dari 627)
+```
+
+> **DUA PULUH EMPAT ASERSI LAMA LANGSUNG MERAH** saat penyaring ini dipasang,
+> dan semuanya **cacat FIXTURE**: tidak satu pun acara di fixture uji punya
+> field `status`, jadi seluruhnya tersaring dan halaman Pengaruh jadi kosong.
+> Yang dibetulkan fixture-nya, bukan penyaringnya — tiruan yang bentuknya beda
+> dari yang ditiru tidak menguji apa pun, pelajaran yang sudah dibayar di stub
+> `hpp.php` dan di `pax` Reservasi VIP.
+
+Fixture blok barunya dirancang supaya **tiap kesalahan memberi hasil yang
+BERBEDA** — 1 Agu acara selesai, 8 Agu acara belum selesai, 15 Agu tanpa acara,
+ketiganya Sabtu bernilai berbeda:
+
+| kesalahan | hasilnya |
+|---|---|
+| penyaring dicabut | "Hari ada acara" jadi **2** |
+| hari abu-abu jadi pembanding | pembandingnya **2 Sabtu**, bukan 1 |
+| yang benar | ada acara **1**, pembanding **1 Sabtu** |
+
+
+Sembilan mutasi dicoba, kesembilannya tertangkap — termasuk mencabut
+penyaringnya, menjadikan hari abu-abu sebagai pembanding, dan tidak membawa
+`status` dari salah satu modulnya.
+
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
 ```

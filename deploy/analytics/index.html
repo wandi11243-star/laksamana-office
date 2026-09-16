@@ -1155,8 +1155,13 @@ async function muatSemua() {
          yang sama, dan yang menyatukannya HARUS di sini. Kalau dibiarkan
          berbeda sampai ke layar, tapis kategori di satu halaman tidak akan
          pernah cocok dengan yang di halaman sebelahnya. */
+      /* `status` IKUT DIBAWA, tidak disaring di sini. Yang menyaring layarnya
+         (lihat evSelesai di vDampak): daftar yang sudah dipotong saat dimuat
+         tidak bisa lagi menyebut BERAPA yang dikeluarkan, dan daftar yang
+         menyusut tanpa angka dilaporkan sebagai data hilang. */
       if (t) EV.push({ tgl:t, judul:String((x && x.title) || '(tanpa judul)'),
-                       sumber:'Event', kategori:katEvent(x && x.category) });
+                       sumber:'Event', kategori:katEvent(x && x.category),
+                       status:String((x && x.status) || '') });
     });
     /* JADWAL TALENT dari balasan yang SAMA. Nama & kategorinya digabungkan di
        sini, bukan di layar: baris jadwal cuma menyimpan talent_id, dan dua
@@ -1195,7 +1200,8 @@ async function muatSemua() {
     ((e.value.data || {}).events || []).forEach(x => {
       const t = isoDari(x && x.tanggal);
       if (t) EV.push({ tgl:t, judul:String((x && x.nama) || '(tanpa nama)'),
-                       sumber:'Marketing', kategori:katEvent(x && x.jenis) });
+                       sumber:'Marketing', kategori:katEvent(x && x.jenis),
+                       status:String((x && x.status) || '') });
     });
   } else EV_ERR.push('Marketing');
 
@@ -5230,6 +5236,27 @@ function tlIsiHtml() {
    yang tercampur. */
 let KAT_PILIH = { Event:'', Marketing:'' };
 function katPilih(sumber, k) { KAT_PILIH[sumber] = k; render(); }
+/* ---------- HANYA ACARA YANG SUDAH TERJADI (16 September 2026) ----------
+   Permintaan user: "pengaruh event dan pengaruh marketing hanya menampilkan
+   event yang Event Done".
+
+   Alasannya masuk akal dan halamannya memang salah tanpa itu: yang diukur di
+   sini PENGARUH acara terhadap omset hari itu. Acara yang masih Upcoming,
+   Planning, Lead, atau Lost belum tentu pernah terjadi — sebagian memang
+   tidak pernah terjadi — jadi menghitung omset hari itu sebagai "hari ada
+   acara" berarti menuliskan pengaruh kepada sesuatu yang tidak ada.
+
+   KEDUA MODUL MEMAKAI NILAI YANG SAMA PERSIS, dan itu diukur bukan ditebak
+   (produksi, 16 September 2026):
+
+     modul Event      17 Event Done · 6 Upcoming · 2 Planning        (25)
+     modul Marketing  30 Event Done · 6 Lead · 5 Lost · 4 Deal       (45)
+
+   Dicocokkan huruf kecil + dipangkas, bukan sama persis: nilainya diketik
+   orang di dua modul yang berbeda, dan "Event done" yang lolos satu huruf
+   akan diam-diam hilang dari halaman ini tanpa satu pun galat. */
+const EV_SELESAI = 'event done';
+function evSelesai(e) { return String((e && e.status) || '').trim().toLowerCase() === EV_SELESAI; }
 function vEvent()     { vDampak('Event'); }
 function vMarketing() { vDampak('Marketing'); }
 
@@ -5275,7 +5302,9 @@ function kartuTop3(sumber, rows, totalBulan, b) {
     + 'penuh — dan berapa persennya dari seluruh omset ' + esc(fmtBln(b)) + ' ('
     + rp0(totalBulan) + '). Daftar ini TIDAK ikut tapis kategori di atas: baris breakdown tidak '
     + 'menyimpan kategori sama sekali, dan mencocokkannya lewat nama acara adalah tebakan yang '
-    + 'diam-diam salah begitu ada dua acara bernama mirip.</div>';
+    + 'diam-diam salah begitu ada dua acara bernama mirip. Alasan yang sama membuatnya TIDAK ikut '
+    + 'tapis <b>Event Done</b>: baris Breakdown Sumber tidak menyimpan status acara sama sekali, '
+    + 'jadi daftar ini bisa memuat acara yang di modulnya belum ditandai selesai.</div>';
 
   if (!top.length) return h + '<div class="notice info">ℹ <div>Belum ada baris ' + esc(sumber)
     + ' bernilai di Breakdown Sumber untuk ' + esc(fmtBln(b))
@@ -5321,7 +5350,9 @@ function vDampak(sumber) {
     + ' tidak menjawab.</b> Daftar acara di bawah belum lengkap, jadi perbandingannya '
     + 'belum bisa dipercaya.</div></div>';
 
-  const semua = EV.filter(e => e.sumber === sumber && blnDari(e.tgl) === b);
+  const semuaBln = EV.filter(e => e.sumber === sumber && blnDari(e.tgl) === b);   // ikut dipakai pita di bawah
+  const semua = semuaBln.filter(evSelesai);
+  const belum = semuaBln.filter(e => !evSelesai(e));
   /* Kategori yang benar-benar ADA di bulan ini, bukan daftar tertutup: kategori
      baru di modul Event tidak perlu didaftarkan lagi di sini. */
   const katSet = [...new Set(semua.map(e => e.kategori))].sort();
@@ -5334,8 +5365,23 @@ function vDampak(sumber) {
   const peta = {};
   dipakai.forEach(e => { (peta[e.tgl] = peta[e.tgl] || []).push(e); });
 
+  /* HARI YANG ACARANYA BELUM SELESAI DIKELUARKAN DARI KEDUA SISI, bukan
+     dijatuhkan ke "hari tanpa acara".
+
+     Kalau ia ikut jadi pembanding, hari yang sebenarnya PUNYA acara besar —
+     cuma belum ditandai Event Done — ikut menaikkan rata-rata "hari biasa",
+     dan selisihnya mengecil sendiri tanpa ada yang menyadarinya. Itu bentuk
+     kesalahan yang sama persis dengan yang sudah dijaga di kolom
+     `vs hari sama`: acara yang dibandingkan dengan dirinya sendiri.
+
+     Hari yang punya SATU acara selesai tetap masuk sisi "ada acara" walau di
+     hari itu ada acara lain yang belum selesai — yang ditanya apakah hari itu
+     ada acara, dan jawabannya ya. */
+  const petaBelum = {};
+  belum.forEach(e => { petaBelum[e.tgl] = 1; });
   const adaEv = tgl.filter(t => peta[t]);
-  const tanpa = tgl.filter(t => !peta[t]);
+  const tanpa = tgl.filter(t => !peta[t] && !petaBelum[t]);
+  const abuAbu = tgl.filter(t => !peta[t] && petaBelum[t]);
   const rata = arr => arr.length ? arr.reduce((a, t) => a + (hari[t].grand || 0), 0) / arr.length : 0;
   const rEv = rata(adaEv), rNo = rata(tanpa);
   const omsetEv = adaEv.reduce((a, t) => a + (hari[t].grand || 0), 0);
@@ -5387,6 +5433,18 @@ function vDampak(sumber) {
       + '</div></div>';
   }
 
+  /* SARINGANNYA DIKATAKAN, berikut angkanya. Halaman ini sekarang memajang
+     lebih sedikit hari daripada sebelumnya, dan daftar yang menyusut tanpa
+     keterangan dilaporkan sebagai data hilang — bukan dibaca sebagai aturan. */
+  if (belum.length) {
+    h += '<div class="notice info">&#8505; <div>Halaman ini <b>hanya menghitung acara berstatus '
+      + '"Event Done"</b> — yang sudah benar-benar terjadi. <b>' + belum.length + ' acara ' + esc(sumber)
+      + '</b> di ' + esc(fmtBln(b)) + ' belum berstatus itu, jadi tidak ikut.'
+      + (abuAbu.length ? ' <b>' + abuAbu.length + ' hari</b> yang acaranya belum selesai juga '
+          + 'dikeluarkan dari pembanding "hari tanpa acara" — hari yang sebenarnya punya acara '
+          + 'tidak boleh dipakai mengukur hari biasa.' : '')
+      + '</div></div>';
+  }
   /* EMPAT ANGKA YANG DIMINTA USER (9 September 2026), dan pemisahannya yang
      jadi intinya: "omset hari itu" dan "omset event saja" TIDAK sama, dan
      yang mengira keduanya satu hal akan membaca kontribusi acara berkali-kali
