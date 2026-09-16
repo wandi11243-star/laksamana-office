@@ -1135,6 +1135,30 @@ function hadirNilai(a){ return String((a&&a.hadir)||''); }
    pertanyaan berarti dua halaman menyebut upah yang berbeda untuk orang dan
    minggu yang sama, dan yang selisih itu uang. */
 function hadirDibayar(a){ return hadirNilai(a)!=='ALFA'; }
+/* ---------- ESTIMASI MENGIKUTI KEHADIRAN (16 September 2026) ----------
+   Permintaan user: "kalau ditekan tidak hadir maka estimasi biayanya tidak
+   perlu di-set lagi".
+
+   Sampai tanggal ini Dashboard dan Kalender DW menjumlahkan SELURUH shift
+   yang disetujui — termasuk yang sudah ditandai TIDAK HADIR. Jadi menandai
+   seseorang tidak datang mengubah halaman Pembayaran (yang memang memakai
+   hadirDibayar) tapi TIDAK mengubah angka di dua layar yang justru dibuka
+   tiap pagi. Dua angka untuk satu malam yang sama, dan yang menyiapkan
+   uangnya tidak punya cara tahu mana yang berlaku.
+
+   SATU PENJUMLAH untuk ketiganya — layar Dashboard, kartu Kalender DW, dan
+   baris kaki berkas Excel-nya. Tiga tempat yang menjumlahkan sendiri-sendiri
+   sudah pernah menyimpang di repo ini, dan yang menyimpang selalu uang.
+
+   `ringkasAjuan()` SENGAJA TIDAK memakainya: ia dipakai kotak konfirmasi
+   "Setujui semua", dan pada detik itu belum seorang pun hadir atau tidak
+   hadir. Yang ditanyakan di sana berapa yang sedang DISANGGUPI, bukan berapa
+   yang akhirnya dibayar. */
+function ajuanDibayarDW(list){ return (list||[]).filter(hadirDibayar); }
+function biayaListDW(list){ return ajuanDibayarDW(list).reduce((n,a)=>n+biayaAjuan(a),0); }
+function jamListDW(list){ return ajuanDibayarDW(list).reduce((n,a)=>n+durasiJam(a.m,a.s),0); }
+function alfaListDW(list){ return (list||[]).length - ajuanDibayarDW(list).length; }
+
 /* Shift yang sudah disetujui tapi kehadirannya belum dikonfirmasi. */
 function hadirBelum(a){ return a && a.status==='DISETUJUI' && hadirNilai(a)===''; }
 function pilHadir(a){
@@ -1363,7 +1387,12 @@ function rp(n){ return 'Rp '+fmtRibuan(n); }
 /* Angka uang di kotak statistik dibedakan dari angka biasa: "Rp 1.400.000"
    pada ukuran 23px melebar keluar kotaknya di layar sempit, dan kotak yang
    isinya terpotong adalah angka yang tidak bisa dipercaya. */
-function statUang(v,l){ return '<div class="stat uang"><div class="n">'+esc(v)+'</div><div class="l">'+esc(l)+'</div></div>'; }
+/* `sub` opsional, sama dengan statBox: angka yang MENYUSUT karena sebuah
+   aturan wajib menyebut aturannya di kartunya sendiri. Est. Biaya yang turun
+   tanpa keterangan dibaca sebagai salah hitung, bukan sebagai penandaan
+   kehadiran yang baru saja ditekan. */
+function statUang(v,l,sub){ return '<div class="stat uang"><div class="n">'+esc(v)+'</div><div class="l">'+esc(l)+'</div>'
+  +(sub?'<div class="s">'+esc(sub)+'</div>':'')+'</div>'; }
 function uid(){ return Date.now().toString(36)+Math.random().toString(36).slice(2,6); }
 
 /* Durasi shift dalam jam. Shift yang melewati tengah malam (17:00–01:00)
@@ -2637,8 +2666,10 @@ function viewDashboard(){
      dengan yang tidak ada. */
   const mintaTunggu=(S.permintaan||[]).filter(x=>x.status==='MENUNGGU' && punya(x));
   const tungguHariItu=hariItu.filter(a=>a.status==='MENUNGGU');
-  const biaya=setuju.reduce((n,a)=>n+biayaAjuan(a),0);
-  const jam=setuju.reduce((n,a)=>n+durasiJam(a.m,a.s),0);
+  /* Keduanya MENGIKUTI KEHADIRAN — lihat biayaListDW(). */
+  const biaya=biayaListDW(setuju);
+  const jam=jamListDW(setuju);
+  const alfa=alfaListDW(setuju);
 
   let tabel;
   if(!setuju.length){
@@ -2675,7 +2706,7 @@ function viewDashboard(){
            dalam tombolWA & tombolKehadiran): baris ini membuka Detail, jadi
            tanpa itu menekan Chat justru membuka modal yang baru saja dicabut
            tombolnya. */
-        +'<td class="noprint">'+tombolWA(a)+tombolKehadiran(a)+'</td>'
+        +'<td class="noprint">'+tombolWA(a)+tombolAlfa(a)+tombolKehadiran(a)+'</td>'
         +'</tr>').join('')
       +'</tbody></table></div>';
   }
@@ -2711,7 +2742,10 @@ function viewDashboard(){
             +'Yang menetapkannya HRD, di modul Jadwal Shift → Pengaturan.</div>'))
     +(lebih.length?'<div class="note w">Lebih dari panduan: <b>'+esc(lebih.join(', '))+'</b>. Bukan larangan — pastikan saja anggarannya memang disiapkan.</div>':'')
     +'<div class="stats">'
-      +statBox(setuju.length,'DW Masuk')
+      /* Angkanya TETAP jumlah yang disetujui — ia sama dengan jumlah baris di
+         tabel di bawahnya, dan kartu yang tidak cocok dengan tabelnya sendiri
+         berhenti dipercaya. Yang tidak datang disebut di baris kecilnya. */
+      +statBox(setuju.length,'DW Masuk', alfa?alfa+' tidak hadir':'')
       +statBox(tungguHariItu.length,'Menunggu (hari ini)')
       +statBox(tunggu.length,'Menunggu (semua)')
       +statBox(mintaTunggu.length,'Permintaan Head')
@@ -2724,7 +2758,7 @@ function viewDashboard(){
          hadirTertunggak(). */
       +statBox(hadirTertunggak().length,'Belum dikonfirmasi')
       +statBox(Math.round(jam*10)/10,'Total Jam')
-      +(bolehLihatUang()?statUang(rp(biaya),'Est. Biaya'):'')
+      +(bolehLihatUang()?statUang(rp(biaya),'Est. Biaya', alfa?alfa+' tidak hadir tidak dihitung':''):'')
     +'</div>'
     +tabel
     +'</div>'
@@ -4892,8 +4926,12 @@ function viewKalender(){
          berubah sepanjang bulan dan tidak menjawab apa pun. */
       +statBox(setuju.reduce(function(n,x){ return n.indexOf(x.dwId)<0?n.concat([x.dwId]):n; },[]).length,'DW Terpakai')
       +statBox(setuju.length,'Shift Disetujui')
-      +statBox(Math.round(setuju.reduce((n,x)=>n+durasiJam(x.m,x.s),0)),'Total Jam')
-      +(bolehLihatUang()?statUang(rp(setuju.reduce((n,x)=>n+biayaAjuan(x),0)),'Est. Biaya'):'')
+      /* IKUT KEHADIRAN, sama dengan Dashboard & halaman Pembayaran — dua
+         layar yang menyebut estimasi berbeda untuk bulan yang sama adalah
+         selisih yang baru ketahuan waktu uangnya dihitung di amplop. */
+      +statBox(Math.round(jamListDW(setuju)),'Total Jam')
+      +(bolehLihatUang()?statUang(rp(biayaListDW(setuju)),'Est. Biaya',
+          alfaListDW(setuju)?alfaListDW(setuju)+' tidak hadir tidak dihitung':''):'')
     +'</div>'
     +tabel
     +(bolehIsi&&idOrang.length?'<p class="mutedhint noprint" style="margin-top:8px">Klik sel <b>+</b> untuk '
@@ -6550,9 +6588,15 @@ async function setHadir(id, nilai){
        nilai yang gagal tersimpan tapi terlanjur tergambar adalah uang yang
        dikira sudah diputuskan. */
     await muatDanGambar(true);
+    /* NILAI KOSONG BUKAN "hadir" — ia kembali ke BELUM DIKONFIRMASI, dan
+       bedanya nyata: yang belum dikonfirmasi ikut dihitung di lencana
+       "Belum dikonfirmasi" di Dashboard. Sebelum tombol Batal ada, nilai
+       kosong memang tidak pernah bisa dikirim dari layar mana pun, jadi
+       cabang ini tidak pernah salah — sekarang bisa. */
     toast(nilai==='ALFA' ? 'Ditandai tidak hadir — tidak ikut dibayar'
         : nilai==='TELAT' ? 'Ditandai telat — tetap dibayar penuh'
-        : 'Ditandai hadir');
+        : nilai==='HADIR' ? 'Ditandai hadir'
+        : 'Penandaan dibatalkan — kembali belum dikonfirmasi');
   }catch(e){ toast(e.message||'Gagal menyimpan kehadiran', true); }
 }
 
@@ -6665,6 +6709,34 @@ function tombolKehadiran(a){
   return '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();bukaKonfirmasi(&#39;'+escJs(a.id)+'&#39;)" '
     +'title="Tandai siapa yang benar-benar hadir — upah mengikuti penandaan ini">'
     +(hadirBelum(a)?'✓ Kehadiran':'Ubah kehadiran')+'</button>';
+}
+/* TIDAK HADIR LANGSUNG DARI BARISNYA (16 September 2026, permintaan user).
+
+   Yang paling sering terjadi malam itu cuma SATU orang tidak datang, dan
+   selebihnya tidak perlu disentuh sama sekali — kolom kehadiran yang kosong
+   memang tetap dibayar (lihat hadirDibayar). Jadi yang benar-benar dipakai
+   di lapangan adalah penanda untuk PENGECUALIANNYA, bukan mengisi seluruh
+   daftar; menyuruh pindah halaman untuk satu orang membuat penandaannya
+   ditunda, dan yang ditunda tidak pernah dikerjakan.
+
+   TANPA KOTAK KONFIRMASI, dan itu keputusan yang disengaja: penandaannya
+   BISA DIBATALKAN satu klik — tombolnya sendiri berubah jadi "Batal" begitu
+   ditekan — dan pilnya langsung menyebut keadaan barunya. Kotak tanya untuk
+   tindakan yang jalan pulangnya ada di tempat yang sama cuma melatih orang
+   menekan OK tanpa membaca. Bandingkan dengan setujuiBanyak(), yang memang
+   bertanya: di sana belasan shift sekaligus, dan tidak ada tombol batalnya.
+
+   Tanggal yang belum lewat tidak ditawari — aturan yang sama dengan
+   tombolKehadiran(), dan diputuskan di sini juga supaya pemanggil berikutnya
+   tidak perlu tahu aturannya ada. */
+function tombolAlfa(a){
+  if(!bolehKonfirmasi(a)) return '';
+  if(String(a.tgl||'')>hariIni()) return '';
+  return hadirNilai(a)==='ALFA'
+    ? '<button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();setHadir(&#39;'+escJs(a.id)+'&#39;,&#39;&#39;)" '
+      +'title="Batalkan penandaan — shift ini dihitung lagi di estimasi biaya">↩ Batal</button>'
+    : '<button class="btn btn-ghost bahaya btn-sm" onclick="event.stopPropagation();setHadir(&#39;'+escJs(a.id)+'&#39;,&#39;ALFA&#39;)" '
+      +'title="Tandai tidak datang — langsung keluar dari estimasi biaya">✕ Tidak hadir</button>';
 }
 function tombolWA(a){
   const p=pekerjaById(a.dwId);
@@ -7605,8 +7677,9 @@ function exportExcelDW(){
      berkasnya untuk memeriksa apa ia menyembunyikan sesuatu. Berlaku sama
      untuk exportWADW(). */
   tambah([sel_(1, setuju.length+' shift disetujui · '
-    +Math.round(setuju.reduce((n,x)=>n+durasiJam(x.m,x.s),0))+' jam'
-    +(bolehLihatUang()?' · estimasi '+rp(setuju.reduce((n,x)=>n+biayaAjuan(x),0)):'')
+    +Math.round(jamListDW(setuju))+' jam'
+    +(alfaListDW(setuju)?' · '+alfaListDW(setuju)+' tidak hadir (tidak dihitung)':'')
+    +(bolehLihatUang()?' · estimasi '+rp(biayaListDW(setuju)):'')
     +' · '+L.idOrang.length+' daily worker', gCatat)], 15);
 
   const lebar=[{min:1,max:1,w:5},{min:2,max:2,w:22},{min:3,max:3,w:14},

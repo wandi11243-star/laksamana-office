@@ -5528,6 +5528,116 @@ dibetulkan, dan keduanya bentuk yang sudah punya nama di berkas ini:
 | tombol Kehadiran membuka tanggal HARI INI, bukan tanggal barisnya | barisnya diuji atas shift HARI INI, jadi `hariIni()` memulangkan angka yang sama persis | baris uji bertanggal **kemarin** |
 | head bisa menandai kehadiran divisi lain | blok sebelumnya berpindah halaman → muat ulang → state kosong, jadi `bukaKonfirmasi` berhenti di `if(!a) return` dan asersinya hijau apa pun keputusan gerbangnya | fixture dipasang ulang + asersi **barisnya memang ada** lebih dulu |
 
+### DW: tombol Tidak hadir di baris, & estimasi yang mengikutinya (16 Sep 2026)
+
+Permintaan user: *"ada tombol tidak hadirnya juga / karna kalau ditekan tidak
+hadir maka estimasi biayanya tidak perlu di-set lagi"*. Dua hal, dan yang
+kedua yang menyentuh uang.
+
+**1. `tombolAlfa()` — menandai yang tidak datang dari barisnya sendiri.**
+Berdiri di kolom aksi Dashboard bersama Chat & Kehadiran.
+
+- **Yang dipakai di lapangan penanda untuk PENGECUALIANNYA, bukan mengisi
+  seluruh daftar.** Kolom kehadiran yang kosong memang tetap dibayar (lihat
+  `hadirDibayar`), dan yang paling sering terjadi malam itu cuma SATU orang
+  tidak datang. Menyuruh pindah halaman untuk satu orang membuat penandaannya
+  ditunda, dan yang ditunda tidak pernah dikerjakan.
+- **TANPA KOTAK KONFIRMASI, dan itu disengaja.** Penandaannya bisa dibatalkan
+  satu klik — tombolnya sendiri berubah jadi **↩ Batal** begitu ditekan — dan
+  pil statusnya langsung menyebut keadaan barunya. Kotak tanya untuk tindakan
+  yang jalan pulangnya ada di tempat yang sama cuma melatih orang menekan OK
+  tanpa membaca. Bandingkan `setujuiBanyak()`, yang memang bertanya: di sana
+  belasan shift sekaligus dan tidak ada tombol batalnya.
+- **Pembatalannya mengirim nilai KOSONG, bukan `HADIR`.** Kosong berarti
+  kembali ke BELUM DIKONFIRMASI, dan bedanya nyata — yang belum dikonfirmasi
+  ikut dihitung di `hadirTertunggak()`. Server sudah menerima `''` sejak
+  `simpan_hadir()` lahir, jadi tidak ada endpoint baru.
+- **`event.stopPropagation()` wajib**: baris tabel Dashboard membuka modal
+  Detail, dan tanpa penahan itu menekan "Tidak hadir" justru membuka modal
+  yang tombolnya baru saja dicabut (15 September 2026). Dijaga dua mutasi.
+- **Aturan tanggal ada DI DALAM tombolnya**, sama dengan `tombolKehadiran()` —
+  pemanggil berikutnya tidak perlu tahu aturannya ada. **Gerbangnya di
+  fungsinya**, bukan dengan tidak menggambar tombolnya: `onclick` di baris
+  tabel bisa dipanggil dari console dalam sepuluh detik.
+
+**`setHadir()` sempat menulis "Ditandai hadir" untuk nilai kosong.** Cabang itu
+tidak pernah salah sebelum ini — nilai kosong memang tidak bisa dikirim dari
+layar mana pun — dan tombol Batal-lah yang membuatnya bisa dicapai. Sekarang
+`HADIR` punya cabangnya sendiri dan kosong berbunyi *Penandaan dibatalkan*.
+
+**2. Est. Biaya & Total Jam berhenti menghitung yang tidak hadir.** Sampai
+tanggal ini Dashboard dan Kalender DW menjumlahkan SELURUH shift disetujui,
+jadi menandai seseorang tidak datang mengubah halaman Pembayaran (yang memang
+memakai `hadirDibayar`) tapi TIDAK mengubah angka di dua layar yang justru
+dibuka tiap pagi — dua angka untuk satu malam yang sama, dan yang menyiapkan
+uangnya tidak punya cara tahu mana yang berlaku.
+
+**SATU PENJUMLAH untuk ketiganya** — `biayaListDW()` / `jamListDW()` /
+`alfaListDW()`, semuanya di atas `ajuanDibayarDW()`:
+
+| tempat | yang berubah |
+|---|---|
+| Dashboard | Est. Biaya, Total Jam |
+| Kalender DW | Est. Biaya, Total Jam |
+| kaki berkas Excel kalender | estimasi, jam |
+
+- **`ringkasAjuan()` SENGAJA TIDAK ikut.** Ia dipakai kotak konfirmasi
+  *"Setujui semua"*, dan pada detik itu belum seorang pun hadir atau tidak
+  hadir — yang ditanyakan berapa yang sedang DISANGGUPI, bukan berapa yang
+  akhirnya dibayar. Dibuat mengikuti kehadiran, angkanya kebetulan benar hari
+  ini (semua kosong = dibayar) dan diam-diam salah besok. Dijaga mutasi.
+- **`statistikDW()` juga tidak ikut** — jam kerja seorang DW di profilnya
+  menjawab "berapa kali ia DIJADWALKAN", aturan yang sama dengan kolom `masuk`
+  di Rekap Pegawai.
+- **Kartu jumlah orang TETAP penuh** (`DW Masuk`, `Shift Disetujui`): ia sama
+  dengan jumlah baris di tabel di bawahnya, dan kartu yang tidak cocok dengan
+  tabelnya sendiri berhenti dipercaya. Yang tidak datang disebut di baris
+  kecilnya.
+- **Angka yang MENYUSUT wajib menyebut sebabnya di kartunya sendiri.** Est.
+  Biaya yang turun tanpa keterangan dibaca sebagai salah hitung, bukan sebagai
+  penandaan yang baru saja ditekan. `statUang(v,l,sub)` karena itu ikut bisa
+  membawa baris keterangan, sama dengan `statBox`. Keterangannya **tidak
+  digambar kalau tidak ada yang tidak hadir** — "0 tidak hadir" membuat orang
+  mencari orang yang memang tidak ada.
+- **Berkas Excel-nya ikut menyebutnya** (`· 1 tidak hadir (tidak dihitung)`).
+  Berkas ekspor tidak pernah dibuka siapa pun untuk memeriksa apa ia
+  menyembunyikan sesuatu — ia justru yang dikirim ke luar. Pelajaran yang sama
+  sudah dibayar waktu `bolehLihatUang()` lahir.
+
+```bash
+node tools/uji-alfa-dw.js   # 55 pemeriksaan, jsdom
+```
+
+**Kaki berkas Excel-nya diuji SUNGGUHAN, bukan lewat asersi sumber**, dan itu
+mungkin karena ZIP-nya **metode SIMPAN**: teks lembarnya ada apa adanya di
+dalam blob. Ujinya membungkus `window.Blob` untuk menangkap byte-nya lalu
+membacanya sebagai latin1. Yang perlu distub di jsdom: `URL.createObjectURL`
+(tanpa itu `exportExcelDW()` melempar SEBELUM sampai ke baris kaki yang sedang
+diuji) dan `TextEncoder`.
+
+Angka fixture-nya dipilih supaya **tiap kesalahan memberi hasil yang BERBEDA**
+— empat shift sehari, satu ALFA, satu TELAT, satu kosong: yang benar
+Rp300.000/15 jam, ALFA ikut dihitung Rp400.000/20, TELAT atau kosong ikut
+dibuang Rp200.000/10. Angka Kalender **sengaja berbeda** dari Dashboard
+(Rp400.000/20, karena ia sebulan penuh): dipaksa sama, mutasi *"kalender
+membaca daftar milik Dashboard"* tidak menggeser satu angka pun.
+
+**Dua puluh lima mutasi dicoba, kedua puluh limanya tertangkap** — tapi EMPAT
+asersi mula-mula merah untuk kode yang benar, dan keempatnya cacat uji yang
+sudah punya nama di berkas ini:
+
+| yang salah | sebabnya |
+|---|---|
+| asersi *"tidak menawarkan Tidak hadir lagi"* | **cocok dengan sel yang bukan yang diuji** — pil status di kolom sebelahnya memang berbunyi `Tidak hadir` untuk baris ALFA. Sekarang yang dibaca `td.noprint`-nya saja |
+| ekspektasi Kalender & Excel | fixture punya satu baris BESOK yang ikut di lembar sebulan; angkanya yang salah, bukan kodenya |
+| invarian *"durasiJam cuma dijumlahkan sekali"* | terlalu tumpul — `statistikDW()` sah menjumlahkannya. Sekarang yang dikunci KETIGA LAYAR ESTIMASI-nya, bukan hitungan global |
+| POST kedua tidak pernah berangkat | `setHadir()` selesai dengan `muatDanGambar(true)`, server tiruan memulangkan daftar KOSONG, jadi panggilan berikutnya berhenti di `if(!a) return` dan asersinya hijau apa pun keputusan kodenya. Fixture dipasang ULANG, dan barisnya dipastikan ADA lebih dulu |
+
+Yang terakhir **bentuk yang sama persis** dengan cacat di `uji-dashboard-dw.js`
+sehari sebelumnya. Uji apa pun di modul ini yang memanggil `setHadir()` lebih
+dari sekali wajib memasang ulang fixture-nya.
+
+
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
 ```
