@@ -5895,6 +5895,115 @@ node tools/uji-void.js   # 52 pemeriksaan (dari 47), jsdom + berkas POS asli
 ```
 
 
+### Marketing: kuota localStorage penuh menghentikan SELURUH penyimpanan (16 Sep 2026)
+
+Dilaporkan user sebagai *"upload foto di Request Design tidak bisa"*. Yang
+gagal bukan fotonya — melainkan **seluruh penyimpanan modul**, dan tanpa satu
+pun pesan di layar.
+
+**Diukur atas state produksi hari itu, bukan diperkirakan:**
+
+```
+state seluruh modul Marketing   4,83 MB  (5.067.474 karakter)
+kuota localStorage Chrome       5 MiB    (5.242.880 karakter)
+SISA                            171 KB
+  designreqs saja               4,43 MB   <- 89% isinya foto referensi
+  activities                    0,20 MB
+  events                        0,14 MB
+```
+
+`localStorage.setItem(KEY, …)` ditulis **TELANJANG di lima tempat**, dan yang
+paling mematikan ada di **baris pertama `save()`** — sebelum `fetch()`:
+
+```js
+function save(opsi){
+  const capBaru = stampChanges();
+  localStorage.setItem(KEY, JSON.stringify(S));  // <- melempar di sini
+  …
+  fetch(API_URL, …)                              // <- tidak pernah sampai
+```
+
+Begitu kuotanya lewat, `setItem` melempar `QuotaExceededError`, `save()`
+berhenti, dan **tidak satu pun kiriman sampai ke server**. Galatnya lolos
+keluar dari penangan klik dan cuma mendarat di console, jadi yang menekan
+tombolnya melihat modal tertutup seolah berhasil.
+
+**DIREPRODUKSI atas state produksi**, bukan disimpulkan: menambah satu foto
+2 MB membuat state 7,46 MB, `setItem` melempar, dan jumlah POST `saveAll`
+**nol**.
+
+Sekarang ada **satu penulis cache** — `simpanCache()` — berpagar `try/catch`,
+dipakai keenam tempatnya.
+
+- **Cache yang gagal TIDAK BOLEH menghentikan penyimpanan.** Cache ada untuk
+  menyelamatkan kerja saat server tidak terjangkau; server yang terjangkau
+  adalah jalur UTAMA, dan mengorbankannya demi cadangannya adalah pertukaran
+  yang terbalik.
+- **DIKATAKAN, sekali per sesi** (`CACHE_GAGAL`, `_cacheSudahLapor`). Jaring
+  pengaman offline yang mati diam-diam membuat yang menutup tab di tengah
+  kiriman kehilangan pekerjaannya tanpa satu pun tanda. Tapi peringatan yang
+  muncul di TIAP simpan berhenti dibaca — jadi sekali saja, dan kalimatnya
+  menyebut sebabnya (foto di Request Design) serta apa yang masih aman
+  (datanya tetap dikirim ke server).
+
+**YANG SENGAJA TIDAK DILAKUKAN — dan jangan dicoba nanti:** menulis cache
+SEPARUH (mis. tanpa foto) supaya muat. Cache itu dibaca balik ke `S` kalau
+`getAll` gagal, dan penyimpanan berikutnya mengirim `S` apa adanya — cache
+tanpa foto akan **MENGHAPUS foto yang sebenarnya masih utuh di server**.
+Menukar satu kegagalan yang terlihat dengan kehilangan data yang senyap bukan
+perbaikan. Dijaga asersi tersendiri.
+
+**Cache yang BASI sendiri aman, dan itu karena penjaga di SERVER** — bukan
+kebetulan. Di `upsert_settings_collection()`:
+
+```php
+if (!$lolosBentrok && $verServer !== null && $ua < $verServer) continue;
+```
+
+Baris yang tidak ditandai berubah klien dan capnya lebih tua **dilewati**,
+jadi salinan lama dari cache tidak pernah bisa menimpa yang di server. Kalau
+penjaga itu suatu hari dicabut, cache basi berubah jadi penghapus foto — dan
+gejalanya foto yang hilang sendiri, bukan galat. Dikunci sebagai **kontrak
+atas sumber PHP** (pola `uji-simpan-basi.js`).
+
+```bash
+node tools/uji-kuota-cache.js   # 20 pemeriksaan, jsdom
+```
+
+Ujinya memasang **localStorage TIRUAN berkuota** yang melempar
+`QuotaExceededError` — tanpa itu kuota tidak pernah bisa diuji, karena jsdom
+tidak punya batas sama sekali dan bug-nya tidak akan pernah muncul. Yang
+diukur **JUMLAH POST `saveAll`**, bukan ada-tidaknya galat: *"tidak melempar"*
+saja tidak membuktikan kirimannya berangkat.
+
+**Tujuh mutasi dicoba, ketujuhnya tertangkap** — termasuk mengembalikan bug
+aslinya, menulis cache separuh, dan mencabut penjaga urutan di PHP.
+
+> **Dua mutasi mula-mula terbaca `gagal=-1`, yaitu ujinya MATI.** Dua
+> pemanggilan `save()` di tengah berkas uji tidak berpagar, jadi begitu
+> mutasinya mengembalikan lemparannya, node berhenti sebelum ringkasan
+> tercetak. Sekarang keduanya dibungkus `try` dan lemparannya jadi **asersi
+> tersendiri**. Bentuk yang sudah dibayar di `uji-catatan-wajib-dw.js` dan
+> `uji-analytics.js`; ini kali ketiga.
+
+#### Yang BELUM dikerjakan: foto tidak seharusnya ada di dalam blob
+
+Perbaikan di atas membuat fotonya bisa diunggah lagi, dan itu yang diminta.
+Tapi **sebabnya belum hilang**: satu foto 2 MB jadi ~2,7 MB base64 di dalam
+state yang dikirim UTUH tiap kali `save()` — 100 titik panggil di modul ini.
+Cache lokal sudah lewat kuota hari ini; yang berikutnya `max_allowed_packet`
+MySQL dan waktu muat halaman.
+
+`post_max_size` **bukan** batasnya — sudah diprobe ke produksi lewat `ping`
+(yang tidak menulis apa pun): kiriman 12 MB pun diterima. API-nya juga sudah
+punya `uploadReceipt` & `uploadChunk`, jadi jalur biner ke disk sudah ada dan
+tinggal dipakai — pola yang sama dengan lampiran PDF di `inv_lapor`.
+
+Yang perlu diputuskan sebelum mengerjakannya: memindahkan foto ke disk berarti
+**migrasi data produksi** untuk 3 foto yang sudah ada (4,43 MB), dan itu
+keputusan user — bukan efek samping dari perbaikan bug.
+
+
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
 ```

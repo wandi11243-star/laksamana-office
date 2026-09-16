@@ -2200,6 +2200,62 @@ async function fetchOffice(opts){
 }
 
 const KEY='lm_crm_v1';           // cache lokal (fallback offline)
+/* ---------- CACHE LOKAL PUNYA KUOTA, DAN KUOTANYA SUDAH HABIS ----------
+   Dilaporkan user 16 September 2026: "upload foto di Request Design tidak
+   bisa". Diukur atas state produksi hari itu:
+
+     state seluruh modul      4,83 MB (5.067.474 karakter)
+     kuota localStorage       5 MiB   (5.242.880 karakter)
+     SISA                     171 KB
+     designreqs saja          4,43 MB  <- 89% isinya foto referensi
+
+   Sampai hari ini `localStorage.setItem(KEY, …)` ditulis TELANJANG di lima
+   tempat, dan yang di BARIS PERTAMA save() itu yang mematikan: ia berdiri
+   SEBELUM fetch(). Begitu kuotanya lewat, setItem melempar
+   QuotaExceededError, save() berhenti di situ, dan TIDAK SATU PUN kiriman
+   sampai ke server — tanpa satu pun pesan di layar, karena galatnya lolos
+   keluar dari penangan klik dan cuma mendarat di console.
+
+   Jadi gejalanya persis "fotonya tidak bisa diunggah", padahal yang gagal
+   bukan fotonya melainkan seluruh penyimpanan. Sudah direproduksi atas state
+   produksi: menambah satu foto 2 MB membuat state 7,46 MB, setItem melempar,
+   dan jumlah POST saveAll = 0.
+
+   CACHE YANG GAGAL TIDAK BOLEH MENGHENTIKAN PENYIMPANAN. Cache ada untuk
+   menyelamatkan kerja saat server tidak terjangkau; server yang terjangkau
+   adalah jalur yang UTAMA, dan mengorbankannya demi cadangannya adalah
+   pertukaran yang terbalik.
+
+   YANG SENGAJA TIDAK DILAKUKAN: menulis cache SEPARUH (mis. tanpa foto) saat
+   kuotanya penuh. Cache itu dibaca balik ke `S` kalau getAll gagal, dan
+   penyimpanan berikutnya mengirim `S` apa adanya — jadi cache tanpa foto
+   akan MENGHAPUS foto yang sebenarnya masih utuh di server. Menukar satu
+   kegagalan yang terlihat dengan kehilangan data yang senyap bukan
+   perbaikan. */
+let CACHE_GAGAL='';      // '' sehat | 'penuh' | 'gagal'
+let _cacheSudahLapor=false;
+function simpanCache(){
+  try{
+    localStorage.setItem(KEY, JSON.stringify(S));
+    CACHE_GAGAL='';
+    return true;
+  }catch(e){
+    CACHE_GAGAL = (e && e.name==='QuotaExceededError') ? 'penuh' : 'gagal';
+    /* DIKATAKAN, sekali per sesi. Diam-diam, jaring pengaman offline mati
+       tanpa ada yang tahu — dan yang menutup tab di tengah kiriman kehilangan
+       pekerjaannya tanpa satu pun tanda. Sekali saja, bukan tiap simpan:
+       peringatan yang muncul di tiap klik berhenti dibaca. */
+    if(!_cacheSudahLapor){
+      _cacheSudahLapor=true;
+      setTimeout(function(){ try{ toast(
+        CACHE_GAGAL==='penuh' ? 'Simpanan lokal peramban penuh' : 'Simpanan lokal peramban gagal',
+        'Datanya TETAP dikirim ke server. Yang hilang cuma cadangan di peramban — '
+        +'jangan tutup tab sebelum status di pojok berubah jadi Tersimpan. '
+        +'Sebabnya foto referensi di Request Design & Video; hapus foto yang sudah tidak dipakai.', 'err'); }catch(_){} }, 0);
+    }
+    return false;
+  }
+}
 /* Penanda "ada perubahan yang belum diterima server".
    Dipasang sebelum kiriman berangkat, dan HANYA dicabut kalau server
    benar-benar menjawab ok. Jadi kalau browser ditutup, mati listrik, atau
@@ -2917,7 +2973,7 @@ async function apiLoad(){
     API_READY = true;
     refreshSnapshot();                            // versi server = acuan
     if(adaBelumNaik()) await pulihkanBelumNaik(srv);
-    localStorage.setItem(KEY, JSON.stringify(S)); // simpan cache
+    simpanCache();                                // simpan cache (berpagar kuota)
   }catch(e){
     // Gagal online -> pakai cache lokal, atau state kosong ber-default.
     try{ S = JSON.parse(localStorage.getItem(KEY)); }catch(_){ S=null; }
@@ -3021,7 +3077,9 @@ let saveInFlight=false, savePending=false, _savePendingRamai=false;
 function save(opsi){
   const diam = !!(opsi && opsi.diam);
   const capBaru = stampChanges();                // cap baris yang berubah SEBELUM cache/simpan
-  localStorage.setItem(KEY, JSON.stringify(S));  // cache dulu (instan)
+  /* BERPAGAR. Baris ini berdiri sebelum fetch(); telanjang, kuota yang penuh
+     menghentikan seluruh penyimpanan. Lihat catatan di atas simpanCache(). */
+  simpanCache();                                 // cache dulu (instan)
   tandaiBelumNaik(capBaru.basis);                // dianggap belum sampai sampai server bilang ok
   if(saveInFlight){ savePending=true; if(!diam) _savePendingRamai=true; return; }  // hindari dua POST balapan dari tab yang sama
   saveInFlight=true;
@@ -3053,7 +3111,7 @@ function save(opsi){
            `berubah` pada baris yang barusan DITOLAK, dan perubahan itu lalu
            tidak pernah dicoba kirim lagi. */
         terapkanVersiServer(j.data.versi);
-        localStorage.setItem(KEY, JSON.stringify(S));
+        simpanCache();
         showSaveConflict(bentrok);
       }else{
         API_READY=true; setSyncBadge('ok'); tungguSimpanSelesai('ok');
@@ -3061,7 +3119,7 @@ function save(opsi){
         _ulangJeda=0;
         terapkanVersiServer(j.data.versi);   // cap server dulu…
         refreshSnapshotSebagian(capBaru.kotor);  // …baru dicatat sebagai acuan bentrok berikutnya
-        localStorage.setItem(KEY, JSON.stringify(S));   // cache ikut cap yang benar
+        simpanCache();                                  // cache ikut cap yang benar
       }
     }else{
       API_READY=false; setSyncBadge('err'); tungguSimpanSelesai('gagal');
@@ -3243,7 +3301,7 @@ async function refreshIfStale(){
     if(vSrv && _sejakVersi && vSrv===_sejakVersi) return;
     if(JSON.stringify(srv)===JSON.stringify(S)) return;   // tidak ada perubahan
     S=srv; _sejakVersi = +(j.data && j.data._versi) || _sejakVersi;
-    localStorage.setItem(KEY,JSON.stringify(S)); refreshSnapshot();
+    simpanCache(); refreshSnapshot();
     setSyncBadge('ok'); buildNav(); paintStaffDatalist(); paintMenuDatalist(); refreshView();
     toast('Data disegarkan','Ada perubahan dari kru lain — tampilan diperbarui.','ok');
   }catch(e){ /* offline: biarkan, badge diurus oleh save() */ }
@@ -9469,7 +9527,7 @@ function autoSaveCommit(){
        tetap membentang di kalender tanpa ada yang kelihatan salah di form. */
     if(ev.detail.multiHari===true && ev.detail.tanggalSelesai) ev.tanggalSelesai=ev.detail.tanggalSelesai;
     else { delete ev.tanggalSelesai; delete ev.detail.tanggalSelesai; ev.detail.multiHari=false; } }
-  try{ localStorage.setItem(KEY, JSON.stringify(S)); }catch(_){}
+  simpanCache();   // satu penulis cache, lihat catatan di atasnya
   // Sinkron ke server lewat save() (bukan POST mentah) supaya cap versi &
   // penjaga bentrok ikut berlaku. Dijeda agar tidak membanjiri tiap ketukan.
   /* INDIKATORNYA JUJUR. Dulu ia langsung berbunyi "Tersimpan otomatis" tepat
