@@ -5638,6 +5638,225 @@ sehari sebelumnya. Uji apa pun di modul ini yang memanggil `setHadir()` lebih
 dari sekali wajib memasang ulang fixture-nya.
 
 
+### Reservasi: kwitansi ditahan sampai dananya diverifikasi (16 Sep 2026)
+
+Permintaan user: *"request kwitansi yang ada di modul reservasi tidak bisa
+di-request jika dana masuk belum terverifikasi"*.
+
+**Ini menutup lubang yang dibuka setengah pada 20 Agustus 2026.** Waktu itu
+penerbitan kwitansi dipindah ke Finance justru dengan alasan *"kwitansi bisa
+keluar untuk DP yang buktinya belum diverifikasi, dan yang memegang kertasnya
+adalah tamu"* — tapi **permintaannya sendiri tetap boleh berangkat**, dan yang
+menahannya cuma satu kalimat di kotak `confirm()` yang tinggal ditekan OK. Jadi
+antrean Finance tetap terisi permintaan yang uangnya belum tentu ada.
+
+`kwiTertahan(r)` satu penentu, dipakai tombol DAN fungsinya.
+
+- **SEMUA transfer wajib terverifikasi, bukan salah satu.** Lembarnya menyebut
+  `dpTotal(r)` — SELURUH DP termasuk yang belum dicek — jadi satu transfer yang
+  belum terverifikasi berarti kertas yang dipegang tamu mengakui uang yang
+  belum tentu masuk. Kwitansi sebagian bukan bentuk yang dikenal siapa pun di
+  sini, jadi tidak ada angka lain yang bisa dipakai.
+- **`rejected` ikut menahan**, dan itu bukan sekadar "belum": ia sudah
+  diperiksa dan dinyatakan tidak ada.
+- **GERBANGNYA DI `mintaKwitansi()`, bukan cuma dengan tidak menggambar
+  tombolnya** — fungsi itu global dan bisa dipanggil dari console dalam sepuluh
+  detik. Aturan yang sama dengan gerbang kedua di `kwitansiPDF()`.
+- **"Request ulang" di baris yang DITOLAK ikut ditahan.** Itu justru tombol
+  yang paling sering ditekan berulang kali; lolos di sana, seluruh aturannya
+  jadi hiasan.
+- **Sebabnya disebut SEBELUM tombolnya ditekan** — pitanya menyebut berapa
+  transfer, nominalnya, dan di mana membetulkannya. Aturan yang cuma muncul
+  sesudah orang menekan kirim dibaca sebagai halaman yang menolak.
+- **YANG SENGAJA TIDAK IKUT DITAHAN, dan jangan diketatkan tanpa diminta:**
+  mengunduh kwitansi yang SUDAH terbit (lembarnya sudah jadi — menahan
+  unduhannya tidak menarik kembali apa pun, dan kru yang berhadapan dengan
+  tamunya jadi tidak bisa berbuat apa-apa), dan jalur langsung manajer/admin
+  (mereka yang berwenang memutuskan; yang mereka dapat PERINGATAN yang
+  menyebut angkanya, bukan pintu terkunci).
+- **Peringatan manajer TIDAK dipasang di dalam `kwitansiPDF()`.** Fungsi itu
+  membuka `window.open()` SINKRON sebelum satu pun await, justru supaya tidak
+  diblokir sebagai popup — menyelipkan `confirm()` di depannya mengembalikan
+  bug yang komentarnya sudah memperingatkan. Peringatannya karena itu berdiri
+  di slot tombolnya.
+
+```bash
+node tools/uji-kwitansi-verif.js   # 27 pemeriksaan, jsdom
+```
+
+**Yang dihitung ujinya JUMLAH POST `invMinta`, bukan ada-tidaknya pita di
+layar** — itu satu-satunya asersi yang bisa membedakan "ditahan" dari
+"diperingatkan lalu tetap dikirim", dan mutasi yang persis begitu memang
+dicoba. Sepuluh mutasi dicoba, kesepuluhnya tertangkap — termasuk dua yang
+KELEWAT JAUH (mengunci manajer, dan mengunci unduhan yang sudah terbit).
+
+> Satu asersi sempat merah untuk kode yang benar: mencari frasa "Request
+> Kwitansi" di seluruh HTML cocok dengan **atribut `title` pita penahannya**,
+> yang memang menyebut tombol itu untuk menjelaskan apa yang akan muncul
+> sesudah diverifikasi. Yang benar diuji ADA-TIDAKNYA TOMBOL yang memanggil
+> `mintaKwitansi(` — bukan ada-tidaknya katanya.
+
+### Analytics: peringatan "resep menunjuk dirinya sendiri" (16 Sep 2026)
+
+Ditanyakan user: *"ini maksudnya apa?"* Jawabannya diukur atas resep
+PRODUKSI, bukan ditebak — dan pesannya sendiri ternyata menyalahkan tempat
+yang keliru.
+
+**46 resep menyebut NAMANYA SENDIRI di daftar bahannya**, dan 40 di antaranya
+punya master bahan bernama sama persis:
+
+```
+Roti Coklat (resep)  ->  bahannya: "Roti Coklat"  ->  ketemu RESEPNYA sendiri
+```
+
+Semuanya barang jadi yang DIBELI — Roti, Dimsum, Bapao, Sate Maranggi, Waffle
+Fries, minuman Ramoe. Maksud yang menulisnya jelas: *satu menu = satu unit
+barang yang dibeli*. Yang salah **urutan pencarian `uraiResep()`**: ia mencari
+nama bahan di peta RESEP lebih dulu (`peta[nm.toLowerCase()]`), jadi yang
+ketemu resepnya sendiri — bukan bahannya. Rantainya memutar, dipotong, dan
+**bahan ke-40 menu itu tidak pernah ikut terhitung** di Perkiraan Bahan Baku.
+Enam sisanya memang belum punya master bahan sama sekali.
+
+**DUA SEBAB YANG BERBEDA DILAPORKAN DENGAN KALIMAT YANG SAMA.** `uraiResep()`
+menyetel satu penanda boolean untuk `jejak[k]` (siklus — galat data) DAN untuk
+`dalam > 6` (rantai sah yang kepanjangan — bukan galat). Dari layar mustahil
+tahu yang mana, dan kalimatnya menyuruh "dibetulkan di modul HPP" tanpa
+menyebut satu pun nama resep. Peringatan yang menunjukkan masalah tanpa
+menunjukkan letaknya akan didiamkan — aturan yang sama dengan tabel
+*"Selisihnya Ada di Hari Mana"*.
+
+Sekarang `__putar` menyimpan `{namaResep: 'siklus'|'dalam'}`, dan layarnya
+menggambar **dua pita terpisah** berikut nama resepnya (12 pertama, sisanya
+dihitung). Pita siklus juga menyebut sebab tersering dan cara membetulkannya.
+
+**YANG BELUM DIKERJAKAN, dan itu keputusan tentang angka:** urutan
+pencariannya belum diubah. Membuat `uraiResep()` memilih master BAHAN saat
+nama bahannya sama dengan nama resepnya sendiri akan membuat ke-40 menu itu
+ikut terhitung — dan itu **menggeser Perkiraan Bahan Baku di seluruh bulan
+yang sudah diunggah**. Perubahan angka sebesar itu bukan efek samping dari
+pertanyaan "ini maksudnya apa".
+
+### Analytics: tab Void & Cancel Menu (16 September 2026)
+
+Permintaan user: *"tab baru namanya Void ... siapa yang sering melakukan void,
+per detailnya, alasan void itu karena apa, dan item dan jumlah total dan
+harganya dan jam nya"*. Kunci view & wadahnya **`voidb`**, bukan `void`.
+
+> **Alasannya BUKAN karena `void` tidak sah** — sudah diperiksa: sebagai kunci
+> objek (`{void: vVoid}`) dan sebagai properti (`AN.data.void`) ia sah sejak
+> ES5. Yang tidak sah cuma sebagai NAMA VARIABEL. `voidb` dipilih supaya
+> penamaannya seragam dari ujung ke ujung — wadah, pemilih bulan, dan kunci
+> view — tanpa satu tempat pun yang harus diingat sebagai pengecualian.
+
+Berkasnya **Cancel Menu Detail Report** dari POS: satu baris per ITEM yang
+dibatalkan, bukan per bill. 17 kolom, kepala di baris 13.
+
+#### Pengenalnya WAJIB berdiri paling depan — dan itu bukan kerapian
+
+Diukur atas berkas aslinya: **DUA BELAS kolomnya cocok dengan `KOL_CARI`**
+milik laporan penjualan — `menu`, `qty`, `nilai`, `kode`, `kat`, `katD`,
+`grand`, `sub`, `svc`, `tax`, `bill`, `jam`. Satu-satunya yang menahannya
+jatuh ke `ringkasPos()` adalah **ketiadaan kolom tanggal**, yang melempar
+`Kolom tanggal tidak ketemu`.
+
+Margin setipis satu nama kolom. Begitu POS suatu hari menambahkan `Sales Date`
+ke laporan ini, berkasnya tersimpan sebagai Detail Report beromset **Rp8,4
+juta** yang MENIMPA ringkasan penjualan bulan itu. Bentuk kesalahan yang sama
+persis sudah tercatat untuk Promotion Report; bedanya di sini berkasnya punya
+kolom NILAI, jadi yang tersimpan bukan Rp0 melainkan angka yang terlihat wajar.
+
+Penandanya `Cancel / Void` + `Cancel Notes` + `Cancel / Void Time` — **bukan
+nama berkasnya**, yang diketik orang.
+
+#### CANCEL dan VOID ada di satu berkas, dan keduanya dipertahankan
+
+Agustus 2026: **67 baris Void (Rp2.696.600)** dan **17 baris Cancel
+(Rp5.772.450)**. Menyaring ke Void saja — yang terdengar wajar untuk tab
+bernama "Void" — **membuang 68% nilainya**, di halaman yang justru dibuka
+untuk melihat berapa yang dibatalkan. Kepala berkasnya sendiri berbunyi
+`Type: Cancel / Void (Default)`.
+
+Labelnya diambil **apa adanya dari kolomnya**; beda arti Cancel vs Void
+ditentukan POS, bukan oleh kita. Kartunya menyebut keduanya terpisah.
+
+#### Jamnya TIDAK digeser — dibuktikan, bukan diasumsikan
+
+Serial Excel di `Order Time` / `Cancel / Void Time` **sudah jam WIB**.
+Dibuktikan dengan mencocokkannya ke epoch di nomor bill (10 digit pertama
+`SLMCL…`, cara yang sama yang membuktikan `jamNomorBill()`):
+
+```
+serial = epoch + 7 jam   -> 31 dari 31 baris yang bisa dicocokkan
+serial = epoch (UTC)     -> 0 baris
+```
+
+Jadi `isoDari()` / `jamDari()` dipakai APA ADANYA. Digeser +7 seperti datetime
+ber-zona, seluruh kolom jam meleset tujuh jam dan tetap terlihat wajar.
+
+> 39 dari 84 baris jatuh di jam 00:xx, dan itu **bukan** salah baca: kelimanya
+> bill yang dibatalkan tepat lewat tengah malam, dua di antaranya membawa 16
+> baris sekaligus.
+
+#### Yang lain
+
+- **BARIS BUKAN BILL.** 84 baris dari **17 bill**; satu bill sendirian membawa
+  16 baris. "Berapa kali pembatalan terjadi" dan "berapa item yang dibatalkan"
+  dua angka yang berbeda, dan yang tertukar melaporkan lima kali lipat.
+  Bedanya **disebut angkanya** di layar.
+- **"SPV" BUKAN NAMA ORANG.** 75 dari 84 baris tercatat atas nama akun jabatan
+  yang dipakai bersama (`SPV`, `OPERATIONAL MANAGER`). Tanpa kalimat yang
+  menyebutnya, peringkat teratasnya dibaca sebagai satu orang yang membatalkan
+  75 item. Ditulis di bawah tabelnya, berikut apa yang perlu diubah kalau mau
+  sampai ke orangnya (cara login di POS, bukan halaman ini).
+- **`-` di `Order By` adalah kolom kosong versi POS ini**, bukan nama orang —
+  8 dari 84 baris. Aturan yang sama dengan `Employee Name` di halaman Error.
+- **Alasan dikelompokkan TANPA memandang huruf besar-kecil, tapi yang tampil
+  ejaan yang pertama ketemu.** Isinya teks bebas (`ganti produk` vs
+  `Ganti Produk`), dan dua ejaan yang sama artinya berdiri sebagai dua baris
+  membelah baris teratasnya. Dibesarkan seluruhnya juga salah: isinya kalimat,
+  bukan nama menu.
+- **Alasan gabungan TIDAK dipecah di koma** (`Salah Input Kasir, barang belum
+  keluar`). Memecahnya mengarang kategori yang tidak pernah diketik siapa pun.
+- **Wadahnya `AN.data.voidb` SENDIRI**, dengan pemilih bulan sendiri
+  (`BLN_VOID`) — alasan yang sama dengan `AN.data.promo`: periodenya bisa
+  berbeda, dan ditumpangkan ke `AN.data.laporan` mengunggah salah satunya bisa
+  menimpa ringkasan satunya lagi.
+- **Daftar kunci tertutup di `anSimpanVoid()`** sama berbahayanya dengan
+  `anSimpanUnggah()`. Diuji lewat putaran simpan SUNGGUHAN.
+- **Dikelompokkan SAAT MENGGAMBAR** (`vdKelompok()`), bukan saat mengurai —
+  aturan yang sama dengan `menuNormal()` dan `rekapKanal()`, supaya laporan
+  yang sudah tersimpan ikut membaik kalau pengelompokannya diperbaiki.
+- **Kotak carinya menumpang `mnKotakCari()` + `mnCari()`** yang sudah ada,
+  dengan satu cabang tambahan untuk `vd_q`. Kotak kedua yang digambar sendiri
+  akan menyimpang, dan yang menyimpang di sini adalah kotak yang kehilangan
+  fokus tiap ketukan.
+- **Batas `VOID_MAKS = 800` baris**, dan yang terpotong disebut angkanya.
+
+```bash
+node tools/uji-void.js   # 47 pemeriksaan, jsdom + berkas POS asli
+```
+
+Fixture CSV-nya dirancang supaya **tiap kesalahan memberi hasil yang BERBEDA**:
+benar 5 baris / 2 bill / Rp1.050.000; disaring ke Void saja Rp350.000; bulan
+sebelah ikut Rp1.550.000; baris dihitung sebagai bill → 5 bill. Berkas ASLI
+dipakai sebagai penguat kalau ada di root repo (angkanya dari POS, bukan dari
+kode kita: 84 baris, 17 bill, 67 Void, 17 Cancel, Rp8.469.050); kalau tidak
+ada, bagian itu **MELEWAT dengan jelas**. Berkasnya **jangan di-commit** —
+sudah di `.gitignore`: ia memuat nomor bill (berstempel waktu) DAN nama akun
+yang membatalkan, yaitu data kepegawaian.
+
+**Tiga belas mutasi dicoba, ketiga belasnya tertangkap** — termasuk mencabut
+pengenal jenisnya (berkasnya lalu jatuh ke jalur laporan penjualan), menggeser
+jamnya +7, dan mencabut entri `TITLES` (halamannya memantul balik, pelajaran
+modul DW).
+
+> Satu asersi sempat merah untuk kode yang benar: menghitung kemunculan
+> "ganti produk" di SELURUH halaman ikut mencocokkan **tabel detail**, yang
+> memang harus menampilkan alasan tiap barisnya apa adanya. Asersinya dijepit
+> ke kartu Alasan. Bentuk yang sama sudah menggigit di kolom Kontribusi, di
+> kartu kelompok halaman Kategori, dan di Rekap Kanal.
+
+
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
 ```

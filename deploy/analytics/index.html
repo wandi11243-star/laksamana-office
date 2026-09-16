@@ -1109,6 +1109,11 @@ async function muatSemua() {
      dibuka: halaman yang harus menuliskan bentuk bawaannya sendiri akan
      menyimpang dari yang menulisnya begitu ada field baru. */
   if (!AN.data.promo || typeof AN.data.promo !== 'object' || Array.isArray(AN.data.promo)) AN.data.promo = {};
+  /* Laporan Cancel/Void punya wadahnya SENDIRI, alasan yang sama dengan
+     AN.data.promo: ia laporan yang berbeda dengan periode yang bisa berbeda
+     pula, dan ditumpangkan ke AN.data.laporan, mengunggah salah satunya bisa
+     menimpa ringkasan satunya lagi. */
+  if (!AN.data.voidb || typeof AN.data.voidb !== 'object' || Array.isArray(AN.data.voidb)) AN.data.voidb = {};
 
   if (b.status === 'fulfilled' && b.value && b.value.ok) { KP = b.value.data || {}; KP_ERR = ''; }
   else { KP = null; KP_ERR = 'Rekap Penjualan tidak terbaca, jadi angka POS tidak bisa dibandingkan dengan yang diinput manual.'; }
@@ -1231,6 +1236,7 @@ const TITLES = {
   kunjungan :['Metode Kunjungan','Rekap kanal, cara tamu datang, dan cara mereka membayar'],
   talent    :['Performa Talent','Kontribusi omset tiap penampil, dihitung dari jam tampilnya sendiri'],
   error     :['Error & Koreksi Bill','Bill yang ditandai error — sebabnya, nilainya, dan siapa yang memegangnya'],
+  voidb     :['Void & Cancel Menu','Siapa yang membatalkan, alasannya, itemnya, nilainya, dan jamnya'],
   promo     :['Promo & Klaim','Promo mana yang paling banyak diklaim, barang apa, dan jam berapa'],
   tren      :['Tren Bulanan','Total omset bulan ke bulan, dan perbandingan dua bulan'],
   /* DIPISAH jadi dua halaman (2 September 2026, permintaan user). Sebelumnya
@@ -2733,6 +2739,12 @@ function mnCari(el) {
   if (el.id === 'mn_q')  { MN_Q  = q; MN_HAL = 1; mnIsi('mn_isi_menu',  mnIsiMenuHtml()); }
   if (el.id === 'mn_qb') { MN_QB = q; mnIsi('mn_isi_bahan', mnIsiBahanHtml()); }
   if (el.id === 'mn_qr') { MN_QR = q; mnIsi('mn_isi_resep', mnIsiResepHtml()); }
+  /* Halaman Void menumpang kotak & penangan yang SAMA, bukan menulis kotak
+     keduanya sendiri. Dua kotak cari yang digambar sendiri-sendiri akan
+     menyimpang begitu salah satunya diperbaiki — dan yang menyimpang di sini
+     adalah kotak yang kehilangan fokus tiap ketukan, jebakan yang sudah
+     dibayar di queueF() modul Konten. */
+  if (el.id === 'vd_q')  { VD_Q  = q; mnIsi('vd_detail', vdDetailHtml()); }
 }
 /* Isi tabel Penjualan Menu, sudah dipotong per halaman. PENCARIAN MENYARING
    SELURUH MENU, bukan halaman yang sedang terbuka — mencari menu peringkat
@@ -3447,7 +3459,23 @@ function uraiResep(nama, qty, peta, keluar, dalam, jejak, prep) {
   dalam = dalam || 0; jejak = jejak || {};
   const k = String(nama || '').trim().toLowerCase();
   if (!k) return;
-  if (dalam > 6 || jejak[k]) { keluar.__putar = true; return; }
+  /* DUA SEBAB YANG BERBEDA, dan sampai 16 September 2026 keduanya disetel ke
+     SATU penanda boolean — jadi layarnya melaporkan "resep menunjuk dirinya
+     sendiri" untuk rantai yang sebenarnya cuma kedalaman, dan tidak pernah
+     bisa menyebut resep mana. Yang membacanya disuruh membetulkan sesuatu di
+     HPP tanpa satu pun cara menemukannya; peringatan begitu didiamkan.
+
+       siklus  - resep ini sudah ada di rantainya sendiri. GALAT DATA.
+       dalam   - rantainya sah, cuma lebih dalam dari batas 6. Bukan galat;
+                 yang perlu dinaikkan batasnya, bukan datanya.
+
+     Diukur atas resep produksi 16 September 2026: 46 resep menyebut NAMANYA
+     SENDIRI di daftar bahannya, dan 40 di antaranya punya master bahan
+     bernama sama persis (barang jadi yang dibeli: Roti, Dimsum, Bapao, Sate,
+     Waffle Fries, minuman Ramoe). uraiResep() mencari nama bahan di peta
+     RESEP lebih dulu, jadi yang ketemu resepnya sendiri — bukan bahannya. */
+  if (jejak[k]) { (keluar.__putar = keluar.__putar || {})[String(nama).trim()] = "siklus"; return; }
+  if (dalam > 6) { (keluar.__putar = keluar.__putar || {})[String(nama).trim()] = "dalam"; return; }
   const r = peta[k];
   if (!r) { keluar.__hilang = keluar.__hilang || {}; keluar.__hilang[nama] = (keluar.__hilang[nama] || 0) + qty; return; }
   const y = (+r.yield_qty || 0) || 1;
@@ -3496,7 +3524,7 @@ function bahanBakuHtml(urut) {
     if (!peta[String(x.n).trim().toLowerCase()]) { tanpaResep.push(x); return; }
     uraiResep(x.n, x.qty, peta, keluar, 0, {}, prep);
   });
-  const putar = !!keluar.__putar; delete keluar.__putar;
+  const putar = keluar.__putar || null; delete keluar.__putar;
   const hilang = keluar.__hilang || null; delete keluar.__hilang;
 
   /* DUA DAFTAR, dan sengaja tidak dijumlahkan jadi satu: bahan mentah yang
@@ -3530,9 +3558,31 @@ function bahanBakuHtml(urut) {
       + Object.keys(hilang).slice(0, 8).map(esc).join(', ') + '. Baris itu dilewati.</div></div>';
   }
   if (putar) {
-    h += '<div class="notice bad">⚠ <div><b>Ada resep yang menunjuk dirinya sendiri</b> (langsung atau '
-      + 'lewat base lain). Penguraiannya dihentikan di kedalaman 6, jadi sebagian bahan tidak terhitung. '
-      + 'Perlu dibetulkan di modul HPP.</div></div>';
+    /* NAMANYA DISEBUT. "Perlu dibetulkan di modul HPP" tanpa menyebut resep
+       mana adalah peringatan yang menunjukkan masalah tanpa menunjukkan
+       letaknya — dan yang begitu selalu didiamkan. Aturan yang sama dengan
+       tabel "Selisihnya Ada di Hari Mana" di halaman Ringkasan. */
+    const sik = Object.keys(putar).filter(k => putar[k] === "siklus");
+    const dlm = Object.keys(putar).filter(k => putar[k] === "dalam");
+    if (sik.length) {
+      h += '<div class="notice bad">⚠ <div><b>' + sik.length + ' resep menunjuk dirinya sendiri</b> '
+        + '(langsung, atau lewat base lain). Bahannya TIDAK ikut terhitung di halaman ini.<br>'
+        + '<b>Yang kena:</b> ' + sik.slice(0, 12).map(esc).join(', ')
+        + (sik.length > 12 ? ', dan ' + (sik.length - 12) + ' lagi' : '') + '.<br>'
+        + '<span class="helper">Sebab tersering: resepnya memakai bahan yang NAMANYA SAMA PERSIS dengan '
+        + 'nama resep itu sendiri — biasanya barang jadi yang dibeli (roti, dimsum, sate). Penguraian '
+        + 'mencari nama itu di daftar resep lebih dulu, jadi yang ketemu resepnya sendiri. '
+        + 'Betulkan di HPP &amp; Resep: ganti nama salah satunya supaya tidak kembar.</span></div></div>';
+    }
+    if (dlm.length) {
+      /* DIBEDAKAN, karena tindakannya berbeda: yang ini BUKAN galat data —
+         rantainya sah, cuma lebih panjang dari batas penguraian. Disamakan
+         dengan siklus, orang akan mencari kesalahan yang tidak ada. */
+      h += '<div class="notice warn">⚠ <div><b>' + dlm.length + ' resep rantainya lebih dalam dari 6 tingkat</b>, '
+        + 'jadi penguraiannya berhenti dan sebagian bahan tidak terhitung. Ini bukan salah data — '
+        + 'rantainya memang panjang.<br><b>Yang kena:</b> ' + dlm.slice(0, 12).map(esc).join(', ')
+        + (dlm.length > 12 ? ', dan ' + (dlm.length - 12) + ' lagi' : '') + '.</div></div>';
+    }
   }
 
   /* Kosongnya dibedakan di mnIsiBahanHtml(): "tidak ada satu pun base yang
@@ -4054,6 +4104,233 @@ function blnAktifPromo() {
 function lapPromo(b) { return ((AN && AN.data && AN.data.promo) || {})[b || blnAktifPromo()] || null; }
 function blnPilihPromo(b) { BLN_PROMO = b; render(); }
 function prUrut(v) { PR_URUT = v; render(); }
+
+/* ================= HALAMAN: VOID & CANCEL MENU =================
+   Pemilih bulannya SENDIRI (BLN_VOID), terpisah dari BLN milik laporan
+   penjualan dan BLN_PROMO — bulan yang ada di satu sisi belum tentu ada di
+   sisi lain, dan pemilih bersama akan memajang bulan yang halaman ini tidak
+   punya datanya lalu terbaca sebagai data hilang. */
+let BLN_VOID = null;
+let VD_URUT = 'baris';
+let VD_Q = '';
+const blnAdaVoid = () => Object.keys((AN && AN.data && AN.data.voidb) || {}).sort().reverse();
+function blnAktifVoid() {
+  const a = blnAdaVoid();
+  if (BLN_VOID && a.indexOf(BLN_VOID) >= 0) return BLN_VOID;
+  return a[0] || null;
+}
+function lapVoid(b) { return ((AN && AN.data && AN.data.voidb) || {})[b || blnAktifVoid()] || null; }
+function blnPilihVoid(b) { BLN_VOID = b; render(); }
+function vdUrut(k) { VD_URUT = k; render(); }
+function pilihBulanVoid() {
+  const a = blnAdaVoid(), b = blnAktifVoid();
+  if (!a.length) return '';
+  const d = lapVoid(b);
+  return '<div class="card" style="padding:14px 18px;margin-bottom:16px">'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<b style="font-size:13px">Bulan</b>'
+    + a.map(x => '<span class="qa-chip' + (x === b ? ' on' : '') + '" data-b="' + esc(x) + '"'
+        + ' onclick="blnPilihVoid(this.dataset.b)">' + esc(fmtBln(x)) + '</span>').join('')
+    + '<span style="flex:1"></span>'
+    + '<span class="helper" style="margin:0">' + (d ? esc('Cancel Menu Detail Report · diunggah ' + fmtTgl(d.diunggah) + (d.oleh ? ' oleh ' + d.oleh : '')) : '')
+    + '</span></div></div>';
+}
+
+/* DIHITUNG SAAT MENGGAMBAR, bukan saat mengurai — aturan yang sama dengan
+   menuNormal() dan rekapKanal(). Yang dibakukan ke dalam ringkasan tersimpan
+   tidak akan pernah ikut membaik kalau pengelompokannya diperbaiki bulan
+   depan, dan yang memperbaikinya tidak punya cara tahu kenapa angkanya tidak
+   berubah. */
+function vdKelompok(baris, ambil) {
+  const m = {};
+  baris.forEach(x => {
+    const asli = ambil(x);
+    /* Dikelompokkan TANPA memandang huruf besar-kecil, tapi yang DITAMPILKAN
+       ejaan yang pertama ketemu. Alasan void diketik orang ("ganti produk" vs
+       "Ganti Produk"), dan dua ejaan yang sama artinya berdiri sebagai dua
+       baris membuat yang terbanyak terbelah. Dibesarkan seluruhnya pun salah:
+       isinya kalimat, bukan nama menu. */
+    const k = asli.trim().toUpperCase();
+    if (!m[k]) m[k] = { nama: asli.trim(), baris: 0, qty: 0, total: 0, bill: {} };
+    m[k].baris++; m[k].qty += x.qty; m[k].total += x.total;
+    if (x.bill) m[k].bill[x.bill] = 1;
+  });
+  return Object.keys(m).map(k => ({
+    nama: m[k].nama, baris: m[k].baris, qty: m[k].qty, total: m[k].total,
+    bill: Object.keys(m[k].bill).length
+  })).sort((a, x) => (x.baris - a.baris) || (x.total - a.total) || (a.nama < x.nama ? -1 : 1));
+}
+
+function vVoid() {
+  const V = document.getElementById('app-view');
+  const b = blnAktifVoid(), d = lapVoid(b);
+  let h = pilihBulanVoid();
+
+  if (!d) {
+    V.innerHTML = h + '<div class="empty"><div class="big">&#8709;</div>'
+      + '<b>Belum ada laporan Void/Cancel yang diunggah.</b>'
+      + '<div style="margin-top:6px">Buka <b>Unggah Laporan</b> lalu pilih berkas '
+      + '<i>Cancel Menu Detail Report</i> dari POS. Jenis berkasnya dikenali sendiri, '
+      + 'jadi tidak ada kotak unggah yang perlu dipilih.</div></div>';
+    return;
+  }
+  const baris = Array.isArray(d.baris) ? d.baris : [];
+  const r = d.ringkas || {};
+  if (!baris.length) {
+    V.innerHTML = h + '<div class="notice warn">&#9888; <div><b>Laporan bulan ini kosong.</b> '
+      + 'Tidak ada satu baris pembatalan pun yang terbaca. Unggah ulang berkasnya.</div></div>';
+    return;
+  }
+
+  /* CANCEL DAN VOID DIPISAH ANGKANYA, dan itu bukan kerapian: di Agustus 2026
+     Cancel membawa 68% nilainya walau barisnya cuma seperlima. Digabung jadi
+     satu angka, yang membaca halaman bernama "Void" mengira seluruhnya void. */
+  const jenisNya = x => (x.jenis || '').trim().toUpperCase();
+  const vd = baris.filter(x => jenisNya(x) === 'VOID');
+  const cn = baris.filter(x => jenisNya(x) && jenisNya(x) !== 'VOID');
+  const jml = a => a.reduce((n, x) => n + x.total, 0);
+  const billBeda = a => { const m = {}; a.forEach(x => { if (x.bill) m[x.bill] = 1; }); return Object.keys(m).length; };
+
+  const orang = vdKelompok(baris, x => x.by || '(tanpa nama)');
+  const alasan = vdKelompok(baris, x => x.nota || '(tanpa alasan)');
+  const teratas = orang[0];
+
+  h += '<div class="grid g4" style="margin-bottom:18px">'
+    + kartu('Nilai Dibatalkan', rp0(jml(baris)),
+        'Void ' + rp0(jml(vd)) + ' &middot; Cancel ' + rp0(jml(cn)))
+    + kartu('Bill Tersentuh', billBeda(baris).toLocaleString('id-ID'),
+        baris.length.toLocaleString('id-ID') + ' baris item')
+    + kartu('Item Dibatalkan', (r.qty || baris.reduce((n, x) => n + x.qty, 0)).toLocaleString('id-ID'),
+        'jumlah qty, bukan jumlah baris')
+    + kartu('Paling Sering', esc(teratas ? teratas.nama : '—'),
+        teratas ? (teratas.baris + ' baris &middot; ' + teratas.bill + ' bill') : '')
+    + '</div>';
+
+  /* SATU BILL BISA MEMBAWA BELASAN BARIS. Di berkas Agustus 2026: 84 baris
+     untuk 17 bill, dan satu bill sendirian membawa 16 baris. "Berapa kali
+     pembatalan terjadi" dan "berapa item yang dibatalkan" karena itu dua
+     angka yang berbeda, dan yang tertukar melaporkan lima kali lipat. */
+  if (baris.length > billBeda(baris)) {
+    h += '<div class="notice info">&#8505; <div><b>' + baris.length + ' baris item</b> berasal dari '
+      + '<b>' + billBeda(baris) + ' bill</b>. Satu bill bisa membatalkan banyak item sekaligus, jadi '
+      + 'jumlah baris BUKAN jumlah kejadian pembatalan.</div></div>';
+  }
+
+  /* ---- siapa yang melakukan ---- */
+  h += '<div class="card"><h3>Siapa yang Membatalkan</h3>'
+    + '<div class="card-sub">Dari kolom <i>Cancel / Void By</i> di berkas POS. '
+    + 'Diurut menurut jumlah baris item.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Nama / Akun</th>'
+    + '<th class="num">Baris</th><th class="num">Bill</th><th class="num">Qty</th>'
+    + '<th class="num">% baris</th><th class="num">Nilai</th></tr></thead><tbody>';
+  orang.forEach((x, i) => {
+    h += '<tr><td>' + (i + 1) + '</td><td><b>' + esc(x.nama) + '</b></td>'
+      + '<td class="num">' + x.baris.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + x.bill.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + pct(x.baris, baris.length) + '%</td>'
+      + '<td class="num mono">' + rp0(x.total) + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+  /* NAMA DI KOLOM ITU BELUM TENTU ORANG. Di Agustus 2026, 75 dari 84 baris
+     tercatat atas nama "SPV" — akun jabatan yang dipakai bersama, bukan satu
+     orang. Tanpa kalimat ini, peringkat teratasnya dibaca sebagai satu orang
+     yang membatalkan 75 item. */
+  h += '<div class="notice warn">&#9888; <div>Isinya <b>akun yang menekan tombolnya</b>, dan sebagian '
+    + 'adalah nama JABATAN yang dipakai bersama (mis. <b>SPV</b>, <b>OPERATIONAL MANAGER</b>) — '
+    + 'bukan satu orang. Untuk menelusuri sampai ke orangnya, yang perlu diubah cara login di POS, '
+    + 'bukan halaman ini.</div></div></div>';
+
+  /* ---- alasan ---- */
+  h += '<div class="card"><h3>Alasan Pembatalan</h3>'
+    + '<div class="card-sub">Dari kolom <i>Cancel Notes</i> — teks bebas yang diketik saat '
+    + 'membatalkan. Ejaan berbeda huruf besar-kecil digabung; yang tampil ejaan pertama.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>#</th><th>Alasan</th>'
+    + '<th class="num">Baris</th><th class="num">Bill</th><th class="num">Qty</th>'
+    + '<th class="num">% baris</th><th class="num">Nilai</th></tr></thead><tbody>';
+  alasan.forEach((x, i) => {
+    h += '<tr><td>' + (i + 1) + '</td><td>' + esc(x.nama) + '</td>'
+      + '<td class="num">' + x.baris.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + x.bill.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
+      + '<td class="num">' + pct(x.baris, baris.length) + '%</td>'
+      + '<td class="num mono">' + rp0(x.total) + '</td></tr>';
+  });
+  h += '</tbody></table></div></div>';
+
+  /* ---- jam ---- */
+  const perJam = {};
+  let tanpaJam = 0;
+  baris.forEach(x => { if (x.jam >= 0 && x.jam <= 23) perJam[x.jam] = (perJam[x.jam] || 0) + 1; else tanpaJam++; });
+  const jamAda = Object.keys(perJam).map(Number).sort((a, x) => a - x);
+  const maksJam = jamAda.reduce((a, j) => Math.max(a, perJam[j]), 0);
+  h += '<div class="card"><h3>Jam Pembatalan</h3>'
+    + '<div class="card-sub">Dari kolom <i>Cancel / Void Time</i>, dibaca sebagai jam WIB apa '
+    + 'adanya. Jam yang tidak pernah ada pembatalannya memang tidak digambar.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Jam</th><th class="num">Baris</th>'
+    + '<th class="num">% baris</th><th></th></tr></thead><tbody>';
+  jamAda.forEach(j => {
+    const w = maksJam ? Math.round(perJam[j] / maksJam * 100) : 0;
+    h += '<tr><td><b>' + (j < 10 ? '0' : '') + j + ':00</b></td>'
+      + '<td class="num">' + perJam[j] + '</td>'
+      + '<td class="num">' + pct(perJam[j], baris.length) + '%</td>'
+      + '<td style="width:45%"><div style="background:var(--line);border-radius:4px;height:9px">'
+      + '<div style="width:' + w + '%;background:var(--gold);height:9px;border-radius:4px"></div></div></td></tr>';
+  });
+  h += '</tbody></table></div>';
+  if (tanpaJam) h += '<div class="helper">' + tanpaJam + ' baris jamnya tidak terbaca, jadi tidak ikut di tabel ini.</div>';
+  h += '</div>';
+
+  /* ---- detail ---- */
+  h += '<div class="card"><h3>Detail Tiap Item yang Dibatalkan</h3>'
+    + '<div class="card-sub">Satu baris = satu item. Cari di nama menu, alasan, nomor bill, '
+    + 'atau nama yang membatalkan.</div>'
+    + '<div style="margin:0 0 12px">' + mnKotakCari('vd_q', VD_Q, 'Cari menu / alasan / bill / nama\u2026') + '</div>'
+    + '<div id="vd_detail">' + vdDetailHtml() + '</div></div>';
+
+  /* Yang dibuang & yang terpotong DISEBUT angkanya. Daftar yang menyusut
+     tanpa keterangan dilaporkan sebagai data hilang. */
+  if (r.blnLain) h += '<div class="helper">' + r.blnLain + ' baris bertanggal di luar ' + esc(fmtBln(b))
+    + ' tidak ikut — aturan yang sama dengan halaman lain, supaya satu bulan tidak memajang data bulan sebelah.</div>';
+  if (r.terpotong) h += '<div class="notice warn">&#9888; <div>' + r.terpotong + ' baris tidak ikut tersimpan '
+    + '(batas ' + VOID_MAKS + ' baris per bulan). Angka di halaman ini karena itu lebih kecil daripada berkasnya.</div></div>';
+  if (r.takTerbaca) h += '<div class="helper">' + r.takTerbaca + ' baris waktunya tidak terbaca dan dilewati.</div>';
+
+  V.innerHTML = h;
+}
+function vdDetailHtml() {
+  const d = lapVoid();
+  const semua = (d && Array.isArray(d.baris)) ? d.baris : [];
+  const q = String(VD_Q || '').trim().toLowerCase();
+  const list = !q ? semua : semua.filter(x =>
+    (x.menu || '').toLowerCase().indexOf(q) > -1 ||
+    (x.nota || '').toLowerCase().indexOf(q) > -1 ||
+    (x.bill || '').toLowerCase().indexOf(q) > -1 ||
+    (x.by || '').toLowerCase().indexOf(q) > -1 ||
+    (x.orderBy || '').toLowerCase().indexOf(q) > -1);
+  if (!list.length) return '<div class="helper">Tidak ada baris yang cocok dengan \u201c' + esc(VD_Q) + '\u201d.</div>';
+  const urut = list.slice().sort((a, x) => (a.tgl < x.tgl ? 1 : a.tgl > x.tgl ? -1 : 0) || (x.jam - a.jam));
+  let h = '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Jam</th><th>Bill</th>'
+    + '<th>Item</th><th class="num">Qty</th><th class="num">Nilai</th><th>Jenis</th>'
+    + '<th>Dibatalkan oleh</th><th>Dipesan oleh</th><th>Alasan</th></tr></thead><tbody>';
+  urut.forEach(x => {
+    const jn = (x.jenis || '').trim().toUpperCase();
+    h += '<tr><td>' + esc(fmtTgl(x.tgl)) + '</td>'
+      + '<td class="mono">' + (x.jam >= 0 ? ((x.jam < 10 ? '0' : '') + x.jam + ':00') : '—') + '</td>'
+      + '<td class="mono" style="font-size:11px">' + esc(x.bill) + '</td>'
+      + '<td><b>' + esc(x.menu) + '</b>' + (x.kat ? '<div class="helper" style="margin:0">' + esc(x.kat) + '</div>' : '') + '</td>'
+      + '<td class="num">' + x.qty.toLocaleString('id-ID') + '</td>'
+      + '<td class="num mono">' + rp0(x.total) + '</td>'
+      + '<td><span class="badge' + (jn === 'VOID' ? '' : ' b-warn') + '">' + esc(x.jenis || '—') + '</span></td>'
+      + '<td>' + esc(x.by || '—') + '</td>'
+      + '<td>' + esc(x.orderBy || '—') + '</td>'
+      + '<td>' + esc(x.nota || '—') + '</td></tr>';
+  });
+  h += '</tbody></table></div>';
+  h += '<div class="helper">Menampilkan ' + urut.length + ' dari ' + semua.length + ' baris'
+    + (q ? ' (tersaring)' : '') + '.</div>';
+  return h;
+}
 
 function pilihBulanPromo() {
   const a = blnAdaPromo(), b = blnAktifPromo();
@@ -5556,11 +5833,33 @@ function vUnggah() {
     : '<div class="empty">Belum ada laporan promo tersimpan.</div>';
   h += '</div>';
 
+  const av = blnAdaVoid();
+  h += '<div class="card"><h3>Laporan Void/Cancel Tersimpan</h3>';
+  h += av.length
+    ? '<div class="tbl-wrap"><table><thead><tr><th>Bulan</th><th class="num">Baris</th>'
+      + '<th class="num">Bill</th><th class="num">Qty</th><th class="num">Nilai</th>'
+      + '<th>Diunggah</th><th></th></tr></thead><tbody>'
+      + av.map(b => { const d = AN.data.voidb[b], r = d.ringkas || {};
+          return '<tr><td><b>' + esc(fmtBln(b)) + '</b></td>'
+            + '<td class="num">' + (r.nBaris || 0).toLocaleString('id-ID') + '</td>'
+            + '<td class="num">' + (r.nBill || 0).toLocaleString('id-ID') + '</td>'
+            + '<td class="num">' + (r.qty || 0).toLocaleString('id-ID') + '</td>'
+            + '<td class="num mono">' + rp0(r.total) + '</td>'
+            + '<td><span class="helper" style="margin:0">' + esc(fmtTgl(d.diunggah))
+              + (d.oleh ? ' · ' + esc(d.oleh) : '') + '</span></td>'
+            + '<td data-aks style="text-align:right"><button class="btn btn-ghost btn-xs" data-b="' + esc(b) + '"'
+              + ' onclick="anHapusVoid(this.dataset.b)">Hapus</button></td></tr>';
+        }).join('')
+      + '</tbody></table></div>'
+    : '<div class="empty">Belum ada laporan Void/Cancel tersimpan.</div>';
+  h += '</div>';
+
   V.innerHTML = h;
 }
 
 function pratinjauUnggah(u) {
   if (u.kind === 'promo') return pratinjauPromo(u);
+  if (u.kind === 'void') return pratinjauVoid(u);
   const b = u.bulan;
   const lama = (AN.data.laporan || {})[b];
   const r = u.ringkas;
@@ -6568,9 +6867,125 @@ function ringkasPromo(baris, iH, K, namaBerkas) {
    Jenisnya dikenali dari ADANYA kolom Promotion Name + Promotion Type, bukan
    dari nama berkasnya: nama berkas diketik orang dan tidak pernah bisa
    dipercaya. Aturan yang sama dengan pembeda Menu Report vs Bill Report. */
+/* ================= LAPORAN CANCEL / VOID MENU =================
+   Permintaan user 16 September 2026: "tab baru namanya Void ... siapa yang
+   sering melakukan void, per detailnya, alasan void itu karena apa, item,
+   jumlah total, harganya, dan jamnya."
+
+   Berkasnya: Cancel Menu Detail Report dari POS. Bentuknya SATU BARIS PER
+   ITEM yang dibatalkan, bukan per bill.
+
+   PENGENALNYA WAJIB BERDIRI DI DEPAN uraiBerkas(), dan ini bukan kerapian.
+   Diukur 16 September 2026 atas berkas aslinya: DUA BELAS kolomnya cocok
+   dengan KOL_CARI milik laporan penjualan — menu, qty, kategori, subtotal,
+   service, tax, total, nomor bill. Satu-satunya yang menahannya jatuh ke
+   ringkasPos() adalah ketiadaan kolom tanggal, dan itu margin setipis satu
+   nama kolom: begitu POS suatu hari menambahkan "Sales Date" ke laporan ini,
+   berkasnya akan tersimpan sebagai Detail Report beromset Rp8,4 juta yang
+   MENIMPA ringkasan penjualan bulan itu. Bentuk kesalahan yang sama persis
+   sudah tercatat untuk Promotion Report.
+
+   CANCEL DAN VOID ADA DI SATU BERKAS, dan keduanya dipertahankan. Di berkas
+   Agustus 2026: 67 baris Void (Rp2.696.600) dan 17 baris Cancel
+   (Rp5.772.450) — jadi menyaring ke Void saja membuang 68% nilainya, di
+   halaman yang justru dibuka untuk melihat berapa yang dibatalkan. Labelnya
+   diambil APA ADANYA dari kolomnya, bukan ditebak: perbedaan arti Cancel vs
+   Void ditentukan POS, bukan oleh kita.
+
+   JAMNYA DIBACA APA ADANYA dari serial Excel — TIDAK digeser +7. Dibuktikan
+   dengan mencocokkan serial Order Time ke epoch di nomor bill (10 digit
+   pertama SLMCL…): pada 31 baris yang bisa dicocokkan, serial = epoch + 7
+   jam pada SELURUHNYA dan = epoch UTC pada NOL baris. Jadi angka di serial
+   itu sudah jam WIB. Digeser lagi, seluruh kolom jam meleset tujuh jam dan
+   tetap terlihat wajar. */
+const KOL_VOID = {
+  bill    : ['sales number','bill number','no bill'],
+  menu    : ['menu','menu name','item'],
+  kat     : ['menu category'],
+  katD    : ['menu category detail'],
+  orderBy : ['order by','ordered by','waiter'],
+  orderTgl: ['order time'],
+  by      : ['cancel / void by','cancel/void by','void by','cancel by'],
+  waktu   : ['cancel / void time','cancel/void time','void time','cancel time'],
+  jenis   : ['cancel / void','cancel/void','type','action'],
+  nota    : ['cancel notes','void notes','notes','reason'],
+  qty     : ['qty','quantity'],
+  sub     : ['subtotal','sub total'],
+  svc     : ['service charge'],
+  tax     : ['tax'],
+  total   : ['total']
+};
+/* Batasnya longgar, tapi ADA: di produksi sebulan cuma 84 baris, sementara
+   POS yang suatu hari mengekspor rentang setahun membuat blob ringkasannya
+   meledak. Yang terpotong DISEBUT angkanya — daftar yang diam-diam menyusut
+   dibaca sebagai bulan yang tenang. */
+const VOID_MAKS = 800;
+/* "-" adalah kolom kosong versi POS ini, bukan nama orang. Sudah dibayar di
+   halaman Error & Koreksi Bill, tempat Employee Name berisi "-" di 15.918
+   dari 19.739 baris. Di berkas ini kolom Order By berisi "-" pada 8 dari 84
+   baris; dibiarkan, ia berdiri sebagai orang yang paling sering memesan. */
+function vdOrang(v) { const t = String(v == null ? '' : v).trim(); return (!t || t === '-') ? '' : t; }
+function ringkasVoid(baris, iH, K, namaBerkas) {
+  const data = [];
+  const bln = {};
+  let blnLain = 0, takTerbaca = 0;
+  for (let i = iH + 1; i < baris.length; i++) {
+    const b = baris[i];
+    if (!b) continue;
+    const bill = String(b[K.bill] == null ? '' : b[K.bill]).trim();
+    const menu = String(b[K.menu] == null ? '' : b[K.menu]).trim();
+    if (!bill && !menu) continue;
+    const t = isoDari(b[K.waktu]);
+    const j = jamDari(b[K.waktu]);
+    if (!t) { takTerbaca++; continue; }
+    const m = t.slice(0, 7);
+    bln[m] = (bln[m] || 0) + 1;
+    data.push({
+      tgl: t, jam: j,
+      bill: bill, menu: menu,
+      kat: String(b[K.katD] == null ? '' : b[K.katD]).trim(),
+      orderBy: vdOrang(b[K.orderBy]),
+      by: vdOrang(b[K.by]),
+      /* Label apa adanya dari kolomnya. Dibakukan huruf besar HANYA untuk
+         pengelompokan di layar, bukan di sini — yang tersimpan tetap yang
+         ditulis POS. */
+      jenis: String(b[K.jenis] == null ? '' : b[K.jenis]).trim(),
+      nota: String(b[K.nota] == null ? '' : b[K.nota]).trim(),
+      qty: angka(b[K.qty]),
+      total: angka(b[K.total]),
+      sub: angka(b[K.sub])
+    });
+  }
+  /* BULANNYA DARI DATANYA, bukan dari baris "Period" di kepala berkas: baris
+     itu memuat rentang yang DIMINTA saat ekspor, dan yang diminta belum tentu
+     yang keluar. Bulan dengan baris terbanyak yang menang. */
+  const bulan = Object.keys(bln).sort((a, x) => bln[x] - bln[a])[0] || (todayISO() || '').slice(0, 7);
+  const ikut = data.filter(x => x.tgl.slice(0, 7) === bulan);
+  blnLain = data.length - ikut.length;
+  const terpotong = Math.max(0, ikut.length - VOID_MAKS);
+  const simpan = ikut.slice(0, VOID_MAKS);
+  const bl = {}; simpan.forEach(x => { if (x.bill) bl[x.bill] = 1; });
+  return {
+    bulan: bulan, berkas: namaBerkas, baris: simpan,
+    ringkas: {
+      nBaris: simpan.length,
+      nBill: Object.keys(bl).length,
+      qty: simpan.reduce((a, x) => a + x.qty, 0),
+      total: simpan.reduce((a, x) => a + x.total, 0),
+      blnLain: blnLain, terpotong: terpotong, takTerbaca: takTerbaca
+    }
+  };
+}
 function uraiBerkas(baris, namaBerkas) {
   const iH = cariBarisKepala(baris);
   if (iH < 0) throw new Error('Baris kepala kolom tidak ketemu. Pastikan berkasnya hasil ekspor POS, bukan berkas yang sudah disunting.');
+  /* VOID DIPERIKSA PALING DEPAN. Lihat alasannya panjang lebar di atas
+     KOL_VOID: dua belas kolom berkas ini cocok dengan laporan penjualan, dan
+     yang menahannya jatuh ke sana cuma ketiadaan satu kolom tanggal.
+     Penandanya kolom Cancel/Void + Cancel Notes — BUKAN nama berkasnya,
+     yang diketik orang dan tidak pernah bisa dipercaya. */
+  const Vd = petaKolom(baris[iH], KOL_VOID);
+  if (Vd.jenis && Vd.nota && Vd.waktu) { const u = ringkasVoid(baris, iH, Vd, namaBerkas); u.kind = 'void'; return u; }
   const P = petaKolom(baris[iH], KOL_PROMO);
   if (P.nama && P.tipe) { const u = ringkasPromo(baris, iH, P, namaBerkas); u.kind = 'promo'; return u; }
   const u = ringkasPos(baris, namaBerkas); u.kind = 'pos'; return u;
@@ -6608,6 +7023,7 @@ async function anSimpanUnggah() {
   if (!bolehAksi('unggah') || !UNGGAH_HASIL) return;
   const u = UNGGAH_HASIL;
   if (u.kind === 'promo') return anSimpanPromo(u);
+  if (u.kind === 'void') return anSimpanVoid(u);
   const lama = AN.data.laporan[u.bulan];
   if (lama && !confirm('Ringkasan ' + fmtBln(u.bulan) + ' sudah ada dan akan DITIMPA.\n\n'
       + 'Yang sekarang: ' + (lama.ringkas || {}).bill + ' bill.\n'
@@ -6687,6 +7103,42 @@ async function anSimpanPromo(u) {
     render();
   }
 }
+/* DAFTAR KUNCI TERTUTUP, sama berbahayanya dengan anSimpanUnggah() dan
+   anSimpanPromo(): kunci yang dihasilkan ringkasVoid() tapi tidak disebut di
+   sini DIBUANG di klien tanpa satu pun galat — sebelum menyentuh server.
+   Itu tempat `paket`, `kategori`, dan `katMenu` tertinggal lima hari.
+   Ujinya menjaganya sebagai INVARIAN, bukan daftar nama yang harus diingat. */
+async function anSimpanVoid(u) {
+  const lama = (AN.data.voidb || {})[u.bulan];
+  if (lama && !confirm('Laporan Void/Cancel ' + fmtBln(u.bulan) + ' sudah ada dan akan DITIMPA.\n\n'
+      + 'Yang sekarang: ' + ((lama.ringkas || {}).nBaris || 0) + ' baris.\n'
+      + 'Yang baru   : ' + u.ringkas.nBaris + ' baris.\n\nLanjut?')) return;
+  if (!AN.data.voidb) AN.data.voidb = {};
+  const sebelum = AN.data.voidb[u.bulan];
+  AN.data.voidb[u.bulan] = {
+    diunggah: u.diunggah, oleh: u.oleh, berkas: u.berkas,
+    baris: u.baris, ringkas: u.ringkas
+  };
+  if (await simpan()) {
+    UNGGAH_HASIL = null; BLN_VOID = u.bulan;
+    toast('Laporan Void/Cancel ' + fmtBln(u.bulan) + ' tersimpan.');
+    go('voidb');
+  } else {
+    /* Gagal simpan mengembalikan keadaan — ringkasan yang tertinggal di layar
+       padahal server tidak menerimanya akan dibaca sebagai sudah tersimpan. */
+    if (sebelum) AN.data.voidb[u.bulan] = sebelum; else delete AN.data.voidb[u.bulan];
+    render();
+  }
+}
+async function anHapusVoid(b) {
+  if (!bolehAksi('unggah')) return;
+  if (!confirm('Hapus laporan Void/Cancel ' + fmtBln(b) + '?\n\nBerkas aslinya tidak ikut terhapus — '
+      + 'bisa diunggah lagi kapan saja.')) return;
+  const sebelum = (AN.data.voidb || {})[b];
+  delete AN.data.voidb[b];
+  if (await simpan()) { if (BLN_VOID === b) BLN_VOID = null; toast('Dihapus.'); render(); }
+  else { AN.data.voidb[b] = sebelum; render(); }
+}
 async function anHapusPromo(b) {
   if (!bolehAksi('unggah')) return;
   if (!confirm('Hapus laporan promo ' + fmtBln(b) + '?\n\nBerkas aslinya tidak ikut terhapus — '
@@ -6695,6 +7147,42 @@ async function anHapusPromo(b) {
   delete AN.data.promo[b];
   if (await simpan()) { if (BLN_PROMO === b) BLN_PROMO = null; toast('Dihapus.'); render(); }
   else { AN.data.promo[b] = sebelum; render(); }
+}
+
+/* Pratinjau berkas Cancel/Void. Bentuknya sejajar dengan pratinjauPromo()
+   supaya yang sudah terbiasa dengan satu tidak perlu belajar membaca yang
+   lain — dan yang disebut di sini persis angka yang akan tersimpan, bukan
+   angka di berkasnya: yang terpotong & yang bulan sebelah sudah dibuang di
+   ringkasVoid(), jadi pratinjau yang menyebut angka berkas akan berbeda dari
+   halamannya sendiri sesudah disimpan. */
+function pratinjauVoid(u) {
+  const b = u.bulan;
+  const lama = (AN.data.voidb || {})[b];
+  const r = u.ringkas || {};
+  const jns = {};
+  (u.baris || []).forEach(x => { const k = (x.jenis || '(tanpa label)').trim().toUpperCase(); jns[k] = (jns[k] || 0) + 1; });
+  const org = {};
+  (u.baris || []).forEach(x => { const k = x.by || '(tanpa nama)'; org[k] = (org[k] || 0) + 1; });
+  const orgUrut = Object.keys(org).sort((a, x) => org[x] - org[a]);
+  let h = '<div class="card"><h3>Pratinjau — Cancel Menu Detail Report</h3>'
+    + '<div class="card-sub">' + esc(u.berkas || '') + ' &middot; bulan <b>' + esc(fmtBln(b)) + '</b></div>'
+    + '<div class="grid g4" style="margin-bottom:14px">'
+    + kartu('Baris Item', (r.nBaris || 0).toLocaleString('id-ID'), 'satu baris = satu item')
+    + kartu('Bill Tersentuh', (r.nBill || 0).toLocaleString('id-ID'), 'kejadian pembatalan')
+    + kartu('Qty', (r.qty || 0).toLocaleString('id-ID'), 'jumlah item')
+    + kartu('Nilai', rp0(r.total), 'termasuk service &amp; pajak')
+    + '</div>';
+  h += '<div class="helper">Jenis: ' + Object.keys(jns).map(k => esc(k) + ' ' + jns[k]).join(' &middot; ') + '</div>';
+  h += '<div class="helper">Terbanyak: ' + orgUrut.slice(0, 4).map(k => esc(k) + ' ' + org[k]).join(' &middot; ') + '</div>';
+  if (r.blnLain) h += '<div class="helper">' + r.blnLain + ' baris di luar ' + esc(fmtBln(b)) + ' tidak ikut.</div>';
+  if (r.terpotong) h += '<div class="notice warn">&#9888; <div>' + r.terpotong + ' baris terpotong (batas ' + VOID_MAKS + ').</div></div>';
+  if (r.takTerbaca) h += '<div class="helper">' + r.takTerbaca + ' baris waktunya tidak terbaca, dilewati.</div>';
+  if (lama) h += '<div class="notice warn">&#9888; <div>Laporan Void/Cancel <b>' + esc(fmtBln(b))
+    + '</b> sudah ada (' + ((lama.ringkas || {}).nBaris || 0) + ' baris) dan akan <b>DITIMPA</b>.</div></div>';
+  h += '<div style="display:flex;gap:8px;margin-top:12px">'
+    + '<button class="btn btn-gold" onclick="anSimpanUnggah()">Simpan</button>'
+    + '<button class="btn btn-ghost" onclick="anBatalUnggah()">Batal</button></div></div>';
+  return h;
 }
 
 /* Pratinjau berkas promo. Bentuknya sejajar dengan pratinjauUnggah() supaya
@@ -6779,7 +7267,7 @@ function render() {
     return;
   }
   ({ ringkasan:vRingkasan, tren:vTren, hari:vHari, menu:vMenu, kategori:vKategori,
-     kunjungan:vKunjungan, talent:vTalent, error:vError, promo:vPromo, event:vEvent, marketing:vMarketing, unggah:vUnggah,
+     kunjungan:vKunjungan, talent:vTalent, error:vError, voidb:vVoid, promo:vPromo, event:vEvent, marketing:vMarketing, unggah:vUnggah,
      pengaturan:vPengaturan, akses:vAkses }[CURRENT] || vRingkasan)();
   terapkanKunci();
 }

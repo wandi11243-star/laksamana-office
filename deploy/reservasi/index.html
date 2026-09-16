@@ -5805,6 +5805,51 @@ function slotKwitansi(r, cls){
   if(!hasDP(r)) return "";
   return `<span class="kwiSlot" data-res="${esc(r.id)}" data-cls="${cls}">${slotKwitansiHTML(r, cls)}</span>`;
 }
+/* ---------- KWITANSI DITAHAN SELAMA DANANYA BELUM DIVERIFIKASI ----------
+   (16 September 2026, permintaan user: "request kwitansi tidak bisa di-request
+   jika dana masuk belum terverifikasi".)
+
+   Ini menutup lubang yang dibuka setengah pada 20 Agustus 2026. Waktu itu
+   penerbitan kwitansi dipindah ke Finance justru karena "kwitansi bisa keluar
+   untuk DP yang buktinya belum diverifikasi" — tapi PERMINTAANNYA sendiri
+   tetap boleh berangkat, dan yang menahannya cuma satu kalimat di kotak
+   konfirmasi yang tinggal ditekan OK. Jadi antrean Finance tetap terisi
+   permintaan yang uangnya belum tentu ada, dan yang memeriksanya tetap harus
+   menolaknya satu per satu.
+
+   SEMUA transfer wajib terverifikasi, bukan salah satu. Lembar kwitansinya
+   menyebut dpTotal(r) — SELURUH DP, termasuk yang belum dicek — jadi satu
+   transfer yang belum terverifikasi berarti kertas yang dipegang tamu
+   mengakui uang yang belum tentu masuk rekening. Itu persis yang tidak boleh
+   terjadi, dan tidak ada angka lain yang bisa dipakai: kwitansi sebagian
+   bukan bentuk yang dikenal siapa pun di sini.
+
+   `rejected` ikut ditahan, dan itu bukan sekadar "belum": transfer yang
+   DITOLAK Finance adalah uang yang sudah diperiksa dan dinyatakan tidak ada.
+
+   YANG TIDAK IKUT DITAHAN: mengunduh kwitansi yang SUDAH terbit, dan jalur
+   langsung manajer/admin. Yang pertama karena lembarnya sudah jadi — menahan
+   unduhannya tidak menarik kembali apa pun. Yang kedua karena merekalah yang
+   berwenang memutuskan, dan mengunci mereka membuat tamu di depan kasir
+   pulang tanpa kertas saat Finance belum sempat memverifikasi; yang mereka
+   dapat PERINGATAN yang menyebut angkanya, bukan pintu terkunci. */
+function dpBelumVerif(r){ return dpsOf(r).filter(x => x && x.tfStatus !== "verified"); }
+function kwiTertahan(r){
+  const belum = dpBelumVerif(r);
+  if(!belum.length) return null;
+  return {
+    n: belum.length,
+    nominal: belum.reduce((a,x)=>a+(Number(x.amount)||0), 0),
+    ditolak: belum.filter(x=>x.tfStatus==="rejected").length
+  };
+}
+/* Satu kalimat, dipakai pita di layar DAN kotak konfirmasi — dua kalimat yang
+   disusun sendiri-sendiri akan menyimpang, dan yang menyimpang di sini adalah
+   alasan kenapa tombolnya tidak bisa ditekan. */
+function kwiTertahanTeks(t){
+  return t.n + " transfer belum terverifikasi" + (t.ditolak ? " (" + t.ditolak + " ditolak)" : "")
+       + " — " + rpDot(t.nominal);
+}
 function slotKwitansiHTML(r, cls, err){
   const inv = INV_CACHE[r.id];
   const tombolPdf = (judul)=>`<button class="btn btn-ghost ${cls}" onclick="closeModal();kwitansiPDF('${r.id}')" title="${esc(judul)}">🧾 Kwitansi PDF</button>`;
@@ -5828,15 +5873,26 @@ function slotKwitansiHTML(r, cls, err){
      terjangkau pun tombolnya tetap Kwitansi PDF: kwitansiPDF() sendiri yang
      nanti jatuh ke lembar tanpa tanda tangan, jadi mereka tidak pernah
      kehilangan kemampuan mencetak. */
-  if(bolehKwitansiLangsung())
-    return tombolPdf("Buka kwitansi berkop → simpan sebagai PDF / cetak");
+  if(bolehKwitansiLangsung()){
+    /* Peringatan, BUKAN kunci — lihat alasannya di atas kwiTertahan(). */
+    const t = kwiTertahan(r);
+    return tombolPdf("Buka kwitansi berkop → simpan sebagai PDF / cetak")
+      + (t ? ' <span class="badge-status st-pending" title="Lembarnya menyebut TOTAL DP '+rpDot(dpTotal(r))
+            +', termasuk yang belum dicek Finance.">⚠ '+esc(kwiTertahanTeks(t))+'</span>' : "");
+  }
 
   if(inv && inv.status==="MENUNGGU")
     return `<span class="badge-status st-pending" title="Diminta ${esc(inv.mintaOleh||"-")}${inv.mintaAt?" · "+fmtTs(inv.mintaAt):""}">⏳ Kwitansi menunggu Finance</span>`;
 
-  if(inv && inv.status==="DITOLAK")
-    return `<span class="badge-status st-noshow" title="${esc(inv.catatan||"")}">✕ Kwitansi ditolak</span>
-      <button class="btn btn-ghost ${cls}" onclick="mintaKwitansi('${r.id}')" title="Alasan: ${esc(inv.catatan||"-")}">🔁 Request ulang</button>`;
+  if(inv && inv.status==="DITOLAK"){
+    /* Request ULANG ikut ditahan. Kalau tidak, tombol ini jadi jalan pintas
+       yang melewati seluruh aturannya — dan justru inilah tombol yang paling
+       sering ditekan berulang kali. */
+    const t = kwiTertahan(r);
+    return `<span class="badge-status st-noshow" title="${esc(inv.catatan||"")}">✕ Kwitansi ditolak</span>` + (t
+      ? ` <span class="badge-status st-pending" title="${esc(kwiTertahanTeks(t))}">🔒 Menunggu verifikasi dana masuk</span>`
+      : ` <button class="btn btn-ghost ${cls}" onclick="mintaKwitansi('${r.id}')" title="Alasan: ${esc(inv.catatan||"-")}">🔁 Request ulang</button>`);
+  }
 
   if(inv === undefined)
     return `<button class="btn btn-ghost ${cls}" onclick="muatInvStatus('${r.id}')" title="${esc(err||"Status kwitansi belum terbaca dari modul Finance")}">🧾 Status kwitansi ${err?"gagal dibaca — coba lagi":"…"}</button>`;
@@ -5844,12 +5900,28 @@ function slotKwitansiHTML(r, cls, err){
   if(!bolehMintaKwitansi())
     return `<span class="badge-status st-pending" title="Kwitansi diminta oleh Host/Captain, Marketing, atau Cashier, lalu diterbitkan Finance.">🧾 Belum ada kwitansi</span>`;
 
+  /* Aturan yang cuma muncul SESUDAH tombolnya ditekan dibaca sebagai halaman
+     yang menolak, bukan sebagai syarat. Jadi tombolnya memang tidak digambar,
+     dan yang berdiri di tempatnya menyebut apa yang kurang + di mana
+     membetulkannya. */
+  const tahan = kwiTertahan(r);
+  if(tahan)
+    return `<span class="badge-status st-pending" title="${esc(kwiTertahanTeks(tahan))}. Verifikasi di halaman Dana Masuk (DP), lalu tombol Request Kwitansi muncul di sini.">🔒 Dana masuk belum diverifikasi</span>`;
   return `<button class="btn btn-ghost ${cls}" onclick="mintaKwitansi('${r.id}')" title="Minta Finance menerbitkan kwitansi resmi bertanda tangan untuk tamu ini">🧾 Request Kwitansi</button>`;
 }
 async function mintaKwitansi(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   if(!bolehMintaKwitansi()){ toast("Anda tidak punya akses meminta kwitansi.","err"); return; }
   if(!hasDP(r)){ toast("Tamu ini belum ada DP","err"); return; }
+  /* GERBANG SUNGGUHAN. Tidak menggambar tombolnya bukan penjagaan: fungsi ini
+     global dan bisa dipanggil dari console dalam sepuluh detik — aturan yang
+     sama dengan gerbang kedua di kwitansiPDF() tepat di bawah. */
+  const tahan = kwiTertahan(r);
+  if(tahan){
+    toast("Kwitansi belum bisa diminta — " + kwiTertahanTeks(tahan)
+      + ". Verifikasi dulu di halaman Dana Masuk (DP).", "err");
+    return;
+  }
   const belum = dpsOf(r).length - dpVerifiedCount(r);
   if(!confirm(`Minta Finance menerbitkan kwitansi resmi untuk "${r.name}"?\n\n`+
     `Total DP: ${rpDot(dpTotal(r))}\n`+
