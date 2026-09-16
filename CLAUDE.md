@@ -5833,7 +5833,7 @@ ber-zona, seluruh kolom jam meleset tujuh jam dan tetap terlihat wajar.
 - **Batas `VOID_MAKS = 800` baris**, dan yang terpotong disebut angkanya.
 
 ```bash
-node tools/uji-void.js   # 47 pemeriksaan, jsdom + berkas POS asli
+node tools/uji-void.js   # 52 pemeriksaan, jsdom + berkas POS asli
 ```
 
 Fixture CSV-nya dirancang supaya **tiap kesalahan memberi hasil yang BERBEDA**:
@@ -5855,6 +5855,44 @@ modul DW).
 > memang harus menampilkan alasan tiap barisnya apa adanya. Asersinya dijepit
 > ke kartu Alasan. Bentuk yang sama sudah menggigit di kolom Kontribusi, di
 > kartu kelompok halaman Kategori, dan di Rekap Kanal.
+
+#### Sidebar-nya HTML STATIS — menambah TITLES tidak melahirkan menunya
+
+Dilaporkan user beberapa menit sesudah tab ini naik: *“menu sub untuk void
+tidak muncul”*. Betul, dan sebabnya asumsi yang keliru saat menulisnya.
+
+**Sidebar modul Analytics BUKAN dibangun dari `Object.keys(TITLES)`.** Ia
+markup statis berisi `<a data-view="…">` di `<body>`, lengkap dengan ikon
+SVG-nya masing-masing — dan labelnya pun BERBEDA dari TITLES (`Error &
+Koreksi` di sidebar vs `Error & Koreksi Bill` di TITLES). Jadi halaman yang
+punya judul, punya penggambar, punya cabang router, dan bisa dibuka lewat
+`go()` tetap **tidak punya menu**. Tidak ada satu pun galat; gejalanya cuma
+baris yang tidak muncul di layar.
+
+> **Ujinya lolos seluruhnya waktu itu**, dan itu bagian yang layak diingat:
+> ia memeriksa `TITLES.voidb` ada dan `go(voidb)` mendarat — dua-duanya
+> benar. Bentuk kesalahan yang SAMA sudah tercatat untuk logo di panel Kas
+> Kecil: *“rujukan yang benar di berkas tidak membuktikan ada gambar yang
+> benar-benar digambar”*. Yang dijaga harus DOM-nya.
+
+Yang menjaganya sekarang **invarian dua arah**, bukan nama `voidb`: tiap kunci
+di `TITLES` wajib punya satu `<a data-view>` di sidebar, dan sebaliknya. Itu
+yang akan menangkap halaman BERIKUTNYA. Ditambah dua asersi DOM yang tidak
+bisa dipalsukan sumber:
+
+- menunya **tidak `display:none`** — `pasangMenu()` menyembunyikan baris yang
+  tidak boleh dibuka, dan menu yang ada tapi tersembunyi sama saja tidak ada
+  bagi yang mencarinya;
+- menunya **benar-benar diklik** (`MouseEvent`), bukan cuma ada di markup —
+  tautan yang tergambar tapi tidak tersambung ke apa pun terlihat persis sama
+  di layar sampai ada yang menekannya.
+
+Dua mutasi dicoba — mencabut menunya (gejala aslinya) dan menyembunyikannya
+lewat `pasangMenu()` — dan keduanya tertangkap.
+
+```bash
+node tools/uji-void.js   # 52 pemeriksaan (dari 47), jsdom + berkas POS asli
+```
 
 
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`

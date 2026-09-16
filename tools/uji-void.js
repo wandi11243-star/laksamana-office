@@ -227,6 +227,53 @@ async function unggah(w, nama, teks) {
   cek('...dan punya penggambar di peta router',
       /voidb\s*:\s*vVoid/.test(HTML_ASLI), 'router tidak menyebut vVoid');
 
+  /* ---------------------------------------------------------------
+     MENUNYA HARUS BENAR-BENAR ADA DI SIDEBAR — dan ini bukan pengulangan
+     asersi TITLES di atas.
+
+     Sidebar modul ini HTML STATIS berisi <a data-view="…">, BUKAN dibangun
+     dari Object.keys(TITLES). Jadi halaman yang punya judul, punya penggambar,
+     dan bisa dibuka lewat go() tetap TIDAK PUNYA MENU — tidak ada satu pun
+     galat, dan satu-satunya gejalanya menu yang tidak muncul di layar.
+     Persis itu yang terjadi saat tab Void pertama kali dikirim 16 September
+     2026, dan uji ini lolos seluruhnya waktu itu: ia memeriksa TITLES dan
+     go(), dua-duanya benar.
+
+     Bentuk kesalahan yang SAMA sudah tercatat untuk logo di panel Kas Kecil:
+     "rujukan yang benar di berkas tidak membuktikan ada gambar yang
+     benar-benar digambar". Yang dijaga karena itu DOM-nya, bukan sumbernya.
+
+     Dan yang dikunci INVARIANNYA, bukan nama 'voidb': tiap kunci di TITLES
+     wajib punya satu <a data-view> dan sebaliknya. Itu yang akan menangkap
+     halaman BERIKUTNYA yang ditambahkan tanpa menu. */
+  const navView = Array.prototype.map.call(
+    w.document.querySelectorAll('.nav a[data-view]'), a => a.dataset.view);
+  const titKunci = JSON.parse(w.eval('JSON.stringify(Object.keys(TITLES))'));
+  cek('tiap halaman di TITLES punya menu di sidebar',
+      titKunci.every(k => navView.indexOf(k) > -1),
+      'tanpa menu: ' + titKunci.filter(k => navView.indexOf(k) < 0).join(', '));
+  cek('...dan tiap menu di sidebar punya judul di TITLES',
+      navView.every(k => titKunci.indexOf(k) > -1),
+      'tanpa judul: ' + navView.filter(k => titKunci.indexOf(k) < 0).join(', '));
+  cek('menu Void berdiri di sidebar', navView.indexOf('voidb') > -1, navView.join(', '));
+
+  /* MENUNYA TERLIHAT, bukan cuma ada di markup. pasangMenu() menyembunyikan
+     baris yang tidak boleh dibuka lewat style.display — menu yang ada tapi
+     display:none sama saja tidak ada bagi yang mencarinya. */
+  const tautVoid = w.document.querySelector('.nav a[data-view="voidb"]');
+  cek('...dan tidak disembunyikan untuk yang berhak',
+      !!tautVoid && tautVoid.style.display !== 'none',
+      tautVoid ? 'display=' + tautVoid.style.display : 'tautannya tidak ada');
+
+  /* DIKLIK SUNGGUHAN. Tautan yang tergambar tapi tidak tersambung ke apa pun
+     terlihat persis sama di layar sampai ada yang menekannya. */
+  if (tautVoid) {
+    w.eval('CURRENT = "ringkasan";');
+    tautVoid.dispatchEvent(new w.MouseEvent('click', { bubbles: true, cancelable: true }));
+    await tunggu(80);
+    sama('menekan menunya benar-benar membuka halamannya', w.eval('CURRENT'), 'voidb');
+  }
+
   w.eval('go("voidb")');
   await tunggu(80);
   sama('go("voidb") benar-benar mendarat di sana', w.eval('CURRENT'), 'voidb');
