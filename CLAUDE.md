@@ -5895,6 +5895,203 @@ node tools/uji-void.js   # 52 pemeriksaan (dari 47), jsdom + berkas POS asli
 ```
 
 
+### Catatan Void manual: diisi Cashier, dibaca Kas Kecil (16 September 2026)
+
+Permintaan user: *"di bagian modul cashier dan modul finance > kas kecil, menu
+tab baru khusus lihat laporan Void. Setiap orang wajib melakukan input menu
+yang harus di-Void-kan"* — dengan enam isian: nama item, nomor bill, tanggal
+(otomatis tapi bisa diubah), siapa yang memesan, alasan/kronologi, dan nominal.
+
+| | |
+|---|---|
+| `deploy/cashier/` → **Void Menu** | tempat MENGISI + daftar tanggal yang dipilih |
+| `deploy/finance/kas/` → **Laporan Void** | **BACA SAJA** — rekap sebulan, per orang, per alasan |
+| `kompas-mysql` tabel **`void_log`** | datanya, lewat `voidList` / `voidSimpan` / `voidBatal` |
+
+**INPUTNYA CUMA DI SATU TEMPAT**, dan itu bukan kelalaian: aturan yang sama
+dengan Piutang di panel Brankas (*"bon yang bisa diketik di dua tempat akan
+punya dua angka berbeda suatu hari, dan yang mencocokkannya tidak punya cara
+tahu mana yang benar"*). Yang memegang catatan void adalah kasir yang berdiri
+di lapangan waktu kejadiannya; finance memeriksanya, tidak mengetiknya.
+
+#### BEDA DARI TAB VOID DI MODUL ANALYTICS — keduanya perlu
+
+| | isinya | dari |
+|---|---|---|
+| Analytics → **Void & Cancel** | apa yang di-void menurut MESIN | ekspor POS *Cancel Menu Detail* |
+| Cashier/Kas → **Void Menu** | KENAPA, dan siapa yang memesan | diketik orang |
+
+Yang satu tidak menggantikan yang lain. Ekspor POS baru ada sesudah berkasnya
+diunggah, dan kolom "Order By"-nya akun jabatan yang dipakai bersama (SPV,
+OPERATIONAL MANAGER — 75 dari 84 baris Agustus 2026), jadi ia tidak pernah bisa
+menjawab "kenapa". Sebaliknya catatan manual tidak pernah lengkap dengan
+sendirinya.
+
+**SELISIH JUMLAH KEDUANYA ITULAH ANGKA YANG DICARI**, dan itu yang membuat kata
+"wajib" bisa diperiksa: kartu **Pembanding POS** di Kas Kecil membaca
+`AN.data.voidb[bulan].ringkas.nBaris` lewat `analyticsGet` dan menulis berapa
+kejadian yang belum ada keterangannya. Tanpa angka pembanding, laporan berisi
+tiga baris terbaca sama meyakinkannya dengan laporan yang lengkap.
+
+- **Dimuat MALAS dan gagal DIAM** — modul Analytics yang sedang bermasalah
+  tidak boleh mematikan laporan ini.
+- **"Belum ada ekspor POS" DIBEDAKAN dari "tidak terbaca"**, dan tidak pernah
+  ditulis NOL. Nol berarti POS mencatat nol void bulan itu — kesimpulan tentang
+  bulan yang berkasnya belum pernah dibaca siapa pun.
+- Keduanya **mengukur hal yang berbeda** (POS menghitung BARIS ITEM, catatan
+  manual menghitung KEJADIAN), jadi angkanya memang tidak harus sama persis.
+  Itu dikatakan di kartunya, dan selisihnya **dijepit ke nol** — "-3 belum
+  dicatat" adalah angka yang tidak akan bisa dijelaskan siapa pun.
+
+#### TABEL SENDIRI, bukan menumpang blob `saveAll`
+
+Blob `app_state` ditulis UTUH oleh modul Cashier DAN panel Finance > Omset, dan
+sejak 7 September 2026 ia berpagar penjaga tulis-basi `baseTs`. Catatan void
+diketik kasir di tengah shift, dari tab yang sama yang sudah membuka Report
+Daily sejak pagi — jadi menaruhnya di blob berarti tiap catatan void berpeluang
+**ditolak sebagai konflik**, atau (kalau penjaganya lewat) **menimpa koreksi
+omset** yang baru dibuat orang di modul sebelah.
+
+Penulisannya karena itu **granular per baris**, pola yang sama dengan
+`simpanSel` di jadwal dan `simpanAjuan` di dw. **Jangan dirapikan kembali jadi
+bagian `save()`.** Tabelnya lahir sendiri lewat `void_pastikan()`, bukan berkas
+migrasi — migrasi di repo ini rutin tertinggal di produksi.
+
+#### TIDAK ADA DELETE, dan itu inti gunanya
+
+Catatan pertanggungjawaban yang barisnya bisa dihapus orang yang membuatnya
+bukan catatan, cuma draf. Salah input **DIBATALKAN** (`batal_at`): barisnya
+tetap terlihat, dicoret, tidak ikut dijumlahkan di kartu mana pun, dan alasan
+pembatalannya **wajib** serta tercatat. Pola `batalAt` yang sama dipakai
+Reservasi VIP di modul Marketing.
+
+- **Baris yang sudah dibatalkan tidak bisa disunting lagi.** Kalau bisa,
+  pembatalan berubah jadi tombol hapus-lalu-pakai-ulang: id yang sama menyimpan
+  kejadian yang sama sekali berbeda, dan jejak pembatalannya ikut menunjuk ke
+  isi yang bukan lagi yang dibatalkan.
+- **Rekap dihitung dari baris yang HIDUP saja**; rincian memuat semuanya. Itu
+  gunanya pembatalan yang tidak menghapus.
+
+#### "Wajib" berarti DITAHAN, dan ditegakkan DI DUA SISI
+
+Pita merah yang muncul sementara barisnya tetap berangkat adalah kebalikan dari
+yang diminta, dan **dari layar keduanya terlihat sama persis**. Karena itu yang
+dihitung uji ini **JUMLAH POST `voidSimpan`**, bukan ada-tidaknya pita.
+
+- **Ditandai DI KOTAKNYA** (`.field input.err`), bukan cuma lewat pita: pita
+  menyebut aturannya, dan yang membacanya masih harus mencari kotak mana yang
+  dimaksud di form berisi enam isian. Aturan yang sama dengan `.rpin.err` di
+  panel Kas Kecil.
+- **Sebabnya disebut SEBELUM tombolnya ditekan** (label bertanda `*` + kalimat
+  bantuan). Aturan yang cuma muncul sesudah orang menekan kirim dibaca sebagai
+  halaman yang menolak, bukan sebagai syarat.
+- **Server memeriksa ulang** (`void_wajib()`), dan itu bukan kelebihan
+  kehati-hatian di sini: beda dari `adaBuktiDp()` di Reservasi yang memang cuma
+  aturan kelengkapan isian, catatan ini dipakai memeriksa orang. `kurang`
+  dipulangkan sebagai daftar LABEL supaya layar bisa menandai kotaknya.
+- **`VOID_WAJIB` di kedua modul frontend BERKAS KEMBAR `void_wajib()` di PHP.**
+  Beda satu huruf tidak melempar: layar cuma berhenti menandai kotak yang salah,
+  lalu kirimannya ditolak server dengan pesan yang menyebut field yang tidak ada
+  di form mana pun. Dijaga uji yang membandingkan ketiganya.
+- **NOMINAL SENGAJA TIDAK WAJIB.** Void yang terjadi sebelum barangnya dibuat
+  memang tidak bernilai rupiah, dan mewajibkannya cuma memaksa orang mengetik
+  angka karangan supaya formnya mau lewat. Yang ditolak server nominal
+  **MINUS** — void bernominal minus MENAMBAH omset.
+
+#### Nama pencatat dari SESI, bukan dari peramban
+
+Seluruh guna catatan ini bergantung pada "siapa yang menginput", dan nama yang
+dikirim layar bisa diketik siapa saja. `voidSimpan`/`voidBatal` karena itu
+**berpagar sesi** — dua dari sedikit aksi berpagar di `kompas-api` (bersama
+`investorRingkas` dan `performaDivisi`) — dan `void_simpan()` menerima namanya
+sebagai **argumen dari `$u['name']`**, tidak pernah membacanya dari `$d`.
+Pelajaran yang sama dengan kotak PIC di modul Event: yang menentukan
+pertanggungjawaban tidak boleh bergantung pada elemen layar.
+
+- **`bacaSesi()` di Cashier sekarang ikut membawa `token`.** Tanpa itu
+  kirimannya ditolak "sesi tidak dikenal" walau orangnya jelas login.
+- **MEMBACA (`voidList`) sengaja dibiarkan terbuka**, seperti seluruh aksi baca
+  lain di berkas itu: isinya sekelas dengan `getAll` yang memang sudah terbuka,
+  dan halaman laporan tidak boleh ikut mati tiap kali account-api batuk.
+- Kuncinya **`cashier` ATAU `finance`** — yang mencatat kasir, yang membatalkan
+  salah input bisa finance. Dipatok satu, salah satunya terkunci dari halaman
+  yang memang tugasnya.
+
+#### Yang gampang lepas tanpa satu pun galat
+
+- **SIDEBAR KEDUA MODUL ITU HTML STATIS.** Menambah `TITLES` tidak melahirkan
+  menunya — sudah menggigit di modul Analytics beberapa jam sebelumnya. Di
+  Cashier `TITLES` sekaligus penentu halaman boleh dibuka (`bolehLihat` =
+  `!!TITLES[view]`); di Kas Kecil halaman baru harus disebut di **empat** tempat
+  (`TITLES`, peta router, `DEFAULT_PERMS`, dan `<a data-view>`).
+- **`voidb` di Kas Kecil SENGAJA TIDAK masuk `AKS_HAL_ISI`.** Halaman itu tidak
+  punya satu pun isian, jadi "Ubah" di sana tidak berarti apa-apa dan
+  `aksTingkat()` sudah menjepitnya ke Lihat.
+- **Tanggal catatan = tanggal yang sedang dilihat, SATU kendali.** Dua kendali
+  (satu di form, satu di kepala halaman) membuat yang mengisi harus menebak mana
+  yang menentukan — sudah dibayar di lembar pembayaran Brankas.
+- **Isian hidup DI LUAR DOM** (`VD_FORM`). Render di modul Cashier TOTAL:
+  memilih tanggal, menyimpan, atau menyegarkan daftar menggambar ulang seluruh
+  halaman, jadi apa pun yang cuma ada di kotaknya ikut hilang — termasuk
+  kronologi yang baru separuh diketik. Pola `QA.cat` di lembar pembayaran
+  Brankas.
+- **Mengetik TIDAK menggambar ulang halaman**, dan penanda merahnya dicabut
+  lewat DOM — bukan lewat penggambar ulang. Penanda yang tertinggal membuat
+  kotak yang jelas-jelas sudah terisi menyala merah lagi pada render berikutnya,
+  dan peringatan yang keliru itulah yang melatih orang berhenti membacanya.
+- **`.muted` TIDAK ADA di modul Cashier** dan **`.cari` tidak ada di panel Kas
+  Kecil** — keduanya ditambahkan/diganti saat halaman ini lahir. Kelas yang
+  tidak ada tidak melempar; ia cuma tidak melakukan apa-apa.
+- **Tiap penanda bernama dipakai SEKALI di `INSERT`** walau nilainya sama
+  persis. `PDO::ATTR_EMULATE_PREPARES => false` mengikat penanda MENURUT POSISI;
+  satu nama yang dipakai dua kali gagal dengan `SQLSTATE[HY093]` yang tidak
+  menyebut kolom apa pun. Sudah kejadian 5 Agustus 2026 di `simpan_pekerja`.
+- **Tanggal diperiksa `checkdate()`**, bukan cuma polanya: `2026-02-31` lolos
+  regex tapi MySQL menyimpannya jadi `0000-00-00` tanpa satu pun galat, dan
+  barisnya lalu hilang dari setiap penyaring bulan.
+- **Jumlah baris dihitung SEBELUM `LIMIT`.** Dihitung sesudah, angka "N tidak
+  ditampilkan" selalu nol dan pemotongannya tidak pernah bisa diketahui siapa
+  pun.
+
+```bash
+node tools/uji-void-catatan.js   # 101 pemeriksaan, jsdom + php-parser
+```
+
+PHP tidak bisa dijalankan di mesin pengembangan, jadi sisi servernya dijaga dua
+lapis: sintaksnya lewat **php-parser** (satu parse error mematikan SELURUH
+endpoint folder itu) dan logikanya sebagai **kontrak atas sumbernya** — pola
+`uji-simpan-basi.js`. Keduanya bukan pengganti menjalankan PHP-nya, dan itu
+dikatakan di kepala berkas ujinya supaya yang membaca hasil hijau tahu persis
+apa yang sudah diuji.
+
+**Dua puluh sembilan mutasi dicoba, kedua puluh sembilannya tertangkap** — tapi
+EMPAT baru sesudah ujinya dibetulkan, dan keempatnya bentuk yang sudah punya
+nama di berkas ini:
+
+| yang salah | sebabnya |
+|---|---|
+| irisan kartu Alasan | jendela 1400 huruf **memakan kartu Rincian di bawahnya**, yang memang memuat kedua ejaan alasan — asersi "digabung jadi satu baris" MERAH untuk kode yang benar. Sekarang ada `kartuJudul()` yang mengiris SATU kartu menurut `<h3>`-nya |
+| asersi nominal & penanda INSERT | disapu ke SELURUH berkas PHP, jadi cocok dengan penjaga setoran yang memang menolak nol, dan dengan array `->execute()` tempat tiap penanda muncul untuk kedua kalinya. Dijepit ke badan fungsinya |
+| tiga mutasi terbaca `gagal=-1` | **ujinya MATI, bukan menangkap** — mutasi yang mencabut menunya membuat seluruh `getElementById` memulangkan null dan node berhenti sebelum ringkasan tercetak. Sekarang tiap blok rapuh dibungkus `aman()` dan jatuhnya jadi SATU asersi merah. Kali keempat bentuk ini menggigit |
+| mutasi "menu dicabut" LOLOS | mutasinya cuma membuang **label** menunya, dan ujinya memang tidak memeriksa itu. Ditutup dua arah: mutasi yang benar-benar mencabut `data-view`, DAN asersi bahwa menunya punya tulisan yang terbaca |
+
+Fixture-nya dirancang supaya **tiap kesalahan memberi hasil yang BERBEDA**: dua
+baris 2 Agustus beralasan sama tapi beda huruf besar-kecil (Rp100.000 +
+Rp150.000), satu baris 5 Agustus yang DIBATALKAN (Rp50.000), dan ekspor POS
+bernilai 9 item. Yang benar Rp250.000 · 2 catatan · 1 pencatat · 1 baris alasan
+· selisih POS 7; pembatalan ikut terhitung memberi Rp300.000 dan 2 pencatat;
+alasan tidak digabung memberi 2 baris. Tidak ada angka yang bertabrakan.
+
+> **YANG BELUM DIKERJAKAN, dan itu disengaja:** tidak ada yang memaksa catatan
+> ini benar-benar diisi — layar mana pun tetap bisa dilewati begitu saja, dan
+> yang membuktikan kelengkapannya cuma kartu Pembanding POS. Kalau suatu hari
+> harus ditegakkan, tempat yang paling masuk akal **Report Daily di modul
+> Cashier** (menahan submit selama masih ada selisih POS yang belum berketerangan)
+> — bukan halaman ini. Juga belum ada kolom **qty**: satu baris = satu kejadian,
+> jadi void 3 porsi item yang sama dicatat sebagai satu baris bernominal total.
+> Kalau perlu dicocokkan per porsi dengan ekspor POS, itu yang pertama harus
+> ditambahkan.
+
 ### Marketing: kuota localStorage penuh menghentikan SELURUH penyimpanan (16 Sep 2026)
 
 Dilaporkan user sebagai *"upload foto di Request Design tidak bisa"*. Yang

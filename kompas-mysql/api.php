@@ -247,6 +247,48 @@ try {
     $r = an_peran_simpan(isset($body['peran']) ? $body['peran'] : null);
     keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
   }
+  /* ---------- CATATAN VOID MANUAL (16 September 2026) ----------
+     Diisi kasir di modul Cashier, dibaca finance di panel Kas Kecil.
+     Rinciannya di atas void_pastikan() di lib_kompas_mysql.php.
+
+     MEMBACA dibiarkan TERBUKA, seperti seluruh aksi baca lain di berkas ini:
+     isinya sekelas dengan getAll yang memang sudah terbuka, dan halaman
+     laporan tidak boleh ikut mati tiap kali account-api sedang batuk.
+
+     MENULIS BERPAGAR SESI, dan itu bukan kelebihan kehati-hatian: seluruh
+     guna catatan ini bergantung pada "siapa yang menginput", dan nama yang
+     dikirim peramban bisa diketik siapa saja. Yang tercatat karena itu nama
+     dari sesi yang SUDAH diverifikasi server-ke-server ke account-api —
+     bukan `oleh` dari badan permintaan. Pelajaran yang sama dengan kotak PIC
+     di modul Event: yang menentukan pertanggungjawaban tidak boleh
+     bergantung pada elemen layar.
+
+     Kuncinya `cashier` ATAU `finance` — yang mencatat kasir, yang
+     membatalkan salah input bisa finance. Dipatok satu, salah satunya
+     terkunci dari halaman yang memang tugasnya. */
+  else if ($action === 'voidList') {
+    keluar(array('ok' => true, 'data' => void_list(
+      isset($_GET['dari'])   ? $_GET['dari']   : (isset($body['dari'])   ? $body['dari']   : ''),
+      isset($_GET['sampai']) ? $_GET['sampai'] : (isset($body['sampai']) ? $body['sampai'] : ''))));
+  }
+  else if ($action === 'voidSimpan' || $action === 'voidBatal') {
+    require_once __DIR__ . '/lib_sesi.php';
+    $u = sesi_user($body);
+    if (!$u) sesi_tolak_tak_dikenal();
+    if (!sesi_punya_modul($u, 'cashier') && !sesi_punya_modul($u, 'finance'))
+      sesi_tolak_tanpa_modul('Cashier atau Finance');
+    $nama = isset($u['name']) ? $u['name'] : '';
+    $uid  = isset($u['id'])   ? $u['id']   : '';
+    $r = ($action === 'voidSimpan')
+      ? void_simpan(isset($body['data']) ? $body['data'] : null, $nama, $uid)
+      : void_batal(isset($body['id']) ? $body['id'] : '',
+                   isset($body['alasan']) ? $body['alasan'] : '', $nama);
+    /* `kurang` diteruskan apa adanya supaya layar bisa menandai KOTAK yang
+       belum diisi, bukan cuma menempelkan satu kalimat galat. Pita yang
+       menyebut aturan tanpa menunjuk kotaknya menyuruh orang mencari sendiri
+       di form berisi enam isian. */
+    keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
+  }
   else keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
 } catch (Throwable $e) {
   keluar(array('ok' => false, 'error' => $e->getMessage()));

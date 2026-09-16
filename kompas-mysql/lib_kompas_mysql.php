@@ -1739,3 +1739,233 @@ function inv_lapor_hapus($bulan, $jenis) {
   if ($k) @unlink(inv_lapor_path($k));
   return array('ok' => true);
 }
+
+/* =====================================================================
+   CATATAN VOID MANUAL (16 September 2026, permintaan user)
+   ---------------------------------------------------------------------
+   "Setiap orang wajib melakukan input menu yang harus di-Void-kan."
+   Diisi kasir di modul Cashier, DIBACA finance di panel Kas Kecil.
+
+   BEDA DARI TAB VOID DI MODUL ANALYTICS, DAN KEDUANYA MEMANG PERLU:
+
+     Analytics > Void & Cancel : hasil ekspor POS. Menjawab APA yang
+                                 di-void menurut mesin — lengkap, tapi
+                                 baru ada sesudah berkasnya diunggah,
+                                 dan "Order By"-nya akun jabatan yang
+                                 dipakai bersama (SPV, OPERATIONAL
+                                 MANAGER), bukan nama orang.
+     Halaman ini               : keterangan MANUSIA. Kronologi kenapa
+                                 itu terjadi dan siapa yang memesan —
+                                 dua hal yang tidak pernah ada di
+                                 ekspor POS mana pun.
+
+   Yang satu tidak menggantikan yang lain, dan selisih jumlah keduanya
+   justru angka yang dicari: POS mencatat 84 item, input manual 12,
+   berarti 72 kejadian tidak ada keterangannya.
+
+   ---------------------------------------------------------------------
+   TABEL SENDIRI, BUKAN blob `app_state`. Ini bukan pilihan gaya:
+
+   Blob itu ditulis UTUH oleh modul Cashier dan panel Finance > Omset
+   (`saveAll`), dan sejak 7 September 2026 ia berpagar penjaga tulis-basi
+   `baseTs`. Catatan void diketik kasir di tengah shift, dari tab yang
+   sama yang sudah membuka Report Daily sejak pagi — jadi menaruhnya di
+   blob berarti tiap catatan void berpeluang ditolak sebagai konflik,
+   atau (kalau penjaganya lewat) menimpa koreksi omset yang baru dibuat
+   orang di modul sebelah. Penulisannya karena itu GRANULAR PER BARIS,
+   pola yang sama dengan `simpanSel` di jadwal dan `simpanAjuan` di dw.
+   Jangan "dirapikan" kembali jadi bagian saveAll.
+
+   Tabelnya lahir sendiri lewat void_pastikan(), BUKAN berkas migrasi —
+   migrasi di repo ini rutin tertinggal di produksi, dan tabel yang cuma
+   ada di dev berarti endpoint yang 500 di satu server dan 200 di
+   server sebelahnya.
+
+   TIDAK ADA DELETE, dan itu disengaja. Ini catatan pertanggungjawaban:
+   baris yang bisa dihapus orang yang membuatnya bukan catatan, cuma
+   draf. Salah input DIBATALKAN (`batal_at`) — barisnya TETAP terlihat,
+   dicoret, tidak ikut dijumlahkan, dan alasan pembatalannya tercatat.
+   Pola `batalAt` yang sama dipakai Reservasi VIP di modul Marketing.
+   ===================================================================== */
+function void_pastikan() {
+  $pdo = db();
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `void_log` (
+       `id`           VARCHAR(40)  NOT NULL PRIMARY KEY,
+       `tgl`          DATE         NOT NULL,
+       `bill`         VARCHAR(60)  NOT NULL DEFAULT \'\',
+       `item`         VARCHAR(200) NOT NULL DEFAULT \'\',
+       `pemesan`      VARCHAR(120) NOT NULL DEFAULT \'\',
+       `alasan`       TEXT         NULL,
+       `nominal`      BIGINT       NOT NULL DEFAULT 0,
+       `oleh`         VARCHAR(120) NOT NULL DEFAULT \'\',
+       `oleh_id`      VARCHAR(60)  NOT NULL DEFAULT \'\',
+       `dibuat`       BIGINT       NOT NULL DEFAULT 0,
+       `diubah`       BIGINT       NOT NULL DEFAULT 0,
+       `diubah_oleh`  VARCHAR(120) NOT NULL DEFAULT \'\',
+       `batal_at`     BIGINT       NOT NULL DEFAULT 0,
+       `batal_oleh`   VARCHAR(120) NOT NULL DEFAULT \'\',
+       `batal_alasan` VARCHAR(255) NOT NULL DEFAULT \'\',
+       KEY `idx_void_tgl` (`tgl`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+}
+
+/* Tanggal ISO yang benar-benar ada di kalender. `2026-02-31` lolos regex
+   tapi MySQL menyimpannya jadi `0000-00-00` tanpa satu pun galat, dan
+   barisnya lalu hilang dari setiap penyaring bulan. */
+function void_tgl_sah($s) {
+  $s = trim((string)$s);
+  if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $s, $m)) return '';
+  return checkdate((int)$m[2], (int)$m[3], (int)$m[1]) ? $s : '';
+}
+
+/* MAKS dipatok supaya satu rentang yang kelewat lebar tidak menarik
+   seluruh riwayat ke peramban. Yang terpotong DILAPORKAN jumlahnya —
+   daftar yang menyusut diam-diam dibaca sebagai data yang hilang. */
+define('VOID_LIST_MAKS', 1500);
+
+function void_list($dari, $sampai) {
+  void_pastikan();
+  $d = void_tgl_sah($dari);
+  $s = void_tgl_sah($sampai);
+  $pdo = db();
+  $sql = 'SELECT * FROM `void_log`';
+  $arg = array();
+  if ($d !== '' && $s !== '') { $sql .= ' WHERE `tgl` BETWEEN :d AND :s'; $arg = array(':d' => $d, ':s' => $s); }
+  else if ($d !== '')         { $sql .= ' WHERE `tgl` >= :d';            $arg = array(':d' => $d); }
+  else if ($s !== '')         { $sql .= ' WHERE `tgl` <= :s';            $arg = array(':s' => $s); }
+
+  /* Jumlahnya dihitung SEBELUM dipotong. Dihitung dari baris yang sudah
+     terpotong, angka "N tidak ditampilkan" selalu nol dan pemotongannya
+     jadi tidak pernah bisa diketahui siapa pun. */
+  $stc = $pdo->prepare(str_replace('SELECT *', 'SELECT COUNT(*)', $sql));
+  $stc->execute($arg);
+  $total = (int)$stc->fetchColumn();
+
+  $st = $pdo->prepare($sql . ' ORDER BY `tgl` DESC, `dibuat` DESC LIMIT ' . VOID_LIST_MAKS);
+  $st->execute($arg);
+  $baris = array();
+  foreach ($st->fetchAll() as $r) {
+    $baris[] = array(
+      'id' => (string)$r['id'], 'tgl' => (string)$r['tgl'], 'bill' => (string)$r['bill'],
+      'item' => (string)$r['item'], 'pemesan' => (string)$r['pemesan'],
+      'alasan' => (string)$r['alasan'], 'nominal' => (float)$r['nominal'],
+      'oleh' => (string)$r['oleh'], 'olehId' => (string)$r['oleh_id'],
+      'dibuat' => (float)$r['dibuat'], 'diubah' => (float)$r['diubah'],
+      'diubahOleh' => (string)$r['diubah_oleh'],
+      'batalAt' => (float)$r['batal_at'], 'batalOleh' => (string)$r['batal_oleh'],
+      'batalAlasan' => (string)$r['batal_alasan']);
+  }
+  return array('baris' => $baris, 'total' => $total, 'maks' => VOID_LIST_MAKS);
+}
+
+/* Wajib diisi, DAN DITEGAKKAN DI SINI — bukan cuma di layar. Penjaga yang
+   hanya ada di HTML dilewati siapa pun yang membuka console, dan catatan
+   pertanggungjawaban yang separuh kosong tidak menjawab apa pun.
+
+   Nama field-nya BERKAS KEMBAR dengan VOID_WAJIB di kedua modul frontend.
+   Beda satu huruf tidak melempar: layar cuma berhenti menandai kotak yang
+   salah, lalu kirimannya ditolak server dengan pesan yang menyebut field
+   yang tidak ada di form mana pun. */
+function void_wajib() {
+  return array('tgl' => 'Tanggal', 'bill' => 'Nomor Bill', 'item' => 'Nama Item',
+               'pemesan' => 'Siapa yang Memesan', 'alasan' => 'Alasan / Kronologi');
+}
+
+function void_simpan($d, $oleh, $olehId) {
+  void_pastikan();
+  if (!is_array($d)) return array('ok' => false, 'error' => 'data bukan objek');
+
+  $nil = array(
+    'tgl'     => void_tgl_sah(isset($d['tgl']) ? $d['tgl'] : ''),
+    'bill'    => trim((string)(isset($d['bill'])    ? $d['bill']    : '')),
+    'item'    => trim((string)(isset($d['item'])    ? $d['item']    : '')),
+    'pemesan' => trim((string)(isset($d['pemesan']) ? $d['pemesan'] : '')),
+    'alasan'  => trim((string)(isset($d['alasan'])  ? $d['alasan']  : '')));
+
+  $kurang = array();
+  foreach (void_wajib() as $k => $label) if ($nil[$k] === '') $kurang[] = $label;
+  if (count($kurang)) {
+    return array('ok' => false, 'kurang' => $kurang,
+                 'error' => 'Belum lengkap: ' . implode(', ', $kurang));
+  }
+
+  /* Nominal BOLEH nol — barang yang di-void sebelum sempat dibuat memang
+     tidak bernilai rupiah, dan menolaknya memaksa orang mengetik angka
+     karangan. Yang ditolak cuma yang NEGATIF: void bernominal minus
+     MENAMBAH omset, dan angka itu tidak akan bisa dijelaskan siapa pun. */
+  $nominal = isset($d['nominal']) ? (float)$d['nominal'] : 0;
+  if (!is_finite($nominal) || $nominal < 0)
+    return array('ok' => false, 'error' => 'Nominal tidak boleh minus.');
+
+  $pdo = db();
+  $now = (int)(microtime(true) * 1000);
+  $id  = trim((string)(isset($d['id']) ? $d['id'] : ''));
+
+  $lama = null;
+  if ($id !== '') {
+    $st = $pdo->prepare('SELECT * FROM `void_log` WHERE `id`=?');
+    $st->execute(array($id));
+    $lama = $st->fetch();
+  }
+
+  if ($lama) {
+    /* Baris yang SUDAH DIBATALKAN tidak bisa disunting lagi. Kalau bisa,
+       pembatalan berubah jadi tombol hapus-lalu-pakai-ulang: id yang sama
+       menyimpan kejadian yang sama sekali berbeda, dan jejak pembatalannya
+       ikut menunjuk ke isi yang bukan lagi yang dibatalkan. */
+    if ((float)$lama['batal_at'] > 0)
+      return array('ok' => false, 'error' => 'Catatan ini sudah dibatalkan dan tidak bisa diubah lagi.');
+    $st = $pdo->prepare(
+      'UPDATE `void_log` SET `tgl`=:t,`bill`=:b,`item`=:i,`pemesan`=:p,`alasan`=:a,
+              `nominal`=:n,`diubah`=:u,`diubah_oleh`=:o WHERE `id`=:id');
+    $st->execute(array(':t' => $nil['tgl'], ':b' => mb_substr($nil['bill'], 0, 60),
+                       ':i' => mb_substr($nil['item'], 0, 200), ':p' => mb_substr($nil['pemesan'], 0, 120),
+                       ':a' => $nil['alasan'], ':n' => (int)round($nominal),
+                       ':u' => $now, ':o' => mb_substr((string)$oleh, 0, 120), ':id' => $id));
+    return array('ok' => true, 'saved' => true, 'id' => $id, 'baru' => false);
+  }
+
+  /* Id dibuat SERVER, bukan diterima dari peramban: id kiriman bisa
+     menabrak baris orang lain — disengaja maupun tidak — dan cabang UPDATE
+     di atas akan menimpanya tanpa satu pun tanda.
+
+     Tiap penanda bernama dipakai SEKALI walau nilainya sama persis.
+     PDO::ATTR_EMULATE_PREPARES => false mengikat penanda MENURUT POSISI;
+     satu nama yang dipakai dua kali gagal dengan SQLSTATE[HY093] yang
+     tidak menyebut kolom apa pun. Sudah kejadian 5 Agustus 2026 di
+     simpan_pekerja modul DW. */
+  $id = 'v' . dechex($now) . substr(bin2hex(random_bytes(4)), 0, 8);
+  $st = $pdo->prepare(
+    'INSERT INTO `void_log` (`id`,`tgl`,`bill`,`item`,`pemesan`,`alasan`,`nominal`,
+                             `oleh`,`oleh_id`,`dibuat`,`diubah`,`diubah_oleh`)
+     VALUES (:id,:t,:b,:i,:p,:a,:n,:o1,:oi,:c1,:c2,:o2)');
+  $st->execute(array(':id' => $id, ':t' => $nil['tgl'], ':b' => mb_substr($nil['bill'], 0, 60),
+                     ':i' => mb_substr($nil['item'], 0, 200), ':p' => mb_substr($nil['pemesan'], 0, 120),
+                     ':a' => $nil['alasan'], ':n' => (int)round($nominal),
+                     ':o1' => mb_substr((string)$oleh, 0, 120), ':oi' => mb_substr((string)$olehId, 0, 60),
+                     ':c1' => $now, ':c2' => $now, ':o2' => mb_substr((string)$oleh, 0, 120)));
+  return array('ok' => true, 'saved' => true, 'id' => $id, 'baru' => true);
+}
+
+/* PEMBATALAN, bukan penghapusan — barisnya tetap ada dan tetap tergambar.
+   Alasannya WAJIB: pembatalan tanpa sebab sama tidak bisa diauditnya dengan
+   penghapusan, cuma meninggalkan baris membingungkan yang tidak dijelaskan
+   apa pun. */
+function void_batal($id, $alasan, $oleh) {
+  void_pastikan();
+  $id = trim((string)$id);
+  $alasan = trim((string)$alasan);
+  if ($id === '') return array('ok' => false, 'error' => 'id kosong');
+  if ($alasan === '') return array('ok' => false, 'error' => 'Alasan pembatalan wajib diisi.');
+  $pdo = db();
+  $st = $pdo->prepare('SELECT `batal_at` FROM `void_log` WHERE `id`=?');
+  $st->execute(array($id));
+  $row = $st->fetch();
+  if (!$row) return array('ok' => false, 'error' => 'Catatan tidak ditemukan.');
+  if ((float)$row['batal_at'] > 0) return array('ok' => false, 'error' => 'Catatan ini sudah dibatalkan.');
+  $pdo->prepare('UPDATE `void_log` SET `batal_at`=:a,`batal_oleh`=:o,`batal_alasan`=:s WHERE `id`=:id')
+      ->execute(array(':a' => (int)(microtime(true) * 1000), ':o' => mb_substr((string)$oleh, 0, 120),
+                      ':s' => mb_substr($alasan, 0, 255), ':id' => $id));
+  return array('ok' => true, 'saved' => true);
+}

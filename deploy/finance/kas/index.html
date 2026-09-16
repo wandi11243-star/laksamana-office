@@ -219,6 +219,11 @@ input,select,textarea{font-family:inherit}
 @media(max-width:1200px){.g5{grid-template-columns:repeat(3,1fr)}}
 @media(max-width:900px){.g2,.g3,.g4,.g5{grid-template-columns:1fr 1fr}}
 @media(max-width:620px){.g2,.g3,.g4,.g5{grid-template-columns:1fr}.sidebar{position:fixed;z-index:50;transform:translateX(-100%);transition:transform .2s}.sidebar.open{transform:none}.main{padding:18px}}
+/* Kotak cari di daftar panjang. Kelas SENDIRI, bukan menyetel `input`
+   global — panel ini punya kotak isian di belasan halaman lain, dan
+   menyetelnya global menggeser tampilan halaman yang sudah jalan. */
+.cari{width:100%;max-width:420px;padding:9px 12px;border:1.5px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);font-size:13.5px;margin:0 0 10px}
+.cari:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
 .row-in{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
 
 /* stat cards — pita emas tipis di tepi atas (gaya Marketing) */
@@ -716,6 +721,11 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
         <div class="nav-label">Penjualan</div>
         <a data-view="bayar"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><path d="M6 15h4"/></svg></span> Planning Pembayaran</a>
         <a data-view="rekap"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 9v12M3 15h18"/></svg></span> Rekap Penjualan</a>
+        <!-- LAPORAN VOID (16 September 2026, permintaan user). BACA SAJA —
+             yang mengetik kasir di modul Cashier > Void Menu. Duduk di
+             sebelah Rekap Penjualan: dua-duanya dibuka untuk mencocokkan
+             angka POS dengan apa yang benar-benar terjadi malam itu. -->
+        <a data-view="voidb"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M5.6 5.6l12.8 12.8"/></svg></span> Laporan Void</a>
         <a data-view="invoice"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 8h8M8 12h6M8 16h4"/></svg></span> Invoice &amp; Kwitansi<span class="badge" id="navBadgeInv"></span></a>
       </div>
       <div class="nav-group">
@@ -994,6 +1004,7 @@ const DEFAULT_PERMS={
   bayar    :{staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_VIEW},
   rekap    :{staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_VIEW},
   invoice  :{staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_NONE},
+  voidb    :{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
   bulanan  :{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
   analytics:{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
   marketing:{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
@@ -1524,6 +1535,206 @@ function syncKendaliPeriode(){
   if(bb) bb.className=modeHarian()?'':'on';
   if(mp) mp.value=PERIOD;
   if(dp) dp.value=VIEWDATE;
+}
+
+/* ============ LAPORAN VOID (16 September 2026, permintaan user) ============
+   BACA SAJA. Yang mengetik kasir, di modul Cashier > Void Menu — halaman ini
+   tidak punya satu pun isian, dan itu disengaja.
+
+   Aturan yang sama dengan Piutang di panel Brankas: catatan yang bisa diketik
+   di dua tempat akan punya dua angka berbeda suatu hari, dan yang
+   mencocokkannya tidak punya cara tahu mana yang benar. Yang memegang
+   catatan void adalah kasir yang ada di lapangan waktu kejadiannya.
+
+   DATANYA DARI TABEL SENDIRI (`void_log` di kompas-mysql), bukan dari blob
+   omset — alasannya panjang dan ditulis di atas void_pastikan(). Karena itu
+   ia tidak ikut di getAll dan harus ditarik terpisah.
+
+   DIMUAT MALAS: baru diambil saat menunya dibuka. Panel ini sudah menarik
+   tiga sumber saat boot, dan halaman yang paling sering dibuka tidak perlu
+   membayar permintaan keempat. */
+let VL_ROWS=null, VL_ERR='', VL_MUAT='', VL_POTONG=0, VL_Q='';
+/* Ringkasan Void dari ekspor POS (modul Analytics). PEMBANDING, bukan sumber
+   — lihat kartu pembandingnya. Gagal DIAM: modul Analytics yang sedang
+   bermasalah tidak boleh mematikan laporan ini. */
+let VL_POS=null, VL_POS_ERR='', VL_POS_MUAT='';
+
+function vlRentang(ym){
+  const [y,m]=ym.split('-').map(Number);
+  return {dari:ym+'-01', sampai:ym+'-'+String(new Date(y,m,0).getDate()).padStart(2,'0')};
+}
+function vlAktif(r){ return !(r&&num(r.batalAt)>0); }
+
+async function muatVoidLap(ym){
+  /* Ditandai SEBELUM permintaan berangkat: fungsi ini menggambar ulang di
+     ujungnya dan penggambaran itulah yang memicunya. Tanpa penanda ini
+     keduanya saling memanggil tanpa henti — yang terlihat bukan galat,
+     melainkan halaman berkedip sambil menghujani server. Bulan yang GAGAL
+     ikut ditandai supaya kegagalan tidak dicoba ulang selamanya. */
+  VL_MUAT=ym;
+  const rg=vlRentang(ym);
+  try{
+    const r=await fetchTimeout(API_URL+'?action=voidList&dari='+rg.dari+'&sampai='+rg.sampai+'&t='+Date.now(),
+                               {method:'GET',redirect:'follow'},30000).then(x=>x.json());
+    if(!r||!r.ok) throw new Error((r&&r.error)||'server error');
+    VL_ROWS=(r.data&&r.data.baris)||[];
+    VL_POTONG=Math.max(0,num(r.data&&r.data.total)-VL_ROWS.length);
+    VL_ERR='';
+  }catch(e){ VL_ROWS=[]; VL_ERR=(e&&e.message)||String(e); }
+  if(CURRENT==='voidb') render();
+}
+async function muatVoidPos(ym){
+  VL_POS_MUAT=ym;
+  try{
+    const r=await fetchTimeout(API_URL,{method:'POST',redirect:'follow',
+        headers:{'Content-Type':'text/plain;charset=utf-8'},
+        body:JSON.stringify({action:'analyticsGet'})},30000).then(x=>x.json());
+    if(!r||!r.ok) throw new Error((r&&r.error)||'server error');
+    const vb=((r.data&&r.data.data)||{}).voidb||{};
+    VL_POS=(vb[ym]&&vb[ym].ringkas)||null;
+    VL_POS_ERR='';
+  }catch(e){ VL_POS=null; VL_POS_ERR=(e&&e.message)||String(e); }
+  if(CURRENT==='voidb') render();
+}
+
+/* Dikelompokkan TANPA memandang huruf besar-kecil, tapi yang TAMPIL ejaan yang
+   pertama ketemu. Isinya teks bebas yang diketik orang: "ganti produk" dan
+   "Ganti Produk" berdiri sebagai dua baris membelah baris teratasnya, dan
+   membesarkan seluruhnya juga salah — isinya kalimat, bukan nama menu. Aturan
+   yang sama dipakai halaman Void & Cancel di modul Analytics. */
+function vlKelompok(baris, ambil){
+  const p={};
+  baris.forEach(r=>{
+    const asli=String(ambil(r)||'').trim()||'(tidak diisi)';
+    const k=asli.toLowerCase();
+    if(!p[k]) p[k]={nama:asli,n:0,nilai:0};
+    p[k].n++; p[k].nilai+=num(r.nominal);
+  });
+  return Object.keys(p).map(k=>p[k]).sort((a,b)=>b.n-a.n||b.nilai-a.nilai||a.nama.localeCompare(b.nama));
+}
+function vlTabelKelompok(list, judulKolom, total){
+  if(!list.length) return '<div class="empty">Belum ada catatan void bulan ini.</div>';
+  return '<div class="tbl-wrap"><table><thead><tr><th>'+esc(judulKolom)
+    +'</th><th class="num">Catatan</th><th class="num">Nominal</th><th class="num">% Nominal</th></tr></thead><tbody>'
+    +list.map(x=>'<tr><td><b>'+esc(x.nama)+'</b></td><td class="num mono">'+x.n
+      +'</td><td class="num mono">'+fmtRp(x.nilai)+'</td><td class="num mono">'
+      +(total>0?(x.nilai/total*100).toFixed(1)+'%':'—')+'</td></tr>').join('')
+    +'</tbody></table></div>';
+}
+function vlCari(el){
+  /* Menggambar ulang WADAHNYA saja. render() di modul ini TOTAL, jadi kotak
+     yang sedang diketik akan dibuat ulang dan hanya huruf pertama yang masuk —
+     jebakan yang sudah dibayar di queueF() modul Konten. */
+  VL_Q=el.value;
+  const w=document.getElementById('vl_isi');
+  if(w) w.innerHTML=vlIsiHtml();
+}
+function vlIsiHtml(){
+  const q=VL_Q.trim().toLowerCase();
+  const semua=VL_ROWS||[];
+  const baris=q?semua.filter(r=>[r.item,r.bill,r.pemesan,r.alasan,r.oleh,r.tgl]
+    .some(x=>String(x||'').toLowerCase().indexOf(q)>-1)):semua;
+  if(!baris.length){
+    /* Kata kunci tanpa hasil DIKATAKAN, bukan tabel kosong — tabel kosong
+       terbaca sebagai "bulan ini tidak ada void sama sekali". */
+    return q?'<div class="empty">Tidak ada catatan yang cocok dengan <b>'+esc(VL_Q)+'</b>. '
+      +'Bulan ini punya '+semua.length+' catatan.</div>'
+      :'<div class="empty">Belum ada catatan void bulan ini.</div>';
+  }
+  return (q?'<div class="helper" style="margin:0 0 8px">Menampilkan <b>'+baris.length+'</b> dari '
+      +semua.length+' catatan.</div>':'')
+    +'<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Item</th><th>Nomor Bill</th>'
+    +'<th>Yang Memesan</th><th>Alasan / Kronologi</th><th class="num">Nominal</th><th>Dicatat Oleh</th></tr></thead><tbody>'
+    +baris.map(r=>{
+      const mati=!vlAktif(r);
+      return '<tr'+(mati?' style="opacity:.55"':'')+'>'
+        +'<td class="mono">'+esc(r.tgl||'')+'</td>'
+        +'<td><b'+(mati?' style="text-decoration:line-through"':'')+'>'+esc(r.item||'—')+'</b>'
+          +(mati?'<div class="helper" style="margin:2px 0 0">Dibatalkan '+esc(r.batalOleh||'')
+            +(r.batalAlasan?' — '+esc(r.batalAlasan):'')+'</div>':'')+'</td>'
+        +'<td class="mono">'+esc(r.bill||'—')+'</td>'
+        +'<td>'+esc(r.pemesan||'—')+'</td>'
+        +'<td style="max-width:340px;white-space:pre-wrap">'+esc(r.alasan||'—')+'</td>'
+        +'<td class="num mono">'+fmtRp(num(r.nominal))+'</td>'
+        +'<td>'+esc(r.oleh||'—')+'</td></tr>';
+    }).join('')
+    +'</tbody></table></div>';
+}
+
+/* PEMBANDING POS. Ini yang membuat kata "wajib" bisa diperiksa: tanpa angka
+   pembanding, laporan yang isinya tiga baris terbaca sama meyakinkannya
+   dengan laporan yang lengkap.
+
+   KEDUANYA MENGUKUR HAL YANG BERBEDA, dan itu dikatakan di kartunya: POS
+   menghitung BARIS ITEM yang di-void menurut mesin, catatan manual
+   menghitung KEJADIAN yang ditulis orang. Satu kejadian bisa menyentuh
+   beberapa item, jadi angkanya memang tidak harus sama persis — yang
+   diperhatikan selisih yang besar, bukan selisih yang ada. Dijepit ke nol
+   supaya "-3 belum dicatat" tidak pernah muncul: angka minus di situ tidak
+   akan bisa dijelaskan siapa pun. */
+function vlKartuPos(nManual){
+  if(VL_POS_ERR) return '<div class="stat"><div class="lab">Pembanding POS</div>'
+    +'<div class="val sm" style="font-size:14px;line-height:1.5">tidak terbaca</div>'
+    +'<div class="foot">'+esc(VL_POS_ERR)+'</div></div>';
+  if(!VL_POS) return '<div class="stat"><div class="lab">Pembanding POS</div>'
+    +'<div class="val sm" style="font-size:14px;line-height:1.5">belum ada</div>'
+    +'<div class="foot">Laporan <b>Cancel Menu Detail</b> bulan ini belum diunggah di modul Analytics &gt; Void &amp; Cancel</div></div>';
+  const nPos=num(VL_POS.nBaris), selisih=Math.max(0,nPos-nManual);
+  return '<div class="stat"><div class="lab">Pembanding POS</div><div class="val sm mono">'+nPos+'</div>'
+    +'<div class="foot">item di-void menurut ekspor POS · '
+    +(selisih>0?'<b>'+selisih+'</b> belum ada keterangannya di sini':'catatan manualnya sudah selengkap itu')
+    +'</div></div>';
+}
+
+function viewVoidLap(){
+  const el=document.getElementById('app-view');
+  const ym=PERIOD;
+  if(VL_MUAT!==ym) muatVoidLap(ym);
+  if(VL_POS_MUAT!==ym) muatVoidPos(ym);
+
+  const semua=VL_ROWS||[];
+  const hidup=semua.filter(vlAktif);
+  const total=hidup.reduce((s,r)=>s+num(r.nominal),0);
+  const batal=semua.length-hidup.length;
+  /* Rekap DIHITUNG DARI BARIS YANG HIDUP saja. Yang dibatalkan tetap
+     tergambar di rincian — itu gunanya pembatalan yang tidak menghapus —
+     tapi ikut dijumlahkan berarti nominal yang sudah dinyatakan salah tetap
+     menambah total, dan angkanya tidak akan bisa dicocokkan dengan apa pun. */
+  const perOrang=vlKelompok(hidup,r=>r.oleh);
+  const perAlasan=vlKelompok(hidup,r=>r.alasan);
+
+  el.innerHTML=`
+    <div class="card">
+      <h3>Laporan Void — ${esc(ym)}</h3>
+      <div class="card-sub">Dicatat kasir di <b>modul Cashier &gt; Void Menu</b>. Halaman ini <b>baca saja</b>: yang memegang catatannya kasir yang ada di lapangan waktu kejadiannya, dan angka yang bisa diketik di dua tempat akan berbeda suatu hari. Ganti bulan lewat kotak <b>Periode</b> di kanan atas.</div>
+    </div>
+    ${VL_ERR?`<div class="notice bad"><div>✕ <b>Catatan void tidak terbaca dari server.</b> ${esc(VL_ERR)}<br><span style="opacity:.9;font-size:11px">Yang sudah tersimpan tidak hilang — yang gagal cuma pembacaannya.</span></div></div>`:''}
+    ${VL_POTONG>0?`<div class="notice"><div>ℹ Bulan ini punya lebih banyak catatan daripada yang bisa ditarik sekaligus — <b>${VL_POTONG}</b> baris tertua tidak ikut ditampilkan.</div></div>`:''}
+    <div class="grid g4">
+      <div class="stat accent"><div class="lab">Total Nominal Void</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${hidup.length} catatan sepanjang ${esc(ym)}</div></div>
+      <div class="stat"><div class="lab">Orang yang Mencatat</div><div class="val sm mono">${perOrang.length}</div><div class="foot">${perOrang.length?esc(perOrang[0].nama)+' paling banyak ('+perOrang[0].n+')':'belum ada'}</div></div>
+      <div class="stat"><div class="lab">Dibatalkan</div><div class="val sm mono">${batal}</div><div class="foot">${batal?'tetap tercatat, tidak ikut dijumlahkan':'tidak ada'}</div></div>
+      ${vlKartuPos(hidup.length)}
+    </div>
+    ${VL_ROWS===null&&!VL_ERR?'<div class="card"><div class="empty">⏳ Memuat catatan void dari server…</div></div>':`
+    <div class="grid g2">
+      <div class="card">
+        <h3>Siapa yang Mencatat</h3>
+        <div class="card-sub">Diurut dari yang paling banyak. Namanya diambil dari sesi Office yang sudah diverifikasi, bukan diketik.</div>
+        ${vlTabelKelompok(perOrang,'Nama',total)}
+      </div>
+      <div class="card">
+        <h3>Alasan Void</h3>
+        <div class="card-sub">Dikelompokkan tanpa memandang huruf besar-kecil. Isinya teks bebas, jadi kalimat yang berbeda tetap berdiri sebagai barisnya sendiri.</div>
+        ${vlTabelKelompok(perAlasan,'Alasan / Kronologi',total)}
+      </div>
+    </div>
+    <div class="card">
+      <h3>Rincian Catatan</h3>
+      <div class="card-sub">Seluruh catatan bulan ini, termasuk yang sudah dibatalkan — yang dibatalkan dicoret dan tidak ikut dijumlahkan di kartu mana pun.</div>
+      <input class="cari" id="vl_q" placeholder="Cari item, nomor bill, nama, atau alasan…" value="${esc(VL_Q)}" oninput="vlCari(this)">
+      <div id="vl_isi">${vlIsiHtml()}</div>
+    </div>`}`;
 }
 
 /* ============ REKAP PENJUALAN ============
@@ -2726,6 +2937,7 @@ const TITLES={
   bayar:['Planning Pembayaran','Lembar transfer mingguan per rekening pembayar — pindah dari panel Brankas'],
   rekap:['Rekap Penjualan','Cocokkan POS dengan setoran bank — angka penjualannya after tax & service'],
   invoice:['Invoice & Kwitansi','Permintaan kwitansi dari Reservasi — periksa dana masuknya, lalu terbitkan'],
+  voidb:['Laporan Void','Menu yang di-void berikut kronologinya — dicatat kasir di modul Cashier'],
   bulanan:['Dashboard Omset','Pencapaian target bulan berjalan'],
   analytics:['Dashboard Analytics','Komposisi & sumber pendapatan'],
   marketing:['Performa Marketing','Kontribusi omset per marketing'],
@@ -2788,7 +3000,7 @@ function render(){
   clearCharts();
   syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,bayar:viewBayar,rekap:viewRekap,invoice:viewInvoice,bulanan:viewBulanan,analytics:viewAnalytics,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,akses:viewAkses}[CURRENT])();
+  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,bayar:viewBayar,rekap:viewRekap,invoice:viewInvoice,voidb:viewVoidLap,bulanan:viewBulanan,analytics:viewAnalytics,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,akses:viewAkses}[CURRENT])();
   terapkanKunci();   // buang tombol & matikan isian yang tidak boleh dipakai
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
