@@ -43,15 +43,33 @@ const tunggu = ms => new Promise(r => setTimeout(r, ms));
      v1 rentang 80–120  -> ditulis sebagai rentang, dihitung 120
      v2 hanya paxMin 50 -> ditulis satu angka, dihitung 50
      v3 DIBATALKAN      -> tidak boleh ikut sama sekali
-   Kalau paxMax diam-diam diabaikan, totalnya 130 dan bukan 170. */
+   Kalau paxMax diam-diam diabaikan, totalnya 130 dan bukan 170.
+
+   TANGGALNYA RELATIF TERHADAP HARI INI, dan itu bukan kerapian. Halaman Agenda
+   bawaannya memajang MINGGU BERJALAN dan hanya yang AKAN DATANG (fAg.mode
+   'minggu' + fAg.waktu 'akan'), jadi fixture bertanggal mati berhenti muncul di
+   sana begitu tanggalnya lewat — dan asersi "kartu Reservasi VIP menyebut
+   pax-nya" jadi MERAH untuk kode yang tidak berubah sedikit pun. Persis itu
+   yang terjadi: ujinya ditulis 9 September 2026 dengan tanggal 10–12
+   September, dan sejak 13 September ia melaporkan bug yang tidak ada. Uji yang
+   membusuk sendiri lebih buruk daripada tidak ada uji — yang membacanya
+   belajar mengabaikan warna merah.
+
+   KETIGANYA DI HARI YANG SAMA, dan itu juga disengaja. Tanggal yang berjajar
+   (besok, lusa) bisa jatuh di DUA minggu berbeda kalau ujinya kebetulan
+   dijalankan menjelang akhir pekan — lalu salah satunya keluar dari periode
+   dan totalnya berbunyi 120, bukan 170. Yang membedakan tiap baris di sini
+   PAX-nya, bukan tanggalnya. */
+const HARI = n => new Date(Date.now() + n * 86400000).toISOString().slice(0, 10);
+const TGL = HARI(1);
 const VIP = [
-  { id:'v1', nama:'Liya', tanggal:'2026-09-10', jamMulai:'12:30', jamSelesai:'17:00',
+  { id:'v1', nama:'Liya', tanggal:TGL, jamMulai:'12:30', jamSelesai:'17:00',
     jenis:'Assisted', hp:'0811-2233', clientId:'c1', perusahaan:'PT Sinar Baru',
     paxMin:'80', paxMax:'120', meja:['M40','M39'], mktPIC:'u1',
     catatan:'Dekor ulang tahun, kue disimpan di chiller.\nAlergi kacang satu tamu.' },
-  { id:'v2', nama:'Rangga', tanggal:'2026-09-11', jamMulai:'19:00',
+  { id:'v2', nama:'Rangga', tanggal:TGL, jamMulai:'19:00',
     jenis:'Assisted', paxMin:'50', paxMax:'', meja:['R1'], mktPIC:'u2', catatan:'' },
-  { id:'v3', nama:'Batal Saja', tanggal:'2026-09-12', paxMin:'900', paxMax:'900',
+  { id:'v3', nama:'Batal Saja', tanggal:TGL, paxMin:'900', paxMax:'900',
     meja:[], mktPIC:'u1', batalAt:'2026-09-01T00:00:00.000Z', catatan:'jangan muncul' }
 ];
 const DATA_MKT = {
@@ -157,8 +175,11 @@ function buka() {
      membuat orang mencari catatan yang memang tidak pernah ada. */
   cek('catatan kosong tidak menggambar judulnya', b2.indexOf('Catatan reservasi') < 0);
 
-  /* ---------- kartu Agenda ---------- */
-  w.__EV__("page='agenda'; render();"); await tunggu(80);
+  /* ---------- kartu Agenda ----------
+     Periodenya DIPATOK ke minggu tanggal fixture, bukan dibiarkan di minggu
+     berjalan: kalau tidak, ujinya bergantung pada hari apa ia dijalankan. Yang
+     diuji di sini hitungan paxnya, bukan pemilih periodenya. */
+  w.__EV__("fAg.mgg=seninMinggu(" + JSON.stringify(TGL) + "); page='agenda'; render();"); await tunggu(80);
   /* SKRIPNYA DIBUANG DULU. `document.body.innerHTML` di jsdom ikut memuat isi
      tag <script> — dan seluruh skrip modul ini memang berada di dalam <body>.
      Tanpa ini, asersi teks apa pun bisa cocok dengan KOMENTAR di kodenya

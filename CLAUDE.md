@@ -8767,6 +8767,142 @@ pelajaran yang sudah dibayar di stub `hpp.php`, dan terulang di sini.
 
 Delapan mutasi dicoba, kedelapannya tertangkap.
 
+#### SEPULUH Reservasi VIP hilang dari Marketing — dan cara memulihkannya (17 Sep 2026)
+
+Keluhan user: sebuah Reservasi VIP (*Nana Istana Bayi Panam*, 18 September
+2026, 81 pax) **tidak muncul di Radar**, padahal ia tergambar rapi di kalender
+modul Marketing. Diagnosis user benar dan langsung menunjuk tempatnya: *"yang
+error ada sisi dari reservasi VIP, sehingga yang di radar juga tidak muncul
+karna dia ambil data dari reservasi VIP."*
+
+**DIUKUR ATAS DATA PRODUKSI, bukan disimpulkan.** `getAll` kedua modul:
+
+```
+reservasi-api : 17 baris bertanda vip:true, seluruhnya id 'vip-…'
+marketing-api :  7 baris di koleksi `vip`
+                 -> 10 HILANG
+```
+
+| dibuat | acara | nama | di marketing |
+|---|---|---|---|
+| 20 Agu – 7 Sep | (8 booking) | Ricky, Mas Danny, Kak Eva, Septi, Andre, Susi, Ricky, Liya | **HILANG** |
+| 8–9 Sep | 10, 16, 17 Sep | Liya, Rizka ×2 | ada |
+| 10 Sep | 12 Sep | Angela | **HILANG** |
+| 15 Sep | 18 Sep | Nana Istana Bayi Panam | **HILANG** |
+
+**BUKAN ADA YANG MENEKAN HAPUS.** Tabel `activities` (append-only) memuat
+"Reservasi VIP dihapus" untuk Renny & Lani — dua booking yang MEMANG tidak ada
+lagi di kedua modul — dan **tidak satu pun** untuk kesepuluh yang hilang ini.
+Jejak pembuatannya justru masih ada ("Reservasi VIP Assisted · Nana · Jum, 18
+Sep 2026"), bahkan nominal Angela sempat diisi Rp5.808.750 pada 12 September.
+
+Blok 20 Agu–7 Sep itu bentuk khas **timpa buta** `put_setting()` yang baru
+ditutup 8 September 2026 (lihat `kol_settings()`): satu tab basi mengembalikan
+seluruh daftar ke salinan lamanya, dan yang tersisa persis keempat baris
+sebelum 20 Agustus. Fixnya memang sudah mendarat di produksi — dibuktikan dari
+bentuk datanya sendiri: keempat baris lama masih menyimpan `baseUpdatedAt` di
+dalam barisnya (ditulis jalur lama), sedangkan ketiga baris 8–9 September tidak
+(ditulis `upsert_settings_collection()`, yang meng-`unset`-nya). **Angela (10
+Sep) dan Nana (15 Sep) hilang SESUDAH itu, dan sebabnya belum terbukti** —
+jangan tuliskan dugaan di sini sebagai fakta. Yang sudah diperiksa dan
+TIDAK menjelaskannya: cap masa depan di data (nol baris), `apiLoad()` cabang
+cache (tidak pernah menaikkan `_sejakVersi`), dan `kirimPemulihan()` (payload-nya
+superset dari data server).
+
+**AKIBATNYA BUKAN SOAL TAMPILAN, dan itu yang membuat ini mahal:** satu-satunya
+layar yang masih menggambarnya adalah Kalender Marketing — yang memang membaca
+modul Reservasi langsung lewat `rsvAmbil()`. Yang membaca `S.vip` semuanya
+kehilangan booking itu:
+
+| pembaca | yang hilang |
+|---|---|
+| Radar | barisnya di Agenda & kalender (keluhan aslinya) |
+| Performa Omset & Bonus | `pfoBaris()` — omzet PIC-nya |
+| Finance > Breakdown Sumber | `vip_hari()` membaca blob yang SAMA |
+| daftar Reservasi VIP | booking-nya seolah tidak pernah ada |
+
+Jadi dua layar bersebelahan menyebut jumlah booking yang berbeda untuk hari
+yang sama, **dan tidak ada satu kalimat pun yang menjelaskan sebabnya**.
+
+##### Yang dikerjakan: selisihnya DIKATAKAN, lalu bisa dibereskan
+
+Halaman **Reservasi VIP** di Marketing sekarang membandingkan dirinya dengan
+modul Reservasi dan memajang pita berisi yang hilang, berikut tombol
+**Pulihkan** per baris dan *Pulihkan semuanya*.
+
+- **Datanya TIDAK dipulihkan Claude.** Aturan 0 melarangnya, dan itu benar juga
+  secara teknis: yang menekan tombolnya orang yang tahu booking mana yang
+  memang pernah ada. Yang dibangun alatnya.
+- **Dibaca dari `RSV_VIPROW`**, diisi di PUTARAN YANG SAMA dengan `RSV_HARI`
+  (satu `rsvAmbil()`, bukan dua). Yang dibatalkan IKUT dikumpulkan — penyaring
+  status `RSV_HARI` ada di bawahnya.
+- **Penandanya id berawalan `vip-`**, bukan `vip:true` saja: reservasi yang
+  ditandai VIP langsung di modul Reservasi bukan milik Marketing, dan
+  "memulihkan"-nya melahirkan baris VIP hantu berikut omzetnya. Penjaganya ada
+  di DUA tempat (pengumpul + `vipIdDariRes()`) — sengaja berlapis, dan mutasi
+  tunggal atas salah satunya memang ekuivalen.
+- **NOMINAL & PENGAKUAN OMSET TIDAK PERNAH DITEBAK.** Keduanya tidak ada di
+  baris modul Reservasi. Ditebak, yang pertama mengarang omzet orang dan yang
+  kedua mengarang keputusan pengakuan omset — dua-duanya tanpa satu pun galat,
+  dengan angka yang kelihatan wajar. Dibiarkan kosong, keduanya ditagih pita
+  "belum ada nominalnya" dan chip `menuFix` yang memang sudah berdiri di
+  halaman itu.
+- **DP IKUT DIPULIHKAN BERIKUT `vipBuktiId` ASLINYA, dan ini yang paling
+  gampang salah.** `vipGabungDps()` mencocokkan baris DP asal Marketing lewat
+  kunci itu dan **MEMBUANG** yang tidak lagi disebut kiriman kita — jadi baris
+  VIP yang dipulihkan TANPA bukti akan MENGHAPUS DP-nya dari modul Reservasi
+  pada pemakaian `vipSyncDp()` berikutnya. Uang yang benar-benar masuk hilang
+  dari catatan, tanpa satu pun galat. Cicilan yang dicatat kru Reservasi
+  sendiri (tanpa `vipBuktiId`) TIDAK ikut disalin: ia bukan milik Marketing.
+- **`key` bukti dibiarkan KOSONG** — berkasnya ada di server modul Reservasi,
+  sementara `attachUrl()` menunjuk server Marketing. `vipBuktiIkonHTML()` &
+  `vipBuktiHTML()` karena itu mengenali key kosong dan menggambar penanda
+  tautan, bukan `<img>` ke alamat yang pasti 404: gambar rusak di sebelah
+  nominal terbaca sebagai "buktinya hilang", padahal ia utuh di modul sebelah.
+- **Catatan dibaca menurut LETAK barisnya** (`vipUraiCatatan`), bukan baris mana
+  pun yang kebetulan cocok. Catatan bebas tamu boleh berisi apa saja — di
+  produksi ada rundown acara belasan baris — dan pencocokan per baris akan
+  menelan baris yang kebetulan berawalan `TV: ` sebagai setelan TV.
+- **Yang di Reservasi sudah batal dipulihkan SEBAGAI batal.** Kalau tidak, ia
+  hidup lagi sebagai reservasi aktif dan omzetnya terhitung untuk acara yang
+  tidak pernah terjadi — kebalikan persis dari yang sedang dibereskan.
+- **Modul Reservasi yang tidak menjawab DIKATAKAN.** Diam di situ terbaca
+  sebagai "tidak ada yang hilang" — kesimpulan tentang daftar yang belum pernah
+  dibaca satu baris pun.
+- **Pitanya digambar ke wadahnya sendiri (`#vip-yatim`)**, dan wadah itu SELALU
+  ada walau isinya kosong. `muatReservasi()` asinkron; menggambar ulang halaman
+  saat jawabannya datang akan membuat ulang kotak "Cari nama, perusahaan…" yang
+  sedang diketik, dan hanya huruf pertama yang masuk — jebakan `queueF()` modul
+  Konten.
+
+```bash
+node tools/uji-vip-yatim.js   # 60 pemeriksaan, jsdom
+```
+
+Empat belas mutasi dicoba, keempat belasnya tertangkap. Dua mutasi lain
+**EKUIVALEN** dan bukan cacat uji: mencabut penjaga awalan `vip-` di salah satu
+dari dua tempatnya tidak mengubah apa pun selama yang lain berdiri — dicabut
+KEDUANYA, ujinya merah.
+
+##### `uji-vip-radar.js` ternyata sudah MERAH sejak 13 September, dan itu cacat uji
+
+Ditemukan saat menjalankan uji tetangga: asersi *"kartu Reservasi VIP menyebut
+pax-nya"* gagal pada `develop` yang bersih — **bukan karena perubahan apa pun**.
+Fixture-nya bertanggal MATI (10–12 September 2026), sementara halaman Agenda
+Radar bawaannya memajang **minggu berjalan** dan hanya yang **akan datang**
+(`fAg.mode='minggu'`, `fAg.waktu='akan'`). Sejak 13 September fixture itu jatuh
+di luar periode, `paxVip` berbunyi 0, dan ujinya melaporkan bug yang tidak ada.
+
+- Tanggalnya sekarang **relatif terhadap hari ini**, dan **ketiganya di HARI
+  YANG SAMA**: tanggal berjajar (besok, lusa) bisa jatuh di dua minggu berbeda
+  kalau ujinya dijalankan menjelang akhir pekan, dan salah satunya keluar dari
+  periode lagi. Yang membedakan tiap baris PAX-nya, bukan tanggalnya.
+- Periodenya juga **DIPATOK** ke minggu tanggal fixture sebelum Agenda
+  digambar. Yang diuji hitungan pax-nya, bukan pemilih periodenya.
+- **Uji yang membusuk sendiri lebih buruk daripada tidak ada uji** — yang
+  membacanya belajar mengabaikan warna merah, termasuk waktu suatu hari ia
+  benar.
+
 ### Ordering: rekap konfirmasi Central Kitchen (9 September 2026)
 
 Permintaan user: *"Minta dari CK dan Kirim ke CK, tolong buat confirmation

@@ -11839,6 +11839,18 @@ async function muatEventEms(paksa){
    kenyataannya — dan kalender ini dipakai untuk memutuskan boleh tidaknya
    menerima booking baru. */
 let RSV_HARI   = {};     // 'YYYY-MM-DD' -> {jml, pax, baris:[...]}
+/* Baris reservasi bertanda VIP yang LAHIR DARI MODUL INI (id berawalan
+   'vip-'), apa adanya dan TERMASUK yang dibatalkan. Dipakai vipYatimList()
+   untuk menjawab satu pertanyaan yang sampai 17 September 2026 tidak dijawab
+   layar mana pun: booking VIP mana yang berdiri di modul Reservasi tapi
+   barisnya sudah tidak ada lagi di sini.
+
+   Diisi di PUTARAN YANG SAMA dengan RSV_HARI, sebelum penyaring status di
+   bawahnya. Yang dibatalkan sengaja ikut: ia memang tidak boleh terhitung
+   sebagai omzet, tapi ketiadaannya di sini tetap kehilangan data — dan daftar
+   yang diam-diam melewatinya membuat jumlah yang dilaporkan tidak pernah cocok
+   dengan yang dilihat orang di modul Reservasi. */
+let RSV_VIPROW = [];
 let RSV_ERR    = '';
 let RSV_MUAT   = false;
 let RSV_SUDAH  = false;
@@ -11849,8 +11861,10 @@ async function muatReservasi(paksa){
   try{
     const d=await rsvAmbil();
     const peta={};
+    const vipRow=[];
     (d&&d.reservations||[]).forEach(function(r){
       if(!r||!r.date) return;
+      if(r.vip && String(r.id||'').slice(0,4)==='vip-') vipRow.push(r);
       const st=String(r.status||'').toLowerCase();
       if(st==='cancelled'||st==='no-show'||st==='noshow'||st==='batal') return;
       const k=String(r.date).slice(0,10);
@@ -11863,13 +11877,20 @@ async function muatReservasi(paksa){
     Object.keys(peta).forEach(function(k){
       peta[k].baris.sort(function(a,b){ return String(a.jam).localeCompare(String(b.jam)); });
     });
-    RSV_HARI=peta; RSV_ERR='';
+    RSV_HARI=peta; RSV_VIPROW=vipRow; RSV_ERR='';
   }catch(err){
-    RSV_HARI={};
+    RSV_HARI={}; RSV_VIPROW=[];
     RSV_ERR='Tidak bisa membaca modul Reservasi: '+((err&&err.message)||'gagal');
   }finally{
     RSV_MUAT=false; RSV_SUDAH=true;
     if(String(location.hash).indexOf('calendar')>-1) go('calendar');
+    /* Halaman VIP disegarkan LEWAT WADAHNYA, bukan digambar ulang seluruhnya.
+       Kotak "Cari nama, perusahaan…" berdiri di halaman yang sama, dan jawaban
+       ini datang beberapa detik sesudah halamannya terbuka — kotak yang dibuat
+       ulang di tengah orang mengetik kehilangan fokus, dan hanya huruf pertama
+       yang masuk. Jebakan yang sama sudah dibayar di queueF() modul Konten. */
+    const wy=document.getElementById('vip-yatim');
+    if(wy) wy.innerHTML=vipYatimStrip();
   }
 }
 function panelGagalRsv(){
@@ -15510,11 +15531,260 @@ function drLihat(id){
    +(can('edit_designreq')&&!r.batalAt?'<button class="btn pri" onclick="closeModal();drForm(\''+r.id+'\')">Ubah</button>':'')+'</div>');
 }
 
+/* ================= RESERVASI VIP YANG HILANG DARI MARKETING =================
+
+   Ditemukan 17 September 2026, dan diukur atas data PRODUKSI — bukan dugaan:
+   dari 17 booking bertanda VIP yang berdiri di modul Reservasi, SEPULUH tidak
+   punya barisnya lagi di sini. Semuanya lahir dari modul ini (id-nya berawalan
+   'vip-', catatannya berbunyi "Dari modul Marketing"), dan tidak SATU PUN punya
+   jejak "Reservasi VIP dihapus" di activities — jadi bukan ada yang menekan
+   tombol Hapus, melainkan barisnya lenyap diam-diam dari 'extra:vip'.
+
+   Sebab yang sudah terbukti untuk sebagian besarnya: sampai 8 September 2026
+   koleksi 'vip' ditulis TIMPA BUTA lewat put_setting() di backend (lihat
+   kol_settings() di marketing-mysql/lib_marketing_mysql.php), jadi satu tab
+   yang terbuka sejak pagi mengganti SELURUH daftar dengan salinan lamanya
+   begitu ia menyimpan apa pun. Yang hilang berkelompok rapi menurut tanggal
+   pembuatannya, dan itulah bentuk khasnya.
+
+   AKIBATNYA BUKAN SOAL TAMPILAN. Yang hilang di sini hilang juga di:
+     · Radar                      — membaca 'vip' dari getAll modul ini
+     · Performa Omset & Bonus     — pfoBaris() membaca S.vip
+     · Finance > Breakdown Sumber — vip_hari() membaca blob yang SAMA
+   sementara Kalender di modul ini TETAP menggambarnya, karena ia membaca modul
+   Reservasi langsung lewat rsvAmbil(). Dua layar bersebelahan karena itu
+   menyebut jumlah booking yang berbeda untuk hari yang sama, dan sampai
+   sekarang tidak ada satu kalimat pun yang menjelaskan sebabnya. Itu yang
+   ditutup di sini: selisihnya DIKATAKAN, lalu bisa dibereskan.
+
+   YANG TIDAK DIPULIHKAN, dan itu disengaja: nominal omzet dan Pengakuan Omset
+   (menuFix). Keduanya TIDAK ADA di baris modul Reservasi — menebaknya berarti
+   mengarang angka uang dan keputusan pengakuan omset orang lain, dua-duanya
+   tanpa satu pun galat. Dibiarkan kosong, keduanya ditagih pita yang memang
+   sudah berdiri di halaman ini ("belum ada nominalnya") dan chip menuFix di
+   kolom Jenis. */
+function vipIdDariRes(id){
+  const t=String(id||'');
+  return t.slice(0,4)==='vip-' ? t.slice(4) : '';
+}
+/* Baris Reservasi yang tidak punya pasangan di S.vip.
+
+   Dicocokkan lewat ID, bukan nama+tanggal: nama tamu boleh diperbaiki ejaannya
+   di salah satu modul, dan pencocokan yang meleset di sini melahirkan baris
+   KEDUA untuk booking yang sama — yaitu omzet yang terhitung dua kali. */
+function vipYatimList(){
+  const ada={}; (S.vip||[]).forEach(function(v){ if(v&&v.id) ada[v.id]=1; });
+  const mine=(ME&&ME.role==='marketing');
+  const namaSaya=String((ME&&ME.name)||'').trim().toLowerCase();
+  return (RSV_VIPROW||[]).filter(function(r){
+    const id=vipIdDariRes(r&&r.id);
+    if(!id || ada[id]) return false;
+    /* Penyaring yang SAMA dengan daftar di bawahnya: yang berperan marketing
+       cuma melihat miliknya sendiri. Dipakai nama PIC di baris Reservasi —
+       mktPIC-nya justru yang hilang bersama barisnya. */
+    if(mine && namaSaya && String(r.picName||'').trim().toLowerCase()!==namaSaya) return false;
+    return true;
+  }).sort(function(a,b){ return String(b.date||'').localeCompare(String(a.date||'')); });
+}
+/* Membaca kembali catatan yang ditulis vipLanjutMeja().
+
+   Yang dibaca LETAK barisnya, bukan baris mana pun yang kebetulan cocok:
+   catatan bebas tamu boleh berisi apa saja — di produksi ada rundown acara
+   belasan baris lengkap dengan tab — dan pencocokan per baris akan menelan
+   sebagiannya sebagai field. Susunannya tetap dan berurutan, jadi letaknya
+   jawaban yang pasti. */
+function vipUraiCatatan(teks){
+  const baris=String(teks||'').split('\n');
+  const out={jenis:'',perusahaan:'',layoutReq:'',tv:false,speaker:false,catatan:'',pic:''};
+  let i=0;
+  const kepala=(baris[0]||'').match(/^RESERVASI RUANG VIP \(([^)]+)\)/);
+  if(kepala){ out.jenis=kepala[1].trim(); i=1; }
+  if((baris[i]||'').indexOf('Perusahaan: ')===0){ out.perusahaan=baris[i].slice(12).trim(); i++; }
+  if((baris[i]||'').indexOf('Request layout: ')===0){ out.layoutReq=baris[i].slice(16).trim(); i++; }
+  if((baris[i]||'').indexOf('TV: ')===0){
+    out.tv=/TV: Ya/.test(baris[i]);
+    out.speaker=/Speaker & Mic: Ya/.test(baris[i]);
+    i++;
+  }
+  let akhir=baris.length;
+  for(let j=baris.length-1;j>=i;j--){
+    if((baris[j]||'').indexOf('Dari modul Marketing')===0){
+      const m=baris[j].match(/PIC (.+)$/);
+      if(m) out.pic=m[1].trim();
+      akhir=j; break;
+    }
+  }
+  out.catatan=baris.slice(i,akhir).join('\n').trim();
+  return out;
+}
+/* Nama PIC -> id user modul ini. Nama itulah satu-satunya yang tercatat di
+   baris Reservasi (userName() yang menuliskannya), jadi cocok PERSIS sudah
+   cukup. Yang tidak ketemu DIBIARKAN KOSONG, bukan dijatuhkan ke orang
+   pertama: itu menebak siapa yang dapat omzetnya, dan pita "baris tanpa PIC"
+   di Performa Omset sudah melaporkannya. */
+function vipUserDariNama(nama){
+  const t=String(nama||'').trim().toLowerCase();
+  if(!t) return '';
+  const u=(S.users||[]).find(function(x){ return String((x&&x.name)||'').trim().toLowerCase()===t; });
+  return u?u.id:'';
+}
+/* DP-nya IKUT DIPULIHKAN, dan itu bukan kemewahan.
+
+   vipGabungDps() mengenali baris DP asal Marketing lewat 'vipBuktiId', dan
+   MEMBUANG yang tidak lagi disebut kiriman kita. Jadi baris VIP yang
+   dipulihkan tanpa bukti akan MENGHAPUS DP-nya dari modul Reservasi pada
+   pemakaian vipSyncDp() berikutnya — uang yang benar-benar masuk hilang dari
+   catatan, tanpa satu pun galat. Yang dipulihkan karena itu memakai
+   'vipBuktiId' ASLINYA, supaya pasangannya tetap ketemu dan proofData lama
+   tetap dipertahankan.
+
+   BERKAS buktinya sendiri tinggal di server modul Reservasi; 'key' di sini
+   menunjuk server Marketing, dan berkas itu memang tidak ada di sana. Jadi key
+   dibiarkan kosong — nominalnya yang penting, karena itu yang dibaca
+   vipDpTotal() dan chip status bayar. Cicilan yang dicatat kru Reservasi
+   sendiri (tanpa vipBuktiId) TIDAK ikut: ia bukan milik Marketing, dan
+   menyalinnya ke sini membuatnya terkirim balik sebagai milik kita. */
+function vipBuktiDariDps(dps){
+  return (Array.isArray(dps)?dps:[]).filter(function(p){ return p && p.vipBuktiId; })
+    .map(function(p){
+      return { id:p.vipBuktiId, key:'', name:p.proofName||'',
+               nominal:+p.amount||0, metode:p.method||'',
+               by:p.by||'', at:p.at||0 };
+    });
+}
+function vipDariReservasi(r){
+  const c=vipUraiCatatan(r.notes);
+  const st=String(r.status||'').toLowerCase();
+  const batal=(st==='cancelled'||st==='no-show'||st==='noshow'||st==='batal');
+  const v=vipKosong();
+  v.id=vipIdDariRes(r.id);
+  /* Regular hanya kalau catatannya MENYEBUTNYA. Yang tidak terbaca jatuh ke
+     Assisted, dan itu arah yang benar: Assisted menuntut nominal diisi, jadi
+     salah tebak ke sana melahirkan tagihan yang terlihat di layar — bukan
+     omzet yang diam-diam tidak pernah terhitung. */
+  v.jenis=(c.jenis==='Regular'?'Regular':'Assisted');
+  v.nama=r.name||'';
+  v.clientId='';                      // ditebak = menempel ke client yang salah
+  v.perusahaan=c.perusahaan||'';
+  v.tanggal=String(r.date||'').slice(0,10);
+  v.jamMulai=r.time||'';
+  v.jamSelesai='';
+  v.hp=r.phone||'';
+  v.paxMin=(+r.pax||'')||'';
+  v.paxMax='';
+  v.layoutReq=c.layoutReq||'';
+  v.tv=!!c.tv; v.speaker=!!c.speaker;
+  v.nominal='';                       // tidak ada di Reservasi — jangan ditebak
+  v.menuFix='';                       // keputusan pengakuan omset — jangan ditebak
+  v.meja=String(r.table||'').split(',').map(function(x){ return x.trim(); }).filter(Boolean);
+  v.mktPIC=vipUserDariNama(r.picName||c.pic);
+  v.catatan=c.catatan||'';
+  v.resId=r.id;
+  v.bukti=vipBuktiDariDps(r.dps);
+  v.createdBy=r.createdBy||'';
+  v.createdAt=new Date(+r.createdAt||Date.now()).toISOString();
+  v.kirimAt=v.createdAt;
+  v.dipulihkanAt=new Date().toISOString();
+  /* Yang di Reservasi sudah batal dipulihkan SEBAGAI batal. Kalau tidak, ia
+     hidup lagi sebagai reservasi aktif dan omzetnya ikut terhitung untuk acara
+     yang tidak pernah terjadi — kebalikan persis dari yang sedang dibereskan. */
+  if(batal){
+    v.batalAt=new Date(+r.updatedAt||Date.now()).toISOString();
+    v.batalOleh=String(r.cancelReason||'').trim()||'modul Reservasi';
+  }
+  return v;
+}
+/* Pita di atas daftar. Digambar ke wadahnya sendiri (#vip-yatim) supaya bisa
+   disusul muatReservasi() yang asinkron tanpa menggambar ulang halaman. */
+function vipYatimStrip(){
+  if(RSV_ERR){
+    /* Diam di sini akan terbaca sebagai "tidak ada yang hilang" — kesimpulan
+       tentang daftar yang belum pernah dibaca sama sekali. */
+    return '<div class="tbl-note" style="border-color:var(--warn);color:var(--warn)">'+svg(IC.alert)
+      +'<span>'+esc(RSV_ERR)+' Selama itu halaman ini <b>tidak bisa memastikan</b> semua booking VIP '
+      +'masih tercatat di sini. <a href="#" onclick="muatReservasi(true);return false"><b>Coba lagi</b></a></span></div>';
+  }
+  if(!RSV_SUDAH) return '';
+  const ya=vipYatimList();
+  if(!ya.length) return '';
+  const bolehUbah=can('edit_vip');
+  let h='<div class="tbl-note" style="border-color:var(--danger);color:var(--danger);display:block">'
+   +'<div style="display:flex;gap:8px;align-items:flex-start">'+svg(IC.alert)
+   +'<span><b>'+ya.length+' Reservasi VIP ada di modul Reservasi tapi tidak ada di daftar ini.</b> '
+   +'Mejanya terkunci di sana dan tamunya tetap datang, tapi di Marketing booking-nya seolah tidak pernah ada — '
+   +'jadi ia juga tidak muncul di Radar, di Performa Omset &amp; Bonus, dan di Breakdown Sumber milik Finance. '
+   +'Memulihkannya membaca ulang dari modul Reservasi; <b>nominal omzet &amp; Pengakuan Omset tetap kosong</b> '
+   +'karena keduanya memang tidak tercatat di sana.</span></div>'
+   +'<div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr>'
+   +'<th>Tanggal</th><th>Atas Nama</th><th>PIC</th><th>Orang</th><th>Meja</th><th>Status</th><th></th>'
+   +'</tr></thead><tbody>';
+  ya.forEach(function(r){
+    h+='<tr><td class="mono">'+esc(fmtDate(String(r.date||'').slice(0,10)))
+        +'<div class="cell-sub">'+esc(r.time||'—')+'</div></td>'
+     +'<td><div class="cell-strong">'+esc(r.name||'(tanpa nama)')+'</div></td>'
+     +'<td>'+esc(r.picName||'—')+'</td>'
+     +'<td class="mono">'+(+r.pax||'—')+'</td>'
+     +'<td>'+esc(String(r.table||'').slice(0,60)||'—')+'</td>'
+     +'<td>'+esc(r.status||'—')+'</td>'
+     +'<td class="r">'+(bolehUbah
+        ?'<button class="btn sm pri" onclick="vipPulihkan(\''+escJs(r.id)+'\')">Pulihkan</button>'
+        :'<span class="cell-sub">butuh izin ubah</span>')+'</td></tr>';
+  });
+  h+='</tbody></table></div>';
+  if(bolehUbah && ya.length>1)
+    h+='<div style="margin-top:10px"><button class="btn sm" onclick="vipPulihkanSemua()">Pulihkan semuanya ('+ya.length+')</button></div>';
+  return h+'</div>';
+}
+function vipPulihkanSatu(resId){
+  const r=(RSV_VIPROW||[]).find(function(x){ return x && x.id===resId; });
+  if(!r) return null;
+  const id=vipIdDariRes(r.id);
+  if(!id) return null;
+  if((S.vip||[]).some(function(v){ return v && v.id===id; })) return null;   // keburu ada
+  const v=vipDariReservasi(r);
+  S.vip=S.vip||[]; S.vip.unshift(v);
+  logAct('vip',v.id,'Reservasi VIP dipulihkan',
+    v.nama+' · '+fmtDate(v.tanggal)+' · dibaca ulang dari modul Reservasi, nominal masih kosong');
+  return v;
+}
+function vipPulihkan(resId){
+  if(!can('edit_vip')) return toast('Akses ditolak','Kamu tidak punya izin mengubah Reservasi VIP.','err');
+  const v=vipPulihkanSatu(resId);
+  if(!v) return renderVIP($('view'));
+  save();
+  toast('Dipulihkan',v.nama+' kembali tercatat di Marketing. Nominal & Pengakuan Omset masih perlu diisi.','ok');
+  renderVIP($('view'));
+}
+function vipPulihkanSemua(){
+  if(!can('edit_vip')) return toast('Akses ditolak','Kamu tidak punya izin mengubah Reservasi VIP.','err');
+  const ya=vipYatimList();
+  if(!ya.length) return;
+  konfirmasiVIP('Pulihkan '+ya.length+' Reservasi VIP?',
+    'Barisnya dibaca ulang dari modul Reservasi — nama, tanggal, jam, meja, PIC, dan DP-nya. '
+    +'<b>Nominal omzet dan Pengakuan Omset tetap kosong</b> karena keduanya tidak pernah tercatat di sana, '
+    +'jadi sesudah ini masih ada '+ya.length+' baris yang perlu diisi nominalnya. '
+    +'Yang di sana sudah dibatalkan dipulihkan sebagai batal.',
+    'Ya, pulihkan','btn pri',function(btn){
+      /* SATU save() untuk seluruhnya, bukan per baris: sepuluh penyimpanan
+         berurutan berarti sepuluh kiriman state penuh, dan kalau yang keenam
+         gagal, lima sudah masuk sementara empat belum — tanpa satu pun tempat
+         yang mengatakan sampai mana. */
+      let n=0;
+      ya.forEach(function(r){ if(vipPulihkanSatu(r.id)) n++; });
+      save(); closeModal();
+      toast('Dipulihkan',n+' Reservasi VIP kembali tercatat di Marketing. Nominalnya masih perlu diisi.','ok');
+      renderVIP($('view'));
+    });
+}
 function renderVIP(V){
   const bolehUbah=can('edit_vip');
   let h=pageHead('Modul L','Reservasi VIP','Booking ruang VIP. Mejanya langsung dikunci di modul Reservasi.',
     bolehUbah?'<button class="btn pri" onclick="vipForm()">'+svg(IC.plus)+'Reservasi VIP Baru</button>':'');
 
+  /* Dibaca dari modul Reservasi, MALAS dan tidak memblokir: jawabannya menyusul
+     beberapa detik kemudian lewat wadah #vip-yatim di bawah. Halaman ini sudah
+     berguna tanpa jawaban itu, jadi ia tidak boleh menunggunya. */
+  muatReservasi();
   const mine=ME.role==='marketing';
   const semua=(S.vip||[]).filter(v=>!mine||v.mktPIC===ME.id)
     .slice().sort((a,b)=>String(b.tanggal||'').localeCompare(String(a.tanggal||'')));
@@ -15533,6 +15803,10 @@ function renderVIP(V){
    +stat('Regular',hidup.filter(v=>v.jenis==='Regular').length,'bantu booking saja','cal')
    +stat('Nominal Assisted',rpShort(asst.reduce((a,v)=>a+vipNominal(v),0)),'dihitung sebagai omzet','report')
    +'</div>';
+  /* Wadahnya SELALU digambar, walau isinya kosong — muatReservasi() mengisinya
+     belakangan lewat id ini, dan wadah yang cuma lahir kalau ada isinya berarti
+     jawaban yang menyusul tidak punya tempat untuk mendarat. */
+  h+='<div id="vip-yatim">'+vipYatimStrip()+'</div>';
   const belum=hidup.filter(vipBelumNominal);
   if(belum.length) h+='<div class="tbl-note" style="border-color:var(--warn)">'+svg(IC.alert)
     +'<span><b>'+belum.length+' reservasi Assisted belum ada nominalnya</b> — omzetnya belum terhitung. Isi lewat tombol <em>Isi Nominal</em> di barisnya.</span></div>';
@@ -16086,8 +16360,11 @@ function vipBuktiHTML(f){
            formulir digambar, jadi membacanya belakangan lewat id yang ditebak
            dari urutan akan meleset begitu ada satu yang dihapus di tengah. */
         return '<div class="vip-dp-row">'
-          +'<a class="vip-dp-file" href="'+esc(attachUrl(b.key))+'" target="_blank" rel="noopener" '
-            +'title="Buka bukti '+esc(b.name||'')+'">'+vipBuktiIkonHTML(b)+'</a>'
+          +(b.key
+            ? '<a class="vip-dp-file" href="'+esc(attachUrl(b.key))+'" target="_blank" rel="noopener" '
+              +'title="Buka bukti '+esc(b.name||'')+'">'+vipBuktiIkonHTML(b)+'</a>'
+            : '<span class="vip-dp-file" title="Berkas buktinya ada di modul Reservasi, bukan di sini — '
+              +'baris DP ini dipulihkan dari sana.">'+vipBuktiIkonHTML(b)+'</span>')
           +'<div class="vip-dp-isi">'
             +'<div class="vip-dp-nama">'+esc(b.name||'bukti')+'</div>'
             +'<div class="vip-dp-form">'
@@ -16117,6 +16394,11 @@ function vipBuktiHTML(f){
 /* Kotak kecil di kiri tiap baris: foto tampil sebagai foto, PDF sebagai ikon.
    Dipakai formulir maupun layar detail, jadi keduanya tidak bisa berselisih. */
 function vipBuktiIkonHTML(b){
+  /* Tanpa key, berkasnya tidak ada di server MODUL INI (baris DP yang
+     dipulihkan dari Reservasi). <img> ke alamat yang pasti 404 menggambar ikon
+     rusak, dan yang melihatnya menyimpulkan buktinya hilang — padahal ia utuh
+     di modul sebelah. */
+  if(!b.key) return '<span class="vip-dp-pdf">🔗</span>';
   const gbr=/\.(jpe?g|png|gif|webp|bmp|heic)$/i.test(String(b.name||''));
   return gbr
     ? '<img src="'+esc(attachUrl(b.key))+'" alt="'+esc(b.name||'bukti')+'">'
