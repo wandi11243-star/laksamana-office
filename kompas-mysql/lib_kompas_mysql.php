@@ -1808,6 +1808,105 @@ function void_pastikan() {
        `batal_alasan` VARCHAR(255) NOT NULL DEFAULT \'\',
        KEY `idx_void_tgl` (`tgl`)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+  void_pastikan_kolom($pdo);
+  /* Persen tax & service, disetel admin. SATU baris — ia setelan
+     perusahaan, bukan per orang. */
+  $pdo->exec(
+    'CREATE TABLE IF NOT EXISTS `void_setting` (
+       `id`             TINYINT UNSIGNED NOT NULL PRIMARY KEY,
+       `tax_persen`     DECIMAL(6,3) NOT NULL DEFAULT 10.000,
+       `service_persen` DECIMAL(6,3) NOT NULL DEFAULT 5.000,
+       `updated_at`     BIGINT NOT NULL DEFAULT 0,
+       `updated_by`     VARCHAR(120) NOT NULL DEFAULT \'\'
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+}
+
+/* KOLOM BARU TIDAK BISA LEWAT `CREATE TABLE IF NOT EXISTS` — ia tidak
+   pernah menyentuh tabel yang sudah ada, jadi kolomnya cuma lahir di
+   pemasangan baru sementara server yang sudah hidup tertinggal tanpa satu
+   pun galat. Polanya disalin dari hpp_pastikan_kolom(); berkas migrasi
+   sengaja TIDAK dipakai karena di repo ini migrasi rutin tertinggal di
+   produksi.
+
+   Bawaannya 0, dan itu berarti "rinciannya tidak pernah dicatat" untuk
+   baris yang lahir sebelum 17 September 2026 — BUKAN "subtotalnya nol".
+   void_list() yang membedakan keduanya lewat penanda `rinci`. */
+function void_pastikan_kolom($pdo) {
+  $cek = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS
+                         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t
+                           AND COLUMN_NAME = :c');
+  foreach (array('subtotal', 'service', 'tax') as $kol) {
+    $cek->execute(array(':t' => 'void_log', ':c' => $kol));
+    if ((int)$cek->fetchColumn() > 0) continue;
+    $pdo->exec('ALTER TABLE `void_log` ADD COLUMN `' . $kol . '` BIGINT NOT NULL DEFAULT 0');
+  }
+}
+
+/* SETELAN PERSEN. Bawaannya 10% tax dan 5% service — dan itu BUKAN angka
+   karangan: diukur atas Cancel Menu Detail Report Agustus 2026, 71 dari 74
+   baris bersubtotal memenuhi tax = 10% x SUBTOTAL, sementara hipotesis
+   tax = 10% x (subtotal + service) cocok pada NOL baris. Service 5% x
+   subtotal, dan total = subtotal + service + tax cocok di 74 dari 74.
+
+   Itu penting karena konvensi yang lebih umum di Indonesia justru
+   memajaki (subtotal + service). Dipakai di sini, tiap baris void
+   berselisih 0,5% dari yang dicatat POS — selisih yang tidak akan
+   dicurigai siapa pun. */
+function void_setting_baca() {
+  void_pastikan();
+  $row = db()->query('SELECT `tax_persen`,`service_persen`,`updated_at`,`updated_by`
+                        FROM `void_setting` WHERE `id`=1')->fetch();
+  if (!$row) return array('tax' => 10.0, 'service' => 5.0, 'diubah' => 0, 'oleh' => '');
+  return array('tax' => (float)$row['tax_persen'], 'service' => (float)$row['service_persen'],
+               'diubah' => (float)$row['updated_at'], 'oleh' => (string)$row['updated_by']);
+}
+
+function void_setting_simpan($d, $oleh) {
+  void_pastikan();
+  if (!is_array($d)) return array('ok' => false, 'error' => 'data bukan objek');
+  $tax = isset($d['tax']) ? (float)$d['tax'] : -1;
+  $svc = isset($d['service']) ? (float)$d['service'] : -1;
+  /* Dijepit 0..100. Persen negatif MENGURANGI total void, dan persen di
+     atas 100 membuat pajaknya lebih besar daripada barangnya — dua angka
+     yang tidak akan bisa dijelaskan siapa pun, dan dua-duanya tersimpan
+     tanpa satu pun galat kalau tidak dijepit di sini. */
+  foreach (array($tax, $svc) as $p) {
+    if (!is_finite($p) || $p < 0 || $p > 100)
+      return array('ok' => false, 'error' => 'Persen harus antara 0 dan 100.');
+  }
+  db()->prepare('INSERT INTO `void_setting` (`id`,`tax_persen`,`service_persen`,`updated_at`,`updated_by`)
+                 VALUES (1,:t,:s,:u,:o)
+                 ON DUPLICATE KEY UPDATE `tax_persen`=VALUES(`tax_persen`),
+                   `service_persen`=VALUES(`service_persen`),
+                   `updated_at`=VALUES(`updated_at`), `updated_by`=VALUES(`updated_by`)')
+    ->execute(array(':t' => $tax, ':s' => $svc, ':u' => (int)(microtime(true) * 1000),
+                    ':o' => mb_substr((string)$oleh, 0, 120)));
+  return array('ok' => true, 'saved' => true, 'setting' => void_setting_baca());
+}
+
+/* SATU tempat yang memutuskan rincian sebuah item, dipakai jalur satu baris
+   DAN jalur banyak item. Dua tempat yang menghitungnya sendiri-sendiri akan
+   menyimpang, dan yang menyimpang di sini adalah UANG.
+
+   `nominal` DIHITUNG SERVER (subtotal + service + tax), tidak pernah
+   diambil dari kiriman: total yang dikirim layar bisa tidak cocok dengan
+   ketiga komponennya — karena salah hitung, karena versi layar lama, atau
+   karena diketik ulang dari console — dan yang tersimpan lalu tidak bisa
+   dicocokkan dengan rinciannya sendiri.
+
+   KIRIMAN TANPA `subtotal` jatuh ke perilaku LAMA (nominal apa adanya,
+   service & tax nol). Itu layar yang belum ter-deploy; menolaknya berarti
+   Catatan Void mati selama jendela waktu antara PHP dan HTML mendarat, dan
+   urutan pendaratan FTP di repo ini memang tidak bisa dijamin. */
+function void_rinci($it) {
+  if (!is_array($it)) $it = array();
+  $adaSub = array_key_exists('subtotal', $it);
+  $sub = $adaSub ? (float)$it['subtotal'] : (isset($it['nominal']) ? (float)$it['nominal'] : 0);
+  $svc = $adaSub && isset($it['service']) ? (float)$it['service'] : 0;
+  $tax = $adaSub && isset($it['tax']) ? (float)$it['tax'] : 0;
+  foreach (array($sub, $svc, $tax) as $v) if (!is_finite($v) || $v < 0) return null;
+  return array('subtotal' => (int)round($sub), 'service' => (int)round($svc),
+               'tax' => (int)round($tax), 'nominal' => (int)round($sub + $svc + $tax));
 }
 
 /* Tanggal ISO yang benar-benar ada di kalender. `2026-02-31` lolos regex
@@ -1850,13 +1949,21 @@ function void_list($dari, $sampai) {
       'id' => (string)$r['id'], 'tgl' => (string)$r['tgl'], 'bill' => (string)$r['bill'],
       'item' => (string)$r['item'], 'pemesan' => (string)$r['pemesan'],
       'alasan' => (string)$r['alasan'], 'nominal' => (float)$r['nominal'],
+      'subtotal' => (float)$r['subtotal'], 'service' => (float)$r['service'],
+      'tax' => (float)$r['tax'],
+      /* Baris yang lahir sebelum kolom ini ada TIDAK punya rincian, dan
+         nol di ketiganya BUKAN berarti "tidak kena service & tax" — dua
+         keadaan yang menuntut bacaan berbeda. Layar memakai penanda ini,
+         bukan menyimpulkannya dari angka nol. */
+      'rinci' => ((float)$r['subtotal'] > 0 || (float)$r['service'] > 0 || (float)$r['tax'] > 0),
       'oleh' => (string)$r['oleh'], 'olehId' => (string)$r['oleh_id'],
       'dibuat' => (float)$r['dibuat'], 'diubah' => (float)$r['diubah'],
       'diubahOleh' => (string)$r['diubah_oleh'],
       'batalAt' => (float)$r['batal_at'], 'batalOleh' => (string)$r['batal_oleh'],
       'batalAlasan' => (string)$r['batal_alasan']);
   }
-  return array('baris' => $baris, 'total' => $total, 'maks' => VOID_LIST_MAKS);
+  return array('baris' => $baris, 'total' => $total, 'maks' => VOID_LIST_MAKS,
+               'setting' => void_setting_baca());
 }
 
 /* Wajib diisi, DAN DITEGAKKAN DI SINI — bukan cuma di layar. Penjaga yang
@@ -1894,9 +2001,8 @@ function void_simpan($d, $oleh, $olehId) {
      tidak bernilai rupiah, dan menolaknya memaksa orang mengetik angka
      karangan. Yang ditolak cuma yang NEGATIF: void bernominal minus
      MENAMBAH omset, dan angka itu tidak akan bisa dijelaskan siapa pun. */
-  $nominal = isset($d['nominal']) ? (float)$d['nominal'] : 0;
-  if (!is_finite($nominal) || $nominal < 0)
-    return array('ok' => false, 'error' => 'Nominal tidak boleh minus.');
+  $rn = void_rinci($d);
+  if ($rn === null) return array('ok' => false, 'error' => 'Nominal tidak boleh minus.');
 
   $pdo = db();
   $now = (int)(microtime(true) * 1000);
@@ -1918,10 +2024,12 @@ function void_simpan($d, $oleh, $olehId) {
       return array('ok' => false, 'error' => 'Catatan ini sudah dibatalkan dan tidak bisa diubah lagi.');
     $st = $pdo->prepare(
       'UPDATE `void_log` SET `tgl`=:t,`bill`=:b,`item`=:i,`pemesan`=:p,`alasan`=:a,
-              `nominal`=:n,`diubah`=:u,`diubah_oleh`=:o WHERE `id`=:id');
+              `nominal`=:n,`subtotal`=:sb,`service`=:sv,`tax`=:tx,
+              `diubah`=:u,`diubah_oleh`=:o WHERE `id`=:id');
     $st->execute(array(':t' => $nil['tgl'], ':b' => mb_substr($nil['bill'], 0, 60),
                        ':i' => mb_substr($nil['item'], 0, 200), ':p' => mb_substr($nil['pemesan'], 0, 120),
-                       ':a' => $nil['alasan'], ':n' => (int)round($nominal),
+                       ':a' => $nil['alasan'], ':n' => $rn['nominal'],
+                       ':sb' => $rn['subtotal'], ':sv' => $rn['service'], ':tx' => $rn['tax'],
                        ':u' => $now, ':o' => mb_substr((string)$oleh, 0, 120), ':id' => $id));
     return array('ok' => true, 'saved' => true, 'id' => $id, 'baru' => false);
   }
@@ -1938,11 +2046,13 @@ function void_simpan($d, $oleh, $olehId) {
   $id = 'v' . dechex($now) . substr(bin2hex(random_bytes(4)), 0, 8);
   $st = $pdo->prepare(
     'INSERT INTO `void_log` (`id`,`tgl`,`bill`,`item`,`pemesan`,`alasan`,`nominal`,
+                             `subtotal`,`service`,`tax`,
                              `oleh`,`oleh_id`,`dibuat`,`diubah`,`diubah_oleh`)
-     VALUES (:id,:t,:b,:i,:p,:a,:n,:o1,:oi,:c1,:c2,:o2)');
+     VALUES (:id,:t,:b,:i,:p,:a,:n,:sb,:sv,:tx,:o1,:oi,:c1,:c2,:o2)');
   $st->execute(array(':id' => $id, ':t' => $nil['tgl'], ':b' => mb_substr($nil['bill'], 0, 60),
                      ':i' => mb_substr($nil['item'], 0, 200), ':p' => mb_substr($nil['pemesan'], 0, 120),
-                     ':a' => $nil['alasan'], ':n' => (int)round($nominal),
+                     ':a' => $nil['alasan'], ':n' => $rn['nominal'],
+                     ':sb' => $rn['subtotal'], ':sv' => $rn['service'], ':tx' => $rn['tax'],
                      ':o1' => mb_substr((string)$oleh, 0, 120), ':oi' => mb_substr((string)$olehId, 0, 60),
                      ':c1' => $now, ':c2' => $now, ':o2' => mb_substr((string)$oleh, 0, 120)));
   return array('ok' => true, 'saved' => true, 'id' => $id, 'baru' => true);
@@ -2009,10 +2119,11 @@ function void_simpan_banyak($d, $oleh, $olehId) {
     if (!is_array($it)) continue;
     $nama = trim((string)(isset($it['item']) ? $it['item'] : ''));
     if ($nama === '') continue;
-    $nominal = isset($it['nominal']) ? (float)$it['nominal'] : 0;
-    if (!is_finite($nominal) || $nominal < 0)
+    $rn = void_rinci($it);
+    if ($rn === null)
       return array('ok' => false, 'error' => 'Nominal "' . $nama . '" tidak boleh minus.');
-    $masuk[] = array('item' => $nama, 'nominal' => (int)round($nominal));
+    $rn['item'] = $nama;
+    $masuk[] = $rn;
   }
   if (!count($masuk)) $kurang[] = 'Nama Item';
 
@@ -2033,8 +2144,9 @@ function void_simpan_banyak($d, $oleh, $olehId) {
   try {
     $st = $pdo->prepare(
       'INSERT INTO `void_log` (`id`,`tgl`,`bill`,`item`,`pemesan`,`alasan`,`nominal`,
+                               `subtotal`,`service`,`tax`,
                                `oleh`,`oleh_id`,`dibuat`,`diubah`,`diubah_oleh`)
-       VALUES (:id,:t,:b,:i,:p,:a,:n,:o1,:oi,:c1,:c2,:o2)');
+       VALUES (:id,:t,:b,:i,:p,:a,:n,:sb,:sv,:tx,:o1,:oi,:c1,:c2,:o2)');
     foreach ($masuk as $i => $m) {
       /* Id dibuat SERVER, sama dengan jalur satu baris — id kiriman bisa
          menabrak baris orang lain. `$i` ikut supaya dua item yang tersimpan
@@ -2043,6 +2155,7 @@ function void_simpan_banyak($d, $oleh, $olehId) {
       $st->execute(array(':id' => $id, ':t' => $nil['tgl'], ':b' => mb_substr($nil['bill'], 0, 60),
                          ':i' => mb_substr($m['item'], 0, 200), ':p' => mb_substr($nil['pemesan'], 0, 120),
                          ':a' => $nil['alasan'], ':n' => $m['nominal'],
+                         ':sb' => $m['subtotal'], ':sv' => $m['service'], ':tx' => $m['tax'],
                          ':o1' => mb_substr((string)$oleh, 0, 120), ':oi' => mb_substr((string)$olehId, 0, 60),
                          ':c1' => $now, ':c2' => $now, ':o2' => mb_substr((string)$oleh, 0, 120)));
       $ids[] = $id;

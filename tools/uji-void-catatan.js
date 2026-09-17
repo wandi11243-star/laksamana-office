@@ -85,28 +85,43 @@ async function aman(nama, fn) {
    huruf kecil berspasi ekor supaya pengelompokan yang peka huruf besar-
    kecil punya tempat untuk gagal.
 
-     2 Agu  SLMCL001   Ice Kopi     Rp100.000  Sari  "Ganti Produk"
-     2 Agu  SLMCL001   Nasi Goreng  Rp150.000  Sari  "ganti produk"  <- huruf beda
-     2 Agu  " slmcl001 " Es Teh     Rp 20.000  Sari  "Ganti Produk"  <- bill sama, ejaan beda
-     5 Agu  SLMCL003   Lychee Tea   Rp 50.000  Budi  "Salah input"   <- DIBATALKAN
+   Rinciannya ikut supaya tax & service punya tempat untuk salah — dan
+   baris ketiga sengaja bertax NOL: di berkas POS Agustus 2026 memang ada
+   tiga baris seperti itu (dua compliment, satu Videotron), jadi itu bukan
+   keadaan karangan. Baris 5 Agustus sengaja TANPA rincian sama sekali —
+   itu bentuk baris yang lahir sebelum kolomnya ada.
 
-   yang benar                   : 3 item · 1 bill · Rp270.000 · 1 pencatat · 1 alasan
-   pembatalan ikut dijumlahkan  : Rp320.000 · 4 item · 2 pencatat
+     2 Agu  SLMCL001   Ice Kopi     100.000 + 5.000 + 10.000 = Rp115.000
+     2 Agu  SLMCL001   Nasi Goreng  150.000 + 7.500 + 15.000 = Rp172.500
+     2 Agu  " slmcl001 " Es Teh      20.000 +     0 +      0 = Rp 20.000  <- bertax nol
+     5 Agu  SLMCL003   Lychee Tea   Rp50.000 tanpa rincian   <- DIBATALKAN
+
+   yang benar                   : 3 item · 1 bill · Rp307.500 · 1 pencatat · 1 alasan
+   pembatalan ikut dijumlahkan  : Rp357.500 · 4 item · 2 pencatat
    bill dikelompokkan peka huruf: 2 bill, bukan 1
    alasan tidak digabung        : 2 baris alasan, bukan 1
    Tidak satu pun angkanya bertabrakan. */
 const ROWS = [
   { id:'v1', tgl:'2026-08-02', bill:'SLMCL001', item:'Ice Kopi Laksamana',
-    pemesan:'Meja 12', alasan:'Ganti Produk', nominal:100000, oleh:'Sari', olehId:'u-sari',
+    pemesan:'Meja 12', alasan:'Ganti Produk', nominal:115000,
+    subtotal:100000, service:5000, tax:10000, rinci:true,
+    oleh:'Sari', olehId:'u-sari',
     dibuat:1000, diubah:1000, diubahOleh:'', batalAt:0, batalOleh:'', batalAlasan:'' },
   { id:'v2', tgl:'2026-08-02', bill:'SLMCL001', item:'Nasi Goreng',
-    pemesan:'Meja 12', alasan:'ganti produk', nominal:150000, oleh:'Sari', olehId:'u-sari',
+    pemesan:'Meja 12', alasan:'ganti produk', nominal:172500,
+    subtotal:150000, service:7500, tax:15000, rinci:true,
+    oleh:'Sari', olehId:'u-sari',
     dibuat:2000, diubah:2000, diubahOleh:'', batalAt:0, batalOleh:'', batalAlasan:'' },
   { id:'v4', tgl:'2026-08-02', bill:' slmcl001 ', item:'Es Teh Manis',
-    pemesan:'Meja 12', alasan:'Ganti Produk', nominal:20000, oleh:'Sari', olehId:'u-sari',
+    pemesan:'Meja 12', alasan:'Ganti Produk', nominal:20000,
+    subtotal:20000, service:0, tax:0, rinci:true,
+    oleh:'Sari', olehId:'u-sari',
     dibuat:2500, diubah:2500, diubahOleh:'', batalAt:0, batalOleh:'', batalAlasan:'' },
+  /* Baris LAMA: lahir sebelum kolom rinciannya ada. */
   { id:'v3', tgl:'2026-08-05', bill:'SLMCL003', item:'Lychee Tea',
-    pemesan:'Meja 3', alasan:'Salah input', nominal:50000, oleh:'Budi', olehId:'u-budi',
+    pemesan:'Meja 3', alasan:'Salah input', nominal:50000,
+    subtotal:0, service:0, tax:0, rinci:false,
+    oleh:'Budi', olehId:'u-budi',
     dibuat:3000, diubah:3000, diubahOleh:'', batalAt:9000, batalOleh:'Sari',
     batalAlasan:'dobel dengan v1' }
 ];
@@ -144,7 +159,14 @@ function stubFetch(w, opt) {
 
     if (u.indexOf('action=voidList') > -1) {
       if (opt.listGagal) return balas({ ok:false, error:'server sedang bermasalah' });
-      return balas({ ok:true, data:{ baris: opt.rows || ROWS, total: opt.total || (opt.rows || ROWS).length, maks:1500 } });
+      return balas({ ok:true, data:{ baris: opt.rows || ROWS,
+        total: opt.total || (opt.rows || ROWS).length, maks:1500,
+        setting: opt.setting || { tax:10, service:5, oleh:'', diubah:0 } } });
+    }
+    if (b && b.action === 'voidSetting') {
+      KIRIM.push({ url:u, body:b });
+      if (opt.tolakSetting) return balas({ ok:false, error:'bukan admin' });
+      return balas({ ok:true, data:{ ok:true, setting:{ tax:b.data.tax, service:b.data.service, oleh:'Sari', diubah:1 } } });
     }
     if (b && (b.action === 'voidSimpan' || b.action === 'voidBatal')) {
       KIRIM.push({ url:u, body:b });
@@ -177,7 +199,7 @@ function buatDom(html, url, opt) {
         w.localStorage.setItem('lm_session', JSON.stringify({
           expiry: Date.now() + 3600000, userId:'u-sari', name:'Sari',
           token: opt.tanpaToken ? '' : 'TOKEN-UJI',
-          modules: opt.modules || ['cashier','finance'], adminModules: []
+          modules: opt.modules || ['cashier','finance'], adminModules: opt.adminModules || []
         }));
       } catch (e) {}
       stubFetch(w, opt);
@@ -319,11 +341,58 @@ function invarianMenu(w, label) {
        yang benar. */
     const blokSimpan = (PHP_LIB.match(/function void_simpan\([\s\S]*?\r?\n\}/) || [''])[0];
     cek('badan void_simpan terbaca', blokSimpan.length > 400, blokSimpan.length);
-    cek('nominal minus ditolak server', /\$nominal < 0\)[\s\S]{0,140}tidak boleh minus/i.test(blokSimpan));
+    /* Rumusnya pindah ke void_rinci(); yang dijaga di sini tetap sama —
+       kiriman berkomponen minus ditolak, bukan disimpan apa adanya. */
+    cek('nominal minus ditolak server',
+        /\$rn = void_rinci\(\$d\);[\s\S]{0,180}tidak boleh minus/i.test(blokSimpan));
     /* Void yang terjadi sebelum barangnya dibuat memang tidak bernilai rupiah;
        menolak nol cuma memaksa orang mengetik angka karangan supaya formnya
        mau lewat. */
     cek('nominal NOL tetap diterima', !/\$nominal <= 0/.test(blokSimpan));
+
+    /* RINCIAN TAX & SERVICE. Rumusnya SATU tempat (void_rinci), dipakai
+       jalur satu baris DAN jalur banyak item — dua tempat yang
+       menghitungnya sendiri-sendiri akan menyimpang, dan yang menyimpang
+       di sini adalah UANG. */
+    const blokRinci = (PHP_LIB.match(/function void_rinci\([\s\S]*?\r?\n\}/) || [''])[0];
+    cek('badan void_rinci terbaca', blokRinci.length > 300, blokRinci.length);
+    /* Void yang terjadi sebelum barangnya dibuat memang tidak bernilai
+       rupiah; menolak nol memaksa orang mengetik angka karangan. */
+    cek('komponen bernilai NOL tetap diterima', !/<= 0/.test(blokRinci));
+    /* Total yang dikirim layar bisa tidak cocok dengan ketiga komponennya. */
+    cek('total DIHITUNG server dari ketiga komponennya',
+        /'nominal' => \(int\)round\(\$sub \+ \$svc \+ \$tax\)/.test(blokRinci));
+    cek('...dan tidak pernah diambil dari kiriman',
+        !/'nominal' => [\s\S]{0,40}\$it\['nominal'\]/.test(blokRinci)
+        || /\$adaSub \?/.test(blokRinci));
+    /* Ketiganya tidak boleh minus: void bernominal minus MENAMBAH omset. */
+    cek('ketiga komponennya ditolak kalau minus',
+        /foreach \(array\(\$sub, \$svc, \$tax\) as \$v\)[\s\S]{0,80}\$v < 0/.test(blokRinci));
+    /* Kiriman dari layar yang belum ter-deploy tidak boleh ditolak: urutan
+       pendaratan FTP di repo ini memang tidak bisa dijamin. */
+    cek('kiriman TANPA subtotal jatuh ke perilaku lama',
+        /array_key_exists\('subtotal', \$it\)/.test(blokRinci));
+    cek('dipakai KEDUA jalur simpan',
+        /void_rinci\(\$d\)/.test(PHP_LIB) && /void_rinci\(\$it\)/.test(PHP_LIB));
+
+    /* Kolom baru TIDAK BISA lewat CREATE TABLE IF NOT EXISTS — ia tidak
+       pernah menyentuh tabel yang sudah ada, jadi kolomnya cuma lahir di
+       pemasangan baru sementara produksi tertinggal tanpa satu pun galat. */
+    cek('kolom rincian lahir lewat ALTER, bukan CREATE TABLE saja',
+        /function void_pastikan_kolom[\s\S]{0,700}ALTER TABLE `void_log` ADD COLUMN/.test(PHP_LIB));
+    cek('...dan void_pastikan memanggilnya',
+        /function void_pastikan\(\)[\s\S]{0,1600}void_pastikan_kolom\(\$pdo\);/.test(PHP_LIB));
+    cek('tidak ada berkas migrasi baru',
+        !fs.readdirSync(path.join(ROOT, 'kompas-mysql')).some(f => /migrasi/i.test(f)));
+
+    /* Persen yang minus MENGURANGI total void; yang di atas 100 membuat
+       pajaknya lebih besar daripada barangnya. */
+    const blokSet = (PHP_LIB.match(/function void_setting_simpan\([\s\S]*?\r?\n\}/) || [''])[0];
+    cek('persen dijepit 0..100', /\$p < 0 \|\| \$p > 100/.test(blokSet));
+    cek('setelan ikut di balasan voidList', /'setting' => void_setting_baca\(\)/.test(PHP_LIB));
+    /* Satu angka di sini menggeser total SETIAP catatan void sesudahnya. */
+    cek('mengubah persen BERPAGAR ADMIN MODUL',
+        /voidSetting'\)[\s\S]{0,420}sesi_admin_modul\(\$u, 'cashier'\)[\s\S]{0,80}sesi_admin_modul\(\$u, 'finance'\)/.test(PHP_API));
 
     /* PDO::ATTR_EMULATE_PREPARES=false mengikat penanda MENURUT POSISI: satu
        nama yang dipakai dua kali gagal dengan SQLSTATE[HY093] yang tidak
@@ -387,7 +456,7 @@ function invarianMenu(w, label) {
       cek('baris 2 Agustus tergambar', v.indexOf('Ice Kopi Laksamana') > -1 && v.indexOf('Nasi Goreng') > -1);
       cek('baris tanggal LAIN tidak ikut', v.indexOf('Lychee Tea') < 0,
           'halaman ini sengaja cuma memajang tanggal yang sedang dipilih');
-      cek('total hari itu Rp270.000', v.indexOf('Rp270.000') > -1,
+      cek('total hari itu Rp307.500', v.indexOf('Rp307.500') > -1,
           v.slice(v.indexOf('Void '), v.indexOf('Void ') + 260));
     }
   }
@@ -461,7 +530,12 @@ function invarianMenu(w, label) {
     sama('nomor bill terkirim', dt.bill, 'SLMCL999');
     sama('siapa yang memesan terkirim', dt.pemesan, 'Meja 5');
     sama('alasan terkirim', dt.alasan, 'Tamu batal pesan');
-    sama('nominal terkirim sebagai angka', ((dt.items || [])[0] || {}).nominal, 25000);
+    sama('subtotal terkirim sebagai angka', ((dt.items || [])[0] || {}).subtotal, 25000);
+    /* TOTALNYA tidak ikut dikirim — servernya yang menjumlahkan ketiganya.
+       Total kiriman bisa tidak cocok dengan komponennya, dan yang tersimpan
+       lalu tidak bisa dicocokkan dengan rinciannya sendiri. */
+    cek('total TIDAK dikirim layar', !('nominal' in ((dt.items || [])[0] || {})),
+        JSON.stringify((dt.items || [])[0] || {}));
     /* Token sesi WAJIB ikut — endpoint tulisnya berpagar, dan tanpa ini
        kirimannya ditolak "sesi tidak dikenal" walau orangnya jelas login. */
     sama('token sesi ikut terkirim', p.sesi, 'TOKEN-UJI');
@@ -541,8 +615,8 @@ function invarianMenu(w, label) {
     sama('baris kosong DIBUANG, bukan menggagalkan kiriman', (dt.items || []).length, 2);
     sama('item pertama terkirim', ((dt.items || [])[0] || {}).item, 'Ayam Bakar');
     sama('item kedua terkirim', ((dt.items || [])[1] || {}).item, 'Es Jeruk');
-    sama('nominal menempel di ITEM, bukan di bill', ((dt.items || [])[0] || {}).nominal, 80000);
-    sama('...dan nominal item kedua ikut', ((dt.items || [])[1] || {}).nominal, 15000);
+    sama('subtotal menempel di ITEM, bukan di bill', ((dt.items || [])[0] || {}).subtotal, 80000);
+    sama('...dan subtotal item kedua ikut', ((dt.items || [])[1] || {}).subtotal, 15000);
     sama('nomor bill dikirim SEKALI untuk seluruh item', dt.bill, 'SLMCL777');
     sama('pemesan dikirim sekali', dt.pemesan, 'Meja 9');
     cek('kronologi dikirim sekali', /dikonfirmasi ke SPV floor/.test(String(dt.alasan || '')));
@@ -561,6 +635,159 @@ function invarianMenu(w, label) {
     cek('kotak item ditandai merah',
         !!d.getElementById('vd_item_0') && d.getElementById('vd_item_0').classList.contains('err'));
   });
+
+  console.log('\n== Modul Cashier: tax & service terisi sendiri ==');
+  /* Permintaan user 17 September 2026: tax 10% & service 5% terisi sendiri,
+     dan bisa diedit. Angkanya DIUKUR dari Cancel Menu Detail Report Agustus
+     2026 - 71 dari 74 baris bersubtotal memenuhi tax = 10% x SUBTOTAL,
+     sementara tax atas (subtotal + service) tidak cocok satu baris pun. */
+  if (W) await aman('blok "tax & service" tidak sampai selesai', async () => {
+    const d = W.document;
+    W.eval('VD_EDIT=""; vdKosongkanForm(); render();');
+    await tunggu(150);
+    const angka = v => Number(String(v == null ? '' : v).replace(/[^0-9]/g, '') || 0);
+    const isi = (id, nilai) => {
+      const el = d.getElementById(id);
+      if (!el) return false;
+      el.value = nilai;
+      el.dispatchEvent(new W.Event('input', { bubbles:true }));
+      return true;
+    };
+
+    /* Persennya DISEBUT di kepala kolomnya. Persen yang tidak pernah muncul
+       di layar mana pun cuma bisa ditebak dari hasilnya.
+       DIJEPIT ke baris kepalanya: kartu Setelan di halaman yang sama juga
+       menyebut kedua angka itu, jadi asersi yang menyapu seluruh halaman
+       cocok dengan kartunya tanpa pernah menyentuh kolomnya. */
+    const hd = () => ((d.querySelector('.vd-item.hd') || {}).textContent || '');
+    cek('kepala kolom menyebut persennya', /Service 5%/.test(hd()) && /Tax 10%/.test(hd()), hd());
+    cek('kotak Service & Tax digambar per item',
+        !!d.getElementById('vd_svc_0') && !!d.getElementById('vd_tax_0'));
+
+    /* Angka ini baris SUNGGUHAN dari berkas POS: sub 45.000 -> svc 2.250,
+       tax 4.500, total 51.750. */
+    cek('isi subtotal', isi('vd_nom_0', '45000'));
+    sama('service terisi 5% dari subtotal', angka(d.getElementById('vd_svc_0').value), 2250);
+    sama('tax terisi 10% dari subtotal', angka(d.getElementById('vd_tax_0').value), 4500);
+    /* Kalau tax dihitung atas (subtotal + service) angkanya 4.725 - selisih
+       0,5% yang tidak akan dicurigai siapa pun. Dikunci di sini. */
+    cek('tax dari SUBTOTAL, bukan subtotal+service',
+        angka(d.getElementById('vd_tax_0').value) !== 4725);
+    sama('total item = subtotal + service + tax',
+         angka((d.getElementById('vd_tot_0') || {}).textContent), 51750);
+
+    /* Tiga baris di berkas POS Agustus memang bertax NOL (dua compliment,
+       satu Videotron), jadi menimpanya bukan kemungkinan teoretis. */
+    cek('service bisa ditimpa', isi('vd_svc_0', '0'));
+    /* Penandanya wajib muncul TANPA menunggu penggambar ulang: selama
+       orangnya masih mengetik, tidak ada satu pun render yang terjadi. */
+    cek('kotak yang ditimpa DITANDAI seketika',
+        d.getElementById('vd_svc_0').classList.contains('timpa'));
+    cek('ganti subtotal lagi', isi('vd_nom_0', '30000'));
+    /* Satu ketukan di kotak Subtotal tidak boleh mengembalikan override ke
+       rumusnya - yang mengalaminya tidak punya satu pun tanda bahwa angka
+       yang baru saja ia ketik sudah diganti. */
+    sama('service yang ditimpa TIDAK dihitung ulang', angka(d.getElementById('vd_svc_0').value), 0);
+    sama('tax yang TIDAK ditimpa tetap ikut rumusnya', angka(d.getElementById('vd_tax_0').value), 3000);
+    sama('totalnya ikut angka yang ditimpa',
+         angka((d.getElementById('vd_tot_0') || {}).textContent), 33000);
+
+    /* Tanpa jalan pulang, kotak yang terlanjur ditimpa tidak pernah bisa
+       ikut rumusnya lagi kecuali barisnya dibuang dan diketik ulang. */
+    const auto = d.getElementById('vd_auto_0');
+    cek('tombol kembali ke hitungan otomatis TERLIHAT',
+        !!auto && auto.style.display !== 'none', auto && auto.style.display);
+    if (auto) auto.dispatchEvent(new W.MouseEvent('click', { bubbles:true }));
+    await tunggu(80);
+    sama('ditekan, service kembali ikut rumusnya', angka(d.getElementById('vd_svc_0').value), 1500);
+    cek('penandanya ikut dicabut', !d.getElementById('vd_svc_0').classList.contains('timpa'));
+
+    /* Kedua penanda berdiri SENDIRI-SENDIRI: item yang kena service tapi
+       tidak kena tax memang ada di berkas POS. Diuji cuma lewat service,
+       penanda tax bisa dicabut tanpa satu pun asersi berbunyi. */
+    cek('tax bisa ditimpa', isi('vd_tax_0', '0'));
+    cek('kotak tax yang ditimpa DITANDAI', d.getElementById('vd_tax_0').classList.contains('timpa'));
+    cek('ganti subtotal sekali lagi', isi('vd_nom_0', '20000'));
+    sama('tax yang ditimpa TIDAK dihitung ulang', angka(d.getElementById('vd_tax_0').value), 0);
+    sama('service yang tidak ditimpa ikut rumusnya', angka(d.getElementById('vd_svc_0').value), 1000);
+    /* Kotaknya memang tetap menampilkan angka yang ditimpa walau rumusnya
+       diam-diam menghitung ulang state-nya — jadi yang membuktikannya
+       TOTALNYA, bukan isi kotaknya. Tanpa asersi ini, override tax yang
+       diabaikan tersimpan ke server tanpa satu pun gejala di layar. */
+    sama('totalnya ikut tax yang ditimpa, bukan yang dihitung ulang',
+         angka((d.getElementById('vd_tot_0') || {}).textContent), 21000);
+    const auto2 = d.getElementById('vd_auto_0');
+    if (auto2) auto2.dispatchEvent(new W.MouseEvent('click', { bubbles:true }));
+    await tunggu(80);
+    sama('ditekan, tax kembali ikut rumusnya', angka(d.getElementById('vd_tax_0').value), 2000);
+    cek('kembali ke subtotal semula', isi('vd_nom_0', '30000'));
+
+    /* Kirimannya membawa KETIGA komponennya, bukan satu angka total -
+       server yang menjumlahkannya (void_rinci). */
+    isi('vd_item_0', 'Ayam Bakar'); isi('vd_bill', 'SLMCL555');
+    isi('vd_pemesan', 'Meja 2'); isi('vd_alasan', 'Tamu batal, lapor SPV');
+    KIRIM = [];
+    await W.eval('vdSimpan()');
+    await tunggu(300);
+    const kk = KIRIM.find(k => k.body.action === 'voidSimpan');
+    const it = ((((kk || { body:{} }).body.data) || {}).items || [])[0] || {};
+    sama('subtotal terkirim', it.subtotal, 30000);
+    sama('service terkirim', it.service, 1500);
+    sama('tax terkirim', it.tax, 3000);
+  });
+
+  console.log('\n== Modul Cashier: persennya datang dari SERVER ==');
+  /* Persen bawaan di layar cuma berlaku sampai daftarnya termuat. Kalau
+     jawaban server tidak pernah dipakai, form ini memakai 10/5 selamanya
+     sementara servernya sudah lama memakai angka lain - dan setiap catatan
+     yang dibuat sesudahnya salah tanpa satu pun gejala. */
+  await aman('blok "setelan dari server" tidak sampai selesai', async () => {
+    const dom = buatDom(HTML_CASHIER, 'https://team.laksamanamuda.id/cashier/',
+      { setting:{ tax:11, service:6, oleh:'Wandi', diubah:1 }, adminModules:['cashier'] });
+    const w = dom.window;
+    const ok = await siap(w, 'typeof DB !== "undefined" && DB && typeof viewVoid === "function"');
+    cek('boot (setelan server)', ok);
+    if (ok) {
+      const dd = w.document;
+      w.eval('VD_MUAT=""; voidDate="2026-08-02";');
+      klikMenu(w, 'voidb');
+      await tunggu(400);
+      const hd2 = ((dd.querySelector('.vd-item.hd') || {}).textContent || '');
+      cek('persen server dipakai di kepala kolom', /Service 6%/.test(hd2) && /Tax 11%/.test(hd2), hd2);
+      const ang = x => Number(String(x == null ? '' : x).replace(/[^0-9]/g, '') || 0);
+      const el = dd.getElementById('vd_nom_0');
+      if (el) { el.value = '100000'; el.dispatchEvent(new w.Event('input', { bubbles:true })); }
+      sama('service ikut persen server', ang((dd.getElementById('vd_svc_0') || {}).value), 6000);
+      sama('tax ikut persen server', ang((dd.getElementById('vd_tax_0') || {}).value), 11000);
+
+      /* "dan kalau bisa ada yang bisa diedit juga" - formnya cuma untuk
+         admin modul. Yang menjaga sungguhan tetap servernya (dijaga kontrak
+         PHP di atas); ini menjaga layarnya tidak menawarkan kotak yang
+         kirimannya pasti ditolak. */
+      cek('admin modul melihat kotak setelannya', !!dd.getElementById('vd_set_tax'));
+      KIRIM = [];
+      const kt = dd.getElementById('vd_set_tax'), ksv = dd.getElementById('vd_set_svc');
+      if (kt) kt.value = '12';
+      if (ksv) ksv.value = '7';
+      await w.eval('vdSimpanSetelan()');
+      await tunggu(300);
+      const ks2 = KIRIM.find(k => k.body.action === 'voidSetting');
+      sama('persen baru terkirim (tax)', ks2 && ks2.body.data.tax, 12);
+      sama('persen baru terkirim (service)', ks2 && ks2.body.data.service, 7);
+      const hd3 = ((dd.querySelector('.vd-item.hd') || {}).textContent || '');
+      cek('kepala kolom ikut berubah', /Service 7%/.test(hd3) && /Tax 12%/.test(hd3), hd3);
+      /* Baris yang SEDANG diketik ikut dihitung ulang. Kalau tidak, persen
+         barunya baru berlaku untuk baris berikutnya sementara yang di layar
+         diam-diam masih memakai persen lama. */
+      sama('baris yang sedang diketik dihitung ulang',
+           ang((dd.getElementById('vd_svc_0') || {}).value), 7000);
+    }
+    dom.window.close();
+  });
+
+  /* Yang BUKAN admin modul tidak ditawari kotaknya sama sekali. */
+  if (W) cek('yang bukan admin tidak melihat kotak setelannya',
+      !W.document.getElementById('vd_set_tax'));
 
   console.log('\n== Modul Cashier: daftar dikelompokkan per bill ==');
   if (W) await aman('blok "kelompok per bill" tidak sampai selesai', async () => {
@@ -633,9 +860,9 @@ function invarianMenu(w, label) {
       cek('...berikut di mana mengetiknya', /modul Cashier/.test(v));
 
       /* Rekap dihitung dari baris HIDUP saja. */
-      cek('total nominal Rp270.000', v.indexOf('Rp270.000') > -1,
+      cek('total nominal Rp307.500', v.indexOf('Rp307.500') > -1,
           v.slice(v.indexOf('Total Nominal Void'), v.indexOf('Total Nominal Void') + 200));
-      cek('yang dibatalkan TIDAK ikut (Rp320.000 tidak muncul)', v.indexOf('Rp320.000') < 0);
+      cek('yang dibatalkan TIDAK ikut (Rp357.500 tidak muncul)', v.indexOf('Rp357.500') < 0);
       cek('jumlah yang dibatalkan disebut terpisah',
           /Dibatalkan[\s\S]{0,180}>1</.test(v), v.slice(v.indexOf('Dibatalkan'), v.indexOf('Dibatalkan') + 180));
 

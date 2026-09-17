@@ -93,12 +93,23 @@ input,select,textarea{font-family:inherit}
 .field input.err,.field select.err,.field textarea.err{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-bg)}
 /* Baris item di Catatan Void: nama menu + nominalnya, sebanyak yang perlu.
    Satu bill di produksi pernah membawa 16 item sekaligus. */
-.vd-item{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:8px;align-items:center;margin-bottom:8px}
+.vd-item{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:center;margin-bottom:8px}
+/* Kepala kolom adalah SEL DI GRID YANG SAMA — bukan wadah terpisah berlebar
+   disalin tangan. Lebar yang disalin pasti melenceng, dan judul kolomnya
+   berhenti berada di atas kotak yang dimaksudnya. */
+.vd-item.hd{margin-bottom:5px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
+.vd-item .vd-tot{font-weight:700}
+/* Kotak yang DITIMPA orang ditandai — kalau tidak, service & tax yang
+   diketik tangan tidak bisa dibedakan dari yang dihitung rumus, dan yang
+   memeriksanya bulan depan tidak tahu mana yang sengaja. */
+.vd-item input.timpa{border-color:var(--warn);background:var(--warn-bg)}
+.muted-x{opacity:.7}
 .vd-item input{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:14.5px}
 .vd-item input:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
 .vd-item input.err{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-bg)}
 .vd-grup>td{background:var(--paper);border-top:2px solid var(--line)}
-@media(max-width:640px){.vd-item{grid-template-columns:1fr}}
+@media(max-width:860px){.vd-item{grid-template-columns:1fr 1fr}.vd-item.hd{display:none}}
+@media(max-width:520px){.vd-item{grid-template-columns:1fr}}
 
 /* ===== LAYOUT ===== */
 .app{display:flex;min-height:100vh}
@@ -2380,7 +2391,15 @@ let VD_EDIT='';            // id baris yang sedang disunting
    apa pun yang cuma ada di kotaknya ikut hilang — termasuk kronologi yang
    baru separuh diketik. Pola yang sama dengan QA.cat di lembar pembayaran
    Brankas. */
-let VD_FORM={bill:'',pemesan:'',alasan:'',items:[{item:'',nominal:''}]};
+let VD_FORM={bill:'',pemesan:'',alasan:'',items:[]};
+/* PERSEN TAX & SERVICE. Bawaannya 10% dan 5% — itu yang DIUKUR dari Cancel
+   Menu Detail Report Agustus 2026, bukan ditebak: 71 dari 74 baris
+   bersubtotal memenuhi tax = 10% x SUBTOTAL, sementara hipotesis
+   tax = 10% x (subtotal + service) cocok pada NOL baris. Angka sungguhannya
+   datang dari server lewat voidList; bawaan ini cuma dipakai selama
+   daftarnya belum termuat, supaya form tetap bisa diisi sejak detik
+   pertama halaman terbuka. */
+let VD_SET={tax:10, service:5, oleh:'', diubah:0};
 /* Field yang dipakai BERSAMA seluruh item di satu bill. Diturunkan dari
    VOID_WAJIB, bukan ditulis ulang: dua daftar yang disalin tangan akan
    menyimpang, dan yang menyimpang di sini adalah kotak yang berhenti
@@ -2388,8 +2407,60 @@ let VD_FORM={bill:'',pemesan:'',alasan:'',items:[{item:'',nominal:''}]};
 const VOID_BERSAMA=VOID_WAJIB.filter(([k])=>k!=='item');
 let VD_SALAH=[];           // kunci field yang ditandai merah
 
-function vdKosongkanForm(){ VD_FORM={bill:'',pemesan:'',alasan:'',items:[{item:'',nominal:''}]}; VD_SALAH=[]; }
-function vdItems(){ if(!Array.isArray(VD_FORM.items)||!VD_FORM.items.length) VD_FORM.items=[{item:'',nominal:''}]; return VD_FORM.items; }
+function vdItemKosong(){ return {item:'',sub:'',svc:'',tax:'',svcManual:false,taxManual:false}; }
+function vdKosongkanForm(){ VD_FORM={bill:'',pemesan:'',alasan:'',items:[vdItemKosong()]}; VD_SALAH=[]; }
+function vdItems(){ if(!Array.isArray(VD_FORM.items)||!VD_FORM.items.length) VD_FORM.items=[vdItemKosong()]; return VD_FORM.items; }
+/* Persen boleh pecahan (DECIMAL(6,3) di server), jadi num() milik modul ini
+   — yang membuang seluruh non-digit — akan membaca '12,5' jadi 125. */
+function vdPct(v){ const n=parseFloat(String(v==null?'':v).replace(',','.').replace(/[^0-9.]/g,'')); return (isFinite(n)&&n>=0&&n<=100)?n:0; }
+function vdSvcDari(sub){ return Math.round(num(sub)*vdPct(VD_SET.service)/100); }
+function vdTaxDari(sub){ return Math.round(num(sub)*vdPct(VD_SET.tax)/100); }
+/* Yang DITIMPA orang tidak pernah dihitung ulang. Tanpa penanda ini, satu
+   ketukan di kotak Subtotal mengembalikan service & tax ke rumusnya dan
+   membuang override yang baru saja diketik — dan yang mengalaminya tidak
+   punya satu pun tanda bahwa angkanya berubah. Tiga baris di berkas POS
+   Agustus 2026 memang bertax NOL (dua compliment, satu Videotron), jadi
+   override itu bukan kemungkinan teoretis. */
+function vdHitungOtomatis(x){
+  if(!x.svcManual) x.svc=String(vdSvcDari(x.sub)||0);
+  if(!x.taxManual) x.tax=String(vdTaxDari(x.sub)||0);
+}
+/* Penanda override DIPASANG LEWAT DOM, bukan lewat penggambar ulang —
+   kotak yang dibuat ulang kehilangan fokus dan hanya huruf pertama yang
+   masuk. Tanpa ini, angka yang diketik tangan tidak bisa dibedakan dari
+   yang dihitung rumus sampai ada yang menyimpan atau berpindah halaman,
+   DAN tombol ↺ tidak pernah muncul — jadi override yang baru diketik
+   tidak punya satu pun jalan pulang. */
+function vdSegarTimpa(i){
+  const x=vdItems()[i]; if(!x) return;
+  const sv=document.getElementById('vd_svc_'+i), tx=document.getElementById('vd_tax_'+i),
+        bt=document.getElementById('vd_auto_'+i);
+  if(sv) sv.classList.toggle('timpa',!!x.svcManual);
+  if(tx) tx.classList.toggle('timpa',!!x.taxManual);
+  if(bt) bt.style.display=(x.svcManual||x.taxManual)?'':'none';
+}
+function vdItemTotal(x){ return num(x.sub)+num(x.svc)+num(x.tax); }
+function vdTotalForm(){ return vdItemTerisi().reduce((a,x)=>a+vdItemTotal(x),0); }
+/* Menyegarkan angka TOTAL tanpa menggambar ulang kotaknya — kotak yang
+   dibuat ulang kehilangan fokus dan hanya huruf pertama yang masuk. */
+function vdSegarTotal(){
+  vdItems().forEach((x,i)=>{
+    const t=document.getElementById('vd_tot_'+i);
+    if(t) t.textContent=fmtRp(vdItemTotal(x));
+  });
+  const g=document.getElementById('vd_total_form');
+  if(g) g.innerHTML='Total yang di-void: <b>'+fmtRp(vdTotalForm())+'</b>'
+    +' <span class="muted-x">(subtotal + service + tax)</span>';
+}
+/* Mengembalikan satu baris ke hitungan otomatis. Tanpa jalan pulang, kotak
+   yang terlanjur ditimpa tidak pernah bisa ikut rumusnya lagi kecuali
+   barisnya dibuang dan diketik ulang. */
+function vdItemAuto(i){
+  const a=vdItems(); if(!a[i]) return;
+  a[i].svcManual=false; a[i].taxManual=false;
+  vdHitungOtomatis(a[i]);
+  vdGambarItem();
+}
 /* Baris yang namanya kosong DIBUANG sebelum dikirim, tidak ditolak: baris
    kosong di ujung daftar adalah bentuk paling wajar dari form yang barisnya
    bisa ditambah, dan menolak seluruh kiriman karenanya membuang lima belas
@@ -2426,6 +2497,10 @@ async function muatVoid(ym){
                                {method:'GET',redirect:'follow'},30000).then(x=>x.json());
     if(!r||!r.ok) throw new Error((r&&r.error)||'server error');
     VD_ROWS=(r.data&&r.data.baris)||[];
+    /* Persennya ikut di balasan yang SAMA — permintaan kedua cuma untuk
+       dua angka berarti form ini bisa terbuka dengan persen bawaan
+       sementara servernya sudah lama memakai angka lain. */
+    if(r.data&&r.data.setting) VD_SET=Object.assign({},VD_SET,r.data.setting);
     VD_POTONG=Math.max(0,num(r.data&&r.data.total)-VD_ROWS.length);
     VD_ERR='';
   }catch(e){ VD_ROWS=[]; VD_ERR=(e&&e.message)||String(e); }
@@ -2455,7 +2530,7 @@ function vdGambarItem(){
   try{ formatAllRp(w); }catch(e){}
 }
 function vdItemTambah(){
-  vdItems().push({item:'',nominal:''});
+  vdItems().push(vdItemKosong());
   vdGambarItem();
   /* Kursor pindah ke baris yang baru lahir. Tanpa itu yang menekan tombol
      harus mencari sendiri kotak mana yang barusan muncul, tiap kali. */
@@ -2470,32 +2545,68 @@ function vdItemHapus(i){
 }
 function vdItemKetik(el,i,k){
   const a=vdItems();
-  if(!a[i]) a[i]={item:'',nominal:''};
+  if(!a[i]) a[i]=vdItemKosong();
   a[i][k]=el.value;
+  /* Mengetik di kotak service / tax berarti orangnya memang bermaksud
+     menimpanya — sejak itu rumusnya berhenti menyentuh baris ini. */
+  if(k==='svc') a[i].svcManual=true;
+  if(k==='tax') a[i].taxManual=true;
+  if(k==='sub'){
+    vdHitungOtomatis(a[i]);
+    /* Nilainya dipasang ke kotak LAIN, jadi pemformat rupiah modul ini
+       (yang cuma memformat elemen yang sedang diketik) tidak akan
+       menyentuhnya — angkanya tampil '2250' alih-alih '2.250'. */
+    const sv=document.getElementById('vd_svc_'+i), tx=document.getElementById('vd_tax_'+i);
+    if(sv&&!a[i].svcManual) sv.value=fmtRpInput(a[i].svc);
+    if(tx&&!a[i].taxManual) tx.value=fmtRpInput(a[i].tax);
+  }
   /* Penandanya dicabut lewat DOM, bukan lewat penggambar ulang — kotak yang
      dibuat ulang kehilangan fokus dan hanya huruf pertama yang masuk. */
   if(k==='item'&&String(el.value||'').trim()){
     el.classList.remove('err');
     if(vdItemTerisi().length){ const j=VD_SALAH.indexOf('item'); if(j>=0) VD_SALAH.splice(j,1); }
   }
+  vdSegarTimpa(i);
+  vdSegarTotal();
 }
 function vdItemListHtml(){
   const a=vdItems(), edit=!!VD_EDIT;
   const salah=VD_SALAH.indexOf('item')>=0;
-  const baris=a.map((x,i)=>
-    '<div class="vd-item">'
+  /* Kepala kolomnya sel di GRID YANG SAMA dengan barisnya, bukan wadah
+     terpisah berlebar disalin tangan — lebar yang disalin pasti melenceng,
+     dan judul kolomnya berhenti berada di atas kotak yang dimaksudnya.
+     Pola yang sama dengan lembar .qa-sheet di Planning Pembayaran. */
+  const kepala='<div class="vd-item hd"><span>Nama Item</span><span>Subtotal</span>'
+    +'<span>Service '+esc(vdPct(VD_SET.service))+'%</span><span>Tax '+esc(vdPct(VD_SET.tax))+'%</span>'
+    +'<span class="num">Total</span><span></span></div>';
+  const baris=a.map((x,i)=>{
+    const timpa=!!(x.svcManual||x.taxManual);
+    return '<div class="vd-item">'
     +'<input id="vd_item_'+i+'"'+((salah&&!String(x.item||'').trim())?' class="err"':'')
       +' placeholder="Nama item — cth. Ice Kopi Laksamana" value="'+esc(x.item||'')+'"'
       +' oninput="vdItemKetik(this,'+i+',&#39;item&#39;)">'
-    +'<input id="vd_nom_'+i+'" class="mono rp" inputmode="numeric" placeholder="Nominal"'
-      +' value="'+esc(x.nominal||'')+'" oninput="vdItemKetik(this,'+i+',&#39;nominal&#39;)">'
-    +((edit||a.length<2)?'<span></span>'
+    +'<input id="vd_nom_'+i+'" class="mono rp" inputmode="numeric" placeholder="Subtotal"'
+      +' value="'+esc(x.sub||'')+'" oninput="vdItemKetik(this,'+i+',&#39;sub&#39;)">'
+    +'<input id="vd_svc_'+i+'" class="mono rp'+(x.svcManual?' timpa':'')+'" inputmode="numeric" placeholder="Service"'
+      +' value="'+esc(x.svc||'')+'" oninput="vdItemKetik(this,'+i+',&#39;svc&#39;)">'
+    +'<input id="vd_tax_'+i+'" class="mono rp'+(x.taxManual?' timpa':'')+'" inputmode="numeric" placeholder="Tax"'
+      +' value="'+esc(x.tax||'')+'" oninput="vdItemKetik(this,'+i+',&#39;tax&#39;)">'
+    +'<span class="num mono vd-tot" id="vd_tot_'+i+'">'+fmtRp(vdItemTotal(x))+'</span>'
+    +'<span style="white-space:nowrap">'
+      +'<button type="button" class="btn btn-sm" id="vd_auto_'+i+'"'+(timpa?'':' style="display:none"')
+        +' title="Kembalikan service &amp; tax ke hitungan otomatis" onclick="vdItemAuto('+i+')">&#8635;</button> '
+      +((edit||a.length<2)?''
         :'<button type="button" class="btn btn-sm" title="Hapus baris ini" onclick="vdItemHapus('+i+')">&#10005;</button>')
-    +'</div>').join('');
-  if(edit) return baris+'<div class="helper">Menyunting SATU catatan. Untuk menambah item lain di bill ini, batalkan suntingan lalu isi form barunya.</div>';
-  return baris
-    +'<div style="margin-top:2px"><button type="button" class="btn btn-sm" id="vd_item_tambah" onclick="vdItemTambah()">+ Tambah item</button></div>'
-    +'<div class="helper" style="margin:6px 0 0">Nomor bill, nama pemesan, dan kronologinya cukup diisi SEKALI untuk seluruh item di bill yang sama. Kalau satu item alasannya berbeda, catat terpisah.</div>';
+    +'</span>'
+    +'</div>';
+  }).join('');
+  const total='<div class="helper" id="vd_total_form" style="margin:8px 0 0;text-align:right">Total yang di-void: <b>'
+    +fmtRp(vdTotalForm())+'</b> <span class="muted-x">(subtotal + service + tax)</span></div>';
+  if(edit) return kepala+baris+total
+    +'<div class="helper" style="margin:6px 0 0">Menyunting SATU catatan. Untuk menambah item lain di bill ini, batalkan suntingan lalu isi form barunya.</div>';
+  return kepala+baris+total
+    +'<div style="margin-top:6px"><button type="button" class="btn btn-sm" id="vd_item_tambah" onclick="vdItemTambah()">+ Tambah item</button></div>'
+    +'<div class="helper" style="margin:6px 0 0">Service &amp; tax terisi sendiri dari subtotal — ketik di kotaknya kalau item itu memang tidak kena (compliment, sewa, dan sejenisnya), dan tekan &#8635; untuk mengembalikannya. Nomor bill, nama pemesan, dan kronologinya cukup diisi SEKALI untuk seluruh item di bill yang sama.</div>';
 }
 
 function vdUbah(id){
@@ -2503,8 +2614,18 @@ function vdUbah(id){
   if(!r) return;
   if(!vdAktif(r)){ alert('Catatan ini sudah dibatalkan dan tidak bisa diubah lagi.'); return; }
   VD_EDIT=id;
+  /* Penanda "ditimpa" DITURUNKAN dari angkanya sendiri, bukan disimpan:
+     kalau service & tax tersimpan sama persis dengan yang dihitung rumus
+     dari subtotalnya, ia memang hasil rumus. Baris LAMA (yang lahir sebelum
+     kolom rinciannya ada) karena itu terbaca sebagai ditimpa — dan itu yang
+     benar: menyunting nama itemnya tidak boleh diam-diam menaikkan
+     totalnya 15%. Yang mau melengkapinya tinggal menekan tombol auto. */
+  const sub=String(num(r.rinci?r.subtotal:r.nominal)||'');
+  const svc=String(num(r.service)||''), tax=String(num(r.tax)||'');
   VD_FORM={bill:r.bill||'',pemesan:r.pemesan||'',alasan:r.alasan||'',
-           items:[{item:r.item||'',nominal:String(num(r.nominal)||'')}]};
+           items:[{item:r.item||'', sub:sub, svc:svc, tax:tax,
+                   svcManual:num(svc)!==vdSvcDari(sub),
+                   taxManual:num(tax)!==vdTaxDari(sub)}]};
   VD_SALAH=[];
   voidDate=r.tgl;
   render();
@@ -2532,6 +2653,57 @@ function vdKotakSalah(){
   return document.getElementById('vd_item_0');
 }
 
+/* SETELAN PERSEN — berpagar ADMIN MODUL di server. Satu angka di sini
+   menggeser total SETIAP catatan void yang dibuat sesudahnya, dan yang
+   mengetiknya salah tidak meninggalkan satu pun gejala: angkanya tetap
+   terlihat wajar di tiap barisnya. Layar cuma menyembunyikan formnya;
+   yang menjaga sungguhan tetap servernya. */
+async function vdSimpanSetelan(){
+  const box=document.getElementById('vd_set_err');
+  const t=vdPct((document.getElementById('vd_set_tax')||{}).value);
+  const sv=vdPct((document.getElementById('vd_set_svc')||{}).value);
+  if(box) box.innerHTML='<div class="notice"><div>⏳ Menyimpan setelan…</div></div>';
+  try{
+    const r=await vdPost({action:'voidSetting',data:{tax:t,service:sv}});
+    if(!r||!r.ok) throw new Error((r&&r.error)||'server error');
+    VD_SET=Object.assign({},VD_SET,(r.data&&r.data.setting)||{});
+    /* Baris yang sedang diketik ikut dihitung ulang — kecuali yang sudah
+       ditimpa tangan. Kalau tidak, persen barunya baru berlaku untuk baris
+       berikutnya dan yang sedang di layar diam-diam memakai persen lama. */
+    vdItems().forEach(vdHitungOtomatis);
+    render();
+    const b2=document.getElementById('vd_set_err');
+    if(b2) b2.innerHTML='<div class="notice"><div>✓ <b>Setelan tersimpan.</b></div></div>';
+  }catch(e){
+    const b2=document.getElementById('vd_set_err');
+    if(b2) b2.innerHTML='<div class="notice bad"><div>✕ <b>Setelan BELUM tersimpan.</b> '
+      +esc((e&&e.message)||'gagal')+'</div></div>';
+  }
+}
+/* Dipajang untuk SEMUA orang, bisa diubah hanya admin modul. Kasir yang
+   melihat angka 10% & 5% di layar bisa mencocokkannya dengan struk di
+   tangan; persen yang tidak pernah disebut di mana pun cuma bisa ditebak
+   dari hasilnya. */
+function vdSetelanHtml(){
+  const bisa=!!(CURRENT_USER&&CURRENT_USER.isAdmin);
+  const jejak=VD_SET.oleh?(' · terakhir diubah '+esc(VD_SET.oleh)):'';
+  return '<div class="card"><details>'
+    +'<summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">'
+      +'⚙ Setelan tax &amp; service — <b>Tax '+esc(vdPct(VD_SET.tax))+'%</b> · <b>Service '+esc(vdPct(VD_SET.service))+'%</b>'+jejak+'</summary>'
+    +'<div class="helper" style="margin:10px 0 0">Dipakai mengisi kotak Service &amp; Tax otomatis dari <b>subtotal</b> tiap item. '
+      +'Keduanya dihitung dari subtotal — <b>bukan</b> tax di atas (subtotal + service) — dan itu yang cocok dengan berkas POS: '
+      +'71 dari 74 baris void Agustus 2026 memenuhi tax = 10% x subtotal, sementara tax atas (subtotal+service) tidak cocok satu baris pun.</div>'
+    +(bisa
+      ? '<div class="row-in" style="margin-top:10px">'
+        +'<div class="field"><label>Tax (%)</label><input id="vd_set_tax" class="mono" inputmode="decimal" value="'+esc(vdPct(VD_SET.tax))+'"></div>'
+        +'<div class="field"><label>Service (%)</label><input id="vd_set_svc" class="mono" inputmode="decimal" value="'+esc(vdPct(VD_SET.service))+'"></div>'
+        +'</div><div id="vd_set_err"></div>'
+        +'<button class="btn btn-sm" style="margin-top:8px" onclick="vdSimpanSetelan()">Simpan Setelan</button>'
+        +'<div class="helper" style="margin:6px 0 0">Catatan yang SUDAH tersimpan tidak ikut berubah — angkanya sudah terkunci di barisnya masing-masing.</div>'
+      : '<div class="helper" style="margin:8px 0 0">Hanya admin modul Cashier atau Finance yang bisa mengubahnya.</div>')
+    +'</details></div>';
+}
+
 async function vdSimpan(){
   const box=document.getElementById('vd_err');
   /* Dibaca dari DOM dulu supaya ketikan terakhir ikut walau `input` belum
@@ -2541,9 +2713,10 @@ async function vdSimpan(){
     if(el) VD_FORM[k]=el.value;
   });
   vdItems().forEach((x,i)=>{
-    const a=document.getElementById('vd_item_'+i), b=document.getElementById('vd_nom_'+i);
-    if(a) x.item=a.value;
-    if(b) x.nominal=b.value;
+    [['item','vd_item_'],['sub','vd_nom_'],['svc','vd_svc_'],['tax','vd_tax_']].forEach(([k,p])=>{
+      const el=document.getElementById(p+i);
+      if(el) x[k]=el.value;
+    });
   });
   VD_SALAH=VOID_BERSAMA.filter(([k])=>!String(VD_FORM[k]||'').trim()).map(([k])=>k);
   if(!vdItemTerisi().length) VD_SALAH.push('item');
@@ -2564,14 +2737,20 @@ async function vdSimpan(){
   if(btn){ btn.disabled=true; btn.innerHTML='Menyimpan…'; }
   if(box) box.innerHTML='<div class="notice"><div>⏳ Menyimpan ke server… tunggu sebentar.</div></div>';
   try{
-    const its=vdItemTerisi().map(x=>({item:String(x.item||'').trim(), nominal:num(x.nominal)}));
+    /* TOTALNYA TIDAK DIKIRIM — servernya yang menjumlahkan ketiganya. Total
+       yang dikirim layar bisa tidak cocok dengan komponennya (salah hitung,
+       layar versi lama, atau diketik ulang dari console), dan yang tersimpan
+       lalu tidak bisa dicocokkan dengan rinciannya sendiri. */
+    const its=vdItemTerisi().map(x=>({item:String(x.item||'').trim(),
+      subtotal:num(x.sub), service:num(x.svc), tax:num(x.tax)}));
     /* MENYUNTING selalu satu baris — itu memang bentuk datanya di server.
        MENAMBAH mengirim daftarnya sekaligus, dan servernya menulis satu
        baris per item di dalam SATU transaksi: bill yang tercatat separuh
        tidak bisa disebutkan sampai mana oleh layar mana pun. */
     const data=VD_EDIT
       ? { id:VD_EDIT, tgl:voidDate, bill:VD_FORM.bill, item:its[0].item,
-          pemesan:VD_FORM.pemesan, alasan:VD_FORM.alasan, nominal:its[0].nominal }
+          pemesan:VD_FORM.pemesan, alasan:VD_FORM.alasan,
+          subtotal:its[0].subtotal, service:its[0].service, tax:its[0].tax }
       : { tgl:voidDate, bill:VD_FORM.bill, pemesan:VD_FORM.pemesan,
           alasan:VD_FORM.alasan, items:its };
     const r=await vdPost({action:'voidSimpan',data});
@@ -2662,6 +2841,15 @@ function vdGrupHtml(g){
     +'<td>'+esc(p.oleh||'—')+'</td><td></td></tr>'
     +g.baris.map(vdBarisHtml).join('');
 }
+/* Rincian di bawah angka totalnya. Baris yang lahir sebelum kolomnya ada
+   TIDAK punya rincian, dan menuliskan "service Rp0 · tax Rp0" untuknya
+   adalah pernyataan yang tidak ditanggung datanya — ia cuma tidak pernah
+   dicatat. Dua keadaan itu karena itu berbunyi berbeda. */
+function vdRinciHtml(r){
+  if(!r||!r.rinci) return '<div class="helper" style="margin:2px 0 0">rinciannya tidak dicatat</div>';
+  return '<div class="helper" style="margin:2px 0 0">'+fmtRp(num(r.subtotal))
+    +' + svc '+fmtRp(num(r.service))+' + tax '+fmtRp(num(r.tax))+'</div>';
+}
 function vdBarisHtml(r){
   const mati=!vdAktif(r);
   const jejak=r.diubahOleh&&num(r.diubah)>num(r.dibuat)
@@ -2670,7 +2858,7 @@ function vdBarisHtml(r){
     +'<td style="padding-left:26px"><b'+(mati?' style="text-decoration:line-through"':'')+'>'+esc(r.item||'—')+'</b>'
       +(mati?'<div class="helper" style="margin:2px 0 0">Dibatalkan '+esc(r.batalOleh||'')
         +(r.batalAlasan?' — '+esc(r.batalAlasan):'')+'</div>':'')+jejak+'</td>'
-    +'<td class="num mono">'+fmtRp(num(r.nominal))+'</td>'
+    +'<td class="num mono">'+fmtRp(num(r.nominal))+vdRinciHtml(r)+'</td>'
     +'<td></td>'
     +'<td style="white-space:nowrap">'
       +(mati?'<span class="chip mute">dibatalkan</span>'
@@ -2730,6 +2918,7 @@ function viewVoid(){
         <div class="helper" style="margin:0">Dicatat atas nama <b>${esc(CURRENT_USER?CURRENT_USER.name:'—')}</b> — namanya diambil dari sesi Office, bukan diketik.</div>
       </div>
     </div>
+    ${vdSetelanHtml()}
     <div class="grid g3">
       <div class="stat accent"><div class="lab">Void ${esc(dateLabel(voidDate))}</div><div class="val sm mono">${fmtRp(totalHari)}</div><div class="foot">${hidup.length} item dari ${nBillHari} bill${dibatalkan?` · ${dibatalkan} dibatalkan`:''}</div></div>
       <div class="stat"><div class="lab">Void Bulan Ini</div><div class="val sm mono">${fmtRp(totalBulan)}</div><div class="foot">${bulanHidup.length} item dari ${nBillBulan} bill sepanjang ${esc(ym)}</div></div>

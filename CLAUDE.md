@@ -6206,14 +6206,138 @@ node tools/uji-void-catatan.js   # 140 pemeriksaan (dari 101), jsdom + php-parse
 Fixture-nya diubah supaya bentuk barunya punya tempat untuk gagal: tiga item
 2 Agustus berasal dari SATU bill, dan nomor bill baris ketiga ditulis
 `" slmcl001 "` — huruf kecil berspasi ekor. Yang benar **3 item · 1 bill ·
-Rp270.000 · 1 alasan**; pengelompokan yang peka huruf memberi **2 bill**,
-pembatalan yang ikut terhitung memberi **Rp320.000**, dan alasan yang tidak
+Rp307.500 · 1 alasan**; pengelompokan yang peka huruf memberi **2 bill**,
+pembatalan yang ikut terhitung memberi **Rp357.500**, dan alasan yang tidak
 digabung memberi **2 baris**. Tidak satu pun angkanya bertabrakan.
 
 > **Yang tercatat di bagian di atas jadi usang karenanya, dan sudah dibetulkan
 > di tempatnya:** kalimat *"POS menghitung BARIS ITEM, catatan manual
 > menghitung KEJADIAN"* dan catatan *"belum ada kolom qty: satu baris = satu
 > kejadian"*. Keduanya benar sampai 17 September 2026 dan tidak lagi.
+
+#### TAX & SERVICE TERISI SENDIRI (17 September 2026)
+
+Permintaan user: *"btw untuk tax and service juga bisa langsung otomatis diisi
+— biasanya settingannya tax 10%, service 5%, dan kalau bisa ada yang bisa
+diedit juga."*
+
+Kotak **Subtotal · Service · Tax** berdiri per item, dan mengetik subtotal
+mengisi dua kotak di kanannya. Totalnya **dihitung server** dari ketiganya.
+
+##### RUMUSNYA DIUKUR DARI BERKAS POS, BUKAN DIASUMSIKAN
+
+Konvensi yang paling umum di Indonesia adalah **service dulu, lalu tax atas
+(subtotal + service)** — dan kalau itu yang dipakai di sini, setiap baris void
+meleset 0,5% tanpa satu pun gejala. Dijalankan atas **Cancel Menu Detail
+Report Agustus 2026**:
+
+```
+baris bersubtotal > 0            : 74
+tax = 10% x SUBTOTAL             : 71 / 74
+tax = 10% x (subtotal + service) :  0 / 74
+total = subtotal + service + tax : 74 / 74
+service = 0                      :  3
+```
+
+Jadi **tax dihitung dari subtotal**, sejajar dengan service — bukan
+bertingkat. Tiga baris berservice nol itu `TEA JAR COMPLIMENT`,
+`NASI GORENG COMPLIMENT`, dan `VIDEOTRON`: bukti konkret bahwa **kotaknya
+wajib bisa ditimpa**, bukan kemungkinan teoretis.
+
+##### PENANDA OVERRIDE: dua penanda, dan keduanya berdiri sendiri
+
+`svcManual` dan `taxManual` terpisah — item bisa kena service tapi tidak kena
+tax. Sekali sebuah kotak diketik tangan, rumusnya **berhenti menyentuhnya**.
+
+- **Satu ketukan di kotak Subtotal tidak boleh mengembalikan override ke
+  rumusnya.** Yang mengalaminya tidak punya satu pun tanda bahwa angka yang
+  baru saja ia ketik sudah diganti.
+- **Penandanya DIPASANG LEWAT DOM** (`vdSegarTimpa`), bukan lewat penggambar
+  ulang: kotak yang dibuat ulang kehilangan fokus dan hanya huruf pertama yang
+  masuk — jebakan yang sudah dibayar di `queueF()` modul Konten. Tanpa itu,
+  angka yang diketik tangan tidak bisa dibedakan dari yang dihitung rumus
+  sampai ada yang menyimpan atau berpindah halaman.
+- **Tombol ↺ disembunyikan lewat `style.display`, BUKAN atribut `hidden`.**
+  `.btn` menyetel `display:inline-flex`, yang **mengalahkan**
+  `[hidden]{display:none}` — tombolnya tetap terlihat, dan yang menekannya
+  membuang override yang sengaja dibuat. Ia juga selalu ikut digambar: dibuat
+  bersyarat, override yang baru diketik tidak punya satu pun jalan pulang
+  sampai halamannya digambar ulang.
+- **Kotak yang ditimpa tetap menampilkan angkanya walau rumusnya diam-diam
+  menghitung ulang state-nya** — jadi yang membuktikan penandanya berfungsi
+  adalah **TOTALNYA**, bukan isi kotaknya. Mutasi "penanda tax diabaikan"
+  LOLOS seluruh asersi kotak sebelum asersi total ditambahkan.
+
+##### YANG MENJUMLAHKAN SERVER, SATU TEMPAT
+
+`void_rinci($it)` — dipakai jalur satu baris DAN jalur banyak item. Dua tempat
+yang menghitungnya sendiri-sendiri akan menyimpang, dan yang menyimpang di
+sini adalah **uang**.
+
+- **`nominal` TIDAK PERNAH diambil dari kiriman layar.** Total yang dikirim
+  bisa tidak cocok dengan ketiga komponennya, dan yang mencocokkannya bulan
+  depan tidak punya cara tahu mana yang benar.
+- **Komponen bernilai NOL tetap diterima; yang MINUS ditolak.** Void yang
+  terjadi sebelum barangnya dibuat memang tidak bernilai rupiah — menolak nol
+  cuma memaksa orang mengetik angka karangan. Void bernominal minus MENAMBAH
+  omset.
+- **Kiriman TANPA `subtotal` jatuh ke perilaku lama** (`array_key_exists`).
+  Layar yang belum ter-deploy tidak boleh ditolak: urutan pendaratan FTP di
+  repo ini memang tidak bisa dijamin.
+
+##### KOLOM BARU LAHIR LEWAT `ALTER TABLE`, bukan berkas migrasi
+
+`void_pastikan_kolom()` menambahkan `subtotal`/`service`/`tax` lewat
+pemeriksaan `information_schema` + `ALTER TABLE ... ADD COLUMN`.
+**`CREATE TABLE IF NOT EXISTS` tidak pernah menyentuh tabel yang sudah
+berisi**, jadi kolomnya cuma lahir di pemasangan baru sementara produksi
+tertinggal tanpa satu pun galat. Pola yang sama dengan `hpp_pastikan_kolom()`;
+berkas `migrasi-*.sql` di repo ini rutin tertinggal di produksi.
+
+**Baris yang lahir sebelum kolomnya ada TIDAK punya rincian**, dan layarnya
+menulis *"rinciannya tidak dicatat"* — bukan *"service Rp0 · tax Rp0"*, yang
+adalah pernyataan yang tidak ditanggung datanya. Penandanya `rinci` dari
+server, bukan ditebak dari nilai nol: void yang memang bertax nol ada.
+
+##### PERSENNYA DARI SERVER, dan bisa diubah admin modul
+
+Tabel `void_setting` (satu baris), dibaca ikut di balasan `voidList`, ditulis
+lewat aksi **`voidSetting`** yang berpagar `sesi_admin_modul` cashier **atau**
+finance.
+
+- **Persen bawaan di layar cuma berlaku sampai daftarnya termuat.** Kalau
+  jawaban server tidak pernah dipakai, form memakai 10/5 selamanya sementara
+  servernya sudah lama memakai angka lain — dan setiap catatan yang dibuat
+  sesudahnya salah **tanpa satu pun gejala**.
+- **Dijepit 0..100 di server.** Persen minus MENGURANGI total void; di atas 100
+  membuat pajaknya lebih besar daripada barangnya.
+- **Layar cuma menyembunyikan formnya** untuk yang bukan admin — yang menjaga
+  sungguhan tetap servernya. Persennya sendiri **dipajang untuk semua orang**,
+  di kepala kolomnya: kasir yang melihat angka 10% & 5% bisa mencocokkannya
+  dengan struk di tangan, sementara persen yang tidak pernah disebut di layar
+  mana pun cuma bisa ditebak dari hasilnya.
+- **Menyimpan setelan menghitung ulang baris yang SEDANG diketik** (kecuali
+  yang ditimpa). Kalau tidak, persen barunya baru berlaku untuk baris
+  berikutnya sementara yang di layar diam-diam masih memakai persen lama.
+- **Catatan yang SUDAH tersimpan tidak ikut berubah** — angkanya sudah terkunci
+  di barisnya masing-masing, dan itu dikatakan di kartunya.
+
+```bash
+node tools/uji-void-catatan.js   # 191 pemeriksaan (dari 140)
+```
+
+**Enam puluh satu mutasi dicoba, keenam puluh satunya tertangkap.** Empat di
+antaranya mula-mula **LEWAT** — polanya tidak lagi cocok sesudah bentuk
+payload berubah dari `nominal` jadi `subtotal`/`service`/`tax`, dan klausa
+`VALUES` INSERT sekarang ada DUA KALI sehingga polanya harus dijepit ke
+indentasi jalur satu barisnya. **LEWAT berarti perilaku itu tidak diuji sama
+sekali, bukan aman**; keempatnya dibetulkan, bukan dibiarkan.
+
+> **YANG BELUM DIKERJAKAN, dan itu disengaja:** persen yang berlaku **tidak
+> dicatat di barisnya**. Baris lama tetap memegang angka rupiahnya sendiri —
+> itu benar — tapi kalau suatu hari perlu diketahui sebuah catatan dibuat
+> dengan persen berapa, yang harus ditambahkan kolom `tax_persen`/
+> `service_persen` di `void_log`, bukan menebaknya dari pembagian nominalnya.
 
 ### Marketing: kuota localStorage penuh menghentikan SELURUH penyimpanan (16 Sep 2026)
 

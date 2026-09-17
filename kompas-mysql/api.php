@@ -271,6 +271,22 @@ try {
       isset($_GET['dari'])   ? $_GET['dari']   : (isset($body['dari'])   ? $body['dari']   : ''),
       isset($_GET['sampai']) ? $_GET['sampai'] : (isset($body['sampai']) ? $body['sampai'] : ''))));
   }
+  /* SETELAN PERSEN tax & service. BERPAGAR ADMIN MODUL, bukan cuma sesi:
+     satu angka di sini menggeser total SETIAP catatan void yang dibuat
+     sesudahnya, dan yang mengetiknya salah tidak meninggalkan satu pun
+     gejala — angkanya tetap terlihat wajar di tiap barisnya. Aturan yang
+     sama dengan simpanSetting di modul DW, yang blob-nya juga memuat angka
+     yang menentukan uang. */
+  else if ($action === 'voidSetting') {
+    require_once __DIR__ . '/lib_sesi.php';
+    $u = sesi_user($body);
+    if (!$u) sesi_tolak_tak_dikenal();
+    if (!sesi_admin_modul($u, 'cashier') && !sesi_admin_modul($u, 'finance'))
+      keluar(array('ok' => false, 'error' => 'Hanya admin modul Cashier atau Finance yang boleh mengubah persen tax & service.'));
+    $r = void_setting_simpan(isset($body['data']) ? $body['data'] : null,
+                             isset($u['name']) ? $u['name'] : '');
+    keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
+  }
   else if ($action === 'voidSimpan' || $action === 'voidBatal') {
     require_once __DIR__ . '/lib_sesi.php';
     $u = sesi_user($body);
