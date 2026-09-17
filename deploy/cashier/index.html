@@ -93,12 +93,11 @@ input,select,textarea{font-family:inherit}
 .field input.err,.field select.err,.field textarea.err{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-bg)}
 /* Baris item di Catatan Void: nama menu + nominalnya, sebanyak yang perlu.
    Satu bill di produksi pernah membawa 16 item sekaligus. */
-.vd-item{display:grid;grid-template-columns:minmax(0,2.2fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) minmax(0,1fr) auto;gap:8px;align-items:center;margin-bottom:8px}
+.vd-item{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,1.3fr) auto;gap:8px;align-items:center;margin-bottom:8px}
 /* Kepala kolom adalah SEL DI GRID YANG SAMA — bukan wadah terpisah berlebar
    disalin tangan. Lebar yang disalin pasti melenceng, dan judul kolomnya
    berhenti berada di atas kotak yang dimaksudnya. */
 .vd-item.hd{margin-bottom:5px;font-size:10.5px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted)}
-.vd-item .vd-tot{font-weight:700}
 /* Kotak yang DITIMPA orang ditandai — kalau tidak, service & tax yang
    diketik tangan tidak bisa dibedakan dari yang dihitung rumus, dan yang
    memeriksanya bulan depan tidak tahu mana yang sengaja. */
@@ -107,8 +106,20 @@ input,select,textarea{font-family:inherit}
 .vd-item input{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:14.5px}
 .vd-item input:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
 .vd-item input.err{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-bg)}
+/* Kotak total SATU BILL. Service & tax diisi sekali di sini, bukan per
+   item — itulah bentuk yang dipakai orang membaca struk. */
+.vd-sum{margin-top:10px;padding:12px 14px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--panel2)}
+.vd-sum-row{display:grid;grid-template-columns:1fr minmax(0,160px) auto;gap:10px;align-items:center;margin-bottom:8px}
+.vd-sum-row:last-child{margin-bottom:0}
+.vd-sum-lab{font-size:13px;color:var(--muted)}
+.vd-sum-row.grand .vd-sum-lab{color:var(--text);font-weight:700}
+.vd-sum-row.grand .vd-sum-val{font-weight:800;font-size:16px}
+.vd-sum-val{text-align:right}
+.vd-sum input{width:100%;padding:9px 11px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:14px;text-align:right}
+.vd-sum input:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
+.vd-sum input.timpa{border-color:var(--warn);background:var(--warn-bg)}
 .vd-grup>td{background:var(--paper);border-top:2px solid var(--line)}
-@media(max-width:860px){.vd-item{grid-template-columns:1fr 1fr}.vd-item.hd{display:none}}
+@media(max-width:860px){.vd-item{grid-template-columns:1fr auto}.vd-item.hd{display:none}.vd-sum-row{grid-template-columns:1fr minmax(0,130px) auto}}
 @media(max-width:520px){.vd-item{grid-template-columns:1fr}}
 
 /* ===== LAYOUT ===== */
@@ -2378,7 +2389,8 @@ function barisTanpaShift(d){
    nominal MINUS. */
 const VOID_WAJIB=[
   ['bill','Nomor Bill'],['item','Nama Item'],
-  ['pemesan','Siapa yang Memesan'],['alasan','Alasan / Kronologi']
+  ['penginput','Siapa yang Menginput'],['salah','Kesalahan dari Siapa'],
+  ['alasan','Alasan / Kronologi']
 ];
 let voidDate=todayISO();
 let VD_ROWS=null;          // baris sebulan dari server; null = belum dimuat
@@ -2391,7 +2403,12 @@ let VD_EDIT='';            // id baris yang sedang disunting
    apa pun yang cuma ada di kotaknya ikut hilang — termasuk kronologi yang
    baru separuh diketik. Pola yang sama dengan QA.cat di lembar pembayaran
    Brankas. */
-let VD_FORM={bill:'',pemesan:'',alasan:'',items:[]};
+/* `svc` & `tax` ada di TINGKAT BILL, bukan per item (permintaan user
+   17 September 2026) — begitulah bentuk yang dibaca orang di struk, dan
+   itu pula yang membuat orang cukup mengetiknya sekali untuk enam belas
+   item. Servernya yang membagi angka itu ke tiap baris. */
+let VD_FORM={bill:'',penginput:'',salah:'',alasan:'',items:[],
+             svc:'',tax:'',svcManual:false,taxManual:false};
 /* PERSEN TAX & SERVICE. Bawaannya 10% dan 5% — itu yang DIUKUR dari Cancel
    Menu Detail Report Agustus 2026, bukan ditebak: 71 dari 74 baris
    bersubtotal memenuhi tax = 10% x SUBTOTAL, sementara hipotesis
@@ -2407,8 +2424,12 @@ let VD_SET={tax:10, service:5, oleh:'', diubah:0};
 const VOID_BERSAMA=VOID_WAJIB.filter(([k])=>k!=='item');
 let VD_SALAH=[];           // kunci field yang ditandai merah
 
-function vdItemKosong(){ return {item:'',sub:'',svc:'',tax:'',svcManual:false,taxManual:false}; }
-function vdKosongkanForm(){ VD_FORM={bill:'',pemesan:'',alasan:'',items:[vdItemKosong()]}; VD_SALAH=[]; }
+function vdItemKosong(){ return {item:'',sub:''}; }
+function vdKosongkanForm(){
+  VD_FORM={bill:'',penginput:'',salah:'',alasan:'',items:[vdItemKosong()],
+           svc:'',tax:'',svcManual:false,taxManual:false};
+  VD_SALAH=[];
+}
 function vdItems(){ if(!Array.isArray(VD_FORM.items)||!VD_FORM.items.length) VD_FORM.items=[vdItemKosong()]; return VD_FORM.items; }
 /* Persen boleh pecahan (DECIMAL(6,3) di server), jadi num() milik modul ini
    — yang membuang seluruh non-digit — akan membaca '12,5' jadi 125. */
@@ -2421,9 +2442,10 @@ function vdTaxDari(sub){ return Math.round(num(sub)*vdPct(VD_SET.tax)/100); }
    punya satu pun tanda bahwa angkanya berubah. Tiga baris di berkas POS
    Agustus 2026 memang bertax NOL (dua compliment, satu Videotron), jadi
    override itu bukan kemungkinan teoretis. */
-function vdHitungOtomatis(x){
-  if(!x.svcManual) x.svc=String(vdSvcDari(x.sub)||0);
-  if(!x.taxManual) x.tax=String(vdTaxDari(x.sub)||0);
+function vdHitungOtomatis(){
+  const sub=vdSubtotalForm();
+  if(!VD_FORM.svcManual) VD_FORM.svc=String(vdSvcDari(sub)||0);
+  if(!VD_FORM.taxManual) VD_FORM.tax=String(vdTaxDari(sub)||0);
 }
 /* Penanda override DIPASANG LEWAT DOM, bukan lewat penggambar ulang —
    kotak yang dibuat ulang kehilangan fokus dan hanya huruf pertama yang
@@ -2431,35 +2453,54 @@ function vdHitungOtomatis(x){
    yang dihitung rumus sampai ada yang menyimpan atau berpindah halaman,
    DAN tombol ↺ tidak pernah muncul — jadi override yang baru diketik
    tidak punya satu pun jalan pulang. */
-function vdSegarTimpa(i){
-  const x=vdItems()[i]; if(!x) return;
-  const sv=document.getElementById('vd_svc_'+i), tx=document.getElementById('vd_tax_'+i),
-        bt=document.getElementById('vd_auto_'+i);
-  if(sv) sv.classList.toggle('timpa',!!x.svcManual);
-  if(tx) tx.classList.toggle('timpa',!!x.taxManual);
-  if(bt) bt.style.display=(x.svcManual||x.taxManual)?'':'none';
+function vdSegarTimpa(){
+  const sv=document.getElementById('vd_svc'), tx=document.getElementById('vd_tax'),
+        bt=document.getElementById('vd_auto');
+  if(sv) sv.classList.toggle('timpa',!!VD_FORM.svcManual);
+  if(tx) tx.classList.toggle('timpa',!!VD_FORM.taxManual);
+  if(bt) bt.style.display=(VD_FORM.svcManual||VD_FORM.taxManual)?'':'none';
 }
-function vdItemTotal(x){ return num(x.sub)+num(x.svc)+num(x.tax); }
-function vdTotalForm(){ return vdItemTerisi().reduce((a,x)=>a+vdItemTotal(x),0); }
+/* Dasar service & tax adalah SUBTOTAL SELURUH ITEM di bill ini. Dihitung
+   dari baris yang namanya sudah terisi saja — baris kosong di ujung daftar
+   adalah bentuk paling wajar dari form yang barisnya bisa ditambah, dan
+   subtotal yang terlanjur diketik di baris tanpa nama tidak ikut terkirim
+   ke server. Ikut dihitung di sini, angka di layar jadi lebih besar
+   daripada yang tersimpan. */
+function vdSubtotalForm(){ return vdItemTerisi().reduce((a,x)=>a+num(x.sub),0); }
+function vdTotalForm(){ return vdSubtotalForm()+num(VD_FORM.svc)+num(VD_FORM.tax); }
 /* Menyegarkan angka TOTAL tanpa menggambar ulang kotaknya — kotak yang
    dibuat ulang kehilangan fokus dan hanya huruf pertama yang masuk. */
 function vdSegarTotal(){
-  vdItems().forEach((x,i)=>{
-    const t=document.getElementById('vd_tot_'+i);
-    if(t) t.textContent=fmtRp(vdItemTotal(x));
-  });
+  const sb=document.getElementById('vd_sub_form');
+  if(sb) sb.textContent=fmtRp(vdSubtotalForm());
   const g=document.getElementById('vd_total_form');
-  if(g) g.innerHTML='Total yang di-void: <b>'+fmtRp(vdTotalForm())+'</b>'
-    +' <span class="muted-x">(subtotal + service + tax)</span>';
+  if(g) g.textContent=fmtRp(vdTotalForm());
+}
+/* Kotak service & tax diisi LEWAT DOM, bukan lewat penggambar ulang: kotak
+   yang dibuat ulang kehilangan fokus dan hanya huruf pertama yang masuk.
+   Yang ditimpa tangan tidak disentuh. */
+function vdSegarRinci(){
+  const sv=document.getElementById('vd_svc'), tx=document.getElementById('vd_tax');
+  if(sv&&!VD_FORM.svcManual) sv.value=fmtRpInput(VD_FORM.svc);
+  if(tx&&!VD_FORM.taxManual) tx.value=fmtRpInput(VD_FORM.tax);
 }
 /* Mengembalikan satu baris ke hitungan otomatis. Tanpa jalan pulang, kotak
    yang terlanjur ditimpa tidak pernah bisa ikut rumusnya lagi kecuali
    barisnya dibuang dan diketik ulang. */
-function vdItemAuto(i){
-  const a=vdItems(); if(!a[i]) return;
-  a[i].svcManual=false; a[i].taxManual=false;
-  vdHitungOtomatis(a[i]);
-  vdGambarItem();
+function vdAuto(){
+  VD_FORM.svcManual=false; VD_FORM.taxManual=false;
+  vdHitungOtomatis();
+  vdSegarRinci(); vdSegarTimpa(); vdSegarTotal();
+}
+/* Mengetik di kotak Service / Tax berarti orangnya memang bermaksud
+   menimpanya — sejak itu rumusnya berhenti menyentuhnya. Tiga baris di
+   berkas POS Agustus 2026 memang bertax NOL (dua compliment, satu
+   Videotron), jadi override itu bukan kemungkinan teoretis. */
+function vdKetikRinci(el,k){
+  VD_FORM[k]=el.value;
+  if(k==='svc') VD_FORM.svcManual=true;
+  if(k==='tax') VD_FORM.taxManual=true;
+  vdSegarTimpa(); vdSegarTotal();
 }
 /* Baris yang namanya kosong DIBUANG sebelum dikirim, tidak ditolak: baris
    kosong di ujung daftar adalah bentuk paling wajar dari form yang barisnya
@@ -2541,32 +2582,33 @@ function vdItemHapus(i){
   const a=vdItems();
   if(a.length<2) return;            // baris terakhir tidak bisa dibuang
   a.splice(i,1);
+  /* Dasar service & tax adalah jumlah subtotal SELURUH item, jadi
+     membuang satu baris menggesernya. Tanpa ini, angka yang tertinggal di
+     kotak Service masih dihitung dari item yang sudah tidak ada — dan
+     tidak ada satu pun tanda di layar bahwa ia sudah basi. */
+  vdHitungOtomatis();
   vdGambarItem();
 }
 function vdItemKetik(el,i,k){
   const a=vdItems();
   if(!a[i]) a[i]=vdItemKosong();
   a[i][k]=el.value;
-  /* Mengetik di kotak service / tax berarti orangnya memang bermaksud
-     menimpanya — sejak itu rumusnya berhenti menyentuh baris ini. */
-  if(k==='svc') a[i].svcManual=true;
-  if(k==='tax') a[i].taxManual=true;
-  if(k==='sub'){
-    vdHitungOtomatis(a[i]);
-    /* Nilainya dipasang ke kotak LAIN, jadi pemformat rupiah modul ini
-       (yang cuma memformat elemen yang sedang diketik) tidak akan
-       menyentuhnya — angkanya tampil '2250' alih-alih '2.250'. */
-    const sv=document.getElementById('vd_svc_'+i), tx=document.getElementById('vd_tax_'+i);
-    if(sv&&!a[i].svcManual) sv.value=fmtRpInput(a[i].svc);
-    if(tx&&!a[i].taxManual) tx.value=fmtRpInput(a[i].tax);
-  }
+  /* Subtotal SATU item menggeser service & tax SELURUH bill — dasarnya
+     jumlah subtotal semuanya. Nilainya dipasang ke kotak LAIN, jadi
+     pemformat rupiah modul ini (yang cuma memformat elemen yang sedang
+     diketik) tidak akan menyentuhnya. Nama item ikut menghitung ulang:
+     ia yang menentukan baris mana yang IKUT jadi dasar. */
+  vdHitungOtomatis(); vdSegarRinci();
   /* Penandanya dicabut lewat DOM, bukan lewat penggambar ulang — kotak yang
      dibuat ulang kehilangan fokus dan hanya huruf pertama yang masuk. */
   if(k==='item'&&String(el.value||'').trim()){
     el.classList.remove('err');
     if(vdItemTerisi().length){ const j=VD_SALAH.indexOf('item'); if(j>=0) VD_SALAH.splice(j,1); }
   }
-  vdSegarTimpa(i);
+  /* vdSegarTimpa() TIDAK dipanggil di sini: mengetik nama item atau
+     subtotal tidak pernah menyetel penanda override, jadi ia cuma
+     panggilan yang tidak melakukan apa-apa. Yang memasang penandanya
+     vdKetikRinci(), di kotak Service & Tax-nya sendiri. */
   vdSegarTotal();
 }
 function vdItemListHtml(){
@@ -2576,37 +2618,44 @@ function vdItemListHtml(){
      terpisah berlebar disalin tangan — lebar yang disalin pasti melenceng,
      dan judul kolomnya berhenti berada di atas kotak yang dimaksudnya.
      Pola yang sama dengan lembar .qa-sheet di Planning Pembayaran. */
-  const kepala='<div class="vd-item hd"><span>Nama Item</span><span>Subtotal</span>'
-    +'<span>Service '+esc(vdPct(VD_SET.service))+'%</span><span>Tax '+esc(vdPct(VD_SET.tax))+'%</span>'
-    +'<span class="num">Total</span><span></span></div>';
+  const kepala='<div class="vd-item hd"><span>Nama Item</span><span>Subtotal</span><span></span></div>';
   const baris=a.map((x,i)=>{
-    const timpa=!!(x.svcManual||x.taxManual);
     return '<div class="vd-item">'
     +'<input id="vd_item_'+i+'"'+((salah&&!String(x.item||'').trim())?' class="err"':'')
       +' placeholder="Nama item — cth. Ice Kopi Laksamana" value="'+esc(x.item||'')+'"'
       +' oninput="vdItemKetik(this,'+i+',&#39;item&#39;)">'
     +'<input id="vd_nom_'+i+'" class="mono rp" inputmode="numeric" placeholder="Subtotal"'
       +' value="'+esc(x.sub||'')+'" oninput="vdItemKetik(this,'+i+',&#39;sub&#39;)">'
-    +'<input id="vd_svc_'+i+'" class="mono rp'+(x.svcManual?' timpa':'')+'" inputmode="numeric" placeholder="Service"'
-      +' value="'+esc(x.svc||'')+'" oninput="vdItemKetik(this,'+i+',&#39;svc&#39;)">'
-    +'<input id="vd_tax_'+i+'" class="mono rp'+(x.taxManual?' timpa':'')+'" inputmode="numeric" placeholder="Tax"'
-      +' value="'+esc(x.tax||'')+'" oninput="vdItemKetik(this,'+i+',&#39;tax&#39;)">'
-    +'<span class="num mono vd-tot" id="vd_tot_'+i+'">'+fmtRp(vdItemTotal(x))+'</span>'
     +'<span style="white-space:nowrap">'
-      +'<button type="button" class="btn btn-sm" id="vd_auto_'+i+'"'+(timpa?'':' style="display:none"')
-        +' title="Kembalikan service &amp; tax ke hitungan otomatis" onclick="vdItemAuto('+i+')">&#8635;</button> '
       +((edit||a.length<2)?''
         :'<button type="button" class="btn btn-sm" title="Hapus baris ini" onclick="vdItemHapus('+i+')">&#10005;</button>')
     +'</span>'
     +'</div>';
   }).join('');
-  const total='<div class="helper" id="vd_total_form" style="margin:8px 0 0;text-align:right">Total yang di-void: <b>'
-    +fmtRp(vdTotalForm())+'</b> <span class="muted-x">(subtotal + service + tax)</span></div>';
-  if(edit) return kepala+baris+total
-    +'<div class="helper" style="margin:6px 0 0">Menyunting SATU catatan. Untuk menambah item lain di bill ini, batalkan suntingan lalu isi form barunya.</div>';
-  return kepala+baris+total
+  /* SERVICE & TAX SATU KALI UNTUK SATU BILL — bukan per item. Dasarnya
+     jumlah subtotal seluruh item di bawah, dan itu disebut angkanya di
+     barisnya sendiri supaya persennya bisa dicocokkan dengan struk. */
+  const timpa=!!(VD_FORM.svcManual||VD_FORM.taxManual);
+  const sum='<div class="vd-sum" id="vd_sum_box">'
+    +'<div class="vd-sum-row"><span class="vd-sum-lab">Subtotal seluruh item</span>'
+      +'<span class="vd-sum-val mono" id="vd_sub_form">'+fmtRp(vdSubtotalForm())+'</span><span></span></div>'
+    +'<div class="vd-sum-row"><span class="vd-sum-lab">Service <b>'+esc(vdPct(VD_SET.service))+'%</b></span>'
+      +'<input id="vd_svc" class="mono rp'+(VD_FORM.svcManual?' timpa':'')+'" inputmode="numeric" placeholder="0"'
+      +' value="'+esc(VD_FORM.svc||'')+'" oninput="vdKetikRinci(this,&#39;svc&#39;)"><span></span></div>'
+    +'<div class="vd-sum-row"><span class="vd-sum-lab">Tax <b>'+esc(vdPct(VD_SET.tax))+'%</b></span>'
+      +'<input id="vd_tax" class="mono rp'+(VD_FORM.taxManual?' timpa':'')+'" inputmode="numeric" placeholder="0"'
+      +' value="'+esc(VD_FORM.tax||'')+'" oninput="vdKetikRinci(this,&#39;tax&#39;)">'
+      +'<button type="button" class="btn btn-sm" id="vd_auto"'+(timpa?'':' style="display:none"')
+        +' title="Kembalikan service &amp; tax ke hitungan otomatis" onclick="vdAuto()">&#8635;</button></div>'
+    +'<div class="vd-sum-row grand"><span class="vd-sum-lab">Total yang di-void</span>'
+      +'<span class="vd-sum-val mono" id="vd_total_form">'+fmtRp(vdTotalForm())+'</span><span></span></div>'
+    +'</div>';
+  if(edit) return kepala+baris+sum
+    +'<div class="helper" style="margin:6px 0 0">Menyunting SATU catatan — service &amp; tax di sini berlaku untuk baris ini saja. Untuk menambah item lain di bill ini, batalkan suntingan lalu isi form barunya.</div>';
+  return kepala+baris
     +'<div style="margin-top:6px"><button type="button" class="btn btn-sm" id="vd_item_tambah" onclick="vdItemTambah()">+ Tambah item</button></div>'
-    +'<div class="helper" style="margin:6px 0 0">Service &amp; tax terisi sendiri dari subtotal — ketik di kotaknya kalau item itu memang tidak kena (compliment, sewa, dan sejenisnya), dan tekan &#8635; untuk mengembalikannya. Nomor bill, nama pemesan, dan kronologinya cukup diisi SEKALI untuk seluruh item di bill yang sama.</div>';
+    +sum
+    +'<div class="helper" style="margin:6px 0 0">Service &amp; tax terisi sendiri dari <b>jumlah subtotal seluruh item</b> — ketik di kotaknya kalau bill itu memang tidak kena (compliment, sewa, dan sejenisnya), dan tekan &#8635; untuk mengembalikannya. Server membaginya ke tiap item menurut subtotalnya, jadi jumlah barisnya selalu sama persis dengan angka di sini. Nomor bill, penginput, dan kronologinya cukup diisi SEKALI untuk seluruh item di bill yang sama.</div>';
 }
 
 function vdUbah(id){
@@ -2622,10 +2671,12 @@ function vdUbah(id){
      totalnya 15%. Yang mau melengkapinya tinggal menekan tombol auto. */
   const sub=String(num(r.rinci?r.subtotal:r.nominal)||'');
   const svc=String(num(r.service)||''), tax=String(num(r.tax)||'');
-  VD_FORM={bill:r.bill||'',pemesan:r.pemesan||'',alasan:r.alasan||'',
-           items:[{item:r.item||'', sub:sub, svc:svc, tax:tax,
-                   svcManual:num(svc)!==vdSvcDari(sub),
-                   taxManual:num(tax)!==vdTaxDari(sub)}]};
+  VD_FORM={bill:r.bill||'',penginput:r.penginput||'',salah:r.salah||'',
+           alasan:r.alasan||'',
+           items:[{item:r.item||'', sub:sub}],
+           svc:svc, tax:tax,
+           svcManual:num(svc)!==vdSvcDari(sub),
+           taxManual:num(tax)!==vdTaxDari(sub)};
   VD_SALAH=[];
   voidDate=r.tgl;
   render();
@@ -2690,7 +2741,7 @@ function vdSetelanHtml(){
   return '<div class="card"><details>'
     +'<summary style="cursor:pointer;font-size:12.5px;color:var(--muted)">'
       +'⚙ Setelan tax &amp; service — <b>Tax '+esc(vdPct(VD_SET.tax))+'%</b> · <b>Service '+esc(vdPct(VD_SET.service))+'%</b>'+jejak+'</summary>'
-    +'<div class="helper" style="margin:10px 0 0">Dipakai mengisi kotak Service &amp; Tax otomatis dari <b>subtotal</b> tiap item. '
+    +'<div class="helper" style="margin:10px 0 0">Dipakai mengisi kotak Service &amp; Tax otomatis dari <b>jumlah subtotal seluruh item</b> di satu bill. '
       +'Keduanya dihitung dari subtotal — <b>bukan</b> tax di atas (subtotal + service) — dan itu yang cocok dengan berkas POS: '
       +'71 dari 74 baris void Agustus 2026 memenuhi tax = 10% x subtotal, sementara tax atas (subtotal+service) tidak cocok satu baris pun.</div>'
     +(bisa
@@ -2713,10 +2764,14 @@ async function vdSimpan(){
     if(el) VD_FORM[k]=el.value;
   });
   vdItems().forEach((x,i)=>{
-    [['item','vd_item_'],['sub','vd_nom_'],['svc','vd_svc_'],['tax','vd_tax_']].forEach(([k,p])=>{
+    [['item','vd_item_'],['sub','vd_nom_']].forEach(([k,p])=>{
       const el=document.getElementById(p+i);
       if(el) x[k]=el.value;
     });
+  });
+  [['svc','vd_svc'],['tax','vd_tax']].forEach(([k,id])=>{
+    const el=document.getElementById(id);
+    if(el) VD_FORM[k]=el.value;
   });
   VD_SALAH=VOID_BERSAMA.filter(([k])=>!String(VD_FORM[k]||'').trim()).map(([k])=>k);
   if(!vdItemTerisi().length) VD_SALAH.push('item');
@@ -2740,19 +2795,26 @@ async function vdSimpan(){
     /* TOTALNYA TIDAK DIKIRIM — servernya yang menjumlahkan ketiganya. Total
        yang dikirim layar bisa tidak cocok dengan komponennya (salah hitung,
        layar versi lama, atau diketik ulang dari console), dan yang tersimpan
-       lalu tidak bisa dicocokkan dengan rinciannya sendiri. */
+       lalu tidak bisa dicocokkan dengan rinciannya sendiri.
+
+       SERVICE & TAX dikirim SEKALI untuk seluruh bill; servernya yang
+       membagi ke tiap item menurut subtotalnya. Dibagi di layar, dua
+       tempat menghitung hal yang sama — dan yang menyimpang di sini
+       adalah uang. */
     const its=vdItemTerisi().map(x=>({item:String(x.item||'').trim(),
-      subtotal:num(x.sub), service:num(x.svc), tax:num(x.tax)}));
+      subtotal:num(x.sub)}));
+    const svc=num(VD_FORM.svc), tax=num(VD_FORM.tax);
     /* MENYUNTING selalu satu baris — itu memang bentuk datanya di server.
        MENAMBAH mengirim daftarnya sekaligus, dan servernya menulis satu
        baris per item di dalam SATU transaksi: bill yang tercatat separuh
        tidak bisa disebutkan sampai mana oleh layar mana pun. */
     const data=VD_EDIT
       ? { id:VD_EDIT, tgl:voidDate, bill:VD_FORM.bill, item:its[0].item,
-          pemesan:VD_FORM.pemesan, alasan:VD_FORM.alasan,
-          subtotal:its[0].subtotal, service:its[0].service, tax:its[0].tax }
-      : { tgl:voidDate, bill:VD_FORM.bill, pemesan:VD_FORM.pemesan,
-          alasan:VD_FORM.alasan, items:its };
+          penginput:VD_FORM.penginput, salah:VD_FORM.salah, alasan:VD_FORM.alasan,
+          subtotal:its[0].subtotal, service:svc, tax:tax }
+      : { tgl:voidDate, bill:VD_FORM.bill, penginput:VD_FORM.penginput,
+          salah:VD_FORM.salah, alasan:VD_FORM.alasan, items:its,
+          service:svc, tax:tax };
     const r=await vdPost({action:'voidSimpan',data});
     if(!r||!r.ok){
       /* `kurang` dari server ikut menandai kotaknya. Server dan layar memakai
@@ -2808,7 +2870,7 @@ async function vdBatal(id){
 
 /* DIKELOMPOKKAN PER NOMOR BILL saat digambar. Satu bill di produksi pernah
    membawa 16 item, dan enam belas baris yang mengulang nomor bill, nama
-   pemesan, dan kronologi yang sama persis membuat yang membacanya harus
+   penginput, dan kronologi yang sama persis membuat yang membacanya harus
    memeriksa sendiri mana yang satu kejadian dan mana yang bukan.
 
    Dikelompokkan SAAT MENGGAMBAR, bukan disimpan sebagai satu baris berisi
@@ -2834,7 +2896,8 @@ function vdGrupHtml(g){
   const mati=g.baris.length-hidup.length;
   const p=g.baris[0]||{};
   return '<tr class="vd-grup"><td>'
-      +'<b class="mono">'+esc(g.bill)+'</b> · '+esc(p.pemesan||'—')
+      +'<b class="mono">'+esc(g.bill)+'</b> · diinput '+esc(p.penginput||'—')
+      +' · salah <b>'+esc(p.salah||'—')+'</b>'
       +'<div class="helper" style="margin:3px 0 0;white-space:pre-wrap;max-width:560px">'+esc(p.alasan||'—')+'</div></td>'
     +'<td class="num mono"><b>'+fmtRp(total)+'</b><div class="helper" style="margin:2px 0 0">'
       +hidup.length+' item'+(mati?' · '+mati+' dibatalkan':'')+'</div></td>'
@@ -2901,7 +2964,12 @@ function viewVoid(){
       <div class="mini-lab">${edit?`✏️ Ubah Catatan Void — <b>${esc(edit.item||'')}</b>`:'Tambah Catatan Void — satu bill, berapa pun itemnya'}</div>
       <div class="row-in">
         <div class="field"><label>Nomor Bill *</label><input id="vd_bill"${cls('bill')} class="mono" placeholder="cth. SLMCL202608020123" value="${v('bill')}" oninput="vdKetik(this,'bill')">${wajibHelper}</div>
-        <div class="field"><label>Siapa yang Memesan *</label><input id="vd_pemesan"${cls('pemesan')} placeholder="nama tamu / kru yang input pesanan" value="${v('pemesan')}" oninput="vdKetik(this,'pemesan')">${wajibHelper}</div>
+        <div class="field"><label>Siapa yang Menginput *</label><input id="vd_penginput"${cls('penginput')} placeholder="nama kru yang input pesanan ke POS" value="${v('penginput')}" oninput="vdKetik(this,'penginput')"><div class="helper" style="margin:3px 0 0">Wajib diisi — yang mengetik pesanannya di POS, <b>bukan</b> yang mengisi catatan ini (itu sudah tercatat sendiri dari sesi Office).</div></div>
+      </div>
+      <div class="row-in" style="margin-top:12px">
+        <div class="field"><label>Kesalahan dari Siapa *</label><input id="vd_salah"${cls('salah')} list="vd_salah_opsi" placeholder="cth. Kasir" value="${v('salah')}" oninput="vdKetik(this,'salah')">
+          <datalist id="vd_salah_opsi"><option value="Kasir"><option value="Floor"><option value="Kitchen"><option value="Bar"><option value="Tamu"><option value="Sistem / POS"></datalist>
+          <div class="helper" style="margin:3px 0 0">Wajib diisi. Boleh diketik sendiri kalau tidak ada di pilihan — yang dipakai rekap di Kas Kecil adalah tulisan ini, jadi pilihan yang sudah ada lebih mudah dikelompokkan.</div></div>
       </div>
       <div class="field" style="margin-top:12px"><label>Item yang Di-void *</label>
         <div id="vd_items">${vdItemListHtml()}</div>
@@ -2928,7 +2996,7 @@ function viewVoid(){
     ${VD_POTONG>0?`<div class="notice"><div>ℹ Bulan ini punya lebih banyak catatan daripada yang bisa ditarik sekaligus — <b>${VD_POTONG}</b> baris tertua tidak ikut ditampilkan.</div></div>`:''}
     <div class="card">
       <h3>Void ${esc(dateLabel(voidDate))}</h3>
-      <div class="card-sub">Dikelompokkan per nomor bill — baris tebal di atas tiap kelompok adalah bill, pemesan, dan kronologinya; barisnya di bawah adalah item yang di-void. Hanya tanggal yang sedang dipilih; rekap sebulan berikut siapa yang paling sering ada di panel <b>Finance &gt; Kas Kecil &gt; Laporan Void</b>.</div>
+      <div class="card-sub">Dikelompokkan per nomor bill — baris tebal di atas tiap kelompok adalah bill, penginput, pihak yang salah, dan kronologinya; barisnya di bawah adalah item yang di-void. Hanya tanggal yang sedang dipilih; rekap sebulan berikut siapa yang paling sering ada di panel <b>Finance &gt; Kas Kecil &gt; Laporan Void</b>.</div>
       ${VD_ROWS===null&&!VD_ERR?'<div class="empty">⏳ Memuat dari server…</div>':`
       <div class="tbl-wrap"><table>
         <thead><tr><th>Bill &amp; Item</th><th class="num">Nominal</th><th>Dicatat Oleh</th><th></th></tr></thead>

@@ -1795,7 +1795,8 @@ function void_pastikan() {
        `tgl`          DATE         NOT NULL,
        `bill`         VARCHAR(60)  NOT NULL DEFAULT \'\',
        `item`         VARCHAR(200) NOT NULL DEFAULT \'\',
-       `pemesan`      VARCHAR(120) NOT NULL DEFAULT \'\',
+       `penginput`    VARCHAR(120) NOT NULL DEFAULT \'\',
+       `salah`        VARCHAR(120) NOT NULL DEFAULT \'\',
        `alasan`       TEXT         NULL,
        `nominal`      BIGINT       NOT NULL DEFAULT 0,
        `oleh`         VARCHAR(120) NOT NULL DEFAULT \'\',
@@ -1835,10 +1836,21 @@ function void_pastikan_kolom($pdo) {
   $cek = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS
                          WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t
                            AND COLUMN_NAME = :c');
-  foreach (array('subtotal', 'service', 'tax') as $kol) {
+  /* Tipenya ikut di daftar: dua kolom terakhir teks, bukan angka, dan
+     satu tipe untuk semuanya membuat nama orang tersimpan sebagai 0. */
+  $kolom = array(
+    'subtotal'  => 'BIGINT NOT NULL DEFAULT 0',
+    'service'   => 'BIGINT NOT NULL DEFAULT 0',
+    'tax'       => 'BIGINT NOT NULL DEFAULT 0',
+    /* 17 September 2026 — menggantikan `pemesan`, yang TIDAK di-DROP:
+       menghapus kolom adalah operasi yang tidak bisa dibatalkan, dan
+       kolom kosong yang menganggur tidak merugikan siapa pun. */
+    'penginput' => "VARCHAR(120) NOT NULL DEFAULT ''",
+    'salah'     => "VARCHAR(120) NOT NULL DEFAULT ''");
+  foreach ($kolom as $kol => $tipe) {
     $cek->execute(array(':t' => 'void_log', ':c' => $kol));
     if ((int)$cek->fetchColumn() > 0) continue;
-    $pdo->exec('ALTER TABLE `void_log` ADD COLUMN `' . $kol . '` BIGINT NOT NULL DEFAULT 0');
+    $pdo->exec('ALTER TABLE `void_log` ADD COLUMN `' . $kol . '` ' . $tipe);
   }
 }
 
@@ -1947,7 +1959,11 @@ function void_list($dari, $sampai) {
   foreach ($st->fetchAll() as $r) {
     $baris[] = array(
       'id' => (string)$r['id'], 'tgl' => (string)$r['tgl'], 'bill' => (string)$r['bill'],
-      'item' => (string)$r['item'], 'pemesan' => (string)$r['pemesan'],
+      'item' => (string)$r['item'],
+      /* `pemesan` DIGANTI dua kolom ini 17 September 2026. Kolom lamanya
+         sengaja tidak dibaca lagi dan sengaja tidak dihapus. */
+      'penginput' => (string)(isset($r['penginput']) ? $r['penginput'] : ''),
+      'salah' => (string)(isset($r['salah']) ? $r['salah'] : ''),
       'alasan' => (string)$r['alasan'], 'nominal' => (float)$r['nominal'],
       'subtotal' => (float)$r['subtotal'], 'service' => (float)$r['service'],
       'tax' => (float)$r['tax'],
@@ -1976,7 +1992,45 @@ function void_list($dari, $sampai) {
    yang tidak ada di form mana pun. */
 function void_wajib() {
   return array('tgl' => 'Tanggal', 'bill' => 'Nomor Bill', 'item' => 'Nama Item',
-               'pemesan' => 'Siapa yang Memesan', 'alasan' => 'Alasan / Kronologi');
+               'penginput' => 'Siapa yang Menginput', 'salah' => 'Kesalahan dari Siapa',
+               'alasan' => 'Alasan / Kronologi');
+}
+
+/* SERVICE & TAX DIISI SEKALI UNTUK SATU BILL (permintaan user 17 September
+   2026), lalu DIBAGI ke tiap item menurut subtotalnya. Yang tersimpan tetap
+   satu baris per item — itu yang membuat bentuknya sama dengan ekspor POS,
+   dan itu pula yang membuat satu item bisa dibatalkan tanpa menyeret
+   lima belas item lain di bill yang sama.
+
+   PEMBAGIANNYA KUMULATIF, bukan "bulatkan tiap baris lalu betulkan baris
+   terakhir". Cara yang kedua terlihat lebih sederhana dan MENGHASILKAN
+   BARIS MINUS: kalau servicenya kecil dan barisnya banyak, pembulatan tiap
+   baris bisa menjumlah melampaui totalnya, dan koreksi di baris terakhir
+   menariknya ke bawah nol. Komponen minus ditolak void_rinci(), jadi yang
+   sampai ke layar adalah seluruh bill yang gagal disimpan dengan pesan yang
+   tidak bisa dijelaskan siapa pun.
+
+   Cara kumulatif menjamin dua hal sekaligus: jumlahnya SAMA PERSIS dengan
+   yang diketik, dan tidak satu baris pun bisa negatif. */
+function void_bagi($subs, $total) {
+  $n = count($subs);
+  $out = array_fill(0, $n, 0);
+  if ($n === 0 || $total <= 0) return $out;
+  $semua = 0;
+  foreach ($subs as $v) $semua += $v;
+  /* Subtotal SELURUHNYA nol (mis. sebill compliment) tapi servicenya
+     diketik: tidak ada yang bisa jadi dasar pembagian, jadi ia jatuh utuh
+     ke baris pertama. Dibagi rata, angkanya jadi pecahan yang tidak pernah
+     diketik siapa pun di baris mana pun. */
+  if ($semua <= 0) { $out[0] = (int)round($total); return $out; }
+  $akum = 0; $akumSub = 0;
+  foreach ($subs as $i => $v) {
+    $akumSub += $v;
+    $sampai = (int)round($total * $akumSub / $semua);
+    $out[$i] = $sampai - $akum;
+    $akum = $sampai;
+  }
+  return $out;
 }
 
 function void_simpan($d, $oleh, $olehId) {
@@ -1987,9 +2041,11 @@ function void_simpan($d, $oleh, $olehId) {
     'tgl'     => void_tgl_sah(isset($d['tgl']) ? $d['tgl'] : ''),
     'bill'    => trim((string)(isset($d['bill'])    ? $d['bill']    : '')),
     'item'    => trim((string)(isset($d['item'])    ? $d['item']    : '')),
-    'pemesan' => trim((string)(isset($d['pemesan']) ? $d['pemesan'] : '')),
+    'penginput' => trim((string)(isset($d['penginput']) ? $d['penginput'] : '')),
+    'salah'   => trim((string)(isset($d['salah'])   ? $d['salah']   : '')),
     'alasan'  => trim((string)(isset($d['alasan'])  ? $d['alasan']  : '')));
 
+  if (($e = void_layar_lama($d)) !== null) return $e;
   $kurang = array();
   foreach (void_wajib() as $k => $label) if ($nil[$k] === '') $kurang[] = $label;
   if (count($kurang)) {
@@ -2023,11 +2079,12 @@ function void_simpan($d, $oleh, $olehId) {
     if ((float)$lama['batal_at'] > 0)
       return array('ok' => false, 'error' => 'Catatan ini sudah dibatalkan dan tidak bisa diubah lagi.');
     $st = $pdo->prepare(
-      'UPDATE `void_log` SET `tgl`=:t,`bill`=:b,`item`=:i,`pemesan`=:p,`alasan`=:a,
+      'UPDATE `void_log` SET `tgl`=:t,`bill`=:b,`item`=:i,`penginput`=:p,`salah`=:sl,`alasan`=:a,
               `nominal`=:n,`subtotal`=:sb,`service`=:sv,`tax`=:tx,
               `diubah`=:u,`diubah_oleh`=:o WHERE `id`=:id');
     $st->execute(array(':t' => $nil['tgl'], ':b' => mb_substr($nil['bill'], 0, 60),
-                       ':i' => mb_substr($nil['item'], 0, 200), ':p' => mb_substr($nil['pemesan'], 0, 120),
+                       ':i' => mb_substr($nil['item'], 0, 200), ':p' => mb_substr($nil['penginput'], 0, 120),
+                       ':sl' => mb_substr($nil['salah'], 0, 120),
                        ':a' => $nil['alasan'], ':n' => $rn['nominal'],
                        ':sb' => $rn['subtotal'], ':sv' => $rn['service'], ':tx' => $rn['tax'],
                        ':u' => $now, ':o' => mb_substr((string)$oleh, 0, 120), ':id' => $id));
@@ -2045,12 +2102,13 @@ function void_simpan($d, $oleh, $olehId) {
      simpan_pekerja modul DW. */
   $id = 'v' . dechex($now) . substr(bin2hex(random_bytes(4)), 0, 8);
   $st = $pdo->prepare(
-    'INSERT INTO `void_log` (`id`,`tgl`,`bill`,`item`,`pemesan`,`alasan`,`nominal`,
+    'INSERT INTO `void_log` (`id`,`tgl`,`bill`,`item`,`penginput`,`salah`,`alasan`,`nominal`,
                              `subtotal`,`service`,`tax`,
                              `oleh`,`oleh_id`,`dibuat`,`diubah`,`diubah_oleh`)
-     VALUES (:id,:t,:b,:i,:p,:a,:n,:sb,:sv,:tx,:o1,:oi,:c1,:c2,:o2)');
+     VALUES (:id,:t,:b,:i,:p,:sl,:a,:n,:sb,:sv,:tx,:o1,:oi,:c1,:c2,:o2)');
   $st->execute(array(':id' => $id, ':t' => $nil['tgl'], ':b' => mb_substr($nil['bill'], 0, 60),
-                     ':i' => mb_substr($nil['item'], 0, 200), ':p' => mb_substr($nil['pemesan'], 0, 120),
+                     ':i' => mb_substr($nil['item'], 0, 200), ':p' => mb_substr($nil['penginput'], 0, 120),
+                     ':sl' => mb_substr($nil['salah'], 0, 120),
                      ':a' => $nil['alasan'], ':n' => $rn['nominal'],
                      ':sb' => $rn['subtotal'], ':sv' => $rn['service'], ':tx' => $rn['tax'],
                      ':o1' => mb_substr((string)$oleh, 0, 120), ':oi' => mb_substr((string)$olehId, 0, 60),
@@ -2090,6 +2148,27 @@ function void_simpan($d, $oleh, $olehId) {
    ALTER TABLE pada tabel yang sudah berisi — dan `CREATE TABLE IF NOT EXISTS`
    tidak pernah menyentuhnya, jadi ia cuma jalan di pemasangan baru sementara
    server yang sudah hidup tertinggal tanpa satu pun galat. */
+/* Kiriman dari layar SEBELUM 17 September 2026 membawa `pemesan` dan tidak
+   pernah bisa membawa `penginput` maupun `salah`. Ditolak sebagai "belum
+   lengkap", pesannya menyebut dua kotak yang memang tidak ada di form yang
+   sedang dibuka orangnya — dan yang membacanya akan mencarinya sampai
+   menyerah. Jendela ini nyata: PHP dan HTML mendarat lewat FTP pada waktu
+   yang berbeda.
+
+   `pemesan` SENGAJA TIDAK dipetakan ke `penginput`. Keduanya menjawab
+   pertanyaan yang berbeda — siapa yang MEMESAN vs siapa yang MENGINPUT —
+   dan menyalinnya berarti menulis nama tamu ke kolom yang dibaca orang
+   sebagai nama kru, permanen dan tanpa satu pun tanda. */
+function void_layar_lama($d) {
+  if (!is_array($d)) return null;
+  if (!array_key_exists('pemesan', $d)) return null;
+  if (array_key_exists('penginput', $d) || array_key_exists('salah', $d)) return null;
+  return array('ok' => false, 'error' =>
+    'Halaman Cashier yang terbuka versi lama — ia masih mengirim kolom "Siapa yang Memesan", '
+    . 'yang sejak 17 September 2026 diganti "Siapa yang Menginput" dan "Kesalahan dari Siapa". '
+    . 'Muat ulang halamannya (Ctrl+Shift+R), lalu isi lagi.');
+}
+
 function void_simpan_banyak($d, $oleh, $olehId) {
   void_pastikan();
   if (!is_array($d)) return array('ok' => false, 'error' => 'data bukan objek');
@@ -2100,9 +2179,11 @@ function void_simpan_banyak($d, $oleh, $olehId) {
   $nil = array(
     'tgl'     => void_tgl_sah(isset($d['tgl']) ? $d['tgl'] : ''),
     'bill'    => trim((string)(isset($d['bill'])    ? $d['bill']    : '')),
-    'pemesan' => trim((string)(isset($d['pemesan']) ? $d['pemesan'] : '')),
+    'penginput' => trim((string)(isset($d['penginput']) ? $d['penginput'] : '')),
+    'salah'   => trim((string)(isset($d['salah'])   ? $d['salah']   : '')),
     'alasan'  => trim((string)(isset($d['alasan'])  ? $d['alasan']  : '')));
 
+  if (($e = void_layar_lama($d)) !== null) return $e;
   $kurang = array();
   foreach (void_wajib() as $k => $label) {
     if ($k === 'item') continue;
@@ -2119,6 +2200,10 @@ function void_simpan_banyak($d, $oleh, $olehId) {
     if (!is_array($it)) continue;
     $nama = trim((string)(isset($it['item']) ? $it['item'] : ''));
     if ($nama === '') continue;
+    /* Kiriman TANPA service & tax tingkat bill datang dari layar versi
+       lama, yang menaruh keduanya di tiap item — dan urutan pendaratan
+       FTP di repo ini memang tidak bisa dijamin. Bentuk itu tetap
+       diterima apa adanya lewat void_rinci(). */
     $rn = void_rinci($it);
     if ($rn === null)
       return array('ok' => false, 'error' => 'Nominal "' . $nama . '" tidak boleh minus.');
@@ -2126,6 +2211,27 @@ function void_simpan_banyak($d, $oleh, $olehId) {
     $masuk[] = $rn;
   }
   if (!count($masuk)) $kurang[] = 'Nama Item';
+
+  /* Service & tax tingkat BILL menang atas apa pun yang menempel di item.
+     Diperiksa dengan array_key_exists, bukan nilainya: service Rp0 yang
+     memang diketik orang (sebill compliment) tidak boleh terbaca sebagai
+     "layar tidak mengirimkannya". */
+  $adaBill = array_key_exists('service', $d) || array_key_exists('tax', $d);
+  if ($adaBill && count($masuk)) {
+    $svcT = isset($d['service']) ? (float)$d['service'] : 0;
+    $taxT = isset($d['tax'])     ? (float)$d['tax']     : 0;
+    foreach (array($svcT, $taxT) as $v)
+      if (!is_finite($v) || $v < 0)
+        return array('ok' => false, 'error' => 'Service & tax tidak boleh minus.');
+    $subs = array(); foreach ($masuk as $m) $subs[] = $m['subtotal'];
+    $bagiSvc = void_bagi($subs, $svcT);
+    $bagiTax = void_bagi($subs, $taxT);
+    foreach ($masuk as $i => $m) {
+      $masuk[$i]['service'] = $bagiSvc[$i];
+      $masuk[$i]['tax']     = $bagiTax[$i];
+      $masuk[$i]['nominal'] = $m['subtotal'] + $bagiSvc[$i] + $bagiTax[$i];
+    }
+  }
 
   if (count($kurang)) {
     return array('ok' => false, 'kurang' => $kurang,
@@ -2143,17 +2249,18 @@ function void_simpan_banyak($d, $oleh, $olehId) {
   $pdo->beginTransaction();
   try {
     $st = $pdo->prepare(
-      'INSERT INTO `void_log` (`id`,`tgl`,`bill`,`item`,`pemesan`,`alasan`,`nominal`,
+      'INSERT INTO `void_log` (`id`,`tgl`,`bill`,`item`,`penginput`,`salah`,`alasan`,`nominal`,
                                `subtotal`,`service`,`tax`,
                                `oleh`,`oleh_id`,`dibuat`,`diubah`,`diubah_oleh`)
-       VALUES (:id,:t,:b,:i,:p,:a,:n,:sb,:sv,:tx,:o1,:oi,:c1,:c2,:o2)');
+       VALUES (:id,:t,:b,:i,:p,:sl,:a,:n,:sb,:sv,:tx,:o1,:oi,:c1,:c2,:o2)');
     foreach ($masuk as $i => $m) {
       /* Id dibuat SERVER, sama dengan jalur satu baris — id kiriman bisa
          menabrak baris orang lain. `$i` ikut supaya dua item yang tersimpan
          pada milidetik yang sama tidak pernah bisa berebut id yang sama. */
       $id = 'v' . dechex($now) . dechex($i) . substr(bin2hex(random_bytes(4)), 0, 8);
       $st->execute(array(':id' => $id, ':t' => $nil['tgl'], ':b' => mb_substr($nil['bill'], 0, 60),
-                         ':i' => mb_substr($m['item'], 0, 200), ':p' => mb_substr($nil['pemesan'], 0, 120),
+                         ':i' => mb_substr($m['item'], 0, 200), ':p' => mb_substr($nil['penginput'], 0, 120),
+                         ':sl' => mb_substr($nil['salah'], 0, 120),
                          ':a' => $nil['alasan'], ':n' => $m['nominal'],
                          ':sb' => $m['subtotal'], ':sv' => $m['service'], ':tx' => $m['tax'],
                          ':o1' => mb_substr((string)$oleh, 0, 120), ':oi' => mb_substr((string)$olehId, 0, 60),

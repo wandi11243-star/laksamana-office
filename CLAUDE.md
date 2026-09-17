@@ -6339,6 +6339,139 @@ sekali, bukan aman**; keempatnya dibetulkan, bukan dibiarkan.
 > dengan persen berapa, yang harus ditambahkan kolom `tax_persen`/
 > `service_persen` di `void_log`, bukan menebaknya dari pembagian nominalnya.
 
+##### REVISI: service & tax SEKALI per bill, dan dua kolom pengganti `pemesan`
+
+Dua permintaan user 17 September 2026, beberapa jam sesudah blok di atas naik:
+*"1. service and tax diisi sekali setelah terhitung total semua. 2. kolom siapa
+memesan diganti menjadi, siapa yg menginput dan kesalahan dari siapa?"*
+
+###### 1. Dasarnya JUMLAH SUBTOTAL SELURUH ITEM, bukan subtotal tiap item
+
+Kotak Service & Tax **dicabut dari tiap baris item** dan berdiri sekali di kotak
+total bill, di bawah daftar itemnya. Itu bentuk yang dibaca orang di struk, dan
+itu pula yang membuat bill berisi enam belas item cukup diketik sekali.
+
+**YANG TERSIMPAN TETAP SATU BARIS PER ITEM.** Bentuk itu yang membuat datanya
+sebanding dengan ekspor POS (lihat kartu Pembanding POS), dan yang membuat satu
+item bisa dibatalkan tanpa menyeret lima belas item lain di bill yang sama.
+Jadi angka tingkat bill **DIBAGI ke tiap baris menurut subtotalnya**, di server,
+lewat `void_bagi()`.
+
+**PEMBAGIANNYA KUMULATIF, dan itu bukan pilihan gaya:**
+
+```php
+$sampai = (int)round($total * $akumSub / $semua);   // ambang kumulatif
+$out[$i] = $sampai - $akum;                          // selisihnya
+```
+
+Cara yang terlihat lebih sederhana — bulatkan tiap baris, lalu betulkan baris
+terakhir dengan sisanya — **MENGHASILKAN BARIS MINUS**: kalau servicenya kecil
+dan barisnya banyak, pembulatan tiap baris bisa menjumlah melampaui totalnya,
+dan koreksi di baris terakhir menariknya ke bawah nol. Komponen minus ditolak
+`void_rinci()`, jadi yang sampai ke layar adalah **seluruh bill gagal disimpan**
+dengan pesan yang tidak bisa dijelaskan siapa pun. Cara kumulatif menjamin dua
+hal sekaligus: jumlahnya SAMA PERSIS dengan yang diketik, dan tidak satu baris
+pun bisa negatif.
+
+- **Subtotal seluruhnya NOL** (sebill compliment) tapi servicenya diketik: tidak
+  ada yang bisa jadi dasar pembagian, jadi ia jatuh **utuh ke baris pertama**.
+  Dibagi rata, angkanya jadi pecahan yang tidak pernah diketik siapa pun di
+  baris mana pun.
+- **Kiriman TANPA service & tax tingkat bill jatuh ke perilaku lama** — layar
+  versi sebelumnya menaruh keduanya di tiap item, dan urutan pendaratan FTP di
+  repo ini memang tidak bisa dijamin. Diperiksa dengan `array_key_exists`,
+  bukan nilainya: service **Rp0 yang memang diketik orang** tidak boleh terbaca
+  sebagai "layar tidak mengirimkannya".
+- **Dasarnya hanya baris yang NAMANYA sudah terisi.** Baris kosong di ujung
+  daftar adalah bentuk paling wajar dari form yang barisnya bisa ditambah, dan
+  subtotal yang terlanjur diketik di baris tanpa nama **tidak ikut terkirim**.
+  Ikut dihitung di layar, angka di layar jadi lebih besar daripada yang
+  tersimpan — dan selisihnya tidak disebut di layar mana pun.
+- **Membuang satu baris MENGHITUNG ULANG service & tax.** Tanpa itu, angka yang
+  tertinggal di kotak Service masih dihitung dari item yang sudah tidak ada,
+  tanpa satu pun tanda bahwa ia sudah basi.
+- **Penanda override pindah ke tingkat bill** (`VD_FORM.svcManual`), dan tetap
+  dipasang LEWAT DOM — kotak yang dibuat ulang kehilangan fokus. Aturan
+  `style.display` untuk tombol ↺ juga tetap: `.btn` menyetel
+  `display:inline-flex`, yang mengalahkan `[hidden]{display:none}`.
+- **Menyunting tetap satu baris**, dan di sana service & tax memang berlaku
+  untuk baris itu saja — formnya mengatakan begitu.
+
+###### 2. `pemesan` diganti DUA kolom: `penginput` + `salah`
+
+Yang lama menanyakan *siapa yang memesan* (tamu). Yang ditanyakan sekarang dua
+hal yang dua-duanya soal pertanggungjawaban: **siapa yang menginput** pesanan ke
+POS, dan **kesalahan dari siapa**.
+
+- **`pemesan` TIDAK dipetakan ke `penginput`, dan itu keputusan yang menentukan.**
+  Keduanya menjawab pertanyaan yang berbeda, dan menyalinnya berarti menulis
+  nama tamu ke kolom yang dibaca orang sebagai nama kru — permanen, dan tanpa
+  satu pun tanda. Dijaga asersi tersendiri.
+- **Kolomnya lahir lewat `void_pastikan_kolom()`**, dan daftarnya sekarang
+  membawa TIPE per kolom: satu tipe untuk semuanya menyimpan nama orang sebagai
+  BIGINT, yaitu 0, tanpa satu pun galat.
+- **Kolom `pemesan` TIDAK di-DROP.** Menghapus kolom tidak bisa dibatalkan, dan
+  kolom kosong yang menganggur tidak merugikan siapa pun. Ia cuma dicabut dari
+  `CREATE TABLE` supaya pemasangan baru tidak lahir dengan kolom mati.
+- **Aman diganti karena datanya memang belum ada**: diperiksa lewat `voidList`
+  sebelum menyentuh apa pun — dev **0 baris**, dan produksi belum ter-deploy
+  sama sekali (`Aksi tidak dikenal: voidList`). Kalau suatu hari kolom lain
+  perlu diganti setelah ada isinya, jangan tiru bagian ini tanpa memeriksanya
+  lagi.
+- **`void_layar_lama()` mengenali kiriman dari layar versi sebelumnya** (ia
+  membawa `pemesan` dan tidak pernah bisa membawa kedua kotak barunya) lalu
+  menjawab dengan instruksi: *muat ulang halamannya*. Ditolak sebagai "belum
+  lengkap" biasa, pesannya menyebut dua kotak yang memang tidak ada di form yang
+  sedang dibuka orangnya — dan yang membacanya akan mencarinya sampai menyerah.
+- **Keduanya WAJIB**, di layar dan di server. `salah` punya `<datalist>`
+  (Kasir / Floor / Kitchen / Bar / Tamu / Sistem) tapi tetap teks bebas: daftar
+  tertutup akan basi, dan jawaban yang tidak ada di daftar akan diketik asal
+  supaya formnya mau lewat. Pola yang sama dengan kotak Vendor di lembar
+  pembayaran Brankas.
+- **"Siapa yang menginput" BUKAN "siapa yang mencatat".** Yang kedua sudah
+  diambil dari sesi Office dan tidak pernah diketik. Keduanya dikatakan
+  bedanya di bawah kotaknya — tanpa itu, kotak yang sudah terisi sendiri akan
+  diisi lagi dengan nama yang sama.
+- **Rekap "Kesalahan dari Siapa" di panel Kas Kecil** lahir bersamanya. Kotak
+  wajib yang tidak pernah dilaporkan di mana pun adalah kotak yang diisi
+  asal-asalan dalam sebulan, dan yang membacanya tidak punya satu pun layar
+  untuk membuktikannya.
+
+```bash
+node tools/uji-void-catatan.js   # 249 pemeriksaan (dari 191)
+```
+
+**Tujuh puluh enam mutasi dicoba, ketujuh puluh enamnya tertangkap.**
+
+**Tiga belas mutasi lama mula-mula jadi LEWAT** — polanya tidak lagi cocok
+karena kotak service & tax pindah tingkat dan payload-nya berubah bentuk.
+**LEWAT berarti perilaku itu tidak diuji sama sekali, bukan aman**; ketiga
+belasnya dibetulkan, bukan dibiarkan. Ini kali kedua bentuk itu menggigit di
+berkas yang sama dalam dua hari.
+
+Di putaran berikutnya **empat mutasi LOLOS dan satu LEWAT**, dan kelimanya
+cacat UJI atau cacat MUTASI — bukan cacat produk:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| penanda override TAX diabaikan | ujinya cuma pernah menimpa SERVICE — persis cacat yang sama dengan kemarin | override tax ikut diuji: ditimpa, subtotal digeser, lalu dikembalikan ↺ |
+| penanda `.timpa` cuma dipasang saat digambar ulang | mutasinya menyasar `vdItemKetik()`, padahal mengetik nama item / subtotal TIDAK pernah menyetel penanda override — panggilan di sana **mutasi-ekuivalen** | panggilan matinya DICABUT dari sumber, mutasinya diarahkan ke `vdKetikRinci()` yang memang memasangnya |
+| subtotal nol membuang service yang diketik | asersinya cuma membaca syaratnya (`$semua <= 0`), yang tetap ada di versi yang rusak | yang dijaga NILAINYA (`$out[0] = round($total)`), bukan adanya cabangnya |
+| layar versi lama ditolak tanpa penjelasan | asersinya cuma menuntut FUNGSINYA ada; mutasinya mencabut PEMANGGILNYA di satu jalur | jumlah pemanggilnya dikunci **2** — ia wajib ada di kedua jalur simpan |
+| (LEWAT) pemesan dipetakan jadi penginput | polanya cocok DUA kali: kedua jalur simpan menulis baris yang identik | dijepit dengan baris `item` di atasnya |
+
+> Yang kedua layak diingat terpisah: **mutasi yang LOLOS tidak selalu berarti
+> ujinya kurang.** Di sana yang salah kodenya sendiri — ada panggilan yang tidak
+> melakukan apa pun, dan mutasi yang mencabutnya memang tidak bisa mengubah
+> satu layar pun. Yang benar mencabut panggilannya, bukan menambah asersi
+> untuk perilaku yang tidak pernah ada.
+
+> **`String.raw` MEMPERTAHANKAN backslash-nya**, dan itu menggigit saat asersi
+> ini ditulis: pola `ADD COLUMN \`void_log\`` yang ditulis lewat `String.raw`
+> menghasilkan teks ber-backslash yang tidak pernah cocok dengan berkasnya.
+> Untuk pola yang memuat backtick, jangan pakai `String.raw` — potong polanya
+> sampai sebelum backtick-nya.
+
 ### Marketing: kuota localStorage penuh menghentikan SELURUH penyimpanan (16 Sep 2026)
 
 Dilaporkan user sebagai *"upload foto di Request Design tidak bisa"*. Yang
