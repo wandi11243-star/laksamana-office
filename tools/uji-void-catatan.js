@@ -77,32 +77,46 @@ async function aman(nama, fn) {
 }
 
 /* ================= FIXTURE =================
-   Dirancang supaya TIAP KESALAHAN MEMBERI HASIL YANG BERBEDA:
+   Dirancang supaya TIAP KESALAHAN MEMBERI HASIL YANG BERBEDA.
 
-     2 Agu  Ice Kopi     Rp100.000  Sari  "Ganti Produk"
-     2 Agu  Nasi Goreng  Rp150.000  Sari  "ganti produk"   <- huruf beda
-     5 Agu  Lychee Tea   Rp 50.000  Budi  "Salah input"    <- DIBATALKAN
+   TIGA item 2 Agustus berasal dari SATU bill — itu bentuk yang paling
+   sering di produksi (84 baris void Agustus 2026 datang dari 17 bill, dan
+   satu bill sendirian membawa 16 baris). Nomor bill baris ketiga ditulis
+   huruf kecil berspasi ekor supaya pengelompokan yang peka huruf besar-
+   kecil punya tempat untuk gagal.
 
-   yang benar                  : 2 catatan · Rp250.000 · 1 pencatat · 2 alasan?
-                                 TIDAK — alasannya digabung jadi 1
-   pembatalan ikut dijumlahkan : Rp300.000 · 3 catatan · 2 pencatat
-   alasan tidak digabung       : 2 baris alasan, bukan 1
-   Angka-angkanya sengaja tidak ada yang bertabrakan. */
+     2 Agu  SLMCL001   Ice Kopi     Rp100.000  Sari  "Ganti Produk"
+     2 Agu  SLMCL001   Nasi Goreng  Rp150.000  Sari  "ganti produk"  <- huruf beda
+     2 Agu  " slmcl001 " Es Teh     Rp 20.000  Sari  "Ganti Produk"  <- bill sama, ejaan beda
+     5 Agu  SLMCL003   Lychee Tea   Rp 50.000  Budi  "Salah input"   <- DIBATALKAN
+
+   yang benar                   : 3 item · 1 bill · Rp270.000 · 1 pencatat · 1 alasan
+   pembatalan ikut dijumlahkan  : Rp320.000 · 4 item · 2 pencatat
+   bill dikelompokkan peka huruf: 2 bill, bukan 1
+   alasan tidak digabung        : 2 baris alasan, bukan 1
+   Tidak satu pun angkanya bertabrakan. */
 const ROWS = [
   { id:'v1', tgl:'2026-08-02', bill:'SLMCL001', item:'Ice Kopi Laksamana',
     pemesan:'Meja 12', alasan:'Ganti Produk', nominal:100000, oleh:'Sari', olehId:'u-sari',
     dibuat:1000, diubah:1000, diubahOleh:'', batalAt:0, batalOleh:'', batalAlasan:'' },
-  { id:'v2', tgl:'2026-08-02', bill:'SLMCL002', item:'Nasi Goreng',
-    pemesan:'Meja 7', alasan:'ganti produk', nominal:150000, oleh:'Sari', olehId:'u-sari',
+  { id:'v2', tgl:'2026-08-02', bill:'SLMCL001', item:'Nasi Goreng',
+    pemesan:'Meja 12', alasan:'ganti produk', nominal:150000, oleh:'Sari', olehId:'u-sari',
     dibuat:2000, diubah:2000, diubahOleh:'', batalAt:0, batalOleh:'', batalAlasan:'' },
+  { id:'v4', tgl:'2026-08-02', bill:' slmcl001 ', item:'Es Teh Manis',
+    pemesan:'Meja 12', alasan:'Ganti Produk', nominal:20000, oleh:'Sari', olehId:'u-sari',
+    dibuat:2500, diubah:2500, diubahOleh:'', batalAt:0, batalOleh:'', batalAlasan:'' },
   { id:'v3', tgl:'2026-08-05', bill:'SLMCL003', item:'Lychee Tea',
     pemesan:'Meja 3', alasan:'Salah input', nominal:50000, oleh:'Budi', olehId:'u-budi',
     dibuat:3000, diubah:3000, diubahOleh:'', batalAt:9000, batalOleh:'Sari',
     batalAlasan:'dobel dengan v1' }
 ];
-/* Ekspor POS menyebut 9 baris item; catatan manual yang hidup cuma 2. Selisih
-   7 itulah yang membuat kata "wajib" bisa diperiksa — tanpa angka pembanding,
-   laporan berisi tiga baris terbaca sama meyakinkannya dengan yang lengkap. */
+/* Ekspor POS menyebut 9 baris item; catatan manual yang hidup cuma 3. Selisih
+   6 itulah yang membuat kata "wajib" bisa diperiksa — tanpa angka pembanding,
+   laporan berisi tiga baris terbaca sama meyakinkannya dengan yang lengkap.
+
+   KEDUANYA SEKARANG MENGHITUNG HAL YANG SAMA: baris ITEM. Sebelum satu
+   kiriman bisa memuat banyak item, catatan manual menghitung KEJADIAN dan
+   kartunya harus mengaku angkanya tidak setara. */
 const POS_RINGKAS = { nBaris:9, nBill:4, qty:11, total:2696600 };
 
 const DB_UJI = {
@@ -259,6 +273,36 @@ function invarianMenu(w, label) {
         /function void_simpan\(\$d, \$oleh, \$olehId\)/.test(PHP_LIB) &&
         !/function void_simpan[\s\S]{0,2500}\$d\['oleh'\]/.test(PHP_LIB));
 
+    /* SATU BILL BANYAK ITEM. Bentuk yang paling sering di produksi, dan
+       jalurnya terpisah dari jalur satu baris — jadi seluruh penjaganya
+       harus ada DI SANA juga, bukan diwarisi. */
+    const blokBanyak = (PHP_LIB.match(/function void_simpan_banyak\([\s\S]*?\r?\n\}/) || [''])[0];
+    cek('badan void_simpan_banyak terbaca', blokBanyak.length > 800, blokBanyak.length);
+    /* Berhenti di tengah meninggalkan bill yang tercatat SEPARUH — sembilan
+       item masuk, tujuh tidak — dan tidak ada satu pun layar yang bisa
+       menyebutkan sampai mana. Angkanya tetap terlihat wajar. */
+    cek('banyak item ditulis dalam SATU transaksi',
+        /beginTransaction\(\)/.test(blokBanyak) && /rollBack\(\)/.test(blokBanyak));
+    /* Baris kosong di ujung daftar adalah bentuk paling wajar dari form yang
+       barisnya bisa ditambah; menolak seluruh kiriman karenanya membuang
+       lima belas baris yang sudah benar. */
+    cek('item tanpa nama DILEWATI, bukan menolak seluruh kiriman',
+        /if \(\$nama === ''\) continue;/.test(blokBanyak));
+    cek('...tapi kiriman TANPA satu pun item ditolak',
+        /if \(!count\(\$masuk\)\) \$kurang\[\] = 'Nama Item';/.test(blokBanyak));
+    /* Dua item yang tersimpan pada milidetik yang sama tidak boleh berebut
+       id — yang kalah menimpa yang menang tanpa satu pun galat. */
+    cek('id tiap item berbeda walau milidetiknya sama', /dechex\(\$i\)/.test(blokBanyak));
+    cek('namanya tetap dari argumen, bukan dari kiriman',
+        !/\$d\['oleh'\]/.test(blokBanyak) && !/\$it\['oleh'\]/.test(blokBanyak));
+    /* Aksi kedua berarti layar harus memilih sendiri mana yang dipanggil,
+       dan yang salah memilih mengirim enam belas item ke jalur satu baris:
+       lima belas di antaranya hilang tanpa satu pun galat. */
+    cek('server memilih jalurnya dari BENTUK data, bukan aksi tersendiri',
+        /\$banyak = is_array\(\$dt\)[\s\S]{0,120}isset\(\$dt\['items'\]\)/.test(PHP_API)
+        && /\$banyak \? void_simpan_banyak\(/.test(PHP_API));
+    cek('tidak ada aksi voidSimpanBanyak tersendiri', PHP_API.indexOf("'voidSimpanBanyak'") < 0);
+
     /* Dihitung dari baris yang sudah terpotong, angka "N tidak ditampilkan"
        selalu nol dan pemotongannya tidak pernah bisa diketahui siapa pun. */
     cek('jumlah baris dihitung SEBELUM LIMIT',
@@ -321,10 +365,16 @@ function invarianMenu(w, label) {
 
       const d = W.document;
       /* Keenam isian yang diminta user, satu per satu. */
-      [['vd_item','Nama Item'], ['vd_bill','Nomor Bill'], ['vd_pemesan','Siapa yang Memesan'],
-       ['vd_alasan','Alasan / Kronologi'], ['vd_nominal','Nominal']].forEach(([id, label]) => {
+      [['vd_item_0','Nama Item'], ['vd_bill','Nomor Bill'], ['vd_pemesan','Siapa yang Memesan'],
+       ['vd_alasan','Alasan / Kronologi'], ['vd_nom_0','Nominal']].forEach(([id, label]) => {
         cek('isian ' + label + ' digambar', !!d.getElementById(id));
       });
+      /* Bill, pemesan, dan kronologi cukup SEKALI untuk seluruh item — itu
+         seluruh gunanya bentuk ini. Kotak bernomor untuk keduanya berarti
+         kasir tetap mengetik ulang nomor bill enam belas kali. */
+      cek('nomor bill hanya SATU kotak', !d.getElementById('vd_bill_0'));
+      cek('kronologi hanya SATU kotak', !d.getElementById('vd_alasan_0'));
+      cek('ada tombol tambah item', !!d.getElementById('vd_item_tambah'));
       cek('Tanggal terisi hari ini dan bisa diubah', !!d.getElementById('vd_cal'));
       sama('tanggal bawaannya hari ini', W.eval('voidDate'), W.eval('todayISO()'));
 
@@ -337,7 +387,7 @@ function invarianMenu(w, label) {
       cek('baris 2 Agustus tergambar', v.indexOf('Ice Kopi Laksamana') > -1 && v.indexOf('Nasi Goreng') > -1);
       cek('baris tanggal LAIN tidak ikut', v.indexOf('Lychee Tea') < 0,
           'halaman ini sengaja cuma memajang tanggal yang sedang dipilih');
-      cek('total hari itu Rp250.000', v.indexOf('Rp250.000') > -1,
+      cek('total hari itu Rp270.000', v.indexOf('Rp270.000') > -1,
           v.slice(v.indexOf('Void '), v.indexOf('Void ') + 260));
     }
   }
@@ -347,7 +397,7 @@ function invarianMenu(w, label) {
     const d = W.document;
     KIRIM = [];
     /* Alasan & pemesan sengaja dibiarkan kosong. */
-    d.getElementById('vd_item').value = 'Es Teh';
+    d.getElementById('vd_item_0').value = 'Es Teh';
     d.getElementById('vd_bill').value = 'SLMCL999';
     d.getElementById('vd_alasan').value = '';
     d.getElementById('vd_pemesan').value = '';
@@ -360,12 +410,12 @@ function invarianMenu(w, label) {
     cek('kotak Alasan ditandai merah', d.getElementById('vd_alasan').classList.contains('err'));
     cek('kotak Siapa yang Memesan ditandai merah', d.getElementById('vd_pemesan').classList.contains('err'));
     cek('kotak yang SUDAH diisi tidak ikut ditandai',
-        !d.getElementById('vd_item').classList.contains('err'));
+        !d.getElementById('vd_item_0').classList.contains('err'));
     const pita = d.getElementById('vd_err').innerHTML;
     cek('sebabnya disebut berikut nama kotaknya', /Alasan \/ Kronologi/.test(pita) && /Siapa yang Memesan/.test(pita), pita.slice(0, 200));
     /* Form yang ditahan harus TETAP terbuka berikut isinya — orang yang
        mengira ketikannya hilang akan mengetik ulang dari awal. */
-    sama('isian yang sudah diketik tidak hilang', d.getElementById('vd_item').value, 'Es Teh');
+    sama('isian yang sudah diketik tidak hilang', d.getElementById('vd_item_0').value, 'Es Teh');
 
     /* Mengetik mencabut penandanya, TANPA menggambar ulang halaman: kotak
        yang dibuat ulang kehilangan fokus dan hanya huruf pertama yang masuk. */
@@ -380,10 +430,10 @@ function invarianMenu(w, label) {
        tidak membuang kronologi yang baru separuh diketik. */
     d.getElementById('vd_pemesan').value = 'Meja 5';
     d.getElementById('vd_pemesan').dispatchEvent(new W.Event('input', { bubbles:true }));
-    d.getElementById('vd_item').dispatchEvent(new W.Event('input', { bubbles:true }));
+    d.getElementById('vd_item_0').dispatchEvent(new W.Event('input', { bubbles:true }));
     W.eval('render()');
     await tunggu(120);
-    sama('isian bertahan melintasi penggambaran ulang', W.document.getElementById('vd_item').value, 'Es Teh');
+    sama('isian bertahan melintasi penggambaran ulang', W.document.getElementById('vd_item_0').value, 'Es Teh');
     sama('...termasuk kronologinya', W.document.getElementById('vd_alasan').value,
          'Tamu batal pesan, sudah dikonfirmasi SPV');
   });
@@ -392,11 +442,11 @@ function invarianMenu(w, label) {
   if (W) await aman('blok "simpan & batalkan" tidak sampai selesai', async () => {
     const d = W.document;
     KIRIM = [];
-    d.getElementById('vd_item').value = 'Es Teh';
+    d.getElementById('vd_item_0').value = 'Es Teh';
     d.getElementById('vd_bill').value = 'SLMCL999';
     d.getElementById('vd_pemesan').value = 'Meja 5';
     d.getElementById('vd_alasan').value = 'Tamu batal pesan';
-    d.getElementById('vd_nominal').value = '25000';
+    d.getElementById('vd_nom_0').value = '25000';
     await W.eval('vdSimpan()');
     await tunggu(250);
 
@@ -404,11 +454,14 @@ function invarianMenu(w, label) {
     const p = (KIRIM.find(k => k.body.action === 'voidSimpan') || { body:{} }).body;
     const dt = p.data || {};
     sama('tanggalnya dari tanggal yang sedang dipilih', dt.tgl, '2026-08-02');
-    sama('nama item terkirim', dt.item, 'Es Teh');
+    cek('item dikirim sebagai DAFTAR, bukan satu field', Array.isArray(dt.items),
+        JSON.stringify(dt).slice(0, 160));
+    sama('satu item saat cuma satu baris diisi', (dt.items || []).length, 1);
+    sama('nama item terkirim', ((dt.items || [])[0] || {}).item, 'Es Teh');
     sama('nomor bill terkirim', dt.bill, 'SLMCL999');
     sama('siapa yang memesan terkirim', dt.pemesan, 'Meja 5');
     sama('alasan terkirim', dt.alasan, 'Tamu batal pesan');
-    sama('nominal terkirim sebagai angka', dt.nominal, 25000);
+    sama('nominal terkirim sebagai angka', ((dt.items || [])[0] || {}).nominal, 25000);
     /* Token sesi WAJIB ikut — endpoint tulisnya berpagar, dan tanpa ini
        kirimannya ditolak "sesi tidak dikenal" walau orangnya jelas login. */
     sama('token sesi ikut terkirim', p.sesi, 'TOKEN-UJI');
@@ -418,7 +471,7 @@ function invarianMenu(w, label) {
     /* Form dikosongkan hanya kalau servernya menjawab ok — kalau tidak, orang
        kehilangan ketikannya untuk kiriman yang tidak pernah sampai. */
     await tunggu(150);
-    sama('form dikosongkan sesudah tersimpan', W.document.getElementById('vd_item').value, '');
+    sama('form dikosongkan sesudah tersimpan', W.document.getElementById('vd_item_0').value, '');
 
     /* PEMBATALAN. Barisnya tidak hilang. */
     KIRIM = [];
@@ -428,6 +481,105 @@ function invarianMenu(w, label) {
     cek('pembatalan memanggil voidBatal, bukan penghapusan', !!kb);
     sama('alasan pembatalan ikut terkirim', kb && kb.body.alasan, 'salah ketik nominal');
     sama('id barisnya ikut', kb && kb.body.id, 'v1');
+  });
+
+  console.log('\n== Modul Cashier: satu bill, banyak item ==');
+  /* Pertanyaan user 17 September 2026. Di produksi 84 baris void Agustus
+     datang dari 17 bill — dan SATU bill membawa 16 baris. Menuntut nomor
+     bill, pemesan, dan kronologi diketik ulang enam belas kali berarti
+     aturan "wajib dicatat" tidak akan dijalankan pada malam yang justru
+     paling perlu dicatat. */
+  if (W) await aman('blok "banyak item" tidak sampai selesai', async () => {
+    const d = W.document;
+    W.eval('VD_EDIT=""; vdKosongkanForm(); render();');
+    await tunggu(150);
+
+    const isi = (id, nilai) => {
+      const el = d.getElementById(id);
+      if (!el) return false;
+      el.value = nilai;
+      el.dispatchEvent(new W.Event('input', { bubbles:true }));
+      return true;
+    };
+    const tekanTambah = () => {
+      const b = d.getElementById('vd_item_tambah');
+      if (!b) return false;
+      b.dispatchEvent(new W.MouseEvent('click', { bubbles:true }));
+      return true;
+    };
+
+    cek('baris item pertama digambar', !!d.getElementById('vd_item_0'));
+    cek('isi baris pertama', isi('vd_item_0', 'Ayam Bakar') && isi('vd_nom_0', '80000'));
+    cek('tombol tambah item bisa ditekan', tekanTambah());
+    await tunggu(80);
+    cek('baris item KEDUA lahir', !!d.getElementById('vd_item_1'));
+    /* Isian hidup di luar DOM. Kalau tidak, menambah baris ketujuh membuang
+       enam baris yang sudah diketik — dan yang mengalaminya tidak akan
+       menekan tombol itu lagi. */
+    sama('baris pertama tidak ikut terhapus', d.getElementById('vd_item_0').value, 'Ayam Bakar');
+
+    cek('isi baris kedua', isi('vd_item_1', 'Es Jeruk') && isi('vd_nom_1', '15000'));
+    cek('tambah baris KETIGA, sengaja dibiarkan kosong', tekanTambah());
+    await tunggu(80);
+    cek('baris ketiga lahir', !!d.getElementById('vd_item_2'));
+
+    /* Bill, pemesan, dan kronologi diisi SEKALI untuk ketiganya. */
+    isi('vd_bill', 'SLMCL777');
+    isi('vd_pemesan', 'Meja 9');
+    isi('vd_alasan', 'Tamu batal pesan, sudah dikonfirmasi ke SPV floor');
+
+    KIRIM = [];
+    await W.eval('vdSimpan()');
+    await tunggu(300);
+
+    const kirimVd = KIRIM.filter(k => k.body.action === 'voidSimpan');
+    /* SATU kiriman, bukan satu per item: enam belas permintaan berурutan
+       yang putus di tengah meninggalkan bill tercatat separuh. */
+    sama('SATU kiriman untuk banyak item', kirimVd.length, 1);
+    const dt = ((kirimVd[0] || { body:{} }).body.data) || {};
+    cek('item dikirim sebagai DAFTAR', Array.isArray(dt.items), JSON.stringify(dt).slice(0, 180));
+    sama('baris kosong DIBUANG, bukan menggagalkan kiriman', (dt.items || []).length, 2);
+    sama('item pertama terkirim', ((dt.items || [])[0] || {}).item, 'Ayam Bakar');
+    sama('item kedua terkirim', ((dt.items || [])[1] || {}).item, 'Es Jeruk');
+    sama('nominal menempel di ITEM, bukan di bill', ((dt.items || [])[0] || {}).nominal, 80000);
+    sama('...dan nominal item kedua ikut', ((dt.items || [])[1] || {}).nominal, 15000);
+    sama('nomor bill dikirim SEKALI untuk seluruh item', dt.bill, 'SLMCL777');
+    sama('pemesan dikirim sekali', dt.pemesan, 'Meja 9');
+    cek('kronologi dikirim sekali', /dikonfirmasi ke SPV floor/.test(String(dt.alasan || '')));
+    /* Kalau bill ikut diulang per item, dua item di satu bill bisa berakhir
+       dengan nomor bill yang berbeda — dan kelompoknya pecah di layar. */
+    cek('bill TIDAK diulang di tiap item', !('bill' in ((dt.items || [])[0] || {})));
+
+    /* Yang wajib tetap wajib: tanpa satu pun item, kirimannya DITAHAN. */
+    W.eval('VD_EDIT=""; vdKosongkanForm(); render();');
+    await tunggu(150);
+    isi('vd_bill', 'SLMCL888'); isi('vd_pemesan', 'Meja 1'); isi('vd_alasan', 'lupa');
+    KIRIM = [];
+    await W.eval('vdSimpan()');
+    await tunggu(200);
+    sama('tanpa satu pun item, kiriman DITAHAN', KIRIM.length, 0);
+    cek('kotak item ditandai merah',
+        !!d.getElementById('vd_item_0') && d.getElementById('vd_item_0').classList.contains('err'));
+  });
+
+  console.log('\n== Modul Cashier: daftar dikelompokkan per bill ==');
+  if (W) await aman('blok "kelompok per bill" tidak sampai selesai', async () => {
+    W.eval('VD_EDIT=""; vdKosongkanForm(); voidDate="2026-08-02"; VD_MUAT="";');
+    W.eval('render()');
+    await tunggu(300);
+    const v = W.document.getElementById('app-view').innerHTML;
+    /* Tiga item dari nomor bill yang sama — walau ejaannya berbeda — adalah
+       SATU kejadian. Enam belas baris yang mengulang bill, pemesan, dan
+       kronologi yang sama persis membuat yang membacanya harus memeriksa
+       sendiri mana yang satu kejadian dan mana yang bukan. */
+    sama('tiga item jadi SATU kelompok', (v.match(/class="vd-grup"/g) || []).length, 1);
+    cek('ketiga itemnya tetap tergambar',
+        v.indexOf('Ice Kopi Laksamana') > -1 && v.indexOf('Nasi Goreng') > -1 && v.indexOf('Es Teh Manis') > -1);
+    /* Nomor bill diketik orang: "slmcl001 " dan "SLMCL001" pasti bercampur,
+       dan yang tidak disatukan berdiri sebagai dua kejadian untuk bill yang
+       sama. Angka ini yang membedakannya — 1 bill, bukan 2. */
+    cek('kartu menyebut 3 item dari 1 bill', /3 item dari 1 bill/.test(v),
+        v.slice(v.indexOf('Void '), v.indexOf('Void ') + 320));
   });
 
   console.log('\n== Modul Cashier: baris yang dibatalkan ==');
@@ -481,9 +633,9 @@ function invarianMenu(w, label) {
       cek('...berikut di mana mengetiknya', /modul Cashier/.test(v));
 
       /* Rekap dihitung dari baris HIDUP saja. */
-      cek('total nominal Rp250.000', v.indexOf('Rp250.000') > -1,
+      cek('total nominal Rp270.000', v.indexOf('Rp270.000') > -1,
           v.slice(v.indexOf('Total Nominal Void'), v.indexOf('Total Nominal Void') + 200));
-      cek('yang dibatalkan TIDAK ikut (Rp300.000 tidak muncul)', v.indexOf('Rp300.000') < 0);
+      cek('yang dibatalkan TIDAK ikut (Rp320.000 tidak muncul)', v.indexOf('Rp320.000') < 0);
       cek('jumlah yang dibatalkan disebut terpisah',
           /Dibatalkan[\s\S]{0,180}>1</.test(v), v.slice(v.indexOf('Dibatalkan'), v.indexOf('Dibatalkan') + 180));
 
@@ -493,7 +645,7 @@ function invarianMenu(w, label) {
       cek('alasan beda huruf besar-kecil digabung jadi SATU baris',
           (kAlasan.match(/>Ganti Produk</g) || []).length === 1 && kAlasan.indexOf('>ganti produk<') < 0,
           kAlasan.slice(0, 320));
-      cek('...dan jumlahnya 2 catatan', /Ganti Produk<\/b><\/td><td class="num mono">2</.test(kAlasan),
+      cek('...dan jumlahnya 3 catatan', /Ganti Produk<\/b><\/td><td class="num mono">3</.test(kAlasan),
           kAlasan.slice(kAlasan.indexOf('Ganti Produk'), kAlasan.indexOf('Ganti Produk') + 160));
       cek('alasan milik baris yang dibatalkan tidak ikut', kAlasan.indexOf('Salah input') < 0);
 
@@ -507,8 +659,8 @@ function invarianMenu(w, label) {
       /* PEMBANDING POS — ini yang membuat kata "wajib" bisa diperiksa. */
       cek('pembanding POS menyebut 9 item', /Pembanding POS[\s\S]{0,260}>9</.test(v),
           v.slice(v.indexOf('Pembanding POS'), v.indexOf('Pembanding POS') + 260));
-      cek('...dan menyebut 7 yang belum ada keterangannya',
-          /<b>7<\/b> belum ada keterangannya/.test(v),
+      cek('...dan menyebut 6 yang belum ada keterangannya',
+          /<b>6<\/b> belum ada keterangannya/.test(v),
           v.slice(v.indexOf('Pembanding POS'), v.indexOf('Pembanding POS') + 300));
 
       /* Rincian memuat SELURUH baris termasuk yang dibatalkan — itu gunanya
@@ -516,6 +668,13 @@ function invarianMenu(w, label) {
       const kRinci = kartuJudul(v, 'Rincian Catatan');
       cek('rincian memuat baris yang dibatalkan', kRinci.indexOf('Lychee Tea') > -1);
       cek('rincian memuat seluruh tanggal', kRinci.indexOf('2026-08-02') > -1 && kRinci.indexOf('2026-08-05') > -1);
+      /* Tiga item 2 Agustus berasal dari satu bill, dan 5 Agustus satu bill
+         lagi — jadi DUA kelompok, bukan empat baris berdiri sendiri-sendiri.
+         Nomor bill yang ejaannya berbeda tidak boleh memecahnya. */
+      sama('rincian dikelompokkan per tanggal + bill',
+           (kRinci.match(/class="vl-grup"/g) || []).length, 2);
+      cek('kartu menyebut 3 item dari 1 bill', /3 item dari 1 bill/.test(v),
+          v.slice(v.indexOf('Total Nominal Void'), v.indexOf('Total Nominal Void') + 240));
 
       /* Kotak cari menggambar ulang WADAHNYA saja. */
       const kotak = w.document.getElementById('vl_q');

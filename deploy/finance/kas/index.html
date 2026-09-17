@@ -224,6 +224,7 @@ input,select,textarea{font-family:inherit}
    menyetelnya global menggeser tampilan halaman yang sudah jalan. */
 .cari{width:100%;max-width:420px;padding:9px 12px;border:1.5px solid var(--line);border-radius:9px;background:var(--surface);color:var(--text);font-size:13.5px;margin:0 0 10px}
 .cari:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
+.vl-grup>td{background:var(--paper);border-top:2px solid var(--line)}
 .row-in{display:grid;gap:14px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr))}
 
 /* stat cards — pita emas tipis di tepi atas (gaya Marketing) */
@@ -1629,6 +1630,36 @@ function vlCari(el){
   const w=document.getElementById('vl_isi');
   if(w) w.innerHTML=vlIsiHtml();
 }
+function vlGrupBill(list){
+  const out=[], idx={};
+  (list||[]).forEach(r=>{
+    const k=String(r.tgl||'')+'|'+(String(r.bill||'').trim().toUpperCase()||'(tanpa bill)');
+    if(idx[k]===undefined){ idx[k]=out.length; out.push({tgl:r.tgl||'', bill:r.bill||'—', baris:[]}); }
+    out[idx[k]].baris.push(r);
+  });
+  return out;
+}
+function vlGrupHtml(g){
+  const hidup=g.baris.filter(vlAktif);
+  const total=hidup.reduce((s,r)=>s+num(r.nominal),0);
+  const mati=g.baris.length-hidup.length;
+  const p=g.baris[0]||{};
+  return '<tr class="vl-grup"><td class="mono">'+esc(g.tgl)+'</td><td>'
+      +'<b class="mono">'+esc(g.bill)+'</b> · '+esc(p.pemesan||'—')
+      +'<div class="helper" style="margin:3px 0 0;white-space:pre-wrap;max-width:420px">'+esc(p.alasan||'—')+'</div></td>'
+    +'<td class="num mono"><b>'+fmtRp(total)+'</b><div class="helper" style="margin:2px 0 0">'
+      +hidup.length+' item'+(mati?' · '+mati+' dibatalkan':'')+'</div></td>'
+    +'<td>'+esc(p.oleh||'—')+'</td></tr>'
+    +g.baris.map(r=>{
+      const mati2=!vlAktif(r);
+      return '<tr'+(mati2?' style="opacity:.55"':'')+'>'
+        +'<td></td><td style="padding-left:26px"><b'+(mati2?' style="text-decoration:line-through"':'')+'>'
+          +esc(r.item||'—')+'</b>'
+          +(mati2?'<div class="helper" style="margin:2px 0 0">Dibatalkan '+esc(r.batalOleh||'')
+            +(r.batalAlasan?' — '+esc(r.batalAlasan):'')+'</div>':'')+'</td>'
+        +'<td class="num mono">'+fmtRp(num(r.nominal))+'</td><td></td></tr>';
+    }).join('');
+}
 function vlIsiHtml(){
   const q=VL_Q.trim().toLowerCase();
   const semua=VL_ROWS||[];
@@ -1643,21 +1674,9 @@ function vlIsiHtml(){
   }
   return (q?'<div class="helper" style="margin:0 0 8px">Menampilkan <b>'+baris.length+'</b> dari '
       +semua.length+' catatan.</div>':'')
-    +'<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Nama Item</th><th>Nomor Bill</th>'
-    +'<th>Yang Memesan</th><th>Alasan / Kronologi</th><th class="num">Nominal</th><th>Dicatat Oleh</th></tr></thead><tbody>'
-    +baris.map(r=>{
-      const mati=!vlAktif(r);
-      return '<tr'+(mati?' style="opacity:.55"':'')+'>'
-        +'<td class="mono">'+esc(r.tgl||'')+'</td>'
-        +'<td><b'+(mati?' style="text-decoration:line-through"':'')+'>'+esc(r.item||'—')+'</b>'
-          +(mati?'<div class="helper" style="margin:2px 0 0">Dibatalkan '+esc(r.batalOleh||'')
-            +(r.batalAlasan?' — '+esc(r.batalAlasan):'')+'</div>':'')+'</td>'
-        +'<td class="mono">'+esc(r.bill||'—')+'</td>'
-        +'<td>'+esc(r.pemesan||'—')+'</td>'
-        +'<td style="max-width:340px;white-space:pre-wrap">'+esc(r.alasan||'—')+'</td>'
-        +'<td class="num mono">'+fmtRp(num(r.nominal))+'</td>'
-        +'<td>'+esc(r.oleh||'—')+'</td></tr>';
-    }).join('')
+    +'<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Bill &amp; Item</th>'
+    +'<th class="num">Nominal</th><th>Dicatat Oleh</th></tr></thead><tbody>'
+    +vlGrupBill(baris).map(vlGrupHtml).join('')
     +'</tbody></table></div>';
 }
 
@@ -1665,13 +1684,17 @@ function vlIsiHtml(){
    pembanding, laporan yang isinya tiga baris terbaca sama meyakinkannya
    dengan laporan yang lengkap.
 
-   KEDUANYA MENGUKUR HAL YANG BERBEDA, dan itu dikatakan di kartunya: POS
-   menghitung BARIS ITEM yang di-void menurut mesin, catatan manual
-   menghitung KEJADIAN yang ditulis orang. Satu kejadian bisa menyentuh
-   beberapa item, jadi angkanya memang tidak harus sama persis — yang
-   diperhatikan selisih yang besar, bukan selisih yang ada. Dijepit ke nol
-   supaya "-3 belum dicatat" tidak pernah muncul: angka minus di situ tidak
-   akan bisa dijelaskan siapa pun. */
+   KEDUANYA MENGHITUNG HAL YANG SAMA: baris ITEM. Sampai 17 September 2026
+   tidak begitu — satu kiriman cuma bisa memuat satu item, jadi catatan
+   manual menghitung KEJADIAN sementara POS menghitung item, dan kartunya
+   harus mengaku angkanya tidak setara. Sejak satu bill bisa membawa berapa
+   pun item (lihat void_simpan_banyak), selisihnya berarti apa adanya:
+   sekian item yang di-void menurut mesin belum ada keterangannya di sini.
+
+   TETAP DIJEPIT KE NOL. Catatan manual boleh melebihi POS — void yang
+   dicatat sebelum berkas bulan itu diunggah, atau item yang dicatat tapi
+   ternyata tidak jadi di-void — dan "-3 belum dicatat" adalah angka yang
+   tidak akan bisa dijelaskan siapa pun. */
 function vlKartuPos(nManual){
   if(VL_POS_ERR) return '<div class="stat"><div class="lab">Pembanding POS</div>'
     +'<div class="val sm" style="font-size:14px;line-height:1.5">tidak terbaca</div>'
@@ -1711,7 +1734,7 @@ function viewVoidLap(){
     ${VL_ERR?`<div class="notice bad"><div>✕ <b>Catatan void tidak terbaca dari server.</b> ${esc(VL_ERR)}<br><span style="opacity:.9;font-size:11px">Yang sudah tersimpan tidak hilang — yang gagal cuma pembacaannya.</span></div></div>`:''}
     ${VL_POTONG>0?`<div class="notice"><div>ℹ Bulan ini punya lebih banyak catatan daripada yang bisa ditarik sekaligus — <b>${VL_POTONG}</b> baris tertua tidak ikut ditampilkan.</div></div>`:''}
     <div class="grid g4">
-      <div class="stat accent"><div class="lab">Total Nominal Void</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${hidup.length} catatan sepanjang ${esc(ym)}</div></div>
+      <div class="stat accent"><div class="lab">Total Nominal Void</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${hidup.length} item dari ${vlGrupBill(hidup).length} bill sepanjang ${esc(ym)}</div></div>
       <div class="stat"><div class="lab">Orang yang Mencatat</div><div class="val sm mono">${perOrang.length}</div><div class="foot">${perOrang.length?esc(perOrang[0].nama)+' paling banyak ('+perOrang[0].n+')':'belum ada'}</div></div>
       <div class="stat"><div class="lab">Dibatalkan</div><div class="val sm mono">${batal}</div><div class="foot">${batal?'tetap tercatat, tidak ikut dijumlahkan':'tidak ada'}</div></div>
       ${vlKartuPos(hidup.length)}
@@ -1731,7 +1754,7 @@ function viewVoidLap(){
     </div>
     <div class="card">
       <h3>Rincian Catatan</h3>
-      <div class="card-sub">Seluruh catatan bulan ini, termasuk yang sudah dibatalkan — yang dibatalkan dicoret dan tidak ikut dijumlahkan di kartu mana pun.</div>
+      <div class="card-sub">Dikelompokkan per tanggal + nomor bill: baris tebal adalah bill, pemesan, dan kronologinya; barisnya di bawah adalah item yang di-void. Termasuk yang sudah dibatalkan — yang dibatalkan dicoret dan tidak ikut dijumlahkan di kartu mana pun.</div>
       <input class="cari" id="vl_q" placeholder="Cari item, nomor bill, nama, atau alasan…" value="${esc(VL_Q)}" oninput="vlCari(this)">
       <div id="vl_isi">${vlIsiHtml()}</div>
     </div>`}`;

@@ -91,6 +91,14 @@ input,select,textarea{font-family:inherit}
    mencari sendiri kotak mana yang dimaksud. Aturan yang sama dengan
    .rpin.err di panel Kas Kecil. */
 .field input.err,.field select.err,.field textarea.err{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-bg)}
+/* Baris item di Catatan Void: nama menu + nominalnya, sebanyak yang perlu.
+   Satu bill di produksi pernah membawa 16 item sekaligus. */
+.vd-item{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) auto;gap:8px;align-items:center;margin-bottom:8px}
+.vd-item input{width:100%;padding:10px 12px;border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--surface);color:var(--text);font-size:14.5px}
+.vd-item input:focus{outline:none;border-color:var(--gold);box-shadow:var(--ring)}
+.vd-item input.err{border-color:var(--danger);box-shadow:0 0 0 3px var(--danger-bg)}
+.vd-grup>td{background:var(--paper);border-top:2px solid var(--line)}
+@media(max-width:640px){.vd-item{grid-template-columns:1fr}}
 
 /* ===== LAYOUT ===== */
 .app{display:flex;min-height:100vh}
@@ -2372,10 +2380,21 @@ let VD_EDIT='';            // id baris yang sedang disunting
    apa pun yang cuma ada di kotaknya ikut hilang — termasuk kronologi yang
    baru separuh diketik. Pola yang sama dengan QA.cat di lembar pembayaran
    Brankas. */
-let VD_FORM={bill:'',item:'',pemesan:'',alasan:'',nominal:''};
+let VD_FORM={bill:'',pemesan:'',alasan:'',items:[{item:'',nominal:''}]};
+/* Field yang dipakai BERSAMA seluruh item di satu bill. Diturunkan dari
+   VOID_WAJIB, bukan ditulis ulang: dua daftar yang disalin tangan akan
+   menyimpang, dan yang menyimpang di sini adalah kotak yang berhenti
+   dituntut sementara servernya masih menuntutnya. */
+const VOID_BERSAMA=VOID_WAJIB.filter(([k])=>k!=='item');
 let VD_SALAH=[];           // kunci field yang ditandai merah
 
-function vdKosongkanForm(){ VD_FORM={bill:'',item:'',pemesan:'',alasan:'',nominal:''}; VD_SALAH=[]; }
+function vdKosongkanForm(){ VD_FORM={bill:'',pemesan:'',alasan:'',items:[{item:'',nominal:''}]}; VD_SALAH=[]; }
+function vdItems(){ if(!Array.isArray(VD_FORM.items)||!VD_FORM.items.length) VD_FORM.items=[{item:'',nominal:''}]; return VD_FORM.items; }
+/* Baris yang namanya kosong DIBUANG sebelum dikirim, tidak ditolak: baris
+   kosong di ujung daftar adalah bentuk paling wajar dari form yang barisnya
+   bisa ditambah, dan menolak seluruh kiriman karenanya membuang lima belas
+   baris yang sudah benar. Aturan yang SAMA dijalankan ulang di server. */
+function vdItemTerisi(){ return vdItems().filter(x=>String(x.item||'').trim()); }
 function vdBulan(){ return monthKeyOf(voidDate); }
 function vdRentang(ym){
   const [y,m]=ym.split('-').map(Number);
@@ -2424,38 +2443,120 @@ function vdKetik(el,k){
   const i=VD_SALAH.indexOf(k);
   if(i>=0){ VD_SALAH.splice(i,1); el.classList.remove('err'); }
 }
+/* Menggambar ulang WADAH BARIS ITEM saja, bukan halaman. Nilainya dibaca
+   dari VD_FORM — yang hidup di luar DOM — jadi baris yang sudah diketik
+   tetap utuh saat baris baru ditambah. Kotak ber-class `rp` diformat ulang
+   di sini juga: pemformat modul ini jalan lewat formatAllRp() saat render
+   TOTAL, dan wadah yang digambar sendiri tidak pernah melewatinya. */
+function vdGambarItem(){
+  const w=document.getElementById('vd_items');
+  if(!w) return;
+  w.innerHTML=vdItemListHtml();
+  try{ formatAllRp(w); }catch(e){}
+}
+function vdItemTambah(){
+  vdItems().push({item:'',nominal:''});
+  vdGambarItem();
+  /* Kursor pindah ke baris yang baru lahir. Tanpa itu yang menekan tombol
+     harus mencari sendiri kotak mana yang barusan muncul, tiap kali. */
+  const b=document.getElementById('vd_item_'+(vdItems().length-1));
+  if(b) b.focus();
+}
+function vdItemHapus(i){
+  const a=vdItems();
+  if(a.length<2) return;            // baris terakhir tidak bisa dibuang
+  a.splice(i,1);
+  vdGambarItem();
+}
+function vdItemKetik(el,i,k){
+  const a=vdItems();
+  if(!a[i]) a[i]={item:'',nominal:''};
+  a[i][k]=el.value;
+  /* Penandanya dicabut lewat DOM, bukan lewat penggambar ulang — kotak yang
+     dibuat ulang kehilangan fokus dan hanya huruf pertama yang masuk. */
+  if(k==='item'&&String(el.value||'').trim()){
+    el.classList.remove('err');
+    if(vdItemTerisi().length){ const j=VD_SALAH.indexOf('item'); if(j>=0) VD_SALAH.splice(j,1); }
+  }
+}
+function vdItemListHtml(){
+  const a=vdItems(), edit=!!VD_EDIT;
+  const salah=VD_SALAH.indexOf('item')>=0;
+  const baris=a.map((x,i)=>
+    '<div class="vd-item">'
+    +'<input id="vd_item_'+i+'"'+((salah&&!String(x.item||'').trim())?' class="err"':'')
+      +' placeholder="Nama item — cth. Ice Kopi Laksamana" value="'+esc(x.item||'')+'"'
+      +' oninput="vdItemKetik(this,'+i+',&#39;item&#39;)">'
+    +'<input id="vd_nom_'+i+'" class="mono rp" inputmode="numeric" placeholder="Nominal"'
+      +' value="'+esc(x.nominal||'')+'" oninput="vdItemKetik(this,'+i+',&#39;nominal&#39;)">'
+    +((edit||a.length<2)?'<span></span>'
+        :'<button type="button" class="btn btn-sm" title="Hapus baris ini" onclick="vdItemHapus('+i+')">&#10005;</button>')
+    +'</div>').join('');
+  if(edit) return baris+'<div class="helper">Menyunting SATU catatan. Untuk menambah item lain di bill ini, batalkan suntingan lalu isi form barunya.</div>';
+  return baris
+    +'<div style="margin-top:2px"><button type="button" class="btn btn-sm" id="vd_item_tambah" onclick="vdItemTambah()">+ Tambah item</button></div>'
+    +'<div class="helper" style="margin:6px 0 0">Nomor bill, nama pemesan, dan kronologinya cukup diisi SEKALI untuk seluruh item di bill yang sama. Kalau satu item alasannya berbeda, catat terpisah.</div>';
+}
+
 function vdUbah(id){
   const r=(VD_ROWS||[]).find(x=>x.id===id);
   if(!r) return;
   if(!vdAktif(r)){ alert('Catatan ini sudah dibatalkan dan tidak bisa diubah lagi.'); return; }
   VD_EDIT=id;
-  VD_FORM={bill:r.bill||'',item:r.item||'',pemesan:r.pemesan||'',
-           alasan:r.alasan||'',nominal:String(num(r.nominal)||'')};
+  VD_FORM={bill:r.bill||'',pemesan:r.pemesan||'',alasan:r.alasan||'',
+           items:[{item:r.item||'',nominal:String(num(r.nominal)||'')}]};
   VD_SALAH=[];
   voidDate=r.tgl;
   render();
 }
 function vdBatalUbah(){ VD_EDIT=''; vdKosongkanForm(); render(); }
 
+/* SATU tempat yang memasang penanda merah, dipakai validasi layar DAN
+   daftar `kurang` yang dipulangkan server. Dua pemasang yang sendiri-
+   sendiri akan menyimpang, dan yang menyimpang di sini adalah kotak yang
+   disebut di pita tapi tidak pernah ditandai. */
+function vdTandaiSalah(){
+  VOID_BERSAMA.forEach(([k])=>{
+    const el=document.getElementById('vd_'+k);
+    if(el) el.classList.toggle('err',VD_SALAH.indexOf(k)>=0);
+  });
+  if(VD_SALAH.indexOf('item')>=0) vdItems().forEach((x,i)=>{
+    const el=document.getElementById('vd_item_'+i);
+    if(el&&!String(x.item||'').trim()) el.classList.add('err');
+  });
+}
+function vdKotakSalah(){
+  const k=VD_SALAH[0];
+  if(!k) return null;
+  if(k!=='item') return document.getElementById('vd_'+k);
+  return document.getElementById('vd_item_0');
+}
+
 async function vdSimpan(){
   const box=document.getElementById('vd_err');
   /* Dibaca dari DOM dulu supaya ketikan terakhir ikut walau `input` belum
      sempat memicu vdKetik (tempel dengan mouse, autofill, IME). */
-  VOID_WAJIB.concat([['nominal','Nominal']]).forEach(([k])=>{
+  VOID_BERSAMA.forEach(([k])=>{
     const el=document.getElementById('vd_'+k);
     if(el) VD_FORM[k]=el.value;
   });
-  VD_SALAH=VOID_WAJIB.filter(([k])=>!String(VD_FORM[k]||'').trim()).map(([k])=>k);
+  vdItems().forEach((x,i)=>{
+    const a=document.getElementById('vd_item_'+i), b=document.getElementById('vd_nom_'+i);
+    if(a) x.item=a.value;
+    if(b) x.nominal=b.value;
+  });
+  VD_SALAH=VOID_BERSAMA.filter(([k])=>!String(VD_FORM[k]||'').trim()).map(([k])=>k);
+  if(!vdItemTerisi().length) VD_SALAH.push('item');
   if(VD_SALAH.length){
     /* DITAHAN, bukan sekadar diperingatkan. Pita merah yang muncul sementara
        barisnya tetap berangkat adalah kebalikan dari yang diminta, dan dari
        layar keduanya terlihat sama persis. */
-    VD_SALAH.forEach(k=>{ const el=document.getElementById('vd_'+k); if(el) el.classList.add('err'); });
+    vdTandaiSalah();
     const nama=VOID_WAJIB.filter(([k])=>VD_SALAH.indexOf(k)>=0).map(([,l])=>l);
     if(box) box.innerHTML='<div class="notice bad"><div>✕ <b>Belum lengkap.</b> Masih kosong: <b>'
       +esc(nama.join(', '))+'</b>. Catatan void yang tidak menyebut kronologinya tidak menjawab apa pun '
       +'waktu angkanya dipertanyakan bulan depan.</div></div>';
-    const p=document.getElementById('vd_'+VD_SALAH[0]); if(p) p.focus();
+    const p=vdKotakSalah(); if(p) p.focus();
     return;
   }
   const btn=document.getElementById('vd_simpan');
@@ -2463,25 +2564,36 @@ async function vdSimpan(){
   if(btn){ btn.disabled=true; btn.innerHTML='Menyimpan…'; }
   if(box) box.innerHTML='<div class="notice"><div>⏳ Menyimpan ke server… tunggu sebentar.</div></div>';
   try{
-    const r=await vdPost({action:'voidSimpan',data:{
-      id:VD_EDIT, tgl:voidDate, bill:VD_FORM.bill, item:VD_FORM.item,
-      pemesan:VD_FORM.pemesan, alasan:VD_FORM.alasan, nominal:num(VD_FORM.nominal)}});
+    const its=vdItemTerisi().map(x=>({item:String(x.item||'').trim(), nominal:num(x.nominal)}));
+    /* MENYUNTING selalu satu baris — itu memang bentuk datanya di server.
+       MENAMBAH mengirim daftarnya sekaligus, dan servernya menulis satu
+       baris per item di dalam SATU transaksi: bill yang tercatat separuh
+       tidak bisa disebutkan sampai mana oleh layar mana pun. */
+    const data=VD_EDIT
+      ? { id:VD_EDIT, tgl:voidDate, bill:VD_FORM.bill, item:its[0].item,
+          pemesan:VD_FORM.pemesan, alasan:VD_FORM.alasan, nominal:its[0].nominal }
+      : { tgl:voidDate, bill:VD_FORM.bill, pemesan:VD_FORM.pemesan,
+          alasan:VD_FORM.alasan, items:its };
+    const r=await vdPost({action:'voidSimpan',data});
     if(!r||!r.ok){
       /* `kurang` dari server ikut menandai kotaknya. Server dan layar memakai
          daftar wajib yang sama, jadi kalau keduanya sempat menyimpang yang
          terlihat adalah kotak yang ditandai — bukan kalimat galat yang
          menyebut field yang tidak ada di form mana pun. */
       if(r&&Array.isArray(r.kurang)){
-        VOID_WAJIB.forEach(([k,l])=>{ if(r.kurang.indexOf(l)>=0){
-          VD_SALAH.push(k); const el=document.getElementById('vd_'+k); if(el) el.classList.add('err'); } });
+        VOID_WAJIB.forEach(([k,l])=>{ if(r.kurang.indexOf(l)>=0 && VD_SALAH.indexOf(k)<0) VD_SALAH.push(k); });
+        vdTandaiSalah();
       }
       throw new Error((r&&r.error)||'server error');
     }
+    /* Dihitung SEBELUM formnya dikosongkan — sesudahnya daftarnya sudah
+       kembali kosong dan pesannya selalu berbunyi "1 item". */
+    const jml=its.length;
     VD_EDIT=''; vdKosongkanForm();
     VD_MUAT='';                       // paksa muat ulang bulan ini
     await muatVoid(vdBulan());
     const b2=document.getElementById('vd_err');
-    if(b2) b2.innerHTML='<div class="notice"><div>✓ <b>Tersimpan di server.</b></div></div>';
+    if(b2) b2.innerHTML='<div class="notice"><div>✓ <b>Tersimpan di server</b> — '+jml+' item.</div></div>';
   }catch(e){
     if(btn){ btn.disabled=false; btn.innerHTML=semula; }
     const b2=document.getElementById('vd_err');
@@ -2515,19 +2627,51 @@ async function vdBatal(id){
   }catch(e){ alert('Gagal membatalkan: '+((e&&e.message)||e)); }
 }
 
+/* DIKELOMPOKKAN PER NOMOR BILL saat digambar. Satu bill di produksi pernah
+   membawa 16 item, dan enam belas baris yang mengulang nomor bill, nama
+   pemesan, dan kronologi yang sama persis membuat yang membacanya harus
+   memeriksa sendiri mana yang satu kejadian dan mana yang bukan.
+
+   Dikelompokkan SAAT MENGGAMBAR, bukan disimpan sebagai satu baris berisi
+   daftar menu — alasannya panjang dan ditulis di atas void_simpan_banyak()
+   di kompas-mysql. Urutannya dipertahankan apa adanya: bill yang barisnya
+   melompat-lompat di layar tidak bisa dicocokkan dengan struk di tangan.
+
+   Dikunci HURUF BESAR + dipangkas. Nomor bill diketik orang, jadi
+   'slmcl…' dan 'SLMCL… ' pasti bercampur — dan yang tidak disatukan
+   berdiri sebagai dua kejadian untuk bill yang sama. */
+function vdGrupBill(list){
+  const out=[], idx={};
+  (list||[]).forEach(r=>{
+    const k=String(r.bill||'').trim().toUpperCase()||'(tanpa bill)';
+    if(idx[k]===undefined){ idx[k]=out.length; out.push({bill:r.bill||'—',baris:[]}); }
+    out[idx[k]].baris.push(r);
+  });
+  return out;
+}
+function vdGrupHtml(g){
+  const hidup=g.baris.filter(vdAktif);
+  const total=hidup.reduce((s,r)=>s+num(r.nominal),0);
+  const mati=g.baris.length-hidup.length;
+  const p=g.baris[0]||{};
+  return '<tr class="vd-grup"><td>'
+      +'<b class="mono">'+esc(g.bill)+'</b> · '+esc(p.pemesan||'—')
+      +'<div class="helper" style="margin:3px 0 0;white-space:pre-wrap;max-width:560px">'+esc(p.alasan||'—')+'</div></td>'
+    +'<td class="num mono"><b>'+fmtRp(total)+'</b><div class="helper" style="margin:2px 0 0">'
+      +hidup.length+' item'+(mati?' · '+mati+' dibatalkan':'')+'</div></td>'
+    +'<td>'+esc(p.oleh||'—')+'</td><td></td></tr>'
+    +g.baris.map(vdBarisHtml).join('');
+}
 function vdBarisHtml(r){
   const mati=!vdAktif(r);
   const jejak=r.diubahOleh&&num(r.diubah)>num(r.dibuat)
     ? '<div class="helper" style="margin:2px 0 0">diubah '+esc(r.diubahOleh)+'</div>' : '';
   return '<tr'+(mati?' style="opacity:.55"':'')+'>'
-    +'<td><b'+(mati?' style="text-decoration:line-through"':'')+'>'+esc(r.item||'—')+'</b>'
+    +'<td style="padding-left:26px"><b'+(mati?' style="text-decoration:line-through"':'')+'>'+esc(r.item||'—')+'</b>'
       +(mati?'<div class="helper" style="margin:2px 0 0">Dibatalkan '+esc(r.batalOleh||'')
-        +(r.batalAlasan?' — '+esc(r.batalAlasan):'')+'</div>':'')+'</td>'
-    +'<td class="mono">'+esc(r.bill||'—')+'</td>'
-    +'<td>'+esc(r.pemesan||'—')+'</td>'
-    +'<td style="max-width:320px;white-space:pre-wrap">'+esc(r.alasan||'—')+'</td>'
+        +(r.batalAlasan?' — '+esc(r.batalAlasan):'')+'</div>':'')+jejak+'</td>'
     +'<td class="num mono">'+fmtRp(num(r.nominal))+'</td>'
-    +'<td>'+esc(r.oleh||'—')+jejak+'</td>'
+    +'<td></td>'
     +'<td style="white-space:nowrap">'
       +(mati?'<span class="chip mute">dibatalkan</span>'
             :'<button class="btn btn-sm" onclick="vdUbah(\''+esc(r.id)+'\')">Ubah</button> '
@@ -2547,6 +2691,9 @@ function viewVoid(){
   const bulanHidup=(VD_ROWS||[]).filter(vdAktif);
   const totalBulan=bulanHidup.reduce((s,r)=>s+num(r.nominal),0);
   const dibatalkan=hari.length-hidup.length;
+  /* Dihitung dari nomor bill yang BERBEDA, bukan dari jumlah baris —
+     jebakan yang sama persis dengan `r.bill` di Detail Report POS. */
+  const nBillHari=vdGrupBill(hidup).length, nBillBulan=vdGrupBill(bulanHidup).length;
   const edit=VD_EDIT?(VD_ROWS||[]).find(x=>x.id===VD_EDIT):null;
   /* Baris yang sedang disunting bisa lenyap (dibatalkan dari tab lain, atau
      daftarnya disegarkan). Form yang menunjuk baris tak-ada akan menyimpan
@@ -2563,12 +2710,14 @@ function viewVoid(){
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="vd_cal">${calInner('vd')}</div></div>
     </div>
     <div class="card${edit?' edit-on':''}">
-      <div class="mini-lab">${edit?`✏️ Ubah Catatan Void — <b>${esc(edit.item||'')}</b>`:'Tambah Catatan Void'}</div>
+      <div class="mini-lab">${edit?`✏️ Ubah Catatan Void — <b>${esc(edit.item||'')}</b>`:'Tambah Catatan Void — satu bill, berapa pun itemnya'}</div>
       <div class="row-in">
-        <div class="field"><label>Nama Item *</label><input id="vd_item"${cls('item')} placeholder="cth. Ice Kopi Laksamana" value="${v('item')}" oninput="vdKetik(this,'item')">${wajibHelper}</div>
         <div class="field"><label>Nomor Bill *</label><input id="vd_bill"${cls('bill')} class="mono" placeholder="cth. SLMCL202608020123" value="${v('bill')}" oninput="vdKetik(this,'bill')">${wajibHelper}</div>
         <div class="field"><label>Siapa yang Memesan *</label><input id="vd_pemesan"${cls('pemesan')} placeholder="nama tamu / kru yang input pesanan" value="${v('pemesan')}" oninput="vdKetik(this,'pemesan')">${wajibHelper}</div>
-        <div class="field"><label>Nominal</label><input id="vd_nominal" class="mono rp" inputmode="numeric" value="${v('nominal')}" oninput="vdKetik(this,'nominal')"><div class="helper" style="margin:3px 0 0">Boleh Rp0 kalau barangnya belum sempat dibuat</div></div>
+      </div>
+      <div class="field" style="margin-top:12px"><label>Item yang Di-void *</label>
+        <div id="vd_items">${vdItemListHtml()}</div>
+        <div class="helper" style="margin:2px 0 0">Nominalnya boleh Rp0 kalau barangnya belum sempat dibuat.</div>
       </div>
       <div class="field" style="margin-top:12px"><label>Alasan / Kronologi *</label>
         <textarea id="vd_alasan"${cls('alasan')} rows="3" placeholder="cth. Tamu batal pesan karena kelamaan, sudah dikonfirmasi ke SPV floor" oninput="vdKetik(this,'alasan')">${v('alasan')}</textarea>
@@ -2582,20 +2731,20 @@ function viewVoid(){
       </div>
     </div>
     <div class="grid g3">
-      <div class="stat accent"><div class="lab">Void ${esc(dateLabel(voidDate))}</div><div class="val sm mono">${fmtRp(totalHari)}</div><div class="foot">${hidup.length} catatan${dibatalkan?` · ${dibatalkan} dibatalkan`:''}</div></div>
-      <div class="stat"><div class="lab">Void Bulan Ini</div><div class="val sm mono">${fmtRp(totalBulan)}</div><div class="foot">${bulanHidup.length} catatan sepanjang ${esc(ym)}</div></div>
+      <div class="stat accent"><div class="lab">Void ${esc(dateLabel(voidDate))}</div><div class="val sm mono">${fmtRp(totalHari)}</div><div class="foot">${hidup.length} item dari ${nBillHari} bill${dibatalkan?` · ${dibatalkan} dibatalkan`:''}</div></div>
+      <div class="stat"><div class="lab">Void Bulan Ini</div><div class="val sm mono">${fmtRp(totalBulan)}</div><div class="foot">${bulanHidup.length} item dari ${nBillBulan} bill sepanjang ${esc(ym)}</div></div>
       <div class="stat"><div class="lab">Rekap Lengkap</div><div class="val sm" style="font-size:15px;line-height:1.5">Finance &gt; Kas Kecil</div><div class="foot">rekap per orang, per alasan, dan pembanding POS ada di sana</div></div>
     </div>
     ${VD_ERR?`<div class="notice bad"><div>✕ <b>Daftar void tidak terbaca dari server.</b> ${esc(VD_ERR)}<br><span style="opacity:.9;font-size:11px">Catatan yang sudah tersimpan tidak hilang — yang gagal cuma pembacaannya. Muat ulang halaman untuk mencoba lagi.</span></div></div>`:''}
     ${VD_POTONG>0?`<div class="notice"><div>ℹ Bulan ini punya lebih banyak catatan daripada yang bisa ditarik sekaligus — <b>${VD_POTONG}</b> baris tertua tidak ikut ditampilkan.</div></div>`:''}
     <div class="card">
       <h3>Void ${esc(dateLabel(voidDate))}</h3>
-      <div class="card-sub">Hanya tanggal yang sedang dipilih. Rekap sebulan berikut siapa yang paling sering ada di panel <b>Finance &gt; Kas Kecil &gt; Laporan Void</b>.</div>
+      <div class="card-sub">Dikelompokkan per nomor bill — baris tebal di atas tiap kelompok adalah bill, pemesan, dan kronologinya; barisnya di bawah adalah item yang di-void. Hanya tanggal yang sedang dipilih; rekap sebulan berikut siapa yang paling sering ada di panel <b>Finance &gt; Kas Kecil &gt; Laporan Void</b>.</div>
       ${VD_ROWS===null&&!VD_ERR?'<div class="empty">⏳ Memuat dari server…</div>':`
       <div class="tbl-wrap"><table>
-        <thead><tr><th>Nama Item</th><th>Nomor Bill</th><th>Yang Memesan</th><th>Alasan / Kronologi</th><th class="num">Nominal</th><th>Dicatat Oleh</th><th></th></tr></thead>
-        <tbody>${hari.length?hari.map(vdBarisHtml).join('')
-          :'<tr><td colspan="7" style="text-align:center;padding:18px;color:var(--muted)">Belum ada catatan void untuk tanggal ini.</td></tr>'}</tbody>
+        <thead><tr><th>Bill &amp; Item</th><th class="num">Nominal</th><th>Dicatat Oleh</th><th></th></tr></thead>
+        <tbody>${hari.length?vdGrupBill(hari).map(vdGrupHtml).join('')
+          :'<tr><td colspan="4" style="text-align:center;padding:18px;color:var(--muted)">Belum ada catatan void untuk tanggal ini.</td></tr>'}</tbody>
       </table></div>`}
     </div>`;
 }

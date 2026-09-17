@@ -5938,10 +5938,12 @@ tiga baris terbaca sama meyakinkannya dengan laporan yang lengkap.
 - **"Belum ada ekspor POS" DIBEDAKAN dari "tidak terbaca"**, dan tidak pernah
   ditulis NOL. Nol berarti POS mencatat nol void bulan itu — kesimpulan tentang
   bulan yang berkasnya belum pernah dibaca siapa pun.
-- Keduanya **mengukur hal yang berbeda** (POS menghitung BARIS ITEM, catatan
-  manual menghitung KEJADIAN), jadi angkanya memang tidak harus sama persis.
-  Itu dikatakan di kartunya, dan selisihnya **dijepit ke nol** — "-3 belum
-  dicatat" adalah angka yang tidak akan bisa dijelaskan siapa pun.
+- ~~Keduanya **mengukur hal yang berbeda** (POS menghitung BARIS ITEM, catatan
+  manual menghitung KEJADIAN)~~ — **tidak lagi sejak 17 September 2026**:
+  satu kiriman sekarang bisa memuat banyak item, jadi keduanya sama-sama
+  menghitung baris ITEM dan angkanya setara. Lihat **SATU BILL, BANYAK ITEM**
+  di bawah. Selisihnya tetap **dijepit ke nol** — "-3 belum dicatat" adalah
+  angka yang tidak akan bisa dijelaskan siapa pun.
 
 #### TABEL SENDIRI, bukan menumpang blob `saveAll`
 
@@ -6087,10 +6089,131 @@ alasan tidak digabung memberi 2 baris. Tidak ada angka yang bertabrakan.
 > yang membuktikan kelengkapannya cuma kartu Pembanding POS. Kalau suatu hari
 > harus ditegakkan, tempat yang paling masuk akal **Report Daily di modul
 > Cashier** (menahan submit selama masih ada selisih POS yang belum berketerangan)
-> — bukan halaman ini. Juga belum ada kolom **qty**: satu baris = satu kejadian,
-> jadi void 3 porsi item yang sama dicatat sebagai satu baris bernominal total.
-> Kalau perlu dicocokkan per porsi dengan ekspor POS, itu yang pertama harus
-> ditambahkan.
+> — bukan halaman ini. ~~Juga belum ada kolom **qty**: satu baris = satu
+> kejadian~~ — satu baris sekarang satu ITEM (17 September 2026); yang belum
+> ada cuma **jumlah porsi** per item, jadi void 3 porsi menu yang sama dicatat
+> sebagai satu baris bernominal total.
+
+#### SATU BILL, BANYAK ITEM (17 September 2026)
+
+Pertanyaan user: *"jika misalnya dalam 1 bill itu banyak menu yang di-void
+gimana?"* — dan itu bukan kasus pinggiran, melainkan bentuk yang paling
+sering. Diukur atas Cancel Menu Detail Report Agustus 2026: **84 baris void
+datang dari 17 bill**, dan SATU bill sendirian membawa **16 baris**.
+
+Bentuk sebelumnya satu kiriman = satu item, jadi mencatat bill itu berarti
+mengetik ulang nomor bill, nama pemesan, dan kronologi yang sama **enam belas
+kali**. Aturan "wajib dicatat" yang menuntut itu tidak akan dijalankan pada
+malam yang justru paling perlu dicatat.
+
+| | |
+|---|---|
+| diisi SEKALI | tanggal, nomor bill, siapa yang memesan, alasan/kronologi |
+| diisi PER ITEM | nama item + nominalnya, sebanyak yang perlu |
+
+**YANG DISIMPAN TETAP SATU BARIS PER ITEM**, bukan satu baris berisi daftar
+menu. Tiga alasan, dan ketiganya menentukan:
+
+1. **Bentuknya jadi sama persis dengan ekspor POS**, yang juga satu baris per
+   item. Kartu **Pembanding POS** di Kas Kecil karena itu sekarang
+   membandingkan dua angka yang benar-benar setara — sebelum ini ia harus
+   mengaku bahwa keduanya *"mengukur hal yang berbeda"* (POS menghitung item,
+   catatan manual menghitung kejadian).
+2. **Nominal melekat di item, bukan di bill.** Disimpan sebagai satu baris
+   berbunyi "3 menu, Rp250.000", tidak ada satu pun cara memecahnya lagi waktu
+   ada yang bertanya menu mana yang paling sering di-void.
+3. **Pembatalan tetap per item.** Satu dari enam belas yang salah ketik tidak
+   boleh menuntut lima belas lainnya ikut dibatalkan.
+
+**TIDAK ADA KOLOM BARU.** Barisnya dikelompokkan lewat **nomor bill** saat
+digambar — aturan yang sama dengan halaman Void & Cancel di Analytics, yang
+juga mengelompokkan 84 barisnya jadi 17 bill. Kolom `grup` tersendiri berarti
+`ALTER TABLE` pada tabel yang sudah berisi, dan `CREATE TABLE IF NOT EXISTS`
+tidak pernah menyentuhnya: ia cuma jalan di pemasangan baru sementara server
+yang sudah hidup tertinggal tanpa satu pun galat.
+
+- **Dikelompokkan dengan kunci yang DIBAKUKAN huruf besar + dipangkas.** Nomor
+  bill diketik orang, jadi `slmcl001 ` dan `SLMCL001` pasti bercampur — dan
+  yang tidak disatukan berdiri sebagai dua kejadian untuk bill yang sama.
+- **`vlGrupBill()` di Kas Kecil BERKAS KEMBAR `vdGrupBill()` di Cashier**,
+  bedanya cuma kuncinya ikut TANGGAL: halaman Kas memajang sebulan sekaligus
+  dan nomor bill POS bisa berulang di hari yang berbeda.
+- **Kartunya menyebut ITEM dan BILL terpisah** ("3 item dari 1 bill"). "12
+  catatan" tanpa jumlah bill terbaca sebagai dua belas kejadian berbeda — di
+  produksi itu lima kali lipat dari yang benar-benar terjadi.
+
+##### Yang menahan bug diam-diam
+
+- **SATU TRANSAKSI di server** (`void_simpan_banyak`). Berhenti di tengah
+  meninggalkan bill yang tercatat SEPARUH — sembilan item masuk, tujuh tidak —
+  dan tidak ada satu pun layar yang bisa menyebutkan sampai mana. Angkanya
+  tetap terlihat wajar, dan itulah bentuk kesalahan yang tidak akan pernah
+  dipertanyakan. Aturan yang sama dengan `ganti_orang()` di modul DW.
+- **SATU kiriman HTTP untuk seluruh item**, bukan satu per item. Enam belas
+  permintaan berurutan yang putus di tengah punya penyakit yang sama persis
+  dengan transaksi yang berhenti separuh.
+- **Baris item yang namanya kosong DIBUANG, bukan menolak seluruh kiriman.**
+  Baris kosong di ujung daftar adalah bentuk paling wajar dari form yang
+  barisnya bisa ditambah; menolaknya membuang lima belas baris yang sudah
+  benar. Yang ditolak cuma kiriman yang TIDAK SATU PUN itemnya punya nama —
+  dan aturan itu dijalankan **di kedua sisi**.
+- **Server memilih jalurnya dari BENTUK datanya** (`data.items` ada atau
+  tidak), bukan dari aksi tersendiri. Aksi kedua berarti layar harus memilih
+  sendiri mana yang dipanggil, dan yang salah memilih mengirim enam belas item
+  ke jalur satu baris: lima belas di antaranya hilang tanpa satu pun galat.
+- **Id tiap item memuat urutannya** (`dechex($i)`). Dua item yang tersimpan
+  pada milidetik yang sama tanpa itu bisa berebut id, dan yang kalah menimpa
+  yang menang — tanpa satu pun galat.
+- **Nominal tetap tidak wajib, dan tetap tidak boleh minus** — per item.
+- **MENYUNTING tetap satu baris**, dan formnya mengatakan itu: bentuk datanya
+  di server memang satu baris per item, dan suntingan yang diam-diam melahirkan
+  baris baru membuat jumlah item sebuah bill bertambah tanpa ada yang menekan
+  "tambah". Untuk menambah item di bill yang sama, batalkan suntingannya lalu
+  isi form barunya.
+- **Isian hidup DI LUAR DOM** (`VD_FORM.items`), dan `vdGambarItem()` cuma
+  menggambar ulang WADAH barisnya. Kalau tidak, menambah baris ketujuh membuang
+  enam baris yang sudah diketik — dan yang mengalaminya tidak akan menekan
+  tombol itu lagi. Wadah yang digambar sendiri **wajib memanggil
+  `formatAllRp()`**: pemformat rupiah modul ini cuma jalan lewat `render()`
+  yang TOTAL.
+- **`vdTandaiSalah()` satu tempat yang memasang penanda merah**, dipakai
+  validasi layar DAN daftar `kurang` yang dipulangkan server. Dua pemasang yang
+  sendiri-sendiri akan menyimpang, dan yang menyimpang adalah kotak yang
+  disebut di pita tapi tidak pernah ditandai.
+- **`VOID_BERSAMA` diturunkan dari `VOID_WAJIB`**, bukan ditulis ulang —
+  `VOID_WAJIB` sendiri tetap berkas kembar `void_wajib()` di PHP.
+
+```bash
+node tools/uji-void-catatan.js   # 140 pemeriksaan (dari 101), jsdom + php-parser
+```
+
+**Empat puluh lima mutasi dicoba, keempat puluh limanya tertangkap.**
+
+> **ENAM MUTASI LAMA BERBUNYI "LEWAT" sesudah refactor ini**, dan LEWAT berarti
+> perilaku itu **tidak diuji sama sekali** — bukan aman. Dua sebabnya, dan
+> keduanya lahir dari perubahan yang sama:
+>
+> | | |
+> |---|---|
+> | pola 0x | kodenya memang berpindah ke helper (`vdKotakSalah`, `vdTandaiSalah`) atau berganti bentuk (payload jadi daftar) |
+> | pola 2x | `INSERT`, penjaga nominal, dan `beginTransaction()` sekarang ada di DUA jalur — pola yang cocok dua kali dilewati runner-nya, jadi jalur satu barisnya diam-diam berhenti diuji |
+>
+> Yang kedua paling halus: menambah jalur kedua membuat mutasi jalur PERTAMA
+> berhenti berjalan. Polanya sekarang dijepit lewat indentasi + newline di
+> depannya. **Runner mutasi yang melaporkan LEWAT harus dibaca seteliti yang
+> melaporkan LOLOS.**
+
+Fixture-nya diubah supaya bentuk barunya punya tempat untuk gagal: tiga item
+2 Agustus berasal dari SATU bill, dan nomor bill baris ketiga ditulis
+`" slmcl001 "` — huruf kecil berspasi ekor. Yang benar **3 item · 1 bill ·
+Rp270.000 · 1 alasan**; pengelompokan yang peka huruf memberi **2 bill**,
+pembatalan yang ikut terhitung memberi **Rp320.000**, dan alasan yang tidak
+digabung memberi **2 baris**. Tidak satu pun angkanya bertabrakan.
+
+> **Yang tercatat di bagian di atas jadi usang karenanya, dan sudah dibetulkan
+> di tempatnya:** kalimat *"POS menghitung BARIS ITEM, catatan manual
+> menghitung KEJADIAN"* dan catatan *"belum ada kolom qty: satu baris = satu
+> kejadian"*. Keduanya benar sampai 17 September 2026 dan tidak lagi.
 
 ### Marketing: kuota localStorage penuh menghentikan SELURUH penyimpanan (16 Sep 2026)
 

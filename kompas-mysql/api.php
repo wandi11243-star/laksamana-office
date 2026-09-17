@@ -279,10 +279,19 @@ try {
       sesi_tolak_tanpa_modul('Cashier atau Finance');
     $nama = isset($u['name']) ? $u['name'] : '';
     $uid  = isset($u['id'])   ? $u['id']   : '';
-    $r = ($action === 'voidSimpan')
-      ? void_simpan(isset($body['data']) ? $body['data'] : null, $nama, $uid)
-      : void_batal(isset($body['id']) ? $body['id'] : '',
-                   isset($body['alasan']) ? $body['alasan'] : '', $nama);
+    $dt = isset($body['data']) ? $body['data'] : null;
+    /* SATU BILL BANYAK ITEM lewat jalur yang sama, dibedakan dari BENTUK
+       datanya — bukan dari aksi tersendiri. Aksi kedua berarti layar harus
+       memilih sendiri mana yang dipanggil, dan yang salah memilih mengirim
+       enam belas item ke jalur satu baris: lima belas di antaranya hilang
+       tanpa satu pun galat. Jalur satu baris tetap dipakai SUNTINGAN, yang
+       memang selalu menyentuh satu baris. */
+    $banyak = is_array($dt) && isset($dt['items']) && is_array($dt['items']);
+    $r = ($action !== 'voidSimpan')
+      ? void_batal(isset($body['id']) ? $body['id'] : '',
+                   isset($body['alasan']) ? $body['alasan'] : '', $nama)
+      : ($banyak ? void_simpan_banyak($dt, $nama, $uid)
+                 : void_simpan($dt, $nama, $uid));
     /* `kurang` diteruskan apa adanya supaya layar bisa menandai KOTAK yang
        belum diisi, bukan cuma menempelkan satu kalimat galat. Pita yang
        menyebut aturan tanpa menunjuk kotaknya menyuruh orang mencari sendiri

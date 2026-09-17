@@ -1948,6 +1948,113 @@ function void_simpan($d, $oleh, $olehId) {
   return array('ok' => true, 'saved' => true, 'id' => $id, 'baru' => true);
 }
 
+/* SATU BILL, BANYAK ITEM (17 September 2026, pertanyaan user: "jika misalnya
+   dalam 1 bill itu banyak menu yang di-void gimana?").
+
+   Itu justru bentuk yang paling sering: di Cancel Menu Detail Report Agustus
+   2026, 84 baris void datang dari cuma 17 bill — dan SATU bill sendirian
+   membawa 16 baris. Menuntut kasir mengetik ulang nomor bill, nama pemesan,
+   dan kronologi enam belas kali berarti aturan "wajib dicatat" itu tidak akan
+   pernah dijalankan pada malam yang justru paling perlu dicatat.
+
+   YANG DISIMPAN TETAP SATU BARIS PER ITEM, bukan satu baris berisi daftar
+   menu. Tiga alasan, dan ketiganya menentukan:
+
+     1. Bentuknya jadi SAMA PERSIS dengan ekspor POS, yang juga satu baris per
+        item. Kartu Pembanding POS di Kas Kecil karena itu membandingkan dua
+        angka yang benar-benar setara — sebelum ini ia harus mengaku bahwa
+        keduanya "mengukur hal yang berbeda".
+     2. Nominal memang melekat di item, bukan di bill. Disimpan sebagai satu
+        baris berisi "3 menu, Rp250.000", tidak ada satu pun cara memecahnya
+        lagi waktu ada yang bertanya menu mana yang paling sering di-void.
+     3. Pembatalan tetap bisa per item. Satu dari enam belas yang salah ketik
+        tidak boleh menuntut lima belas lainnya ikut dibatalkan.
+
+   Yang DIPAKAI BERSAMA seluruh item: tanggal, nomor bill, siapa yang memesan,
+   dan alasan/kronologinya. Kalau satu item punya alasan yang berbeda, ia
+   dicatat sebagai kiriman tersendiri — dan itu dikatakan di layarnya.
+
+   TIDAK ADA KOLOM BARU. Barisnya dikelompokkan lewat NOMOR BILL saat
+   digambar, sama seperti halaman Void & Cancel di modul Analytics
+   mengelompokkan 84 barisnya jadi 17 bill. Kolom `grup` tersendiri berarti
+   ALTER TABLE pada tabel yang sudah berisi — dan `CREATE TABLE IF NOT EXISTS`
+   tidak pernah menyentuhnya, jadi ia cuma jalan di pemasangan baru sementara
+   server yang sudah hidup tertinggal tanpa satu pun galat. */
+function void_simpan_banyak($d, $oleh, $olehId) {
+  void_pastikan();
+  if (!is_array($d)) return array('ok' => false, 'error' => 'data bukan objek');
+
+  /* Field bersama diperiksa SEKALI. `item` sengaja dikeluarkan dari daftar
+     wajib di sini — ia diperiksa per baris di bawah, dan menuntutnya di sini
+     membuat pesan galatnya menunjuk kotak yang memang tidak ada di form. */
+  $nil = array(
+    'tgl'     => void_tgl_sah(isset($d['tgl']) ? $d['tgl'] : ''),
+    'bill'    => trim((string)(isset($d['bill'])    ? $d['bill']    : '')),
+    'pemesan' => trim((string)(isset($d['pemesan']) ? $d['pemesan'] : '')),
+    'alasan'  => trim((string)(isset($d['alasan'])  ? $d['alasan']  : '')));
+
+  $kurang = array();
+  foreach (void_wajib() as $k => $label) {
+    if ($k === 'item') continue;
+    if (!isset($nil[$k]) || $nil[$k] === '') $kurang[] = $label;
+  }
+
+  /* Item yang namanya kosong DIBUANG, bukan ditolak: baris kosong di ujung
+     daftar adalah bentuk paling wajar dari form yang barisnya bisa ditambah,
+     dan menolak seluruh kiriman karenanya membuang lima belas baris yang
+     sudah benar. Yang ditolak cuma kalau TIDAK SATU PUN item punya nama. */
+  $masuk = array();
+  $items = (isset($d['items']) && is_array($d['items'])) ? $d['items'] : array();
+  foreach ($items as $it) {
+    if (!is_array($it)) continue;
+    $nama = trim((string)(isset($it['item']) ? $it['item'] : ''));
+    if ($nama === '') continue;
+    $nominal = isset($it['nominal']) ? (float)$it['nominal'] : 0;
+    if (!is_finite($nominal) || $nominal < 0)
+      return array('ok' => false, 'error' => 'Nominal "' . $nama . '" tidak boleh minus.');
+    $masuk[] = array('item' => $nama, 'nominal' => (int)round($nominal));
+  }
+  if (!count($masuk)) $kurang[] = 'Nama Item';
+
+  if (count($kurang)) {
+    return array('ok' => false, 'kurang' => $kurang,
+                 'error' => 'Belum lengkap: ' . implode(', ', $kurang));
+  }
+
+  /* SATU TRANSAKSI. Berhenti di tengah meninggalkan bill yang tercatat
+     SEPARUH — sembilan item masuk, tujuh tidak — dan tidak ada satu pun layar
+     yang bisa menyebutkan sampai mana. Angkanya tetap terlihat wajar, dan
+     itulah bentuk kesalahan yang tidak akan pernah dipertanyakan. Aturan yang
+     sama dengan ganti_orang() di modul DW. */
+  $pdo = db();
+  $now = (int)(microtime(true) * 1000);
+  $ids = array();
+  $pdo->beginTransaction();
+  try {
+    $st = $pdo->prepare(
+      'INSERT INTO `void_log` (`id`,`tgl`,`bill`,`item`,`pemesan`,`alasan`,`nominal`,
+                               `oleh`,`oleh_id`,`dibuat`,`diubah`,`diubah_oleh`)
+       VALUES (:id,:t,:b,:i,:p,:a,:n,:o1,:oi,:c1,:c2,:o2)');
+    foreach ($masuk as $i => $m) {
+      /* Id dibuat SERVER, sama dengan jalur satu baris — id kiriman bisa
+         menabrak baris orang lain. `$i` ikut supaya dua item yang tersimpan
+         pada milidetik yang sama tidak pernah bisa berebut id yang sama. */
+      $id = 'v' . dechex($now) . dechex($i) . substr(bin2hex(random_bytes(4)), 0, 8);
+      $st->execute(array(':id' => $id, ':t' => $nil['tgl'], ':b' => mb_substr($nil['bill'], 0, 60),
+                         ':i' => mb_substr($m['item'], 0, 200), ':p' => mb_substr($nil['pemesan'], 0, 120),
+                         ':a' => $nil['alasan'], ':n' => $m['nominal'],
+                         ':o1' => mb_substr((string)$oleh, 0, 120), ':oi' => mb_substr((string)$olehId, 0, 60),
+                         ':c1' => $now, ':c2' => $now, ':o2' => mb_substr((string)$oleh, 0, 120)));
+      $ids[] = $id;
+    }
+    $pdo->commit();
+  } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+  return array('ok' => true, 'saved' => true, 'n' => count($ids), 'ids' => $ids);
+}
+
 /* PEMBATALAN, bukan penghapusan — barisnya tetap ada dan tetap tergambar.
    Alasannya WAJIB: pembatalan tanpa sebab sama tidak bisa diauditnya dengan
    penghapusan, cuma meninggalkan baris membingungkan yang tidak dijelaskan
