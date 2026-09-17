@@ -39,6 +39,15 @@
      kembar di tiga berkas, dan salinan berikutnya yang tertinggal akan
      membuat omset event di sini berbeda dari angka yang sama di Finance. -->
 <script src="../assets/performa-bonus.js"></script>
+<!-- DENAH VENUE: daftar meja, kapasitas, dan zonanya. Dipakai halaman
+     Performa Meja untuk menjawab "omset meja ini berapa per kursinya".
+     Aset yang SAMA dengan modul Reservasi & Marketing, DIMUAT bukan disalin:
+     kapasitas yang disalin ke sini pasti menyimpang begitu ada meja yang
+     digeser atau kursinya diubah di denah, dan yang menyimpang di sini adalah
+     pembagi sebuah angka uang. Ketiadaannya TIDAK mematikan halaman ini —
+     omset per meja tetap terbaca, cuma kapasitasnya yang kosong, dan itu
+     dikatakan di layar. -->
+<script src="../assets/venue-layouts.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 /* ===== TEMA OFFICE LAKSAMANA (emas di atas krem/putih, tanpa hitam) ===== */
@@ -682,6 +691,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
         <a data-view="menu"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M3 12h18M3 18h12"/></svg></span> Menu &amp; Bahan Baku</a>
         <a data-view="kategori"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg></span> Kategori Menu</a>
         <a data-view="kunjungan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><path d="m10 17 5-5-5-5"/><path d="M15 12H3"/></svg></span> Metode Kunjungan</a>
+        <a data-view="meja"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="8" width="18" height="4" rx="1"/><path d="M6 12v8M18 12v8M12 3v5"/></svg></span> Performa Meja</a>
         <a data-view="talent"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg></span> Performa Talent</a>
         <a data-view="error"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/><path d="M12 9v4M12 17h.01"/></svg></span> Error &amp; Koreksi</a>
         <a data-view="voidb"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="m5.6 5.6 12.8 12.8"/></svg></span> Void &amp; Cancel</a>
@@ -1241,6 +1251,7 @@ const TITLES = {
   menu      :['Menu & Bahan Baku','Menu terlaris dan perkiraan bahan yang seharusnya keluar'],
   kategori  :['Kategori Menu','Omset per kategori menu — termasuk EVENT, terpisah dari peringkat menu'],
   kunjungan :['Metode Kunjungan','Rekap kanal, cara tamu datang, dan cara mereka membayar'],
+  meja      :['Performa Meja','Omset tiap meja, kapasitasnya di denah Reservasi, dan omset per kursinya'],
   talent    :['Performa Talent','Kontribusi omset tiap penampil, dihitung dari jam tampilnya sendiri'],
   error     :['Error & Koreksi Bill','Bill yang ditandai error — sebabnya, nilainya, dan siapa yang memegangnya'],
   voidb     :['Void & Cancel Menu','Siapa yang membatalkan, alasannya, itemnya, nilainya, dan jamnya'],
@@ -1795,6 +1806,25 @@ const KAT_TANPA = '(tanpa kategori)';
    membuangnya membuat jumlah metode berhenti sama dengan totalnya — aturan
    yang sama dengan KAT_TANPA di atas. */
 const KUN_TANPA = '(tanpa keterangan)';
+/* Kolom Table yang kosong. Diberi NAMANYA SENDIRI, tidak dibuang dan tidak
+   dijatuhkan ke meja pertama - ia tetap membawa omset, dan membuangnya membuat
+   jumlah per meja berhenti sama dengan total bulan itu. Aturan yang sama
+   dengan KAT_TANPA dan KUN_TANPA. */
+const MEJA_TANPA = '(tanpa meja)';
+/* NILAI DI KOLOM TABLE YANG BUKAN MEJA.
+
+   Diukur atas Bill Report Agustus 2026: "Quick Service" dipakai 1.813 dari
+   4.785 bill - Rp175.665.272, yaitu 24% omset sebulan - dan ia bukan sebuah
+   meja melainkan transaksi yang memang tidak menempati meja (ESB ORDER 1.060,
+   DINE IN 666, ONLINE 85). Dibiarkan ikut sebagai meja, ia jadi baris teratas
+   di setiap tabel halaman ini berikut "Rp per kursi" yang dibagi kapasitas
+   yang tidak pernah ada.
+
+   DAFTARNYA TERTUTUP, dan itu memang bisa basi - tapi gagalnya TERLIHAT, bukan
+   diam: nama yang tidak dikenal DAN tidak ada di denah tetap dihitung, berdiri
+   di pitanya sendiri berikut omsetnya, jadi yang berikutnya ketahuan tanpa ada
+   yang perlu memeriksa kode. Aturan yang sama dengan KANAL_BAYAR. */
+const MEJA_BUKAN = ['QUICKSERVICE'];
 /* KATEGORI ACARA — permintaan user 10 September 2026: isinya (Prasmanan,
    Nasi Kotak, Snack Box) TIDAK ikut di halaman Menu & Bahan Baku, tapi TETAP
    berdiri di halaman Kategori Menu berikut rincian menunya.
@@ -2752,6 +2782,7 @@ function mnCari(el) {
      adalah kotak yang kehilangan fokus tiap ketukan, jebakan yang sudah
      dibayar di queueF() modul Konten. */
   if (el.id === 'vd_q')  { VD_Q  = q; mnIsi('vd_detail', vdDetailHtml()); }
+  if (el.id === 'mj_q')  { MJ_Q  = q; mnIsi('mj_isi', mjIsiHtml()); }
 }
 /* Isi tabel Penjualan Menu, sudah dipotong per halaman. PENCARIAN MENYARING
    SELURUH MENU, bukan halaman yang sedang terbuka — mencari menu peringkat
@@ -4120,6 +4151,12 @@ function prUrut(v) { PR_URUT = v; render(); }
 let BLN_VOID = null;
 let VD_URUT = 'baris';
 let VD_Q = '';
+/* Halaman Performa Meja. Bawaannya omset MENURUN: yang membuka halaman ini
+   sedang mencari meja mana yang paling besar, bukan meja nomor 1. */
+let MJ_SORT = { k: 'g', turun: true };
+let MJ_Q = '';
+let MJ_CACHE = null;
+let MJ_DENAH;            // dihitung sekali dari asetnya; undefined = belum pernah
 const blnAdaVoid = () => Object.keys((AN && AN.data && AN.data.voidb) || {}).sort().reverse();
 function blnAktifVoid() {
   const a = blnAdaVoid();
@@ -4683,6 +4720,299 @@ function tlCari(el) {
 }
 let TL_CACHE = null;
 
+/* ============ HALAMAN: PERFORMA MEJA (17 September 2026) ============
+
+   Permintaan user: "tambahkan menu sub baru untuk menganalisa transaksi
+   disetiap table, kamu bisa cek database table yang ada di reservasi punya dan
+   kapasitasnya berapa ... jadi kita bisa ngecek di table ini omset sumbangsinya
+   berapa dan kalau misalnya kapasitasnya itu berapa orang, dan jadinya itu
+   berapa kalau dibagi rata-rata per orangnya."
+
+   DUA SUMBER YANG SEBELUMNYA TIDAK PERNAH BERTEMU:
+     omset & transaksi per meja  <- kolom Table / Table Name di berkas POS
+     kapasitas & zona tiap meja  <- deploy/assets/venue-layouts.js, denah
+                                    milik modul Reservasi
+
+   PEMBAGINYA KAPASITAS KURSI, BUKAN PAX DI POS, dan itu keputusan yang harus
+   dijelaskan karena kolom Pax Total kelihatan seperti jawaban yang lebih
+   benar. Diukur atas Agustus 2026: isinya 1 di 4.759 dari 4.785 bill. Dibagi
+   dengannya, "omset per tamu" cuma mengulang rata-rata per transaksi dengan
+   nama lain - dua kolom bersebelahan yang namanya berbeda dan angkanya selalu
+   sama, dan yang membacanya akan menyimpulkan salah satunya salah hitung. Itu
+   dikatakan DI LAYAR, bukan cuma di komentar ini. */
+function denahMeja() {
+  if (MJ_DENAH !== undefined) return MJ_DENAH;
+  const L = window.LM_VENUE_LAYOUTS;
+  if (!L) { MJ_DENAH = null; return null; }
+  const out = {};
+  Object.keys(L).forEach(k => ((L[k] && L[k].tables) || []).forEach(t => {
+    const id = String((t && t.id) || '').trim();
+    if (!id) return;
+    /* Meja yang sama muncul di beberapa denah (weekday/weekend/lantai 2).
+       Yang PERTAMA dipakai; kapasitasnya diperiksa sama di seluruh denah. */
+    if (!out[id]) out[id] = { id: id, cap: String(t.cap || ''), zona: String(t.zone || '') || '(tanpa zona)' };
+  }));
+  MJ_DENAH = out; return out;
+}
+/* NAMA MEJA DI POS vs DI DENAH - satu penerjemah, dan ia menentukan angka.
+
+   Diukur atas Bill Report Agustus 2026: 123 nama berbeda di POS, 121 meja di
+   denah. Dua bentuk yang berbeda, dan keduanya gagal DIAM:
+
+     "U 3"       di POS   vs  "U3"      di denah   -> spasi
+     "EXTRA 15"  di POS   vs  "EXT 15"  di denah   -> singkatan
+
+   Tanpa penerjemah ini, ketiga meja U dan kelima belas meja EXTRA jatuh ke
+   "tidak ada di denah" berikut omsetnya - halaman ini lalu melaporkan lubang
+   yang sebenarnya tidak ada, dan yang membacanya akan menambahkan meja yang
+   sudah lama terdaftar. Sesudahnya 120 dari 123 nama cocok. */
+function mejaNorm(n) {
+  return String(n || '').trim().toUpperCase().replace(/^EXTRA\b/, 'EXT').replace(/\s+/g, '');
+}
+function mejaBukanKah(n) { return MEJA_BUKAN.indexOf(mejaNorm(n)) >= 0; }
+/* Kapasitas di denah kadang RENTANG: "4-5" (meja bar) dan "10-12" (meja
+   panjang R1/R3/R5). Yang dipakai sebagai PEMBAGI batas BAWAHnya - itu jumlah
+   kursi yang benar-benar terpasang; angka atasnya kursi tambahan yang
+   diselipkan kalau tamunya memaksa. Dipakai batas ATAS, tiap meja berentang
+   terlihat lebih buruk daripada meja bercap tunggal yang sebenarnya sama
+   besar. Rentangnya tetap DITULIS APA ADANYA di kolomnya berikut angka yang
+   benar-benar membaginya - kolom "Rp per kursi" yang pembaginya harus ditebak
+   sudah empat kali jadi pertanyaan di modul ini. */
+function kursiDari(cap) { const m = String(cap || '').match(/\d+/); return m ? +m[0] : 0; }
+const mjPct = (x, t) => t ? (x / t * 100).toFixed(1) + '%' : '\u2014';
+
+/* Seluruh hitungan halaman ini, dipisah dari penggambarnya: menekan kepala
+   kolom tidak boleh menghitung ulang 120 baris, dan fungsi yang memulangkan
+   angka bisa diuji tanpa DOM. */
+function mjHitung(d) {
+  const D = denahMeja();
+  const src = (d && d.meja) || {};
+  /* Peta nama-ternormalkan -> id di denah, disusun SEKALI. Dicari dengan
+     Object.keys().find() di dalam loop, 120 meja x 123 nama jadi 15.000
+     perbandingan tiap render. */
+  const petaId = {};
+  if (D) Object.keys(D).forEach(id => { petaId[mejaNorm(id)] = id; });
+  const baris = [], takKenal = [], bukan = [];
+  let gMeja = 0, gBukan = 0, gTanpa = 0, bMeja = 0, gTotal = 0;
+  Object.keys(src).forEach(nm => {
+    const v = src[nm] || {}, g = +v.grand || 0, b = +v.bill || 0;
+    gTotal += g;
+    if (nm === MEJA_TANPA) { gTanpa += g; return; }
+    if (mejaBukanKah(nm)) { bukan.push({ n: nm, g: g, b: b }); gBukan += g; return; }
+    const id = petaId[mejaNorm(nm)];
+    if (!id) { takKenal.push({ n: nm, g: g, b: b }); return; }
+    const m = D[id], kursi = kursiDari(m.cap);
+    gMeja += g; bMeja += b;
+    baris.push({
+      n: id, pos: nm, zona: m.zona, cap: m.cap, kursi: kursi, seksi: String(v.seksi || ''),
+      b: b, g: g,
+      atv: b ? g / b : null,
+      /* Kursi nol (kapasitas tidak terbaca di denah) memulangkan null, BUKAN
+         nol: nol berarti mejanya tidak menghasilkan apa-apa, dan itu
+         pernyataan yang tidak ditanggung datanya. urutKolom() sudah menaruh
+         yang null di bawah ke arah mana pun urutannya. */
+      perKursi: kursi ? g / kursi : null
+    });
+  });
+  /* Meja yang ada di denah tapi TIDAK sekali pun muncul di POS bulan itu.
+     Bukan galat - bisa saja memang tidak pernah dibuka, dan justru itu yang
+     dicari orang saat menata ulang denah. */
+  const dipakai = {}; baris.forEach(x => dipakai[mejaNorm(x.n)] = 1);
+  const nganggur = D ? Object.keys(D).filter(id => !dipakai[mejaNorm(id)]) : [];
+  /* Kursi yang dihitung hanya milik meja yang BENAR-BENAR terpakai. Dibagi
+     seluruh kursi di denah, "Rp per kursi" ikut menghukum meja yang memang
+     tidak dibuka bulan itu - pertanyaan yang lain, dan tidak dibawa siapa pun
+     ke halaman ini. */
+  const kursiPakai = baris.reduce((a, x) => a + x.kursi, 0);
+  return { D: D, baris: baris, takKenal: takKenal, bukan: bukan, nganggur: nganggur,
+           gMeja: gMeja, gBukan: gBukan, gTanpa: gTanpa, bMeja: bMeja,
+           gTotal: gTotal, kursiPakai: kursiPakai };
+}
+function mjZonaHtml(H) {
+  const z = {};
+  H.baris.forEach(x => {
+    const a = z[x.zona] || (z[x.zona] = { n: x.zona, meja: 0, kursi: 0, b: 0, g: 0 });
+    a.meja++; a.kursi += x.kursi; a.b += x.b; a.g += x.g;
+  });
+  const rows = Object.keys(z).map(k => z[k]).sort((a, b) => b.g - a.g);
+  if (!rows.length) return '';
+  const tot = {};
+  if (H.D) Object.keys(H.D).forEach(id => { tot[H.D[id].zona] = (tot[H.D[id].zona] || 0) + 1; });
+  return '<div class="card"><h3>Per Zona Denah</h3>'
+    + '<div class="card-sub">Zona diambil dari <b>denah Reservasi</b>, bukan dari berkas POS. '
+    + '"Meja terpakai" dihitung dari meja yang benar-benar punya transaksi bulan ini.</div>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Zona</th><th class="num">Meja terpakai</th>'
+    + '<th class="num">Kursi</th><th class="num">Transaksi</th><th class="num">Omset</th>'
+    + '<th class="num">% omset meja</th><th class="num">Rp per kursi</th></tr></thead><tbody>'
+    + rows.map(r => '<tr><td><b>' + esc(r.n) + '</b></td>'
+        + '<td class="num">' + r.meja + (tot[r.n] ? ' <span class="muted">dari ' + tot[r.n] + '</span>' : '') + '</td>'
+        + '<td class="num">' + r.kursi + '</td>'
+        + '<td class="num">' + r.b.toLocaleString('id-ID') + '</td>'
+        + '<td class="num mono"><b>' + rp0(r.g) + '</b></td>'
+        + '<td class="num">' + mjPct(r.g, H.gMeja) + '</td>'
+        + '<td class="num mono">' + (r.kursi ? rp0(r.g / r.kursi) : '\u2014') + '</td></tr>').join('')
+    + '</tbody></table></div></div>';
+}
+/* Isi tabel per meja - digambar ke wadahnya sendiri (#mj_isi) supaya menekan
+   kepala kolom atau mengetik di kotak cari tidak memanggil render(). Render di
+   modul ini TOTAL: kotak yang sedang diketik akan dibuat ulang sehingga hanya
+   huruf pertama yang masuk, dan gulir melompat ke atas persis saat orang
+   menekan kepala kolom di tabel bagian bawah. Jebakan yang sudah dibayar di
+   queueF() modul Konten dan di gambarDaftar() panel Kas Kecil. */
+function mjIsiHtml() {
+  const H = MJ_CACHE;
+  if (!H) return '';
+  const q = MJ_Q;
+  /* PENCARIAN MENYAPU SELURUH MEJA, bukan yang kebetulan tampil. */
+  const cocok = H.baris.filter(x => !q
+    || (x.n + ' ' + x.pos + ' ' + x.zona + ' ' + x.seksi + ' ' + x.cap).toLowerCase().indexOf(q) > -1);
+  const urut = urutKolom(cocok, MJ_SORT);
+  if (!urut.length) {
+    return '<div class="notice info">&#8505; <div>Tidak ada meja yang cocok dengan <b>' + esc(q) + '</b>. '
+      + 'Coba nomor mejanya (mis. <b>21</b>), zonanya (<b>wood</b>), atau kapasitasnya.</div></div>';
+  }
+  const maks = urut.reduce((a, x) => Math.max(a, x.g), 0) || 1;
+  let h = '<div class="tbl-wrap"><table><thead><tr>'
+    + thSort('n', 'Meja', MJ_SORT, 'mjUrut')
+    + thSort('zona', 'Zona', MJ_SORT, 'mjUrut')
+    + thSort('kursi', 'Kapasitas', MJ_SORT, 'mjUrut', 'num')
+    + thSort('b', 'Transaksi', MJ_SORT, 'mjUrut', 'num')
+    + thSort('g', 'Omset', MJ_SORT, 'mjUrut', 'num')
+    + '<th class="num">% omset meja</th>'
+    + thSort('atv', 'Rata-rata / transaksi', MJ_SORT, 'mjUrut', 'num')
+    + thSort('perKursi', 'Rp per kursi', MJ_SORT, 'mjUrut', 'num')
+    + '<th style="width:12%"></th></tr></thead><tbody>';
+  urut.forEach(x => {
+    h += '<tr><td><b>' + esc(x.n) + '</b>'
+      + (x.seksi ? '<div class="muted" style="font-size:11px">' + esc(x.seksi) + '</div>' : '')
+      + '</td>'
+      + '<td>' + esc(x.zona) + '</td>'
+      /* Kapasitasnya ditulis APA ADANYA - termasuk rentang "4-5" - berikut
+         angka yang benar-benar dipakai membagi. Kolom "Rp per kursi" tanpa
+         pembagi yang kelihatan cuma bisa ditebak, dan tebakan paling wajar di
+         meja berentang justru yang salah. */
+      + '<td class="num">' + esc(x.cap || '\u2014')
+      + (x.cap.indexOf('-') > -1 ? '<div class="muted" style="font-size:11px">dibagi ' + x.kursi + '</div>' : '')
+      + '</td>'
+      + '<td class="num">' + x.b.toLocaleString('id-ID') + '</td>'
+      + '<td class="num mono"><b>' + rp0(x.g) + '</b></td>'
+      + '<td class="num">' + mjPct(x.g, H.gMeja) + '</td>'
+      + '<td class="num mono">' + (x.atv === null ? '\u2014' : rp0(x.atv)) + '</td>'
+      + '<td class="num mono">' + (x.perKursi === null
+          ? '<span class="muted">kapasitas tidak terbaca</span>' : '<b>' + rp0(x.perKursi) + '</b>') + '</td>'
+      + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
+        + '<div style="width:' + (x.g / maks * 100).toFixed(1) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
+      + '</tr>';
+  });
+  h += '</tbody></table></div>';
+  h += '<div class="helper">Menampilkan <b>' + urut.length + '</b> dari ' + H.baris.length
+    + ' meja yang dipakai bulan ini' + (q ? ' (disaring "' + esc(q) + '")' : '')
+    + ' &middot; jumlah omsetnya <b>' + rp0(urut.reduce((a, x) => a + x.g, 0)) + '</b>'
+    + ' &middot; batangnya menggambar kolom <b>Omset</b>.</div>';
+  return h;
+}
+function mjUrut(k) { sortKlik(MJ_SORT, k); mnIsi('mj_isi', mjIsiHtml()); }
+
+function vMeja() {
+  const V = document.getElementById('app-view');
+  const b = blnAktif(), d = lap(b);
+  let h = pilihBulan();
+  if (!d) { V.innerHTML = h + kosongBelumAda(); return; }
+  /* TIGA KEADAAN KOSONG, dan ketiganya menuntut tindakan yang BERBEDA.
+     Disamakan, yang membacanya mengekspor ulang berkas yang sama berkali-kali
+     untuk kolom yang memang tidak pernah ada di sana. */
+  if (!d.meja) {
+    V.innerHTML = h + '<div class="notice warn">&#9888; <div><b>Laporan bulan ini belum memuat data meja.</b> '
+      + 'Kolom meja (<i>Table</i> di Bill Report, <i>Table Name</i> di Detail Report) baru ikut dibaca sejak '
+      + '17 September 2026, jadi ringkasan yang disimpan sebelum itu tidak menyimpannya - dan angkanya tidak '
+      + 'bisa dihitung ulang dari ringkasan yang sudah ada. <b>Unggah ulang berkas bulan itu</b>; ringkasannya '
+      + 'akan ditimpa, dan mejanya ikut terbaca.</div></div>';
+    return;
+  }
+  if (!Object.keys(d.meja).length) {
+    const adaKolom = !!((d.ringkas || {}).mejaKolom);
+    V.innerHTML = h + '<div class="notice warn">&#9888; <div>' + (adaKolom
+      ? '<b>Tidak ada satu pun transaksi bermeja bulan ini.</b> Berkasnya punya kolom mejanya dan kolomnya '
+        + 'terbaca, tapi tidak satu pun barisnya terisi. Itu jawaban, bukan kesalahan.'
+      : '<b>Berkas bulan ini tidak punya kolom meja.</b> Ekspor ulang dari POS dengan kolom <i>Table</i> '
+        + '(Bill Report) atau <i>Table Name</i> (Detail Report) ikut dicentang, lalu unggah lagi.')
+      + '</div></div>';
+    return;
+  }
+
+  const H = mjHitung(d); MJ_CACHE = H;
+  /* PENYEBUTNYA DIHITUNG DARI hari[], BUKAN dari ringkas.grand.
+
+     Keduanya nyaris selalu sama, dan justru itu yang membuatnya berbahaya:
+     ringkas.grand menjumlahkan SELURUH baris berkas TERMASUK yang tanggalnya
+     jatuh di bulan sebelah, sementara meja[] sudah dibuang untuk bulan lain -
+     aturan yang sama dengan hari[], hariJam[], dan error[]. Berkas yang
+     menyeberang bulan karena itu membuat kolom persen berhenti berjumlah 100%
+     tanpa satu pun tanda, dan persen yang tidak genap di halaman omset dibaca
+     sebagai uang yang hilang. Pelajaran yang sudah dibayar di kolom Kontribusi
+     halaman Hari & Jam.
+
+     Jatuh ke jumlah tabel ini sendiri kalau hari[] tidak ada - bukan nol, yang
+     membuat seluruh kolom persen berbunyi 0% tanpa sebab yang kelihatan. */
+  const grand = Object.keys(d.hari || {}).reduce((a, t) => a + (+(d.hari[t] || {}).grand || 0), 0) || H.gTotal;
+
+  h += '<div class="grid g4" style="margin-bottom:18px">'
+    + kartu('Omset dari Meja', rp0(H.gMeja),
+        mjPct(H.gMeja, grand) + ' dari omset sebulan \u00b7 ' + H.baris.length + ' meja terpakai')
+    + kartu('Rp per Kursi', H.kursiPakai ? rp0(H.gMeja / H.kursiPakai) : '\u2014',
+        H.kursiPakai ? H.kursiPakai + ' kursi di meja yang terpakai' : 'kapasitas tidak terbaca')
+    + kartu('Rata-rata per Transaksi', H.bMeja ? rp0(H.gMeja / H.bMeja) : '\u2014',
+        H.bMeja.toLocaleString('id-ID') + ' transaksi bermeja')
+    + kartu('Tanpa Meja', rp0(H.gBukan + H.gTanpa),
+        mjPct(H.gBukan + H.gTanpa, grand) + ' \u2014 tidak ikut hitungan per kursi')
+    + '</div>';
+
+  if (!H.D) {
+    h += '<div class="notice bad">&#9888; <div><b>Denah venue tidak termuat</b> '
+      + '(<code>assets/venue-layouts.js</code>), jadi kapasitas dan zona tiap meja tidak bisa dibaca - '
+      + 'yang tersisa cuma omset per nama meja, dan seluruh tabel di bawah kosong. Muat ulang halaman ini; '
+      + 'kalau tetap begitu, berkas asetnya belum ter-deploy.</div></div>';
+  }
+  h += '<div class="notice info">&#8505; <div>Pembagi kolom <b>Rp per kursi</b> adalah <b>kapasitas kursi '
+    + 'di denah Reservasi</b>, bukan jumlah tamu di berkas POS. Kolom <i>Pax Total</i> memang terisi, tapi '
+    + 'isinya <b>1 di hampir semua bill</b> - dibagi dengannya, "omset per tamu" cuma mengulang kolom '
+    + '<b>Rata-rata / transaksi</b> di sebelahnya dengan nama lain.</div></div>';
+
+  h += mjZonaHtml(H);
+
+  h += '<div class="card"><h3>Per Meja</h3>'
+    + '<div class="card-sub">Omset sebulan tiap meja, kapasitasnya di denah, dan omset per kursinya. '
+    + '<b>Kepala kolom bisa ditekan</b> untuk mengurutkan.</div>'
+    + '<div style="margin-bottom:10px">' + mnKotakCari('mj_q', MJ_Q, 'Cari nomor meja, zona, kapasitas\u2026') + '</div>'
+    + '<div id="mj_isi">' + mjIsiHtml() + '</div></div>';
+
+  /* TIGA PITA, dan ketiganya menyebut hal yang BERBEDA. Digabung jadi satu
+     "tidak dikenal", yang membacanya tidak punya cara tahu mana yang perlu
+     dibetulkan di denah dan mana yang memang bukan meja. */
+  if (H.bukan.length) {
+    h += '<div class="notice info">&#8505; <div><b>Bukan meja</b>, jadi tidak ikut tabel di atas: '
+      + H.bukan.map(x => '<b>' + esc(x.n) + '</b> ' + rp0(x.g) + ' (' + x.b.toLocaleString('id-ID') + ' transaksi)').join(' &middot; ')
+      + '. Itu transaksi yang memang tidak menempati meja - pesanan online, ESB Order, dan take away. '
+      + 'Omsetnya tetap terhitung di kartu <b>Tanpa Meja</b>.</div></div>';
+  }
+  if (H.takKenal.length) {
+    h += '<div class="notice warn">&#9888; <div>Ada di berkas POS tapi <b>tidak ada di denah Reservasi</b>: '
+      + H.takKenal.map(x => '<b>' + esc(x.n) + '</b> ' + rp0(x.g) + ' (' + x.b.toLocaleString('id-ID') + ' transaksi)').join(' &middot; ')
+      + '. Mejanya nyata - tamunya duduk di sana dan uangnya masuk - tapi denah di modul Reservasi belum '
+      + 'mengenalnya, jadi kapasitasnya tidak diketahui dan ia tidak bisa dipesan lewat Reservasi. Yang '
+      + 'perlu dibetulkan <b>denahnya</b>, bukan berkas POS-nya.</div></div>';
+  }
+  if (H.nganggur.length) {
+    const MJ_NGANGGUR_MAKS = 25;
+    const tampil = H.nganggur.slice(0, MJ_NGANGGUR_MAKS);
+    h += '<div class="notice info">&#8505; <div><b>' + H.nganggur.length + ' meja</b> ada di denah tapi '
+      + '<b>tidak sekali pun dipakai</b> bulan ini: '
+      + tampil.map(x => '<b>' + esc(x) + '</b>').join(', ')
+      + (H.nganggur.length > tampil.length ? ', dan ' + (H.nganggur.length - tampil.length) + ' lagi' : '')
+      + '. Bukan galat - justru ini yang biasanya dicari saat menata ulang denah.</div></div>';
+  }
+  V.innerHTML = h;
+}
 function vTalent() {
   const V = document.getElementById('app-view');
   const b = blnAktif(), d = lap(b);
@@ -6016,6 +6346,27 @@ const KOL_CARI = {
      itu; disamakan, yang membacanya akan mengekspor ulang Bill Report
      berkali-kali untuk kolom yang memang tidak pernah ada di sana. */
   bayar : ['payment method','payment methods','payment type','metode pembayaran','payment'],
+  /* MEJA (17 September 2026, permintaan user: "menganalisa transaksi disetiap
+     table"). ADA DI KEDUA BENTUK LAPORAN, dengan nama yang berbeda — diperiksa
+     atas kedua berkas POS Agustus 2026:
+
+       Bill Report   : "Table"       terisi 4.785 dari 4.786 baris
+       Detail Report : "Table Name"  terisi 19.734 dari 19.739, plus
+                       "Table Section" (7 seksi + Quick Service)
+
+     Yang satu kosong adalah baris TOTAL di kaki berkas, yang memang tidak
+     punya nomor bill dan sudah dibuang di tempat lain.
+
+     "area" SENGAJA TIDAK IKUT walau namanya menggoda: kolomnya ADA di kedua
+     berkas dan KOSONG di SELURUH barisnya (0 dari 4.786 dan 0 dari 19.739).
+     Didaftarkan di sini ia akan menang di Bill Report — 'area' berdiri sebelum
+     'table' menurut abjad di kepala berkasnya — dan seluruh halaman Performa
+     Meja berbunyi "(tanpa meja) 100%" tanpa satu pun galat.
+
+     Pencocokannya PERSIS, bukan awalan (lihat petaKolom), jadi 'table' tidak
+     akan tertukar dengan 'table section'. */
+  meja  : ['table','table name','table no','nomor meja','no meja','meja'],
+  seksi : ['table section','section'],
   /* SIAPA YANG MEMEGANG BILL & CATATANNYA (permintaan user 15 September
      2026: "saya ingin melihat detail bill dan notes nya kenapa hal itu bisa
      terjadi, saya ingin yang menginput bill disaat itu siapa juga").
@@ -6333,6 +6684,17 @@ function ringkasPos(baris, namaBerkas) {
   const kategori = {}, katMenu = {};
   /* kunjung[metode] = {grand, bill} — dari kolom Visit Purpose. */
   const kunjung = {}, bKunjung = {};
+  /* MEJA, DIKUMPULKAN PER BULAN DULU: mejaBln[bulan][namaMeja] = {grand,bill,seksi}.
+
+     Bulannya jadi bagian kuncinya karena berkas POS boleh menyeberang bulan,
+     dan hanya bulan terpilih yang disimpan — aturan yang SAMA PERSIS dengan
+     hari[], hariJam[], dan error[]. Kalau tidak, halaman Performa Meja
+     menjumlahkan omset meja bulan sebelah sementara seluruh halaman lain
+     tidak, dan selisihnya tidak akan pernah bisa dijelaskan.
+
+     Disaring di sini, bukan dibuang belakangan seperti hari[]: sesudah
+     diringkas per nama meja, tanggal tiap barisnya hilang selamanya. */
+  const mejaBln = {}, bMejaBln = {};
   /* METODE PEMBAYARAN (13 September 2026), dari kolom Payment Method.
 
      DIKUMPULKAN PER BILL DULU, bukan langsung per baris — dan itu bukan
@@ -6464,6 +6826,30 @@ function ringkasPos(baris, namaBerkas) {
       kunjung[vp].grand += g;
       if (punyaBill) (bKunjung[vp] = bKunjung[vp] || new Set()).add(noBill);
       else kunjung[vp].bill++;
+    }
+
+    /* MEJA. Omsetnya dijumlahkan PER BARIS (di kedua bentuk laporan kolom
+       grand berjumlah pas ke total sebulan), tapi TRANSAKSINYA dari nomor bill
+       yang BERBEDA — jebakan yang sama persis dengan r.bill dan kunjung di
+       atas: di Detail Report satu bill tersebar di belasan baris menu, jadi
+       menghitung baris memberi angka empat kali lipat dan "rata-rata per
+       transaksi" jatuh ke seperempatnya.
+
+       PAX SENGAJA TIDAK DICATAT. Kolom Pax Total memang terisi di seluruh
+       baris, tapi diukur atas Agustus 2026 isinya 1 di 4.759 dari 4.785 bill
+       — jadi "omset per tamu" yang dihitung darinya cuma mengulang rata-rata
+       per bill dengan nama lain. Yang jadi pembagi di halaman ini KAPASITAS
+       KURSI dari denah, dan sebabnya dikatakan di sana. */
+    if (K.meja) {
+      const mj = String(b[K.meja] || '').trim() || MEJA_TANPA;
+      const wb = mejaBln[blnDari(t)] || (mejaBln[blnDari(t)] = {});
+      const sm = wb[mj] || (wb[mj] = { grand:0, bill:0, seksi:'' });
+      sm.grand += g;
+      /* Seksi hanya ada di Detail Report, dan nilainya milik MEJA bukan milik
+         baris — yang pertama terisi dipakai, sisanya tidak menimpa. */
+      if (K.seksi && !sm.seksi) sm.seksi = String(b[K.seksi] || '').trim();
+      if (punyaBill) (bMejaBln[blnDari(t) + '|' + mj] = bMejaBln[blnDari(t) + '|' + mj] || new Set()).add(noBill);
+      else sm.bill++;
     }
 
     /* METODE PEMBAYARAN — dikumpulkan, dibaginya sesudah loop ini selesai.
@@ -6617,6 +7003,13 @@ function ringkasPos(baris, namaBerkas) {
       if (hariJam[t] && hariJam[t][j]) hariJam[t][j].b = bHariJam[k].size;
     });
     Object.keys(bKunjung).forEach(k => { kunjung[k].bill = bKunjung[k].size; });
+    /* Set WAJIB jadi angka sebelum disimpan — Set tidak bisa di-JSON-kan, dan
+       dikirim apa adanya ia jadi {} sehingga SELURUH jumlah transaksi berbunyi
+       nol tanpa satu pun galat. */
+    Object.keys(bMejaBln).forEach(k => {
+      const i = k.indexOf('|'), bl = k.slice(0, i), mj = k.slice(i + 1);
+      if (mejaBln[bl] && mejaBln[bl][mj]) mejaBln[bl][mj].bill = bMejaBln[k].size;
+    });
   }
   /* ---- METODE PEMBAYARAN: bagi tiap bill ke komponennya ----
      Dikerjakan sesudah seluruh baris dibaca, karena porsinya butuh tagihan
@@ -6691,8 +7084,15 @@ function ringkasPos(baris, namaBerkas) {
   const tglU = Object.keys(hari).sort();
 
   r.ukYatim = nUkYatim;
+  /* KOLOM PENANDANYA DICATAT, bukan disimpulkan dari daftar yang kosong.
+     "Berkasnya tidak punya kolom Table" dan "bulan ini memang tidak ada
+     transaksinya" memulangkan bentuk data yang SAMA PERSIS — daftar kosong —
+     tapi yang pertama menyuruh mengekspor ulang dan yang kedua tidak menyuruh
+     apa-apa. Aturan yang sama dengan errSumber. */
+  r.mejaKolom = !!K.meja;
+  r.seksiKolom = !!K.seksi;
   return { bulan, jenis, berkas:namaBerkas, hari, jam, hariJam, menu, paket, ukuran, kategori, katMenu,
-           kunjung, bayar, kunjungBayar, error, ringkas:r,
+           kunjung, bayar, kunjungBayar, error, meja:(mejaBln[bulan] || {}), ringkas:r,
            nBaris:nRow, nLewat, blnLain, billDariBaris:!punyaBill,
            tglAwal:tglU[0] || '', tglAkhir:tglU[tglU.length - 1] || '' };
 }
@@ -7109,7 +7509,7 @@ async function anSimpanUnggah() {
     diunggah: u.diunggah, oleh: u.oleh, berkas: u.berkas, jenis: u.jenis,
     hari: u.hari, jam: u.jam, hariJam: u.hariJam, menu: u.menu, paket: u.paket, ukuran: u.ukuran,
     kategori: u.kategori, katMenu: u.katMenu, kunjung: u.kunjung,
-    bayar: u.bayar, kunjungBayar: u.kunjungBayar, error: u.error, ringkas: u.ringkas
+    bayar: u.bayar, kunjungBayar: u.kunjungBayar, error: u.error, meja: u.meja, ringkas: u.ringkas
   };
   if (await simpan()) {
     UNGGAH_HASIL = null; BLN = u.bulan;
@@ -7326,7 +7726,7 @@ function render() {
     return;
   }
   ({ ringkasan:vRingkasan, tren:vTren, hari:vHari, menu:vMenu, kategori:vKategori,
-     kunjungan:vKunjungan, talent:vTalent, error:vError, voidb:vVoid, promo:vPromo, event:vEvent, marketing:vMarketing, unggah:vUnggah,
+     kunjungan:vKunjungan, meja:vMeja, talent:vTalent, error:vError, voidb:vVoid, promo:vPromo, event:vEvent, marketing:vMarketing, unggah:vUnggah,
      pengaturan:vPengaturan, akses:vAkses }[CURRENT] || vRingkasan)();
   terapkanKunci();
 }

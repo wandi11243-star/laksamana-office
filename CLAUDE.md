@@ -2818,6 +2818,143 @@ Satu mutasi lagi LOLOS bersih sebelum ditutup: **"bill bulan sebelah ikut
 terbawa"** — tidak ada satu pun asersi yang menjaganya. Ditutup dengan baris
 30 Juli di fixture-nya sendiri, bukan di fixture bersama.
 
+#### Halaman Performa Meja (17 September 2026)
+
+Permintaan user: *"tambahkan menu sub baru untuk menganalisa transaksi disetiap
+table, kamu bisa cek database table yang ada di reservasi punya dan kapasitasnya
+berapa ... jadi kita bisa ngecek di table ini omset sumbangsinya berapa dan
+kalau misalnya kapasitasnya itu berapa orang, dan jadinya itu berapa kalau
+dibagi rata-rata per orangnya."* Kunci view **`meja`**.
+
+Mempertemukan dua sumber yang sebelumnya tidak pernah bertemu:
+
+| | dari |
+|---|---|
+| omset & transaksi per meja | berkas POS → kolom `Table` / `Table Name` |
+| kapasitas & zona tiap meja | `deploy/assets/venue-layouts.js`, denah milik **Reservasi** |
+
+**Asetnya DIMUAT, bukan disalin** (`<script src="../assets/venue-layouts.js">`).
+Kapasitas yang disalin ke sini pasti menyimpang begitu ada meja yang digeser
+atau kursinya diubah — dan yang menyimpang di sini adalah **pembagi sebuah
+angka uang**. Pola yang sama dengan `xlsx-baca.js` dan `performa-bonus.js`.
+Ketiadaannya **DIKATAKAN** dan tidak mematikan halaman: omset per nama meja
+tetap terbaca, cuma kapasitasnya yang kosong.
+
+##### Kolomnya ADA di kedua bentuk laporan — diukur, bukan diasumsikan
+
+```
+Bill Report   : "Table"        terisi 4.785 dari 4.786 baris   (yang satu = baris TOTAL)
+Detail Report : "Table Name"   terisi 19.734 dari 19.739
+                "Table Section"  7 seksi + Quick Service
+```
+
+**`area` SENGAJA TIDAK DIDAFTARKAN** walau namanya menggoda: kolomnya **ADA di
+kedua berkas dan KOSONG di SELURUH barisnya** (0 dari 4.786 dan 0 dari 19.739).
+Didaftarkan, ia menang di Bill Report dan seluruh halaman berbunyi *(tanpa
+meja) 100%* tanpa satu pun galat. Pencocokan `petaKolom()` PERSIS, bukan awalan,
+jadi `table` tidak tertukar dengan `table section`.
+
+##### `mejaNorm()` — penerjemah nama, dan ia yang menentukan angkanya
+
+Diukur atas Bill Report Agustus 2026: **123 nama di POS, 121 meja di denah**.
+Dua bentuk yang berbeda, dan keduanya gagal DIAM:
+
+```
+"U 3"       di POS   vs  "U3"      di denah   -> spasi
+"EXTRA 15"  di POS   vs  "EXT 15"  di denah   -> singkatan
+```
+
+Tanpa penerjemahnya, ketiga meja U dan kelima belas meja EXTRA jatuh ke "tidak
+ada di denah" berikut omsetnya — halaman ini lalu **melaporkan lubang yang
+tidak ada**, dan yang membacanya akan menambahkan meja yang sudah lama
+terdaftar. Sesudahnya **120 dari 123 nama cocok** (Rp552.781.180, 75,7%).
+
+##### EMPAT EMBER, dan bedanya wajib dikatakan
+
+| ember | Agustus 2026 | artinya |
+|---|---|---|
+| meja yang cocok denah | Rp552.781.180 | isi tabel utama |
+| **Quick Service** | Rp175.665.272 (1.813 bill) | **BUKAN meja** — ESB Order 1.060, Dine In 666, Online 85 |
+| ada di POS, **tidak ada di denah** | EXTRA 12 & 13 | mejanya nyata; **denahnya** yang perlu dibetulkan |
+| kolom mejanya kosong | Rp730.253 | `(tanpa meja)` |
+
+- **Quick Service dikenali lewat `MEJA_BUKAN`**, daftar tertutup. Ia memang
+  bisa basi, tapi gagalnya **TERLIHAT**: nama yang tidak dikenal DAN tidak ada
+  di denah tetap dihitung dan berdiri di pitanya sendiri berikut omsetnya, jadi
+  yang berikutnya ketahuan tanpa ada yang perlu memeriksa kode. Aturan yang
+  sama dengan `KANAL_BAYAR`.
+- **Dibiarkan ikut sebagai meja**, ia jadi baris teratas di setiap tabel
+  berikut "Rp per kursi" yang dibagi kapasitas yang tidak pernah ada.
+- **INVARIANNYA:** keempatnya berjumlah **sama persis** dengan omset bulan itu.
+  Itu satu-satunya pemeriksaan di halaman ini yang tidak bisa basi sendiri — ia
+  menangkap pengelompokan apa pun yang salah, termasuk baris yang diam-diam
+  dibuang.
+
+##### PEMBAGINYA KAPASITAS KURSI, BUKAN PAX DI POS
+
+Kolom `Pax Total` kelihatan seperti jawaban yang lebih benar, dan itulah
+sebabnya keputusan ini harus tertulis. Diukur: isinya **1 di 4.759 dari 4.785
+bill**. Dibagi dengannya, "omset per tamu" cuma mengulang **Rata-rata /
+transaksi** dengan nama lain — dua kolom bersebelahan yang namanya berbeda dan
+angkanya selalu sama, dan yang membacanya menyimpulkan salah satunya salah
+hitung. **Dikatakan di layar**, bukan cuma di komentar.
+
+**Kapasitas kadang RENTANG** — `4-5` (meja bar) dan `10-12` (R1/R3/R5). Yang
+jadi pembagi **batas BAWAHnya**: itu kursi yang benar-benar terpasang, angka
+atasnya kursi yang diselipkan kalau tamunya memaksa. Dipakai batas atas, tiap
+meja berentang terlihat lebih buruk daripada meja bercap tunggal yang sebenarnya
+sama besar. **Rentangnya tetap ditulis apa adanya di selnya berikut angka yang
+benar-benar membaginya** (`dibagi 10`) — kolom yang pembaginya harus ditebak
+sudah empat kali jadi pertanyaan di modul ini.
+
+##### Yang gampang lepas tanpa satu pun galat
+
+- **`meja` WAJIB disebut di daftar kunci tertutup `anSimpanUnggah()`.** Itu
+  tempat `paket`, `kategori`, dan `katMenu` tertinggal lima hari. Diuji lewat
+  putaran simpan SUNGGUHAN, bukan dengan menyuntikkannya ke `AN.data.laporan`.
+- **Dikumpulkan PER BULAN dulu** (`mejaBln[bulan][nama]`), bukan disaring
+  belakangan seperti `hari[]`: sesudah diringkas per nama meja, tanggal tiap
+  barisnya hilang selamanya. Aturannya SAMA PERSIS dengan `hari[]`,
+  `hariJam[]`, dan `error[]`.
+- **Penyebut persen dihitung dari `hari[]`, BUKAN `ringkas.grand`.** Keduanya
+  nyaris selalu sama, dan justru itu yang membuatnya berbahaya: `ringkas.grand`
+  menjumlahkan SELURUH baris berkas **termasuk bulan sebelah**, sementara
+  `meja[]` sudah dibuang untuk bulan lain. Pelajaran kolom Kontribusi.
+- **Transaksi dari nomor bill yang BERBEDA, bukan jumlah baris** — di Detail
+  Report satu bill tersebar di belasan baris menu.
+- **Set → angka sebelum disimpan**; dikirim apa adanya ia jadi `{}` dan seluruh
+  jumlah transaksi berbunyi nol.
+- **`kursiPakai` hanya kursi meja yang BENAR-BENAR terpakai.** Dibagi seluruh
+  kursi di denah, angkanya ikut menghukum meja yang memang tidak dibuka bulan
+  itu — pertanyaan yang lain, dan tidak dibawa siapa pun ke halaman ini.
+- **Sidebar itu HTML STATIS** — menambah `TITLES` saja tidak melahirkan menunya.
+  Sudah menggigit saat tab Void naik.
+- **Mengurutkan & mengetik menggambar ulang WADAHNYA** (`#mj_isi`), bukan
+  halamannya.
+- **Daftar meja nganggur dipotong 25 nama**, jumlahnya tetap disebut utuh.
+  Bulan yang baru sebagian terunggah bisa menyisakan seratus meja, dan pita
+  berisi seratus nama mendorong tabel yang jadi isi halaman ini turun satu
+  layar penuh — persis keluhan yang membuat kedua pita di halaman Menu dicabut.
+
+```bash
+node tools/uji-meja.js   # 70 pemeriksaan, jsdom + berkas POS asli
+```
+
+**Delapan belas mutasi dicoba, kedelapan belasnya tertangkap.** Fixture-nya
+CSV bertujuh meja yang tiap kesalahan memberi hasil BERBEDA, **plus satu baris
+bertanggal 30 Agustus**: tanpa baris bulan sebelah itu, `ringkas.grand` dan
+jumlah `hari[]` sama persis dan mutasi "penyebut kembali ke ringkas.grand"
+LOLOS — memang begitu di putaran pertama. Berkas POS asli dipakai sebagai
+penguat (120 nama cocok, Quick Service, EXTRA 12 & 13, meja 67 yang tidak
+sekali pun dipakai); kalau berkasnya tidak ada di root repo, bagian itu MELEWAT
+dengan jelas.
+
+> **`smoke-modul.js analytics` TIDAK CUKUP untuk halaman ini**, dan alasannya
+> layak diingat: jsdom tidak mengambil skrip eksternal, jadi di sana
+> `LM_VENUE_LAYOUTS` tidak pernah ada dan halaman jatuh ke cabang "denah tidak
+> termuat" — hijau, tanpa menyentuh satu pun hitungan kapasitas. `uji-meja.js`
+> menyisipkan asetnya inline.
+
 #### KODE MENU DIISI DI HPP & RESEP — sumber utamanya sekarang di sana (10 Sep 2026)
 
 Permintaan user: *"dari di HPP & Resep bisa masukin menu code, jadi kalau
