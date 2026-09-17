@@ -11851,6 +11851,31 @@ let RSV_HARI   = {};     // 'YYYY-MM-DD' -> {jml, pax, baris:[...]}
    yang diam-diam melewatinya membuat jumlah yang dilaporkan tidak pernah cocok
    dengan yang dilihat orang di modul Reservasi. */
 let RSV_VIPROW = [];
+/* Yang dibatalkan SENGAJA tidak ditagih di pita "hilang dari Marketing".
+   Keluhan user 17 September 2026: pitanya menagih "Liya · 10 Sep · Cancelled"
+   padahal Liya 10 Sep SUDAH berdiri di daftar — tamu itu membatalkan pesanan
+   pertamanya lalu memesan lagi di hari yang sama, dan yang hidup memang cuma
+   yang kedua. Ditagih apa adanya, pita merah menyuruh memulihkan baris yang
+   tidak membawa apa-apa: omzetnya nol karena batal, mejanya sudah bebas, dan
+   yang dipulihkan cuma catatan tercoret.
+
+   TIDAK DIBUANG, cuma dilipat: ia tetap kehilangan data, dan kalau suatu hari
+   ada yang perlu melengkapi riwayatnya, daftarnya masih ada di balik satu
+   klik berikut jumlahnya. Membuangnya diam-diam berarti halaman ini berhenti
+   bisa menjawab "berapa yang hilang seluruhnya". */
+let VIP_YATIM_BATAL = false;
+function vipResBatalKah(r){
+  const st=String((r&&r.status)||'').toLowerCase();
+  return st==='cancelled'||st==='no-show'||st==='noshow'||st==='batal';
+}
+function vipYatimBatalToggle(){
+  VIP_YATIM_BATAL=!VIP_YATIM_BATAL;
+  /* Wadahnya saja — halaman ini punya kotak cari yang tidak boleh dibuat
+     ulang, dan menggambar ulang seluruh halaman untuk satu saklar membuang
+     apa yang sedang diketik. */
+  const w=document.getElementById('vip-yatim');
+  if(w) w.innerHTML=vipYatimStrip();
+}
 let RSV_ERR    = '';
 let RSV_MUAT   = false;
 let RSV_SUDAH  = false;
@@ -14722,7 +14747,7 @@ async function rsvSisipkan(buatRecord){
    `ubah(rec)` mengembalikan baris pengganti, atau null untuk MENGHAPUS
    barisnya. Baris yang tidak ketemu bukan kegagalan: reservasinya memang
    sudah tidak ada di sana, dan itu persis keadaan yang kita tuju. */
-async function rsvUbahBaris(resId,ubah){
+async function rsvUbahBaris(resId,ubah,periksa){
   for(let coba=0;coba<6;coba++){
     const d=await rsvAmbil();
     const baseVer=(d&&d._ver!==undefined)?d._ver:null;
@@ -14731,6 +14756,10 @@ async function rsvUbahBaris(resId,ubah){
     data.reservations=(Array.isArray(d.reservations)?d.reservations.slice():[]);
     const idx=data.reservations.findIndex(x=>x&&x.id===resId);
     if(idx<0) return {ok:true,adaBarisnya:false};
+    if(periksa){
+      const sebab=periksa(data,data.reservations[idx]);
+      if(sebab) return {ok:false,batal:true,sebab:sebab};
+    }
     const baru=ubah(Object.assign({},data.reservations[idx]));
     if(baru===null) data.reservations.splice(idx,1);
     else data.reservations[idx]=baru;
@@ -15705,9 +15734,34 @@ function vipYatimStrip(){
       +'masih tercatat di sini. <a href="#" onclick="muatReservasi(true);return false"><b>Coba lagi</b></a></span></div>';
   }
   if(!RSV_SUDAH) return '';
-  const ya=vipYatimList();
-  if(!ya.length) return '';
+  const semua=vipYatimList();
+  if(!semua.length) return '';
   const bolehUbah=can('edit_vip');
+  /* Yang masih HIDUP ditagih; yang sudah dibatalkan dilipat — lihat
+     VIP_YATIM_BATAL untuk sebabnya. */
+  const batal=semua.filter(vipResBatalKah);
+  const ya=semua.filter(function(r){ return !vipResBatalKah(r); });
+  /* Baris lipatannya dipakai DUA jalan keluar di bawah, jadi disusun sekali.
+     Dua penulis untuk satu kalimat akan menyimpang begitu salah satunya
+     diperbaiki. */
+  const lipat=function(){
+    if(!batal.length) return '';
+    return '<div style="margin-top:'+(ya.length?'10px':'0')+'">'
+      +'<a href="#" onclick="vipYatimBatalToggle();return false"><b>'
+      +(VIP_YATIM_BATAL?'Sembunyikan':'Tampilkan')+' '+batal.length+' yang sudah dibatalkan</b></a>'
+      +' <span class="cell-sub">— dibatalkan berarti omzetnya nol dan mejanya sudah bebas, '
+      +'jadi memulihkannya cuma melengkapi catatan.</span>'
+      +(VIP_YATIM_BATAL?vipYatimTabel(batal,bolehUbah):'')+'</div>';
+  };
+  /* TIDAK ADA yang hidup, cuma yang batal: pitanya turun jadi keterangan
+     biasa, bukan blok merah. Blok merah untuk sesuatu yang tidak menuntut
+     tindakan apa pun persis yang membuat peringatan berhenti dibaca. */
+  if(!ya.length){
+    return '<div class="tbl-note" style="display:block">'+svg(IC.alert)
+      +'<span>'+batal.length+' Reservasi VIP yang <b>sudah dibatalkan</b> ada di modul Reservasi '
+      +'tapi tidak ada di daftar ini. Tidak ada omzet yang hilang karenanya.</span>'
+      +lipat()+'</div>';
+  }
   let h='<div class="tbl-note" style="border-color:var(--danger);color:var(--danger);display:block">'
    +'<div style="display:flex;gap:8px;align-items:flex-start">'+svg(IC.alert)
    +'<span><b>'+ya.length+' Reservasi VIP ada di modul Reservasi tapi tidak ada di daftar ini.</b> '
@@ -15715,10 +15769,21 @@ function vipYatimStrip(){
    +'jadi ia juga tidak muncul di Radar, di Performa Omset &amp; Bonus, dan di Breakdown Sumber milik Finance. '
    +'Memulihkannya membaca ulang dari modul Reservasi; <b>nominal omzet &amp; Pengakuan Omset tetap kosong</b> '
    +'karena keduanya memang tidak tercatat di sana.</span></div>'
-   +'<div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr>'
+   +vipYatimTabel(ya,bolehUbah);
+  /* "Pulihkan semuanya" HANYA menyentuh yang masih hidup. Kalau ia ikut
+     menyapu yang dibatalkan, saklar di bawahnya jadi hiasan: yang sengaja
+     dilipat tetap masuk lewat satu tombol yang tidak menyebutkannya. */
+  if(bolehUbah && ya.length>1)
+    h+='<div style="margin-top:10px"><button class="btn sm" onclick="vipPulihkanSemua()">Pulihkan semuanya ('+ya.length+')</button></div>';
+  return h+lipat()+'</div>';
+}
+/* Tabel daftar yatim. Dipakai daftar yang hidup DAN lipatan yang dibatalkan —
+   satu penggambar, supaya kolomnya tidak mungkin berbeda di antara keduanya. */
+function vipYatimTabel(list,bolehUbah){
+  let h='<div class="tbl-wrap" style="margin-top:10px"><table class="tbl"><thead><tr>'
    +'<th>Tanggal</th><th>Atas Nama</th><th>PIC</th><th>Orang</th><th>Meja</th><th>Status</th><th></th>'
    +'</tr></thead><tbody>';
-  ya.forEach(function(r){
+  list.forEach(function(r){
     h+='<tr><td class="mono">'+esc(fmtDate(String(r.date||'').slice(0,10)))
         +'<div class="cell-sub">'+esc(r.time||'—')+'</div></td>'
      +'<td><div class="cell-strong">'+esc(r.name||'(tanpa nama)')+'</div></td>'
@@ -15730,10 +15795,7 @@ function vipYatimStrip(){
         ?'<button class="btn sm pri" onclick="vipPulihkan(\''+escJs(r.id)+'\')">Pulihkan</button>'
         :'<span class="cell-sub">butuh izin ubah</span>')+'</td></tr>';
   });
-  h+='</tbody></table></div>';
-  if(bolehUbah && ya.length>1)
-    h+='<div style="margin-top:10px"><button class="btn sm" onclick="vipPulihkanSemua()">Pulihkan semuanya ('+ya.length+')</button></div>';
-  return h+'</div>';
+  return h+'</tbody></table></div>';
 }
 function vipPulihkanSatu(resId){
   const r=(RSV_VIPROW||[]).find(function(x){ return x && x.id===resId; });
@@ -15757,7 +15819,11 @@ function vipPulihkan(resId){
 }
 function vipPulihkanSemua(){
   if(!can('edit_vip')) return toast('Akses ditolak','Kamu tidak punya izin mengubah Reservasi VIP.','err');
-  const ya=vipYatimList();
+  /* Yang sudah dibatalkan TIDAK ikut, sama dengan daftar yang dipajang
+     tombolnya — tombol yang menyapu lebih banyak daripada yang disebutkan di
+     atasnya membuat angka di layar berhenti bisa dipercaya. Yang ingin
+     memulihkannya menekan tombol Pulihkan di baris lipatannya. */
+  const ya=vipYatimList().filter(function(r){ return !vipResBatalKah(r); });
   if(!ya.length) return;
   konfirmasiVIP('Pulihkan '+ya.length+' Reservasi VIP?',
     'Barisnya dibaca ulang dari modul Reservasi — nama, tanggal, jam, meja, PIC, dan DP-nya. '
@@ -15874,6 +15940,10 @@ function renderVIP(V){
        +'<button class="btn sm" title="Lihat detail & denah meja" onclick="vipDetail(\''+v.id+'\')">'+svg(IC.eye)+'</button>'
        +(bolehUbah&&!v.batalAt?'<button class="btn sm" title="Ubah reservasi" onclick="vipForm(\''+v.id+'\')">'+svg(IC.edit)+'</button>':'')
        +(bolehUbah&&!v.batalAt?'<button class="btn sm" title="Batalkan — meja dilepas, jejaknya tetap ada di Reservasi" onclick="vipBatal(\''+v.id+'\')">'+svg(IC.x)+'</button>':'')
+       /* Kebalikan tombol Batalkan, dan cuma muncul untuk yang memang sudah
+          dibatalkan. Tanpa ini, satu-satunya jalan memulihkan tamu yang berubah
+          pikiran adalah mengetik ulang seluruh reservasinya. */
+       +(bolehUbah&&v.batalAt?'<button class="btn sm" title="Buka kembali — mejanya dikunci lagi di Reservasi" onclick="vipBukaLagi(\''+v.id+'\')">'+svg(IC.check)+'</button>':'')
        +(bolehUbah?'<button class="btn sm danger" title="Hapus permanen dari sini dan dari modul Reservasi" onclick="vipHapus(\''+v.id+'\')">'+svg(IC.trash)+'</button>':'')
      +'</div></td></tr>';
   });
@@ -15921,6 +15991,93 @@ function vipBatal(id){
         toast('Dibatalkan',(v.meja||[]).length?('Meja '+v.meja.join(', ')+' sudah bebas lagi di Reservasi.'):'Reservasi ditandai batal.','ok');
         go('vip');
       }catch(e){ if(btn){btn.disabled=false;btn.textContent='Ya, batalkan';} toast('Gagal membatalkan',e.message,'err'); }
+    });
+}
+/* ---------- BUKA KEMBALI RESERVASI YANG DIBATALKAN (17 September 2026) ----------
+
+   Permintaan user: "jika reservasi yang sudah di batalkan bisa ada tombol di
+   buka kembali". Yang sering terjadi: tamu membatalkan lalu berubah pikiran
+   sehari kemudian, dan satu-satunya jalan sebelum ini adalah MENGETIK ULANG
+   seluruh reservasinya — nama, tanggal, jam, meja, DP — lalu membuang yang
+   lama. Hasilnya dua baris untuk satu tamu, dan yang menghitung omzet bulan
+   itu tidak punya cara tahu mana yang berlaku.
+
+   MEJANYA DIPERIKSA ULANG SEBELUM DIBUKA, dan itu inti fungsi ini. Begitu
+   dibatalkan, mejanya BEBAS (lihat rsvMejaTerpakai) — jadi tamu lain boleh
+   saja sudah memesannya. Dibuka tanpa memeriksa, dua tamu memegang meja yang
+   sama pada jam yang sama dan tidak ada satu pun layar yang mengatakannya.
+   Pemeriksaannya dikerjakan DI DALAM putaran simpan rsvUbahBaris(), bukan
+   sebelumnya: jawaban yang diambil di luar sudah basi begitu percobaan kedua
+   berjalan.
+
+   YANG TIDAK DISENTUH, dan ini disengaja: checkinAt, arrivals, dan leftAt.
+   Ketiganya catatan kru Reservasi tentang tamu yang benar-benar datang, bukan
+   milik Marketing — menghapusnya berarti membuang kejadian yang memang
+   terjadi. Karena itu statusnya dipulihkan MENURUT catatan itu: yang punya
+   jejak check-in kembali jadi 'Datang', sisanya 'Confirmed'. Dipatok
+   'Confirmed' untuk semuanya, tamu yang sudah tercatat hadir berubah jadi
+   "belum datang" di rekap modul Reservasi. */
+function vipStatusPulih(rec){
+  return (rec && (rec.checkinAt || (Array.isArray(rec.arrivals) && rec.arrivals.length)))
+    ? 'Datang' : 'Confirmed';
+}
+function vipBukaLagi(id){
+  const v=(S.vip||[]).find(x=>x.id===id); if(!v)return;
+  if(!can('edit_vip'))return toast('Akses ditolak','Kamu tidak punya izin mengubah Reservasi VIP.','err');
+  if(!v.batalAt) return toast('Tidak dibatalkan','Reservasi ini memang sedang aktif.','err');
+  konfirmasiVIP('Buka kembali reservasi '+esc(v.nama||'')+'?',
+    'Meja <b>'+esc((v.meja||[]).join(', ')||'—')+'</b> pada '+esc(fmtDate(v.tanggal))
+      +' dikunci lagi di modul Reservasi dan tidak bisa dipesan tamu lain.'
+      +(v.jenis==='Assisted'&&vipNominal(v)
+        ?' Nominalnya (<b>'+rp(vipNominal(v))+'</b>) dihitung lagi sebagai omzet '+esc(userName(v.mktPIC))+'.'
+        :'')
+      +'<br><br>Kalau mejanya sudah keburu dipesan tamu lain, pembukaannya <b>ditolak</b> dan '
+      +'meja mana yang bentrok disebutkan — bukan ditimpa diam-diam.',
+    'Ya, buka kembali', 'btn pri', async function(btn){
+      const kembalikan=()=>{ if(btn){btn.disabled=false;btn.textContent='Ya, buka kembali';} };
+      try{
+        let st='Confirmed';
+        if(v.resId){
+          const hasil=await rsvUbahBaris(v.resId,function(rec){
+            st=vipStatusPulih(rec);
+            rec.status=st; rec.updatedAt=Date.now();
+            rec.cancelReason='';
+            rec.notes=String(rec.notes||'')+'\n[Dibuka kembali dari modul Marketing oleh '+(ME?ME.name:'')+']';
+            return rec;
+          },function(d,rec){
+            /* Mejanya sendiri tidak dihitung bentrok — barisnya memang masih ada
+               di sana, cuma berstatus Cancelled. */
+            const terpakai=rsvMejaTerpakai(d,v.tanggal,v.resId,vipJamAtau00(v.jamMulai));
+            const bentrok=(v.meja||[]).filter(m=>terpakai[m]);
+            if(!bentrok.length) return '';
+            return 'Meja '+bentrok.join(', ')+' sudah dipesan tamu lain pada jam itu.';
+          });
+          if(hasil&&hasil.batal){
+            kembalikan();
+            return toast('Tidak bisa dibuka kembali',hasil.sebab
+              +' Batalkan dulu pesanan itu, atau pilih meja lain lewat tombol Ubah.','err');
+          }
+          /* Barisnya sudah tidak ada di modul Reservasi (dihapus di sana).
+             Membuka catatan di sini tanpa mejanya terkunci berarti Marketing
+             menjanjikan meja yang tidak dipesan siapa pun. */
+          if(hasil&&hasil.adaBarisnya===false){
+            kembalikan();
+            return toast('Barisnya tidak ada lagi di Reservasi',
+              'Reservasi ini sudah dihapus di modul Reservasi, jadi mejanya tidak bisa dikunci lagi dari sini. '
+              +'Buat ulang lewat Reservasi VIP Baru.','err');
+          }
+        }
+        delete v.batalAt; delete v.batalOleh;
+        v.dibukaAt=new Date().toISOString(); v.dibukaOleh=(ME?ME.name:'');
+        logAct('vip',v.id,'Reservasi VIP dibuka kembali',
+          v.nama+' · '+fmtDate(v.tanggal)+' · meja '+((v.meja||[]).join(', ')||'—')
+          +(v.resId?' · status di Reservasi: '+st:' · belum pernah dikirim ke Reservasi'));
+        save(); closeModal();
+        toast('Dibuka kembali',(v.meja||[]).length
+          ? ('Meja '+v.meja.join(', ')+' terkunci lagi'+(v.resId?' · status '+st:'')+'.')
+          : 'Reservasi aktif lagi.','ok');
+        go('vip');
+      }catch(e){ kembalikan(); toast('Gagal membuka kembali',e.message,'err'); }
     });
 }
 function vipHapus(id){
@@ -17699,6 +17856,7 @@ function vipDetail(id){
       :v.resId?'<div class="tbl-note" style="margin-top:12px">'+svg(IC.check)+'<span>Sudah tercatat di modul Reservasi — mejanya terkunci untuk seluruh kru.</span></div>'
             :'<div class="tbl-note" style="margin-top:12px">'+svg(IC.alert)+'<span>Belum dikirim ke modul Reservasi.</span></div>')
    +'</div><div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button>'
+   +(can('edit_vip')&&v.batalAt?'<button class="btn pri" onclick="closeModal();vipBukaLagi(\''+v.id+'\')">'+svg(IC.check)+'Buka Kembali</button>':'')
    +(can('edit_vip')&&!v.batalAt?'<button class="btn" onclick="vipForm(\''+v.id+'\')">'+svg(IC.edit)+'Ubah</button>':'')
    +(can('edit_vip')&&v.jenis==='Assisted'&&!v.batalAt?'<button class="btn" onclick="closeModal();vipIsiNominal(\''+v.id+'\')">'+svg(IC.money)+'Isi Nominal</button>':'')
    +(can('edit_vip')&&!v.batalAt?'<button class="btn danger" onclick="vipBatal(\''+v.id+'\')">Batalkan</button>':'')

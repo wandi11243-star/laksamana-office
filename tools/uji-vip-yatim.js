@@ -93,6 +93,23 @@ const RES = [
     createdAt: 1787000000000, updatedAt: 1787000000000, dps: [],
     notes: 'RESERVASI RUANG VIP (Regular)\nTV: Tidak · Speaker & Mic: Tidak\nDari modul Marketing — PIC Aurel Erbakan' },
 
+  /* DIBATALKAN TAPI SUDAH SEMPAT DATANG. Dibuka kembali, statusnya wajib
+     pulih jad 'Datang' — bukan 'Confirmed', yang membuat tamu yang sudah
+     tercatat hadir berubah jadi "belum datang" di rekap modul Reservasi. */
+  { id: 'vip-V_HADIR', name: 'Sudah Sempat Datang', phone: '0899', date: '2026-09-14', time: '19:00',
+    pax: 4, table: '21', vip: true, status: 'Cancelled', picName: 'Devani Azahra',
+    checkinAt: 1789300000000, arrivals: [{ ts: 1789300000000, pax: 4, by: 'Kru' }],
+    createdAt: 1789200000000, updatedAt: 1789310000000, dps: [],
+    notes: 'RESERVASI RUANG VIP (Assisted)\nTV: Tidak · Speaker & Mic: Tidak\nDari modul Marketing — PIC Devani Azahra' },
+
+  /* PESAING MEJA. Hidup, di tanggal & jam yang sama dengan Angela, dan memakai
+     salah satu mejanya (R3). Begitu Angela dibatalkan mejanya BEBAS, jadi
+     bentuk ini memang terjadi — dan membuka Angela kembali tanpa memeriksa
+     berarti dua tamu memegang R3 pada jam yang sama. */
+  { id: 'r_bentrok', name: 'Tamu Lain', date: '2026-09-12', time: '11:00', pax: 6,
+    table: 'R3', vip: false, status: 'Confirmed', picName: '', createdAt: 1789210000000,
+    updatedAt: 1789210000000, dps: [], notes: '' },
+
   { id: 'r_manual', name: 'VIP Diketik di Reservasi', date: '2026-09-19', time: '20:00',
     pax: 6, table: 'VIP 1', vip: true, status: 'Confirmed', picName: 'Kru Reservasi',
     createdAt: 1789400000000, updatedAt: 1789400000000, dps: [], notes: 'ditulis langsung di modul Reservasi' },
@@ -121,7 +138,7 @@ function buka(opsi) {
     const t = String((e && e.detail && e.detail.stack) || (e && e.message) || e);
     if (!/Not implemented|Could not parse CSS/.test(t)) console.log('  !! ' + t.split('\n')[0]);
   });
-  const jejak = { simpan: 0, payload: null, rsv: 0 };
+  const jejak = { simpan: 0, payload: null, rsv: 0, rsvTulis: 0, rsvPayload: null };
   const dom = new JSDOM(html, { virtualConsole: vc, runScripts: 'dangerously',
     url: 'https://dev.laksamanamuda.id/marketing/',
     beforeParse(w) {
@@ -140,9 +157,14 @@ function buka(opsi) {
   w.fetch = (url, opts) => {
     const u = String(url || '');
     if (u.indexOf('reservasi-api-mysql') > -1) {
+      /* Tulisan balik ke modul Reservasi DICATAT, bukan ditelan: yang
+         membedakan "ditolak" dari "diterima diam-diam" adalah ADA-TIDAKNYA
+         kiriman ini, bukan pesan di layar. */
+      let b = {}; try { b = JSON.parse((opts && opts.body) || '{}'); } catch (e) {}
+      if (b.action === 'saveAll') { jejak.rsvTulis++; jejak.rsvPayload = b.data; return balas({ ok: true, data: {} }); }
       jejak.rsv++;
       if (opsi.rsvGagal) return Promise.reject(new Error('Modul Reservasi tidak menjawab.'));
-      return balas({ ok: true, data: { reservations: RES, master: {}, _ver: 1 } });
+      return balas({ ok: true, data: { reservations: (opsi.res || RES), master: {}, _ver: 1 } });
     }
     let b = {}; try { b = JSON.parse((opts && opts.body) || '{}'); } catch (e) {}
     if (b.action === 'saveAll') { jejak.simpan++; jejak.payload = b.data; }
@@ -163,6 +185,7 @@ function buka(opsi) {
 const tunggu = ms => new Promise(r => setTimeout(r, ms));
 const strip = w => (w.document.getElementById('vip-yatim') || { innerHTML: '' }).innerHTML;
 const vipS = w => JSON.parse(w.eval('JSON.stringify(S.vip)'));
+const toastTeks = w => { const n = w.document.querySelectorAll('#toasts .toast'); return n.length ? n[n.length-1].textContent : ''; };
 
 (async () => {
 
@@ -174,10 +197,20 @@ sama('strip kosong sebelum Reservasi menjawab', strip(w).trim(), '');
 await tunggu(200);
 const h1 = strip(w);
 cek('Reservasi dibaca sekali', jejak.rsv === 1, 'rsv=' + jejak.rsv);
-cek('melaporkan 3 yang hilang', /3 Reservasi VIP ada di modul Reservasi/.test(h1), h1.slice(0, 200));
+/* YANG DIBATALKAN TIDAK IKUT DITAGIH (permintaan user 17 September 2026).
+   Keluhannya konkret: pitanya menagih "Liya · Cancelled" padahal Liya sudah
+   berdiri di daftar — tamunya membatalkan lalu memesan lagi, dan yang hidup
+   memang cuma yang kedua. Memulihkan yang batal tidak membawa omzet apa pun. */
+cek('melaporkan 2 yang hilang DAN MASIH HIDUP', /2 Reservasi VIP ada di modul Reservasi/.test(h1), h1.slice(0, 200));
 cek('menyebut Nana', /Nana Istana Bayi Panam/.test(h1));
-cek('menyebut Angela (yang dibatalkan)', /Angela/.test(h1));
+cek('TIDAK menagih Angela yang sudah dibatalkan', !/Angela/.test(h1), 'Angela muncul di pita utama');
+cek('TIDAK menagih yang batal walau pernah datang', !/Sudah Sempat Datang/.test(h1));
 cek('menyebut Mas Danny (Regular)', /Mas Danny/.test(h1));
+/* TIDAK DIBUANG, cuma dilipat: jumlahnya tetap disebut, dan daftarnya ada di
+   balik satu klik. Dibuang diam-diam, halaman ini berhenti bisa menjawab
+   "berapa yang hilang seluruhnya". */
+cek('yang dibatalkan tetap dihitung dan bisa dibuka', /Tampilkan 2 yang sudah dibatalkan/.test(h1), h1.slice(-600));
+cek('...dan sebabnya dikatakan', /omzetnya nol dan mejanya sudah bebas/.test(h1));
 cek('TIDAK menyebut yang sudah tercatat', !/Sudah Tercatat/.test(h1));
 /* Booking yang diketik langsung di modul Reservasi BUKAN milik Marketing:
    melaporkannya berarti menyuruh orang "memulihkan" baris yang memang tidak
@@ -186,6 +219,22 @@ cek('TIDAK menyebut VIP yang diketik di modul Reservasi', !/VIP Diketik di Reser
 cek('TIDAK menyebut reservasi biasa', !/Tamu Biasa/.test(h1));
 cek('menyebut akibatnya di Radar & Finance', /Radar/.test(h1) && /Breakdown Sumber/.test(h1));
 cek('mengatakan nominal tetap kosong', /nominal omzet &amp; Pengakuan Omset tetap kosong/i.test(h1), h1.slice(0, 400));
+
+aman('saklar yang dibatalkan', () => {
+  w.eval('vipYatimBatalToggle()');
+  const buka = strip(w);
+  cek('dibuka: Angela muncul', /Angela/.test(buka), buka.slice(-800));
+  cek('...berikut tombol Pulihkannya', /vipPulihkan\('vip-V_BATAL'\)/.test(buka));
+  cek('...dan saklarnya berubah jadi Sembunyikan', /Sembunyikan 2 yang sudah dibatalkan/.test(buka));
+  const kotak = w.document.getElementById('vip-cari');
+  w.eval('vipYatimBatalToggle()');
+  cek('ditutup lagi: Angela hilang lagi', !/Angela/.test(strip(w)));
+  cek('kotak cari TIDAK dibuat ulang oleh saklarnya',
+      !!kotak && w.document.getElementById('vip-cari') === kotak, 'elemennya berganti');
+});
+/* Tombol "Pulihkan semuanya" hanya menyentuh yang hidup — kalau ia ikut
+   menyapu yang dibatalkan, saklar di atasnya jadi hiasan. */
+cek('tombol "Pulihkan semuanya" menyebut 2, bukan 4', /Pulihkan semuanya \(2\)/.test(h1), 'angkanya salah');
 
 /* ================= 2. pengurai catatan ================= */
 console.log('-- membaca kembali catatan modul Reservasi --');
@@ -242,7 +291,7 @@ aman('DP ikut pulih', () => {
   cek('total DP terbaca', w.eval('vipDpTotal(S.vip.find(x=>x.id==="V_HILANG"))') === 500000);
 });
 const h2 = strip(w);
-cek('sesudah dipulihkan tinggal 2 yang hilang', /2 Reservasi VIP ada di modul Reservasi/.test(h2), h2.slice(0, 160));
+cek('sesudah dipulihkan tinggal 1 yang hilang', /1 Reservasi VIP ada di modul Reservasi/.test(h2), h2.slice(0, 160));
 cek('Nana tidak lagi disebut hilang', !/Nana Istana Bayi Panam/.test(h2));
 cek('pita "belum ada nominalnya" ikut menagih', /belum ada nominalnya/.test(w.document.getElementById('view').innerHTML));
 
@@ -279,7 +328,15 @@ const vr = vipS(w).find(x => x.id === 'V_REG');
 sama('jenisnya Regular', vr && vr.jenis, 'Regular');
 sama('PIC-nya Aurel', vr && vr.mktPIC, 'u-aurel');
 sama('Regular tidak pernah punya nominal', w.eval('vipNominal(S.vip.find(x=>x.id==="V_REG"))'), 0);
-cek('strip hilang setelah semuanya pulih', strip(w).trim() === '', strip(w).slice(0, 120));
+/* Yang tersisa cuma yang dibatalkan: pitanya turun jadi keterangan biasa,
+   BUKAN blok merah. Blok merah untuk sesuatu yang tidak menuntut tindakan apa
+   pun persis yang membuat peringatan berhenti dibaca. */
+{
+  const sisa = strip(w);
+  cek('tidak ada lagi blok merah', sisa.indexOf('var(--danger)') < 0, sisa.slice(0, 200));
+  cek('...tapi yang dibatalkan tetap disebut', /sudah dibatalkan<\/b> ada di modul Reservasi/.test(sisa), sisa.slice(0, 300));
+  cek('...dan dikatakan tidak ada omzet yang hilang', /Tidak ada omzet yang hilang/.test(sisa));
+}
 
 /* ================= 6. Reservasi tidak terbaca ================= */
 console.log('-- modul Reservasi tidak menjawab --');
@@ -302,9 +359,127 @@ const h4 = strip(b3.w);
 /* Aturan yang SAMA dengan daftar di bawahnya. Kalau pita ini melewatinya,
    yang berperan marketing melihat booking rekannya di layar yang justru
    dipotong supaya ia tidak melihatnya. */
-cek('melaporkan 2 miliknya sendiri', /2 Reservasi VIP ada di modul Reservasi/.test(h4), h4.slice(0, 160));
+cek('melaporkan 1 miliknya sendiri yang masih hidup', /1 Reservasi VIP ada di modul Reservasi/.test(h4), h4.slice(0, 160));
 cek('menyebut miliknya (Nana)', /Nana Istana Bayi Panam/.test(h4));
 cek('TIDAK menyebut milik Aurel (Mas Danny)', !/Mas Danny/.test(h4));
+
+/* ================= 7b. "Pulihkan semuanya" hanya yang masih hidup ========= */
+console.log('-- pulihkan semuanya --');
+{
+  const b5 = buka();
+  b5.w.eval("go('vip')");
+  await tunggu(200);
+  b5.w.eval('vipPulihkanSemua()');
+  await tunggu(30);
+  const btn = b5.w.document.getElementById('vip_konfirm_btn');
+  cek('konfirmasi muncul', !!btn);
+  if (btn) btn.onclick();
+  await tunggu(200);
+  const id = vipS(b5.w).map(x => x.id).sort();
+  cek('yang masih hidup dipulihkan', id.indexOf('V_HILANG') > -1 && id.indexOf('V_REG') > -1, JSON.stringify(id));
+  /* Yang dibatalkan TIDAK ikut tersapu: kalau ikut, saklar "tampilkan yang
+     sudah dibatalkan" jadi hiasan — yang sengaja dilipat tetap masuk lewat
+     satu tombol yang tidak menyebutkannya. */
+  cek('yang dibatalkan TIDAK ikut tersapu',
+      id.indexOf('V_BATAL') < 0 && id.indexOf('V_HADIR') < 0, JSON.stringify(id));
+  cek('...dan tetap dilaporkan sebagai yang dibatalkan',
+      /2 Reservasi VIP yang <b>sudah dibatalkan<\/b>/.test(strip(b5.w)), strip(b5.w).slice(0, 220));
+}
+
+/* ================= 8. buka kembali yang dibatalkan =================
+   Permintaan user 17 September 2026: "jika reservasi yang sudah di batalkan
+   bisa ada tombol di buka kembali".
+
+   YANG DIJAGA DI SINI BUKAN TOMBOLNYA, melainkan mejanya. Begitu dibatalkan,
+   meja sebuah reservasi BEBAS — tamu lain boleh sudah memesannya. Dibuka tanpa
+   memeriksa, dua tamu memegang meja yang sama pada jam yang sama, dan tidak
+   ada satu pun layar yang mengatakannya. */
+console.log('-- buka kembali --');
+/* Tombolnya hanya untuk yang memang dibatalkan. */
+aman('tombol di daftar', () => {
+  const v = (w.document.getElementById('view') || { innerHTML: '' }).innerHTML;
+  cek('baris yang dibatalkan menawarkan Buka kembali', /vipBukaLagi\('V_BATAL'\)/.test(v), 'tombolnya tidak ada');
+  cek('baris yang AKTIF tidak menawarkannya', !/vipBukaLagi\('V_HILANG'\)/.test(v), 'muncul di baris yang aktif');
+  cek('baris yang dibatalkan tidak menawarkan Batalkan lagi', !/vipBatal\('V_BATAL'\)/.test(v));
+});
+
+/* ---- A. MEJANYA SUDAH DIPESAN ORANG LAIN -> DITOLAK ----
+   Angela memakai R3 & R5 pada 12 Sep 11:00, dan "Tamu Lain" sudah memegang R3
+   pada jam yang sama. Yang dijaga: TIDAK ADA tulisan yang berangkat ke modul
+   Reservasi — bukan sekadar ada pesan di layar. */
+{
+  const sebelum = jejak.rsvTulis;
+  w.eval("vipBukaLagi('V_BATAL')");
+  await tunggu(30);
+  const btn = w.document.getElementById('vip_konfirm_btn');
+  cek('konfirmasi muncul', !!btn);
+  if (btn) btn.onclick();
+  await tunggu(400);
+  sama('tidak ada tulisan yang berangkat ke Reservasi', jejak.rsvTulis, sebelum);
+  const v = vipS(w).find(x => x.id === 'V_BATAL');
+  cek('tetap berstatus batal', !!(v && v.batalAt), JSON.stringify(v && v.batalAt));
+  cek('meja yang bentrok disebutkan namanya', /R3/.test(toastTeks(w)),
+      toastTeks(w));
+}
+
+/* ---- B. MEJANYA BEBAS -> DIBUKA, dan statusnya PULIH MENURUT CATATANNYA ---- */
+w.eval("vipPulihkan('vip-V_HADIR')");
+{
+  const v0 = vipS(w).find(x => x.id === 'V_HADIR');
+  cek('yang dibatalkan pulih sebagai batal', !!(v0 && v0.batalAt));
+  const sebelum = jejak.rsvTulis;
+  w.eval("vipBukaLagi('V_HADIR')");
+  await tunggu(30);
+  const btn = w.document.getElementById('vip_konfirm_btn');
+  if (btn) btn.onclick();
+  await tunggu(500);
+  cek('tulisannya berangkat ke Reservasi', jejak.rsvTulis > sebelum, 'rsvTulis=' + jejak.rsvTulis);
+  const rec = ((jejak.rsvPayload || {}).reservations || []).find(x => x && x.id === 'vip-V_HADIR');
+  aman('baris di Reservasi', () => {
+    cek('barisnya ikut terkirim', !!rec, JSON.stringify(((jejak.rsvPayload || {}).reservations || []).map(x => x.id)));
+    /* 'Datang', BUKAN 'Confirmed'. Dipatok Confirmed, tamu yang sudah tercatat
+       hadir berubah jadi "belum datang" di rekap modul Reservasi. */
+    sama('statusnya pulih jadi Datang', rec && rec.status, 'Datang');
+    /* Catatan kru Reservasi TIDAK dihapus — itu kejadian yang memang terjadi,
+       dan bukan milik Marketing untuk dibuang. */
+    sama('jejak check-in tidak dihapus', rec && rec.checkinAt, 1789300000000);
+    sama('daftar kedatangan tidak dihapus', rec && (rec.arrivals || []).length, 1);
+    cek('jejak pembukaannya ditulis di catatan', /Dibuka kembali dari modul Marketing/.test(String(rec && rec.notes)));
+  });
+  const v = vipS(w).find(x => x.id === 'V_HADIR');
+  aman('baris di Marketing', () => {
+    cek('penanda batal dicabut', !(v && v.batalAt), JSON.stringify(v && v.batalAt));
+    cek('siapa yang membukanya dicatat', !!(v && v.dibukaOleh), JSON.stringify(v && v.dibukaOleh));
+  });
+  cek('tercatat di activities', /Reservasi VIP dibuka kembali/.test(w.eval('JSON.stringify(S.activities.map(function(a){return a.action;}))')));
+}
+
+/* ---- C. BARISNYA SUDAH TIDAK ADA DI RESERVASI -> DITOLAK ----
+   Membuka catatan di sini tanpa mejanya terkunci berarti Marketing
+   menjanjikan meja yang tidak dipesan siapa pun di modul sebelah. */
+{
+  w.eval("S.vip.unshift({id:'V_YATIM',jenis:'Assisted',nama:'Sudah Dihapus di Reservasi',tanggal:'2026-09-20'," +
+         "jamMulai:'19:00',paxMin:4,meja:['R6'],mktPIC:'u-devani',resId:'vip-TIDAK-ADA'," +
+         "batalAt:'2026-09-01T00:00:00.000Z',batalOleh:'x'})");
+  const sebelum = jejak.rsvTulis;
+  w.eval("vipBukaLagi('V_YATIM')");
+  await tunggu(30);
+  const btn = w.document.getElementById('vip_konfirm_btn');
+  if (btn) btn.onclick();
+  await tunggu(400);
+  sama('tidak menulis apa pun ke Reservasi', jejak.rsvTulis, sebelum);
+  const v = vipS(w).find(x => x.id === 'V_YATIM');
+  cek('tetap berstatus batal', !!(v && v.batalAt));
+  cek('sebabnya dikatakan', /tidak ada lagi di Reservasi/i.test(toastTeks(w)),
+      toastTeks(w));
+}
+
+/* ---- D. penentu statusnya, sebagai unit ---- */
+aman('vipStatusPulih', () => {
+  sama('tanpa jejak hadir -> Confirmed', w.eval("vipStatusPulih({})"), 'Confirmed');
+  sama('ada checkinAt -> Datang', w.eval("vipStatusPulih({checkinAt:1})"), 'Datang');
+  sama('ada arrivals -> Datang', w.eval("vipStatusPulih({arrivals:[{pax:1}]})"), 'Datang');
+});
 
 console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
 process.exit(gagal ? 1 : 0);

@@ -9013,13 +9013,84 @@ modul Reservasi dan memajang pita berisi yang hilang, berikut tombol
   Konten.
 
 ```bash
-node tools/uji-vip-yatim.js   # 60 pemeriksaan, jsdom
+node tools/uji-vip-yatim.js   # 98 pemeriksaan, jsdom
 ```
 
 Empat belas mutasi dicoba, keempat belasnya tertangkap. Dua mutasi lain
 **EKUIVALEN** dan bukan cacat uji: mencabut penjaga awalan `vip-` di salah satu
 dari dua tempatnya tidak mengubah apa pun selama yang lain berdiri — dicabut
 KEDUANYA, ujinya merah.
+
+##### Yang sudah DIBATALKAN berhenti ditagih — dilipat, bukan dibuang (17 Sep)
+
+Keluhan user beberapa jam sesudah pitanya naik: ia menagih *"Liya · Kam, 10 Sep
+2026 · Cancelled"* padahal **Liya 10 Sep sudah berdiri di daftar**. Keduanya
+memang dua reservasi berbeda — tamunya membatalkan pesanan pertama
+(`vip_91lwm37`, 7 Sep) lalu memesan lagi di hari yang sama (`vip_w8efd13`,
+8 Sep), dengan jam & meja yang sama persis — dan yang hidup memang cuma yang
+kedua.
+
+**Ditagih apa adanya, pita MERAH menyuruh memulihkan baris yang tidak membawa
+apa pun:** omsetnya nol karena batal, mejanya sudah bebas, dan yang dipulihkan
+cuma catatan tercoret. Peringatan yang menuntut tindakan tanpa guna persis yang
+membuat peringatan berikutnya berhenti dibaca.
+
+- **DILIPAT, BUKAN DIBUANG.** Jumlahnya tetap disebut dan daftarnya ada di
+  balik satu klik (`VIP_YATIM_BATAL`). Dibuang diam-diam, halaman ini berhenti
+  bisa menjawab *"berapa yang hilang seluruhnya"* — dan Angela, yang nominalnya
+  sempat diisi Rp5.808.750, tidak akan pernah bisa dilengkapi lagi.
+- **Yang tersisa cuma batal → pitanya TURUN jadi keterangan biasa**, bukan blok
+  merah. Blok merah untuk sesuatu yang tidak menuntut tindakan apa pun adalah
+  cara tercepat melatih orang mengabaikannya.
+- **"Pulihkan semuanya" HANYA menyentuh yang masih hidup**, dan angkanya
+  menyebut jumlah itu. Kalau ia ikut menyapu yang dilipat, saklarnya jadi
+  hiasan: yang sengaja disembunyikan tetap masuk lewat satu tombol yang tidak
+  menyebutkannya. **Diuji dengan MENGKLIK tombolnya** — asersi yang cuma
+  membaca daftarnya LOLOS di putaran pertama.
+- **Saklarnya menggambar ulang WADAHNYA** (`#vip-yatim`), bukan halaman: kotak
+  "Cari nama, perusahaan…" berdiri di halaman yang sama.
+- `vipYatimTabel()` **satu penggambar** untuk daftar yang hidup dan lipatan yang
+  dibatalkan — dua penggambar akan menyimpang kolomnya.
+
+##### Reservasi VIP yang dibatalkan bisa DIBUKA KEMBALI (17 September 2026)
+
+Permintaan user: *"jika reservasi yang sudah di batalkan bisa ada tombol di buka
+kembali"*. Sebelum ini satu-satunya jalan untuk tamu yang berubah pikiran adalah
+**mengetik ulang seluruh reservasinya** — nama, tanggal, jam, meja, DP — lalu
+membuang yang lama; hasilnya dua baris untuk satu tamu, dan yang menghitung
+omzet bulan itu tidak punya cara tahu mana yang berlaku.
+
+**MEJANYA DIPERIKSA ULANG SEBELUM DIBUKA, dan itu inti fungsinya.** Begitu
+dibatalkan, mejanya **BEBAS** (lihat `rsvMejaTerpakai`) — jadi tamu lain boleh
+saja sudah memesannya. Dibuka tanpa memeriksa, dua tamu memegang meja yang sama
+pada jam yang sama dan tidak ada satu pun layar yang mengatakannya.
+
+- **Pemeriksaannya DI DALAM putaran simpan `rsvUbahBaris()`**, lewat argumen
+  ketiga `periksa(data, rec)` yang baru. Diperiksa di luar, jawabannya sudah
+  basi begitu percobaan kedua berjalan: meja yang kosong saat diperiksa bisa
+  keburu diambil di sela-sela conflict/retry. Aturan yang sama dengan
+  `rsvSisipkan()`. Memulangkan string alasan = BATAL; pemanggil lama tidak
+  mengirim argumen ketiga, jadi jalurnya tidak berubah sama sekali.
+- **`checkinAt`, `arrivals`, dan `leftAt` TIDAK DISENTUH.** Ketiganya catatan
+  kru Reservasi tentang tamu yang benar-benar datang — menghapusnya berarti
+  membuang kejadian yang memang terjadi, dan itu bukan milik Marketing. Aturan
+  yang sama dengan "yang sudah Datang tidak boleh dihapus dari sini".
+- **Statusnya dipulihkan MENURUT catatan itu** (`vipStatusPulih`): yang punya
+  jejak check-in kembali jadi **`Datang`**, sisanya `Confirmed`. Dipatok
+  Confirmed untuk semuanya, tamu yang sudah tercatat hadir berubah jadi "belum
+  datang" di rekap modul Reservasi.
+- **Barisnya yang sudah DIHAPUS di modul Reservasi ditolak.** Membuka catatan di
+  sini tanpa mejanya terkunci berarti Marketing menjanjikan meja yang tidak
+  dipesan siapa pun di modul sebelah.
+- **Yang dijaga uji ADA-TIDAKNYA KIRIMAN ke modul Reservasi**, bukan pesan di
+  layar — itu satu-satunya yang bisa membedakan "ditolak" dari "diterima
+  diam-diam".
+- Tombolnya di daftar **dan** di layar detail, dan **hanya** untuk yang memang
+  dibatalkan.
+
+Empat belas mutasi dicoba untuk kedua bagian ini, keempat belasnya tertangkap —
+dua di antaranya baru sesudah asersinya ditambah (tombol "Pulihkan semuanya"
+yang tidak pernah diklik, dan saklar yang menggambar ulang seluruh halaman).
 
 ##### `uji-vip-radar.js` ternyata sudah MERAH sejak 13 September, dan itu cacat uji
 
