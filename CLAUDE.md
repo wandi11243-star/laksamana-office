@@ -4986,6 +4986,105 @@ sesudah fixture-nya dibetulkan, dan bentuknya sudah punya nama di berkas ini:
 > Ditulis sama persis, penggabungannya tidak menuntut perapian tautan sama
 > sekali dan mutasi yang mencabut `videoRapi()` lolos tanpa bunyi.
 
+#### Putaran kedua: Reports dicabut, Kru pindah ke Pengaturan, saklar yang tak terbaca
+
+Empat permintaan user berikutnya di hari yang sama, dan yang terakhir **bug
+yang lahir dari putaran pertama**.
+
+**1. Halaman Reports DICABUT — ketiga tombol ekspornya PINDAH ke Pengaturan.**
+`exportCSV()` tetap utuh dan tetap **satu-satunya** jalan mengeluarkan rekap
+konten & performa dari modul ini; dibuang bersama halamannya, ia jadi kode
+mati yang tidak bisa dicapai siapa pun dan yang membacanya berikutnya akan
+mengira ekspornya memang tidak pernah ada.
+
+- **Yang memang hilang tidak pernah berisi apa-apa.** Tiga kartu ringkas dan
+  tabel Rekap per Brand di halaman itu membaca `c.metrics` — bentuk lama yang
+  **tidak pernah punya penulis** (lihat blok Performa Konten di atas), jadi
+  kolom Reach, Avg ER, dan Follower Growth di sana selalu berbunyi nol. Yang
+  menggantikannya halaman Performa Konten, yang membaca `c.perf`.
+- `reports` masuk **`PERM_MODULES_PENSIUN`**, bukan dihapus dari `DB.perms`.
+
+**2. Kolom Skill, Beban, dan Ketersediaan dicabut dari tabel Kru.** Datanya
+TIDAK ikut: `capacity` / `skills` / `avail` / `workHours` tetap bisa disunting
+lewat tombol Kelola, tetap terbaca di halaman Profil, dan tetap ikut di berkas
+Ekspor Tim (CSV).
+
+> **SEKARANG TIDAK ADA SATU LAYAR PUN yang menyebut utilisasi kru**, dan itu
+> memang yang diminta. Halaman Workload dicabut beberapa jam sebelumnya dengan
+> alasan "angkanya pindah ke kolom Beban" — lalu kolom itu ikut dicabut. Kalau
+> suatu hari dibutuhkan lagi, yang perlu dikembalikan **kolomnya**, bukan
+> halamannya: angkanya cuma `pct(tugas aktif, capacity)`, dan `capacity`-nya
+> masih tersimpan. Komentar di bekas `VIEWS.workload` sudah dibetulkan —
+> komentar yang menjanjikan kolom yang tidak ada lagi lebih berbahaya daripada
+> tidak ada komentar.
+
+**3. Kru & Rangkap Kerja digabung ke Pengaturan** sebagai satu kartu.
+Penggambarnya tetap `gambarTeamTabel()` yang sama — dua penggambar untuk satu
+tabel akan menyimpang begitu salah satunya diperbaiki.
+
+- **KARTUNYA DISARING SENDIRI-SENDIRI, dan itu yang paling menentukan.**
+  Pengaturan dijaga kunci `settings` (bawaannya **Super Admin saja**)
+  sementara daftar kru dijaga kunci `team` (Super Admin + **Content
+  Director**). Digabung begitu saja, Content Director **kehilangan** daftar kru
+  yang selama ini boleh ia buka — pencabutan hak yang tidak pernah diminta
+  siapa pun, dan tidak ada satu pun galat yang menyebutkannya. `canView()`
+  karena itu meloloskan `settings` untuk pemegang `team`, dan `VIEWS.settings`
+  menggambar tiap kartu menurut kuncinya masing-masing.
+- Yang tidak berhak atas keduanya **tidak dibiarkan menatap layar kosong** —
+  ia diberi keterangan siapa yang harus dimintai akses.
+- `route('team')` di `saveUser()` dan di pencarian global ikut diarahkan ke
+  `settings`. Yang tertinggal tidak melempar — ia cuma mendarat di halaman
+  "Segera hadir".
+
+**4. SAKLAR YANG SEDANG AKTIF TIDAK TERBACA** (dilaporkan user, dengan
+tangkapan layar saklar Top Konten). Bug ini lahir dari kurungan `#pk-wrap` yang
+dipasang di putaran pertama:
+
+```
+#pk-wrap .seg button       { background:transparent }   kekhususan (1,1,1)
+.seg button.on             { background:var(--gold); color:var(--txt-inv) }   (0,2,1)
+```
+
+Latar emasnya **kalah** karena kekhususan aturan berkurung lebih tinggi,
+sementara `color:var(--txt-inv)` dari aturan modul **tetap berlaku** — jadi
+tombol yang sedang dipilih berbunyi **putih di atas latar terang**, dan yang
+melihatnya mengira menunya rusak. Yang menutupnya satu baris di dalam kurungan
+yang sama (`#pk-wrap .seg button.on, #pk-wrap .seg button.active`).
+
+- **Kelas `on` DAN `active` dua-duanya ditulis** karena aset ini memberi
+  keduanya sekaligus: modul Konten memakai `.on`, modul Analytics memakai
+  `.active`. Satu berkas, dua tuan rumah.
+- **Pelajaran yang lebih besar: kurungan `#pk-wrap` menaikkan kekhususan
+  SELURUH aturannya di atas milik modul tuan rumah.** Aturan yang cuma
+  bermaksud "netralkan border tombol" ikut mematikan latar yang disetel modul.
+  Yang menyalin pola ini ke modul berikutnya harus ikut menyalin baris
+  keadaan-aktifnya.
+
+```bash
+node tools/uji-revisi-konten.js   # 109 pemeriksaan (dari 76)
+```
+
+> **ASERSI CSS-NYA LEWAT `background`, BUKAN `backgroundColor`.** jsdom tidak
+> bisa menghitung `var()` dan menormalkan `backgroundColor` jadi
+> `rgba(0,0,0,0)` **apa pun aturan yang menang** — jadi asersi lewat
+> `backgroundColor` hijau untuk kode yang rusak maupun yang benar. Shorthand
+> `background` memulangkan nilai mentah `var(--gold)` dari aturan yang benar-
+> benar menang, dan itulah satu-satunya yang membedakan keduanya. Kekhususan
+> sendiri **memang** dihitung jsdom dengan benar; yang tidak didukung cuma
+> `var()`.
+
+**Lima belas mutasi dicoba, kelima belasnya tertangkap** — satu baru sesudah
+fixture-nya dibetulkan, dan bentuknya sudah punya nama di berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| `reports` tidak disaring dari matriks hak akses | **cacat fixture** — `DB.perms` data uji memang tidak pernah punya kunci itu, jadi asersinya hijau apa pun keputusan kodenya | `DB.perms.reports` disuntikkan lebih dulu, sama dengan yang sudah dilakukan untuk `bank` |
+
+> Satu asersi lain juga menuntut fixture yang tepat: tanpa **satu konten tayang
+> berikut angka performanya**, halaman Performa Konten berhenti di pita "belum
+> ada angka performa" dan saklar urutannya tidak pernah digambar — asersi
+> tombol aktifnya lalu menguji tombol yang tidak ada.
+
 ### Reservasi: siapa yang terakhir mengubah denah (4 September 2026)
 
 Permintaan user. Capnya **menempel di objek denahnya** (`_editBy`, `_editAt`

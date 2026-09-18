@@ -407,6 +407,17 @@ tbody tr:last-child td{border-bottom:none}
 #pk-wrap td.num,#pk-wrap th.num{text-align:right;font-variant-numeric:tabular-nums}
 #pk-wrap .seg{margin-bottom:14px;flex-wrap:wrap}
 #pk-wrap .seg button{border:none;background:transparent;cursor:pointer;font-family:inherit}
+/* TOMBOL YANG SEDANG AKTIF WAJIB DIWARNAI ULANG DI SINI. Aturan di atasnya
+   menyetel background:transparent dengan kekhususan (1,1,1) — lebih tinggi
+   daripada .seg button.on milik modul ini (0,2,1) — jadi latar emasnya kalah
+   sementara color:var(--txt-inv) dari aturan modul TETAP berlaku. Hasilnya
+   tulisan PUTIH di atas latar terang: tombol yang sedang dipilih jadi tidak
+   terbaca sama sekali, dan yang melihatnya mengira menunya rusak. Dilaporkan
+   user 18 September 2026 di saklar Top Konten.
+   Kelas "on" DAN "active" dua-duanya ditulis: aset ini memberi kedua kelas sekaligus
+   supaya satu berkas bisa dipakai modul Konten (.on) maupun Analytics
+   (.active), dan yang menyalin blok ini ke modul lain harus tetap aman. */
+#pk-wrap .seg button.on,#pk-wrap .seg button.active{background:var(--gold);color:var(--txt-inv);font-weight:700}
 #pk-wrap .notice{padding:11px 14px;border-radius:var(--r-sm);font-size:12.5px;font-weight:500;margin-bottom:14px;display:flex;gap:9px;align-items:flex-start;line-height:1.55}
 #pk-wrap .notice.ok{background:var(--ok-bg);color:var(--ok)}
 #pk-wrap .notice.warn{background:var(--warn-bg);color:var(--warn)}
@@ -818,7 +829,7 @@ const KONTEN_DEFAULT_ROLES = ['content_planner'];
 
 // PERM_NONE/VIEW/EDIT: sama pola dengan reservasi. Modul yang tak punya aksi
 // can() nyata (shooting, design, editing, team, settings, dan
-// analytics/reports/activity yang ditambah di bawah) murni dashboard/daftar —
+// analytics/activity yang ditambah di bawah) murni dashboard/daftar —
 // Lihat & Ubah berlaku sama di situ karena tak ada yang dikunci Ubah-nya.
 const PERM_NONE=0, PERM_VIEW=1, PERM_EDIT=2;
 const PERM_OPT=[['0','Tak Terlihat','None'],['1','Lihat','Lihat'],['2','Boleh Ubah','Ubah']];
@@ -867,14 +878,13 @@ const VIEW_PERM={
      dijaga can('analytics') (butuh tingkat Ubah); yang cuma membaca cukup Lihat. */
   perfinput:'analytics', designperf:'analytics',
   ads:'ads', chats:'ads', kol:'kol',
-  team:'team',
-  reports:'reports', activity:'activity', settings:'settings'
+  activity:'activity', settings:'settings'
 };
-// Beberapa modul di VIEW_PERM belum ada di PERM_DEFAULT (analytics, reports, activity).
+// Beberapa modul di VIEW_PERM belum ada di PERM_DEFAULT (analytics, activity).
 // Beri default di sini supaya tetap terkontrol namun tidak error. Murni lihat-saja
 // (tak pernah dijaga can()), tapi tetap diberi PERM_EDIT di role yg berhak supaya
 // halamannya tak "terkunci" tampilan Ubah-nya walau tak ada yg dikunci di baliknya.
-['analytics','reports','activity'].forEach(m=>{ if(!PERM_DEFAULT[m]){
+['analytics','activity'].forEach(m=>{ if(!PERM_DEFAULT[m]){
   const allowed=['content_director','analyst','content_planner'];
   PERM_DEFAULT[m]={}; ROLE_KEYS.forEach(r=>{ PERM_DEFAULT[m][r]=allowed.includes(r)?PERM_EDIT:PERM_NONE; });
   PERM_MODULES.push(m);
@@ -1244,6 +1254,12 @@ function can(module){
 // Cek apakah user boleh membuka sebuah view/menu sidebar
 function canView(v){
   if(!SES)return false; const u=getUser(SES); if(!u)return false; if(isSuper(u))return true;
+  /* Pengaturan sekarang juga memuat daftar Kru & Rangkap Kerja (18 September
+     2026), jadi yang berhak atas 'team' boleh membukanya walau tidak berhak
+     atas 'settings'. Tanpa baris ini, Content Director KEHILANGAN daftar kru
+     yang selama ini boleh ia buka — pencabutan hak yang tidak pernah diminta
+     siapa pun. Isi layarnya tetap disaring kartu per kartu di VIEWS.settings. */
+  if(v==='settings'&&userModPerm(u,'team')>=PERM_VIEW)return true;
   const mod=VIEW_PERM[v];
   if(!mod)return true; // view umum (dashboard, profile, dll)
   return userModPerm(u,mod) >= PERM_VIEW;
@@ -1434,12 +1450,10 @@ const NAV=[
     {v:'kol',t:'KOL & Medpar Management',ic:'kol'},
     {v:'ads',t:'Ads Management',ic:'ads'},
     {v:'chats',t:'Report Percakapan',ic:'chat'}]},
-  {g:'Brand & Tim',items:[
-    {v:'brands',t:'Brand Management',ic:'anchor'},
-    {v:'team',t:'Kru & Rangkap Kerja',ic:'users'}]},
+  {g:'Brand',items:[
+    {v:'brands',t:'Brand Management',ic:'anchor'}]},
   {g:'Sistem',items:[
     {v:'activity',t:'Activity Log',ic:'clock'},
-    {v:'reports',t:'Reports',ic:'doc'},
     {v:'settings',t:'Pengaturan',ic:'gear'}]}
 ];
 const ICONS={
@@ -1540,10 +1554,8 @@ const VIEW_META={
   ads:['Ads Management','Kelola & pantau Meta / Google / TikTok Ads'],
   chats:['Report Percakapan','Rekap chat / percakapan hasil dari iklan'],
   brands:['Brand Management','Master data & pedoman brand'],
-  team:['Kru & Rangkap Kerja','Daftar kru, role rangkap, dan beban tugasnya'],
   activity:['Activity Log','Jejak audit seluruh aktivitas'],
-  reports:['Reports','Ekspor laporan performa'],
-  settings:['Pengaturan','Konfigurasi sistem'],
+  settings:['Pengaturan','Konfigurasi sistem, daftar kru & hak akses'],
   profile:['Profil Saya','Akun & preferensi']
 };
 let currentView='dashboard';
@@ -2563,35 +2575,41 @@ function delBrand(id){if(!confirm('Hapus brand? Konten terkait tidak ikut terhap
    sesudah ini di-deploy. */
 
 let formRoles=[];
-/* ===== KRU & RANGKAP KERJA — VERSI TABEL =====
+/* ===== KRU & RANGKAP KERJA =====
 
-   Permintaan user 18 September 2026: dibuat seperti Kelola Kru di modul
-   Finance. Yang berubah BENTUKNYA, bukan datanya — grid kartu jadi satu tabel
-   yang bisa disapu mata dari atas ke bawah. Dengan belasan kru, grid tiga
-   kolom memaksa menggulir bolak-balik cuma untuk membandingkan beban dua
-   orang; kolom yang berjajar tidak.
+   HALAMANNYA SENDIRI SUDAH TIDAK ADA (18 September 2026, permintaan user):
+   tabelnya digabung ke halaman Pengaturan sebagai satu kartu. Yang dipakai
+   tetap penggambar di bawah ini — dua penggambar untuk satu tabel akan
+   menyimpang begitu salah satunya diperbaiki.
 
-   KOLOM BEBAN SENGAJA IKUT. Halaman Workload dicabut di permintaan yang SAMA,
-   dan ia satu-satunya tempat angka utilisasi pernah berdiri. Dibuang
-   seluruhnya, tidak ada satu layar pun yang bisa menjawab siapa yang
-   kelebihan muatan — jadi yang dicabut halamannya, bukan angkanya. */
+   KOLOM SKILL, BEBAN, DAN KETERSEDIAAN DICABUT di permintaan yang sama.
+   Datanya TIDAK ikut dicabut: capacity / skills / avail / workHours tetap bisa
+   disunting lewat tombol Kelola, tetap terbaca di halaman Profil, dan tetap
+   ikut di berkas Ekspor Tim (CSV). Yang hilang cuma kolomnya di tabel ini.
+
+   AKIBATNYA TIDAK ADA LAGI SATU LAYAR PUN yang menyebut utilisasi kru. Itu
+   keputusan user — halaman Workload dicabut lebih dulu di hari yang sama, dan
+   kolom Beban yang sempat menampungnya ikut dicabut di sini. Kalau suatu hari
+   dibutuhkan lagi, yang perlu dikembalikan kolomnya, bukan halamannya:
+   angkanya cuma pct(tugas aktif, capacity). */
 let teamFilter={q:'',role:''};
 function teamF(k,v){
   teamFilter[k]=v;
   /* Mengetik di kotak cari menggambar ulang TABELNYA saja. Lewat route(),
      kotaknya ikut dibuat ulang dan hanya huruf pertama yang masuk — jebakan
      yang sudah dibayar queueF() di berkas ini juga. */
-  if(k==='q')gambarTeamTabel(); else route('team');
+  if(k==='q')gambarTeamTabel(); else route('settings');
 }
-function teamReset(){teamFilter={q:'',role:''};route('team');}
+function teamReset(){teamFilter={q:'',role:''};route('settings');}
 function teamRows(){
-  return (DB.users||[]).map(u=>{
-    const tasks=DB.content.filter(c=>c.pic===u.id&&!['Posted','Cancelled'].includes(c.status));
-    const rr=userRoles(u);
-    return {u,rr,aktif:tasks.length,util:pct(tasks.length,u.capacity)};
-  }).sort((a,b)=>String(a.u.name||'').localeCompare(String(b.u.name||'')));
+  return (DB.users||[]).map(u=>({u,rr:userRoles(u)}))
+    .sort((a,b)=>String(a.u.name||'').localeCompare(String(b.u.name||'')));
 }
-VIEWS.team=function(){
+/* Kartu Kru di halaman Pengaturan. Tabelnya diisi SESUDAH kerangkanya masuk
+   DOM (lihat AFTER.settings) — #teamTable belum ada saat kartunya dirangkai,
+   dan mengisinya di sana gagal diam-diam (el null), yang tampil sebagai kartu
+   tanpa tabel sama sekali. */
+function kartuKru(){
   const semua=teamRows();
   const multi=semua.filter(r=>r.rr.length>1).length;
   /* Angka di tiap pilihan role dihitung TANPA tapis role itu sendiri — kalau
@@ -2599,18 +2617,15 @@ VIEWS.team=function(){
      membaca sebagai "tidak ada yang memegang role itu". Aturan yang sama
      dengan angka PIC di Content Planning. */
   const pakaiRole=r=>semua.filter(x=>x.rr.includes(r)).length;
-  return `<div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">
-    ${semua.length} kru · <b>${multi}</b> orang memegang lebih dari satu role</p></div></div>
-  <div class="card" style="padding:14px;margin-bottom:16px;background:linear-gradient(135deg,rgba(229,168,35,.08),transparent)">
-    <div style="display:flex;align-items:center;gap:10px"><span style="font-size:20px">⚓</span>
-    <div style="font-size:12.5px;color:var(--txt-2)"><b style="color:var(--gold)">Rangkap Kerja aktif.</b>
-      Satu kru bisa memegang beberapa role sekaligus (mis. Planner + Designer). Hak akses &amp; tugas otomatis
-      <b>digabung</b> dari seluruh role yang dipegang — yang paling longgar yang berlaku.
-      Nama &amp; akunnya datang dari Office; yang disetel di sini data operasional &amp; role internalnya.</div></div>
-  </div>
-  <div class="card" style="padding:12px;margin-bottom:16px">
-    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
-      <input class="ctrl" style="max-width:240px" placeholder="Cari nama, divisi, email, skill..." value="${esc(teamFilter.q)}" oninput="COMS.teamF('q',this.value)">
+  return `<div class="card" style="grid-column:1/-1">
+    <div class="card-h"><h3>Kru &amp; Rangkap Kerja</h3>
+      <span class="sub">${semua.length} kru · <b>${multi}</b> memegang lebih dari satu role</span></div>
+    <p style="font-size:12.5px;color:var(--txt-2);margin:-4px 0 14px;line-height:1.55">
+      Satu kru bisa memegang beberapa role sekaligus (mis. Planner + Designer). Hak akses &amp; tugas
+      otomatis <b>digabung</b> dari seluruh role yang dipegang — yang paling longgar yang berlaku.
+      Nama &amp; akunnya datang dari Office; yang disetel di sini role internal &amp; data operasionalnya.</p>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:14px">
+      <input class="ctrl" style="max-width:240px" placeholder="Cari nama, divisi, email..." value="${esc(teamFilter.q)}" oninput="COMS.teamF('q',this.value)">
       <select class="ctrl" style="max-width:210px" onchange="COMS.teamF('role',this.value)">
         <option value="">Semua Role (${semua.length})</option>
         ${ROLE_KEYS.map(r=>`<option value="${r}" ${teamFilter.role===r?'selected':''}>${esc((ROLES[r]||{label:r}).label)} (${pakaiRole(r)})</option>`).join('')}
@@ -2618,36 +2633,29 @@ VIEWS.team=function(){
       <button class="btn btn-ghost btn-sm" onclick="COMS.teamReset()">Reset</button>
       <span id="teamCount" style="margin-left:auto;font-size:12px;color:var(--txt-3)"></span>
     </div>
-  </div>
-  <div id="teamTable"></div>`;
-};
-/* Tabelnya diisi SESUDAH kerangkanya masuk DOM — #teamTable belum ada saat
-   VIEWS.team dipanggil, dan mengisinya di sana gagal diam-diam (el null),
-   yang tampil sebagai halaman tanpa tabel sama sekali. */
-AFTER.team=()=>gambarTeamTabel();
+    <div id="teamTable"></div></div>`;
+}
 function gambarTeamTabel(){
   const el=$('#teamTable');if(!el)return;
   let list=teamRows();
   if(teamFilter.role)list=list.filter(r=>r.rr.includes(teamFilter.role));
+  /* Skill TIDAK lagi ikut dicari — kolomnya sudah tidak ada, dan kata kunci
+     yang memulangkan baris tanpa memperlihatkan SEBAB cocoknya terbaca sebagai
+     hasil pencarian yang salah. */
   if(teamFilter.q){const q=teamFilter.q.toLowerCase();
-    list=list.filter(r=>((r.u.name||'')+' '+(r.u.division||'')+' '+(r.u.email||'')+' '+(r.u.skills||[]).join(' ')).toLowerCase().includes(q));}
+    list=list.filter(r=>((r.u.name||'')+' '+(r.u.division||'')+' '+(r.u.email||'')).toLowerCase().includes(q));}
   const cnt=$('#teamCount');if(cnt)cnt.textContent=`${list.length} kru`;
   if(!list.length){
-    el.innerHTML=`<div class="empty"><div class="ei">👥</div><h4>Tidak ada kru yang cocok</h4>
+    el.innerHTML=`<div class="empty" style="padding:28px 20px"><div class="ei">👥</div><h4>Tidak ada kru yang cocok</h4>
       <p>Ubah kata kunci atau pilihan role, atau tekan Reset.</p></div>`;
     return;
   }
   const pg=pgSlice(list,'team',JSON.stringify(teamFilter));
   el.innerHTML=`<div class="tbl-wrap"><table><thead><tr>
-    <th>Kru</th><th>Divisi / Email</th><th>Role</th><th>Skill</th><th>Beban</th><th>Ketersediaan</th><th></th>
+    <th>Kru</th><th>Divisi / Email</th><th>Role</th><th></th>
   </tr></thead><tbody>
   ${pg.items.map(r=>{
     const u=r.u;
-    /* Ambang warnanya sama persis dengan yang dipakai halaman Workload
-       sebelum dicabut — >100% merah, >80% kuning. Dua ambang untuk satu angka
-       membuat kru yang sama terbaca "aman" di satu layar dan "overload" di
-       layar sebelahnya. */
-    const uc=r.util>100?'var(--bad)':r.util>80?'var(--warn)':'var(--ok)';
     return `<tr>
       <td><span style="display:flex;align-items:center;gap:9px">${avatar(u.name,'sm')}
         <span><b style="font-size:13px">${esc(u.name)}</b>${u.id===SES?' <span class="tag" style="font-size:9.5px;color:var(--gold);border-color:var(--gold)">kamu</span>':''}
@@ -2658,25 +2666,14 @@ function gambarTeamTabel(){
         ? r.rr.map(k=>{const ro=ROLES[k]||{label:k,color:'#888'};const t=tint(ro.color);
             return `<span class="tag" style="background:${t.bg};color:${t.fg};border-color:transparent">${esc(ro.label)}</span>`;}).join('')
         : '<span class="tag" style="color:var(--warn)">belum ada role</span>'}</span></td>
-      <td style="font-size:11px;color:var(--txt-3)">${(u.skills||[]).length?esc((u.skills||[]).join(', ')):'—'}</td>
-      <td style="min-width:130px">
-        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
-          <span class="mono" style="color:var(--txt-3)">${r.aktif}/${u.capacity||0}</span>
-          <span class="mono" style="color:${uc};font-weight:700">${r.util}%</span></div>
-        <div class="progress"><i style="width:${Math.min(r.util,100)}%;background:${uc}"></i></div></td>
-      <td><span class="pill" style="background:${u.avail==='available'?'var(--ok-bg)':'var(--warn-bg)'};color:${u.avail==='available'?'var(--ok)':'var(--warn)'}">
-        <span class="pd" style="background:${u.avail==='available'?'var(--ok)':'var(--warn)'}"></span>${u.avail==='available'?'Tersedia':'Sibuk'}</span>
-        <div style="font-size:10.5px;color:var(--txt-3);margin-top:3px">🕐 ${esc(u.workHours||'—')}</div></td>
       <td style="text-align:right;white-space:nowrap">${OFFICE_IS_ADMIN
         ? `<button class="btn btn-ghost btn-sm" onclick="COMS.openUserForm('${u.id}')">✎ Kelola</button>`
         : ''}</td>
     </tr>`;}).join('')}
   </tbody></table></div>${pgBar(pg,'kru')}
   ${OFFICE_IS_ADMIN?'':`<div style="font-size:11.5px;color:var(--txt-3);margin-top:10px">
-    👁 Kamu bisa melihat daftarnya, tapi yang bisa mengubah role &amp; data kru hanya admin modul Konten.
-    Halaman ini tetap ditampilkan supaya jelas siapa memegang apa.</div>`}`;
+    👁 Kamu bisa melihat daftarnya, tapi yang bisa mengubah role &amp; data kru hanya admin modul Konten.</div>`}`;
 }
-
 function openUserForm(id){
   if(!OFFICE_IS_ADMIN){toast('Hanya admin modul (Admin/Howandi/Wandi) yang bisa kelola tim','err');return;}
   const u=id?getUser(id):null;
@@ -2713,18 +2710,18 @@ function saveUser(id){const u=getUser(id);if(!u){toast('Kru tidak ditemukan','er
   Object.assign(u,{division:g('division'),email:g('email'),capacity:+g('capacity')||24,workHours:g('workHours'),avail:g('avail'),
     skills:g('skills').split(',').map(s=>s.trim()).filter(Boolean),roles:[...formRoles]});
   logAct('mengubah kru',u.name);toast('Kru diperbarui','ok');
-  save();closeDrawer();route('team');
+  save();closeDrawer();route('settings');
   if(id===SES)bootApp();}
 
-/* HALAMAN WORKLOAD DICABUT 18 September 2026 (permintaan user). Angka
-   utilisasinya TIDAK ikut hilang — ia pindah jadi kolom Beban di tabel Kru &
-   Rangkap Kerja, dengan ambang warna yang sama persis (>100% merah, >80%
-   kuning). Dibuang seluruhnya, tidak ada satu layar pun yang bisa menjawab
-   siapa yang kelebihan muatan.
+/* HALAMAN WORKLOAD DICABUT 18 September 2026 (permintaan user). Angkanya
+   sempat pindah jadi kolom Beban di tabel Kru & Rangkap Kerja — lalu kolom
+   itu IKUT DICABUT beberapa jam kemudian, di permintaan yang sama yang
+   membuang Skill & Ketersediaan.
 
-   Yang memang hilang: kolom Overdue / Selesai / Revisi per kru. Ketiganya
-   bisa dibaca dari Content Planning dengan menyaring PIC-nya, dan halaman
-   sendiri untuk tiga angka yang jarang dibuka bukan pertukaran yang baik. */
+   Jadi sekarang TIDAK ADA SATU LAYAR PUN yang menyebut utilisasi kru, dan itu
+   memang yang diminta. Kalau suatu hari dibutuhkan lagi, yang perlu
+   dikembalikan kolomnya di tabel Kru — bukan halaman ini: angkanya cuma
+   pct(jumlah tugas aktif, capacity), dan capacity-nya masih tersimpan. */
 
 // ===== QUEUE PRODUKSI TERPADU (design / edit / shoot) =====
 // Menggabungkan tugas dari kebutuhan konten + tugas mandiri (DB.prodTasks).
@@ -4425,31 +4422,20 @@ VIEWS.activity=function(){
     <div style="font-size:11px;color:var(--txt-3)">${fmtDT(l.at)} - ${timeAgo(l.at)}</div></div></div>`).join('')}</div></div>`;
 };
 
-VIEWS.reports=function(){
-  const posted=DB.content.filter(c=>c.status==='Posted');
-  return `<div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">Ringkasan & ekspor laporan</p></div></div>
-  <div class="grid g-3" style="margin-bottom:20px">
-    <div class="stat"><div class="lbl">Total Konten</div><div class="val mono">${DB.content.length}</div></div>
-    <div class="stat"><div class="lbl">Konten Tayang</div><div class="val mono">${posted.length}</div></div>
-    <div class="stat"><div class="lbl">Total Reach</div><div class="val mono">${num(posted.reduce((s,c)=>s+(c.metrics?.reach||0),0))}</div></div>
-  </div>
-  <div class="card"><div class="card-h"><h3>Ekspor Laporan</h3></div>
-    <p style="font-size:13px;color:var(--txt-2);margin-bottom:16px">Unduh rekap konten & performa lintas brand dalam format CSV (bisa dibuka di Excel/Sheets).</p>
-    <div style="display:flex;gap:10px;flex-wrap:wrap">
-      <button class="btn btn-gold" onclick="COMS.exportCSV('content')">📄 Ekspor Konten (CSV)</button>
-      <button class="btn btn-ghost" onclick="COMS.exportCSV('performance')">📊 Ekspor Performa (CSV)</button>
-      <button class="btn btn-ghost" onclick="COMS.exportCSV('team')">👥 Ekspor Tim (CSV)</button>
-      <button class="btn btn-ghost" onclick="COMS.backupJSON()">💾 Backup Semua Data (JSON)</button>
-    </div>
-  </div>
-  ${(()=>{const pgBr=pgSlice(DB.brands,'repBrand');return `
-  <div class="card" style="margin-top:16px"><div class="card-h"><h3>Rekap per Brand</h3></div>
-    <div class="tbl-wrap"><table><thead><tr><th>Brand</th><th>Total Konten</th><th>Tayang</th><th>Reach</th><th>Avg ER</th><th>Follower Growth</th></tr></thead><tbody>
-    ${pgBr.items.map(b=>{const bc=DB.content.filter(c=>c.brand===b.id);const bp=bc.filter(c=>c.status==='Posted'&&c.metrics);
-      const reach=bp.reduce((s,c)=>s+c.metrics.reach,0);const er=bp.length?(bp.reduce((s,c)=>s+c.metrics.er,0)/bp.length).toFixed(1):0;const fol=bp.reduce((s,c)=>s+c.metrics.followers,0);
-      return `<tr><td><span style="display:flex;align-items:center;gap:6px">${brandDot(b.id)}${esc(b.name)}</span></td><td class="mono">${bc.length}</td><td class="mono">${bp.length}</td><td class="mono">${num(reach)}</td><td class="mono">${er}%</td><td class="mono" style="color:var(--ok)">+${num(fol)}</td></tr>`;}).join('')}
-    </tbody></table></div>${pgBar(pgBr,'brand')}</div>`;})()}`;
-};
+/* HALAMAN REPORTS DICABUT 18 September 2026 (permintaan user).
+
+   KETIGA TOMBOL EKSPORNYA PINDAH ke kartu Manajemen Data di Pengaturan —
+   exportCSV() tetap utuh dan tetap satu-satunya jalan mengeluarkan rekap
+   konten & performa dari modul ini. Dibuang bersama halamannya, fungsi itu
+   jadi kode mati yang tidak bisa dicapai siapa pun, dan yang membacanya
+   berikutnya akan mengira ekspornya memang tidak pernah ada.
+
+   YANG MEMANG HILANG: tiga kartu ringkas di atasnya dan tabel Rekap per
+   Brand. Ketiganya membaca `c.metrics` — bentuk lama yang TIDAK PERNAH PUNYA
+   PENULIS (lihat catatan di halaman Performa Konten), jadi kolom Reach, Avg
+   ER, dan Follower Growth di sana selalu berbunyi nol. Yang menggantikannya
+   halaman Performa Konten, yang membaca c.perf. */
+
 function csvSafe(v){v=String(v==null?'':v);return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;}
 function downloadFile(name,content,type){const blob=new Blob([content],{type});const u=URL.createObjectURL(blob);const a=document.createElement('a');a.href=u;a.download=name;a.click();URL.revokeObjectURL(u);toast('File diunduh: '+name,'ok');}
 function exportCSV(kind){let rows=[],name='';
@@ -4480,30 +4466,62 @@ function exportCSV(kind){let rows=[],name='';
   downloadFile(name,rows.map(r=>r.map(csvSafe).join(',')).join('\n'),'text/csv');logAct('mengekspor laporan',kind);}
 function backupJSON(){downloadFile('COMS_backup_'+todayISO()+'.json',JSON.stringify(DB,null,2),'application/json');}
 
+/* ===== PENGATURAN =====
+
+   Sejak 18 September 2026 halaman ini juga memuat **Kru & Rangkap Kerja**
+   (permintaan user), dan halaman **Reports** dicabut — ketiga tombol ekspornya
+   pindah ke kartu Manajemen Data di sini. Yang dicabut dari Reports cuma
+   layarnya: `exportCSV()` tetap utuh, dan ia satu-satunya jalan mengeluarkan
+   rekap konten & performa dari modul ini. Dibuang bersama halamannya, fungsi
+   itu jadi kode mati yang tidak bisa dicapai siapa pun.
+
+   KARTUNYA DISARING SENDIRI-SENDIRI. Pengaturan dijaga kunci `settings`
+   (bawaannya Super Admin saja) sementara daftar kru dijaga kunci `team`
+   (Super Admin + Content Director). Digabung begitu saja, Content Director
+   KEHILANGAN daftar kru yang selama ini boleh ia buka — pencabutan hak akses
+   yang tidak pernah diminta siapa pun, dan tidak ada satu pun galat yang
+   menyebutkannya. canView('settings') karena itu juga meloloskan pemegang
+   'team'; yang menentukan isi layarnya kedua penjaga di bawah. */
 VIEWS.settings=function(){
   const s=DB.settings;
-  return `<div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">Konfigurasi sistem</p></div></div>
-  <div class="grid g-2" style="align-items:start">
-    <div class="card"><div class="card-h"><h3>Organisasi</h3></div>
+  const u=getUser(SES);
+  const bolehSetting=isSuper(u)||userModPerm(u,'settings')>=PERM_VIEW;
+  const bolehKru=isSuper(u)||userModPerm(u,'team')>=PERM_VIEW;
+  const kartuOrg=`<div class="card"><div class="card-h"><h3>Organisasi</h3></div>
       <div class="field"><label>Nama Organisasi</label><input class="ctrl" id="set_org" value="${esc(s.orgName)}"></div>
-      <button class="btn btn-gold btn-sm" style="margin-top:8px" onclick="COMS.saveSettings()">Simpan</button></div>
-    <div class="card"><div class="card-h"><h3>Manajemen Data</h3></div>
-      <p style="font-size:12.5px;color:var(--txt-2);margin-bottom:14px">Backup rutin disarankan. Data tersimpan di server Apps Script.</p>
+      <button class="btn btn-gold btn-sm" style="margin-top:8px" onclick="COMS.saveSettings()">Simpan</button></div>`;
+  const kartuData=`<div class="card"><div class="card-h"><h3>Manajemen Data</h3></div>
+      <p style="font-size:12.5px;color:var(--txt-2);margin-bottom:14px">Ekspor rekap untuk dibuka di Excel / Sheets, atau backup seluruh data modul ini. Backup rutin disarankan.</p>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-gold btn-sm" onclick="COMS.exportCSV('content')">📄 Ekspor Konten (CSV)</button>
+        <button class="btn btn-ghost btn-sm" onclick="COMS.exportCSV('performance')">📊 Ekspor Performa (CSV)</button>
+        <button class="btn btn-ghost btn-sm" onclick="COMS.exportCSV('team')">👥 Ekspor Tim (CSV)</button>
         <button class="btn btn-ghost btn-sm" onclick="COMS.backupJSON()">💾 Backup (JSON)</button>
         <button class="btn btn-ghost btn-sm" onclick="document.getElementById('restoreFile').click()">📂 Restore (JSON)</button>
         <input type="file" id="restoreFile" accept=".json" style="display:none" onchange="COMS.restoreJSON(this)">
-      </div></div>
-    ${isSuper(getUser(SES))?permEditorCard():permCatalogCard()}
+      </div>
+      <p style="font-size:11.5px;color:var(--txt-3);margin-top:12px;line-height:1.5">Ekspor Performa berisi <b>satu baris per platform</b> — reach, impression, engagement, dan ketiga rasionya dihitung mesin yang sama dengan layar Performa Konten.</p></div>`;
+  return `<div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">Konfigurasi sistem, daftar kru &amp; hak akses</p></div></div>
+  <div class="grid g-2" style="align-items:start">
+    ${bolehSetting?kartuOrg+kartuData:''}
+    ${bolehKru?kartuKru():''}
+    ${bolehSetting?(isSuper(u)?permEditorCard():permCatalogCard()):''}
+    ${(!bolehSetting&&!bolehKru)?`<div class="card" style="grid-column:1/-1"><div class="empty">
+      <div class="ei">🔒</div><h4>Tidak ada yang bisa kamu buka di sini</h4>
+      <p>Minta admin modul Konten membuka akses <b>Pengaturan</b> atau <b>Tim</b> untuk role kamu.</p></div></div>`:''}
   </div>`;
 };
+/* Tabel kru diisi SESUDAH kerangkanya masuk DOM. gambarTeamTabel() berhenti
+   sendiri kalau #teamTable tidak ada, jadi aman dipanggil walau kartunya
+   sedang tidak digambar untuk role yang membukanya. */
+AFTER.settings=()=>gambarTeamTabel();
 
 // Label ramah untuk tiap modul hak akses
 const MODULE_LABELS={
   brands:'Brand', content:'Konten', approve:'Approval',
   assets:'Aset', shooting:'Shooting', design:'Design',
   editing:'Editing', publish:'Publishing', ads:'Ads Management', kol:'KOL & Medpar Management', team:'Tim',
-  analytics:'Analytics', reports:'Reports', activity:'Activity Log', settings:'Pengaturan'
+  analytics:'Analytics', activity:'Activity Log', settings:'Pengaturan'
 };
 /* Modul yang HALAMANNYA sudah dicabut tapi kuncinya masih tersimpan di
    DB.perms produksi. Dibiarkan lewat, matriks hak akses memajang baris untuk
@@ -4512,7 +4530,7 @@ const MODULE_LABELS={
    modul HPP). DATANYA SENGAJA TIDAK DIHAPUS: menghapus setelan tersimpan demi
    kerapian layar bukan pertukaran yang baik, dan kalau halamannya suatu hari
    dikembalikan, izinnya masih utuh. */
-const PERM_MODULES_PENSIUN=['bank'];
+const PERM_MODULES_PENSIUN=['bank','reports'];
 function permModuleKeys(){ return Object.keys(getPerm()).filter(m=>PERM_MODULES_PENSIUN.indexOf(m)<0); }
 function moduleLabel(m){ return MODULE_LABELS[m]||m; }
 
@@ -4618,7 +4636,7 @@ function initSearch(){const inp=$('#globalSearch');const box=$('#searchResults')
     const res=[];
     DB.content.filter(c=>(c.title+' '+contentDetail(c)).toLowerCase().includes(q)).slice(0,5).forEach(c=>res.push({t:c.title,s:'Konten - '+(contentPlatforms(c).join(' + ')||'-'),fn:`COMS.openContent('${c.id}')`}));
     DB.brands.filter(b=>b.name.toLowerCase().includes(q)).slice(0,3).forEach(b=>res.push({t:b.name,s:'Brand',fn:`COMS.route('brands')`}));
-    DB.users.filter(u=>u.name.toLowerCase().includes(q)).slice(0,3).forEach(u=>res.push({t:u.name,s:'Kru - '+roleShorts(u),fn:`COMS.route('team')`}));
+    DB.users.filter(u=>u.name.toLowerCase().includes(q)).slice(0,3).forEach(u=>res.push({t:u.name,s:'Kru - '+roleShorts(u),fn:`COMS.route('settings')`}));
     box.innerHTML=res.length?res.map(r=>`<div class="li-row row-click" style="margin:0;border-radius:0;border:none;border-bottom:1px solid var(--line-soft)" onclick="${r.fn};COMS.clearSearch()"><div style="flex:1"><div style="font-size:13px;font-weight:600">${esc(r.t)}</div><div style="font-size:11px;color:var(--txt-3)">${esc(r.s)}</div></div></div>`).join(''):'<div style="padding:14px;color:var(--txt-3);font-size:12px">Tidak ada hasil</div>';
     box.style.display='block';});
   document.addEventListener('click',e=>{if(!e.target.closest('.top-search'))clearSearch();});

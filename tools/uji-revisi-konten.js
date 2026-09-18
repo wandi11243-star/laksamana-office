@@ -140,20 +140,30 @@ const USERS = [
 ];
 /* Budi memegang 6 tugas aktif dengan kapasitas 5 -> 120%, di atas ambang
    overload. Uji Kru 0 dari 10 -> 0%. Dua angka yang tidak mungkin tertukar. */
-const KONTEN = ['c1','c2','c3','c4','c5','c6'].map((id, i) =>
-  ({ id, pic:'u2', status:i < 2 ? 'Script' : 'Idea', deadline:'2026-09-20', platforms:['IG'], prod:{} }));
+/* SATU konten TAYANG berikut angka performanya — tanpa itu halaman Performa
+   Konten berhenti di pita 'belum ada angka performa' dan saklar urutannya
+   (Reach / Engagement Rate / Virality Index / CTA) tidak pernah digambar,
+   jadi asersi tombol aktifnya tidak menguji apa pun. Status Posted TIDAK
+   dihitung sebagai tugas aktif, jadi angka beban u2 di bawah tidak bergeser. */
+const KONTEN = [{ id:'cp1', pic:'u1', status:'Posted', platforms:['IG'], pillar:'Promotion',
+    publishDate:'2026-09-02', prod:{}, perf:{ IG:{ reach:1000, likes:80, shares:6, saves:4, cta:20 } } }]
+  .concat(['c1','c2','c3','c4','c5','c6'].map((id, i) =>
+  ({ id, pic:'u2', status:i < 2 ? 'Script' : 'Idea', deadline:'2026-09-20', platforms:['IG'], prod:{} })));
 
 (async () => {
 
 /* ============ 1. SUMBER: pencabutan yang lengkap ============ */
 console.log('\n== Sumber: Content Bank & Workload dicabut ==');
 aman('tidak ada lagi pemakaian fungsi yang dibuang', () => {
-  ['VIEWS.bank', 'VIEWS.workload', 'openBankForm', 'saveBank', 'delBank', 'convertBank']
+  ['VIEWS.bank', 'VIEWS.workload', 'VIEWS.reports', 'VIEWS.team', 'openBankForm', 'saveBank', 'delBank', 'convertBank']
     .forEach(nm => cek('tidak ada pemakaian ' + nm, KODE.indexOf(nm) < 0,
       'masih ada di ' + JSON.stringify(KODE.slice(Math.max(0, KODE.indexOf(nm) - 40), KODE.indexOf(nm) + 40))));
   cek("NAV tidak punya item 'bank'", KODE.indexOf("{v:'bank'") < 0);
   cek("NAV tidak punya item 'workload'", KODE.indexOf("{v:'workload'") < 0);
   cek('VIEW_PERM tidak punya baris workload', KODE.indexOf("workload:'team'") < 0);
+  cek("NAV tidak punya item 'reports'", KODE.indexOf("{v:'reports'") < 0);
+  cek("NAV tidak punya item 'team'", KODE.indexOf("{v:'team'") < 0);
+  cek('VIEW_PERM tidak punya baris reports', KODE.indexOf("reports:'reports'") < 0);
 });
 aman('sejarahnya TETAP boleh menyebutnya', () => {
   /* Yang dilarang pemakaiannya, bukan namanya. Komentar yang menjelaskan
@@ -183,7 +193,9 @@ aman('sidebar & router', () => {
   const menu = [...w.document.querySelectorAll('.nav-item')].map(e => e.dataset.v);
   cek('menu Content Bank tidak ada di sidebar', menu.indexOf('bank') < 0, menu.join(','));
   cek('menu Workload tidak ada di sidebar', menu.indexOf('workload') < 0, menu.join(','));
-  cek('menu Kru & Rangkap Kerja masih ada', menu.indexOf('team') >= 0, menu.join(','));
+  cek('menu Kru & Rangkap Kerja tidak lagi berdiri sendiri', menu.indexOf('team') < 0, menu.join(','));
+  cek('menu Reports tidak ada di sidebar', menu.indexOf('reports') < 0, menu.join(','));
+  cek('menu Pengaturan tetap ada', menu.indexOf('settings') >= 0, menu.join(','));
   w.__uji('route("bank")');
   /* Halamannya tidak boleh digambar lagi. route() jatuh ke "Segera hadir"
      untuk view yang tidak punya penggambar — yang penting isinya BUKAN
@@ -202,44 +214,143 @@ aman('matriks hak akses tidak memajang halaman yang sudah dicabut', () => {
   cek('...tapi datanya masih utuh di DB.perms', w.__uji('!!DB.perms.bank'), 'kuncinya ikut terhapus');
 });
 
-/* ============ 3. KRU & RANGKAP KERJA — versi tabel ============ */
-console.log('\n== Kru & Rangkap Kerja: tabel ==');
-w.__uji('route("team")');
-aman('bentuk tabel', () => {
+/* ============ 3. KRU & RANGKAP KERJA — di dalam Pengaturan ============ */
+console.log('\n== Kru & Rangkap Kerja: satu kartu di halaman Pengaturan ==');
+w.__uji('route("settings")');
+aman('kartunya berdiri di Pengaturan', () => {
   const h = layar();
-  cek('digambar sebagai tabel', h.indexOf('<table>') >= 0 && h.indexOf('id="teamTable"') >= 0);
-  ['Divisi / Email', 'Role', 'Skill', 'Beban', 'Ketersediaan']
-    .forEach(k => cek('kolom ' + k, h.indexOf('<th>' + k + '</th>') >= 0));
+  cek('kartu Kru digambar', h.indexOf('Kru &amp; Rangkap Kerja') >= 0 || h.indexOf('Kru & Rangkap Kerja') >= 0);
+  cek('tabelnya terisi', h.indexOf('id="teamTable"') >= 0 && h.indexOf('<table>') >= 0);
   cek('kedua kru tergambar', h.indexOf('Budi Desain') >= 0 && h.indexOf('Uji Kru') >= 0);
   cek('rangkap role ditandai', h.indexOf('rangkap ×2') >= 0);
-  /* Beban pindah dari halaman Workload yang dicabut — 6 tugas aktif dari
-     kapasitas 5 = 120%, dan itu satu-satunya sinyal overload yang tersisa. */
-  cek('beban terhitung 120% untuk yang kelebihan muatan', h.indexOf('120%') >= 0, '');
-  cek('...dan 0% untuk yang belum dapat tugas', h.indexOf('0%') >= 0, '');
+  /* Kartu Pengaturan yang lain tetap berdiri — yang digabung tabelnya, bukan
+     halamannya dicabut. */
+  cek('kartu Organisasi tetap ada', h.indexOf('Nama Organisasi') >= 0);
+  cek('kartu Manajemen Data tetap ada', h.indexOf('Manajemen Data') >= 0);
+});
+aman('kolom Skill, Beban, dan Ketersediaan dicabut', () => {
+  const h = layar();
+  ['Skill', 'Beban', 'Ketersediaan'].forEach(k =>
+    cek('kolom ' + k + ' tidak ada lagi', h.indexOf('<th>' + k + '</th>') < 0, ''));
+  ['Kru', 'Divisi / Email', 'Role'].forEach(k =>
+    cek('kolom ' + k + ' masih ada', h.indexOf('<th>' + k + '</th>') >= 0));
+  /* Budi memegang 6 tugas aktif dengan kapasitas 5 = 120%. Angka itu satu-
+     satunya sisa utilisasi di modul ini sesudah Workload dicabut, dan
+     permintaan yang sama membuangnya juga — jadi ia TIDAK BOLEH muncul di
+     layar mana pun lagi. */
+  cek('angka utilisasi tidak tergambar di mana pun', h.indexOf('120%') < 0, 'masih menyebut 120%');
+  /* DATANYA tidak ikut dicabut: yang hilang kolomnya, bukan kolom datanya. */
+  cek('capacity masih tersimpan', w.__uji('DB.users.find(u=>u.id==="u2").capacity') === 5);
+  cek('skills masih tersimpan', w.__uji('JSON.stringify(DB.users.find(u=>u.id==="u1").skills)') === '["Reel","Copy"]');
+  cek('...dan masih bisa disunting lewat Kelola',
+      KODE.indexOf("id=\"us_capacity\"") > 0 && KODE.indexOf("id=\"us_skills\"") > 0, '');
+  cek('...serta tetap ikut di Ekspor Tim (CSV)', KODE.indexOf('u.capacity,(u.skills||[]).join') > 0, '');
 });
 aman('angka role dihitung tanpa tapis role itu sendiri', () => {
   /* Kalau ikut, pilihan yang tidak sedang dipakai selalu menulis (0), dan nol
      membaca sebagai "tidak ada yang memegang role itu". */
   w.__uji("teamFilter.role='content_director'");
-  w.__uji('route("team")');
+  w.__uji('route("settings")');
   const h = layar();
   cek('Designer tetap menulis (2) walau tapisnya di Content Director',
       /Designer \(2\)/.test(h), (h.match(/Designer \([0-9]+\)/) || ['tidak ketemu'])[0]);
   const tabel = w.document.getElementById('teamTable').innerHTML;
   cek('tabelnya benar-benar tersaring', tabel.indexOf('Budi Desain') < 0 && tabel.indexOf('Uji Kru') >= 0, '');
-  w.__uji("teamFilter.role=''"); w.__uji('route("team")');
+  w.__uji("teamFilter.role=''"); w.__uji('route("settings")');
 });
 aman('kotak cari tidak dibuat ulang tiap ketukan', () => {
-  const sebelum = w.document.querySelector('#view .ctrl');
+  const sebelum = w.document.querySelector('#teamTable') && w.document.querySelector('#view input[placeholder^="Cari nama"]');
   cek('kotak carinya ada', !!sebelum);
   w.__uji("teamF('q','budi')");
-  const sesudah = w.document.querySelector('#view .ctrl');
+  const sesudah = w.document.querySelector('#view input[placeholder^="Cari nama"]');
   /* Kotak yang dibuat ulang kehilangan fokus dan hanya huruf pertama yang
      masuk — jebakan yang sudah dibayar queueF() di modul yang sama. */
   cek('elemen kotaknya TETAP yang itu juga', sebelum === sesudah);
   const tabel = w.document.getElementById('teamTable').innerHTML;
   cek('tabelnya tersaring', tabel.indexOf('Budi Desain') >= 0 && tabel.indexOf('Uji Kru') < 0, '');
+  /* Skill tidak lagi ikut dicari: kolomnya sudah tidak ada, dan kata kunci
+     yang memulangkan baris tanpa memperlihatkan SEBAB cocoknya terbaca sebagai
+     hasil pencarian yang salah. */
+  w.__uji("teamF('q','Reel')");
+  const t2 = w.document.getElementById('teamTable').innerHTML;
+  cek('mencari skill tidak lagi memulangkan siapa pun', t2.indexOf('Uji Kru') < 0, '');
   w.__uji("teamF('q','')");
+});
+aman('yang berhak atas Tim tetap bisa membuka Pengaturan', () => {
+  /* Pengaturan dijaga kunci 'settings' (Super Admin saja) sementara daftar kru
+     dijaga 'team' (Super Admin + Content Director). Digabung begitu saja,
+     Content Director KEHILANGAN daftar kru yang selama ini boleh ia buka —
+     pencabutan hak yang tidak pernah diminta siapa pun. */
+  w.__uji('OFFICE_IS_ADMIN=false; DB.users.find(u=>u.id==="u1").roles=["content_director"];');
+  cek('Content Director boleh membuka Pengaturan', w.__uji("canView('settings')") === true);
+  w.__uji('route("settings")');
+  const h = layar();
+  cek('...dan melihat kartu Kru', h.indexOf('id="teamTable"') >= 0);
+  /* Tapi TIDAK kartu yang dijaga kunci settings. */
+  cek('...tanpa kartu Organisasi', h.indexOf('Nama Organisasi') < 0, '');
+  cek('...tanpa kartu Manajemen Data', h.indexOf('Manajemen Data') < 0, '');
+  /* Yang tidak berhak atas keduanya tidak dibiarkan menatap layar kosong. */
+  w.__uji('DB.users.find(u=>u.id==="u1").roles=["video_editor"];');
+  cek('role tanpa kedua kunci tidak bisa membuka Pengaturan', w.__uji("canView('settings')") === false);
+  w.__uji('OFFICE_IS_ADMIN=true; DB.users.find(u=>u.id==="u1").roles=["content_director","designer"];');
+  w.__uji('route("settings")');
+});
+
+/* ============ 3b. REPORTS: layarnya dicabut, ekspornya tidak ============ */
+console.log('\n== Reports dicabut, ekspornya pindah ke Pengaturan ==');
+aman('tombol ekspor pindah, tidak ikut hilang', () => {
+  w.__uji('route("settings")');
+  const h = layar();
+  /* exportCSV() satu-satunya jalan mengeluarkan rekap konten & performa dari
+     modul ini. Dibuang bersama halamannya, ia jadi kode mati yang tidak bisa
+     dicapai siapa pun. */
+  ["exportCSV('content')", "exportCSV('performance')", "exportCSV('team')"]
+    .forEach(f => cek('tombol ' + f + ' ada di Pengaturan', h.indexOf(f) >= 0));
+  cek('Backup JSON tetap ada', h.indexOf('backupJSON()') >= 0);
+  cek('Restore JSON tetap ada', h.indexOf('restoreJSON(') >= 0);
+});
+aman('halaman Reports tidak bisa dicapai lagi', () => {
+  w.__uji('route("reports")');
+  cek('route("reports") tidak menggambar Rekap per Brand', layar().indexOf('Rekap per Brand') < 0, '');
+  /* DB.perms produksi MASIH menyimpan kunci 'reports'. DISUNTIKKAN lebih dulu
+     — tanpa itu kuncinya memang tidak pernah ada di data uji, dan asersi di
+     bawah hijau apa pun keputusan kodenya. Cacat fixture yang sama sudah
+     ditutup untuk 'bank'. */
+  w.__uji('DB.perms = DB.perms || {}; DB.perms.reports = {analyst:2};');
+  const kunci = JSON.parse(w.__uji('JSON.stringify(permModuleKeys())'));
+  cek("matriks hak akses tidak memajang baris 'reports'", kunci.indexOf('reports') < 0, kunci.join(','));
+  cek('...tapi setelannya masih utuh di DB.perms', w.__uji('!!DB.perms.reports'), 'kuncinya ikut terhapus');
+});
+
+/* ============ 3c. SAKLAR YANG AKTIF HARUS TERBACA ============ */
+console.log('\n== Tombol saklar aktif di Performa Konten ==');
+aman('latar & warna hurufnya menang di cascade', () => {
+  w.__uji('route("analytics")');
+  const btn = [...w.document.querySelectorAll('#pk-wrap .seg button')];
+  cek('saklarnya digambar', btn.length >= 4, 'jumlah=' + btn.length);
+  const aktif = btn.filter(b => b.className.indexOf('on') >= 0);
+  cek('ada yang ditandai aktif', aktif.length >= 1);
+  /* INI BUG YANG DILAPORKAN USER 18 September 2026: aturan
+     `#pk-wrap .seg button` menyetel background:transparent dengan kekhususan
+     (1,1,1) — lebih tinggi daripada `.seg button.on` milik modul ini (0,2,1) —
+     jadi latar emasnya kalah sementara color:var(--txt-inv) TETAP berlaku.
+     Hasilnya tulisan putih di atas latar terang: tombol yang sedang dipilih
+     tidak terbaca sama sekali.
+
+     Yang diperiksa `background` (shorthand), BUKAN `backgroundColor`: jsdom
+     tidak bisa menghitung var() dan menormalkan backgroundColor jadi
+     transparan apa pun aturan yang menang — jadi asersi lewat backgroundColor
+     hijau untuk kode yang rusak MAUPUN yang benar. */
+  aktif.forEach(b => {
+    const bg = w.getComputedStyle(b).background;
+    cek('tombol aktif ' + JSON.stringify(b.textContent.trim()) + ' punya latar, bukan transparan',
+        bg.indexOf('var(--gold)') >= 0, 'background=' + JSON.stringify(bg));
+  });
+  const mati = btn.filter(b => b.className.indexOf('on') < 0);
+  cek('yang tidak aktif tetap tanpa latar', mati.every(b => {
+    const bg = w.getComputedStyle(b).background;
+    return bg.indexOf('var(--gold)') < 0;
+  }), '');
 });
 
 /* ============ 4. ADS: link video yang dipromosikan ============ */

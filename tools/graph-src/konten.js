@@ -548,6 +548,17 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
 function fetchOffice() {  }
 
 
@@ -851,7 +862,6 @@ function PERM_DEFAULT() { getPerm(); }
 
 function getPerm() {  }
 function modPerm() { getPerm(); can(); PERM_DEFAULT(); }
-
 
 
 
@@ -1248,6 +1258,12 @@ function canView() { getUser(); isSuper(); userModPerm(); }
 
 
 
+
+
+
+
+
+
 function roleLabels() { userRoles(); }
 function roleShorts() { userRoles(); }
 
@@ -1465,8 +1481,6 @@ function notify() { uid(); save(); refreshNotifDot(); }
 
 
 
-
-
 function icon() {  }
 
 
@@ -1520,8 +1534,6 @@ function renderSidebar() { canView(); route(); icon(); updateApprovalBadge(); }
 
 
 function updateApprovalBadge() {  }
-
-
 
 
 
@@ -2546,7 +2558,12 @@ function saveBrand() { toast(); getBrand(); uid(); logAct(); save(); closeDrawer
 
 
 
-function delBrand() { save(); closeDrawer(); route(); saveContent(); }
+function delBrand() { save(); closeDrawer(); route(); saveContent(); pct(); }
+
+
+
+
+
 
 
 
@@ -2584,7 +2601,7 @@ function teamF() { route(); queueF(); gambarTeamTabel(); }
 
 
 function teamReset() { route(); }
-function teamRows() { userRoles(); pct(); esc(); teamF(); teamReset(); gambarTeamTabel(); }
+function teamRows() { userRoles(); }
 
 
 
@@ -2592,14 +2609,7 @@ function teamRows() { userRoles(); pct(); esc(); teamF(); teamReset(); gambarTea
 
 
 
-
-
-
-
-
-
-
-
+function kartuKru() { teamRows(); esc(); teamF(); teamReset(); }
 
 
 
@@ -2626,19 +2636,6 @@ function teamRows() { userRoles(); pct(); esc(); teamF(); teamReset(); gambarTea
 
 
 function gambarTeamTabel() { teamRows(); pgSlice(); avatar(); esc(); tint(); openUserForm(); pgBar(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -2706,7 +2703,7 @@ function toggleRole() {  }
 
 
 
-function saveUser() { getUser(); toast(); logAct(); save(); closeDrawer(); route(); bootApp(); renderQueueTable(); }
+function saveUser() { getUser(); toast(); logAct(); save(); closeDrawer(); route(); bootApp(); pct(); renderQueueTable(); }
 
 
 
@@ -4399,18 +4396,7 @@ function savePerf() { getContent(); contentPlatforms(); logAct(); save(); closeD
 
 
 
-function renderPerfBlock() { pkSiap(); renderMetricsBlock(); num(); platformTag(); avColor(); userName(); initials(); esc(); fmtDT(); timeAgo(); exportCSV(); backupJSON(); pgSlice(); brandDot(); pgBar(); }
-
-
-
-
-
-
-
-
-
-
-
+function renderPerfBlock() { pkSiap(); renderMetricsBlock(); num(); platformTag(); avColor(); userName(); initials(); esc(); fmtDT(); timeAgo(); exportCSV(); }
 
 
 
@@ -4478,7 +4464,39 @@ function exportCSV() { brandName(); contentPlatforms(); contentTypeLabel(); prin
 
 
 
-function backupJSON() { downloadFile(); todayISO(); esc(); saveSettings(); restoreJSON(); isSuper(); getUser(); permEditorCard(); permCatalogCard(); }
+function backupJSON() { downloadFile(); todayISO(); exportCSV(); canView(); getUser(); isSuper(); userModPerm(); esc(); saveSettings(); restoreJSON(); kartuKru(); permEditorCard(); permCatalogCard(); gambarTeamTabel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
