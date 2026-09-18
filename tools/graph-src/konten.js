@@ -837,6 +837,10 @@ function initAPI() { readLmSession(); seed(); save(); normPlatform(); refreshSna
 
 
 
+
+
+
+
 function PERM_DEFAULT() { getPerm(); }
 
 
@@ -1463,8 +1467,6 @@ function notify() { uid(); save(); refreshNotifDot(); }
 
 
 
-
-
 function icon() {  }
 
 
@@ -1518,8 +1520,6 @@ function renderSidebar() { canView(); route(); icon(); updateApprovalBadge(); }
 
 
 function updateApprovalBadge() {  }
-
-
 
 
 
@@ -2473,7 +2473,7 @@ function moveCalEvent() { getContent(); can(); toast(); logAct(); visitLabel(); 
 function calOpenEvent() { openContent(); route(); openVisitForm(); openTaskForm(); }
 function calNav() { route(); }
 function calToday() { route(); }
-function calDay() { collectCalEvents(); modal(); fmtDate(); closeModal(); tint(); calOpenEvent(); esc(); filterByBrand(); brandBar(); openBankForm(); getBrand(); brandBadge(); platformTag(); num(); convertBank(); }
+function calDay() { collectCalEvents(); modal(); fmtDate(); closeModal(); tint(); calOpenEvent(); esc(); can(); openBrandForm(); initials(); num(); pct(); platformTag(); avatar(); userName(); }
 
 
 
@@ -2490,38 +2490,6 @@ function calDay() { collectCalEvents(); modal(); fmtDate(); closeModal(); tint()
 
 
 
-
-
-
-
-
-
-
-
-
-function openBankForm() { drawer(); closeDrawer(); esc(); normPlatform(); delBank(); saveBank(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function saveBank() { toast(); uid(); logAct(); save(); closeDrawer(); route(); }
-
-
-
-
-function delBank() { save(); closeDrawer(); route(); }
-function convertBank() { normPlatform(); mkContent(); dISO(); logAct(); save(); toast(); route(); can(); openBrandForm(); tint(); initials(); esc(); num(); pct(); platformTag(); avatar(); userName(); }
 
 
 
@@ -2578,7 +2546,90 @@ function saveBrand() { toast(); getBrand(); uid(); logAct(); save(); closeDrawer
 
 
 
-function delBrand() { save(); closeDrawer(); route(); saveContent(); userRoles(); pct(); avatar(); esc(); readable(); openUserForm(); }
+function delBrand() { save(); closeDrawer(); route(); saveContent(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function teamF() { route(); queueF(); gambarTeamTabel(); }
+
+
+
+
+
+
+function teamReset() { route(); }
+function teamRows() { userRoles(); pct(); esc(); teamF(); teamReset(); gambarTeamTabel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gambarTeamTabel() { teamRows(); pgSlice(); avatar(); esc(); tint(); openUserForm(); pgBar(); }
+
+
+
+
 
 
 
@@ -2655,26 +2706,7 @@ function toggleRole() {  }
 
 
 
-function saveUser() { getUser(); toast(); logAct(); save(); closeDrawer(); route(); bootApp(); daysDiff(); pct(); avatar(); esc(); roleShorts(); pgSlice(); pgBar(); renderQueueTable(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+function saveUser() { getUser(); toast(); logAct(); save(); closeDrawer(); route(); bootApp(); renderQueueTable(); }
 
 
 
@@ -3535,7 +3567,237 @@ function ymLabel() {  }
 
 
 function getAd() {  }
-function rupiah() { num(); autoUpdateStatuses(); filterByBrand(); adSpendTotal(); can(); openFundForm(); openAdForm(); st(); adsMonthly(); pgSlice(); ymLabel(); exportAdsMonth(); pgBar(); getBrand(); fmtDate(); brandDot(); esc(); delFund(); adsF(); adsReset(); tint(); fmtDateShort(); adTglDana(); setAdStatus(); delAd(); brandBar(); }
+function rupiah() { num(); autoUpdateStatuses(); filterByBrand(); adSpendTotal(); can(); openFundForm(); openAdForm(); st(); adsMonthly(); pgSlice(); ymLabel(); exportAdsMonth(); pgBar(); getBrand(); fmtDate(); brandDot(); esc(); delFund(); adsF(); adsReset(); tint(); videoChip(); fmtDateShort(); adTglDana(); setAdStatus(); delAd(); brandBar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function videoRapi() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function videoPlat() { videoRapi(); }
+
+
+
+
+
+
+
+
+
+function videoChip() { videoPlat(); tint(); esc(); videoRapi(); adSpendTotal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function adBiayaChat() { adSpendTotal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function chatsF() { route(); adBiayaChat(); adSpendTotal(); }
+
+
+
+
+
+function chatsUrut() { filterByBrand(); adBulan(); adSpendTotal(); adBiayaChat(); videoRapi(); rupiah(); chatsF(); pgSlice(); brandBar(); esc(); ymLabel(); st(); num(); videoChip(); getBrand(); tint(); openAdForm(); brandDot(); pgBar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -3780,7 +4042,18 @@ function openAdForm() { can(); toast(); getAd(); todayISO(); drawer(); closeDraw
 
 
 
-function saveAd() { toast(); adTglDana(); todayISO(); getAd(); logAct(); uid(); save(); closeDrawer(); route(); }
+
+
+
+function saveAd() { toast(); videoRapi(); adTglDana(); todayISO(); getAd(); logAct(); uid(); save(); closeDrawer(); route(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -4232,6 +4505,14 @@ function backupJSON() { downloadFile(); todayISO(); esc(); saveSettings(); resto
 
 
 
+
+
+
+
+
+
+
+
 function permModuleKeys() { getPerm(); }
 function moduleLabel() {  }
 
@@ -4332,8 +4613,7 @@ function toggleNotif() { markAllRead(); esc(); timeAgo(); save(); refreshNotifDo
 
 function markAllRead() { save(); refreshNotifDot(); toggleNotif(); }
 
-function initSearch() { contentDetail(); contentPlatforms(); openContent(); route(); openBankForm(); roleShorts(); clearSearch(); esc(); }
-
+function initSearch() { contentDetail(); contentPlatforms(); openContent(); route(); roleShorts(); clearSearch(); esc(); }
 
 
 
