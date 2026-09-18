@@ -7323,6 +7323,129 @@ Sembilan mutasi dicoba, kesembilannya tertangkap — termasuk mencabut
 penyaringnya, menjadikan hari abu-abu sebagai pembanding, dan tidak membawa
 `status` dari salah satu modulnya.
 
+### Modul `help`: Help Center, panduan pemakaian (19 September 2026)
+
+Permintaan user: satu modul Help berisi panduan tiap modul, **mengikuti hak
+akses** — yang tidak bisa membuka sebuah modul tidak boleh melihat panduannya.
+
+```
+deploy/help/index.html          MESIN. Tidak memuat satu kalimat panduan pun.
+deploy/help/panduan/daftar.js   REGISTRI: kunci izin -> nama bab & grupnya.
+deploy/help/panduan/<kunci>.js  ISI satu bab. Nama berkas = kunci izinnya.
+deploy/help/gambar/<kunci>/     tangkapan layar, lihat BACA-DULU.md di sana.
+```
+
+**TIDAK ADA BACKEND, tidak ada tabel, tidak ada endpoint.** Isinya berkas
+statis, jadi tidak ada migrasi yang bisa tertinggal di produksi dan tidak ada
+langkah cPanel saat mendarat. `deploy/` diunggah utuh oleh kedua workflow,
+jadi foldernya ikut ter-deploy sendiri.
+
+**MENAMBAH PANDUAN = MENAMBAH SATU BERKAS**, tanpa menyentuh mesinnya. Itu
+syarat yang membuatnya bisa tumbuh bertahap; kalau suatu hari menambah bab
+menuntut menyunting `index.html`, bentuknya sudah salah.
+
+#### Yang menahan bug diam-diam
+
+- **SUMBER IZINNYA `lm_session`, sama persis dengan portal dan tiap modul.**
+  Help tidak boleh punya daftar izin sendiri — daftar kedua akan menyimpang,
+  dan yang menyimpang di sini berarti orang membaca panduan modul yang tidak
+  boleh ia buka.
+- **GERBANGNYA DI ROUTER, bukan cuma dengan tidak menggambar tautannya.** Hash
+  bisa diketik sendiri di bilah alamat. Aturan yang sama dengan gerbang
+  `draw()` di Performa Kasir dan `gambar()` di Performa Omset.
+- **Kunci yang tidak dikenal DAN kunci yang tidak boleh dibuka sama-sama
+  dipulangkan ke beranda**, dengan pesan yang sama. Dibedakan, halaman ini jadi
+  alat untuk menebak modul apa saja yang ada di perusahaan.
+- **PENCARIAN PUNYA DUA PENJAGA, dan keduanya perlu** walau masing-masing
+  sendirian tidak menghasilkan gejala: pemuatnya hanya menarik panduan yang
+  boleh dibaca, DAN penyisirnya hanya menyusuri bab yang boleh dibaca. Dirusak
+  salah satunya saja tidak ada yang bocor; dirusak berdua, isi bab terlarang
+  tampil sebagai kutipan tanpa satu pun tautan pernah digambar.
+- **`daftar.js` MENYALIN kunci dari `BRANCHES` portal**, dan salinan bisa
+  menyimpang. Yang menjaganya `tools/uji-help.js`, yang membandingkan keduanya
+  — bukan daftar nama yang harus diingat orang. Modul baru di portal yang
+  belum punya babnya akan **merah**, bukan hilang diam-diam.
+- **Kunci yang dipegang tapi belum ada di registri TETAP DISEBUT** di sidebar,
+  bukan dihilangkan. Daftar yang menyusut tanpa keterangan dilaporkan sebagai
+  data hilang.
+- **Bab yang panduannya BELUM DITULIS tetap digambar**, ditandai *Segera*.
+  Disembunyikan, modul yang belum terdokumentasi terbaca sebagai modul yang
+  tidak ada.
+- **"BELUM DITULIS" DIBEDAKAN DARI "GAGAL DIMUAT".** Bentuk datanya identik
+  (`ISI[k]` kosong) tapi tindakannya berbeda: yang pertama menunggu, yang kedua
+  berarti kunci di dalam berkasnya tidak sama dengan nama berkasnya. Disamakan,
+  panduan yang sudah ditulis tapi salah kuncinya berbunyi "sedang disusun"
+  selamanya dan yang menulisnya tidak punya satu pun petunjuk.
+- **Kunci di dalam berkas panduan WAJIB sama dengan nama berkasnya.** Mesin
+  memuatnya menurut nama, lalu mencari isinya menurut kunci. Beda satu huruf
+  tidak melempar.
+- **`teks()` menekankan `*begini*` jadi tebal SESUDAH `esc()`.** Dibalik
+  urutannya, satu panduan yang menyebut `<b>` akan menyuntikkan markup.
+- **Blok yang jenisnya tidak dikenal DISEBUTKAN di layar**, bukan dilewati.
+  Dilewati, satu salah ketik (`tekas`) menghapus satu paragraf panduan tanpa
+  satu pun tanda bahwa ada yang hilang.
+- **Tangkapan layar yang berkasnya belum ada MENYEBUT JALUR BERKASNYA**, bukan
+  sekadar "gambar tidak tersedia". Yang membacanya sering justru orang yang
+  bisa mengisinya.
+- **Memakai tema bersama (`assets/laksamana.css`), TANPA blok `:root` sendiri.**
+  Palet yang disalin ke dalam `<style>` persis yang membuat `--gold` berarti dua
+  warna berbeda di repo ini.
+
+#### HELP TIDAK BOLEH JADI APLIKASI KEDUA
+
+Panduan berbentuk DATA berstruktur (`langkah`, `tabel`, `catatan`, `tanya`,
+`gambar`), bukan HTML bebas. Penggambarnya satu, jadi semua modul terbaca
+dengan bentuk yang sama; panduan yang boleh menulis HTML sendiri akan
+berbeda-beda dalam sebulan. Ujinya **menolak** berkas panduan yang memuat
+`<button>`, `<input>`, `<form>`, `<script>`, atau `onclick`.
+
+Tangkapan layar adalah `<figure><img>`, bukan potongan markup modulnya.
+Menyalin UI modul ke sini membuat Help pelan-pelan jadi aplikasi kedua yang
+tampilannya menyimpang dari yang asli — dan orang mengikuti layar yang salah.
+
+#### Yang sudah ditulis, dan yang belum
+
+Phase 1: **portal** (Office & cara masuk, terbuka untuk semua yang bisa membuka
+Help), **reservasi**, **event**. Sisanya 21 kunci berdiri sebagai bab bertanda
+*Segera*. **Tidak ada satu pun tangkapan layar terpasang** — panduan sengaja
+ditulis lebih dulu, dan tiap slot gambarnya menyebut jalur berkas yang
+ditunggunya.
+
+```bash
+node tools/uji-help.js   # 90 pemeriksaan, jsdom
+```
+
+Dua puluh tiga mutasi dicoba, kedua puluh tiganya tertangkap — tapi **enam
+mula-mula lolos atau mematikan ujinya**, dan semuanya cacat UJI:
+
+| yang salah | sebabnya |
+|---|---|
+| empat mutasi terbaca "ujinya tidak selesai" | penunggu dibungkus `aman()` yang SINKRON, jadi penolakannya lolos sebagai unhandled rejection dan Node berhenti sebelum ringkasan tercetak — padahal asersinya sudah merah. Sekarang ada `amanTunggu()` |
+| "blok tak dikenal dilewati" LOLOS | seluruh panduan di repo memang memakai blok yang benar, jadi cabangnya tidak pernah dijalankan. Ditutup dengan panduan buatan lewat `window.LM_HELP_ISI` |
+| "esc dicabut" LOLOS | tidak satu pun panduan memuat kurung sudut, jadi mutasinya tidak menggeser satu huruf pun. Ditutup dengan panduan buatan yang memuat `<b>` |
+
+> **TIGA KALI penunggu di berkas ini cocok dengan layar SEBELUMNYA**, dan tiap
+> kali membuat asersinya hampa: menunggu `Sedang disusun` (sudah ada di kartu
+> beranda), menunggu `Hasil pencarian` (sudah ada dari pencarian sebelumnya),
+> lalu menunggu `Tidak ada panduan` (idem). Penunggu di halaman yang
+> menggambar ulang wadah yang sama WAJIB menyebut sesuatu yang khas render
+> BARUNYA — di sini kata yang sedang dicari, dan judul `<h1>` babnya.
+
+#### LANGKAH YANG TIDAK BISA DIKERJAKAN DARI REPO
+
+Kunci `help` harus **didaftarkan ke Office** dan **dicentangkan ke orangnya**,
+dan keduanya di DATABASE, bukan di git (lihat *HAK AKSES TIDAK IKUT MERGE*):
+
+1. Superadmin **membuka panel Kelola Akses sekali** di server itu. `syncModules`
+   hanya jalan saat panel itu dibuka, bukan saat portal dimuat — jadi sebelum
+   itu kotak centang `help` tidak ada, dan pemegang `'*'` pun tidak
+   mendapatkannya (`'*'` diperluas atas tabel `modules`).
+2. Centangkan **Help Center** ke tiap orang yang perlu, atau salin dari dev
+   dengan `node tools/samakan-akses.js help`.
+
+Selama langkah 1 belum dikerjakan, kartunya **tidak muncul untuk siapa pun** —
+tanpa satu pun galat, karena memang tidak ada yang rusak.
+
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
 ```
