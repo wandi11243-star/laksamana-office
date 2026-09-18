@@ -4857,6 +4857,135 @@ nama di berkas ini:
 > jatuh ke cabang "mesin belum termuat" dan tetap hijau tanpa menyentuh satu
 > pun hitungan.
 
+### Konten: empat revisi menu (18 September 2026)
+
+Permintaan user dalam satu pesan. Dua di antaranya PENCABUTAN, dan dua lagi
+menyentuh cara membaca angka iklan.
+
+| | |
+|---|---|
+| **Kru & Rangkap Kerja** | grid kartu → **tabel**, bentuknya meniru Kelola Kru modul Finance |
+| **Workload** | **dicabut** |
+| **Content Bank** | **dicabut** |
+| **Report Percakapan** | daftar chat → **analisa**: Ads mana yang top dari sisi jumlah chat DAN dari sisi biaya per chat, plus videonya yang mana |
+| **Ads Management** | kotak baru **Link Video yang Dipromosikan** (Instagram / Facebook / TikTok) |
+
+#### Yang dicabut: layarnya, bukan datanya
+
+`VIEWS.bank` berikut `openBankForm` / `saveBank` / `delBank` / `convertBank`,
+dan `VIEWS.workload`. Rujukan Content Bank ada di **delapan** tempat dan
+semuanya harus ikut: `NAV`, `VIEW_META`, `VIEW_PERM`, `PERM_ROLES_LEGACY`,
+`MODULE_LABELS`, pencarian global, ekspor `COMS`, dan penggambarnya sendiri.
+Satu rujukan yang tertinggal adalah ReferenceError, dan gejalanya **layar
+putih** tanpa satu kata pun yang menyebut sebabnya.
+
+- **`DB.bank` TIDAK DIHAPUS** — tetap di `seed()`, di `KT_COLS`, dan di guard
+  `initAPI`. Ia ikut di tiap payload `saveAll`, jadi ide yang terlanjur
+  tersimpan tetap utuh di server. Dicabut dari `KT_COLS`, `hapus_yang_hilang()`
+  mengosongkan tabelnya pada penyimpanan pertama sesudah itu — tanpa satu pun
+  galat. Aturan yang sama dengan `companyMonthlyTarget` saat Target dicabut.
+- **`DB.perms.bank` yang sudah tersimpan di produksi DISARING dari matriks**
+  (`PERM_MODULES_PENSIUN`), bukan dihapus. Dibiarkan lewat, halaman Pengaturan
+  memajang baris hak akses untuk halaman yang tidak ada lagi — setelan mati
+  yang disetel orang lalu bertanya-tanya kenapa tidak berpengaruh apa pun
+  (pelajaran `SET.buffer` di modul HPP). Dihapus, setelannya hilang untuk
+  sesuatu yang mungkin suatu hari dikembalikan.
+- **Angka utilisasi Workload TIDAK ikut hilang** — ia pindah jadi kolom
+  **Beban** di tabel Kru, dengan ambang warna yang **sama persis** (>100%
+  merah, >80% kuning). Dua ambang untuk satu angka membuat kru yang sama
+  terbaca "aman" di satu layar dan "overload" di layar sebelahnya. Yang memang
+  hilang: kolom Overdue / Selesai / Revisi per kru — ketiganya bisa dibaca dari
+  Content Planning dengan menyaring PIC-nya.
+
+#### Kru & Rangkap Kerja: tabel
+
+Yang berubah BENTUKNYA, bukan datanya. Dengan belasan kru, grid tiga kolom
+memaksa menggulir bolak-balik cuma untuk membandingkan beban dua orang.
+
+- **Angka di tiap pilihan role dihitung TANPA tapis role itu sendiri.** Kalau
+  ikut, pilihan yang tidak sedang dipakai selalu menulis `(0)` — dan nol
+  membaca sebagai "tidak ada yang memegang role itu". Aturan yang sama dengan
+  angka PIC di Content Planning.
+- **Kotak cari menggambar ulang WADAHNYA saja** (`#teamTable` + `AFTER.team`).
+  Lewat `route()`, kotaknya ikut dibuat ulang dan hanya huruf pertama yang
+  masuk — jebakan yang sudah dibayar `queueF()` di berkas yang sama.
+
+#### Link video yang dipromosikan
+
+`ads[].videoUrl`. Yang disimpan **tautannya**, bukan rujukan ke `DB.content`:
+materi iklan sering postingan lama yang tidak pernah dicatat sebagai baris
+konten di modul ini, dan memaksanya memilih dari daftar berarti separuh iklan
+tidak bisa diisi sama sekali.
+
+- **Tautan tanpa protokol DIRAPIKAN jadi `https://`, yang bukan tautan
+  DITOLAK** (`videoRapi()` memulangkan `null`). Disimpan apa adanya,
+  `href="instagram.com/reel/…"` dibaca peramban sebagai jalur **RELATIF** —
+  tombolnya membuka halaman modul ini sendiri, dan yang mengkliknya mengira
+  videonya sudah dihapus.
+- **Platform materinya DIBACA DARI HOST-nya** (`videoPlat()`), bukan dari kolom
+  Platform iklan. Keduanya memang berbeda: satu iklan Meta Ads bisa mendorong
+  reel Instagram MAUPUN video Facebook, dan menebaknya dari platform iklan
+  menulis label yang salah di separuh barisnya. Host yang tidak dikenal diberi
+  **namanya sendiri**, tidak dijatuhkan ke platform pertama.
+
+#### Report Percakapan: dua sisi yang sering tidak sama
+
+```
+biaya per chat = dana keluar (SUDAH termasuk PPN 11%) ÷ jumlah chat
+```
+
+Yang dipakai `adSpendTotal()` — fungsi yang **sama** yang mengisi kolom Dana
+Keluar di Ads Management. Dua rumus untuk satu angka berarti halaman ini bisa
+menyebut biaya yang tidak cocok dengan tabel di sebelahnya, dan yang menyiapkan
+anggaran tidak punya cara tahu mana yang benar.
+
+- **DITAHAN (`—`), bukan nol dan bukan tak terhingga**, untuk dua keadaan yang
+  berbeda dan sama-sama menyesatkan:
+  - *chat 0* → membaginya memberi tak terhingga, dan iklan yang baru jalan
+    kemarin berdiri sebagai "paling mahal";
+  - *dana 0* → hasilnya Rp0 per chat, dan iklan yang dana keluarnya **belum
+    diisi** akan **SELALU** jadi juara termurah. Itu kesalahan yang tidak akan
+    dipertanyakan siapa pun — angkanya memang yang paling kecil. Iklan seperti
+    itu **dikeluarkan dari peringkat termurah** dan **jumlahnya disebut**
+    berikut cara membetulkannya.
+- **Dana keluar gabungan hanya milik iklan yang BERCHAT.** Menjumlahkan seluruh
+  iklan membuat biaya per chat memuat uang kampanye awareness yang memang tidak
+  pernah diukur dengan chat, dan angkanya jadi jauh lebih mahal daripada
+  kenyataannya. Itu dikatakan di kartunya.
+- **Yang paling banyak chat BUKAN yang paling murah**, dan itulah sebabnya
+  kartunya memajang keduanya berdampingan — iklan berbudget besar hampir selalu
+  menang di kolom jumlah, sementara yang dipakai memutuskan anggaran kolom
+  biaya per chat.
+- **Per video: tautan yang sama DIGABUNG**, sesudah dirapikan. Satu materi
+  sering didorong beberapa kampanye sekaligus; dua baris untuk satu video
+  membelah angkanya, dan yang membacanya menyimpulkan videonya biasa saja.
+  Iklan yang link videonya belum diisi berdiri di barisnya sendiri — tidak
+  ditebak dari nama iklannya.
+- **Bulannya dari `adBulan()`** — tanggal iklan mulai jalan, sama persis dengan
+  rekap di Ads Management.
+
+```bash
+node tools/uji-revisi-konten.js   # 76 pemeriksaan, jsdom
+```
+
+Ujinya **membuang komentar dulu** (JS dan HTML) sebelum mencari pemakaian:
+sejarah kenapa sesuatu dicabut justru harus tetap boleh menyebut namanya; yang
+dilarang PEMAKAIANNYA. Penolakan link video diuji lewat **jumlah POST
+`saveAll`**, bukan pesan di layar — "ada toast merah" tidak membuktikan
+kirimannya benar-benar ditahan.
+
+**Sembilan belas mutasi dicoba, kesembilan belasnya tertangkap** — satu baru
+sesudah fixture-nya dibetulkan, dan bentuknya sudah punya nama di berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| dana keluar gabungan memuat iklan yang tidak berchat | **cacat fixture** — seluruh iklan di bulan uji punya chat, jadi "yang berchat" dan "seluruh iklan" daftar yang SAMA dan mutasinya tidak menggeser satu angka pun | satu iklan awareness berdana Rp300.000 tanpa chat |
+
+> **Penggabungan per video juga menuntut fixture yang tepat:** dua iklan yang
+> memakai tautan sama harus MENULISNYA BEDA (satu berprotokol, satu tidak).
+> Ditulis sama persis, penggabungannya tidak menuntut perapian tautan sama
+> sekali dan mutasi yang mencabut `videoRapi()` lolos tanpa bunyi.
+
 ### Reservasi: siapa yang terakhir mengubah denah (4 September 2026)
 
 Permintaan user. Capnya **menempel di objek denahnya** (`_editBy`, `_editAt`

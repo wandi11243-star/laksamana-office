@@ -677,6 +677,11 @@ async function initAPI() {
     // Migrasi/Guard agar data array tidak error
     DB.notifs = DB.notifs || []; 
     DB.logs = DB.logs || []; 
+    /* DB.bank TETAP DIJAGA bentuknya walau halaman Content Bank sudah dicabut
+       (18 September 2026). Idenya yang terlanjur tersimpan TIDAK dihapus —
+       membuang data yang tidak bisa dikembalikan demi kerapian bukan
+       pertukaran yang baik, dan baris ini yang menahan save() mengirim
+       undefined ke server. */
     DB.bank = DB.bank || []; 
     DB.assets = DB.assets || []; 
     DB.shootings = DB.shootings || [];
@@ -812,7 +817,7 @@ const OFFICE_TO_KONTEN_ROLES = {
 const KONTEN_DEFAULT_ROLES = ['content_planner'];
 
 // PERM_NONE/VIEW/EDIT: sama pola dengan reservasi. Modul yang tak punya aksi
-// can() nyata (bank, shooting, design, editing, team, settings, dan
+// can() nyata (shooting, design, editing, team, settings, dan
 // analytics/reports/activity yang ditambah di bawah) murni dashboard/daftar —
 // Lihat & Ubah berlaku sama di situ karena tak ada yang dikunci Ubah-nya.
 const PERM_NONE=0, PERM_VIEW=1, PERM_EDIT=2;
@@ -826,7 +831,6 @@ const PERM_ROLES_LEGACY={
   brands:['content_director','account_manager','content_planner'],
   content:['content_director','content_planner','account_manager','designer','video_editor','photographer'],
   approve:['content_director','account_manager'],
-  bank:['content_director','content_planner','account_manager','designer','video_editor','photographer','analyst'],
   assets:['content_director','content_planner','designer','video_editor','photographer'],
   shooting:['content_director','content_planner','photographer','account_manager'],
   design:['content_director','designer','content_planner'],
@@ -853,7 +857,7 @@ function modPerm(m, role){ if(role==='super_admin') return PERM_EDIT; const p=ge
 const VIEW_PERM={
   brands:'brands',
   planning:'content', pipeline:'content', calendar:'content',
-  approval:'approve', bank:'bank', assets:'assets',
+  approval:'approve', assets:'assets',
   shooting:'shooting', design:'design', editing:'editing',
   publishing:'publish', analytics:'analytics',
   /* Input Performa & Performa Desain menumpang kunci 'analytics' yang sudah ada.
@@ -863,7 +867,7 @@ const VIEW_PERM={
      dijaga can('analytics') (butuh tingkat Ubah); yang cuma membaca cukup Lihat. */
   perfinput:'analytics', designperf:'analytics',
   ads:'ads', chats:'ads', kol:'kol',
-  team:'team', workload:'team',
+  team:'team',
   reports:'reports', activity:'activity', settings:'settings'
 };
 // Beberapa modul di VIEW_PERM belum ada di PERM_DEFAULT (analytics, reports, activity).
@@ -1414,8 +1418,7 @@ const NAV=[
     {v:'dashboard',t:'Dashboard',ic:'grid'},
     {v:'planning',t:'Content Planning',ic:'list'},
     {v:'pipeline',t:'Pipeline',ic:'columns'},
-    {v:'calendar',t:'Calendar',ic:'cal'},
-    {v:'bank',t:'Content Bank',ic:'bulb'}]},
+    {v:'calendar',t:'Calendar',ic:'cal'}]},
   {g:'Produksi',items:[
     {v:'shooting',t:'Shooting Schedule',ic:'cam'},
     {v:'design',t:'Design Queue',ic:'pen'},
@@ -1433,8 +1436,7 @@ const NAV=[
     {v:'chats',t:'Report Percakapan',ic:'chat'}]},
   {g:'Brand & Tim',items:[
     {v:'brands',t:'Brand Management',ic:'anchor'},
-    {v:'team',t:'Team & Rangkap Kerja',ic:'users'},
-    {v:'workload',t:'Workload',ic:'gauge'}]},
+    {v:'team',t:'Kru & Rangkap Kerja',ic:'users'}]},
   {g:'Sistem',items:[
     {v:'activity',t:'Activity Log',ic:'clock'},
     {v:'reports',t:'Reports',ic:'doc'},
@@ -1525,7 +1527,6 @@ const VIEW_META={
   planning:['Content Planning','Semua unit konten dari ide sampai tayang'],
   pipeline:['Content Pipeline','Papan alur produksi drag & drop'],
   calendar:['Content Calendar','Jadwal tayang lintas brand'],
-  bank:['Content Bank','Bank ide konten tim'],
   shooting:['Shooting Schedule','Jadwal produksi foto & video'],
   design:['Design Queue','Antrian pekerjaan desain'],
   editing:['Editing Queue','Antrian pekerjaan video'],
@@ -1539,8 +1540,7 @@ const VIEW_META={
   ads:['Ads Management','Kelola & pantau Meta / Google / TikTok Ads'],
   chats:['Report Percakapan','Rekap chat / percakapan hasil dari iklan'],
   brands:['Brand Management','Master data & pedoman brand'],
-  team:['Team & Rangkap Kerja','Kru, role ganda & kapasitas'],
-  workload:['Workload Analysis','Beban kerja & utilisasi tim'],
+  team:['Kru & Rangkap Kerja','Daftar kru, role rangkap, dan beban tugasnya'],
   activity:['Activity Log','Jejak audit seluruh aktivitas'],
   reports:['Reports','Ekspor laporan performa'],
   settings:['Pengaturan','Konfigurasi sistem'],
@@ -2480,51 +2480,19 @@ function calDay(ds){const evs=(collectCalEvents()).filter(e=>e.date===ds);
     <span class="pill" style="background:${t.bg};color:${t.fg};flex:0 0 auto"><span class="pd" style="background:${t.fg}"></span>${e.label}</span>
     <div style="flex:1"><div style="font-weight:600;font-size:13px">${esc(e.title)}</div>${e.time?`<div style="font-size:11px;color:var(--txt-3)">${e.time}</div>`:''}</div></div>`;}).join('')}</div></div>`);}
 
-/* ===== LAINNYA: BANK, BRAND, DLL (Tetap sama seperti aslinya) ===== */
-VIEWS.bank=function(){
-  const list=filterByBrand(DB.bank);
-  return `${brandBar()}
-  <div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">${list.length} ide tersimpan - jangan biarkan ide hilang</p></div>
-    <button class="btn btn-gold" onclick="COMS.openBankForm()">💡 Tambah Ide</button></div>
-  <div class="grid g-3">${list.length?list.map(b=>{const br=getBrand(b.brand);const diffC={easy:'var(--ok)',medium:'var(--warn)',hard:'var(--bad)'}[b.difficulty]||'var(--txt-3)';
-    return `<div class="card" style="cursor:pointer" onclick="COMS.openBankForm('${b.id}')">
-      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px">${br?brandBadge(br,'font-size:9.5px;padding:2px 8px;'):''}${platformTag(b.platform)}</div>
-      <div style="font-weight:600;font-size:14px;margin-bottom:8px;line-height:1.35">${esc(b.title)}</div>
-      <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
-        <span class="tag">${esc(b.category)}</span>${b.trend?`<span class="tag" style="color:var(--purple)">📈 ${esc(b.trend)}</span>`:''}</div>
-      <div style="display:flex;align-items:center;justify-content:space-between;font-size:11px">
-        <span style="color:${diffC};font-weight:600">● ${b.difficulty}</span>
-        <span style="color:var(--txt-3)">~${num(b.estReach)} reach</span>
-        <span class="pill" style="background:${b.status==='approved'?'var(--ok-bg)':'var(--info-bg)'};color:${b.status==='approved'?'var(--ok)':'var(--info)'}">${b.status}</span></div>
-      ${b.status!=='converted'?`<button class="btn btn-ghost btn-sm" style="width:100%;margin-top:10px" onclick="event.stopPropagation();COMS.convertBank('${b.id}')">→ Jadikan Konten</button>`:''}
-    </div>`;}).join(''):'<div class="empty" style="grid-column:1/-1"><div class="ei">💡</div><h4>Bank ide kosong</h4><p>Simpan ide sebelum lupa.</p></div>'}</div>`;
-};
-function openBankForm(id){const b=id?DB.bank.find(x=>x.id===id):null;
-  drawer(`<div class="drawer-h"><h3>${b?'Edit Ide':'Ide Baru'}</h3><button class="x-btn" onclick="COMS.closeDrawer()">✕</button></div>
-  <div class="drawer-b"><div class="form-grid">
-    <div class="full field"><label>Judul Ide</label><input class="ctrl" id="bk_title" value="${esc(b?.title||'')}"></div>
-    <div class="field"><label>Brand</label><select class="ctrl" id="bk_brand">${DB.brands.map(x=>`<option value="${x.id}" ${b&&b.brand===x.id?'selected':''}>${esc(x.name)}</option>`).join('')}</select></div>
-    <div class="field"><label>Platform</label><select class="ctrl" id="bk_platform">${Object.keys(PLATFORMS).map(p=>`<option ${b&&normPlatform(b.platform)===p?'selected':''}>${p}</option>`).join('')}</select></div>
-    <div class="field"><label>Kategori / Pillar</label><input class="ctrl" id="bk_category" value="${esc(b?.category||'')}"></div>
-    <div class="field"><label>Trend</label><input class="ctrl" id="bk_trend" value="${esc(b?.trend||'')}"></div>
-    <div class="field"><label>Keyword</label><input class="ctrl" id="bk_keyword" value="${esc(b?.keyword||'')}"></div>
-    <div class="field"><label>Sumber Inspirasi</label><input class="ctrl" id="bk_source" value="${esc(b?.source||'')}"></div>
-    <div class="field"><label>Difficulty</label><select class="ctrl" id="bk_difficulty">${['easy','medium','hard'].map(d=>`<option ${b&&b.difficulty===d?'selected':''}>${d}</option>`).join('')}</select></div>
-    <div class="field"><label>Prioritas</label><select class="ctrl" id="bk_priority">${['high','medium','low'].map(p=>`<option ${b&&b.priority===p?'selected':''}>${p}</option>`).join('')}</select></div>
-    <div class="field"><label>Estimasi Reach</label><input type="number" class="ctrl" id="bk_estReach" value="${b?.estReach||0}"></div>
-    <div class="field"><label>Status</label><select class="ctrl" id="bk_status">${['idea','approved','converted'].map(s=>`<option ${b&&b.status===s?'selected':''}>${s}</option>`).join('')}</select></div>
-  </div></div>
-  <div class="modal-f">${b?`<button class="btn btn-danger" onclick="COMS.delBank('${id}')">Hapus</button>`:''}<button class="btn btn-ghost" onclick="COMS.closeDrawer()">Batal</button><button class="btn btn-gold" onclick="COMS.saveBank('${id||''}')">Simpan</button></div>`);}
-function saveBank(id){const g=k=>$('#bk_'+k).value;const t=g('title').trim();if(!t){toast('Judul wajib','err');return;}
-  const data={title:t,brand:g('brand'),platform:g('platform'),category:g('category'),trend:g('trend'),keyword:g('keyword'),source:g('source'),difficulty:g('difficulty'),priority:g('priority'),estReach:+g('estReach')||0,status:g('status')};
-  if(id){Object.assign(DB.bank.find(x=>x.id===id),data);toast('Ide diperbarui','ok');}
-  else{DB.bank.unshift(Object.assign({id:uid('bk'),owner:SES,at:Date.now(),reference:''},data));logAct('menambah ide',t);toast('Ide disimpan 💡','ok');}
-  save();closeDrawer();route('bank');}
-function delBank(id){if(!confirm('Hapus ide ini?'))return;DB.bank=DB.bank.filter(x=>x.id!==id);save();closeDrawer();route('bank');}
-function convertBank(id){const b=DB.bank.find(x=>x.id===id);
-  const plat=normPlatform(b.platform);
-  const c=mkContent({brand:b.brand,platform:plat,platforms:plat?[plat]:[],pillar:PILLARS.includes(b.category)?b.category:PILLARS[0],title:b.title,priority:b.priority==='high'?'high':'medium',detail:b.keyword?('Keyword: '+b.keyword):'',status:'Idea',createdBy:SES,createdAt:Date.now(),deadline:dISO(7),publishDate:dISO(10)});
-  DB.content.push(c);b.status='converted';logAct('mengubah ide jadi konten',b.title);save();toast('Ide → Content Planning ⚓','ok');route('bank');}
+/* ===== BRAND, KRU, DLL =====
+
+   HALAMAN CONTENT BANK DICABUT 18 September 2026 (permintaan user), berikut
+   openBankForm / saveBank / delBank / convertBank. Rujukannya ada di DELAPAN
+   tempat dan semuanya ikut: NAV, VIEW_META, VIEW_PERM, PERM_ROLES_LEGACY,
+   MODULE_LABELS, pencarian global, ekspor COMS, dan penggambarnya sendiri.
+   Satu rujukan yang tertinggal adalah ReferenceError, dan gejalanya LAYAR
+   PUTIH tanpa satu kata pun yang menyebut sebabnya.
+
+   DATANYA SENGAJA TIDAK DIHAPUS: DB.bank tetap ada di seed, di KT_COLS, dan
+   di guard initAPI — jadi ide yang terlanjur tersimpan tetap utuh di server
+   dan tidak ikut terbuang pada penyimpanan berikutnya. Yang dicabut
+   layarnya, bukan datanya. */
 
 VIEWS.brands=function(){
   return `<div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">${DB.brands.length} brand dikelola</p></div>
@@ -2595,37 +2563,120 @@ function delBrand(id){if(!confirm('Hapus brand? Konten terkait tidak ikut terhap
    sesudah ini di-deploy. */
 
 let formRoles=[];
-VIEWS.team=function(){
-  const multi=DB.users.filter(u=>userRoles(u).length>1);
-  return `<div class="page-head"><div><h2 style="font-size:22px">Kru & Rangkap Kerja</h2><p style="color:var(--txt-3);font-size:13px">${DB.users.length} kru - ${multi.length} orang pegang lebih dari 1 role</p></div></div>
-  <div class="card" style="padding:14px;margin-bottom:18px;background:linear-gradient(135deg,rgba(229,168,35,.08),transparent);border-color:var(--line)">
-    <div style="display:flex;align-items:center;gap:10px"><span style="font-size:20px">⚓</span>
-    <div style="font-size:12.5px;color:var(--txt-2)"><b style="color:var(--gold)">Rangkap Kerja aktif.</b> Satu kru bisa memegang beberapa role sekaligus (mis. Planner + Designer). Hak akses & tugas otomatis <b>digabung</b> dari seluruh role yang dipegang.</div></div>
-  </div>
-  <div class="grid g-3">${DB.users.map(u=>{
+/* ===== KRU & RANGKAP KERJA — VERSI TABEL =====
+
+   Permintaan user 18 September 2026: dibuat seperti Kelola Kru di modul
+   Finance. Yang berubah BENTUKNYA, bukan datanya — grid kartu jadi satu tabel
+   yang bisa disapu mata dari atas ke bawah. Dengan belasan kru, grid tiga
+   kolom memaksa menggulir bolak-balik cuma untuk membandingkan beban dua
+   orang; kolom yang berjajar tidak.
+
+   KOLOM BEBAN SENGAJA IKUT. Halaman Workload dicabut di permintaan yang SAMA,
+   dan ia satu-satunya tempat angka utilisasi pernah berdiri. Dibuang
+   seluruhnya, tidak ada satu layar pun yang bisa menjawab siapa yang
+   kelebihan muatan — jadi yang dicabut halamannya, bukan angkanya. */
+let teamFilter={q:'',role:''};
+function teamF(k,v){
+  teamFilter[k]=v;
+  /* Mengetik di kotak cari menggambar ulang TABELNYA saja. Lewat route(),
+     kotaknya ikut dibuat ulang dan hanya huruf pertama yang masuk — jebakan
+     yang sudah dibayar queueF() di berkas ini juga. */
+  if(k==='q')gambarTeamTabel(); else route('team');
+}
+function teamReset(){teamFilter={q:'',role:''};route('team');}
+function teamRows(){
+  return (DB.users||[]).map(u=>{
     const tasks=DB.content.filter(c=>c.pic===u.id&&!['Posted','Cancelled'].includes(c.status));
-    const util=pct(tasks.length,u.capacity);const uc=util>100?'var(--bad)':util>80?'var(--warn)':'var(--ok)';
     const rr=userRoles(u);
-    return `<div class="card">
-      <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px">
-        ${avatar(u.name,'lg')}
-        <div style="flex:1;min-width:0"><div style="font-weight:700;font-size:15px">${esc(u.name)}${u.id===SES?' <span style="font-size:10px;color:var(--gold)">(kamu)</span>':''}</div>
-          <div style="font-size:11px;color:var(--txt-3)">${esc(u.division)} - ${esc(u.email||'')}</div></div>
-        ${rr.length>1?`<span class="pill" style="background:var(--gold-glow);color:var(--gold)">×${rr.length} role</span>`:''}
-      </div>
-      <div style="font-size:10px;text-transform:uppercase;color:var(--txt-3);font-weight:700;margin-bottom:6px">Role ${rr.length>1?'(rangkap)':''}</div>
-      <div style="display:flex;flex-direction:column;gap:5px;margin-bottom:12px">${rr.map(r=>{const ro=ROLES[r]||{label:r,color:'#888',desc:''};
-        return `<div style="display:flex;align-items:center;gap:8px;padding:6px 9px;background:var(--ink-800);border-radius:8px;border-left:3px solid ${ro.color}">
-          <span style="font-weight:600;font-size:12px;color:${readable(ro.color)}">${ro.label}</span></div>`;}).join('')}</div>
-      <div style="display:flex;gap:4px;flex-wrap:wrap;margin-bottom:12px">${(u.skills||[]).map(s=>`<span class="tag" style="font-size:10px">${esc(s)}</span>`).join('')}</div>
-      <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:5px"><span style="color:var(--txt-3)">Beban: ${tasks.length}/${u.capacity} task</span><span style="color:${uc};font-weight:700">${util}%</span></div>
-      <div class="progress"><i style="width:${Math.min(util,100)}%;background:${uc}"></i></div>
-      <div style="display:flex;align-items:center;gap:8px;margin-top:12px;font-size:11px;color:var(--txt-3)">
-        <span class="pill" style="background:${u.avail==='available'?'var(--ok-bg)':'var(--warn-bg)'};color:${u.avail==='available'?'var(--ok)':'var(--warn)'}">${u.avail==='available'?'Tersedia':'Sibuk'}</span>
-        <span>🕐 ${esc(u.workHours||'')}</span>
-        ${OFFICE_IS_ADMIN?`<button class="btn btn-ghost btn-sm" style="margin-left:auto" onclick="COMS.openUserForm('${u.id}')">✎ Kelola</button>`:''}</div>
-    </div>`;}).join('')}</div>`;
+    return {u,rr,aktif:tasks.length,util:pct(tasks.length,u.capacity)};
+  }).sort((a,b)=>String(a.u.name||'').localeCompare(String(b.u.name||'')));
+}
+VIEWS.team=function(){
+  const semua=teamRows();
+  const multi=semua.filter(r=>r.rr.length>1).length;
+  /* Angka di tiap pilihan role dihitung TANPA tapis role itu sendiri — kalau
+     ikut, pilihan yang tidak sedang dipakai selalu menulis (0), dan nol
+     membaca sebagai "tidak ada yang memegang role itu". Aturan yang sama
+     dengan angka PIC di Content Planning. */
+  const pakaiRole=r=>semua.filter(x=>x.rr.includes(r)).length;
+  return `<div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">
+    ${semua.length} kru · <b>${multi}</b> orang memegang lebih dari satu role</p></div></div>
+  <div class="card" style="padding:14px;margin-bottom:16px;background:linear-gradient(135deg,rgba(229,168,35,.08),transparent)">
+    <div style="display:flex;align-items:center;gap:10px"><span style="font-size:20px">⚓</span>
+    <div style="font-size:12.5px;color:var(--txt-2)"><b style="color:var(--gold)">Rangkap Kerja aktif.</b>
+      Satu kru bisa memegang beberapa role sekaligus (mis. Planner + Designer). Hak akses &amp; tugas otomatis
+      <b>digabung</b> dari seluruh role yang dipegang — yang paling longgar yang berlaku.
+      Nama &amp; akunnya datang dari Office; yang disetel di sini data operasional &amp; role internalnya.</div></div>
+  </div>
+  <div class="card" style="padding:12px;margin-bottom:16px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <input class="ctrl" style="max-width:240px" placeholder="Cari nama, divisi, email, skill..." value="${esc(teamFilter.q)}" oninput="COMS.teamF('q',this.value)">
+      <select class="ctrl" style="max-width:210px" onchange="COMS.teamF('role',this.value)">
+        <option value="">Semua Role (${semua.length})</option>
+        ${ROLE_KEYS.map(r=>`<option value="${r}" ${teamFilter.role===r?'selected':''}>${esc((ROLES[r]||{label:r}).label)} (${pakaiRole(r)})</option>`).join('')}
+      </select>
+      <button class="btn btn-ghost btn-sm" onclick="COMS.teamReset()">Reset</button>
+      <span id="teamCount" style="margin-left:auto;font-size:12px;color:var(--txt-3)"></span>
+    </div>
+  </div>
+  <div id="teamTable"></div>`;
 };
+/* Tabelnya diisi SESUDAH kerangkanya masuk DOM — #teamTable belum ada saat
+   VIEWS.team dipanggil, dan mengisinya di sana gagal diam-diam (el null),
+   yang tampil sebagai halaman tanpa tabel sama sekali. */
+AFTER.team=()=>gambarTeamTabel();
+function gambarTeamTabel(){
+  const el=$('#teamTable');if(!el)return;
+  let list=teamRows();
+  if(teamFilter.role)list=list.filter(r=>r.rr.includes(teamFilter.role));
+  if(teamFilter.q){const q=teamFilter.q.toLowerCase();
+    list=list.filter(r=>((r.u.name||'')+' '+(r.u.division||'')+' '+(r.u.email||'')+' '+(r.u.skills||[]).join(' ')).toLowerCase().includes(q));}
+  const cnt=$('#teamCount');if(cnt)cnt.textContent=`${list.length} kru`;
+  if(!list.length){
+    el.innerHTML=`<div class="empty"><div class="ei">👥</div><h4>Tidak ada kru yang cocok</h4>
+      <p>Ubah kata kunci atau pilihan role, atau tekan Reset.</p></div>`;
+    return;
+  }
+  const pg=pgSlice(list,'team',JSON.stringify(teamFilter));
+  el.innerHTML=`<div class="tbl-wrap"><table><thead><tr>
+    <th>Kru</th><th>Divisi / Email</th><th>Role</th><th>Skill</th><th>Beban</th><th>Ketersediaan</th><th></th>
+  </tr></thead><tbody>
+  ${pg.items.map(r=>{
+    const u=r.u;
+    /* Ambang warnanya sama persis dengan yang dipakai halaman Workload
+       sebelum dicabut — >100% merah, >80% kuning. Dua ambang untuk satu angka
+       membuat kru yang sama terbaca "aman" di satu layar dan "overload" di
+       layar sebelahnya. */
+    const uc=r.util>100?'var(--bad)':r.util>80?'var(--warn)':'var(--ok)';
+    return `<tr>
+      <td><span style="display:flex;align-items:center;gap:9px">${avatar(u.name,'sm')}
+        <span><b style="font-size:13px">${esc(u.name)}</b>${u.id===SES?' <span class="tag" style="font-size:9.5px;color:var(--gold);border-color:var(--gold)">kamu</span>':''}
+        ${r.rr.length>1?`<div style="font-size:10.5px;color:var(--gold)">rangkap ×${r.rr.length}</div>`:''}</span></span></td>
+      <td style="font-size:12px;color:var(--txt-2)">${esc(u.division||'—')}
+        <div style="font-size:11px;color:var(--txt-3)">${esc(u.email||'')}</div></td>
+      <td><span style="display:flex;gap:4px;flex-wrap:wrap">${r.rr.length
+        ? r.rr.map(k=>{const ro=ROLES[k]||{label:k,color:'#888'};const t=tint(ro.color);
+            return `<span class="tag" style="background:${t.bg};color:${t.fg};border-color:transparent">${esc(ro.label)}</span>`;}).join('')
+        : '<span class="tag" style="color:var(--warn)">belum ada role</span>'}</span></td>
+      <td style="font-size:11px;color:var(--txt-3)">${(u.skills||[]).length?esc((u.skills||[]).join(', ')):'—'}</td>
+      <td style="min-width:130px">
+        <div style="display:flex;justify-content:space-between;font-size:11px;margin-bottom:4px">
+          <span class="mono" style="color:var(--txt-3)">${r.aktif}/${u.capacity||0}</span>
+          <span class="mono" style="color:${uc};font-weight:700">${r.util}%</span></div>
+        <div class="progress"><i style="width:${Math.min(r.util,100)}%;background:${uc}"></i></div></td>
+      <td><span class="pill" style="background:${u.avail==='available'?'var(--ok-bg)':'var(--warn-bg)'};color:${u.avail==='available'?'var(--ok)':'var(--warn)'}">
+        <span class="pd" style="background:${u.avail==='available'?'var(--ok)':'var(--warn)'}"></span>${u.avail==='available'?'Tersedia':'Sibuk'}</span>
+        <div style="font-size:10.5px;color:var(--txt-3);margin-top:3px">🕐 ${esc(u.workHours||'—')}</div></td>
+      <td style="text-align:right;white-space:nowrap">${OFFICE_IS_ADMIN
+        ? `<button class="btn btn-ghost btn-sm" onclick="COMS.openUserForm('${u.id}')">✎ Kelola</button>`
+        : ''}</td>
+    </tr>`;}).join('')}
+  </tbody></table></div>${pgBar(pg,'kru')}
+  ${OFFICE_IS_ADMIN?'':`<div style="font-size:11.5px;color:var(--txt-3);margin-top:10px">
+    👁 Kamu bisa melihat daftarnya, tapi yang bisa mengubah role &amp; data kru hanya admin modul Konten.
+    Halaman ini tetap ditampilkan supaya jelas siapa memegang apa.</div>`}`;
+}
+
 function openUserForm(id){
   if(!OFFICE_IS_ADMIN){toast('Hanya admin modul (Admin/Howandi/Wandi) yang bisa kelola tim','err');return;}
   const u=id?getUser(id):null;
@@ -2665,34 +2716,15 @@ function saveUser(id){const u=getUser(id);if(!u){toast('Kru tidak ditemukan','er
   save();closeDrawer();route('team');
   if(id===SES)bootApp();}
 
-VIEWS.workload=function(){
-  const rows=DB.users.map(u=>{const tasks=DB.content.filter(c=>c.pic===u.id&&!['Posted','Cancelled'].includes(c.status));
-    const overdue=tasks.filter(c=>{const d=daysDiff(c.deadline);return d!=null&&d<0;});
-    const done=DB.content.filter(c=>c.pic===u.id&&c.status==='Posted');
-    const rev=DB.content.filter(c=>c.pic===u.id&&c.status==='Revision');
-    return {u,active:tasks.length,overdue:overdue.length,done:done.length,rev:rev.length,util:pct(tasks.length,u.capacity)};
-  }).sort((a,b)=>b.util-a.util);
-  const maxUtil=Math.max(100,...rows.map(r=>r.util));
-  return `<div class="page-head"><div><p style="color:var(--txt-3);font-size:13px">Deteksi overload & underutilization kru</p></div></div>
-  <div class="card" style="margin-bottom:18px"><h3 style="font-size:14px;margin-bottom:14px">Utilisasi Tim</h3>
-    <div class="list-plain">${rows.map(r=>{const uc=r.util>100?'var(--bad)':r.util>80?'var(--warn)':r.util<40?'var(--info)':'var(--ok)';
-      return `<div style="display:flex;align-items:center;gap:12px">
-        <div style="width:150px;display:flex;align-items:center;gap:8px;flex:0 0 auto">${avatar(r.u.name,'sm')}<div><div style="font-size:12.5px;font-weight:600">${esc(r.u.name.split(' ')[0])}</div><div style="font-size:10px;color:var(--txt-3)">${esc(roleShorts(r.u))}</div></div></div>
-        <div style="flex:1"><div class="bar-track"><i style="width:${Math.min(r.util/maxUtil*100,100)}%;background:${uc}"></i></div></div>
-        <div style="width:60px;text-align:right;flex:0 0 auto"><span class="mono" style="font-weight:700;color:${uc}">${r.util}%</span></div>
-        <div style="width:130px;text-align:right;font-size:11px;color:var(--txt-3);flex:0 0 auto">${r.active}/${r.u.capacity} task ${r.util>100?'<b style="color:var(--bad)">⚠ overload</b>':r.util<40?'<span style="color:var(--info)">under</span>':''}</div>
-      </div>`;}).join('')}</div>
-  </div>
-  ${(()=>{const p=pgSlice(rows,'workload');return `<div class="tbl-wrap"><table><thead><tr><th>Kru</th><th>Role</th><th>Task Aktif</th><th>Overdue</th><th>Selesai</th><th>Revisi</th><th>Utilisasi</th><th>Status</th></tr></thead><tbody>
-    ${p.items.map(r=>{const uc=r.util>100?'var(--bad)':r.util>80?'var(--warn)':'var(--ok)';
-      return `<tr><td><span style="display:flex;align-items:center;gap:8px">${avatar(r.u.name,'sm')}${esc(r.u.name)}</span></td>
-      <td style="font-size:11px;color:var(--txt-3)">${esc(roleShorts(r.u))}</td>
-      <td class="mono">${r.active}</td><td class="mono" style="color:${r.overdue?'var(--bad)':'inherit'}">${r.overdue}</td>
-      <td class="mono">${r.done}</td><td class="mono">${r.rev}</td>
-      <td><span class="mono" style="color:${uc};font-weight:700">${r.util}%</span></td>
-      <td>${r.util>100?'<span class="pill" style="background:var(--bad-bg);color:var(--bad)">Overload</span>':r.util<40?'<span class="pill" style="background:var(--info-bg);color:var(--info)">Under</span>':'<span class="pill" style="background:var(--ok-bg);color:var(--ok)">Normal</span>'}</td></tr>`;}).join('')}
-  </tbody></table></div>${pgBar(p,'kru')}`;})()}`;
-};
+/* HALAMAN WORKLOAD DICABUT 18 September 2026 (permintaan user). Angka
+   utilisasinya TIDAK ikut hilang — ia pindah jadi kolom Beban di tabel Kru &
+   Rangkap Kerja, dengan ambang warna yang sama persis (>100% merah, >80%
+   kuning). Dibuang seluruhnya, tidak ada satu layar pun yang bisa menjawab
+   siapa yang kelebihan muatan.
+
+   Yang memang hilang: kolom Overdue / Selesai / Revisi per kru. Ketiganya
+   bisa dibaca dari Content Planning dengan menyaring PIC-nya, dan halaman
+   sendiri untuk tiga angka yang jarang dibuka bukan pertukaran yang baik. */
 
 // ===== QUEUE PRODUKSI TERPADU (design / edit / shoot) =====
 // Menggabungkan tugas dari kebutuhan konten + tugas mandiri (DB.prodTasks).
@@ -3620,6 +3652,7 @@ VIEWS.ads=function(){
         <!-- Impression dibuang bersama kotak isiannya: tidak ada lagi yang
              mengisinya, jadi kolomnya akan menulis 0 untuk setiap iklan baru
              dan terbaca sebagai iklan yang tidak dilihat siapa pun. -->
+        <td>${videoChip(a.videoUrl)}</td>
         <td style="font-size:12px"><span style="color:var(--info);font-weight:600">💬 ${num(a.chats||0)}</span></td>
         <td class="mono" style="font-size:12px;font-weight:600;color:var(--bad)" title="Termasuk PPN 11%">${rupiah(adSpendTotal(a))}</td>
         <!-- Kolom "Dibuat" dibuang bersama aturan lama: yang menentukan bulan
@@ -3638,7 +3671,7 @@ VIEWS.ads=function(){
       </tr>`;}).join('');
     const pager=pgBar(pgAds,'iklan');
     body=`<div class="tbl-wrap"><table><thead><tr>
-      <th>Nama Iklan</th><th>Brand</th><th>Platform</th><th>Target</th><th>Usia Range</th><th>Hasil (Chats)</th><th>Dana Keluar</th><th>Periode</th><th>Status</th><th></th>
+      <th>Nama Iklan</th><th>Brand</th><th>Platform</th><th>Target</th><th>Usia Range</th><th>Video</th><th>Hasil (Chats)</th><th>Dana Keluar</th><th>Periode</th><th>Status</th><th></th>
       </tr></thead><tbody>${rows}</tbody></table></div>${pager}`;
   }
   /* URUTAN: rekap bulanan -> DANA KELUAR -> Dana Masuk.
@@ -3652,32 +3685,261 @@ VIEWS.ads=function(){
     </div>${filterBar}${body}`;
   return brandBar()+head+stats+sisaAllCard+monthCard+danaKeluar+fundCard;
 };
-// ===== REPORT PERCAKAPAN - tab tersendiri (chat hasil dari iklan) =====
+/* ===== LINK VIDEO YANG DIPROMOSIKAN =====
+
+   Permintaan user 18 September 2026. Sebuah iklan hampir selalu mendorong SATU
+   materi — reel, video feed, atau TikTok — dan sampai sekarang tidak ada satu
+   kolom pun yang menyimpan materi mana itu. Akibatnya pertanyaan "video yang
+   mana yang paling banyak menghasilkan chat" tidak bisa dijawab dari layar
+   mana pun, cuma dari ingatan orang yang membuat iklannya.
+
+   YANG DISIMPAN TAUTANNYA, bukan rujukan ke DB.content. Materi iklan sering
+   berupa postingan lama yang tidak pernah dicatat sebagai baris konten di
+   modul ini, dan memaksanya memilih dari daftar berarti separuh iklan tidak
+   bisa diisi sama sekali. */
+function videoRapi(u){
+  u=String(u==null?'':u).trim();
+  if(!u)return '';
+  /* Yang ditempel orang dari aplikasi HP sering tanpa protokol
+     ("instagram.com/reel/…"). Tanpa protokol, href-nya dibaca peramban sebagai
+     jalur RELATIF — tautannya membuka halaman modul ini sendiri, dan yang
+     mengkliknya mengira videonya sudah dihapus. */
+  if(!/^https?:\/\//i.test(u)){
+    if(/^[a-z0-9.-]+\.[a-z]{2,}(\/|$)/i.test(u)) u='https://'+u;
+    else return null;   // bukan tautan sama sekali
+  }
+  return u;
+}
+/* Platform materinya DIBACA DARI HOST-nya, bukan dari kolom Platform iklan.
+   Keduanya memang berbeda: satu iklan Meta Ads bisa mendorong reel Instagram
+   MAUPUN video Facebook, dan menebaknya dari platform iklan akan menulis label
+   yang salah di separuh barisnya. */
+const VIDEO_PLAT=[
+  {tes:/(^|\.)instagram\.com$/i,       nama:'Instagram', c:'#e58bbf'},
+  {tes:/(^|\.)(facebook\.com|fb\.watch)$/i, nama:'Facebook',  c:'#5aa9e5'},
+  {tes:/(^|\.)tiktok\.com$/i,          nama:'TikTok',    c:'#5ad0c8'},
+  {tes:/(^|\.)(youtube\.com|youtu\.be)$/i,  nama:'YouTube',   c:'#e56a5a'}
+];
+function videoPlat(u){
+  u=videoRapi(u);
+  if(!u)return null;
+  let host='';
+  try{ host=new URL(u).hostname; }catch(e){ return {nama:'Tautan',c:'#8ba0b5'}; }
+  const m=VIDEO_PLAT.find(x=>x.tes.test(host));
+  /* Yang tidak dikenal TIDAK dijatuhkan ke platform pertama — ia diberi
+     namanya sendiri. Label yang salah lebih buruk daripada label yang umum. */
+  return m||{nama:host.replace(/^www\./,''),c:'#8ba0b5'};
+}
+function videoChip(u){
+  const p=videoPlat(u);
+  if(!p)return '<span style="color:var(--txt-3);font-size:11.5px">—</span>';
+  const t=tint(p.c);
+  return `<a href="${esc(videoRapi(u))}" target="_blank" rel="noopener" onclick="event.stopPropagation()"
+    class="tag" style="background:${t.bg};color:${t.fg};border-color:transparent;text-decoration:none"
+    title="${esc(videoRapi(u))}">▶ ${esc(p.nama)} ↗</a>`;
+}
+
+/* ===== REPORT PERCAKAPAN — ANALISA IKLAN =====
+
+   Permintaan user 18 September 2026: bukan lagi sekadar daftar berapa chat per
+   iklan, melainkan "mana Ads yang paling top" dari DUA sisi yang sering
+   bertentangan — yang paling banyak menghasilkan chat, dan yang paling MURAH
+   per chatnya — plus videonya yang mana.
+
+   BIAYA PER CHAT = dana keluar (SUDAH termasuk PPN 11%) ÷ jumlah chat. Yang
+   dipakai adSpendTotal(), fungsi yang sama yang mengisi kolom Dana Keluar di
+   Ads Management — dua rumus untuk satu angka berarti halaman ini bisa
+   menyebut biaya yang tidak cocok dengan tabel di sebelahnya, dan yang
+   menyiapkan anggaran tidak punya cara tahu mana yang benar. */
+function adBiayaChat(a){
+  const c=+(a&&a.chats)||0, s=adSpendTotal(a);
+  /* DITAHAN, bukan nol dan bukan tak terhingga, untuk DUA keadaan yang
+     berbeda dan sama-sama menyesatkan:
+       - chat 0  : membaginya memberi tak terhingga, dan iklan yang belum
+                   menghasilkan apa pun akan berdiri sebagai "paling mahal"
+                   padahal mungkin baru jalan kemarin.
+       - dana 0  : hasilnya Rp0 per chat, dan iklan yang dana keluarnya BELUM
+                   DIISI akan SELALU jadi juara termurah. Itu kesalahan yang
+                   tidak akan dipertanyakan siapa pun — angkanya memang yang
+                   paling kecil. */
+  if(c<=0||s<=0)return null;
+  return s/c;
+}
+let chatsFilter={bulan:'',urut:'chats'};
+function chatsF(k,v){chatsFilter[k]=v;route('chats');}
+const CHAT_URUT={
+  chats:{t:'Chat Terbanyak', v:a=>+(a.chats)||0,   naik:false},
+  murah:{t:'Biaya per Chat Termurah', v:a=>adBiayaChat(a), naik:true},
+  dana: {t:'Dana Keluar Terbesar',    v:a=>adSpendTotal(a), naik:false}
+};
+function chatsUrut(list,kunci){
+  const f=(CHAT_URUT[kunci]||CHAT_URUT.chats);
+  return list.slice().sort((x,y)=>{
+    const a=f.v(x), b=f.v(y);
+    /* Yang tidak punya nilai SELALU di bawah, ke arah mana pun urutannya:
+       diurut sebagai nol, iklan yang dana keluarnya belum diisi memenuhi baris
+       teratas justru waktu orang mencari yang paling murah. */
+    if(a==null&&b==null)return String(x.name||'').localeCompare(String(y.name||''));
+    if(a==null)return 1;
+    if(b==null)return -1;
+    return (f.naik?(a-b):(b-a))||String(x.name||'').localeCompare(String(y.name||''));
+  });
+}
 VIEWS.chats=function(){
   const scope=filterByBrand(DB.ads||[]);
-  const totChats=scope.reduce((s,a)=>s+(+a.chats||0),0);
-  const chatAds=scope.filter(a=>+a.chats>0).sort((a,b)=>(+b.chats||0)-(+a.chats||0));
-  // rekap chat per platform
-  const byPlat={};scope.forEach(a=>{if(+a.chats>0){byPlat[a.platform]=(byPlat[a.platform]||0)+(+a.chats||0);}});
-  const platRows=Object.keys(byPlat).sort((a,b)=>byPlat[b]-byPlat[a]).map(p=>{const pl=ADS_PLATFORMS[p]||{c:'#888'};const t=tint(pl.c);
-    return `<span class="tag" style="background:${t.bg};color:${t.fg};border-color:transparent;font-size:12px">${esc(p)}: <b>${num(byPlat[p])}</b></span>`;}).join(' ');
-  const pgChat=pgSlice(chatAds,'chat',brandFilter);
-  const chatRows=pgChat.items.map(a=>{const b=getBrand(a.brand);const pl=ADS_PLATFORMS[a.platform]||{c:'#888'};const pt=tint(pl.c);return `<tr>
-      <td class="row-click" style="font-weight:600" onclick="COMS.openAdForm('${a.id}')">${esc(a.name||'(tanpa nama)')}</td>
-      <td><span class="tag" style="background:${pt.bg};color:${pt.fg};border-color:transparent">${esc(a.platform||'-')}</span></td>
-      <td><span style="display:flex;align-items:center;gap:6px">${brandDot(a.brand)}${esc(b?b.name.split(' (')[0]:'-')}</span></td>
-      <td style="font-size:12px">${esc(a.target||'-')}</td>
-      <td class="mono" style="font-weight:700;color:var(--info)">💬 ${num(a.chats)}</td></tr>`;}).join('');
-  const st=(l,v,c)=>`<div class="stat"><div class="lbl">${l}</div><div class="val mono" style="${c?'color:'+c:''}">${v}</div></div>`;
+  const bulanAda=[...new Set(scope.map(adBulan).filter(b=>b&&b!==ADS_TANPA_TGL))].sort().reverse();
+  const list=chatsFilter.bulan?scope.filter(a=>adBulan(a)===chatsFilter.bulan):scope;
+  const berchat=list.filter(a=>+a.chats>0);
+  const totChats=berchat.reduce((s,a)=>s+(+a.chats||0),0);
+  /* Dana keluar yang dijumlahkan HANYA milik iklan yang menghasilkan chat.
+     Menjumlahkan seluruh iklan membuat "biaya per chat" gabungan memuat uang
+     kampanye awareness yang memang tidak pernah diukur dengan chat, dan
+     angkanya jadi jauh lebih mahal daripada kenyataannya. Itu dikatakan di
+     kartunya. */
+  const totDana=berchat.reduce((s,a)=>s+adSpendTotal(a),0);
+  const bpc=totChats>0&&totDana>0?(totDana/totChats):null;
+  const tanpaDana=berchat.filter(a=>adSpendTotal(a)<=0);
+  const bisaMurah=berchat.filter(a=>adBiayaChat(a)!=null);
+
+  const topChat=chatsUrut(berchat,'chats')[0]||null;
+  const topMurah=chatsUrut(bisaMurah,'murah')[0]||null;
+
+  /* Per VIDEO: satu materi bisa didorong beberapa iklan sekaligus (mis. satu
+     reel dipasang di dua kampanye), jadi yang ditanya "video mana" baru
+     terjawab kalau chatnya DIGABUNG per tautan. Digabung menurut tautan yang
+     sudah dirapikan — "instagram.com/reel/x" dan "https://instagram.com/reel/x"
+     itu materi yang sama, dan dua baris untuk satu video membelah angkanya. */
+  const perVideo={};
+  list.forEach(a=>{
+    const u=videoRapi(a.videoUrl)||'';
+    const k=u||'(tanpa link video)';
+    if(!perVideo[k])perVideo[k]={url:u,n:0,chats:0,dana:0};
+    perVideo[k].n++;
+    perVideo[k].chats+=(+a.chats||0);
+    perVideo[k].dana+=adSpendTotal(a);
+  });
+  const videoRows=Object.keys(perVideo).map(k=>Object.assign({key:k},perVideo[k]))
+    .sort((a,b)=>(b.chats-a.chats)||(a.key===''?1:String(a.key).localeCompare(String(b.key))));
+  const topVideo=videoRows.filter(v=>v.url&&v.chats>0)[0]||null;
+
+  const byPlat={};
+  list.forEach(a=>{const p=a.platform||'(tanpa platform)';
+    if(!byPlat[p])byPlat[p]={chats:0,dana:0,n:0};
+    byPlat[p].chats+=(+a.chats||0);byPlat[p].dana+=adSpendTotal(a);byPlat[p].n++;});
+  const platRows=Object.keys(byPlat).sort((a,b)=>byPlat[b].chats-byPlat[a].chats);
+
+  const rp1=v=>v==null?'<span style="color:var(--txt-3)">—</span>':rupiah(Math.round(v));
+  const st=(l,v,sub,c)=>`<div class="stat"><div class="lbl">${l}</div>
+    <div class="val mono" style="${c?'color:'+c:''}">${v}</div>
+    ${sub?`<div style="font-size:11px;color:var(--txt-3);margin-top:6px;line-height:1.45">${sub}</div>`:''}</div>`;
+  const segUrut=Object.keys(CHAT_URUT).map(k=>
+    `<button type="button" class="${chatsFilter.urut===k?'on':''}" onclick="COMS.chatsF('urut','${k}')">${CHAT_URUT[k].t}</button>`).join('');
+
+  const urut=chatsUrut(chatsFilter.urut==='murah'?bisaMurah:berchat,chatsFilter.urut);
+  const pgChat=pgSlice(urut,'chat',JSON.stringify(chatsFilter)+'|'+brandFilter);
+
   return `${brandBar()}
-  <div class="grid g-3" style="margin-bottom:16px">
-    ${st('Total Percakapan',num(totChats),'var(--info)')}${st('Iklan Menghasilkan Chat',num(chatAds.length))}${st('Rata-rata / Iklan',chatAds.length?num(Math.round(totChats/chatAds.length)):0)}
+  <div class="card" style="padding:12px;margin-bottom:16px">
+    <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+      <select class="ctrl" style="max-width:200px" onchange="COMS.chatsF('bulan',this.value)">
+        <option value="">Semua bulan</option>
+        ${bulanAda.map(b=>`<option value="${b}" ${chatsFilter.bulan===b?'selected':''}>${esc(ymLabel(b))}</option>`).join('')}
+      </select>
+      <span style="font-size:12px;color:var(--txt-3)">Bulan diambil dari <b>tanggal iklan mulai jalan</b> — sama dengan rekap di Ads Management.</span>
+    </div>
   </div>
-  ${platRows?`<div class="card" style="margin-bottom:16px;padding:14px"><div style="font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--txt-3);font-weight:700;margin-bottom:8px">Percakapan per Platform</div><div style="display:flex;gap:7px;flex-wrap:wrap">${platRows}</div></div>`:''}
-  <div class="card">
-    <div class="card-h"><h3>💬 Report Percakapan (Chat dari Iklan)</h3><span class="sub">Total: <b class="mono" style="color:var(--info)">${num(totChats)} chat</b></span></div>
-    ${chatAds.length?`<div class="tbl-wrap"><table><thead><tr><th>Nama Iklan</th><th>Platform</th><th>Brand</th><th>Target</th><th>Chats</th></tr></thead><tbody>${chatRows}</tbody></table></div>${pgBar(pgChat,'iklan')}`:'<div class="empty"><div class="ei">💬</div><h4>Belum ada percakapan</h4><p>Isi kolom "Hasil - Chats" saat Buat Iklan agar tercatat di sini.</p></div>'}</div>`;
+
+  <div class="grid g-4" style="margin-bottom:16px">
+    ${st('Total Percakapan',num(totChats),'dari '+berchat.length+' iklan yang menghasilkan chat','var(--info)')}
+    ${st('Dana Keluar',rupiah(totDana),'hanya iklan yang menghasilkan chat, sudah termasuk PPN 11%','var(--bad)')}
+    ${st('Biaya per Chat',bpc==null?'—':rupiah(Math.round(bpc)),bpc==null?'belum ada chat atau dana keluarnya belum diisi':'gabungan — makin kecil makin murah','var(--gold)')}
+    ${st('Iklan Menghasilkan Chat',num(berchat.length),list.length?'dari '+list.length+' iklan pada periode ini':'belum ada iklan')}
+  </div>
+
+  ${berchat.length?`<div class="card" style="margin-bottom:16px">
+    <div class="card-h"><h3>🏆 Yang Paling Top</h3><span class="sub">dua sisi yang sering tidak sama</span></div>
+    <div class="grid g-3">
+      ${st('Chat Terbanyak',topChat?esc(topChat.name||'(tanpa nama)'):'—',
+          topChat?`💬 <b>${num(topChat.chats)}</b> chat · ${rp1(adBiayaChat(topChat))} per chat`:'')}
+      ${st('Biaya per Chat Termurah',topMurah?esc(topMurah.name||'(tanpa nama)'):'—',
+          topMurah?`<b>${rupiah(Math.round(adBiayaChat(topMurah)))}</b> per chat · 💬 ${num(topMurah.chats)} chat`
+                 :'belum ada iklan yang punya chat DAN dana keluar sekaligus')}
+      ${st('Video Paling Banyak Chat',topVideo?videoChip(topVideo.url):'—',
+          topVideo?`💬 <b>${num(topVideo.chats)}</b> chat dari ${topVideo.n} iklan`
+                 :'belum ada iklan berchat yang diisi link videonya')}
+    </div>
+    <div style="font-size:11.5px;color:var(--txt-3);margin-top:10px;line-height:1.55">
+      Yang paling banyak chat <b>belum tentu</b> yang paling murah — iklan berbudget besar hampir selalu
+      menang di kolom jumlah. Yang dipakai memutuskan anggaran biasanya kolom <b>biaya per chat</b>.
+    </div>
+  </div>`:''}
+
+  ${tanpaDana.length?`<div class="card" style="padding:11px 14px;margin-bottom:16px;background:var(--warn-bg);color:var(--warn);font-size:12.5px;line-height:1.55">
+    ⚠ <b>${tanpaDana.length} iklan punya chat tapi dana keluarnya belum diisi</b>, jadi biaya per chatnya
+    tidak dihitung dan iklan itu <b>tidak ikut</b> di peringkat termurah. Dihitung, ia akan selalu menang
+    dengan Rp0 per chat — angka terkecil yang tidak akan dipertanyakan siapa pun.
+    Isi rinciannya lewat <b>Buat Iklan → Rincian Dana Keluar</b>.</div>`:''}
+
+  <div class="card" style="margin-bottom:16px">
+    <div class="card-h"><h3>💬 Peringkat Iklan</h3><span class="sub">Total: <b class="mono" style="color:var(--info)">${num(totChats)} chat</b></span></div>
+    <div class="seg" style="margin-bottom:12px">${segUrut}</div>
+    <div style="font-size:11.5px;color:var(--txt-3);margin-bottom:10px">
+      Diurut menurut <b>${esc((CHAT_URUT[chatsFilter.urut]||CHAT_URUT.chats).t)}</b>.
+      ${chatsFilter.urut==='murah'?'Yang ditampilkan hanya iklan yang punya chat DAN dana keluar — sisanya tidak punya biaya per chat yang bisa dihitung.':''}
+    </div>
+    ${urut.length?`<div class="tbl-wrap"><table><thead><tr>
+      <th>#</th><th>Nama Iklan</th><th>Platform</th><th>Brand</th><th>Video</th>
+      <th>Chats</th><th>Dana Keluar</th><th>Biaya / Chat</th></tr></thead><tbody>
+      ${pgChat.items.map((a,i)=>{const b=getBrand(a.brand);const pl=ADS_PLATFORMS[a.platform]||{c:'#888'};const pt=tint(pl.c);
+        return `<tr>
+        <td class="serif" style="color:var(--gold);font-size:15px">${pgChat.mulai+i+1}</td>
+        <td class="row-click" style="font-weight:600" onclick="COMS.openAdForm('${a.id}')">${esc(a.name||'(tanpa nama)')}
+          <div style="font-size:11px;color:var(--txt-3)">${esc(a.target||'')}</div></td>
+        <td><span class="tag" style="background:${pt.bg};color:${pt.fg};border-color:transparent">${esc(a.platform||'-')}</span></td>
+        <td><span style="display:flex;align-items:center;gap:6px">${brandDot(a.brand)}${esc(b?b.name.split(' (')[0]:'-')}</span></td>
+        <td>${videoChip(a.videoUrl)}</td>
+        <td class="mono" style="font-weight:700;color:var(--info)">💬 ${num(a.chats)}</td>
+        <td class="mono" style="color:var(--bad)">${rupiah(adSpendTotal(a))}</td>
+        <td class="mono" style="font-weight:700">${rp1(adBiayaChat(a))}</td></tr>`;}).join('')}
+    </tbody></table></div>${pgBar(pgChat,'iklan')}`
+    :'<div class="empty"><div class="ei">💬</div><h4>Belum ada percakapan</h4><p>Isi kolom "Hasil - Chats" saat Buat Iklan agar tercatat di sini.</p></div>'}
+  </div>
+
+  <div class="grid g-2" style="align-items:start">
+    <div class="card">
+      <div class="card-h"><h3>▶ Per Video yang Dipromosikan</h3></div>
+      <div style="font-size:11.5px;color:var(--txt-3);margin-bottom:10px">
+        Satu video bisa didorong beberapa iklan sekaligus; chatnya digabung di sini.
+        Iklan yang link videonya belum diisi berdiri di barisnya sendiri — ia tidak ditebak dari nama iklannya.
+      </div>
+      <div class="tbl-wrap"><table><thead><tr><th>Video</th><th>Iklan</th><th>Chats</th><th>Biaya / Chat</th></tr></thead><tbody>
+      ${videoRows.map(v=>`<tr>
+        <td>${v.url?videoChip(v.url):'<span style="color:var(--warn);font-size:12px">(tanpa link video)</span>'}
+          ${v.url?`<div style="font-size:10.5px;color:var(--txt-3);word-break:break-all;max-width:260px">${esc(v.url)}</div>`:''}</td>
+        <td class="mono">${v.n}</td>
+        <td class="mono" style="font-weight:700;color:var(--info)">${num(v.chats)}</td>
+        <td class="mono">${v.chats>0&&v.dana>0?rupiah(Math.round(v.dana/v.chats)):'<span style="color:var(--txt-3)">—</span>'}</td>
+      </tr>`).join('')||'<tr><td colspan="4" class="empty">Belum ada iklan pada periode ini.</td></tr>'}
+      </tbody></table></div>
+    </div>
+    <div class="card">
+      <div class="card-h"><h3>📊 Per Platform Iklan</h3></div>
+      <div style="font-size:11.5px;color:var(--txt-3);margin-bottom:10px">
+        Platform tempat iklannya dipasang — beda dari platform videonya, yang dibaca dari tautannya sendiri.
+      </div>
+      <div class="tbl-wrap"><table><thead><tr><th>Platform</th><th>Iklan</th><th>Chats</th><th>Biaya / Chat</th></tr></thead><tbody>
+      ${platRows.map(p=>{const d=byPlat[p];const pl=ADS_PLATFORMS[p]||{c:'#888'};const t=tint(pl.c);
+        return `<tr>
+        <td><span class="tag" style="background:${t.bg};color:${t.fg};border-color:transparent">${esc(p)}</span></td>
+        <td class="mono">${d.n}</td>
+        <td class="mono" style="font-weight:700;color:var(--info)">${num(d.chats)}</td>
+        <td class="mono">${d.chats>0&&d.dana>0?rupiah(Math.round(d.dana/d.chats)):'<span style="color:var(--txt-3)">—</span>'}</td>
+      </tr>`;}).join('')||'<tr><td colspan="4" class="empty">Belum ada iklan pada periode ini.</td></tr>'}
+      </tbody></table></div>
+    </div>
+  </div>`;
 };
+
 function adsF(k,v){adsFilters[k]=v;route('ads');}
 function adsReset(){adsFilters={q:'',platform:'',status:''};route('ads');}
 // Export data ads (dana masuk & keluar) untuk 1 bulan → CSV reporting
@@ -3766,6 +4028,9 @@ function openAdForm(id){
       <div style="font-size:11px;color:var(--txt-3);margin-top:4px">Tanggal iklan ini <b>mulai jalan</b> - inilah yang menentukan dananya masuk <b>pengeluaran bulan mana</b> di Report per Bulan.</div></div>
     <div class="field"><label>Selesai</label><input type="date" class="ctrl" id="a_endDate" value="${a?.endDate||''}"></div>
     <div class="field"><label>Hasil - Chats</label><input type="number" min="0" class="ctrl" id="a_chats" value="${a?.chats||''}" placeholder="0"></div>
+    <div class="full field"><label>Link Video yang Dipromosikan <span style="color:var(--txt-3);font-weight:400">(Instagram / Facebook / TikTok)</span></label>
+      <input class="ctrl" id="a_videoUrl" value="${esc(a?.videoUrl||'')}" placeholder="mis. https://www.instagram.com/reel/Cxxxxxxx/">
+      <div style="font-size:11px;color:var(--txt-3);margin-top:5px;line-height:1.45">Materi mana yang didorong iklan ini. Inilah yang membuat halaman <b>Report Percakapan</b> bisa menjawab video mana yang paling banyak menghasilkan chat — tanpa ini, jawabannya cuma ada di ingatan orang yang membuat iklannya.</div></div>
     <div class="full field" style="border:1px solid var(--line-soft);border-radius:12px;padding:14px;background:var(--panel-2)">
       <label>📉 Dana Keluar (Penggunaan Ads)</label>
       <div style="font-size:11.5px;color:var(--txt-3);margin:2px 0 6px">Rincian breakdown penggunaan - untuk keperluan apa saja. Pajak PPN 11% dihitung otomatis.</div>
@@ -3783,6 +4048,14 @@ function openAdForm(id){
 function saveAd(id){
   const g=k=>{const el=$('#a_'+k);return el?el.value:'';};
   const name=g('name').trim();if(!name){toast('Nama iklan wajib diisi','err');return;}
+  /* Tautan yang tidak sah DITOLAK, bukan disimpan apa adanya: yang tersimpan
+     tanpa protokol dibaca peramban sebagai jalur RELATIF, jadi tombolnya
+     membuka halaman modul ini sendiri dan yang mengkliknya mengira videonya
+     sudah dihapus. videoRapi() menambahkan https:// kalau yang kurang cuma
+     itu; yang memulangkan null memang bukan tautan. */
+  const vidMentah=g('videoUrl').trim();
+  const vid=vidMentah?videoRapi(vidMentah):'';
+  if(vidMentah&&vid===null){toast('Link video tidak dikenali. Tempel alamat lengkapnya, mis. https://www.instagram.com/reel/…','err');return;}
   const expenses=_adExp.filter(x=>+x.amount>0);const spendBase=expenses.reduce((s,x)=>s+(+x.amount||0),0);
   const tax=Math.round(spendBase*ADS_TAX);const spend=spendBase+tax;
   const data={name,brand:g('brand'),platform:g('platform'),objective:g('objective'),status:g('status')||'draft',
@@ -3797,7 +4070,7 @@ function saveAd(id){
        bulan pengeluarannya, dan yang dibiarkan kosong menumpuk di keranjang
        yang tidak seorang pun rutin membukanya. */
     expenses,spendBase,tax,spend,budget:0,startDate:g('startDate')||todayISO(),endDate:g('endDate'),
-    chats:+g('chats')||0,note:g('note').trim()};
+    chats:+g('chats')||0,note:g('note').trim(),videoUrl:vid};
   if(id){Object.assign(getAd(id),data);logAct('mengubah iklan',name);toast('Iklan diperbarui','ok');}
   else{DB.ads.push(Object.assign({id:uid('ad'),createdAt:Date.now()},data));logAct('membuat iklan',name);toast('Iklan dibuat','ok');}
   _adExp=[];save();closeDrawer();route('ads');
@@ -4228,11 +4501,19 @@ VIEWS.settings=function(){
 // Label ramah untuk tiap modul hak akses
 const MODULE_LABELS={
   brands:'Brand', content:'Konten', approve:'Approval',
-  bank:'Content Bank', assets:'Aset', shooting:'Shooting', design:'Design',
+  assets:'Aset', shooting:'Shooting', design:'Design',
   editing:'Editing', publish:'Publishing', ads:'Ads Management', kol:'KOL & Medpar Management', team:'Tim',
   analytics:'Analytics', reports:'Reports', activity:'Activity Log', settings:'Pengaturan'
 };
-function permModuleKeys(){ return Object.keys(getPerm()); }
+/* Modul yang HALAMANNYA sudah dicabut tapi kuncinya masih tersimpan di
+   DB.perms produksi. Dibiarkan lewat, matriks hak akses memajang baris untuk
+   halaman yang tidak ada lagi — setelan mati yang disetel orang lalu
+   bertanya-tanya kenapa tidak berpengaruh apa-apa (pelajaran SET.buffer di
+   modul HPP). DATANYA SENGAJA TIDAK DIHAPUS: menghapus setelan tersimpan demi
+   kerapian layar bukan pertukaran yang baik, dan kalau halamannya suatu hari
+   dikembalikan, izinnya masih utuh. */
+const PERM_MODULES_PENSIUN=['bank'];
+function permModuleKeys(){ return Object.keys(getPerm()).filter(m=>PERM_MODULES_PENSIUN.indexOf(m)<0); }
 function moduleLabel(m){ return MODULE_LABELS[m]||m; }
 
 // ---- Kartu KATALOG (read-only, untuk non-super-admin) ----
@@ -4337,7 +4618,6 @@ function initSearch(){const inp=$('#globalSearch');const box=$('#searchResults')
     const res=[];
     DB.content.filter(c=>(c.title+' '+contentDetail(c)).toLowerCase().includes(q)).slice(0,5).forEach(c=>res.push({t:c.title,s:'Konten - '+(contentPlatforms(c).join(' + ')||'-'),fn:`COMS.openContent('${c.id}')`}));
     DB.brands.filter(b=>b.name.toLowerCase().includes(q)).slice(0,3).forEach(b=>res.push({t:b.name,s:'Brand',fn:`COMS.route('brands')`}));
-    DB.bank.filter(b=>b.title.toLowerCase().includes(q)).slice(0,3).forEach(b=>res.push({t:b.title,s:'Ide',fn:`COMS.openBankForm('${b.id}')`}));
     DB.users.filter(u=>u.name.toLowerCase().includes(q)).slice(0,3).forEach(u=>res.push({t:u.name,s:'Kru - '+roleShorts(u),fn:`COMS.route('team')`}));
     box.innerHTML=res.length?res.map(r=>`<div class="li-row row-click" style="margin:0;border-radius:0;border:none;border-bottom:1px solid var(--line-soft)" onclick="${r.fn};COMS.clearSearch()"><div style="flex:1"><div style="font-size:13px;font-weight:600">${esc(r.t)}</div><div style="font-size:11px;color:var(--txt-3)">${esc(r.s)}</div></div></div>`).join(''):'<div style="padding:14px;color:var(--txt-3);font-size:12px">Tidak ada hasil</div>';
     box.style.display='block';});
@@ -4369,7 +4649,6 @@ const API={
   kDragOver,kDragLeave,kDrop,
   calNav,calToday,calDay,calToggle,calOpenEvent,
   calEvDragStart,calEvDragEnd,calCellDragOver,calCellDragLeave,calCellDrop,
-  openBankForm,saveBank,delBank,convertBank,
   openBrandForm,saveBrand,delBrand,
   openUserForm,toggleRole,saveUser,
   setAssetCat,openAssetForm,saveAsset,delAsset,
@@ -4380,6 +4659,7 @@ const API={
   pipeF,
   renderQueueTable,
   perfF,perfReset,openPerf,savePerf,
+  teamF,teamReset,chatsF,
   initAPI // Pastikan fungsi dipanggil
 };
 
