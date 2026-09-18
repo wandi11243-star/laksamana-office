@@ -4639,6 +4639,224 @@ tidak ada yang terlewat.
   satu-satunya layar yang menampilkannya.
 - `DEADLINE_DEKAT = 3` hari, satu tempat.
 
+### Performa Konten & Performa Desain — dua modul, satu mesin (18 Sep 2026)
+
+Permintaan user, menyebut **dua modul sekaligus**: analisa konten (Reach &
+Impression, Engagement Rate, Virality Index dari save & share, CTA Click Rate,
+Content Pillar Performance — *"untuk semua platform yang terdaftar oleh tim
+konten"*, supaya terlihat mana top kontennya) dan analisa desain (Virality
+Index khusus postingan berdesain, dan total desain selesai per kategori).
+
+**`deploy/assets/performa-konten.js` — SUMBER TUNGGAL rumusnya.** Menyalinnya
+ke dua modul berarti dua salinan Engagement Rate, Virality Index, dan CTA Click
+Rate; repo ini sudah kehilangan waktu lima kali karena berkas kembar yang
+tertinggal. Pola yang sama dengan `performa-bonus.js`.
+
+| | |
+|---|---|
+| `deploy/konten/` → **Input Performa** | tempat MENGISI angkanya, per platform |
+| `deploy/konten/` → **Performa Konten** / **Performa Desain** | analisanya |
+| `deploy/analytics/` → **Performa Konten** / **Performa Desain** | halaman yang sama, dibaca dari modul Konten |
+
+**TIDAK ADA PERUBAHAN BACKEND, dan itu disengaja.** `konten-mysql` **tidak ada
+di kedua workflow** — ia tidak pernah ikut ter-deploy otomatis, jadi endpoint
+baru berarti satu langkah unggah manual yang kalau terlewat gagal tanpa satu
+pun pesan. Untung tidak perlu: `save_all()` menulis tiap baris sebagai blob
+apa adanya (`json_enc($simpan)`) **tanpa daftar kunci tertutup** — beda dari
+`brankas_simpan()` — jadi `c.perf` bertahan sendiri. Analytics membacanya lewat
+`konten-api?action=getAll` yang memang sudah terbuka.
+
+#### `metrics` LAMA TIDAK PERNAH PUNYA PENULIS — halamannya mati sejak lahir
+
+Ini yang ditemukan saat mengerjakannya, dan ia lebih penting daripada fiturnya:
+`c.metrics` DIBACA di sepuluh tempat (dashboard, publishing, reports, ekspor
+CSV, dan seluruh halaman Performance) dan **tidak ditulis di satu tempat pun**.
+Ia `metrics:null` di `mkContent()` dan tidak ada satu formulir pun yang
+mengisinya. Jadi halaman Performance selalu berbunyi *"Belum ada data
+performa"* — dengan kalimat yang menjanjikan *"Data muncul setelah konten
+ditandai tayang"*, padahal `submitPublish()` tidak pernah menyentuh `metrics`.
+Janji yang tidak ditepati tiap kali dibuka, sejak modul itu lahir.
+
+Bentuk lamanya **tetap dibaca** (`pkBarisKonten`): ia berdiri sebagai satu
+baris berplatform `(catatan lama)`, ikut di kartu / pillar / peringkat konten,
+dan **SENGAJA tidak ikut di tabel per platform** — memecah satu angka datar
+jadi porsi IG dan TikTok berarti menebak sesuatu yang tidak pernah dicatat
+siapa pun. Jumlahnya disebut di layar.
+
+#### SATU PENYEBUT untuk ketiga rasio
+
+```
+dasar = reach           kalau reach diisi
+      = impression      kalau reach kosong
+      = tidak ada       -> ketiganya null, BUKAN nol
+```
+
+- **Impression SELALU >= reach**, jadi baris yang terpaksa memakainya berbunyi
+  rasio LEBIH KECIL daripada seharusnya. Itu bukan konten yang gagal — itu
+  penyebut yang berbeda, dan karena itu **penyebutnya ditulis di SELNYA
+  sendiri** (`dari 1.950 reach/impression`), bukan cuma di kepala kolom. Kepala
+  kolom dibaca sekali, angkanya dibaca tiap baris — empat putaran pertanyaan di
+  kolom Kontribusi modul Analytics lahir persis dari kolom yang penyebutnya
+  harus ditebak.
+- **Nol ditahan jadi `—`.** Nol berarti "dilihat sekian orang dan tidak satu
+  pun bereaksi", dan itu kesimpulan tentang konten yang reach-nya belum pernah
+  diisi siapa pun.
+- **Virality Index = (share + save) ÷ dasar**, tanpa like & komentar: keduanya
+  berhenti di layar orang yang sudah melihat; save & share yang membawanya ke
+  orang berikutnya.
+
+#### DIJUMLAHKAN DULU, BARU DIBAGI
+
+Agregat pillar/platform/total menjumlahkan pembilang dan penyebut lalu membagi
+— **bukan** merata-rata persen tiap konten. Rata-rata persen memberi bobot yang
+sama kepada konten ber-reach 100 dan ber-reach 100.000, sehingga satu konten
+kecil yang kebetulan viral mengangkat seluruh angka pillar-nya. Di data uji
+kedua cara memberi **8,6% vs 5,8%**, dan keduanya sama masuk akalnya.
+
+**BUG YANG DITANGKAP UJINYA, bukan mata:** `cta` adalah kolom biasa DAN
+pembilang rasio, dan ia sempat ditambahkan lagi di samping `eng`/`viral` yang
+memang turunan — dua kali di `pkTambah`, dua kali lagi di `pkGabungAgg`,
+sehingga **CTA Click Rate berbunyi EMPAT KALI LIPAT**. Tidak ada satu pun
+galat, dan 2,7% sama masuk akalnya dengan 0,7%. `eng` & `viral` punya penampung
+sendiri karena keduanya jumlah beberapa kolom; `cta` tidak boleh.
+
+#### Yang lain di halaman Performa Konten
+
+- **Konten yang tayang di dua platform BUKAN dua konten.** Kartu & tabel pillar
+  menghitung konten; tabel per platform menghitung baris — dan bedanya disebut
+  di kartunya.
+- **Catatan di platform yang sudah TIDAK terdaftar lagi tetap dihitung.**
+  Dibuang, total halaman ini berubah sendiri begitu ada yang membetulkan daftar
+  platform sebuah konten — tanpa satu pun angka di layar yang bisa dicurigai.
+  Jumlahnya disebut.
+- **Konten tayang yang belum diisi angkanya DISEBUT jumlahnya**, berikut di
+  mana mengisinya. Tanpa itu, laporan berisi tiga konten terbaca sama
+  meyakinkannya dengan laporan yang lengkap.
+- **Diurut menurut RASIO, konten ber-reach kecil bisa berdiri di atas — dan itu
+  DIKATAKAN**, bukan ditutup dengan batas minimum reach yang diam-diam membuang
+  konten dari daftar. Kolom reach-nya berdiri tepat di sebelahnya.
+- **Yang tidak punya nilai SELALU di bawah**, ke arah mana pun urutannya:
+  diurut sebagai nol ia memenuhi baris teratas justru waktu orang mencari yang
+  terbaik.
+- **Kotak cari menggambar ulang WADAHNYA saja** (`#pk-top`), dan ia **hanya
+  menyaring tabel di bawahnya** — itu disebut di layar. Lewat penggambar penuh,
+  kotak yang sedang diketik dibuat ulang dan hanya huruf pertama yang masuk.
+- **Bulan tayang dibaca dari `publishRecord.at` DULU**, baru `publishDate`:
+  konten yang mundur seminggu dari rencananya harus dihitung di bulan ia
+  benar-benar tayang, kalau tidak angka bulan lalu berubah sendiri tiap ada
+  yang mundur.
+
+#### Halaman Input Performa
+
+Halaman sendiri, bukan ditumpuk ke panel detail konten: yang mengisi angka
+insight melakukannya berturut-turut untuk belasan konten, dan daftar "mana yang
+belum diisi" adalah separuh pekerjaannya — panel detail tidak pernah bisa
+menjawab itu.
+
+- Bawaannya **belum lengkap**; angka di tiap tab dihitung TANPA tapis tab itu
+  sendiri, kalau tidak yang tidak sedang dipilih selalu nol dan nol membaca
+  sebagai "tidak ada satu pun yang lengkap".
+- **Konten yang belum punya satu pun platform dikatakan** berikut cara
+  membetulkannya — ia tidak akan pernah bisa jadi "lengkap".
+- **Mengosongkan SELURUH kotak sebuah platform = menghapus catatannya**, dan
+  itu ditanya dulu dengan pertanyaan yang MENYEBUT platform mana. Itu
+  satu-satunya cara membatalkan angka yang salah masuk.
+- **Jejak pengisi ikut disimpan** (`at`/`by`, plus `firstAt`/`firstBy` yang
+  tidak tertimpa) — alasan yang sama dengan jejak Input Omset Harian: kalau
+  angkanya bermasalah, yang dicari siapa yang perlu ditanyai.
+- Tombolnya **menunggu server menjawab** sebelum layar mengaku tersimpan.
+
+#### Halaman Performa Desain
+
+Sumber "desain selesai" ada **dua**, dan keduanya milik modul Konten: konten
+yang `prod.design.status==='done'`, dan `prodTasks` kind `design` yang selesai.
+
+- **REQUEST DESAIN DARI MODUL MARKETING TIDAK IKUT, dan itu DIKATAKAN.**
+  `designReqs&aktif=1` hanya memulangkan yang MASIH aktif, jadi yang sudah
+  dikerjakan tidak pernah sampai ke modul ini — menghitungnya berarti
+  menghitung nol untuk pekerjaan yang sudah selesai. Angka yang diam-diam nol
+  lebih buruk daripada angka yang jelas-jelas tidak disertakan.
+- **`doneAt` BARU dicatat sejak tanggal ini** (`toggleProdDone` /
+  `toggleTaskDone`). Yang ditandai selesai sebelum itu dihitung memakai
+  **tanggal deadline desainnya**, jadi bulannya bisa berbeda dari bulan ia
+  benar-benar dikerjakan — itu disebut di kartunya berikut jumlahnya. Dibuka
+  ulang, capnya dibuang: baris yang dibuka lagi memang belum selesai.
+- **Bulannya digeser +7 TETAP**, bukan zona peramban — aturan yang sama dengan
+  `isoDari()`. Di mesin berzona WIB kedua cara memberi hasil yang SAMA, jadi
+  yang menjaganya **asersi SUMBER**, bukan asersi runtime.
+- **Satu pekerjaan bisa punya LEBIH DARI SATU jenis** (satu materi dipakai
+  sebagai Reel sekaligus Story; satu desain dicetak A4 sekaligus X Banner), dan
+  ia dihitung di TIAP jenisnya. **Kolomnya karena itu tidak bisa
+  dijumlahkan**, dan itu disebut berikut jumlah pekerjaan yang berjenis ganda.
+  Dijepit ke jenis pertama saja, separuh pekerjaan cetak lenyap tanpa tanda.
+- **Tugas mandiri memang tidak punya kategori** — formulirnya cuma judul,
+  brand, PIC, deadline, catatan. Ia masuk `(tanpa kategori)`, tidak dibuang dan
+  tidak ditebak.
+- **PEMBANDINGNYA WAJIB ADA.** Virality konten berdesain yang berdiri sendirian
+  tidak menjawab apa pun — 2,5% itu bagus atau biasa saja baru terbaca sesudah
+  ada angka konten tanpa desain di sebelahnya. Aturan yang sama dengan "jam
+  tampil vs jam yang sama tanpa penampil" di Performa Talent. **Dan ia BUKAN
+  sebab-akibat**: desain dipakai justru untuk konten yang sejak awal dianggap
+  penting, jadi sebagian selisihnya sudah ada sebelum satu desain pun dibuat —
+  itu ditulis di kartunya, bukan didiamkan.
+
+#### Modul Analytics: dimuat MALAS, dan 'galat' ikut menahan
+
+`muatKonten()` baru berjalan saat salah satu halamannya dibuka — boot modul itu
+sudah menarik lima sumber, dan blob modul Konten tidak perlu ikut menunggu di
+tiap halaman lain.
+
+- **`galat` IKUT MENAHAN pemuatan ulang.** Tanpanya modulnya menggantung total:
+  fetch gagal → `render()` supaya pitanya muncul → render memanggil halaman ini
+  lagi → fetch lagi, selamanya. Yang membersihkannya hanya tombol **Coba lagi**.
+  Pelajaran yang sudah dibayar `muatReqMkt()` di modul Konten.
+- **Sebabnya DISEBUT**, bukan cuma "tidak terbaca": `konten-api` menjawab
+  `{ok:false,error:'token salah'}` kalau `API_TOKEN` dipasang di `config.php`
+  modul itu — dan itu diurus di cPanel, bukan di sini.
+- **Sidebar modul Analytics HTML STATIS** — menambah `TITLES` saja TIDAK
+  melahirkan menunya. Sudah menggigit di tab Void.
+
+#### CSS: dikurung `#pk-wrap`
+
+Aset ini mengeluarkan HTML bergaya modul Analytics (`.stat` dengan anak
+`.lab`/`.foot`, `.card-sub`, `.grid.g4`, `.notice`, `.helper`, `.chip`,
+`.muted`, `.cari`, `td.num`). Modul Konten menamai anak `.stat`-nya `.lbl` dan
+tidak punya lima kelas terakhir sama sekali, jadi ia memetakannya di satu blok
+berkurung `#pk-wrap`. Ditulis global, `.stat` / `th` / `td` / `.seg` di 20-an
+halaman lain modul itu ikut bergeser. Ujinya memindai blok itu dan menolak
+baris yang tidak berawalan `#pk-wrap`. Saklar `.seg` digambar berkelas
+**`on active`** sekaligus — modul Konten memakai `.on`, modul Analytics
+memakai `.active`.
+
+```bash
+node tools/uji-performa-konten.js   # 174 pemeriksaan, jsdom + mesin dijalankan berdiri sendiri
+```
+
+Ujinya menjalankan mesinnya **tanpa jsdom dan tanpa tuan rumah** (`new
+Function('window','document', …)`) — kalau ia butuh satu pun nama global tuan
+rumah, blok pertama yang berbunyi. Berkas kembar `contentPlatforms` /
+`normPlatform` / `contentTypes` / `printTypes` dijaga dengan **MEMOTONG yang
+asli dari sumber modul Konten** lalu membandingkan keduanya atas belasan bentuk
+data. Jalur simpannya diuji lewat **isi POST `saveAll`**, bukan tampilan
+layarnya — "tidak melempar" tidak membuktikan angkanya sampai ke server.
+
+**Dua puluh tujuh mutasi dicoba, kedua puluh tujuhnya tertangkap** — tiga di
+antaranya baru sesudah ujinya dibetulkan, dan ketiganya bentuk yang sudah punya
+nama di berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| bulan dibaca dari tanggal rencana | **cacat fixture** — `publishDate` dan `publishRecord.at` jatuh di bulan yang sama, jadi mutasinya tidak menggeser satu angka pun | konten yang direncanakan 28 Agustus lalu benar-benar tayang 2 September |
+| bulan desain dibaca di zona peramban | di mesin berzona WIB kedua cara memberi hasil SAMA — asersi runtime-nya hijau untuk kode yang salah | **asersi SUMBER** |
+| null diurut sebagai nol | diurut menurut ER, baris ber-null jatuh ke bawah dengan sendirinya karena seluruh baris lain positif | diurut menurut **Virality**, satu-satunya kolom yang punya nol SUNGGUHAN |
+
+> **`smoke-modul.js konten` TIDAK CUKUP** untuk halaman-halaman ini: modul itu
+> dilaporkan *"hanya boot yang diuji"* — routernya tidak terbaca dari luar,
+> jadi tidak satu pun halamannya pernah dijalankan. Dan jsdom tidak mengambil
+> skrip eksternal, jadi uji apa pun yang lupa menyisipkan asetnya inline akan
+> jatuh ke cabang "mesin belum termuat" dan tetap hijau tanpa menyentuh satu
+> pun hitungan.
+
 ### Reservasi: siapa yang terakhir mengubah denah (4 September 2026)
 
 Permintaan user. Capnya **menempel di objek denahnya** (`_editBy`, `_editAt`
