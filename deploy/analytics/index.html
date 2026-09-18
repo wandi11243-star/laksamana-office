@@ -4805,6 +4805,11 @@ function mejaBukanKah(n) { return MEJA_BUKAN.indexOf(mejaNorm(n)) >= 0; }
 function kursiDari(cap) { const m = String(cap || '').match(/\d+/); return m ? +m[0] : 0; }
 const mjPct = (x, t) => t ? (x / t * 100).toFixed(1) + '%' : '\u2014';
 
+/* Zona semu untuk baris yang memang tidak menempati meja. Diberi NAMA, bukan
+   dibiarkan kosong: sel kosong di kolom Zona terbaca sebagai data yang gagal
+   dibaca, sementara ini justru keadaan yang sudah diketahui. */
+const MEJA_ZONA_TANPA = '(tanpa meja)';
+
 /* Seluruh hitungan halaman ini, dipisah dari penggambarnya: menekan kepala
    kolom tidak boleh menghitung ulang 120 baris, dan fungsi yang memulangkan
    angka bisa diuji tanpa DOM. */
@@ -4817,44 +4822,98 @@ function mjHitung(d) {
   const petaId = {};
   if (D) Object.keys(D).forEach(id => { petaId[mejaNorm(id)] = id; });
   const baris = [], takKenal = [], bukan = [];
-  let gMeja = 0, gBukan = 0, gTanpa = 0, bMeja = 0, gTotal = 0;
+  let gMeja = 0, gBukan = 0, gTanpa = 0, bMeja = 0, bBukan = 0, gTotal = 0, orangVisit = 0;
   Object.keys(src).forEach(nm => {
     const v = src[nm] || {}, g = +v.grand || 0, b = +v.bill || 0;
     gTotal += g;
     if (nm === MEJA_TANPA) { gTanpa += g; return; }
-    if (mejaBukanKah(nm)) { bukan.push({ n: nm, g: g, b: b }); gBukan += g; return; }
+    if (mejaBukanKah(nm)) {
+      /* QUICK SERVICE IKUT DI TABEL, sebagai baris yang DIANGGAP TIDAK PUNYA
+         MEJA (permintaan user 18 September 2026: "tetap dimasukin juga tapi
+         anggapan tidak ada meja karena tidak ketahuan").
+
+         Sebelumnya ia cuma berdiri di pita di bawah tabel, jadi omset
+         Rp175 juta sebulan tidak punya satu baris pun yang bisa diurutkan,
+         dicari, atau dibandingkan dengan meja mana pun. Sekarang barisnya ada,
+         dengan kapasitas KOSONG — dan justru kekosongan itu yang membuat
+         kedua kolom per-kursi ditahan, bukan diisi angka yang dikarang.
+
+         Kapasitasnya TIDAK ditebak dari rata-rata meja lain: transaksi Quick
+         Service memang tidak menempati kursi mana pun, jadi angka per kursi
+         untuknya tidak punya arti apa pun — bukan sekadar tidak diketahui. */
+      const r = { n: nm, pos: nm, zona: MEJA_ZONA_TANPA, cap: '', kursi: 0, seksi: '',
+                  tanpaMeja: true, b: b, g: g, atv: b ? g / b : null,
+                  perKursi: null, perOrang: null };
+      baris.push(r); bukan.push(r); gBukan += g; bBukan += b;
+      return;
+    }
     const id = petaId[mejaNorm(nm)];
     if (!id) { takKenal.push({ n: nm, g: g, b: b }); return; }
     const m = D[id], kursi = kursiDari(m.cap);
     gMeja += g; bMeja += b;
+    /* "Kursi-kunjungan": tiap transaksi di meja ini menempati `kursi` kursi.
+       Inilah penyebut Rp per orang, dan ia DIJUMLAHKAN lalu dibagi — bukan
+       merata-rata angka per orang tiap meja, yang memberi bobot sama kepada
+       meja bertransaksi 3 dan meja bertransaksi 300. */
+    orangVisit += kursi * b;
     baris.push({
       n: id, pos: nm, zona: m.zona, cap: m.cap, kursi: kursi, seksi: String(v.seksi || ''),
-      b: b, g: g,
+      tanpaMeja: false, b: b, g: g,
       atv: b ? g / b : null,
       /* Kursi nol (kapasitas tidak terbaca di denah) memulangkan null, BUKAN
          nol: nol berarti mejanya tidak menghasilkan apa-apa, dan itu
          pernyataan yang tidak ditanggung datanya. urutKolom() sudah menaruh
          yang null di bawah ke arah mana pun urutannya. */
-      perKursi: kursi ? g / kursi : null
+      perKursi: kursi ? g / kursi : null,
+      /* Rp per ORANG untuk SATU BILL = omset / (transaksi x kursi), yang sama
+         saja dengan "rata-rata per transaksi dibagi kapasitas". Ia menjawab
+         pertanyaan yang dibawa user ke halaman ini: kalau mejanya terisi,
+         satu orang belanja berapa.
+
+         ANGKANYA BATAS BAWAH, dan itu WAJIB dikatakan di layar. Pembaginya
+         KAPASITAS, bukan jumlah tamu sungguhan — meja berkursi 4 yang diduduki
+         2 orang membuat belanja per orang yang SEBENARNYA dua kali lipat angka
+         ini. Jumlah tamu sungguhan tidak bisa dipakai: kolom Pax Total di POS
+         berisi 1 di 4.759 dari 4.785 bill.
+
+         BEDA DARI "Rp per kursi", dan bedanya bukan halus: yang itu omset
+         SEBULAN dibagi kursi (seberapa produktif tiap kursi selama sebulan),
+         yang ini omset SATU BILL dibagi kursi (seberapa besar belanja tiap
+         tamu). Yang satu menilai mejanya, yang satu menilai tamunya — dan dua
+         kolom bersebelahan yang bedanya tidak dikatakan akan dibaca sebagai
+         satu angka yang salah hitung. */
+      perOrang: (kursi && b) ? g / (b * kursi) : null
     });
   });
   /* Meja yang ada di denah tapi TIDAK sekali pun muncul di POS bulan itu.
      Bukan galat - bisa saja memang tidak pernah dibuka, dan justru itu yang
-     dicari orang saat menata ulang denah. */
-  const dipakai = {}; baris.forEach(x => dipakai[mejaNorm(x.n)] = 1);
+     dicari orang saat menata ulang denah. Baris tanpa meja dilewati: namanya
+     tidak pernah ada di denah, jadi ia tidak bisa menandai apa pun terpakai. */
+  const dipakai = {}; baris.forEach(x => { if (!x.tanpaMeja) dipakai[mejaNorm(x.n)] = 1; });
   const nganggur = D ? Object.keys(D).filter(id => !dipakai[mejaNorm(id)]) : [];
   /* Kursi yang dihitung hanya milik meja yang BENAR-BENAR terpakai. Dibagi
      seluruh kursi di denah, "Rp per kursi" ikut menghukum meja yang memang
      tidak dibuka bulan itu - pertanyaan yang lain, dan tidak dibawa siapa pun
-     ke halaman ini. */
+     ke halaman ini. Baris tanpa meja berkursi 0, jadi ia tidak menggesernya. */
   const kursiPakai = baris.reduce((a, x) => a + x.kursi, 0);
   return { D: D, baris: baris, takKenal: takKenal, bukan: bukan, nganggur: nganggur,
-           gMeja: gMeja, gBukan: gBukan, gTanpa: gTanpa, bMeja: bMeja,
-           gTotal: gTotal, kursiPakai: kursiPakai };
+           gMeja: gMeja, gBukan: gBukan, gTanpa: gTanpa, bMeja: bMeja, bBukan: bBukan,
+           gTotal: gTotal, kursiPakai: kursiPakai, orangVisit: orangVisit,
+           /* Penyebut kolom % di tabel per meja: SELURUH baris yang tampil di
+              sana, termasuk yang tanpa meja. Dipakai gMeja saja, kolom persennya
+              berhenti berjumlah 100% begitu Quick Service ikut jadi baris — dan
+              persen yang tidak genap di halaman omset dibaca sebagai uang yang
+              hilang. */
+           gTabel: gMeja + gBukan };
 }
 function mjZonaHtml(H) {
   const z = {};
-  H.baris.forEach(x => {
+  /* Baris TANPA MEJA tidak ikut di sini. Tabel ini menilai denah — zona,
+     jumlah meja terpakai, dan kursinya — dan baris yang tidak punya satu pun
+     dari ketiganya cuma akan berdiri sebagai zona berkursi nol yang membuat
+     kolom "Rp per kursi" di sebelahnya kosong tanpa sebab yang kelihatan.
+     Omsetnya tetap terbaca di tabel Per Meja dan di kartu Tanpa Meja. */
+  H.baris.filter(x => !x.tanpaMeja).forEach(x => {
     const a = z[x.zona] || (z[x.zona] = { n: x.zona, meja: 0, kursi: 0, b: 0, g: 0 });
     a.meja++; a.kursi += x.kursi; a.b += x.b; a.g += x.g;
   });
@@ -4864,7 +4923,8 @@ function mjZonaHtml(H) {
   if (H.D) Object.keys(H.D).forEach(id => { tot[H.D[id].zona] = (tot[H.D[id].zona] || 0) + 1; });
   return '<div class="card"><h3>Per Zona Denah</h3>'
     + '<div class="card-sub">Zona diambil dari <b>denah Reservasi</b>, bukan dari berkas POS. '
-    + '"Meja terpakai" dihitung dari meja yang benar-benar punya transaksi bulan ini.</div>'
+    + '"Meja terpakai" dihitung dari meja yang benar-benar punya transaksi bulan ini. '
+    + 'Baris <b>tanpa meja</b> (Quick Service) tidak ikut di tabel ini — ia tidak menempati zona mana pun.</div>'
     + '<div class="tbl-wrap"><table><thead><tr><th>Zona</th><th class="num">Meja terpakai</th>'
     + '<th class="num">Kursi</th><th class="num">Transaksi</th><th class="num">Omset</th>'
     + '<th class="num">% omset meja</th><th class="num">Rp per kursi</th></tr></thead><tbody>'
@@ -4902,9 +4962,16 @@ function mjIsiHtml() {
     + thSort('kursi', 'Kapasitas', MJ_SORT, 'mjUrut', 'num')
     + thSort('b', 'Transaksi', MJ_SORT, 'mjUrut', 'num')
     + thSort('g', 'Omset', MJ_SORT, 'mjUrut', 'num')
-    + '<th class="num">% omset meja</th>'
+    /* NAMANYA '% omset', BUKAN '% omset meja'. Penyebutnya sekarang memuat
+       baris tanpa meja juga, dan kepala kolom yang tetap menulis 'meja' akan
+       dibandingkan dengan kartu Omset dari Meja lalu dilaporkan tidak cocok.
+       Tabel Per Zona sengaja TETAP '% omset meja' — di sana penyebutnya
+       memang omset meja saja, dan dua kolom berpenyebut berbeda tidak boleh
+       bernama sama. */
+    + '<th class="num">% omset</th>'
     + thSort('atv', 'Rata-rata / transaksi', MJ_SORT, 'mjUrut', 'num')
     + thSort('perKursi', 'Rp per kursi', MJ_SORT, 'mjUrut', 'num')
+    + thSort('perOrang', 'Rp per orang / bill', MJ_SORT, 'mjUrut', 'num')
     + '<th style="width:12%"></th></tr></thead><tbody>';
   urut.forEach(x => {
     h += '<tr><td><b>' + esc(x.n) + '</b>'
@@ -4920,19 +4987,32 @@ function mjIsiHtml() {
       + '</td>'
       + '<td class="num">' + x.b.toLocaleString('id-ID') + '</td>'
       + '<td class="num mono"><b>' + rp0(x.g) + '</b></td>'
-      + '<td class="num">' + mjPct(x.g, H.gMeja) + '</td>'
+      + '<td class="num">' + mjPct(x.g, H.gTabel) + '</td>'
       + '<td class="num mono">' + (x.atv === null ? '\u2014' : rp0(x.atv)) + '</td>'
-      + '<td class="num mono">' + (x.perKursi === null
+      /* DUA SEBAB KOSONG YANG BERBEDA, dan keduanya tidak boleh berbunyi sama:
+         baris tanpa meja memang TIDAK PUNYA kursi (angkanya tidak punya arti),
+         sementara meja bermodel kapasitas tak terbaca PUNYA kursi yang belum
+         diisi di denah — yang pertama jawaban, yang kedua pekerjaan. */
+      + '<td class="num mono">' + (x.tanpaMeja ? '<span class="muted">tanpa meja</span>'
+          : x.perKursi === null
           ? '<span class="muted">kapasitas tidak terbaca</span>' : '<b>' + rp0(x.perKursi) + '</b>') + '</td>'
+      + '<td class="num mono">' + (x.tanpaMeja ? '<span class="muted">tanpa meja</span>'
+          : x.perOrang === null
+          ? '<span class="muted">kapasitas tidak terbaca</span>'
+          : '<b>' + rp0(x.perOrang) + '</b><div class="helper">bila ' + x.kursi + ' kursinya terisi</div>') + '</td>'
       + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
         + '<div style="width:' + (x.g / maks * 100).toFixed(1) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
       + '</tr>';
   });
   h += '</tbody></table></div>';
+  /* 'BARIS', bukan 'meja': daftarnya sekarang memuat baris tanpa meja juga,
+     dan menyebutnya meja membuat angkanya tidak cocok dengan kartu di atas. */
   h += '<div class="helper">Menampilkan <b>' + urut.length + '</b> dari ' + H.baris.length
-    + ' meja yang dipakai bulan ini' + (q ? ' (disaring "' + esc(q) + '")' : '')
+    + ' baris (' + H.baris.filter(x => !x.tanpaMeja).length + ' meja terpakai)'
+    + (q ? ' &middot; disaring "' + esc(q) + '"' : '')
     + ' &middot; jumlah omsetnya <b>' + rp0(urut.reduce((a, x) => a + x.g, 0)) + '</b>'
-    + ' &middot; batangnya menggambar kolom <b>Omset</b>.</div>';
+    + ' &middot; batangnya menggambar kolom <b>Omset</b>'
+    + ' &middot; kolom <b>% omset</b> dibagi <b>' + rp0(H.gTabel) + '</b>, omset seluruh baris tabel ini.</div>';
   return h;
 }
 function mjUrut(k) { sortKlik(MJ_SORT, k); mnIsi('mj_isi', mjIsiHtml()); }
@@ -4980,13 +5060,19 @@ function vMeja() {
      membuat seluruh kolom persen berbunyi 0% tanpa sebab yang kelihatan. */
   const grand = Object.keys(d.hari || {}).reduce((a, t) => a + (+(d.hari[t] || {}).grand || 0), 0) || H.gTotal;
 
-  h += '<div class="grid g4" style="margin-bottom:18px">'
+  const mejaPakai = H.baris.filter(x => !x.tanpaMeja).length;
+  h += '<div class="grid g5" style="margin-bottom:18px">'
     + kartu('Omset dari Meja', rp0(H.gMeja),
-        mjPct(H.gMeja, grand) + ' dari omset sebulan \u00b7 ' + H.baris.length + ' meja terpakai')
-    + kartu('Rp per Kursi', H.kursiPakai ? rp0(H.gMeja / H.kursiPakai) : '\u2014',
-        H.kursiPakai ? H.kursiPakai + ' kursi di meja yang terpakai' : 'kapasitas tidak terbaca')
+        mjPct(H.gMeja, grand) + ' dari omset sebulan \u00b7 ' + mejaPakai + ' meja terpakai')
     + kartu('Rata-rata per Transaksi', H.bMeja ? rp0(H.gMeja / H.bMeja) : '\u2014',
         H.bMeja.toLocaleString('id-ID') + ' transaksi bermeja')
+    + kartu('Rp per Kursi', H.kursiPakai ? rp0(H.gMeja / H.kursiPakai) : '\u2014',
+        H.kursiPakai ? H.kursiPakai + ' kursi di meja yang terpakai \u00b7 sebulan' : 'kapasitas tidak terbaca')
+    /* DIJUMLAHKAN DULU, BARU DIBAGI: omset seluruh meja dibagi seluruh
+       "kursi-kunjungan" (transaksi x kapasitas). Merata-rata angka per meja
+       memberi bobot sama kepada meja bertransaksi 3 dan bertransaksi 300. */
+    + kartu('Rp per Orang', H.orangVisit ? rp0(H.gMeja / H.orangVisit) : '\u2014',
+        H.orangVisit ? 'bila mejanya terisi penuh \u00b7 batas bawah' : 'kapasitas tidak terbaca')
     + kartu('Tanpa Meja', rp0(H.gBukan + H.gTanpa),
         mjPct(H.gBukan + H.gTanpa, grand) + ' \u2014 tidak ikut hitungan per kursi')
     + '</div>';
@@ -4997,16 +5083,23 @@ function vMeja() {
       + 'yang tersisa cuma omset per nama meja, dan seluruh tabel di bawah kosong. Muat ulang halaman ini; '
       + 'kalau tetap begitu, berkas asetnya belum ter-deploy.</div></div>';
   }
-  h += '<div class="notice info">&#8505; <div>Pembagi kolom <b>Rp per kursi</b> adalah <b>kapasitas kursi '
-    + 'di denah Reservasi</b>, bukan jumlah tamu di berkas POS. Kolom <i>Pax Total</i> memang terisi, tapi '
-    + 'isinya <b>1 di hampir semua bill</b> - dibagi dengannya, "omset per tamu" cuma mengulang kolom '
-    + '<b>Rata-rata / transaksi</b> di sebelahnya dengan nama lain.</div></div>';
+  h += '<div class="notice info">&#8505; <div>Pembagi kolom <b>Rp per kursi</b> dan <b>Rp per orang</b> '
+    + 'adalah <b>kapasitas kursi di denah Reservasi</b>, bukan jumlah tamu di berkas POS. Kolom '
+    + '<i>Pax Total</i> memang terisi, tapi isinya <b>1 di hampir semua bill</b> - dibagi dengannya, '
+    + '"omset per tamu" cuma mengulang kolom <b>Rata-rata / transaksi</b> dengan nama lain.'
+    + '<div style="margin-top:8px"><b>Rp per orang itu BATAS BAWAH.</b> Ia menghitung seolah tiap meja '
+    + 'terisi penuh; meja berkursi 4 yang diduduki 2 orang membuat belanja per orang yang sebenarnya '
+    + '<b>dua kali lipat</b> angka di kolom itu. Bedanya dengan <b>Rp per kursi</b>: yang itu omset '
+    + '<b>sebulan</b> dibagi kursi \u2014 seberapa produktif tiap kursi; yang ini omset <b>satu bill</b> '
+    + 'dibagi kursi \u2014 seberapa besar belanja tiap tamu.</div></div></div>';
 
   h += mjZonaHtml(H);
 
   h += '<div class="card"><h3>Per Meja</h3>'
-    + '<div class="card-sub">Omset sebulan tiap meja, kapasitasnya di denah, dan omset per kursinya. '
-    + '<b>Kepala kolom bisa ditekan</b> untuk mengurutkan.</div>'
+    + '<div class="card-sub">Omset sebulan tiap meja, kapasitasnya di denah, omset per kursinya, dan '
+    + 'perkiraan belanja <b>per orang</b> tiap bill. <b>Kepala kolom bisa ditekan</b> untuk mengurutkan. '
+    + 'Transaksi yang tidak menempati meja (Quick Service) ikut di sini sebagai baris <b>tanpa meja</b>, '
+    + 'tanpa kapasitas — jadi kedua kolom per-kursinya ditahan, bukan diisi angka yang dikarang.</div>'
     + '<div style="margin-bottom:10px">' + mnKotakCari('mj_q', MJ_Q, 'Cari nomor meja, zona, kapasitas\u2026') + '</div>'
     + '<div id="mj_isi">' + mjIsiHtml() + '</div></div>';
 
@@ -5014,10 +5107,12 @@ function vMeja() {
      "tidak dikenal", yang membacanya tidak punya cara tahu mana yang perlu
      dibetulkan di denah dan mana yang memang bukan meja. */
   if (H.bukan.length) {
-    h += '<div class="notice info">&#8505; <div><b>Bukan meja</b>, jadi tidak ikut tabel di atas: '
+    h += '<div class="notice info">&#8505; <div><b>Ikut di tabel sebagai baris tanpa meja</b>: '
       + H.bukan.map(x => '<b>' + esc(x.n) + '</b> ' + rp0(x.g) + ' (' + x.b.toLocaleString('id-ID') + ' transaksi)').join(' &middot; ')
-      + '. Itu transaksi yang memang tidak menempati meja - pesanan online, ESB Order, dan take away. '
-      + 'Omsetnya tetap terhitung di kartu <b>Tanpa Meja</b>.</div></div>';
+      + '. Itu transaksi yang memang tidak menempati meja - pesanan online, ESB Order, dan take away - '
+      + 'jadi mejanya <b>tidak diketahui</b> dan kedua kolom per-kursinya ditahan. Omsetnya tetap '
+      + 'terhitung di kartu <b>Tanpa Meja</b> dan tetap ikut di penyebut kolom <b>% omset</b>, tapi '
+      + '<b>tidak</b> di Rp per kursi maupun Rp per orang.</div></div>';
   }
   if (H.takKenal.length) {
     h += '<div class="notice warn">&#9888; <div>Ada di berkas POS tapi <b>tidak ada di denah Reservasi</b>: '

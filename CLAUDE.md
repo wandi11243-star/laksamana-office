@@ -2955,6 +2955,86 @@ dengan jelas.
 > termuat" — hijau, tanpa menyentuh satu pun hitungan kapasitas. `uji-meja.js`
 > menyisipkan asetnya inline.
 
+##### Rp per orang, dan Quick Service ikut di tabel (18 September 2026)
+
+Dua permintaan user: *"bisa ditarik kesimpulan kalau untuk per orang jadinya
+berapa bill-nya?"* dan *"jika ada yang quick service tetap dimasukin juga tapi
+anggapan tidak ada meja karena tidak ketahuan"*.
+
+**1. Kolom baru `Rp per orang / bill`** = omset ÷ (transaksi × kapasitas), yang
+sama saja dengan **rata-rata per transaksi dibagi kapasitas**. Kartu
+**Rp per Orang** di atas memakai penyebut gabungan — "kursi-kunjungan"
+(Σ transaksi × kapasitas), **dijumlahkan dulu baru dibagi**. Merata-rata angka
+per meja memberi bobot sama kepada meja bertransaksi 3 dan bertransaksi 300;
+di data uji kedua cara memberi **Rp429.032 vs Rp393.750**.
+
+**ANGKANYA BATAS BAWAH, dan itu DIKATAKAN di layar.** Pembaginya kapasitas,
+bukan jumlah tamu sungguhan — meja berkursi 4 yang diduduki 2 orang membuat
+belanja per orang yang SEBENARNYA dua kali lipat. Jumlah tamu sungguhan memang
+tidak bisa dipakai: kolom `Pax Total` berisi **1 di 4.759 dari 4.785 bill**
+(sudah tercatat di bagian atas).
+
+**BEDANYA DENGAN `Rp per kursi` WAJIB DIKATAKAN**, dan bedanya bukan halus:
+
+| | rumusnya | menjawab |
+|---|---|---|
+| Rp per kursi | omset **SEBULAN** ÷ kursi | seberapa produktif tiap kursi |
+| Rp per orang | omset **SATU BILL** ÷ kursi | seberapa besar belanja tiap tamu |
+
+Dua kolom bersebelahan yang bedanya tidak disebut akan dibaca sebagai satu
+angka yang salah hitung. Tiap selnya juga menulis pembaginya sendiri
+(*bila 10 kursinya terisi*) — kepala kolom dibaca sekali, angkanya dibaca tiap
+baris.
+
+**2. Quick Service IKUT DI TABEL** sebagai baris yang dianggap **tidak punya
+meja**. Sebelumnya ia cuma berdiri di pita di bawah tabel, jadi omset
+**Rp175 juta sebulan** tidak punya satu baris pun yang bisa diurutkan, dicari,
+atau dibandingkan dengan meja mana pun.
+
+- **Kapasitasnya KOSONG, dan justru kekosongan itu yang menahan kedua kolom
+  per-kursi.** Ia TIDAK ditebak dari rata-rata meja lain: transaksi Quick
+  Service memang tidak menempati kursi mana pun, jadi angka per kursi untuknya
+  **tidak punya arti apa pun** — bukan sekadar tidak diketahui.
+- **Dua sebab kosong yang berbeda TIDAK boleh berbunyi sama.** Baris tanpa meja
+  berbunyi *tanpa meja*; meja sungguhan yang kapasitasnya belum diisi di denah
+  berbunyi *kapasitas tidak terbaca*. Yang pertama jawaban, yang kedua
+  pekerjaan.
+- **Omsetnya TIDAK ikut di `gMeja`.** Ikut, Rp per kursi dan Rp per orang
+  memasukkan uang yang tidak menempati satu kursi pun dan keduanya diam-diam
+  terlalu besar. Ia tetap di kartu **Tanpa Meja**, dan invariannya tidak
+  berubah: `gMeja + gBukan + gTanpa + takKenal = omset sebulan`.
+- **Penyebut kolom % jadi `gTabel` = gMeja + gBukan** — seluruh baris yang
+  TAMPIL di tabel itu. Dipakai `gMeja` saja, kolom persennya berhenti berjumlah
+  100% begitu Quick Service ikut jadi baris, dan persen yang tidak genap di
+  halaman omset dibaca sebagai uang yang hilang. Penyebutnya **disebut
+  angkanya** di kaki tabel.
+- **Kepala kolomnya jadi `% omset`, bukan `% omset meja`** — sementara tabel
+  **Per Zona** sengaja TETAP `% omset meja`, karena di sana penyebutnya memang
+  omset meja saja. Dua kolom berpenyebut berbeda tidak boleh bernama sama.
+- **Tabel Per Zona TIDAK memuatnya**, dan itu dikatakan: tabel itu menilai
+  denah (zona, meja terpakai, kursi), dan baris yang tidak punya satu pun dari
+  ketiganya cuma akan berdiri sebagai zona berkursi nol.
+- Kaki tabel berhenti menyebut "N meja" dan menulis **"N baris (M meja
+  terpakai)"** — angka yang menyebut dirinya meja padahal memuat baris non-meja
+  tidak akan cocok dengan kartu di atasnya.
+
+```bash
+node tools/uji-meja.js   # 100 pemeriksaan (dari 70)
+```
+
+**Tiga belas mutasi dicoba, ketiga belasnya tertangkap** — tiga baru sesudah
+asersinya dibetulkan, dan ketiganya bentuk yang sudah punya nama di berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| penyebut kolom persen tidak disebut angkanya | **asersi hampa** — kaki tabel SUDAH lebih dulu menulis "jumlah omsetnya Rp15.500.000", jadi asersi yang cuma mencari angkanya cocok dengan kalimat yang bukan yang diuji | yang dicari kalimat UTUHNYA (`kolom % omset dibagi Rp15.500.000`) |
+| penyebut kolom persen kembali ke omset meja saja | tidak ada satu pun asersi yang membaca persen di SELNYA | persen baris Quick Service dikunci **14.2%** (dengan penyebut yang salah ia 16.5%) |
+| baris tanpa meja diberi angka per kursi | mutasinya cuma merusak SATU dari dua kolom per-kursi, dan asersinya menyapu seluruh tabel — kolom satunya masih menulis kalimat yang dicari | barisnya DIIRIS, lalu jumlah `tanpa meja` di dalamnya dikunci **2** |
+
+> Ketiganya satu keluarga: **asersi yang menyapu terlalu lebar cocok dengan sel
+> yang bukan yang diuji.** Ini kali kelima bentuk itu menggigit di modul
+> Analytics.
+
 #### KODE MENU DIISI DI HPP & RESEP — sumber utamanya sekarang di sana (10 Sep 2026)
 
 Permintaan user: *"dari di HPP & Resep bisa masukin menu code, jadi kalau

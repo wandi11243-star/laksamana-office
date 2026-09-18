@@ -4808,6 +4808,11 @@ function mjPct() {  }
 
 
 
+
+
+
+
+
 function mjHitung() { denahMeja(); mejaNorm(); mejaBukanKah(); kursiDari(); urutKolom(); }
 
 
@@ -4852,7 +4857,62 @@ function mjHitung() { denahMeja(); mejaNorm(); mejaBukanKah(); kursiDari(); urut
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function mjZonaHtml() { mjPct(); render(); }
+
+
+
+
+
+
 
 
 
@@ -4935,9 +4995,44 @@ function mjIsiHtml() { urutKolom(); thSort(); mjPct(); }
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function mjUrut() { sortKlik(); mnIsi(); mjIsiHtml(); }
 
 function vMeja() { blnAktif(); lap(); pilihBulan(); kosongBelumAda(); mjHitung(); kartu(); mjPct(); mjZonaHtml(); mnKotakCari(); mjIsiHtml(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

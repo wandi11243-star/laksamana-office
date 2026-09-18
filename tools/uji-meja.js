@@ -220,7 +220,19 @@ console.log('-- mjHitung --');
 const H = JSON.parse(w.eval('JSON.stringify(mjHitung(AN.data.laporan["2026-09"]))'));
 aman('pengelompokan', () => {
   cek('denah venue termuat', !!H.D, 'tanpa denah, seluruh asersi kapasitas jadi hampa');
-  sama('meja yang cocok denah', H.baris.length, 4);
+  /* baris[] sekarang memuat DUA jenis: meja yang cocok denah, dan baris TANPA
+     MEJA (Quick Service) yang sejak 18 September 2026 ikut di tabel atas
+     permintaan user. Keduanya dihitung TERPISAH — dijumlahkan jadi satu,
+     mutasi yang menjatuhkan Quick Service ke jalur meja biasa lolos tanpa satu
+     angka pun bergerak. */
+  sama('meja yang cocok denah', H.baris.filter(x => !x.tanpaMeja).length, 4);
+  sama('...plus satu baris tanpa meja', H.baris.filter(x => x.tanpaMeja).length, 1);
+  sama('baris tanpa meja itu Quick Service', H.baris.filter(x => x.tanpaMeja)[0].n, 'Quick Service');
+  /* Kapasitasnya NOL, bukan ditebak dari rata-rata meja lain: transaksi Quick
+     Service tidak menempati kursi mana pun, jadi angka per kursi untuknya
+     tidak punya arti — bukan sekadar tidak diketahui. */
+  sama('...kapasitasnya nol, bukan ditebak', H.baris.filter(x => x.tanpaMeja)[0].kursi, 0);
+  sama('...dan tidak menggeser kursi terpakai', H.kursiPakai, 27);
   sama('omset meja', Math.round(H.gMeja), G_MEJA);
   sama('Quick Service dipisah', Math.round(H.gBukan), G_QS);
   sama('tanpa meja dipisah', Math.round(H.gTanpa), G_TANPA);
@@ -261,6 +273,47 @@ aman('pembagi', () => {
   sama('...rata-ratanya penuh, bukan separuh', Math.round(cari('U3').atv), 4500000);
 });
 
+
+console.log('-- Rp per orang & baris tanpa meja --');
+aman('Rp per orang per bill', () => {
+  /* omset / (transaksi x kapasitas) — sama saja dengan "rata-rata per
+     transaksi dibagi kapasitas". Meja 21: 3.000.000 / (2 x 4) = 375.000.
+
+     ANGKANYA SENGAJA BERBEDA dari Rp per kursi meja yang sama (750.000):
+     kalau keduanya dibuat sama, mutasi yang menukar kedua kolomnya lolos
+     tanpa satu angka pun bergerak. */
+  sama('meja 21: Rp per orang', Math.round(cari('21').perOrang), 375000);
+  sama('...dan itu BEDA dari Rp per kursi meja yang sama', Math.round(cari('21').perKursi), 750000);
+  sama('...yaitu rata-rata per transaksi dibagi kapasitas',
+       Math.round(cari('21').atv / cari('21').kursi), Math.round(cari('21').perOrang));
+  sama('U3: satu bill sembilan kursi', Math.round(cari('U3').perOrang), 500000);
+  sama('R1 dibagi batas bawah rentangnya', Math.round(cari('R1').perOrang), 500000);
+  /* DIJUMLAHKAN DULU, BARU DIBAGI. Kursi-kunjungan = 4x2 + 9x1 + 4x1 + 10x1 = 31,
+     jadi 13.300.000 / 31 = 429.032. Merata-rata keempat angka per meja memberi
+     (375.000+500.000+200.000+500.000)/4 = 393.750 — angka yang sama masuk
+     akalnya, dan itulah sebabnya keduanya sengaja dibuat berbeda di sini. */
+  sama('kursi-kunjungan dijumlahkan', H.orangVisit, 31);
+  sama('Rp per orang keseluruhan', Math.round(H.gMeja / H.orangVisit), 429032);
+  const kalauRata = [375000, 500000, 200000, 500000].reduce((a, b) => a + b, 0) / 4;
+  cek('...dan itu BUKAN rata-rata angka per meja',
+      Math.round(kalauRata) !== Math.round(H.gMeja / H.orangVisit), 'keduanya ' + Math.round(kalauRata));
+});
+aman('baris tanpa meja tidak mengarang angka per kursi', () => {
+  const qs = H.baris.filter(x => x.tanpaMeja)[0];
+  sama('Rp per kursi ditahan', qs.perKursi, null);
+  sama('Rp per orang ditahan', qs.perOrang, null);
+  /* Rata-rata per transaksinya TETAP dihitung: ia tidak butuh kapasitas, dan
+     justru itu satu-satunya angka pembanding yang dipunyai baris ini.
+     2.200.000 / 2 bill = 1.100.000. */
+  sama('...tapi rata-rata per transaksinya tetap ada', Math.round(qs.atv), 1100000);
+  /* Omsetnya TIDAK ikut di gMeja — kalau ikut, Rp per kursi dan Rp per orang
+     memasukkan uang yang tidak menempati satu kursi pun, dan keduanya diam-diam
+     terlalu besar. */
+  sama('omsetnya tidak ikut di omset meja', Math.round(H.gMeja), G_MEJA);
+  sama('...melainkan di gBukan', Math.round(H.gBukan), G_QS);
+  /* Penyebut kolom % di tabel = seluruh baris yang TAMPIL di sana. */
+  sama('penyebut kolom persen memuat keduanya', Math.round(H.gTabel), G_MEJA + G_QS);
+});
 /* ================= 3. layarnya ================= */
 console.log('-- halaman --');
 w.eval("go('meja')");
@@ -287,7 +340,8 @@ aman('kartu & tabel', () => {
       /Pax Total<\/i> memang terisi/.test(v) && /kapasitas kursi/.test(v));
   /* Tiga pita, tiga arti. Digabung, yang membacanya tidak tahu mana yang perlu
      dibetulkan di denah dan mana yang memang bukan meja. */
-  cek('Quick Service punya pitanya sendiri', /Bukan meja<\/b>[\s\S]{0,80}Quick Service/.test(v), 'tidak ketemu');
+  cek('Quick Service punya pitanya sendiri',
+      /Ikut di tabel sebagai baris tanpa meja<\/b>[\s\S]{0,80}Quick Service/.test(v), 'tidak ketemu');
   cek('EXTRA 12 dilaporkan sebagai tidak ada di denah',
       /tidak ada di denah Reservasi<\/b>[\s\S]{0,120}EXTRA 12/.test(v));
   cek('...dan menyuruh membetulkan DENAHNYA, bukan berkas POS',
@@ -301,6 +355,54 @@ aman('tabel per zona', () => {
   cek('kartu Per Zona ada', !!z);
   cek('zona wood menyebut omsetnya', z.indexOf('Rp5.000.000') > -1, z.slice(0, 400));
   cek('menyebut berapa meja zona itu punya', /dari 8<\/span>/.test(z), 'wood punya 8 meja di denah');
+});
+
+aman('Rp per orang & baris tanpa meja di layar', () => {
+  cek('kartu Rp per Orang menyebut angkanya', v.indexOf('Rp429.032') > -1,
+      (v.match(/Rp per Orang[\s\S]{0,200}/) || ['tidak ketemu'])[0].replace(/<[^>]+>/g, ' ').slice(0, 160));
+  /* BATAS BAWAH, dan itu WAJIB dikatakan: pembaginya kapasitas, bukan jumlah
+     tamu sungguhan. Meja berkursi 4 yang diduduki 2 orang membuat belanja per
+     orang yang sebenarnya dua kali lipat angka di kolom itu. */
+  cek('dikatakan angkanya batas bawah', /BATAS BAWAH/.test(v), '');
+  cek('...dan bedanya dengan Rp per kursi dijelaskan',
+      /omset <b>sebulan<\/b> dibagi kursi/.test(v) && /omset <b>satu bill<\/b> dibagi kursi/.test(v), '');
+  cek('kolomnya ada di tabel', v.indexOf('Rp per orang / bill') > -1, '');
+  /* Baris Quick Service ikut di tabel — sebelumnya omset Rp2,2 juta sebulan
+     tidak punya satu baris pun yang bisa diurutkan atau dibandingkan. */
+  const tabel = v.slice(v.indexOf('<h3>Per Meja</h3>'));
+  cek('Quick Service punya barisnya sendiri di tabel', tabel.indexOf('Quick Service') > -1, '');
+  /* BARISNYA DIIRIS, bukan disapu dari seluruh tabel. Disapu, asersi di bawah
+     cocok dengan sel milik baris lain — dan mutasi yang cuma merusak SATU dari
+     dua kolom per-kursi lolos karena kolom satunya masih menulis kalimat yang
+     dicari. Sudah kejadian saat asersi ini ditulis. */
+  const barisQS = (tabel.match(/<tr><td><b>Quick Service<\/b>[\s\S]*?<\/tr>/) || [''])[0];
+  cek('barisnya ketemu utuh', barisQS.length > 0, '');
+  /* DUA kolom per-kursi, DUA-DUANYA ditahan: Rp per kursi dan Rp per orang. */
+  sama('...kedua kolom per-kursinya ditandai tanpa meja',
+       (barisQS.match(/tanpa meja<\/span>/g) || []).length, 2);
+  /* "kapasitas tidak terbaca" itu kalimat untuk meja SUNGGUHAN yang kapasitasnya
+     belum diisi di denah — pekerjaan. Baris tanpa meja bukan itu: ia jawaban. */
+  cek('...dan BUKAN dengan kalimat "kapasitas tidak terbaca"',
+      barisQS.indexOf('kapasitas tidak terbaca') < 0, '');
+  /* Penyebut kolom % = seluruh baris tabel (15,5 jt), bukan omset meja saja
+     (13,3 jt). Dengan penyebut yang salah barisnya berbunyi 16.5%. */
+  cek('persen barisnya memakai penyebut seluruh tabel',
+      barisQS.indexOf('14.2%') > -1, (barisQS.match(/\d+\.\d%/g) || ['tidak ketemu']).join(','));
+  /* Zona denah TIDAK memuatnya: tabel itu menilai denah, dan baris yang tidak
+     menempati zona mana pun cuma akan berdiri sebagai zona berkursi nol. */
+  const zona = v.slice(v.indexOf('Per Zona Denah'), v.indexOf('<h3>Per Meja</h3>'));
+  cek('tabel Per Zona TIDAK memuat baris tanpa meja', zona.indexOf('(tanpa meja)') < 0, '');
+  cek('...dan itu dikatakan', /tidak ikut di tabel ini/.test(zona), '');
+  /* Penyebut kolom persen disebut angkanya — persen yang penyebutnya harus
+     ditebak sudah berkali-kali jadi pertanyaan di modul ini.
+
+     YANG DICARI KALIMAT UTUHNYA, bukan angkanya saja: kaki tabel sudah lebih
+     dulu menulis "jumlah omsetnya Rp15.500.000" untuk baris yang tampil, jadi
+     asersi yang cuma mencari angkanya cocok dengan kalimat yang BUKAN yang
+     diuji — dan mutasi yang mencabut keterangan penyebutnya lolos. Sudah
+     kejadian saat asersi ini ditulis. */
+  cek('penyebut kolom % disebut angkanya',
+      /kolom <b>% omset<\/b> dibagi <b>Rp15\.500\.000<\/b>/.test(v), '');
 });
 
 console.log('-- urut & cari --');
@@ -398,8 +500,9 @@ console.log('-- berkas POS asli --');
       const H5 = JSON.parse(w5.eval('JSON.stringify(mjHitung(UNGGAH_HASIL))'));
       /* Angka-angka ini dari BERKAS POS, bukan dari kode yang diuji — jadi
          kalau salah satunya bergerak, yang berubah aturan pencocokannya. */
-      cek('120 dari 123 nama meja cocok dengan denah', H5.baris.length === 120,
-          'dapat ' + H5.baris.length);
+      cek('120 dari 123 nama meja cocok dengan denah',
+          H5.baris.filter(x => !x.tanpaMeja).length === 120,
+          'dapat ' + H5.baris.filter(x => !x.tanpaMeja).length);
       cek('Quick Service dikenali bukan meja', H5.bukan.length === 1 && /quick/i.test(H5.bukan[0].n),
           JSON.stringify(H5.bukan.map(x => x.n)));
       cek('EXTRA 12 & 13 dilaporkan tidak ada di denah',
