@@ -1866,12 +1866,28 @@ function hashHalaman() {  }
 
 
 
-function halamanSah() { bolehBuka(); }
-function terapkanHash() { halamanSah(); hashHalaman(); render(); }
+function halamanSah() { bolehBuka(); viewBulanan(); }
 
 
 
-function go() { toggleSidebar(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+function divMasukHalaman() {  }
+function terapkanHash() { halamanSah(); hashHalaman(); divMasukHalaman(); render(); }
+
+
+
+function go() { divMasukHalaman(); toggleSidebar(); render(); }
 
 
 
@@ -6149,4 +6165,4 @@ function tampilkanGerbang() {  }
 
 
 
-function boot() { bulanDari(); hariIni(); seninDari(); bacaCache(); seed(); bacaSesi(); tampilkanGerbang(); inisial(); muatRoster(); muatData(); hashHalaman(); render(); divisiKuasa(); divisiSaya(); bolehBuka(); halamanSah(); labelPeran(); settingKotor(); }
+function boot() { bulanDari(); hariIni(); seninDari(); bacaCache(); seed(); bacaSesi(); tampilkanGerbang(); inisial(); muatRoster(); muatData(); hashHalaman(); render(); divisiKuasa(); divisiSaya(); bolehBuka(); halamanSah(); divMasukHalaman(); labelPeran(); settingKotor(); }

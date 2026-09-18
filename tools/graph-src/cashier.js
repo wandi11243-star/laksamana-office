@@ -442,6 +442,46 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function pct() {  }
 
 
@@ -512,6 +552,10 @@ function toggleNav() {  }
 
 
 function bacaSesi() {  }
+
+
+
+
 
 
 
@@ -937,7 +981,25 @@ function kirimSekarang() { setSync(); apiSave(); kirim(); jadwalkanUlang(); save
 
 
 
-function simpanTunggu() { kirimSekarang(); }
+function simpanTunggu() { kirimSekarang(); kirim(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1035,6 +1097,7 @@ function setViewMode() { modeHarian(); daysOfMonth(); render(); }
 
 
 function syncKendaliPeriode() { modeHarian(); }
+
 
 
 
@@ -2283,7 +2346,658 @@ function potonganHari() { potonganBaris(); }
 
 
 
-function barisTanpaShift() { potongKasirAktif(); potonganBaris(); }
+function barisTanpaShift() { potongKasirAktif(); potonganBaris(); save(); todayISO(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vdItemKosong() {  }
+function vdKosongkanForm() { vdItemKosong(); }
+
+
+
+
+function vdItems() { vdItemKosong(); }
+
+
+function vdPct() {  }
+function vdSvcDari() { vdPct(); }
+function vdTaxDari() { vdPct(); }
+
+
+
+
+
+
+function vdHitungOtomatis() { vdSubtotalForm(); vdSvcDari(); vdTaxDari(); }
+
+
+
+
+
+
+
+
+
+
+function vdSegarTimpa() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+function vdSubtotalForm() { vdItemTerisi(); }
+function vdTotalForm() { vdSubtotalForm(); }
+
+
+function vdSegarTotal() { vdSubtotalForm(); vdTotalForm(); }
+
+
+
+
+
+
+
+
+function vdSegarRinci() { fmtRpInput(); }
+
+
+
+
+
+
+
+function vdAuto() { vdHitungOtomatis(); vdSegarRinci(); vdSegarTimpa(); vdSegarTotal(); }
+
+
+
+
+
+
+
+
+function vdKetikRinci() { vdSegarTimpa(); vdSegarTotal(); }
+
+
+
+
+
+
+
+
+
+function vdItemTerisi() { vdItems(); }
+function vdBulan() {  }
+function vdRentang() {  }
+
+
+
+function vdAktif() {  }
+function vdHari() {  }
+
+
+
+
+
+function vdPost() { fetchTimeout(); }
+
+
+
+
+
+function muatVoid() { vdRentang(); fetchTimeout(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vdKetik() { formatAllRp(); }
+
+
+
+
+
+
+
+
+
+function vdGambarItem() { vdItemListHtml(); formatAllRp(); }
+
+
+
+
+
+function vdItemTambah() { vdItems(); vdItemKosong(); vdGambarItem(); }
+
+
+
+
+
+
+
+function vdItemHapus() { vdItems(); vdHitungOtomatis(); vdGambarItem(); }
+
+
+
+
+
+
+
+
+
+
+function vdItemKetik() { vdItems(); vdItemKosong(); vdHitungOtomatis(); vdSegarRinci(); vdItemTerisi(); vdSegarTimpa(); vdKetikRinci(); vdSegarTotal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vdItemListHtml() { vdItems(); vdItemKetik(); vdItemHapus(); vdSubtotalForm(); vdPct(); vdKetikRinci(); vdAuto(); vdTotalForm(); vdItemTambah(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vdUbah() { vdAktif(); vdSvcDari(); vdTaxDari(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vdBatalUbah() { vdKosongkanForm(); render(); }
+
+
+
+
+
+function vdTandaiSalah() { vdItems(); }
+
+
+
+
+
+
+
+
+
+function vdKotakSalah() {  }
+
+
+
+
+
+
+
+
+
+
+
+function vdSimpanSetelan() { vdPct(); vdPost(); vdItems(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vdSetelanHtml() { vdPct(); vdSimpanSetelan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vdSimpan() { vdKetik(); vdItems(); vdItemTerisi(); vdTandaiSalah(); vdKotakSalah(); vdPost(); vdKosongkanForm(); muatVoid(); vdBulan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vdBatal() { vdPost(); muatVoid(); vdBulan(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vdGrupBill() {  }
+
+
+
+
+
+
+
+
+function vdGrupHtml() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vdRinciHtml() {  }
+
+
+
+
+function vdBarisHtml() { vdAktif(); vdRinciHtml(); vdUbah(); vdBatal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function viewVoid() { vdBulan(); muatVoid(); vdHari(); vdGrupBill(); calInner(); vdKetik(); vdItemListHtml(); vdSimpan(); vdBatalUbah(); vdSetelanHtml(); dateLabel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

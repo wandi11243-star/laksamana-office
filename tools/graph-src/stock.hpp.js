@@ -1264,6 +1264,8 @@ function gambarEditor() { hitungBaris(); segarSub(); dlSaranSatuan(); judulSaran
 
 
 
+
+
 function hitungBaris() { cariResep(); modalResep(); qtySesuai(); infoPur(); per1(); }
 
 
@@ -2541,6 +2543,11 @@ function jalankanImpor() { setSync(); pesan(); muat(); petakan(); }
 
 
 
+
+
+
+
+
 function resepEkspor() {  }
 function urut() {  }
 
@@ -2688,7 +2695,12 @@ function bacaResepRows() { petaKolom(); angkaImpor(); siapkanImpor(); }
 
 
 
+
+
+
+
 function siapkanImporResep() { cariResep(); pesan(); konfirmasi(); }
+
 
 
 

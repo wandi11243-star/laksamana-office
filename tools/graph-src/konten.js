@@ -476,6 +476,78 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function fetchOffice() {  }
 
 
@@ -774,7 +846,13 @@ function PERM_DEFAULT() { getPerm(); }
 
 
 function getPerm() {  }
-function modPerm() { getPerm(); PERM_DEFAULT(); can(); }
+function modPerm() { getPerm(); can(); PERM_DEFAULT(); }
+
+
+
+
+
+
 
 
 
@@ -1384,6 +1462,9 @@ function notify() { uid(); save(); refreshNotifDot(); }
 
 
 
+
+
+
 function icon() {  }
 
 
@@ -1437,6 +1518,8 @@ function renderSidebar() { canView(); route(); icon(); updateApprovalBadge(); }
 
 
 function updateApprovalBadge() {  }
+
+
 
 
 
@@ -1961,7 +2044,7 @@ function syncProdTasks() {  }
 
 
 
-function openContent() { getContent(); getBrand(); textOn(); tint(); can(); drawer(); brandBadge(); platformTags(); esc(); closeDrawer(); statusPill(); prioBadge(); isOverdue(); fmtDate(); contentTypes(); printTypes(); moveStatus(); reqRevision(); cancelContent(); contentRefs(); viewImage(); escJsAttr(); contentDetail(); copyText(); deadlineHTML(); toggleProdDone(); pct(); toggleChk(); rmChk(); addChk(); renderMetricsBlock(); fmtDT(); userName(); markPublished(); timeAgo(); renderComments(); mentionScan(); cmtKey(); mentionClose(); addComment(); deleteContent(); openContentForm(); }
+function openContent() { getContent(); getBrand(); textOn(); tint(); can(); drawer(); brandBadge(); platformTags(); esc(); closeDrawer(); statusPill(); prioBadge(); isOverdue(); fmtDate(); contentTypes(); printTypes(); moveStatus(); reqRevision(); cancelContent(); contentRefs(); viewImage(); escJsAttr(); contentDetail(); copyText(); deadlineHTML(); toggleProdDone(); pct(); toggleChk(); rmChk(); addChk(); renderPerfBlock(); fmtDT(); userName(); markPublished(); timeAgo(); renderComments(); mentionScan(); cmtKey(); mentionClose(); addComment(); deleteContent(); openContentForm(); }
 
 
 
@@ -2978,6 +3061,12 @@ function toggleProdDone() { getContent(); logAct(); save(); route(); renderQueue
 
 
 
+
+
+
+
+
+
 function openTaskForm() { drawer(); closeDrawer(); esc(); roleShorts(); delTask(); saveTask(); }
 
 
@@ -3006,6 +3095,8 @@ function delTask() { save(); closeDrawer(); route(); }
 
 
 function toggleTaskDone() { save(); renderQueueTable(); route(); prodQueue(); }
+
+
 
 
 
@@ -3814,7 +3905,6 @@ function approveFinal() { getContent(); logAct(); notify(); save(); updateApprov
 
 
 
-function avgEr() { contentPlatforms(); num(); brandBar(); st(); esc(); pct(); pgSlice(); openContent(); brandDot(); getBrand(); platformTags(); pgBar(); avColor(); userName(); initials(); fmtDT(); timeAgo(); exportCSV(); backupJSON(); }
 
 
 
@@ -3823,6 +3913,220 @@ function avgEr() { contentPlatforms(); num(); brandBar(); st(); esc(); pct(); pg
 
 
 
+
+
+
+
+
+
+
+
+function pkSiap() {  }
+
+
+
+function pkPitaBelum() {  }
+
+
+
+
+
+
+
+function pkDataModul() { filterByBrand(); pkSiap(); brandBar(); pkPitaBelum(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function perfF() { route(); queueF(); gambarPerfTabel(); }
+
+
+
+
+
+
+function perfReset() { route(); }
+function perfRows() { filterByBrand(); contentPlatforms(); pkSiap(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function perfHitung() { perfRows(); }
+
+
+
+
+
+
+
+
+function tb() { perfF(); brandBar(); esc(); perfReset(); gambarPerfTabel(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gambarPerfTabel() { perfRows(); pgSlice(); getBrand(); openPerf(); esc(); brandDot(); fmtDate(); can(); pgBar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function openPerf() { getContent(); pkSiap(); toast(); contentPlatforms(); openContent(); }
+
+
+
+
+
+
+
+
+
+function kotak() { esc(); drawer(); closeDrawer(); platformTag(); userName(); fmtDT(); savePerf(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function savePerf() { getContent(); contentPlatforms(); logAct(); save(); closeDrawer(); route(); toast(); renderMetricsBlock(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function renderPerfBlock() { pkSiap(); renderMetricsBlock(); num(); platformTag(); avColor(); userName(); initials(); esc(); fmtDT(); timeAgo(); exportCSV(); backupJSON(); pgSlice(); brandDot(); pgBar(); }
 
 
 
@@ -3875,7 +4179,25 @@ function avgEr() { contentPlatforms(); num(); brandBar(); st(); esc(); pct(); pg
 
 function csvSafe() {  }
 function downloadFile() { toast(); }
-function exportCSV() { brandName(); contentPlatforms(); contentTypeLabel(); printTypeLabel(); userName(); roleLabels(); downloadFile(); logAct(); }
+function exportCSV() { brandName(); contentPlatforms(); contentTypeLabel(); printTypeLabel(); userName(); pkSiap(); roleLabels(); downloadFile(); logAct(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 

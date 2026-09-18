@@ -1048,6 +1048,41 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function injectPwaManifest() {  }
 
 
@@ -2519,7 +2554,7 @@ function updateCKSummary() {  }
 
 
 
-function submitCKOrder() { showToast(); infoCKItem(); cekDuplikatCK(); showDuplicateModal(); kirimCKKeServer(); }
+function submitCKOrder() { showToast(); infoCKItem(); bukaKonfirmasiCK(); }
 
 
 
@@ -2588,6 +2623,130 @@ function submitCKOrder() { showToast(); infoCKItem(); cekDuplikatCK(); showDupli
 
 
 
+
+
+
+
+
+
+function lanjutCKOrder() { cekDuplikatCK(); tutupKonfirmasiCK(); showDuplicateModal(); kirimCKKeServer(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bukaKonfirmasiCK() { escHtmlCK(); openModal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tutupKonfirmasiCK() { closeModal(); }
+
+
+
+
+
+function escHtmlCK() {  }
+
+
+
+
+
+function lanjutKonfirmasiCK() { tutupKonfirmasiCK(); lanjutCKOrder(); lanjutKirimCK(); }
 
 
 
@@ -2797,7 +2956,7 @@ function updateKirimSummary() {  }
 
 
 
-function submitKirimCK() { showToast(); infoCKItem(); isoLokal(); timSaatIni(); buangDraf(); addKirimRow(); updateKirimSummary(); muatRiwayatKiriman(); }
+function submitKirimCK() { showToast(); infoCKItem(); bukaKonfirmasiCK(); }
 
 
 
@@ -2817,6 +2976,22 @@ function submitKirimCK() { showToast(); infoCKItem(); isoLokal(); timSaatIni(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function lanjutKirimCK() { isoLokal(); timSaatIni(); tutupKonfirmasiCK(); showToast(); buangDraf(); addKirimRow(); updateKirimSummary(); muatRiwayatKiriman(); }
 
 
 

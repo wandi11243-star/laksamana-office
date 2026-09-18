@@ -1009,7 +1009,7 @@ function kirim() { apiSave(); setSync(); jadwalkanUlang(); save(); }
 
 
 
-function kirimSekarang() { setSync(); apiSave(); kirim(); jadwalkanUlang(); save(); }
+function kirimSekarang() { setSync(); apiSave(); kirim(); simpanTunggu(); jadwalkanUlang(); save(); }
 
 
 
@@ -1053,7 +1053,45 @@ function kirimSekarang() { setSync(); apiSave(); kirim(); jadwalkanUlang(); save
 
 
 
-function simpanTunggu() { kirimSekarang(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanTunggu() { kirimSekarang(); kirim(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
