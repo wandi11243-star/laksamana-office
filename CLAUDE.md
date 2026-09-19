@@ -927,6 +927,128 @@ Ujinya menjaga ketiga bentuk itu, bukan sekadar keberadaan kolomnya.
   tidak akan pernah diterima siapa pun. **Bonus Total Omset Team TIDAK null**:
   dasarnya memang angka tim, jadi kolomnya berlaku di kedua segmen.
 
+### Reservasi: meja TIDAK lagi terkunci otomatis H-3 jam (19 September 2026)
+
+Permintaan user: *"jangan auto lock 3 jam sebelumnya, tapi misalnya tamu yang
+ingin mau duduk sebentar saja masih bisa diklik, untuk duduk walk-in
+sementara."*
+
+Sampai tanggal ini `harihOccupancy()` memasukkan reservasi ke daftar TERISI
+begitu `lockStart(r) <= now` — yaitu tiga jam sebelum jamnya — dan sejak itu
+mejanya tidak bisa diklik sama sekali. **Meja kosong yang tidak boleh dipakai
+selama tiga jam adalah kursi yang hangus**, dan tamu yang cuma mau duduk dua
+puluh menit sambil menunggu tidak bisa didudukkan di mana pun.
+
+**YANG MEMBUAT SEBUAH MEJA BENAR-BENAR TERISI SEKARANG CUMA SATU: ada tamu
+yang sedang DUDUK di sana.**
+
+#### DUA ATURAN, DAN ITU DISENGAJA
+
+| yang dikerjakan | aturannya |
+|---|---|
+| **menjual kursi untuk nanti** (form reservasi, pindah/tambah meja) | H-3 jam, **tidak berubah** |
+| **mendudukkan tamu sekarang** (denah Hari-H, walk-in) | hanya yang sedang duduk yang menghalangi |
+
+Yang menentukan mana yang dipakai **bukan tanggal atau statusnya melainkan
+APA YANG SEDANG DIKERJAKAN**. Menjual meja yang sudah dipesan orang lain jam
+19:00 tetap bentrok yang sesungguhnya dan tetap ditolak; mendudukkan tamu
+sebentar di meja yang sama tidak.
+
+`conflictCheck(..., opsi)` dengan `opsi.walkin` yang memutuskannya. Saat
+`walkin`, yang dianggap bentrok **hanya `isSeated(r)`**.
+
+#### OPSINYA WAJIB SAMPAI KE PENGGABUNG DATA
+
+Ini yang paling mudah lepas dan paling mahal. Kalau layar memakai aturan
+longgar sementara `mergeServer()` memakai yang ketat, walk-in yang sudah
+diterima di layar akan **DITOLAK diam-diam saat datanya naik** — tamunya
+sudah duduk, kursinya sudah dipakai, dan barisnya lenyap tanpa satu pun
+galat. Karena itu `opsiCekOf(L)` dioper di **kedua** cabang penggabung
+(baris baru DAN pindah-meja).
+
+- **`opsiCekOf()` membaca `source`, BUKAN status.** Reservasi biasa yang
+  ditandai "Datang" juga berstatus sama, dan ia harus tetap ketat waktu
+  dipindah mejanya. Dibaca dari status, seluruh reservasi yang tamunya sudah
+  hadir ikut longgar.
+- **Kedua jalur walk-in memakai `{walkin:true}`** — `saveWalkIn()` dan
+  `seatFromWait()` (dudukkan dari waiting list). Yang terlewat ditolak server
+  walau layarnya sudah menerimanya.
+
+#### YANG MENGGANTIKAN KUNCIANNYA: tanda, bukan kelonggaran diam-diam
+
+- **Tandanya BERTINGKAT.** Yang jamnya masih jauh cukup ditandai jamnya
+  (🔒 kuning); yang **≤1 jam lagi** ditandai ⏰ merah. Satu tanda untuk "5 jam
+  lagi" dan "10 menit lagi" membuat kru berhenti membedakan keduanya — dan
+  yang mepet itulah satu-satunya yang benar-benar menentukan boleh-tidaknya
+  seorang tamu didudukkan di sana.
+- **`MEPET_MIN` & `mepetKah()` SATU tempat** untuk denah DAN form. Ditulis dua
+  kali, denah bisa menandai sebuah meja merah sementara form yang terbuka
+  dari meja itu berkata "masih bisa dipakai duduk sementara" — dua kalimat
+  yang bertentangan di satu layar. (Memang ditulis dua kali di putaran
+  pertama, dan dua mutasi lolos karenanya.)
+- **Form walk-in memasang pita** berisi nama pemesan, jamnya, berapa lama
+  lagi, dan jumlah paxnya. Warnanya ikut seberapa dekat.
+- **Catatan walk-in menyebut reservasi yang menunggu** (`catatanWalkIn`).
+  Sesudah modal ditutup pitanya tidak ada lagi di mana pun, dan yang membuka
+  baris itu besok pagi tidak punya satu pun cara tahu tamu itu didudukkan di
+  meja yang sudah dipesan. Walk-in di meja yang memang kosong tetap
+  bercatatan `"Walk-in"` apa adanya.
+
+#### `bookingBerikut()` — satu sumber jam untuk ketiganya
+
+Dipakai pita form, denah, dan catatan otomatis, supaya jam yang disebut
+ketiganya tidak pernah bisa berbeda.
+
+- **Yang jamnya SUDAH LEWAT tetap disebut.** Booking jam 19:00 yang tamunya
+  belum muncul jam 19:15 justru yang paling perlu disebut — dibuang karena
+  jamnya terlewat, kru mendudukkan tamu di meja yang tamu aslinya baru saja
+  terlambat seperempat jam. Batasnya `lockEnd(r)`, supaya booking kemarin
+  tidak ikut terbawa selamanya.
+- **Yang sedang duduk tidak ikut**: mejanya memang tidak pernah sampai ke
+  jalur walk-in.
+
+#### Yang SENGAJA tidak berubah
+
+- **`!isToday` tetap mengunci.** Denah tanggal lain dibuka untuk MELIHAT
+  booking, bukan untuk walk-in — walk-in selalu terjadi sekarang. Meja di
+  sana diklik untuk membuka reservasinya.
+- **`deploy/marketing/` tidak ikut.** Denah di sana dipakai memilih meja untuk
+  Reservasi VIP & event — itu penjualan, bukan mendudukkan tamu yang sudah
+  berdiri di depan host. `vipLockStart/vipLockEnd/vipLocksRange` tetap
+  berlaku, dan `uji-walkin-sementara.js` menahan orang berikutnya
+  "menyeragamkannya".
+- **Sharing, tamu yang sudah pulang, dan status Cancelled/No-show/Completed**
+  berperilaku sama persis seperti sebelumnya.
+
+```bash
+node tools/uji-walkin-sementara.js   # 54 pemeriksaan, TANPA jsdom
+```
+
+**BERKAS UJI PERTAMA untuk penjaga tabrakan meja.** Modul Reservasi cuma
+"hanya boot yang diuji" di `smoke-modul.js`, dan ini satu-satunya bagiannya
+yang **kegagalannya tidak terlihat dari layar**: dua tamu yang memegang meja
+yang sama tidak menimbulkan satu pun galat, dan baru ketahuan waktu keduanya
+berdiri di depan meja itu.
+
+Fungsinya **DIPOTONG dari sumber** lalu dijalankan — berikut `LOCK_LEAD_MIN`,
+bukan disalin nilainya: uji yang memegang salinan ambangnya sendiri akan tetap
+hijau kalau angkanya diubah di sana. Jam sekarang **dipatok**, bukan mengikuti
+jam mesin; uji yang hijau di pagi hari dan merah di malam hari lebih buruk
+daripada tidak ada uji.
+
+**Tujuh belas mutasi dicoba, ketujuh belasnya tertangkap** — dua baru sesudah
+ambangnya diekstrak:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| tanda mepet dicabut | pola `m <= 60` cocok di KEDUA tempat, jadi mutasi yang cuma merusak salah satunya lolos | ambangnya diekstrak jadi `MEPET_MIN`/`mepetKah()`, dan yang dijaga jumlah pemakaiannya |
+| ambang dilonggarkan jadi 5 menit | sebab yang sama | idem |
+
+> Keduanya sekaligus **cacat produk**: dua tempat yang memutuskan hal yang
+> sama, ditulis terpisah. Mutasi yang lolos di sini menunjuk ke kode yang
+> memang perlu dirapikan, bukan cuma ke asersi yang kurang.
+
+
 ### Reservasi: bukti DP WAJIB (6 September 2026)
 
 Permintaan user: *"setiap input reservasi, jika dia masukin DP, wajib upload

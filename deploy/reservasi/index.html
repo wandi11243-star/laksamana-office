@@ -478,8 +478,14 @@ td .muted{color:var(--muted);font-size:13px}
 .seat.avail .sn,.seat.avail .sp{color:#5a4a2a}
 .seat.avail:hover{outline:2px solid var(--gold);outline-offset:1px;background:#F5EEDB}
 /* Kosong sekarang, tapi sudah dipesan >3 jam lagi → boleh walk-in, akan terkunci otomatis */
-.seat.avail.booking-soon{border:2px dashed #C9432B;background:#F6E9D6}
-.seat.avail.booking-soon .seat-sub{color:#A3341F}
+.seat.avail.booking-soon{border:2px dashed #B5831A;background:#F7EFDB}
+.seat.avail.booking-soon .seat-sub{color:#8A6413}
+/* Reservasinya ≤1 jam lagi. Sejak meja berhenti terkunci otomatis H-3 jam
+   (19 Sep 2026), INILAH yang menggantikan kunciannya: mejanya tetap boleh
+   diklik, tapi kru melihat dari jauh bahwa yang ini mepet. Satu warna untuk
+   "5 jam lagi" dan "10 menit lagi" membuat keduanya berhenti dibedakan. */
+.seat.avail.booking-mepet{border:2px solid #C9432B;background:#F8E4DF}
+.seat.avail.booking-mepet .seat-sub{color:#A3341F;font-weight:800}
 .seat .seat-sub{font-size:clamp(7px,1.05vw,11px);font-weight:800;line-height:1.05;margin-top:1px}
 .seat.booked .seat-sub{color:#fff}
 .seat.booked.stpending .seat-sub{color:#3a2a00}
@@ -1240,7 +1246,22 @@ function tablesOf(r){ return String(r&&r.table||"").split(",").map(s=>s.trim()).
 function mejaAsliOf(r){ return String(r&&r.tableAsli||"").split(",").map(s=>s.trim()).filter(Boolean); }
 // Tamu yang sedang "menumpang" di meja lain & menunggu meja aslinya bebas.
 function sedangDialihkan(r){ return !!(r && r.tableAsli && !r.leftAt && !["Cancelled","No-show","Completed"].includes(r.status)); }
-// Jendela kunci meja: kursi terkunci otomatis mulai H-3 JAM sebelum jam booking.
+/* Jendela kunci meja: H-3 JAM sebelum jam booking.
+
+   BERLAKU UNTUK PENJUALAN, BUKAN UNTUK WALK-IN (sejak 19 September 2026).
+   Yang masih memakainya: form reservasi baru, pindah/tambah meja, dan
+   pengecekan bentrok saat menyimpan — di sana ia memang benar, karena
+   menjual meja yang sudah dipesan orang lain jam 19:00 adalah bentrok yang
+   sesungguhnya.
+
+   Yang TIDAK lagi memakainya: denah Hari-H dan walk-in. Meja yang dipesan
+   nanti tetap boleh diklik untuk tamu yang cuma mau duduk sebentar — lihat
+   harihOccupancy() dan conflictCheck(opsi.walkin). Meja kosong yang tidak
+   boleh dipakai selama tiga jam adalah kursi yang hangus.
+
+   Jadi ada DUA aturan di berkas ini dan itu DISENGAJA; yang menentukan mana
+   yang dipakai bukan tanggal atau statusnya melainkan APA YANG SEDANG
+   DIKERJAKAN — menjual kursi untuk nanti, atau mendudukkan tamu sekarang. */
 // Contoh: booking 19:00 → meja terkunci sejak 16:00 (jam datang 16:00 pun sudah ter-disable).
 // Reservasi baru hanya bisa memakai meja itu bila jamnya LEBIH dari 3 jam sebelum/sesudahnya.
 const LOCK_LEAD_MIN = 180;
@@ -1788,7 +1809,7 @@ async function seatFromWait(id, tableId, sharing){
   if(cap && Number(w.pax)>cap && !confirm(`${w.name} berjumlah ${w.pax} orang, sedangkan ${tableId} kapasitasnya ${cap}. Tetap dudukkan di sini?`)) return;
   const jamSkrg=normTime(new Date().toTimeString().slice(0,5));
   // Meja bisa saja baru saja diisi kru lain.
-  const cek=await mejaMasihKosong(HARIH_DATE, tableId, jamSkrg, null, !!sharing);
+  const cek=await mejaMasihKosong(HARIH_DATE, tableId, jamSkrg, null, !!sharing, {walkin:true});
   if(!cek.ok){ hideBusy(); tolakMeja(cek.bentrok, `Meja ${tableId} sudah terisi.`); closeModal(); renderHariH(); return; }
   const now=Date.now();
   const rec={
@@ -1954,9 +1975,28 @@ function harihOccupancy(){
   all.forEach((list0,id)=>{
     const list = saring ? list0.filter(cocokFilterDenah) : list0;
     if(!list.length) return;
+    /* MEJA TIDAK LAGI TERKUNCI OTOMATIS H-3 JAM (19 September 2026, permintaan
+       user: "jangan auto lock 3 jam sebelumnya, tapi tamu yang mau duduk
+       sebentar saja masih bisa diklik untuk walk-in sementara").
+
+       Yang membuat sebuah meja BENAR-BENAR terisi cuma satu: ada tamu yang
+       sedang DUDUK di sana. Reservasi yang jamnya sudah dekat tapi orangnya
+       belum datang TIDAK menutup mejanya — meja kosong yang tidak boleh
+       dipakai selama tiga jam adalah kursi yang hangus, dan tamu yang cuma
+       mau duduk dua puluh menit sambil menunggu tetap bisa didudukkan.
+
+       Yang menggantikan kunciannya BUKAN kelonggaran diam-diam: mejanya
+       ditandai (🔒 + jam bookingnya), yang jamnya sudah dekat ditandai LEBIH
+       KERAS, dan form walk-in menyebut siapa yang memesan berikut berapa lama
+       lagi. Kru yang mendudukkan tamu di sana melakukannya sambil melihat
+       angkanya, bukan tanpa tahu.
+
+       `!isToday` TETAP mengunci, dan itu bukan kelalaian: denah tanggal lain
+       dibuka untuk MELIHAT booking, bukan untuk walk-in — walk-in selalu
+       terjadi sekarang. Meja di sana diklik untuk membuka reservasinya. */
     const locked=[], soon=[];
     list.forEach(r=>{
-      if(isSeated(r) || !isToday || lockStart(r) <= now) locked.push(r);
+      if(isSeated(r) || !isToday) locked.push(r);
       else soon.push(r);
     });
     if(locked.length) occ.set(id,locked);
@@ -2067,12 +2107,27 @@ function seatMapMarkup(layoutKey, mode, occ, later){
           + (nebeng ? `\n🔁 Dialihkan sementara dari meja ${res.tableAsli} — kembalikan ke sana kalau sudah bebas.` : "");
         return `<button type="button" class="seat booked ${scls}${sisa?" seat-partial":""}${room?" seat-room":""}${alih?" seat-alih":""}"${attr} style="${st}" onclick="seatAction('${esc(res.id)}')" title="${esc(tip+tipEkstra)}"><span class="sn">${esc(t.id)}</span><span class="sp">${esc(spTxt)}</span>${seatSubTimer(list)}${lain?`<span class="seat-multi" title="${esc(lain+" reservasi lain di meja ini")}">+${lain}</span>`:""}${alih?`<span class="seat-alih-tag" title="${esc("Reservasi berikutnya sudah dekat tapi meja masih terisi — alihkan sementara")}">⚠️</span>`:""}${nebeng?`<span class="seat-alih-tag" style="background:#1F9D5F" title="${esc("Menumpang sementara, meja asli "+res.tableAsli)}">🔁</span>`:""}</button>`;
       }
-      // Kosong sekarang, tapi ada booking >3 jam lagi → boleh walk-in, ditandai jam kuncinya.
+      /* KOSONG SEKARANG, TAPI SUDAH DIPESAN NANTI — tetap bisa diklik untuk
+         walk-in, apa pun jaraknya waktu (19 Sep 2026; sebelumnya meja ini
+         terkunci mati begitu masuk H-3 jam).
+
+         TANDANYA BERTINGKAT, dan itu yang menggantikan kunciannya: yang
+         jamnya masih jauh cukup ditandai jamnya, yang sudah ≤1 jam ditandai
+         MENDESAK. Satu tanda untuk keduanya membuat kru berhenti
+         membedakan "5 jam lagi" dari "10 menit lagi" — dan yang mepet itulah
+         satu-satunya yang benar-benar menentukan boleh-tidaknya seorang tamu
+         didudukkan di sana. */
       const nWait=waitingQueue(HARIH_DATE).length;
       const nx=later ? nextBookingAt(later,t.id) : null;
       if(nx){
-        const tip=`${t.id}, ${t.cap} pax, kosong sekarang. Dipesan ${nx.res.name} jam ${seatTimeLabel(nx.res)}${nx.more?` (+${nx.more} reservasi lain)`:""}, meja terkunci otomatis mulai ${nx.lockAt}. Klik untuk isi tamu.`;
-        return `<button type="button" class="seat avail booking-soon" style="${st}" onclick="seatEmptyClick('${esq(t.id)}')" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${t.cap} pax</span><span class="seat-sub">🔒 ${esc(seatTimeLabel(nx.res))}</span>${nx.more?`<span class="seat-multi" title="${esc(nx.more+" reservasi lain di meja ini")}">+${nx.more}</span>`:""}</button>`;
+        const m=menitMenuju(nx.res);
+        const mepet = mepetKah(m);
+        const sisa = m>0 ? `${fmtDur(m)} lagi` : `jamnya sudah lewat ${fmtDur(-m)}`;
+        const tip=`${t.id}, ${t.cap} pax, kosong sekarang. Dipesan ${nx.res.name} jam ${seatTimeLabel(nx.res)} (${sisa}, ${nx.res.pax} pax)${nx.more?` (+${nx.more} reservasi lain)`:""}.\n`
+          + (mepet
+              ? `⏰ Jamnya sudah dekat — boleh dipakai duduk sementara, tapi pastikan kosong lagi sebelum jamnya.`
+              : `Masih boleh dipakai walk-in / duduk sementara. Klik untuk isi tamu.`);
+        return `<button type="button" class="seat avail booking-soon${mepet?" booking-mepet":""}" style="${st}" onclick="seatEmptyClick('${esq(t.id)}')" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${t.cap} pax</span><span class="seat-sub">${mepet?"⏰":"🔒"} ${esc(seatTimeLabel(nx.res))}</span>${nx.more?`<span class="seat-multi" title="${esc(nx.more+" reservasi lain di meja ini")}">+${nx.more}</span>`:""}</button>`;
       }
       const tipEmpty=`${t.id}, ${t.cap} pax, kosong. Klik untuk `+(nWait?`pilih tamu dari waiting list (${nWait} menunggu) / walk-in`:`walk-in`);
       return `<button type="button" class="seat avail" style="${st}" onclick="seatEmptyClick('${esq(t.id)}')" title="${esc(tipEmpty)}"><span class="sn">${esc(t.id)}</span><span class="sp">${t.cap} pax</span>${nWait?`<span class="seat-sub">⏳ ${nWait}</span>`:""}</button>`;
@@ -2489,7 +2544,7 @@ function mergeIntoState(d){
          Yang belakangan ditolak & diberi tahu. Sengaja tidak memakai perbandingan jam
          input, karena itu berarti harus menendang reservasi yang SUDAH tersimpan milik
          kru lain — dan kru itu tidak akan tahu datanya dihapus. */
-      const lawan = conflictCheck(L.date, L.table, L.time, L.id, !!L.sharing, [...out.values()]);
+      const lawan = conflictCheck(L.date, L.table, L.time, L.id, !!L.sharing, [...out.values()], opsiCekOf(L));
       if(lawan){
         REJECTED.push({ mine:L, other:lawan });      // dia lebih dulu masuk → punya kita batal
         return;
@@ -2505,7 +2560,7 @@ function mergeIntoState(d){
       const pindahMeja = B.table!==L.table || B.date!==L.date || B.time!==L.time || !!B.sharing!==!!L.sharing;
       if(pindahMeja){
         const lain=[...out.values()].filter(x=>x.id!==L.id);
-        const lawan = conflictCheck(L.date, L.table, L.time, L.id, !!L.sharing, lain);
+        const lawan = conflictCheck(L.date, L.table, L.time, L.id, !!L.sharing, lain, opsiCekOf(L));
         if(lawan){
           REJECTED.push({ mine:L, other:lawan });
           out.set(L.id, srvMap.get(L.id) || B);      // kembalikan ke versi sebelum kita ubah
@@ -3259,8 +3314,25 @@ function needFollowUpCount(){
 // Aturan kunci persis sama dengan denah (lihat locksTable): H-3 jam dari jam datang.
 // `list` boleh diisi daftar lain (mis. data terbaru dari server) untuk mendeteksi
 // rebutan meja antar-akun saat menyimpan.
-function conflictCheck(date, table, time, exceptId, sharing, list){
+/* `opsi.walkin` — DUDUK SEMENTARA DI MEJA YANG SUDAH DIPESAN (19 Sep 2026).
+   -------------------------------------------------------------------------
+   Untuk walk-in, yang menghalangi HANYA tamu yang sedang DUDUK. Reservasi
+   yang jamnya sudah dekat tapi orangnya belum datang tidak menutup mejanya,
+   sama dengan aturan denah Hari-H sejak tanggal itu.
+
+   DUA ATURAN UNTUK SATU MEJA ADALAH BUG YANG PALING MAHAL DI BERKAS INI, dan
+   itu sebabnya opsinya dioper sampai ke PENGGABUNG DATA (mergeServer). Kalau
+   layar memakai aturan longgar sementara penggabung memakai yang ketat,
+   walk-in yang sudah diterima di layar akan DITOLAK diam-diam saat datanya
+   naik — tamunya sudah duduk, kursinya sudah dipakai, dan barisnya lenyap.
+
+   Yang TIDAK ikut longgar, dan itu disengaja: reservasi BARU dari form. Itu
+   penjualan kursi untuk nanti, bukan tamu yang sudah berdiri di depan host —
+   menjual meja yang sudah dipesan orang lain jam 19:00 adalah bentrok yang
+   sesungguhnya, dan tetap ditolak. */
+function conflictCheck(date, table, time, exceptId, sharing, list, opsi){
   if(!table) return null;
+  const walkin = !!(opsi && opsi.walkin);
   const want=String(table).split(",").map(s=>s.trim()).filter(Boolean);
   return (list || STATE.reservations).find(r=>{
     if(r.id===exceptId) return false;
@@ -3271,9 +3343,17 @@ function conflictCheck(date, table, time, exceptId, sharing, list){
     if(r.leftAt) return false;                                   // tamu sudah pulang → meja bebas
     if(!tablesOf(r).some(t=>want.includes(t))) return false;
     if(sharing && r.sharing) return false;                       // dua-duanya sharing → boleh gabung
+    /* Tamu yang SEDANG DUDUK tetap menghalangi apa pun modenya — kursinya
+       memang sedang dipakai orang. Yang dilonggarkan cuma reservasi yang
+       belum datang. */
+    if(walkin) return isSeated(r);
     return locksTable(r, date, time);
   }) || null;
 }
+/* Walk-in memakai aturan longgar di SELURUH jalurnya. Dikenali dari
+   `source`, bukan dari status: reservasi biasa yang ditandai "Datang" juga
+   berstatus sama, dan ia harus tetap ketat waktu dipindah mejanya. */
+function opsiCekOf(r){ return { walkin: String(r && r.source || "")==="Walk-in" }; }
 function toMin(t){ if(!t) return 0; const[h,m]=String(t).split(":").map(Number); return (h||0)*60+(m||0); }
 
 /* ===== FIELD JAM: SELALU 24 JAM (00:00–23:59) =====
@@ -3755,7 +3835,7 @@ function checkBigEvent(v){
    langsung menampilkan meja itu sebagai terisi.
    Ini lapisan pertama (cepat & jelas bagi kru). Lapisan keduanya ada di mergeIntoState(),
    yang menolak lagi saat menulis kalau-kalau dua kru lolos pengecekan pada detik yang sama. */
-async function mejaMasihKosong(date, table, time, exceptId, sharing){
+async function mejaMasihKosong(date, table, time, exceptId, sharing, opsi){
   if(!apiConfigured()) return { ok:true };
   setSync("sync","Memeriksa ketersediaan meja…");
   showBusy("Memeriksa ketersediaan meja…", "Mengecek langsung ke database, bukan ke layar.");
@@ -3763,7 +3843,7 @@ async function mejaMasihKosong(date, table, time, exceptId, sharing){
   try{ d = await apiGet("getAll"); }
   catch(e){ setSync("err","Gagal cek meja"); return { ok:true, offline:true }; }   // offline → lanjut, penjaga terakhir tetap ada
   const srv = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
-  const bentrok = conflictCheck(date, table, time, exceptId, sharing, srv);
+  const bentrok = conflictCheck(date, table, time, exceptId, sharing, srv, opsi);
   if(!bentrok){ setSync("ok","Meja tersedia"); return { ok:true, data:d }; }
   // Segarkan data lokal supaya denah menunjukkan kondisi sebenarnya (kalau tak ada
   // perubahan lokal yang belum tersimpan, ambil apa adanya dari server).
@@ -4768,7 +4848,7 @@ function harihMapView(){
     ${ovOn?`<div class="inline-warn" style="margin:0 0 10px">⚑ ${adaDenahTanggal(HARIH_DATE,lt)
         ? `Meja <b>${ltCfg(lt).nama}</b> digeser khusus untuk <b>${fmtDate(HARIH_DATE)}</b> (denah tanggal). Template Weekday/Weekend tidak ikut berubah.`
         : `Denah <b>${curLabel}</b> dijadwalkan khusus untuk <b>${fmtDate(HARIH_DATE)}</b>.`} Tanggal lain otomatis kembali ke bawaan. ${canEdit?`<a href="javascript:void(0)" onclick="clearLayoutOverride('${HARIH_DATE}',${lt})" style="margin-left:6px;font-weight:600">Kembalikan ke bawaan</a>`:""}</div>`:""}
-    ${nSoon?`<div class="inline-info" style="margin:0 0 10px">🔒 ${nSoon} meja masih kosong tapi sudah dipesan nanti — meja terkunci <b>otomatis 3 jam sebelum jam booking</b> (tanda 🔒 + jamnya). Sebelum itu meja masih boleh dipakai walk-in.</div>`:""}
+    ${nSoon?`<div class="inline-info" style="margin:0 0 10px">🔒 <b>${nSoon} meja</b> kosong sekarang tapi sudah dipesan nanti — jam bookingnya ditulis di mejanya. <b>Meja itu TETAP boleh diklik</b> untuk tamu yang cuma mau duduk sebentar; yang bookingnya <b>≤1 jam lagi</b> ditandai ⏰ merah. Yang benar-benar tidak bisa dipakai cuma meja yang tamunya sedang duduk.</div>`:""}
     <div class="seat-map" id="harihMap">${seatMapMarkup(layoutKey,"view",occ,later)}</div>
     <div class="seat-viewlegend">
       <span><i style="background:#E0A82E"></i>Pending (bisa diedit)</span>
@@ -4782,7 +4862,8 @@ function harihMapView(){
       <span><i style="background:#C9432B;box-shadow:inset 0 0 0 2px #E0A82E"></i>Rombongan belum lengkap (masih ditunggu)</span>
       <span><i style="background:#7C5FC0"></i>🤝 Sharing (bisa gabung)</span>
       <span><i style="background:#EFE6CE;border:1px solid rgba(120,90,30,.3)"></i>Kosong (available) → klik utk walk-in</span>
-      <span><i style="background:#EFE6CE;border:2px dashed #C9432B"></i>🔒 Dipesan nanti, terkunci H-2 jam</span>
+      <span><i style="background:#F7EFDB;border:2px dashed #B5831A"></i>🔒 Dipesan nanti — <b>masih bisa diklik</b> untuk duduk sementara</span>
+      <span><i style="background:#F8E4DF;border:2px solid #C9432B"></i>⏰ Dipesan <b>≤1 jam lagi</b> — boleh, tapi pastikan kosong sebelum jamnya</span>
     </div>
   </div></div>`;
 }
@@ -5486,8 +5567,9 @@ function walkInSeat(tableId, sharingDefault, paxDefault){
   const esq=String(tableId).replace(/'/g,"\\'");
   const paxV=Number(paxDefault)>0?Number(paxDefault):2;
   const info=sharingDefault?sisaKursiTable(tableId):null;   // untuk tampilkan sisa kursi
+  const nx=bookingBerikut(tableId);
   openModal(`<div class="modal-head"><h3>${sharingDefault?"➕ Tambah Pax":"🚶 Walk-in"}, Meja ${esc(tableId)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
-   <div class="modal-body"><div class="form-grid">
+   <div class="modal-body">${nx?pitaMejaDipesan(nx):""}<div class="form-grid">
      <div class="field full"><label>Nama Tamu</label><input id="wi_name" placeholder="Kosongkan → dicatat sebagai &quot;${esc(WALKIN_NAME)}&quot;" autocomplete="off"></div>
      <div class="field"><label>No. HP</label><input id="wi_phone" inputmode="numeric" placeholder="08xxx (opsional)"></div>
      <div class="field"><label>Jumlah Pax <span class="req">*</span>${info&&info.sisa?` <span class="hint" style="font-weight:400">(sisa ${info.sisa} kursi)</span>`:""}</label><input id="wi_pax" type="number" min="1" value="${paxV}"></div>
@@ -5499,6 +5581,60 @@ function walkInSeat(tableId, sharingDefault, paxDefault){
    </div>`);
   setTimeout(()=>byId("wi_name")?.focus(),60);
 }
+/* AMBANG "SUDAH MEPET" — SATU tempat untuk denah DAN form walk-in.
+   Ditulis dua kali, denah bisa menandai sebuah meja merah sementara form
+   yang terbuka dari meja itu berkata "masih bisa dipakai duduk sementara" —
+   dua kalimat yang bertentangan di satu layar, dan yang membacanya tidak
+   punya cara tahu mana yang berlaku. */
+const MEPET_MIN = 60;
+function mepetKah(menit){ return menit <= MEPET_MIN; }
+
+/* Reservasi TERDEKAT di sebuah meja yang orangnya BELUM datang — dipakai
+   form walk-in, denah, dan catatan otomatisnya. Satu tempat, supaya jam yang
+   disebut di ketiganya tidak pernah bisa berbeda.
+
+   Yang sedang duduk sengaja tidak ikut: meja yang tamunya masih duduk tidak
+   pernah sampai ke jalur walk-in (lihat conflictCheck mode walkin). */
+function bookingBerikut(tableId){
+  const ids=String(tableId||"").split(",").map(s=>s.trim()).filter(Boolean);
+  if(!ids.length) return null;
+  const now=absNow();
+  const cal=STATE.reservations.filter(r=>{
+    if(!r.date || !r.time) return false;
+    if(["Cancelled","No-show","Completed"].includes(r.status)) return false;
+    if(r.leftAt || isSeated(r)) return false;
+    if(!tablesOf(r).some(t=>ids.includes(t))) return false;
+    /* Yang jamnya SUDAH LEWAT tetap ikut: booking jam 19:00 yang tamunya
+       belum muncul jam 19:30 justru yang paling perlu disebut — bukan
+       dibuang karena jamnya terlewat. Batasnya jendela kunciannya sendiri,
+       supaya booking kemarin tidak ikut terbawa. */
+    return lockEnd(r) >= now;
+  }).sort((a,b)=>absMin(a.date,a.time)-absMin(b.date,b.time));
+  if(!cal.length) return null;
+  const r=cal[0];
+  return { res:r, menit:menitMenuju(r), lain:cal.length-1 };
+}
+/* Pita peringatan di form walk-in. WARNANYA IKUT SEBERAPA DEKAT — pita yang
+   sama untuk "5 jam lagi" dan "10 menit lagi" membuat yang membacanya
+   berhenti membedakan keduanya, dan justru yang mepet itulah yang menentukan
+   apakah tamu ini boleh didudukkan. */
+function catatanWalkIn(tableId){
+  const nx=bookingBerikut(tableId);
+  if(!nx) return "Walk-in";
+  return `Walk-in sementara — meja dipesan ${nx.res.name} jam ${seatTimeLabel(nx.res)}`;
+}
+function pitaMejaDipesan(nx){
+  const r=nx.res, m=nx.menit;
+  const mepet = mepetKah(m);
+  const jam = seatTimeLabel(r);
+  const sisa = m>0 ? `${fmtDur(m)} lagi` : `jamnya sudah lewat ${fmtDur(-m)}`;
+  return `<div class="${mepet?'inline-danger':'inline-warn'}" style="margin:0 0 12px">
+    ${mepet?'⏰':'🔒'} Meja ini <b>sudah dipesan</b> ${esc(r.name)} jam <b>${esc(jam)}</b> (${esc(sisa)}, ${r.pax} pax)${nx.lain?` <span class="hint">+${nx.lain} reservasi lain</span>`:""}.<br>
+    ${mepet
+      ? `<b>Jamnya sudah dekat.</b> Kalau tamu ini didudukkan di sini, pastikan ia selesai sebelum jam ${esc(jam)} — atau siapkan meja lain untuk dialihkan.`
+      : `Masih bisa dipakai duduk sementara. Pastikan mejanya kosong lagi sebelum jam ${esc(jam)}.`}
+  </div>`;
+}
 async function saveWalkIn(tableId){
   const name=(byId("wi_name").value||"").trim() || WALKIN_NAME;   // tanpa nama → "Walkin"
   const pax=Number(byId("wi_pax").value||0);
@@ -5506,12 +5642,18 @@ async function saveWalkIn(tableId){
   const sharing=!!byId("wi_sharing")?.checked;
   const now=Date.now(), nowTime=new Date().toTimeString().slice(0,5);
   // Meja bisa saja baru saja diisi kru lain dari perangkat berbeda.
-  const cek=await mejaMasihKosong(HARIH_DATE, tableId, normTime(nowTime), null, sharing);
+  const cek=await mejaMasihKosong(HARIH_DATE, tableId, normTime(nowTime), null, sharing, {walkin:true});
   if(!cek.ok){ hideBusy(); tolakMeja(cek.bentrok, `Meja ${tableId} sudah terisi.`); closeModal(); renderHariH(); return; }
   const rec={ id:uid(), name, phone:normPhone(byId("wi_phone").value||""), date:HARIH_DATE, time:nowTime, pax,
     table:tableId, sharing, category:"Tamu Umum", foodReq:"", drinkReq:"", dpStatus:"Belum", dpMethod:"", dpAmount:0,
     dpProofData:"", dpProofName:"", docReqData:"", docReqName:"", source:"Walk-in", picType:"Host/Captain", picName:SESSION.name,
-    member:false, memberNo:"", notes:"Walk-in", vip:false, status:"Datang", actualPax:pax, checkinAt:now,
+    /* CATATANNYA MENYEBUT RESERVASI YANG MENUNGGU MEJA ITU. Sesudah modal
+       ditutup, pita peringatan di form tidak ada lagi di mana pun — dan yang
+       membuka baris ini besok pagi tidak punya satu pun cara tahu bahwa tamu
+       ini didudukkan di meja yang sudah dipesan orang. Jam bookingnya diambil
+       dari bookingBerikut() yang SAMA dengan yang dipakai pitanya, supaya
+       keduanya tidak pernah menyebut jam yang berbeda. */
+    member:false, memberNo:"", notes:catatanWalkIn(tableId), vip:false, status:"Datang", actualPax:pax, checkinAt:now,
     arrivals:[{ ts:now, pax, by:SESSION.name }],   // walk-in: rombongan langsung masuk penuh
     createdBy:SESSION.name, createdAt:now, updatedAt:now, followups:[] };
   STATE.reservations.push(rec);
