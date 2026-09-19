@@ -2365,6 +2365,29 @@ function bri_pastikan() {
        KEY `idx_bri_tgl` (`tgl`),
        KEY `idx_bri_dp` (`dp_id`)
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+  bri_pastikan_kolom($pdo);
+}
+
+/* KOLOM BARU TIDAK BISA LEWAT `CREATE TABLE IF NOT EXISTS` — ia tidak pernah
+   menyentuh tabel yang sudah ada, jadi kolomnya cuma lahir di pemasangan
+   baru sementara server yang sudah hidup tertinggal tanpa satu pun galat.
+   Polanya disalin dari void_pastikan_kolom(); berkas migrasi sengaja TIDAK
+   dipakai karena di repo ini migrasi rutin tertinggal di produksi.
+
+   Bawaannya 'unggah' — itulah satu-satunya bentuk yang mungkin sebelum
+   19 September 2026 sore, saat baris manual lahir. Dianggap 'manual',
+   seluruh baris hasil unggah berhenti bisa dicocokkan dan berpindah ke
+   kelompok "di luar reservasi" tanpa satu pun galat. */
+function bri_pastikan_kolom($pdo) {
+  $cek = $pdo->prepare('SELECT COUNT(*) FROM information_schema.COLUMNS
+                         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = :t
+                           AND COLUMN_NAME = :c');
+  $kolom = array('sumber' => "VARCHAR(12) NOT NULL DEFAULT 'unggah'");
+  foreach ($kolom as $kol => $tipe) {
+    $cek->execute(array(':t' => 'bri_mutasi', ':c' => $kol));
+    if ((int)$cek->fetchColumn() > 0) continue;
+    $pdo->exec('ALTER TABLE `bri_mutasi` ADD COLUMN `' . $kol . '` ' . $tipe);
+  }
 }
 
 /* Tanggal WAJIB lewat checkdate(), bukan cuma cocok polanya: '2026-02-31'
@@ -2505,6 +2528,82 @@ function bri_unggah($d, $oleh, $olehId) {
   $baru = 0; foreach ($siap as $s) if (empty($adaSidik[$s['sidik']])) $baru++;
   return array('ok' => true, 'saved' => true, 'n' => count($siap),
                'baru' => $baru, 'lama' => count($siap) - $baru, 'lewat' => $lewat);
+}
+
+/* ---- DANA MASUK YANG DITAMBAHKAN TANGAN (19 September 2026, permintaan
+   user: "ada option juga agar bisa menambahkan dana masuk jika ada hal yg
+   diluar dari reservasi") ----
+
+   Daftar dana masuk di layar ini hampir seluruhnya lahir SENDIRI dari bukti
+   bayar DP di modul Reservasi — tidak ada yang perlu mengetiknya. Yang
+   tidak bisa lahir sendiri justru yang di luar reservasi: event corporate,
+   sewa videotron, setoran tamu. Di berkas Excel yang digantikan halaman ini
+   memang ada barisnya (September 2026: 5 dari 160 baris berketerangan,
+   Agustus 8 dari 253), jadi tanpa jalur ini angka totalnya berhenti sama
+   dengan mutasi banknya.
+
+   LANGSUNG BERTANDA `cara='bukan'`, dan itu bukan jalan pintas: yang
+   menambahkannya melakukannya JUSTRU karena uang itu bukan DP reservasi,
+   dan menuntutnya menekan tombol kedua untuk menyatakan hal yang sudah ia
+   nyatakan lewat formulirnya sendiri cuma menyisakan baris menggantung di
+   daftar "belum dicocokkan". Tetap bisa dilepas lewat bri_cocok() kalau
+   ternyata keliru.
+
+   KETERANGAN WAJIB. Baris dana masuk tanpa sebab tidak bisa diperiksa siapa
+   pun, dan ia jadi tempat paling mudah menyembunyikan uang yang sebenarnya
+   belum dicocokkan. Aturan yang sama dengan cara='bukan' di bri_cocok(). */
+function bri_tambah($d, $oleh, $olehId) {
+  bri_pastikan();
+  if (!is_array($d)) return array('ok' => false, 'error' => 'data bukan objek');
+
+  $tgl = bri_tgl_sah(isset($d['tgl']) ? $d['tgl'] : '');
+  $ket = trim((string)(isset($d['ket']) ? $d['ket'] : ''));
+  $nom = isset($d['nominal']) ? (float)$d['nominal'] : 0;
+
+  /* `kurang` dipulangkan sebagai daftar LABEL supaya layar bisa menandai
+     KOTAK yang belum diisi, bukan cuma menempelkan satu kalimat galat. Pita
+     yang menyebut aturan tanpa menunjuk kotaknya menyuruh orang mencari
+     sendiri di formulir. Pola yang sama dengan void_wajib(). */
+  $kurang = array();
+  if ($tgl === '')                        $kurang[] = 'Tanggal';
+  if (!is_finite($nom) || $nom <= 0)      $kurang[] = 'Nominal';
+  if ($ket === '')                        $kurang[] = 'Keterangan';
+  if (count($kurang))
+    return array('ok' => false, 'kurang' => $kurang,
+                 'error' => 'Belum lengkap: ' . implode(', ', $kurang));
+
+  $jam = bri_jam(isset($d['jam']) ? $d['jam'] : '');
+  $now = (int)(microtime(true) * 1000);
+
+  /* SIDIKNYA DIBEDAKAN dari baris unggah lewat awalan 'm|'. Tanpa itu,
+     dana masuk manual yang kebetulan setanggal, sejam, dan senominal dengan
+     satu baris di berkas Excel akan MENIMPA baris itu lewat kunci unik —
+     dan mutasi banknya hilang tanpa satu pun galat. Dua-duanya sah berdiri
+     sendiri: yang satu apa yang tercatat di bank, yang satu apa yang
+     diketik orang. */
+  $k = 0;
+  $q = db()->prepare('SELECT `id` FROM `bri_mutasi` WHERE `sidik`=?');
+  do {
+    $sidik = 'm|' . bri_sidik($tgl, $jam, $nom, $k);
+    $q->execute(array($sidik));
+    $bentrok = ($q->fetchColumn() !== false);
+    $k++;
+  } while ($bentrok && $k < 200);
+  if ($bentrok) return array('ok' => false, 'error' => 'Terlalu banyak baris manual yang sama persis pada jam itu.');
+
+  $id = 'b' . dechex($now) . 'm' . substr(bin2hex(random_bytes(4)), 0, 8);
+  db()->prepare(
+    "INSERT INTO `bri_mutasi` (`id`,`sidik`,`tgl`,`jam`,`nominal`,`ket`,`sumber`,
+                               `cara`,`catatan`,`cocok_oleh`,`cocok_at`,
+                               `oleh`,`oleh_id`,`dibuat`,`diubah`,`diubah_oleh`)
+     VALUES (:id,:sd,:t,:j,:n,:k,'manual','bukan',:ct,:o1,:a,:o2,:oi,:c1,:c2,:o3)")
+    ->execute(array(':id' => $id, ':sd' => $sidik, ':t' => $tgl, ':j' => $jam,
+                    ':n' => (int)round($nom), ':k' => mb_substr($ket, 0, 255),
+                    ':ct' => mb_substr($ket, 0, 255),
+                    ':o1' => mb_substr((string)$oleh, 0, 120), ':a' => $now,
+                    ':o2' => mb_substr((string)$oleh, 0, 120), ':oi' => mb_substr((string)$olehId, 0, 60),
+                    ':c1' => $now, ':c2' => $now, ':o3' => mb_substr((string)$oleh, 0, 120)));
+  return array('ok' => true, 'saved' => true, 'id' => $id);
 }
 
 /* ---- PENCOCOKAN ----
@@ -2685,6 +2784,7 @@ function bri_list($dari, $sampai) {
       'resNama' => (string)$r['res_nama'],
       'resTgl' => $r['res_tgl'] === null ? '' : (string)$r['res_tgl'],
       'cara' => (string)$r['cara'], 'catatan' => (string)$r['catatan'],
+      'sumber' => (string)(isset($r['sumber']) ? $r['sumber'] : 'unggah'),
       'cocokOleh' => (string)$r['cocok_oleh'], 'cocokAt' => (float)$r['cocok_at'],
       'oleh' => (string)$r['oleh'], 'olehId' => (string)$r['oleh_id'],
       'dibuat' => (float)$r['dibuat'], 'diubah' => (float)$r['diubah'],

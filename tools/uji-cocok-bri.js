@@ -270,6 +270,280 @@ aman('nominal beda tidak pernah cocok', () => {
   T('beda Rp1 pun tidak dicocokkan', !r.x);
 });
 
+/* ============ 5. HALAMANNYA DIJALANKAN (jsdom) ============
+   Lapis terakhir, dan yang paling penting sejak model barisnya berubah
+   19 September 2026 sore: seluruh perubahan hari itu ada di PENGGAMBAR, dan
+   asersi atas fungsi murni maupun atas sumber tidak menyentuhnya sama
+   sekali. Yang dijaga di sini APA YANG BENAR-BENAR TERGAMBAR. */
+function cariJsdom() {
+  const kandidat = [];
+  if (process.env.JSDOM_PATH) kandidat.push(process.env.JSDOM_PATH);
+  kandidat.push('jsdom', path.join(AKAR, 'node_modules/jsdom'));
+  const home = process.env.USERPROFILE || process.env.HOME || '';
+  if (home) kandidat.push(path.join(home, 'node_modules/jsdom'));
+  for (const k of kandidat) { try { return require(k); } catch (e) {} }
+  return null;
+}
+
+/* DP tiruan yang tiap barisnya menjawab satu pertanyaan, dan angkanya
+   dipilih supaya tiap kesalahan memberi hasil yang BERBEDA. */
+const DP_UJI = [
+  // urut waktu: yang ini KEDUA walau berdiri pertama di daftar
+  { id: 'p2', amount: 250000, method: 'QRIS',           tfDate: '2026-09-05', tfTime: '19:30:00', tfBank: 'DANA'    },
+  { id: 'p1', amount: 300000, method: 'QRIS',           tfDate: '2026-09-05', tfTime: '08:15:00', tfBank: 'Mandiri' },
+  // tanpa tanggal transfer -> harus di PALING BAWAH, bukan di atas
+  { id: 'p3', amount: 175000, method: 'QRIS',           tfDate: '',           tfTime: '',         tfBank: ''        },
+  // masuk rekening LAIN -> tidak boleh ikut di daftar dana masuk BRI
+  { id: 'p4', amount: 900000, method: 'Transfer UOB',   tfDate: '2026-09-06', tfTime: '10:00:00', tfBank: 'BRI'     },
+  // struknya berkop BRI tapi metodenya BCA -> uangnya masuk BCA
+  { id: 'p5', amount: 800000, method: 'Transfer BCA',   tfDate: '2026-09-07', tfTime: '11:00:00', tfBank: 'BRI'     }
+];
+const RSV_UJI = [
+  { id: 'r1', name: 'Arlanda', date: '2026-09-06', dps: [DP_UJI[0], DP_UJI[1]] },
+  { id: 'r2', name: 'Bagas',   date: '2026-09-09', dps: [DP_UJI[2]] },
+  { id: 'r3', name: 'Citra',   date: '2026-09-08', dps: [DP_UJI[3]] },
+  { id: 'r4', name: 'Dewi',    date: '2026-09-10', dps: [DP_UJI[4]] }
+];
+/* Baris mutasi bank yang SUDAH tersimpan: satu belum dicocokkan (waktunya
+   di antara kedua DP di atas, jadi urutannya bisa salah kalau digabung
+   sembarangan), satu manual. */
+const MUT_UJI = [
+  { id: 'b1', tgl: '2026-09-05', jam: '12:00', nominal: 425000, ket: '', settle: '', booking: '',
+    resId: '', dpId: '', resNama: '', resTgl: '', cara: '', catatan: '', sumber: 'unggah',
+    cocokOleh: '', cocokAt: 0, oleh: 'Rani', olehId: 'u1', dibuat: 1, diubah: 1, diubahOleh: '',
+    batalAt: 0, batalOleh: '', batalAlasan: '' },
+  { id: 'b2', tgl: '2026-09-04', jam: '09:00', nominal: 5000000, ket: 'Event corporate PT Ibra',
+    settle: '', booking: '', resId: '', dpId: '', resNama: '', resTgl: '', cara: 'bukan',
+    catatan: 'Event corporate PT Ibra', sumber: 'manual', cocokOleh: 'Rani', cocokAt: 2,
+    oleh: 'Rani', olehId: 'u1', dibuat: 2, diubah: 2, diubahOleh: '',
+    batalAt: 0, batalOleh: '', batalAlasan: '' },
+  /* SUDAH dicocokkan ke p1 (DP Arlanda Rp300.000). Tanpa baris seperti ini,
+     dua aturan tidak punya tempat untuk gagal: DP yang sudah diwakili baris
+     mutasi TIDAK boleh digambar dua kali, dan baris mutasi yang sudah cocok
+     WAJIB ikut dihitung sebagai "dari reservasi". Kedua mutasinya LOLOS di
+     putaran pertama karena fixture-nya belum punya satu pun baris cocok.
+
+     Angkanya dipilih supaya ekspektasi lain TIDAK bergeser: ia menggantikan
+     p1 yang tadinya berdiri sendiri, dengan tanggal, jam, dan nominal yang
+     sama persis. */
+  { id: 'b3', tgl: '2026-09-05', jam: '08:15', nominal: 300000, ket: 'Reservasi : Arlanda',
+    settle: '', booking: '', resId: 'r1', dpId: 'p1', resNama: 'Arlanda', resTgl: '2026-09-06',
+    cara: 'cocok', catatan: '', sumber: 'unggah', cocokOleh: 'Rani', cocokAt: 3,
+    oleh: 'Rani', olehId: 'u1', dibuat: 3, diubah: 3, diubahOleh: '',
+    batalAt: 0, batalOleh: '', batalAlasan: '' }
+];
+
+async function ujiHalaman() {
+  console.log('\n[5b] Halamannya dijalankan (jsdom)');
+  const jsdom = cariJsdom();
+  if (!jsdom) { L('halaman dijalankan di jsdom', 'jsdom tidak ketemu — setel JSDOM_PATH'); return; }
+  const { JSDOM } = jsdom;
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div id="app-view"></div></body></html>',
+                        { runScripts: 'outside-only' });
+  const W = dom.window;
+  new Function('window', fs.readFileSync(path.join(AKAR, 'deploy/assets/xlsx-baca.js'), 'utf8'))(W);
+
+  /* fetch / alert / confirm DIOPER SEBAGAI PARAMETER, bukan ditempel ke
+     window sesudahnya. Di peramban  telanjang di dalam aset memang
+     window.fetch, tapi di Node ia mengikat ke fetch GLOBAL milik Node —
+     jadi stub yang cuma ditempel ke W tidak pernah dipanggil, seluruh
+     pemuatnya gagal diam-diam, dan halamannya tergambar KOSONG. Asersi
+     apa pun di atasnya lalu menguji layar yang tidak pernah terisi. */
+  const POST = [];
+  const fetchUji = (url, opt) => {
+    const u = String(url);
+    if (opt && opt.method === 'POST') {
+      POST.push(JSON.parse(opt.body));
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { saved: true, n: 1, baru: 1, lama: 0, lewat: 0 } }) });
+    }
+    if (u.indexOf('briList') >= 0)
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { baris: MUT_UJI, total: MUT_UJI.length, maks: 2000 } }) });
+    if (u.indexOf('getAll') >= 0)
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { reservations: RSV_UJI } }) });
+    return Promise.resolve({ json: () => Promise.resolve({ ok: false, error: 'url tak dikenal: ' + u }) });
+  };
+  const alertUji = () => {}, confirmUji = () => true;
+  W.alert = alertUji; W.confirm = confirmUji;
+  new Function('window', 'document', 'fetch', 'alert', 'confirm',
+    fs.readFileSync(path.join(AKAR, 'deploy/assets/cocok-bri.js'), 'utf8'))(W, W.document, fetchUji, alertUji, confirmUji);
+
+  const el = W.document.getElementById('app-view');
+  let bolehUbah = true;
+  W.cbPasang({ apiUrl: '/api', rsvUrl: '/rsv', sesi: () => ({ name: 'Rani', token: 't' }),
+               bolehUbah: () => bolehUbah, gambarUlang: () => W.cbGambar(el, '2026-09') });
+  W.cbGambar(el, '2026-09');
+  /* DITUNGGU LEWAT STATE-NYA, BUKAN LEWAT TEKS DI LAYAR.
+     Penunggu yang mencari nama tamu di innerHTML LANGSUNG KELUAR pada render
+     pertama: formulir tempel di kartu atas memasang CONTOH isian yang
+     kebetulan memakai nama yang sama ("Reservasi : Arlanda"). Seluruh asersi
+     di bawahnya lalu menguji layar yang datanya belum mendarat, dan hasilnya
+     terbaca sebagai dua belas bug produk yang tidak ada satu pun.
+
+     Ini kali keempat bentuk itu menggigit di repo ini — penunggu yang cocok
+     dengan layar SEBELUMNYA. Yang ditunggu di sini kedua pemuatnya sampai
+     mendarat, dan itu tidak bisa dipalsukan teks apa pun. */
+  const S = W.__cbState;
+  for (let i = 0; i < 80 && (!S.rows.length || !S.dps); i++) await new Promise(r => setTimeout(r, 10));
+  T('daftar mutasi termuat', S.rows.length === MUT_UJI.length, 'rows=' + S.rows.length + ' err=' + S.err);
+  T('bukti bayar dari modul Reservasi termuat', !!S.dps && S.dps.length === DP_UJI.length,
+    'dps=' + (S.dps ? S.dps.length : 'null') + ' dpErr=' + S.dpErr);
+
+  const html = () => el.innerHTML;
+  /* Irisan per KARTU menurut <h3>-nya. Asersi yang menyapu seluruh halaman
+     cocok dengan kartu lain — bentuk yang sudah lima kali menggigit di repo
+     ini (kolom Kontribusi, kartu kelompok Kategori, Rekap Kanal, Void). */
+  function kartu(judul) {
+    const h = html();
+    const i = h.indexOf('<h3>' + judul);
+    if (i < 0) return '';
+    const j = h.indexOf('<h3>', i + 4);
+    return h.slice(i, j < 0 ? h.length : j);
+  }
+  const barisTabel = () => {
+    const k = kartu('Dana Masuk BRI');
+    const m = k.match(/<tbody>([\s\S]*?)<\/tbody>/);
+    return m ? m[1].split('<tr').slice(1).map(x => '<tr' + x) : [];
+  };
+
+  T('halaman tergambar', html().indexOf('Dana Masuk BRI') >= 0);
+
+  /* ===== POIN 1: BARIS LAHIR SENDIRI DARI BUKTI BAYAR =====
+     Tidak ada satu unggahan pun di uji ini, dan tidak ada yang mengetik
+     apa pun — ketiga DP BRI tetap wajib berdiri sebagai baris. */
+  const b = barisTabel();
+  T('baris DP muncul tanpa ada yang mengunggah/mengetik',
+    kartu('Dana Masuk BRI').indexOf('Arlanda') >= 0 && kartu('Dana Masuk BRI').indexOf('Bagas') >= 0);
+  T('barisnya ditandai terisi sendiri dari bukti bayar',
+    kartu('Dana Masuk BRI').indexOf('bukti bayar') >= 0);
+  /* 3 DP BRI + 2 baris mutasi = 5 transaksi. */
+  T('5 baris transaksi tergambar', b.length === 5, 'dapat ' + b.length);
+  /* SATU TRANSAKSI = SATU BARIS. DP p1 sudah diwakili baris mutasi b3, jadi
+     ia TIDAK boleh berdiri sendiri lagi — digambar dua kali, uang yang sama
+     terhitung dua kali dan total dana masuk jadi lebih besar daripada yang
+     benar-benar masuk rekening. */
+  T('DP yang sudah diwakili baris mutasi tidak digambar dua kali',
+    b.filter(x => x.indexOf('Arlanda') >= 0).length === 2,
+    'baris ber-Arlanda: ' + b.filter(x => x.indexOf('Arlanda') >= 0).length);
+  T('baris mutasi yang sudah cocok membawa nama tamunya',
+    (b.find(x => x.indexOf('Rp300.000') >= 0) || '').indexOf('Arlanda') >= 0);
+
+  /* ===== POIN 1: URUT WAKTU TRANSAKSI MASUK ===== */
+  const urutNama = b.map(x => {
+    if (x.indexOf('Arlanda') >= 0) return x.indexOf('Rp300.000') >= 0 ? 'Arlanda-300' : 'Arlanda-250';
+    if (x.indexOf('Bagas') >= 0) return 'Bagas';
+    if (x.indexOf('PT Ibra') >= 0) return 'manual';
+    return 'bank';
+  });
+  T('diurut menurut waktu transaksi masuk',
+    urutNama.join('|') === 'manual|Arlanda-300|bank|Arlanda-250|Bagas', urutNama.join('|'));
+  /* DP tanpa tanggal transfer WAJIB di paling bawah. Diurut sebagai string
+     kosong ia menumpuk di ATAS — persis di tempat orang mencari transaksi
+     paling awal. */
+  T('DP tanpa tanggal transfer ada di paling bawah', urutNama[urutNama.length - 1] === 'Bagas');
+  T('sebab tanggalnya kosong DIKATAKAN, bukan didiamkan',
+    html().indexOf('tidak punya tanggal transfer') >= 0);
+
+  /* ===== METODE yang menentukan, BUKAN bank di struk ===== */
+  T('DP Transfer UOB tidak ikut di daftar dana masuk BRI',
+    kartu('Dana Masuk BRI').indexOf('Citra') < 0);
+  /* Struknya berkop BRI tapi metodenya Transfer BCA — uangnya masuk BCA.
+     Aturan yang membaca gabungan bank+metode akan meloloskannya. */
+  T('DP berstruk BRI tapi metodenya Transfer BCA juga tidak ikut',
+    kartu('Dana Masuk BRI').indexOf('Dewi') < 0);
+  T('yang tidak masuk BRI tetap DISEBUT di kartunya sendiri',
+    kartu('DP Bulan Ini yang Tidak Masuk BRI').indexOf('Rp1.700.000') >= 0,
+    'kartu: ' + kartu('DP Bulan Ini yang Tidak Masuk BRI').slice(0, 120));
+
+  /* ===== BARIS DP READ-ONLY ===== */
+  const barisBagas = b.find(x => x.indexOf('Bagas') >= 0) || '';
+  T('baris dari bukti bayar TIDAK punya tombol aksi', barisBagas.indexOf('cbBuka(') < 0);
+  const barisBank = b.find(x => x.indexOf("cbBuka('b1')") >= 0) || '';
+  T('baris mutasi bank punya tombol Cocokkan', !!barisBank);
+
+  /* ===== KARTU RINGKAS BERDIRI DI ATAS DAFTAR YANG SAMA ===== */
+  const kr = html().slice(0, html().indexOf('<h3>'));
+  T('kartu Dari Reservasi menghitung 3 transaksi', /Dari Reservasi[\s\S]{0,300}?3 transaksi/.test(kr),
+    kr.slice(0, 200));
+  T('kartu Di Luar Reservasi menghitung baris manual', /Di Luar Reservasi[\s\S]{0,300}?1 transaksi/.test(kr));
+  /* 300.000 + 250.000 + 175.000 + 425.000 + 5.000.000 */
+  T('total dana masuk = Rp6.150.000', kr.indexOf('Rp6.150.000') >= 0, kr.slice(0, 260));
+
+  /* ===== POIN 2: TAMBAH DANA MASUK DI LUAR RESERVASI ===== */
+  T('tombol tambah dana masuk ada', html().indexOf('cbBukaTambah()') >= 0);
+  aman('formulir tambah terbuka', () => { W.cbBukaTambah(); });
+  T('formulir tergambar', html().indexOf('Dana masuk di luar reservasi') >= 0);
+  T('keterangan ditandai wajib di formulirnya', /Keterangan[\s\S]{0,200}?cb-wajib/.test(html()));
+
+  /* YANG DIHITUNG JUMLAH POST, bukan ada-tidaknya pita di layar. Itu
+     satu-satunya asersi yang bisa membedakan "ditahan" dari "diperingatkan
+     lalu tetap dikirim" — dan dari layar keduanya terlihat sama persis. */
+  /* DIISI LEWAT KOTAKNYA, bukan lewat state. cbSimpanTambah() sengaja
+     membaca ULANG dari DOM sebelum mengirim — penangan  tidak jalan
+     untuk isian yang diisi autofill atau pemilih tanggal peramban — jadi uji
+     yang cuma menyetel state menguji jalur yang tidak pernah dipakai orang,
+     dan nilai lama di DOM justru menimpanya balik. */
+  const isiForm = (nilai) => {
+    const w = W.document.getElementById('cb-wrap');
+    const kotak = w.querySelectorAll('.cb-pra .cb-in');
+    const urut = ['tgl', 'jam', 'nominal', 'ket'];
+    kotak.forEach((el, i) => {
+      if (!urut[i]) return;
+      el.value = nilai[urut[i]] === undefined ? '' : nilai[urut[i]];
+      W.cbKetikTambah(el, urut[i]);
+    });
+    return kotak.length;
+  };
+  T('formulirnya punya empat kotak isian', isiForm({ tgl: '2026-09-08', jam: '13:00', nominal: '750000', ket: '' }) === 4);
+
+  const n0 = POST.length;
+  await amanAsync('simpan tanpa keterangan tidak melempar', async () => { await W.cbSimpanTambah(); });
+  T('kiriman DITAHAN saat keterangan kosong', POST.length === n0, 'POST bertambah ' + (POST.length - n0));
+  T('kotak keterangannya ditandai merah', /cb-in err/.test(html()));
+  T('yang kurang disebut namanya', html().indexOf('Belum lengkap') >= 0);
+
+  isiForm({ tgl: '2026-09-08', jam: '13:00', nominal: '750000', ket: 'Sewa videotron' });
+  await amanAsync('simpan lengkap tidak melempar', async () => { await W.cbSimpanTambah(); });
+  /* AUTOFILL / PEMILIH TANGGAL PERAMBAN tidak memicu penangan  di
+     sebagian platform, jadi nilainya cuma ada di DOM dan tidak pernah sampai
+     ke state. cbSimpanTambah() karena itu WAJIB membaca ulang dari kotaknya
+     sebelum mengirim; kalau tidak, yang terkirim kosong padahal di layar
+     jelas terisi. Ditiru di sini dengan menyetel .value TANPA memanggil
+     penangan ketiknya. */
+  /* Formulirnya sudah tertutup sesudah simpan yang berhasil — dibuka lagi,
+     lalu keterangannya diisi LANGSUNG ke .value tanpa penangan ketiknya. */
+  W.cbBukaTambah();
+  isiForm({ tgl: '2026-09-09', jam: '', nominal: '120000', ket: '' });
+  {
+    const w = W.document.getElementById('cb-wrap');
+    const kotak = w.querySelectorAll('.cb-pra .cb-in');
+    T('formulir terbuka lagi untuk uji autofill', kotak.length === 4, 'kotak=' + kotak.length);
+    if (kotak.length === 4) kotak[3].value = 'Setoran tamu BRI';
+  }
+  await amanAsync('simpan sesudah autofill tidak melempar', async () => { await W.cbSimpanTambah(); });
+  const kirimTambah = POST.filter(p => p.action === 'briTambah');
+  T('kiriman BERANGKAT saat lengkap', kirimTambah.length >= 1, 'dapat ' + kirimTambah.length);
+  if (kirimTambah.length) {
+    const d = kirimTambah[0].data || {};
+    T('nominal dikirim sebagai angka, bukan teks berpemisah',
+      d.nominal === 750000, 'dapat ' + JSON.stringify(d.nominal));
+    T('keterangan ikut terkirim', d.ket === 'Sewa videotron');
+  }
+  const kirimAuto = POST.filter(p => p.action === 'briTambah');
+  T('isian autofill ikut terbaca dari kotaknya', kirimAuto.length === 2
+    && kirimAuto[1].data && kirimAuto[1].data.ket === 'Setoran tamu BRI',
+    'kiriman: ' + JSON.stringify(kirimAuto.map(x => x.data && x.data.ket)));
+  if (kirimTambah.length) {
+    T('token sesi ikut terkirim', kirimTambah[0].sesi === 't');
+  }
+
+  /* ===== HAK LIHAT ===== */
+  bolehUbah = false;
+  W.cbGambar(el, '2026-09');
+  T('yang cuma boleh Lihat tidak diberi tombol tambah', html().indexOf('cbBukaTambah()') < 0);
+  T('yang cuma boleh Lihat tetap melihat daftarnya', kartu('Dana Masuk BRI').indexOf('Arlanda') >= 0);
+  bolehUbah = true;
+}
+
 /* ============ 2. JALUR BERKAS SUNGGUHAN ============ */
 console.log('\n[6] Berkas Qris BRI asli (penguat)');
 const XLSX = path.join(AKAR, 'Qris BRI 2026.xlsx');
@@ -444,11 +718,60 @@ function ujiPhp() {
   T('jumlah baris dihitung SEBELUM LIMIT',
     bList.indexOf('SELECT COUNT(*)') < bList.indexOf('LIMIT'));
 
+  /* ---- DANA MASUK DI LUAR RESERVASI (19 Sep 2026 sore) ---- */
+  const bTambah = badan('bri_tambah');
+  T('bri_tambah ada', !!bTambah);
+  /* Baris dana masuk tanpa sebab tidak bisa diperiksa siapa pun, dan ia jadi
+     tempat paling mudah menyembunyikan uang yang sebenarnya belum
+     dicocokkan. Ditegakkan di SERVER, bukan cuma di layar. */
+  /* Diperiksa dengan indexOf, bukan regex: polanya penuh `$`, `[]`, dan `(`
+     yang tiap-tiapnya berarti sesuatu di regex, dan pola yang escape-nya
+     meleset diam-diam berhenti cocok — asersinya lalu merah untuk kode yang
+     benar, atau (lebih buruk) hijau untuk kode yang rusak. */
+  T('keterangan WAJIB di server, bukan cuma di layar',
+    bTambah.indexOf("$ket === '')") >= 0 && bTambah.indexOf("$kurang[] = 'Keterangan'") >= 0,
+    bTambah.slice(0, 40));
+  T('tanggal & nominal juga wajib',
+    bTambah.indexOf("$kurang[] = 'Tanggal'") >= 0 && bTambah.indexOf("$kurang[] = 'Nominal'") >= 0);
+  /* Langsung bertanda bukan: yang menambahkannya melakukannya JUSTRU karena
+     uang itu di luar reservasi. Tanpa ini barisnya menggantung di daftar
+     "belum dicocokkan" dan menuntut tombol kedua untuk menyatakan hal yang
+     sudah dinyatakan formulirnya sendiri. */
+  T('baris manual ditandai sumber=manual & cara=bukan',
+    /'manual','bukan'/.test(bTambah));
+  /* SIDIKNYA DIBEDAKAN. Tanpa awalan, dana masuk manual yang kebetulan
+     setanggal, sejam, dan senominal dengan satu baris di berkas Excel akan
+     MENIMPA baris itu lewat kunci unik — mutasi banknya hilang tanpa satu
+     pun galat. */
+  T('sidik baris manual dibedakan dari sidik unggahan',
+    bTambah.indexOf("'m|' . bri_sidik(") >= 0);
+  /* CREATE TABLE IF NOT EXISTS tidak pernah menyentuh tabel yang sudah ada,
+     jadi kolom baru cuma lahir di pemasangan baru sementara server yang
+     sudah hidup tertinggal tanpa satu pun galat. */
+  const BT = String.fromCharCode(96);   // backtick, supaya polanya tetap terbaca
+  T('kolom sumber lahir lewat ALTER TABLE, bukan cuma CREATE TABLE',
+    lib.indexOf('function bri_pastikan_kolom') >= 0
+    && lib.indexOf('ALTER TABLE ' + BT + 'bri_mutasi' + BT + ' ADD COLUMN') >= 0);
+  T('bri_pastikan memanggil pemastian kolomnya',
+    badan('bri_pastikan').indexOf('bri_pastikan_kolom($pdo);') >= 0);
+  /* Bawaannya unggah: itulah satu-satunya bentuk yang mungkin sebelum baris
+     manual lahir. Dianggap manual, seluruh baris hasil unggah berpindah ke
+     kelompok "di luar reservasi" tanpa satu pun galat. */
+  T('bawaan kolom sumber = unggah',
+    lib.indexOf("'sumber' => \"VARCHAR(12) NOT NULL DEFAULT 'unggah'\"") >= 0);
+  T('bri_list memulangkan sumber', bList.indexOf("'sumber' => (string)") >= 0);
+
   /* ROUTING. briList terbuka (aksi baca), tiga aksi tulis berpagar sesi. */
   T('briList ada di router', /\$action === 'briList'/.test(api));
   T('aksi tulis BRI berpagar sesi',
     /\$action === 'briUnggah' \|\| \$action === 'briCocok' \|\| \$action === 'briBatal'/.test(api)
     && /sesi_user\(\$body\)/.test(api));
+  /* briTambah WAJIB ikut di blok BERPAGAR itu, bukan berdiri sebagai cabang
+     sendiri: nama yang tercatat sebagai penambah dana masuk diambil server
+     dari sesi yang sudah diverifikasi, dan cabang terbuka membuat siapa pun
+     bisa menambah baris dana masuk atas nama siapa pun. */
+  T('briTambah ikut di blok berpagar sesi, bukan cabang terbuka sendiri',
+    api.indexOf("|| $action === 'briTambah') {") >= 0);
   const blokTulis = api.slice(api.indexOf("\$action === 'briUnggah'"));
   T('kuncinya cashier ATAU finance',
     /sesi_punya_modul\(\$u, 'cashier'\) && !sesi_punya_modul\(\$u, 'finance'\)/.test(blokTulis));
@@ -530,6 +853,7 @@ function ujiTuanRumah() {
 
 /* ============ JALAN ============ */
 (async () => {
+  await ujiHalaman();
   await ujiBerkasAsli();
   ujiPhp();
   ujiTuanRumah();

@@ -332,7 +332,8 @@ try {
      Kuncinya `cashier` ATAU `finance`: yang memegang mutasi banknya finance,
      yang tahu nama tamunya kasir. Dipatok satu, salah satunya terkunci dari
      halaman yang memang tugasnya. */
-  else if ($action === 'briUnggah' || $action === 'briCocok' || $action === 'briBatal') {
+  else if ($action === 'briUnggah' || $action === 'briCocok' || $action === 'briBatal'
+           || $action === 'briTambah') {
     require_once __DIR__ . '/lib_sesi.php';
     $u = sesi_user($body);
     if (!$u) sesi_tolak_tak_dikenal();
@@ -342,6 +343,7 @@ try {
     $uid  = isset($u['id'])   ? $u['id']   : '';
     $dt   = isset($body['data']) ? $body['data'] : null;
     if      ($action === 'briUnggah') $r = bri_unggah($dt, $nama, $uid);
+    else if ($action === 'briTambah') $r = bri_tambah($dt, $nama, $uid);
     else if ($action === 'briCocok')  $r = bri_cocok($dt, $nama);
     else                              $r = bri_batal(isset($body['id']) ? $body['id'] : '',
                                                      isset($body['alasan']) ? $body['alasan'] : '', $nama);

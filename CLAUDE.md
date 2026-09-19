@@ -6523,7 +6523,7 @@ halaman ini kosong di satu server sementara benar di server sebelahnya.
   lalu melempar di modul sebelahnya.
 
 ```bash
-node tools/uji-cocok-bri.js   # 132 pemeriksaan, TANPA jsdom + berkas POS asli + php-parser
+node tools/uji-cocok-bri.js   # 176 pemeriksaan, jsdom + berkas POS asli + php-parser
 ```
 
 Ujinya tiga lapis: **mesin dijalankan berdiri sendiri** (kalau ia butuh satu
@@ -6566,6 +6566,176 @@ nama di berkas ini:
 > mengubah satu penanda pasti berselisih suatu hari. Kalau suatu hari
 > diminta, yang perlu ditambah tombol di `panelCocok()` yang memanggil
 > `saveAll` modul Reservasi; jangan menyalin aturan verifikasinya ke sini.
+
+
+#### Barisnya LAHIR dari bukti bayar, dan bisa ditambah tangan (19 Sep 2026, sore)
+
+Dua permintaan user beberapa jam sesudah halamannya naik, dan yang pertama
+**membalik sumber barisnya**:
+
+> *"rownya tidak akan selalu diisi oleh user, karena nanti ambil data dari
+> bukti bayar dari reservasi, tapi rownya dibuat per urutan transaksi itu
+> masuk"* · *"ada option juga agar bisa menambahkan dana masuk jika ada hal
+> yang di luar dari reservasi"*
+
+Sampai siang itu baris di layar ini **hanya** lahir dari unggahan berkas
+Excel, dan kolom keterangannya diisi tangan — persis seperti berkas yang
+digantikannya. Sekarang daftarnya **Dana Masuk BRI**: satu baris per
+transaksi, urut waktu masuk, dari **tiga** sumber.
+
+| sumber | dari | siapa yang mengisi |
+|---|---|---|
+| `rsv` | DP reservasi yang belum diwakili baris mutasi | **tidak seorang pun** |
+| `bank` | unggahan mutasi bank | berkas |
+| `manual` | dana masuk di luar reservasi | diketik |
+
+#### DP DIBACA, BUKAN DISALIN JADI BARIS `bri_mutasi`
+
+Menyalinnya terlihat lebih sederhana dan salah dengan cara yang sudah dikenal
+repo ini: DP yang dibatalkan atau nominalnya dibetulkan di modul Reservasi
+akan meninggalkan **baris hantu** di sini, dan dua tempat yang memegang angka
+yang sama pasti menyimpang. Aturan yang sama dengan Piutang di panel Brankas
+(*"dibaca dari Cashier, tidak diketik di sini"*) dan Setoran cash di Riwayat
+Mutasi (*"dibaca, bukan disalin"*).
+
+**AKIBATNYA baris `rsv` READ-ONLY di sini** — ia tidak punya id di
+`bri_mutasi`, jadi tidak bisa dibatalkan maupun ditandai apa pun, dan
+**tombolnya sengaja tidak digambar**. Tombol yang tergambar lalu menolak
+bekerja terbaca sebagai halaman rusak.
+
+#### URUTAN WAKTU: dua sumber, dua tingkat keandalan
+
+Mutasi bank punya tanggal DAN jam untuk **seluruh** barisnya. DP bergantung
+pada OCR bukti transfer, dan diukur atas produksi 19 September 2026:
+
+```
+DP September dengan tfDate   :  62  (58 punya jam)
+DP September TANPA tfDate    : 103   <- OCR struknya gagal baca tanggal
+```
+
+Jadi **dua pertiga DP tidak punya waktu transaksi sama sekali**. Yang seperti
+itu ditaruh **di akhir daftar** dan sebabnya DIKATAKAN.
+
+- **JANGAN dijatuhkan ke tanggal reservasinya** supaya "ada tanggalnya": ia
+  lalu berdiri di tengah daftar seolah itu waktu uangnya masuk, dan itu
+  tanggal yang bisa berbeda berminggu-minggu dari transfernya.
+- **Diurut sebagai string kosong, ia menumpuk di ATAS** — persis di tempat
+  orang mencari transaksi paling awal. Dijaga mutasi tersendiri.
+- Tanggalnya ikut terisi sendiri begitu baris mutasi banknya diunggah dan
+  dicocokkan: sejak itu barisnya diwakili baris `bank` yang waktunya lengkap.
+
+#### YANG MENENTUKAN MASUK-BRI ITU METODE, BUKAN BANK DI STRUK
+
+`tfBank` hasil OCR adalah bank **PENGIRIM**. Diukur atas produksi:
+
+```
+154 QRIS || QRIS     53 QRIS || BRI      52 QRIS || Mandiri
+ 23 QRIS || DANA     22 QRIS || BCA      16 QRIS || SeaBank
+```
+
+Seluruhnya masuk merchant QRIS milik BRI. Sebaliknya **"Transfer BCA" yang
+struknya berkop BRI** (3 baris) justru tidak masuk BRI — uangnya keluar dari
+BRI ke BCA.
+
+Aturan yang membaca gabungan `bank + metode` — yang dipakai versi pertama
+halaman ini — salah di KEDUA arah, dan salahnya tidak menimbulkan galat: ia
+cuma menambahkan atau menghilangkan baris dari daftar dana masuk, dan
+totalnya tetap terlihat wajar. `dpKeBri()` karena itu membaca **metodenya**,
+dan jatuh ke bank di struk hanya kalau metodenya kosong.
+
+**DP yang TIDAK masuk BRI tetap disebut** di kartunya sendiri
+(`kartuLuarBri`). Dibuang diam-diam, yang membandingkan layar ini dengan
+daftar DP di modul Reservasi akan melaporkannya sebagai dana yang hilang.
+
+#### DANA MASUK DI LUAR RESERVASI
+
+Tombol **+ Tambah dana masuk** → `briTambah`. Di berkas Excel yang
+digantikan halaman ini barisnya memang ada (September 2026: 5 dari 160 baris
+berketerangan, Agustus 8 dari 253), jadi tanpa jalur ini totalnya berhenti
+sama dengan mutasi banknya.
+
+- **LANGSUNG bertanda `cara='bukan'`**, dan itu bukan jalan pintas: yang
+  menambahkannya melakukannya JUSTRU karena uang itu bukan DP reservasi.
+  Menuntutnya menekan tombol kedua untuk menyatakan hal yang sudah ia
+  nyatakan lewat formulirnya sendiri cuma menyisakan baris menggantung di
+  daftar "belum dicocokkan".
+- **KETERANGAN WAJIB, dan ditegakkan DI SERVER** — bukan cuma di layar.
+  Baris dana masuk tanpa sebab tidak bisa diperiksa siapa pun, dan ia jadi
+  tempat paling mudah menyembunyikan uang yang sebenarnya belum dicocokkan.
+- **SIDIKNYA berawalan `m|`.** Tanpa itu, dana masuk manual yang kebetulan
+  setanggal, sejam, dan senominal dengan satu baris di berkas Excel akan
+  MENIMPA baris itu lewat kunci unik — dan mutasi banknya hilang tanpa satu
+  pun galat. Dua-duanya sah berdiri sendiri: yang satu apa yang tercatat di
+  bank, yang satu apa yang diketik orang.
+- **`cbSimpanTambah()` MEMBACA ULANG dari DOM sebelum mengirim.** Penangan
+  `input` tidak jalan untuk isian yang diisi autofill atau pemilih tanggal
+  peramban di sebagian platform, dan yang terkirim lalu kosong padahal di
+  layar jelas terisi. Dijaga asersi tersendiri yang menyetel `.value` TANPA
+  memanggil penangan ketiknya.
+- **Kolom `sumber` lahir lewat `bri_pastikan_kolom()`**, bukan berkas
+  migrasi. Bawaannya `'unggah'` — itulah satu-satunya bentuk yang mungkin
+  sebelum sore itu; dianggap `'manual'`, seluruh baris hasil unggah berhenti
+  bisa dicocokkan dan berpindah ke kelompok "di luar reservasi".
+
+#### Yang gampang lepas di penggambarnya
+
+- **Kartu ringkas dan tabelnya WAJIB berdiri di atas daftar yang SAMA**
+  (`barisGabungan()` dihitung sekali lalu dioper). Dihitung dua kali, keduanya
+  bisa memakai daftar DP yang berbeda kalau balasan modul Reservasi datang di
+  antaranya — dan kartu di atas tabel menyebut jumlah yang tidak cocok dengan
+  baris di bawahnya.
+- **"Dari reservasi" mencakup DUA bentuk**: baris DP yang berdiri sendiri DAN
+  baris mutasi bank yang sudah dicocokkan. Dijepit ke yang pertama, seluruh
+  baris yang sudah selesai dicocokkan berpindah kelompok begitu berkas
+  mutasinya diunggah — angkanya berubah tanpa ada yang mengubah apa pun.
+- **DP yang sudah diwakili baris mutasi TIDAK digambar lagi**; digambar dua
+  kali, uang yang sama terhitung dua kali.
+- **Modul Reservasi yang tidak menjawab DIKATAKAN di atas tabelnya**, bukan
+  cuma di kartu terpisah: daftar dana masuk yang menyusut tanpa sebab
+  dilaporkan sebagai uang yang hilang.
+- **Kolom `Dari` dan `Sumber baris` DIBEDAKAN** — yang satu asal UANGNYA,
+  yang satu asal BARISNYA. Disatukan, tidak ada cara membedakan dana masuk
+  yang tercatat sendiri dari yang diketik orang, dan justru itu yang dicari
+  waktu angkanya dipertanyakan.
+
+```bash
+node tools/uji-cocok-bri.js   # 176 pemeriksaan (dari 132)
+```
+
+Ujinya dapat lapis keempat: **halamannya DIJALANKAN di jsdom**. Seluruh
+perubahan sore itu ada di penggambar, dan asersi atas fungsi murni maupun
+atas sumber tidak menyentuhnya sama sekali.
+
+**Lima puluh tujuh mutasi dicoba, kelima puluh tujuhnya tertangkap** — tapi
+DELAPAN baru sesudah ujinya dibetulkan:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| DP yang sudah diwakili digambar dua kali | **cacat fixture** — tidak ada satu pun baris mutasi bercara `cocok`, jadi keadaannya tidak pernah terjadi | baris `b3` yang sudah cocok ke DP `p1`, dengan tanggal, jam, dan nominal yang sama persis supaya ekspektasi lain tidak bergeser |
+| "Dari reservasi" dijepit ke baris DP saja | sebab yang sama | idem |
+| formulir tidak membaca ulang DOM | ujinya mengisi lewat penangan ketik, jadi state-nya ikut terisi dan pembacaan ulang tidak menentukan apa pun | satu putaran yang menyetel `.value` TANPA memanggil penangan ketiknya |
+| lima aturan PHP jalur manual | tidak ada satu asersi kontrak pun untuknya | asersi atas `bri_tambah`, sidik `m|`, kolom `sumber`, `bri_list`, dan routing-nya |
+
+> **PENUNGGU DI UJI COCOK DENGAN LAYAR SEBELUMNYA — kali keempat di repo
+> ini.** Penunggu yang mencari nama tamu di `innerHTML` LANGSUNG KELUAR pada
+> render pertama: formulir tempel di kartu atas memasang **contoh isian** yang
+> kebetulan memakai nama yang sama (`Reservasi : Arlanda`). Dua belas asersi
+> lalu menguji layar yang datanya belum mendarat, dan hasilnya terbaca sebagai
+> dua belas bug produk yang tidak ada satu pun. Yang ditunggu sekarang
+> **state-nya** (`rows.length && dps`), dan itu tidak bisa dipalsukan teks apa
+> pun.
+
+> **`fetch` TELANJANG DI DALAM ASET MENGIKAT KE `fetch` GLOBAL NODE**, bukan
+> ke `W.fetch` yang ditempel ke window jsdom. Stub yang cuma ditempel tidak
+> pernah dipanggil, seluruh pemuatnya gagal diam-diam, dan halamannya
+> tergambar kosong. Aset karena itu dimuat dengan `fetch`/`alert`/`confirm`
+> sebagai **parameter** `new Function`. Uji jsdom berikutnya untuk aset mana
+> pun di repo ini akan menabrak hal yang sama.
+
+> **Asersi atas sumber PHP diperiksa dengan `indexOf`, bukan regex.** Polanya
+> penuh `$`, `[]`, dan `(` yang tiap-tiapnya berarti sesuatu di regex, dan
+> pola yang escape-nya meleset diam-diam berhenti cocok — asersinya lalu merah
+> untuk kode yang benar, atau lebih buruk: hijau untuk kode yang rusak.
 
 
 ### Reservasi: kwitansi ditahan sampai dananya diverifikasi (16 Sep 2026)

@@ -297,7 +297,8 @@
     muat: '',          // bulan yang permintaannya sudah berangkat
     rows: [], total: 0, maks: 0, err: '',
     dps: null, dpErr: '', dpMuat: false,   // DP dari modul Reservasi
-    cari: '', tapis: 'belum',
+    cari: '', tapis: 'semua',
+    tambah: null, salah: [],   // formulir dana masuk di luar reservasi
     buka: '',          // id baris yang panel cocoknya terbuka
     cariDp: '',        // pencarian di dalam panel itu
     tempel: '', lembar: null, lembarPilih: 0, pratinjau: null, bacaErr: '',
@@ -400,6 +401,32 @@
     for (const r of CB.rows) if (sudah(r) && r.dpId) p[r.dpId] = r;
     return p;
   }
+  /* APAKAH DP INI MASUK REKENING BRI — dan YANG MENENTUKAN METODENYA, BUKAN
+     `tfBank`.
+     -------------------------------------------------------------------
+     `tfBank` hasil baca struk, dan yang tertulis di struk adalah bank
+     PENGIRIM. QRIS yang dibayar dari Mandiri, DANA, BCA, SeaBank, BNI, atau
+     BSI semuanya masuk ke merchant QRIS milik BRI. Diukur atas produksi
+     19 September 2026:
+
+       154 QRIS || QRIS     53 QRIS || BRI      52 QRIS || Mandiri
+        23 QRIS || DANA     22 QRIS || BCA      16 QRIS || SeaBank
+
+     Seluruhnya masuk BRI. Sebaliknya "Transfer BCA" yang struknya berkop
+     BRI (3 baris) justru TIDAK masuk BRI — uangnya keluar dari BRI ke BCA.
+
+     Aturan yang membaca gabungan bank+metode salah di kedua arah, dan
+     salahnya tidak menimbulkan galat: ia cuma menambahkan atau menghilangkan
+     baris dari daftar dana masuk, dan totalnya tetap terlihat wajar. */
+  function dpKeBri(d) {
+    const m = String(d.metode || '').toUpperCase();
+    if (m) return /QRIS/.test(m) || /\bBRI\b/.test(m);
+    /* Metode kosong: terpaksa jatuh ke bank di struk, dan itu TEBAKAN —
+       jumlahnya disebut di layar. */
+    const b = String(d.bank || '').toUpperCase();
+    return /QRIS/.test(b) || /\bBRI\b/.test(b);
+  }
+
   function dpsBulan() {
     if (!CB.dps) return [];
     const pakai = dpTerpakai();
@@ -414,6 +441,79 @@
       .map(d => Object.assign({}, d, { dipakai: !!pakai[d.dpId] }));
   }
 
+  /* ============ SATU DAFTAR DANA MASUK, URUT WAKTU TRANSAKSI ============
+     (19 September 2026, permintaan user: "rownya tidak akan selalu diisi
+     oleh user, karena nanti ambil data dari bukti bayar dari reservasi, tapi
+     rownya dibuat per urutan transaksi itu masuk")
+
+     Barisnya lahir dari TIGA sumber, dan tiap transaksi berdiri SEKALI:
+
+       rsv     DP reservasi yang BELUM diwakili baris mutasi mana pun.
+               DIBACA dari modul Reservasi, tidak disalin ke sini — inilah
+               baris yang tidak perlu diketik siapa pun.
+       bank    baris hasil unggah mutasi bank. Yang SUDAH dicocokkan ke DP
+               membawa nama tamunya, jadi ia sekaligus mewakili DP itu.
+       manual  dana masuk di luar reservasi, ditambahkan tangan.
+
+     KENAPA DP DIBACA, BUKAN DISALIN JADI BARIS `bri_mutasi`. DP yang
+     dibatalkan atau nominalnya dibetulkan di modul Reservasi akan
+     meninggalkan baris hantu di sini, dan dua tempat yang memegang angka
+     yang sama pasti menyimpang. Aturan yang sama dengan Piutang di panel
+     Brankas ("dibaca dari Cashier, tidak diketik di sini") dan Setoran cash
+     di Riwayat Mutasi ("dibaca, bukan disalin").
+
+     AKIBATNYA baris `rsv` READ-ONLY di sini: ia tidak punya id di
+     `bri_mutasi`, jadi tidak bisa dibatalkan maupun ditandai apa pun. Itu
+     memang benar — yang memegangnya modul Reservasi.
+
+     URUTANNYA WAKTU TRANSAKSI, dan sumber waktunya BERBEDA KEANDALANNYA:
+     mutasi bank punya tanggal DAN jam untuk seluruh barisnya, sementara DP
+     bergantung pada OCR bukti transfer — 103 dari 165 DP September 2026
+     tfDate-nya KOSONG. DP seperti itu tidak bisa diurutkan bersama yang
+     lain, jadi ia ditaruh di akhir dan SEBABNYA DIKATAKAN; dijatuhkan ke
+     tanggal reservasinya, ia berdiri di tengah daftar seolah itu waktu
+     uangnya masuk — dan itu tanggal yang bisa berbeda berminggu-minggu. */
+  function barisGabungan() {
+    const out = [];
+    for (const r of CB.rows) {
+      out.push({ jenis: r.sumber === 'manual' ? 'manual' : 'bank', id: r.id,
+                 tgl: r.tgl, jam: r.jam, nominal: CB_NUM(r.nominal),
+                 ket: r.ket, mut: r, dp: null });
+    }
+    if (CB.dps) {
+      const pakai = dpTerpakai();
+      const rg = rentang(CB.ym);
+      for (const d of CB.dps) {
+        if (pakai[d.dpId]) continue;      // sudah diwakili baris mutasinya
+        if (!dpKeBri(d)) continue;        // uangnya masuk rekening lain
+        /* Bulannya dari tanggal transfer kalau ada; kalau tidak, dari
+           tanggal reservasinya — kalau tidak, DP yang OCR-nya gagal tidak
+           akan pernah muncul di bulan mana pun. */
+        const t = d.tfTgl || d.resTgl;
+        if (!(t >= rg.dari && t <= rg.sampai)) continue;
+        out.push({ jenis: 'rsv', id: 'rsv:' + d.dpId, tgl: d.tfTgl, jam: String(d.tfJam || '').slice(0, 5),
+                   nominal: d.nominal, ket: d.nama, mut: null, dp: d });
+      }
+    }
+    /* Yang tanpa tanggal transfer SELALU di bawah, ke arah mana pun. Diurut
+       sebagai string kosong ia menumpuk di atas — persis di tempat orang
+       mencari transaksi paling awal. */
+    return out.sort((a, b) => {
+      if (!a.tgl !== !b.tgl) return a.tgl ? -1 : 1;
+      return (a.tgl + ' ' + a.jam).localeCompare(b.tgl + ' ' + b.jam)
+          || String(a.ket).localeCompare(String(b.ket));
+    });
+  }
+  const gHidup = x => x.jenis === 'rsv' || hidup(x.mut);
+  /* "Dari reservasi" mencakup DUA bentuk: baris DP yang berdiri sendiri, DAN
+     baris mutasi bank yang sudah dicocokkan ke sebuah DP. Dijepit ke yang
+     pertama, seluruh baris yang sudah selesai dicocokkan berpindah ke
+     kelompok lain begitu berkas mutasinya diunggah — dan angkanya berubah
+     tanpa ada yang mengubah apa pun. */
+  const gDariRsv  = x => x.jenis === 'rsv' || (x.mut && x.mut.cara === 'cocok');
+  const gLuarRsv  = x => x.mut && x.mut.cara === 'bukan';
+  const gBelum    = x => x.jenis !== 'rsv' && x.mut && x.mut.cara !== 'cocok' && x.mut.cara !== 'bukan';
+
   /* ============ GAMBAR ============ */
   function stat(lab, val, sub, kelas) {
     return '<div class="cb-stat' + (kelas ? ' ' + kelas : '') + '">'
@@ -423,35 +523,83 @@
   }
   function pita(jenis, isi) { return '<div class="cb-notice ' + jenis + '">' + isi + '</div>'; }
 
-  function kartuRingkas() {
-    const h = CB.rows.filter(hidup), s = h.filter(sudah), b = h.filter(belum), k = h.filter(bukan);
-    const batal = CB.rows.filter(r => !hidup(r));
+  function kartuRingkas(G0) {
+    const h = G0.filter(gHidup);
+    const rsv = h.filter(gDariRsv), luar = h.filter(gLuarRsv), blm = h.filter(gBelum);
+    const batal = G0.filter(x => !gHidup(x));
+    const tanpaTgl = h.filter(x => !x.tgl).length;
     return '<div class="cb-grid4">'
-      + stat('Dana Masuk BRI', CB_RP(jml(h)), h.length + ' baris mutasi'
+      + stat('Dana Masuk BRI', CB_RP(jml(h)), h.length + ' transaksi'
           + (batal.length ? ' &middot; ' + batal.length + ' dibatalkan, tidak dihitung' : ''))
-      + stat('Sudah Dicocokkan', CB_RP(jml(s)), s.length + ' baris &rarr; DP reservasi', 'ok')
-      + stat('Belum Dicocokkan', CB_RP(jml(b)), b.length + ' baris menunggu diperiksa', b.length ? 'warn' : '')
-      + stat('Bukan DP Reservasi', CB_RP(jml(k)), k.length + ' baris, sebabnya dicatat')
-      + '</div>';
+      + stat('Dari Reservasi', CB_RP(jml(rsv)), rsv.length + ' transaksi &mdash; terisi sendiri dari bukti bayar', 'ok')
+      + stat('Di Luar Reservasi', CB_RP(jml(luar)), luar.length + ' transaksi, ditambahkan tangan')
+      + stat('Belum Ketahuan', CB_RP(jml(blm)), blm.length + ' baris mutasi bank yang belum dicocokkan',
+             blm.length ? 'warn' : '')
+      + '</div>'
+      /* DISEBUT, karena urutan daftarnya memang berhenti berarti untuk baris
+         itu — dan yang membacanya akan mengira daftarnya salah urut. */
+      + (tanpaTgl ? pita('info', '<b>' + tanpaTgl + ' transaksi tidak punya tanggal transfer</b> dan berdiri di '
+          + 'paling bawah, di luar urutan waktu. Itu DP yang bukti transfernya gagal terbaca tanggalnya waktu '
+          + 'diunggah di modul Reservasi &mdash; bukan data yang hilang. Tanggalnya ikut terisi sendiri begitu '
+          + 'baris mutasi banknya diunggah dan dicocokkan.') : '');
+  }
+
+  /* FORMULIR DANA MASUK DI LUAR RESERVASI (permintaan user 19 Sep 2026).
+     Isiannya hidup DI LUAR DOM (CB.tambah) — render di kedua tuan rumah
+     TOTAL, jadi apa pun yang cuma ada di kotaknya ikut hilang tiap halaman
+     digambar ulang, termasuk keterangan yang baru separuh diketik. Pola
+     QA.cat di lembar pembayaran Brankas dan VD_FORM di Catatan Void. */
+  function formTambah() {
+    const t = CB.tambah, s = CB.salah || [];
+    const err = k => s.indexOf(k) >= 0 ? ' err' : '';
+    return '<div class="cb-pra"><b>Dana masuk di luar reservasi</b>'
+      + '<div class="cb-sub">Untuk uang yang memang bukan DP reservasi &mdash; event corporate, sewa '
+      + 'videotron, setoran tamu. Yang dari reservasi <b>tidak perlu ditambahkan di sini</b>: ia sudah '
+      + 'terisi sendiri dari bukti bayarnya.</div>'
+      + '<div class="cb-form">'
+      + '<label>Tanggal <span class="cb-wajib">*</span>'
+      + '<input type="date" class="cb-in' + err('tgl') + '" value="' + CB_ESC(t.tgl || '')
+      + '" oninput="cbKetikTambah(this,&#39;tgl&#39;)"></label>'
+      + '<label>Jam <span class="cb-muted">(boleh kosong)</span>'
+      + '<input type="time" class="cb-in" value="' + CB_ESC(t.jam || '')
+      + '" oninput="cbKetikTambah(this,&#39;jam&#39;)"></label>'
+      + '<label>Nominal <span class="cb-wajib">*</span>'
+      + '<input inputmode="numeric" class="cb-in' + err('nominal') + '" placeholder="0" value="' + CB_ESC(t.nominal || '')
+      + '" oninput="cbKetikTambah(this,&#39;nominal&#39;)"></label>'
+      + '<label class="cb-lebar">Keterangan &mdash; uang ini masuk dari mana <span class="cb-wajib">*</span>'
+      + '<input class="cb-in' + err('ket') + '" placeholder="mis. Event corporate PT Ibra Harisindo" value="'
+      + CB_ESC(t.ket || '') + '" oninput="cbKetikTambah(this,&#39;ket&#39;)">'
+      + '<span class="cb-bantu">Wajib diisi &mdash; baris dana masuk tanpa sebab tidak bisa diperiksa siapa pun.</span>'
+      + '</label>'
+      + '</div>'
+      + (s.length ? pita('bad', 'Belum lengkap: <b>' + s.map(k => ({ tgl: 'Tanggal', nominal: 'Nominal', ket: 'Keterangan' }[k] || k)).join(', ') + '</b>') : '')
+      + '<div class="cb-baris-alat">'
+      + '<button class="cb-btn cb-btn-utama" ' + (CB.sibuk ? 'disabled' : '') + ' onclick="cbSimpanTambah()">'
+      + (CB.sibuk ? 'Menyimpan&hellip;' : 'Simpan dana masuk') + '</button>'
+      + '<button class="cb-btn" onclick="cbTutupTambah()">Batal</button>'
+      + '</div></div>';
   }
 
   function kartuSumber() {
     const bisa = CB.opsi.bolehUbah();
-    let isi = '<div class="cb-card"><h3>Sumber Data Mutasi</h3>'
-      + '<div class="cb-sub">Baris mutasi masuk rekening BRI untuk bulan yang sedang dipilih. '
-      + 'Diunggah dari berkas rekap QRIS BRI (.xlsx/.csv) atau ditempel dari Excel. '
-      + '<b>Unggah ulang tidak pernah menghapus pencocokan yang sudah diputuskan</b> &mdash; '
-      + 'yang diperbarui cuma keterangan, tanggal booking, dan tanggal settlement.</div>';
+    let isi = '<div class="cb-card"><h3>Menambah &amp; Memeriksa</h3>'
+      + '<div class="cb-sub">Dana masuk dari reservasi <b>terisi sendiri</b> dari bukti bayar yang diunggah '
+      + 'kru Reservasi &mdash; tidak ada yang perlu mengetiknya. Yang perlu ditambahkan tangan cuma dana masuk '
+      + 'di luar reservasi. Berkas mutasi bank (.xlsx/.csv) diunggah untuk <b>memeriksa</b> bahwa uangnya '
+      + 'memang masuk rekening, dan untuk menangkap dana masuk yang belum tercatat di mana pun. '
+      + '<b>Unggah ulang tidak pernah menghapus pencocokan yang sudah diputuskan.</b></div>';
     if (!bisa) {
       isi += pita('info', 'Kamu bisa <b>melihat</b> halaman ini, tapi tidak mengubahnya. '
         + 'Minta admin modul menaikkan aksesmu jadi <b>Boleh Ubah</b> kalau perlu mengunggah atau mencocokkan.');
       return isi + '</div>';
     }
     isi += '<div class="cb-baris-alat">'
-      + '<label class="cb-btn cb-btn-utama">&#8593; Unggah berkas'
+      + '<button class="cb-btn cb-btn-utama" onclick="cbBukaTambah()">+ Tambah dana masuk</button>'
+      + '<label class="cb-btn">&#8593; Unggah mutasi bank'
       + '<input type="file" accept=".xlsx,.csv" style="display:none" onchange="cbPilihBerkas(this)"></label>'
-      + (CB.rows.length ? '<button class="cb-btn" onclick="cbSegarkan()">&#8635; Muat ulang</button>' : '')
+      + '<button class="cb-btn" onclick="cbSegarkan()">&#8635; Muat ulang</button>'
       + '</div>'
+      + (CB.tambah ? formTambah() : '')
       + '<details class="cb-det"><summary>&hellip; atau tempel dari Excel</summary>'
       + '<div class="cb-sub">Salin baris-barisnya dari Excel (berikut baris kepala kolomnya) lalu tempel di sini. '
       + 'Aturan membacanya SAMA dengan jalur berkas &mdash; satu pengurai, dua cara memasukkan.</div>'
@@ -544,29 +692,37 @@
     return '<span class="cb-chip warn">belum</span>';
   }
 
-  function barisTerpilih() {
+  function barisTerpilih(G0) {
     const q = norm(CB.cari);
-    return CB.rows.filter(r => {
-      if (CB.tapis === 'belum' && !belum(r)) return false;
-      if (CB.tapis === 'sudah' && !sudah(r)) return false;
-      if (CB.tapis === 'bukan' && !bukan(r)) return false;
-      if (CB.tapis === 'batal' && hidup(r)) return false;
+    return G0.filter(x => {
+      if (CB.tapis === 'rsv'   && !(gHidup(x) && gDariRsv(x))) return false;
+      if (CB.tapis === 'luar'  && !(gHidup(x) && gLuarRsv(x))) return false;
+      if (CB.tapis === 'belum' && !(gHidup(x) && gBelum(x)))   return false;
+      if (CB.tapis === 'batal' && gHidup(x))                   return false;
+      if (CB.tapis === 'semua' && false)                       return false;
       if (!q) return true;
-      return norm(r.ket + ' ' + r.resNama + ' ' + r.catatan + ' ' + r.nominal + ' ' + r.tgl).indexOf(q) >= 0;
+      const m = x.mut || {};
+      return norm([x.ket, m.resNama, m.catatan, x.nominal, x.tgl,
+                   x.dp && x.dp.nama].join(' ')).indexOf(q) >= 0;
     });
   }
 
   function kartuTabel() {
-    const h = CB.rows.filter(hidup);
-    const n = { semua: CB.rows.length, belum: h.filter(belum).length,
-                sudah: h.filter(sudah).length, bukan: h.filter(bukan).length,
-                batal: CB.rows.filter(r => !hidup(r)).length };
-    const list = barisTerpilih();
+    const G0 = barisGabungan();
+    const h = G0.filter(gHidup);
+    const n = { rsv: h.filter(gDariRsv).length, luar: h.filter(gLuarRsv).length,
+                belum: h.filter(gBelum).length, batal: G0.filter(x => !gHidup(x)).length,
+                semua: G0.length };
+    const list = barisTerpilih(G0);
     const us = (CB.dps && CB.opsi.bolehUbah()) ? G.cbUsulan(CB.rows.filter(belum), dpsBulan()) : {};
-    let isi = '<div class="cb-card"><h3>Mutasi Masuk BRI &mdash; ' + CB_ESC(labelBulan(CB.ym)) + '</h3>'
+    let isi = '<div class="cb-card"><h3>Dana Masuk BRI &mdash; ' + CB_ESC(labelBulan(CB.ym)) + '</h3>'
+      + '<div class="cb-sub">Satu baris = satu transaksi, <b>urut waktu masuknya</b>. '
+      + 'Yang dari reservasi terisi sendiri dari bukti bayar yang diunggah kru Reservasi &mdash; '
+      + 'tidak ada yang perlu mengetiknya.</div>'
       + '<div class="cb-baris-alat">'
       + '<div class="cb-seg">'
-      + [['belum', 'Belum cocok'], ['sudah', 'Sudah cocok'], ['bukan', 'Bukan DP'], ['batal', 'Dibatalkan'], ['semua', 'Semua']]
+      + [['semua', 'Semua'], ['rsv', 'Dari reservasi'], ['luar', 'Di luar reservasi'],
+         ['belum', 'Belum ketahuan'], ['batal', 'Dibatalkan']]
           .map(([k, t]) => '<button class="' + (CB.tapis === k ? 'on active' : '') + '" onclick="cbTapis(\'' + k + '\')">'
             + t + ' (' + n[k] + ')</button>').join('')
       + '</div>'
@@ -577,17 +733,27 @@
     if (CB.err) {
       isi += pita('bad', 'Daftar mutasi tidak terbaca: <b>' + CB_ESC(CB.err) + '</b>. '
         + '<button class="cb-btn" onclick="cbSegarkan()">Coba lagi</button>');
-    } else if (!CB.rows.length) {
-      isi += '<div class="cb-kosong">Belum ada satu baris mutasi pun untuk bulan ini. '
-        + 'Unggah berkas rekap QRIS BRI di kartu di atas.</div>';
+    }
+    if (CB.dpErr) {
+      /* DIBEDAKAN dari daftar yang memang kosong: daftar dana masuk yang
+         menyusut karena modul Reservasi tidak menjawab akan dilaporkan
+         sebagai uang yang hilang kalau sebabnya tidak disebut. */
+      isi += pita('bad', 'Bukti bayar dari modul Reservasi tidak terbaca: <b>' + CB_ESC(CB.dpErr)
+        + '</b>. Daftar di bawah ini karena itu <b>cuma memuat baris yang diunggah &amp; ditambahkan tangan</b>, '
+        + 'bukan seluruh dana masuk. <button class="cb-btn" onclick="cbMuatDp()">Coba lagi</button>');
+    }
+    if (!G0.length && !CB.err) {
+      isi += '<div class="cb-kosong">Belum ada satu transaksi pun di bulan ini. '
+        + 'Dana masuk dari reservasi terisi sendiri begitu bukti bayarnya diunggah di modul Reservasi; '
+        + 'yang di luar reservasi ditambahkan lewat tombol di kartu atas.</div>';
     } else if (!list.length) {
       isi += '<div class="cb-kosong">Tidak ada baris yang cocok dengan saringan yang sedang berlaku'
         + (CB.cari ? ' dan kata kunci <b>' + CB_ESC(CB.cari) + '</b>' : '') + '.</div>';
     } else {
       isi += '<div class="cb-tbl-wrap"><table class="cb-tbl"><thead><tr>'
-        + '<th>Tanggal</th><th>Jam</th><th class="num">Nominal</th><th>Keterangan</th>'
-        + '<th>Status</th><th>Dicocokkan ke</th><th></th></tr></thead><tbody>';
-      for (const r of list) isi += barisHtml(r, us[r.id]);
+        + '<th>Tanggal</th><th>Jam</th><th class="num">Nominal</th><th>Dari</th>'
+        + '<th>Sumber baris</th><th>Keterangan</th><th></th></tr></thead><tbody>';
+      for (const x of list) isi += barisHtml(x, x.mut ? us[x.mut.id] : null);
       isi += '</tbody></table></div>';
       if (CB.total > CB.rows.length) {
         isi += pita('warn', CB.total + ' baris ada di server untuk rentang ini, tapi cuma ' + CB.maks
@@ -597,37 +763,69 @@
     return isi + '</div>';
   }
 
-  function barisHtml(r, usul) {
+  /* Dari mana uangnya — kolom yang dulu diketik tangan di berkas Excel. */
+  function selDari(x, usul, bisa) {
+    if (x.jenis === 'rsv')
+      return '<b>' + CB_ESC(x.dp.nama || '(tanpa nama)') + '</b>'
+        + '<div class="cb-kecil cb-muted">reservasi ' + CB_ESC(G.cbTglID(x.dp.resTgl) || '—')
+        + ' &middot; ' + CB_ESC(x.dp.metode || x.dp.bank || '—') + '</div>';
+    const r = x.mut;
+    if (r.cara === 'cocok')
+      return '<b>' + CB_ESC(r.resNama || '(tanpa nama)') + '</b>'
+        + (r.resTgl ? '<div class="cb-kecil cb-muted">reservasi ' + CB_ESC(G.cbTglID(r.resTgl)) + '</div>' : '')
+        + (r.cocokOleh ? '<div class="cb-kecil cb-muted">dicocokkan ' + CB_ESC(r.cocokOleh) + '</div>' : '');
+    if (r.cara === 'bukan')
+      return '<span>' + CB_ESC(r.catatan || 'di luar reservasi') + '</span>'
+        + (r.cocokOleh ? '<div class="cb-kecil cb-muted">oleh ' + CB_ESC(r.cocokOleh) + '</div>' : '');
+    if (usul)
+      return '<span class="cb-usul">usul: <b>' + CB_ESC(usul.dp.nama) + '</b>'
+        + '<div class="cb-kecil">' + CB_ESC(usul.babak.teks) + '</div></span>'
+        + (bisa ? '<button class="cb-btn cb-btn-xs" onclick="cbTerimaUsul(\'' + r.id + '\')">Terima</button>' : '');
+    return '<span class="cb-muted">belum ketahuan</span>';
+  }
+
+  /* Sumber BARISNYA — dan ini kolom yang menjawab "siapa yang mengisi ini".
+     Dibedakan dari kolom Dari: yang satu asal UANGNYA, yang satu asal
+     BARISNYA. Disatukan, tidak ada cara membedakan dana masuk yang tercatat
+     sendiri dari yang diketik orang — dan justru itu yang dicari waktu
+     angkanya dipertanyakan. */
+  function selSumber(x) {
+    if (x.jenis === 'rsv')
+      return '<span class="cb-chip ok">bukti bayar</span>'
+        + '<div class="cb-kecil cb-muted">terisi sendiri</div>';
+    if (x.jenis === 'manual')
+      return '<span class="cb-chip">ditambah tangan</span>'
+        + (x.mut.oleh ? '<div class="cb-kecil cb-muted">' + CB_ESC(x.mut.oleh) + '</div>' : '');
+    return '<span class="cb-chip">mutasi bank</span>'
+      + '<div class="cb-kecil cb-muted">dari berkas</div>';
+  }
+
+  function barisHtml(x, usul) {
     const bisa = CB.opsi.bolehUbah();
-    const terbuka = CB.buka === r.id;
-    let tujuan = '<span class="cb-muted">&mdash;</span>';
-    if (r.cara === 'cocok') {
-      tujuan = '<b>' + CB_ESC(r.resNama || '(tanpa nama)') + '</b>'
-        + (r.resTgl ? '<div class="cb-kecil">reservasi ' + CB_ESC(G.cbTglID(r.resTgl)) + '</div>' : '')
-        + (r.cocokOleh ? '<div class="cb-kecil cb-muted">oleh ' + CB_ESC(r.cocokOleh) + '</div>' : '');
-    } else if (r.cara === 'bukan') {
-      tujuan = '<span class="cb-muted">' + CB_ESC(r.catatan || 'bukan DP reservasi') + '</span>'
-        + (r.cocokOleh ? '<div class="cb-kecil cb-muted">oleh ' + CB_ESC(r.cocokOleh) + '</div>' : '');
-    } else if (usul) {
-      tujuan = '<span class="cb-usul">usul: <b>' + CB_ESC(usul.dp.nama) + '</b> &middot; '
-        + CB_ESC(usul.babak.teks) + '</span>'
-        + (bisa ? ' <button class="cb-btn cb-btn-xs" onclick="cbTerimaUsul(\'' + r.id + '\')">Terima</button>' : '');
-    }
+    const r = x.mut;
+    const terbuka = CB.buka === x.id;
     let aksi = '';
-    if (bisa && hidup(r)) {
-      aksi = '<button class="cb-btn cb-btn-xs" onclick="cbBuka(\'' + r.id + '\')">'
+    /* Baris `rsv` TIDAK punya tombol, dan itu bukan kelalaian: ia tidak ada
+       di tabel ini — yang memegangnya modul Reservasi, dan di sini ia
+       dibaca. Tombol yang tergambar lalu menolak bekerja terbaca sebagai
+       halaman rusak. */
+    if (bisa && r && hidup(r)) {
+      aksi = '<button class="cb-btn cb-btn-xs" onclick="cbBuka(\'' + x.id + '\')">'
         + (terbuka ? 'Tutup' : (r.cara ? 'Ubah' : 'Cocokkan')) + '</button>';
     }
-    let html = '<tr class="' + (hidup(r) ? '' : 'cb-coret') + '">'
-      + '<td>' + CB_ESC(G.cbTglID(r.tgl)) + '</td>'
-      + '<td>' + CB_ESC(r.jam || '—') + '</td>'
-      + '<td class="num"><b>' + CB_RP(r.nominal) + '</b></td>'
-      + '<td>' + CB_ESC(r.ket || '') + (r.ket ? '' : '<span class="cb-muted">(tanpa keterangan)</span>')
-      + (r.booking ? '<div class="cb-kecil cb-muted">booking ' + CB_ESC(G.cbTglID(r.booking)) + '</div>' : '') + '</td>'
-      + '<td>' + chipCara(r) + '</td>'
-      + '<td>' + tujuan + '</td>'
+    let html = '<tr class="' + (gHidup(x) ? '' : 'cb-coret') + '">'
+      + '<td>' + (x.tgl ? CB_ESC(G.cbTglID(x.tgl))
+                        : '<span class="cb-muted">tanggal transfer<br>tidak terbaca</span>') + '</td>'
+      + '<td>' + CB_ESC(x.jam || '—') + '</td>'
+      + '<td class="num"><b>' + CB_RP(x.nominal) + '</b></td>'
+      + '<td>' + selDari(x, usul, bisa) + '</td>'
+      + '<td>' + selSumber(x) + '</td>'
+      + '<td>' + (r ? (CB_ESC(r.ket || '') || '<span class="cb-muted">—</span>') : '<span class="cb-muted">—</span>')
+      + (r && r.booking ? '<div class="cb-kecil cb-muted">booking ' + CB_ESC(G.cbTglID(r.booking)) + '</div>' : '')
+      + (r && !gHidup(x) && r.batalAlasan ? '<div class="cb-kecil">dibatalkan: ' + CB_ESC(r.batalAlasan) + '</div>' : '')
+      + '</td>'
       + '<td class="cb-aksi">' + aksi + '</td></tr>';
-    if (terbuka) html += '<tr class="cb-panel-baris"><td colspan="7">' + panelCocok(r) + '</td></tr>';
+    if (terbuka && r) html += '<tr class="cb-panel-baris"><td colspan="7">' + panelCocok(r) + '</td></tr>';
     return html;
   }
 
@@ -700,35 +898,31 @@
      SEBAGIAN BESAR MEMANG BUKAN KESALAHAN, dan itu dikatakan: DP bertanda
      Transfer UOB / BCA / Mandiri memang masuk rekening lain. Yang dicari di
      sini yang bertanda BRI atau QRIS. */
-  function kartuDpYatim() {
+  /* DP RESERVASI YANG BUKAN BRI. Sisa kartu "DP yang belum ketemu" yang
+     dicabut 19 September 2026 sore: DP yang MASUK BRI sekarang berdiri
+     sebagai baris di daftar utama, jadi kartunya tinggal menjelaskan yang
+     TIDAK ikut ke sana.
+
+     JANGAN dihapus sekalian. Tanpa kalimat ini, DP yang uangnya masuk BCA,
+     UOB, atau Mandiri lenyap dari layar ini tanpa satu pun keterangan, dan
+     yang membandingkannya dengan daftar DP di modul Reservasi akan
+     melaporkannya sebagai dana yang hilang. */
+  function kartuLuarBri() {
     if (!CB.dps || CB.dpErr) return '';
-    const pakai = dpTerpakai();
-    const r = rentang(CB.ym);
-    const yatim = CB.dps.filter(d => !pakai[d.dpId]
-      && d.tfTgl >= r.dari && d.tfTgl <= r.sampai);
-    if (!yatim.length) return '';
-    const bri = yatim.filter(d => /bri|qris/i.test(d.bank + ' ' + d.metode));
-    const lain = yatim.filter(d => !/bri|qris/i.test(d.bank + ' ' + d.metode));
-    let isi = '<div class="cb-card"><h3>DP Reservasi yang Belum Ketemu di Mutasi BRI</h3>'
-      + '<div class="cb-sub">Arah sebaliknya: DP yang tercatat di modul Reservasi bulan ini tapi belum '
-      + 'dipasangkan ke satu baris mutasi pun. Dihitung dari tanggal transfernya.</div>';
-    if (lain.length) {
-      isi += pita('info', '<b>' + lain.length + ' di antaranya memang bukan BRI</b> (' + CB_RP(jml(lain))
-        + ') &mdash; bertanda ' + CB_ESC([...new Set(lain.map(d => d.bank || d.metode))].slice(0, 6).join(', '))
-        + '. Uangnya masuk rekening lain, jadi memang tidak akan pernah ada di daftar ini.');
-    }
-    if (!bri.length) return isi + '</div>';
-    isi += '<div class="cb-tbl-wrap"><table class="cb-tbl"><thead><tr>'
-      + '<th>Tgl transfer</th><th>Nama</th><th class="num">Nominal</th><th>Bank / metode</th><th>Reservasi</th>'
-      + '</tr></thead><tbody>'
-      + bri.slice(0, 40).map(d => '<tr><td>' + CB_ESC(G.cbTglID(d.tfTgl)) + '</td>'
-          + '<td><b>' + CB_ESC(d.nama) + '</b></td>'
-          + '<td class="num">' + CB_RP(d.nominal) + '</td>'
-          + '<td>' + CB_ESC(d.bank || d.metode || '—') + '</td>'
-          + '<td>' + CB_ESC(G.cbTglID(d.resTgl) || '—') + '</td></tr>').join('')
-      + '</tbody></table></div>';
-    if (bri.length > 40) isi += '<div class="cb-sub">&hellip; dan ' + (bri.length - 40) + ' lagi.</div>';
-    return isi + '</div>';
+    const rg = rentang(CB.ym);
+    const lain = CB.dps.filter(d => !dpKeBri(d)
+      && ((d.tfTgl >= rg.dari && d.tfTgl <= rg.sampai)
+          || (!d.tfTgl && d.resTgl >= rg.dari && d.resTgl <= rg.sampai)));
+    if (!lain.length) return '';
+    const cara = [...new Set(lain.map(d => d.metode || d.bank || '(tanpa metode)'))].slice(0, 6);
+    return '<div class=cb-card><h3>DP Bulan Ini yang Tidak Masuk BRI</h3>'
+      + '<div class=cb-sub>Sengaja TIDAK ikut di daftar dana masuk di atas &mdash; uangnya masuk '
+      + 'rekening lain, jadi ia memang tidak akan pernah ada di mutasi BRI. Disebut di sini supaya '
+      + 'yang membandingkan layar ini dengan daftar DP di modul Reservasi tidak mengira ada yang hilang.</div>'
+      + pita('info', '<b>' + lain.length + ' DP, ' + CB_RP(jml(lain)) + '</b> lewat ' + CB_ESC(cara.join(', '))
+          + '. Yang menentukan METODE pembayarannya, bukan bank di struknya: struk QRIS menuliskan bank '
+          + 'PENGIRIM, dan QRIS dari bank mana pun tetap masuk ke rekening BRI.')
+      + '</div>';
   }
 
   function labelBulan(ym) {
@@ -754,10 +948,15 @@
     CB.ym = ym;
     let isi = '<div id="cb-wrap">';
     if (CB.pesan) isi += pita('ok', CB_ESC(CB.pesan));
-    if (CB.muat !== ym || (CB.rows.length === 0 && !CB.err && CB.muat !== ym)) {
-      isi += '<div class="cb-card"><div class="cb-kosong">Memuat mutasi&hellip;</div></div>';
+    if (CB.muat !== ym) {
+      isi += '<div class="cb-card"><div class="cb-kosong">Memuat dana masuk&hellip;</div></div>';
     } else {
-      isi += kartuRingkas() + kartuSumber() + kartuUsulan() + kartuTabel() + kartuDpYatim();
+      /* DIHITUNG SEKALI lalu dioper. Kartu ringkas dan tabelnya WAJIB berdiri
+         di atas daftar yang SAMA — dihitung dua kali, keduanya bisa memakai
+         daftar DP yang berbeda kalau balasan modul Reservasi datang di
+         antaranya, dan kartu di atas tabel lalu menyebut jumlah yang tidak
+         cocok dengan baris di bawahnya. */
+      isi += kartuRingkas(barisGabungan()) + kartuSumber() + kartuUsulan() + kartuTabel() + kartuLuarBri();
     }
     el.innerHTML = isi + '</div>';
     pasangGaya();
@@ -796,6 +995,52 @@
       : document.querySelector('#cb-wrap .cb-card .cb-cari');
     if (baru && tandaCari) { baru.focus(); try { baru.setSelectionRange(pos, pos); } catch (e) {} }
   }
+
+  /* FORMULIR DANA MASUK DI LUAR RESERVASI (permintaan user 19 Sep 2026) */
+  G.cbBukaTambah = () => {
+    const t = new Date();
+    CB.tambah = { tgl: t.getFullYear() + '-' + String(t.getMonth() + 1).padStart(2, '0')
+                       + '-' + String(t.getDate()).padStart(2, '0'),
+                  jam: '', nominal: '', ket: '' };
+    CB.salah = []; CB.opsi.gambarUlang();
+  };
+  G.cbTutupTambah = () => { CB.tambah = null; CB.salah = []; CB.opsi.gambarUlang(); };
+  /* Mengetik TIDAK menggambar ulang apa pun, dan penanda merahnya dicabut
+     lewat DOM — bukan lewat penggambar ulang. Penanda yang tertinggal membuat
+     kotak yang jelas-jelas sudah terisi menyala merah lagi pada render
+     berikutnya, dan peringatan yang keliru itulah yang melatih orang berhenti
+     membacanya. Pola vdKetik() di Catatan Void. */
+  G.cbKetikTambah = (el, k) => {
+    if (!CB.tambah) return;
+    CB.tambah[k] = el.value;
+    const i = CB.salah.indexOf(k);
+    if (i >= 0) { CB.salah.splice(i, 1); el.classList.remove('err'); }
+  };
+  G.cbSimpanTambah = async function () {
+    const t = CB.tambah;
+    if (!t) return;
+    /* Dibaca ULANG dari DOM sebelum dikirim. Penangan `input` tidak jalan
+       untuk isian yang diisi autofill atau pemilih tanggal peramban di
+       sebagian platform, dan yang terkirim lalu kosong padahal di layar
+       jelas terisi. */
+    const w = document.getElementById('cb-wrap');
+    if (w) {
+      const kotak = w.querySelectorAll('.cb-pra .cb-in');
+      const urut = ['tgl', 'jam', 'nominal', 'ket'];
+      kotak.forEach((el, i) => { if (urut[i]) t[urut[i]] = el.value; });
+    }
+    CB.salah = [];
+    if (!String(t.tgl || '').trim()) CB.salah.push('tgl');
+    if (!(CB_NUM(t.nominal) > 0))    CB.salah.push('nominal');
+    if (!String(t.ket || '').trim()) CB.salah.push('ket');
+    if (CB.salah.length) { CB.opsi.gambarUlang(); return; }
+    const j = await kirim({ action: 'briTambah', data: {
+      tgl: t.tgl, jam: t.jam, nominal: CB_NUM(t.nominal), ket: t.ket } }, null);
+    if (!j) return;
+    CB.pesan = 'Dana masuk ' + CB_RP(CB_NUM(t.nominal)) + ' ditambahkan.';
+    CB.tambah = null; CB.salah = [];
+    CB.opsi.gambarUlang();
+  };
 
   G.cbTapis = k => { CB.tapis = k; CB.buka = ''; CB.opsi.gambarUlang(); };
   G.cbBuka = id => { CB.buka = (CB.buka === id) ? '' : id; CB.cariDp = ''; CB.opsi.gambarUlang(); };
@@ -1056,6 +1301,19 @@
 #cb-wrap .cb-panel-kaki{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 #cb-wrap .cb-pra{margin-top:12px;padding:12px 14px;border:1px dashed var(--gold,#A9791F);
   border-radius:var(--radius-sm,10px);background:var(--gold-glow,rgba(169,121,31,.13))}
+#cb-wrap .cb-form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:10px 0}
+#cb-wrap .cb-form label{display:flex;flex-direction:column;gap:4px;font-size:11.5px;font-weight:600;
+  color:var(--muted,#5C574D)}
+#cb-wrap .cb-form label.cb-lebar{grid-column:1/-1}
+#cb-wrap .cb-in{padding:8px 11px;font-size:12.5px;font-family:inherit;
+  border:1px solid var(--line-hard,rgba(60,55,45,.18));border-radius:var(--radius-sm,10px);
+  background:var(--surface,#fff);color:var(--ink,#2A2620)}
+/* Kotak yang belum diisi ditandai DI KOTAKNYA, bukan cuma lewat pita: pita
+   menyebut aturannya, dan yang membacanya masih harus mencari kotak mana yang
+   dimaksud. Aturan yang sama dengan .rpin.err di panel Kas Kecil. */
+#cb-wrap .cb-in.err{border-color:var(--danger,#C9432B);background:var(--danger-bg,#F8E4DF)}
+#cb-wrap .cb-wajib{color:var(--danger,#C9432B)}
+#cb-wrap .cb-bantu{font-size:11px;font-weight:500;color:var(--muted-2,#928C80)}
 #cb-wrap .cb-kosong{padding:26px 16px;text-align:center;font-size:12.5px;color:var(--muted,#5C574D)}
 #cb-wrap code{font-family:ui-monospace,monospace;font-size:11.5px;background:var(--paper,#F7F6F4);
   padding:1px 5px;border-radius:5px}
