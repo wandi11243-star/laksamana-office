@@ -6285,7 +6285,7 @@ dibuang Rp200.000/10. Angka Kalender **sengaja berbeda** dari Dashboard
 (Rp400.000/20, karena ia sebulan penuh): dipaksa sama, mutasi *"kalender
 membaca daftar milik Dashboard"* tidak menggeser satu angka pun.
 
-**Dua puluh delapan mutasi dicoba, kedua puluh delapannya tertangkap** — tapi EMPAT
+**Tiga puluh dua mutasi dicoba, ketiga puluh duanya tertangkap** — tapi EMPAT
 asersi mula-mula merah untuk kode yang benar, dan keempatnya cacat uji yang
 sudah punya nama di berkas ini:
 
@@ -7391,6 +7391,40 @@ menuntut menyunting `index.html`, bentuknya sudah salah.
   Palet yang disalin ke dalam `<style>` persis yang membuat `--gold` berarti dua
   warna berbeda di repo ini.
 
+#### Blok pemakai & tombol Keluar (19 September 2026)
+
+Dilaporkan user beberapa menit sesudah Help naik produksi: *"tombol keluar
+dari help centernya belum ada"*. Betul — dan sebabnya bukan tombolnya hilang
+melainkan **letaknya**. Tautan *Kembali ke Office* memang sudah ada sejak awal
+di kanan atas, tapi ikon daya di pojok KIRI BAWAH sudah jadi tempat yang
+dicari orang di sembilan modul lain. Help yang menaruhnya di tempat lain
+membuat yang mencarinya menyimpulkan tombolnya memang tidak ada.
+
+- **TOMBOLNYA TIDAK MENGHAPUS `lm_session`**, aturan yang sama persis dengan
+  `doLogout()` di `deploy/reservasi/`: ia memulangkan orang ke pemilih modul
+  supaya bisa pindah modul tanpa memasukkan PIN lagi, dan sign-out penuh
+  memang hanya lewat tombol Keluar di Office sendiri. Ikon yang sama di posisi
+  yang sama tidak boleh berarti dua hal berbeda — yang sudah terbiasa akan
+  kehilangan sesinya tanpa pernah memintanya. Judulnya karena itu **Keluar ke
+  Office**, bukan "Keluar" saja.
+- **Tautan di topbar SENGAJA tetap ada.** Di bawah 880px sidebar-nya
+  tersembunyi di balik burger, jadi ia satu-satunya jalan pulang yang selalu
+  terlihat. Dua jalan ke tempat yang SAMA dan sama-sama aman — beda dari dua
+  tempat yang sama-sama boleh mengubah satu angka, yang memang dilarang di
+  repo ini.
+- **NAMANYA IKUT DIPAJANG.** Sebelum ini Help satu-satunya halaman Office yang
+  tidak pernah menyebut siapa yang sedang login, padahal isinya justru
+  disaring menurut hak akses orang itu: yang babnya lebih sedikit daripada
+  yang ia harapkan tidak punya satu pun cara memastikan ia membukanya dengan
+  akun yang benar.
+- **Yang dijaga uji DOM-nya, bukan sumbernya.** Rujukan yang benar di berkas
+  tidak membuktikan ada tombol yang benar-benar tergambar — pelajaran yang
+  sudah dibayar di logo panel Kas Kecil. `buka()` di ujinya sekarang menerima
+  argumen kedua untuk menimpa field sesi (nama, keterangan).
+
+Empat mutasi dicoba, keempatnya tertangkap: tombolnya dicabut, dipindah ke
+topbar, ikut menghapus sesi, dan namanya dikarang alih-alih dibaca dari sesi.
+
 #### HELP TIDAK BOLEH JADI APLIKASI KEDUA
 
 Panduan berbentuk DATA berstruktur (`langkah`, `tabel`, `catatan`, `tanya`,
@@ -7459,7 +7493,7 @@ dan keduanya hanya berlaku untuk berkas yang MEMANG ada.
 > seluruh babnya.
 
 ```bash
-node tools/uji-help.js   # 312 pemeriksaan, jsdom
+node tools/uji-help.js   # 318 pemeriksaan, jsdom
 ```
 
 Dua puluh lima mutasi dicoba, kedua puluh limanya tertangkap — tapi **enam

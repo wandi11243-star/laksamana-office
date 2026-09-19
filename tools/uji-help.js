@@ -304,7 +304,9 @@ const SUMBER_DAYA = (() => {
   process.exit(2);
 })();
 
-function buka(modules) {
+/* `ekstra` menimpa field sesi (nama, keterangan). Dibiarkan kosong, seluruh
+   blok uji lama memakai sesi yang sama persis seperti sebelumnya. */
+function buka(modules, ekstra) {
   DIMINTA = [];
   const vc = new VirtualConsole();
   vc.on('jsdomError', e => {
@@ -325,10 +327,10 @@ function buka(modules) {
     beforeParse(w) {
       /* Sesi dipasang SEBELUM parsing: guard SSO ada di <head> dan berjalan
          saat parsing, jadi yang dipasang sesudahnya tidak pernah terbaca. */
-      w.localStorage.setItem('lm_session', JSON.stringify({
+      w.localStorage.setItem('lm_session', JSON.stringify(Object.assign({
         v: 3, userId: 'u1', name: 'Uji Coba', username: 'uji',
         modules: modules, adminModules: [], expiry: Date.now() + 3600e3
-      }));
+      }, ekstra || {})));
       w.scrollTo = () => {};
       w.Element.prototype.scrollIntoView = function () {};
     }
@@ -724,6 +726,48 @@ const isi = d => d.window.document.getElementById('isi').innerHTML;
        guard-nya memantulkan SEMUA ORANG, termasuk yang berhak. */
     cek('sesi yang sah TIDAK dipantulkan',
         !(await pantulan({ v:3, modules:['help'], expiry: Date.now() + 3600e3 })), 'ikut dipantulkan');
+  }
+
+  /* ---------- Blok pemakai & tombol Keluar ---------- */
+  console.log('\n== Tombol Keluar ==');
+  {
+    /* YANG DIJAGA DOM-nya, bukan sumbernya. Rujukan yang benar di berkas tidak
+       membuktikan ada tombol yang benar-benar tergambar — pelajaran yang sudah
+       dibayar di logo panel Kas Kecil, tempat asersi sumber hijau seluruhnya
+       untuk layar yang tidak berubah sedikit pun. */
+    const d = buka(['help', 'reservasi'], { name: 'Wandi Pranata', keterangan: 'Admin Sistem' });
+    await amanTunggu('beranda siap', () => tunggu(() => nav(d).indexOf('#/reservasi') > -1));
+
+    const tk = d.window.document.getElementById('keluar');
+    cek('tombol Keluar ada di kaki sidebar', !!tk);
+    cek('tombol Keluar ada DI DALAM sidebar, bukan di topbar',
+        !!(tk && tk.closest('.hc-side')), 'letaknya di luar aside');
+    cek('tombol Keluar punya judul yang terbaca',
+        !!(tk && /keluar/i.test(tk.getAttribute('title') || '')),
+        'title: ' + (tk && tk.getAttribute('title')));
+
+    /* NAMA & INISIALNYA dari sesi, bukan dikarang. Help satu-satunya halaman
+       Office yang dulu tidak pernah menyebut siapa yang membukanya, padahal
+       isinya disaring menurut hak akses orang itu. */
+    const nm = d.window.document.getElementById('uNama');
+    const av = d.window.document.getElementById('uAv');
+    cek('nama pemakai diambil dari sesi', nm && nm.textContent === 'Wandi Pranata',
+        'dapat: ' + (nm && nm.textContent));
+    cek('inisialnya dua huruf dari dua kata pertama', av && av.textContent === 'WP',
+        'dapat: ' + (av && av.textContent));
+
+    /* TOMBOLNYA TIDAK BOLEH MENGHAPUS SESI. Aturan yang sama dengan tombol
+       daya di sembilan modul lain: ia memulangkan ke pemilih modul supaya
+       orang bisa pindah modul tanpa PIN lagi. Menghapusnya di sini membuat
+       ikon yang sama di posisi yang sama berarti dua hal berbeda, dan yang
+       sudah terbiasa akan kehilangan sesinya tanpa pernah memintanya. */
+    const src = fs.readFileSync(path.join(HELP, 'index.html'), 'utf8');
+    const blok = src.slice(src.indexOf("getElementById('keluar')"));
+    cek('tombol Keluar TIDAK menghapus lm_session',
+        blok.slice(0, 400).indexOf('removeItem') < 0,
+        'ia menghapus sesi Office — beda arti dari modul lain');
+
+    d.window.close();
   }
 
   /* ---------- Gaya ---------- */
