@@ -7323,6 +7323,131 @@ Sembilan mutasi dicoba, kesembilannya tertangkap — termasuk mencabut
 penyaringnya, menjadikan hari abu-abu sebagai pembanding, dan tidak membawa
 `status` dari salah satu modulnya.
 
+### Rekap Penjualan: persentase MDR, & Dana Masuk di Kas Kecil (19 Sep 2026)
+
+Tiga permintaan user dalam satu pesan. Yang pertama menyentuh layar pencocokan
+uang; dua sisanya memindahkan pertanyaan yang selama ini tidak bisa dijawab
+layar mana pun.
+
+#### 1. Persentase di sebelah MDR
+
+*"ada tambahkan persentase di sebelah tulisan MDR, jadi ketahuan ketika isi MDR
+nanti berapa persentasenya."* Tarif MDR tertulis di perjanjian bank (QRIS 0,7%,
+EDC 2%, komisi ojol 20%), dan satu-satunya cara memeriksanya selama ini adalah
+membagi dua angka di kepala sendiri, sebelas baris, tiap hari.
+
+- **PENYEBUTNYA AKTUAL KOTOR**, dan itu keputusan yang menentukan. Itulah dasar
+  yang dipakai bank & ojol menghitung komisinya. Dibagi **Aktual MASUK** (yang
+  sudah dipotong) angkanya selalu sedikit lebih besar daripada tarif di
+  perjanjian, dan yang mencocokkannya akan menyimpulkan banknya memotong lebih
+  — selisih yang tidak akan pernah ketemu karena memang tidak ada.
+- **Kelompok tanpa MDR TIDAK ikut di penyebut kartu Total** (`kotorMdr`, bukan
+  seluruh setoran). Ikut, cash & compliment menyeret persennya jauh di bawah
+  tarif mana pun: di data uji **3,20% jadi 1,92%**, dan keduanya sama wajarnya
+  di layar.
+- **DUA DESIMAL, bukan bilangan bulat.** Dibulatkan, QRIS **0,7% terbaca "1%"**
+  — persis angka yang sedang dicocokkan orang dengan perjanjian banknya.
+- **Kosong, BUKAN "0%"**, kalau MDR-nya nol atau kotornya nol. Persen dari nol
+  tidak punya arti, dan menuliskannya membuat baris yang memang tidak kena
+  potongan terlihat sudah diperiksa orang.
+- **PENYEBUT DISEBUT DI SELNYA** (`… dari kotor`), bukan cuma di kepala kolom.
+  Kepala kolom dibaca sekali, angkanya dibaca tiap baris — pelajaran empat
+  putaran pertanyaan di kolom Kontribusi modul Analytics.
+- **Persennya ikut HIDUP saat angkanya diketik, termasuk saat kursor ada DI
+  DALAM kotak MDR.** Di keadaan dana berlebih selnya berisi kotak isian dan
+  `rkSegarTurunan()` sengaja TIDAK menggambar ulang sel yang sedang dipegang
+  kursor (itu membuang fokus pada karakter pertama). Persennya karena itu
+  berdiri di elemen ber-id sendiri (`rk-mdrp-<k>`) yang disegarkan lewat DOM.
+  Tanpa cabang itu ia membeku di angka pertama — dan justru angka itu yang
+  sedang dicari orang waktu ia mengetik MDR-nya.
+- **`rkSegarTurunan()` WAJIB ikut menyertakan persen di kartu Total MDR.**
+  Penyegar itu mengganti SELURUH isi `#rk-mdr`, jadi yang lupa menyertakannya
+  menghapus persennya pada ketukan pertama: kartunya berbunyi rupiah polos
+  sementara kolom di bawahnya masih memajang persen, dan yang membacanya
+  mengira salah satunya rusak. **Ditemukan uji ini, bukan oleh mata.**
+
+Persennya muncul di enam tempat yang semuanya diturunkan dari `rkMdrPct()`
+— kolom tabel Input Harian, kartu Total MDR (harian & bulanan), kartu Per
+Metode, baris Rincian Harian, dan rincian satu hari. Satu rumus, karena dua
+rumus untuk satu angka berarti dua layar menyebut tarif bank yang berbeda.
+
+#### 2. Dana Masuk bisa disaring menurut TANGGAL UANG MASUK
+
+*"bisa di filter berdasarkan reservasi di hari itu, dan bisa juga filter
+berdasarkan duit masuk tanggal brp."*
+
+Halaman Dana Masuk (DP) sejak lahir menyaring rentang tanggalnya ke **tanggal
+reservasi**, dan alasannya masih berlaku (tertulis di `financeList`): tamu
+sering transfer DP jauh hari sebelum tanggal makan, jadi "Hari Ini" berarti
+reservasi yang JADWALNYA hari ini. Yang tidak bisa dijawab bentuk itu:
+**"hari ini duit yang masuk berapa"**. Sekarang ada saklar `FIN_F.basis`.
+
+- **BAWAANNYA TETAP `reservasi`.** Bawaan yang bergeser mengubah arti tombol
+  "Hari Ini" untuk semua orang dalam satu deploy, tanpa satu pun tanda di layar
+  bahwa daftarnya sekarang menjawab pertanyaan yang lain.
+- **Label kotak tanggalnya IKUT BERUBAH** (`Tgl Uang Masuk — Dari`), begitu juga
+  judul tabelnya. Kotak bertuliskan "Dari" yang artinya bisa dua hal adalah
+  penyaring yang hasilnya tidak bisa dipercaya siapa pun — saklarnya sendiri
+  tidak cukup, ia bisa saja di luar layar saat orang membaca kotaknya.
+- **Baris yang tanggal transfernya BELUM TERBACA tetap ikut**, lewat cadangan
+  tanggal reservasinya (`txDate()` memang sudah begitu, dan kolom "Tanggal TF"
+  sudah menuliskannya apa adanya). Dibuang, DP yang buktinya baru diunggah dan
+  belum discan LENYAP dari layar — padahal justru itu yang paling perlu
+  diperiksa. Jumlah & nominalnya **DISEBUT di pita di atas tabel**; didiamkan,
+  daftar "uang masuk tanggal sekian" diam-diam memuat baris yang tanggal
+  uangnya belum diketahui siapa pun.
+- **Nama berkas CSV menyebut basisnya.** Dua ekspor rentang yang sama dengan
+  basis berbeda berisi baris yang berbeda, dan nama yang sama persis membuat
+  yang kedua menimpa yang pertama di folder unduhan.
+- **Modul Cashier ikut dapat dengan sendirinya** — ia menampilkan halaman ini
+  apa adanya lewat `<iframe src="../reservasi/?embed=finance">`, bukan salinan.
+  Itu memang gunanya pola embed.
+
+#### 3. Dana Masuk (DP) di panel Kas Kecil
+
+Kunci view **`dp`**, menu di grup Penjualan tepat di atas *Invoice & Kwitansi*.
+Polanya SAMA PERSIS dengan modul Cashier: bingkai berisi halaman milik modul
+Reservasi, bukan salinan ketiga dari mesin OCR + pengunduh bukti + jalur simpan
+verifikasi.
+
+- **JALURNYA `../../reservasi/?embed=finance`, bukan `../`.** Panel ini dua
+  tingkat di dalam `deploy/`, dan jalur yang kurang satu tingkat tidak melempar
+  apa pun — yang sampai ke layar cuma halaman 404 server.
+- **Gerbang SSO modul Reservasi ikut menerima `finance`**, TAPI hanya lewat
+  pintu embed. Itu bukan kelonggaran yang mengada-ada: halaman **Invoice &
+  Kwitansi** di panel yang sama MENAHAN kwitansi selama dananya belum
+  diverifikasi di sini (16 September 2026), jadi yang menerbitkan kwitansi
+  memang harus bisa membuka layar ini.
+- **PEMEGANG `finance` MASUK DENGAN HAK YANG SAMA DENGAN KASIR** — ia bisa
+  memverifikasi dan menolak, bukan cuma membaca (`effRole='cashier'` di
+  `boot()`). Itu **dikatakan di layarnya**, bukan cuma di komentar: orang yang
+  mengira ia sedang membaca saja tidak akan berhati-hati menekan tombol.
+- **Matriks hak akses modul ini cuma bisa mengatur SIAPA YANG BOLEH
+  MEMBUKANYA.** Halaman ini karena itu di luar `AKS_HAL_ISI` — tapi label
+  "(baca saja)" yang otomatis muncul untuk halaman di luar daftar itu **BOHONG
+  di sini**, jadi ada `AKS_HAL_KET` yang menimpanya.
+- **`viewer` SENGAJA TIDAK diberi halaman ini**, beda dari halaman baca lain.
+  Role yang namanya berjanji *"tidak pernah bisa mengubah apa pun"* akan
+  berbohong, dan tidak ada satu pun setelan di modul ini yang bisa menahannya.
+- **Sidebar panel ini HTML STATIS** — menambah `TITLES` saja tidak melahirkan
+  menunya, dan halaman tanpa baris `TITLES` memantul balik. Sudah menggigit di
+  modul Analytics (tab Void) dan di modul DW.
+
+```bash
+node tools/uji-mdr-danamasuk.js   # 80 pemeriksaan, jsdom (kas + reservasi)
+```
+
+**Sembilan belas mutasi dicoba, kesembilan belasnya tertangkap.** Data ujinya
+dirancang supaya tiap kesalahan memberi hasil yang BERBEDA: empat kelompok
+ber-MDR dengan persen yang tidak mungkin tertukar (2,00% / 0,70% / 20,00% /
+1,00%), satu kelompok tanpa MDR yang penyebutnya menjungkirkan angkanya
+(3,20% → 1,92%), dan empat reservasi yang membuat kedua basis tanggal
+memulangkan **jumlah baris DAN total yang berbeda** (2 baris Rp2.500.000 vs
+3 baris Rp1.800.000) — basis yang tidak berpindah tidak punya tempat
+bersembunyi. Gerbang embed modul Reservasi **DIJALANKAN** (fungsinya dipotong
+dari sumber lalu dipanggil dengan `localStorage` & `location` tiruan), bukan
+dibaca sebagai teks.
+
 ### Modul `help`: Help Center, panduan pemakaian (19 September 2026)
 
 Permintaan user: satu modul Help berisi panduan tiap modul, **mengikuti hak

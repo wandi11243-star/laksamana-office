@@ -15,18 +15,27 @@
   var hidup=s&&s.expiry&&Date.now()<s.expiry;
   var mods=(s&&s.modules)||[];
   var punya=function(k){return mods.indexOf(k)>-1;};
-  /* Modul Cashier menampilkan halaman Dana Masuk (DP) MILIK MODUL INI apa
-     adanya lewat <iframe src="../reservasi/?embed=finance">. Pemegang modul
-     `cashier` karena itu ikut boleh masuk — TAPI hanya lewat pintu embed, dan
-     di dalamnya terkunci ke halaman Dana Masuk saja (lihat EMBED di boot()
-     dan navigate()). Tanpa parameter embed, `cashier` tidak membuka apa pun.
+  /* Modul Cashier DAN panel Kas Kecil menampilkan halaman Dana Masuk (DP)
+     MILIK MODUL INI apa adanya lewat <iframe src="…/reservasi/?embed=finance">.
+     Pemegang modul `cashier` dan `finance` karena itu ikut boleh masuk —
+     TAPI hanya lewat pintu embed, dan di dalamnya terkunci ke halaman Dana
+     Masuk saja (lihat EMBED di boot() dan navigate()). Tanpa parameter embed,
+     keduanya tidak membuka apa pun.
 
      Dipilih begini supaya halaman Dana Masuk cuma ada SATU di seluruh repo.
      Menyalinnya ke modul Cashier berarti menyalin juga mesin OCR pembaca
      bukti, pengunduh berkas bukti, dan jalur simpan verifikasi — lalu
-     membiarkan dua salinan itu pelan-pelan berbeda. */
+     membiarkan dua salinan itu pelan-pelan berbeda.
+
+     `finance` ditambahkan 19 September 2026 atas permintaan user. Ia bukan
+     kelonggaran yang mengada-ada: halaman Invoice & Kwitansi di panel Kas
+     Kecil MENAHAN kwitansi selama dananya belum diverifikasi di sini (16
+     September 2026), jadi orang yang menerbitkan kwitansi memang harus bisa
+     membuka layar ini. Yang perlu diketahui: pemegang `finance` masuk dengan
+     hak yang sama dengan kasir — ia bisa memverifikasi dan menolak, bukan
+     cuma membaca. */
   var embed=/[?&]embed=finance(&|$)/.test(location.search);
-  var ok=hidup&&(punya('*')||punya('reservasi')||(embed&&punya('cashier')));
+  var ok=hidup&&(punya('*')||punya('reservasi')||(embed&&(punya('cashier')||punya('finance'))));
   if(!ok)location.replace('../');}catch(e){location.replace('../');}})();
 </script>
 <!-- ===== PWA ===== -->
@@ -3047,12 +3056,16 @@ async function boot(){
   const oMod = (office.modules||[]);
   const punyaResv = oMod.includes('*')||oMod.includes('reservasi');
   let effRole = (oAdm.includes('*')||oAdm.includes('reservasi')) ? 'admin' : u.role;
-  /* Orang yang datang dari modul Cashier dan TIDAK punya akses reservasi
-     sendiri masuk sebagai role `cashier`. Tanpa baris ini dia jatuh ke `host`
-     lewat resolveReservasiUser(), dan matriks Hak Akses menyembunyikan Dana
-     Masuk dari host — bingkai embed-nya akan terbuka kosong tanpa keterangan
-     apa pun. Role `cashier` sudah ada di matriks itu dengan Dana Masuk =
-     Boleh Ubah, jadi tidak ada aturan baru yang ditambahkan di sini. */
+  /* Orang yang datang lewat pintu embed (modul Cashier atau panel Kas Kecil)
+     dan TIDAK punya akses reservasi sendiri masuk sebagai role `cashier`.
+     Tanpa baris ini dia jatuh ke `host` lewat resolveReservasiUser(), dan
+     matriks Hak Akses menyembunyikan Dana Masuk dari host — bingkai embed-nya
+     akan terbuka kosong tanpa keterangan apa pun. Role `cashier` sudah ada di
+     matriks itu dengan Dana Masuk = Boleh Ubah, jadi tidak ada aturan baru
+     yang ditambahkan di sini.
+
+     BERLAKU SAMA untuk pemegang `finance`, dan itu disengaja: yang dikerjakan
+     di layar ini memang pekerjaan yang sama — memeriksa uang yang masuk. */
   if(EMBED && !punyaResv) effRole = 'cashier';
   SESSION = {id:u.id, name:u.name, role:effRole};
   SELECTED_CREW = u.id;
@@ -7282,7 +7295,26 @@ function tfBadge(p){ return (TF_BADGE[p.tfStatus] || '<span class="badge-status 
 /* ---------- Halaman ---------- */
 // Default: HARI INI saja (bukan sebulan) — begitu buka, langsung lihat dana
 // masuk hari ini.
-let FIN_F = { from:todayStr(), to:todayStr(), bank:"", status:"", q:"" };
+/* basis = TANGGAL MANA yang disaring kotak Dari/Sampai (19 September 2026,
+   permintaan user: "bisa di filter berdasarkan reservasi di hari itu, dan bisa
+   juga filter berdasarkan duit masuk tanggal brp").
+
+   BAWAANNYA TETAP 'reservasi', dan itu bukan kelalaian: itulah perilaku
+   halaman ini sejak lahir, dan alasannya masih berlaku (lihat financeList).
+   Bawaan 'masuk' akan mengubah arti tombol "Hari Ini" untuk semua orang dalam
+   satu deploy — tanpa satu pun tanda di layar bahwa daftarnya sekarang
+   menjawab pertanyaan yang lain. */
+let FIN_F = { from:todayStr(), to:todayStr(), bank:"", status:"", q:"", basis:"reservasi" };
+const FIN_BASIS_LAB = { reservasi:"Tgl Reservasi", masuk:"Tgl Uang Masuk" };
+/* Tanggal yang dipakai menyaring SATU baris. Untuk basis 'masuk' ia memakai
+   txDate() — tanggal transfer, dengan CADANGAN tanggal reservasi untuk bukti
+   yang belum terbaca OCR. Cadangan itu bukan tebakan yang disembunyikan:
+   kolom "Tanggal TF" di tabel sudah menuliskannya apa adanya ("dari tgl
+   reservasi"), dan jumlah barisnya disebut di pita di atas tabel. Kalau baris
+   tanpa tanggal transfer dibuang begitu saja, DP yang buktinya baru diunggah
+   dan belum discan LENYAP dari layar — padahal justru itu yang paling perlu
+   diperiksa. */
+function finTglSaring(x){ return FIN_F.basis==="masuk" ? txDate(x) : x.r.date; }
 // Tab verifikasi: transaksi yang sudah diverifikasi pindah keluar dari tab
 // "Perlu Diverifikasi" ke tab "Terverifikasi", jadi daftar yang perlu dicek
 // mengecil sampai habis.
@@ -7300,14 +7332,23 @@ function finRange(kind){
 function financeList(applyTab){
   if(applyTab===undefined) applyTab=true;
   const q=(FIN_F.q||"").trim().toLowerCase();
-  // Rentang tanggal disaring ke TANGGAL RESERVASI (r.date), bukan tanggal
-  // transfer DP. Tamu sering transfer DP jauh hari sebelum tanggal makan, jadi
-  // "Hari Ini" berarti reservasi yang JADWALNYA hari ini — bukan yang kebetulan
-  // mentransfer DP hari ini. Ini juga membuat baris stabil: hasil scan bukti
-  // (yang mengubah tanggal transfer) tidak lagi memindah baris keluar rentang.
+  // Rentang tanggal BAWAANNYA disaring ke TANGGAL RESERVASI (r.date), bukan
+  // tanggal transfer DP. Tamu sering transfer DP jauh hari sebelum tanggal
+  // makan, jadi "Hari Ini" berarti reservasi yang JADWALNYA hari ini — bukan
+  // yang kebetulan mentransfer DP hari ini. Ini juga membuat baris stabil:
+  // hasil scan bukti (yang mengubah tanggal transfer) tidak memindah baris
+  // keluar rentang.
+  //
+  // Sejak 19 September 2026 basisnya bisa dipindah ke TANGGAL UANG MASUK —
+  // pertanyaan yang berbeda dan sama-sama wajar: "hari ini duit yang masuk
+  // berapa" tidak bisa dijawab daftar yang disaring menurut jadwal makan.
+  // Keduanya berdiri berdampingan, bukan saling mengganti, dan yang sedang
+  // berlaku DISEBUT di label kotak tanggalnya sendiri — bukan cuma di
+  // tombolnya: kotak bertuliskan "Dari" yang artinya bisa dua hal adalah
+  // penyaring yang hasilnya tidak bisa dipercaya siapa pun.
   const inRange=d=>!!d && (!FIN_F.from || d>=FIN_F.from) && (!FIN_F.to || d<=FIN_F.to);
   return financeTx().filter(x=>{
-    if(!inRange(x.r.date)) return false;
+    if(!inRange(finTglSaring(x))) return false;
     if(FIN_F.bank && txBank(x)!==FIN_F.bank) return false;
     if(FIN_F.status==="unscanned" && txScanned(x)) return false;
     if(FIN_F.status==="pending"  && x.p.tfStatus) return false;
@@ -7348,6 +7389,12 @@ function renderFinance(){
   const nSudah  = verified.length;
   const nTolak  = rejected.length;
   const demo    = demoRecords();      // reservasi contoh bawaan sistem yang masih nyangkut
+  /* Baris yang ikut ke rentang ini lewat CADANGAN tanggal reservasi, karena
+     tanggal transfernya belum terbaca. Disebut angkanya — didiamkan, daftar
+     "uang masuk tanggal sekian" diam-diam memuat baris yang tanggal uangnya
+     belum diketahui siapa pun, dan yang menjumlahkannya mengira itu setoran
+     hari itu. */
+  const tglCadangan = FIN_F.basis==="masuk" ? listAll.filter(x=>!x.p.tfDate) : [];
   // rekap per bank (seluruh rentang, bukan cuma tab aktif)
   const perBank={};
   listAll.forEach(x=>{ const b=txBank(x)||"(tanpa bank)"; perBank[b]=perBank[b]||{n:0,sum:0}; perBank[b].n++; perBank[b].sum+=txAmount(x); });
@@ -7384,7 +7431,12 @@ function renderFinance(){
    </div>
 
    <div class="panel"><div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">
-     <div class="field" style="margin:0"><label>Tgl Reservasi — Dari</label><input type="date" value="${FIN_F.from}" onchange="finSet('from',this.value)"></div>
+     <div class="field" style="margin:0"><label>Saring tanggal menurut</label>
+       <div class="seat-switch" style="margin:0">
+         <button class="${FIN_F.basis!=="masuk"?"on":""}" onclick="finSet('basis','reservasi')" title="Rentang di sebelah berlaku untuk tanggal jadwal makannya">📅 Tgl Reservasi</button>
+         <button class="${FIN_F.basis==="masuk"?"on":""}" onclick="finSet('basis','masuk')" title="Rentang di sebelah berlaku untuk tanggal uangnya masuk — tanggal transfer">💸 Tgl Uang Masuk</button>
+       </div></div>
+     <div class="field" style="margin:0"><label>${FIN_BASIS_LAB[FIN_F.basis]||FIN_BASIS_LAB.reservasi} — Dari</label><input type="date" value="${FIN_F.from}" onchange="finSet('from',this.value)"></div>
      <div class="field" style="margin:0"><label>Sampai</label><input type="date" value="${FIN_F.to}" onchange="finSet('to',this.value)"></div>
      <div class="field" style="margin:0"><label>Bank</label>
        <select onchange="finSet('bank',this.value)"><option value="">Semua bank</option>
@@ -7405,6 +7457,11 @@ function renderFinance(){
      </div>
    </div></div>
 
+   ${tglCadangan.length?`<div class="inline-warn" style="margin-bottom:14px"><div>
+      📅 <b>${tglCadangan.length} baris di daftar ini dipakai tanggal reservasinya</b>, bukan tanggal uang masuk —
+      tanggal transfernya belum terbaca dari bukti. Nominalnya <b>${rpDot(tglCadangan.reduce((a,x)=>a+txAmount(x),0))}</b>.
+      Tekan <b>🔍 Scan</b> di barisnya (atau isi lewat <b>✏️ Cek / Edit</b>) supaya ia jatuh di tanggal yang benar.
+    </div></div>`:""}
    ${banks.length?`<div class="panel"><div class="panel-head"><h3>Rekap per Bank / Metode</h3></div>
      <div class="panel-body" style="display:flex;gap:10px;flex-wrap:wrap">
        ${banks.map(b=>`<span class="pill" title="${perBank[b].n} transaksi"><b>${esc(b)}</b> &nbsp;${rpDot(perBank[b].sum)} <span class="muted">(${perBank[b].n}×)</span></span>`).join("")}
@@ -7419,7 +7476,7 @@ function renderFinance(){
    </div></div>
 
    <div class="panel">
-     <div class="panel-head"><h3>Transaksi Masuk${FIN_F.from||FIN_F.to?` · reservasi ${FIN_F.from?fmtDateShort(FIN_F.from):"awal"} – ${FIN_F.to?fmtDateShort(FIN_F.to):"sekarang"}`:""}</h3></div>
+     <div class="panel-head"><h3>Transaksi Masuk${FIN_F.from||FIN_F.to?` · ${FIN_F.basis==="masuk"?"uang masuk":"reservasi"} ${FIN_F.from?fmtDateShort(FIN_F.from):"awal"} – ${FIN_F.to?fmtDateShort(FIN_F.to):"sekarang"}`:""}</h3></div>
      ${!list.length?`<div class="empty">${
         FIN_TAB==="perlu"
           ? (nSudah||nTolak
@@ -7805,7 +7862,10 @@ function exportFinanceCSV(){
   const csv=[cols,...rows].map(row=>row.map(c=>`"${String(c??"").replace(/"/g,'""')}"`).join(",")).join("\n");
   const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
-  a.download=`dana_masuk_laksamana_${FIN_F.from||"awal"}_${FIN_F.to||todayStr()}.csv`; a.click();
+  /* Basisnya ikut di nama berkas: dua ekspor rentang yang sama dengan basis
+     berbeda berisi baris yang berbeda, dan nama yang sama persis membuat yang
+     kedua menimpa yang pertama di folder unduhan tanpa ada yang menyadarinya. */
+  a.download=`dana_masuk_laksamana_${FIN_F.basis==="masuk"?"tgluang":"tglreservasi"}_${FIN_F.from||"awal"}_${FIN_F.to||todayStr()}.csv`; a.click();
   toast("CSV dana masuk diunduh","ok");
 }
 
