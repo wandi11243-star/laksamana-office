@@ -496,6 +496,61 @@ const isi = d => d.window.document.getElementById('isi').innerHTML;
         'belum ada berkasnya: ' + kurangBerkas.join(', '));
   }
 
+  /* ---------- Tangkapan layar ---------- */
+  console.log('\n== Tangkapan layar ==');
+  {
+    /* YANG DIJAGA BERKAS YATIM, BUKAN BERKAS YANG BELUM ADA.
+       Slot yang gambarnya belum dipasang adalah keadaan yang SAH — mesinnya
+       menggambar kotak penanda berisi jalur yang ditunggunya, dan menuntut
+       semuanya terisi membuat uji ini merah tiap kali ada slot baru ditulis
+       sebelum fotonya diambil (pelajaran blok "Segera" di atas).
+
+       Yang TIDAK pernah sah: berkas di gambar/ yang tidak disebut satu panduan
+       pun. Itu hampir selalu salah nama — dan salah nama gagal DIAM: kotak
+       bergarisnya tidak pernah hilang, berkasnya tidak pernah tampil, dan
+       tidak ada satu pun galat. Sudah kejadian 19 September 2026
+       (usage/catat.png vs usage/pemakaian.png). */
+    const minta = new Set();
+    berkasPanduan.forEach(f => {
+      const src = fs.readFileSync(path.join(DIR_PANDUAN, f), 'utf8');
+      for (const m of src.matchAll(/berkas:'([^']+)'/g)) minta.add(m[1]);
+    });
+
+    const DIR_GAMBAR = path.join(HELP, 'gambar');
+    const ada = [];
+    (function sapu(rel) {
+      const abs = path.join(DIR_GAMBAR, rel);
+      if (!fs.existsSync(abs)) return;
+      for (const e of fs.readdirSync(abs)) {
+        const r = rel ? rel + '/' + e : e;
+        if (fs.statSync(path.join(DIR_GAMBAR, r)).isDirectory()) sapu(r);
+        else if (/\.(png|jpg|jpeg|webp)$/i.test(r)) ada.push(r);
+      }
+    })('');
+
+    const yatim = ada.filter(x => !minta.has(x));
+    cek('tidak ada berkas gambar yang tidak dirujuk panduan mana pun',
+        yatim.length === 0,
+        'yatim (salah nama?): ' + yatim.join(', '));
+
+    /* Batas di BACA-DULU.md. Cuma berlaku untuk berkas yang MEMANG sudah ada,
+       jadi ia tidak ikut merah untuk slot yang masih menunggu. Lebar dibaca
+       dari IHDR PNG langsung — tidak perlu pustaka gambar apa pun. */
+    ada.filter(x => x.endsWith('.png')).forEach(rel => {
+      const b = fs.readFileSync(path.join(DIR_GAMBAR, rel));
+      const kb = Math.round(b.length / 1024);
+      cek('gambar ' + rel + ' di bawah 300 KB', kb < 300, kb + ' KB');
+      const lebar = b.length > 24 ? b.readUInt32BE(16) : 0;
+      cek('gambar ' + rel + ' lebarnya 1200-1600px',
+          lebar >= 1200 && lebar <= 1600, lebar + 'px');
+    });
+
+    const belum = [...minta].filter(x => !ada.includes(x));
+    console.log('  ..   ' + (minta.size - belum.length) + '/' + minta.size +
+                ' slot tangkapan layar terisi' +
+                (belum.length ? ' — menunggu: ' + belum.join(', ') : ''));
+  }
+
   /* ---------- Blok yang jenisnya tidak dikenal ---------- */
   console.log('\n== Blok yang tidak dikenal mesin ==');
   {

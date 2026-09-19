@@ -6285,7 +6285,7 @@ dibuang Rp200.000/10. Angka Kalender **sengaja berbeda** dari Dashboard
 (Rp400.000/20, karena ia sebulan penuh): dipaksa sama, mutasi *"kalender
 membaca daftar milik Dashboard"* tidak menggeser satu angka pun.
 
-**Dua puluh lima mutasi dicoba, kedua puluh limanya tertangkap** — tapi EMPAT
+**Dua puluh delapan mutasi dicoba, kedua puluh delapannya tertangkap** — tapi EMPAT
 asersi mula-mula merah untuk kode yang benar, dan keempatnya cacat uji yang
 sudah punya nama di berkas ini:
 
@@ -7422,9 +7422,33 @@ panduannya. Pasangannya asersi **CAKUPAN**: tiap kunci di registri wajib punya
 berkasnya di disk. Tanpa yang kedua, seluruh panduan bisa terhapus dan ujinya
 tetap hijau — mesinnya memang menangani keadaan kosong dengan baik.
 
-**Tidak ada satu pun tangkapan layar terpasang** — panduan sengaja ditulis
-lebih dulu, dan tiap slot gambarnya menyebut jalur berkas yang ditunggunya.
-Kotak bergaris yang terlihat di layar adalah keadaan itu, bukan kerusakan.
+**Kesebelas tangkapan layarnya terpasang** (19 September 2026, dikirim user
+dari dev): portal, reservasi ×2, event, cashier, kompas, finance,
+marketing, ordering, radar, usage. Dikecilkan ke **1400px** dan semuanya di
+bawah 300 KB — sumbernya 1900px dan salah satunya 309 KB.
+
+**SLOT YANG GAMBARNYA BELUM ADA TETAP KEADAAN YANG SAH**, dan kotak bergaris
+yang muncul di layar adalah itu — bukan kerusakan. Ia menyebut JALUR berkas
+yang ditunggunya, karena yang paling sering membacanya justru orang yang bisa
+mengisinya.
+
+**YANG DIJAGA UJI BERKAS YATIM, BUKAN SLOT YANG KOSONG.** Menuntut semuanya
+terisi membuat uji ini merah tiap kali ada slot baru ditulis sebelum fotonya
+diambil — bentuk yang sama dengan blok "Segera" di atas. Yang tidak pernah
+sah: berkas di `gambar/` yang tidak disebut satu panduan pun. Itu hampir
+selalu **salah nama**, dan salah nama gagal DIAM: kotak bergarisnya tidak
+pernah hilang, berkasnya tidak pernah tampil, dan tidak ada satu pun galat.
+Sudah kejadian di jam yang sama — `usage/catat.png` dipasang untuk slot yang
+meminta `usage/pemakaian.png`. Batas 300 KB & lebar 1200–1600px ikut dijaga,
+dan keduanya hanya berlaku untuk berkas yang MEMANG ada.
+
+> **Isinya data dev, dan itu keputusan yang sudah diambil user.** Tiap bab
+> dijaga kunci modulnya sendiri, jadi tangkapan layar Finance hanya terlihat
+> oleh pemegang kunci `finance` — pembatasnya sistem izin yang sama. Yang
+> tidak ikut terjaga: berkasnya ada di git. Kalau suatu hari repo ini dibuka,
+> yang pertama perlu diperiksa `finance/rekap-penjualan.png` dan
+> `marketing/pipeline.png`, satu-satunya dua yang memuat angka rupiah dan nama
+> klien.
 
 > **Panduan HANYA boleh menyebut menu yang BENAR-BENAR ADA.** Nama menu tiap
 > bab disalin dari `TITLES`/`NAV_DEF` modulnya saat panduan itu ditulis, dan
@@ -7435,7 +7459,7 @@ Kotak bergaris yang terlihat di layar adalah keadaan itu, bukan kerusakan.
 > seluruh babnya.
 
 ```bash
-node tools/uji-help.js   # 289 pemeriksaan, jsdom
+node tools/uji-help.js   # 312 pemeriksaan, jsdom
 ```
 
 Dua puluh lima mutasi dicoba, kedua puluh limanya tertangkap — tapi **enam
