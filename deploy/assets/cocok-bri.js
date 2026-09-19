@@ -743,9 +743,35 @@
         + 'bukan seluruh dana masuk. <button class="cb-btn" onclick="cbMuatDp()">Coba lagi</button>');
     }
     if (!G0.length && !CB.err) {
-      isi += '<div class="cb-kosong">Belum ada satu transaksi pun di bulan ini. '
-        + 'Dana masuk dari reservasi terisi sendiri begitu bukti bayarnya diunggah di modul Reservasi; '
-        + 'yang di luar reservasi ditambahkan lewat tombol di kartu atas.</div>';
+      /* KEADAAN KOSONG WAJIB MENYEBUT SEBAB YANG SEBENARNYA.
+         -------------------------------------------------------------
+         Kalimat lama berbunyi "terisi sendiri begitu bukti bayarnya diunggah
+         di modul Reservasi" — dan itu MENYESATKAN pada keadaan yang paling
+         sering terjadi: bukti bayarnya SUDAH ada, DP-nya SUDAH tercatat,
+         yang membuatnya tidak ikut cuma METODE pembayarannya. Yang
+         membacanya lalu mengunggah ulang bukti yang sudah ada berkali-kali.
+
+         Sebabnya memang sudah disebut di kartu "DP Bulan Ini yang Tidak
+         Masuk BRI" — tapi kartu itu berdiri DI BAWAH tabel, di luar layar,
+         dan yang mencari satu reservasi tidak pernah sampai ke sana.
+         Dilaporkan user 19 September 2026 dengan reservasi yang jelas-jelas
+         ada di modul Reservasi. Keterangan yang benar di tempat yang salah
+         sama saja tidak ada. */
+      const luar = dpLuarBri();
+      if (luar.length) {
+        const nama = namaLuar(luar);
+        isi += '<div class="cb-kosong">Belum ada satu transaksi <b>BRI</b> pun di bulan ini &mdash; '
+          + 'tapi bulan ini punya <b>' + luar.length + ' DP reservasi</b> (' + CB_RP(jml(luar)) + ') '
+          + 'yang uangnya masuk rekening <b>lain</b>, lewat <b>' + CB_ESC(caraLuar(luar).join(', ')) + '</b>'
+          + (nama.length ? ' &mdash; ' + CB_ESC(nama.join(', ')) : '') + '.<br><br>'
+          + 'Halaman ini hanya memuat dana masuk <b>BRI</b>, dan yang menentukan <b>metode DP-nya</b>. '
+          + 'Kalau uangnya sebenarnya masuk BRI, betulkan metode DP itu di modul Reservasi &mdash; '
+          + 'barisnya muncul di sini begitu itu beres. Keterangan lengkapnya ada di kartu di bawah.</div>';
+      } else {
+        isi += '<div class="cb-kosong">Belum ada satu transaksi pun di bulan ini. '
+          + 'Dana masuk dari reservasi terisi sendiri dari DP yang dicatat kru Reservasi '
+          + '(metode QRIS atau Transfer BRI); yang di luar reservasi ditambahkan lewat tombol di kartu atas.</div>';
+      }
     } else if (!list.length) {
       isi += '<div class="cb-kosong">Tidak ada baris yang cocok dengan saringan yang sedang berlaku'
         + (CB.cari ? ' dan kata kunci <b>' + CB_ESC(CB.cari) + '</b>' : '') + '.</div>';
@@ -907,21 +933,39 @@
      UOB, atau Mandiri lenyap dari layar ini tanpa satu pun keterangan, dan
      yang membandingkannya dengan daftar DP di modul Reservasi akan
      melaporkannya sebagai dana yang hilang. */
-  function kartuLuarBri() {
-    if (!CB.dps || CB.dpErr) return '';
+  /* DP bulan ini yang SENGAJA tidak ikut karena uangnya masuk rekening lain.
+     Dipakai DUA tempat — kartunya sendiri DAN keadaan kosong tabel — supaya
+     daftarnya satu. Dua penyaring yang sendiri-sendiri akan menyimpang, dan
+     yang menyimpang di sini membuat layar menyebut jumlah DP yang berbeda di
+     dua tempat pada halaman yang sama. */
+  function dpLuarBri() {
+    if (!CB.dps || CB.dpErr) return [];
     const rg = rentang(CB.ym);
-    const lain = CB.dps.filter(d => !dpKeBri(d)
+    return CB.dps.filter(d => !dpKeBri(d)
       && ((d.tfTgl >= rg.dari && d.tfTgl <= rg.sampai)
           || (!d.tfTgl && d.resTgl >= rg.dari && d.resTgl <= rg.sampai)));
+  }
+  const caraLuar = lain => [...new Set(lain.map(d => d.metode || d.bank || '(tanpa metode)'))].slice(0, 6);
+  /* NAMA TAMUNYA DISEBUT, bukan cuma jumlahnya. Yang membuka halaman ini
+     sedang mencari SATU reservasi yang ia tahu ada, dan jumlah tanpa nama
+     tidak menjawab "ke mana perginya yang saya cari". */
+  const namaLuar = lain => [...new Set(lain.map(d => d.nama).filter(Boolean))].slice(0, 8);
+
+  function kartuLuarBri() {
+    const lain = dpLuarBri();
     if (!lain.length) return '';
-    const cara = [...new Set(lain.map(d => d.metode || d.bank || '(tanpa metode)'))].slice(0, 6);
-    return '<div class=cb-card><h3>DP Bulan Ini yang Tidak Masuk BRI</h3>'
-      + '<div class=cb-sub>Sengaja TIDAK ikut di daftar dana masuk di atas &mdash; uangnya masuk '
+    const nama = namaLuar(lain);
+    return '<div class="cb-card"><h3>DP Bulan Ini yang Tidak Masuk BRI</h3>'
+      + '<div class="cb-sub">Sengaja TIDAK ikut di daftar dana masuk di atas &mdash; uangnya masuk '
       + 'rekening lain, jadi ia memang tidak akan pernah ada di mutasi BRI. Disebut di sini supaya '
       + 'yang membandingkan layar ini dengan daftar DP di modul Reservasi tidak mengira ada yang hilang.</div>'
-      + pita('info', '<b>' + lain.length + ' DP, ' + CB_RP(jml(lain)) + '</b> lewat ' + CB_ESC(cara.join(', '))
-          + '. Yang menentukan METODE pembayarannya, bukan bank di struknya: struk QRIS menuliskan bank '
-          + 'PENGIRIM, dan QRIS dari bank mana pun tetap masuk ke rekening BRI.')
+      + pita('info', '<b>' + lain.length + ' DP, ' + CB_RP(jml(lain)) + '</b> lewat <b>'
+          + CB_ESC(caraLuar(lain).join(', ')) + '</b>'
+          + (nama.length ? ' &mdash; ' + CB_ESC(nama.join(', ')) : '')
+          + '.<br>Yang menentukan <b>METODE pembayarannya</b>, bukan bank di struknya: struk QRIS '
+          + 'menuliskan bank PENGIRIM, dan QRIS dari bank mana pun tetap masuk ke rekening BRI. '
+          + 'Kalau uangnya sebenarnya masuk BRI, yang perlu dibetulkan <b>metode DP-nya di modul '
+          + 'Reservasi</b> &mdash; barisnya muncul di sini begitu itu beres.')
       + '</div>';
   }
 

@@ -536,6 +536,63 @@ async function ujiHalaman() {
     T('token sesi ikut terkirim', kirimTambah[0].sesi === 't');
   }
 
+  /* ===== KEADAAN KOSONG WAJIB MENYEBUT SEBAB YANG SEBENARNYA =====
+     Dilaporkan user 19 September 2026: reservasi yang JELAS ada di modul
+     Reservasi tidak muncul di sini, dan keadaan kosongnya menyuruh mengunggah
+     bukti bayar yang sudah lama ada. Sebabnya metode DP-nya (Transfer BCA) —
+     uangnya memang masuk rekening lain, jadi barisnya BENAR tidak ikut.
+
+     Sebabnya SUDAH disebut di kartu paling bawah, dan itu TIDAK CUKUP: kartu
+     itu berdiri di luar layar, dan yang mencari satu reservasi tidak pernah
+     sampai ke sana. Keterangan yang benar di tempat yang salah sama saja
+     tidak ada. */
+  {
+    const domK = new JSDOM('<!doctype html><html><head></head><body><div id="app-view"></div></body></html>',
+                           { runScripts: 'outside-only' });
+    const WK = domK.window;
+    new Function('window', fs.readFileSync(path.join(AKAR, 'deploy/assets/xlsx-baca.js'), 'utf8'))(WK);
+    /* DP yang metodenya BUKAN BRI, dan TIDAK ada satu baris mutasi pun —
+       persis keadaan yang dilaporkan. */
+    const RSV_BCA = [{ id: 'rx', name: 'AAAAA', date: '2026-09-19',
+      dps: [{ id: 'px', amount: 168800, method: 'Transfer BCA', tfDate: '', tfTime: '', tfBank: '' }] }];
+    const fK = (url, opt) => {
+      if (String(url).indexOf('briList') >= 0)
+        return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { baris: [], total: 0, maks: 2000 } }) });
+      return Promise.resolve({ json: () => Promise.resolve({ ok: true, data: { reservations: RSV_BCA } }) });
+    };
+    new Function('window', 'document', 'fetch', 'alert', 'confirm',
+      fs.readFileSync(path.join(AKAR, 'deploy/assets/cocok-bri.js'), 'utf8'))(WK, WK.document, fK, () => {}, () => true);
+    const elK = WK.document.getElementById('app-view');
+    WK.cbPasang({ apiUrl: '/api', rsvUrl: '/rsv', sesi: () => ({ token: 't' }),
+                  bolehUbah: () => true, gambarUlang: () => WK.cbGambar(elK, '2026-09') });
+    WK.cbGambar(elK, '2026-09');
+    const SK = WK.__cbState;
+    for (let i = 0; i < 80 && !SK.dps; i++) await new Promise(r => setTimeout(r, 10));
+    const hk = elK.innerHTML;
+    T('bukti bayar termuat di skenario ini', !!SK.dps && SK.dps.length === 1);
+    T('DP bermetode Transfer BCA memang TIDAK jadi baris dana masuk BRI',
+      hk.indexOf('Belum ada satu transaksi') >= 0);
+    /* Yang dijaga: sebabnya disebut DI KEADAAN KOSONGNYA, bukan cuma di kartu
+       bawah. Irisannya berhenti sebelum <h3> berikutnya — asersi yang menyapu
+       seluruh halaman akan cocok dengan kartu itu tanpa pernah menyentuh
+       keadaan kosongnya, dan mutasi yang mengembalikan kalimat lama LOLOS. */
+    const iK = hk.indexOf('Belum ada satu transaksi');
+    const jK = hk.indexOf('<h3>', iK);
+    const kosong = hk.slice(iK, jK < 0 ? hk.length : jK);
+    T('keadaan kosong menyebut metodenya', kosong.indexOf('Transfer BCA') >= 0, kosong.slice(0, 160));
+    T('keadaan kosong menyebut nama tamunya', kosong.indexOf('AAAAA') >= 0);
+    T('keadaan kosong menyebut nominalnya', kosong.indexOf('Rp168.800') >= 0);
+    T('keadaan kosong menunjuk tempat membetulkannya', kosong.indexOf('modul Reservasi') >= 0);
+    /* TIDAK BOLEH menyuruh mengunggah bukti bayar: buktinya sudah ada, dan
+       yang menurutinya akan mengunggah ulang berkali-kali tanpa hasil. */
+    T('keadaan kosong TIDAK menyuruh mengunggah bukti bayar',
+      kosong.indexOf('bukti bayarnya diunggah') < 0, kosong.slice(0, 200));
+    T('kartu di bawah tetap ada sebagai keterangan lengkapnya',
+      hk.indexOf('Tidak Masuk BRI') >= 0);
+    T('kartu di bawah ikut menyebut nama tamunya',
+      hk.slice(hk.indexOf('Tidak Masuk BRI')).indexOf('AAAAA') >= 0);
+  }
+
   /* ===== HAK LIHAT ===== */
   bolehUbah = false;
   W.cbGambar(el, '2026-09');

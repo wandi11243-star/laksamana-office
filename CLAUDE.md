@@ -6699,7 +6699,7 @@ sama dengan mutasi banknya.
   waktu angkanya dipertanyakan.
 
 ```bash
-node tools/uji-cocok-bri.js   # 176 pemeriksaan (dari 132)
+node tools/uji-cocok-bri.js   # 185 pemeriksaan (dari 132)
 ```
 
 Ujinya dapat lapis keempat: **halamannya DIJALANKAN di jsdom**. Seluruh
@@ -6737,6 +6737,51 @@ DELAPAN baru sesudah ujinya dibetulkan:
 > pola yang escape-nya meleset diam-diam berhenti cocok — asersinya lalu merah
 > untuk kode yang benar, atau lebih buruk: hijau untuk kode yang rusak.
 
+
+##### Keadaan kosong yang menyuruh membetulkan hal yang sudah benar (19 Sep)
+
+Dilaporkan user beberapa jam sesudah model barisnya berubah: sebuah reservasi
+yang JELAS ada di modul Reservasi — DP Rp168.800, tanggal 19 September —
+tidak muncul sama sekali di daftar dana masuk.
+
+**Barisnya BENAR tidak ikut.** Metode DP-nya `Transfer BCA`, jadi uangnya
+memang masuk rekening lain dan `dpKeBri()` mengecualikannya persis seperti
+yang dirancang. Yang salah **kalimat di layarnya**:
+
+| | |
+|---|---|
+| yang tertulis | *"terisi sendiri begitu bukti bayarnya diunggah di modul Reservasi"* |
+| yang sebenarnya | buktinya SUDAH ada dan DP-nya SUDAH tercatat — yang menahannya METODE-nya |
+
+Yang membacanya akan mengunggah ulang bukti yang sudah ada berkali-kali, dan
+tidak satu pun yang berubah.
+
+**Sebabnya sudah disebut — di kartu yang salah tempat.** Kartu *DP Bulan Ini
+yang Tidak Masuk BRI* memang menuliskannya lengkap, tapi ia berdiri DI BAWAH
+tabel, di luar layar, dan yang sedang mencari satu reservasi tidak pernah
+sampai ke sana. **Keterangan yang benar di tempat yang salah sama saja tidak
+ada** — dan itu pelajaran yang lebih besar daripada bugnya sendiri.
+
+Sekarang keadaan kosongnya sendiri menyebut jumlah DP yang dikecualikan,
+nominalnya, **metodenya**, **nama tamunya**, dan tempat membetulkannya.
+
+- **`dpLuarBri()` SATU penyaring** untuk kartu itu DAN untuk keadaan kosong.
+  Dua penyaring yang sendiri-sendiri akan menyimpang, dan yang menyimpang
+  membuat satu halaman menyebut jumlah DP yang berbeda di dua tempat.
+- **NAMA TAMUNYA DISEBUT, bukan cuma jumlahnya.** Yang membuka halaman ini
+  sedang mencari SATU reservasi yang ia tahu ada; jumlah tanpa nama tidak
+  menjawab "ke mana perginya yang saya cari".
+- **Kalimat lama tetap dipakai kalau memang tidak ada DP yang dikecualikan** —
+  di situ ia benar. Yang diganti cuma jalur yang menyesatkan.
+- Asersinya **mengiris keadaan kosongnya sampai judul kartu berikutnya**: yang
+  menyapu seluruh halaman cocok dengan kartu di bawah tanpa pernah menyentuh
+  keadaan kosongnya, dan mutasi yang mengembalikan kalimat lama LOLOS.
+
+```bash
+node tools/uji-cocok-bri.js   # 185 pemeriksaan (dari 176)
+```
+
+Enam mutasi dicoba, keenamnya tertangkap.
 
 ### Reservasi: kwitansi ditahan sampai dananya diverifikasi (16 Sep 2026)
 
