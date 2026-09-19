@@ -464,6 +464,18 @@ async function ujiDanaMasuk() {
   const tombol = Array.from(w.document.querySelectorAll('#page-finance .seat-switch button'))
     .filter(b => /Tgl (Reservasi|Uang Masuk)/.test(b.textContent));
   cek('dua tombol basis digambar', tombol.length === 2, String(tombol.length));
+  /* Saklarnya BERDIRI DI BARISNYA SENDIRI. Disandingkan dengan kotak tanggal,
+     labelnya jatuh lebih rendah daripada label di sebelahnya — barisnya
+     rata-bawah dan pil ini lebih pendek daripada kotak isian — dan itu persis
+     yang dikeluhkan user. jsdom tidak menghitung tata letak, jadi yang dijaga
+     penentu lebarnya di elemen yang sungguhan digambar. */
+  aman('saklar basis punya barisnya sendiri', () => {
+    const kotak = tombol[0].closest('.field');
+    cek('saklarnya duduk di .field', !!kotak);
+    const st = kotak ? String(kotak.getAttribute('style') || '') : '';
+    cek('field saklarnya selebar satu baris penuh',
+        /flex\s*:\s*0\s+0\s+100%/.test(st), st);
+  });
   cek('yang sedang berlaku ditandai',
       tombol.length === 2 && tombol[1].className.indexOf('on') > -1 && tombol[0].className.indexOf('on') < 0,
       tombol.map(b => b.className).join('|'));

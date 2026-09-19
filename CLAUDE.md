@@ -7396,6 +7396,15 @@ reservasi yang JADWALNYA hari ini. Yang tidak bisa dijawab bentuk itu:
   diperiksa. Jumlah & nominalnya **DISEBUT di pita di atas tabel**; didiamkan,
   daftar "uang masuk tanggal sekian" diam-diam memuat baris yang tanggal
   uangnya belum diketahui siapa pun.
+- **SAKLARNYA BERDIRI DI BARISNYA SENDIRI** (koreksi user beberapa menit
+  sesudahnya: *"kasih jarak, jangan kaya gini"*). Disandingkan dengan kotak
+  tanggal ia bukan cuma terbaca berdempetan — **labelnya jatuh lebih rendah
+  daripada label di sebelahnya**, karena barisnya rata-BAWAH sementara saklar
+  pil ini belasan piksel lebih pendek daripada kotak isian. Ditaruh sebaris,
+  satu-satunya jalan meluruskannya adalah memaksa tingginya sama dengan kotak
+  tanggal, dan pil setinggi kotak isian berhenti terbaca sebagai saklar.
+  Berdiri sendiri ia juga terbaca menurut urutan kerjanya: pilih dulu tanggal
+  MANA, baru rentangnya di baris bawah.
 - **Nama berkas CSV menyebut basisnya.** Dua ekspor rentang yang sama dengan
   basis berbeda berisi baris yang berbeda, dan nama yang sama persis membuat
   yang kedua menimpa yang pertama di folder unduhan.
@@ -7434,10 +7443,10 @@ verifikasi.
   modul Analytics (tab Void) dan di modul DW.
 
 ```bash
-node tools/uji-mdr-danamasuk.js   # 80 pemeriksaan, jsdom (kas + reservasi)
+node tools/uji-mdr-danamasuk.js   # 82 pemeriksaan, jsdom (kas + reservasi)
 ```
 
-**Sembilan belas mutasi dicoba, kesembilan belasnya tertangkap.** Data ujinya
+**Dua puluh mutasi dicoba, kedua puluhnya tertangkap.** Data ujinya
 dirancang supaya tiap kesalahan memberi hasil yang BERBEDA: empat kelompok
 ber-MDR dengan persen yang tidak mungkin tertukar (2,00% / 0,70% / 20,00% /
 1,00%), satu kelompok tanpa MDR yang penyebutnya menjungkirkan angkanya
