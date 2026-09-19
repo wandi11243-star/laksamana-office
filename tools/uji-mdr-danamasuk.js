@@ -409,11 +409,21 @@ async function ujiDanaMasuk() {
     }
   });
   const w = d.window;
+  let hidup = false;
   for (let i = 0; i < 220; i++) {
-    try { if (w.eval('typeof STATE !== "undefined" && STATE && Array.isArray(STATE.reservations)')) break; }
+    try { if (w.eval('typeof STATE !== "undefined" && STATE && Array.isArray(STATE.reservations)')) { hidup = true; break; } }
     catch (e) {}
     await tunggu(50);
   }
+  /* Modul yang tidak pernah hidup hampir selalu berarti SyntaxError, dan sebab
+     tersering di berkas itu satu backtick yang tidak sengaja tertulis di dalam
+     komentar HTML DI DALAM template literal — ia menutup literalnya dan
+     menjatuhkan seluruh modul. Sudah kejadian dua kali di repo ini. Dilaporkan
+     sebagai asersi merah, bukan dibiarkan melempar: uji yang mati terbaca
+     "tidak selesai", bukan "menangkap sesuatu", dan ringkasannya tidak pernah
+     tercetak. */
+  cek('modul Reservasi hidup (tidak ada SyntaxError)', hidup);
+  if (!hidup) return;
   w.eval('SESSION={id:"u-uji",name:"Penguji",role:"admin"}; SELECTED_CREW="u-uji";');
   w.eval('STATE.reservations=' + JSON.stringify(RESV) + ';');
   /* Rentang dipatok ke tanggal data uji, bukan hari ini: uji yang hasilnya
@@ -459,6 +469,21 @@ async function ujiDanaMasuk() {
   cek('pita tanggal cadangan muncul & menyebut jumlahnya',
       v.indexOf('dipakai tanggal reservasinya') > -1 && v.indexOf('<b>1 baris') > -1);
   cek('pita menyebut nominalnya', v.indexOf('dipakai tanggal reservasinya') > -1 && v.indexOf('500.000') > -1);
+
+  /* Kartu deretan tab TIDAK boleh lagi berpadding-bawah nol: tabnya menempel
+     ke garis bawah kartunya sendiri, lalu kartunya terbaca berdempetan dengan
+     kartu Transaksi Masuk di bawahnya — dikeluhkan user dua kali. jsdom tidak
+     menghitung tata letak, jadi yang dijaga penentunya di elemen yang
+     sungguhan digambar. */
+  aman('kartu deretan tab tidak berdempetan', () => {
+    const tab = Array.from(w.document.querySelectorAll('#page-finance .seat-switch button'))
+      .find(b => b.textContent.indexOf('Perlu Diverifikasi') > -1);
+    cek('deretan tab ketemu', !!tab);
+    const badan = tab ? tab.closest('.panel-body') : null;
+    const st = badan ? String(badan.getAttribute('style') || '') : '';
+    cek('paddingnya tidak nol di bawah', st.indexOf('padding-bottom:0') < 0, st);
+    cek('paddingnya disetel simetris', /padding\s*:\s*\d+px\s+\d+px/.test(st), st);
+  });
 
   /* --- saklarnya ada, dan menandai yang sedang berlaku --- */
   const tombol = Array.from(w.document.querySelectorAll('#page-finance .seat-switch button'))

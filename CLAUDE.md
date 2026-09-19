@@ -7405,6 +7405,24 @@ reservasi yang JADWALNYA hari ini. Yang tidak bisa dijawab bentuk itu:
   tanggal, dan pil setinggi kotak isian berhenti terbaca sebagai saklar.
   Berdiri sendiri ia juga terbaca menurut urutan kerjanya: pilih dulu tanggal
   MANA, baru rentangnya di baris bawah.
+- **Kartu deretan tab dibuat BERPADDING SIMETRIS** (koreksi user kedua:
+  *"jaraknya ini masih dempet"*). Ia dulu `padding-bottom:0`, jadi ada 18px di
+  ATAS deretan tab dan praktis NOL di bawahnya: tabnya menempel ke garis bawah
+  kartunya sendiri, dan kartunya lalu terbaca berdempetan dengan kartu
+  Transaksi Masuk di bawahnya. **Jangan dikembalikan ke nol** "supaya tabnya
+  menyatu dengan tabel" — ia tidak pernah menyatu; kartunya punya garis dan
+  bayangannya sendiri, dan di antara keduanya masih ada margin 18px milik
+  `.panel`.
+
+  > **Penjelasan itu ditaruh sebagai komentar JS DI LUAR template literal, dan
+  > itu bukan pilihan gaya.** Versi pertamanya ditulis sebagai komentar HTML di
+  > DALAM literal dan memuat backtick — literalnya tertutup di situ dan
+  > **SELURUH modul Reservasi mati dengan SyntaxError**. Aturannya sudah
+  > tertulis di berkas ini sejak 15 September 2026 (Dashboard Omset) dan tetap
+  > terulang; sekarang `uji-mdr-danamasuk.js` menjaganya dengan asersi
+  > *"modul Reservasi hidup"*, dan mutasi yang menyelipkan backtick ke komentar
+  > itu memang tertangkap.
+
 - **Nama berkas CSV menyebut basisnya.** Dua ekspor rentang yang sama dengan
   basis berbeda berisi baris yang berbeda, dan nama yang sama persis membuat
   yang kedua menimpa yang pertama di folder unduhan.
@@ -7443,10 +7461,10 @@ verifikasi.
   modul Analytics (tab Void) dan di modul DW.
 
 ```bash
-node tools/uji-mdr-danamasuk.js   # 82 pemeriksaan, jsdom (kas + reservasi)
+node tools/uji-mdr-danamasuk.js   # 86 pemeriksaan, jsdom (kas + reservasi)
 ```
 
-**Dua puluh mutasi dicoba, kedua puluhnya tertangkap.** Data ujinya
+**Dua puluh dua mutasi dicoba, kedua puluh duanya tertangkap.** Data ujinya
 dirancang supaya tiap kesalahan memberi hasil yang BERBEDA: empat kelompok
 ber-MDR dengan persen yang tidak mungkin tertukar (2,00% / 0,70% / 20,00% /
 1,00%), satu kelompok tanpa MDR yang penyebutnya menjungkirkan angkanya
