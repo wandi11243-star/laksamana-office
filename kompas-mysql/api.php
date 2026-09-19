@@ -314,6 +314,39 @@ try {
        di form berisi enam isian. */
     keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
   }
+  /* ---- PENCOCOKAN DANA QRIS BRI (19 September 2026) ----
+     MEMBACA sengaja dibiarkan terbuka, seperti seluruh aksi baca lain di
+     berkas ini: isinya sekelas dengan getAll yang memang sudah terbuka, dan
+     halaman rekonsiliasi tidak boleh ikut mati tiap kali account-api batuk. */
+  else if ($action === 'briList') {
+    keluar(array('ok' => true, 'data' => bri_list(
+      isset($_GET['dari'])   ? $_GET['dari']   : (isset($body['dari'])   ? $body['dari']   : ''),
+      isset($_GET['sampai']) ? $_GET['sampai'] : (isset($body['sampai']) ? $body['sampai'] : ''))));
+  }
+  /* MENULIS berpagar sesi, dan nama yang tercatat diambil server dari sesi
+     yang SUDAH diverifikasi — bukan dari nama yang dikirim peramban. Seluruh
+     guna catatan ini bergantung pada "siapa yang memutuskan uang ini milik
+     reservasi siapa", dan nama yang datang dari layar bisa diketik siapa
+     saja. Pelajaran yang sama dengan kotak PIC di modul Event.
+
+     Kuncinya `cashier` ATAU `finance`: yang memegang mutasi banknya finance,
+     yang tahu nama tamunya kasir. Dipatok satu, salah satunya terkunci dari
+     halaman yang memang tugasnya. */
+  else if ($action === 'briUnggah' || $action === 'briCocok' || $action === 'briBatal') {
+    require_once __DIR__ . '/lib_sesi.php';
+    $u = sesi_user($body);
+    if (!$u) sesi_tolak_tak_dikenal();
+    if (!sesi_punya_modul($u, 'cashier') && !sesi_punya_modul($u, 'finance'))
+      sesi_tolak_tanpa_modul('Cashier atau Finance');
+    $nama = isset($u['name']) ? $u['name'] : '';
+    $uid  = isset($u['id'])   ? $u['id']   : '';
+    $dt   = isset($body['data']) ? $body['data'] : null;
+    if      ($action === 'briUnggah') $r = bri_unggah($dt, $nama, $uid);
+    else if ($action === 'briCocok')  $r = bri_cocok($dt, $nama);
+    else                              $r = bri_batal(isset($body['id']) ? $body['id'] : '',
+                                                     isset($body['alasan']) ? $body['alasan'] : '', $nama);
+    keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
+  }
   else keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
 } catch (Throwable $e) {
   keluar(array('ok' => false, 'error' => $e->getMessage()));

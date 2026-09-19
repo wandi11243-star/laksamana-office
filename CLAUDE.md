@@ -6301,6 +6301,273 @@ sehari sebelumnya. Uji apa pun di modul ini yang memanggil `setHadir()` lebih
 dari sekali wajib memasang ulang fixture-nya.
 
 
+### Pencocokan Dana QRIS BRI: satu mesin, dua modul (19 September 2026)
+
+Permintaan user: *"saya ingin buat satu menu tab untuk pencocokan dana QRIS
+BRI di modul cashier dan modul finance"*. Kunci view **`bri`** di keduanya,
+nama menu SAMA PERSIS — **Pencocokan QRIS BRI**.
+
+Yang digantikan berkas Excel `Qris BRI 2026.xlsx` yang selama ini diisi
+tangan: satu lembar per bulan (Jan26 … Sept26), kolom *Tanggal Bayar · Jam ·
+Keterangan · Tanggal booking · BRI · Setlement Bank*, plus matriks tanggal
+1–30 yang mengalokasikan tiap DP ke tanggal bookingnya.
+
+| | |
+|---|---|
+| `deploy/assets/cocok-bri.js` | **MESINNYA** — pengurai, rumus cocok, tabel, gaya |
+| `deploy/cashier/` → Pencocokan QRIS BRI | `viewBri()`, ~40 baris penyambung |
+| `deploy/finance/kas/` → Pencocokan QRIS BRI | `viewBriKas()`, ~40 baris penyambung |
+| `kompas-mysql` tabel **`bri_mutasi`** | datanya, lewat `briList`/`briUnggah`/`briCocok`/`briBatal` |
+
+#### YANG DICOCOKKAN DP RESERVASI — diukur, bukan dikira
+
+Dari berkas Excel-nya sendiri, dihitung per isi kolom Keterangan:
+
+| | Sept26 | Agust26 |
+|---|---|---|
+| **Reservasi** | 155 | 245 |
+| event corporate / videotron / setoran tamu / nobar | 5 | 8 |
+| **tiket** | **0** | **0** |
+
+Itu sebabnya lawan cocoknya `dps[]` milik modul Reservasi dan bukan yang
+lain. Kalau suatu hari tiket ikut masuk rekening yang sama, yang perlu
+ditambah sumber kedua di `muatDp()` — bukan menebaknya dari keterangan.
+
+#### ASET, BUKAN DISALIN KE DUA MODUL
+
+Isinya rumus pencocokan uang. Dua salinan pasti menyimpang, dan yang
+menyimpang membuat dua layar menyebut jumlah dana tercocokkan yang BERBEDA
+untuk bulan yang sama — tanpa satu pun galat. Pola yang sama dengan
+`performa-bonus.js` dan `xlsx-baca.js`; repo ini sudah lima kali kehilangan
+waktu karena berkas kembar yang tertinggal.
+
+- **MANDIRI**: pemformat & escape sendiri (`CB_RP`/`CB_NUM`/`CB_ESC`). Dua
+  modul menamainya berbeda-beda, dan aset yang menumpang nama global tuan
+  rumah akan memformat BERBEDA di tiap modul tanpa satu pun galat.
+- **SELURUHNYA di dalam SATU IIFE** — `num`/`esc` bernama sama dengan milik
+  tuan rumah, dan dua `const` bernama sama di lingkup global skrip klasik
+  menjatuhkan halaman dengan SyntaxError SEBELUM satu baris pun jalan.
+- **Gaya dikurung `#cb-wrap`**, dan keadaan aktif saklar (`.on`, `.active`)
+  WAJIB ikut di dalam kurungan: kurungan menaikkan kekhususan seluruh
+  aturannya di atas milik tuan rumah, jadi tombol terpilih akan berhuruf
+  putih di atas latar terang. Sudah kejadian di `#pk-wrap`, 18 Sep 2026.
+
+#### `bacaBerkasLembar()` — pembaca MULTI-LEMBAR di `xlsx-baca.js`
+
+`bacaBerkasTabel()` selalu mengambil lembar **PERTAMA**, dan di berkas ini
+lembar pertama **Juli26** — bukan bulan yang sedang dikerjakan orang.
+
+- **NAMA LEMBAR DARI `workbook.xml`, URUTAN dari `r:id` → rels.** Ditebak
+  dari nomor berkas (`sheet1.xml` = lembar pertama) SALAH dan salahnya diam:
+  Excel menomori berkas menurut urutan PEMBUATAN, bukan urutan tab. Di
+  berkas ini lembar ke-7 (Juni26) tersimpan sebagai `sheet7.xml` sementara
+  tab PERTAMA (Juli26) juga `sheet1.xml` — yang menebak memberi nama bulan
+  yang keliru ke isi yang benar.
+- **`bacaBerkasTabel()` SENGAJA tidak diubah jadi pembungkusnya**: ia dipakai
+  Analytics & Jadwal untuk berkas berlembar satu, dan mengurai SELURUH lembar
+  berarti berkas POS 9,4 MB diurai berkali-kali untuk lembar yang tidak
+  pernah dibaca siapa pun.
+- Lembar yang **namanya menyebut bulan yang sedang dibuka dipilih sendiri**
+  (`cocokNamaBulan`). Lembar salah pilih adalah kesalahan paling mudah di
+  halaman ini, dan pratinjaunya **menyebut bulan dominan** di isinya lalu
+  membandingkannya dengan bulan yang sedang dibuka.
+
+#### KOLOM DICARI MENURUT NAMANYA, dan COCOK PERSIS DULU
+
+Berkas ini disusun tangan dan kolomnya rutin digeser antar bulan; pembaca
+yang menghitung kolom ke-5 akan membaca **BCA** sebagai nominal BRI — salah
+yang muncul sebagai UANG, bukan sebagai galat.
+
+**Awalan-saja tidak cukup**, dan itu punya bentuk pemicunya sendiri: kolom
+`Tanggal booking` yang berdiri SEBELUM `Tanggal` akan direbut kandidat
+`tanggal` kalau pencocokannya awalan — dan sejak itu tanggal uang masuk
+terbaca dari kolom tanggal booking. Seluruh mutasi jatuh ke hari yang salah.
+
+- **Baris kepala DICARI**, bukan dianggap baris pertama: lembar ini punya
+  baris judul di atasnya (kepala di baris 2) dan baris **Total** di baris 4.
+- **Baris Total ikut terbuang** lewat aturan "tanpa tanggal" yang sama dengan
+  baris kosong. Ikut terbaca, ia masuk sebagai mutasi raksasa dan seluruh
+  rekonsiliasi bulan itu berlipat.
+- **Baris tanpa tanggal/nominal DILEWATI, bukan menggagalkan unggah** —
+  lembar ini penuh baris kosong dan baris judul. Jumlahnya dilaporkan.
+
+#### PENCOCOKAN BERTINGKAT GLOBAL, BUKAN SERAKAH
+
+Ini yang paling menentukan di seluruh bagian ini. Pencocokan serakah — tiap
+baris menghabiskan seluruh babak sebelum pindah baris — **salah, dan salahnya
+halus**: baris yang cuma cocok lewat tanggal+nominal akan MENGAMBIL DP milik
+baris berikutnya yang sebenarnya cocok sampai ke namanya.
+
+Diuji atas data produksi September 2026: cara serakah meleset pada **Fenty,
+Linda, Caca, dan Winanto** — seluruhnya reservasi yang datanya JELAS ada.
+
+Jadi babak 1 menyapu SELURUH baris lebih dulu, baru babak 2, dan seterusnya:
+
+| babak | syarat | pasti? |
+|---|---|---|
+| 1 | nama + tanggal bayar + nominal | **ya** |
+| 2 | nama + tanggal booking + nominal | **ya** |
+| 3 | nama + nominal (tanggal tidak menguatkan) | tidak |
+| 4 | tanggal + nominal, **hanya** untuk mutasi tanpa keterangan | tidak |
+
+Atas Sept 2026 produksi: **136 dari 165 (82%)** tercocokkan sendiri, 132 di
+antaranya PASTI.
+
+- **DUA BABAK PERTAMA saja yang boleh diterapkan sekaligus.** Babak 3 tidak
+  punya tanggal yang menguatkan dan babak 4 tidak punya nama sama sekali;
+  menerapkannya massal berarti memindahkan uang orang tanpa ada yang pernah
+  melihatnya. Tombol "Terapkan" menyebut jumlah yang PASTI saja — kalau yang
+  kira-kira ikut, saklarnya jadi hiasan.
+- **USULAN TIDAK MENYENTUH DATABASE.** Dihitung di layar tiap render dan baru
+  tercatat kalau ada yang menekannya. Pencocokan adalah keputusan tentang
+  uang; menuliskannya tanpa ada yang menekan apa pun berarti mengambil
+  keputusan itu atas nama orang yang belum melihatnya.
+- **NAMA PENDEK WAJIB SAMA PERSIS** (`< 4` huruf). Dibiarkan sebagai
+  substring, "Ika" cocok ke Rika / Ikang / Marika — dan pencocokan yang salah
+  memindahkan uang orang ke reservasi orang lain.
+- **Nominal yang beda Rp1 pun tidak pernah dicocokkan**, seberapa pun namanya
+  mirip.
+
+#### TABEL SENDIRI, dan TIDAK ADA DELETE
+
+Menumpang blob `app_state` mustahil: blob itu ditulis UTUH oleh Cashier DAN
+Finance > Omset, dan sejak 7 Sep 2026 berpagar penjaga tulis-basi `baseTs`.
+Pencocokan diketik finance dari tab yang sudah membuka Report Daily sejak
+pagi — tiap pencocokan berpeluang **DITOLAK sebagai konflik**, atau (kalau
+penjaganya lewat) **MENIMPA** koreksi omset di modul sebelah. Penulisannya
+karena itu granular per baris, pola `void_log`. **Jangan dirapikan kembali
+jadi bagian `save()`.**
+
+- **Tabelnya lahir sendiri** lewat `bri_pastikan()`, bukan berkas migrasi —
+  migrasi di repo ini rutin tertinggal di produksi.
+- **Baris salah unggah DIBATALKAN** (`batal_at`), tetap tergambar, tercoret,
+  dan berhenti ikut dijumlahkan. Alasannya wajib. Catatan rekonsiliasi yang
+  barisnya bisa dihapus bukan catatan, cuma draf.
+
+#### UNGGAH TIDAK PERNAH MENIMPA PENCOCOKAN
+
+Berkasnya diunggah ulang berkali-kali sepanjang bulan sementara
+pencocokannya diputuskan di layar ini. `ON DUPLICATE KEY UPDATE` karena itu
+**hanya** menyentuh `ket`, `settle`, `booking` — `res_id`, `dp_id`, `cara`,
+`catatan`, dan `cocok_*` TIDAK PERNAH ditimpa. Kalau ditimpa, unggah membuang
+keputusan yang baru diambil orang tanpa satu pun galat: dari sisi server itu
+penyimpanan yang sah.
+
+- **Baris yang ADA di tabel tapi TIDAK ada di berkas dibiarkan.** Satu
+  `DELETE` di sini berarti unggah yang salah pilih lembar menghapus sebulan
+  pencocokan, dan tidak ada cara mengembalikannya.
+- **SIDIK = `tgl|jam|nominal|#k`, DIBUAT SERVER.** Sidik karangan dari klien
+  bisa menabrak baris orang lain. `#k` = kemunculan ke-berapa di antara baris
+  yang ketiganya sama persis: dua transfer identik pada jam yang sama memang
+  mungkin, dan tanpa `k` yang kedua MENIMPA yang pertama lewat kunci unik —
+  satu baris mutasi hilang, dan uangnya ikut hilang dari rekonsiliasi.
+- **`bri_jam()` di PHP BERKAS KEMBAR `cbJam()` di aset.** Sidik dibentuk dari
+  jam yang sudah dibakukan, jadi dua aturan berarti unggah ulang melahirkan
+  baris ganda untuk mutasi yang sama.
+- **Unggah SATU TRANSAKSI**; **pencocokan massal SENGAJA TIDAK** — satu
+  usulan yang ditolak karena DP-nya keburu dipakai orang lain tidak boleh
+  membatalkan empat puluh sembilan keputusan yang sudah benar. Yang gagal
+  dilaporkan satu per satu berikut sebabnya.
+
+#### SATU DP TIDAK BOLEH DIPEGANG DUA BARIS
+
+Ditegakkan di SERVER (`bri_dp_dipakai`), bukan di layar. Kalau boleh, satu DP
+Rp300.000 diakui dua kali dan total dana tercocokkan jadi lebih besar
+daripada uang yang benar-benar masuk — angkanya tetap terlihat wajar di tiap
+barisnya. Baris yang sudah **dibatalkan tidak ikut menahan**: DP-nya memang
+tidak dipegang siapa-siapa lagi.
+
+#### DP DIBACA LEWAT `getAll` — TIDAK ADA PERUBAHAN DI BACKEND RESERVASI
+
+Backend Reservasi diunggah manual dan bukan milik repo ini; menambah aksi di
+sana berarti satu langkah pemasangan yang bisa tertinggal, dan gejalanya
+halaman ini kosong di satu server sementara benar di server sebelahnya.
+
+- **Dimuat SEKALI per sesi halaman**, bukan tiap ganti bulan: balasannya
+  ~2,4 MB. Tombol **Muat Ulang** yang menyegarkannya.
+- **`tfAmount` menang atas `amount`** — itu angka yang benar-benar tertulis
+  di struk, dan justru struk itulah yang dicocokkan ke mutasi bank.
+- **DP yang `tfDate`-nya kosong TETAP ditawarkan** (197 dari 478 di produksi,
+  OCR struknya gagal membaca tanggal). Dijepit ke tanggal transfer saja, DP
+  seperti itu tidak akan pernah bisa dipilih siapa pun.
+- **Kartu "DP yang belum ketemu di mutasi BRI"** adalah arah sebaliknya, dan
+  ia yang menangkap kesalahan yang tidak terlihat dari tabel di atas. Yang
+  bertanda **Transfer UOB / BCA / Mandiri DIKATAKAN memang bukan BRI** —
+  uangnya masuk rekening lain, jadi memang tidak akan pernah ada di daftar
+  itu. Tanpa kalimat itu, daftarnya dibaca sebagai dana yang hilang.
+
+#### Yang gampang lepas tanpa satu pun galat
+
+- **SIDEBAR KEDUA MODUL HTML STATIS.** Menambah `TITLES` saja tidak
+  melahirkan menunya, dan halaman tanpa baris `TITLES` **memantul balik**.
+  Sudah menggigit di tab Void modul Analytics dan di modul DW.
+- **Jalur reservasi-api `../../` di panel Kas**, `../` di Cashier. Yang
+  kurang satu tingkat tidak melempar — ia memulangkan 404 server, dan yang
+  sampai ke layar cuma "balasan bukan JSON".
+- **`bacaSesi()` panel Kas Kecil kebagian `token`** di tanggal ini — endpoint
+  tulisnya berpagar sesi, dan tanpa itu kirimannya ditolak "sesi tidak
+  dikenal" walau orangnya jelas login. Cashier sudah punya sejak Catatan Void.
+- **`bri` WAJIB ada di `AKS_HAL_ISI`** panel Kas: halaman ini punya isian,
+  dan di luar daftar itu `aksTingkat()` menjepitnya ke Lihat — tidak seorang
+  pun bisa mengunggah. Viewer tetap dijepit ke Lihat, dan itu memang guna
+  role bernama View Only.
+- **`cbJam()` menolak serial >= 1** — angka segitu adalah serial TANGGAL, dan
+  membacanya sebagai jam memberi jam karangan yang tetap terlihat wajar.
+- **Serial Excel dihitung UTC.** Dibaca lokal, zona di timur menggeser
+  tanggalnya satu hari dan mutasi di ujung bulan jatuh ke bulan yang salah.
+- **Mengetik menggambar ulang WADAH tabelnya saja** (`gambarTabelSaja`),
+  berikut memulihkan posisi kursor. Lewat penggambar tuan rumah, gulir
+  melompat ke atas dan hanya huruf pertama yang masuk.
+- **Panel cocoknya INLINE, bukan modal**: dua tuan rumah menamai modalnya
+  berbeda, dan aset yang memanggil modal tuan rumah bekerja di satu modul
+  lalu melempar di modul sebelahnya.
+
+```bash
+node tools/uji-cocok-bri.js   # 132 pemeriksaan, TANPA jsdom + berkas POS asli + php-parser
+```
+
+Ujinya tiga lapis: **mesin dijalankan berdiri sendiri** (kalau ia butuh satu
+pun nama global tuan rumah, blok pertama yang berbunyi), **berkas
+`Qris BRI 2026.xlsx` asli** kalau ada di root repo (kalau tidak, bagian itu
+MELEWAT dengan jelas), dan **kontrak atas sumber PHP** — tidak ada php di
+mesin pengembangan, jadi sintaksnya dijaga php-parser dan aturannya dijaga
+terhadap sumbernya. Berkas Excel-nya **jangan di-commit**: ia memuat nama
+tamu berikut nominal DP-nya sebulan penuh.
+
+**ASERSI TERKUATNYA: jumlah hasil urai = BARIS TOTAL di kaki lembarnya
+sendiri** (Rp45.894.350 untuk Sept26). Baris itu ditulis orang yang menyusun
+berkasnya, bukan oleh kode yang diuji — jadi ia satu-satunya pemeriksaan di
+sana yang tidak bisa basi sendiri, dan ia menangkap kesalahan APA PUN di
+pengurainya: kolom yang salah dipilih, baris yang terlewat, baris total yang
+ikut terhitung, atau angka berpemisah ribuan yang salah dibaca.
+
+**Tiga puluh enam mutasi dicoba, ketiga puluh enamnya tertangkap** — tapi
+LIMA baru sesudah ujinya dibetulkan, dan kelimanya bentuk yang sudah punya
+nama di berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| pencocokan jadi SERAKAH | **cacat fixture** — tidak ada baris yang bisa cocok lewat babak LONGGAR sekaligus jadi kandidat babak KETAT untuk baris lain, jadi serakah dan bertingkat memberi hasil yang sama | dua baris memperebutkan satu DP: yang tanpa keterangan berdiri LEBIH DULU |
+| kolom dicocokkan awalan saja | fixture tidak punya kolom yang namanya berawalan sama tapi berbeda | lembar berkolom `Tanggal booking` sebelum `Tanggal`, dan `BRI Pending` sebelum `BRI` |
+| baris tanpa tanggal menggagalkan unggah | pola `$lewat++; continue;` yang telanjang **juga cocok** dengan penjaga `!is_array($b)` satu baris di atasnya | polanya dijepit ke syaratnya sendiri |
+| jumlah baris baru dihitung SESUDAH menulis | `indexOf` memulangkan **-1** untuk blok yang DIHAPUS, dan -1 selalu lebih kecil daripada apa pun | keberadaan kedua blok dikunci lebih dulu |
+| sidik tanpa nomor urut | tidak ada satu asersi pun yang menjaganya | asersi atas `bri_sidik()` dan penghitung `$hitungK` |
+
+> **BERKAS REPO INI CRLF, dan runner mutasi yang polanya ber-`\n` akan
+> melaporkan LEWAT untuk pola multi-baris yang sebenarnya ADA.** Lima mutasi
+> terbaca begitu di putaran pertama. **LEWAT berarti perilaku itu tidak diuji
+> sama sekali, bukan aman** — runner-nya menormalkan CRLF→LF saat mencari dan
+> memulihkan berkasnya byte-per-byte sesudahnya.
+
+> **YANG BELUM DIKERJAKAN, dan itu disengaja:** halaman ini **tidak menulis
+> `tfStatus=verified`** ke modul Reservasi. Yang memegang status verifikasi DP
+> adalah halaman Dana Masuk milik Reservasi — yang memang sudah bisa dibuka
+> dari kedua modul lewat bingkai — dan dua tempat yang sama-sama boleh
+> mengubah satu penanda pasti berselisih suatu hari. Kalau suatu hari
+> diminta, yang perlu ditambah tombol di `panelCocok()` yang memanggil
+> `saveAll` modul Reservasi; jangan menyalin aturan verifikasinya ke sini.
+
+
 ### Reservasi: kwitansi ditahan sampai dananya diverifikasi (16 Sep 2026)
 
 Permintaan user: *"request kwitansi yang ada di modul reservasi tidak bisa

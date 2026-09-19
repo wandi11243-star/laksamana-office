@@ -1,0 +1,540 @@
+/* ============================================================
+   UJI — PENCOCOKAN DANA QRIS BRI  (19 September 2026)
+   ------------------------------------------------------------
+   node tools/uji-cocok-bri.js
+
+   TIGA LAPIS, dan ketiganya perlu:
+
+     1. MESIN BERDIRI SENDIRI (tanpa jsdom). deploy/assets/cocok-bri.js
+        dijalankan lewat new Function('window','document', …) dengan document
+        tiruan — kalau ia butuh satu pun nama global tuan rumah, blok pertama
+        yang berbunyi. Pola yang sama dengan uji-performa-konten.js.
+
+     2. JALUR BERKAS SUNGGUHAN. Berkas "Qris BRI 2026.xlsx" di root repo
+        dibaca lewat bacaBerkasLembar() yang sungguhan — bukan fixture yang
+        bentuknya bisa menyimpang dari berkas aslinya. Kalau berkasnya tidak
+        ada, bagian ini MELEWAT DENGAN JELAS.
+
+        Asersi terkuat di seluruh berkas ini ada di sana: total nominal hasil
+        urai dibandingkan dengan BARIS TOTAL di kaki lembarnya sendiri
+        (Rp45.894.350 untuk Sept26). Baris itu ditulis orang yang menyusun
+        berkasnya, bukan oleh kode yang diuji, jadi ia satu-satunya
+        pemeriksaan di sini yang tidak bisa basi sendiri.
+
+     3. KONTRAK SISI PHP. Tidak ada php di mesin pengembangan, jadi
+        kompas-mysql diperiksa dua cara: sintaksnya lewat php-parser (satu
+        parse error mematikan SELURUH endpoint folder itu) dan aturannya
+        sebagai kontrak atas SUMBERNYA. Keduanya BUKAN pengganti menjalankan
+        PHP-nya, dan itu dikatakan di sini supaya yang membaca hasil hijau
+        tahu persis apa yang sudah diuji. Pola uji-simpan-basi.js.
+
+   Berkas Excel-nya JANGAN di-commit — ia memuat nama tamu berikut nominal
+   DP-nya sebulan penuh.
+   ============================================================ */
+'use strict';
+const fs = require('fs');
+const path = require('path');
+const vm = require('vm');
+
+const AKAR = path.resolve(__dirname, '..');
+let ok = 0, gagal = 0, lewat = 0;
+function T(nama, syarat, ket) {
+  if (syarat) { ok++; return; }
+  gagal++;
+  console.log('  GAGAL  ' + nama + (ket ? '  (' + ket + ')' : ''));
+}
+function L(nama, sebab) { lewat++; console.log('  LEWAT  ' + nama + '  (' + sebab + ')'); }
+/* Blok yang bisa melempar DIBUNGKUS: asersi yang melempar membunuh seluruh
+   suite, dan mutasinya lalu terbaca "uji tidak selesai" — bukan
+   "tertangkap". Bentuk yang sudah empat kali menggigit di repo ini. */
+function aman(nama, fn) {
+  try { fn(); } catch (e) { gagal++; console.log('  GAGAL  ' + nama + '  (melempar: ' + e.message + ')'); }
+}
+async function amanAsync(nama, fn) {
+  try { await fn(); } catch (e) { gagal++; console.log('  GAGAL  ' + nama + '  (melempar: ' + e.message + ')'); }
+}
+
+/* ============ 1. MESIN BERDIRI SENDIRI ============ */
+console.log('\n[1] Mesin dijalankan tanpa tuan rumah');
+const G = {};
+const docPalsu = { head: null, activeElement: null,
+  querySelector: () => null, querySelectorAll: () => [], getElementById: () => null,
+  createElement: () => ({ style: {}, appendChild() {} }) };
+aman('cocok-bri.js jalan berdiri sendiri', () => {
+  new Function('window', 'document', fs.readFileSync(path.join(AKAR, 'deploy/assets/cocok-bri.js'), 'utf8'))(G, docPalsu);
+});
+new Function('window', fs.readFileSync(path.join(AKAR, 'deploy/assets/xlsx-baca.js'), 'utf8'))(G);
+
+T('cbTgl / cbJam / cbUsulan diekspor',
+  typeof G.cbTgl === 'function' && typeof G.cbJam === 'function' && typeof G.cbUsulan === 'function');
+T('bacaBerkasLembar diekspor xlsx-baca', typeof G.bacaBerkasLembar === 'function');
+
+/* ---- tanggal ---- */
+console.log('\n[2] Membaca tanggal & jam');
+T('serial Excel 46266 -> 2026-09-01', G.cbTgl(46266) === '2026-09-01', G.cbTgl(46266));
+T('serial Excel 46295 -> 2026-09-30', G.cbTgl(46295) === '2026-09-30', G.cbTgl(46295));
+/* SERIAL DIHITUNG UTC. Dibaca lokal, zona di timur menggeser tanggalnya satu
+   hari — dan mutasi yang bergeser sehari jatuh ke bulan yang salah di ujung
+   bulan. Di mesin berzona WIB kedua cara memberi hasil yang SAMA untuk
+   sebagian besar tanggal, jadi yang menjaganya asersi SUMBER: pola yang sama
+   dengan penjaga zona isoDari() di modul Analytics. */
+const srcCb = fs.readFileSync(path.join(AKAR, 'deploy/assets/cocok-bri.js'), 'utf8');
+T('serial dihitung UTC, bukan zona peramban', /toISOString\(\)\.slice\(0, 10\)/.test(srcCb));
+T('"02 Sept 2026" -> 2026-09-02', G.cbTgl('02 Sept 2026') === '2026-09-02', G.cbTgl('02 Sept 2026'));
+T('"29 Agust 2026" -> 2026-08-29', G.cbTgl('29 Agust 2026') === '2026-08-29', G.cbTgl('29 Agust 2026'));
+T('ISO diteruskan apa adanya', G.cbTgl('2026-09-05') === '2026-09-05');
+T('"5/9/2026" dibaca hari-bulan-tahun', G.cbTgl('5/9/2026') === '2026-09-05', G.cbTgl('5/9/2026'));
+/* Nomor meja / nominal yang nyasar ke kolom tanggal TIDAK boleh diam-diam
+   jadi tanggal tahun 1900-an. */
+T('angka di luar rentang serial ditolak', G.cbTgl(12) === '' && G.cbTgl(200000) === '');
+T('teks bukan tanggal ditolak', G.cbTgl('Reservasi') === '' && G.cbTgl('') === '');
+
+T('jam "15.46" -> 15:46', G.cbJam('15.46') === '15:46', G.cbJam('15.46'));
+T('jam "9:05" -> 09:05', G.cbJam('9:05') === '09:05', G.cbJam('9:05'));
+T('serial pecahan hari jadi jam', G.cbJam('0.5') === '12:00', G.cbJam('0.5'));
+/* Serial >= 1 adalah serial TANGGAL. Dibaca sebagai jam ia memberi jam
+   karangan yang tetap terlihat wajar. */
+T('serial >= 1 BUKAN jam', G.cbJam('46207') === '', G.cbJam('46207'));
+T('jam di luar 0..23 ditolak', G.cbJam('25.10') === '' && G.cbJam('12.99') === '');
+
+/* ---- nama ---- */
+console.log('\n[3] Membaca & mencocokkan nama');
+T('"Reservasi : Arlanda" -> Arlanda', G.cbNamaDari('Reservasi : Arlanda') === 'Arlanda');
+T('"Reservasi: Laura" -> Laura', G.cbNamaDari('Reservasi: Laura') === 'Laura');
+T('tanpa titik dua dipakai utuh', G.cbNamaDari('PT. Ibra Harisindo') === 'PT. Ibra Harisindo');
+T('keterangan kosong -> nama kosong', G.cbNamaDari('') === '' && G.cbNamaDari('   ') === '');
+T('beda huruf besar-kecil tetap cocok', G.cbNamaCocok('Arlanda', 'arlanda'));
+T('sebagian nama panjang cocok', G.cbNamaCocok('Sri Rahmadani', 'Sri Rahmadani Putri'));
+/* NAMA PENDEK WAJIB SAMA PERSIS. Dibiarkan sebagai substring, "Ika" cocok ke
+   Rika / Ikang / Marika — dan pencocokan yang salah di sini memindahkan uang
+   orang ke reservasi orang lain. */
+T('nama pendek TIDAK cocok sebagai potongan', !G.cbNamaCocok('Ika', 'Rika'));
+T('nama pendek cocok kalau sama persis', G.cbNamaCocok('Ika', 'ika'));
+T('nama kosong tidak pernah cocok', !G.cbNamaCocok('', 'Arlanda') && !G.cbNamaCocok('Arlanda', ''));
+
+/* ---- pengurai lembar ---- */
+console.log('\n[4] Mengurai lembar (fixture)');
+const KEPALA = { A: 'Tanggal Bayar', B: 'Jam', C: 'Keterangan', D: 'Tanggal booking',
+                 E: 'BRI', F: 'Setlement Bank', G: 'BCA', H: 'PENDING BULAN LALU' };
+const LEMBAR = [
+  { H: 'PEND' },                                   // baris judul di atas kepala
+  KEPALA,                                          // kepala di baris ke-2
+  {},                                              // baris kosong
+  { A: 'Total', E: '450000' },                     // baris TOTAL: tanpa tanggal
+  { A: '02 Sept 2026', B: '11.44', C: 'Reservasi : Arlanda', D: '02 Sept 2026', E: '200000', F: '46267' },
+  { A: '03 Sept 2026', B: '13.46', C: 'Reservasi : Farel',   D: '03 Sept 2026', E: '150000' },
+  { A: '04 Sept 2026', B: '15.00', C: '',                    D: '',             E: '100000' },
+  { A: '', B: '', C: 'baris tanpa tanggal', E: '999999' }    // dilewati
+];
+let U = null;
+aman('cbUraiLembar tidak melempar', () => { U = G.cbUraiLembar(LEMBAR); });
+T('lembar terbaca', !!(U && U.ok), U && U.error);
+if (U && U.ok) {
+  /* KEPALA DICARI, bukan dianggap baris pertama: lembar ini punya baris judul
+     di atasnya, dan pembaca yang memakai baris pertama akan membaca "PEND"
+     sebagai nama kolom lalu tidak menemukan satu pun. */
+  T('baris kepala ditemukan di baris 2', U.barisKepala === 2, 'dapat ' + U.barisKepala);
+  T('kolom dipetakan menurut NAMA', U.peta.tgl === 'A' && U.peta.nominal === 'E'
+    && U.peta.ket === 'C' && U.peta.booking === 'D' && U.peta.jam === 'B',
+    JSON.stringify(U.peta));
+  /* 'bri' cocok PERSIS ke kolom E. Kalau pencocokannya awalan-saja, 'BCA'
+     atau 'PENDING BULAN LALU' bisa merebutnya — dan salahnya muncul sebagai
+     UANG, bukan sebagai galat. */
+  T('kolom nominal BUKAN BCA', U.peta.nominal !== 'G');
+  T('kolom tanggal BUKAN tanggal booking', U.peta.tgl !== 'D');
+  T('3 baris mutasi terbaca', U.baris.length === 3, 'dapat ' + U.baris.length);
+  /* BARIS TOTAL ikut terbuang lewat aturan "tanpa tanggal" yang sama dengan
+     baris kosong. Ikut terbaca, ia masuk sebagai mutasi raksasa dan seluruh
+     rekonsiliasi bulan itu berlipat. */
+  T('baris TOTAL tidak ikut jadi mutasi', !U.baris.some(b => b.nominal === 450000));
+  /* DUA, bukan satu: baris TOTAL dan baris tanpa tanggal sama-sama terhitung.
+     Baris kosong murni TIDAK ikut dihitung — kalau ikut, angka "N baris
+     dilewati" di pratinjau akan berbunyi ratusan untuk lembar yang isinya
+     baik-baik saja, dan yang membacanya berhenti mempercayainya. */
+  T('baris TOTAL & baris tanpa tanggal dihitung sebagai dilewati', U.lewat === 2, 'dapat ' + U.lewat);
+  T('baris kosong murni TIDAK ikut dihitung dilewati', U.lewat < 3, 'dapat ' + U.lewat);
+  T('jam dibakukan HH:MM', U.baris[0].jam === '11:44', U.baris[0].jam);
+  T('tanggal booking ikut terbaca', U.baris[0].booking === '2026-09-02');
+  T('settlement ikut terbaca', U.baris[0].settle === '2026-09-02', U.baris[0].settle);
+  T('baris tanpa keterangan tetap masuk', U.baris[2].ket === '' && U.baris[2].nominal === 100000);
+}
+aman('lembar tanpa kolom yang dikenal ditolak dengan sebab', () => {
+  const r = G.cbUraiLembar([{ A: 'satu', B: 'dua' }, { A: 'x', B: 'y' }]);
+  T('lembar asing ditolak', r && r.ok === false && /kolom/i.test(r.error || ''));
+});
+
+/* KOLOM DICOCOKKAN PERSIS DULU, BARU AWALAN — dan lembar di bawah ini yang
+   membedakan keduanya. Kolom A bernama "Tanggal booking" berdiri SEBELUM
+   kolom B bernama "Tanggal"; dicocokkan awalan-saja, kandidat 'tanggal'
+   akan merebut A karena "tanggal booking" memang berawalan "tanggal" — dan
+   sejak itu tanggal uang masuk terbaca dari kolom tanggal booking. Seluruh
+   mutasi lalu jatuh ke hari yang salah, tanpa satu pun galat.
+
+   Bentuk ini bukan mengada-ada: kolom di lembar ini disusun tangan dan
+   urutannya rutin berbeda antar bulan. */
+aman('kolom dicocokkan PERSIS dulu, baru awalan', () => {
+  const r = G.cbUraiLembar([
+    { A: 'Tanggal booking', B: 'Tanggal', C: 'BRI Pending', D: 'BRI' },
+    { A: '05 Sept 2026', B: '02 Sept 2026', C: '900000', D: '200000' }
+  ]);
+  T('lembar berkolom mirip terbaca', !!(r && r.ok), r && r.error);
+  if (r && r.ok) {
+    T('kolom tanggal jatuh ke "Tanggal", bukan "Tanggal booking"',
+      r.peta.tgl === 'B', 'dapat ' + r.peta.tgl);
+    T('kolom booking jatuh ke "Tanggal booking"', r.peta.booking === 'A', 'dapat ' + r.peta.booking);
+    T('kolom nominal jatuh ke "BRI", bukan "BRI Pending"',
+      r.peta.nominal === 'D', 'dapat ' + r.peta.nominal);
+    T('nilainya ikut benar', r.baris.length === 1 && r.baris[0].tgl === '2026-09-02'
+      && r.baris[0].nominal === 200000, JSON.stringify(r.baris[0]));
+  }
+});
+
+/* ---- usulan pencocokan ---- */
+console.log('\n[5] Usulan pencocokan');
+/* FIXTURE DIRANCANG SUPAYA PENCOCOKAN SERAKAH GAGAL. m1 (Sri Agus) tidak
+   punya DP bernama sama, dan DP milik Fenty punya tanggal + nominal yang
+   SAMA PERSIS dengannya. Cara serakah — tiap baris mengambil kandidat
+   pertama yang cocok dengan aturan apa pun — akan memberikan DP Fenty ke
+   Sri Agus, lalu Fenty berakhir tanpa pasangan. Itu bug sungguhan: diuji
+   atas data produksi September 2026, cara serakah meleset pada Fenty,
+   Linda, Caca, dan Winanto. */
+const MUT = [
+  { id: 'm1', tgl: '2026-09-03', nominal: 300000, ket: 'Reservasi : Sri Agus', booking: '2026-09-05' },
+  { id: 'm2', tgl: '2026-09-03', nominal: 300000, ket: 'Reservasi : Fenty',    booking: '2026-09-05' },
+  { id: 'm3', tgl: '2026-09-07', nominal: 250000, ket: 'Reservasi : Bagas',    booking: '2026-09-09' },
+  { id: 'm4', tgl: '2026-09-08', nominal: 175000, ket: '',                     booking: '' },
+  { id: 'm5', tgl: '2026-09-09', nominal: 999000, ket: 'Reservasi : Hantu',    booking: '' }
+];
+const DPS = [
+  { resId: 'r1', dpId: 'd1', nama: 'Fenty', resTgl: '2026-09-05', tfTgl: '2026-09-03', nominal: 300000, dipakai: false },
+  /* tfTgl KOSONG — 197 dari 478 DP di produksi begitu, karena OCR struknya
+     gagal membaca tanggal. Yang menolongnya babak "nama + tanggal booking". */
+  { resId: 'r2', dpId: 'd2', nama: 'Bagas', resTgl: '2026-09-09', tfTgl: '',           nominal: 250000, dipakai: false },
+  { resId: 'r3', dpId: 'd3', nama: 'Nadia', resTgl: '2026-09-08', tfTgl: '2026-09-08', nominal: 175000, dipakai: false },
+  { resId: 'r4', dpId: 'd4', nama: 'Dipakai', resTgl: '2026-09-09', tfTgl: '2026-09-09', nominal: 999000, dipakai: true }
+];
+let US = null;
+aman('cbUsulan tidak melempar', () => { US = G.cbUsulan(MUT, DPS); });
+if (US) {
+  T('Fenty dapat DP-nya sendiri (serakah gagal di sini)',
+    US.m2 && US.m2.dp.dpId === 'd1', US.m2 ? US.m2.dp.nama : 'tidak ada usulan');
+  T('Sri Agus TIDAK merebut DP Fenty', !US.m1 || US.m1.dp.dpId !== 'd1');
+  T('babak nama+tgl ditandai PASTI', US.m2 && US.m2.babak.pasti === true);
+  T('Bagas cocok lewat tanggal booking', US.m3 && US.m3.dp.dpId === 'd2'
+    && US.m3.babak.kode === 'nama-book', US.m3 && US.m3.babak.kode);
+  T('cocok lewat booking ditandai PASTI', US.m3 && US.m3.babak.pasti === true);
+  /* Mutasi TANPA keterangan boleh dicocokkan lewat tanggal+nominal, TAPI
+     hasilnya bukan "pasti": tidak ada nama yang menguatkannya. Diterapkan
+     sekaligus, ia memindahkan uang tanpa ada yang pernah melihatnya. */
+  T('mutasi tanpa keterangan dapat usulan', US.m4 && US.m4.dp.dpId === 'd3');
+  T('usulan tanpa nama TIDAK pasti', US.m4 && US.m4.babak.pasti === false,
+    US.m4 && String(US.m4.babak.pasti));
+  /* DP yang sudah dipegang baris mutasi lain TIDAK ditawarkan lagi. Kalau
+     ditawarkan, satu DP diakui dua kali dan total dana tercocokkan jadi
+     lebih besar daripada uang yang benar-benar masuk. */
+  T('DP yang sudah dipakai tidak diusulkan lagi', !US.m5);
+  /* Satu DP tidak boleh diusulkan ke DUA baris sekaligus. */
+  const dipakai = Object.keys(US).map(k => US[k].dp.dpId);
+  T('tidak ada DP yang diusulkan dua kali', new Set(dipakai).size === dipakai.length);
+}
+/* ===== YANG MEMBEDAKAN SERAKAH DARI BERTINGKAT =====
+   Dua baris memperebutkan SATU DP, dan yang satu cocok lewat babak PALING
+   KETAT sementara yang lain cuma lewat babak PALING LONGGAR — dan yang
+   longgar berdiri LEBIH DULU di daftarnya.
+
+     s1  tanpa keterangan          -> cuma bisa lewat babak 4 (tgl+nominal)
+     s2  "Reservasi : Wulan"       -> lewat babak 1 (nama+tgl+nominal)
+
+   Serakah (tiap baris menghabiskan seluruh babak sebelum pindah baris):
+   s1 diproses duluan, gagal di babak 1-3, lolos di babak 4, MENGAMBIL DP
+   milik Wulan. s2 lalu tidak dapat apa-apa.
+
+   Bertingkat: babak 1 menyapu seluruh baris lebih dulu, jadi s2 yang dapat.
+
+   Fixture sebelumnya TIDAK bisa membedakan keduanya — mutasi "jadi serakah"
+   LOLOS di putaran pertama, dan itu cacat fixture, bukan cacat produk. */
+aman('bertingkat global, bukan serakah per baris', () => {
+  const r = G.cbUsulan(
+    [{ id: 's1', tgl: '2026-09-11', nominal: 425000, ket: '',                    booking: '' },
+     { id: 's2', tgl: '2026-09-11', nominal: 425000, ket: 'Reservasi : Wulan',   booking: '' }],
+    [{ resId: 'rw', dpId: 'dw', nama: 'Wulan', resTgl: '2026-09-12', tfTgl: '2026-09-11', nominal: 425000, dipakai: false }]);
+  T('DP jatuh ke baris yang namanya cocok, bukan ke baris yang diproses duluan',
+    r.s2 && r.s2.dp.dpId === 'dw', r.s1 ? 'direbut baris tanpa keterangan' : 'tidak ada usulan sama sekali');
+  T('baris tanpa keterangan TIDAK ikut merebutnya', !r.s1);
+});
+
+/* Nominal yang BEDA tidak pernah dicocokkan, seberapa pun namanya mirip. */
+aman('nominal beda tidak pernah cocok', () => {
+  const r = G.cbUsulan([{ id: 'x', tgl: '2026-09-03', nominal: 300001, ket: 'Reservasi : Fenty', booking: '' }],
+                       [{ resId: 'r', dpId: 'd', nama: 'Fenty', resTgl: '', tfTgl: '2026-09-03', nominal: 300000, dipakai: false }]);
+  T('beda Rp1 pun tidak dicocokkan', !r.x);
+});
+
+/* ============ 2. JALUR BERKAS SUNGGUHAN ============ */
+console.log('\n[6] Berkas Qris BRI asli (penguat)');
+const XLSX = path.join(AKAR, 'Qris BRI 2026.xlsx');
+
+/* Nilai-nilai ini DIBACA DARI BERKASNYA SENDIRI, bukan disalin ke sini:
+   TOTAL_SEPT diambil dari baris Total di kaki lembarnya (kolom E baris 4),
+   yang ditulis orang yang menyusun berkasnya — bukan oleh kode yang diuji.
+   Itu sebabnya perbandingan ini tidak bisa basi sendiri. */
+async function ujiBerkasAsli() {
+  if (!fs.existsSync(XLSX)) {
+    L('jalur berkas .xlsx sungguhan', 'Qris BRI 2026.xlsx tidak ada di root repo — berkasnya memang tidak di-commit');
+    return;
+  }
+  const buf = fs.readFileSync(XLSX);
+  const file = { name: 'Qris BRI 2026.xlsx',
+                 arrayBuffer: async () => buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength) };
+  let lembar = null;
+  await amanAsync('bacaBerkasLembar membaca berkas asli', async () => { lembar = await G.bacaBerkasLembar(file); });
+  if (!lembar) return;
+  T('seluruh lembar terbaca (14)', lembar.length === 14, 'dapat ' + lembar.length);
+  /* NAMA LEMBAR DARI workbook.xml, URUTAN dari r:id -> rels. Ditebak dari
+     nomor berkas (sheet1.xml = lembar pertama), Juni26 akan terbaca sebagai
+     lembar ke-7 padahal ia tab ke-7 yang tersimpan sebagai sheet7.xml
+     sementara Juli26 — tab PERTAMA — juga sheet1.xml. Yang menebak memberi
+     nama bulan yang keliru ke isi yang benar, tanpa satu pun galat. */
+  T('lembar pertama bernama Juli26 (bukan Jan26)', lembar[0] && lembar[0].nama === 'Juli26',
+    lembar[0] && lembar[0].nama);
+  T('nama lembar terbaca dari workbook.xml', lembar.some(s => s.nama === 'Sept26'));
+
+  const sep = lembar.find(s => s.nama === 'Sept26');
+  if (!sep) { T('lembar Sept26 ada', false); return; }
+
+  /* BARIS TOTAL DIBACA DARI LEMBARNYA — pembanding yang tidak ditulis kode
+     ini. Kolom E pada baris yang kolom A-nya berbunyi "Total". */
+  let totalLembar = 0;
+  for (const b of sep.baris.slice(0, 12)) {
+    if (String(b.A || '').trim().toLowerCase() === 'total') { totalLembar = Math.round(parseFloat(b.E) || 0); break; }
+  }
+  T('baris Total ketemu di lembarnya', totalLembar > 0, 'dapat ' + totalLembar);
+
+  const u = G.cbUraiLembar(sep.baris);
+  T('Sept26 terurai', !!(u && u.ok), u && u.error);
+  if (!u || !u.ok) return;
+  const totalUrai = u.baris.reduce((a, b) => a + b.nominal, 0);
+  /* ===== ASERSI TERKUAT DI BERKAS INI =====
+     Jumlah hasil urai WAJIB sama persis dengan baris Total yang ditulis di
+     kaki lembarnya. Ia menangkap kesalahan APA PUN di pengurainya: kolom
+     yang salah dipilih, baris yang terlewat, baris total yang ikut terhitung,
+     atau angka berpemisah ribuan yang salah dibaca. */
+  T('jumlah hasil urai = baris Total di lembarnya (Rp' + totalLembar.toLocaleString('id') + ')',
+    totalUrai === totalLembar, 'hasil urai ' + totalUrai.toLocaleString('id'));
+  T('165 baris mutasi terbaca dari Sept26', u.baris.length === 165, 'dapat ' + u.baris.length);
+  T('kolom nominal jatuh ke BRI (E), bukan BCA', u.peta.nominal === 'E', u.peta.nominal);
+  T('seluruh baris punya tanggal ISO yang sah',
+    u.baris.every(b => /^\d{4}-\d{2}-\d{2}$/.test(b.tgl)));
+  T('seluruh baris bernominal positif', u.baris.every(b => b.nominal > 0));
+  T('seluruh baris jatuh di bulan September 2026',
+    u.baris.every(b => b.tgl.slice(0, 7) === '2026-09'),
+    [...new Set(u.baris.map(b => b.tgl.slice(0, 7)))].join(','));
+}
+
+/* ============ 3. KONTRAK SISI PHP ============ */
+function ujiPhp() {
+  console.log('\n[7] Sisi PHP (sintaks + kontrak atas sumbernya)');
+  const fLib = path.join(AKAR, 'kompas-mysql/lib_kompas_mysql.php');
+  const fApi = path.join(AKAR, 'kompas-mysql/api.php');
+  let parser = null;
+  try { parser = require('php-parser'); } catch (e) { parser = null; }
+  if (parser) {
+    for (const f of [fLib, fApi]) {
+      aman('php-parser: ' + path.basename(f), () => {
+        new parser({ parser: { suppressErrors: false } }).parseCode(fs.readFileSync(f, 'utf8'));
+      });
+    }
+  } else {
+    L('sintaks PHP diperiksa php-parser', 'php-parser belum terpasang — npm i php-parser');
+  }
+
+  const lib = fs.readFileSync(fLib, 'utf8');
+  const api = fs.readFileSync(fApi, 'utf8');
+  const badan = nama => {
+    const i = lib.indexOf('function ' + nama + '(');
+    if (i < 0) return '';
+    const j = lib.indexOf('\nfunction ', i + 1);
+    return lib.slice(i, j < 0 ? lib.length : j);
+  };
+
+  T('tabel bri_mutasi lahir lewat CREATE TABLE IF NOT EXISTS, bukan migrasi',
+    /CREATE TABLE IF NOT EXISTS `bri_mutasi`/.test(lib));
+  /* Tanpa kunci unik ini, unggah ulang berkas yang sama melahirkan baris
+     ganda — dan sebulan mutasi jadi terhitung dua kali. */
+  T('sidik dikunci UNIQUE', /UNIQUE KEY `uniq_bri_sidik`/.test(lib));
+  /* SIDIK WAJIB MEMUAT NOMOR URUT. Dua transfer yang tanggal, jam, dan
+     nominalnya sama persis memang mungkin (dua tamu, nominal bulat yang
+     sama) — tanpa `#k` yang kedua MENIMPA yang pertama lewat kunci unik di
+     atas, dan satu baris mutasi hilang tanpa satu pun galat. Uangnya ikut
+     hilang dari rekonsiliasi. */
+  const bSidik = badan('bri_sidik');
+  T('sidik memuat nomor urut kemunculan', /'\|#' \. \(int\)\$k/.test(bSidik), bSidik.trim().slice(0, 120));
+  T('nomor urut dihitung per kombinasi tgl|jam|nominal',
+    /isset\(\$hitungK\[\$kunci\]\) \? \$hitungK\[\$kunci\] \+ 1 : 0/.test(lib));
+
+  const bUnggah = badan('bri_unggah');
+  T('bri_unggah ada', !!bUnggah);
+  /* KOLOM PENCOCOKAN TIDAK PERNAH DITIMPA UNGGAH. Berkasnya diunggah ulang
+     berkali-kali sepanjang bulan sementara pencocokannya diputuskan di layar;
+     unggah yang menimpa membuang keputusan yang baru diambil orang, tanpa
+     satu pun galat. */
+  for (const kol of ['res_id', 'dp_id', 'cara', 'catatan', 'cocok_oleh', 'cocok_at']) {
+    T('unggah TIDAK menyentuh kolom ' + kol,
+      bUnggah.indexOf('`' + kol + '`') < 0, 'kolom ' + kol + ' disebut di bri_unggah');
+  }
+  T('unggah cuma memperbarui ket/settle/booking di ON DUPLICATE KEY',
+    /ON DUPLICATE KEY UPDATE[\s\S]*?`ket`[\s\S]*?`settle`[\s\S]*?`booking`/.test(bUnggah));
+  /* Baris yang ADA di tabel tapi TIDAK ada di berkas harus dibiarkan. Satu
+     DELETE di sini berarti unggah yang salah pilih lembar menghapus sebulan
+     pencocokan, dan tidak ada cara mengembalikannya. */
+  T('unggah TIDAK menghapus baris yang tidak ada di berkas',
+    !/DELETE|TRUNCATE/i.test(bUnggah));
+  T('unggah satu TRANSAKSI', /beginTransaction\(\)/.test(bUnggah) && /rollBack\(\)/.test(bUnggah));
+  /* DIJEPIT KE SYARATNYA SENDIRI. Pola `$lewat++; continue;` yang telanjang
+     juga cocok dengan penjaga `!is_array($b)` satu baris di atasnya, jadi
+     mutasi yang mengganti baris ini dengan `return array(...)` LOLOS —
+     memang begitu di putaran pertama. */
+  T('baris tanpa tanggal/nominal dilewati, bukan menggagalkan seluruh unggah',
+    /\$nom <= 0\) \{ \$lewat\+\+; continue; \}/.test(bUnggah));
+  /* Dihitung SESUDAH menulis, seluruh sidik pasti sudah ada dan angka "N
+     baris baru" jadi nol selamanya.
+
+     KEDUANYA WAJIB ADA sebelum posisinya dibandingkan: indexOf memulangkan
+     -1 untuk yang tidak ketemu, dan -1 selalu lebih kecil daripada apa pun
+     — jadi mutasi yang MENGHAPUS blok hitungnya LOLOS. Memang begitu di
+     putaran pertama. */
+  const posHitung = bUnggah.indexOf('$adaSidik[$s[\'sidik\']] = true');
+  const posTulis  = bUnggah.indexOf('beginTransaction');
+  T('blok hitung baris baru masih ada', posHitung >= 0);
+  T('blok transaksi masih ada', posTulis >= 0);
+  T('jumlah baris baru dihitung SEBELUM menulis',
+    posHitung >= 0 && posTulis >= 0 && posHitung < posTulis);
+
+  const bCocokSatu = badan('bri_cocok_satu');
+  T('bri_cocok_satu ada', !!bCocokSatu);
+  /* SATU DP TIDAK BOLEH DIPEGANG DUA BARIS. Kalau boleh, satu DP diakui dua
+     kali dan total dana tercocokkan lebih besar daripada uang yang masuk. */
+  T('bentrok DP diperiksa sebelum menyimpan', /bri_dp_dipakai\(/.test(bCocokSatu));
+  const bDp = badan('bri_dp_dipakai');
+  T('pemeriksa bentrok melewati baris yang sudah dibatalkan', /`batal_at`=0/.test(bDp));
+  T('pemeriksa bentrok mengecualikan baris itu sendiri', /`id`<>:x/.test(bDp));
+  T('cara "bukan" menuntut catatan', /\$catatan === ''\) return 'Sebutkan dulu/.test(bCocokSatu));
+  T('baris yang sudah dibatalkan tidak bisa dicocokkan lagi',
+    /batal_at'\] > 0\) return 'Baris ini sudah dibatalkan/.test(bCocokSatu));
+
+  const bCocok = badan('bri_cocok');
+  /* BUKAN satu transaksi, dan itu disengaja: satu usulan yang ditolak karena
+     DP-nya keburu dipakai orang lain tidak boleh membatalkan empat puluh
+     sembilan keputusan yang sudah benar. */
+  T('bri_cocok TIDAK membungkus semuanya jadi satu transaksi',
+    !!bCocok && !/beginTransaction/.test(bCocok));
+  T('kegagalan per baris dilaporkan satu per satu', /\$gagal\[\] = array\(/.test(bCocok));
+  T('yang SELURUHNYA gagal dipulangkan sebagai gagal', /if \(!\$ok && count\(\$gagal\)\)/.test(bCocok));
+
+  /* TIDAK ADA DELETE di seluruh jalur BRI. Aturan nomor 0 repo ini, dan di
+     sini ia juga aturan produk: baris mutasi yang bisa dihapus membuat uang
+     yang benar-benar masuk hilang dari rekonsiliasi. */
+  const semuaBri = ['bri_pastikan', 'bri_unggah', 'bri_cocok_satu', 'bri_cocok', 'bri_batal', 'bri_list']
+    .map(badan).join('\n');
+  T('tidak ada DELETE/TRUNCATE di seluruh jalur BRI', !/\bDELETE\b|\bTRUNCATE\b/i.test(semuaBri));
+  T('bri_batal menandai, bukan menghapus', /UPDATE `bri_mutasi` SET `batal_at`/.test(badan('bri_batal')));
+  T('alasan pembatalan wajib', /Alasan pembatalan wajib diisi/.test(badan('bri_batal')));
+
+  const bList = badan('bri_list');
+  T('jumlah baris dihitung SEBELUM LIMIT',
+    bList.indexOf('SELECT COUNT(*)') < bList.indexOf('LIMIT'));
+
+  /* ROUTING. briList terbuka (aksi baca), tiga aksi tulis berpagar sesi. */
+  T('briList ada di router', /\$action === 'briList'/.test(api));
+  T('aksi tulis BRI berpagar sesi',
+    /\$action === 'briUnggah' \|\| \$action === 'briCocok' \|\| \$action === 'briBatal'/.test(api)
+    && /sesi_user\(\$body\)/.test(api));
+  const blokTulis = api.slice(api.indexOf("\$action === 'briUnggah'"));
+  T('kuncinya cashier ATAU finance',
+    /sesi_punya_modul\(\$u, 'cashier'\) && !sesi_punya_modul\(\$u, 'finance'\)/.test(blokTulis));
+  /* Nama yang tercatat diambil dari SESI, bukan dari badan permintaan — nama
+     yang dikirim layar bisa diketik siapa saja. */
+  T('nama pencatat diambil dari sesi, bukan dari body',
+    /\$nama = isset\(\$u\['name'\]\)/.test(blokTulis) && !/\$body\['oleh'\]/.test(blokTulis));
+}
+
+/* ============ 4. TUAN RUMAH ============ */
+function ujiTuanRumah() {
+  console.log('\n[8] Pemasangan di dua tuan rumah');
+  const cas = fs.readFileSync(path.join(AKAR, 'deploy/cashier/index.html'), 'utf8');
+  const kas = fs.readFileSync(path.join(AKAR, 'deploy/finance/kas/index.html'), 'utf8');
+
+  for (const [nama, h, pfx] of [['cashier', cas, '../'], ['finance/kas', kas, '../../']]) {
+    T(nama + ': memuat xlsx-baca.js', h.indexOf('src="' + pfx + 'assets/xlsx-baca.js"') >= 0);
+    T(nama + ': memuat cocok-bri.js', h.indexOf('src="' + pfx + 'assets/cocok-bri.js"') >= 0);
+    /* URUTANNYA MENENTUKAN: cocok-bri.js memakai bacaBerkasLembar(). */
+    T(nama + ': xlsx-baca dimuat SEBELUM cocok-bri',
+      h.indexOf('assets/xlsx-baca.js') < h.indexOf('assets/cocok-bri.js'));
+    /* TITLES adalah yang benar-benar mengunci halaman: render() menjatuhkan
+       view yang tidak punya judul. Halaman yang punya menu tapi tidak punya
+       judul MEMANTUL BALIK tanpa satu pun galat — pelajaran modul DW. */
+    T(nama + ': bri punya baris di TITLES', /bri:\['Pencocokan QRIS BRI'/.test(h));
+    /* SIDEBAR-NYA HTML STATIS di kedua modul. Menambah TITLES saja TIDAK
+       melahirkan menunya — sudah menggigit di tab Void modul Analytics. */
+    T(nama + ': bri punya <a data-view> di sidebar', h.indexOf('data-view="bri"') >= 0);
+    T(nama + ': menunya punya tulisan yang terbaca', /data-view="bri"[\s\S]{0,400}?Pencocokan QRIS BRI/.test(h));
+    T(nama + ': bri ada di peta router', /bri:viewBri/.test(h));
+    /* Mesin yang tidak termuat WAJIB DIKATAKAN — kalau tidak ia
+       ReferenceError yang menyebut nama fungsi, dan yang membacanya akan
+       menyangka datanya yang hilang. */
+    T(nama + ': ketiadaan mesin dikatakan', /Mesin pencocokan tidak termuat/.test(h));
+    T(nama + ': tidak menyalin rumus pencocokan',
+      !/function cbUsulan|function cbUraiLembar|const BABAK/.test(h));
+  }
+  /* JALUR RESERVASI: panel Kas dua tingkat di dalam deploy/, jadi `../../`.
+     Yang kurang satu tingkat tidak melempar — ia memulangkan 404 server. */
+  T('cashier memakai ../reservasi-api-mysql', cas.indexOf("rsvUrl:'../reservasi-api-mysql/api.php'") >= 0);
+  T('finance/kas memakai ../../reservasi-api-mysql', kas.indexOf("rsvUrl:'../../reservasi-api-mysql/api.php'") >= 0);
+  /* Token sesi WAJIB ikut dibaca: endpoint tulisnya berpagar. Tanpa ini
+     kirimannya ditolak "sesi tidak dikenal" walau orangnya jelas login. */
+  T('cashier bacaSesi membawa token', /token:s\.token/.test(cas));
+  T('finance/kas bacaSesi membawa token', /token:s\.token/.test(kas));
+  /* Halaman ini PUNYA isian, jadi "Ubah" berarti sesuatu — tanpa baris ini
+     matriksnya menjepitnya ke Lihat dan tidak seorang pun bisa mengunggah. */
+  T('finance/kas: bri ada di AKS_HAL_ISI', /'rekap','bri','invoice'/.test(kas));
+  T('finance/kas: bri punya baris DEFAULT_PERMS', /bri\s+:\{staf:PERM_EDIT/.test(kas));
+  T('finance/kas: mesin diberi bolehUbah yang sungguhan', /bolehUbah:\(\)=>bolehUbah\('bri'\)/.test(kas));
+
+  /* GAYA DIKURUNG #cb-wrap. Ditulis global, .card/.stat/.seg/th/td di dua
+     puluhan halaman lain kedua modul ikut bergeser. Komentar dibuang dulu:
+     penjelasan di atas aturannya menyebut nama kelas apa adanya, dan
+     pemindai yang merah untuk komentar akan dimatikan orang berikutnya. */
+  const mGaya = srcCb.match(/const GAYA = `([\s\S]*?)`;/);
+  T('blok GAYA ketemu', !!mGaya);
+  if (mGaya) {
+    const baris = mGaya[1].split('\n')
+      .map(b => b.replace(/\/\*[\s\S]*?\*\//g, '').trim())
+      .filter(b => b && !b.startsWith('/*') && !b.startsWith('*'))
+      .filter(b => /\{/.test(b));
+    const nakal = baris.filter(b => b.indexOf('#cb-wrap') !== 0);
+    T('seluruh aturan CSS dikurung #cb-wrap', nakal.length === 0, nakal.slice(0, 3).join(' | '));
+    /* Kurungan menaikkan kekhususan SELURUH aturannya di atas milik tuan
+       rumah, jadi keadaan aktif saklar WAJIB ikut ditulis di dalamnya —
+       kalau tidak, tombol yang sedang dipilih berhuruf putih di atas latar
+       terang. Sudah kejadian di #pk-wrap, 18 September 2026. */
+    T('keadaan aktif saklar ikut dikurung',
+      /#cb-wrap \.cb-seg button\.on/.test(mGaya[1]) && /button\.active/.test(mGaya[1]));
+  }
+  /* Aset MANDIRI: pemformatnya sendiri, tidak menumpang nama tuan rumah.
+     Yang menumpang akan memformat BERBEDA di tiap modul tanpa satu pun
+     galat. */
+  T('aset punya pemformat sendiri', /const CB_RP =/.test(srcCb) && /const CB_NUM =/.test(srcCb));
+  T('seluruh isi aset di dalam SATU IIFE',
+    /^\s*\(function \(G\) \{/m.test(srcCb) && /\}\)\(window\);\s*$/.test(srcCb));
+}
+
+/* ============ JALAN ============ */
+(async () => {
+  await ujiBerkasAsli();
+  ujiPhp();
+  ujiTuanRumah();
+  console.log('\n' + '='.repeat(56));
+  console.log('  OK: ' + ok + '   GAGAL: ' + gagal + '   LEWAT: ' + lewat);
+  console.log('='.repeat(56));
+  if (gagal) process.exit(1);
+})();

@@ -2296,3 +2296,401 @@ function void_batal($id, $alasan, $oleh) {
                       ':s' => mb_substr($alasan, 0, 255), ':id' => $id));
   return array('ok' => true, 'saved' => true);
 }
+
+/* ============================================================
+   PENCOCOKAN DANA QRIS BRI  (19 September 2026, permintaan user)
+   ------------------------------------------------------------
+   Mutasi masuk rekening BRI dicocokkan satu per satu ke DP reservasi yang
+   tercatat di modul Reservasi. Sampai hari ini pekerjaan itu dikerjakan di
+   sebuah berkas Excel ("Qris BRI 2026.xlsx", satu sheet per bulan) yang
+   diisi tangan; tabel ini menggantikan berkas itu.
+
+   YANG DICOCOKKAN HAMPIR SELURUHNYA DP RESERVASI, dan itu DIUKUR bukan
+   dikira: dari berkas Excel-nya, September 2026 memuat 155 baris
+   "Reservasi" dari 160 baris berketerangan, Agustus 245 dari 253. Sisanya
+   segelintir event corporate, sewa videotron, dan setoran tamu. TIDAK ADA
+   satu pun baris tiket. Itu sebabnya lawan cocoknya dps[] milik modul
+   Reservasi dan bukan yang lain.
+
+   TABEL SENDIRI, bukan menumpang blob app_state. Blob itu ditulis UTUH oleh
+   modul Cashier DAN panel Finance > Omset, dan sejak 7 September 2026
+   berpagar penjaga tulis-basi baseTs. Pencocokan diketik finance di tengah
+   hari dari tab yang sudah membuka Report Daily sejak pagi — ditaruh di
+   blob, tiap pencocokan berpeluang DITOLAK sebagai konflik, atau (kalau
+   penjaganya lewat) MENIMPA koreksi omset yang baru dibuat di modul
+   sebelah. Penulisannya karena itu granular per baris, pola yang sama
+   dengan void_log, simpanSel di jadwal, dan simpanAjuan di dw. Jangan
+   dirapikan kembali jadi bagian save().
+
+   TABELNYA LAHIR SENDIRI lewat bri_pastikan(), bukan berkas migrasi —
+   migrasi di repo ini rutin tertinggal di produksi.
+
+   TIDAK ADA DELETE. Baris salah unggah DIBATALKAN (batal_at), tetap
+   tergambar, tercoret, dan tidak ikut dijumlahkan. Catatan rekonsiliasi
+   yang barisnya bisa dihapus orang yang mengunggahnya bukan catatan, cuma
+   draf — aturan yang sama dengan void_batal().
+   ============================================================ */
+define('BRI_LIST_MAKS', 2000);
+define('BRI_UNGGAH_MAKS', 3000);
+
+function bri_pastikan() {
+  $pdo = db();
+  $pdo->exec(
+    "CREATE TABLE IF NOT EXISTS `bri_mutasi` (
+       `id`           VARCHAR(40)  NOT NULL PRIMARY KEY,
+       `sidik`        VARCHAR(90)  NOT NULL,
+       `tgl`          DATE         NOT NULL,
+       `jam`          VARCHAR(8)   NOT NULL DEFAULT '',
+       `nominal`      BIGINT       NOT NULL DEFAULT 0,
+       `ket`          VARCHAR(255) NOT NULL DEFAULT '',
+       `settle`       DATE         NULL,
+       `booking`      DATE         NULL,
+       `res_id`       VARCHAR(60)  NOT NULL DEFAULT '',
+       `dp_id`        VARCHAR(60)  NOT NULL DEFAULT '',
+       `res_nama`     VARCHAR(160) NOT NULL DEFAULT '',
+       `res_tgl`      DATE         NULL,
+       `cara`         VARCHAR(12)  NOT NULL DEFAULT '',
+       `catatan`      VARCHAR(255) NOT NULL DEFAULT '',
+       `cocok_oleh`   VARCHAR(120) NOT NULL DEFAULT '',
+       `cocok_at`     BIGINT       NOT NULL DEFAULT 0,
+       `oleh`         VARCHAR(120) NOT NULL DEFAULT '',
+       `oleh_id`      VARCHAR(60)  NOT NULL DEFAULT '',
+       `dibuat`       BIGINT       NOT NULL DEFAULT 0,
+       `diubah`       BIGINT       NOT NULL DEFAULT 0,
+       `diubah_oleh`  VARCHAR(120) NOT NULL DEFAULT '',
+       `batal_at`     BIGINT       NOT NULL DEFAULT 0,
+       `batal_oleh`   VARCHAR(120) NOT NULL DEFAULT '',
+       `batal_alasan` VARCHAR(255) NOT NULL DEFAULT '',
+       UNIQUE KEY `uniq_bri_sidik` (`sidik`),
+       KEY `idx_bri_tgl` (`tgl`),
+       KEY `idx_bri_dp` (`dp_id`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+/* Tanggal WAJIB lewat checkdate(), bukan cuma cocok polanya: '2026-02-31'
+   lolos regex tapi MySQL menyimpannya jadi '0000-00-00' tanpa satu pun
+   galat, dan barisnya lalu hilang dari setiap penyaring bulan. */
+function bri_tgl_sah($s) {
+  $s = trim((string)$s);
+  if ($s === '') return '';
+  if (!preg_match('/^(\d{4})-(\d{2})-(\d{2})$/', $s, $m)) return '';
+  if (!checkdate((int)$m[2], (int)$m[3], (int)$m[1])) return '';
+  return $s;
+}
+/* Tanggal yang BOLEH kosong dipulangkan sebagai null, bukan ''. Kolomnya
+   DATE NULL: string kosong masuk sebagai '0000-00-00' di server yang
+   MODE-nya longgar, dan tanggal itu tidak pernah cocok dengan penyaring
+   mana pun sementara di layar ia terbaca sebagai tanggal sungguhan. */
+function bri_tgl_null($s) { $t = bri_tgl_sah($s); return $t === '' ? null : $t; }
+
+/* Jam dibakukan ke HH:MM. Berkas Excel-nya menuliskannya bermacam-macam —
+   "15.46", "15:46", dan serial Excel (0.6013888) untuk sel yang terlanjur
+   berformat waktu. Disimpan apa adanya, dua baris transfer yang jamnya sama
+   berdiri sebagai dua sidik berbeda dan unggah ulang melahirkan baris
+   ganda. */
+function bri_jam($s) {
+  $s = trim((string)$s);
+  if ($s === '') return '';
+  if (preg_match('/^(\d{1,2})[.:](\d{2})/', $s, $m)) {
+    $h = (int)$m[1]; $i = (int)$m[2];
+    if ($h >= 0 && $h < 24 && $i >= 0 && $i < 60) return sprintf('%02d:%02d', $h, $i);
+  }
+  /* Serial Excel pecahan hari. Dijepit < 1: angka >= 1 adalah serial
+     TANGGAL, dan membacanya sebagai jam memberi jam karangan. */
+  if (is_numeric($s)) {
+    $f = (float)$s;
+    if ($f > 0 && $f < 1) {
+      $det = (int)round($f * 86400);
+      return sprintf('%02d:%02d', intdiv($det, 3600) % 24, intdiv($det % 3600, 60));
+    }
+  }
+  return '';
+}
+
+/* SIDIK = kunci anti-unggah-ganda, dan ia DIBUAT SERVER — bukan dikirim
+   layar. Sidik karangan dari klien bisa menabrak baris orang lain, dan yang
+   tertabrak adalah pencocokan yang sudah diputuskan.
+
+   Bentuknya tgl|jam|nominal|#k, dengan k = kemunculan ke-berapa di antara
+   baris yang KETIGANYA sama persis. Dua transfer identik pada jam yang sama
+   memang mungkin (dua tamu, nominal bulat yang sama), dan tanpa k yang
+   kedua akan menimpa yang pertama — satu baris mutasi hilang tanpa satu pun
+   galat, dan uangnya ikut hilang dari rekonsiliasi. */
+function bri_sidik($tgl, $jam, $nominal, $k) {
+  return $tgl . '|' . $jam . '|' . (int)$nominal . '|#' . (int)$k;
+}
+
+/* ---- UNGGAH / TEMPEL ----
+   UPSERT, dan yang diperbarui HANYA kolom yang datang dari berkas. Kolom
+   pencocokan (res_id, dp_id, cara, catatan, cocok_*) TIDAK PERNAH ditimpa
+   unggah: berkas Excel itu diunggah ulang berkali-kali sepanjang bulan
+   sementara pencocokannya diputuskan di layar ini, dan unggah yang menimpa
+   akan membuang keputusan yang baru diambil orang — tanpa satu pun galat,
+   karena dari sisi server itu penyimpanan yang sah.
+
+   Baris yang ADA di tabel tapi TIDAK ada di berkas dibiarkan apa adanya.
+   Membuangnya berarti satu unggah berkas yang salah pilih sheet menghapus
+   sebulan pencocokan, dan tidak ada satu pun cara mengembalikannya. */
+function bri_unggah($d, $oleh, $olehId) {
+  bri_pastikan();
+  if (!is_array($d)) return array('ok' => false, 'error' => 'data bukan objek');
+  $baris = (isset($d['baris']) && is_array($d['baris'])) ? $d['baris'] : array();
+  if (!count($baris)) return array('ok' => false, 'error' => 'Tidak ada satu baris pun yang bisa dibaca dari berkasnya.');
+  if (count($baris) > BRI_UNGGAH_MAKS)
+    return array('ok' => false, 'error' => 'Terlalu banyak baris (' . count($baris) . '). Batasnya ' . BRI_UNGGAH_MAKS . ' per unggah, pilih satu bulan saja.');
+
+  $now = (int)(microtime(true) * 1000);
+  $siap = array(); $hitungK = array(); $lewat = 0;
+  foreach ($baris as $b) {
+    if (!is_array($b)) { $lewat++; continue; }
+    $tgl = bri_tgl_sah(isset($b['tgl']) ? $b['tgl'] : '');
+    $nom = isset($b['nominal']) ? (float)$b['nominal'] : 0;
+    /* Baris tanpa tanggal atau tanpa nominal DILEWATI, bukan menggagalkan
+       seluruh unggah: berkas Excel-nya penuh baris kosong, baris total, dan
+       baris judul, dan menolak seluruhnya karena itu berarti berkas yang
+       isinya benar tidak pernah bisa masuk. Jumlahnya dilaporkan di layar. */
+    if ($tgl === '' || !is_finite($nom) || $nom <= 0) { $lewat++; continue; }
+    $jam = bri_jam(isset($b['jam']) ? $b['jam'] : '');
+    $kunci = $tgl . '|' . $jam . '|' . (int)$nom;
+    $k = isset($hitungK[$kunci]) ? $hitungK[$kunci] + 1 : 0;
+    $hitungK[$kunci] = $k;
+    $siap[] = array(
+      'sidik'   => bri_sidik($tgl, $jam, $nom, $k),
+      'tgl'     => $tgl, 'jam' => $jam, 'nominal' => (int)round($nom),
+      'ket'     => mb_substr(trim((string)(isset($b['ket']) ? $b['ket'] : '')), 0, 255),
+      'settle'  => bri_tgl_null(isset($b['settle'])  ? $b['settle']  : ''),
+      'booking' => bri_tgl_null(isset($b['booking']) ? $b['booking'] : ''));
+  }
+  if (!count($siap))
+    return array('ok' => false, 'error' => 'Tidak ada satu baris pun yang punya tanggal DAN nominal. Periksa lagi kolom yang dipilih.');
+
+  $pdo = db();
+  /* Dihitung SEBELUM menulis. Sesudahnya seluruh sidik pasti ada, dan
+     angka "N baris baru" jadi nol selamanya — yang mengunggah tidak punya
+     satu pun cara tahu unggahannya benar-benar menambah sesuatu. */
+  $adaSidik = array();
+  $q = $pdo->prepare('SELECT `sidik` FROM `bri_mutasi` WHERE `sidik`=?');
+  foreach ($siap as $s) { $q->execute(array($s['sidik'])); if ($q->fetchColumn() !== false) $adaSidik[$s['sidik']] = true; }
+
+  /* SATU TRANSAKSI. Berhenti di tengah meninggalkan sebulan mutasi yang
+     terunggah separuh, dan tidak ada satu pun layar yang bisa menyebutkan
+     sampai mana — angkanya tetap terlihat wajar. Aturan yang sama dengan
+     void_simpan_banyak() dan ganti_orang() di modul DW. */
+  $pdo->beginTransaction();
+  try {
+    $st = $pdo->prepare(
+      "INSERT INTO `bri_mutasi` (`id`,`sidik`,`tgl`,`jam`,`nominal`,`ket`,`settle`,`booking`,
+                                 `oleh`,`oleh_id`,`dibuat`,`diubah`,`diubah_oleh`)
+       VALUES (:id,:sd,:t,:j,:n,:k,:se,:bo,:o1,:oi,:c1,:c2,:o2)
+       ON DUPLICATE KEY UPDATE
+         `ket`     = IF(VALUES(`ket`)='', `ket`, VALUES(`ket`)),
+         `settle`  = COALESCE(VALUES(`settle`),  `settle`),
+         `booking` = COALESCE(VALUES(`booking`), `booking`),
+         `diubah`  = VALUES(`diubah`), `diubah_oleh` = VALUES(`diubah_oleh`)");
+    foreach ($siap as $i => $s) {
+      /* Id dibuat SERVER. Id kiriman bisa menabrak baris orang lain, dan
+         $i ikut supaya dua baris yang tersimpan pada milidetik yang sama
+         tidak pernah berebut id yang sama. */
+      $id = 'b' . dechex($now) . dechex($i) . substr(bin2hex(random_bytes(4)), 0, 8);
+      $st->execute(array(':id' => $id, ':sd' => $s['sidik'], ':t' => $s['tgl'], ':j' => $s['jam'],
+                         ':n' => $s['nominal'], ':k' => $s['ket'], ':se' => $s['settle'], ':bo' => $s['booking'],
+                         ':o1' => mb_substr((string)$oleh, 0, 120), ':oi' => mb_substr((string)$olehId, 0, 60),
+                         ':c1' => $now, ':c2' => $now, ':o2' => mb_substr((string)$oleh, 0, 120)));
+    }
+    $pdo->commit();
+  } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+  $baru = 0; foreach ($siap as $s) if (empty($adaSidik[$s['sidik']])) $baru++;
+  return array('ok' => true, 'saved' => true, 'n' => count($siap),
+               'baru' => $baru, 'lama' => count($siap) - $baru, 'lewat' => $lewat);
+}
+
+/* ---- PENCOCOKAN ----
+   Tiga bentuk keputusan, dan ketiganya menuntut bacaan yang berbeda di
+   layar — jadi ketiganya disimpan berbeda, bukan diringkas jadi satu
+   penanda boolean "sudah dicocokkan":
+
+     cocok   res_id & dp_id terisi     uangnya milik DP itu
+     bukan   res_id & dp_id KOSONG     uang masuk yang memang bukan DP
+                                       reservasi (event corporate, sewa
+                                       videotron, setoran tamu) - catatan
+                                       WAJIB, karena tanpa sebabnya baris
+                                       itu tidak bisa diperiksa siapa pun
+     lepas   cara dikosongkan          pencocokan yang dibatalkan, barisnya
+                                       kembali ke daftar "belum cocok"
+
+   `lepas` BUKAN penghapusan baris: yang dilepas keputusannya, mutasinya
+   tetap ada. Menghapus barisnya berarti uang yang benar-benar masuk hilang
+   dari rekonsiliasi. */
+function bri_cara_sah($c) {
+  $c = trim((string)$c);
+  return ($c === 'cocok' || $c === 'bukan' || $c === 'lepas') ? $c : '';
+}
+
+/* SATU DP TIDAK BOLEH DIPEGANG DUA BARIS MUTASI, dan itu ditegakkan DI
+   SINI — bukan di layar. Kalau boleh, satu DP Rp300.000 bisa diakui dua
+   kali dan total "dana terverifikasi" jadi lebih besar daripada uang yang
+   benar-benar masuk; angkanya tetap terlihat wajar di tiap barisnya, dan
+   yang menjumlahkannya tidak punya satu pun cara tahu.
+
+   Baris yang sudah DIBATALKAN tidak ikut menahan: DP-nya memang tidak
+   dipegang siapa-siapa lagi. */
+function bri_dp_dipakai($pdo, $dpId, $kecualiId) {
+  $st = $pdo->prepare('SELECT `id`,`tgl`,`nominal` FROM `bri_mutasi`
+                        WHERE `dp_id`=:d AND `cara`=\'cocok\' AND `batal_at`=0 AND `id`<>:x LIMIT 1');
+  $st->execute(array(':d' => $dpId, ':x' => $kecualiId));
+  return $st->fetch();
+}
+
+function bri_cocok_satu($pdo, $b, $oleh, $now) {
+  $id   = trim((string)(isset($b['id']) ? $b['id'] : ''));
+  $cara = bri_cara_sah(isset($b['cara']) ? $b['cara'] : '');
+  if ($id === '')   return 'Baris tanpa id.';
+  if ($cara === '') return 'Keputusan tidak dikenal (harus cocok / bukan / lepas).';
+
+  $cek = $pdo->prepare('SELECT `batal_at` FROM `bri_mutasi` WHERE `id`=?');
+  $cek->execute(array($id));
+  $row = $cek->fetch();
+  if (!$row) return 'Baris mutasi tidak ditemukan.';
+  /* Baris yang sudah dibatalkan tidak bisa dicocokkan lagi. Kalau bisa,
+     pembatalan berubah jadi tombol hapus-lalu-pakai-ulang: id yang sama
+     menyimpan mutasi yang berbeda, dan jejak pembatalannya ikut menunjuk
+     ke isi yang bukan lagi yang dibatalkan. Aturan yang sama dengan
+     void_batal(). */
+  if ((float)$row['batal_at'] > 0) return 'Baris ini sudah dibatalkan, tidak bisa dicocokkan lagi.';
+
+  $resId = ''; $dpId = ''; $nama = ''; $resTgl = null; $catatan = '';
+  if ($cara === 'cocok') {
+    $resId = trim((string)(isset($b['resId']) ? $b['resId'] : ''));
+    $dpId  = trim((string)(isset($b['dpId'])  ? $b['dpId']  : ''));
+    if ($resId === '' || $dpId === '') return 'Reservasi & cicilan DP-nya wajib disebut.';
+    $bentrok = bri_dp_dipakai($pdo, $dpId, $id);
+    if ($bentrok)
+      return 'DP itu sudah dicocokkan ke mutasi ' . (string)$bentrok['tgl']
+           . ' sebesar Rp' . number_format((float)$bentrok['nominal'], 0, ',', '.')
+           . '. Lepas dulu pencocokan di sana.';
+    /* Nama & tanggal reservasi DISALIN saat dicocokkan, bukan dibaca ulang
+       tiap kali daftar dibuka. Modul Reservasi memotong riwayatnya sendiri,
+       dan reservasi yang kelak dihapus akan meninggalkan baris mutasi yang
+       cuma berisi id tanpa satu kata pun yang bisa dibaca orang. */
+    $nama   = mb_substr(trim((string)(isset($b['resNama']) ? $b['resNama'] : '')), 0, 160);
+    $resTgl = bri_tgl_null(isset($b['resTgl']) ? $b['resTgl'] : '');
+  } else if ($cara === 'bukan') {
+    $catatan = trim((string)(isset($b['catatan']) ? $b['catatan'] : ''));
+    /* WAJIB. Baris "bukan DP reservasi" tanpa sebab tidak bisa diperiksa
+       siapa pun, dan ia jadi tempat paling mudah menyembunyikan uang yang
+       sebenarnya belum dicocokkan. */
+    if ($catatan === '') return 'Sebutkan dulu uang ini masuk dari mana.';
+    $catatan = mb_substr($catatan, 0, 255);
+  }
+
+  $simpanCara = ($cara === 'lepas') ? '' : $cara;
+  $pdo->prepare('UPDATE `bri_mutasi`
+                    SET `res_id`=:r,`dp_id`=:d,`res_nama`=:nm,`res_tgl`=:rt,`cara`=:c,
+                        `catatan`=:ct,`cocok_oleh`=:o,`cocok_at`=:a,`diubah`=:a2,`diubah_oleh`=:o2
+                  WHERE `id`=:id')
+      ->execute(array(':r' => $resId, ':d' => $dpId, ':nm' => $nama, ':rt' => $resTgl,
+                      ':c' => $simpanCara, ':ct' => $catatan,
+                      ':o' => mb_substr((string)$oleh, 0, 120), ':a' => $now,
+                      ':a2' => $now, ':o2' => mb_substr((string)$oleh, 0, 120), ':id' => $id));
+  return '';
+}
+
+/* SATU jalur untuk satu baris DAN untuk banyak baris sekaligus (tombol
+   "Terapkan usulan"), dibedakan dari BENTUK datanya — bukan dari aksi
+   tersendiri. Aksi kedua berarti layar harus memilih sendiri mana yang
+   dipanggil, dan yang salah memilih mengirim lima puluh usulan ke jalur
+   satu baris: empat puluh sembilan di antaranya hilang tanpa satu pun
+   galat. Pelajaran yang sama dengan void_simpan_banyak().
+
+   TIDAK SATU TRANSAKSI, dan itu disengaja — beda dari bri_unggah(). Tiap
+   baris adalah keputusan yang berdiri sendiri; satu usulan yang ditolak
+   karena DP-nya keburu dipakai orang lain tidak boleh membatalkan empat
+   puluh sembilan keputusan yang sudah benar. Yang gagal dilaporkan satu
+   per satu berikut sebabnya. */
+function bri_cocok($d, $oleh) {
+  bri_pastikan();
+  if (!is_array($d)) return array('ok' => false, 'error' => 'data bukan objek');
+  $items = (isset($d['items']) && is_array($d['items'])) ? $d['items'] : array($d);
+  if (!count($items)) return array('ok' => false, 'error' => 'Tidak ada satu baris pun yang dikirim.');
+
+  $pdo = db();
+  $now = (int)(microtime(true) * 1000);
+  $ok = 0; $gagal = array();
+  foreach ($items as $b) {
+    if (!is_array($b)) { $gagal[] = array('id' => '', 'sebab' => 'baris bukan objek'); continue; }
+    $e = bri_cocok_satu($pdo, $b, $oleh, $now);
+    if ($e === '') $ok++;
+    else $gagal[] = array('id' => (string)(isset($b['id']) ? $b['id'] : ''), 'sebab' => $e);
+  }
+  /* Yang SELURUHNYA gagal dipulangkan sebagai gagal, supaya layar tidak
+     mengaku berhasil untuk kiriman yang tidak mengubah satu baris pun. */
+  if (!$ok && count($gagal))
+    return array('ok' => false, 'error' => $gagal[0]['sebab'], 'gagal' => $gagal);
+  return array('ok' => true, 'saved' => true, 'n' => $ok, 'gagal' => $gagal);
+}
+
+/* PEMBATALAN BARIS MUTASI, bukan penghapusan — barisnya tetap tergambar,
+   tercoret, dan tidak ikut dijumlahkan. Alasannya WAJIB: baris yang hilang
+   dari hitungan tanpa sebab adalah selisih yang tidak bisa dijelaskan siapa
+   pun waktu rekening korannya dicocokkan ulang. */
+function bri_batal($id, $alasan, $oleh) {
+  bri_pastikan();
+  $id = trim((string)$id);
+  $alasan = trim((string)$alasan);
+  if ($id === '') return array('ok' => false, 'error' => 'id kosong');
+  if ($alasan === '') return array('ok' => false, 'error' => 'Alasan pembatalan wajib diisi.');
+  $pdo = db();
+  $st = $pdo->prepare('SELECT `batal_at` FROM `bri_mutasi` WHERE `id`=?');
+  $st->execute(array($id));
+  $row = $st->fetch();
+  if (!$row) return array('ok' => false, 'error' => 'Baris mutasi tidak ditemukan.');
+  if ((float)$row['batal_at'] > 0) return array('ok' => false, 'error' => 'Baris ini sudah dibatalkan.');
+  $pdo->prepare('UPDATE `bri_mutasi` SET `batal_at`=:a,`batal_oleh`=:o,`batal_alasan`=:s WHERE `id`=:id')
+      ->execute(array(':a' => (int)(microtime(true) * 1000), ':o' => mb_substr((string)$oleh, 0, 120),
+                      ':s' => mb_substr($alasan, 0, 255), ':id' => $id));
+  return array('ok' => true, 'saved' => true);
+}
+
+function bri_list($dari, $sampai) {
+  bri_pastikan();
+  $d = bri_tgl_sah($dari);
+  $s = bri_tgl_sah($sampai);
+  $pdo = db();
+  $sql = 'SELECT * FROM `bri_mutasi`';
+  $arg = array();
+  if ($d !== '' && $s !== '') { $sql .= ' WHERE `tgl` BETWEEN :d AND :s'; $arg = array(':d' => $d, ':s' => $s); }
+  else if ($d !== '')         { $sql .= ' WHERE `tgl` >= :d';            $arg = array(':d' => $d); }
+  else if ($s !== '')         { $sql .= ' WHERE `tgl` <= :s';            $arg = array(':s' => $s); }
+
+  /* Jumlahnya dihitung SEBELUM dipotong. Dihitung dari baris yang sudah
+     terpotong, angka "N tidak ditampilkan" selalu nol dan pemotongannya
+     jadi tidak pernah bisa diketahui siapa pun. */
+  $stc = $pdo->prepare(str_replace('SELECT *', 'SELECT COUNT(*)', $sql));
+  $stc->execute($arg);
+  $total = (int)$stc->fetchColumn();
+
+  $st = $pdo->prepare($sql . ' ORDER BY `tgl` ASC, `jam` ASC, `dibuat` ASC LIMIT ' . BRI_LIST_MAKS);
+  $st->execute($arg);
+  $baris = array();
+  foreach ($st->fetchAll() as $r) {
+    $baris[] = array(
+      'id' => (string)$r['id'], 'tgl' => (string)$r['tgl'], 'jam' => (string)$r['jam'],
+      'nominal' => (float)$r['nominal'], 'ket' => (string)$r['ket'],
+      'settle' => $r['settle'] === null ? '' : (string)$r['settle'],
+      'booking' => $r['booking'] === null ? '' : (string)$r['booking'],
+      'resId' => (string)$r['res_id'], 'dpId' => (string)$r['dp_id'],
+      'resNama' => (string)$r['res_nama'],
+      'resTgl' => $r['res_tgl'] === null ? '' : (string)$r['res_tgl'],
+      'cara' => (string)$r['cara'], 'catatan' => (string)$r['catatan'],
+      'cocokOleh' => (string)$r['cocok_oleh'], 'cocokAt' => (float)$r['cocok_at'],
+      'oleh' => (string)$r['oleh'], 'olehId' => (string)$r['oleh_id'],
+      'dibuat' => (float)$r['dibuat'], 'diubah' => (float)$r['diubah'],
+      'diubahOleh' => (string)$r['diubah_oleh'],
+      'batalAt' => (float)$r['batal_at'], 'batalOleh' => (string)$r['batal_oleh'],
+      'batalAlasan' => (string)$r['batal_alasan']);
+  }
+  return array('baris' => $baris, 'total' => $total, 'maks' => BRI_LIST_MAKS);
+}

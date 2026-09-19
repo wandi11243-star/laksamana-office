@@ -215,6 +215,82 @@
     return uraiSheet(await zip.ambil(lembar[0]), ss);
   };
 
+  /* SELURUH LEMBAR, berikut NAMANYA — [{nama, baris}].
+     -------------------------------------------------------------------
+     Dipakai modul yang berkasnya memang BERLEMBAR BANYAK dan lembar mana
+     yang dipakai adalah keputusan orangnya, bukan aturan tetap: berkas
+     rekonsiliasi QRIS BRI menyimpan satu lembar per bulan (Jan26 … Sept26)
+     di satu berkas, dan bacaBerkasTabel() di atas selalu mengambil yang
+     PERTAMA — yaitu Juli, apa pun bulan yang sedang dikerjakan orangnya.
+     Tanpa fungsi ini satu-satunya jalan adalah menyalin pembaca ZIP-nya ke
+     modul itu, dan berkas kembar yang tertinggal sudah lima kali memakan
+     waktu di repo ini.
+
+     bacaBerkasTabel() SENGAJA tidak diubah jadi pembungkus fungsi ini: ia
+     dipakai modul Analytics & Jadwal untuk berkas berlembar satu, dan
+     membuatnya mengurai SELURUH lembar berarti berkas POS 9,4 MB diurai
+     berkali-kali untuk lembar yang tidak pernah dibaca siapa pun.
+
+     NAMA LEMBAR DIAMBIL DARI workbook.xml, URUTANNYA dari r:id -> rels.
+     Menebaknya dari nomor berkas (sheet1.xml = lembar pertama) SALAH dan
+     salahnya diam: Excel menomori berkas menurut urutan PEMBUATAN, bukan
+     urutan tab. Di berkas QRIS BRI 2026 lembar ke-7 (Juni26) tersimpan
+     sebagai sheet7.xml sementara lembar ke-1 (Juli26) sebagai sheet1.xml —
+     jadi yang menebak akan memberi nama bulan yang keliru ke isi yang
+     benar, dan tidak ada satu pun galat.
+
+     CSV tetap dilayani: satu lembar tanpa nama. */
+  G.bacaBerkasLembar = async function (file) {
+    const nama = String((file && file.name) || '').toLowerCase();
+    if (/\.csv$/.test(nama)) return [{ nama: 'CSV', baris: uraiCsvBaris(await file.text()) }];
+    if (!bisaXlsx()) throw new Error('Peramban ini belum bisa membuka .xlsx '
+      + '(butuh Chrome/Edge 80+, Safari 16.4+, Firefox 113+). Simpan berkasnya sebagai CSV lalu unggah lagi.');
+    const zip = await bacaZip(await file.arrayBuffer());
+    const wb = await zip.ambil('xl/workbook.xml');
+    const rels = await zip.ambil('xl/_rels/workbook.xml.rels');
+    /* Berkas tanpa workbook.xml atau tanpa rels-nya TIDAK dianggap rusak —
+       ia cuma tidak bisa menyebut nama lembarnya. Jatuh ke urutan berkas,
+       dan itu lebih baik daripada menolak berkas yang isinya benar. */
+    const petaRel = {};
+    if (rels) {
+      const re = /Id="([^"]+)"[^>]*Target="([^"]+)"/g; let m;
+      while ((m = re.exec(rels))) petaRel[m[1]] = m[2].replace(/^\/?(xl\/)?/, 'xl/');
+    }
+    const out = [];
+    if (wb) {
+      const re = /<sheet\b([^>]*)\/?>/g; let m;
+      while ((m = re.exec(wb))) {
+        const at = m[1];
+        const nm = (at.match(/\bname="([^"]*)"/) || [])[1];
+        const rid = (at.match(/r:id="([^"]*)"/) || [])[1];
+        const berkas = petaRel[rid];
+        if (!nm || !berkas) continue;
+        out.push({ nama: unescXml(nm), berkas });
+      }
+    }
+    if (!out.length) {
+      /* Cadangan: urutkan berkas lembarnya sendiri. Namanya tidak diketahui,
+         jadi disebut apa adanya — "Lembar 1" yang jujur lebih baik daripada
+         nama bulan yang ditebak dan salah. */
+      zip.daftar.filter(n => /^xl\/worksheets\/sheet\d+\.xml$/.test(n))
+        .sort((a, b) => (+(a.match(/(\d+)/) || [])[1] || 0) - (+(b.match(/(\d+)/) || [])[1] || 0))
+        .forEach((n, i) => out.push({ nama: 'Lembar ' + (i + 1), berkas: n }));
+    }
+    if (!out.length) throw new Error('Berkasnya tidak punya satu lembar pun.');
+    const ss = uraiSharedStrings(await zip.ambil('xl/sharedStrings.xml'));
+    const hasil = [];
+    for (const s of out) {
+      const xml = await zip.ambil(s.berkas);
+      /* Lembar yang disebut workbook.xml tapi berkasnya tidak ada di ZIP
+         DILEWATI, bukan menjatuhkan seluruh pembacaan: satu lembar rusak
+         tidak boleh membuat tiga belas lembar lain ikut tidak terbaca. */
+      if (xml === null) continue;
+      hasil.push({ nama: s.nama, baris: uraiSheet(xml, ss) });
+    }
+    if (!hasil.length) throw new Error('Tidak ada satu lembar pun yang bisa dibaca dari berkasnya.');
+    return hasil;
+  };
+
   /* BARIS BERKUNCI HURUF -> TSV, bentuk yang sama dengan hasil menyalin dari
      Excel. Dengan ini modul yang sudah punya pengurai berbasis tempelan tidak
      perlu pengurai kedua untuk berkas — satu aturan, dua cara memasukkan.

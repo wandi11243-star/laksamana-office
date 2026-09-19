@@ -30,6 +30,14 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<!-- Pembaca .xlsx/.csv & mesin Pencocokan QRIS BRI. Keduanya SUMBER TUNGGAL,
+     dipakai bersama panel Finance > Kas Kecil — lihat kepala berkasnya.
+     Urutannya menentukan: cocok-bri.js memakai bacaBerkasLembar() milik
+     xlsx-baca.js, dan tuan rumah MENGATAKANNYA kalau salah satu tidak
+     termuat (lihat viewBri) — mesin yang diam-diam tidak ada membuat
+     halamannya kosong tanpa sebab. -->
+<script src="../assets/xlsx-baca.js"></script>
+<script src="../assets/cocok-bri.js"></script>
 <style>
 /* ===== TEMA OFFICE LAKSAMANA (emas di atas krem/putih, tanpa hitam) ===== */
 :root{
@@ -394,6 +402,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
         <a data-view="rokokrekap"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg></span> Rekap Stock Rokok</a>
         <a data-view="kasir"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg></span> Performa Kasir</a>
         <a data-view="dp"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18v12H3z"/><circle cx="12" cy="12" r="2.5"/><path d="M7 12h.01M17 12h.01"/></svg></span> Dana Masuk (DP)</a>
+        <a data-view="bri"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h11M4 7l3-3M4 7l3 3"/><path d="M20 17H9m11 0-3-3m3 3-3 3"/></svg></span> Pencocokan QRIS BRI</a>
       </div>
       <div class="nav-group">
         <div class="nav-label">Sistem</div>
@@ -1124,6 +1133,7 @@ const TITLES={
   rokokset:['Pengaturan Item Rokok','Item apa saja yang muncul di lembar Daily Stock Rokok'],
   kasir:['Performa Kasir','Omset yang diakui tiap kasir — angka final'],
   dp:['Dana Masuk (DP)','Uang DP reservasi yang sudah masuk — dibaca dari modul Reservasi'],
+  bri:['Pencocokan QRIS BRI','Mutasi masuk rekening BRI dicocokkan ke DP reservasi'],
   voidb:['Void Menu','Tiap menu yang di-void wajib dicatat berikut kronologinya'],
   akses:['Kelola Akses Kru','Siapa saja yang bisa membuka modul Cashier']
 };
@@ -1158,7 +1168,7 @@ function render(){
   syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
   ({report:viewReport,piutang:viewPiutang,compliment:viewCompliment,rokok:viewRokok,
-    rokokrekap:viewRokokRekap,rokokset:viewRokokSet,kasir:viewKasir,dp:viewDp,voidb:viewVoid,akses:viewAkses}[CURRENT])();
+    rokokrekap:viewRokokRekap,rokokset:viewRokokSet,kasir:viewKasir,dp:viewDp,bri:viewBri,voidb:viewVoid,akses:viewAkses}[CURRENT])();
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
 
@@ -3944,6 +3954,50 @@ function viewDp(){
 function muatUlangDp(){
   const f=document.getElementById('dpFrame');
   if(f) f.src='../reservasi/?embed=finance&t='+Date.now();
+}
+
+/* ============ 5b. PENCOCOKAN QRIS BRI ============
+   Mutasi masuk rekening BRI dicocokkan ke DP reservasi. Seluruh mesinnya —
+   pembaca lembar, rumus pencocokan, tabel, dan gayanya — ada di
+   deploy/assets/cocok-bri.js, dan panel Finance > Kas Kecil memanggil mesin
+   yang SAMA. Menyalinnya ke sini berarti dua salinan rumus uang, dan dua
+   layar yang menyebut jumlah dana tercocokkan berbeda untuk bulan yang sama.
+
+   BULANNYA DARI KENDALI PERIODE tuan rumah (PERIOD), bukan pemilih sendiri.
+   Pemilih kedua di halaman yang topbar-nya sudah punya satu membuat orang
+   menebak mana yang menentukan — jebakan yang sudah dibayar di lembar
+   pembayaran Brankas. */
+let BRI_PASANG=false;
+function briSiap(){ return typeof cbPasang==='function' && typeof cbGambar==='function'; }
+function viewBri(){
+  const el=document.getElementById('app-view');
+  if(!briSiap()){
+    /* DIKATAKAN, bukan dibiarkan jadi ReferenceError yang menyebut nama
+       fungsi — yang membacanya akan menyangka datanya yang hilang. */
+    el.innerHTML='<div class="card"><div class="notice bad"><b>Mesin pencocokan tidak termuat.</b><br>'
+      +'Halaman ini butuh <code>assets/cocok-bri.js</code> dan <code>assets/xlsx-baca.js</code>. '
+      +'Muat ulang halamannya; kalau tetap begini, berkas asetnya belum ikut ter-deploy.</div></div>';
+    return;
+  }
+  if(!BRI_PASANG){
+    cbPasang({
+      apiUrl:API_URL,
+      /* Modul Reservasi dibaca lewat getAll yang memang sudah terbuka — TIDAK
+         ada endpoint baru di sana. Backend Reservasi diunggah manual dan bukan
+         milik repo ini; menambah aksi berarti satu langkah pemasangan yang
+         bisa tertinggal, dan gejalanya halaman ini kosong di satu server
+         sementara benar di server sebelahnya. */
+      rsvUrl:'../reservasi-api-mysql/api.php',
+      sesi:()=>CURRENT_USER||{},
+      /* Di modul Cashier seluruh pemegang kunci memang mencatat — sama dengan
+         Void Menu. Yang membatasi sungguhan tetap server (briUnggah/briCocok
+         berpagar sesi + kunci modul), bukan baris ini. */
+      bolehUbah:()=>!!CURRENT_USER,
+      gambarUlang:()=>{ if(CURRENT==='bri') viewBri(); }
+    });
+    BRI_PASANG=true;
+  }
+  cbGambar(el,PERIOD);
 }
 
 /* ============ 6. KELOLA AKSES KRU ============

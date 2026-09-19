@@ -34,6 +34,14 @@
      modul Marketing dan Event — lihat kepala berkasnya. WAJIB dimuat SEBELUM
      skrip halaman ini: penyambung pbSetKeterangan() dipanggil di sana. -->
 <script src="../../assets/performa-bonus.js"></script>
+<!-- Pembaca .xlsx/.csv & mesin Pencocokan QRIS BRI. Keduanya SUMBER TUNGGAL,
+     dipakai bersama modul Cashier — lihat kepala berkasnya. Urutannya
+     menentukan: cocok-bri.js memakai bacaBerkasLembar() milik xlsx-baca.js,
+     dan tuan rumah MENGATAKANNYA kalau salah satu tidak termuat (lihat
+     viewBriKas) — mesin yang diam-diam tidak ada membuat halamannya kosong
+     tanpa sebab. -->
+<script src="../../assets/xlsx-baca.js"></script>
+<script src="../../assets/cocok-bri.js"></script>
 <style>
 /* ===== TEMA OFFICE LAKSAMANA (emas di atas krem/putih, tanpa hitam) ===== */
 :root{
@@ -701,7 +709,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
       <div class="nav-group">
         <div class="nav-label">Dashboard</div>
         <a data-view="bulanan"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4" width="18" height="18" rx="2"/><path d="M16 2v4M8 2v4M3 10h18"/></svg></span> Dashboard Omset</a>
-        <a data-view="analytics"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span> Analytics</a>
+        <a data-view="analytics"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></svg></span> Analytics</a>
       </div>
       <div class="nav-group">
         <div class="nav-label">Kas Kecil</div>
@@ -738,6 +746,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
              keduanya satu pekerjaan berurutan — kwitansi di sini ditahan
              selama dananya belum diverifikasi di sana. -->
         <a data-view="dp"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-1"/><path d="M16 12h5v4h-5a2 2 0 0 1 0-4Z"/><path d="M12 2v6m0 0 2.5-2.5M12 8 9.5 5.5"/></svg></span> Dana Masuk (DP)</a>
+        <a data-view="bri"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7h11M4 7l3-3M4 7l3 3"/><path d="M20 17H9m11 0-3-3m3 3-3 3"/></svg></span> Pencocokan QRIS BRI</a>
         <a data-view="invoice"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M8 8h8M8 12h6M8 16h4"/></svg></span> Invoice &amp; Kwitansi<span class="badge" id="navBadgeInv"></span></a>
       </div>
       <div class="nav-group">
@@ -751,7 +760,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
         <!-- Pengaturan Target pindah ke sini dari panel Input Omset Harian
              (12 Agustus 2026, permintaan user). Tempatnya memang di sebelah
              Performa & Ranking: di sanalah targetnya dipakai, sementara panel
-             sebelah cuma tempat mengetik omset harian. -->
+             sebelah cuma tempat mengetik omset harian. -->
         <a data-view="akses"><span class="ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="4"/><path d="M2 21v-1a6 6 0 0 1 6-6h2"/><path d="m16 11 2 2 4-4"/></svg></span> Kelola Kru</a>
       </div>
     </nav>
@@ -929,7 +938,13 @@ function bacaSesi(){
     if(m.indexOf('*')<0 && m.indexOf('finance')<0) return null;
     const adm=s.adminModules||[];
     const isAdmin=(adm.indexOf('*')>-1||adm.indexOf('finance')>-1);
-    return {id:s.userId,name:s.name,keterangan:s.keterangan||'',isAdmin};
+    /* token IKUT DIBACA sejak 19 September 2026: endpoint tulis Pencocokan
+       QRIS BRI berpagar sesi, dan nama yang tercatat di sana diambil server
+       dari sesi yang SUDAH diverifikasi — bukan dari nama yang dikirim
+       peramban. Tanpa ini kirimannya ditolak "sesi tidak dikenal" walau
+       orangnya jelas login. Pola yang sama dengan bacaSesi() modul Cashier,
+       yang kebagian baris ini saat Catatan Void lahir. */
+    return {id:s.userId,name:s.name,keterangan:s.keterangan||'',isAdmin,token:s.token||''};
   }catch(e){ return null; }
 }
 function sayaAdmin(){ return !!(CURRENT_USER&&CURRENT_USER.isAdmin); }
@@ -964,7 +979,7 @@ const PERM_OPT=[['0','Tak Terlihat','None'],['1','Lihat','Lihat'],['2','Boleh Ub
 /* Halaman yang PUNYA isian. Di luar daftar ini "Ubah" tidak berarti apa-apa —
    halamannya murni informasi — jadi nilainya dijepit ke Lihat saat dibaca,
    persis seperti perlakuan Reservasi terhadap dashboard/riwayat/analitik. */
-const AKS_HAL_ISI=['kk_input','kk_buku','kk_pos','bayar','rekap','invoice','akses'];
+const AKS_HAL_ISI=['kk_input','kk_buku','kk_pos','bayar','rekap','bri','invoice','akses'];
 /* Halaman yang isinya BUKAN milik modul ini. Tanpa baris ini matriks hak akses
    menuliskannya "(baca saja)" — label yang benar untuk halaman lain di luar
    AKS_HAL_ISI, tapi BOHONG di sini: bingkainya menjalankan modul Reservasi,
@@ -1028,6 +1043,12 @@ const DEFAULT_PERMS={
      bisa mengubah apa pun" membuat nama itu bohong, dan tidak ada satu pun
      setelan di modul ini yang bisa menahannya. */
   dp       :{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_NONE},
+  /* Halaman ini PUNYA isian (unggah mutasi & keputusan pencocokan), jadi
+     "Ubah" di sini benar-benar berarti sesuatu — ia ikut di AKS_HAL_ISI.
+     Viewer dijepit ke Lihat oleh aksTingkat(), jadi ia tetap bisa memeriksa
+     hasil rekonsiliasinya tanpa pernah bisa menggeser satu pencocokan pun —
+     dan itu memang guna role bernama View Only. */
+  bri      :{staf:PERM_EDIT, manajemen:PERM_EDIT, viewer:PERM_VIEW},
   invoice  :{staf:PERM_EDIT, manajemen:PERM_VIEW, viewer:PERM_NONE},
   voidb    :{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
   bulanan  :{staf:PERM_VIEW, manajemen:PERM_VIEW, viewer:PERM_VIEW},
@@ -3060,6 +3081,7 @@ const TITLES={
   bayar:['Planning Pembayaran','Lembar transfer mingguan per rekening pembayar — pindah dari panel Brankas'],
   rekap:['Rekap Penjualan','Cocokkan POS dengan setoran bank — angka penjualannya after tax & service'],
   dp:['Dana Masuk (DP)','DP reservasi yang sudah masuk — halaman milik modul Reservasi, verifikasinya tersimpan di sana'],
+  bri:['Pencocokan QRIS BRI','Mutasi masuk rekening BRI dicocokkan ke DP reservasi'],
   invoice:['Invoice & Kwitansi','Permintaan kwitansi dari Reservasi — periksa dana masuknya, lalu terbitkan'],
   voidb:['Laporan Void','Menu yang di-void berikut kronologinya — dicatat kasir di modul Cashier'],
   bulanan:['Dashboard Omset','Pencapaian target bulan berjalan'],
@@ -3124,7 +3146,7 @@ function render(){
   clearCharts();
   syncKendaliPeriode();
   el.classList.remove('rise');void el.offsetWidth;el.classList.add('rise');
-  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,bayar:viewBayar,rekap:viewRekap,dp:viewDpKas,invoice:viewInvoice,voidb:viewVoidLap,bulanan:viewBulanan,analytics:viewAnalytics,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,akses:viewAkses}[CURRENT])();
+  ({kk_input:viewKkInput,kk_buku:viewKkBuku,kk_pos:viewKkPos,bayar:viewBayar,rekap:viewRekap,dp:viewDpKas,bri:viewBriKas,invoice:viewInvoice,voidb:viewVoidLap,bulanan:viewBulanan,analytics:viewAnalytics,marketing:()=>viewPerforma('marketing'),event:()=>viewPerforma('event'),kasir:viewKasir,akses:viewAkses}[CURRENT])();
   terapkanKunci();   // buang tombol & matikan isian yang tidak boleh dipakai
   formatAllRp(el);   // format nilai awal inputan nominal (class "rp")
 }
@@ -6434,6 +6456,52 @@ function viewDpKas(){
 function muatUlangDpKas(){
   const f=document.getElementById('dpFrame');
   if(f) f.src=DP_SRC+'&t='+Date.now();
+}
+
+/* ============ PENCOCOKAN QRIS BRI ============
+   Mutasi masuk rekening BRI dicocokkan ke DP reservasi. Seluruh mesinnya —
+   pembaca lembar, rumus pencocokan, tabel, dan gayanya — ada di
+   deploy/assets/cocok-bri.js, dan modul Cashier memanggil mesin yang SAMA.
+   Menyalinnya ke sini berarti dua salinan rumus uang, dan dua layar yang
+   menyebut jumlah dana tercocokkan berbeda untuk bulan yang sama.
+
+   BULANNYA DARI KENDALI PERIODE tuan rumah (PERIOD), bukan pemilih sendiri.
+   Pemilih kedua di halaman yang topbar-nya sudah punya satu membuat orang
+   menebak mana yang menentukan — jebakan yang sudah dibayar di lembar
+   pembayaran Brankas.
+
+   terapkanKunci() JALAN SESUDAH render() dan akan mematikan seluruh kotak
+   isian di halaman ini untuk yang cuma boleh Lihat. Itu benar dan sengaja
+   dibiarkan: ia jaring kedua. Jaring pertamanya bolehUbah('bri') yang
+   dioper ke mesin, supaya tombolnya memang tidak pernah digambar — tombol
+   yang tergambar lalu dimatikan terbaca sebagai halaman rusak. */
+let BRI_PASANG=false;
+function briSiap(){ return typeof cbPasang==='function' && typeof cbGambar==='function'; }
+function viewBriKas(){
+  const el=document.getElementById('app-view');
+  if(!briSiap()){
+    /* DIKATAKAN, bukan dibiarkan jadi ReferenceError yang menyebut nama
+       fungsi — yang membacanya akan menyangka datanya yang hilang. */
+    el.innerHTML='<div class="card"><div class="notice bad"><b>Mesin pencocokan tidak termuat.</b><br>'
+      +'Halaman ini butuh <code>assets/cocok-bri.js</code> dan <code>assets/xlsx-baca.js</code>. '
+      +'Muat ulang halamannya; kalau tetap begini, berkas asetnya belum ikut ter-deploy.</div></div>';
+    return;
+  }
+  if(!BRI_PASANG){
+    cbPasang({
+      apiUrl:API_URL,
+      /* JALURNYA `../../`, bukan `../` — panel ini dua tingkat di dalam
+         deploy/. Yang kurang satu tingkat tidak melempar apa pun: ia
+         memulangkan halaman 404 server, dan yang sampai ke layar cuma
+         "balasan bukan JSON". */
+      rsvUrl:'../../reservasi-api-mysql/api.php',
+      sesi:()=>CURRENT_USER||{},
+      bolehUbah:()=>bolehUbah('bri'),
+      gambarUlang:()=>{ if(CURRENT==='bri') viewBriKas(); }
+    });
+    BRI_PASANG=true;
+  }
+  cbGambar(el,PERIOD);
 }
 
 function viewInvoice(){
