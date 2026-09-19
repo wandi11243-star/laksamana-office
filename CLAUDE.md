@@ -7405,14 +7405,30 @@ tampilannya menyimpang dari yang asli — dan orang mengikuti layar yang salah.
 
 #### Yang sudah ditulis, dan yang belum
 
-Phase 1: **portal** (Office & cara masuk, terbuka untuk semua yang bisa membuka
-Help), **reservasi**, **event**. Sisanya 21 kunci berdiri sebagai bab bertanda
-*Segera*. **Tidak ada satu pun tangkapan layar terpasang** — panduan sengaja
-ditulis lebih dulu, dan tiap slot gambarnya menyebut jalur berkas yang
-ditunggunya.
+**10 dari 25 bab.** Phase 1: **portal** (Office & cara masuk, terbuka untuk
+semua yang bisa membuka Help), **reservasi**, **event**. Phase 2 (19 September
+2026, modul yang dibuka harian): **cashier**, **kompas** (Input Omset Harian),
+**jadwal**, **dw**, **absensi**, **marketing**, **konten**.
+
+Yang BELUM, 15 kunci, berdiri sebagai bab bertanda *Segera*: `finance`,
+`brankas`, `analytics`, `bd`, `investor`, `service_excellent`, `radar`,
+`akademi`, `hr`, `howandi_life`, dan kelima panel Stock (`ordering`,
+`purchasing`, `tree`, `usage`, `hpp`).
+
+**Tidak ada satu pun tangkapan layar terpasang** — panduan sengaja ditulis
+lebih dulu, dan tiap slot gambarnya menyebut jalur berkas yang ditunggunya.
+Kotak bergaris yang terlihat di layar adalah keadaan itu, bukan kerusakan.
+
+> **Panduan HANYA boleh menyebut menu yang BENAR-BENAR ADA.** Nama menu tiap
+> bab disalin dari `TITLES`/`NAV_DEF` modulnya saat panduan itu ditulis, dan
+> disebut di kepala tiap berkas. Menu yang dicabut dari modulnya (Workload,
+> Content Bank, dan Reports di Konten; Pengaturan Target di Finance) sengaja
+> TIDAK disebut sebagai langkah — panduan yang menyuruh membuka menu yang tidak
+> ada membuat orang mencarinya sampai menyerah, lalu berhenti mempercayai
+> seluruh babnya.
 
 ```bash
-node tools/uji-help.js   # 90 pemeriksaan, jsdom
+node tools/uji-help.js   # 153 pemeriksaan, jsdom
 ```
 
 Dua puluh tiga mutasi dicoba, kedua puluh tiganya tertangkap — tapi **enam
