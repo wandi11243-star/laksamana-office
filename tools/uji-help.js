@@ -259,10 +259,25 @@ function berkasUntuk(url) {
    selain baris di tab Network. */
 let DIMINTA = [];
 
+/* Jalur yang SENGAJA dijawab 404 walau berkasnya ada di disk.
+   ---------------------------------------------------------------------------
+   Ini yang membuat keadaan "panduannya belum ditulis" tetap bisa diuji SESUDAH
+   seluruh bab punya panduannya. Versi sebelumnya memakai `analytics` sebagai
+   contoh bab kosong — dan asersinya langsung MERAH begitu panduan analytics
+   ditulis, untuk kode yang tidak berubah sedikit pun.
+
+   Uji yang membusuk begitu pekerjaannya selesai lebih buruk daripada tidak ada
+   uji: yang membacanya belajar mengabaikan warna merah, termasuk waktu suatu
+   hari ia benar. Yang dijaga di sini PERILAKU MESINNYA (404 -> 'kosong'),
+   bukan kebetulan bahwa ada satu bab yang belum sempat ditulis. */
+let BLOKIR = new Set();
+const diblokir = u => { for (const p of BLOKIR) if (String(u).indexOf(p) > -1) return true; return false; };
+
 const SUMBER_DAYA = (() => {
   if (typeof JSDOM_MOD.requestInterceptor === 'function') {       /* jsdom >= 30 */
     return { interceptors: [ JSDOM_MOD.requestInterceptor(async req => {
       DIMINTA.push(String(req.url));
+      if (diblokir(req.url)) return new Response('', { status: 404 });
       const f = berkasUntuk(req.url);
       /* Yang tidak ada di disk dijawab 404 — BUKAN diteruskan ke jaringan.
          Diteruskan, uji ini jadi bergantung pada koneksi internet, dan
@@ -277,6 +292,7 @@ const SUMBER_DAYA = (() => {
     const Pemuat = class extends JSDOM_MOD.ResourceLoader {
       fetch(url) {
         DIMINTA.push(String(url));
+        if (diblokir(url)) return Promise.reject(new Error('404 diblokir ' + url));
         const f = berkasUntuk(url);
         if (!f) return Promise.reject(new Error('404 ' + url));
         return Promise.resolve(fs.readFileSync(f));
@@ -437,6 +453,13 @@ const isi = d => d.window.document.getElementById('isi').innerHTML;
   /* ---------- Bab yang panduannya belum ada ---------- */
   console.log('\n== Bab yang panduannya belum ditulis ==');
   {
+    /* BERKASNYA DIBLOKIR, bukan memakai bab yang kebetulan belum ditulis.
+       Sejak seluruh 25 bab punya panduannya, tidak ada lagi kunci yang bisa
+       dipinjam untuk menguji keadaan ini — dan uji yang bergantung pada
+       adanya pekerjaan yang belum selesai akan merah justru saat pekerjaan
+       itu selesai. Yang diuji tetap jalur yang sama persis: 404 -> onerror
+       -> STATUS 'kosong' -> pita "Sedang disusun". */
+    BLOKIR.add('/panduan/analytics.js');
     const d = buka(['help', 'analytics']);
     await amanTunggu('beranda siap', () => tunggu(() => nav(d).indexOf('#/analytics') > -1));
     cek('bab tanpa panduan tetap digambar di sidebar', nav(d).indexOf('#/analytics') > -1,
@@ -456,6 +479,21 @@ const isi = d => d.window.document.getElementById('isi').innerHTML;
         isi(d).indexOf('Panduan gagal dimuat') < 0,
         'panduan yang belum ditulis disamakan dengan panduan yang rusak');
     d.window.close();
+    BLOKIR.clear();
+  }
+
+  /* ---------- Cakupan: tiap bab benar-benar punya berkasnya ---------- */
+  console.log('\n== Cakupan panduan ==');
+  {
+    /* Pasangan dari blok di atas. Yang itu menjaga MESINNYA sanggup
+       menggambar bab kosong; yang ini menjaga tidak ada bab yang benar-benar
+       kosong di repo. Tanpa yang kedua, seluruh panduan bisa terhapus dan
+       ujinya tetap hijau — mesinnya memang menangani keadaan itu dengan baik. */
+    const kurangBerkas = MODUL
+      .map(m => m.key || m.izin)
+      .filter(k => !fs.existsSync(path.join(DIR_PANDUAN, k + '.js')));
+    cek('setiap bab di registri punya berkas panduannya', kurangBerkas.length === 0,
+        'belum ada berkasnya: ' + kurangBerkas.join(', '));
   }
 
   /* ---------- Blok yang jenisnya tidak dikenal ---------- */

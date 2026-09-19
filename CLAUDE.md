@@ -7405,15 +7405,22 @@ tampilannya menyimpang dari yang asli — dan orang mengikuti layar yang salah.
 
 #### Yang sudah ditulis, dan yang belum
 
-**10 dari 25 bab.** Phase 1: **portal** (Office & cara masuk, terbuka untuk
-semua yang bisa membuka Help), **reservasi**, **event**. Phase 2 (19 September
-2026, modul yang dibuka harian): **cashier**, **kompas** (Input Omset Harian),
-**jadwal**, **dw**, **absensi**, **marketing**, **konten**.
+**25 dari 25 bab — tidak ada lagi yang bertanda *Segera*.** Ditulis tiga tahap
+dalam satu hari (19 September 2026): portal + reservasi + event, lalu tujuh
+modul yang dibuka harian (cashier, kompas, jadwal, dw, absensi, marketing,
+konten), lalu lima belas sisanya (finance, brankas, analytics, kelima panel
+Stock, radar, service_excellent, bd, akademi, hr, investor, howandi_life).
 
-Yang BELUM, 15 kunci, berdiri sebagai bab bertanda *Segera*: `finance`,
-`brankas`, `analytics`, `bd`, `investor`, `service_excellent`, `radar`,
-`akademi`, `hr`, `howandi_life`, dan kelima panel Stock (`ordering`,
-`purchasing`, `tree`, `usage`, `hpp`).
+**Keadaan "bab belum ditulis" TETAP ADA DI MESINNYA dan tetap diuji**, walau
+tidak ada satu pun bab yang sedang begitu — bab ke-26 akan lahir sebagai bab
+kosong, dan jalur itu harus sudah benar sebelum ia lahir. Ujinya karena itu
+**MEMBLOKIR berkas panduannya** (`BLOKIR`) alih-alih meminjam kunci yang
+kebetulan belum ditulis: uji yang bergantung pada adanya pekerjaan yang belum
+selesai akan merah justru pada saat pekerjaan itu selesai — dan itu memang
+terjadi di sini, dua asersi langsung merah begitu `analytics` dapat
+panduannya. Pasangannya asersi **CAKUPAN**: tiap kunci di registri wajib punya
+berkasnya di disk. Tanpa yang kedua, seluruh panduan bisa terhapus dan ujinya
+tetap hijau — mesinnya memang menangani keadaan kosong dengan baik.
 
 **Tidak ada satu pun tangkapan layar terpasang** — panduan sengaja ditulis
 lebih dulu, dan tiap slot gambarnya menyebut jalur berkas yang ditunggunya.
@@ -7428,10 +7435,10 @@ Kotak bergaris yang terlihat di layar adalah keadaan itu, bukan kerusakan.
 > seluruh babnya.
 
 ```bash
-node tools/uji-help.js   # 153 pemeriksaan, jsdom
+node tools/uji-help.js   # 289 pemeriksaan, jsdom
 ```
 
-Dua puluh tiga mutasi dicoba, kedua puluh tiganya tertangkap — tapi **enam
+Dua puluh lima mutasi dicoba, kedua puluh limanya tertangkap — tapi **enam
 mula-mula lolos atau mematikan ujinya**, dan semuanya cacat UJI:
 
 | yang salah | sebabnya |
