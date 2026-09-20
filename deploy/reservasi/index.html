@@ -8384,13 +8384,21 @@ function viewDpEvent(){
    </div>
 
    ${d.tanpaTanggal?`<div class="inline-warn" style="margin-bottom:14px"><div>
-      📅 <b>${d.tanpaTanggal} pembayaran event tidak punya tanggal bayar</b>, jadi tidak ikut di daftar mana pun —
-      termasuk di rentang ini. Tanggalnya dilengkapi di modul <b>Marketing</b> → event terkait → tab Finance.
+      📅 <b>${d.tanpaTanggal} pembayaran belum punya tanggal bayar.</b> Barisnya TETAP muncul di daftar ini —
+      penyaring di atas memakai tanggal <b>acara</b>, bukan tanggal bayar — dan kolom Tgl Bayar-nya ditandai
+      <b>belum diisi</b>. Dilengkapi di modul <b>Marketing</b> → event terkait → tab Finance.
       Sengaja TIDAK dijatuhkan ke tanggal acaranya: itu menaruh uang di hari yang tidak pernah menerimanya.
     </div></div>`:""}
 
+   ${(d.vipTerkunci&&Number(d.vipTerkunci.n)>0)?`<div class="inline-info" style="margin-bottom:14px"><div>
+      🍽️ <b>${d.vipTerkunci.n} DP Reservasi VIP</b> senilai <b>${rpDot(Number(d.vipTerkunci.total)||0)}</b> di daftar ini
+      <b>juga berdiri di tab DP Reservasi</b> — mejanya sudah dikunci, jadi DP-nya ikut tersalin ke sana.
+      <b>Jangan menjumlahkan kedua tab</b>: satu transfer akan terhitung dua kali, dan angkanya kelihatan wajar di
+      dua-duanya. VIP yang mejanya <i>belum</i> dikunci hanya ada di sini.
+    </div></div>`:""}
+
    <div class="panel"><div class="panel-body" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
-     <div class="field" style="margin:0"><label>Tanggal bayar — Dari</label><input type="date" value="${FIN_F.from}" onchange="finSet('from',this.value)"></div>
+     <div class="field" style="margin:0"><label>Tanggal acara — Dari</label><input type="date" value="${FIN_F.from}" onchange="finSet('from',this.value)"></div>
      <div class="field" style="margin:0"><label>Sampai</label><input type="date" value="${FIN_F.to}" onchange="finSet('to',this.value)"></div>
      <div class="field" style="margin:0;flex:1;min-width:180px"><label>Cari</label>
        <input id="dpevSearch" value="${esc(DPEV.q)}" placeholder="Nama event / client / PIC / no. kwitansi…"
@@ -8406,17 +8414,21 @@ function viewDpEvent(){
    <div class="panel">
      <div class="panel-head"><h3>Pembayaran Event <span class="count-tag">${baris.length}</span></h3>
        <span class="muted" style="font-size:12.5px">Dibaca dari modul Marketing — tidak bisa diubah dari sini</span></div>
-     ${!baris.length?`<div class="empty"><div class="big">🎉</div>${DPEV.q?`Tidak ada pembayaran yang cocok dengan “${esc(DPEV.q)}”.`:`Tidak ada pembayaran event pada ${rentang}.${dpevLuarHTML()}`}</div>`
+     ${!baris.length?`<div class="empty"><div class="big">🎉</div>${DPEV.q?`Tidak ada pembayaran yang cocok dengan “${esc(DPEV.q)}”.`:`Tidak ada pembayaran untuk acara pada ${rentang}.${dpevLuarHTML()}`}</div>`
      :`<div class="table-wrap"><table>
-       <thead><tr><th>Tgl Bayar</th><th>Event</th><th>Jenis</th><th class="num">Nominal</th><th>Metode</th><th>No. Kwitansi</th><th>Bukti</th></tr></thead>
+       <thead><tr><th>Tgl Acara</th><th>Event</th><th>Jenis</th><th class="num">Nominal</th><th>Metode</th><th>Tgl Bayar</th><th>No. Kwitansi</th><th>Bukti</th></tr></thead>
        <tbody>${baris.map(b=>`<tr>
-         <td><b>${fmtDateShort(b.at)}</b></td>
+         <td><b>${b.tglEvent?fmtDateShort(b.tglEvent):"—"}</b></td>
          <td><div class="name">${esc(b.event||"(tanpa nama)")}</div>
-           <div class="muted">${esc(b.client||"tanpa client")}${b.tglEvent?" · acara "+fmtDateShort(b.tglEvent):""}${b.pic?" · PIC "+esc(b.pic):""}</div>
-           ${b.status?`<span class="tag-cat">${esc(b.status)}</span>`:""}</td>
+           <div class="muted">${esc(b.client||"tanpa client")}${b.pic?" · PIC "+esc(b.pic):""}</div>
+           ${b.status?`<span class="tag-cat">${esc(b.status)}</span>`:""}
+           ${b.sumber==="vip"?`<span class="tag-cat" title="Dari Reservasi VIP di modul Marketing">Reservasi VIP</span>`:""}
+           ${b.sumber==="vip"&&b.resId?`<div class="muted" style="font-size:11px">Juga ada di tab DP Reservasi — jangan dihitung dua kali</div>`:""}</td>
          <td><span class="pill">${esc(b.type||"-")}</span></td>
          <td class="num"><b>${rpDot(b.amount)}</b></td>
          <td class="muted">${esc(b.method||"-")}</td>
+         <td class="muted">${b.at?fmtDateShort(b.at)
+             :`<span class="badge-status st-noshow" style="font-size:10px" title="Tanggal transfernya belum diisi di modul Marketing">belum diisi</span>`}</td>
          <td class="mono muted">${esc(b.no||"-")}</td>
          <td>${b.receiptUrl
              ? `<a class="btn btn-xs btn-ghost" href="${esc(b.receiptUrl)}" target="_blank" rel="noopener">🖼️ Bukti</a>`
@@ -8427,10 +8439,10 @@ function viewDpEvent(){
   return finSumberHTML() + `
    <div class="page-head">
      <div><h2>DP Event (dari Marketing)</h2>
-       <div class="desc">Pembayaran yang dicatat tim Marketing untuk event — <b>DP maupun pelunasan</b>. Dipakai kasir memastikan dananya
-         benar-benar masuk dan berapa. Daftar ini <b>hanya dibaca</b>; yang mengubahnya modul Marketing.
-         <b>Reservasi VIP tidak ada di sini</b> — DP-nya sudah ikut di tab DP Reservasi begitu mejanya dikunci, dan menampilkannya
-         dua kali membuat satu transfer terhitung dua kali.</div></div>
+       <div class="desc">Pembayaran yang dicatat tim Marketing untuk event <b>dan Reservasi VIP</b> — DP maupun pelunasan.
+         Dipakai kasir memastikan dananya benar-benar masuk dan berapa. Daftar ini <b>hanya dibaca</b>; yang mengubahnya modul Marketing.
+         Disaring menurut <b>tanggal acara</b>, bukan tanggal bayar — DP ditransfer berminggu-minggu sebelum acaranya,
+         dan tanggal bayarnya tetap satu kolom di tabel.</div></div>
    </div>` + isi;
 }
 

@@ -72,8 +72,29 @@ function dpEvent() {
         status: 'Confirmed', client: '', pic: 'Aurel',
         id: 'p3', no: 'KW-0003', type: 'DP', amount: 1000000, method: 'QRIS BRI',
         at: HARI_INI, receipt: 'bukti3.jpg', receiptUrl: '../marketing-api-mysql/api.php?action=receipt&key=def' },
+      /* TANGGAL BAYAR BELUM TERISI. Sejak penyaringnya tanggal ACARA, baris
+         ini TETAP muncul — dulu ia dibuang seluruhnya, dan uang yang sudah
+         masuk tidak terlihat di layar mana pun. */
+      { evId: 'ev-3', event: 'Launching Produk', jenis: 'Corporate Event', tglEvent: HARI_INI,
+        status: 'Deal', client: 'CV Maju', pic: 'Devani',
+        id: 'p4', no: 'KW-0004', type: 'DP', amount: 300000, method: 'Transfer UOB',
+        at: '', receipt: 'bukti4.jpg', receiptUrl: '../marketing-api-mysql/api.php?action=receipt&key=ghi' },
+      /* RESERVASI VIP yang mejanya SUDAH dikunci — DP-nya juga berdiri di tab
+         DP Reservasi, jadi kedua tab tidak boleh dijumlahkan. */
+      { sumber: 'vip', evId: 'vip-v1', event: 'Reservasi VIP · Septi', jenis: 'Assisted',
+        tglEvent: HARI_INI, status: 'Terkunci di Reservasi', client: '', pic: '',
+        resId: 'vip-v1', id: 'b0', no: '', type: 'DP', amount: 750000, method: 'QRIS BRI',
+        at: HARI_INI, receipt: 'vip1.jpg', receiptUrl: '?action=receipt&key=vip1' },
+      /* VIP yang mejanya BELUM dikunci — DP-nya TIDAK PERNAH sampai ke modul
+         Reservasi, jadi tab ini satu-satunya tempat ia terlihat. Itulah yang
+         membalik keputusan lama untuk mengecualikan VIP. */
+      { sumber: 'vip', evId: 'vip-v2', event: 'Reservasi VIP · Nana', jenis: 'Assisted',
+        tglEvent: HARI_INI, status: 'Belum dikunci', client: '', pic: '',
+        resId: '', id: 'b0', no: '', type: 'DP', amount: 400000, method: 'Transfer UOB',
+        at: HARI_INI, receipt: 'vip2.jpg', receiptUrl: '?action=receipt&key=vip2' },
     ],
-    total: 8500000, tanpaTanggal: 2, dari: HARI_INI, sampai: HARI_INI,
+    total: 9950000, tanpaTanggal: 2, dari: HARI_INI, sampai: HARI_INI,
+    vipTerkunci: { n: 1, total: 750000 },
     luar: { n: 0, total: 0, dari: '', sampai: '' },
   };
 }
@@ -189,12 +210,17 @@ const hal = w => w.document.getElementById('page-finance').innerHTML;
     const v = hal(w);
 
     cek('judulnya menyebut sumbernya', v.indexOf('DP Event (dari Marketing)') > -1);
-    cek('total dana masuk dijumlahkan benar', v.indexOf('Rp. 8.500.000') > -1, 'tidak ada Rp. 8.500.000');
+    /* 5.000.000 + 2.500.000 + 1.000.000 + 300.000 (tanpa tgl bayar)
+       + 750.000 (VIP terkunci) + 400.000 (VIP belum terkunci) = 9.950.000.
+       Tiap kesalahan memberi angka yang BERBEDA: VIP dibuang 8.800.000, yang
+       tanpa tanggal bayar dibuang 9.650.000. */
+    cek('total dana masuk dijumlahkan benar', v.indexOf('Rp. 9.950.000') > -1, 'tidak ada Rp. 9.950.000');
     /* Dihitung dari evId yang BERBEDA, bukan dari jumlah barisnya: satu event
-       boleh dibayar beberapa kali, dan "3 event" untuk 2 event yang dicicil
-       adalah angka yang tidak akan dipertanyakan siapa pun. */
+       boleh dibayar beberapa kali, dan "6 event" untuk 5 yang sebagian
+       dicicil adalah angka yang tidak akan dipertanyakan siapa pun.
+       ev-1 (2 bayar) + ev-2 + ev-3 + vip-v1 + vip-v2 = 5. */
     cek('jumlah EVENT-nya dihitung dari event yang berbeda, bukan jumlah baris',
-        v.indexOf('Event</div><div class="val">2</div>') > -1, 'harusnya 2 event dari 3 pembayaran');
+        v.indexOf('Event</div><div class="val">5</div>') > -1, 'harusnya 5 dari 6 pembayaran');
     cek('nama event tampil', v.indexOf('Gathering Nusantara') > -1);
     cek('client & PIC-nya ikut', v.indexOf('PT Bahari Jaya') > -1 && v.indexOf('Devani') > -1);
     cek('nomor kwitansinya ikut', v.indexOf('KW-0001') > -1);
@@ -218,10 +244,12 @@ const hal = w => w.document.getElementById('page-finance').innerHTML;
     cek('dan TIDAK diberi tautan bukti yang tidak ada',
         barisTanpaBukti.indexOf('action=receipt') < 0);
 
-    /* Yang tidak punya tanggal bayar TIDAK ikut di daftar mana pun — itu
-       disebut angkanya, kalau tidak yang menjumlahkan mengira sudah lengkap. */
-    cek('pembayaran tanpa tanggal disebut jumlahnya',
-        v.indexOf('2 pembayaran event tidak punya tanggal bayar') > -1);
+    /* Yang tanggal BAYARNYA belum terisi TETAP muncul — sejak penyaringnya
+       tanggal ACARA, barisnya masih milik acara di rentang yang diminta, dan
+       membuangnya berarti menyembunyikan uang yang sudah masuk. Jumlahnya
+       tetap disebut supaya bisa dilengkapi. */
+    cek('pembayaran tanpa tanggal bayar disebut jumlahnya',
+        v.indexOf('2 pembayaran belum punya tanggal bayar') > -1);
     cek('dan dikatakan kenapa tidak dijatuhkan ke tanggal acaranya',
         v.indexOf('menaruh uang di hari yang tidak pernah menerimanya') > -1);
 
@@ -230,10 +258,63 @@ const hal = w => w.document.getElementById('page-finance').innerHTML;
     cek('dikatakan daftarnya hanya dibaca', v.indexOf('hanya dibaca') > -1);
     cek('tidak ada tombol verifikasi/tolak di tab ini',
         v.indexOf('verifyTf(') < 0 && v.indexOf('rejectTf(') < 0);
-    /* Reservasi VIP sudah punya barisnya di tab sebelah — menampilkannya lagi
-       di sini membuat satu transfer terhitung dua kali. */
-    cek('dikatakan Reservasi VIP tidak ikut di tab ini',
-        v.indexOf('Reservasi VIP tidak ada di sini') > -1);
+    /* RESERVASI VIP IKUT sejak 20 September 2026 (permintaan user). Dulu
+       dikecualikan karena DP-nya tersalin ke modul Reservasi saat mejanya
+       dikunci — tapi VIP yang mejanya BELUM dikunci tidak pernah sampai ke
+       sana sama sekali: uang yang tidak terlihat kasir di layar mana pun. */
+    cek('dikatakan Reservasi VIP ikut di tab ini',
+        v.indexOf('dan Reservasi VIP') > -1);
+    /* DIJEPIT ke label kotaknya sendiri. Frasa "tanggal acara" juga hidup di
+       keterangan kepala halaman, jadi asersi yang menyapu seluruh layar tetap
+       hijau walau labelnya dikembalikan ke "Tanggal bayar" — mutasi itu
+       memang LOLOS di putaran pertama. */
+    cek('kotak tanggalnya berlabel tanggal acara',
+        v.indexOf('<label>Tanggal acara — Dari</label>') > -1);
+    cek('dikatakan penyaringnya tanggal acara', v.indexOf('tanggal acara') > -1);
+    cek('aturan lama yang membuangnya sudah dicabut',
+        v.indexOf('Reservasi VIP tidak ada di sini') < 0);
+
+    /* ---- BARIS VIP: ada, dan yang dobel ditandai ---- */
+    cek('baris VIP yang sudah terkunci tampil', v.indexOf('Reservasi VIP · Septi') > -1);
+    cek('baris VIP yang BELUM terkunci tampil', v.indexOf('Reservasi VIP · Nana') > -1);
+    /* Dua tab yang sama-sama memuat satu transfer harus mengatakannya. Yang
+       diuji BARISNYA, bukan pita di atas: pita menyebut jumlah, baris yang
+       menyebut dirinya sendiri yang dibaca orang saat mencocokkan. */
+    {
+      const iSepti = v.indexOf('Reservasi VIP · Septi');
+      const iNana  = v.indexOf('Reservasi VIP · Nana');
+      const barisSepti = iSepti > -1 ? v.slice(iSepti, iSepti + 700) : '';
+      const barisNana  = iNana  > -1 ? v.slice(iNana,  iNana  + 700) : '';
+      cek('yang terkunci menyebut juga ada di tab sebelah',
+          barisSepti.indexOf('Juga ada di tab DP Reservasi') > -1);
+      /* Yang BELUM terkunci tidak boleh ikut ditandai — ia memang cuma ada di
+         sini, dan penanda yang keliru menyuruh orang mengurangkannya dari
+         penjumlahan yang tidak pernah dobel. */
+      cek('yang belum terkunci TIDAK ditandai',
+          barisNana.indexOf('Juga ada di tab DP Reservasi') < 0);
+    }
+    /* Pitanya menyebut ANGKANYA — "jangan dijumlahkan" tanpa angka tidak bisa
+       dipakai siapa pun untuk mengoreksi. */
+    cek('pita menyebut jumlah VIP yang dobel', v.indexOf('1 DP Reservasi VIP') > -1);
+    cek('pita menyebut nominalnya', v.indexOf('Rp. 750.000') > -1);
+    cek('pita melarang menjumlahkan kedua tab',
+        v.indexOf('Jangan menjumlahkan kedua tab') > -1);
+
+    /* ---- TANGGAL BAYAR KOSONG: barisnya TETAP ada ---- */
+    cek('baris tanpa tanggal bayar TETAP tampil', v.indexOf('Launching Produk') > -1);
+    {
+      const i = v.indexOf('Launching Produk');
+      const brs = i > -1 ? v.slice(i, i + 900) : '';
+      /* Ditandai DI KOLOMNYA, bukan cuma dihitung di pita: pita menyebut
+         jumlah, dan mencocokkan "2 pembayaran" dengan baris di tabel adalah
+         pekerjaan yang tidak perlu ada. */
+      cek('kolom Tgl Bayar-nya ditandai belum diisi', brs.indexOf('belum diisi') > -1);
+      cek('nominalnya tetap ikut', brs.indexOf('Rp. 300.000') > -1);
+    }
+    /* KEDUA KOLOM ADA. Tanggal bayar tidak hilang saat penyaringnya pindah ke
+       tanggal acara — permintaan user: "tanggal bayar hanya di tabel saja". */
+    cek('kolom Tgl Acara ada', v.indexOf('<th>Tgl Acara</th>') > -1);
+    cek('kolom Tgl Bayar tetap ada', v.indexOf('<th>Tgl Bayar</th>') > -1);
 
     // Pencarian
     w.eval('DPEV.q="sekar"; renderFinance();');
@@ -352,10 +433,12 @@ const hal = w => w.document.getElementById('page-finance').innerHTML;
     cek('rentangnya divalidasi', /function dp_masuk[\s\S]{0,400}?tanggal_valid\(\$dari\) \|\| !tanggal_valid\(\$sampai\)/.test(PHP_LIB));
     cek('rentang terbalik dibetulkan, bukan memulangkan kosong',
         /function dp_masuk[\s\S]{0,600}?if \(\$dari > \$sampai\)/.test(PHP_LIB));
-    /* Pembayaran tanpa tanggal TIDAK dijatuhkan ke tanggal acara, dan
-       jumlahnya dilaporkan. */
-    cek('pembayaran tanpa tanggal dilewati & dihitung',
-        /if \(\$at === ''\) \{ \$tanpaTanggal\+\+; continue; \}/.test(PHP_LIB));
+    /* Tanggal bayar yang kosong DIHITUNG tapi TIDAK lagi membuang barisnya.
+       Tanggalnya juga tidak dijatuhkan ke tanggal acara — itu menaruh uang di
+       hari yang tidak pernah menerimanya. */
+    cek('tanpa tanggal bayar dihitung, TIDAK dibuang',
+        /if \(\$at === ''\) \$tanpaTanggal\+\+;/.test(PHP_LIB)
+        && !/\$at === ''\) \{ \$tanpaTanggal\+\+; continue; \}/.test(PHP_LIB));
     cek('jumlahnya ikut dipulangkan', /'tanpaTanggal' => \$tanpaTanggal/.test(PHP_LIB));
     /* LEFT JOIN: event yang client-nya sudah dihapus tetap muncul — uangnya
        sudah masuk, dan baris yang hilang dibaca sebagai dana yang tidak ada. */
@@ -386,7 +469,7 @@ const hal = w => w.document.getElementById('page-finance').innerHTML;
     await tunggu(250);
     const h = hal(w);
 
-    cek('daftarnya memang kosong', /Tidak ada pembayaran event pada/.test(h));
+    cek('daftarnya memang kosong', /Tidak ada pembayaran untuk acara pada/.test(h));
     /* JUMLAH, NOMINAL, dan RENTANG yang benar-benar ada isinya. Tanpa
        ketiganya, yang membacanya tidak punya cara tahu apakah datanya memang
        belum ada atau cuma di luar rentang yang kebetulan terpilih. */
@@ -423,7 +506,7 @@ const hal = w => w.document.getElementById('page-finance').innerHTML;
     await masuk(w);
     await amanTunggu('buka tab event', async () => { w.eval('finSumber("event")'); });
     await tunggu(250);
-    cek('keadaan kosongnya memang digambar', /Tidak ada pembayaran event pada/.test(hal(w)));
+    cek('keadaan kosongnya memang digambar', /Tidak ada pembayaran untuk acara pada/.test(hal(w)));
     /* Menawarkan rentang yang sama-sama kosong membuat orang menekannya lalu
        kembali ke layar yang sama. */
     cek('tidak menawarkan apa pun', !/Di luar rentang ini ada/.test(hal(w)));
@@ -448,13 +531,37 @@ const hal = w => w.document.getElementById('page-finance').innerHTML;
        asersi yang cuma mencari namanya tetap hijau walau baris yang
        mengisinya dicabut — mutasi itu memang LOLOS di putaran pertama. */
     cek('tanggal terawal & terakhirnya ikut dicatat',
-        /\$luarMin === ''[\s\S]{0,40}?\$luarMin = \$at;/.test(badan)
-        && /\$at > \$luarMax\) \$luarMax = \$at;/.test(badan));
+        /\$luarMin === '' \|\| \$tgl < \$luarMin\) \$luarMin = \$tgl;/.test(badan)
+        && /\$tgl > \$luarMax\) \$luarMax = \$tgl;/.test(badan));
     cek('ikut dipulangkan sebagai luar', /'luar'\s*=>/.test(badan));
-    /* BARISNYA TIDAK ikut terkirim — kalau ikut, penyaring tanggalnya
-       berhenti berarti apa-apa. */
-    cek('barisnya TIDAK ikut terkirim',
-        /\$luarN\+\+[\s\S]{0,200}?continue;/.test(badan));
+    /* BARISNYA TIDAK ikut terkirim — yang di luar rentang cuma DIHITUNG lewat
+       query terpisah yang tidak menyusun satu baris pun. Kalau ikut,
+       penyaring tanggalnya berhenti berarti apa-apa. */
+    cek('yang di luar rentang tidak menyusun baris',
+        /NOT BETWEEN[\s\S]{0,700}?\$luarN\+\+/.test(badan)
+        && !/NOT BETWEEN[\s\S]{0,700}?\$baris\[\] =/.test(badan));
+
+    /* ---- DISARING MENURUT TANGGAL ACARA (permintaan user) ---- */
+    cek('disaring di SQL menurut tanggal acara',
+        /WHERE e\.tanggal BETWEEN :d AND :s/.test(badan));
+    cek('rentangnya diikat, bukan disisipkan ke SQL',
+        /execute\(array\(':d' => \$dari, ':s' => \$sampai\)\)/.test(badan));
+    /* ---- RESERVASI VIP IKUT ---- */
+    /* Yang dituntut CABANGNYA BENAR-BENAR DIMASUKI, bukan sekadar kuncinya
+       disebut: `'extra:vip'` tetap berdiri di baris query walau seluruh
+       pembacaannya dimatikan — mutasi itu memang LOLOS di putaran pertama. */
+    cek('VIP dibaca dari extra:vip', /'extra:vip'/.test(badan));
+    cek('hasilnya benar-benar disisir',
+        /if \(is_array\(\$semuaVip\)\) \{[\s\S]{0,200}?foreach \(\$semuaVip as \$v\)/.test(badan));
+    cek('VIP yang dibatalkan tidak ikut', /!empty\(\$v\['batalAt'\]\)/.test(badan));
+    cek('barisnya ditandai sumber vip', /'sumber'\s*=> 'vip'/.test(badan));
+    /* resId = penanda bahwa DP ini JUGA berdiri di tab DP Reservasi. Tanpa
+       itu, yang menjumlahkan kedua tab menghitung satu transfer dua kali. */
+    cek('yang sudah terkunci ditandai resId', /'resId'\s*=> \$resId/.test(badan));
+    cek('jumlahnya dipulangkan terpisah', /'vipTerkunci'\s*=>/.test(badan));
+    /* Diurut menurut kolom yang jadi PENYARINGNYA — daftar yang diurut
+       menurut kolom lain terbaca acak. */
+    cek('diurut menurut tanggal acara', /\$a\['tglEvent'\] === \$b\['tglEvent'\]/.test(badan));
   }
 
   console.log('\n---------------------------------------');

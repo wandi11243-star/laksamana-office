@@ -1079,12 +1079,19 @@ sama-sama boleh mengubah satu pembayaran akan punya dua angka untuk satu uang
 suatu hari, dan yang mencocokkannya tidak punya cara tahu mana yang benar —
 aturan yang sama dengan Piutang di panel Brankas.
 
-**Reservasi VIP TIDAK ditampilkan di tab ini**, dan itu dikatakan di layar:
+~~**Reservasi VIP TIDAK ditampilkan di tab ini**, dan itu dikatakan di layar:
 DP-nya SUDAH disalin ke modul Reservasi saat mejanya dikunci
 (`vipDpsUntukReservasi` → `rec.dps`), jadi ia sudah berdiri di tab DP
 Reservasi berikut alur verifikasinya. Menampilkannya lagi di sini membuat
 satu transfer terhitung **dua kali** — dan angkanya kelihatan wajar di kedua
-tabel.
+tabel.~~
+
+> **DIBALIK hari itu juga atas permintaan user** — lihat *"Disaring menurut
+> TANGGAL ACARA, VIP ikut…"* di bawah. Alasan di atas masih benar untuk VIP
+> yang mejanya SUDAH dikunci, tapi yang **belum** dikunci tidak punya `resId`
+> dan DP-nya tidak pernah sampai ke modul Reservasi sama sekali: uang yang
+> tidak terlihat kasir di layar mana pun. Sekarang keduanya ikut, dan yang
+> dobel ditandai di barisnya sendiri.
 
 #### ENDPOINT SEMPIT `dpMasuk`, bukan getAll
 
@@ -1099,17 +1106,21 @@ klien, pipeline, dan invoice — dan yang membuka halaman Dana Masuk adalah
   penawaran, dan menyalin rumusnya ke PHP berarti **berkas kembar LINTAS
   BAHASA** — bentuk yang paling sulit dicocokkan, dan yang selisihnya berupa
   uang yang tertulis beda di dua layar.
-- **SELURUH EVENT DIPINDAI, tanpa jendela tanggal.** `payments[]` hidup di
+- ~~**SELURUH EVENT DIPINDAI, tanpa jendela tanggal.** `payments[]` hidup di
   dalam blob `data` (tidak punya kolomnya sendiri), jadi tanggal bayarnya
   tidak bisa disaring di SQL — dan tanggal ACARA bukan penggantinya: DP
-  dibayar berbulan-bulan sebelum acaranya, pelunasan kadang sesudah. Jendela
-  yang menebak akan menghilangkan pembayaran yang benar-benar masuk hari itu,
-  tanpa satu pun tanda. Di produksi tabelnya puluhan baris; kalau suatu hari
-  membengkak, yang perlu ditambahkan **kolom tanggal bayar** — bukan jendela
-  yang menebak.
+  dibayar berbulan-bulan sebelum acaranya, pelunasan kadang sesudah.~~
+  **DIGANTI hari itu juga atas permintaan user**: penyaringnya sekarang
+  tanggal ACARA, disaring di SQL lewat `idx_ev_tanggal`. Kalimat di atas
+  benar sebagai alasan untuk tidak MENEBAK tanggal bayar dari tanggal acara —
+  dan itu tetap berlaku; yang berubah pertanyaan yang dijawab halaman ini,
+  dari *"uang apa saja yang masuk hari ini"* jadi *"acara tanggal sekian,
+  DP-nya sudah berapa"*. Tanggal bayar tetap satu kolom di tabel.
 - **Pembayaran TANPA tanggal bayar tidak dijatuhkan ke tanggal acara** — itu
-  menaruh uang di hari yang tidak pernah menerimanya. Dihitung dan
-  **dilaporkan di layar** berikut cara membetulkannya.
+  menaruh uang di hari yang tidak pernah menerimanya. ~~Dihitung dan
+  dilaporkan di layar.~~ Sejak penyaringnya tanggal acara, barisnya **TETAP
+  MUNCUL** dan kolom Tgl Bayar-nya ditandai *belum diisi*; dulu ia dibuang
+  seluruhnya, dan uang yang sudah masuk tidak terlihat di layar mana pun.
 - **LEFT JOIN, bukan JOIN**: event yang client-nya sudah dihapus tetap muncul.
   Uangnya sudah masuk, dan baris yang hilang dibaca sebagai dana yang tidak
   pernah ada.
@@ -1214,6 +1225,107 @@ sudah punya nama di berkas ini:
 > sendiri. **Kalau laporan serupa datang lagi, periksa isi live-nya dulu
 > dengan `curl` sebelum mencari di kode** — satu perintah, dan ia membedakan
 > "belum mendarat" dari "belum dimuat ulang".
+
+#### Disaring menurut TANGGAL ACARA, VIP ikut, bukti wajib di modal (20 Sep 2026)
+
+Tiga permintaan user dalam satu pesan, beberapa jam sesudah tab ini naik.
+
+##### 1. Penyaringnya tanggal ACARA, bukan tanggal bayar
+
+*"di filter berdasarkan tanggal event saja, tanggal bayar hanya di tabel
+saja"* — dan bentuk lamanya memang punya dua kegagalan yang dua-duanya sudah
+terlihat di lapangan:
+
+| | |
+|---|---|
+| tab terbuka pada rentang HARI INI | DP ditransfer berminggu-minggu sebelum acaranya → daftarnya hampir selalu kosong, dan kosong terbaca sebagai fitur yang tidak jalan |
+| pembayaran yang tanggal bayarnya belum terisi | **DIBUANG seluruhnya** — uang yang benar-benar masuk tidak muncul di layar mana pun, yang tersisa cuma angka "N tanpa tanggal" yang tidak bisa ditelusuri |
+
+Tanggal acara menjawab pertanyaan yang benar-benar dibawa kasir ke sini:
+*"acara tanggal sekian, DP-nya sudah berapa"*.
+
+- **Penyaringannya PINDAH KE SQL** (`WHERE e.tanggal BETWEEN :d AND :s`,
+  lewat `idx_ev_tanggal`) — tanggal acara punya kolomnya sendiri, beda dari
+  tanggal bayar yang hidup di dalam blob `data`. Tidak ada lagi pemindaian
+  seluruh tabel di PHP.
+- **Tanggal bayar tidak hilang**: ia tetap satu kolom di tabel, dan yang belum
+  terisi DITANDAI *belum diisi* **di kolomnya sendiri** — bukan cuma dihitung
+  di pita. Pita menyebut jumlah; mencocokkan "2 pembayaran" dengan baris di
+  tabel adalah pekerjaan yang tidak perlu ada.
+- **Diurut menurut tanggal ACARA**, yaitu kolom yang jadi penyaringnya.
+  Daftar yang diurut menurut kolom lain terbaca acak.
+- Yang di luar rentang dihitung lewat **query terpisah** yang tidak menyusun
+  satu baris pun — kalau barisnya ikut terkirim, penyaring tanggalnya berhenti
+  berarti apa-apa.
+
+##### 2. RESERVASI VIP IKUT — keputusan 19 September DIBALIK
+
+Sehari sebelumnya VIP sengaja dikecualikan, dengan alasan yang masih benar: DP
+VIP **disalin** ke modul Reservasi saat mejanya dikunci
+(`vipDpsUntukReservasi` → `rec.dps`), jadi ia sudah berdiri di tab DP
+Reservasi — dan menampilkannya lagi membuat satu transfer terhitung dua kali.
+
+**Yang tidak terpikir waktu itu, dan itu yang membalikkannya:** VIP yang
+mejanya **BELUM dikunci** tidak punya `resId`, jadi DP-nya **tidak pernah
+sampai** ke modul Reservasi. Uang yang sudah diterima marketing, dan tidak
+terlihat kasir di layar mana pun.
+
+Jadi keduanya ikut, dan yang dobel **dikatakan** — bukan dihindari dengan
+menyembunyikan separuhnya:
+
+- **`resId` jadi penandanya.** Barisnya sendiri menulis *"Juga ada di tab DP
+  Reservasi — jangan dihitung dua kali"*; yang **belum** terkunci TIDAK
+  ditandai, karena ia memang cuma ada di sini dan penanda yang keliru menyuruh
+  orang mengurangkan sesuatu yang tidak pernah dobel.
+- **Pitanya menyebut ANGKANYA** (`vipTerkunci: {n, total}`). "Jangan
+  dijumlahkan" tanpa angka tidak bisa dipakai siapa pun untuk mengoreksi.
+- **Yang dibatalkan tidak ikut**, penandanya `batalAt` — sama dengan
+  `vip_hari()`. Menyaringnya lewat kata pada `status` adalah kesalahan yang
+  sudah pernah dibayar di modul ini.
+- **`cap_ke_tanggal()`** membaca cap bukti VIP yang bisa berupa milidetik
+  epoch (ditulis Marketing) atau string tanggal (baris yang dipulihkan dari
+  Reservasi). Yang tidak terbaca dipulangkan **KOSONG, bukan ditebak**:
+  tanggal karangan di kolom uang masuk lebih buruk daripada kolom yang
+  jelas-jelas belum terisi.
+
+##### 3. Bukti wajib di modal Catat Pembayaran
+
+*"kalau misalnya upload gambar bersifat required yah untuk modul marketing"*.
+
+Modal itu jalur **KEDUA** yang melahirkan baris di `ev.payments` — yang
+pertama kotak DP di tab Finance, yang sejak hari itu menuntut bukti sebelum
+centangnya boleh dinyalakan. Selama pintu ini membiarkan bukti kosong,
+aturannya **bocor lewat sini**: barisnya tetap berdiri di halaman Dana Masuk
+bertanda *tanpa bukti*.
+
+- **Bukti yang sudah tersimpan IKUT DIHITUNG.** Membetulkan nominal yang salah
+  ketik tidak boleh menuntut berkasnya diunggah ulang — berkas itu ada di
+  server, bukan di komputer yang sedang membuka modal.
+- **Pembayaran LAMA yang terlanjur tanpa bukti TIDAK DIKUNCI**, cuma ditanya
+  sekali. Polanya sama dengan bukti DP di modul Reservasi dan kotak PIC event
+  lama di modul Event.
+- **Untuk Cash pun wajib** — kalimatnya menyuruh memfoto kwitansi/struknya.
+  Kata *"Opsional untuk Cash"* yang lama dicabut.
+
+```bash
+node tools/uji-dp-event.js            # 90 pemeriksaan (dari 66)
+node tools/uji-dp-form-marketing.js   # 79 pemeriksaan (dari 69)
+```
+
+Fixture-nya dirancang supaya **tiap kesalahan memberi angka yang BERBEDA**:
+5.000.000 + 2.500.000 + 1.000.000 + 300.000 (tanpa tgl bayar) + 750.000 (VIP
+terkunci) + 400.000 (VIP belum terkunci) = **9.950.000**; VIP dibuang
+8.800.000, yang tanpa tanggal bayar dibuang 9.650.000.
+
+**Lima belas mutasi dicoba, kelima belasnya tertangkap** — tapi TIGA baru
+sesudah ujinya dibetulkan, dan ketiganya bentuk yang sudah punya nama di
+berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| label kotak dikembalikan ke "Tanggal bayar" | frasa *tanggal acara* juga hidup di keterangan kepala halaman, jadi asersi yang menyapu seluruh layar tetap hijau | dijepit ke `<label>Tanggal acara — Dari</label>` |
+| pembacaan VIP dimatikan seluruhnya | asersinya cuma menuntut `'extra:vip'` disebut — kuncinya tetap berdiri di baris query walau cabangnya tidak pernah dimasuki | yang dituntut `if (is_array($semuaVip))` **berikut** `foreach`-nya |
+| bukti tersimpan berhenti dihitung | **cacat fixture** — ujinya tidak pernah menyunting pembayaran yang sudah punya bukti, jadi cabangnya tidak pernah dijalankan | putaran sunting nominal tanpa memilih berkas baru |
 
 ### DP wajib berbukti & berekening — dan DP event akhirnya sampai ke Dana Masuk (20 Sep 2026)
 

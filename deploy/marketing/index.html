@@ -10863,9 +10863,13 @@ function addPayment(id,paymentId){
          +'Pembayaran ini tetap tercatat, tapi Grand Total &amp; DP-nya baru ikut berubah setelah tab Finance ditekan Simpan.</span></div>'
        : '')
    +'<div class="form-grid" style="margin-top:14px">'
-     +'<div class="field full"><label>Bukti Transfer (foto/PDF)</label>'
+     +'<div class="field full"><label>Bukti Transfer (foto/PDF)<span class="req">*</span></label>'
        +'<input class="inp" type="file" id="pay_receipt_file" accept="image/*,application/pdf">'
-       +'<div class="fh">'+(p&&p.receiptUrl?'Sudah ada bukti tersimpan. Unggah berkas baru untuk mengganti.':'Opsional untuk Cash. Maks 8MB, JPG/PNG/PDF.')+'</div></div>'
+       +'<div class="fh">'+(p&&p.receiptUrl
+           ? 'Sudah ada bukti tersimpan. Unggah berkas baru untuk mengganti.'
+           : 'Wajib — pembayaran ini muncul di halaman <b>Dana Masuk</b> milik kasir, dan yang tanpa lampiran '
+             +'tidak bisa dicocokkan dengan mutasi bank oleh siapa pun. Untuk Cash, foto kwitansi atau struknya. '
+             +'Maks 8MB, JPG/PNG/PDF.')+'</div></div>'
      +'<div class="field full"><label>Catatan</label>'
        +'<input class="inp" id="pay_note" value="'+(p?esc(p.receipt||''):'')+'" placeholder="mis. transfer dari rek. BCA a.n. ..."></div>'
    +'</div></div>'
@@ -10945,6 +10949,34 @@ async function savePayment(id,paymentId){
   const existing=paymentId?(ev.payments||[]).find(x=>x.id===paymentId):null;
   const amt=+rupiahDigits($('pay_amt').value); if(!amt)return toast('Isi jumlah','Jumlah pembayaran wajib.','err');
   const fileInp=$('pay_receipt_file'), file=fileInp&&fileInp.files&&fileInp.files[0];
+  /* BUKTI TRANSFER WAJIB (20 September 2026, permintaan user: "kalau misalnya
+     upload gambar bersifat required yah untuk modul marketing").
+
+     Modal ini adalah jalur KEDUA yang melahirkan baris di ev.payments — yang
+     pertama kotak DP di tab Finance, yang sejak hari ini menuntut bukti
+     sebelum centangnya boleh dinyalakan. Selama pintu ini masih membiarkan
+     bukti kosong, aturannya bocor lewat sini: barisnya tetap berdiri di
+     halaman Dana Masuk milik kasir bertanda "tanpa bukti", dan tidak bisa
+     dicocokkan dengan mutasi bank oleh siapa pun.
+
+     BUKTI YANG SUDAH TERSIMPAN IKUT DIHITUNG. Membetulkan nominal yang salah
+     ketik tidak boleh menuntut berkasnya diunggah ulang — berkas itu ada di
+     server, bukan di komputer yang sedang membuka modal ini.
+
+     PEMBAYARAN LAMA YANG TERLANJUR TANPA BUKTI TIDAK DIKUNCI, cuma ditanya
+     sekali. Menguncinya berarti baris yang sudah terlanjur begitu tidak bisa
+     dibetulkan siapa pun — termasuk nominalnya — dan justru kelengkapan
+     itulah yang sedang diusahakan. Polanya sama dengan bukti DP di modul
+     Reservasi dan kotak PIC event lama di modul Event. */
+  if(!file && !(existing && existing.receiptUrl)){
+    if(!existing){
+      toast('Bukti transfer wajib','Unggah foto struk atau PDF-nya. Untuk Cash, foto kwitansinya.','err');
+      const inp=$('pay_receipt_file'); if(inp) inp.focus();
+      return;
+    }
+    if(!confirm('Pembayaran ini tercatat tanpa bukti transfer — dari sebelum buktinya diwajibkan.\n\n'
+        +'Sebaiknya dilengkapi sekarang selagi modalnya terbuka. Simpan tanpa bukti?')) return;
+  }
   const note=$('pay_note').value.trim();
   const btn=$('pay_save_btn');
   let receiptUrl=existing?(existing.receiptUrl||''):'', receiptName=note||(existing?existing.receipt:'')||'';

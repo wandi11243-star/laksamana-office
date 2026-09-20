@@ -1173,30 +1173,67 @@ function save_all($state) {
    berkas kembar yang paling sulit dicocokkan, dan yang selisihnya berupa
    uang yang tertulis beda di dua layar.
 
-   SELURUH EVENT DIPINDAI, tanpa jendela tanggal. 'payments[]' hidup di dalam
-   blob 'data' (tidak punya kolomnya sendiri), jadi tanggal bayarnya tidak
-   bisa disaring di SQL — dan tanggal ACARA bukan penggantinya: DP dibayar
-   berbulan-bulan sebelum acaranya, pelunasan kadang sesudah. Jendela yang
-   menebak akan menghilangkan pembayaran yang benar-benar masuk hari itu,
-   tanpa satu pun tanda. Di produksi tabelnya puluhan baris, jadi ini murah;
-   kalau suatu hari membengkak, yang perlu ditambahkan KOLOM tanggal bayar —
-   bukan jendela yang menebak. */
+   ============ DISARING MENURUT TANGGAL ACARA, BUKAN TANGGAL BAYAR ============
+   (permintaan user, 20 September 2026: "di filter berdasarkan tanggal event
+   saja, tanggal bayar hanya di tabel saja").
+
+   Sampai perubahan itu penyaringnya tanggal BAYAR, dan bentuk itu punya dua
+   kegagalan yang dua-duanya sudah terlihat di lapangan:
+
+     1. Tab ini terbuka pada rentang HARI INI, sementara DP event ditransfer
+        berminggu-minggu sebelum acaranya — jadi daftarnya hampir selalu
+        kosong, dan kosong terbaca sebagai fitur yang tidak jalan.
+     2. Pembayaran yang tanggal bayarnya belum terisi DIBUANG seluruhnya. Uang
+        yang benar-benar masuk tidak muncul di layar mana pun; yang tersisa
+        cuma angka "N tanpa tanggal" yang tidak bisa ditelusuri.
+
+   Tanggal acara menjawab pertanyaan yang benar-benar dibawa kasir ke sini:
+   "acara tanggal sekian, DP-nya sudah berapa". Ia juga PUNYA KOLOMNYA SENDIRI
+   (`events.tanggal`, berindeks), jadi penyaringannya pindah ke SQL — bukan
+   lagi memindai seluruh tabel di PHP.
+
+   Tanggal bayar tidak hilang: ia tetap satu kolom di tabel, dan yang belum
+   terisi DITANDAI di barisnya sendiri — bukan dibuang.
+
+   ============ RESERVASI VIP IKUT (permintaan user yang sama) ============
+   Dulu sengaja dikecualikan: DP VIP DISALIN ke modul Reservasi saat mejanya
+   dikunci (vipDpsUntukReservasi -> rec.dps), jadi ia sudah berdiri di tab DP
+   Reservasi — dan menampilkannya lagi di sini membuat satu transfer terhitung
+   dua kali.
+
+   Yang tidak terpikir waktu itu, dan itu yang membalik keputusannya: VIP yang
+   MEJANYA BELUM DIKUNCI tidak punya `resId`, jadi DP-nya TIDAK PERNAH sampai
+   ke modul Reservasi — uang yang sudah diterima marketing dan tidak terlihat
+   kasir di layar mana pun.
+
+   Jadi keduanya ikut, dan yang SUDAH terkunci ditandai `resId` supaya layar
+   bisa mengatakannya. Yang menjumlahkan dua tab harus tahu mana yang berdiri
+   di dua-duanya; angkanya dipisah di balasan ini (`vipTerkunci`), bukan
+   didiamkan. */
 function dp_masuk($dari, $sampai) {
   if (!tanggal_valid($dari) || !tanggal_valid($sampai)) throw new Exception('rentang tanggal tidak sah');
   if ($dari > $sampai) { $t = $dari; $dari = $sampai; $sampai = $t; }
   $pdo = db();
   /* LEFT JOIN, bukan JOIN: event yang client-nya sudah dihapus tetap harus
      muncul — uangnya sudah masuk, dan baris yang hilang dibaca sebagai dana
-     yang tidak pernah ada. */
-  $st = $pdo->query(
+     yang tidak pernah ada.
+
+     DISARING DI SQL lewat idx_ev_tanggal. Tanggal acara punya kolomnya
+     sendiri, beda dari tanggal bayar yang hidup di dalam blob `data`. */
+  $st = $pdo->prepare(
     "SELECT e.id, e.nama, e.jenis, e.tanggal, e.status, e.data,
             c.nama AS client_nama, u.name AS pic_name
        FROM events e
        LEFT JOIN clients c ON c.id = e.client_id
        LEFT JOIN users   u ON u.id = e.mkt_pic
+      WHERE e.tanggal BETWEEN :d AND :s
       ORDER BY e.tanggal DESC");
+  $st->execute(array(':d' => $dari, ':s' => $sampai));
   $baris = array(); $tanpaTanggal = 0;
   $luarN = 0; $luarRp = 0; $luarMin = ''; $luarMax = '';
+  /* Yang di LUAR rentang dihitung lewat query terpisah yang ringan — layar
+     memakainya untuk menawarkan rentang yang benar-benar ada isinya, bukan
+     cuma memberi tahu bahwa yang dipilih kosong. */
   foreach ($st->fetchAll() as $r) {
     $d = json_decode(isset($r['data']) ? $r['data'] : '', true);
     if (!is_array($d)) $d = array();
@@ -1204,28 +1241,13 @@ function dp_masuk($dari, $sampai) {
     foreach ($pays as $p) {
       if (!is_array($p)) continue;
       $at = isset($p['at']) ? substr((string)$p['at'], 0, 10) : '';
-      /* Pembayaran TANPA tanggal tidak dijatuhkan ke tanggal acara: itu
-         menaruh uang di hari yang tidak pernah menerimanya. Dihitung dan
-         dilaporkan, supaya yang menjumlahkan tahu ada yang tidak ikut. */
-      if ($at === '') { $tanpaTanggal++; continue; }
-      /* DI LUAR RENTANG DIHITUNG, BUKAN CUMA DILEWATI (20 September 2026).
-         Halaman Dana Masuk membuka tab ini pada rentang HARI INI, sementara
-         DP event ditransfer berminggu-minggu sebelum acaranya — jadi daftar
-         yang kosong adalah keadaan yang PALING SERING terjadi, dan "Tidak ada
-         pembayaran event pada 20 Sep – 20 Sep" terbaca sebagai fitur yang
-         tidak jalan, bukan sebagai rentang yang perlu diperlebar. Itu persis
-         yang dilaporkan user beberapa jam sesudah tab ini naik.
-
-         Yang dihitung JUMLAH & NOMINALNYA saja, bukan barisnya: yang di luar
-         rentang memang tidak boleh ikut terkirim — kalau ikut, penyaring
-         tanggalnya berhenti berarti apa-apa. */
-      if ($at < $dari || $at > $sampai) {
-        $luarN++; $luarRp += isset($p['amount']) ? (float)$p['amount'] : 0;
-        if ($luarMin === '' || $at < $luarMin) $luarMin = $at;
-        if ($at > $luarMax) $luarMax = $at;
-        continue;
-      }
+      /* TANGGAL BAYAR YANG BELUM TERISI TIDAK LAGI MEMBUANG BARISNYA. Sejak
+         penyaringnya tanggal acara, baris ini tetap milik acara di rentang
+         yang diminta — membuangnya berarti menyembunyikan uang yang sudah
+         masuk. Jumlahnya tetap dilaporkan supaya bisa dilengkapi. */
+      if ($at === '') $tanpaTanggal++;
       $baris[] = array(
+        'sumber'    => 'event',
         'evId'      => (string)$r['id'],
         'event'     => (string)$r['nama'],
         'jenis'     => (string)$r['jenis'],
@@ -1233,6 +1255,7 @@ function dp_masuk($dari, $sampai) {
         'status'    => (string)$r['status'],
         'client'    => isset($r['client_nama']) ? (string)$r['client_nama'] : '',
         'pic'       => isset($r['pic_name']) ? (string)$r['pic_name'] : '',
+        'resId'     => '',
         'id'        => isset($p['id'])     ? (string)$p['id']     : '',
         'no'        => isset($p['no'])     ? (string)$p['no']     : '',
         'type'      => isset($p['type'])   ? (string)$p['type']   : '',
@@ -1244,17 +1267,113 @@ function dp_masuk($dari, $sampai) {
       );
     }
   }
-  /* Terbaru di atas — yang dicari kasir hampir selalu yang baru masuk. */
+
+  /* ---- RESERVASI VIP ---- */
+  $vipTerkunci = 0; $vipTerkunciRp = 0;
+  $vq = $pdo->prepare('SELECT v FROM settings WHERE k = :k');
+  $vq->execute(array(':k' => 'extra:vip'));
+  $semuaVip = json_decode((string)$vq->fetchColumn(), true);
+  if (is_array($semuaVip)) {
+    foreach ($semuaVip as $v) {
+      if (!is_array($v)) continue;
+      /* Yang DIBATALKAN tidak ikut — penandanya `batalAt`, sama dengan
+         vip_hari(). Menyaringnya lewat kata pada `status` adalah kesalahan
+         yang sudah pernah dibayar di modul ini. */
+      if (!empty($v['batalAt'])) continue;
+      /* tanggal_valid() memulangkan NULL untuk yang tidak sah, bukan string
+         kosong — dijadikan string di sini supaya perbandingannya di bawah
+         tidak perlu mengingat bentuk mana yang datang. */
+      $tglV = (string)tanggal_valid(isset($v['tanggal']) ? $v['tanggal'] : '');
+      if ($tglV === '' || $tglV < $dari || $tglV > $sampai) {
+        foreach ((isset($v['bukti']) && is_array($v['bukti']) ? $v['bukti'] : array()) as $b) {
+          if (!is_array($b)) continue;
+          $luarN++; $luarRp += isset($b['nominal']) ? (float)$b['nominal'] : 0;
+          if ($tglV !== '') {
+            if ($luarMin === '' || $tglV < $luarMin) $luarMin = $tglV;
+            if ($tglV > $luarMax) $luarMax = $tglV;
+          }
+        }
+        continue;
+      }
+      $bukti = (isset($v['bukti']) && is_array($v['bukti'])) ? $v['bukti'] : array();
+      if (!$bukti) continue;
+      $resId = isset($v['resId']) ? (string)$v['resId'] : '';
+      foreach ($bukti as $i => $b) {
+        if (!is_array($b)) continue;
+        $key = isset($b['key']) ? (string)$b['key'] : '';
+        $nom = isset($b['nominal']) ? (float)$b['nominal'] : 0;
+        if ($resId !== '') { $vipTerkunci++; $vipTerkunciRp += $nom; }
+        $baris[] = array(
+          'sumber'    => 'vip',
+          'evId'      => 'vip-' . (isset($v['id']) ? (string)$v['id'] : ''),
+          'event'     => 'Reservasi VIP · ' . (isset($v['nama']) ? (string)$v['nama'] : '(tanpa nama)'),
+          'jenis'     => isset($v['jenis']) ? (string)$v['jenis'] : '',
+          'tglEvent'  => $tglV,
+          'status'    => $resId !== '' ? 'Terkunci di Reservasi' : 'Belum dikunci',
+          'client'    => '',
+          'pic'       => '',
+          /* PENANDA BAHWA DP INI JUGA BERDIRI DI TAB DP RESERVASI. Tanpa itu,
+             yang menjumlahkan kedua tab menghitung satu transfer dua kali —
+             dan angkanya kelihatan wajar di kedua tabel. */
+          'resId'     => $resId,
+          'id'        => isset($b['id']) ? (string)$b['id'] : ('b' . $i),
+          'no'        => '',
+          'type'      => 'DP',
+          'amount'    => $nom,
+          'method'    => isset($b['metode']) ? (string)$b['metode'] : '',
+          /* VIP tidak menyimpan tanggal bayar terpisah — yang ada cap saat
+             buktinya diunggah. Dipakai apa adanya kalau terbaca; yang tidak,
+             dibiarkan kosong dan ditandai seperti baris event. */
+          'at'        => cap_ke_tanggal(isset($b['at']) ? $b['at'] : null),
+          'receipt'   => isset($b['name']) ? (string)$b['name'] : '',
+          /* Berkasnya disajikan endpoint receipt yang sama dengan bukti event.
+             Yang key-nya kosong adalah baris DP yang DIPULIHKAN dari modul
+             Reservasi — berkasnya ada di sana, bukan di sini. */
+          'receiptUrl'=> $key === '' ? '' : ('?action=receipt&key=' . rawurlencode($key)),
+        );
+        if (cap_ke_tanggal(isset($b['at']) ? $b['at'] : null) === '') $tanpaTanggal++;
+      }
+    }
+  }
+
+  /* Event di LUAR rentang — dihitung terpisah, tanpa memuat blob `data`
+     seluruhnya ke memori sekaligus. */
+  $lq = $pdo->prepare(
+    "SELECT e.tanggal, e.data FROM events e WHERE e.tanggal NOT BETWEEN :d AND :s");
+  $lq->execute(array(':d' => $dari, ':s' => $sampai));
+  foreach ($lq->fetchAll() as $r) {
+    $d = json_decode(isset($r['data']) ? $r['data'] : '', true);
+    if (!is_array($d)) continue;
+    $pays = isset($d['payments']) && is_array($d['payments']) ? $d['payments'] : array();
+    if (!$pays) continue;
+    $tgl = (string)$r['tanggal'];
+    foreach ($pays as $p) {
+      if (!is_array($p)) continue;
+      $luarN++; $luarRp += isset($p['amount']) ? (float)$p['amount'] : 0;
+      if ($tgl !== '') {
+        if ($luarMin === '' || $tgl < $luarMin) $luarMin = $tgl;
+        if ($tgl > $luarMax) $luarMax = $tgl;
+      }
+    }
+  }
+
+  /* ACARA TERDEKAT DI ATAS. Yang diurut tanggal ACARA, bukan tanggal bayar:
+     itu yang jadi penyaringnya sekarang, dan daftar yang diurut menurut kolom
+     yang BUKAN penyaringnya terbaca acak. */
   usort($baris, function ($a, $b) {
-    if ($a['at'] === $b['at']) return strcmp($a['event'], $b['event']);
-    return strcmp($b['at'], $a['at']);
+    if ($a['tglEvent'] === $b['tglEvent']) return strcmp($a['event'], $b['event']);
+    return strcmp($b['tglEvent'], $a['tglEvent']);
   });
   $total = 0; foreach ($baris as $b) $total += $b['amount'];
   return array(
     'baris'        => $baris,
     'total'        => $total,
     'tanpaTanggal' => $tanpaTanggal,
-    /* Rentang tanggal yang benar-benar ADA isinya, supaya layar bisa
+    /* Berapa di antaranya yang JUGA berdiri di tab DP Reservasi. Yang
+       menjumlahkan kedua tab harus tahu angka ini; didiamkan, satu transfer
+       terhitung dua kali dan hasilnya kelihatan wajar. */
+    'vipTerkunci'  => array('n' => $vipTerkunci, 'total' => $vipTerkunciRp),
+    /* Rentang tanggal ACARA yang benar-benar ADA isinya, supaya layar bisa
        menawarkan rentang yang menampilkan sesuatu — bukan cuma memberi tahu
        bahwa yang dipilih kosong. */
     'luar'         => array('n' => $luarN, 'total' => $luarRp,
@@ -1262,6 +1381,20 @@ function dp_masuk($dari, $sampai) {
     'dari'         => $dari,
     'sampai'       => $sampai,
   );
+}
+/* Cap waktu bukti VIP bisa berupa milidetik epoch (yang ditulis Marketing)
+   atau string tanggal (baris yang dipulihkan dari modul Reservasi). Yang
+   tidak terbaca dipulangkan KOSONG, bukan ditebak: tanggal karangan di kolom
+   uang masuk lebih buruk daripada kolom yang jelas-jelas belum terisi. */
+function cap_ke_tanggal($v) {
+  if (is_numeric($v)) {
+    $ms = (float)$v;
+    if ($ms <= 0) return '';
+    if ($ms > 100000000000) $ms = $ms / 1000;          // milidetik -> detik
+    return gmdate('Y-m-d', (int)($ms + 7 * 3600));      // WIB
+  }
+  $s = substr((string)$v, 0, 10);
+  return tanggal_valid($s) === null ? '' : $s;
 }
 
 function events_hari($tgl) {

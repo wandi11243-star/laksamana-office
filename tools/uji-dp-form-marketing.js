@@ -376,6 +376,57 @@ await aman('blok dikosongkan', async () => {
   cek('ditawarkan jalan keluarnya', /lepas centang/i.test(t), t);
 });
 
+/* ====== 7b. MODAL CATAT PEMBAYARAN: bukti wajib (20 Sep 2026) ====== */
+console.log('\n== Modal Catat Pembayaran: bukti wajib ==');
+await aman('blok modal pembayaran', async () => {
+  const { w, jejak } = buka();
+  await bukaFinance(w);
+  /* Modal ini jalur KEDUA yang melahirkan baris di ev.payments. Selama ia
+     membiarkan bukti kosong, aturan "DP wajib berbukti" bocor lewat sini —
+     barisnya tetap berdiri di Dana Masuk bertanda "tanpa bukti". */
+  w.eval("addPayment('E1')");
+  await tunggu(150);
+  cek('modal pembayaran terbuka', !!w.document.getElementById('pay_amt'));
+  const amt = w.document.getElementById('pay_amt');
+  if (amt) amt.value = '2.000.000';
+  const sebelum = bayar(w).length;
+  await w.eval("savePayment('E1')");
+  await tunggu(150);
+  sama('TANPA bukti -> tidak tercatat', bayar(w).length, sebelum);
+  cek('sebabnya dikatakan', /bukti transfer/i.test(toastTeks(w)), toastTeks(w));
+  /* Yang BARU tidak boleh cuma ditanya — pertanyaan yang bisa dijawab OK
+     adalah gerbang yang tidak menahan apa pun. */
+  sama('tidak sekadar ditanya confirm()', jejak.confirm, 0);
+
+  /* Dengan bukti -> masuk. Tanpa putaran ini, penjaga yang menolak APA PUN
+     tetap hijau di seluruh asersi di atas. */
+  const inp = w.document.getElementById('pay_receipt_file');
+  Object.defineProperty(inp, 'files', { value: [{ name: 'struk.jpg', type: 'image/jpeg', size: 2048 }], configurable: true });
+  w.eval('fileToBase64=function(){ return Promise.resolve("AAA"); };');
+  await w.eval("savePayment('E1')");
+  await tunggu(250);
+  sama('dengan bukti -> tercatat', bayar(w).length, sebelum + 1);
+  const p = bayar(w)[bayar(w).length - 1] || {};
+  cek('buktinya ikut tersimpan', /action=receipt/.test(p.receiptUrl || ''), p.receiptUrl);
+
+  /* BUKTI YANG SUDAH TERSIMPAN IKUT DIHITUNG. Membetulkan nominal yang salah
+     ketik tidak boleh menuntut berkasnya diunggah ulang — berkas itu ada di
+     server, bukan di komputer yang sedang membuka modal ini. Tanpa blok ini
+     penjaga yang menuntut berkas BARU setiap kali lolos tanpa bunyi. */
+  const nConfirm = jejak.confirm;
+  w.eval("addPayment('E1','" + p.id + "')");
+  await tunggu(150);
+  const amt2 = w.document.getElementById('pay_amt');
+  cek('modal sunting terbuka', !!amt2);
+  if (amt2) amt2.value = '2.500.000';
+  await w.eval("savePayment('E1','" + p.id + "')");
+  await tunggu(200);
+  sama('disunting tanpa unggah ulang -> tersimpan',
+       Number((bayar(w).find(x => x.id === p.id) || {}).amount), 2500000);
+  sama('dan tidak ditanya apa pun', jejak.confirm, nConfirm);
+  sama('tidak melahirkan baris baru', bayar(w).length, sebelum + 1);
+});
+
 /* ============ 8. RESERVASI VIP: nominal & rekening wajib ============ */
 console.log('\n== Reservasi VIP ==');
 await aman('blok VIP', async () => {
