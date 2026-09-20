@@ -2609,6 +2609,30 @@ function saveState(){
 /* Simpan SEKARANG dan tunggu sampai benar-benar tertulis di database.
    Dipakai saat kru menekan Simpan: statusnya baru boleh disebut "berhasil" setelah ini
    selesai — bukan sebelumnya. Mengembalikan true/false. */
+/* ===== getAll YANG BARU SAJA DITARIK, DIPAKAI ULANG SEKALI =====
+   Satu kali Simpan reservasi dulu menembak server TIGA kali: getAll milik
+   mejaMasihKosong(), getAll milik flushSave() beberapa milidetik sesudahnya,
+   lalu saveAll. Diukur di dev 20 September 2026 satu getAll ~1,2 detik dan
+   seluruh request diserialkan, jadi tarikan kedua itu murni waktu tunggu —
+   isinya praktis pasti sama dengan yang pertama.
+
+   AMAN KARENA PENJAGA VERSI SUDAH ADA. Kalau titipan ini ternyata basi —
+   kru lain menyimpan di sela-selanya — server MENOLAK lewat baseVer, dan
+   putaran berikutnya menarik getAll yang segar seperti biasa. Jadi yang
+   paling buruk bisa terjadi cuma satu putaran ulang, bukan tulisan yang
+   saling menimpa.
+
+   SEKALI PAKAI, dan berjendela waktu. Titipan yang menetap akan dipakai
+   penyimpanan berikutnya berjam-jam kemudian, dan itu mengundang penolakan
+   versi setiap kali. */
+let _getAllSegar = null;
+const GETALL_SEGAR_MS = 8000;
+function simpanGetAllSegar(d){ _getAllSegar = d ? { d, at: Date.now() } : null; }
+function ambilGetAllSegar(){
+  const s = _getAllSegar; _getAllSegar = null;          // sekali pakai
+  if(!s) return null;
+  return (Date.now() - s.at > GETALL_SEGAR_MS) ? null : s.d;
+}
 async function saveNow(){
   clearTimeout(_saveTimer);
   batalkanPolling();          // jangan sampai aksi kru menunggu di belakang polling
@@ -2629,8 +2653,13 @@ async function flushSave(){
        terbaru, gabungkan (data kru lain aman, bentrok meja diselesaikan createdAt-tercepat),
        tulis lagi. Dengan ini tidak ada tulisan yang bisa saling menimpa. */
     let payload=null, adaKiriman=false, tries=0;
+    /* Putaran PERTAMA boleh memakai titipan mejaMasihKosong(); putaran ulang
+       sesudah ditolak versi TIDAK — di situ justru yang dibutuhkan data yang
+       benar-benar segar. */
+    let titipan = ambilGetAllSegar();
     while(true){
-      const d = await apiGet("getAll");                 // 1) tarik versi terbaru + nomornya
+      const d = titipan || await apiGet("getAll");      // 1) tarik versi terbaru + nomornya
+      titipan = null;
       const baseVer = (d && d._ver!==undefined) ? d._ver : null;
       adaKiriman = mergeIntoState(d);                   // 2) gabungkan per baris
       // 3) BEKUKAN apa yang dikirim. Kru bisa saja mengubah/menghapus sesuatu sementara
@@ -4299,6 +4328,13 @@ function checkBigEvent(v){
    yang menolak lagi saat menulis kalau-kalau dua kru lolos pengecekan pada detik yang sama. */
 async function mejaMasihKosong(date, table, time, exceptId, sharing, opsi){
   if(!apiConfigured()) return { ok:true };
+  /* POLLING DIBATALKAN DI SINI, bukan cuma di saveNow(). Fungsi inilah yang
+     berjalan LEBIH DULU saat kru menekan Simpan, dan seluruh request
+     diserialkan (apiQueue) — jadi polling yang kebetulan sedang menarik
+     seluruh database membuat pemeriksaan meja menunggu di belakangnya, dan
+     kru menonton overlay untuk sesuatu yang bukan pekerjaannya. Diukur di
+     dev 20 September 2026: satu getAll ~1,2 detik. */
+  batalkanPolling();
   setSync("sync","Memeriksa ketersediaan meja…");
   showBusy("Memeriksa ketersediaan meja…", "Mengecek langsung ke database, bukan ke layar.");
   let d;
@@ -4306,7 +4342,15 @@ async function mejaMasihKosong(date, table, time, exceptId, sharing, opsi){
   catch(e){ setSync("err","Gagal cek meja"); return { ok:true, offline:true }; }   // offline → lanjut, penjaga terakhir tetap ada
   const srv = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
   const bentrok = conflictCheck(date, table, time, exceptId, sharing, srv, opsi);
-  if(!bentrok){ setSync("ok","Meja tersedia"); return { ok:true, data:d }; }
+  if(!bentrok){
+    setSync("ok","Meja tersedia");
+    /* Hasilnya DITITIPKAN untuk flushSave(). Tanpa ini ia menarik getAll
+       LAGI beberapa milidetik kemudian — dua tarikan seluruh database
+       berurutan untuk satu kali Simpan, dan yang kedua praktis pasti
+       memulangkan isi yang sama dengan yang pertama. */
+    simpanGetAllSegar(d);
+    return { ok:true, data:d };
+  }
   // Segarkan data lokal supaya denah menunjukkan kondisi sebenarnya (kalau tak ada
   // perubahan lokal yang belum tersimpan, ambil apa adanya dari server).
   if(!hasLocalChanges()) applyServer(d);

@@ -1360,6 +1360,122 @@ ini:
 > blob `data` apa adanya — jadi `dpRek`/`dpTgl`/`dpBukti*` di `detail` ikut
 > sendiri, tanpa berkas migrasi yang bisa tertinggal di produksi.
 
+### Simpan reservasi yang lama: DUA sebab, keduanya diukur (20 September 2026)
+
+Keluhan user: *"input dan simpan reservasi kok lama banget"*. Diukur di dev,
+bukan ditebak — dan sebabnya dua, berdiri terpisah.
+
+#### 1. SATU Simpan menembak server TIGA kali
+
+```
+mejaMasihKosong()  ->  getAll        ~1,2 dtk
+flushSave()        ->  getAll        ~1,2 dtk   <- beberapa milidetik kemudian
+                   ->  saveAll
+```
+
+Seluruh request **diserialkan** (`apiQueue`), jadi tarikan kedua itu murni
+waktu tunggu untuk isi yang praktis pasti sama dengan yang pertama —
+`mejaMasihKosong()` bahkan **sudah memulangkan datanya** (`return {ok:true,
+data:d}`), dan tidak seorang pun memakainya.
+
+Sekarang ia **dititipkan** (`simpanGetAllSegar`) dan dipungut `flushSave()`
+pada putaran pertama. **3 panggilan → 2.**
+
+- **AMAN KARENA PENJAGA VERSI SUDAH ADA.** Kalau titipannya ternyata basi,
+  server MENOLAK lewat `baseVer` dan putaran berikutnya menarik getAll segar
+  seperti biasa. Yang paling buruk bisa terjadi cuma satu putaran ulang, bukan
+  tulisan yang saling menimpa.
+- **SEKALI PAKAI dan berjendela** (`GETALL_SEGAR_MS` = 8 dtk). Titipan yang
+  menetap akan dipungut penyimpanan berikutnya berjam-jam kemudian, dan itu
+  mengundang penolakan versi setiap kali.
+- **Putaran ULANG sesudah ditolak TIDAK memakainya** (`titipan = null` di dalam
+  putaran). Di situ justru yang dibutuhkan data yang benar-benar segar —
+  memakai titipan lagi membuat penolakannya berulang sampai batas percobaan
+  habis.
+- **Titipannya hanya dipasang di cabang yang alurnya MEMANG lanjut ke simpan.**
+  Di cabang meja bentrok, simpan tidak pernah terjadi, dan titipan yang
+  tertinggal akan dipungut penyimpanan lain yang lewat belakangan.
+
+**`batalkanPolling()` PINDAH ke awal `mejaMasihKosong()`.** Sebelumnya cuma
+`saveNow()` yang memanggilnya — padahal `mejaMasihKosong()` yang berjalan
+LEBIH DULU saat kru menekan Simpan. Polling yang kebetulan sedang menarik
+seluruh database membuat pemeriksaan meja menunggu di belakangnya, dan kru
+menonton overlay untuk sesuatu yang bukan pekerjaannya. Ini menolong SELURUH
+pemanggil `mejaMasihKosong` sekaligus — walk-in, pindah meja, `seatFromWait`.
+
+#### 2. 71% blobnya foto yang terlewat dari pemisahan berkas
+
+Diukur atas dev:
+
+| | |
+|---|---|
+| blob seluruhnya | **306 KB** |
+| `master.reviews[].proof2Data` | **218 KB** — dari EMPAT baris saja |
+| `reservations` | 37 KB (45 baris) |
+| `audit` | 24 KB (167 baris) |
+
+`each_file_field()` di `reservasi-mysql` memindahkan `dpProofData`,
+`docReqData`, `dps[].proofData`, `reviews[].proofData`, dan
+`feedbacks[].proofData` ke disk — **tapi `reviews[].proof2Data` TERLEWAT sejak
+mekanismenya lahir.** Jadi ia tetap base64 di dalam blob dan ikut terseret
+bolak-balik pada SETIAP getAll dan SETIAP saveAll, di modul Reservasi maupun
+Service Excellent yang berbagi blob `master` itu.
+
+- **KUNCINYA `rv2:`, BUKAN `rv:`.** Kunci yang sama membuat foto kedua
+  MENIMPA foto pertama di disk — dan yang hilang bukti yang dipakai
+  memverifikasi poin review, tanpa satu pun galat.
+- **Sisi klien sudah siap sejak lama**: `viewReviewProof()` di modul Service
+  Excellent melewatkan KEDUA foto lewat `loadFile()`, yang mengerti rujukan
+  maupun data lama yang masih inline — komentarnya bahkan menyebutnya.
+  Pembaca lain (`if(!rv.proof2Data)`, chip "belum ada") cuma memeriksa
+  ada-tidaknya isinya, bukan bentuknya. Jadi tidak ada yang perlu diubah di
+  sana.
+- **`gc_files()` memakai `each_file_field` yang SAMA**, jadi berkas foto kedua
+  ikut terlindungi dari sapuan berkas yatim. Kalau suatu hari ia menyusun
+  daftarnya sendiri, foto yang baru dipisah akan dihapus.
+- **Efeknya berlaku pada penyimpanan BERIKUTNYA**, bukan surut: foto yang
+  sudah terlanjur inline baru pindah ke disk begitu blob itu ditulis sekali
+  lagi. Tidak ada yang perlu dijalankan manual.
+
+> **BACKEND RESERVASI DIUNGGAH MANUAL** (lihat memori arsitekturnya) — tidak
+> ikut workflow FTP. Perubahan ini **aman kalau tertinggal**: server yang
+> belum diperbarui cuma terus menyimpan `proof2Data` inline seperti sekarang,
+> dan tidak ada satu pun layar yang rusak. Yang belum terasa cuma
+> percepatannya.
+
+#### Gabungannya
+
+```
+sebelum : 3 panggilan × blob 306 KB
+sesudah : 2 panggilan × blob  88 KB
+```
+
+```bash
+node tools/uji-simpan-cepat.js   # 25 pemeriksaan, jsdom + kontrak sumber PHP
+```
+
+**Yang diukur ujinya JUMLAH PANGGILAN, bukan milidetik** — waktu berbeda di
+tiap mesin, dan uji yang mematok milidetik akan merah di laptop yang sibuk.
+Sembilan mutasi dicoba, kesembilannya tertangkap — tapi DUA baru sesudah ujinya
+dibetulkan, dan keduanya bentuk yang sudah punya nama di berkas ini:
+
+| yang salah | sebabnya | yang ditutup |
+|---|---|---|
+| "simpan kedua tersimpan juga" MERAH untuk kode yang benar | server tiruannya memulangkan `reservations: []` selamanya, jadi reservasi yang barusan tersimpan terbaca sebagai baris yang DIHAPUS kru lain — `mergeIntoState` membuangnya | server tiruan yang **HIDUP**: apa yang ditulis `saveAll` dipulangkan `getAll` berikutnya |
+| "tiap foto punya kuncinya sendiri" MERAH | asersinya menghitung `'rv:'` di sumber PHP dan **cocok dengan komentarnya sendiri**, yang memang menyebut kedua kunci untuk menjelaskan kenapa keduanya harus beda | komentar dibuang dulu sebelum dihitung |
+
+> Satu mutasi juga LOLOS di putaran pertama: *"titipan dipasang walau mejanya
+> bentrok"*. Asersinya membandingkan URUTAN dua penanda di sumber, dan begitu
+> salah satu penandanya hilang `indexOf` memulangkan −1 sehingga
+> perbandingannya tetap benar. Diganti uji RUNTIME yang membaca
+> `_getAllSegar` sesudah cek meja yang benar-benar bentrok.
+
+> **YANG BELUM DIKERJAKAN, dan itu jauh lebih besar:** `saveAll` tetap
+> mengirim SELURUH state tiap kali — 88 KB untuk satu baris yang berubah.
+> Yang benar endpoint sempit per aksi, pola `simpanSel` di modul Jadwal. Itu
+> menuntut perubahan besar di backend yang diunggah manual, jadi bukan
+> pekerjaan yang bisa diselipkan ke perbaikan ini.
+
 ### Meja terkunci jadi KONFIRMASI, bukan tembok (20 September 2026)
 
 Lima permintaan user dalam satu pesan, dan empat di antaranya satu hal:

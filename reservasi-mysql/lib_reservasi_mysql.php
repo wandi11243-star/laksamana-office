@@ -158,7 +158,31 @@ function each_file_field(&$state, $fn) {
   }
   if (!empty($state['master']) && is_array($state['master'])) {
     if (!empty($state['master']['reviews']) && is_array($state['master']['reviews'])) {
-      foreach ($state['master']['reviews'] as &$rv) if (!empty($rv['id'])) $fn($rv, 'proofData', 'rv:' . $rv['id']);
+      /* FOTO KEDUA IKUT DIPISAH (20 September 2026). Ia TERLEWAT sejak
+         mekanisme ini lahir: `proofData` dipindah ke disk, `proof2Data` tidak
+         — jadi ia tetap base64 di dalam blob dan ikut terseret bolak-balik
+         pada SETIAP getAll dan SETIAP saveAll, di modul Reservasi maupun
+         Service Excellent yang berbagi blob `master` ini.
+
+         Diukur di dev 20 September 2026, dan sebabnya bukan dugaan:
+             blob seluruhnya   306 KB
+             proof2Data         218 KB   <- 71%, dari EMPAT baris saja
+         Keluhan yang membawanya ke sini: "input dan simpan reservasi kok lama
+         banget". Satu kali Simpan menarik lalu mengirim blob itu.
+
+         KUNCINYA 'rv2:', BUKAN 'rv:'. Kunci yang sama membuat foto kedua
+         MENIMPA foto pertama di disk — dan yang hilang adalah bukti yang
+         dipakai memverifikasi poin review, tanpa satu pun galat.
+
+         Sisi klien sudah siap menerimanya sejak lama: viewReviewProof() di
+         modul Service Excellent melewatkan KEDUA foto lewat loadFile(), yang
+         mengerti rujukan maupun data lama yang masih inline. Pembaca lain
+         cuma memeriksa ada-tidaknya isinya, bukan bentuknya. */
+      foreach ($state['master']['reviews'] as &$rv) {
+        if (empty($rv['id'])) continue;
+        $fn($rv, 'proofData',  'rv:'  . $rv['id']);
+        $fn($rv, 'proof2Data', 'rv2:' . $rv['id']);
+      }
       unset($rv);
     }
     if (!empty($state['master']['feedbacks']) && is_array($state['master']['feedbacks'])) {
