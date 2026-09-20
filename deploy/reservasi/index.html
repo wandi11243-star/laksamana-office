@@ -1349,6 +1349,56 @@ function dpSel(r, mini){
   const ket = n>1 ? `<div class="muted" style="font-size:10.5px;font-weight:500">total ${n}× transfer</div>` : '';
   return `<span class="badge-status dp-yes"${gaya} title="${n>1?`Nominal final, gabungan ${n} kali transfer`:'Nominal DP'}">✓ ${rpDot(total)}</span>${ket}`;
 }
+/* ===== REKENING TUJUAN PEMBAYARAN =====
+   (19 September 2026, permintaan user: "di daftar setelah kolom DP, tulis
+   dia bayar ke rekening mana".)
+
+   Sumbernya `dps[].method` — daftar tertutup `master.dpMethods`
+   ("QRIS BRI", "Transfer UOB", "Cash", …). Itu yang menentukan rekening mana
+   yang bertambah, dan itu pula yang dicocokkan halaman Pencocokan QRIS BRI
+   di modul Cashier & Finance dengan mutasi banknya.
+
+   DIKUMPULKAN DARI SELURUH CICILAN, bukan dari yang pertama saja: DP yang
+   dicicil boleh masuk lewat rekening yang berbeda-beda, dan menyebut salah
+   satunya saja mengirim orang mencocokkan ke rekening yang tidak pernah
+   menerima uangnya.
+
+   Cadangan `r.dpMethod` dipakai untuk reservasi lama yang DP-nya masih
+   berbentuk field datar tanpa `dps[]` — alasan yang sama dengan cadangan
+   nominal di dpSel(). */
+function dpRekeningList(r){
+  const out=[];
+  dpsOf(r).forEach(p=>{ const v=String(p&&p.method||"").trim(); if(v && !out.includes(v)) out.push(v); });
+  if(!out.length){ const v=String(r&&r.dpMethod||"").trim(); if(v) out.push(v); }
+  return out;
+}
+/* Sel Rekening untuk tabel Daftar Reservasi. Tiga keadaan, dan ketiganya
+   menuntut tindakan yang berbeda — jadi tidak boleh berbunyi sama:
+     belum DP        -> memang belum ada uang yang masuk
+     DP tanpa metode -> uangnya masuk tapi rekeningnya tidak pernah diisi;
+                        itu PEKERJAAN, dan dikatakan di tooltipnya
+     terisi          -> nama rekeningnya apa adanya */
+function dpRekeningSel(r){
+  if(r.dpStatus!=="Sudah") return '<span class="muted">-</span>';
+  const list=dpRekeningList(r);
+  if(!list.length) return '<span class="badge-status st-noshow" style="font-size:10.5px" title="DP-nya tercatat masuk tapi rekening tujuannya tidak pernah diisi — buka reservasinya lalu lengkapi lewat ✏️ Cek di baris DP-nya">belum diisi</span>';
+  return list.map(v=>`<span class="pill" style="font-size:10.5px">${esc(v)}</span>`).join(" ");
+}
+/* Rekening bawaan saat DP baru dicatat.
+
+   SENGAJA TIDAK mengandalkan urutan `master.dpMethods`. Daftar itu disunting
+   orang lewat Master Data dan sudah pernah bertambah sendiri lewat migrasi
+   (`_migUOB` menambahkan "Transfer UOB" ke ekornya), jadi "yang pertama"
+   bisa berubah tanpa ada yang memutuskannya — dan pilihan bawaan untuk
+   sebuah rekening adalah keputusan tentang ke mana uang dicatat masuk.
+
+   Yang dicari QRIS, karena itu yang dipakai mayoritas tamu. Kalau daftarnya
+   suatu hari tidak punya QRIS sama sekali, jatuh ke pilihan pertama — bukan
+   ke kosong: kotak tanpa pilihan terbaca sebagai daftar yang gagal dimuat. */
+function dpMethodDefault(){
+  const list=(STATE.master&&STATE.master.dpMethods)||[];
+  return list.find(v=>/qris/i.test(String(v))) || list[0] || "";
+}
 // Verifikasi jalan PER TRANSFER, bukan per reservasi: DP 1 bisa sudah diverifikasi
 // sementara DP 2 masih menunggu bukti dicek.
 function dpVerifiedCount(r){ return dpsOf(r).filter(p=>p.tfStatus==="verified").length; }
@@ -1824,7 +1874,7 @@ async function seatFromWait(id, tableId, sharing){
   };
   STATE.reservations.push(rec);
   w.status="seated"; w.seatedAt=now; w.table=tableId; w.resId=rec.id;
-  logAudit("Waiting List", `${w.name} (${w.pax} pax) didudukkan di ${tableId}, menunggu ${fmtDur(waitMinutes({addedAt:w.addedAt}))}`);
+  logAudit("Waiting List", `${w.name} (${w.pax} pax) didudukkan di ${tableId}, menunggu ${fmtDur(waitMinutes({addedAt:w.addedAt}))}`, rec.id);
   setBusy("Menyimpan ke database…");
   const tertulis=await saveNow();
   hideBusy(); closeModal(); buildNav(); renderHariH();
@@ -2607,7 +2657,7 @@ function reportRejected(){
      terakhir yang terlihat. Maka: satu popup mewakili, sisanya cukup disebut jumlahnya. */
   const semua = REJECTED.splice(0, REJECTED.length);
   semua.forEach(({mine, other})=>{
-    logAudit("Bentrok Meja", `${mine.name} (${mine.table}) ditolak — meja keburu dipesan ${other.name} yang masuk lebih dulu`);
+    logAudit("Bentrok Meja", `${mine.name} (${mine.table}) ditolak — meja keburu dipesan ${other.name} yang masuk lebih dulu`, mine.id);
   });
   const {mine, other} = semua[0];
   toast(`Meja ${mine.table} sudah diambil kru lain — input ulang dgn meja lain`,"err");
@@ -2711,9 +2761,87 @@ function setSync(kind, msg){
   if(kind==="ok") el._t=setTimeout(()=>{ el.style.opacity="0"; }, 1800);
 }
 
-function logAudit(action, detail){
-  STATE.audit.unshift({ id:uid(), ts:Date.now(), user:SESSION?SESSION.name:"-", role:SESSION?SESSION.role:"-", action, detail });
+/* ===== JEJAK AKTIVITAS: DUA WADAH, DAN ITU DISENGAJA =====
+   (19 September 2026, permintaan user: "per daftar table ini ada log activity
+   nya, siapa yang input, siapa yg rubah statusnya, siapa yg minta kwitansi,
+   siapa yang hapus dll")
+
+     STATE.audit   jejak GLOBAL, 500 baris terakhir, dipotong di klien DAN di
+                   server ('DELETE FROM audit WHERE id NOT IN (… LIMIT 500)').
+                   Inilah satu-satunya yang bertahan setelah reservasinya
+                   DIHAPUS — barisnya lenyap, jejak di dalamnya ikut lenyap.
+
+     r.log[]       jejak yang MENEMPEL di barisnya sendiri, maksimal
+                   RES_LOG_MAX. Ia yang menjawab "siapa yang menyentuh
+                   reservasi ini", dan ia TIDAK ikut terpangkas 500: satu
+                   malam sibuk sudah cukup untuk mendorong seluruh jejak
+                   sebuah reservasi keluar dari audit global, dan sejak itu
+                   pertanyaannya tidak bisa dijawab layar mana pun lagi.
+
+   SATU PINTU untuk keduanya. Dua pencatat yang dipanggil terpisah akan
+   menyimpang begitu ada aksi baru yang lupa memanggil salah satunya — dan
+   yang terlewat gagal DIAM: jejaknya cuma tidak ada, tanpa satu pun galat.
+
+   TIDAK ADA PERUBAHAN BACKEND untuk ini. Baris reservasi disimpan apa adanya
+   (`json_encode($r)` di lib_reservasi_mysql.php, tanpa daftar kunci
+   tertutup), jadi `log` ikut sendiri. Backend Reservasi diunggah MANUAL —
+   perubahan di sana rutin tertinggal, dan fitur yang menuntutnya akan mati
+   di satu server sementara hidup di server sebelahnya. */
+const RES_LOG_MAX = 20;
+function logAudit(action, detail, resId){
+  const e={ id:uid(), ts:Date.now(), user:SESSION?SESSION.name:"-", role:SESSION?SESSION.role:"-", action, detail };
+  if(resId) e.res=resId;
+  STATE.audit.unshift(e);
   if(STATE.audit.length>500) STATE.audit.length=500;
+  /* Jejak per baris ditulis di sini juga, bukan di pemanggilnya. Kalau
+     pemanggil yang harus mengingatnya, aksi berikutnya yang ditambahkan
+     orang lain akan tercatat di audit global saja — dan bedanya baru
+     ketahuan berbulan-bulan kemudian waktu ada yang mencarinya. */
+  if(resId) tempelLogRes(resId, e);
+}
+function tempelLogRes(resId, e){
+  const r=STATE.reservations.find(x=>x.id===resId); if(!r) return;
+  if(!Array.isArray(r.log)) r.log=[];
+  /* Detail dipangkas: seluruh log ikut di dalam blob yang dikirim tiap
+     simpan, dan alasan batal yang diketik panjang bisa berkali lipat
+     ukuran barisnya sendiri. */
+  r.log.push({ ts:e.ts, by:e.user, role:e.role, action:e.action, detail:String(e.detail||"").slice(0,180) });
+  if(r.log.length>RES_LOG_MAX) r.log.splice(0, r.log.length-RES_LOG_MAX);
+}
+/* Jejak sebuah reservasi, terbaru di atas. Menggabungkan DUA sumber, dan
+   sumbernya disebutkan per baris karena ketiganya tidak sama kuat:
+
+     r.log             pasti milik baris ini
+     audit ber-.res    pasti milik baris ini (jejak yang lahir sebelum
+                       r.log dipangkas, atau dari perangkat lain)
+     audit LAMA        dicocokkan lewat NAMA, dan itu TEBAKAN — seluruh
+                       jejak yang sudah ada di produksi sebelum hari ini
+                       tidak punya .res sama sekali, jadi membuangnya
+                       berarti panel ini lahir kosong untuk tiap reservasi
+                       yang sudah berjalan. Ditandai di layar, bukan
+                       dicampur diam-diam: dua tamu bernama sama akan
+                       saling meminjam jejak.
+
+   Entri yang sama bisa ada di r.log DAN di audit — keduanya lahir dari satu
+   panggilan logAudit. Dicocokkan lewat (ts, action) supaya tidak berdiri
+   dua kali. */
+function resLogList(r){
+  if(!r) return [];
+  const out=[], kunci=new Set();
+  (Array.isArray(r.log)?r.log:[]).forEach(x=>{
+    kunci.add(x.ts+"|"+x.action);
+    out.push({ ts:x.ts, by:x.by, role:x.role, action:x.action, detail:x.detail, asal:"baris" });
+  });
+  const nama=String(r.name||"").trim();
+  (STATE.audit||[]).forEach(a=>{
+    if(!a) return;
+    const milik = a.res ? (a.res===r.id) : (nama && String(a.detail||"").indexOf(nama)>-1);
+    if(!milik) return;
+    if(kunci.has(a.ts+"|"+a.action)) return;
+    kunci.add(a.ts+"|"+a.action);
+    out.push({ ts:a.ts, by:a.user, role:a.role, action:a.action, detail:a.detail, asal:a.res?"audit":"nama" });
+  });
+  return out.sort((x,y)=>(y.ts||0)-(x.ts||0));
 }
 
 /* ================= UTIL ================= */
@@ -3525,6 +3653,140 @@ document.addEventListener("click", e=>{
 let EDIT_ID = null;
 function newReservation(){ EDIT_ID=null; PENDING_FILES={}; navigate("input"); }
 function editReservation(id){ EDIT_ID=id; PENDING_FILES={}; navigate("input"); }
+
+/* =========================================================================
+   EDIT CEPAT (19 September 2026, permintaan user: "kalau mau edit reservasi,
+   bisa quick edit gitu tanpa harus melewati input reservasi lagi, karna
+   jadinya agak banyak di scroll")
+
+   Formulir lengkap berisi denah meja setinggi satu layar penuh, blok DP
+   dengan unggahan bukti, dan sepuluh isian detail tamu — dibuka hanya untuk
+   membetulkan jam atau menambah satu orang, sebagian besarnya digulir
+   melewati begitu saja.
+
+   YANG ADA DI SINI CUMA YANG SERING DIBETULKAN. Empat hal SENGAJA tidak
+   ikut, dan tiap-tiapnya karena sudah punya pintunya sendiri yang membawa
+   aturannya masing-masing:
+
+     meja     -> Pindah / Tambah Meja (punya denah + cek bentrok + aturan
+                 pindah sementara)
+     DP       -> Tambah Bukti TF DP (menuntut bukti transfer)
+     status   -> tombol status di detail (Datang mencatat jam duduk,
+                 Cancelled meminta alasan)
+     bukti    -> form lengkap
+
+   Menyalin keempatnya ke sini berarti dua pintu dengan dua aturan untuk satu
+   data — dan yang menyimpang di sini adalah meja yang dipegang dua tamu.
+
+   MENGUBAH TANGGAL/JAM TETAP DICEK BENTROK, dan dicek KE SERVER, bukan ke
+   layar: memindahkan reservasi jam 19:00 ke jam 21:00 memindahkan jendela
+   kunci mejanya juga, dan meja itu bisa saja sudah dipesan orang lain di jam
+   yang baru. Tanpa ini, edit cepat jadi jalan pintas yang melewati
+   satu-satunya penjaga yang menahan dua tamu di satu meja. */
+function openQuickEdit(id){
+  if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mengubah reservasi.","err"); return; }
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  const kat=(STATE.master.categories||[]);
+  const masuk=arrivedPax(r);
+  openModal(`
+   <div class="modal-head"><h3>⚡ Edit Cepat — ${esc(r.name)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div class="form-grid">
+       <div class="field full"><label>Nama Tamu <span class="req">*</span></label>
+         <input id="qe_name" value="${esc(r.name||"")}"></div>
+       <div class="field"><label>No. HP</label>
+         <input id="qe_phone" inputmode="numeric" value="${esc(displayPhone(r.phone))}"></div>
+       <div class="field"><label>Tanggal <span class="req">*</span></label>
+         <input type="date" id="qe_date" value="${esc(r.date||"")}"></div>
+       <div class="field"><label>Jam <span class="req">*</span></label>
+         ${timeSelectHtml('id="qe_time"', r.time, 15)}</div>
+       <div class="field"><label>Jumlah Pax <span class="req">*</span></label>
+         <input type="number" min="1" id="qe_pax" value="${Number(r.pax)||1}">
+         ${masuk?`<div class="hint">${masuk} orang sudah tercatat masuk — tidak bisa dikecilkan di bawah angka itu dari sini.</div>`:""}</div>
+       <div class="field"><label>Jenis Reservasi</label>
+         <select id="qe_category">${kat.map(c=>`<option${c===r.category?" selected":""}>${esc(c)}</option>`).join("")}</select></div>
+       <div class="field full"><label>Catatan Khusus</label>
+         <textarea id="qe_notes" rows="2">${esc(r.notes||"")}</textarea></div>
+     </div>
+     <div class="inline-info" style="margin-top:12px"><div>
+       <b>Meja ${r.table?esc(r.table):"(belum dipilih)"}</b>, ${esc(r.status)}, ${r.dpStatus==="Sudah"?`DP ${rpDot(dpTotal(r))}`:"belum DP"}.
+       Meja, DP, dan status diubah lewat tombolnya masing-masing di detail reservasi — bukan di sini,
+       supaya aturannya (cek bentrok meja, bukti transfer wajib, pencatatan jam duduk) tidak terlewat.
+       ${r.table?"<br>Mengubah tanggal atau jam akan dicek ulang ke database dulu: mejanya bisa saja sudah dipesan orang lain di jam yang baru.":""}
+     </div></div>
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost btn-sm" style="margin-right:auto" onclick="closeModal();editReservation('${r.id}')"
+       title="Buka formulir lengkap: denah meja, DP &amp; bukti transfer, detail tamu">✏️ Form Lengkap</button>
+     <button class="btn btn-ink btn-sm" onclick="closeModal()">Batal</button>
+     <button class="btn btn-primary btn-sm" onclick="simpanQuickEdit('${r.id}')">Simpan</button>
+   </div>`);
+  setTimeout(()=>byId("qe_name")?.focus(), 60);
+}
+async function simpanQuickEdit(id){
+  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  const nama=(byId("qe_name")?.value||"").trim();
+  const hp=normPhone(byId("qe_phone")?.value||"");
+  const tgl=byId("qe_date")?.value||"";
+  const jam=normTime(byId("qe_time")?.value||"");
+  const pax=Number(byId("qe_pax")?.value||0);
+  const kat=byId("qe_category")?.value||"";
+  const notes=(byId("qe_notes")?.value||"").trim();
+
+  if(!nama){ toast("Nama tamu tidak boleh kosong","err"); byId("qe_name")?.focus(); return; }
+  if(!tgl){ toast("Tanggal tidak boleh kosong","err"); byId("qe_date")?.focus(); return; }
+  if(!jam){ toast("Jam tidak boleh kosong","err"); byId("qe_time")?.focus(); return; }
+  if(!(pax>=1)){ toast("Jumlah pax minimal 1","err"); byId("qe_pax")?.focus(); return; }
+  /* Pax tidak boleh turun di bawah yang SUDAH tercatat masuk. Bukan karena
+     angka itu haram — form lengkap memang mengizinkannya, dan di sana ada
+     tombol yang memperbaiki catatan kedatangannya sekalian. Layar ini tidak
+     punya tombol itu, jadi menyimpannya dari sini meninggalkan "8 dari 5
+     orang" yang tidak bisa dibetulkan dari mana pun kecuali dengan membuka
+     form lengkap — dan tidak ada satu kalimat pun yang menyuruh ke sana. */
+  const masuk=arrivedPax(r);
+  if(masuk && pax<masuk){
+    toast(`${masuk} orang sudah tercatat masuk — perbaiki catatan kedatangannya dulu lewat Form Lengkap`,"err");
+    return;
+  }
+
+  const ubah=[];
+  if(nama!==String(r.name||"")) ubah.push(`nama "${r.name}" → "${nama}"`);
+  if(hp!==normPhone(r.phone)) ubah.push(`HP ${displayPhone(r.phone)||"-"} → ${displayPhone(hp)||"-"}`);
+  if(tgl!==String(r.date||"")) ubah.push(`tanggal ${fmtDateShort(r.date)} → ${fmtDateShort(tgl)}`);
+  if(jam!==String(r.time||"")) ubah.push(`jam ${r.time||"-"} → ${jam}`);
+  if(pax!==(Number(r.pax)||0)) ubah.push(`pax ${r.pax} → ${pax}`);
+  if(kat!==String(r.category||"")) ubah.push(`jenis "${r.category||"-"}" → "${kat}"`);
+  if(notes!==String(r.notes||"")) ubah.push(notes?"catatan diubah":"catatan dikosongkan");
+  if(!ubah.length){ closeModal(); toast("Tidak ada yang diubah","ok"); return; }
+
+  /* Cek bentrok DULU, SEBELUM apa pun diterapkan ke r. Dibalik urutannya,
+     mejaMasihKosong() yang menemukan bentrok memanggil applyServer() hanya
+     kalau tidak ada perubahan lokal — jadi perubahan yang sudah terlanjur
+     ditempel justru MENAHAN layar disegarkan, dan kru melihat kondisi meja
+     yang bukan kondisi sebenarnya. */
+  const pindahWaktu = (tgl!==String(r.date||"")) || (jam!==String(r.time||""));
+  if(pindahWaktu && r.table && masihMenempati(r)){
+    const cek=await mejaMasihKosong(tgl, r.table, jam, r.id, !!r.sharing, opsiCekOf(r));
+    if(!cek.ok){
+      tolakMeja(cek.bentrok, `Meja ${r.table} tidak bisa dipakai di ${fmtDateShort(tgl)} ${jam}.`);
+      closeModal(); buildNav(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+      return;
+    }
+  }
+
+  const prev=JSON.parse(JSON.stringify(r));
+  r.name=nama; r.phone=hp; r.date=tgl; r.time=jam; r.pax=pax; r.category=kat; r.notes=notes;
+  r.updatedAt=Date.now();
+  /* Jejaknya menyebut APA yang berubah, bukan cuma "diedit". Yang membuka
+     Riwayat Aktivitas bertanya kenapa jamnya bergeser, dan baris yang cuma
+     berbunyi "Edit Cepat" tidak menjawab apa pun. */
+  logAudit("Edit Cepat", `${nama}: ${ubah.join("; ")}`, r.id);
+  const ok=await commit("Menyimpan perubahan…");
+  if(!ok){ pulihkanRes(r, prev); return; }
+  closeModal(); buildNav();
+  if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  toast("Reservasi diperbarui ✓","ok");
+}
 function renderInput(editId){
   EDIT_ID = editId||null;
   /* Koreksi gelombang yang belum disimpan tidak boleh menyeberang ke reservasi
@@ -3637,7 +3899,9 @@ function renderInput(editId){
        </div>
        <div class="field" id="dpMethodWrap">
          <label>Metode / Tujuan Pembayaran</label>
-         <select name="dpMethod">${opt(m.dpMethods, r?.dpMethod)}</select>
+         <select name="dpMethod">${opt(m.dpMethods, r?.dpMethod || dpMethodDefault())}</select>
+         <div class="hint">Bawaannya <b>${esc(dpMethodDefault()||"-")}</b>. Ganti kalau uangnya masuk ke rekening lain —
+           inilah yang dipakai mencocokkan DP dengan mutasi bank.</div>
        </div>
        <div class="field" id="dpNominalWrap">
          <label>Nominal DP</label>
@@ -4005,6 +4269,12 @@ async function saveReservation(){
     datangDiasumsikan: existing?.datangDiasumsikan||0,
     leftAt: existing?.leftAt||0,
     followups: existing?.followups||[],
+    /* Jejak aktivitas baris ini WAJIB ikut disalin. Objek `rec` dibangun
+       ulang dari daftar field yang eksplisit — yang tidak disebut di sini
+       HILANG begitu reservasinya disunting sekali lewat formulir, dan
+       hilangnya tidak menimbulkan satu pun galat: panelnya cuma berhenti
+       menyebutkan siapa yang pernah menyentuhnya. */
+    log: existing?.log || [],
     cancelReason: existing?.cancelReason||"",
     // Data transfer DP untuk halaman Finance (diisi lewat scan bukti / edit manual)
     tfDate: existing?.tfDate||"", tfTime: existing?.tfTime||"", tfBank: existing?.tfBank||"",
@@ -4039,10 +4309,10 @@ async function saveReservation(){
   const sebelumnya = editing ? STATE.reservations.slice() : null;   // untuk dikembalikan bila gagal
   if(EDIT_ID){
     STATE.reservations = STATE.reservations.map(x=>x.id===EDIT_ID?rec:x);
-    logAudit("Edit Reservasi", `${rec.name} (${fmtDateShort(rec.date)} ${rec.time})`);
+    logAudit("Edit Reservasi", `${rec.name} (${fmtDateShort(rec.date)} ${rec.time})`, rec.id);
   }else{
     STATE.reservations.push(rec);
-    logAudit("Buat Reservasi", `${rec.name} (${fmtDateShort(rec.date)} ${rec.time}, ${rec.pax} pax)`);
+    logAudit("Buat Reservasi", `${rec.name} (${fmtDateShort(rec.date)} ${rec.time}, ${rec.pax} pax)`, rec.id);
   }
 
   /* TULIS KE DATABASE DAN TUNGGU SAMPAI SELESAI.
@@ -4489,7 +4759,7 @@ function recapTable(list, pg, nowMin, canEdit){
   return `<div class="panel"><div class="panel-head"><h3>Daftar Reservasi <span class="count-tag">${list.length}</span></h3>
     <button class="btn btn-sm btn-ghost" onclick="exportCSV(${JSON.stringify(list.map(r=>r.id)).replace(/"/g,'&quot;')})">⬇️ Export CSV</button></div>
    <div class="table-wrap"><table>
-     <thead><tr><th>Meja</th><th>Lantai</th><th>Tanggal</th><th>Jam</th><th>Tamu</th><th>Pax</th><th>Sisa Kursi</th><th>DP</th><th>PIC</th><th>Status</th><th>Aksi</th></tr></thead>
+     <thead><tr><th>Meja</th><th>Lantai</th><th>Tanggal</th><th>Jam</th><th>Tamu</th><th>Pax</th><th>Sisa Kursi</th><th>DP</th><th>Rekening</th><th>PIC</th><th>Status</th><th>Aksi</th></tr></thead>
      <tbody>${pg.items.map(r=>{
         const p=customerProfile(r.phone);
         const rowToday = r.date===todayStr();
@@ -4522,6 +4792,7 @@ function recapTable(list, pg, nowMin, canEdit){
                   ? `<b title="Kursi yang masih bisa diisi tamu di meja ini">${sisaKursi}</b>`
                   : '<span class="muted" title="Kapasitas meja sudah terpakai semua">0</span>'}</td>
           <td>${dpSel(r,true)}</td>
+          <td>${dpRekeningSel(r)}</td>
           <td class="muted">${esc(r.picName||"-")}</td>
           <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span>
             ${r.status==="Datang"&&r.checkinAt?`<div style="margin-top:3px">${latenessLabel(r)}</div>`:""}</td>
@@ -4531,7 +4802,7 @@ function recapTable(list, pg, nowMin, canEdit){
               <button class="btn btn-xs btn-danger" onclick="markNoShow('${r.id}')">⚠️</button>`:""}
             ${canEdit&&canAddArrival(r)?`<button class="btn btn-xs btn-ok" onclick="addArrival('${r.id}')" title="Rombongan datang bertahap — catat tamu yang baru masuk">➕ ${remainingPax(r)} lagi</button>`:""}
             ${canEdit&&r.status==="Datang"&&!r.leftAt?`<button class="btn btn-xs btn-primary" onclick="guestLeft('${r.id}')">🍽️ Selesai</button>`:""}
-            ${canEdit?`<button class="btn btn-xs btn-ghost" onclick="editReservation('${r.id}')">✏️</button>`:""}
+            ${canEdit?`<button class="btn btn-xs btn-ghost" onclick="openQuickEdit('${r.id}')" title="Edit cepat: nama, tanggal, jam, pax, jenis &amp; catatan — tanpa membuka formulir panjang">✏️</button>`:""}
             ${r.followups?.length?`<span class="pill">${r.followups.length} FU</span>`:""}
           </div></td>
         </tr>`; }).join("")}
@@ -4560,7 +4831,13 @@ function dashCalendar(){
   const dow=["Sen","Sel","Rab","Kam","Jum","Sab","Min"];
   // Kelompokkan reservasi per tanggal (YYYY-MM-DD), dgn filter status kalender
   const byDate={};
-  STATE.reservations.forEach(r=>{ if(!r.date) return; if(CAL_STATUS && r.status!==CAL_STATUS) return; (byDate[r.date]=byDate[r.date]||[]).push(r); });
+  let nBatal=0;
+  STATE.reservations.forEach(r=>{
+    if(!r.date) return;
+    if(CAL_STATUS){ if(r.status!==CAL_STATUS) return; }
+    else if(r.status==="Cancelled"){ nBatal++; return; }   // "Semua" = semua yang masih berlaku
+    (byDate[r.date]=byDate[r.date]||[]).push(r);
+  });
   const pad=n=>String(n).padStart(2,"0");
   const evChip=r=>{
     const sc=STATUS_COLOR[r.status]||{c:"var(--gold)",bg:"var(--gold-soft)"};
@@ -4586,7 +4863,7 @@ function dashCalendar(){
   const total=lead+days, tail=(7-(total%7))%7;
   for(let d=1;d<=tail;d++) cells+=cell(new Date(y,mo+1,d),false);
   const chip=(label,val)=>`<span class="cal-legend${CAL_STATUS===val?' active':''}" onclick="CAL_STATUS='${val}';renderDashboard()">${val?`<span class="dot" style="background:${STATUS_COLOR[val].c}"></span>`:""}${label}</span>`;
-  const legend=chip("Semua","")+["Pending","Confirmed","Datang","Cancelled","No-show"].map(s=>chip(s,s)).join("");
+  const legend=chip("Semua (kecuali dibatalkan)","")+["Pending","Confirmed","Datang","Cancelled","No-show"].map(s=>chip(s,s)).join("");
   return `<div class="panel"><div class="panel-body">
     <div class="cal-head">
       <div class="cal-nav">
@@ -4597,7 +4874,9 @@ function dashCalendar(){
       </div>
       <div class="cal-legend-row">${legend}</div>
     </div>
-    <div class="cal-hint">🗓️ Klik tanggal untuk lihat daftar, klik event untuk detail, geser (drag) kiri/kanan untuk ganti bulan.</div>
+    <div class="cal-hint">🗓️ Klik tanggal untuk lihat daftar, klik event untuk detail, geser (drag) kiri/kanan untuk ganti bulan.
+      ${!CAL_STATUS&&nBatal?`<br><b>${nBatal} reservasi yang dibatalkan</b> tidak ikut digambar — sama dengan tabel Daftar Reservasi.
+        Tekan <b>Cancelled</b> di atas untuk melihatnya.`:""}</div>
     <div class="cal-grid" id="calGrid" onpointerdown="calDragStart(event)" onpointerup="calDragEnd(event)">${dow.map(d=>`<div class="cal-dow">${d}</div>`).join("")}${cells}</div>
   </div></div>`;
 }
@@ -4615,8 +4894,8 @@ function exportCSV(ids){
   // per lantai di layar kehilangan keterangan lantainya begitu dibuka di Excel.
   // Kosong = mejanya belum dipilih / tidak ada di denah mana pun.
   resetLantaiCache();
-  const cols=["Nama","No HP","Tanggal","Jam","Pax","Pax Aktual","Meja","Lantai","Status","DP","Nominal DP","Metode DP","Sumber","PIC","Member","No Member","Catatan","Diinput Oleh"];
-  const rows=list.map(r=>[r.name,displayPhone(r.phone),r.date,r.time,r.pax,r.actualPax??"",r.table,(lantaiRes(r)||[]).join(" & "),r.status,r.dpStatus,r.dpAmount,r.dpMethod,r.source,(r.picName||""),r.member?"Ya":"Tidak",r.memberNo,r.notes,r.createdBy]);
+  const cols=["Nama","No HP","Tanggal","Jam","Pax","Pax Aktual","Meja","Lantai","Status","DP","Nominal DP","Metode DP","Rekening DP","Sumber","PIC","Member","No Member","Catatan","Diinput Oleh"];
+  const rows=list.map(r=>[r.name,displayPhone(r.phone),r.date,r.time,r.pax,r.actualPax??"",r.table,(lantaiRes(r)||[]).join(" & "),r.status,r.dpStatus,r.dpAmount,r.dpMethod,dpRekeningList(r).join(" & "),r.source,(r.picName||""),r.member?"Ya":"Tidak",r.memberNo,r.notes,r.createdBy]);
   const csv=[cols,...rows].map(row=>row.map(c=>`"${String(c??"").replace(/"/g,'""')}"`).join(",")).join("\n");
   const blob=new Blob(["\ufeff"+csv],{type:"text/csv;charset=utf-8"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=`reservasi_laksamana_${todayStr()}.csv`; a.click();
@@ -5657,7 +5936,7 @@ async function saveWalkIn(tableId){
     arrivals:[{ ts:now, pax, by:SESSION.name }],   // walk-in: rombongan langsung masuk penuh
     createdBy:SESSION.name, createdAt:now, updatedAt:now, followups:[] };
   STATE.reservations.push(rec);
-  logAudit("Walk-in",`${name}, meja ${tableId} (${pax} pax)${sharing?", sharing":""}`);
+  logAudit("Walk-in",`${name}, meja ${tableId} (${pax} pax)${sharing?", sharing":""}`, rec.id);
   setBusy("Menyimpan walk-in ke database…");
   const tertulis=await saveNow();
   hideBusy(); closeModal(); renderHariH();
@@ -5670,7 +5949,7 @@ async function saveWalkIn(tableId){
 async function toggleSharing(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   r.sharing=!r.sharing; r.updatedAt=Date.now();
-  logAudit(r.sharing?"Set Sharing":"Batal Sharing", `${r.name}, meja ${r.table||'-'}`);
+  logAudit(r.sharing?"Set Sharing":"Batal Sharing", `${r.name}, meja ${r.table||'-'}`, r.id);
   const ok=await commit("Menyimpan…");
   if(!ok){ r.sharing=!r.sharing; }
   closeModal(); renderHariH();
@@ -5746,7 +6025,7 @@ async function applyMoveTables(){
   else delete r.tableAsli;                        // pindah permanen → tak ada lagi meja asli
   r.table=tujuan; r.updatedAt=Date.now();
   logAudit(MOVE_MODE==="add"?"Tambah Meja":(sementara?"Pindah Sementara":"Pindah Meja"),
-    `${r.name}, ${prev} → ${r.table}${sementara?` (asli ${r.tableAsli})`:""}`);
+    `${r.name}, ${prev} → ${r.table}${sementara?` (asli ${r.tableAsli})`:""}`, r.id);
   setBusy("Menyimpan ke database…");
   const tertulis=await saveNow();
   hideBusy(); closeModal(); renderHariH();
@@ -6086,7 +6365,7 @@ async function mintaKwitansi(id){
   try{
     const baris = await invFetch("invMinta", {resId:r.id, oleh:(SESSION&&SESSION.name)||"", ringkas:invRingkas(r)});
     INV_CACHE[r.id]=baris; segarkanSlotKwi(r.id);
-    logAudit("Request Kwitansi", `${r.name}, ${rpDot(dpTotal(r))} (${kwitansiNo(r)})`);
+    logAudit("Request Kwitansi", `${r.name}, ${rpDot(dpTotal(r))} (${kwitansiNo(r)})`, r.id);
     toast(baris.status==="DIBUAT"?"Kwitansi resmi sudah terbit ✓":"Permintaan kwitansi terkirim ke Finance ✓","ok");
   }catch(e){
     toast("Gagal mengirim permintaan: "+(e.message||e),"err");
@@ -6235,7 +6514,7 @@ function tulisKwitansi(w, r, inv){
      dialog cetak tidak memotret dokumen yang logonya belum selesai dimuat. */
   if(!window.LMKwitansi.tulis(w, kwitansiData(r, inv))) return;
   logAudit("Kwitansi DP (PDF)",
-    `${r.name}, ${rpDot(dpTotal(r))} (${resmi?inv.no:kwitansiNo(r)})${resmi?" — kwitansi resmi bertanda tangan":" — tanpa tanda tangan"}`);
+    `${r.name}, ${rpDot(dpTotal(r))} (${resmi?inv.no:kwitansiNo(r)})${resmi?" — kwitansi resmi bertanda tangan":" — tanpa tanda tangan"}`, r.id);
 }
 ["recap","wlQueue","wlSeated"].forEach(k=>{ TBL_RENDER[k]=()=>renderHariH(); });
 /* ===== Check-in & kedatangan susulan =====
@@ -6328,7 +6607,7 @@ async function saveArrival(id, first){
 
   const sisa=remainingPax(r);
   logAudit(first?"Datang":"Datang Susulan",
-    `${r.name}, ${n} pax masuk (total ${r.actualPax}/${r.pax})${sisa?`, sisa ${sisa} pax`:", rombongan penuh"}`);
+    `${r.name}, ${n} pax masuk (total ${r.actualPax}/${r.pax})${sisa?`, sisa ${sisa} pax`:", rombongan penuh"}`, r.id);
   const ok=await commit("Menyimpan kedatangan…");
   if(!ok){ pulihkanRes(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
   closeModal(); buildNav();
@@ -6351,7 +6630,7 @@ async function undoArrival(id, idx){
     r.status="Confirmed"; r.checkinAt=null; r.leftAt=0;
   }
   r.updatedAt=Date.now();
-  logAudit("Koreksi Kedatangan", `${r.name}, hapus gelombang ${a.pax} pax (sisa tercatat ${arrivedPax(r)}/${r.pax})`);
+  logAudit("Koreksi Kedatangan", `${r.name}, hapus gelombang ${a.pax} pax (sisa tercatat ${arrivedPax(r)}/${r.pax})`, r.id);
   const ok=await commit("Menyimpan koreksi…");
   if(!ok){ pulihkanRes(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
   buildNav();
@@ -6403,11 +6682,13 @@ async function konfirmCancel(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   if(r.status==="Cancelled"){ closeModal(); return; }
   const alasan=(byId("cancelReason")?.value||"").trim();
-  const prevStatus=r.status, prevReason=r.cancelReason;
+  const prev=JSON.parse(JSON.stringify(r));
   r.status="Cancelled"; r.cancelReason=alasan; r.updatedAt=Date.now();
-  logAudit("Batal",`${r.name}${alasan?` — ${alasan}`:""}`);
+  logAudit("Batal",`${r.name} (${fmtDateShort(r.date)} ${r.time}, ${r.pax} pax${r.table?", meja "+r.table:""})`
+    +(dpTotal(r)?`, DP ${rpDot(dpTotal(r))} sudah masuk`:"")
+    +(alasan?` — ${alasan}`:" — tanpa alasan"), r.id);
   const ok=await commit("Membatalkan…");
-  if(!ok){ r.status=prevStatus; r.cancelReason=prevReason; }
+  if(!ok) pulihkanRes(r, prev);
   closeModal(); buildNav();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   toast(ok?"Reservasi dibatalkan, meja tersedia kembali":"Gagal membatalkan — coba lagi", ok?"err":"err");
@@ -6416,10 +6697,11 @@ async function markNoShow(id){
   if(!CAN.input(SESSION.role)){ toast("Anda tidak punya akses mengubah status reservasi.","err"); return; }
   const r=STATE.reservations.find(x=>x.id===id);
   if(!confirm(`Tandai "${r.name}" sebagai NO-SHOW?`)) return;
-  const prev=r.status; r.status="No-show"; r.updatedAt=Date.now();
-  logAudit("No-show",`${r.name}`);
+  const prev=JSON.parse(JSON.stringify(r));
+  r.status="No-show"; r.updatedAt=Date.now();
+  logAudit("No-show",`${r.name} (${fmtDateShort(r.date)} ${r.time}, ${r.pax} pax)`, r.id);
   const ok=await commit("Menyimpan no-show…");
-  if(!ok){ r.status=prev; }
+  if(!ok) pulihkanRes(r, prev);
   buildNav(); renderHariH();
   if(ok) toast("Ditandai no-show","err");
 }
@@ -6452,7 +6734,7 @@ async function saveFollowUp(id){
   const note=byId("fuNote").value.trim(); if(!note){ closeModal(); return; }
   const prev=JSON.parse(JSON.stringify(r));
   r.followups=r.followups||[]; r.followups.push({ts:Date.now(),by:SESSION.name,note});
-  r.updatedAt=Date.now(); logAudit("Follow Up",`${r.name}: ${note}`);
+  r.updatedAt=Date.now(); logAudit("Follow Up",`${r.name}: ${note}`, r.id);
   const ok=await commit("Menyimpan catatan…");
   if(!ok){ Object.assign(r, prev); }
   closeModal(); renderHariH();
@@ -6727,6 +7009,7 @@ function openDetail(id){
            : "⏱ "+fmtDur(dineDuration(r))):""}
        ${r.datangDiasumsikan?di("Catatan","📋 Tidak pernah ditandai datang satu per satu — dianggap datang penuh saat tutup malam"):""}
        ${r.cancelReason?di("Alasan Batal",esc(r.cancelReason)):""}
+       ${resLogPanel(r)}
      </div>
      ${canEdit?`<div class="section-title">🔄 Ubah Status</div>
       ${statusButtons(r)}`:""}
@@ -6743,7 +7026,7 @@ function openDetail(id){
      ${canEdit?`<button class="btn btn-ok btn-sm" onclick="openAddDp('${r.id}')" title="Tamu bayar DP lagi (DP bertahap) — upload bukti transfernya">➕ Tambah DP</button>`:""}
      ${slotKwitansi(r,"btn-sm")}
      <button class="btn btn-wa btn-sm" onclick="openWAModal('${r.id}')">💬 Kirim WA</button>
-     ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="closeModal();editReservation('${r.id}')">✏️ Edit</button>`:""}
+     ${canEdit?`<button class="btn btn-ghost btn-sm" onclick="openQuickEdit('${r.id}')" title="Edit cepat — tombol Form Lengkap ada di dalamnya">✏️ Edit Cepat</button>`:""}
      <button class="btn btn-ink btn-sm" onclick="closeModal()">Tutup</button>
    </div>`, true);
   /* Status kwitansi ditanyakan ke modul Finance SESUDAH modal tergambar, lalu
@@ -6752,6 +7035,43 @@ function openDetail(id){
      modul itu mati, detailnya tidak pernah terbuka sama sekali. */
   if(hasDP(r)) muatInvStatus(r.id);
 }
+/* ===== RIWAYAT AKTIVITAS SATU RESERVASI =====
+   (19 September 2026, permintaan user.)
+
+   Yang dijawab panel ini: siapa yang menginput, siapa yang mengubah
+   statusnya, siapa yang meminta kwitansi, siapa yang menghapus DP-nya.
+   Sebelum ini jawabannya tersebar — `createdBy` di kartu jejak,
+   `dps[].by` di baris DP, `followups[].by` di riwayat follow up — dan
+   perubahan status tidak tercatat di baris mana pun, cuma di Audit Log
+   global yang isinya seluruh venue.
+
+   ASAL TIAP BARIS DISEBUTKAN, dan itu bukan hiasan: baris bertanda
+   "dicocokkan dari nama" adalah TEBAKAN. Seluruh jejak yang sudah ada di
+   produksi sebelum hari ini tidak menyimpan id reservasi sama sekali, jadi
+   satu-satunya cara mengenalinya adalah namanya muncul di keterangan — dan
+   dua tamu bernama sama akan saling meminjam jejak. Dibuang, panel ini
+   lahir kosong untuk setiap reservasi yang sudah berjalan; dicampur
+   diam-diam, tidak ada yang bisa tahu mana yang pasti. */
+function resLogPanel(r){
+  const list=resLogList(r);
+  if(!list.length) return `<div class="section-title">🧾 Riwayat Aktivitas</div>
+    <div class="detail-item full"><div class="v muted">Belum ada jejak tercatat untuk reservasi ini.
+      Reservasi yang dibuat sebelum jejak per-baris ada memang tidak punya —
+      yang tersisa untuknya cuma Audit Log, dan itu pun 500 baris terakhir.</div></div>`;
+  const baris=x=>`<div class="fu-log">
+      <b>${esc(x.action)}</b> ${x.asal==="nama"?`<span class="badge-status st-pending" style="font-size:10px" title="Jejak lama: tidak menyimpan id reservasi, jadi dicocokkan lewat nama tamu. Kalau ada dua tamu bernama sama, jejaknya bisa tertukar.">≈ dicocokkan dari nama</span>`:""}
+      <div>${esc(x.detail||"")}</div>
+      <div class="meta">${esc(x.by||"-")}${x.role?" ("+esc(ROLE_LABEL[x.role]||x.role)+")":""}, ${fmtTs(x.ts)}</div>
+    </div>`;
+  const AWAL=10;
+  const atas=list.slice(0,AWAL).map(baris).join("");
+  const sisa=list.slice(AWAL);
+  return `<div class="section-title">🧾 Riwayat Aktivitas <span class="muted" style="font-weight:500;font-size:12px">(${list.length} kejadian)</span></div>
+    <div class="detail-item full">${atas}
+      ${sisa.length?`<details style="margin-top:6px"><summary style="cursor:pointer;font-weight:600;font-size:13px">Tampilkan ${sisa.length} kejadian lebih lama</summary><div style="margin-top:6px">${sisa.map(baris).join("")}</div></details>`:""}
+    </div>`;
+}
+
 /* ===== DP bertahap: tambah / hapus cicilan + buktinya ===== */
 const DP_BADGE = {
   verified:'<span class="badge-status dp-yes" style="font-size:10px">✓ terverifikasi</span>',
@@ -6784,7 +7104,8 @@ function openAddDp(resId){
      <div class="field"><label>Nominal DP <span class="req">*</span></label>
        <input id="ndp_amount" inputmode="numeric" placeholder="mis. 300.000" oninput="fmtRupiahInput(this)"></div>
      <div class="field"><label>Metode / Tujuan Transfer</label>
-       <select id="ndp_method">${(m.dpMethods||[]).map(v=>`<option>${esc(v)}</option>`).join("")}</select></div>
+       <select id="ndp_method">${(m.dpMethods||[]).map(v=>`<option${v===dpMethodDefault()?" selected":""}>${esc(v)}</option>`).join("")}</select>
+       <div class="hint">Bawaannya <b>${esc(dpMethodDefault()||"-")}</b> — ganti kalau uangnya masuk ke rekening lain.</div></div>
      <div class="field"><label>Upload Bukti Transfer (foto/pdf) <span class="req">*</span></label>
        <input type="file" accept="image/*,application/pdf" onchange="fileToData(this,'ndpProof')">
        <div id="ndpProof" class="hint"></div>
@@ -6816,7 +7137,7 @@ async function saveAddDp(resId){
   r.dps.push(p);
   syncDp(r);
   if(r.status==="Pending") r.status="Confirmed";     // sudah ada uang masuk
-  logAudit("Tambah DP", `${r.name}: DP ke-${r.dps.length} ${rpDot(amount)} (total ${rpDot(dpTotal(r))})`);
+  logAudit("Tambah DP", `${r.name}: DP ke-${r.dps.length} ${rpDot(amount)} (total ${rpDot(dpTotal(r))})`, r.id);
   const ok=await commit("Menyimpan DP ke database…");
   if(!ok){ Object.assign(r, prev); return; }          // gagal → modal tetap terbuka, bisa coba lagi
   PENDING_FILES={};
@@ -6833,7 +7154,7 @@ async function delDp(resId, payId){
   const prev=JSON.parse(JSON.stringify(r));
   r.dps=r.dps.filter(x=>x.id!==payId);
   syncDp(r);
-  logAudit("Hapus Dana Masuk", `${r.name}: hapus ${rpDot(p.amount)} (${p.tfBank||p.method||"-"}${p.tfName?", a.n. "+p.tfName:""}) — sisa total DP ${rpDot(dpTotal(r))}`);
+  logAudit("Hapus Dana Masuk", `${r.name}: hapus ${rpDot(p.amount)} (${p.tfBank||p.method||"-"}${p.tfName?", a.n. "+p.tfName:""}) — sisa total DP ${rpDot(dpTotal(r))}`, r.id);
   const ok=await commit("Menghapus dari database…");
   if(!ok){ Object.assign(r, prev); return; }
   closeModal();
@@ -6878,7 +7199,7 @@ async function changeStatus(id, status){
     r.actualPax=arrivedPax(r);
     r.leftAt=0;   // masih duduk
   }
-  r.status=ns; r.updatedAt=Date.now(); logAudit("Ubah Status",`${r.name} → ${ns}`);
+  r.status=ns; r.updatedAt=Date.now(); logAudit("Ubah Status",`${r.name} → ${ns}`, r.id);
   const ok=await commit("Menyimpan status…");
   /* Cari ULANG barisnya: penggabungan bisa mengganti isi STATE dgn objek baru dari server,
      sehingga `r` jadi objek lepas yang tidak lagi ada di STATE. */
@@ -6905,7 +7226,7 @@ async function guestLeft(id){
   if(!r.checkinAt) r.checkinAt=Date.now();
   r.leftAt=Date.now(); r.updatedAt=Date.now();
   const dur=dineDuration(r);
-  logAudit("Selesai Duduk",`${r.name}${dur!=null?`, duduk ${fmtDur(dur)}`:""}`);
+  logAudit("Selesai Duduk",`${r.name}${dur!=null?`, duduk ${fmtDur(dur)}`:""}`, r.id);
   const ok=await commit("Menandai selesai…");
   if(!ok){ pulihkanRes(r, prev); buildNav(); closeModal(); navigate(CURRENT_PAGE); return; }
   closeModal(); buildNav();
@@ -7109,7 +7430,7 @@ function tawarkanKembaliKeAsli(id){
 async function lepasPenandaAsli(id){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   const asli=r.tableAsli; delete r.tableAsli; r.updatedAt=Date.now();
-  logAudit("Pindah Jadi Permanen",`${r.name} tetap di ${r.table} (asli ${asli})`);
+  logAudit("Pindah Jadi Permanen",`${r.name} tetap di ${r.table} (asli ${asli})`, r.id);
   const ok=await commit("Menyimpan…");
   closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   toast(ok?`${r.name} tetap di ${r.table} ✓`:"Gagal menyimpan","ok");
@@ -7122,7 +7443,7 @@ async function kembalikanKeAsli(id){
   const cek=await mejaMasihKosong(r.date, asli, r.time, r.id, !!r.sharing);
   if(!cek.ok){ hideBusy(); closeModal(); tolakMeja(cek.bentrok); renderHariH(); return; }
   r.table=asli; delete r.tableAsli; r.updatedAt=Date.now();
-  logAudit("Kembali ke Meja Asli",`${r.name}, ${dari} → ${asli}`);
+  logAudit("Kembali ke Meja Asli",`${r.name}, ${dari} → ${asli}`, r.id);
   setBusy("Menyimpan ke database…");
   const ok=await saveNow();
   hideBusy(); closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);
@@ -7146,7 +7467,11 @@ async function delReservation(id){
     + `\n\nTidak bisa dikembalikan. Tindakan ini tercatat di audit log.`)) return;
   const backup=STATE.reservations.slice();
   STATE.reservations=STATE.reservations.filter(x=>x.id!==id);
-  logAudit("Hapus Reservasi",`${r.name} (${fmtDateShort(r.date)})`+(dp?`, DP ${rpDot(dp)} ikut terhapus`:""));
+  logAudit("Hapus Reservasi",
+    `${r.name} (${fmtDateShort(r.date)} ${r.time}, ${r.pax} pax${r.table?", meja "+r.table:""}, status ${r.status})`
+    +`, diinput ${r.createdBy||"-"}`
+    +(dp?`, DP ${rpDot(dp)} ikut terhapus`:"")
+    +(gel?`, ${gel} catatan kedatangan ikut terhapus`:""), r.id);
   const ok=await commit("Menghapus dari database…");
   if(!ok){ STATE.reservations=backup; buildNav(); return; }
   /* KEMBALI KE DASHBOARD kalau dihapus dari form Edit. navigate("input") akan
@@ -7762,7 +8087,7 @@ async function scanProof(resId, payId, silent){
     const miss=["date","time","amount","bank","name"].filter(k=>!parsed[k]);
     if(!silent){
       saveState();
-      logAudit("Scan Bukti TF", `${r.name}: ${parsed.bank||"?"} ${parsed.name||"?"} ${parsed.date||"?"} ${parsed.time||"?"} ${parsed.amount?rpDot(parsed.amount):"?"}`);
+      logAudit("Scan Bukti TF", `${r.name}: ${parsed.bank||"?"} ${parsed.name||"?"} ${parsed.date||"?"} ${parsed.time||"?"} ${parsed.amount?rpDot(parsed.amount):"?"}`, r.id);
       openTfEdit(resId, payId);
       toast(miss.length? `Bukti terbaca sebagian, lengkapi manual: ${miss.join(", ")}` : "Bukti terbaca ✓ cek lalu verifikasi","ok");
     }
@@ -7891,7 +8216,7 @@ async function saveTf(resId, payId, verify){
   }
   r.updatedAt=Date.now();
   logAudit(verify?"Verifikasi Dana Masuk":"Koreksi Data Transfer",
-    `${r.name}: ${p.tfBank||"-"} ${p.tfName||"-"} ${p.tfDate||"-"} ${p.tfTime||""} ${rpDot(p.tfAmount)}`);
+    `${r.name}: ${p.tfBank||"-"} ${p.tfName||"-"} ${p.tfDate||"-"} ${p.tfTime||""} ${rpDot(p.tfAmount)}`, r.id);
   const ok=await commit(verify?"Memverifikasi ke database…":"Menyimpan data transfer…");
   closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);   // bisa dilakukan dari halaman mana pun (mis. detail reservasi)
   if(ok) toast(verify?"Dana masuk terverifikasi ✓":"Data transfer disimpan ✓","ok");
@@ -7987,7 +8312,7 @@ async function verifyTfGo(resId, payId){
   if(kurang.length) p.tfTanpaData=kurang.join(", "); else delete p.tfTanpaData;
   logAudit("Verifikasi Dana Masuk",
     `${r.name}: ${p.tfBank||"-"} ${p.tfName||"-"} ${p.tfDate||"(tanggal tidak terbaca)"} ${p.tfTime||""} ${rpDot(txAmount(x))}`+
-    (kurang.length?` — TANPA ${kurang.join(", ").toUpperCase()}, diverifikasi dari gambar bukti`:""));
+    (kurang.length?` — TANPA ${kurang.join(", ").toUpperCase()}, diverifikasi dari gambar bukti`:""), r.id);
   const ok=await commit("Memverifikasi dana masuk ke database…");
   /* tfTanpaData dihapus lebih dulu: Object.assign tidak membuang field yang
      TIDAK ada di salinan lama, jadi tanpa baris ini penanda "dari gambar"
@@ -8003,7 +8328,7 @@ async function rejectTf(resId, payId){
   const prev=JSON.parse(JSON.stringify(p));
   if(byId("tf_date")) readTfForm(p);        // dipanggil dari modal edit → ikut simpan isian
   p.tfStatus="rejected"; p.tfNote=note.trim(); p.tfBy=SESSION.name; p.tfAt=Date.now(); r.updatedAt=Date.now();
-  logAudit("Tolak Bukti Transfer", `${r.name}: ${note.trim()||"tanpa alasan"}`);
+  logAudit("Tolak Bukti Transfer", `${r.name}: ${note.trim()||"tanpa alasan"}`, r.id);
   const ok=await commit("Menyimpan penolakan ke database…");
   if(!ok) Object.assign(p, prev);
   closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);
@@ -8591,15 +8916,45 @@ function restoreJSON(input){ const f=input.files[0]; if(!f)return; const rd=new 
 function wipeData(){ if(!confirm("Hapus SEMUA data reservasi & histori? Tidak bisa dibatalkan!"))return; if(!confirm("Yakin 100%? Backup dulu kalau perlu."))return; STATE.reservations=[]; STATE.audit=[]; saveState(); toast("Semua data dihapus","err"); closeModal(); navigate("dashboard"); }
 
 /* ================= AUDIT LOG ================= */
+/* Kata kunci pencarian Audit Log. Di LUAR renderAudit supaya tidak lahir
+   ulang jadi kosong tiap kali halamannya digambar ulang (polling menarik
+   data tiap beberapa detik dan menggambar ulang halaman aktif). */
+let AUDIT_Q="";
+/* Satu baris audit cocok dengan kata kunci? Dicari di SELURUH kolom yang
+   tampil — siapa, perannya, aksinya, dan keterangannya. Nama tamu hidup di
+   kolom Detail, jadi mencari nama reservasi yang sudah dibatalkan atau
+   dihapus tetap menemukan jejaknya: itu justru guna utama kotak ini. */
+function auditCocok(a,q){
+  if(!q) return true;
+  return [a.user, ROLE_LABEL[a.role]||a.role, a.action, a.detail]
+    .some(v=>String(v==null?"":v).toLowerCase().includes(q));
+}
 function renderAudit(){
   if(!CAN.audit(SESSION.role)){ byId("page-audit").innerHTML="<div class='empty'>Tidak ada akses.</div>"; return; }
+  const q=(AUDIT_Q||"").trim().toLowerCase();
+  const semua=STATE.audit||[];
+  const list=q?semua.filter(a=>auditCocok(a,q)):semua;
   // Audit log tumbuh terus dan tidak pernah dipangkas, jadi ini tabel yang
   // paling butuh halaman — sebelumnya seluruh isinya digambar sekaligus.
-  const pg=tblPage(STATE.audit,"audit");
+  const pg=tblPage(list,"audit",q);
   byId("page-audit").innerHTML=`
    <div class="page-head"><div><h2>Audit Log</h2><div class="desc">Jejak seluruh aktivitas: siapa, kapan, apa yang diubah. Untuk akuntabilitas & kontrol data DP.</div></div></div>
+   <div class="panel"><div class="panel-body">
+     <div class="harih-search" style="max-width:420px">
+       <span class="ico">${icon('search',18)}</span>
+       <input id="auditSearch" placeholder="Cari nama tamu, kru, aksi, atau keterangan…" value="${esc(AUDIT_Q)}"
+              oninput="AUDIT_Q=this.value;afterSearch('auditSearch',renderAudit)">
+       ${AUDIT_Q?`<button class="harih-clear" title="Bersihkan pencarian" onclick="AUDIT_Q='';renderAudit()">×</button>`:""}
+     </div>
+     <div class="hint" style="margin-top:8px">
+       ${q?`<b>${list.length}</b> dari ${semua.length} baris cocok dengan “${esc(AUDIT_Q)}”. `:""}
+       Reservasi yang <b>dibatalkan atau dihapus</b> tetap punya jejaknya di sini — cari namanya.
+       Yang tersimpan <b>500 baris terakhir</b>; jejak yang lebih lama sudah terpangkas, tapi jejak yang
+       menempel di tiap reservasi masih bisa dibuka lewat <b>Riwayat Aktivitas</b> di detail reservasinya.
+     </div>
+   </div></div>
    <div class="panel"><div class="table-wrap"><table><thead><tr><th>Waktu</th><th>User</th><th>Role</th><th>Aksi</th><th>Detail</th></tr></thead>
-   <tbody>${pg.total?pg.items.map(a=>`<tr><td class="muted">${fmtTs(a.ts)}</td><td class="name">${esc(a.user)}</td><td class="muted">${ROLE_LABEL[a.role]||a.role}</td><td><span class="pill">${esc(a.action)}</span></td><td>${esc(a.detail)}</td></tr>`).join(""):`<tr><td colspan="5" class="empty">Belum ada aktivitas tercatat.</td></tr>`}</tbody></table></div>${tblPagerHtml(pg,"audit")}</div>`;
+   <tbody>${pg.total?pg.items.map(a=>`<tr><td class="muted">${fmtTs(a.ts)}</td><td class="name">${esc(a.user)}</td><td class="muted">${ROLE_LABEL[a.role]||a.role}</td><td><span class="pill">${esc(a.action)}</span></td><td>${esc(a.detail)}</td></tr>`).join(""):`<tr><td colspan="5" class="empty">${q?`Tidak ada jejak yang cocok dengan “${esc(AUDIT_Q)}”.`:"Belum ada aktivitas tercatat."}</td></tr>`}</tbody></table></div>${tblPagerHtml(pg,"audit")}</div>`;
 }
 TBL_RENDER.audit = () => renderAudit();
 

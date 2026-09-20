@@ -1049,6 +1049,181 @@ ambangnya diekstrak:
 > memang perlu dirapikan, bukan cuma ke asersi yang kurang.
 
 
+### Reservasi: tujuh revisi daftar & jejak (19 September 2026)
+
+Satu pesan user, tujuh permintaan. Dua di antaranya ternyata sudah berjalan
+di satu layar dan tidak di layar sebelahnya, dan satu lagi membuka jalan
+pintas yang melewati penjaga meja — jadi bukan semuanya sekadar tampilan.
+
+#### 1. JEJAK AKTIVITAS: DUA WADAH, DAN ITU DISENGAJA
+
+| | isinya | bertahan sampai |
+|---|---|---|
+| `STATE.audit` | jejak GLOBAL seluruh venue | 500 baris terakhir |
+| `r.log[]` | jejak yang MENEMPEL di barisnya | `RES_LOG_MAX` = 20 per baris |
+
+**500 itu terpotong di KEDUA sisi** — klien dan server
+(`DELETE FROM audit WHERE id NOT IN (… LIMIT 500)` di
+`lib_reservasi_mysql.php`). Satu malam sibuk sudah cukup mendorong seluruh
+jejak sebuah reservasi keluar dari sana, dan sejak itu "siapa yang mengubah
+status ini" tidak bisa dijawab layar mana pun. Itu sebabnya `r.log` ada.
+
+- **TIDAK ADA PERUBAHAN BACKEND untuk ini, dan itu keputusan yang menentukan.**
+  Baris reservasi disimpan apa adanya (`json_encode($r)`, tanpa daftar kunci
+  tertutup — beda dari `brankas_simpan()`), jadi `log` ikut sendiri. Backend
+  Reservasi diunggah **manual** (lihat memori arsitekturnya); fitur yang
+  menuntut perubahan di sana akan hidup di satu server dan mati di server
+  sebelahnya, tanpa satu pun galat.
+- **SATU PINTU**: `r.log` ditulis dari DALAM `logAudit()` lewat
+  `tempelLogRes()`, bukan oleh pemanggilnya. Kalau pemanggil yang harus
+  mengingatnya, aksi berikutnya yang ditambahkan orang lain tercatat di audit
+  global saja — dan bedanya baru ketahuan berbulan-bulan kemudian.
+- **`log` WAJIB ikut disalin di `saveReservation()`.** Objek `rec` di sana
+  dibangun ulang dari daftar field yang eksplisit; yang tidak disebut HILANG
+  begitu reservasinya disunting sekali lewat formulir, tanpa satu pun galat.
+  Aturan yang sama sudah tertulis untuk `datangDiasumsikan` tepat di atasnya.
+- **Jejak yang GAGAL tersimpan tidak boleh tertinggal.** `konfirmCancel()` dan
+  `markNoShow()` dulu memulihkan SEBAGIAN (`r.status=prev`), jadi entri
+  "Batal"/"No-show" tetap menempel walau servernya menolak — catatan yang
+  mengatakan sesuatu terjadi padahal tidak. Keduanya sekarang memakai
+  `pulihkanRes(r, prev)` dengan salinan penuh.
+- **Detail dipangkas 180 huruf**, dan jumlahnya dibatasi: seluruh log ikut di
+  blob yang dikirim tiap simpan, dan alasan batal yang diketik panjang bisa
+  berkali lipat ukuran barisnya sendiri.
+
+**Panel Riwayat Aktivitas** di detail reservasi (`resLogPanel`) menggabungkan
+`r.log`, audit ber-`res`, dan — **ditandai** — audit LAMA yang dicocokkan
+lewat NAMA. Yang ketiga itu tebakan: seluruh jejak yang sudah ada di produksi
+sebelum tanggal ini tidak menyimpan id reservasi sama sekali. Dibuang, panel
+ini lahir kosong untuk tiap reservasi yang sudah berjalan; dicampur
+diam-diam, dua tamu bernama sama saling meminjam jejak tanpa ada yang bisa
+tahu. Entri yang sama di dua wadah dicocokkan lewat `(ts, action)`.
+
+**Audit Log dapat kotak cari** (`AUDIT_Q`, di LUAR penggambarnya — polling
+menggambar ulang halaman aktif tiap beberapa detik). Dicari di siapa,
+perannya, aksinya, dan keterangannya: nama tamu hidup di kolom Detail, jadi
+mencari reservasi yang sudah dibatalkan atau dihapus tetap menemukan
+jejaknya — dan itu guna utama kotaknya.
+
+**Jejak "Hapus Reservasi" dan "Batal" DILENGKAPI** (jam, meja, pax, status,
+siapa yang menginput, DP & catatan kedatangan yang ikut hilang). Sesudah
+barisnya lenyap, kalimat itulah satu-satunya keterangan yang tersisa; kalau
+ia cuma berbunyi nama + tanggal, yang memeriksanya bulan depan tidak punya
+cara tahu ada uang yang ikut terhapus bersamanya.
+
+#### 2 & 3. KOLOM REKENING, dan bawaannya QRIS
+
+Kolom **Rekening** berdiri tepat setelah DP di Daftar Reservasi, diisi
+`dpRekeningSel()` dari `dps[].method`.
+
+- **Dikumpulkan dari SELURUH cicilan**, bukan dari yang pertama: DP yang
+  dicicil boleh masuk lewat rekening yang berbeda-beda, dan menyebut salah
+  satunya saja mengirim orang mencocokkan ke rekening yang tidak pernah
+  menerima uangnya. Itulah kolom yang dipakai halaman **Pencocokan QRIS BRI**
+  di modul Cashier & Finance.
+- **TIGA keadaan dibedakan**: belum DP (`-`), DP yang rekeningnya belum
+  pernah diisi (**pekerjaan**, dan sebabnya ditulis di tooltipnya), dan yang
+  terisi. Disamakan, yang kedua hilang dari pandangan siapa pun.
+- **`dpMethodDefault()` MENCARI QRIS, bukan mengambil indeks 0.** Daftar
+  `master.dpMethods` disunting orang lewat Master Data dan sudah pernah
+  bertambah sendiri lewat migrasi (`_migUOB` menempelkan "Transfer UOB" ke
+  ekornya), jadi "yang pertama" bisa berubah tanpa ada yang memutuskannya —
+  dan pilihan bawaan untuk sebuah rekening adalah keputusan tentang ke mana
+  uang dicatat masuk. Jatuh ke pilihan pertama hanya kalau daftarnya memang
+  tidak punya QRIS sama sekali; **bukan** ke kosong, karena kotak tanpa
+  pilihan terbaca sebagai daftar yang gagal dimuat.
+- Dipakai formulir input **dan** modal Tambah DP — satu penentu, kalau tidak
+  keduanya bisa berbawaan berbeda. Reservasi LAMA tetap memakai rekening yang
+  tersimpan, tidak ditimpa bawaannya.
+- **Ekspor CSV ikut membawanya** sebagai kolom *Rekening DP*, terpisah dari
+  *Metode DP* yang sudah ada — yang lama dibaca dari `r.dpMethod`, dan itu
+  cuma cicilan PERTAMA (`syncDp()` menyalin `dps[0].method` ke sana). Rekap
+  yang dibuka di Excel karena itu kehilangan rekening cicilan kedua, dan yang
+  mencocokkannya ke mutasi bank mencari di rekening yang tidak pernah
+  menerima uangnya.
+
+#### 5 & 6. "Semua" tidak memuat yang dibatalkan
+
+**Tabel Daftar Reservasi sudah begitu sejak lama** (`recapList()` membuang
+Cancelled kecuali saringannya memang dipatok ke Cancelled). Yang belum
+**kalendernya**, di halaman yang sama — jadi satu tanggal bisa menulis lima
+acara di kalender sementara tabelnya berisi tiga, tanpa satu pun kata yang
+menjelaskan selisihnya. Chip legend-nya yang berbunyi "Semua" itulah yang
+dilihat user saat melaporkannya.
+
+- Chip-nya sekarang berbunyi **"Semua (kecuali dibatalkan)"**, dan jumlah yang
+  tidak digambar **disebut angkanya** di bawah kalender. Daftar yang menyusut
+  tanpa keterangan dilaporkan sebagai data hilang.
+- **Yang dibatalkan tidak dibuang selamanya**: chip Cancelled tetap
+  memperlihatkannya. Yang berubah cuma arti "Semua".
+
+#### 7. EDIT CEPAT — dan penjaga meja yang nyaris terlewat
+
+`openQuickEdit()` / `simpanQuickEdit()`: nama, HP, tanggal, jam, pax, jenis,
+catatan. Tombol ✏️ di baris tabel dan di detail sekarang membukanya; tombol
+**Form Lengkap** berdiri di dalamnya.
+
+Wadah isiannya **`.form-grid`, bukan `.filters`**: `.full` hanya berlaku di
+dalam grid (`.form-grid .full{grid-column:1/-1}`), jadi di baris filter yang
+flex kotak Nama Tamu & Catatan tidak pernah melebar — textarea-nya berdiri
+sesempit kotak jam di sebelahnya. `.form-grid` juga sudah punya media query
+yang menjadikannya satu kolom di layar kecil.
+
+**EMPAT hal SENGAJA tidak ikut**, dan tiap-tiapnya karena sudah punya
+pintunya sendiri yang membawa aturannya: **meja** (denah + cek bentrok +
+aturan pindah sementara), **DP** (bukti transfer wajib), **status** (Datang
+mencatat jam duduk, Cancelled meminta alasan), **bukti**. Menyalin keempatnya
+ke sini berarti dua pintu dengan dua aturan untuk satu data — dan yang
+menyimpang di sini adalah meja yang dipegang dua tamu.
+
+- **MENGUBAH TANGGAL/JAM DICEK BENTROK, ke SERVER** (`mejaMasihKosong()` +
+  `opsiCekOf(r)`, pemeriksa yang sama dengan jalur meja lain). Memindahkan
+  reservasi jam 19:00 ke jam 21:00 memindahkan jendela kunci mejanya juga.
+  Tanpa ini, edit cepat jadi jalan pintas yang melewati satu-satunya penjaga
+  yang menahan dua tamu di satu meja.
+- **Ceknya DULU, sebelum apa pun diterapkan ke `r`.** Dibalik urutannya,
+  `mejaMasihKosong()` yang menemukan bentrok memanggil `applyServer()` hanya
+  kalau tidak ada perubahan lokal — jadi perubahan yang sudah terlanjur
+  ditempel justru MENAHAN layar disegarkan, dan kru melihat kondisi meja yang
+  bukan kondisi sebenarnya.
+- **Pax tidak boleh turun di bawah yang sudah tercatat masuk.** Bukan karena
+  angka itu haram — form lengkap memang mengizinkannya, dan di sana ada
+  tombol yang memperbaiki catatan kedatangannya sekalian. Layar ini tidak
+  punya tombol itu, jadi menyimpannya dari sini meninggalkan "8 dari 5 orang"
+  yang tidak bisa dibetulkan dari mana pun. Pesannya menyuruh ke Form Lengkap.
+- **Tanpa perubahan = tidak ada kiriman sama sekali.** Simpan yang selalu
+  menulis membuat `updatedAt` naik tanpa sebab, dan di modul ini `updatedAt`
+  yang menentukan siapa menang saat dua kru menyunting baris yang sama.
+- **Jejaknya menyebut APA yang berubah** (`pax 4 → 6`), bukan cuma "Edit
+  Cepat". Yang membuka Riwayat Aktivitas bertanya kenapa jamnya bergeser, dan
+  baris yang cuma menyebut aksinya tidak menjawab apa pun.
+
+```bash
+node tools/uji-revisi-reservasi.js   # 96 pemeriksaan, jsdom
+```
+
+**BERKAS UJI dengan server tiruan yang HIDUP** — `saveAll` menyimpan payload
+dan `getAll` berikutnya memulangkannya, jadi jalur TARIK–GABUNG–TULIS
+(`flushSave`) benar-benar dijalankan, bukan dilewati. Fixture-nya bertanggal
+**relatif terhadap hari ini**: yang dipatok membusuk sendiri — `uji-vip-radar.js`
+sudah merah enam hari sesudah ditulis, dan uji yang berubah merah tanpa ada
+yang mengubah kode melatih orang mengabaikan warna merahnya.
+
+**Dua puluh tujuh mutasi dicoba, kedua puluh tujuhnya tertangkap** — tapi
+TIGA baru sesudah ujinya dibetulkan, dan ketiganya bentuk yang sudah punya
+nama di berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| jejak tidak disalin saat disunting lewat form lengkap | **asersi jumlah** — jejak lama yang dibuang lalu diganti satu entri "Edit Reservasi" memberi jumlah yang SAMA | yang dijaga jejak LAMA-nya masih ada, plus jumlahnya bertambah satu |
+| kalender kembali menggambar yang dibatalkan | **cacat fixture** — sel kalender cuma menggambar TIGA teratas per tanggal, dan baris Cancelled-nya kebetulan yang kelima | jamnya dimajukan supaya ia pasti masuk tiga teratas |
+| jejak hapus berhenti menyebut apa yang ikut hilang | **asersi hampa** — diuji atas baris audit yang ditulis fixture-nya SENDIRI, jadi lulus apa pun yang dilakukan `delReservation()` | blok baru yang benar-benar menghapus reservasi ber-DP dan ber-catatan kedatangan |
+
+> **Dan satu mutasi menunjuk ke lubang uji, bukan ke asersi yang kurang:**
+> `markNoShow()` tidak pernah dijalankan sekali pun oleh uji ini, jadi
+> rollback-nya cuma dijaga asersi SUMBER. Ditutup dengan putaran sungguhan
+> lewat server tiruan yang menolak.
+
 ### Reservasi: bukti DP WAJIB (6 September 2026)
 
 Permintaan user: *"setiap input reservasi, jika dia masukin DP, wajib upload
