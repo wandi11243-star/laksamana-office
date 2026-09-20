@@ -4694,7 +4694,7 @@ function renderDashboard(){
          <input type="date" value="${HARIH_DATE}" onchange="setDenahTgl(this.value)" title="Denah Meja &amp; Waiting List hanya bisa menampilkan satu tanggal"></div>`:""}
        <div class="field"><label>Jam Dari</label>${timeSelectHtml('onchange="DASH_FILTER.fromHour=this.value;renderDashboard()"', F.fromHour, 30)}</div>
        <div class="field"><label>Jam Sampai</label>${timeSelectHtml('onchange="DASH_FILTER.toHour=this.value;renderDashboard()"', F.toHour, 30)}</div>
-       <div class="field"><label>Status</label><select onchange="DASH_FILTER.status=this.value;renderDashboard()"><option value="">Semua</option>${STATUSES.map(s=>`<option ${F.status===s?"selected":""}>${s}</option>`).join("")}</select></div>
+       <div class="field"><label>Status</label><select onchange="DASH_FILTER.status=this.value;renderDashboard()"><option value="">Semua (tanpa Cancelled)</option>${STATUSES.map(s=>`<option ${F.status===s?"selected":""}>${s}</option>`).join("")}</select></div>
        <div class="field"><label>Jenis Reservasi</label><select onchange="DASH_FILTER.category=this.value;renderDashboard()"><option value="">Semua</option>${(STATE.master.categories||[]).map(c=>`<option ${F.category===c?"selected":""}>${esc(c)}</option>`).join("")}</select></div>
        <div class="field"><label>Lantai</label><select onchange="DASH_FILTER.lantai=this.value;renderDashboard()"><option value="">Semua</option>${lantaiTersedia().map(f=>`<option value="${f}" ${F.lantai===String(f)?"selected":""}>Lantai ${f}</option>`).join("")}</select></div>
        <div class="field"><label>Sisa Kursi</label><select onchange="DASH_FILTER.kursi=this.value;renderDashboard()">
@@ -4712,7 +4712,7 @@ function renderDashboard(){
        <span class="pill" style="cursor:pointer" onclick="recapSet7()">7 Hari</span>
        <span class="pill" style="cursor:pointer" onclick="recapSetMonth()">Bulan Ini</span>
        ${(denahFilterAktif()||F.mode!=="day"||F.date!==todayStr())?`<span class="pill" style="cursor:pointer;background:var(--danger-bg);color:var(--danger)" onclick="recapReset()">✕ Reset Filter</span>`:""}
-       ${!perTanggal?`<span class="harih-result" style="margin-left:6px">${list.length} reservasi · ${esc(lblPeriode)}</span>`
+       ${!perTanggal?`<span class="harih-result" style="margin-left:6px">${list.length} reservasi · ${esc(lblPeriode)}${RECAP_BATAL?` · <b>${RECAP_BATAL} dibatalkan</b> tidak ditampilkan <a href="javascript:void(0)" onclick="DASH_FILTER.status='Cancelled';renderDashboard()" style="font-weight:600">lihat</a>`:""}</span>`
                     :`<span class="harih-result" style="margin-left:6px">${inWait?'Antrean':'Denah'}: ${fmtDate(HARIH_DATE)} · ${dayList.length} reservasi${hasLayoutOverride(HARIH_DATE)?` · layout ${esc(layoutName(harihL1()))} ⚑`:""}</span>`}
      </div>
    </div>
@@ -5024,16 +5024,36 @@ function setDenahTgl(v){ if(!v) return; HARIH_DATE=v; renderDashboard(); }
    menampilkannya lewat pilihan Status), jadi pembuangannya dikerjakan di sini
    supaya tabel operasional tetap bersih seperti Recap dulu — kecuali kalau
    Cancelled memang yang sedang dipilih di saringan status. */
+/* Berapa reservasi yang lolos SELURUH saringan tapi dibuang karena
+   dibatalkan. Disetel recapList(), dibaca pita ringkas di bawah baris
+   filter. Di luar fungsinya karena pemanggilnya butuh angkanya SESUDAH
+   daftarnya jadi — mengubah tanda tangan recapList() berarti menyentuh
+   ketiga pemanggilnya, termasuk pembangun FILTER_IDS. */
+let RECAP_BATAL = 0;
 function recapList(){
   const F=DASH_FILTER;
   const q=(HARIH_Q||"").trim().toLowerCase();
   let list=applyFilter(STATE.reservations);
-  if(F.status!=="Cancelled") list=list.filter(r=>r.status!=="Cancelled");
   // Pencarian tab ini ikut mencocokkan NOMOR MEJA — di lapangan, meja itulah
   // yang paling sering diketik. DASH_FILTER.q hanya nama & nomor HP.
   if(q) list=list.filter(r=>
     (r.name||"").toLowerCase().includes(q) || (r.phone||"").includes(q) ||
     tablesOf(r).some(t=>t.toLowerCase().includes(q)));
+  /* Yang dibatalkan dibuang SESUDAH saringan lain, dan jumlahnya dicatat.
+     Dibuang di awal seperti dulu, angka ini tidak bisa dihitung sama sekali —
+     dan tanpa angkanya, yang mencari satu nama tidak punya cara tahu apakah
+     yang dicarinya memang tidak ada atau ada tapi sudah dibatalkan. Dua
+     keadaan itu menuntut tindakan yang berbeda.
+
+     Tetap SEBELUM saringan sisa kursi: yang itu paling mahal (menghitung
+     hunian per tanggal), jadi tidak perlu dijalankan untuk baris yang toh
+     akan dibuang. */
+  RECAP_BATAL = 0;
+  if(F.status!=="Cancelled"){
+    const sebelum=list.length;
+    list=list.filter(r=>r.status!=="Cancelled");
+    RECAP_BATAL = sebelum - list.length;
+  }
   /* Saringan sisa kursi ditaruh PALING AKHIR: ia yang paling mahal (menghitung
      hunian per tanggal), jadi biarkan saringan murah membuang barisnya dulu.
      Baris tanpa meja (sisa = null) tidak pernah lolos kedua pilihan — memang

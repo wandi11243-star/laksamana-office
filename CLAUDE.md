@@ -1142,20 +1142,44 @@ Kolom **Rekening** berdiri tepat setelah DP di Daftar Reservasi, diisi
   mencocokkannya ke mutasi bank mencari di rekening yang tidak pernah
   menerima uangnya.
 
-#### 5 & 6. "Semua" tidak memuat yang dibatalkan
+#### 5 & 6. "Semua" tidak memuat yang dibatalkan — dan LABELNYA yang salah
 
-**Tabel Daftar Reservasi sudah begitu sejak lama** (`recapList()` membuang
-Cancelled kecuali saringannya memang dipatok ke Cancelled). Yang belum
-**kalendernya**, di halaman yang sama — jadi satu tanggal bisa menulis lima
-acara di kalender sementara tabelnya berisi tiga, tanpa satu pun kata yang
-menjelaskan selisihnya. Chip legend-nya yang berbunyi "Semua" itulah yang
-dilihat user saat melaporkannya.
+**Aturannya sendiri sudah benar sejak lama** (`recapList()` membuang
+Cancelled kecuali saringannya memang dipatok ke Cancelled). Yang salah
+**LABELNYA**, dan itu dilaporkan user dua kali dalam satu hari — putaran
+pertama cuma membetulkan chip kalender, dan saringan di tabelnya tetap
+berbunyi "Semua" sambil menyembunyikan yang dibatalkan.
 
-- Chip-nya sekarang berbunyi **"Semua (kecuali dibatalkan)"**, dan jumlah yang
-  tidak digambar **disebut angkanya** di bawah kalender. Daftar yang menyusut
-  tanpa keterangan dilaporkan sebagai data hilang.
-- **Yang dibatalkan tidak dibuang selamanya**: chip Cancelled tetap
-  memperlihatkannya. Yang berubah cuma arti "Semua".
+> **Label yang menjanjikan lebih daripada isinya tidak dibaca sebagai
+> aturan, melainkan sebagai data yang hilang** — dan yang membacanya akan
+> mencarinya di database. Itu bentuk kesalahan yang sama dengan pita
+> "Mulai Dingin" di Marketing dan kartu Pax yang disembunyikan di Analytics:
+> yang disaring WAJIB menyebut dirinya sendiri di tempat saringannya berdiri.
+
+| tempat | dulu | sekarang |
+|---|---|---|
+| dropdown **Status** di baris filter | "Semua" | **"Semua (tanpa Cancelled)"** |
+| chip legend **kalender** | "Semua" | **"Semua (kecuali dibatalkan)"** |
+
+Kata **"Cancelled"** dipakai apa adanya di dropdown, bukan "dibatalkan": itu
+bunyi opsi tepat di bawahnya, jadi yang ingin melihatnya tahu persis mana
+yang harus dipilih.
+
+- **JUMLAHNYA DISEBUT, dan itu yang sebenarnya menjawab keluhannya.** Label
+  yang jujur saja tidak cukup: yang mencari SATU nama tetap tidak tahu
+  apakah yang dicarinya memang tidak ada, atau ada tapi sudah dibatalkan —
+  dua keadaan yang menuntut tindakan berbeda. Pita ringkas di bawah baris
+  filter sekarang menulis *"1 dibatalkan tidak ditampilkan · lihat"*, dan
+  kalendernya sudah begitu sejak putaran pertama.
+- **`RECAP_BATAL` dihitung SESUDAH saringan lain**, bukan dari seluruh data.
+  Dihitung dari seluruh data, layar yang sedang menampilkan hari ini akan
+  menyebut reservasi batal bulan lalu — angka yang tidak bisa dijelaskan
+  siapa pun. Karena itu penyaring Cancelled **dipindah ke sesudah kata
+  kunci**; dibuang di awal seperti dulu, angkanya tidak bisa dihitung sama
+  sekali. Tetap **sebelum** saringan sisa kursi, yang paling mahal.
+- **Yang dibatalkan tidak dibuang selamanya**: memilih Cancelled di dropdown
+  (atau chip di kalender) tetap memperlihatkannya, dan pitanya menyediakan
+  tautan langsung ke sana. Yang berubah cuma arti "Semua".
 
 #### 7. EDIT CEPAT — dan penjaga meja yang nyaris terlewat
 
@@ -1199,7 +1223,7 @@ menyimpang di sini adalah meja yang dipegang dua tamu.
   baris yang cuma menyebut aksinya tidak menjawab apa pun.
 
 ```bash
-node tools/uji-revisi-reservasi.js   # 96 pemeriksaan, jsdom
+node tools/uji-revisi-reservasi.js   # 101 pemeriksaan, jsdom
 ```
 
 **BERKAS UJI dengan server tiruan yang HIDUP** — `saveAll` menyimpan payload
@@ -1209,7 +1233,7 @@ dan `getAll` berikutnya memulangkannya, jadi jalur TARIK–GABUNG–TULIS
 sudah merah enam hari sesudah ditulis, dan uji yang berubah merah tanpa ada
 yang mengubah kode melatih orang mengabaikan warna merahnya.
 
-**Dua puluh tujuh mutasi dicoba, kedua puluh tujuhnya tertangkap** — tapi
+**Tiga puluh dua mutasi dicoba, ketiga puluh duanya tertangkap** — tapi
 TIGA baru sesudah ujinya dibetulkan, dan ketiganya bentuk yang sudah punya
 nama di berkas ini:
 

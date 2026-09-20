@@ -398,10 +398,36 @@ function barisTabel(html, nama) {
     cek('yang masih berlaku tetap tampil',
         hal(w, 'dashboard').indexOf('Dewi Anggraini') > -1);
 
+    /* LABELNYA yang jadi keluhan, bukan aturannya: saringan berbunyi "Semua"
+       sementara yang dibatalkan tidak ada di daftarnya, dan yang membacanya
+       menyimpulkan datanya hilang lalu mencarinya di database. */
+    cek('saringan Status TIDAK lagi berbunyi "Semua" begitu saja',
+        hal(w, 'dashboard').indexOf('<option value="">Semua (tanpa Cancelled)</option>') > -1);
+
+    /* Label yang jujur saja belum cukup — yang mencari SATU nama tetap tidak
+       tahu apakah yang dicarinya memang tidak ada, atau ada tapi dibatalkan. */
+    let v = hal(w, 'dashboard');
+    cek('jumlah yang disembunyikan DISEBUT di pita ringkas',
+        v.indexOf('<b>1 dibatalkan</b> tidak ditampilkan') > -1, v.slice(v.indexOf('reservasi \u00b7'), 400));
+    cek('dan ada jalan langsung untuk melihatnya',
+        v.indexOf("DASH_FILTER.status='Cancelled'") > -1);
+
+    /* Angkanya harus mengikuti saringan yang sedang berlaku. Dihitung dari
+       seluruh data, ia akan menyebut reservasi batal bulan lalu pada layar
+       yang sedang menampilkan hari ini — angka yang tidak bisa dijelaskan. */
+    w.eval('HARIH_Q="Dewi"; renderDashboard();');
+    v = hal(w, 'dashboard');
+    cek('hitungannya ikut kata kunci, bukan dari seluruh data',
+        v.indexOf('dibatalkan</b> tidak ditampilkan') < 0, 'masih menyebut yang batal padahal tidak cocok kata kunci');
+    w.eval('HARIH_Q="Dimas"; renderDashboard();');
+    cek('mencari nama yang ternyata DIBATALKAN menyebutkannya',
+        hal(w, 'dashboard').indexOf('<b>1 dibatalkan</b> tidak ditampilkan') > -1);
+    w.eval('HARIH_Q=""; renderDashboard();');
+
     // Kalender: dulu "Semua" tetap menggambar yang dibatalkan.
     w.eval('dashTab("calendar")');
     await tunggu(80);
-    let v = hal(w, 'dashboard');
+    v = hal(w, 'dashboard');
     cek('kalender terbuka', v.indexOf('cal-grid') > -1);
     cek('kalender "Semua" TIDAK menggambar yang dibatalkan',
         v.indexOf('Dimas Saputra') < 0);
