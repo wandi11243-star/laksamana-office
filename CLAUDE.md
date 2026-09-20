@@ -5900,6 +5900,133 @@ menjalankan alatnya di uji menuntut berkas dapur, dan berkas itu **tidak boleh
 masuk repo** (sudah di `.gitignore`: `HPP Food Laksamana*.xlsx`) — satu berkas
 memuat seluruh struktur biaya dapur. Lima mutasi dicoba, kelimanya tertangkap.
 
+
+#### COGS DIBAGI YIELD — dan takaran prasmanan kembali seperti berkas dapur (20 Sep 2026)
+
+Permintaan user, beberapa jam sesudah blok di atas: *"semua takaran tetap
+sesuai aja yang di recipe aku, jangan di buat per porsi — tapi untuk hasil
+(yield-nya) disesuaikan dengan Excel saya sebelumnya, dari sana saja
+perhitungan per porsinya."* Ia **MEMBALIK** alat per-porsi yang dijalankan
+pagi yang sama, dan yang membuatnya bisa dibalik satu baris di modulnya.
+
+##### Rumusnya yang salah, bukan datanya
+
+```
+sebelum : cogsOf(r) = modalMenu(r).total / hargaJual(r)          <- modal SEBATCH
+sesudah : cogsOf(r) = modalMenu(r).total / porsiYield(r) / hargaJual(r)
+```
+
+`Harga jual` di modul ini **selalu** berarti harga untuk SATU yield. Membagi
+modal sebatch dengan harga seporsi membuat tiap resep yang yield-nya bukan 1
+memajang COGS berlipat sebesar yield-nya — Ayam Bakar Padang (yield 100 Porsi)
+berbunyi **4.960%**.
+
+**DUA HAL YANG MENYEMBUNYIKANNYA BERBULAN-BULAN**, dan keduanya lebih penting
+daripada bugnya:
+
+| | |
+|---|---|
+| hampir seluruh menu jadi ber-yield **1** | pembaginya selalu kebetulan 1, jadi tidak ada satu angka pun yang kelihatan salah — **295 dari 301** |
+| **Kalkulator HPP sudah benar sejak lahir** | `kartuKalk()` membagi modalnya dengan jumlah porsi SEBELUM menghitung COGS |
+
+Jadi satu menu punya **DUA COGS di satu modul** — daftar resep dan kalkulator
+— dan tidak ada satu pun layar yang menyebutkan bedanya. Yang membandingkan
+keduanya tidak punya cara tahu mana yang berlaku.
+
+Dan **kolom `Per unit` (modal ÷ yield) sudah berdiri di tabel yang sama sejak
+modul ini lahir**; yang tidak pernah ada cuma pemakaiannya di COGS.
+
+- **`porsiYield()` MENJEPIT yield <= 0 ke 1.** Nol sebagai pembagi memulangkan
+  `Infinity`, dan Infinity di kolom COGS tergambar sebagai chip merah tanpa
+  angka — yang membacanya menyimpulkan resepnya rusak, bukan yield-nya yang
+  kosong.
+- **Penyunting resep & Dashboard ikut** (`ringkasEditor`, *Menu paling boros*).
+  Yang tertinggal tidak melempar apa pun: ia cuma menyebut COGS yang berbeda
+  untuk resep yang sama di dua layar — persis cacat yang baru saja ditutup.
+- **"Harga ideal" di Dashboard dihitung dari modal PER PORSI**, dan kolom
+  modalnya berganti nama jadi **Modal/porsi**. Dihitung dari modal sebatch, ia
+  menyuruh menaikkan harga seratus kali lipat.
+- **Kalkulator TIDAK disentuh** — ia sudah benar, dan justru itu yang
+  membuktikan pembagi mana yang benar. Asersi tersendiri menahan orang
+  berikutnya "menyeragamkannya" ke rumus lama.
+- **ENAM resep non-prasmanan ikut terbetulkan**, dan COGS-nya TURUN drastis:
+  Bubur Ayam (10 Porsi), Bitterballen (25 Pcs), Chicken Skin (400 Gr), Hainan
+  Chicken (1000 Gr), Nasi Kuning (6 Porsi), Tea Orange Extract (1600 Ml).
+  Angkanya memang selama ini salah; yang berubah bacaannya, bukan uangnya.
+
+##### `tools/hpp-prasmanan-asli.js` — mengembalikan takarannya
+
+```bash
+curl -s "https://dev.laksamanamuda.id/stock-api-mysql/hpp.php" -o tools/hpp-master.json
+node tools/hpp-prasmanan-asli.js
+```
+
+- **YANG DIKEMBALIKAN HANYA YANG PERNAH DIBAGI.** Penandanya baris catatan yang
+  ditulis alat sebelumnya (*"… takaran di bawah sudah dibagi N"*), dan N itulah
+  pengalinya. Resep yang tidak punya catatan itu **TIDAK DISENTUH**: takarannya
+  memang tidak pernah digeser, dan mengalikannya melipatgandakan modal barang
+  yang dibeli jadi seperti Bakwan dan Batagor. 41 dikembalikan, 35 dilewati.
+- **YIELD-nya DARI EXCEL, BUKAN DARI PENGALINYA** — dan keduanya memang tidak
+  selalu sama: **13 dari 41 berbeda**. Pengali adalah angka yang dipakai alat
+  sebelumnya; yield adalah angka yang tertulis di berkas dapur, dan itu yang
+  diminta user. Dibaca berurutan: label `"N Porsi"` di baris *Nama Menu* lembar
+  Prasmanan, lalu kolom `JUMLAH PROD.` di *Hasil Prasmanan*. Keduanya selamat
+  dari kerusakan #REF!, yang cuma mengenai kolom harga.
+- **Label yang tidak ketemu TIDAK ditebak dari pengalinya**, dan resepnya
+  dilewati serta dilaporkan. Menebaknya berarti diam-diam mengabaikan justru
+  yang diminta — dan sudah terbukti meleset di 13 resep.
+- **Catatan pembagi lama DIBUANG**, diganti yang menyebut keadaan sekarang.
+  Dibiarkan, lembar resepnya berbunyi *"sudah dibagi 200"* di atas takaran yang
+  justru tidak dibagi apa pun, dan juru masak yang membacanya membaginya
+  sendiri sekali lagi.
+- **Harga jual TIDAK ikut dikali** — dijaga asersi tersendiri.
+- **Berhenti (`exit 3`) kalau berkas dapurnya tidak ada.** Yield-nya cuma bisa
+  dibaca dari sana; tanpa berkasnya alat ini tidak punya apa pun untuk dipakai.
+
+##### SELISIH DI BERKAS DAPUR YANG WAJIB DIBACA SEBELUM MENGIMPOR
+
+**Dua sel di berkas yang sama tidak sepakat.** Untuk Ayam Bakar Padang:
+
+| sel | isinya | pembagi yang tersirat |
+|---|---|---|
+| label di baris *Nama Menu* | **"100 Porsi"** | 100 -> modal/porsi Rp18.850 |
+| sel harga per porsinya sendiri | Rp9.425 dari total Rp1.884.964 | **200** -> Rp9.425 |
+
+Alat ini menuruti **LABELNYA**, karena itu yang ditunjuk user. Akibatnya COGS
+Ayam Bakar Padang berbunyi **49,6%**, bukan 24,8%. Kalau yang benar 200, yang
+perlu dibetulkan **angka yield di berkas dapur**, bukan alat ini.
+
+##### DELAPAN RESEP YANG COGS-nya TETAP TIDAK BISA DIBACA
+
+Berkas dapur menuliskan hasilnya dalam **Kg/Liter** sementara harga jualnya
+**per porsi** — Sambal Merah "1Kg" dijual Rp2.000, Es Teh "10 L" dijual
+Rp2.000. Modul membandingkan modal per yield dengan harga jual, jadi yang
+keluar modal SEKILO dibagi harga SEPORSI.
+
+**Satuannya TIDAK ditebak jadi Porsi**, dan jumlahnya **dilaporkan alatnya**
+berikut cara membetulkannya. Menebak berapa porsi sekilo sambal adalah
+keputusan tentang uang yang tidak pernah diambil siapa pun; yang benar mengisi
+jumlah porsinya di berkas dapur lalu menjalankan alat ini lagi. Kedelapannya:
+Es Teh, Kopi Hitam, Milo, Sirup Coco Pandan, Kerupuk, Sambal Ijo, Sambal
+Kecap, Sambal Merah.
+
+```bash
+node tools/uji-hpp-prasmanan.js   # 50 pemeriksaan (dari 26)
+```
+
+**Tiga belas mutasi dicoba, ketiga belasnya tertangkap** — termasuk
+mengembalikan rumus lamanya, merusak kalkulator yang justru sudah benar, dan
+menebak yield dari pengalinya.
+
+> **Runner mutasinya MENJALANKAN ULANG alat pemulihnya** sesudah tiap mutasi.
+> Tanpa itu berkas `.xlsx` hasilnya tidak ikut berubah, dan seluruh mutasi
+> terhadap alat itu LOLOS bersih — ujinya membaca berkas yang dibuat versi
+> yang belum dimutasi.
+
+> `tools/hpp-prasmanan-per-porsi.js` **TIDAK dicabut**. Ia jalan keluar kalau
+> suatu hari yield-nya memang harus 1 lagi, dan ujinya masih menjaganya. Yang
+> berubah cuma alat mana yang dipakai.
+
 ### Pemakaian Bahan Baku: pemilih bulan di KETIGA report (2 September 2026)
 
 `deploy/stock/usage/`. Modul ini punya tiga layar report — **Pemakaian**,

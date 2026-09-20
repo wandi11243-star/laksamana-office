@@ -256,6 +256,122 @@ const BERKAS = path.join(ROOT, 'resep-prasmanan-untuk-impor-hpp.xlsx');
     cek('menunjuk alat penggantinya', /hpp-prasmanan-per-porsi\.js/.test(K));
   }
 
+
+  /* ============ COGS DIBAGI YIELD ============
+     Ini rumus yang menentukan angka uang di seluruh modul HPP, dan sampai
+     20 September 2026 ia membandingkan modal SATU BATCH dengan harga SATU
+     PORSI. Dijaga di SUMBER karena yang salah bukan hasil satu resep
+     melainkan pembaginya — dan pembagi yang benar untuk 365 resep ber-yield
+     1 memulangkan angka yang sama persis dengan yang salah. */
+  {
+    console.log('\n== COGS dibagi yield ==');
+    const H = fs.readFileSync(path.join(ROOT, 'deploy/stock/hpp/index.html'), 'utf8');
+    const tanpaKomentar = H.replace(/\/\*[\s\S]*?\*\//g, '');
+
+    cek('ada penentu porsi yield-nya sendiri',
+        /function porsiYield\(r\)\{[^}]*yield_qty/.test(tanpaKomentar));
+    cek('modalPorsi = modal / yield',
+        /function modalPorsi\(r\)\{\s*return modalMenu\(r\)\.total\/porsiYield\(r\);\s*\}/.test(tanpaKomentar));
+    cek('cogsOf memakai modalPorsi, bukan modalMenu',
+        /function cogsOf\(r\)\{[^}]*return modalPorsi\(r\)\/h;/.test(tanpaKomentar));
+    cek('cogsOf tidak lagi membagi modal total',
+        !/function cogsOf\(r\)\{[^}]*modalMenu\(r\)\.total\/h/.test(tanpaKomentar));
+    /* Yield nol atau negatif tidak boleh jadi pembagi: hasilnya Infinity, dan
+       Infinity di kolom COGS tergambar sebagai chip merah tanpa angka — yang
+       membacanya menyimpulkan resepnya rusak, bukan yield-nya yang kosong. */
+    cek('yield <= 0 dijepit ke 1',
+        /function porsiYield\(r\)\{[^}]*y>0\?y:1/.test(tanpaKomentar));
+
+    /* PENYUNTING & DASHBOARD memakai aturan yang SAMA. Yang tertinggal tidak
+       melempar apa pun — ia cuma menyebut COGS yang berbeda untuk resep yang
+       sama di dua layar, dan yang membandingkannya tidak punya cara tahu mana
+       yang berlaku. Itu persis cacat yang baru saja ditutup: kalkulator sudah
+       benar sejak lama sementara daftar resep tidak. */
+    cek('penyunting resep ikut dibagi yield',
+        /const c=hj>0\?\(m\.total\/y\)\/hj:null;/.test(tanpaKomentar));
+    cek('dashboard "menu paling boros" memakai modal per porsi',
+        /const m=modalPorsi\(x\.r\), hj=hargaJual\(x\.r\), ideal=m\/AMBANG;/.test(tanpaKomentar));
+    cek('kolom modalnya menyebut dirinya per porsi',
+        H.indexOf('<th class="num">Modal/porsi</th>') >= 0);
+    /* Kalkulator HPP TIDAK ikut diubah — ia sudah membagi porsinya sejak
+       lahir, dan itulah yang membuktikan pembagi mana yang benar. Asersi ini
+       menahan orang berikutnya "menyeragamkannya" ke rumus yang lama. */
+    cek('kalkulator tetap membagi jumlah porsinya',
+        /perPorsi=t\/porsi[\s\S]{0,80}c=hj>0\?perPorsi\/hj:null/.test(tanpaKomentar));
+  }
+
+  /* ============ BERKAS PEMULIH TAKARAN ASLI ============ */
+  {
+    const BA = path.join(ROOT, 'resep-prasmanan-asli.xlsx');
+    if (!fs.existsSync(BA)) {
+      console.log('\n  LEWAT — resep-prasmanan-asli.xlsx belum dibuat');
+      console.log('  (node tools/hpp-prasmanan-asli.js)');
+    } else {
+      console.log('\n== Berkas pemulih takaran asli ==');
+      const lb = await W.bacaBerkasLembar(new Blob([fs.readFileSync(BA)]));
+      const rows3 = lb[0].baris.map(b => {
+        const a = []; let maks = 0;
+        Object.keys(b).forEach(k => { maks = Math.max(maks, idx(k) + 1); });
+        for (let i = 0; i < maks; i++) a.push('');
+        Object.keys(b).forEach(k => { a[idx(k)] = String(b[k]); });
+        return a;
+      });
+      const h3 = sandbox.bacaResepRows(rows3);
+      cek('tidak ditolak pembacanya', !h3.galat, h3.galat);
+      const p3 = h3.resep || [];
+      cek('ada isinya', p3.length > 20, String(p3.length));
+      cek('seksinya tetap PRASMANAN', p3.every(r => /^PRASMANAN/.test(r.seksi)));
+
+      /* TAKARANNYA KEMBALI SEPERTI BERKAS DAPUR. Angkanya dikunci apa adanya:
+         24.000 Gr untuk 100 porsi Ayam Bakar Padang. Yang dijaga bukan
+         "lebih besar daripada sebelumnya" — pengali yang meleset pun lebih
+         besar — melainkan angka yang tertulis di lembar dapurnya sendiri. */
+      const ayam = p3.find(r => r.nama === 'Ayam Bakar Padang');
+      cek('Ayam Bakar Padang ikut', !!ayam);
+      if (ayam) {
+        const b0 = (ayam.bahan || []).find(b => /Ayam Prasmanan/i.test(b.nama || ''));
+        cek('takarannya kembali 24.000 Gr', b0 && Number(b0.qty) === 24000,
+            b0 && (b0.qty + ' ' + b0.satuan));
+        cek('yield-nya 100 Porsi — dari Excel, bukan dari pengali 200',
+            ayam.yield_qty === 100 && /porsi/i.test(ayam.yield_unit),
+            ayam.yield_qty + ' ' + ayam.yield_unit);
+        cek('harga jual TIDAK ikut dikali', Number(ayam.harga_baru) === 38000,
+            String(ayam.harga_baru));
+      }
+
+      /* CATATAN PEMBAGI WAJIB HILANG. Dibiarkan, lembar resepnya berbunyi
+         "sudah dibagi 200" di atas takaran yang justru tidak dibagi apa pun,
+         dan juru masak yang membacanya membaginya sendiri sekali lagi. */
+      const semuaCat = p3.flatMap(r => (r.bahan || []).filter(b => b && !b.nama && b.catatan));
+      cek('tidak ada lagi catatan "sudah dibagi"',
+          !semuaCat.some(b => /sudah dibagi/i.test(b.catatan)),
+          (semuaCat.find(b => /sudah dibagi/i.test(b.catatan)) || {}).catatan);
+      cek('tiap resep berbahan tetap punya baris catatan',
+          p3.filter(r => (r.bahan || []).some(b => b && b.nama))
+            .every(r => (r.bahan || []).some(b => b && !b.nama && b.catatan)));
+      cek('catatannya menyebut yield-nya',
+          semuaCat.length > 0 && semuaCat.every(b => /untuk \d/.test(b.catatan)));
+
+      /* SATUAN YIELD YANG BUKAN PORSI tidak ditebak jadi porsi, DAN
+         dilaporkan. Dua-duanya perlu: yang pertama menahan angka karangan,
+         yang kedua menahan COGS mustahil didiamkan. */
+      const sambal = p3.find(r => r.nama === 'Sambal Merah');
+      if (sambal) cek('Sambal Merah tetap 1 Kg, tidak ditebak jadi Porsi',
+          Number(sambal.yield_qty) === 1 && /kg/i.test(sambal.yield_unit),
+          sambal.yield_qty + ' ' + sambal.yield_unit);
+      const A = fs.readFileSync(path.join(ROOT, 'tools/hpp-prasmanan-asli.js'), 'utf8')
+                  .replace(/\/\*[\s\S]*?\*\//g, '');
+      cek('alatnya melaporkan satuan yield yang bukan porsi',
+          /const bukanPorsi = !\/\^\(porsi\|pcs\|pax\)\$\/i\.test\(yu\)/.test(A));
+      cek('yield TIDAK ditebak dari pengalinya saat labelnya tidak ada',
+          /tanpaLabel\.push\(\{ nama: r\.nama, pengali \}\);\s*\n\s*return;/.test(A));
+      cek('resep yang tidak pernah dibagi TIDAK ikut dikali',
+          /if \(!m\) \{ dilewati\.push\(r\.nama\); return; \}/.test(A));
+      cek('berhenti kalau berkas dapurnya tidak ada',
+          /process\.exit\(3\)/.test(A));
+    }
+  }
+
   console.log('\nLULUS ' + ok + '   GAGAL ' + gagal);
   process.exit(gagal ? 1 : 0);
 })().catch(e => { console.error(e); process.exit(1); });

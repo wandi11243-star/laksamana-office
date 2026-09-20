@@ -625,7 +625,33 @@ function modalMenu(r){
    menyentuhnya. Nilainya dipindahkan ke harga_baru saat data dimuat (lihat
    muat()), jadi tidak ada satu pun menu yang kehilangan harganya. */
 function hargaJual(r){ return num(r.harga_baru)||0; }
-function cogsOf(r){ const h=hargaJual(r); if(h<=0) return null; return modalMenu(r).total/h; }
+/* ---- MODAL SATU PORSI: PEMBAGINYA YIELD (20 September 2026) ----
+   `Harga jual` di modul ini SELALU berarti harga untuk SATU yield — itu yang
+   tertulis di kolomnya, itu yang dipegang orang sebagai daftar harga, dan itu
+   pula yang dipakai Kalkulator HPP (kartuKalk membagi modalnya dengan jumlah
+   porsi SEBELUM menghitung COGS).
+
+   Sampai tanggal ini cogsOf() membandingkan modal SATU BATCH dengan harga
+   SATU PORSI, jadi tiap resep yang yield-nya bukan 1 memajang COGS berlipat
+   sebesar yield-nya. Ayam Bakar Padang (yield 100 Porsi, modal sebatch
+   Rp1.884.964, jual Rp38.000) berbunyi 4.960%.
+
+   DUA HAL YANG MEMBUATNYA BERTAHAN, dan keduanya layak diingat:
+   1. Hampir seluruh resep menu jadi di modul ini ber-yield 1, jadi pembaginya
+      selalu kebetulan 1 dan tidak ada satu angka pun yang kelihatan salah.
+   2. KALKULATOR HPP di halaman sebelah menghitungnya BENAR untuk resep yang
+      sama (kartuKalk). Jadi satu menu punya DUA COGS di satu modul, dan tidak
+      ada satu pun layar yang menyebutkan bedanya.
+
+   Kolom `Per unit` di Daftar Resep sudah memajang angka ini sejak modul ini
+   lahir; yang tidak pernah ada cuma pemakaiannya di COGS.
+
+   JANGAN "betulkan" dengan mengalikan HARGA JUAL dengan yield-nya: kolom itu
+   dibaca layar lain dan dicocokkan orang dengan daftar harga di tangannya,
+   dan angka yang cuma benar sebagai pembagi bukan harga. */
+function porsiYield(r){ const y=num(r&&r.yield_qty)||1; return y>0?y:1; }
+function modalPorsi(r){ return modalMenu(r).total/porsiYield(r); }
+function cogsOf(r){ const h=hargaJual(r); if(h<=0) return null; return modalPorsi(r)/h; }
 function chipCogs(c,r){
   if(c===null) return '<span class="chip mute">belum ada harga</span>';
   const t=r?AMBANG_OF(r):num(SET.targetFood);   // target bisa beda food vs drink
@@ -1333,8 +1359,11 @@ function modalPratinjau(r){
   return {total:t+t*p, bahan:t, spare:t*p, rate:p, hilang, campur};
 }
 function ringkasEditor(m,r){
-  const y=num(r.yield_qty)||1, hj=hargaJual(r);
-  const c=hj>0?m.total/hj:null;
+  const y=porsiYield(r), hj=hargaJual(r);
+  /* Dibagi yield, ATURAN YANG SAMA dengan cogsOf(). Penyunting yang memakai
+     rumus lain membuat COGS-nya berubah sendiri begitu resepnya disimpan —
+     dan yang menyuntingnya tidak menyentuh satu angka pun di antaranya. */
+  const c=hj>0?(m.total/y)/hj:null;
   return `<div>${m.spare>0?`Modal bahan ${rp(m.bahan)} + spare ${pctSp(m.rate)} ${rp(m.spare)} → `:''}Modal <b>${rp(m.total)}</b> · per ${esc(r.yield_unit||'unit')} <b>${rp2(m.total/y)}</b>`
     +(hj>0?` · harga jual ${rp(hj)} → COGS <b>${pct(c)}</b> ${c>AMBANG?'<span class="chip bad">di atas '+(AMBANG*100)+'%</span>':'<span class="chip ok">sehat</span>'}`:'')
     +(m.hilang?` · <span style="color:var(--danger)">${m.hilang} baris bahannya belum dikenal</span>`:'')
@@ -2875,9 +2904,12 @@ function viewDash(){
   /* --- menu paling boros --- */
   h+=`<div class="card"><h3>Menu paling boros</h3>
     <div class="card-sub">Urut COGS% tertinggi. "Harga ideal" = harga jual yang membuat COGS-nya pas ${AMBANG*100}%.</div>
-    <div class="tbl-wrap"><table><thead><tr><th>Menu</th><th>Jenis</th><th class="num">Modal</th><th class="num">Harga jual</th><th class="num">COGS%</th><th class="num">Harga ideal</th><th class="num">Selisih</th></tr></thead><tbody>`;
+    <div class="tbl-wrap"><table><thead><tr><th>Menu</th><th>Jenis</th><th class="num">Modal/porsi</th><th class="num">Harga jual</th><th class="num">COGS%</th><th class="num">Harga ideal</th><th class="num">Selisih</th></tr></thead><tbody>`;
   cogsList.sort((a,b)=>b.c-a.c).slice(0,15).forEach(x=>{
-    const m=modalMenu(x.r).total, hj=hargaJual(x.r), ideal=m/AMBANG;
+    /* Modal PER PORSI, bukan sebatch. Kolomnya berdiri tepat di sebelah harga
+       jual yang per porsi, dan "harga ideal" yang dihitung dari modal sebatch
+       menyuruh menaikkan harga seratus kali lipat. */
+    const m=modalPorsi(x.r), hj=hargaJual(x.r), ideal=m/AMBANG;
     h+=`<tr><td><b>${esc(x.r.nama)}</b></td><td>${namaJenis(x.r.jenis)}</td>
       <td class="num mono">${rp(m)}</td><td class="num mono">${rp(hj)}</td><td class="num">${chipCogs(x.c,x.r)}</td>
       <td class="num mono">${rp(ideal)}</td>
