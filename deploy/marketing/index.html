@@ -14876,6 +14876,50 @@ function rsvMejaTerpakai(d,tanggal,kecualiId,jam){
   });
   return out;
 }
+/* Meja yang tamunya SEDANG DUDUK di tanggal itu (20 September 2026,
+   permintaan user: meja yang terkunci boleh dipakai lewat konfirmasi).
+
+   DIPISAH dari rsvMejaTerpakai() karena keduanya menjawab pertanyaan yang
+   BERBEDA, dan bedanya menentukan boleh-tidaknya seseorang menimpanya:
+
+     terpakai  mejanya masuk jendela kunci H±3 jam — itu ATURAN, penyangga
+               supaya dua tamu tidak bertabrakan. Kru yang melihat mejanya
+               boleh menimbangnya.
+     duduk     ada orang yang PANTATNYA di kursi itu sekarang. Tidak ada
+               konfirmasi yang bisa membuat dua rombongan duduk di kursi
+               yang sama.
+
+   Aturan yang sama dengan conflictCheck mode walk-in di modul Reservasi. */
+function rsvMejaDuduk(d,tanggal,kecualiId){
+  const out=new Set();
+  (d&&d.reservations||[]).forEach(r=>{
+    if(!r||!r.date) return;
+    if(kecualiId && r.id===kecualiId) return;
+    const dd=vipDayNo(r.date)-vipDayNo(tanggal);
+    if(dd<-1||dd>1) return;
+    if(String(r.status||'').toLowerCase()!=='datang') return;
+    if(r.leftAt) return;
+    String(r.table||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(m=>out.add(m));
+  });
+  return out;
+}
+/* Pertanyaan sebelum meja yang sudah dipesan ikut dikunci untuk acara ini.
+   Kembarannya tanyaTumpang() di modul Reservasi — kalau yang di sana berubah,
+   yang di sini HARUS ikut: dua aturan untuk satu meja berarti satu modul
+   menjualnya sementara modul lain menganggapnya penuh. */
+function vipTanyaTumpang(meja, nama, duduk){
+  if(duduk){
+    toast('Meja '+meja+' sedang diduduki','Tamunya masih di sana ('+(nama||'-')+'). Tandai "Selesai" di modul Reservasi dulu kalau sudah pulang.','err');
+    return false;
+  }
+  return confirm(
+    '⚠️ MEJA '+meja+' SUDAH DIPESAN\n\n'
+    + 'Dipesan: '+(nama||'-')+'\n\n'
+    + 'Modul Reservasi mengunci meja H±3 jam supaya dua tamu tidak bertabrakan.\n\n'
+    + 'Kalau diteruskan, KAMU yang memastikan mejanya kosong tepat waktu — dan persetujuan ini tercatat atas namamu.\n\n'
+    + 'Tetap kunci meja '+meja+' untuk acara ini?');
+}
+
 /* Daftar meja yang bisa dipilih. Denah lengkapnya hidup di kode modul
    Reservasi, jadi TIDAK disalin ke sini — yang disalin pasti lambat laun
    berbeda. Yang dipakai: daftar meja dari master Reservasi (sumber yang sama
@@ -17222,9 +17266,10 @@ function vipDenahHTML(d,terpakai,dipilih,opts){
         +'<span>'+esc(t.id)+'</span>'+(t.cap?'<span class="dn-cap">'+esc(t.cap)+'</span>':'')+'</div>';
       return;
     }
+    const duduk = off && (opts.duduk ? opts.duduk.has(t.id) : true);
     h+='<button type="button" class="dn-meja'+dnZona(t)+(on?' on':'')+(off?' off':'')+'" style="'+st+'" data-meja="'+esc(t.id)+'" '
-      +(off?'disabled title="Dipesan '+esc(terpakai[t.id])+'"'
-           :'onclick="'+(opts.klik||'vipToggleMeja')+'(this,\''+escJs(t.id)+'\')" title="'+esc(t.id+(t.cap?' · '+t.cap+' pax':''))+'"')
+      +(duduk?'disabled title="'+esc(t.id+' — '+terpakai[t.id]+' masih duduk di sana')+'"'
+           :'onclick="'+(opts.klik||'vipToggleMeja')+'(this,\''+escJs(t.id)+'\')" title="'+esc(t.id+(t.cap?' · '+t.cap+' pax':'')+(off?' — dipesan '+terpakai[t.id]+'. Klik kalau tetap mau memakainya, kamu akan ditanya dulu.':''))+'"')
       +'><span>'+esc(t.id)+'</span>'+(t.cap?'<span class="dn-cap">'+esc(t.cap)+'</span>':'')+'</button>';
   });
   h+='</div></div>';
@@ -17340,11 +17385,15 @@ function vipPilihMejaUI(d){
   const f=VIP_FORM;
   VIP_RSV=d;
   const terpakai=rsvMejaTerpakai(d,f.tanggal,'vip-'+f.id,vipJamAtau00(f.jamMulai));
+  /* Meja yang BENAR-BENAR ada orangnya sekarang. Dipakai memutuskan mana yang
+     mati total dan mana yang cuma ditanya — lihat rsvMejaDuduk(). */
+  const dudukSet=rsvMejaDuduk(d,f.tanggal,'vip-'+f.id);
+  VIP_DUDUK=dudukSet;
   const dipilih=f.meja||[];
   let h='<div class="modal-head"><div><h3>Pilih &amp; Kunci Meja</h3><p>'+esc(f.nama)+' · '+fmtDate(f.tanggal)+' · '+esc(vipJam(f))+' · '+vipPax(f)+' orang</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>';
   h+='<div class="modal-body">';
   h+=vipCatatanJam(f.jamMulai);
-  const denah=vipDenahHTML(d,terpakai,dipilih);
+  const denah=vipDenahHTML(d,terpakai,dipilih,{duduk:dudukSet});
   if(denah){
     h+='<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Denah ini denah yang sama dengan modul Reservasi. Klik meja untuk mengunci — boleh lebih dari satu, '+vipPax(f)+' orang biasanya butuh beberapa meja.</span></div>';
     // Yang sudah dikunci dibaca DULU, sebelum memilih — bukan ditemukan satu per
@@ -17367,8 +17416,9 @@ function vipPilihMejaUI(d){
       h+='<div id="vip_meja_grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">';
       semua.forEach(m=>{
         const off=!!terpakai[m] && dipilih.indexOf(m)<0;
+        const dudukM = off && dudukSet.has(m);
         const on=dipilih.indexOf(m)>=0;
-        h+='<button type="button" class="btn sm'+(on?' pri':'')+'" '+(off?'disabled title="Dipesan '+esc(terpakai[m])+'"':'onclick="vipToggleMeja(this,\''+escJs(m)+'\')"')
+        h+='<button type="button" class="btn sm'+(on?' pri':'')+'" '+(dudukM?'disabled title="'+esc(terpakai[m]+' masih duduk di sana')+'"':'onclick="vipToggleMeja(this,\''+escJs(m)+'\')" title="'+esc(off?'Dipesan '+terpakai[m]+' — akan ditanya dulu':m)+'"')
           +' data-meja="'+esc(m)+'" style="min-width:78px'+(off?';opacity:.45':'')+'">'+esc(m)+'</button>';
       });
       h+='</div>';
@@ -17381,13 +17431,26 @@ function vipPilihMejaUI(d){
   // denah butuh ruang: modal disetel lebar seperti dokumen brief
   $('modal').classList.add('wide');
 }
+/* Meja berpenghuni & meja yang kru setujui untuk ditimpa. Keduanya hidup di
+   luar penggambar karena denahnya digambar ulang tiap kali ada yang diklik —
+   apa pun yang cuma ada di DOM ikut hilang. */
+let VIP_DUDUK=new Set(), VIP_IZIN=new Set();
 function vipToggleMeja(btn,m){
   const f=VIP_FORM; f.meja=f.meja||[];
   const i=f.meja.indexOf(m);
   // dua tampilan, dua kelas penanda: denah pakai .on, daftar tombol pakai .pri
   const kelas=btn.classList.contains('dn-meja')?'on':'pri';
-  if(i>=0){ f.meja.splice(i,1); btn.classList.remove(kelas); }
-  else { f.meja.push(m); btn.classList.add(kelas); }
+  if(i>=0){ f.meja.splice(i,1); VIP_IZIN.delete(m); btn.classList.remove(kelas); }
+  else {
+    /* Meja yang sudah dipesan: ditanya dulu. Penggambarnya sudah menolak
+       yang sedang diduduki, tapi pertanyaannya diajukan lagi di SINI —
+       tombolnya bisa dipanggil dari console, dan penjaga yang cuma ada di
+       markup tidak menjaga apa pun. */
+    const terpakai=VIP_RSV?rsvMejaTerpakai(VIP_RSV,f.tanggal,'vip-'+f.id,vipJamAtau00(f.jamMulai)):{};
+    if(terpakai[m] && !vipTanyaTumpang(m, terpakai[m], VIP_DUDUK.has(m))) return;
+    if(terpakai[m]) VIP_IZIN.add(m);
+    f.meja.push(m); btn.classList.add(kelas);
+  }
   vipSegarkanRingkas();
 }
 async function vipSimpanKunci(){
@@ -17408,7 +17471,12 @@ async function vipSimpanKunci(){
          jendela yang sama dengan yang digambar di denah, kalau tidak orang
          memilih meja yang terlihat kosong lalu ditolak saat menekan Simpan. */
       const terpakai=rsvMejaTerpakai(d,f.tanggal,'vip-'+f.id,vipJamAtau00(f.jamMulai));
-      const bentrok=(f.meja||[]).filter(m=>terpakai[m]);
+      /* Meja yang kru sudah setujui untuk ditimpa dilewati — TAPI kalau
+         tamunya sudah keburu DUDUK di sela-sela kita memilih, izinnya
+         gugur. Persetujuannya diberikan untuk meja yang dipesan, bukan
+         untuk meja yang sedang dipakai orang. */
+      const dudukKini=rsvMejaDuduk(d,f.tanggal,'vip-'+f.id);
+      const bentrok=(f.meja||[]).filter(m=>terpakai[m] && (!VIP_IZIN.has(m) || dudukKini.has(m)));
       if(bentrok.length) return {__batal:true,bentrok};
       const now=Date.now();
       const catatan=['RESERVASI RUANG VIP ('+f.jenis+')',

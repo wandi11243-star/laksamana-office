@@ -77,7 +77,8 @@ function potongConst(nama) {
 
 const NAMA = ['dayNo', 'absMin', 'toMin', 'hhmm', 'ymdOf', 'absOfTs', 'absNow',
               'isSeated', 'seatStart', 'lockStart', 'lockEnd', 'locksRange', 'locksAt',
-              'locksTable', 'conflictCheck', 'opsiCekOf', 'tablesOf', 'menitMenuju',
+              'locksTable', 'conflictCheck', 'opsiCekOf', 'izinTumpangBerlaku',
+              'tablesOf', 'menitMenuju',
               'bookingBerikut', 'dineEst'];
 let sumberFn = '';
 aman('semua fungsi yang diuji ada di sumber', () => {
@@ -313,11 +314,46 @@ console.log('\n[6] Denah & layar (asersi atas sumber)');
   T('mejaMasihKosong meneruskan opsinya ke conflictCheck',
     /const bentrok = conflictCheck\(date, table, time, exceptId, sharing, srv, opsi\);/.test(SRC));
 
-  /* Jalur PENJUALAN tidak boleh ikut longgar. */
-  T('simpan reservasi dari form TIDAK memakai mode walkin',
-    /mejaMasihKosong\(g\("date"\), g\("table"\), normTime\(g\("time"\)\), EDIT_ID, sharingNow\);/.test(SRC));
-  T('pindah meja TIDAK memakai mode walkin',
-    /mejaMasihKosong\(r\.date, tujuan, r\.time, r\.id, !!r\.sharing\);/.test(SRC));
+  /* Jalur PENJUALAN tidak boleh longgar DENGAN SENDIRINYA. Sejak 20
+     September 2026 ia bisa longgar, tapi hanya untuk meja yang kru-nya
+     sudah ditanya dan menjawab ya — dan pertanyaan itu tidak pernah
+     diajukan untuk kursi yang sedang diduduki orang.
+
+     Yang dijaga: opsinya DIHITUNG dari izin yang ada, bukan dipatok
+     {walkin:true}; dan tanpa izin ia tetap null, yaitu aturan ketat. */
+  T('simpan reservasi dari form tidak memakai mode walkin yang dipatok',
+    /mejaMasihKosong\(g\("date"\), g\("table"\), normTime\(g\("time"\)\), EDIT_ID, sharingNow,\s*\n?\s*adaIzinSeat \? \{izin:true\} : null\);/.test(SRC)
+    && !/mejaMasihKosong\(g\("date"\), g\("table"\), normTime\(g\("time"\)\), EDIT_ID, sharingNow, \{walkin/.test(SRC));
+  T('tanpa izin, jalur simpan form tetap KETAT',
+    /adaIzinSeat \? \{izin:true\} : null/.test(SRC));
+  /* Dihitung dari kotak yang BENAR-BENAR dikirim, bukan dari SEAT_SELS:
+     kotak meja itu hidden, dan yang diubah dari devtools adalah kotaknya.
+     Dari SEAT_SELS, izin untuk meja A ikut melonggarkan meja B yang tidak
+     pernah disetujui siapa pun. */
+  T('izinnya dihitung dari meja yang benar-benar DIKIRIM',
+    /const adaIzinSeat = tablesOf\(\{table:g\("table"\)\}\)\.some\(t=>SEAT_IZIN\.has\(t\)\);/.test(SRC));
+  /* Pindah meja TIDAK boleh longgar dengan sendirinya. Sejak 20 September
+     2026 ia bisa longgar, TAPI hanya lewat izin yang seseorang berikan dan
+     yang tercatat atas namanya — bukan karena modenya walk-in. Yang dijaga
+     sekarang jalannya kelonggaran itu, bukan ketiadaannya:
+
+       - opsi yang dioper opsiCekOf(), bukan {walkin:true} yang dipatok;
+       - opsiCekOf longgar HANYA kalau izinnya masih berlaku;
+       - izinnya terikat meja+tanggal+jam, jadi begitu salah satunya berubah
+         pemeriksaan ketat berlaku lagi tanpa ada yang perlu mencabutnya;
+       - dan tanyaTumpang() TIDAK PERNAH memulangkan true untuk tamu yang
+         sedang duduk, jadi kursi yang sedang dipakai orang tidak punya
+         satu pun jalan masuk ke sini. */
+  T('pindah meja tidak memakai mode walkin yang dipatok',
+    /mejaMasihKosong\(r\.date, tujuan, r\.time, r\.id, !!r\.sharing, opsiCekOf\(/.test(SRC)
+    && !/mejaMasihKosong\(r\.date, tujuan, r\.time, r\.id, !!r\.sharing, \{walkin/.test(SRC));
+  T('kelonggaran hanya lewat izin yang masih berlaku',
+    /opsi && \(opsi\.walkin \|\| opsi\.izin\)/.test(SRC)
+    && /izin: izinTumpangBerlaku\(r\)/.test(SRC));
+  T('izin terikat meja+tanggal+jam, jadi kedaluwarsa sendiri',
+    /z\.meja===String\(r\.table\|\|""\) && z\.date===String\(r\.date\|\|""\) && z\.time===String\(r\.time\|\|""\)/.test(SRC));
+  T('tamu yang SEDANG DUDUK tidak pernah bisa ditimpa lewat izin',
+    /function tanyaTumpang\([\s\S]{0,600}?if\(isSeated\(lawan\)\)\{[\s\S]{0,300}?return false;/.test(SRC));
 
   /* Pita & legenda tidak boleh lagi menjanjikan kuncian otomatis — janji yang
      tidak ditepati tiap kali dibaca. */
@@ -325,9 +361,16 @@ console.log('\n[6] Denah & layar (asersi atas sumber)');
     SRC.indexOf('meja terkunci <b>otomatis 3 jam sebelum jam booking</b>') < 0);
   T('pita denah mengatakan mejanya tetap bisa diklik',
     SRC.indexOf('TETAP boleh diklik') >= 0);
+  /* Teksnya berubah 20 September 2026: mejanya tetap bisa diklik, tapi
+     sekarang ditanya dulu — dan legenda yang menjanjikan klik tanpa
+     pertanyaan adalah janji yang tidak ditepati tiap kali dipakai. */
   T('legenda menyebut dua tingkat tandanya',
-    SRC.indexOf('masih bisa diklik</b> untuk duduk sementara') >= 0
+    SRC.indexOf('bisa diklik</b>, tapi ditanya dulu') >= 0
     && SRC.indexOf('Dipesan <b>≤1 jam lagi</b>') >= 0);
+  T('klik meja yang sudah dipesan menanyakan konfirmasi dulu',
+    /function seatEmptyClick\([\s\S]{0,400}?if\(!tanyaDudukSementara\(tableId\)\) return;/.test(SRC));
+  T('meja yang memang bebas TIDAK ditanya apa-apa',
+    /function tanyaDudukSementara\([\s\S]{0,300}?if\(!nx\) return true;/.test(SRC));
   T('legenda lama yang menyebut terkunci sudah dicabut',
     SRC.indexOf('terkunci H-2 jam') < 0);
 }

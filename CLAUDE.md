@@ -1049,6 +1049,170 @@ ambangnya diekstrak:
 > memang perlu dirapikan, bukan cuma ke asersi yang kurang.
 
 
+### Meja terkunci jadi KONFIRMASI, bukan tembok (20 September 2026)
+
+Lima permintaan user dalam satu pesan, dan empat di antaranya satu hal:
+**meja yang sudah dipesan tetap bisa dipakai, asal ditanya dulu.**
+
+| jalur | dulu | sekarang |
+|---|---|---|
+| denah Hari-H, meja "dipesan nanti" | bisa diklik, **tanpa tanya** | ditanya dulu, dan warnanya dibedakan |
+| form input reservasi | `disabled`, **mati total** | bisa diklik → konfirmasi |
+| pindah / tambah meja | `disabled` | bisa diklik → konfirmasi |
+| Reservasi VIP (modul Marketing) | `disabled` | bisa diklik → konfirmasi |
+
+#### BATAS YANG TIDAK BOLEH DIGESER
+
+**Kursi yang SEDANG DIDUDUKI orang tidak pernah bisa ditimpa**, berapa kali
+pun kru menjawab "ya". Yang dilonggarkan hanya **penyangga H±3 jam** terhadap
+tamu yang BELUM datang — itu aturan, bukan kenyataan fisik, dan yang bisa
+menimbangnya kru yang melihat mejanya. `tanyaTumpang()` /
+`vipTanyaTumpang()` karena itu memulangkan `false` tanpa bertanya apa pun
+untuk `isSeated(r)`, dan menyebut sebabnya lewat toast.
+
+Aturan yang sama persis dengan walk-in 19 September 2026
+(`if(walkin) return isSeated(r)`) — dan memang dijadikan SATU cabang:
+
+```js
+const walkin = !!(opsi && (opsi.walkin || opsi.izin));
+```
+
+Dua cabang terpisah akan menyimpang begitu salah satunya diperbaiki, dan yang
+menyimpang di sini adalah meja yang dipegang dua tamu.
+
+#### IZINNYA SEKALI PAKAI, dan terikat meja+tanggal+jam
+
+`r.izinTumpang = {meja, date, time, by, at}`, dan `izinTumpangBerlaku()`
+menuntut ketiganya masih sama dengan baris sekarang.
+
+> **Disimpan sebagai boolean, izinnya menempel SELAMANYA**: reservasi yang
+> pernah dipaksa sekali akan lolos pemeriksaan ketat pada setiap pemindahan
+> meja berikutnya, tanpa seorang pun ditanya lagi. Terikat konteksnya, ia
+> kedaluwarsa sendiri begitu mejanya atau jamnya berubah — tanpa ada yang
+> perlu mencabutnya.
+
+**IZINNYA WAJIB SAMPAI KE PENGGABUNG DATA** (`opsiCekOf` → `mergeIntoState`).
+Kalau hanya layar yang melonggar, penggabung memeriksanya lagi dengan aturan
+ketat dan reservasinya **DITOLAK diam-diam saat naik**: kru sudah menekan
+Simpan, layarnya bilang tersimpan, lalu barisnya lenyap. Aturan ini sudah
+tertulis di berkas ini untuk walk-in, dan berlaku sama persis di sini.
+
+- **`applyMoveTables()` menulis izinnya DULU**, sebelum `mejaMasihKosong()`.
+  Dicatat sesudahnya, pemeriksaan itu menolak duluan dan jawaban kru terbuang —
+  yang dilihatnya cuma popup "meja sudah diambil" untuk meja yang memang ia
+  tahu sudah dipesan. Gagal cek → izinnya dikembalikan ke nilai lama.
+- **Jejaknya menyebut "DIPAKSA … disetujui <nama>"**. Pemindahan yang
+  menumpang reservasi orang lain tidak boleh terbaca sama dengan pemindahan
+  biasa di Riwayat Aktivitas.
+- **`izinTumpang` WAJIB ikut disalin di `saveReservation()`** — `rec`
+  dibangun ulang dari daftar field eksplisit.
+
+#### Ambang 2 jam, BEDA dari ambang denah
+
+`TUMPANG_MEPET_MIN = 120` (permintaan user), sengaja beda dari
+`MEPET_MIN = 60` milik denah Hari-H. Yang di sana soal **mendudukkan tamu
+yang sudah berdiri di depan host** — satu jam lagi masih sempat makan
+sebentar. Yang di sini soal **menjual kursi untuk nanti**: dua rombongan yang
+jam datangnya cuma berselisih dua jam praktis pasti bertemu di meja yang
+sama. Satu angka untuk keduanya membuat salah satunya salah.
+
+#### Modul Marketing: bawaannya WAJIB tetap ketat
+
+`vipDenahHTML()` menerima `opts.duduk` (Set meja berpenghuni). Pemanggil
+yang TIDAK menyerahkannya mendapat perilaku lama — semua yang terpakai mati:
+
+```js
+const duduk = off && (opts.duduk ? opts.duduk.has(t.id) : true);
+```
+
+Longgar secara bawaan berarti pemilih meja yang terlewat diam-diam melepas
+penjaganya, tanpa satu pun galat. **Pemilih meja EVENT (`evmToggle`) memang
+BELUM ikut** — ia tidak menyerahkan daftarnya, jadi ia masih ketat seperti
+sebelumnya. Kalau suatu hari diminta, yang perlu ditambah `opts.duduk` +
+pertanyaan di `evmToggle`, bukan mengubah bawaannya.
+
+- **`rsvMejaDuduk()` DIPISAH dari `rsvMejaTerpakai()`**, bukan mengubah
+  bentuk yang lama: `terpakai[m]` dibaca sebagai STRING nama di tujuh tempat.
+- **Izin VIP gugur kalau tamunya keburu duduk** di sela-sela memilih
+  (`dudukKini` dihitung ulang di dalam putaran simpan). Persetujuannya
+  diberikan untuk meja yang DIPESAN, bukan untuk meja yang sedang dipakai.
+- **Pertanyaannya diajukan di `vipToggleMeja()`, bukan cuma lewat markup** —
+  tombolnya bisa dipanggil dari console, dan penjaga yang hanya ada di markup
+  tidak menjaga apa pun.
+
+#### Warna & legenda
+
+`.seat.avail.booking-soon` dari cream `#F7EFDB` jadi **teal `#DDEFF2`**.
+Yang lama warnanya SAMA dengan meja kosong dan bedanya cuma garis putus-putus
+— di denah berisi 40-an meja itu tidak terbaca sama sekali (keluhan user,
+lengkap dengan tangkapan layarnya). Teal satu-satunya keluarga warna yang
+belum dipakai status mana pun (kuning Pending, hijau Confirmed, merah Datang,
+ungu Sharing, cream Kosong). Legendanya ikut berubah bunyinya.
+
+Meja terkunci yang **sudah disetujui** di denah form ditandai garis merah
+tebal (`.seat-paksa`) + tulisan "⚠️ dipaksa": tanpa penanda, meja yang
+barusan dipaksa terlihat sama dengan meja terkunci yang TIDAK dipilih.
+
+#### Audit Log: aksinya bisa diklik ke reservasinya
+
+Permintaan kelima. Yang dibuka **detail reservasinya** — di sanalah status
+sekarang berdiri bersama Riwayat Aktivitas lengkapnya. Bukan menyaring tabel
+Daftar Reservasi: yang dibatalkan tidak muncul di sana, dan baris audit
+seperti itulah yang paling sering diklik orang.
+
+- **HANYA jejak yang MEMBAWA id reservasi yang bisa diklik.** Jejak lama
+  dicocokkan lewat nama di panel Riwayat Aktivitas, dan di sana itu boleh
+  karena tebakannya ditandai dan orangnya sudah tahu sedang melihat reservasi
+  mana. Di sini tidak: tautan yang menebak akan membuka reservasi ORANG LAIN
+  yang kebetulan namanya sama, tanpa satu pun tanda bahwa ia salah alamat.
+- **Reservasi yang sudah dihapus ditandai ✕ dan mengatakannya saat diklik** —
+  tautan yang ditekan tanpa reaksi apa pun adalah kegagalan yang paling sulit
+  dilaporkan orang.
+- **Arah sebaliknya juga ada** (`bukaAuditRes`), dan kata kuncinya **NAMA**,
+  bukan id: id tidak pernah muncul di kolom Detail, jadi mencarinya
+  memulangkan tabel kosong.
+
+```bash
+node tools/uji-konfirmasi-meja.js   # 67 pemeriksaan, jsdom + kontrak sumber Marketing
+```
+
+> **NAMA MEJA DI FIXTURE HARUS ADA DI DENAH SUNGGUHAN.** Versi pertama berkas
+> ini memakai "A1"/"A2" — yang tidak ada di `venue-layouts.js` sama sekali
+> (mejanya bernama `21`, `R1`, `EXT 10`, `U2`). Asersi yang memanggil
+> `pickSeat("A1")` tetap lulus karena fungsinya tidak menuntut mejanya ada;
+> yang merah cuma asersi yang membaca DENAH-nya, dan sebabnya terbaca seperti
+> bug produk.
+
+> **JAM FIXTURE RELATIF, bukan dipatok — dan bukan cuma supaya tidak
+> membusuk.** Jendela kunci dihitung dari jam booking, dan meja yang tamunya
+> duduk lepas sendiri sesudah estimasi 3 jam. Fixture berjam mati membuat dua
+> meja tidak pernah terkunci pada jam yang SAMA, jadi asersi "yang sedang
+> duduk tidak bisa ditimpa" lulus atau gagal tergantung jam berapa ujinya
+> dijalankan. Versi pertama memang begitu: jam 16:11 ia merah untuk kode yang
+> benar.
+
+**SATU BUG DITEMUKAN UJINYA, bukan mata**, dan bentuknya persis yang paling
+ditakuti di sini: layar sudah melonggar — meja terkunci bisa dipilih lewat
+konfirmasi — tapi **pemeriksaan terakhir sebelum menulis di
+`saveReservation()` masih memakai aturan KETAT**. Jadi reservasinya selalu
+ditolak di situ, dan yang dilihat kru cuma popup *"meja sudah diambil"* untuk
+meja yang memang ia tahu sudah dipesan dan baru saja ia setujui sendiri.
+
+**PENJAGANYA BERLAPIS, dan itu yang membuat mutasinya sulit ditangkap.**
+Melonggarkan lapis pertama untuk SEMUA ORANG tetap berakhir "tidak
+tersimpan", karena `mergeIntoState()` memeriksanya lagi dan menolaknya di
+sana. Asersi yang cuma membaca jumlah baris karena itu tidak bisa
+membedakannya — dua mutasi LOLOS dengan bersih. Yang menangkapnya:
+**mencatat opsi yang benar-benar DIOPER** ke `mejaMasihKosong()`, lewat
+pembungkus di uji. Kalau sebuah penjaga berlapis, ujilah lapisannya, bukan
+hasil akhirnya.
+
+**Izinnya dihitung dari `g("table")`, BUKAN dari `SEAT_SELS`.** Keduanya
+biasanya sama — `pickSeat()` menulis yang satu dari yang lain — tapi kotak
+mejanya `hidden`, dan yang diubah dari devtools adalah kotaknya. Dari
+`SEAT_SELS`, izin untuk meja A ikut melonggarkan meja B yang tidak pernah
+disetujui siapa pun.
+
 ### Reservasi: tujuh revisi daftar & jejak (19 September 2026)
 
 Satu pesan user, tujuh permintaan. Dua di antaranya ternyata sudah berjalan
