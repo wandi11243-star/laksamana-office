@@ -6111,6 +6111,81 @@ fixture dan cabangnya tidak pernah dijalankan.
 Empat mutasi dicoba, keempatnya tertangkap — termasuk mengembalikan bentuk
 lamanya dan memakai penentu yang berbeda di penyunting.
 
+
+##### Pratinjau impor menyebut RESEP MANA, dan menahan impor lintas database (21 Sep 2026)
+
+Permintaan user: *"kalau ada yang diperbarui, dikasih tau yang mana resep yang
+diperbarui"*. Modal pratinjau dulu cuma memajang tiga angka, jadi **"5
+diperbarui" berarti lima resep ditimpa tanpa satu pun tanda resep yang mana** —
+dan impor tidak bisa dibatalkan sesudahnya.
+
+- **YANG DIPERBARUI DIBUKA, YANG BARU DILIPAT** (`<details>`). Bukan soal
+  panjangnya: yang diperbarui MENIMPA data yang sudah ada, yang baru cuma
+  menambah baris. Yang tidak bisa dibatalkan harus terbaca tanpa ada yang perlu
+  menekan apa pun.
+- **DISEBUT APA YANG BERUBAH, bukan cuma namanya** — *"bahan 13 → 7 baris ·
+  hasil 1 Porsi → 100 Porsi · harga jual Rp42.000 → Rp26.000"*. Nama saja
+  menjawab *"yang mana"*, bukan *"apa yang akan tertimpa"* — dan pertanyaan
+  kedua itulah yang menahan orang menekan Impor.
+- **Rinciannya dihitung dari perbandingan yang SAMA dengan yang memutuskan
+  `beda`.** Dihitung terpisah, keduanya bisa berselisih dan daftarnya menyebut
+  perubahan yang tidak terjadi.
+- Daftarnya dipotong **60 baris**, sisanya disebut angkanya.
+
+###### PINDAH SEKSI: impor lintas database nyaris menghapus lima resep produksi
+
+**Ini bukan bahaya yang mengada-ada.** 21 September 2026, berkas prasmanan yang
+dibuat dari **dev** hampir diimpor ke **produksi** — yang belum punya satu pun
+resep prasmanan. Pratinjaunya berbunyi *36 baru · 5 diperbarui*, dan kelima
+"diperbarui" itu adalah resep à-la-carte yang sudah lama hidup di produksi:
+
+| resep | di produksi | akan jadi |
+|---|---|---|
+| Mie Goreng Jawa | DISH (WOK), 13 bahan, jual Rp42.000 | PRASMANAN, 7 bahan |
+| Soto Bening | DISH (MIE), 20 bahan, jual Rp30.000 | PRASMANAN, 17 bahan |
+| Tempe Mendoan | DISH (SNACK), 4 bahan, jual Rp25.000 | PRASMANAN, **0 bahan** |
+| Nasi Putih | BASE (NASI), hasil 10.000 Gram | PRASMANAN |
+| Ayam Serundeng | BASE (MARINATED), 16 Porsi | PRASMANAN |
+
+Pencocokannya **nama + jenis**, jadi dua resep yang kebetulan bernama sama
+terbaca sebagai satu — dan impornya menimpa yang lama **berikut seluruh daftar
+bahannya**, tanpa satu pun galat.
+
+**SEKSI YANG BERPINDAH adalah tanda paling jelasnya**, dan sekarang ia disebut
+di DUA tempat:
+
+- **pita merah DI LUAR daftarnya**, menyebut nama resepnya dan akibatnya.
+  Daftar yang harus dibuka dulu tidak menahan siapa pun: yang menekan Impor
+  tanpa membukanya persis orang yang paling perlu diperingatkan.
+- **barisnya sendiri di dalam daftar**, karena mencocokkan nama di pita dengan
+  baris di daftar 40 baris adalah pekerjaan yang tidak perlu ada.
+
+Daftar **BARU** juga menyebut sendiri apa yang harus dicurigai: *"kalau resep
+di daftar ini sebenarnya sudah ada, berarti nama atau jenisnya tidak sama
+persis — mengimpornya akan melahirkan resep kembar. Sebab tersering: berkasnya
+dibuat dari database yang berbeda."*
+
+> **Angka "baru" yang tidak masuk akal adalah GEJALA**, dan di sinilah ia
+> terlihat. Alat pembuat berkasnya tidak pernah bisa tahu ke database mana ia
+> akan diimpor — yang tahu cuma layar yang membandingkannya.
+
+```bash
+node tools/uji-excel-resep.js   # 84 pemeriksaan (dari 65)
+```
+
+**Empat belas mutasi dicoba, keempat belasnya tertangkap** — satu baru sesudah
+ujinya dibetulkan, dan bentuknya sudah punya nama di berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| peringatan resep kembar dicabut | `blokBaru` diiris sampai UJUNG modal, dan prosa di bawah daftarnya memang menyebut kata *"kembar"* (*"bukan ditambah kembar"*) — jadi asersinya cocok dengan kalimat yang bukan yang diuji | irisannya berhenti di `</details>`-nya sendiri, dan yang dituntut kalimat UTUHNYA |
+
+> Dua asersi lain juga sempat merah untuk kode yang benar: irisan blok dimulai
+> dari TEKS di dalam `<summary>`, sementara tag `<details open>` berdiri
+> sebelumnya — jadi asersi "terbuka sendiri" tidak pernah bisa cocok. Yang
+> mengiris sebuah blok wajib mulai dari tag pembukanya, bukan dari kalimat
+> yang kebetulan ada di dalamnya.
+
 ### Pemakaian Bahan Baku: pemilih bulan di KETIGA report (2 September 2026)
 
 `deploy/stock/usage/`. Modul ini punya tiga layar report — **Pemakaian**,

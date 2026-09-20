@@ -210,6 +210,117 @@ function pasang(w, bahan, resep) {
   cek('id resep lama dibawa serta', kAg.id === 'r2', kAg.id);
   cek('resep baru dikirim tanpa id', kirim.find(r => r.nama === 'Sate Ayam').id === '');
 
+  /* ---- daftar resep yang tersentuh (21 September 2026) ----
+     Modal ini dulu cuma memajang tiga angka, jadi "5 diperbarui" berarti lima
+     resep ditimpa tanpa satu pun tanda resep yang MANA — dan impor tidak bisa
+     dibatalkan sesudahnya. Yang dijaga di sini isinya, bukan ada-tidaknya
+     elemen <details>: daftar yang tergambar tapi kosong terlihat sama persis
+     di layar sampai ada yang membukanya. */
+  {
+    /* Diiris ke bloknya masing-masing lebih dulu. Menyapu seluruh modal
+       membuat asersi "daftar baru menyebut Sate Ayam" cocok dengan kartu
+       angka & prosa di bawahnya — dan mutasi yang mencabut daftarnya LOLOS. */
+    const iUbah = dlg.indexOf('akan DIPERBARUI');
+    const iBaru = dlg.indexOf('resep BARU');
+    cek('daftar diperbarui digambar', iUbah >= 0);
+    cek('daftar baru digambar', iBaru >= 0);
+    const blokUbah = iUbah >= 0 ? dlg.slice(iUbah, iBaru > iUbah ? iBaru : dlg.length) : '';
+    /* DIIRIS SAMPAI </details>-NYA SENDIRI, bukan sampai ujung modal: prosa di
+       bawah daftarnya menyebut kata "kembar" juga ("bukan ditambah kembar"),
+       jadi asersi peringatannya akan cocok dengan kalimat yang bukan yang
+       diuji — dan mutasi yang mencabut peringatannya LOLOS. Sudah kejadian. */
+    const tutupBaru = iBaru >= 0 ? dlg.indexOf('</details>', iBaru) : -1;
+    const blokBaru = iBaru >= 0 ? dlg.slice(iBaru, tutupBaru > iBaru ? tutupBaru : dlg.length) : '';
+
+    cek('daftar diperbarui menyebut nama resepnya',
+        blokUbah.indexOf('Ayam Goreng') >= 0);
+    /* Nama saja menjawab "yang mana", bukan "apa yang akan tertimpa" — dan
+       pertanyaan kedua itulah yang menahan orang menekan Impor. */
+    cek('menyebut APA yang berubah, bukan cuma namanya',
+        /harga jual[\s\S]{0,60}40\.000/.test(blokUbah), blokUbah.slice(0, 260));
+    cek('yang tidak berubah tidak ikut di daftar',
+        blokUbah.indexOf('Es Teh') < 0);
+    cek('daftar baru menyebut resepnya', blokBaru.indexOf('Sate Ayam') >= 0);
+    cek('resep yang diperbarui tidak ikut di daftar baru',
+        blokBaru.indexOf('Ayam Goreng') < 0);
+
+    /* Yang MENIMPA harus terbaca tanpa ada yang perlu menekan apa pun; yang
+       cuma menambah baris boleh dilipat. */
+    cek('daftar diperbarui terbuka sendiri',
+        /<details open[^>]*>[\s\S]{0,200}?akan DIPERBARUI/.test(dlg));
+    cek('daftar baru dilipat',
+        /<details(?![^>]*\bopen\b)[^>]*>[\s\S]{0,200}?resep BARU/.test(dlg));
+
+    /* Angka "baru" yang tidak masuk akal adalah gejala berkas yang dibuat dari
+       database lain — dan impornya melahirkan resep kembar tanpa satu pun
+       galat. Sebabnya disebut di tempat gejalanya terlihat. */
+    cek('daftar baru memperingatkan resep kembar',
+        /melahirkan resep kembar/.test(blokBaru), blokBaru.slice(-260));
+  }
+
+  /* Perubahan yang BUKAN harga juga harus punya kalimatnya sendiri — kalau
+     tidak, resep yang cuma berganti yield berbunyi "isinya berubah" dan yang
+     membacanya tidak tahu apa yang akan tertimpa. */
+  {
+    const s3 = JSON.parse(JSON.stringify(hasil.resep));
+    const es = byNama(s3, 'Es Teh');
+    es.yield_qty = 100; es.yield_unit = 'Porsi';
+    w.eval('IMPOR_RESEP=null;');
+    w.eval('siapkanImporResep(' + JSON.stringify(s3) + ',[])');
+    const d3 = w.document.getElementById('konfirm').innerHTML;
+    cek('perubahan hasil ditulis angkanya',
+        /hasil 1 Porsi → 100 Porsi/.test(d3), d3.slice(d3.indexOf('DIPERBARUI'), d3.indexOf('DIPERBARUI') + 220));
+  }
+
+  /* ---- pindah seksi: tanda bahwa yang tercocokkan bukan resep yang dimaksud ----
+     Pencocokannya nama + jenis, jadi "Nasi Putih" base di seksi NASI dan "Nasi
+     Putih" di seksi PRASMANAN terbaca sebagai satu resep — dan impornya
+     MENIMPA yang lama berikut seluruh daftar bahannya. Nyaris kejadian di
+     produksi 21 September 2026; yang menahannya cuma kalimat di layar ini. */
+  {
+    const s4 = JSON.parse(JSON.stringify(hasil.resep));
+    const ag = byNama(s4, 'Ayam Goreng');
+    ag.seksi = 'PRASMANAN - PROTEIN BERAT';
+    ag.bahan = [{ nama: 'Ayam', qty: 24000, satuan: 'Gr', ref: 'bahan' }];
+    w.eval('IMPOR_RESEP=null;');
+    w.eval('siapkanImporResep(' + JSON.stringify(s4) + ',[])');
+    const d4 = w.document.getElementById('konfirm').innerHTML;
+
+    /* DI LUAR daftarnya juga: daftar yang harus dibuka dulu tidak menahan
+       siapa pun, dan yang menekan Impor tanpa membukanya persis orang yang
+       paling perlu diperingatkan. Diiris ke pitanya supaya asersinya tidak
+       cocok dengan baris di dalam <details>. */
+    const iPita = d4.indexOf('akan PINDAH SEKSI');
+    cek('pindah seksi disebut di luar daftarnya', iPita >= 0);
+    const iDet = d4.indexOf('<details');
+    cek('pitanya berdiri SEBELUM daftarnya', iPita >= 0 && iDet > iPita,
+        'pita ' + iPita + ' details ' + iDet);
+    const pita = iPita >= 0 ? d4.slice(Math.max(0, iPita - 400), iDet > iPita ? iDet : d4.length) : '';
+    cek('pitanya menyebut nama resepnya', pita.indexOf('Ayam Goreng') >= 0);
+    cek('pitanya menyebut akibatnya', /tertimpa berikut seluruh daftar bahannya/.test(pita));
+    cek('pitanya bertanda bahaya', /notice bad/.test(pita));
+
+    /* Barisnya di dalam daftar ikut ditandai — pita menyebut nama, dan
+       mencocokkan nama dengan baris di daftar 40 baris adalah pekerjaan yang
+       tidak perlu ada. */
+    const iU = d4.indexOf('akan DIPERBARUI');
+    const blok = iU >= 0 ? d4.slice(iU, d4.indexOf('</details>', iU)) : '';
+    cek('barisnya sendiri ikut ditandai', /pindah seksi/.test(blok), blok.slice(0, 300));
+    cek('perpindahannya ditulis dari-ke',
+        /seksi Kitchen → PRASMANAN - PROTEIN BERAT/.test(blok));
+
+    /* Resep yang seksinya TIDAK berpindah tidak boleh ikut ditandai — pita
+       yang selalu menyala berhenti dibaca, termasuk waktu suatu hari ia benar. */
+    const s5 = JSON.parse(JSON.stringify(hasil.resep));
+    byNama(s5, 'Ayam Goreng').harga_baru = 41000;
+    w.eval('IMPOR_RESEP=null;');
+    w.eval('siapkanImporResep(' + JSON.stringify(s5) + ',[])');
+    const d5 = w.document.getElementById('konfirm').innerHTML;
+    cek('tidak menyala kalau seksinya tetap', d5.indexOf('PINDAH SEKSI') < 0);
+  }
+
+
+
   /* Kolom yang TIDAK ada di berkas tidak boleh terhapus: server menulis seluruh
      kolom tiap simpan, jadi yang hilang di sini hilang di database. */
   const kNp = kirim.find(r => r.nama === 'Ayam Goreng');

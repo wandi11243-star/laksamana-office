@@ -2809,7 +2809,50 @@ function siapkanImporResep(list,bolong){
       || ['yield_qty','harga_baru','modal_manual'].some(k=>num(rec[k])!==num(cocok[k]))
       || (rec.aktif===0)!==(cocok.aktif===0)
       || rec.tipe!==cocok.tipe;
-    if(beda) ubah.push({rec,lama:cocok}); else sama++;
+    /* APA yang berubah ikut dikumpulkan, bukan cuma BAHWA ia berubah
+       (permintaan user 21 September 2026). Daftar yang cuma menyebut nama
+       memang menjawab "yang mana", tapi tidak menjawab pertanyaan
+       berikutnya — dan itulah yang menahan orang menekan Impor: ia tidak
+       tahu apa yang akan tertimpa. Rincian ini dihitung dari perbandingan
+       yang SAMA dengan yang memutuskan `beda`; dihitung terpisah, keduanya
+       bisa berselisih dan daftarnya menyebut perubahan yang tidak terjadi. */
+    if(beda){
+      const ubahan=[];
+      if(sbl!==ssd){
+        const nb=l=>(l||[]).filter(x=>x&&x.nama).length;
+        ubahan.push(nb(cocok.bahan)===nb(rec.bahan)
+          ? 'daftar bahannya berubah'
+          : 'bahan '+nb(cocok.bahan)+' → '+nb(rec.bahan)+' baris');
+      }
+      const yl=x=>(num(x.yield_qty)||1)+' '+String(x.yield_unit||'');
+      if(num(rec.yield_qty)!==num(cocok.yield_qty)||String(rec.yield_unit||'')!==String(cocok.yield_unit||''))
+        ubahan.push('hasil '+yl(cocok)+' → '+yl(rec));
+      if(num(rec.harga_baru)!==num(cocok.harga_baru))
+        ubahan.push('harga jual '+rp(num(cocok.harga_baru))+' → '+rp(num(rec.harga_baru)));
+      if(num(rec.modal_manual)!==num(cocok.modal_manual))
+        ubahan.push('modal manual '+rp(num(cocok.modal_manual))+' → '+rp(num(rec.modal_manual)));
+      if(String(rec.seksi||'')!==String(cocok.seksi||''))
+        ubahan.push('seksi '+(cocok.seksi||'(kosong)')+' → '+(rec.seksi||'(kosong)'));
+      if(String(rec.kode||'').toUpperCase()!==String(cocok.kode||'').toUpperCase())
+        ubahan.push('kode POS '+(cocok.kode||'(kosong)')+' → '+(rec.kode||'(kosong)'));
+      if(rec.tipe!==cocok.tipe)
+        ubahan.push('tipe '+(cocok.tipe==='base'?'Base':'Menu jadi')+' → '+(rec.tipe==='base'?'Base':'Menu jadi'));
+      if((rec.aktif===0)!==(cocok.aktif===0))
+        ubahan.push(rec.aktif===0?'dinonaktifkan':'diaktifkan kembali');
+      /* SEKSI YANG BERPINDAH adalah tanda paling jelas bahwa yang tercocokkan
+         BUKAN resep yang dimaksud. Pencocokannya nama + jenis, jadi "Nasi
+         Putih" base di seksi NASI dan "Nasi Putih" di seksi PRASMANAN terbaca
+         sebagai satu resep — dan impornya MENIMPA yang lama berikut seluruh
+         daftar bahannya, tanpa satu pun galat.
+
+         Kejadian 21 September 2026: berkas prasmanan yang dibuat dari dev
+         nyaris diimpor ke produksi, dan lima resep a-la-carte di sana (Mie
+         Goreng Jawa 13 bahan, Soto Bening 20 bahan, Tempe Mendoan, Nasi
+         Putih, Ayam Serundeng) akan tertimpa versi prasmanannya. Yang
+         menahannya cuma satu kalimat di layar ini. */
+      const pindahSeksi=String(rec.seksi||'')!==String(cocok.seksi||'');
+      ubah.push({rec,lama:cocok,ubahan,pindahSeksi});
+    } else sama++;
   });
   if(!baru.length&&!ubah.length){
     return pesan(`<div class="notice info">Tidak ada yang berubah — ${sama} resep di berkas itu isinya sama persis dengan yang tersimpan.</div>`);
@@ -2832,6 +2875,7 @@ function siapkanImporResep(list,bolong){
              <div class="mono" style="font-size:19px;font-weight:800">${k[1]}</div>
              <div style="font-size:10.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.4px">${k[0]}</div></div>`).join('')}
       </div>
+      ${daftarImpor(ubah,baru)}
       <div style="font-size:12.5px">Resep yang <b>sudah ada akan diperbarui</b>, bukan ditambah kembar — dicocokkan menurut <b>nama + jenis</b>. Resep yang ada di data tapi <b>tidak ada di berkas ini tidak dihapus</b>.</div>
       <div class="notice warn" style="margin:10px 0 0"><div><b>Baris bahan resep yang ikut di berkas diganti persis seperti isinya.</b>
         Bahan yang kamu hapus dari berkas akan hilang juga dari resepnya — itu satu-satunya cara menyatakannya lewat Excel.</div></div>
@@ -2839,6 +2883,48 @@ function siapkanImporResep(list,bolong){
         Barisnya tetap tersimpan, tapi modalnya <b>dihitung tanpa bahan itu</b> sampai namanya ada di Bahan &amp; Harga.</div></div>`:''}
       ${bolong&&bolong.length?`<div style="margin-top:10px;font-size:12px;color:var(--muted)">${bolong.length} baris dilewati karena berada sebelum nama resep mana pun (baris ${bolong.slice(0,6).join(', ')}${bolong.length>6?', …':''}).</div>`:''}`
   });
+}
+/* ---- DAFTAR RESEP YANG TERSENTUH (21 September 2026, permintaan user) ----
+   Sebelumnya modal ini cuma memajang tiga angka, jadi "5 diperbarui" berarti
+   lima resep akan ditimpa tanpa satu pun tanda resep yang mana — dan yang
+   menekan Impor tidak punya cara membatalkannya sesudahnya.
+
+   YANG DIPERBARUI DIBUKA, YANG BARU DILIPAT. Bukan soal panjangnya: yang
+   diperbarui MENIMPA data yang sudah ada dan itu tidak bisa dibatalkan,
+   sementara yang baru cuma menambah baris. Yang tidak bisa dibatalkan harus
+   terbaca tanpa ada yang perlu menekan apa pun.
+
+   ANGKA "BARU" YANG TIDAK MASUK AKAL ADALAH GEJALA, dan di sinilah ia
+   terlihat. Berkas yang dibuat dari database LAIN (dev vs produksi) membuat
+   resep yang sebenarnya sudah ada terbaca sebagai baru — lalu impornya
+   melahirkan 36 resep kembar yang namanya sama persis, tanpa satu pun galat.
+   Karena itu daftar yang baru menyebut sendiri apa yang harus dicurigai. */
+const IMP_MAKS=60;
+function daftarImpor(ubah,baru){
+  const potong=(l,f)=>l.slice(0,IMP_MAKS).map(f).join('')
+    +(l.length>IMP_MAKS?`<div style="padding:5px 9px;color:var(--muted);font-size:11.5px">… dan ${l.length-IMP_MAKS} lagi</div>`:'');
+  const kotak=(isi)=>`<div style="max-height:190px;overflow:auto;border:1px solid var(--line);border-radius:9px;margin-top:7px">${isi}</div>`;
+  let h='';
+  /* DISEBUT DI LUAR DAFTARNYA JUGA. Daftar yang harus dibuka dulu tidak
+     menahan siapa pun: yang menekan Impor tanpa membacanya persis orang yang
+     paling perlu diperingatkan. */
+  const pindah=ubah.filter(x=>x.pindahSeksi);
+  if(pindah.length) h+=`<div class="notice bad" style="margin:0 0 10px"><div><b>${pindah.length} resep akan PINDAH SEKSI</b>: ${esc(pindah.slice(0,6).map(x=>x.rec.nama).join(', '))}${pindah.length>6?', …':''}.
+    Dicocokkan menurut nama + jenis, jadi resep yang cuma kebetulan bernama sama akan <b>tertimpa berikut seluruh daftar bahannya</b>. Periksa daftar di bawah sebelum mengimpor.</div></div>`;
+  if(ubah.length){
+    h+=`<details open style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700">${ubah.length} resep akan DIPERBARUI — isinya ditimpa</summary>${
+      kotak(potong(ubah,x=>`<div style="padding:6px 9px;border-bottom:1px solid var(--line)${x.pindahSeksi?';background:var(--danger-bg,#fdf0f0)':''}">
+        <div style="font-weight:600;font-size:12.5px">${esc(x.rec.nama)}</div>
+        <div style="font-size:11.5px;color:var(--muted)">${x.ubahan.length?esc(x.ubahan.join(' · ')):'isinya berubah'}</div>
+        ${x.pindahSeksi?`<div style="font-size:11.5px;color:var(--danger);font-weight:600">⚠ pindah seksi — pastikan ini memang resep yang sama, bukan nama yang kebetulan sama</div>`:''}</div>`))}</details>`;
+  }
+  if(baru.length){
+    h+=`<details style="margin-bottom:10px"><summary style="cursor:pointer;font-size:12.5px;font-weight:700">${baru.length} resep BARU — ditambahkan</summary>${
+      kotak(potong(baru,r=>`<div style="padding:6px 9px;border-bottom:1px solid var(--line);font-size:12.5px">${esc(r.nama)}
+        <span style="color:var(--muted);font-size:11.5px"> · ${esc(r.seksi||'tanpa seksi')} · ${r.jenis==='drink'?'Minuman':'Makanan'}</span></div>`))}
+      <div style="margin-top:7px;font-size:11.5px;color:var(--muted)">Kalau resep di daftar ini sebenarnya <b>sudah ada</b>, berarti <b>nama</b> atau <b>jenis</b>-nya tidak sama persis (huruf besar-kecil diabaikan) — mengimpornya akan melahirkan resep kembar. Sebab tersering: berkasnya dibuat dari database yang berbeda.</div></details>`;
+  }
+  return h;
 }
 function jalankanImporResep(){
   if(!IMPOR_RESEP||!IMPOR_RESEP.rows.length) return;
