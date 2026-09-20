@@ -5557,6 +5557,121 @@ Yang menahan bug diam-diam, dan ketiganya muncul sebagai UANG bukan sebagai gala
   harga yang diputuskan di sana harus sama dengan yang keluar di Daftar Resep
   begitu menunya benar-benar dibuat.
 
+### Prasmanan dari berkas HPP dapur → Daftar Resep (20 September 2026)
+
+Permintaan user: memindahkan tab **Prasmanan** dan **Hasil Prasmanan** dari
+berkas `HPP Food Laksamana Updated March 2026.xlsx` ke modul HPP & Resep,
+sebagai kelompok yang berdiri sendiri — *"buatkan ini khusus untuk
+prasmanan"*, dengan berkas Excel yang **mengikuti format sistem**.
+
+```bash
+curl -s "https://dev.laksamanamuda.id/stock-api-mysql/hpp.php" -o tools/hpp-master.json
+node tools/hpp-prasmanan-ke-impor.js
+node tools/uji-hpp-prasmanan.js     # 22 pemeriksaan
+```
+
+**ALATNYA TIDAK MENULIS APA PUN KE DATABASE.** Yang dihasilkan berkas; yang
+mengimpor tetap orang, lewat *Daftar Resep → Impor* — di sana ada pratinjau
+yang menyebut berapa baru, berapa diperbarui, dan bahan apa yang belum
+dikenal **sebelum satu baris pun ditulis**.
+
+#### Bentuk berkas sumbernya, dan kenapa itu menentukan
+
+| lembar | bentuknya |
+|---|---|
+| **Prasmanan** | 54 rincian resep dalam **BLOK KOLOM PARALEL** — enam kategori berjajar ke kanan (BEEF · UDANG · AYAM · IKAN · SOUP · PROTEIN RINGAN), tiap blok 5 kolom + 1 pemisah, dan tiap blok berisi beberapa resep bertumpuk ke bawah |
+| **Hasil Prasmanan** | 77 menu sebagai tabel biasa: kategori, jumlah produksi, modal, harga jual |
+
+- **DAFTAR INDUKNYA "Hasil Prasmanan"**, bukan lembar rincian. Di sanalah
+  kategori, jumlah produksi, dan harga jual berdiri — tiga hal yang tidak ada
+  di lembar rincian sama sekali.
+- **Titik awal tiap resep DICARI** (sel berbunyi "Nama Menu"), bukan ditebak
+  dari jarak kolomnya. Kolom bloknya memang berjarak tetap hari ini, tapi
+  **kategori blok TIDAK berlaku untuk resep di bagian bawah lembar** — di
+  sana blok BEEF berisi Teh, Kopi, dan Milo.
+- **Baris bahan dikumpulkan sampai "Total" atau "Nama Menu" berikutnya, TIDAK
+  berhenti di baris kosong.** Sebagian resep punya baris kosong di tengahnya
+  sebelum barisan Total; berhenti di situ memotong resepnya diam-diam —
+  persis yang terjadi pada Sop Buntut di putaran pertama alat ini (5 bahan
+  terbaca, Total-nya tidak pernah sampai).
+- **"Total" diambil yang PERTAMA**, bukan "Total - 20%" di bawahnya: angka
+  sesudah diskon bukan modal bahannya.
+
+#### Pencocokan menu ↔ rincian: nama dulu, lalu MODAL TOTAL
+
+Namanya memang berbeda di dua lembar, dan pencocokan nama saja kehilangan
+tujuh resep:
+
+| daftar resmi | rincian |
+|---|---|
+| Soup Buntut | Sop **B**untut |
+| Es Teh | Teh |
+| Kopi Hitam | Kopi |
+| Pudding Coklat | Coklat |
+| Nasi Goreng Kampoeng | Nasi Goreng |
+| Tempe Teri Kacang | Tempe Teri Kacang **Balado** |
+| Kentang Pete **Puyuh** | Kentang Pete **Balado** |
+
+Lapis keduanya **MODAL TOTAL**. Angkanya panjang berdesimal (2.627.000 ·
+26.079,88772 · 437.385,6884), jadi kecocokan angka jauh lebih kuat daripada
+menebak dari kemiripan kata — **dan hanya dipakai kalau kecocokannya
+TUNGGAL**. Dua resep bermodal sama tidak bisa dibedakan dari angkanya, dan
+menebak salah satunya memasang bahan menu lain ke menu ini; itulah yang
+menahan "Sirup Coco Pandan" dipasangkan sembarangan, karena modalnya
+(118.703) dipakai DUA rincian. Tiap kecocokan lewat modal **dilaporkan**.
+
+#### Yield: pembagi, bukan label
+
+`yield_qty` adalah **PEMBAGI** modal per porsi (lihat aturan *Yield menu jadi
+= 1 Porsi, KECUALI resep sebatch*), jadi salah di sini muncul sebagai uang.
+
+- **Diambil dari lembar RINCIAN dulu**, baru daftar resmi: kolom JUMLAH PROD.
+  di daftar resmi sesekali salah isi — "Iga Bakar" tertulis sebagai jumlah
+  produksinya sendiri.
+- **Dibetulkan lewat `modal ÷ modal-per-porsi`** kalau berbeda dari yang
+  tertulis. Itu bukan tebakan: kedua angkanya tertulis di berkasnya. 12 menu
+  dibetulkan, dan semuanya dilaporkan.
+- **SATUANNYA IKUT BERGANTI** ke satuan kolom "HARGA PER PORSI" (Porsi).
+  Pembaginya modal-per-PORSI, jadi hasilnya jumlah porsi — bukan kilogram.
+  "Sambal Merah 1Kg" yang dikoreksi jadi 100 sambil satuannya dibiarkan
+  berbunyi **"100 Kg"**, seratus kali lipat dari yang benar-benar diproduksi.
+
+#### Yang lain
+
+- **`Modal Manual` HANYA untuk menu tanpa rincian bahan** (46 dari 77). Yang
+  punya bahan dihitung sistem dari bahannya; mengisi keduanya membuat
+  modalnya terhitung **dua kali**.
+- **Seksi berawalan `PRASMANAN - `** supaya kelompok ini berdiri sendiri dan
+  tidak tercampur dengan resep à la carte yang sudah ada.
+- **Bahan yang belum dikenal ditulis apa adanya** (29 nama) — permintaan user:
+  *"kalau ada nama bahan yang kamu tidak kenali kamu tulis manual saja, nanti
+  saya cocokkan"*. Yang sudah dikenal memakai **ejaan master**, karena
+  pencocokannya huruf kecil dan menemukan bukan berarti sekalian mengganti
+  namanya.
+- **Bahan yang takarannya belum diisi TETAP ikut** (nama sudah ditulis,
+  angkanya belum). Dibuang, resepnya kehilangan daftar bahan yang sudah
+  disusun orang; yang ikut dilaporkan supaya modal yang kurang itu terbaca.
+- **`tools/hpp-master.json` TIDAK masuk repo** — isinya harga beli seluruh
+  bahan perusahaan. Tanpa berkas itu alatnya tetap jalan, tapi tidak satu pun
+  nama dicocokkan, **dan itu dikatakan**: daftar "29 bahan belum dikenal" yang
+  sebenarnya lahir dari pencocokan yang tidak pernah terjadi lebih buruk
+  daripada tidak ada angkanya.
+- Berkas sumber & hasilnya ikut `.gitignore` — satu berkas memuat struktur
+  biaya lengkap satu perusahaan.
+
+#### Yang MASIH perlu dikerjakan tangan, dan itu ada di lembar kedua
+
+Berkasnya punya lembar **Perlu Dicocokkan** berisi empat daftar: bahan belum
+dikenal (29), kecocokan lewat modal yang perlu diperiksa (7), rincian yang
+tidak terpakai (23 — sebagian minuman yang memang tidak ada di daftar resmi),
+dan yield yang dibetulkan (12).
+
+> **UJINYA MEMAKAI PEMBACA IMPOR SUNGGUHAN.** `bacaResepRows()` DIPOTONG dari
+> `deploy/stock/hpp/index.html`, bukan ditulis ulang — uji yang memakai
+> pembaca tiruan cuma mengulang asumsi yang sama dengan pembuat berkasnya.
+> Yang membuktikan berkasnya bisa diimpor adalah kode yang nanti benar-benar
+> membacanya. Ia MELEWAT dengan jelas kalau berkasnya belum dibuat.
+
 ### HPP: ekspor & impor Daftar Resep lewat Excel (4 September 2026)
 
 Permintaan user: "daftar resep dan barang dan harga dan floor itu bisa export
