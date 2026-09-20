@@ -5794,6 +5794,112 @@ justru supaya spare berlipat punya tempat untuk muncul. `smoke-modul.js` **tidak
 cukup** untuk modul ini — ia melaporkan `hanya boot yang diuji`, jadi seluruh
 aritmetikanya lewat tanpa disentuh.
 
+
+### HPP: tab Prasmanan, dan COGS 2403% yang lahir dari yield (20 Sep 2026)
+
+Permintaan user: memindahkan lembar **Prasmanan** & **Hasil Prasmanan** dari
+berkas *HPP Food Laksamana Updated March 2026* ke modul HPP, sebagai bagian
+tersendiri di Daftar Resep — *"di sebelah Base & Olahan itu tambahin ada
+Prasmanan"*.
+
+`deploy/stock/hpp/` -> Daftar Resep sekarang **tiga tab**: Menu Jadi ·
+Base & Olahan · **Prasmanan**.
+
+- **DIKENALI DARI SEKSINYA** (`prasmananKah()`), bukan dari kolom baru. Kolom
+  baru berarti `ALTER TABLE` pada tabel yang sudah berisi — dan
+  `CREATE TABLE IF NOT EXISTS` tidak pernah menyentuhnya, jadi ia lahir di
+  pemasangan baru sementara produksi tertinggal tanpa satu pun galat.
+- **KATA UTUH, bukan potongan.** Seksi bernama `PRASMANAN - MAIN COURSE` ikut;
+  potongan di tengah kata tidak boleh.
+- **Resepnya TIDAK ikut lagi di tab Menu Jadi**, dan itu **DIKATAKAN di kepala
+  tabelnya** berikut jumlahnya. Angka yang menyusut tanpa keterangan
+  dilaporkan sebagai data hilang — aturan yang sama dengan penyaring kategori
+  EVENT di modul Analytics.
+- **`FPR` state pager SENDIRI**, sejajar `F`/`FBS`. Berbagi dengan Menu Jadi,
+  berpindah tab mendarat di halaman 7 milik tab sebelumnya.
+- **Diperlakukan sebagai MENU JADI di tabelnya** (`tipe==='dish'||tipe==='pras'`):
+  ia dijual per pax, jadi kolom Harga Jual & COGS berlaku.
+- **IKUT di PDF massal** (`cetakBanyak`). Tercecer di sana, satu-satunya lembar
+  cetak yang memuat seluruh resep berhenti lengkap.
+
+#### COGS 2403% — `Harga Jual` berarti harga untuk SATU YIELD
+
+Impor pertama memasang **yield 100 Porsi** (angka `JUMLAH PROD.` di berkas
+dapur) sambil mengisi **harga jual per porsi**. Layarnya lalu memajang COGS
+2403%, dan angkanya benar menurut rumusnya sendiri:
+
+```
+cogsOf(r) = modalMenu(r).total / hargaJual(r)
+```
+
+`modalMenu().total` adalah modal **SATU BATCH** — 100 porsi — sementara harga
+jualnya satu porsi. Jadi `Harga Jual` di modul ini **selalu** berarti harga
+untuk satu yield, dan itu berlaku untuk seluruh resep, bukan cuma prasmanan.
+
+**YANG DIBETULKAN TAKARANNYA, BUKAN HARGA JUALNYA.** Mengalikan harga jual
+x100 juga memberi COGS yang benar — dan membuat kolom Harga Jual berbunyi
+Rp2.600.000 untuk menu yang dijual Rp26.000. Kolom itu dibaca layar lain dan
+dicocokkan orang dengan daftar harga di tangannya; angka yang cuma benar
+sebagai pembagi bukan harga.
+
+`tools/hpp-prasmanan-per-porsi.js` karena itu membagi **takaran tiap bahan**
+dan `modal_manual` dengan jumlah porsinya, lalu menyetel yield ke **1**.
+
+- **ANGKANYA DIBACA DARI SISTEM** (`tools/hpp-master.json`, hasil `getAll`),
+  bukan dari berkas Excel-nya. Resepnya sudah masuk; yang perlu dibetulkan cuma
+  yield & takarannya, dan membaca ulang Excel yang rusak justru mengembalikan
+  angka yang sudah tidak ada.
+- **HARGA JUAL TIDAK IKUT DIBAGI**, dan itu dijaga asersi tersendiri.
+- **Tiap resep dapat baris `Ref=Catatan`** yang menyebut takaran aslinya
+  (*"Resep dapur aslinya untuk 100 Porsi — takaran di bawah sudah dibagi
+  100."*). Tanpa itu, yang mencocokkannya dengan berkas dapur menemukan angka
+  yang seratus kali lebih kecil dan menyimpulkan datanya salah masuk.
+
+#### Berkas dapur yang sheet harganya DIHAPUS ditolak, bukan diurai
+
+User menghapus sheet-sheet lain dari berkas dapur *"biar ga bingung"*, dan
+seluruh rumus yang menunjuk ke sana berubah jadi **`#REF!`** — 487 di lembar
+Prasmanan, 138 di Hasil Prasmanan. Yang rusak **hanya kolom harga**; nama
+bahan, takaran, satuan, dan jumlah produksinya selamat.
+
+**Diurai apa adanya, `hpp-prasmanan-ke-impor.js` tetap menghasilkan berkas yang
+kelihatan lengkap** — 77 resep, bahannya benar — dengan **harga jual NOL untuk
+50 menu**. Dan berkas itu diimpor **MENIMPA harga jual yang sudah benar di
+sistem dengan nol**, tanpa satu pun galat: dari sisi impor itu penyimpanan yang
+sah.
+
+Sekarang alatnya **BERHENTI** (`process.exit(3)`) kalau lebih dari sepertiga
+menunya kehilangan modal DAN harga jual sekaligus.
+
+- **Ambangnya sepertiga, bukan satu baris.** Satu menu yang memang belum diberi
+  harga adalah keadaan yang wajar; separuh berkas yang kosong bukan.
+- **Pesannya menyebut `#REF!` sebagai sebabnya dan menunjuk alat penggantinya.**
+  Alat yang menolak tanpa jalan keluar akan dipaksa jalan oleh orang berikutnya.
+- **Berkas hasil yang terlanjur cacat ditandai di NAMANYA**
+  (`resep-prasmanan-RUSAK-JANGAN-DIIMPOR.xlsx`), bukan dihapus: yang memutuskan
+  membuangnya user, dan nama yang berteriak lebih berguna daripada berkas yang
+  hilang tanpa penjelasan.
+
+```bash
+node tools/uji-hpp-prasmanan.js   # 26 pemeriksaan (+ blok impor awal yang MELEWAT)
+```
+
+**Blok pertama ujinya BOLEH MELEWAT** — ia menguji berkas hasil konversi yang
+sekarang memang tidak bisa dibuat. Asersinya **TIDAK dicabut**: begitu berkas
+dapur yang utuh dipulihkan, ia yang menjaga hasilnya. Dicabut, jalur itu
+berhenti diuji sama sekali dan tidak ada yang menyadarinya.
+
+> **`process.exit(0)` di blok yang MELEWAT MEMBUNUH blok sesudahnya.** Versi
+> pertama uji ini begitu, jadi seluruh asersi per-porsi dan tab Prasmanan tidak
+> pernah dijalankan sekali pun sesudah berkas impornya hilang — dan
+> ringkasannya tetap berbunyi hijau. Blok yang boleh melewat dibungkus fungsi
+> yang `return`, bukan yang mengakhiri prosesnya.
+
+Penjaga `#REF!`-nya dijaga sebagai **kontrak atas sumber** konverternya:
+menjalankan alatnya di uji menuntut berkas dapur, dan berkas itu **tidak boleh
+masuk repo** (sudah di `.gitignore`: `HPP Food Laksamana*.xlsx`) — satu berkas
+memuat seluruh struktur biaya dapur. Lima mutasi dicoba, kelimanya tertangkap.
+
 ### Pemakaian Bahan Baku: pemilih bulan di KETIGA report (2 September 2026)
 
 `deploy/stock/usage/`. Modul ini punya tiga layar report — **Pemakaian**,

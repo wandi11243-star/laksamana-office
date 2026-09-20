@@ -252,6 +252,38 @@ function uraiYield(s) {
   const R = uraiPrasmanan(cari('Prasmanan'));
   const H = uraiHasil(cari('Hasil Prasmanan'));
 
+  /* ============ BERKAS SUMBER YANG RUSAK DITOLAK, BUKAN DIURAI ============
+     Terjadi 20 September 2026: sheet-sheet harga dihapus dari berkas dapur,
+     dan seluruh rumus yang menunjuk ke sana berubah jadi #REF! — termasuk
+     kolom MODAL dan HARGA JUAL di "Hasil Prasmanan".
+
+     Diurai apa adanya, alat ini tetap menghasilkan berkas yang kelihatan
+     lengkap: 77 resep, nama & takaran bahannya benar, tapi harga jualnya NOL
+     untuk 50 menu. Dan berkas itu diimpor akan MENIMPA harga jual yang sudah
+     benar di sistem dengan nol — tanpa satu pun galat, karena dari sisi
+     impor itu penyimpanan yang sah.
+
+     Jadi berhenti di sini. Yang rusak berkas sumbernya, dan satu-satunya
+     jalan keluarnya memulihkan berkas itu — bukan meneruskan dengan angka
+     yang hilang. */
+  const rusak = H.filter(h => !(h.jual > 0) && !(h.modal > 0)).length;
+  if (rusak > H.length / 3) {
+    console.error('BERHENTI — kolom MODAL & HARGA JUAL di lembar "Hasil Prasmanan" kosong');
+    console.error('untuk ' + rusak + ' dari ' + H.length + ' menu.');
+    console.error('');
+    console.error('Sebabnya hampir pasti rumus #REF!: sheet yang dirujuknya sudah dihapus');
+    console.error('dari berkas ini. Yang selamat cuma nama bahan, takaran, dan satuannya.');
+    console.error('');
+    console.error('Diteruskan, berkas hasilnya akan memuat harga jual NOL — dan mengimpornya');
+    console.error('MENIMPA harga jual yang sudah benar di sistem.');
+    console.error('');
+    console.error('Yang perlu dikerjakan: pulihkan berkas HPP dapur yang sheet harganya masih');
+    console.error('utuh. Kalau resepnya SUDAH ada di sistem dan yang perlu dibetulkan cuma');
+    console.error('yield-nya, pakai tools/hpp-prasmanan-per-porsi.js — alat itu membaca');
+    console.error('angkanya dari sistem, bukan dari berkas ini.');
+    process.exit(3);
+  }
+
   /* Master bahan & resep sistem: dipakai membedakan bahan yang SUDAH dikenal
      dari yang belum, dan mengambil EJAAN master untuk yang sudah ada —
      pencocokannya huruf kecil, jadi menemukan bukan berarti sekalian

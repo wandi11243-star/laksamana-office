@@ -858,6 +858,7 @@ function render(){
    memakainya, dan riwayat modalnya ikut hilang. */
 let F={q:'',jenis:'',seksi:'',hal:1,per:25,sortK:'nama',sortD:1,aktif:'ya',tab:'dish'};
 let FBS={hal:1,per:25,sortK:'nama',sortD:1};
+let FPR={hal:1,per:25,sortK:'nama',sortD:1};
 const AMB_RESEP={
   nama:r=>low(r.nama), jenis:r=>r.jenis, seksi:r=>low(r.seksi||''),
   yield:r=>num(r.yield_qty), bahan:r=>(r.bahan||[]).filter(x=>x&&x.nama).length,
@@ -876,10 +877,24 @@ const AMB_RESEP={
    membaca sebagai "tidak ada minuman sama sekali", bukan sebagai "kamu sedang
    melihat makanan". Saringan lain (seksi, aktif, kata kunci) TETAP berlaku:
    angkanya harus menjanjikan apa yang benar-benar muncul kalau ditekan. */
+/* PRASMANAN dikenali dari SEKSI-nya, bukan dari kolom tersendiri: seluruh
+   resepnya diimpor dengan seksi berawalan "PRASMANAN - <KATEGORI>", dan
+   menambah kolom baru berarti berkas migrasi yang rutin tertinggal di
+   produksi. Kata UTUH di awal, bukan potongan — seksi bernama "PRASMANANAN"
+   (salah ketik) tidak boleh ikut, dan yang ikut diam-diam tidak pernah
+   ketahuan dari layar. */
+function prasmananKah(r){ return /^PRASMANAN\b/i.test(String((r&&r.seksi)||'')); }
 function resepTersaring(tipe,abaikanJenis){
   const q=low(F.q);
   const l=S.resep.filter(r=>{
-    if(tipe&&r.tipe!==tipe) return false;
+    /* Tab PRASMANAN menyaring menurut seksi; tab lain menurut tipe. Dan
+       prasmanan DIKELUARKAN dari tab Menu Jadi — kalau ikut, angka di tab itu
+       memuat 76 resep prasmanan, dan yang mencari menu à la carte harus
+       menyaringnya sendiri tiap kali. Itu DIKATAKAN di kepala tabelnya:
+       daftar yang menyusut tanpa keterangan dibaca sebagai data yang hilang. */
+    if(tipe==='pras'){ if(!prasmananKah(r)) return false; }
+    else if(tipe==='dish'){ if(r.tipe!=='dish'||prasmananKah(r)) return false; }
+    else if(tipe&&r.tipe!==tipe) return false;
     if(F.aktif==='ya'&&r.aktif===0) return false;
     if(F.aktif==='tidak'&&r.aktif!==0) return false;
     if(!abaikanJenis&&F.jenis&&r.jenis!==F.jenis) return false;
@@ -887,7 +902,7 @@ function resepTersaring(tipe,abaikanJenis){
     if(q&&low(r.nama).indexOf(q)<0&&low(r.seksi||'').indexOf(q)<0) return false;
     return true;
   });
-  return urutkanDaftar(l,tipe==='base'?'FBS':'F',AMB_RESEP,'nama');
+  return urutkanDaftar(l,tipe==='base'?'FBS':(tipe==='pras'?'FPR':'F'),AMB_RESEP,'nama');
 }
 /* SELALU BERTANYA sejak 15 Agustus 2026 (permintaan user), termasuk saat
    mengaktifkan kembali. Sebelumnya cuma bertanya kalau resepnya dipakai resep
@@ -969,7 +984,8 @@ function viewResep(){
      bawah lipatan dan pagination-nya harus dicari dengan menggulir jauh. Satu
      tab = satu pekerjaan; jumlahnya tetap terlihat di labelnya supaya tidak
      ada yang tersembunyi tanpa jejak. */
-  const nD=resepTersaring('dish').length, nB=resepTersaring('base').length;
+  const nD=resepTersaring('dish').length, nB=resepTersaring('base').length,
+        nP=resepTersaring('pras').length;
   /* TAPIS JENIS jadi saklar, bukan dropdown (2 September 2026, permintaan
      user). Sebelumnya ia satu dari EMPAT kotak pilihan berjajar di baris atas
      dan bertuliskan "Food" / "Drink" — istilah yang dipakai di data, bukan
@@ -982,21 +998,32 @@ function viewResep(){
      data, dan menggantinya jadi 'makanan' membuat seluruh resep yang sudah
      tersimpan tidak cocok dengan tapis mana pun tanpa satu pun galat. Yang
      berubah cuma tulisannya. */
-  const tanpaJenis=resepTersaring(F.tab==='base'?'base':'dish',true);
+  /* TAPIS JENIS mengikuti tab yang sedang dibuka — kalau tidak, angkanya
+     menjanjikan sesuatu yang tidak muncul kalau ditekan. */
+  const tanpaJenis=resepTersaring(F.tab==='base'?'base':(F.tab==='pras'?'pras':'dish'),true);
   const nJ=j=>tanpaJenis.filter(r=>r.jenis===j).length;
   const segJenis=[['','Semua',tanpaJenis.length],['food','🍽 Makanan',nJ('food')],['drink','🥤 Minuman',nJ('drink')]];
+  /* TAB PRASMANAN (20 September 2026, permintaan user) — dikenali dari
+     seksinya, lihat prasmananKah(). Berdiri sendiri karena ia dijual sebagai
+     PAKET per pax, bukan à la carte: yang membuka Daftar Resep untuk memeriksa
+     COGS menu restoran tidak sedang menimbang menu prasmanan, dan sebaliknya.
+     Resepnya TIDAK ikut lagi di tab Menu Jadi; itu disebut di kepala kedua
+     tabelnya, supaya angka yang menyusut tidak dibaca sebagai data hilang. */
   h+=`<div class="bar" style="margin-bottom:14px">
     <div class="seg">
-      <button class="${F.tab!=='base'?'active':''}" onclick="F.tab='dish';render()">🍽 Menu Jadi <span class="chip mute" style="margin-left:6px">${nD}</span></button>
+      <button class="${F.tab!=='base'&&F.tab!=='pras'?'active':''}" onclick="F.tab='dish';render()">🍽 Menu Jadi <span class="chip mute" style="margin-left:6px">${nD}</span></button>
       <button class="${F.tab==='base'?'active':''}" onclick="F.tab='base';render()">🥣 Base &amp; Olahan <span class="chip mute" style="margin-left:6px">${nB}</span></button>
+      <button class="${F.tab==='pras'?'active':''}" onclick="F.tab='pras';render()" title="Menu paket prasmanan — dari berkas HPP dapur, seksinya berawalan PRASMANAN">🍛 Prasmanan <span class="chip mute" style="margin-left:6px">${nP}</span></button>
     </div>
     <div class="seg" title="Saring menurut makanan atau minuman">
-      ${segJenis.map(([v,t,n])=>`<button class="${F.jenis===v?'active':''}" onclick="F.jenis='${v}';F.hal=1;FBS.hal=1;render()">${t} <span class="chip mute" style="margin-left:6px">${n}</span></button>`).join('')}
+      ${segJenis.map(([v,t,n])=>`<button class="${F.jenis===v?'active':''}" onclick="F.jenis='${v}';F.hal=1;FBS.hal=1;FPR.hal=1;render()">${t} <span class="chip mute" style="margin-left:6px">${n}</span></button>`).join('')}
     </div>
   </div>`;
   h+=(F.tab==='base')
     ? tabelResep('base','Base &amp; Bahan Olahan','Dibuat sendiri lalu dipakai resep lain — dinilai dari modal per satuan hasil.','FBS')
-    : tabelResep('dish','Menu Jadi','Yang dijual — dinilai dari COGS terhadap harga jualnya.','F');
+    : (F.tab==='pras')
+    ? tabelResep('pras','Prasmanan','Menu paket prasmanan, dari berkas HPP dapur. Dinilai per <b>satu porsi</b> — takaran bahannya sudah dibagi jumlah porsi resep aslinya, dan angka aslinya ditulis di baris catatan tiap resep.','FPR')
+    : tabelResep('dish','Menu Jadi',`Yang dijual à la carte — dinilai dari COGS terhadap harga jualnya.${nP?` <b>${nP} menu prasmanan tidak ikut di sini</b>, ada di tabnya sendiri.`:''}`,'F');
   return h;
 }
 /* Satu pembuat untuk kedua tabel. Kolom Harga jual & COGS hanya ada di Menu
@@ -1007,7 +1034,11 @@ function tabelResep(tipe,judul,sub,mana){
   const nHal=Math.max(1,Math.ceil(semua.length/st.per));
   if(st.hal>nHal) st.hal=nHal;
   const hal=semua.slice((st.hal-1)*st.per,st.hal*st.per);
-  const dish=(tipe==='dish');
+  /* Prasmanan ikut diperlakukan sebagai MENU JADI: ia memang dijual, jadi
+     kolom Harga jual & COGS berlaku — dan spare modal pun dikenakan padanya,
+     sama seperti menu à la carte. Dibedakan di sini, tabnya akan memajang
+     menu berharga jual tanpa satu pun kolom yang menilainya. */
+  const dish=(tipe==='dish'||tipe==='pras');
   /* Kolom Modal di tabel Menu Jadi sudah termasuk spare, dan itu HARUS tertulis:
      angka yang diam-diam 5% lebih besar daripada jumlah bahannya adalah selisih
      yang dicari orang berjam-jam di tempat yang salah. Rinciannya menyusul di
@@ -1059,7 +1090,7 @@ function tabelResep(tipe,judul,sub,mana){
 
    Angka diurut sebagai ANGKA, teks pakai localeCompare 'id'. Tanpa itu
    "Rp1.000.000" duduk sebelum "Rp90.000" karena dibaca sebagai teks. */
-const ST={F:()=>F,FB:()=>FB,FF:()=>FF,FBS:()=>FBS,PK:()=>PK};
+const ST={F:()=>F,FB:()=>FB,FF:()=>FF,FBS:()=>FBS,FPR:()=>FPR,PK:()=>PK};
 function keHal(mana,n){ ST[mana]().hal=n; render(); }
 function urutKolom(mana,k){
   const s=ST[mana]();
@@ -3221,7 +3252,11 @@ function cetakResep(id,denganModal){
 function cetakBanyak(denganModal){
   /* Kedua tabel ikut tercetak: saringannya satu, jadi "PDF semua" yang cuma
      memuat menu jadi akan terasa seperti setengah pekerjaan. */
-  const daftar=resepTersaring('dish').concat(resepTersaring('base'));
+  /* PRASMANAN WAJIB DISEBUT TERSENDIRI sejak 20 September 2026: ia tidak lagi
+     ikut di resepTersaring('dish') — dikeluarkan supaya punya tabnya sendiri —
+     jadi tanpa baris ini 76 resep berhenti ikut tercetak tanpa satu pun tanda,
+     dan yang mencetaknya baru tahu sesudah lembarnya di tangan. */
+  const daftar=resepTersaring('dish').concat(resepTersaring('pras')).concat(resepTersaring('base'));
   if(!daftar.length) return;
   if(daftar.length>60&&!confirm(`${daftar.length} resep akan dicetak. Lanjut?`)) return;
   cetak(denganModal?'Resep & Modal':'Resep',daftar.map((r,i)=>
