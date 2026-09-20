@@ -437,6 +437,12 @@ table.tbl tr:last-child td{border-bottom:none}
 .vip-dp-form{display:flex;gap:6px;flex-wrap:wrap}
 .vip-dp-form .cur-wrap{flex:1 1 130px;min-width:0}
 .vip-dp-form select{flex:0 1 140px;min-width:0}
+/* Kotak yang masih kosong padahal wajib. Garisnya saja, bukan latar merah
+   penuh: baris ini sudah punya foto bukti di kirinya, dan dua blok berwarna
+   bersebelahan membuat yang dibaca duluan justru warnanya, bukan isinya. */
+.vip-dp-form .dp-kosong,
+.vip-dp-form .cur-wrap:has(.dp-kosong){border-color:var(--danger)}
+.vip-dp-form .dp-kosong{color:var(--danger)}
 /* Tombol × cuma tanda silang, bukan tombol berat: yang dominan di baris ini
    harus nominalnya. Sasaran sentuhnya tetap 28px supaya bisa ditekan di HP. */
 .vip-dp-x{width:28px;height:28px;flex:none;border:none;background:none;cursor:pointer;
@@ -9595,6 +9601,26 @@ function saveEventTab(id,goNext){
   // Tab Finance memuat section 'finance' yang inputnya di luar EVENT_SCHEMA.
   const adaFinance=visibleSecsOfTab(tab.id).some(s=>s.id==='finance');
   if(adaFinance) collectFinanceInto(ev);
+  /* PENJAGA KEDUA untuk DP. Yang pertama ada di dpPaidUbah(), di titik orang
+     menyalakan centangnya — tapi centang itu bisa diubah dari devtools, dan
+     rekening/tanggalnya bisa DIKOSONGKAN LAGI sesudah lolos di sana.
+
+     YANG DIBEDAKAN: event yang buktinya SUDAH ADA berarti pernah melewati
+     gerbang pertama, jadi kekurangan sekarang adalah sesuatu yang barusan
+     dihapus — ditolak keras. Event yang buktinya BELUM PERNAH ADA adalah
+     event lama, dari masa centang ini cuma pernyataan telanjang: ia TIDAK
+     dikunci, cuma tidak melahirkan baris pembayaran, dan kalimat di bawah
+     centangnya mengatakan apa yang kurang. Menguncinya berarti event yang
+     sudah terlanjur begitu tidak bisa disunting siapa pun — termasuk nama
+     acaranya — dan justru kelengkapan itulah yang sedang diusahakan. */
+  if(adaFinance && ynBool((ev.detail||{}).dpPaid,false)){
+    const kurang=dpFormKurang(ev);
+    if(kurang.length && (ev.detail||{}).dpBuktiUrl){
+      toast('DP belum lengkap','Isi dulu '+kurang.join(', ')+' — atau lepas centang "DP sudah dibayar".','err');
+      return;
+    }
+    dpFormSinkron(ev);
+  }
   // sync top-level fields
   if(curTab==='basic'){ ev.nama=ev.detail.nama||ev.nama; ev.jenis=ev.detail.jenis||ev.jenis; ev.tanggal=ev.detail.tanggal||ev.tanggal; ev.pax=+ev.detail.pax||ev.pax;
     /* Tanggal selesai ikut dicerminkan ke tingkat atas seperti tanggal mulai,
@@ -10238,7 +10264,54 @@ function financeTab(ev,canEdit){
      jatuh persis di angka yang benar-benar ditransfer. */
   h+=finBaris('DP / Uang Muka',
       rupiahInputHTML('efd_dpNominal',(d.depositNominal===''||d.depositNominal==null)?'':d.depositNominal,dis),
-      'Kosong = '+(ev.dpPercent||st.dpPercent)+'% dari Grand Total.');
+      'Kosong = '+(ev.dpPercent||st.dpPercent)+'% dari Grand Total. '
+      +'Angka ini masih KETENTUAN penawaran — yang menyatakan uangnya sudah masuk centang di bawah.');
+  /* REKENING TUJUAN, TANGGAL & BUKTI TRANSFER (20 September 2026, permintaan
+     user). Ketiganya menemani centang "DP sudah dibayar", dan sejak tanggal
+     ini centang itu TIDAK BISA DINYALAKAN tanpa ketiganya terisi.
+
+     KENAPA GERBANGNYA DI CENTANG, BUKAN DI NOMINAL. Yang diminta user
+     berbunyi "required jika nominal DP sudah diisi", dan itu tidak bisa
+     dikerjakan apa adanya: nominal DP adalah KETENTUAN yang tercetak di
+     Surat Penawaran, diisi jauh sebelum tamunya transfer. Mewajibkan bukti
+     di situ berarti tidak ada satu pun penawaran ber-DP selain 50% bawaan
+     yang bisa dicetak sampai uangnya masuk — kebalikan dari urutan kerja
+     yang sebenarnya. Yang menyatakan uang MASUK adalah centangnya, dan di
+     situlah kewajibannya berdiri.
+
+     KETIGANYA MELAHIRKAN BARIS PEMBAYARAN, dan itu inti perubahan ini.
+     Sampai tanggal ini centang "DP sudah dibayar" cuma PERNYATAAN telanjang:
+     ia menggeser Sisa Pelunasan lewat dpDiakui, tapi tidak pernah membuat
+     satu baris pun di ev.payments — jadi DP yang uangnya benar-benar sudah
+     diterima TIDAK PERNAH MUNCUL di halaman Dana Masuk milik kasir, dan
+     tidak punya bukti maupun rekening tujuan di mana pun. Sekarang ia lewat
+     jalur yang sama dengan pembayaran lain (dpFormSinkron), jadi dp_masuk()
+     di backend menemukannya tanpa satu pun endpoint baru.
+
+     SATU PEMILIK, SATU ANGKA. Barisnya ditandai `dariDpForm` dan
+     DISINKRONKAN — bukan ditambah lagi tiap kali Simpan ditekan. Polanya
+     sama persis dengan vipGabungDps() yang mengenali baris asal Marketing
+     lewat vipBuktiId. */
+  const dpRekSkr=String(d.dpRek||'');
+  h+=finBaris('Masuk ke rekening',
+      '<select class="inp" id="efd_dpRek" '+dis+' onchange="dpFormUbah()">'
+      +'<option value="">— pilih rekening —</option>'
+      +DP_REKENING.map(function(m){ return '<option'+(dpRekSkr===m?' selected':'')+'>'+esc(m)+'</option>'; }).join('')
+      +'</select>',
+      'Ke mana uang DP-nya masuk. Inilah yang dipakai mencocokkannya dengan mutasi bank.');
+  h+=finBaris('Tanggal transfer',
+      '<input class="inp" type="date" id="efd_dpTgl" value="'+esc(d.dpTgl||'')+'" '+dis+' onchange="dpFormUbah()">',
+      'Tanggal uangnya masuk, bukan tanggal acaranya. Di halaman Dana Masuk '
+      +'inilah hari yang menerimanya — DP tanpa tanggal tidak muncul di rentang mana pun.');
+  h+=finBaris('Bukti transfer',
+      (d.dpBuktiUrl
+        ? '<div class="fh" id="efd_dpBuktiInfo">✓ <a href="'+esc(d.dpBuktiUrl)+'" target="_blank" rel="noopener">'
+          +esc(d.dpBuktiNama||'bukti transfer')+'</a></div>'
+        : '<div class="fh" id="efd_dpBuktiInfo">Belum ada bukti.</div>')
+      +(canEdit?'<input class="inp" type="file" id="efd_dpBukti" accept="image/*,application/pdf" '
+                +'onchange="dpBuktiPilih(this)" style="margin-top:6px">':''),
+      'Foto struk atau PDF, maksimal 8MB. Langsung terunggah begitu dipilih — '
+      +(d.dpBuktiUrl?'pilih berkas baru untuk menggantinya.':'tidak perlu menekan Simpan dulu.'));
   /* Centangnya di BARIS SENDIRI tepat di bawah nominalnya, bukan diselipkan di
      kalimat bantu: ini satu-satunya isian di tab Finance yang langsung
      mengubah angka Sisa Pelunasan di panel sebelah, dan yang mengubah uang
@@ -10472,10 +10545,109 @@ function hitungFinanceLive(el){
   finLive();
   if(typeof autoSaveTrigger==='function') autoSaveTrigger();
 }
-/* Centang DP punya penangannya sendiri karena ia bukan .seg. Panel kanan
-   digambar ulang seketika: ia satu-satunya isian di tab ini yang langsung
-   mengubah Sisa Pelunasan, dan angka yang baru berubah sesudah halaman
-   digambar ulang membuat yang menekannya menyimpulkan centangnya rusak. */
+/* ============ DP DI TAB FINANCE: SATU PINTU KE DANA MASUK ============
+   Lihat komentar panjang di financeTab(), tempat ketiga kotaknya digambar.
+   Yang di sini aturannya.
+
+   `dpFormKurang` SATU TEMPAT yang memutuskan apa saja yang masih kurang.
+   Dipakai gerbang centang, penjaga di saveEventTab, DAN kalimat keterangan
+   di bawah centangnya. Tiga tempat yang memeriksanya sendiri-sendiri akan
+   menyimpang, dan yang menyimpang di sini adalah centang yang bisa menyala
+   padahal layarnya sendiri berkata belum lengkap. */
+function dpFormKurang(ev){
+  const d=(ev&&ev.detail)||{};
+  const k=[];
+  if(!(+d.depositNominal>0))        k.push('nominal DP');
+  if(!String(d.dpRek||'').trim())   k.push('rekening tujuan');
+  if(!String(d.dpTgl||'').trim())   k.push('tanggal transfer');
+  if(!String(d.dpBuktiUrl||''))     k.push('bukti transfer');
+  return k;
+}
+/* Baris pembayaran yang LAHIR dari kotak-kotak ini, kalau sudah ada.
+   Dikenali lewat penandanya, bukan lewat type/tanggal: pembayaran bertipe DP
+   yang dicatat lewat modal Catat Pembayaran juga ada, dan menimpanya berarti
+   mengganti catatan yang dibuat orang lain. */
+function dpFormBaris(ev){
+  return (ev&&Array.isArray(ev.payments)?ev.payments:[]).find(function(p){ return p && p.dariDpForm; })||null;
+}
+/* Menyamakan baris pembayaran dengan isi kotaknya. Dipanggil dari tombol
+   Simpan tab Finance.
+
+   MEMPERBARUI, TIDAK MENUMPUK. Tanpa ini tiap kali Simpan ditekan lahir satu
+   baris DP lagi — dan di halaman Dana Masuk satu transfer berdiri lima kali
+   dengan nominal yang sama, masing-masing kelihatan wajar.
+
+   YANG TIDAK LENGKAP TIDAK MELAHIRKAN APA PUN, dan barisnya yang terlanjur
+   ada TIDAK dihapus di sini: penghapusan catatan uang cuma boleh terjadi
+   lewat jalan yang menanyakannya (dpPaidUbah saat centang dimatikan, atau
+   tombol hapus di daftar pembayaran). */
+function dpFormSinkron(ev){
+  const d=(ev&&ev.detail)||{};
+  if(!ynBool(d.dpPaid,false)) return;
+  if(dpFormKurang(ev).length) return;
+  const nom=+d.depositNominal||0;
+  const isi={ type:'DP', amount:nom, method:d.dpRek||'', at:d.dpTgl||'',
+              receipt:d.dpBuktiNama||'', receiptUrl:d.dpBuktiUrl||'' };
+  const lama=dpFormBaris(ev);
+  if(lama){ Object.assign(lama,isi); return; }
+  ev.payments=Array.isArray(ev.payments)?ev.payments:[];
+  ev.payments.push(Object.assign({ id:uid('p'), no:kwitansiNo(), verified:true,
+    by:(ME?ME.name:''), dariDpForm:true }, isi));
+  logAct('event',ev.id,'DP dicatat dari tab Finance',rp(nom)+' · '+(d.dpRek||'')+' · '+(d.dpTgl||''));
+}
+/* Rekening & tanggal ditulis LANGSUNG ke ev, sama seperti centangnya —
+   render di tab ini TOTAL, jadi apa pun yang cuma ada di DOM ikut hilang
+   begitu halamannya digambar ulang. Keterangan di bawah centang ikut
+   disegarkan: ia menyebut apa yang masih kurang, dan kalimat yang membeku
+   pada keadaan sebelum kotaknya diisi lebih buruk daripada tidak ada. */
+function dpFormUbah(){
+  const ev=S.events.find(x=>x.id===_asEvId); if(!ev) return;
+  ev.detail=ev.detail||{};
+  const r=$('efd_dpRek'); if(r) ev.detail.dpRek=r.value||'';
+  const t=$('efd_dpTgl'); if(t) ev.detail.dpTgl=t.value||'';
+  dpPaidKetSegar(ev);
+  if(typeof autoSaveTrigger==='function') autoSaveTrigger();
+}
+/* Bukti diunggah SEKETIKA saat berkasnya dipilih, bukan ditahan sampai
+   Simpan. Dua sebabnya: saveEventTab sinkron (menunggu unggahan di sana
+   berarti mengubah seluruh jalur simpan jadi async), dan orang yang memilih
+   berkas lalu berpindah tab tanpa menekan Simpan akan kehilangan berkasnya
+   tanpa satu pun tanda. Pola yang sama dengan vipUnggahBukti. */
+async function dpBuktiPilih(inp){
+  const ev=S.events.find(x=>x.id===_asEvId); if(!ev) return;
+  const f=inp&&inp.files&&inp.files[0]; if(!f) return;
+  const info=$('efd_dpBuktiInfo');
+  if(f.size>8*1024*1024){ inp.value=''; return toast('File terlalu besar','Bukti transfer maksimal 8MB.','err'); }
+  if(info) info.textContent='Mengunggah '+f.name+'…';
+  try{
+    const b64=await fileToBase64(f);
+    const res=await fetch(API_URL,{method:'POST',headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'uploadReceipt',fileName:f.name,mimeType:f.type,dataBase64:b64})});
+    const data=await res.json();
+    if(!data||!data.ok) throw new Error(data&&data.error?data.error:'ditolak server');
+    ev.detail=ev.detail||{};
+    ev.detail.dpBuktiUrl=attachUrl(data.data.key);
+    ev.detail.dpBuktiNama=data.data.name||f.name;
+    if(info) info.innerHTML='✓ <a href="'+esc(ev.detail.dpBuktiUrl)+'" target="_blank" rel="noopener">'
+      +esc(ev.detail.dpBuktiNama)+'</a>';
+    /* Berkasnya sudah di server, tapi ALAMATNYA baru ada di memori halaman
+       ini. Menutup tab sekarang membuang tautannya — buktinya jadi berkas
+       yatim yang tidak ditunjuk baris mana pun. Karena itu langsung
+       disimpan, tidak menunggu tombol. */
+    save();
+    dpPaidKetSegar(ev);
+    toast('Bukti terunggah',ev.detail.dpBuktiNama,'ok');
+  }catch(e){
+    if(info) info.textContent='Gagal mengunggah: '+(e.message||e)+' — coba lagi.';
+    toast('Gagal unggah','Bukti transfer DP gagal diunggah. Coba lagi.','err');
+  }
+  inp.value='';   // memilih berkas yang SAMA lagi tetap memicu onchange
+}
+function dpPaidKetSegar(ev){
+  const ket=$('efd_dpPaidKet'); if(!ket) return;
+  const bay=(typeof finBayangan==='function'?finBayangan(ev):ev);
+  ket.innerHTML=dpPaidKetHTML(bay,eventFinance(bay));
+}
 /* Kalimat di bawah centang "DP sudah dibayar". Menjawab satu pertanyaan:
    apakah menyalakan centang ini mengubah angka, dan kalau tidak, kenapa. */
 function dpPaidKetHTML(ev,f){
@@ -10487,28 +10659,84 @@ function dpPaidKetHTML(ev,f){
   if(!f) return '';
   if(!finPakaiDp(ev) || !f.dp)
     return 'Acara ini belum memakai DP. Isi <b>DP / Uang Muka</b> di atas dulu.';
+  /* APA YANG MASIH KURANG DISEBUT DI SINI, bukan cuma saat tombolnya ditekan.
+     Centang yang menolak dinyalakan tanpa mengatakan sebabnya lebih dulu
+     terbaca sebagai centang yang rusak — itu persis keluhan yang melahirkan
+     kalimat ini pada 13 Agustus 2026. */
+  const kurang=dpFormKurang(ev);
+  const nyala=ynBool((ev.detail||{}).dpPaid,false);
+  if(kurang.length && !nyala)
+    return 'Belum ditandai masuk. Isi <b>'+esc(kurang.join(', '))+'</b> di atas dulu — '
+      +'ketiganya wajib supaya DP ini muncul di halaman <b>Dana Masuk</b> milik kasir.';
+  if(kurang.length && nyala)
+    return '⚠ Ditandai sudah dibayar, tapi <b>'+esc(kurang.join(', '))+'</b> belum diisi. '
+      +'Selama itu DP ini <b>tidak muncul di Dana Masuk</b> dan tidak bisa dicocokkan '
+      +'dengan mutasi bank oleh siapa pun.';
+  if(!nyala)
+    return 'Belum ditandai. Sisa pelunasan masih dihitung seolah DP '+rp(f.dp)+' belum masuk. '
+      +'Centang kalau uangnya memang sudah diterima — barisnya lalu muncul di <b>Dana Masuk</b>.';
+  const kePayment='<div style="margin-top:3px">Tercatat sebagai pembayaran DP '
+    +rp(+(ev.detail||{}).depositNominal||0)+' lewat <b>'+esc((ev.detail||{}).dpRek||'')+'</b>, '
+    +'dan muncul di halaman <b>Dana Masuk</b>.</div>';
   if(f.dpTertutupBayar)
     return '✓ Ditandai sudah dibayar. Angkanya <b>tidak menambah Terbayar</b> — pembayaran '
       +'yang sudah dicatat ('+rp(f.bayarTercatat)+') memang sudah melampaui DP ('+rp(f.dp)+'), '
-      +'jadi menambahkannya lagi akan menghitung uang yang sama dua kali.';
+      +'jadi menambahkannya lagi akan menghitung uang yang sama dua kali.'+kePayment;
   if(f.dpDiakui)
     return '✓ Ditandai sudah dibayar. <b>'+rp(f.dpDiakui)+'</b> ikut dihitung sebagai Terbayar '
       +(f.bayarTercatat?'di atas '+rp(f.bayarTercatat)+' yang sudah dicatat di tab Kasir.'
-                       :'walau belum ada pembayaran yang dicatat di tab Kasir.');
-  return 'Belum ditandai. Sisa pelunasan masih dihitung seolah DP '+rp(f.dp)+' belum masuk.';
+                       :'walau belum ada pembayaran yang dicatat di tab Kasir.')+kePayment;
+  return '✓ Ditandai sudah dibayar.'+kePayment;
 }
+/* Centang DP punya penangannya sendiri karena ia bukan .seg. Panel kanan
+   digambar ulang seketika: ia satu-satunya isian di tab ini yang langsung
+   mengubah Sisa Pelunasan, dan angka yang baru berubah sesudah halaman
+   digambar ulang membuat yang menekannya menyimpulkan centangnya rusak. */
 function dpPaidUbah(){
   const ev=S.events.find(x=>x.id===_asEvId); if(!ev) return;
   const c=$('efd_dpPaid'); if(!c) return;
   ev.detail=ev.detail||{};
+  /* GERBANGNYA DI SINI, di titik orang menyatakan uangnya masuk — bukan di
+     tombol Simpan. Ditolak saat Simpan, orang sudah mengisi seluruh tab lalu
+     dipulangkan ke satu kotak di tengahnya; ditolak di sini, sebabnya
+     terbaca pada detik yang sama ia menekannya. Penjaganya tetap BERLAPIS:
+     saveEventTab memeriksanya lagi, karena centang ini bisa diubah dari
+     devtools dan karena event lama memang sudah terlanjur menyala. */
+  if(c.checked){
+    const kurang=dpFormKurang(ev);
+    if(kurang.length){
+      c.checked=false;
+      ev.detail.dpPaid={v:false};
+      dpPaidKetSegar(ev);
+      return toast('Belum bisa ditandai masuk',
+        'Isi dulu '+kurang.join(', ')+'. DP yang dinyatakan masuk tanpa bukti & rekening '
+        +'tidak bisa dicocokkan dengan mutasi bank oleh siapa pun.','err');
+    }
+  }else{
+    /* MEMATIKAN CENTANG MEMBUANG BARIS PEMBAYARAN yang dilahirkannya —
+       kalau tidak, DP-nya tetap berdiri di Dana Masuk padahal layar ini
+       berkata uangnya belum masuk. Ditanya dulu, dan pertanyaannya MENYEBUT
+       nominal & nomor kwitansinya: pertanyaan tanpa isi cuma melatih orang
+       menekan OK. */
+    const b=dpFormBaris(ev);
+    if(b){
+      if(!confirm('Lepas tanda "DP sudah dibayar"?\n\nBaris pembayaran '+(b.no||'')
+          +' · DP '+rp(+b.amount||0)+' yang lahir dari kotak-kotak ini akan DIBUANG, '
+          +'dan DP-nya hilang dari halaman Dana Masuk.\n\nBuktinya tetap tersimpan di kotak Bukti Transfer.')){
+        c.checked=true;
+        return;   // ev.detail.dpPaid belum disentuh — keadaannya memang tidak berubah
+      }
+      ev.payments=(ev.payments||[]).filter(function(p){ return p!==b; });
+      logAct('event',ev.id,'DP dari tab Finance dibatalkan',(b.no||'')+' · '+rp(+b.amount||0));
+    }
+  }
   ev.detail.dpPaid={v:!!c.checked};
+  dpFormSinkron(ev);
   /* Keterangannya disegarkan di tempat. finLive() hanya menggambar ulang panel
      kanan; kalimat ini duduk di kolom KIRI bersama centangnya, jadi tanpa
      baris ini ia membeku pada keadaan sebelum ditekan — kalimat basi yang
      menjelaskan keadaan yang sudah berubah lebih buruk daripada tidak ada. */
-  const ket=$('efd_dpPaidKet');
-  if(ket){ const bay=(typeof finBayangan==='function'?finBayangan(ev):ev);
-    ket.innerHTML=dpPaidKetHTML(bay,eventFinance(bay)); }
+  dpPaidKetSegar(ev);
   finLive();
   if(typeof autoSaveTrigger==='function') autoSaveTrigger();
 }
@@ -10524,6 +10752,14 @@ function collectFinanceInto(ev){
   ev.detail.svcApply=segVal('efd_svcApply');
   ev.detail.taxInclude=segVal('efd_taxInclude');
   const dpC2=$('efd_dpPaid'); if(dpC2) ev.detail.dpPaid={v:!!dpC2.checked};
+  /* Rekening & tanggal DIBACA ULANG DARI DOM di sini, walau dpFormUbah()
+     sudah menulisnya tiap kali diubah. Penangan `change` tidak jalan untuk
+     isian yang diisi autofill atau pemilih tanggal bawaan peramban di
+     sebagian platform, dan yang terkirim lalu kosong padahal di layar jelas
+     terisi. Pelajaran yang sudah dibayar cbSimpanTambah() di halaman
+     Pencocokan QRIS BRI. */
+  const dpR=$('efd_dpRek'); if(dpR) ev.detail.dpRek=dpR.value||'';
+  const dpT=$('efd_dpTgl'); if(dpT) ev.detail.dpTgl=dpT.value||'';
   ev.detail.npwp=$('efd_npwp').value;
   const dpN=$('efd_dpNominal'); if(dpN){ const dg=rupiahDigits(dpN.value); ev.detail.depositNominal=dg===''?'':(+dg); }
   const dOn=$('efd_fbDealOn'); if(dOn) ev.detail.fbDealOn=dOn.classList.contains('on');
@@ -10751,8 +10987,15 @@ function deletePayment(id,paymentId){
   if(!(can('verify_payment')||ME.role==='super_admin'))return toast('Akses ditolak','Kamu tidak punya izin menghapus pembayaran.','err');
   const ev=S.events.find(e=>e.id===id); if(!ev)return;
   const p=(ev.payments||[]).find(x=>x.id===paymentId); if(!p)return;
-  if(!confirm('Hapus pembayaran '+(p.no||'')+' · '+p.type+' '+rp(p.amount)+'? Tindakan ini tidak bisa dibatalkan.'))return;
+  if(!confirm('Hapus pembayaran '+(p.no||'')+' · '+p.type+' '+rp(p.amount)+'? Tindakan ini tidak bisa dibatalkan.'
+    +(p.dariDpForm?'\n\nBaris ini lahir dari centang "DP sudah dibayar" di tab Finance — centangnya ikut dilepas, '
+                  +'jadi Sisa Pelunasan kembali dihitung seolah DP-nya belum masuk.':'')))return;
   ev.payments=ev.payments.filter(x=>x.id!==paymentId);
+  /* CENTANGNYA IKUT DILEPAS. Kalau tidak, layar tab Finance berkata DP sudah
+     masuk sementara barisnya sudah tidak ada di mana pun — dan penyimpanan
+     berikutnya MELAHIRKANNYA LAGI lewat dpFormSinkron, sehingga baris yang
+     barusan dihapus muncul kembali dengan nomor kwitansi baru. */
+  if(p.dariDpForm){ ev.detail=ev.detail||{}; ev.detail.dpPaid={v:false}; }
   logAct('event',id,'Pembayaran dihapus',(p.no||'')+' · '+p.type+' '+rp(p.amount));
   save();
   toast('Pembayaran dihapus','Sisa sekarang '+rp(eventFinance(ev).remaining),'ok');
@@ -16480,7 +16723,10 @@ function vipFormUI(){
      +'<input id="vip_bukti_file" type="file" accept="image/*,application/pdf" '
      +'onchange="vipUnggahBukti(this)" style="margin-top:6px">'
      +'<div class="fh">Boleh lebih dari satu — DP yang dicicil ditulis satu baris per transfer, '
-     +'masing-masing dengan nominal, metode &amp; buktinya sendiri. Tekan <b>×</b> untuk membuang satu baris. '
+     +'masing-masing dengan nominal, rekening tujuan &amp; buktinya sendiri. '
+     +'<b>Nominal &amp; rekening tujuan wajib diisi</b> untuk tiap baris: keduanya ikut ke halaman '
+     +'Dana Masuk, dan DP tanpa rekening tidak bisa dicocokkan dengan mutasi bank mana pun. '
+     +'Tekan <b>×</b> untuk membuang satu baris. '
      +'Foto atau PDF, maksimal 8MB. <b>Ikut terkirim ke modul Reservasi</b>, jadi kru di sana '
      +'melihat DP yang sama tanpa perlu diketik ulang.</div></div>'
      /* Pertanyaan menu hanya muncul untuk ASSISTED, dan ikut di dalam wrap
@@ -16565,7 +16811,13 @@ function vipClientBaruToggle(){
    menumpuk cicilan kembar tiap kali orang menekan Simpan. Data lama tidak
    punya id — diberikan di sini, sekali, dan ikut tersimpan pada save()
    berikutnya. */
-const VIP_DP_METODE=['QRIS BRI','Transfer UOB','Cash','QRIS BCA'];
+/* DAFTAR REKENING TUJUAN — DIPAKAI BERSAMA Reservasi VIP dan kotak
+   "Masuk ke rekening" di tab Finance event (20 September 2026). Namanya
+   sempat VIP_DP_METODE; diganti begitu event ikut memakainya, karena daftar
+   kedua berisi rekening yang sama pasti menyimpang suatu hari — dan yang
+   menyimpang di sini adalah rekening yang disebut dua layar berbeda untuk
+   satu transfer yang sama. */
+const DP_REKENING=['QRIS BRI','Transfer UOB','Cash','QRIS BCA'];
 function vipBuktiList(v){
   const arr=Array.isArray(v&&v.bukti)?v.bukti:[];
   arr.forEach(function(b,i){ if(b&&!b.id) b.id='dp'+i+'-'+String(b.key||'').slice(-8); });
@@ -16602,13 +16854,19 @@ function vipBuktiHTML(f){
                  diam-diam oleh peramban (yang pertama menang) — nominal yang
                  diketik tidak akan pernah sampai ke VIP_FORM, tanpa galat apa
                  pun. Jadi keduanya digabung dalam satu penangan. */
+              /* KOTAK YANG MASIH KOSONG DITANDAI DI KOTAKNYA SENDIRI, bukan
+                 cuma lewat pesan saat Simpan ditekan. Pesannya menyebut baris
+                 keberapa, dan mencocokkan "DP 3" dengan baris di daftar yang
+                 tiap barisnya berisi foto, nama berkas, dan dua kotak isian
+                 adalah pekerjaan yang tidak perlu ada. Aturan yang sama
+                 dengan .rpin.err di panel Kas Kecil. */
               +'<div class="cur-wrap"><span class="cur-pre">Rp</span>'
-                +'<input class="inp cur-inp" type="text" inputmode="numeric" id="vip_dp_n'+i+'" '
-                +'value="'+rupiahFmt(b.nominal)+'" placeholder="Nominal DP" '
+                +'<input class="inp cur-inp'+((+b.nominal>0)?'':' dp-kosong')+'" type="text" inputmode="numeric" id="vip_dp_n'+i+'" '
+                +'value="'+rupiahFmt(b.nominal)+'" placeholder="Nominal DP (wajib)" '
                 +'oninput="onRupiahInput(this);vipSetDpNominal('+i+',this.value)"></div>'
-              +'<select onchange="vipSetDpMetode('+i+',this.value)">'
-                +'<option value="">Metode…</option>'
-                +VIP_DP_METODE.map(function(m){ return '<option'+(String(b.metode||'')===m?' selected':'')+'>'+esc(m)+'</option>'; }).join('')
+              +'<select class="'+(String(b.metode||'').trim()?'':'dp-kosong')+'" onchange="vipSetDpMetode('+i+',this.value)">'
+                +'<option value="">Rekening tujuan… (wajib)</option>'
+                +DP_REKENING.map(function(m){ return '<option'+(String(b.metode||'')===m?' selected':'')+'>'+esc(m)+'</option>'; }).join('')
               +'</select>'
             +'</div>'
           +'</div>'
@@ -16974,6 +17232,39 @@ function vipKumpulkan(){
   if(!f.hp) return 'No. HP wajib diisi.';
   if(!f.jamMulai) return 'Jam kedatangan wajib diisi.';
   if(!(+f.paxMin)) return 'Jumlah orang wajib diisi.';
+  /* TIAP BUKTI TRANSFER WAJIB PUNYA NOMINAL & REKENING TUJUANNYA
+     (20 September 2026, permintaan user).
+
+     Buktinya sendiri sudah wajib secara konstruksi — satu baris DP di sini
+     LAHIR dari satu berkas yang diunggah (vipUnggahBukti), jadi DP tanpa
+     lampiran memang tidak bisa dibuat. Yang selama ini bisa terlewat justru
+     dua kotak di sebelahnya: nominalnya kosong, dan pilihan rekeningnya
+     masih berbunyi "Metode…".
+
+     Keduanya menyeberang ke modul Reservasi lewat vipDpsUntukReservasi()
+     sebagai `amount` dan `method`, lalu jadi baris di halaman Dana Masuk.
+     Nominal nol di sana terbaca sebagai transfer yang gagal dibaca, dan
+     rekening kosong membuat DP-nya tidak bisa dicocokkan dengan mutasi bank
+     mana pun — dua kegagalan yang baru ketahuan berhari-hari kemudian, di
+     modul sebelah, oleh orang yang tidak pernah membuka formulir ini.
+
+     DITOLAK KERAS, tanpa pengecualian untuk data lama — beda dari bukti DP
+     di modul Reservasi, yang memang cuma ditanya sekali. Bedanya: berkas
+     bukti mungkin tidak dipegang orang yang sedang menyunting, sementara
+     nominal dan rekening bisa diisi saat itu juga dari baris yang sama —
+     buktinya pun tergantung sebagai tautan tepat di sebelah kotaknya.
+
+     BARISNYA DISEBUT SATU PER SATU. Pesan yang cuma berbunyi "ada DP yang
+     belum lengkap" membuat orang memeriksa lima baris untuk menemukan satu
+     kotak yang kosong. */
+  const dpKurang=[];
+  vipBuktiList(f).forEach(function(b,i){
+    const k=[];
+    if(!(+b.nominal>0)) k.push('nominal');
+    if(!String(b.metode||'').trim()) k.push('rekening tujuan');
+    if(k.length) dpKurang.push('DP '+(i+1)+' ('+(b.name||'bukti')+') belum ada '+k.join(' & '));
+  });
+  if(dpKurang.length) return dpKurang.join('; ')+'.';
   /* Nominal SENGAJA tidak wajib di sini. Angkanya baru diketahui sesudah
      acaranya jalan, jadi memaksanya di depan cuma memancing orang mengarang
      angka supaya formnya mau lanjut. Yang belum terisi ditandai di daftar. */

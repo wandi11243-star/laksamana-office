@@ -1155,6 +1155,166 @@ berkas ini:
 > dan aturan yang tidak pernah ditulis di sana tidak menimbulkan galat di satu
 > sisi pun. Pola yang sama dengan `uji-simpan-basi.js`.
 
+### DP wajib berbukti & berekening — dan DP event akhirnya sampai ke Dana Masuk (20 Sep 2026)
+
+Permintaan user, tiga jalur sekaligus: *"diinput event modul marketing ini
+tambahkan kolom upload bukti tf, dan TF nya ke rekening yg mana. dan bersifat
+required jika nominal DP sudah diisi"*, hal yang sama untuk **Reservasi VIP**,
+dan di **modul Reservasi** *"kalau misalnya ada DP terus nominal dan upload
+bukti itu wajib dan required kalau tidak terisi tidak bisa simpan"*.
+
+#### YANG DITEMUKAN SAAT MENGERJAKANNYA lebih penting daripada fiturnya
+
+Centang **"DP sudah dibayar"** di tab Finance event sampai tanggal ini cuma
+**PERNYATAAN TELANJANG**: ia menggeser Sisa Pelunasan lewat `dpDiakui`, tapi
+**tidak pernah membuat satu baris pun di `ev.payments`** — sementara
+`dp_masuk()` di backend HANYA membaca `payments[]`. Jadi:
+
+| | akibatnya |
+|---|---|
+| DP event yang uangnya sudah diterima | **tidak pernah muncul** di tab DP Event halaman Dana Masuk |
+| bukti transfernya | tidak ada di mana pun |
+| rekening tujuannya | tidak pernah ditanyakan |
+
+Tab DP Event itu sendiri baru lahir beberapa jam sebelumnya, dan ia memang
+menampilkan pembayaran — cuma yang lewat modal **Catat Pembayaran**. DP yang
+diisi di tab Finance lewat jalur yang berbeda, dan jalur itu buntu.
+
+#### GERBANGNYA DI CENTANG, BUKAN DI NOMINAL — dan itu menyimpang dari kata user
+
+Yang diminta berbunyi *"required jika nominal DP sudah diisi"*, dan itu tidak
+bisa dikerjakan apa adanya: **nominal DP adalah KETENTUAN yang tercetak di
+Surat Penawaran**, diisi jauh sebelum tamunya transfer (`f.dp` dipakai baris
+*"DP yang ditagih"* di lembar invoice). Mewajibkan bukti di situ berarti tidak
+ada satu pun penawaran ber-DP selain 50% bawaan yang bisa dicetak sampai
+uangnya masuk — kebalikan dari urutan kerja yang sebenarnya.
+
+Yang menyatakan uang **MASUK** adalah centangnya, dan di situlah kewajibannya
+berdiri. Nominal sendirian tetap bebas; layarnya **mengatakan** bahwa angka itu
+masih ketentuan penawaran.
+
+#### Bentuknya di tab Finance
+
+```
+DP / Uang Muka        [Rp …]        ketentuan penawaran — bebas
+Masuk ke rekening     [select]      \
+Tanggal transfer      [date]         }  wajib begitu centangnya dinyalakan
+Bukti transfer        [file]        /
+DP sudah dibayar      ☐ Sudah masuk → MELAHIRKAN baris payments bertipe DP
+```
+
+- **SATU DAFTAR REKENING** (`DP_REKENING`) untuk Reservasi VIP dan tab Finance.
+  Namanya sempat `VIP_DP_METODE`; diganti begitu event ikut memakainya —
+  daftar kedua berisi rekening yang sama pasti menyimpang suatu hari, dan yang
+  menyimpang adalah rekening yang disebut dua layar berbeda untuk satu
+  transfer.
+- **BARISNYA DITANDAI `dariDpForm` dan DISINKRONKAN**, bukan ditambah lagi tiap
+  Simpan ditekan. Tanpa itu satu transfer berdiri lima kali di Dana Masuk
+  dengan nominal yang sama, masing-masing kelihatan wajar. Polanya sama persis
+  dengan `vipGabungDps()` yang mengenali baris asal Marketing lewat
+  `vipBuktiId`.
+- **TANGGAL TRANSFER WAJIB justru karena `dp_masuk()` MEMBUANG pembayaran tanpa
+  tanggal** — ia tidak dijatuhkan ke tanggal acara, karena itu menaruh uang di
+  hari yang tidak pernah menerimanya. Tanpa tanggal, barisnya tidak akan pernah
+  muncul di rentang mana pun.
+- **BUKTI DIUNGGAH SEKETIKA saat berkasnya dipilih, lalu LANGSUNG `save()`.**
+  Dua sebabnya: `saveEventTab()` sinkron (menunggu unggahan di sana berarti
+  mengubah seluruh jalur simpan jadi async), dan berkas yang sudah di server
+  sementara ALAMATNYA cuma ada di memori halaman menjadi berkas yatim begitu
+  tabnya ditutup. Pola `vipUnggahBukti`.
+- **PENJAGANYA BERLAPIS.** Yang pertama di `dpPaidUbah()`, di titik orang
+  menyatakan uangnya masuk — ditolak saat Simpan, orang sudah mengisi seluruh
+  tab lalu dipulangkan ke satu kotak di tengahnya. Yang kedua di
+  `saveEventTab()`, karena centangnya bisa diubah dari devtools dan karena
+  rekening/tanggalnya bisa dikosongkan lagi sesudah lolos gerbang pertama.
+- **EVENT LAMA TIDAK DIKUNCI**, dan yang membedakannya **bukan penanda baru
+  melainkan ADA-TIDAKNYA BUKTI**: bukti tidak bisa lahir tanpa melewati gerbang
+  pertama, jadi `dpPaid` menyala + bukti ada = pernah lengkap → tolak keras;
+  `dpPaid` menyala + bukti tidak pernah ada = event lama → biarkan disimpan,
+  cuma tidak melahirkan baris pembayaran. Menguncinya berarti event yang sudah
+  terlanjur begitu tidak bisa disunting siapa pun — termasuk nama acaranya.
+- **MEMATIKAN CENTANG MEMBUANG BARISNYA**, ditanya dulu, dan pertanyaannya
+  MENYEBUT nominal & nomor kwitansinya. Kalau tidak, DP-nya tetap berdiri di
+  Dana Masuk padahal layar ini berkata uangnya belum masuk. Buktinya **tidak**
+  ikut dibuang — berkasnya sudah di server, dan mencabut tautannya cuma
+  melahirkan berkas yatim.
+- **`deletePayment` untuk baris `dariDpForm` IKUT MELEPAS CENTANGNYA.** Tanpa
+  itu penyimpanan berikutnya **MELAHIRKANNYA LAGI** lewat `dpFormSinkron` —
+  baris yang barusan dihapus muncul kembali dengan nomor kwitansi baru, dan
+  yang menghapusnya menyimpulkan tombolnya rusak.
+- **`dpFormKurang()` SATU TEMPAT** yang memutuskan apa yang kurang, dipakai
+  gerbang centang, penjaga Simpan, DAN kalimat keterangan di bawah centangnya.
+  Tiga tempat yang memeriksanya sendiri-sendiri akan menyimpang, dan yang
+  menyimpang adalah centang yang bisa menyala padahal layarnya sendiri berkata
+  belum lengkap.
+- **Rekening & tanggal DIBACA ULANG DARI DOM** di `collectFinanceInto()` walau
+  `dpFormUbah()` sudah menulisnya tiap kali diubah: penangan `change` tidak
+  jalan untuk isian yang diisi autofill atau pemilih tanggal bawaan peramban di
+  sebagian platform. Pelajaran `cbSimpanTambah()` di Pencocokan QRIS BRI.
+
+#### Reservasi VIP: buktinya sudah wajib, nominal & rekeningnya belum
+
+DP di sana **LAHIR dari satu berkas yang diunggah** (`vipUnggahBukti`), jadi DP
+tanpa lampiran memang tidak bisa dibuat — itu sudah aman secara konstruksi.
+Yang selama ini bisa terlewat dua kotak di sebelahnya: nominalnya kosong, dan
+pilihan rekeningnya masih berbunyi *"Metode…"*. Keduanya menyeberang ke modul
+Reservasi lewat `vipDpsUntukReservasi()` sebagai `amount` & `method`, lalu jadi
+baris di Dana Masuk.
+
+- **DITOLAK KERAS, tanpa pengecualian data lama** — beda dari bukti DP di modul
+  Reservasi, yang memang cuma ditanya sekali. Bedanya: berkas bukti mungkin
+  tidak dipegang orang yang sedang menyunting, sementara nominal dan rekening
+  bisa diisi saat itu juga dari baris yang sama — buktinya pun tergantung
+  sebagai tautan tepat di sebelah kotaknya.
+- **BARISNYA DISEBUT SATU PER SATU** (`DP 2 (struk2.jpg) belum ada rekening
+  tujuan`). Pesan yang cuma berbunyi "ada DP yang belum lengkap" membuat orang
+  memeriksa lima baris untuk menemukan satu kotak kosong.
+- **Kotak yang kosong ditandai DI KOTAKNYA** (`.dp-kosong`), bukan cuma lewat
+  pesan saat Simpan ditekan — aturan yang sama dengan `.rpin.err` di panel Kas
+  Kecil.
+- Gerbangnya di `vipKumpulkan()`, yang dipakai **kedua** jalur simpan
+  (`vipSimpanSaja` dan `vipLanjutMeja`).
+
+#### Modul Reservasi: nominal ikut wajib
+
+Bukti sudah wajib sejak 6 September 2026; yang ditambahkan **nominal**.
+
+- **DIPERIKSA DI SATU TEMPAT, bukan dua penjaga berurutan**: yang kekurangan
+  dua-duanya akan menjawab dua kotak konfirmasi berturut-turut untuk satu
+  persoalan yang sama, dan kotak kedua itulah yang ditekan tanpa dibaca.
+- **DP bernominal nol** bukan sekadar isian yang kurang rapi: halaman Dana
+  Masuk MENJUMLAHKANNYA, dan Rp0 di sana terbaca sebagai transfer yang
+  nominalnya gagal dibaca — bukan sebagai angka yang memang belum diketahui.
+  Dua keadaan itu ditelusuri dengan cara yang berbeda.
+- **Yang disorot kotak PERTAMA yang kurang.** Menyuruh orang menggulir ke kotak
+  bukti padahal yang kosong nominalnya membuat ia mencari kesalahan di tempat
+  yang tidak salah apa-apa.
+- **Reservasi lama tetap cuma ditanya sekali**, aturan yang tidak berubah.
+- Modal **Tambah DP** sudah mewajibkan keduanya sejak awal; tidak disentuh.
+
+```bash
+node tools/uji-dp-form-marketing.js   # 69 pemeriksaan, jsdom (event + VIP)
+node tools/uji-bukti-dp.js            # 33 pemeriksaan (dari 25), jsdom
+```
+
+**Delapan belas mutasi dicoba, kedelapan belasnya tertangkap** — tapi DUA baru
+sesudah ujinya dibetulkan, dan keduanya bentuk yang sudah punya nama di berkas
+ini:
+
+| yang salah | sebabnya | yang ditutup |
+|---|---|---|
+| "keterangan berhenti menyebut yang kurang" LOLOS | kalimatnya punya DUA cabang (centang mati / centang menyala), dan ujinya cuma menyentuh yang kedua | asersi atas cabang centang MATI, di bloknya sendiri |
+| "label nominal tidak bertanda wajib" LEWAT | frasa yang sama hidup di modal Tambah DP, jadi polanya cocok **2x** dan runner-nya melewatinya — **LEWAT berarti tidak diuji sama sekali, bukan aman** | asersi & mutasinya DIJEPIT ke kotak `name="dpAmount"` milik form reservasi |
+
+> **Yang diukur JUMLAH BARIS `payments`, bukan pesan di layar.** Itu
+> satu-satunya yang bisa membedakan "ditahan" dari "diperingatkan lalu tetap
+> dicatat" — dan mutasi yang persis begitu memang dicoba.
+
+> **TIDAK ADA PERUBAHAN BACKEND sama sekali.** `dp_masuk()` sudah membaca
+> `payments[]` berikut `method` & `receiptUrl`-nya, dan `save_all()` menulis
+> blob `data` apa adanya — jadi `dpRek`/`dpTgl`/`dpBukti*` di `detail` ikut
+> sendiri, tanpa berkas migrasi yang bisa tertinggal di produksi.
+
 ### Meja terkunci jadi KONFIRMASI, bukan tembok (20 September 2026)
 
 Lima permintaan user dalam satu pesan, dan empat di antaranya satu hal:

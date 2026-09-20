@@ -128,7 +128,7 @@ function isiForm(w, opt) {
   set('time', '19:00');
   set('pax', '4');
   set('table', 'A1');
-  set('dpAmount', '500.000');
+  set('dpAmount', opt.nominal === undefined ? '500.000' : opt.nominal);
   const r = d.querySelector('input[name=dpStatus][value="' + (opt.dp ? 'Sudah' : 'Belum') + '"]');
   if (r) r.checked = true;
   return true;
@@ -137,6 +137,15 @@ function isiForm(w, opt) {
 (async () => {
   /* ============ 1. sumber: tanda wajib & keterangannya ============ */
   console.log('\n== Label & keterangan ==');
+  /* DIJEPIT ke kotaknya sendiri. Frasa yang sama juga hidup di modal Tambah
+     DP, jadi asersi yang menyapu seluruh berkas cocok dengan label yang BUKAN
+     yang diuji — dan mutasi yang mencabut bintang di form reservasi lolos
+     tanpa bunyi. Bentuk yang sudah menggigit berkali-kali di repo ini. */
+  cek('label nominal DP di FORM RESERVASI bertanda wajib',
+      (() => {
+        const i = HTML.indexOf('<label>Nominal DP <span class="req">*</span></label>');
+        return i > -1 && HTML.slice(i, i + 300).indexOf('name="dpAmount"') > -1;
+      })());
   cek('label bukti DP bertanda wajib',
       HTML.indexOf('Upload Bukti DP (foto/pdf) <span class="req">*</span>') > -1);
   cek('label bukti di modal Tambah DP bertanda wajib',
@@ -169,10 +178,58 @@ function isiForm(w, opt) {
     const sesudah = w.eval('STATE.reservations.length');
 
     cek('reservasi TIDAK tersimpan', sesudah === sebelum, sebelum + ' -> ' + sesudah);
-    cek('sebabnya dikatakan lewat toast', /[Bb]ukti DP wajib/.test(toastTerakhir(w)), toastTerakhir(w));
+    /* Yang dituntut: pesannya MENYEBUT apa yang kurang, bukan sekadar berbunyi
+       'belum lengkap'. Pesan yang tidak menyebutnya membuat orang memeriksa
+       kotak yang sebenarnya sudah benar. */
+    cek('sebabnya dikatakan lewat toast',
+        /bukti transfer/i.test(toastTerakhir(w)) && /wajib/i.test(toastTerakhir(w)), toastTerakhir(w));
+    cek('yang TIDAK kurang tidak ikut disebut',
+        !/nominal/i.test(toastTerakhir(w)), toastTerakhir(w));
     /* Yang belum pernah tersimpan tidak boleh cuma "ditanya" — pertanyaan yang
        bisa dijawab OK adalah gerbang yang tidak menahan apa pun. */
     cek('tidak sekadar ditanya confirm()', jejak.confirm === 0, jejak.confirm + '× confirm');
+  }
+
+  /* ============ 2b. NOMINAL DP kosong = ditolak (20 Sep 2026) ============
+     DP bernominal nol ikut dijumlahkan halaman Dana Masuk, dan Rp0 di sana
+     terbaca sebagai transfer yang nominalnya gagal dibaca — bukan sebagai
+     angka yang memang belum diketahui. Yang diuji JUMLAH BARIS TERSIMPAN,
+     bukan ada-tidaknya toast: itu satu-satunya yang bisa membedakan
+     "ditahan" dari "diperingatkan lalu tetap disimpan". */
+  console.log('\n== Reservasi baru: DP tanpa nominal ==');
+  {
+    const { w, jejak } = dom({});
+    await masuk(w);
+    tangkapToast(w);
+    const besok = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+    w.eval('newReservation()');
+    await tunggu(120);
+    isiForm(w, { tgl: besok, dp: true, nominal: '' });
+    /* Buktinya ADA — jadi yang menahan simpannya pasti nominalnya, bukan
+       penjaga bukti yang sudah ada sejak 6 September 2026. Tanpa ini
+       asersinya hampa: keduanya kurang, dan yang berbunyi bisa saja yang
+       lama. */
+    w.eval('PENDING_FILES.dpProofData={data:"data:image/jpeg;base64,AAA",name:"struk.jpg"};');
+    const sebelum = w.eval('STATE.reservations.length');
+    await w.eval('saveReservation()');
+    await tunggu(140);
+    cek('reservasi TIDAK tersimpan', w.eval('STATE.reservations.length') === sebelum,
+        sebelum + ' -> ' + w.eval('STATE.reservations.length'));
+    cek('yang disebut NOMINAL, bukan bukti', /nominal/i.test(toastTerakhir(w)), toastTerakhir(w));
+    cek('bukti yang sudah ada tidak ikut dituduh kurang',
+        !/bukti/i.test(toastTerakhir(w)), toastTerakhir(w));
+    cek('tidak sekadar ditanya confirm()', jejak.confirm === 0, jejak.confirm + '× confirm');
+
+    /* Diisi nominalnya -> lolos. Tanpa putaran ini, penjaga yang menolak
+       APA PUN tetap hijau di seluruh asersi di atas. */
+    const f = w.document.getElementById('resForm');
+    if (f && f.elements['dpAmount']) f.elements['dpAmount'].value = '250.000';
+    await w.eval('saveReservation()');
+    await tunggu(160);
+    cek('nominal diisi -> tersimpan', w.eval('STATE.reservations.length') === sebelum + 1,
+        sebelum + ' -> ' + w.eval('STATE.reservations.length'));
+    cek('nominalnya ikut tercatat',
+        w.eval('Number((STATE.reservations[STATE.reservations.length-1]||{}).dpAmount||0)') === 250000);
   }
 
   /* ============ 3. dengan bukti = lolos ============ */
@@ -255,7 +312,7 @@ function isiForm(w, opt) {
     const nama = w.eval('String((STATE.reservations.find(x=>x.id==="r-tanpa")||{}).name||"")');
     if (!jawab) {
       cek('ditanya lebih dulu', jejak.confirm === 1, jejak.confirm + '×');
-      cek('pertanyaannya menyebut sebabnya', /sebelum buktinya diwajibkan/.test(jejak.pesanConfirm || ''),
+      cek('pertanyaannya menyebut sebabnya', /tanpa bukti transfer/i.test(jejak.pesanConfirm || ''),
           (jejak.pesanConfirm || '').slice(0, 90));
       cek('dibatalkan -> tidak tersimpan', nama === 'Tanpa Bukti', nama);
     } else {

@@ -4099,10 +4099,13 @@ function renderInput(editId){
            inilah yang dipakai mencocokkan DP dengan mutasi bank.</div>
        </div>
        <div class="field" id="dpNominalWrap">
-         <label>Nominal DP</label>
+         <label>Nominal DP <span class="req">*</span></label>
          <input type="text" name="dpAmount" inputmode="numeric" autocomplete="off"
                 value="${r?.dpAmount?rpDot(r.dpAmount):""}" placeholder="mis. 100.000"
                 oninput="fmtRupiahInput(this)">
+         <div class="hint">Wajib kalau DP sudah masuk. DP bernominal nol tidak bisa dicocokkan
+           dengan mutasi bank, dan di halaman Dana Masuk ia terbaca sebagai transfer yang gagal
+           dibaca — bukan sebagai angka yang memang belum diketahui.</div>
        </div>
        <div class="field" id="dpProofWrap">
          <label>Upload Bukti DP (foto/pdf) <span class="req">*</span></label>
@@ -4407,38 +4410,68 @@ async function saveReservation(){
   const existing = EDIT_ID ? STATE.reservations.find(x=>x.id===EDIT_ID) : null;
 
   /* BUKTI DP WAJIB (6 September 2026, permintaan user).
+     NOMINAL DP IKUT WAJIB (20 September 2026, permintaan user: "kalau
+     misalnya ada DP terus nominal dan upload bukti itu wajib dan required
+     kalau tidak terisi tidak bisa simpan").
 
      DP yang tercatat tanpa lampiran adalah uang yang tidak bisa dicocokkan
      dengan mutasi bank oleh siapa pun — dan yang menagihnya balik ke tamu
-     tidak punya apa-apa untuk ditunjukkan. Sampai tanggal ini kotaknya ada
-     tapi boleh dilewati, dan yang terlewat baru ketahuan di halaman Dana
+     tidak punya apa-apa untuk ditunjukkan. Sampai 6 September 2026 kotaknya
+     ada tapi boleh dilewati, dan yang terlewat baru ketahuan di halaman Dana
      Masuk berhari-hari kemudian.
+
+     DP BERNOMINAL NOL bukan sekadar isian yang kurang rapi: halaman Dana
+     Masuk MENJUMLAHKANNYA, dan Rp0 di sana terbaca sebagai transfer yang
+     nominalnya gagal dibaca — bukan sebagai angka yang memang belum
+     diketahui. Dua keadaan itu ditelusuri dengan cara yang berbeda, dan
+     yang pertama membuat orang memeriksa bukti yang sebenarnya baik-baik
+     saja.
+
+     KEDUANYA DIPERIKSA DI SATU TEMPAT, bukan dua penjaga berurutan: yang
+     kekurangan dua-duanya akan menjawab dua kotak konfirmasi berturut-turut
+     untuk satu persoalan yang sama, dan kotak kedua itulah yang ditekan
+     tanpa dibaca.
 
      BUKTI YANG SUDAH TERSIMPAN IKUT DIHITUNG. Menyunting nama tamu pada
      reservasi yang buktinya sudah ada tidak boleh menuntut berkasnya
      diunggah ulang — berkas itu ada di database, bukan di komputer yang
      sedang membuka form.
 
-     RESERVASI LAMA YANG DP-NYA TERLANJUR TANPA BUKTI TIDAK DIKUNCI, cuma
-     ditanya sekali. Menguncinya berarti data yang sudah terlanjur begitu
-     tidak bisa dibetulkan siapa pun — termasuk nama tamu yang salah ketik —
-     dan justru bukti itulah yang sedang diusahakan lengkap. Polanya sama
-     dengan kotak PIC event lama di modul Event: yang lahir sebelum aturannya
-     ada tetap bisa disunting, dan sebabnya dikatakan. */
+     RESERVASI LAMA YANG TERLANJUR BEGITU TIDAK DIKUNCI, cuma ditanya sekali.
+     Menguncinya berarti data yang sudah terlanjur begitu tidak bisa
+     dibetulkan siapa pun — termasuk nama tamu yang salah ketik — dan justru
+     kelengkapan itulah yang sedang diusahakan. Polanya sama dengan kotak PIC
+     event lama di modul Event: yang lahir sebelum aturannya ada tetap bisa
+     disunting, dan sebabnya dikatakan. */
   if(dpStatus==="Sudah"){
+    const nominalDp = rupiahVal(g("dpAmount"));
     const buktiBaru = !!PENDING_FILES.dpProofData;
     const buktiLama = adaBuktiDp(existing);
-    if(!buktiBaru && !buktiLama){
-      const dpLamaTanpaBukti = !!existing && existing.dpStatus==="Sudah";
-      if(!dpLamaTanpaBukti){
-        toast("Bukti DP wajib diunggah — foto struk transfer atau PDF-nya","err");
-        byId("dpProofWrap")?.scrollIntoView({behavior:"smooth",block:"center"});
-        f.elements["dpProof"]?.focus();
-        return;
+    const kurang = [];
+    if(!(nominalDp>0))           kurang.push("nominal DP");
+    if(!buktiBaru && !buktiLama) kurang.push("bukti transfer");
+    if(kurang.length){
+      const dpLama = !!existing && existing.dpStatus==="Sudah";
+      /* Yang disorot kotak PERTAMA yang kurang. Menyuruh orang menggulir ke
+         kotak bukti padahal yang kosong nominalnya membuat ia mencari
+         kesalahan di tempat yang tidak salah apa-apa. */
+      const keNominal = !(nominalDp>0);
+      const sorot = () => {
+        if(keNominal){
+          byId("dpNominalWrap")?.scrollIntoView({behavior:"smooth",block:"center"});
+          f.elements["dpAmount"]?.focus();
+        }else{
+          byId("dpProofWrap")?.scrollIntoView({behavior:"smooth",block:"center"});
+          f.elements["dpProof"]?.focus();
+        }
+      };
+      if(!dpLama){
+        toast("DP sudah masuk tapi "+kurang.join(" & ")+" belum diisi — dua-duanya wajib","err");
+        sorot(); return;
       }
-      if(!confirm("Reservasi ini punya DP tanpa bukti transfer \u2014 dicatat sebelum buktinya diwajibkan.\n\nSebaiknya buktinya diunggah sekarang selagi formulirnya terbuka. Simpan tanpa bukti?")) {
-        byId("dpProofWrap")?.scrollIntoView({behavior:"smooth",block:"center"});
-        return;
+      if(!confirm("Reservasi ini punya DP tanpa "+kurang.join(" & ")
+          +" — dicatat sebelum keduanya diwajibkan.\n\nSebaiknya dilengkapi sekarang selagi formulirnya terbuka. Simpan apa adanya?")){
+        sorot(); return;
       }
     }
   }
