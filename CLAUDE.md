@@ -1198,14 +1198,46 @@ pertanyaan di `evmToggle`, bukan mengubah bawaannya.
   tombolnya bisa dipanggil dari console, dan penjaga yang hanya ada di markup
   tidak menjaga apa pun.
 
-#### Warna & legenda
+#### Warna & legenda: DUA BAHASA, DAN CUMA DUA
 
-`.seat.avail.booking-soon` dari cream `#F7EFDB` jadi **teal `#DDEFF2`**.
-Yang lama warnanya SAMA dengan meja kosong dan bedanya cuma garis putus-putus
-— di denah berisi 40-an meja itu tidak terbaca sama sekali (keluhan user,
-lengkap dengan tangkapan layarnya). Teal satu-satunya keluarga warna yang
-belum dipakai status mana pun (kuning Pending, hijau Confirmed, merah Datang,
-ungu Sharing, cream Kosong). Legendanya ikut berubah bunyinya.
+Permintaan user, putaran ketiga: *"auto lock dan rubah warna aja, jadi ga
+ambigu"*. Sebelum ini meja yang BISA diklik dan meja yang TERKUNCI sama-sama
+bertanda **🔒** dan sama-sama berlatar terang — bedanya cuma warna garisnya,
+dan di denah 40-an meja itu tidak terbaca sebagai beda PERLAKUAN.
+
+| | tanda | warna | bisa ditekan? |
+|---|---|---|---|
+| dipesan nanti, > 1 jam | **🔓** | teal `#DDEFF2`, garis putus-putus | ya, ditanya dulu |
+| dipesan ≤ 1 jam | **🔒** | abu `#E2E0DC`, garis solid | **tidak** |
+| tamunya sedang duduk | 🍽️ | warna statusnya | tidak |
+
+- **GEMBOKNYA yang membawa arti, bukan warnanya.** Yang buta warna pun bisa
+  membedakan gembok terbuka dari gembok terkunci; warnanya memperkuat.
+- **Abu-abu dipilih justru karena ia satu-satunya yang TIDAK berarti status.**
+  Merah di denah ini berarti "Sudah Datang" — meja KOSONG yang digambar merah
+  terbaca sebagai meja yang ada tamunya. Versi pertama kuncian H-1 jam memang
+  memakai merah, dan itu yang dikeluhkan.
+- **`cursor:not-allowed` + hover dimatikan.** Tombol mati yang warnanya tetap
+  mengundang akan tetap ditekan orang, lalu mereka menyimpulkan layarnya
+  rusak.
+- **Berlaku di KETIGA denah** — Hari-H, form input, dan modal pindah.
+  `.seat-kunci` (grayscale + pudar) untuk yang terkunci di dua denah
+  terakhir, karena di sana mejanya sudah berwarna status pemesannya.
+- Cream `#F7EFDB` yang lama dicabut: warnanya SAMA dengan meja kosong.
+
+> **ASERSI WARNA & TANDA HARUS MEMBACA DOM, bukan sumber.** Tiga mutasi
+> LOLOS di putaran pertama — mengganti gembok, dan mencabut kalimat
+> legendanya — karena asersinya menyapu seluruh sumber dan cocok dengan
+> **komentar CSS-nya sendiri**, yang memang menyebut frasa yang sama untuk
+> menjelaskan kenapa aturannya ada. Sekarang gemboknya dibaca dari
+> `btn.textContent` dan legendanya diiris dari blok `.seat-viewlegend`.
+> Bentuk yang sama sudah menggigit lima kali di modul Analytics.
+
+> **MEJA PEMBANDING DI UJI TIDAK BOLEH YANG SUDAH TERPILIH.** Meja yang ada
+> di `SEAT_SELS` digambar lewat cabang "terpilih" — cream, tanpa gembok
+> sama sekali — jadi membandingkannya dengan meja terkunci membuktikan nol.
+> Fixture punya meja 23 (terkunci, boleh dipaksa, tidak pernah dipilih)
+> justru untuk itu.
 
 Meja terkunci yang **sudah disetujui** di denah form ditandai garis merah
 tebal (`.seat-paksa`) + tulisan "⚠️ dipaksa": tanpa penanda, meja yang
@@ -1231,7 +1263,7 @@ seperti itulah yang paling sering diklik orang.
   memulangkan tabel kosong.
 
 ```bash
-node tools/uji-konfirmasi-meja.js   # 91 pemeriksaan, jsdom + kontrak sumber Marketing
+node tools/uji-konfirmasi-meja.js   # 99 pemeriksaan, jsdom + kontrak sumber Marketing
 node tools/uji-walkin-sementara.js  #  65 pemeriksaan (dari 54), TANPA jsdom
 ```
 
@@ -1467,7 +1499,7 @@ dan `getAll` berikutnya memulangkannya, jadi jalur TARIK–GABUNG–TULIS
 sudah merah enam hari sesudah ditulis, dan uji yang berubah merah tanpa ada
 yang mengubah kode melatih orang mengabaikan warna merahnya.
 
-**Empat puluh empat mutasi dicoba, keempat puluh empatnya tertangkap** — tapi
+**Lima puluh mutasi dicoba, kelima puluhnya tertangkap** — tapi
 TIGA baru sesudah ujinya dibetulkan, dan ketiganya bentuk yang sudah punya
 nama di berkas ini:
 

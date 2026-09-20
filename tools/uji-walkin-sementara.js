@@ -407,9 +407,14 @@ console.log('\n[6] Denah & layar (asersi atas sumber)');
   /* Teksnya berubah 20 September 2026: mejanya tetap bisa diklik, tapi
      sekarang ditanya dulu — dan legenda yang menjanjikan klik tanpa
      pertanyaan adalah janji yang tidak ditepati tiap kali dipakai. */
+  /* Teksnya berubah lagi 20 September 2026 (sore): yang bisa dipakai dan
+     yang terkunci dibedakan lewat GEMBOK, bukan cuma warna garisnya —
+     keduanya dulu sama-sama 🔒 dan sama-sama berlatar terang. */
   T('legenda menyebut dua tingkat tandanya',
-    SRC.indexOf('bisa diklik</b>, tapi ditanya dulu') >= 0
-    && SRC.indexOf('Dipesan <b>≤1 jam lagi</b>') >= 0);
+    SRC.indexOf('🔓 Dipesan nanti') >= 0
+    && SRC.indexOf('🔒 Dipesan <b>≤1 jam lagi</b>') >= 0);
+  T('yang terkunci dikatakan tidak bisa ditekan',
+    SRC.indexOf('tidak bisa ditekan') >= 0);
   T('klik meja yang sudah dipesan menanyakan konfirmasi dulu',
     /function seatEmptyClick\([\s\S]{0,400}?if\(!tanyaDudukSementara\(tableId\)\) return;/.test(SRC));
   T('meja yang memang bebas TIDAK ditanya apa-apa',

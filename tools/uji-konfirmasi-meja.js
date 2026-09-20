@@ -206,8 +206,27 @@ const toastTerakhir = w => {
 
     cek('warnanya BEDA dari meja kosong, bukan cuma tebal garisnya',
         /\.seat\.avail\.booking-soon\{[^}]*background:#DDEFF2/.test(SRC), 'warna lama cream #F7EFDB tidak terbaca di denah 40 meja');
-    cek('legendanya ikut menyebut mejanya ditanya dulu',
-        SRC.indexOf('bisa diklik</b>, tapi ditanya dulu') > -1);
+    /* DUA BAHASA, DAN CUMA DUA — inti permintaan "jadi ga ambigu". Gembok
+       terbuka = boleh dipakai (ditanya dulu); gembok terkunci = tidak bisa
+       ditekan. Satu gembok untuk keduanya persis yang dikeluhkan. */
+/* Legendanya DIIRIS dari blok .seat-legend. Asersi yang menyapu seluruh
+   sumber cocok dengan KOMENTAR di CSS-nya sendiri — yang memang menyebut
+   frasa yang sama untuk menjelaskan kenapa aturannya ada. Mutasi yang
+   mencabut kalimatnya dari layar memang LOLOS darinya. */
+    const legenda = (() => {
+      const i = SRC.indexOf('class="seat-viewlegend"'); if (i < 0) return '';
+      return SRC.slice(i, SRC.indexOf('</div>', SRC.indexOf('≤1 jam lagi', i)));
+    })();
+    cek('blok legenda ketemu', legenda.length > 0);
+    cek('legendanya menyebut yang bisa dipakai dengan gembok TERBUKA',
+        legenda.indexOf('🔓 Dipesan nanti') > -1 && legenda.indexOf('bisa dipakai</b>, tapi ditanya dulu') > -1);
+    cek('dan yang terkunci dengan gembok TERTUTUP',
+        legenda.indexOf('🔒 Dipesan <b>≤1 jam lagi</b>') > -1 && legenda.indexOf('tidak bisa ditekan') > -1);
+    cek('warna terkunci BUKAN merah — merah di denah ini berarti "Sudah Datang"',
+        /\.seat\.avail\.booking-mepet\{[^}]*background:#E2E0DC/.test(SRC)
+        && !/\.seat\.avail\.booking-mepet\{[^}]*#C9432B/.test(SRC));
+    cek('dan ia kelihatan tidak bisa ditekan',
+        /\.seat\.avail\.booking-mepet\{[^}]*cursor:not-allowed/.test(SRC));
 
     // Meja A1 dipesan 23:30 dan belum datang → ditanya.
     w.eval('HARIH_DATE=' + JSON.stringify(PESAN.date) + ';');
@@ -250,6 +269,16 @@ const toastTerakhir = w => {
     cek('denah Hari-H tergambar', !!b32 && !!b21);
     cek('meja yang dipesan <=1 jam lagi digambar MATI', !!b32 && b32.disabled === true);
     cek('yang jaraknya masih jauh tetap bisa ditekan', !!b21 && b21.disabled === false);
+    /* GEMBOKNYA yang membawa arti, bukan warnanya — yang buta warna pun
+       bisa membedakan gembok terbuka dari gembok terkunci. Dibaca dari
+       tombolnya, bukan dari sumber: satu gembok untuk keduanya persis yang
+       dikeluhkan, dan asersi atas sumber tidak bisa melihatnya. */
+    cek('yang terkunci bertanda gembok TERTUTUP',
+        !!b32 && b32.textContent.indexOf('🔒') > -1, b32 && b32.textContent);
+    cek('yang bisa dipakai bertanda gembok TERBUKA',
+        !!b21 && b21.textContent.indexOf('🔓') > -1, b21 && b21.textContent);
+    cek('dan keduanya TIDAK bertanda sama',
+        !!b21 && b21.textContent.indexOf('🔒') < 0, b21 && b21.textContent);
   }
   {
     // Dijawab TIDAK → formulirnya tidak boleh terbuka sama sekali.
@@ -324,10 +353,14 @@ const toastTerakhir = w => {
     w.eval('renderSeatMap()');
     await tunggu(80);
     const f24 = seatBtn(w, 'seatMap', '24');
-    const f21 = seatBtn(w, 'seatMap', '21');
-    cek('denah form tergambar ulang', !!f24 && !!f21);
+    const f23 = seatBtn(w, 'seatMap', '23');    // terkunci TAPI boleh dipaksa, dan belum terpilih
+    cek('denah form tergambar ulang', !!f24 && !!f23);
     cek('meja yang jaraknya <=1 jam digambar MATI di form', !!f24 && f24.disabled === true);
-    cek('yang masih boleh dipaksa tetap bisa ditekan', !!f21 && f21.disabled === false);
+    cek('yang masih boleh dipaksa tetap bisa ditekan', !!f23 && f23.disabled === false);
+    cek('di form pun gemboknya dibedakan',
+        !!f24 && !!f23 && f24.textContent.indexOf('🔒') > -1
+        && f23.textContent.indexOf('🔓') > -1 && f23.textContent.indexOf('🔒') < 0,
+        (f24 && f24.textContent) + ' | ' + (f23 && f23.textContent));
   }
   {
     const { w, jejak } = dom({ jawab: false });
