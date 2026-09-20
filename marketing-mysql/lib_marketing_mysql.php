@@ -1157,6 +1157,91 @@ function save_all($state) {
    menyalinnya ke PHP berarti dua rumus yang pasti berbeda diam-diam begitu
    salah satunya diubah. Pemanggil menyalin rumus JS-nya apa adanya, dan
    `settings` di bawah adalah dua angka yang dibutuhkannya. */
+/* ==================== DANA MASUK EVENT (20 September 2026) ====================
+   Permintaan user: halaman Dana Masuk di modul Reservasi dapat TAB SENDIRI
+   berisi DP yang masuk lewat modul Marketing, "jadi kalau misalnya ada DP
+   nanti kasir bisa pastiin dananya berapa".
+
+   SENGAJA SEMPIT, jangan diarahkan ke getAll — itu memulangkan seluruh blob
+   Marketing (CRM klien, pipeline, invoice, foto penawaran), dan yang membuka
+   halaman Dana Masuk adalah kasir. Pola yang sama dengan events_hari() dan
+   design_reqs() di berkas ini.
+
+   YANG DIPULANGKAN HANYA PEMBAYARANNYA. Nilai/grand total event TIDAK ikut:
+   ia dihitung eventFinance() di deploy/marketing dari rincian penawaran, dan
+   menyalin rumusnya ke PHP berarti berkas kembar LINTAS BAHASA — bentuk
+   berkas kembar yang paling sulit dicocokkan, dan yang selisihnya berupa
+   uang yang tertulis beda di dua layar.
+
+   SELURUH EVENT DIPINDAI, tanpa jendela tanggal. 'payments[]' hidup di dalam
+   blob 'data' (tidak punya kolomnya sendiri), jadi tanggal bayarnya tidak
+   bisa disaring di SQL — dan tanggal ACARA bukan penggantinya: DP dibayar
+   berbulan-bulan sebelum acaranya, pelunasan kadang sesudah. Jendela yang
+   menebak akan menghilangkan pembayaran yang benar-benar masuk hari itu,
+   tanpa satu pun tanda. Di produksi tabelnya puluhan baris, jadi ini murah;
+   kalau suatu hari membengkak, yang perlu ditambahkan KOLOM tanggal bayar —
+   bukan jendela yang menebak. */
+function dp_masuk($dari, $sampai) {
+  if (!tanggal_valid($dari) || !tanggal_valid($sampai)) throw new Exception('rentang tanggal tidak sah');
+  if ($dari > $sampai) { $t = $dari; $dari = $sampai; $sampai = $t; }
+  $pdo = db();
+  /* LEFT JOIN, bukan JOIN: event yang client-nya sudah dihapus tetap harus
+     muncul — uangnya sudah masuk, dan baris yang hilang dibaca sebagai dana
+     yang tidak pernah ada. */
+  $st = $pdo->query(
+    "SELECT e.id, e.nama, e.jenis, e.tanggal, e.status, e.data,
+            c.nama AS client_nama, u.name AS pic_name
+       FROM events e
+       LEFT JOIN clients c ON c.id = e.client_id
+       LEFT JOIN users   u ON u.id = e.mkt_pic
+      ORDER BY e.tanggal DESC");
+  $baris = array(); $tanpaTanggal = 0;
+  foreach ($st->fetchAll() as $r) {
+    $d = json_decode(isset($r['data']) ? $r['data'] : '', true);
+    if (!is_array($d)) $d = array();
+    $pays = isset($d['payments']) && is_array($d['payments']) ? $d['payments'] : array();
+    foreach ($pays as $p) {
+      if (!is_array($p)) continue;
+      $at = isset($p['at']) ? substr((string)$p['at'], 0, 10) : '';
+      /* Pembayaran TANPA tanggal tidak dijatuhkan ke tanggal acara: itu
+         menaruh uang di hari yang tidak pernah menerimanya. Dihitung dan
+         dilaporkan, supaya yang menjumlahkan tahu ada yang tidak ikut. */
+      if ($at === '') { $tanpaTanggal++; continue; }
+      if ($at < $dari || $at > $sampai) continue;
+      $baris[] = array(
+        'evId'      => (string)$r['id'],
+        'event'     => (string)$r['nama'],
+        'jenis'     => (string)$r['jenis'],
+        'tglEvent'  => (string)$r['tanggal'],
+        'status'    => (string)$r['status'],
+        'client'    => isset($r['client_nama']) ? (string)$r['client_nama'] : '',
+        'pic'       => isset($r['pic_name']) ? (string)$r['pic_name'] : '',
+        'id'        => isset($p['id'])     ? (string)$p['id']     : '',
+        'no'        => isset($p['no'])     ? (string)$p['no']     : '',
+        'type'      => isset($p['type'])   ? (string)$p['type']   : '',
+        'amount'    => isset($p['amount']) ? (float)$p['amount']  : 0,
+        'method'    => isset($p['method']) ? (string)$p['method'] : '',
+        'at'        => $at,
+        'receipt'   => isset($p['receipt'])    ? (string)$p['receipt']    : '',
+        'receiptUrl'=> isset($p['receiptUrl']) ? (string)$p['receiptUrl'] : '',
+      );
+    }
+  }
+  /* Terbaru di atas — yang dicari kasir hampir selalu yang baru masuk. */
+  usort($baris, function ($a, $b) {
+    if ($a['at'] === $b['at']) return strcmp($a['event'], $b['event']);
+    return strcmp($b['at'], $a['at']);
+  });
+  $total = 0; foreach ($baris as $b) $total += $b['amount'];
+  return array(
+    'baris'        => $baris,
+    'total'        => $total,
+    'tanpaTanggal' => $tanpaTanggal,
+    'dari'         => $dari,
+    'sampai'       => $sampai,
+  );
+}
+
 function events_hari($tgl) {
   if (!tanggal_valid($tgl)) throw new Exception('tanggal tidak sah: ' . $tgl);
   $pdo = db();

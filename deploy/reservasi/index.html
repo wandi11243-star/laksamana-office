@@ -8072,7 +8072,91 @@ function finTglSaring(x){ return FIN_F.basis==="masuk" ? txDate(x) : x.r.date; }
 // mengecil sampai habis.
 let FIN_TAB = "perlu";   // 'perlu' | 'sudah' | 'tolak'
 function finTab(v){ FIN_TAB=v; renderFinance(); }
-function finSet(k,v){ FIN_F[k]=v; renderFinance(); }
+function dpevSegar(){ if(FIN_SUMBER==="event") muatDpEvent(); }
+
+/* ======================================================================
+   DP EVENT DARI MODUL MARKETING — TAB SENDIRI (20 September 2026)
+
+   Permintaan user: *"saya ingin tambahkan juga di bagian dana masuk, karena
+   saya ingin dana masuk ini dikhususkan juga dari marketing kalau ada event
+   ada DP juga, jadi kalau misalnya ada DP nanti kasir bisa pastiin dananya
+   berapa. nanti dibuat tab yang berbeda karena tidak gabung ke reservasi"*.
+
+   TAB TERPISAH, BUKAN DIGABUNG, dan itu bukan sekadar menuruti permintaan:
+   kedua daftar tidak bisa dijumlahkan. DP reservasi punya alur verifikasi
+   sendiri di halaman ini (scan bukti → cek → verifikasi/tolak); pembayaran
+   event SUDAH diverifikasi marketing sebelum dicatat — tombolnya di sana
+   berbunyi "Verifikasi & Simpan". Dicampur, kolom status berarti dua hal
+   berbeda di satu tabel, dan angka "belum terverifikasi" berhenti bisa
+   dipercaya.
+
+   READ-ONLY DI SINI, dan itu keputusan yang menentukan. Yang memegang
+   pembayaran event adalah modul Marketing; dua tempat yang sama-sama boleh
+   mengubah satu pembayaran akan punya dua angka untuk satu uang suatu hari,
+   dan yang mencocokkannya tidak punya cara tahu mana yang benar. Aturan yang
+   sama dengan Piutang di panel Brankas ("dibaca dari Cashier, tidak diketik
+   di sini").
+
+   RESERVASI VIP SENGAJA TIDAK IKUT DI TAB INI. DP-nya SUDAH disalin ke modul
+   Reservasi saat mejanya dikunci (vipDpsUntukReservasi → rec.dps), jadi ia
+   sudah berdiri di tab Reservasi berikut alur verifikasinya. Menampilkannya
+   lagi di sini membuat satu transfer terhitung dua kali — dan angkanya
+   kelihatan wajar di kedua tabel. */
+const DPEV_API = "../marketing-api-mysql/api.php";
+let FIN_SUMBER = "reservasi";              // 'reservasi' | 'event'
+let DPEV = { memuat:false, galat:"", data:null, kunci:"", q:"" };
+function finSumber(v){
+  FIN_SUMBER = v;
+  renderFinance();
+  if(v==="event") muatDpEvent();
+}
+/* Rentang yang dikirim ke server. Kotak tanggal halaman ini boleh kosong
+   (tombol "Semua"), sementara backend menuntut tanggal yang sah — dijepit ke
+   rentang lebar, bukan ditolak: daftar yang kosong karena tanggalnya kosong
+   terbaca sebagai "tidak ada DP event", bukan sebagai saringan. */
+function dpevRentang(){
+  return { dari: FIN_F.from || "2000-01-01", sampai: FIN_F.to || "2100-12-31" };
+}
+async function muatDpEvent(){
+  const {dari,sampai} = dpevRentang();
+  const kunci = dari+"|"+sampai;
+  /* 'galat' IKUT menahan pemuatan ulang. Tanpa itu modulnya menggantung
+     total: fetch gagal → render supaya pitanya muncul → render memanggil
+     muatDpEvent() lagi → fetch lagi, selamanya. Yang membersihkannya hanya
+     tombol "Coba lagi". Pelajaran yang sudah dibayar muatReqMkt() di modul
+     Konten dan muatKonten() di Analytics. */
+  if(DPEV.memuat) return;
+  if(DPEV.kunci===kunci && (DPEV.data || DPEV.galat)) return;
+  DPEV.memuat=true; DPEV.kunci=kunci; DPEV.galat=""; DPEV.data=null;
+  if(FIN_SUMBER==="event") renderFinance();
+  try{
+    const url = DPEV_API+"?action=dpMasuk&dari="+encodeURIComponent(dari)+"&sampai="+encodeURIComponent(sampai)+"&t="+Date.now();
+    const res = await fetch(url, { method:"GET", redirect:"follow" });
+    const j = await res.json();
+    if(!j || !j.ok) throw new Error((j && j.error) || "balasan tidak dikenali");
+    DPEV.data = j.data || { baris:[], total:0, tanpaTanggal:0 };
+  }catch(e){
+    /* Sebabnya DISEBUT, bukan cuma "tidak terbaca": modul Marketing yang
+       mati, alamat yang salah, dan backend yang belum ter-deploy menuntut
+       tiga tindakan yang berbeda. */
+    DPEV.galat = String(e && e.message || e);
+  }finally{
+    DPEV.memuat=false;
+    if(FIN_SUMBER==="event") renderFinance();
+  }
+}
+function dpevCobaLagi(){ DPEV.kunci=""; DPEV.galat=""; DPEV.data=null; muatDpEvent(); }
+/* Baris yang tampil — kata kunci dicocokkan ke nama event, client, PIC,
+   metode, dan nomor kwitansi sekaligus. Kasir mencari dengan apa pun yang
+   dipegangnya: kadang nama acara, kadang nomor di struknya. */
+function dpevBaris(){
+  const all = (DPEV.data && DPEV.data.baris) || [];
+  const q = (DPEV.q||"").trim().toLowerCase();
+  if(!q) return all;
+  return all.filter(b=>[b.event,b.client,b.pic,b.method,b.no,b.type]
+    .some(v=>String(v==null?"":v).toLowerCase().includes(q)));
+}
+function finSet(k,v){ FIN_F[k]=v; renderFinance(); dpevSegar(); }
 function finRange(kind){
   const t=todayStr();
   if(kind==="today"){ FIN_F.from=t; FIN_F.to=t; }
@@ -8080,6 +8164,10 @@ function finRange(kind){
   else if(kind==="month"){ FIN_F.from=t.slice(0,8)+"01"; FIN_F.to=t; }
   else if(kind==="all"){ FIN_F.from=""; FIN_F.to=""; }
   renderFinance();
+  /* Rentang yang berubah WAJIB menarik ulang daftar event: kotak tanggalnya
+     bergerak sementara daftarnya tetap rentang lama adalah dua angka yang
+     bertentangan di satu layar. */
+  dpevSegar();
 }
 function financeList(applyTab){
   if(applyTab===undefined) applyTab=true;
@@ -8119,8 +8207,110 @@ function financeList(applyTab){
     return true;
   }).sort((a,b)=> (txDate(b)+txTime(b)).localeCompare(txDate(a)+txTime(a)));
 }
+/* Saklar sumber, digambar SAMA di kedua tab — kalau cuma ada di salah
+   satunya, yang sudah pindah ke tab event tidak punya jalan pulang. */
+function finSumberHTML(){
+  const n = (DPEV.data && DPEV.data.baris) ? DPEV.data.baris.length : 0;
+  return `<div class="panel"><div class="panel-body" style="padding:13px 18px;border:none">
+    <div class="seat-switch" style="margin:0">
+      <button class="${FIN_SUMBER!=="event"?"on":""}" onclick="finSumber('reservasi')"
+        title="DP reservasi tamu — lengkap dengan scan bukti & verifikasi">🍽️ DP Reservasi</button>
+      <button class="${FIN_SUMBER==="event"?"on":""}" onclick="finSumber('event')"
+        title="Pembayaran event dari modul Marketing — hanya dibaca">🎉 DP Event (Marketing)${n?` (${n})`:""}</button>
+    </div>
+    <div class="hint" style="margin-top:8px">Dua daftar yang <b>tidak bisa dijumlahkan</b>: DP reservasi diverifikasi di halaman ini,
+      pembayaran event sudah diverifikasi lebih dulu di modul Marketing.</div>
+  </div></div>`;
+}
+/* ===== TAB DP EVENT ===== */
+function viewDpEvent(){
+  const d = DPEV.data;
+  const baris = dpevBaris();
+  const rentang = `${FIN_F.from?fmtDateShort(FIN_F.from):"awal"} – ${FIN_F.to?fmtDateShort(FIN_F.to):"sekarang"}`;
+  const total = baris.reduce((a,b)=>a+(Number(b.amount)||0),0);
+  const nEvent = new Set(baris.map(b=>b.evId)).size;
+  /* Dipisah per JENIS pembayaran: DP dan pelunasan menjawab pertanyaan yang
+     berbeda, dan yang menyiapkan kas perlu tahu mana yang masih menyisakan
+     tagihan. Jenisnya teks bebas di modul Marketing, jadi dikelompokkan apa
+     adanya — daftar tertutup di sini akan diam-diam basi. */
+  const perJenis = {};
+  baris.forEach(b=>{ const k=(b.type||"(tanpa jenis)"); perJenis[k]=perJenis[k]||{n:0,sum:0}; perJenis[k].n++; perJenis[k].sum+=Number(b.amount)||0; });
+  const jenisUrut = Object.keys(perJenis).sort((a,b)=>perJenis[b].sum-perJenis[a].sum);
+
+  const isi = DPEV.memuat
+    ? `<div class="panel"><div class="empty">Memuat pembayaran event dari modul Marketing…</div></div>`
+    : DPEV.galat
+    ? `<div class="panel"><div class="panel-body"><div class="inline-warn"><div>
+        <b>Pembayaran event tidak terbaca.</b> ${esc(DPEV.galat)}<br>
+        Daftar ini datang dari modul <b>Marketing</b>. Kalau baru saja diperbarui, backend-nya mungkin belum ter-deploy;
+        kalau modulnya sendiri sedang bermasalah, DP reservasi di tab sebelah tetap bisa dipakai.
+        <a href="javascript:void(0)" onclick="dpevCobaLagi()" style="font-weight:600;margin-left:4px">Coba lagi</a>
+      </div></div></div></div>`
+    : !d
+    ? `<div class="panel"><div class="empty">Belum dimuat.</div></div>`
+    : `
+   <div class="recap-grid">
+     <div class="recap ok"><div class="lbl">💰 Total DP Event Masuk</div><div class="val" style="font-size:22px">${rpDot(total)}</div>
+       <div class="sub">${baris.length} kali bayar · ${rentang}</div></div>
+     <div class="recap"><div class="lbl">🎉 Event</div><div class="val">${nEvent}</div><div class="sub">punya pembayaran di rentang ini</div></div>
+     ${jenisUrut.slice(0,2).map(k=>`<div class="recap info"><div class="lbl">${esc(k)}</div><div class="val" style="font-size:20px">${rpDot(perJenis[k].sum)}</div>
+       <div class="sub">${perJenis[k].n} kali bayar</div></div>`).join("")}
+   </div>
+
+   ${d.tanpaTanggal?`<div class="inline-warn" style="margin-bottom:14px"><div>
+      📅 <b>${d.tanpaTanggal} pembayaran event tidak punya tanggal bayar</b>, jadi tidak ikut di daftar mana pun —
+      termasuk di rentang ini. Tanggalnya dilengkapi di modul <b>Marketing</b> → event terkait → tab Finance.
+      Sengaja TIDAK dijatuhkan ke tanggal acaranya: itu menaruh uang di hari yang tidak pernah menerimanya.
+    </div></div>`:""}
+
+   <div class="panel"><div class="panel-body" style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end">
+     <div class="field" style="margin:0"><label>Tanggal bayar — Dari</label><input type="date" value="${FIN_F.from}" onchange="finSet('from',this.value)"></div>
+     <div class="field" style="margin:0"><label>Sampai</label><input type="date" value="${FIN_F.to}" onchange="finSet('to',this.value)"></div>
+     <div class="field" style="margin:0;flex:1;min-width:180px"><label>Cari</label>
+       <input id="dpevSearch" value="${esc(DPEV.q)}" placeholder="Nama event / client / PIC / no. kwitansi…"
+              oninput="DPEV.q=this.value;afterSearch('dpevSearch',renderFinance)"></div>
+     <div class="pill-row" style="margin:0">
+       <span class="pill" style="cursor:pointer" onclick="finRange('today')">Hari Ini</span>
+       <span class="pill" style="cursor:pointer" onclick="finRange('week')">7 Hari</span>
+       <span class="pill" style="cursor:pointer" onclick="finRange('month')">Bulan Ini</span>
+       <span class="pill" style="cursor:pointer" onclick="finRange('all')">Semua</span>
+     </div>
+   </div></div>
+
+   <div class="panel">
+     <div class="panel-head"><h3>Pembayaran Event <span class="count-tag">${baris.length}</span></h3>
+       <span class="muted" style="font-size:12.5px">Dibaca dari modul Marketing — tidak bisa diubah dari sini</span></div>
+     ${!baris.length?`<div class="empty"><div class="big">🎉</div>${DPEV.q?`Tidak ada pembayaran yang cocok dengan “${esc(DPEV.q)}”.`:`Tidak ada pembayaran event pada ${rentang}.`}</div>`
+     :`<div class="table-wrap"><table>
+       <thead><tr><th>Tgl Bayar</th><th>Event</th><th>Jenis</th><th class="num">Nominal</th><th>Metode</th><th>No. Kwitansi</th><th>Bukti</th></tr></thead>
+       <tbody>${baris.map(b=>`<tr>
+         <td><b>${fmtDateShort(b.at)}</b></td>
+         <td><div class="name">${esc(b.event||"(tanpa nama)")}</div>
+           <div class="muted">${esc(b.client||"tanpa client")}${b.tglEvent?" · acara "+fmtDateShort(b.tglEvent):""}${b.pic?" · PIC "+esc(b.pic):""}</div>
+           ${b.status?`<span class="tag-cat">${esc(b.status)}</span>`:""}</td>
+         <td><span class="pill">${esc(b.type||"-")}</span></td>
+         <td class="num"><b>${rpDot(b.amount)}</b></td>
+         <td class="muted">${esc(b.method||"-")}</td>
+         <td class="mono muted">${esc(b.no||"-")}</td>
+         <td>${b.receiptUrl
+             ? `<a class="btn btn-xs btn-ghost" href="${esc(b.receiptUrl)}" target="_blank" rel="noopener">🖼️ Bukti</a>`
+             : `<span class="badge-status st-noshow" style="font-size:10px" title="Pembayaran tercatat tanpa lampiran — lengkapi di modul Marketing">tanpa bukti</span>`}</td>
+       </tr>`).join("")}</tbody></table></div>`}
+   </div>`;
+
+  return finSumberHTML() + `
+   <div class="page-head">
+     <div><h2>DP Event (dari Marketing)</h2>
+       <div class="desc">Pembayaran yang dicatat tim Marketing untuk event — <b>DP maupun pelunasan</b>. Dipakai kasir memastikan dananya
+         benar-benar masuk dan berapa. Daftar ini <b>hanya dibaca</b>; yang mengubahnya modul Marketing.
+         <b>Reservasi VIP tidak ada di sini</b> — DP-nya sudah ikut di tab DP Reservasi begitu mejanya dikunci, dan menampilkannya
+         dua kali membuat satu transfer terhitung dua kali.</div></div>
+   </div>` + isi;
+}
+
 function renderFinance(){
   if(!CAN.finance(SESSION.role)){ byId("page-finance").innerHTML="<div class='empty'>Tidak ada akses.</div>"; return; }
+  if(FIN_SUMBER==="event"){ byId("page-finance").innerHTML = viewDpEvent(); return; }
   // listAll = seluruh transaksi pada rentang/filter (TANPA tab) → dasar semua
   // statistik & hitungan tab. list = yang ditampilkan di tabel (ikut tab).
   const listAll = financeList(false);
@@ -8168,7 +8358,7 @@ function renderFinance(){
      dalam ikut terkirim ke innerHTML, dan satu backtick di dalamnya MENUTUP
      literalnya lalu menjatuhkan seluruh modul dengan SyntaxError. Sudah
      kejadian saat baris ini ditulis. */
-  byId("page-finance").innerHTML = `
+  byId("page-finance").innerHTML = finSumberHTML() + `
    <div class="page-head">
      <div><h2>Dana Masuk (DP)</h2>
        <div class="desc">Cek uang DP yang benar-benar masuk. Tanggal, jam, nominal, bank &amp; <b>nama pengirim</b> dibaca <b>otomatis</b> dari bukti transfer begitu halaman ini dibuka. Satu baris = satu kali transfer, jadi DP yang dicicil muncul terpisah. Tinggal periksa lalu verifikasi.</div></div>

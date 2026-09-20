@@ -1049,6 +1049,112 @@ ambangnya diekstrak:
 > memang perlu dirapikan, bukan cuma ke asersi yang kurang.
 
 
+### Dana Masuk: tab DP EVENT dari Marketing (20 September 2026)
+
+Permintaan user: *"saya ingin tambahkan juga di bagian dana masuk … kalau ada
+event ada DP juga, jadi kalau misalnya ada DP nanti kasir bisa pastiin dananya
+berapa. nanti dibuat tab yang berbeda karena tidak gabung ke reservasi"*.
+
+Halaman **Dana Masuk (DP)** di `deploy/reservasi/` sekarang punya saklar
+sumber di atasnya: **🍽️ DP Reservasi** (yang lama) dan **🎉 DP Event
+(Marketing)**.
+
+#### TAB TERPISAH, dan itu bukan sekadar menuruti permintaan
+
+**Kedua daftar tidak bisa dijumlahkan.** DP reservasi punya alur verifikasi
+sendiri di halaman ini — scan bukti → cek → verifikasi/tolak. Pembayaran
+event **sudah diverifikasi marketing sebelum dicatat**; tombolnya di sana
+berbunyi *"Verifikasi & Simpan"*. Dicampur, kolom status berarti dua hal
+berbeda di satu tabel, dan angka "belum terverifikasi" berhenti bisa
+dipercaya.
+
+- **Saklarnya digambar di KEDUA tab.** Hanya di salah satunya, yang sudah
+  pindah ke tab event tidak punya jalan pulang.
+- **Bawaannya tetap DP Reservasi** — halaman ini memang dibuka untuk itu.
+
+#### READ-ONLY, dan RESERVASI VIP SENGAJA TIDAK IKUT
+
+Yang memegang pembayaran event adalah modul Marketing. Dua tempat yang
+sama-sama boleh mengubah satu pembayaran akan punya dua angka untuk satu uang
+suatu hari, dan yang mencocokkannya tidak punya cara tahu mana yang benar —
+aturan yang sama dengan Piutang di panel Brankas.
+
+**Reservasi VIP TIDAK ditampilkan di tab ini**, dan itu dikatakan di layar:
+DP-nya SUDAH disalin ke modul Reservasi saat mejanya dikunci
+(`vipDpsUntukReservasi` → `rec.dps`), jadi ia sudah berdiri di tab DP
+Reservasi berikut alur verifikasinya. Menampilkannya lagi di sini membuat
+satu transfer terhitung **dua kali** — dan angkanya kelihatan wajar di kedua
+tabel.
+
+#### ENDPOINT SEMPIT `dpMasuk`, bukan getAll
+
+`marketing-api?action=dpMasuk&dari=&sampai=` → `dp_masuk()`. Pola yang sama
+dengan `eventsHari` dan `designReqs`, berikut komentarnya: *"sengaja sempit;
+jangan diarahkan ke getAll"*. getAll modul Marketing memulangkan seluruh CRM
+klien, pipeline, dan invoice — dan yang membuka halaman Dana Masuk adalah
+**kasir**.
+
+- **YANG DIPULANGKAN HANYA PEMBAYARANNYA.** Nilai/grand total event tidak
+  ikut: ia dihitung `eventFinance()` di `deploy/marketing` dari rincian
+  penawaran, dan menyalin rumusnya ke PHP berarti **berkas kembar LINTAS
+  BAHASA** — bentuk yang paling sulit dicocokkan, dan yang selisihnya berupa
+  uang yang tertulis beda di dua layar.
+- **SELURUH EVENT DIPINDAI, tanpa jendela tanggal.** `payments[]` hidup di
+  dalam blob `data` (tidak punya kolomnya sendiri), jadi tanggal bayarnya
+  tidak bisa disaring di SQL — dan tanggal ACARA bukan penggantinya: DP
+  dibayar berbulan-bulan sebelum acaranya, pelunasan kadang sesudah. Jendela
+  yang menebak akan menghilangkan pembayaran yang benar-benar masuk hari itu,
+  tanpa satu pun tanda. Di produksi tabelnya puluhan baris; kalau suatu hari
+  membengkak, yang perlu ditambahkan **kolom tanggal bayar** — bukan jendela
+  yang menebak.
+- **Pembayaran TANPA tanggal bayar tidak dijatuhkan ke tanggal acara** — itu
+  menaruh uang di hari yang tidak pernah menerimanya. Dihitung dan
+  **dilaporkan di layar** berikut cara membetulkannya.
+- **LEFT JOIN, bukan JOIN**: event yang client-nya sudah dihapus tetap muncul.
+  Uangnya sudah masuk, dan baris yang hilang dibaca sebagai dana yang tidak
+  pernah ada.
+- `marketing-mysql` ada di **kedua** workflow, jadi backend-nya ikut deploy
+  otomatis — tidak ada langkah cPanel.
+
+#### Yang gampang lepas
+
+- **`galat` IKUT menahan pemuatan ulang.** Tanpanya modulnya menggantung
+  total: fetch gagal → render supaya pitanya muncul → render memanggil
+  pemuatnya lagi → fetch lagi, selamanya. Yang membersihkannya hanya tombol
+  **Coba lagi**. Pelajaran yang sudah dibayar `muatReqMkt()` di modul Konten.
+- **Modul Marketing yang mati tidak mematikan halaman ini** — sebab gagalnya
+  disebut, dan dikatakan bahwa DP reservasi di tab sebelah tetap bisa dipakai.
+- **Rentang yang berubah WAJIB menarik ulang** (`dpevSegar()` di `finSet` &
+  `finRange`): kotak tanggalnya bergerak sementara daftarnya tetap rentang
+  lama adalah dua angka yang bertentangan di satu layar.
+- **Rentang kosong dijepit** ke 2000-01-01..2100-12-31, bukan dikirim kosong:
+  backend menuntut tanggal sah, dan daftar yang kosong karena tanggalnya
+  kosong terbaca sebagai "tidak ada DP event".
+- **Jumlah EVENT dihitung dari `evId` yang berbeda**, bukan dari jumlah
+  baris — satu event boleh dibayar beberapa kali.
+- **Kartu total ikut pencarian**, bukan memakai `data.total` dari server:
+  kartu yang menyebut seluruh rentang di atas tabel yang sudah tersaring
+  adalah selisih yang dilaporkan sebagai salah hitung.
+
+```bash
+node tools/uji-dp-event.js   # 51 pemeriksaan, jsdom + kontrak sumber PHP
+```
+
+**Delapan belas mutasi dicoba, kedelapan belasnya tertangkap** — tapi TIGA
+baru sesudah ujinya dibetulkan, dan ketiganya bentuk yang sudah punya nama di
+berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| `galat` berhenti menahan pemuatan ulang | **asersi hampa** — yang dipanggil `renderFinance()`, dan penggambar itu memang TIDAK pernah memanggil pemuatnya | yang dipanggil `muatDpEvent()` sendiri |
+| total berhenti ikut pencarian | `Rp. 1.000.000` juga muncul sebagai NOMINAL BARIS di tabel, jadi asersinya cocok dengan sel yang bukan yang diuji | kartunya DIIRIS, dan dipastikan tidak lagi memuat 8.500.000 |
+| penanda "tanpa bukti" dicabut | asersinya menyapu seluruh tabel | barisnya diiris lewat nomor kwitansinya |
+
+> PHP tidak bisa dijalankan di mesin pengembangan, jadi aturan backend-nya
+> dijaga sebagai **kontrak atas sumbernya** — server tiruan menerima apa saja,
+> dan aturan yang tidak pernah ditulis di sana tidak menimbulkan galat di satu
+> sisi pun. Pola yang sama dengan `uji-simpan-basi.js`.
+
 ### Meja terkunci jadi KONFIRMASI, bukan tembok (20 September 2026)
 
 Lima permintaan user dalam satu pesan, dan empat di antaranya satu hal:

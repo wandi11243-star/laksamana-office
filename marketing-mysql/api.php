@@ -11,6 +11,7 @@
  *   POST {action:"saveAll", data:{...}} -> {ok,data:{saved:true,bentrok:[...]}}
  *   GET  ?action=eventsHari&tgl=YYYY-MM-DD
  *                                       -> {ok,data:{events:[...],vip:[...],settings:{...}}}
+ *   GET  ?action=dpMasuk&dari=&sampai=  -> {ok,data:{baris:[...],total,tanpaTanggal}}
  *   GET  ?action=designReqs[&aktif=1]   -> {ok,data:{reqs:[...],opsi:{...}}}
  *   GET  ?action=designReq&id=...       -> {ok,data:{req:{...lengkap dgn refs}}}
  *   POST {action:"designReqSet",id,status,picNama}
@@ -80,6 +81,14 @@ try {
     // Event 'Deal'/'Event Done' pada SATU tanggal — dibaca Finance > Omset >
     // Breakdown Sumber. Sengaja sempit; jangan diarahkan ke getAll.
     keluar(array('ok' => true, 'data' => events_hari(isset($_GET['tgl']) ? $_GET['tgl'] : '')));
+
+  } else if ($action === 'dpMasuk') {
+    // Pembayaran event pada satu RENTANG tanggal — dibaca halaman Dana Masuk
+    // modul Reservasi (tab "DP Event"). Sengaja sempit; jangan diarahkan ke
+    // getAll, yang memulangkan seluruh CRM & pipeline ke layar kasir.
+    keluar(array('ok' => true, 'data' => dp_masuk(
+      isset($_GET['dari'])   ? $_GET['dari']   : '',
+      isset($_GET['sampai']) ? $_GET['sampai'] : '')));
 
   } else if ($action === 'designReqs') {
     // Request Design & Video dari modul Marketing — dibaca modul Konten untuk
