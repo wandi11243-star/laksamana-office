@@ -1155,6 +1155,66 @@ berkas ini:
 > dan aturan yang tidak pernah ditulis di sana tidak menimbulkan galat di satu
 > sisi pun. Pola yang sama dengan `uji-simpan-basi.js`.
 
+#### Tab DP Event: rentang kosong yang menyebut DI MANA isinya (20 Sep 2026)
+
+Dilaporkan user beberapa jam sesudah tab ini naik: *"dari DP-nya juga tidak
+ditampilkan padahal sudah diisi"*, dengan layar yang berbunyi **"Tidak ada
+pembayaran event pada 20 Sep 2026 – 20 Sep 2026"**.
+
+**Tab ini terbuka pada rentang HARI INI, sementara DP event ditransfer
+berminggu-minggu sebelum acaranya** — jadi daftar kosong adalah keadaan yang
+PALING SERING terjadi di sini, bukan pengecualian. Dan daftar kosong yang cuma
+menyebut rentangnya terbaca sebagai **fitur yang tidak jalan**, bukan sebagai
+rentang yang perlu diperlebar. Tombol *Semua* memang sudah ada, tapi ia
+berdiri jauh di atas dan tidak mengatakan bahwa menekannya akan menghasilkan
+sesuatu.
+
+Sekarang keadaan kosongnya menyebut **jumlah, nominal, dan rentang tanggal
+yang benar-benar ada isinya**, berikut tombol yang langsung memakainya.
+
+- **Yang dipulangkan backend HITUNGANNYA saja** (`luar: {n, total, dari,
+  sampai}`), bukan barisnya. Kalau barisnya ikut terkirim, penyaring
+  tanggalnya berhenti berarti apa-apa.
+- **Angka tanpa jalan keluar** cuma memberi tahu orang bahwa ia salah tanpa
+  menunjukkan yang benar — karena itu tombolnya, bukan cuma kalimatnya.
+- **Yang di luarnya juga kosong TIDAK ditawari apa pun.** Menawarkan rentang
+  yang sama-sama kosong membuat orang menekannya lalu kembali ke layar yang
+  sama.
+- **`dpevPakaiRentang()` lewat `renderFinance()` + `dpevSegar()` yang SAMA
+  dengan `finSet()`** — kotak tanggalnya digambar dari `FIN_F` tiap render,
+  jadi menyetelnya lewat DOM berarti dua tempat yang memutuskan isi kotak yang
+  sama.
+
+`marketing-mysql` ada di **kedua** workflow, jadi backend-nya ikut deploy
+otomatis — tidak ada langkah cPanel.
+
+```bash
+node tools/uji-dp-event.js   # 66 pemeriksaan (dari 51)
+```
+
+Sepuluh mutasi dicoba; sembilan tertangkap dan **satu EKUIVALEN** — mencabut
+`renderFinance()` dari `dpevPakaiRentang()` tidak mengubah apa pun, karena
+`muatDpEvent()` sudah memanggilnya sendiri untuk tab yang sedang terbuka.
+Pemanggilannya tetap ditulis: maksudnya terbaca, dan ia tidak bergantung pada
+perilaku internal pemuatnya.
+
+Dua mutasi baru tertangkap sesudah ujinya dibetulkan, dan keduanya bentuk yang
+sudah punya nama di berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| ditawarkan walau di luar rentang juga kosong | **cacat fixture** — diuji atas fixture BERISI, jadi keadaan kosongnya tidak pernah digambar dan asersinya hijau apa pun keputusan kodenya | fixture `dpEventNihil()` yang benar-benar kosong di kedua sisi |
+| tanggal terawal/terakhir tidak dicatat | `$luarMin`/`$luarMax` juga berdiri di deklarasi awal dan di baris `return`, jadi asersi yang cuma mencari namanya tetap cocok | yang dituntut **pengisiannya**, bukan namanya |
+
+> **YANG DILAPORKAN BERSAMAAN TAPI BUKAN BUG:** tiga kotak DP di tab Finance
+> modul Marketing tidak terlihat di layar user. Diperiksa — kodenya ADA di
+> dev maupun produksi (`efd_dpRek` 3×), header `Cache-Control: no-cache,
+> must-revalidate`, dan tidak ada service worker. Halamannya memang sudah
+> terbuka sejak sebelum deploy; modul ini 1,4 MB dan tidak pernah dimuat ulang
+> sendiri. **Kalau laporan serupa datang lagi, periksa isi live-nya dulu
+> dengan `curl` sebelum mencari di kode** — satu perintah, dan ia membedakan
+> "belum mendarat" dari "belum dimuat ulang".
+
 ### DP wajib berbukti & berekening — dan DP event akhirnya sampai ke Dana Masuk (20 Sep 2026)
 
 Permintaan user, tiga jalur sekaligus: *"diinput event modul marketing ini

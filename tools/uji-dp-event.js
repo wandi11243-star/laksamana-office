@@ -74,7 +74,25 @@ function dpEvent() {
         at: HARI_INI, receipt: 'bukti3.jpg', receiptUrl: '../marketing-api-mysql/api.php?action=receipt&key=def' },
     ],
     total: 8500000, tanpaTanggal: 2, dari: HARI_INI, sampai: HARI_INI,
+    luar: { n: 0, total: 0, dari: '', sampai: '' },
   };
+}
+/* RENTANG YANG DIPILIH KOSONG, TAPI DI LUARNYA ADA ISINYA — dan itu keadaan
+   yang PALING SERING terjadi di tab ini: ia terbuka pada rentang HARI INI,
+   sementara DP event ditransfer berminggu-minggu sebelum acaranya.
+   Dilaporkan user 20 September 2026: "DP-nya tidak ditampilkan padahal sudah
+   diisi". Angkanya sengaja SAMA dengan fixture berisi, supaya yang tertukar
+   antara "di dalam rentang" dan "di luar rentang" tidak bisa bersembunyi. */
+function dpEventKosong() {
+  return { baris: [], total: 0, tanpaTanggal: 0, dari: HARI_INI, sampai: HARI_INI,
+           luar: { n: 3, total: 8500000, dari: '2026-09-01', sampai: '2026-09-15' } };
+}
+/* KOSONG SELURUHNYA — memang belum ada satu pembayaran pun. Fixture berisi
+   TIDAK bisa menguji ini: daftarnya tidak kosong, jadi keadaan kosongnya
+   tidak pernah digambar dan asersinya hampa. */
+function dpEventNihil() {
+  return { baris: [], total: 0, tanpaTanggal: 0, dari: HARI_INI, sampai: HARI_INI,
+           luar: { n: 0, total: 0, dari: '', sampai: '' } };
 }
 
 function dom(opt) {
@@ -104,7 +122,7 @@ function dom(opt) {
           if (u.indexOf('action=getAll') > -1) { jejak.getAllMkt++; return balas({ ok: true, data: {} }); }
           jejak.dpUrl.push(u);
           if (opt.gagalDp) return balas({ ok: false, error: 'server tiruan menolak' });
-          return balas({ ok: true, data: dpEvent() });
+          return balas({ ok: true, data: (opt.kosongTapiAdaLuar ? dpEventKosong() : (opt.nihil ? dpEventNihil() : dpEvent())) });
         }
         if (init && init.method === 'POST') return balas({ ok: true, data: { saved: true, ver: ++srv._ver } });
         if (u.indexOf('action=getAll') > -1) return balas({ ok: true, data: JSON.parse(JSON.stringify(srv)) });
@@ -350,6 +368,93 @@ const hal = w => w.document.getElementById('page-finance').innerHTML;
     cek('grand total event TIDAK ikut dihitung di PHP',
         !/function dp_masuk[\s\S]{0,3000}?'grand'/.test(PHP_LIB));
     cek('disebut alasannya di komentarnya', PHP_LIB.indexOf('berkas kembar LINTAS BAHASA') > -1);
+  }
+
+  /* ================================================================
+     RENTANG KOSONG YANG MENYEBUT DI MANA ISINYA (20 September 2026)
+
+     Tab ini terbuka pada rentang HARI INI, sementara DP event ditransfer
+     berminggu-minggu sebelum acaranya — jadi daftar kosong adalah keadaan
+     yang PALING SERING terjadi, dan "Tidak ada pembayaran event pada 20 Sep
+     – 20 Sep" terbaca sebagai fitur yang tidak jalan. Dilaporkan user.
+     ================================================================ */
+  console.log('\n== Rentang kosong: di mana isinya ==');
+  {
+    const { w } = dom({ kosongTapiAdaLuar: true });
+    await masuk(w);
+    await amanTunggu('buka tab event', async () => { w.eval('finSumber("event")'); });
+    await tunggu(250);
+    const h = hal(w);
+
+    cek('daftarnya memang kosong', /Tidak ada pembayaran event pada/.test(h));
+    /* JUMLAH, NOMINAL, dan RENTANG yang benar-benar ada isinya. Tanpa
+       ketiganya, yang membacanya tidak punya cara tahu apakah datanya memang
+       belum ada atau cuma di luar rentang yang kebetulan terpilih. */
+    cek('menyebut ADA yang di luar rentang', /Di luar rentang ini ada/.test(h), h.slice(0, 0));
+    cek('menyebut jumlahnya', /3 pembayaran/.test(h));
+    cek('menyebut nominalnya', /8\.500\.000/.test(h));
+    cek('menyebut rentang yang ada isinya',
+        /1 Sep 2026/.test(h) && /15 Sep 2026/.test(h), 'rentang luar tidak disebut');
+    /* ANGKA TANPA JALAN KELUAR cuma memberi tahu orang bahwa ia salah tanpa
+       menunjukkan yang benar. */
+    cek('menawarkan tombol yang memakainya', /dpevPakaiRentang\('2026-09-01','2026-09-15'\)/.test(h));
+
+    /* Tombolnya benar-benar menggeser rentangnya — dan lewat jalur yang SAMA
+       dengan kotak tanggalnya sendiri, supaya kotak di atas tidak menyebut
+       rentang lain daripada daftar di bawahnya. */
+    await amanTunggu('tekan tombolnya', async () => { w.eval("dpevPakaiRentang('2026-09-01','2026-09-15')"); });
+    await tunggu(200);
+    cek('rentangnya bergeser', w.eval('FIN_F.from') === '2026-09-01' && w.eval('FIN_F.to') === '2026-09-15',
+        w.eval('FIN_F.from') + '..' + w.eval('FIN_F.to'));
+    cek('kotak tanggalnya ikut menyebut rentang baru',
+        hal(w).indexOf('value="2026-09-01"') > -1 && hal(w).indexOf('value="2026-09-15"') > -1);
+  }
+
+  /* Yang rentangnya kosong DAN di luarnya juga kosong tidak boleh diberi
+     kalimat itu — menawarkan rentang yang sama-sama kosong membuat orang
+     menekannya lalu kembali ke layar yang sama. */
+  console.log('\n== Rentang kosong & memang tidak ada apa-apa ==');
+  {
+    /* FIXTURE-nya harus KOSONG juga. Fixture berisi tidak bisa menguji ini:
+       daftarnya tidak kosong, jadi keadaan kosongnya tidak pernah digambar
+       dan asersinya hijau apa pun keputusan kodenya — mutasi "ditawarkan
+       walau di luar rentang juga kosong" memang LOLOS karenanya. */
+    const { w } = dom({ nihil: true });
+    await masuk(w);
+    await amanTunggu('buka tab event', async () => { w.eval('finSumber("event")'); });
+    await tunggu(250);
+    cek('keadaan kosongnya memang digambar', /Tidak ada pembayaran event pada/.test(hal(w)));
+    /* Menawarkan rentang yang sama-sama kosong membuat orang menekannya lalu
+       kembali ke layar yang sama. */
+    cek('tidak menawarkan apa pun', !/Di luar rentang ini ada/.test(hal(w)));
+  }
+
+  /* ================================================================
+     BACKEND: yang di luar rentang DIHITUNG, bukan cuma dilewati
+     ================================================================ */
+  console.log('\n== Backend: hitungan di luar rentang ==');
+  if (PHP_LIB) {
+    const i = PHP_LIB.indexOf('function dp_masuk(');
+    const j = PHP_LIB.indexOf('function events_hari(');
+    const badan = (i > -1 && j > i) ? PHP_LIB.slice(i, j).replace(/\/\*[\s\S]*?\*\//g, '') : '';
+    cek('badan dp_masuk terbaca', !!badan);
+    cek('yang di luar rentang dihitung, bukan cuma continue',
+        /\$luarN\+\+/.test(badan) && /\$luarRp \+=/.test(badan));
+    /* Rentang yang BENAR-BENAR ada isinya, supaya layar bisa menawarkan
+       rentang yang menampilkan sesuatu — bukan cuma memberi tahu bahwa yang
+       dipilih kosong. */
+    /* YANG DITUNTUT PENGISIANNYA, bukan sekadar namanya muncul: $luarMin &
+       $luarMax juga berdiri di deklarasi awal dan di baris return, jadi
+       asersi yang cuma mencari namanya tetap hijau walau baris yang
+       mengisinya dicabut — mutasi itu memang LOLOS di putaran pertama. */
+    cek('tanggal terawal & terakhirnya ikut dicatat',
+        /\$luarMin === ''[\s\S]{0,40}?\$luarMin = \$at;/.test(badan)
+        && /\$at > \$luarMax\) \$luarMax = \$at;/.test(badan));
+    cek('ikut dipulangkan sebagai luar', /'luar'\s*=>/.test(badan));
+    /* BARISNYA TIDAK ikut terkirim — kalau ikut, penyaring tanggalnya
+       berhenti berarti apa-apa. */
+    cek('barisnya TIDAK ikut terkirim',
+        /\$luarN\+\+[\s\S]{0,200}?continue;/.test(badan));
   }
 
   console.log('\n---------------------------------------');

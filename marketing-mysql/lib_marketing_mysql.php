@@ -1196,6 +1196,7 @@ function dp_masuk($dari, $sampai) {
        LEFT JOIN users   u ON u.id = e.mkt_pic
       ORDER BY e.tanggal DESC");
   $baris = array(); $tanpaTanggal = 0;
+  $luarN = 0; $luarRp = 0; $luarMin = ''; $luarMax = '';
   foreach ($st->fetchAll() as $r) {
     $d = json_decode(isset($r['data']) ? $r['data'] : '', true);
     if (!is_array($d)) $d = array();
@@ -1207,7 +1208,23 @@ function dp_masuk($dari, $sampai) {
          menaruh uang di hari yang tidak pernah menerimanya. Dihitung dan
          dilaporkan, supaya yang menjumlahkan tahu ada yang tidak ikut. */
       if ($at === '') { $tanpaTanggal++; continue; }
-      if ($at < $dari || $at > $sampai) continue;
+      /* DI LUAR RENTANG DIHITUNG, BUKAN CUMA DILEWATI (20 September 2026).
+         Halaman Dana Masuk membuka tab ini pada rentang HARI INI, sementara
+         DP event ditransfer berminggu-minggu sebelum acaranya — jadi daftar
+         yang kosong adalah keadaan yang PALING SERING terjadi, dan "Tidak ada
+         pembayaran event pada 20 Sep – 20 Sep" terbaca sebagai fitur yang
+         tidak jalan, bukan sebagai rentang yang perlu diperlebar. Itu persis
+         yang dilaporkan user beberapa jam sesudah tab ini naik.
+
+         Yang dihitung JUMLAH & NOMINALNYA saja, bukan barisnya: yang di luar
+         rentang memang tidak boleh ikut terkirim — kalau ikut, penyaring
+         tanggalnya berhenti berarti apa-apa. */
+      if ($at < $dari || $at > $sampai) {
+        $luarN++; $luarRp += isset($p['amount']) ? (float)$p['amount'] : 0;
+        if ($luarMin === '' || $at < $luarMin) $luarMin = $at;
+        if ($at > $luarMax) $luarMax = $at;
+        continue;
+      }
       $baris[] = array(
         'evId'      => (string)$r['id'],
         'event'     => (string)$r['nama'],
@@ -1237,6 +1254,11 @@ function dp_masuk($dari, $sampai) {
     'baris'        => $baris,
     'total'        => $total,
     'tanpaTanggal' => $tanpaTanggal,
+    /* Rentang tanggal yang benar-benar ADA isinya, supaya layar bisa
+       menawarkan rentang yang menampilkan sesuatu — bukan cuma memberi tahu
+       bahwa yang dipilih kosong. */
+    'luar'         => array('n' => $luarN, 'total' => $luarRp,
+                            'dari' => $luarMin, 'sampai' => $luarMax),
     'dari'         => $dari,
     'sampai'       => $sampai,
   );
