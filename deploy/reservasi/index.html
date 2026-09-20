@@ -1272,6 +1272,37 @@ function sedangDialihkan(r){ return !!(r && r.tableAsli && !r.leftAt && !["Cance
 // Contoh: booking 19:00 → meja terkunci sejak 16:00 (jam datang 16:00 pun sudah ter-disable).
 // Reservasi baru hanya bisa memakai meja itu bila jamnya LEBIH dari 3 jam sebelum/sesudahnya.
 const LOCK_LEAD_MIN = 180;
+/* ===== H-1 JAM: TERKUNCI, TITIK (20 September 2026, permintaan user) =====
+
+   Tiga tingkat, dan ketiganya lahir dari permintaan yang berbeda:
+
+     sedang duduk        tidak pernah bisa          (kursinya dipakai orang)
+     <= MEPET_MIN        TERKUNCI, tidak ditawar    <- yang ini
+     > MEPET_MIN         boleh, lewat konfirmasi    (19-20 Sep 2026)
+
+   Kuncian H±3 jam dicabut 19 September karena terlalu lebar — meja kosong
+   yang tidak boleh dipakai selama tiga jam adalah kursi yang hangus. Tapi
+   satu jam menjelang jamnya bukan lagi penyangga: tamunya bisa muncul kapan
+   saja, dan tidak ada konfirmasi yang bisa membuat rombongan berikutnya
+   selesai tepat waktu. Yang di antara keduanya tetap keputusan kru.
+
+   SATU ambang untuk SELURUH jalur, dan dua cara menghitung menitnya —
+   keduanya memang berbeda dan itu disengaja:
+
+     walk-in / denah Hari-H : dari SEKARANG ke jam booking
+     form, pindah, VIP      : dari JAM YANG DIISI ke jam booking
+
+   Yang kedua memakai nilai mutlak: lawan yang jamnya LEBIH AWAL 30 menit
+   sama mepetnya dengan yang 30 menit kemudian. */
+const MEPET_MIN = 60;
+function mepetKah(menit){ return menit <= MEPET_MIN; }
+/* Jarak (menit, mutlak) antara sebuah reservasi dan waktu yang sedang
+   dipertimbangkan. Dipakai seluruh jalur yang menjual kursi untuk nanti. */
+function bedaMenitRes(r, date, time){
+  if(!r || !r.date || !r.time || !date || !time) return Infinity;
+  return Math.abs(absMin(r.date, r.time) - absMin(date, time));
+}
+function mepetTerhadap(r, date, time){ return mepetKah(bedaMenitRes(r, date, time)); }
 // Tamu masih menempati meja (sudah datang & belum ditandai selesai/pulang).
 function isSeated(r){ return r && r.status==="Datang" && !r.leftAt; }
 
@@ -2200,9 +2231,12 @@ function seatMapMarkup(layoutKey, mode, occ, later){
         const sisa = m>0 ? `${fmtDur(m)} lagi` : `jamnya sudah lewat ${fmtDur(-m)}`;
         const tip=`${t.id}, ${t.cap} pax, kosong sekarang. Dipesan ${nx.res.name} jam ${seatTimeLabel(nx.res)} (${sisa}, ${nx.res.pax} pax)${nx.more?` (+${nx.more} reservasi lain)`:""}.\n`
           + (mepet
-              ? `⏰ Jamnya sudah dekat — boleh dipakai duduk sementara, tapi pastikan kosong lagi sebelum jamnya.`
-              : `Masih boleh dipakai walk-in / duduk sementara. Klik untuk isi tamu.`);
-        return `<button type="button" class="seat avail booking-soon${mepet?" booking-mepet":""}" style="${st}" onclick="seatEmptyClick('${esq(t.id)}')" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${t.cap} pax</span><span class="seat-sub">${mepet?"⏰":"🔒"} ${esc(seatTimeLabel(nx.res))}</span>${nx.more?`<span class="seat-multi" title="${esc(nx.more+" reservasi lain di meja ini")}">+${nx.more}</span>`:""}</button>`;
+              ? `🔒 TERKUNCI — tinggal ${fmtDur(m)} menjelang jamnya, mejanya disiapkan untuk tamu itu.`
+              : `Masih boleh dipakai walk-in / duduk sementara. Klik untuk isi tamu — kamu akan ditanya dulu.`);
+        /* Yang mepet digambar TANPA penangan klik: tombol yang bisa ditekan
+           lalu menolak terbaca sebagai halaman rusak, dan penolakan yang
+           berulang melatih orang berhenti membacanya. */
+        return `<button type="button" class="seat avail booking-soon${mepet?" booking-mepet":""}"${mepet?" disabled":` onclick="seatEmptyClick('${esq(t.id)}')"`} style="${st}" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${t.cap} pax</span><span class="seat-sub">🔒 ${esc(seatTimeLabel(nx.res))}</span>${nx.more?`<span class="seat-multi" title="${esc(nx.more+" reservasi lain di meja ini")}">+${nx.more}</span>`:""}</button>`;
       }
       const tipEmpty=`${t.id}, ${t.cap} pax, kosong. Klik untuk `+(nWait?`pilih tamu dari waiting list (${nWait} menunggu) / walk-in`:`walk-in`);
       return `<button type="button" class="seat avail" style="${st}" onclick="seatEmptyClick('${esq(t.id)}')" title="${esc(tipEmpty)}"><span class="sn">${esc(t.id)}</span><span class="sp">${t.cap} pax</span>${nWait?`<span class="seat-sub">⏳ ${nWait}</span>`:""}</button>`;
@@ -2214,9 +2248,13 @@ function seatMapMarkup(layoutKey, mode, occ, later){
         const scls=seatStatusClass(list[0]);
         /* Sama dengan mode form: yang tamunya SEDANG DUDUK tetap mati, yang
            dipesan untuk nanti bisa dituju lewat pertanyaan. */
-        const duduk=isSeated(list[0]);
-        const tipM = duduk
+        const rM=(typeof MOVE_ID!=="undefined") ? STATE.reservations.find(x=>x.id===MOVE_ID) : null;
+        const mepetM=rM ? mepetTerhadap(list[0], rM.date, rM.time) : false;
+        const duduk=isSeated(list[0]) || mepetM;
+        const tipM = isSeated(list[0])
           ? `${t.id}, ${list[0].name} masih duduk — tandai "🍽️ Selesai" dulu`
+          : mepetM
+          ? `${t.id}, TERKUNCI — ${list[0].name} jam ${list[0].time}, cuma ${fmtDur(bedaMenitRes(list[0], rM.date, rM.time))} dari jam tamu ini`
           : `${t.id}, dipesan ${list[0].name} jam ${list[0].time}. Klik kalau tetap mau memakainya — kamu akan ditanya dulu.`;
         return `<button type="button" class="seat booked ${scls}"${duduk?" disabled":` onclick="toggleMoveSeat('${esq(t.id)}')"`} style="${st};opacity:.55" title="${esc(tipM)}"><span class="sn">${esc(t.id)}</span><span class="sp">${esc((list[0].name||'').split(' ')[0])}</span>${duduk?"":`<span class="seat-sub">🔒 ${esc(list[0].time)}</span>`}</button>`;
       }
@@ -2234,11 +2272,17 @@ function seatMapMarkup(layoutKey, mode, occ, later){
          2026, permintaan user) — penyangga H±3 jam itu aturan, bukan
          kenyataan fisik, dan yang bisa menimbangnya kru yang melihat
          mejanya. */
-      const duduk=isSeated(r0);
-      const tip=duduk
+      const fSel=byId("resForm");
+      /* Dua sebab meja ini tidak bisa dipaksa sama sekali, dan keduanya
+         dikatakan terpisah — yang satu menyuruh menandai Selesai, yang satu
+         menyuruh memilih jam lain. */
+      const duduk=isSeated(r0) || mepetTerhadap(r0, fSel?.elements.date?.value||"", normTime(fSel?.elements.time?.value||""));
+      const tip=isSeated(r0)
         ? `${t.id} — ${r0.name} masih duduk (jam ${r0.time}, datang ${clockOf(r0.checkinAt)}). ${lockWindowText(r0)}. Tandai "🍽️ Selesai" untuk membuka meja ini.`
+        : duduk
+        ? `${t.id} — TERKUNCI. ${r0.name} jam ${r0.time}, cuma ${fmtDur(bedaMenitRes(r0, fSel?.elements.date?.value||"", normTime(fSel?.elements.time?.value||"")))} dari jam yang kamu isi. Pilih jam lain kalau mau memakai meja ini.`
         : `${t.id} — dipesan ${r0.name} jam ${r0.time} (${r0.status}). ${lockWindowText(r0)}.\nKlik kalau tetap mau memakainya — kamu akan ditanya dulu.`;
-      const sub=duduk ? `🍽️ duduk` : `🔒 ${esc(r0.time)}`;
+      const sub=isSeated(r0) ? `🍽️ duduk` : `🔒 ${esc(r0.time)}`;
       const izin=SEAT_IZIN.has(t.id);
       return `<button type="button" class="seat booked ${scls} occ-lock${izin?" seat-paksa":""}"${duduk?" disabled":` onclick="pickSeat('${esq(t.id)}')"`} style="${st}" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${esc((r0.name||'').split(' ')[0])}</span><span class="seat-sub">${izin?"⚠️ dipaksa":sub}</span></button>`;
     }
@@ -3520,9 +3564,15 @@ function conflictCheck(date, table, time, exceptId, sharing, list, opsi){
     if(!tablesOf(r).some(t=>want.includes(t))) return false;
     if(sharing && r.sharing) return false;                       // dua-duanya sharing → boleh gabung
     /* Tamu yang SEDANG DUDUK tetap menghalangi apa pun modenya — kursinya
-       memang sedang dipakai orang. Yang dilonggarkan cuma reservasi yang
-       belum datang. */
-    if(walkin) return isSeated(r);
+       memang sedang dipakai orang. Begitu juga reservasi yang jamnya TINGGAL
+       SATU JAM lagi (atau sudah lewat): sejak 20 September 2026 itu kuncian,
+       bukan peringatan.
+
+       Ditaruh DI SINI, bukan cuma di layar, justru karena inilah yang
+       dipanggil mergeIntoState() saat datanya naik. Kalau hanya layar yang
+       mengunci, satu klik dari console — atau satu jalur yang terlewat —
+       tetap bisa menempatkan dua rombongan di meja yang sama. */
+    if(walkin) return isSeated(r) || mepetTerhadap(r, date, time);
     return locksTable(r, date, time);
   }) || null;
 }
@@ -3578,7 +3628,15 @@ function tanyaTumpang(lawan, meja, date, time){
     toast(`Meja ${meja} sedang diduduki ${lawan.name} — tandai "🍽️ Selesai" dulu kalau tamunya sudah pulang`,"err");
     return false;
   }
-  const beda = Math.abs(absMin(lawan.date, lawan.time) - absMin(date, time));
+  const beda = bedaMenitRes(lawan, date, time);
+  /* TERKUNCI, tidak ditawar. Tidak ada pertanyaan di sini — pertanyaan yang
+     jawabannya tidak boleh "ya" cuma melatih orang menekan OK, dan sekali
+     kebiasaan itu terbentuk ia terbawa ke pertanyaan yang memang perlu
+     dipikirkan. */
+  if(mepetKah(beda)){
+    toast(`Meja ${meja} terkunci — ${lawan.name} jam ${lawan.time}, tinggal ${fmtDur(beda)} lagi`,"err");
+    return false;
+  }
   const mepet = beda <= TUMPANG_MEPET_MIN;
   const pesan =
     `⚠️ MEJA ${meja} SUDAH DIPESAN\n\n`
@@ -5294,7 +5352,7 @@ function harihMapView(){
       <span><i style="background:#7C5FC0"></i>🤝 Sharing (bisa gabung)</span>
       <span><i style="background:#EFE6CE;border:1px solid rgba(120,90,30,.3)"></i>Kosong (available) → klik utk walk-in</span>
       <span><i style="background:#DDEFF2;border:2px dashed #2F7D8C"></i>🔒 Dipesan nanti — <b>bisa diklik</b>, tapi ditanya dulu</span>
-      <span><i style="background:#F8E4DF;border:2px solid #C9432B"></i>⏰ Dipesan <b>≤1 jam lagi</b> — boleh, tapi pastikan kosong sebelum jamnya</span>
+      <span><i style="background:#F8E4DF;border:2px solid #C9432B"></i>🔒 Dipesan <b>≤1 jam lagi</b> — <b>TERKUNCI</b>, mejanya disiapkan untuk tamu itu</span>
     </div>
   </div></div>`;
 }
@@ -5997,14 +6055,21 @@ function tanyaDudukSementara(tableId){
   const nx=bookingBerikut(tableId);
   if(!nx) return true;
   const m=menitMenuju(nx.res);
-  const mepet=mepetKah(m);
   const sisa = m>0 ? `${fmtDur(m)} lagi` : `jamnya sudah lewat ${fmtDur(-m)}`;
+  /* H-1 JAM: TERKUNCI. Tamunya bisa muncul kapan saja, dan rombongan yang
+     baru duduk sepuluh menit lalu tidak akan berdiri tepat waktu — tidak ada
+     jawaban "ya" yang bisa mengubah itu. Mejanya sudah digambar tanpa
+     penangan klik; penjaga di sini yang menahan pemanggilan dari tempat
+     lain. */
+  if(mepetKah(m)){
+    toast(`Meja ${tableId} terkunci — ${nx.res.name} jam ${nx.res.time} (${sisa})`,"err");
+    return false;
+  }
   return confirm(
     `⚠️ MEJA ${tableId} SUDAH DIPESAN\n\n`
     + `${nx.res.name} — jam ${nx.res.time}, ${nx.res.pax} pax (${sisa})${nx.more?` (+${nx.more} reservasi lain di meja ini)`:""}\n\n`
-    + (mepet
-        ? `⏰ JAMNYA SUDAH DEKAT. Kalau tamunya didudukkan di sini, pastikan meja ini benar-benar kosong lagi sebelum jam ${nx.res.time}.\n\n`
-        : `Boleh dipakai duduk sementara — mejanya memang masih kosong sekarang.\n\n`)
+    + `Mejanya masih kosong sekarang, dan jamnya masih ${fmtDur(m)} lagi — boleh dipakai duduk sementara.\n\n`
+    + `Meja ini TERKUNCI SENDIRI begitu tinggal ${fmtDur(MEPET_MIN)} menjelang jamnya.\n\n`
     + `Dudukkan tamu di meja ini?`);
 }
 function walkInSeat(tableId, sharingDefault, paxDefault){
@@ -6034,13 +6099,6 @@ function walkInSeat(tableId, sharingDefault, paxDefault){
    </div>`);
   setTimeout(()=>byId("wi_name")?.focus(),60);
 }
-/* AMBANG "SUDAH MEPET" — SATU tempat untuk denah DAN form walk-in.
-   Ditulis dua kali, denah bisa menandai sebuah meja merah sementara form
-   yang terbuka dari meja itu berkata "masih bisa dipakai duduk sementara" —
-   dua kalimat yang bertentangan di satu layar, dan yang membacanya tidak
-   punya cara tahu mana yang berlaku. */
-const MEPET_MIN = 60;
-function mepetKah(menit){ return menit <= MEPET_MIN; }
 
 /* Reservasi TERDEKAT di sebuah meja yang orangnya BELUM datang — dipakai
    form walk-in, denah, dan catatan otomatisnya. Satu tempat, supaya jam yang

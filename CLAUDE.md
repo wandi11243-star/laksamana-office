@@ -1061,14 +1061,72 @@ Lima permintaan user dalam satu pesan, dan empat di antaranya satu hal:
 | pindah / tambah meja | `disabled` | bisa diklik → konfirmasi |
 | Reservasi VIP (modul Marketing) | `disabled` | bisa diklik → konfirmasi |
 
+#### TIGA TINGKAT, dan H-1 JAM TERKUNCI SENDIRI
+
+Permintaan user beberapa jam kemudian: *"kalau h-1 jam reservasi lsng auto
+lock saja"*. Jadi aturannya bertingkat:
+
+| keadaan meja | boleh dipakai? |
+|---|---|
+| tamunya **sedang duduk** | **tidak pernah** — kursinya memang dipakai orang |
+| jaraknya **≤ `MEPET_MIN` (60 mnt)** | **tidak** — terkunci sendiri |
+| jaraknya **> 60 mnt**, masih di jendela H±3 jam | boleh, lewat **konfirmasi** |
+| di luar jendela | boleh, tanpa ditanya |
+
+**Kenapa H±3 jam dicabut tapi H-1 jam dikunci lagi** — dan keduanya benar:
+tiga jam terlalu lebar, meja kosong yang tidak boleh dipakai selama itu
+adalah kursi yang hangus. Satu jam menjelang jamnya bukan lagi penyangga:
+tamunya bisa muncul kapan saja, dan rombongan yang baru duduk sepuluh menit
+lalu tidak akan berdiri tepat waktu. **Tidak ada jawaban "ya" yang bisa
+mengubah itu**, jadi di situ tidak ada pertanyaan sama sekali — pertanyaan
+yang jawabannya tidak boleh "ya" cuma melatih orang menekan OK, dan
+kebiasaan itu terbawa ke pertanyaan yang memang perlu dipikirkan.
+
+**PENJAGANYA DI `conflictCheck()`, bukan cuma di layar.** Itu yang dipanggil
+`mergeIntoState()` saat datanya naik, jadi satu jalur layar yang terlewat —
+atau satu klik dari console — tetap tertahan:
+
+```js
+if(walkin) return isSeated(r) || mepetTerhadap(r, date, time);
+```
+
+- **SATU ambang (`MEPET_MIN`) untuk seluruh jalur, DUA cara menghitung
+  menitnya**, dan keduanya memang berbeda: walk-in/denah menghitung dari
+  **sekarang** ke jam booking; form, pindah, dan VIP dari **jam yang diisi**.
+- **Jaraknya MUTLAK** (`Math.abs`): lawan yang jamnya lebih AWAL 30 menit
+  sama mepetnya dengan yang 30 menit kemudian. Dijaga mutasi tersendiri.
+- **Yang jamnya SUDAH LEWAT ikut terkunci.** Booking 19:00 yang tamunya belum
+  muncul jam 19:15 justru yang paling mungkin datang sebentar lagi. Ini
+  MENGUBAH perilaku 19 September, yang waktu itu sengaja tetap
+  memperbolehkannya — sekarang tidak.
+- **`MEPET_MIN` PINDAH ke dekat `LOCK_LEAD_MIN`.** Ia dulu hidup di dekat
+  form walk-in karena cuma menandai warna; sejak ia dipakai
+  `conflictCheck()` — penjaga paling inti di berkas itu — ia harus lahir
+  sebelum siapa pun memanggilnya.
+- **Tombolnya digambar `disabled`**, bukan hidup lalu menolak. Penjaganya
+  berlapis, jadi mencabut `disabled` saja tidak mengubah hasil akhir — tiga
+  mutasi memang LOLOS sampai ujinya membaca `btn.disabled`, bukan cuma
+  "tersimpan atau tidak". Tombol yang bisa ditekan lalu menolak terbaca
+  sebagai halaman rusak.
+- **`VIP_MEPET_MIN` di modul Marketing adalah KEMBARANNYA** (60). Kedua modul
+  tidak berbagi kode; kalau yang di sana berubah, yang di sini HARUS ikut —
+  satu modul menjual meja yang modul lain anggap terkunci adalah selisih yang
+  cuma ketahuan waktu dua rombongan berdiri di depan meja yang sama. Dijaga
+  asersi di `uji-konfirmasi-meja.js`.
+- **Di sisi VIP, yang mepet dihitung ULANG di dalam putaran simpan**
+  (`mepetKini`): jam acaranya bisa digeser sesudah mejanya dipilih.
+
 #### BATAS YANG TIDAK BOLEH DIGESER
 
 **Kursi yang SEDANG DIDUDUKI orang tidak pernah bisa ditimpa**, berapa kali
-pun kru menjawab "ya". Yang dilonggarkan hanya **penyangga H±3 jam** terhadap
-tamu yang BELUM datang — itu aturan, bukan kenyataan fisik, dan yang bisa
-menimbangnya kru yang melihat mejanya. `tanyaTumpang()` /
-`vipTanyaTumpang()` karena itu memulangkan `false` tanpa bertanya apa pun
-untuk `isSeated(r)`, dan menyebut sebabnya lewat toast.
+pun kru menjawab "ya" — dan sejak 20 September 2026 begitu juga reservasi
+yang jamnya tinggal satu jam. Yang dilonggarkan hanya **penyangga di
+antaranya**: itu aturan, bukan kenyataan fisik, dan yang bisa menimbangnya
+kru yang melihat mejanya. `tanyaTumpang()` / `vipTanyaTumpang()` karena itu
+memulangkan `false` tanpa bertanya apa pun untuk keduanya, dan menyebut
+sebabnya lewat toast — dengan kalimat yang BERBEDA, karena jalan keluarnya
+berbeda: yang satu menyuruh menandai Selesai, yang satu menyuruh memilih jam
+lain.
 
 Aturan yang sama persis dengan walk-in 19 September 2026
 (`if(walkin) return isSeated(r)`) — dan memang dijadikan SATU cabang:
@@ -1173,8 +1231,20 @@ seperti itulah yang paling sering diklik orang.
   memulangkan tabel kosong.
 
 ```bash
-node tools/uji-konfirmasi-meja.js   # 67 pemeriksaan, jsdom + kontrak sumber Marketing
+node tools/uji-konfirmasi-meja.js   # 91 pemeriksaan, jsdom + kontrak sumber Marketing
+node tools/uji-walkin-sementara.js  #  65 pemeriksaan (dari 54), TANPA jsdom
 ```
+
+Fixture `uji-konfirmasi-meja.js` punya **lima titik waktu**, dan tiap-tiapnya
+ada supaya satu tingkat aturan punya tempat untuk gagal — DUDUK +60,
+SEGERA +30, PESAN +90, MEPET +180, dan jam form +210. Tanpa PESAN dan MEPET
+yang terpisah, "boleh dipaksa" dan "tidak boleh sama sekali" jatuh ke meja
+yang sama, dan mutasi yang menghapus salah satu aturannya tidak mengubah satu
+asersi pun.
+
+`MEPET_MIN` ikut **DIPOTONG dari sumber** di `uji-walkin-sementara.js`,
+bukan disalin nilainya — sejak ia menentukan kuncian, uji yang memegang
+salinan angkanya sendiri akan tetap hijau kalau ambangnya diubah di sana.
 
 > **NAMA MEJA DI FIXTURE HARUS ADA DI DENAH SUNGGUHAN.** Versi pertama berkas
 > ini memakai "A1"/"A2" — yang tidak ada di `venue-layouts.js` sama sekali
@@ -1397,7 +1467,7 @@ dan `getAll` berikutnya memulangkannya, jadi jalur TARIK–GABUNG–TULIS
 sudah merah enam hari sesudah ditulis, dan uji yang berubah merah tanpa ada
 yang mengubah kode melatih orang mengabaikan warna merahnya.
 
-**Tiga puluh dua mutasi dicoba, ketiga puluh duanya tertangkap** — tapi
+**Empat puluh empat mutasi dicoba, keempat puluh empatnya tertangkap** — tapi
 TIGA baru sesudah ujinya dibetulkan, dan ketiganya bentuk yang sudah punya
 nama di berkas ini:
 

@@ -67,8 +67,25 @@ function jamPlus(menit) {
   const d = new Date(Date.now() + menit * 60000);
   return { date: ymd(d), time: pad(d.getHours()) + ':' + pad(d.getMinutes()) };
 }
-const SEKARANG = jamPlus(0);       // tamu yang SEDANG duduk
-const NANTI = jamPlus(90);         // dipesan, belum datang — di luar ambang "mepet" (60 mnt)
+/* LIMA titik waktu, dan tiap-tiapnya ada supaya satu tingkat aturan punya
+   tempat untuk gagal. Jaraknya dipilih supaya tidak ada dua tingkat yang
+   bisa tertukar:
+
+     DUDUK  +60   tamu sedang duduk   -> selalu mati, apa pun jaraknya
+     PESAN  +90   beda 120 dari NANTI -> TERKUNCI tapi boleh dipaksa
+     MEPET +180   beda  30 dari NANTI -> TERKUNCI, tidak ditawar (H-1 jam)
+     SEGERA +30   30 menit dari SEKARANG -> terkunci di denah Hari-H
+     NANTI +210   jam yang diisi form / jam reservasi yang dipindah
+
+   Tanpa PESAN dan MEPET yang terpisah, "boleh dipaksa" dan "tidak boleh
+   sama sekali" jatuh ke meja yang sama — dan mutasi yang menghapus salah
+   satu aturannya tidak mengubah satu asersi pun. */
+const SEKARANG = jamPlus(0);
+const DUDUK  = jamPlus(60);
+const PESAN  = jamPlus(90);
+const MEPET  = jamPlus(180);
+const SEGERA = jamPlus(30);
+const NANTI  = jamPlus(210);
 
 /* Fixture: meja A1 dipesan NANTI (belum datang), meja A2 tamunya SEDANG
    DUDUK. Keduanya sama-sama "terkunci" menurut denah lama — dan seluruh isi
@@ -84,20 +101,23 @@ function fixture() {
     createdAt: now - 7200000, updatedAt: now - 7200000, arrivals: [], checkinAt: null,
     leftAt: 0, followups: [],
   }, o);
-  /* Keduanya terkunci pada jam NANTI sekaligus:
-       A1  dipesan NANTI              -> jendela [NANTI-3j, NANTI+3j]
-       A2  tamunya duduk sejak SEKARANG -> jendela [SEKARANG-3j, SEKARANG+3j]
-     dan NANTI = SEKARANG + 90 menit, jadi masih di dalam keduanya. */
   return [
-    dasar({ id: 'res-nanti', name: 'Dewi Anggraini', date: NANTI.date, time: NANTI.time, table: '21', pax: 4 }),
-    dasar({ id: 'res-duduk', name: 'Bagus Prakoso', date: SEKARANG.date, time: SEKARANG.time, table: '22',
+    // meja 21 — terkunci terhadap NANTI, tapi jaraknya 120 menit: BOLEH dipaksa
+    dasar({ id: 'res-nanti', name: 'Dewi Anggraini', date: PESAN.date, time: PESAN.time, table: '21', pax: 4 }),
+    // meja 22 — tamunya SEDANG DUDUK: tidak pernah bisa, walau jaraknya 150 menit
+    dasar({ id: 'res-duduk', name: 'Bagus Prakoso', date: DUDUK.date, time: DUDUK.time, table: '22',
       status: 'Datang', checkinAt: now,
       arrivals: [{ ts: now, pax: 4, by: 'Rina Host' }], actualPax: 4 }),
+    // meja 24 — jaraknya cuma 30 menit dari NANTI: TERKUNCI, tidak ditawar
+    dasar({ id: 'res-mepet', name: 'Hana Pertiwi', date: MEPET.date, time: MEPET.time, table: '24', pax: 3 }),
+    /* meja 23 — terkunci & boleh dipaksa, sama dengan 21. Ia yang membuat
+       "izin untuk meja A tidak melonggarkan meja B" punya tempat untuk
+       gagal; tanpa baris ini satu-satunya meja yang boleh dipaksa selalu
+       yang sama dengan yang disetujui. */
+    dasar({ id: 'res-nanti2', name: 'Indra Wijaya', date: PESAN.date, time: PESAN.time, table: '23', pax: 3 }),
+    // meja 32 — 30 menit dari SEKARANG: terkunci di denah Hari-H
+    dasar({ id: 'res-segera', name: 'Joko Santoso', date: SEGERA.date, time: SEGERA.time, table: '32', pax: 2 }),
     dasar({ id: 'res-pindah', name: 'Citra Melati', date: NANTI.date, time: NANTI.time, table: '41', pax: 2 }),
-    /* Meja terkunci KEDUA. Ia yang membuat "izin untuk meja A tidak boleh
-       melonggarkan meja B" punya tempat untuk gagal — tanpa baris ini,
-       satu-satunya meja terkunci selalu yang sama dengan yang disetujui. */
-    dasar({ id: 'res-nanti2', name: 'Hana Pertiwi', date: NANTI.date, time: NANTI.time, table: '24', pax: 3 }),
     dasar({ id: 'res-besok', name: 'Fajar Nugroho', date: BESOK, time: '19:00', table: '42' }),
   ];
 }
@@ -158,6 +178,18 @@ async function masuk(w) {
   w.eval('window.__toast=[]; toast=function(m,t){ window.__toast.push({m:String(m),t:t}); };');
   await tunggu(40);
 }
+/* Tombol sebuah meja di denah. Dipakai menguji tombolnya benar-benar MATI,
+   bukan cuma menolak saat ditekan: penjaganya berlapis, jadi mencabut
+   `disabled` saja tidak mengubah hasil akhirnya — dan tombol yang bisa
+   ditekan lalu menolak terbaca sebagai halaman rusak. Tiga mutasi memang
+   lolos sampai asersi ini ada. */
+function seatBtn(w, wadahId, meja) {
+  const wadah = w.document.getElementById(wadahId); if (!wadah) return null;
+  const btn = [...wadah.querySelectorAll('button.seat')].find(b => {
+    const sn = b.querySelector('.sn'); return sn && sn.textContent.trim() === meja;
+  });
+  return btn || null;
+}
 const toastTerakhir = w => {
   const a = JSON.parse(w.eval('JSON.stringify(window.__toast||[])'));
   return a.length ? a[a.length - 1].m : '';
@@ -178,13 +210,13 @@ const toastTerakhir = w => {
         SRC.indexOf('bisa diklik</b>, tapi ditanya dulu') > -1);
 
     // Meja A1 dipesan 23:30 dan belum datang → ditanya.
-    w.eval('HARIH_DATE=' + JSON.stringify(NANTI.date) + ';');
+    w.eval('HARIH_DATE=' + JSON.stringify(PESAN.date) + ';');
     await amanTunggu('klik meja yang sudah dipesan', async () => { w.eval('seatEmptyClick("21")'); });
     await tunggu(80);
     cek('mengklik meja yang sudah dipesan MENANYAKAN dulu', jejak.tanya.length === 1, jejak.tanya.length + '× tanya');
     const t1 = jejak.tanya[0] || '';
     cek('pertanyaannya menyebut siapa pemesannya', t1.indexOf('Dewi Anggraini') > -1, t1.slice(0, 160));
-    cek('menyebut jam & jumlah paxnya', t1.indexOf(NANTI.time) > -1 && t1.indexOf('4 pax') > -1, t1.slice(0, 200));
+    cek('menyebut jam & jumlah paxnya', t1.indexOf(PESAN.time) > -1 && t1.indexOf('4 pax') > -1, t1.slice(0, 200));
     cek('dijawab ya, formulir walk-in tetap terbuka',
         w.document.getElementById('modalRoot').innerHTML.indexOf('Walk-in') > -1);
 
@@ -193,15 +225,37 @@ const toastTerakhir = w => {
        ada, termasuk waktu suatu hari ia benar. */
     jejak.tanya.length = 0;
     w.eval('closeModal()');
-    await amanTunggu('klik meja bebas', async () => { w.eval('seatEmptyClick("23")'); });
+    await amanTunggu('klik meja bebas', async () => { w.eval('seatEmptyClick("31")'); });
     await tunggu(80);
     cek('meja yang memang bebas TIDAK ditanya apa-apa', jejak.tanya.length === 0, jejak.tanya.length + '× tanya');
+
+    /* H-1 JAM: TERKUNCI, tidak ditawar. Meja 32 dipesan 30 menit lagi —
+       tamunya bisa muncul kapan saja, dan rombongan yang baru duduk sepuluh
+       menit lalu tidak akan berdiri tepat waktu. */
+    jejak.tanya.length = 0;
+    w.eval('closeModal()');
+    await amanTunggu('klik meja yang jamnya tinggal 30 menit', async () => { w.eval('seatEmptyClick("32")'); });
+    await tunggu(80);
+    cek('meja yang dipesan <=1 jam lagi TIDAK bisa dipakai',
+        w.document.getElementById('modalRoot').innerHTML.indexOf('Walk-in') < 0);
+    cek('dan TIDAK ditanya — pertanyaan yang jawabannya tidak boleh ya cuma melatih orang menekan OK',
+        jejak.tanya.length === 0, jejak.tanya.length + '× tanya');
+    cek('sebabnya dikatakan', /terkunci/i.test(toastTerakhir(w)), toastTerakhir(w));
+
+    /* Dan tombolnya memang MATI di denah — bukan hidup lalu menolak. */
+    w.eval('renderDashboard(); dashTab("map");');
+    await tunggu(120);
+    const b32 = seatBtn(w, 'harihMap', '32');
+    const b21 = seatBtn(w, 'harihMap', '21');
+    cek('denah Hari-H tergambar', !!b32 && !!b21);
+    cek('meja yang dipesan <=1 jam lagi digambar MATI', !!b32 && b32.disabled === true);
+    cek('yang jaraknya masih jauh tetap bisa ditekan', !!b21 && b21.disabled === false);
   }
   {
     // Dijawab TIDAK → formulirnya tidak boleh terbuka sama sekali.
     const { w, jejak } = dom({ jawab: false });
     await masuk(w);
-    w.eval('HARIH_DATE=' + JSON.stringify(NANTI.date) + ';');
+    w.eval('HARIH_DATE=' + JSON.stringify(PESAN.date) + ';');
     await amanTunggu('klik lalu batal', async () => { w.eval('seatEmptyClick("21")'); });
     await tunggu(80);
     cek('dijawab TIDAK, formulirnya tidak terbuka', jejak.tanya.length === 1
@@ -250,6 +304,30 @@ const toastTerakhir = w => {
     if (f) f.elements['time'].value = '20:00';
     w.eval('seatIzinSegar()');
     cek('mengubah jam mencabut izin yang sudah diberikan', w.eval('SEAT_IZIN.size') === 0);
+
+    /* H-1 JAM DI FORM INPUT. Meja 24 dipesan 30 menit dari jam yang diisi —
+       terkunci, dan TIDAK ditawar. Kembalikan dulu jamnya, karena asersi di
+       atas baru saja menggesernya. */
+    if (f) f.elements['time'].value = NANTI.time;
+    w.eval('seatIzinSegar()');
+    jejak.tanya.length = 0;
+    await amanTunggu('pilih meja yang jaraknya 30 menit', async () => { w.eval('pickSeat("24")'); });
+    await tunggu(80);
+    cek('meja yang jaraknya <=1 jam TIDAK bisa dipilih',
+        w.eval('JSON.stringify(SEAT_SELS)').indexOf('24') < 0, w.eval('JSON.stringify(SEAT_SELS)'));
+    cek('dan sebabnya dikatakan, bukan tombol yang diam',
+        /terkunci/i.test(toastTerakhir(w)), toastTerakhir(w));
+    cek('tidak ada pertanyaan yang bisa dijawab ya untuk yang mepet',
+        jejak.tanya.length === 0, jejak.tanya.length + '× tanya');
+    cek('izinnya pun tidak tercatat', w.eval('SEAT_IZIN.has("24")') === false);
+
+    w.eval('renderSeatMap()');
+    await tunggu(80);
+    const f24 = seatBtn(w, 'seatMap', '24');
+    const f21 = seatBtn(w, 'seatMap', '21');
+    cek('denah form tergambar ulang', !!f24 && !!f21);
+    cek('meja yang jaraknya <=1 jam digambar MATI di form', !!f24 && f24.disabled === true);
+    cek('yang masih boleh dipaksa tetap bisa ditekan', !!f21 && f21.disabled === false);
   }
   {
     const { w, jejak } = dom({ jawab: false });
@@ -309,13 +387,26 @@ const toastTerakhir = w => {
     cek('dan TIDAK ditolak diam-diam oleh penggabung',
         w.eval('STATE.reservations.some(x=>x.name==="Tamu Paksa")') === true);
 
-    /* Reservasi BIASA di meja yang sama tanpa izin tetap ditolak penggabung —
-       kalau tidak, kelonggarannya bocor ke semua orang dan pertanyaannya
-       cuma jadi hiasan. */
-    cek('izin hanya berlaku untuk baris yang memilikinya',
-        w.eval('!!conflictCheck(' + JSON.stringify(NANTI.date) + ',"21",' + JSON.stringify(NANTI.time) + ',null,false,null,{})') === true);
-    cek('dan baris yang punya izinnya lolos',
-        w.eval('!!conflictCheck(' + JSON.stringify(NANTI.date) + ',"21",' + JSON.stringify(NANTI.time) + ',null,false,null,{izin:true})') === false);
+  }
+  {
+    /* Penjaga intinya diuji atas dom BERSIH: blok di atas sudah menaruh
+       reservasi baru di meja 21, dan yang ditemukan conflictCheck lalu baris
+       itu (jaraknya nol menit) — bukan lawan yang dimaksud asersi ini. */
+    const { w } = dom({});
+    await masuk(w);
+    const cc = (meja, waktu, opsi) =>
+      w.eval('!!conflictCheck(' + JSON.stringify(waktu.date) + ',' + JSON.stringify(meja) + ',' +
+             JSON.stringify(waktu.time) + ',null,false,null,' + JSON.stringify(opsi) + ')');
+    cek('tanpa izin, meja terkunci tetap bentrok', cc('21', NANTI, {}) === true);
+    cek('dengan izin, yang jaraknya jauh lolos', cc('21', NANTI, { izin: true }) === false);
+    /* INI YANG PALING MENENTUKAN untuk permintaan H-1 jam: izin TIDAK boleh
+       melonggarkan yang mepet. Ditaruh di conflictCheck, bukan cuma di
+       layar, karena inilah yang dipanggil mergeIntoState() saat datanya
+       naik — satu jalur layar yang terlewat tetap tertahan di sini. */
+    cek('dengan izin pun, yang jaraknya <=1 jam TETAP bentrok', cc('24', NANTI, { izin: true }) === true);
+    cek('dan walk-in pun tidak bisa menembusnya', cc('24', NANTI, { walkin: true }) === true);
+    /* Yang sedang duduk: tetap bentrok walau jaraknya 150 menit. */
+    cek('yang sedang duduk tetap bentrok walau jaraknya jauh', cc('22', NANTI, { izin: true }) === true);
   }
   {
     /* TANPA izin sama sekali, jalur simpan form harus tetap KETAT. Kalau
@@ -440,6 +531,20 @@ const toastTerakhir = w => {
     cek('untuk yang sedang duduk TIDAK ada pertanyaan yang bisa dijawab ya',
         jejak.tanya.length === 0, jejak.tanya.length + '× tanya');
 
+    /* H-1 JAM DI MODAL PINDAH. Reservasi yang dipindah berjam NANTI, dan
+       meja 24 dipesan 30 menit darinya. */
+    jejak.tanya.length = 0;
+    await amanTunggu('coba meja yang jaraknya 30 menit', async () => { w.eval('toggleMoveSeat("24")'); });
+    await tunggu(80);
+    cek('meja yang jaraknya <=1 jam tidak bisa jadi tujuan pindah',
+        w.eval('JSON.stringify(MOVE_SELS)').indexOf('24') < 0, w.eval('JSON.stringify(MOVE_SELS)'));
+    cek('dan tidak ditanya apa-apa', jejak.tanya.length === 0, jejak.tanya.length + '× tanya');
+    const m24 = seatBtn(w, 'moveMap', '24');
+    const m21 = seatBtn(w, 'moveMap', '21');
+    cek('denah pindah tergambar', !!m24 && !!m21);
+    cek('meja yang jaraknya <=1 jam digambar MATI di modal pindah', !!m24 && m24.disabled === true);
+    cek('yang masih boleh dipaksa tetap bisa ditekan', !!m21 && m21.disabled === false);
+
     /* Yang paling menentukan: izinnya sampai ke barisnya, jadi pemeriksaan
        terakhir sebelum menulis memakai aturan longgar. Kalau tidak,
        pertanyaan yang barusan dijawab kru tidak berarti apa-apa. */
@@ -541,21 +646,30 @@ const toastTerakhir = w => {
     cek('yang dihitung duduk hanya yang statusnya Datang & belum pulang',
         /function rsvMejaDuduk\([\s\S]{0,900}?!=='datang'\) return;[\s\S]{0,200}?if\(r\.leftAt\) return;/.test(SRC_MKT));
     cek('denahnya menanyakan, bukan mematikan tombolnya',
-        /const duduk = off && \(opts\.duduk \? opts\.duduk\.has\(t\.id\) : true\);/.test(SRC_MKT));
+        /const duduk = off && \(opts\.duduk \? \(opts\.duduk\.has\(t\.id\) \|\| \(opts\.mepet && opts\.mepet\.has\(t\.id\)\)\) : true\);/.test(SRC_MKT));
     /* Bawaannya WAJIB ketat: pemilih meja yang tidak menyerahkan daftar meja
        berpenghuni (mis. pemilih meja Event) harus mendapat perilaku lama.
        Longgar secara bawaan berarti pintu yang terlewat diam-diam melepas
        penjaganya, tanpa satu pun galat. */
     cek('bawaannya KETAT untuk pemanggil yang belum menyerahkan daftarnya',
-        /opts\.duduk \? opts\.duduk\.has\(t\.id\) : true/.test(SRC_MKT));
+        /\) : true\);/.test(SRC_MKT) && !/\) : false\);/.test(SRC_MKT));
+    /* H-1 jam di sisi VIP juga: terkunci, dan dihitung ULANG di dalam
+       putaran simpan — jam acaranya bisa digeser sesudah mejanya dipilih. */
+    cek('VIP punya ambang kunci sendiri, sebagai kembaran MEPET_MIN',
+        /var VIP_MEPET_MIN = 60;/.test(SRC_MKT) && /function vipMejaMepet\(/.test(SRC_MKT));
+    cek('VIP menolak yang mepet, bukan menanyakannya',
+        /function vipTanyaTumpang\([\s\S]{0,900}?if\(mepet\)\{[\s\S]{0,400}?return false;/.test(SRC_MKT));
+    cek('dan penjaga simpannya menghitung ulang yang mepet',
+        /const mepetKini=vipMejaMepet\(d,f\.tanggal,vipJamAtau00\(f\.jamMulai\),'vip-'\+f\.id\);/.test(SRC_MKT)
+        && /\|\| mepetKini\.has\(m\)\)\);/.test(SRC_MKT));
     cek('tamu yang sedang duduk ditolak, bukan ditanya',
         /function vipTanyaTumpang\([\s\S]{0,400}?if\(duduk\)\{[\s\S]{0,300}?return false;/.test(SRC_MKT));
     cek('pertanyaannya menyebut siapa yang sudah memesannya',
-        /vipTanyaTumpang\(m, terpakai\[m\], VIP_DUDUK\.has\(m\)\)/.test(SRC_MKT));
+        /vipTanyaTumpang\(m, terpakai\[m\], VIP_DUDUK\.has\(m\), VIP_MEPET\.has\(m\)\)/.test(SRC_MKT));
     /* Penjaga simpan harus menghormati izinnya — kalau tidak, pertanyaan yang
        barusan dijawab kru tidak berarti apa-apa dan simpan tetap ditolak. */
     cek('penjaga simpan melewati meja yang izinnya sudah diberikan',
-        /terpakai\[m\] && \(!VIP_IZIN\.has\(m\) \|\| dudukKini\.has\(m\)\)/.test(SRC_MKT));
+        /terpakai\[m\] && \(!VIP_IZIN\.has\(m\) \|\| dudukKini\.has\(m\) \|\| mepetKini\.has\(m\)\)/.test(SRC_MKT));
     /* …TAPI izinnya gugur kalau tamunya keburu duduk di sela-sela memilih.
        Persetujuannya diberikan untuk meja yang DIPESAN, bukan untuk meja
        yang sedang dipakai orang. */

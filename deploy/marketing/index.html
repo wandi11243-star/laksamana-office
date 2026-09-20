@@ -14903,13 +14903,40 @@ function rsvMejaDuduk(d,tanggal,kecualiId){
   });
   return out;
 }
+/* Ambang kuncian, KEMBARAN MEPET_MIN di modul Reservasi (60 menit).
+   Ditulis dua kali karena kedua modul tidak berbagi kode — kalau yang di
+   sana berubah, yang di sini HARUS ikut: satu modul menjual meja yang
+   modul lain anggap terkunci adalah selisih yang cuma ketahuan waktu dua
+   rombongan berdiri di depan meja yang sama. */
+var VIP_MEPET_MIN = 60;
+function vipMejaMepet(d,tanggal,jam,kecualiId){
+  const out=new Set();
+  if(!jam) return out;
+  const a=vipAbsMin(tanggal,jam);
+  (d&&d.reservations||[]).forEach(r=>{
+    if(!r||!r.date||!r.time) return;
+    if(kecualiId && r.id===kecualiId) return;
+    const st=String(r.status||'').toLowerCase();
+    if(st==='cancelled'||st==='no-show'||st==='noshow'||st==='batal') return;
+    if(r.leftAt) return;
+    if(Math.abs(vipAbsMin(r.date,r.time)-a) > VIP_MEPET_MIN) return;
+    String(r.table||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(m=>out.add(m));
+  });
+  return out;
+}
+
 /* Pertanyaan sebelum meja yang sudah dipesan ikut dikunci untuk acara ini.
    Kembarannya tanyaTumpang() di modul Reservasi — kalau yang di sana berubah,
    yang di sini HARUS ikut: dua aturan untuk satu meja berarti satu modul
    menjualnya sementara modul lain menganggapnya penuh. */
-function vipTanyaTumpang(meja, nama, duduk){
+function vipTanyaTumpang(meja, nama, duduk, mepet){
   if(duduk){
     toast('Meja '+meja+' sedang diduduki','Tamunya masih di sana ('+(nama||'-')+'). Tandai "Selesai" di modul Reservasi dulu kalau sudah pulang.','err');
+    return false;
+  }
+  /* H-1 jam: terkunci, tidak ditawar — sama dengan modul Reservasi. */
+  if(mepet){
+    toast('Meja '+meja+' terkunci','Dipesan '+(nama||'-')+', jamnya cuma terpaut satu jam dari acara ini. Pilih meja lain atau geser jamnya.','err');
     return false;
   }
   return confirm(
@@ -17266,7 +17293,9 @@ function vipDenahHTML(d,terpakai,dipilih,opts){
         +'<span>'+esc(t.id)+'</span>'+(t.cap?'<span class="dn-cap">'+esc(t.cap)+'</span>':'')+'</div>';
       return;
     }
-    const duduk = off && (opts.duduk ? opts.duduk.has(t.id) : true);
+    /* Mati total kalau tamunya sedang duduk ATAU jamnya mepet; bawaannya
+       tetap ketat untuk pemanggil yang belum menyerahkan daftarnya. */
+    const duduk = off && (opts.duduk ? (opts.duduk.has(t.id) || (opts.mepet && opts.mepet.has(t.id))) : true);
     h+='<button type="button" class="dn-meja'+dnZona(t)+(on?' on':'')+(off?' off':'')+'" style="'+st+'" data-meja="'+esc(t.id)+'" '
       +(duduk?'disabled title="'+esc(t.id+' — '+terpakai[t.id]+' masih duduk di sana')+'"'
            :'onclick="'+(opts.klik||'vipToggleMeja')+'(this,\''+escJs(t.id)+'\')" title="'+esc(t.id+(t.cap?' · '+t.cap+' pax':'')+(off?' — dipesan '+terpakai[t.id]+'. Klik kalau tetap mau memakainya, kamu akan ditanya dulu.':''))+'"')
@@ -17388,12 +17417,13 @@ function vipPilihMejaUI(d){
   /* Meja yang BENAR-BENAR ada orangnya sekarang. Dipakai memutuskan mana yang
      mati total dan mana yang cuma ditanya — lihat rsvMejaDuduk(). */
   const dudukSet=rsvMejaDuduk(d,f.tanggal,'vip-'+f.id);
-  VIP_DUDUK=dudukSet;
+  const mepetSet=vipMejaMepet(d,f.tanggal,vipJamAtau00(f.jamMulai),'vip-'+f.id);
+  VIP_DUDUK=dudukSet; VIP_MEPET=mepetSet;
   const dipilih=f.meja||[];
   let h='<div class="modal-head"><div><h3>Pilih &amp; Kunci Meja</h3><p>'+esc(f.nama)+' · '+fmtDate(f.tanggal)+' · '+esc(vipJam(f))+' · '+vipPax(f)+' orang</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>';
   h+='<div class="modal-body">';
   h+=vipCatatanJam(f.jamMulai);
-  const denah=vipDenahHTML(d,terpakai,dipilih,{duduk:dudukSet});
+  const denah=vipDenahHTML(d,terpakai,dipilih,{duduk:dudukSet,mepet:mepetSet});
   if(denah){
     h+='<div class="tbl-note" style="margin-top:0">'+svg(IC.alert)+'<span>Denah ini denah yang sama dengan modul Reservasi. Klik meja untuk mengunci — boleh lebih dari satu, '+vipPax(f)+' orang biasanya butuh beberapa meja.</span></div>';
     // Yang sudah dikunci dibaca DULU, sebelum memilih — bukan ditemukan satu per
@@ -17416,7 +17446,7 @@ function vipPilihMejaUI(d){
       h+='<div id="vip_meja_grid" style="display:flex;flex-wrap:wrap;gap:8px;margin-top:12px">';
       semua.forEach(m=>{
         const off=!!terpakai[m] && dipilih.indexOf(m)<0;
-        const dudukM = off && dudukSet.has(m);
+        const dudukM = off && (dudukSet.has(m) || mepetSet.has(m));
         const on=dipilih.indexOf(m)>=0;
         h+='<button type="button" class="btn sm'+(on?' pri':'')+'" '+(dudukM?'disabled title="'+esc(terpakai[m]+' masih duduk di sana')+'"':'onclick="vipToggleMeja(this,\''+escJs(m)+'\')" title="'+esc(off?'Dipesan '+terpakai[m]+' — akan ditanya dulu':m)+'"')
           +' data-meja="'+esc(m)+'" style="min-width:78px'+(off?';opacity:.45':'')+'">'+esc(m)+'</button>';
@@ -17434,7 +17464,7 @@ function vipPilihMejaUI(d){
 /* Meja berpenghuni & meja yang kru setujui untuk ditimpa. Keduanya hidup di
    luar penggambar karena denahnya digambar ulang tiap kali ada yang diklik —
    apa pun yang cuma ada di DOM ikut hilang. */
-let VIP_DUDUK=new Set(), VIP_IZIN=new Set();
+let VIP_DUDUK=new Set(), VIP_MEPET=new Set(), VIP_IZIN=new Set();
 function vipToggleMeja(btn,m){
   const f=VIP_FORM; f.meja=f.meja||[];
   const i=f.meja.indexOf(m);
@@ -17447,7 +17477,7 @@ function vipToggleMeja(btn,m){
        tombolnya bisa dipanggil dari console, dan penjaga yang cuma ada di
        markup tidak menjaga apa pun. */
     const terpakai=VIP_RSV?rsvMejaTerpakai(VIP_RSV,f.tanggal,'vip-'+f.id,vipJamAtau00(f.jamMulai)):{};
-    if(terpakai[m] && !vipTanyaTumpang(m, terpakai[m], VIP_DUDUK.has(m))) return;
+    if(terpakai[m] && !vipTanyaTumpang(m, terpakai[m], VIP_DUDUK.has(m), VIP_MEPET.has(m))) return;
     if(terpakai[m]) VIP_IZIN.add(m);
     f.meja.push(m); btn.classList.add(kelas);
   }
@@ -17476,7 +17506,8 @@ async function vipSimpanKunci(){
          gugur. Persetujuannya diberikan untuk meja yang dipesan, bukan
          untuk meja yang sedang dipakai orang. */
       const dudukKini=rsvMejaDuduk(d,f.tanggal,'vip-'+f.id);
-      const bentrok=(f.meja||[]).filter(m=>terpakai[m] && (!VIP_IZIN.has(m) || dudukKini.has(m)));
+      const mepetKini=vipMejaMepet(d,f.tanggal,vipJamAtau00(f.jamMulai),'vip-'+f.id);
+      const bentrok=(f.meja||[]).filter(m=>terpakai[m] && (!VIP_IZIN.has(m) || dudukKini.has(m) || mepetKini.has(m)));
       if(bentrok.length) return {__batal:true,bentrok};
       const now=Date.now();
       const catatan=['RESERVASI RUANG VIP ('+f.jenis+')',

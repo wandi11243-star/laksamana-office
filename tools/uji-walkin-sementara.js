@@ -78,14 +78,21 @@ function potongConst(nama) {
 const NAMA = ['dayNo', 'absMin', 'toMin', 'hhmm', 'ymdOf', 'absOfTs', 'absNow',
               'isSeated', 'seatStart', 'lockStart', 'lockEnd', 'locksRange', 'locksAt',
               'locksTable', 'conflictCheck', 'opsiCekOf', 'izinTumpangBerlaku',
+              'bedaMenitRes', 'mepetTerhadap', 'mepetKah',
               'tablesOf', 'menitMenuju',
               'bookingBerikut', 'dineEst'];
 let sumberFn = '';
 aman('semua fungsi yang diuji ada di sumber', () => {
-  sumberFn = potongConst('LOCK_LEAD_MIN') + '\n' + NAMA.map(potong).join('\n');
+  /* MEPET_MIN ikut DIPOTONG, bukan disalin nilainya: sejak 20 September 2026
+     ia menentukan KUNCIAN (H-1 jam), bukan cuma warna — uji yang memegang
+     salinan angkanya sendiri akan tetap hijau kalau ambangnya diubah di
+     sana. Alasan yang sama dengan LOCK_LEAD_MIN. */
+  sumberFn = potongConst('LOCK_LEAD_MIN') + '\n' + potongConst('MEPET_MIN') + '\n'
+           + NAMA.map(potong).join('\n');
 });
 T('potongan sumber terbaca', sumberFn.length > 0);
 T('LOCK_LEAD_MIN ikut dipotong dari sumber', sumberFn.indexOf('LOCK_LEAD_MIN =') >= 0);
+T('MEPET_MIN ikut dipotong dari sumber', sumberFn.indexOf('MEPET_MIN =') >= 0);
 
 /* STATE & master tiruan seperlunya — yang dipotong memakai keduanya. */
 const KODE = 'const STATE = { reservations: [], master: {} };\n'
@@ -153,6 +160,42 @@ console.log('\n[1] Reservasi yang BELUM datang tidak lagi menutup mejanya');
   const form = m.conflictCheck(HARI, '14', '17:00', null, false, null);
   T('RESERVASI BARU dari form tetap DITOLAK', form !== null && form.id === 'r1',
     form ? 'ditolak oleh ' + form.name : 'diterima — form jadi longgar');
+}
+
+/* ============================================================
+   [1b] H-1 JAM: KELONGGARANNYA BERHENTI (20 September 2026)
+
+   Permintaan user: *"kalau h-1 jam reservasi lsng auto lock saja"*.
+
+   Kuncian H±3 jam dicabut 19 September karena terlalu lebar. Satu jam
+   menjelang jamnya bukan lagi penyangga: tamunya bisa muncul kapan saja,
+   dan rombongan yang baru duduk sepuluh menit lalu tidak akan berdiri tepat
+   waktu. Jadi kelonggaran walk-in punya BATAS sekarang, dan batas itu
+   ditegakkan di conflictCheck — bukan cuma di layar, karena inilah yang
+   dipanggil penggabung saat datanya naik.
+
+   Jam 18:30 terhadap booking 19:00 = 30 menit. Skenario [1] memakai 17:00
+   (120 menit) dan tetap diterima — dua jarak itu yang membuat ambangnya
+   punya tempat untuk gagal; kalau keduanya sama-sama jauh atau sama-sama
+   dekat, mutasi yang menggeser ambangnya tidak mengubah apa pun.
+   ============================================================ */
+console.log('\n[1b] H-1 jam: kelonggarannya berhenti');
+{
+  const m = mesin('18:30')(RES_BELUM);
+  const walkin = m.conflictCheck(HARI, '14', '18:30', null, false, null, { walkin: true });
+  T('WALK-IN 30 menit menjelang jamnya DITOLAK', walkin !== null && walkin.id === 'r1',
+    walkin ? '' : 'diterima — kuncian H-1 jam tidak berlaku');
+  /* Izin manusia pun tidak menembusnya: yang ditanya kru adalah penyangga,
+     bukan jam tamunya sendiri. */
+  const izin = m.conflictCheck(HARI, '14', '18:30', null, false, null, { izin: true });
+  T('IZIN pun tidak menembus kuncian H-1 jam', izin !== null && izin.id === 'r1',
+    izin ? '' : 'diterima — izin melonggarkan yang mepet');
+  /* Dan yang jamnya SUDAH LEWAT ikut terkunci: booking 19:00 yang tamunya
+     belum muncul jam 19:15 justru yang paling mungkin datang sebentar lagi. */
+  const lewat = mesin('19:15')(RES_BELUM)
+    .conflictCheck(HARI, '14', '19:15', null, false, null, { walkin: true });
+  T('yang jamnya SUDAH LEWAT ikut terkunci', lewat !== null && lewat.id === 'r1',
+    lewat ? '' : 'diterima — jam yang lewat dianggap bebas');
 }
 
 console.log('\n[2] Tamu yang SEDANG DUDUK tetap menutup mejanya');
