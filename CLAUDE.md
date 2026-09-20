@@ -1292,9 +1292,54 @@ Bukti sudah wajib sejak 6 September 2026; yang ditambahkan **nominal**.
 - **Reservasi lama tetap cuma ditanya sekali**, aturan yang tidak berubah.
 - Modal **Tambah DP** sudah mewajibkan keduanya sejak awal; tidak disentuh.
 
+#### Penjaga isian berdiri DI ATAS panggilan server — overlay yang menggantung
+
+Dilaporkan user beberapa menit sesudah aturan nominal naik: nominalnya sudah
+diisi, Simpan ditekan, lalu layar **membeku di overlay "Memeriksa ketersediaan
+meja…"** sementara pita merah *"DP sudah masuk tapi nominal DP & bukti transfer
+belum diisi"* berdiri di bawahnya. Tidak ada apa pun yang terjadi lagi sampai
+halamannya dimuat ulang.
+
+**`mejaMasihKosong()` MEMASANG overlay itu dan TIDAK PERNAH menutupnya
+sendiri** — pemanggilnya yang harus. Jadi setiap `return` di `saveReservation()`
+yang berdiri di BAWAHnya wajib ingat memanggil `hideBusy()`; cabang bentrok meja
+memang melakukannya, penjaga DP tidak.
+
+> **BUGNYA SUDAH ADA SEJAK 6 September 2026**, sejak penjaga bukti DP lahir —
+> dan baru terlihat sekarang karena nominal ikut diwajibkan, sehingga
+> penjaganya jauh lebih sering berbunyi. Penjaga yang jarang berbunyi bisa
+> membawa cacat berbulan-bulan tanpa satu pun laporan.
+
+**Yang dikerjakan bukan menambal dua `return` itu**, melainkan memindahkan
+seluruh penjaga DP (berikut `const dpStatus` & `const existing`) ke **SEBELUM**
+panggilan `mejaMasihKosong()`. Dengan begitu lubangnya tertutup untuk
+selamanya: tidak ada overlay yang perlu diingat siapa pun.
+
+- **Benar juga secara alur**: memanggil `getAll` penuh untuk formulir yang akan
+  ditolak karena nominalnya kosong adalah pekerjaan yang dibuang.
+- **Yang tinggal di tempat lama cuma `const now`** — ia dipakai penyusun record
+  dan tidak ada urusannya dengan DP.
+- Komentar di tempat barunya mengatakan aturannya untuk penjaga BERIKUTNYA:
+  penjaga isian ditaruh di atas; yang memang butuh hasil pemeriksaan mejanya
+  wajib memanggil `hideBusy()` di tiap jalan keluar.
+
+**YANG DIJAGA UJI DOM-NYA, bukan pemanggilan `hideBusy()` di sumber** — rujukan
+yang benar di berkas tidak membuktikan ada overlay yang benar-benar tertutup,
+pelajaran yang sudah dibayar logo panel Kas Kecil. Ditambah **pasangan asersi
+`getAll`**: nol saat formulirnya kurang, dan lebih dari nol saat lengkap. Yang
+pertama sendirian akan tetap hijau kalau seluruh pemeriksaan meja ikut mati.
+
+```bash
+node tools/uji-bukti-dp.js   # 37 pemeriksaan (dari 33)
+```
+
+Dua mutasi dicoba, keduanya tertangkap: overlay yang menyala sebelum
+penjaganya (bentuk bug aslinya), dan `mejaMasihKosong()` yang dipanggil lebih
+dulu (bentuk kode sebelum tanggal ini).
+
 ```bash
 node tools/uji-dp-form-marketing.js   # 69 pemeriksaan, jsdom (event + VIP)
-node tools/uji-bukti-dp.js            # 33 pemeriksaan (dari 25), jsdom
+node tools/uji-bukti-dp.js            # 37 pemeriksaan (dari 25), jsdom
 ```
 
 **Delapan belas mutasi dicoba, kedelapan belasnya tertangkap** — tapi DUA baru

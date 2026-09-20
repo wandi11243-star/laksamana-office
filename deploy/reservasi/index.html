@@ -4374,41 +4374,26 @@ async function saveReservation(){
     return;
   }
 
-  // ===== CEK KE SERVER: apakah mejanya benar-benar masih kosong? =====
-  const sharingNow = !!document.querySelector('input[name=sharing]')?.checked;
-  /* Persetujuan yang barusan diberikan kru ikut ke pemeriksaan ini. Tanpa
-     itu jawabannya terbuang: aturan ketat menolak duluan, dan reservasinya
-     tidak pernah bisa tersimpan berapa kali pun tombolnya ditekan.
+  /* PENJAGA DP BERDIRI DI SINI, SEBELUM panggilan ke server (20 Sep 2026).
 
-     Yang TIDAK ikut longgar: meja yang tamunya sedang duduk — tanyaTumpang()
-     tidak pernah memulangkan true untuknya, jadi mejanya tidak pernah masuk
-     SEAT_IZIN. */
-  seatIzinSegar();
-  /* Dihitung dari kotak yang BENAR-BENAR dikirim, bukan dari SEAT_SELS.
-     Keduanya biasanya sama — pickSeat() menulis yang satu dari yang lain —
-     tapi kotaknya hidden, dan yang diubah dari devtools adalah kotaknya.
-     Memakai SEAT_SELS berarti izin untuk meja A ikut melonggarkan meja B
-     yang tidak pernah disetujui siapa pun. */
-  const adaIzinSeat = tablesOf({table:g("table")}).some(t=>SEAT_IZIN.has(t));
-  const cek = await mejaMasihKosong(g("date"), g("table"), normTime(g("time")), EDIT_ID, sharingNow,
-    adaIzinSeat ? {izin:true} : null);
-  if(!cek.ok){
-    hideBusy();
-    const b = cek.bentrok;
-    // meja yang bentrok dibuang dari pilihan, denah digambar ulang dgn data terbaru
-    const dipakai = tablesOf(b);
-    SEAT_SELS = SEAT_SELS.filter(t=>!dipakai.includes(t));
-    if(f.elements["table"]) f.elements["table"].value = SEAT_SELS.join(", ");
-    renderSeatMap(); checkConflict();
-    popupMejaDiambil(b, g("name"), 0);
-    toast(`Meja ${b.table} sudah diambil ${b.name} — pilih meja lain`,"err");
-    return;
-  }
+     mejaMasihKosong() MEMASANG overlay "Memeriksa ketersediaan meja…" dan
+     TIDAK pernah menutupnya sendiri — pemanggilnyalah yang harus. Jadi tiap
+     `return` yang berdiri di BAWAHnya wajib ingat memanggil hideBusy(), dan
+     yang lupa MENGGANTUNGKAN LAYAR: tombol Simpan ditekan, overlay menyala,
+     dan tidak ada apa pun yang terjadi lagi sampai halamannya dimuat ulang.
+     Penjaga bukti DP sudah begitu sejak 6 September 2026 dan baru terlihat
+     setelah nominal ikut diwajibkan — sejak itu ia jauh lebih sering
+     berbunyi. Dilaporkan user 20 September 2026.
 
+     Ditaruh di ATAS, lubangnya tertutup untuk selamanya: tidak ada overlay
+     yang perlu diingat, dan formulir yang akan ditolak karena isiannya
+     kurang tidak lagi membuang satu panggilan getAll penuh lebih dulu.
+
+     SIAPA PUN YANG MENAMBAH PENJAGA ISIAN BERIKUTNYA: taruh di sini, bukan
+     di bawah. Yang memang harus berdiri di bawah — karena butuh hasil
+     pemeriksaan mejanya — wajib memanggil hideBusy() di tiap jalan keluar. */
   const dpStatus = document.querySelector('input[name=dpStatus]:checked').value;
-  const now = Date.now();
   const existing = EDIT_ID ? STATE.reservations.find(x=>x.id===EDIT_ID) : null;
-
   /* BUKTI DP WAJIB (6 September 2026, permintaan user).
      NOMINAL DP IKUT WAJIB (20 September 2026, permintaan user: "kalau
      misalnya ada DP terus nominal dan upload bukti itu wajib dan required
@@ -4475,6 +4460,40 @@ async function saveReservation(){
       }
     }
   }
+
+  // ===== CEK KE SERVER: apakah mejanya benar-benar masih kosong? =====
+  const sharingNow = !!document.querySelector('input[name=sharing]')?.checked;
+  /* Persetujuan yang barusan diberikan kru ikut ke pemeriksaan ini. Tanpa
+     itu jawabannya terbuang: aturan ketat menolak duluan, dan reservasinya
+     tidak pernah bisa tersimpan berapa kali pun tombolnya ditekan.
+
+     Yang TIDAK ikut longgar: meja yang tamunya sedang duduk — tanyaTumpang()
+     tidak pernah memulangkan true untuknya, jadi mejanya tidak pernah masuk
+     SEAT_IZIN. */
+  seatIzinSegar();
+  /* Dihitung dari kotak yang BENAR-BENAR dikirim, bukan dari SEAT_SELS.
+     Keduanya biasanya sama — pickSeat() menulis yang satu dari yang lain —
+     tapi kotaknya hidden, dan yang diubah dari devtools adalah kotaknya.
+     Memakai SEAT_SELS berarti izin untuk meja A ikut melonggarkan meja B
+     yang tidak pernah disetujui siapa pun. */
+  const adaIzinSeat = tablesOf({table:g("table")}).some(t=>SEAT_IZIN.has(t));
+  const cek = await mejaMasihKosong(g("date"), g("table"), normTime(g("time")), EDIT_ID, sharingNow,
+    adaIzinSeat ? {izin:true} : null);
+  if(!cek.ok){
+    hideBusy();
+    const b = cek.bentrok;
+    // meja yang bentrok dibuang dari pilihan, denah digambar ulang dgn data terbaru
+    const dipakai = tablesOf(b);
+    SEAT_SELS = SEAT_SELS.filter(t=>!dipakai.includes(t));
+    if(f.elements["table"]) f.elements["table"].value = SEAT_SELS.join(", ");
+    renderSeatMap(); checkConflict();
+    popupMejaDiambil(b, g("name"), 0);
+    toast(`Meja ${b.table} sudah diambil ${b.name} — pilih meja lain`,"err");
+    return;
+  }
+
+  const now = Date.now();
+
   const rec = {
     id: existing?existing.id:uid(),
     name:g("name"), phone:normPhone(g("phone")),

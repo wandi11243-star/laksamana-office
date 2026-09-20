@@ -55,7 +55,13 @@ const tunggu = ms => new Promise(r => setTimeout(r, ms));
 
 function dom(opt) {
   opt = opt || {};
-  const jejak = { toast: [], confirm: 0, simpan: 0 };
+  /* getAll DICATAT. Penjaga isian berdiri di ATAS panggilan itu, dan itu
+     bukan soal kerapian: mejaMasihKosong() memasang overlay "Memeriksa
+     ketersediaan meja…" lalu TIDAK menutupnya sendiri, jadi tiap `return` di
+     bawahnya yang lupa hideBusy() menggantungkan layar — dilaporkan user
+     20 September 2026 untuk penjaga nominal yang baru dipasang, dan penjaga
+     bukti sudah begitu sejak 6 September 2026. */
+  const jejak = { toast: [], confirm: 0, simpan: 0, getAll: 0 };
   const d = new JSDOM(HTML_UJI, {
     url: 'https://team.laksamanamuda.id/reservasi/',
     runScripts: 'dangerously', pretendToBeVisual: true,
@@ -77,6 +83,7 @@ function dom(opt) {
         const body = init && init.body ? JSON.parse(init.body) : {};
         const u = String(url);
         if (body && (body.action === 'save' || body.action === 'saveAll')) jejak.simpan++;
+        if (u.indexOf('getAll') > -1 || (body && body.action === 'getAll')) jejak.getAll++;
         const balas = o => ({ ok: true, status: 200, text: async () => JSON.stringify(o), json: async () => o });
         if (u.indexOf('account-api') > -1) return balas({ ok: true, members: [
           { id: 'u-uji', name: 'Penguji', keterangan: 'Office', isModuleAdmin: true } ] });
@@ -185,6 +192,15 @@ function isiForm(w, opt) {
         /bukti transfer/i.test(toastTerakhir(w)) && /wajib/i.test(toastTerakhir(w)), toastTerakhir(w));
     cek('yang TIDAK kurang tidak ikut disebut',
         !/nominal/i.test(toastTerakhir(w)), toastTerakhir(w));
+    /* LAYARNYA TIDAK MENGGANTUNG. Inilah yang dilaporkan user 20 September
+       2026: tombol Simpan ditekan, overlay "Memeriksa ketersediaan meja…"
+       menyala, dan tidak ada apa pun yang terjadi lagi sampai halamannya
+       dimuat ulang. Yang dibaca KELAS di DOM, bukan ada-tidaknya pemanggilan
+       hideBusy() di sumber: rujukan yang benar di berkas tidak membuktikan
+       ada overlay yang benar-benar tertutup. */
+    cek('overlay TIDAK menggantung',
+        !(w.document.getElementById('busyRoot') || { classList: { contains: () => false } })
+          .classList.contains('on'));
     /* Yang belum pernah tersimpan tidak boleh cuma "ditanya" — pertanyaan yang
        bisa dijawab OK adalah gerbang yang tidak menahan apa pun. */
     cek('tidak sekadar ditanya confirm()', jejak.confirm === 0, jejak.confirm + '× confirm');
@@ -211,6 +227,10 @@ function isiForm(w, opt) {
        lama. */
     w.eval('PENDING_FILES.dpProofData={data:"data:image/jpeg;base64,AAA",name:"struk.jpg"};');
     const sebelum = w.eval('STATE.reservations.length');
+    /* Dinolkan tepat sebelum tombolnya ditekan: boot modul ini sendiri sudah
+       memanggil getAll sekali, dan menghitung dari nol akan menuduh
+       penjaganya untuk panggilan yang bukan miliknya. */
+    jejak.getAll = 0;
     await w.eval('saveReservation()');
     await tunggu(140);
     cek('reservasi TIDAK tersimpan', w.eval('STATE.reservations.length') === sebelum,
@@ -219,6 +239,16 @@ function isiForm(w, opt) {
     cek('bukti yang sudah ada tidak ikut dituduh kurang',
         !/bukti/i.test(toastTerakhir(w)), toastTerakhir(w));
     cek('tidak sekadar ditanya confirm()', jejak.confirm === 0, jejak.confirm + '× confirm');
+    cek('overlay TIDAK menggantung',
+        !(w.document.getElementById('busyRoot') || { classList: { contains: () => false } })
+          .classList.contains('on'));
+    /* PENJAGANYA BERDIRI DI ATAS PANGGILAN SERVER. Formulir yang akan ditolak
+       karena isiannya kurang tidak membuang satu getAll penuh lebih dulu —
+       dan selama ia di atas, tidak ada overlay yang perlu diingat siapa pun.
+       Asersinya baru berarti karena putaran berikutnya membuktikan getAll
+       MEMANG dipanggil kalau isiannya lengkap. */
+    cek('server tidak ditanyai untuk formulir yang kurang', jejak.getAll === 0,
+        jejak.getAll + '× getAll');
 
     /* Diisi nominalnya -> lolos. Tanpa putaran ini, penjaga yang menolak
        APA PUN tetap hijau di seluruh asersi di atas. */
@@ -230,6 +260,10 @@ function isiForm(w, opt) {
         sebelum + ' -> ' + w.eval('STATE.reservations.length'));
     cek('nominalnya ikut tercatat',
         w.eval('Number((STATE.reservations[STATE.reservations.length-1]||{}).dpAmount||0)') === 250000);
+    /* Yang membuat asersi "server tidak ditanyai" di atas tidak hampa: kalau
+       isiannya lengkap, mejanya MEMANG dicek ke server. */
+    cek('yang lengkap TETAP dicek mejanya ke server', jejak.getAll > 0,
+        jejak.getAll + '× getAll');
   }
 
   /* ============ 3. dengan bukti = lolos ============ */
