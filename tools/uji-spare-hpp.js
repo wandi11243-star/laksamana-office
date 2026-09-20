@@ -80,7 +80,7 @@ const RESEP = [
            { nama:'Sambal Matah', qty:50, satuan:'Gr', ref:'resep' }] }
 ];
 
-function domHpp(setting) {
+function domHpp(setting, tambah) {
   const dom = new JSDOM(HTML, { runScripts:'dangerously', url:'https://dev.laksamanamuda.id/stock/hpp/',
                                 pretendToBeVisual:true, beforeParse(w) {
     w.localStorage.setItem('lm_session', JSON.stringify({
@@ -92,7 +92,7 @@ function domHpp(setting) {
       const u = String(url);
       const body = u.indexOf('items.php') > -1
         ? { products:{} }
-        : { status:'success', bahan:BAHAN, resep:RESEP,
+        : { status:'success', bahan:BAHAN, resep:(tambah&&tambah.resep)||RESEP,
             setting: Object.assign({ targetFood:0.33, targetDrink:0.33, buffer:0.05,
                                      lampuKuning:3, lampuMerah:8 }, setting || {}) };
       const teks = JSON.stringify(body);
@@ -363,6 +363,39 @@ function domHpp(setting) {
     dom.window.close();
   }
 
+
+
+  /* ================= baris catatan tidak menggeser uang ================= */
+  console.log('\n== Baris catatan bukan bahan ==');
+  {
+    /* Resep bermodal manual yang punya SATU baris catatan dan nol bahan. Itu
+       bentuk yang lahir dari impor prasmanan 20 September 2026, dan sepuluh
+       menu di produksi berbunyi Rp0 karenanya — tanpa satu pun galat, dengan
+       COGS 0% yang di layar terbaca sebagai menu yang sangat sehat. */
+    const dom = domHpp(null, {
+      resep: RESEP.concat([{
+        id: 'rc1', nama: 'Sambal Catatan', jenis: 'food', tipe: 'dish', seksi: 'Kitchen',
+        yield_qty: 1, yield_unit: 'Kg', aktif: 1, harga_baru: 2000, modal_manual: 40000,
+        bahan: [{ catatan: 'Takaran di bawah apa adanya dari berkas HPP dapur.' }]
+      }])
+    });
+    await tunggu(120);
+    const w = dom.window;
+    const r = resep(w, 'rc1');
+    cek('resepnya termuat', !!r);
+    const m = w.modalMenu(r);
+    cek('modal manual TETAP dipakai', m.bahan === 40000, String(m.bahan));
+    cek('spare tetap kena sekali', m.spare === 2000, String(m.spare));
+    cek('total = manual + spare', m.total === 42000, String(m.total));
+    /* Penandanya ikut, kalau tidak chip "modal manual" hilang dari barisnya dan
+       yang membacanya mengira modalnya dihitung dari bahan yang tidak ada. */
+    cek('ditandai sebagai modal manual', m.manual === true);
+    /* Pratinjau penyunting memakai penentu yang SAMA. Beda sedikit saja, yang
+       menyunting menyimpan lalu mendapati modalnya berubah sendiri. */
+    cek('penyunting memberi angka yang sama',
+        w.modalPratinjau(r).total === 42000, String(w.modalPratinjau(r).total));
+    dom.window.close();
+  }
 
   console.log('\n---------------------------------------');
   console.log('LULUS ' + lulus + '   GAGAL ' + gagal);

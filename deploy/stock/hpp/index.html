@@ -568,9 +568,25 @@ function modalResep(r,jalur){
    modal orang lain harus modal telanjangnya, kalau tidak spare-nya ikut
    terbawa ke atas dan menumpuk. Alasan lengkapnya di catatan SPARE MODAL
    tepat di bawah ini. */
+/* ---- "TIDAK PUNYA RESEP" = TIDAK PUNYA BARIS BAHAN BERNAMA (21 Sep 2026) ----
+   Baris CATATAN (mis. "bumbu blender saring", atau keterangan takaran asli)
+   disimpan di dalam `bahan` sebagai {catatan} TANPA nama — bentuk yang memang
+   sudah dipakai modul ini untuk memisahkan tahap memasak. Jadi menghitungnya
+   sebagai bahan membuat resep yang isinya cuma satu baris catatan berhenti
+   dianggap "tanpa resep", dan MODAL MANUALNYA BERHENTI DIPAKAI.
+
+   Akibatnya modal jadi NOL — tanpa satu pun galat, dengan COGS 0% yang di
+   layar terbaca sebagai menu yang sangat sehat. Kejadian 21 September 2026:
+   impor prasmanan menambahkan satu baris catatan ke tiap resep, dan SEPULUH
+   menu bermodal manual (Sambal Merah, Sambal Ijo, Sambal Kecap, Kerupuk,
+   Indomie, Fruit Platter, Pisang Barangan, Tempe Mendoan, Tumis Buncis
+   Wortel, Sirup Coco Pandan) langsung berbunyi Rp0.
+
+   Catatan tidak boleh pernah menggeser uang. */
+function tanpaBahan(r){ return (r.bahan||[]).filter(b=>b&&b.nama).length===0; }
 function modalDasar(r){
   const m=modalResep(r);
-  if((r.bahan||[]).length===0 && num(r.modal_manual)>0) return {total:num(r.modal_manual),hilang:[],siklus:false,campur:[],manual:true};
+  if(tanpaBahan(r) && num(r.modal_manual)>0) return {total:num(r.modal_manual),hilang:[],siklus:false,campur:[],manual:true};
   return m;
 }
 /* ---- SPARE / BUFFER MODAL (2 September 2026, permintaan user) ----
@@ -1298,7 +1314,7 @@ function gambarEditor(){
         <input type="checkbox" ${r.di_purchasing?'checked':''} onchange="ED.di_purchasing=this.checked?1:0">
         Base ini juga <b>berdiri di Purchasing</b> — barang produksi Central Kitchen yang dipesan outlet</label>
       <div class="ket" style="font-size:11.5px;color:var(--muted-2);margin-bottom:12px">Bawaannya mati: base dibuat sendiri, bukan dibeli. Nyalakan hanya kalau outlet memesannya lewat purchasing — ia akan didaftarkan di sana bertanda <b>produksi CK</b>, bukan sebagai barang vendor.</div>`:''}
-      ${(r.bahan||[]).length===0?`<div class="field"><label>Modal manual (dipakai kalau menu ini tidak punya resep)</label>
+      ${tanpaBahan(r)?`<div class="field"><label>Modal manual (dipakai kalau menu ini tidak punya resep)</label>
         <input inputmode="numeric" value="${fmtIn(r.modal_manual)}" placeholder="0" oninput="angkaKetik(this,v=>{ED.modal_manual=v});segarSub()"></div>`:''}
       <h4 style="margin:14px 0 8px">Bahan</h4>
       <div class="brs" style="font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase">
@@ -1351,7 +1367,10 @@ function modalPratinjau(r){
   let t=0,hilang=0,campur=0;
   (r.bahan||[]).forEach(b=>{ if(!b||!b.nama) return; const s=hitungBaris(b,r.jenis);
     if(s.ada){ t+=s.nilai; if(s.campur) campur++; } else hilang++; });
-  if((r.bahan||[]).length===0) t=num(r.modal_manual);
+  /* Penentu yang SAMA dengan modalDasar(). Beda sedikit saja, angka di
+     penyunting berbeda dari angka di daftar untuk resep yang sama — dan yang
+     menyuntingnya menyimpan lalu mendapati modalnya berubah sendiri. */
+  if(tanpaBahan(r)) t=num(r.modal_manual);
   /* Spare-nya dihitung dengan aturan yang SAMA dengan modalMenu(). Kalau tidak,
      angka di penyunting berbeda dari angka di daftar untuk resep yang sama —
      dan yang menyuntingnya akan menyimpan lalu mendapati modalnya berubah. */

@@ -145,7 +145,11 @@ const angkaLabel = v => {
    menormalkan "Kg" jadi "Porsi" berarti menebak berapa porsi sekilo sambal. */
 const satuanLabel = v => teks(teks(v).replace(/^\s*[\d.,]+\s*/, '')) || 'Porsi';
 
-(async () => {
+/* DIPAKAI BERSAMA tools/hpp-excel-baru.js. Pemulihannya berdiri sebagai fungsi
+   supaya alat itu tidak menyusun ulang aturannya sendiri: dua tempat yang
+   memulihkan takaran akan menyimpang, dan yang menyimpang di sini angka uang.
+   Berkasnya ditulis di blok main di bawah, bukan di sini. */
+async function pulihkan() {
   const jalurMaster = path.join(ROOT, 'tools', 'hpp-master.json');
   if (!fs.existsSync(jalurMaster)) {
     console.error('tools/hpp-master.json tidak ada. Ambil dulu:');
@@ -190,7 +194,7 @@ const satuanLabel = v => teks(teks(v).replace(/^\s*[\d.,]+\s*/, '')) || 'Porsi';
     });
   }
 
-  const baris = [], dipulihkan = [], tanpaLabel = [], dilewati = [], satuanAneh = [];
+  const baris = [], dipulihkan = [], tanpaLabel = [], dilewati = [], satuanAneh = [], resepBaru = [];
   PRAS.forEach(r => {
     /* PENANDANYA CATATAN, bukan yield: resep yang yield-nya kebetulan 1 tapi
        tidak pernah dibagi tidak punya takaran asli untuk dikembalikan, dan
@@ -241,6 +245,15 @@ const satuanLabel = v => teks(teks(v).replace(/^\s*[\d.,]+\s*/, '')) || 'Porsi';
                             + yq + ' ' + yu + '. Modal per satuan dihitung sistem dari yield ini.' }]
       .concat((r.bahan || []).filter(b => b && b.nama));
 
+    /* Bentuk resep yang SUDAH dipulihkan, untuk dijalankan modulnya oleh
+       hpp-excel-baru.js. Baris catatannya ikut apa adanya — ia memang bagian
+       dari resepnya, dan modul HPP sudah mengerti baris tanpa nama. */
+    resepBaru.push(Object.assign({}, r, {
+      yield_qty: yq, yield_unit: yu,
+      modal_manual: kali(r.modal_manual, pengali),
+      bahan: isi.map(b => (b.nama ? Object.assign({}, b, { qty: kali(b.qty, pengali) }) : b))
+    }));
+
     isi.forEach((b, i) => {
       const c = !b.nama && b.catatan;
       baris.push((i === 0 ? kepala : kosong).concat([
@@ -251,6 +264,15 @@ const satuanLabel = v => teks(teks(v).replace(/^\s*[\d.,]+\s*/, '')) || 'Porsi';
         '']));
     });
   });
+
+  return { sys, PRAS, baris, dipulihkan, tanpaLabel, dilewati, satuanAneh, resepBaru };
+}
+module.exports = { pulihkan, KOL, buatXlsx, teks, num, kunci, huruf };
+
+/* Hanya saat dijalankan langsung; di-require alat lain, yang diambil cuma
+   pulihkan() dan berkasnya tidak ikut ditulis ulang. */
+if (require.main === module) (async () => {
+  const { PRAS, baris, dipulihkan, tanpaLabel, dilewati, satuanAneh } = await pulihkan();
 
   /* ---- lembar 2 ---- */
   const lap = [['BAGIAN', 'KETERANGAN', 'DETAIL 1', 'DETAIL 2', 'DETAIL 3']];

@@ -6027,6 +6027,90 @@ menebak yield dari pengalinya.
 > suatu hari yield-nya memang harus 1 lagi, dan ujinya masih menjaganya. Yang
 > berubah cuma alat mana yang dipakai.
 
+
+##### Berkas HPP dapur yang BARU, dan modal manual yang jadi nol (21 Sep 2026)
+
+Permintaan user: *"buat excel baru"*. Berkas HPP dapur sudah tidak bisa dipakai
+menghitung apa pun sejak sheet-sheet harganya dihapus — 487 sel `#REF!` di
+lembar Prasmanan, 138 di Hasil Prasmanan — dan dua keputusan yang menggantung
+(yield yang beda, satuan Kg/Liter) justru menuntut berkas itu disunting.
+
+```bash
+curl -s "https://dev.laksamanamuda.id/stock-api-mysql/hpp.php" -o tools/hpp-master.json
+node tools/hpp-excel-baru.js      # -> "HPP Prasmanan (baru).xlsx"
+```
+
+Empat lembar: **Hasil Prasmanan** (ringkasan + COGS), **Prasmanan** (rincian
+bahan berikut harga satuannya), **Database Harga**, **Perlu Diperiksa**.
+
+- **NILAI, BUKAN RUMUS — dan itu yang membuatnya tidak bisa rusak dengan cara
+  yang sama.** Tidak ada satu sel pun yang menunjuk ke sheet lain, jadi
+  menghapus sheet mana pun tidak menjatuhkan sheet yang tersisa. Harga bahannya
+  ikut sebagai lembarnya sendiri — persis lembar yang dulu dihapus dan
+  melahirkan seluruh `#REF!` itu.
+- **ANGKANYA DARI MODULNYA SENDIRI.** Modul HPP dijalankan di jsdom dengan data
+  master, lalu modal / modal per satuan / COGS dibaca dari `modalMenu()`,
+  `modalPorsi()`, dan `cogsOf()` yang SAMA dengan yang menggambar layar.
+  Menyalin rumusnya ke alat ini berarti berkas kembar **lintas bahasa** — dan
+  selisihnya berupa uang yang tertulis beda di dua tempat.
+- **Pemulihan takarannya DIPINJAM**, bukan disusun ulang: `hpp-prasmanan-asli.js`
+  sekarang mengekspor `pulihkan()`, dan blok yang menulis berkasnya berdiri di
+  balik `require.main === module`. Dua tempat yang memulihkan takaran akan
+  menyimpang, dan yang menyimpang di sini angka uang.
+- **Isinya keadaan SESUDAH berkas impornya masuk**, jadi ia sekaligus
+  pratinjau: angka di sini persis yang akan tampil di layar.
+- **HARGA SATUAN DITURUNKAN dari subtotal ÷ qty**, bukan dibaca dari daftar
+  bahan. Modul mengkonversi Kg↔Gr dan L↔Ml sendiri, jadi harga daftar (per Kg)
+  tidak sebanding dengan takaran resep (per Gr) — kolom yang tidak bisa
+  dikalikan dengan mata adalah kolom yang berhenti dipercaya.
+- **Kolom CATATAN menyebut yang perlu DIKERJAKAN**, bukan cuma keadaan. COGS
+  2005% tanpa keterangan dibaca sebagai salah hitung; yang salah satuan
+  yield-nya, dan itu cuma bisa dibetulkan orang.
+- Berkasnya **jangan di-commit** (sudah di `.gitignore`: `HPP Prasmanan*.xlsx`)
+  — ia memuat seluruh struktur biaya dapur berikut harga belinya.
+
+###### SEPULUH MENU BERMODAL Rp0, dan penyebabnya baris catatan
+
+Ditemukan alat ini saat menulisnya, bukan dari laporan: **Sambal Merah bermodal
+Rp0** walau `modal_manual`-nya 400,92.
+
+```js
+if((r.bahan||[]).length===0 && num(r.modal_manual)>0) return { … }   // SALAH
+```
+
+Baris **CATATAN** disimpan di dalam `bahan` sebagai `{catatan}` tanpa `nama` —
+bentuk yang memang sudah dipakai modul ini untuk memisahkan tahap memasak. Jadi
+menghitungnya sebagai bahan membuat resep yang isinya cuma satu baris catatan
+berhenti dianggap *"tanpa resep"*, dan **modal manualnya berhenti dipakai**.
+
+Impor prasmanan 20 September 2026 menambahkan satu baris catatan ke tiap resep
+yang dibaginya — dan sepuluh menu bermodal manual langsung berbunyi **Rp0**
+dengan **COGS 0%**, yang di layar terbaca sebagai menu yang sangat sehat:
+Sambal Merah, Sambal Ijo, Sambal Kecap, Kerupuk, Indomie, Fruit Platter, Pisang
+Barangan, Tempe Mendoan, Tumis Buncis Wortel, Sirup Coco Pandan.
+
+**`tanpaBahan(r)` sekarang satu penentu**, dipakai `modalDasar()`,
+`modalPratinjau()`, dan kotak *Modal manual* di penyunting. Beda sedikit saja
+di antara ketiganya, angka di penyunting berbeda dari angka di daftar untuk
+resep yang sama — dan yang menyuntingnya menyimpan lalu mendapati modalnya
+berubah sendiri.
+
+> **Catatan tidak boleh pernah menggeser uang.** Bentuk ini akan lahir lagi
+> setiap kali ada alat yang menyisipkan keterangan ke dalam `bahan`, dan
+> gejalanya selalu sama: modal nol tanpa satu pun galat.
+
+```bash
+node tools/uji-spare-hpp.js   # 53 pemeriksaan (dari 47)
+```
+
+Ujinya memakai resep bermodal manual yang punya SATU baris catatan dan nol
+bahan — bentuk yang persis lahir dari impor itu. `domHpp()` karena itu sekarang
+menerima daftar resep tambahan; tanpa itu bentuk pemicunya tidak pernah ada di
+fixture dan cabangnya tidak pernah dijalankan.
+
+Empat mutasi dicoba, keempatnya tertangkap — termasuk mengembalikan bentuk
+lamanya dan memakai penentu yang berbeda di penyunting.
+
 ### Pemakaian Bahan Baku: pemilih bulan di KETIGA report (2 September 2026)
 
 `deploy/stock/usage/`. Modul ini punya tiga layar report — **Pemakaian**,
