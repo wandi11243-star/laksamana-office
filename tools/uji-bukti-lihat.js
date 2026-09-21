@@ -60,10 +60,12 @@ const barisKonst = a => { const i = SRC.indexOf(a); return i < 0 ? '' : SRC.slic
 
 /* ============ 1. JAM DIBACA DARI STRUK ============ */
 console.log('\n[1] OCR jam: meridiem tidak boleh dibuang');
+const INTI = [barisKonst('const OCR_MONTHS ='), barisKonst('const RE_MERIDIEM='),
+  barisKonst('const RE_ZONA='), potong('pad2'), potong('isoDate'), potong('dateIn'),
+  potong('timeIn'), potong('ocrTimeMentah'), potong('jamPasti'), potong('ocrTime')].join('\n');
 const F = aman('potongan OCR dijalankan', () => new Function(
-  [barisKonst('const OCR_MONTHS ='), potong('pad2'), potong('isoDate'),
-   potong('dateIn'), potong('timeIn'), potong('ocrTime'), potong('jam24')].join('\n')
-  + '\nreturn {dateIn, timeIn, ocrTime, jam24};')());
+  INTI + '\n' + potong('jam24')
+  + '\nreturn {dateIn, timeIn, ocrTime, ocrTimeMentah, jamPasti, jam24};')());
 
 if (!F) { console.log('  potongan tidak bisa dijalankan — sisanya dilewati'); }
 else {
@@ -100,6 +102,29 @@ else {
   T('ocrTime memilih jam di baris bertanggal, bukan jam status bar HP',
     F.ocrTime(struk) === '13:50:02', JSON.stringify(F.ocrTime(struk)));
 
+  /* ===== KALAU RAGU, JAMNYA TIDAK DIISI (permintaan user 21 Sep 2026) =====
+     Jam 12 jam SELALU menulis AM/PM — tidak ada jam dinding 12 jam tanpa
+     meridiem. Jadi jam 1..12 yang buktinya tidak menyebut AM/PM sebenarnya
+     24 jam, KECUALI kalau OCR-nya yang gagal membaca meridiemnya; di situ
+     selisihnya dua belas jam dan tidak ada cara membedakannya dari angkanya
+     sendiri. */
+  const pasti = (teks, hasil, ket) => T('ocrTime ' + ket, F.ocrTime(teks) === hasil,
+    JSON.stringify(F.ocrTime(teks)));
+  pasti('21 Jul 2026 - 10:25:48', '', 'jam 1..12 tanpa AM/PM & tanpa WIB -> KOSONG');
+  pasti('25 Jul 2026 - 09:08', '', 'jam pagi tanpa penanda apa pun -> KOSONG');
+  /* Yang PASTI tetap diisi — aturan ini tidak boleh membuang jam yang tidak
+     mungkin salah. */
+  pasti('31 Jul 2026 - 16:55:03', '16:55:03', 'jam >= 13 tetap diisi');
+  pasti('31 Jul 2026 - 00:12', '00:12', 'jam 00 tetap diisi');
+  pasti('25 Jul 2026 - 09:08 WIB', '09:08', 'ada WIB -> konvensi 24 jam, tetap diisi');
+  pasti('03 Sep 2026 1:50:02 PM', '13:50:02', 'ada meridiem -> tetap diisi');
+  pasti('03 Sep 2026 9:08 AM', '09:08', 'meridiem AM -> tetap diisi');
+  /* ANGKANYA TETAP TERBACA walau tidak dipakai — itu yang dipajang
+     jamRagu() supaya kolom kosongnya bisa dijelaskan. */
+  T('angka yang ditahan tetap terbaca ocrTimeMentah',
+    F.ocrTimeMentah('21 Jul 2026 - 10:25:48') === '10:25:48',
+    JSON.stringify(F.ocrTimeMentah('21 Jul 2026 - 10:25:48')));
+
   console.log('\n[2] Jam dibakukan lagi saat digambar');
   const j2 = (a, b) => T('jam24 ' + JSON.stringify(a) + ' -> ' + JSON.stringify(b),
     F.jam24(a) === b, JSON.stringify(F.jam24(a)));
@@ -116,9 +141,9 @@ else {
 /* ============ 3. JAM LAMA DIPULIHKAN DARI TEKS SCAN TERSIMPAN ============ */
 console.log('\n[3] Jam yang terlanjur salah dipulihkan dari teks bukti');
 const G = aman('potongan jamSeharusnya dijalankan', () => new Function(
-  [barisKonst('const OCR_MONTHS ='), potong('pad2'), potong('isoDate'),
-   potong('dateIn'), potong('timeIn'), potong('ocrTime'), potong('jamSeharusnya')].join('\n')
-  + '\nreturn jamSeharusnya;')());
+  INTI + '\n' + potong('jamSeharusnya') + '\nreturn jamSeharusnya;')());
+const RAGU = aman('potongan jamRagu dijalankan', () => new Function(
+  INTI + '\n' + potong('jamRagu') + '\nreturn jamRagu;')());
 
 if (G) {
   const teksPM = '03 Sep 2026 1:50:02 PM\nIDR 1,000,000.00';
@@ -139,6 +164,28 @@ if (G) {
     G({ tfTime: '01:50:02', tfOcrText: '' }) === '');
   T('tanpa jam tersimpan tidak pernah ditandai',
     G({ tfTime: '', tfOcrText: teksPM }) === '');
+}
+
+/* ---- jam yang sengaja dikosongkan DIKATAKAN di barisnya ---- */
+if (RAGU) {
+  console.log('\n[3b] Kolom jam yang kosong menyebut sebabnya');
+  T('jam yang ditahan disebut angkanya',
+    RAGU({ tfTime: '', tfOcrText: '21 Jul 2026 - 10:25:48' }) === '10:25:48',
+    JSON.stringify(RAGU({ tfTime: '', tfOcrText: '21 Jul 2026 - 10:25:48' })));
+  /* Yang jamnya SUDAH terisi tidak perlu dijelaskan apa-apa. */
+  T('baris yang jamnya terisi tidak diberi keterangan',
+    RAGU({ tfTime: '16:55:03', tfOcrText: '21 Jul 2026 - 10:25:48' }) === '');
+  /* Yang buktinya memang tidak punya jam sama sekali BUKAN "ragu" — ia
+     memang tidak ada, dan menyebutnya ragu menyuruh orang mencari angka
+     yang tidak pernah tertulis. */
+  T('bukti tanpa jam sama sekali tidak disebut ragu',
+    RAGU({ tfTime: '', tfOcrText: 'Transaksi Berhasil Rp200.000' }) === '');
+  T('tanpa teks OCR tersimpan tidak disebut ragu',
+    RAGU({ tfTime: '', tfOcrText: '' }) === '');
+  /* Jam yang PASTI tapi kosong tfTime-nya (mis. dihapus kru) juga bukan
+     ragu — kalau disebut, kru diberi angka yang sebenarnya sudah ia buang. */
+  T('jam yang pasti tidak disebut ragu',
+    RAGU({ tfTime: '', tfOcrText: '21 Jul 2026 - 16:55:03' }) === '');
 }
 
 /* ============ 4. KONTRAK ATAS SUMBERNYA ============ */
@@ -274,6 +321,8 @@ async function ujiBetulkanJam() {
 const nPanggil = (SRC.match(/betulkanJam\(/g) || []).length;
 T('tidak dipanggil otomatis dari mana pun', nPanggil === 2,
   'dipanggil ' + nPanggil + ' kali (harusnya 2: definisi + tombolnya)');
+T('kolom jam yang kosong menyebut angka yang terbaca',
+  /jamRagu\(p\)\?/.test(SRC) && /bukti menulis \$\{esc\(jamRagu\(p\)\)\}/.test(SRC));
 T('baris yang jamnya meleset ditandai di tabelnya',
   /jamSeharusnya\(p\)\?/.test(SRC) && /seharusnya \$\{esc\(jamSeharusnya\(p\)\)\}/.test(SRC));
 

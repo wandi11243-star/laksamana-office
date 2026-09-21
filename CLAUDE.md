@@ -8804,6 +8804,105 @@ sesudah ujinya dibetulkan:
 > sebelum panelnya dibuka"* di sana jadi tidak bisa diuji lagi. Keduanya jalur
 > yang sah dan keduanya diuji.
 
+##### Lightbox pindah ke tingkat `<body>`, & jam yang ragu tidak diisi (21 Sep 2026, sore)
+
+Dua laporan user, dan yang pertama menunjukkan lubang di UJINYA — bukan cuma
+di produknya.
+
+**1. "KLIK GAMBAR MASIH TIDAK BISA DIBUKA."** Diperiksa dengan menekan
+`<img>`-nya sungguhan di jsdom: `cbLihat()` jalan, `CB.lihat` terisi, lightbox
+masuk DOM, tidak ada satu galat pun. **Jadi JS-nya benar dan yang salah
+letaknya.**
+
+Bentuk sebelumnya menumpang di ujung `#cb-wrap`, yaitu **di dalam `#app-view`
+milik tuan rumah**. `position:fixed` di sana bergantung pada tidak adanya satu
+pun leluhur yang membuat *containing block* — `transform`, `filter`,
+`perspective`, `contain`, `will-change`. Satu saja di antaranya di mana pun
+sepanjang rantai membuat overlay-nya berhenti menutupi layar dan mendarat
+entah di mana, **tanpa satu pun galat** — dan dari layar itu terbaca persis
+sebagai "tombolnya tidak melakukan apa-apa". Rantai itu milik modul lain, dan
+boleh berubah kapan saja tanpa ada yang ingat halaman ini.
+
+- **WADAHNYA SENDIRI (`#cb-lightbox-root`), menempel langsung ke `<body>`.**
+  Tidak ada rantai yang perlu dipercaya.
+- **Gayanya dikurung `#cb-lightbox-root`, dan itu SATU-SATUNYA pengecualian**
+  aturan "seluruh CSS dikurung `#cb-wrap`" di berkas ini. Pemindainya di uji
+  menerima dua awalan itu saja; aturan telanjang tetap dilarang — ia akan
+  menggeser dua puluhan halaman lain di kedua modul.
+- **Gaya tombol WAJIB ditulis lagi di dalam kurungan itu.** Tombol di dalam
+  lightbox berdiri di luar `#cb-wrap`, jadi tanpa itu "Tutup" dan "Buka di tab
+  baru" tergambar sebagai tombol polos bawaan peramban.
+- **Offset ditulis satu per satu** (`top/right/bottom/left:0`), bukan `inset:0`
+  — pemendekan yang tidak dimengerti peramban lama membuat overlay-nya jatuh
+  ke posisi statis, yaitu di bawah seluruh halaman.
+- **`cbLihat()` menggambar WADAHNYA saja**, bukan memanggil `gambarUlang()`
+  milik tuan rumah. Menggambar ulang 169 baris untuk membuka satu gambar
+  membuang gulir orang ke atas.
+- **Escape menutupnya**, dipasang SEKALI bersama gayanya. Overlay yang
+  menutupi seluruh layar wajib punya jalan keluar yang tidak menuntut
+  mengarahkan tetikus ke satu tombol.
+
+> **LUBANG UJINYA: asersinya memanggil `cbLihat()` LANGSUNG, tidak pernah
+> menekan gambarnya.** Dan jsdom dengan `runScripts:'outside-only'` **TIDAK
+> MENJALANKAN `onclick` inline sama sekali** — seluruh tombol di aset ini
+> memakainya, jadi tidak satu pun pernah terbukti tersambung. Sekarang
+> `runScripts:'dangerously'` (dokumennya tidak punya `<script>` sendiri) dan
+> gambarnya benar-benar ditekan. Pelajaran `putuskan()` di modul Jadwal, dan
+> ini kali kedua bentuk itu menggigit.
+
+**2. "KALAU RAGU LEBIH BAIK GA USAH DIISI JAMNYA."**
+
+Jam 12 jam **SELALU** menulis AM/PM — tidak ada jam dinding 12 jam tanpa
+meridiem. Jadi jam 1..12 yang buktinya tidak menyebut AM/PM sebenarnya 24 jam,
+**kecuali kalau OCR-nya yang gagal membaca meridiemnya**; di situ selisihnya
+dua belas jam dan tidak ada satu pun cara membedakannya dari angkanya sendiri.
+
+`jamPasti()` mengenali tiga keadaan yang TIDAK mungkin salah:
+
+| | |
+|---|---|
+| jam `00` atau `>= 13` | mustahil 12 jam |
+| buktinya menulis AM/PM | meridiemnya terbaca |
+| buktinya menulis WIB/WITA/WIT | konvensi 24 jam |
+
+Selain itu `ocrTime()` memulangkan **kosong**.
+
+**ONGKOSNYA DIUKUR, bukan dikira-kira.** Atas 494 DP produksi: 209 jamnya
+`>= 13` atau `00`, 45 bertanda WIB, 9 bermeridiem jelas — ketiganya lolos.
+Yang **RAGU 33 dari 263** yang terbaca (12,5%), dan di data hari ini
+**semuanya sebenarnya struk 24 jam yang benar** (BRI, SeaBank, DANA,
+m-Transfer BCA). Jadi aturan ini membuang jam yang kebanyakan benar, demi
+tidak pernah memajang jam yang meleset dua belas jam. Itu keputusan user, dan
+angkanya ditulis di sini supaya yang membacanya nanti tahu berapa yang
+dipertukarkan.
+
+- **Berlaku untuk scan BERIKUTNYA saja.** `tfTime` yang sudah tersimpan tidak
+  disentuh — yang salah dibetulkan lewat tombol **Betulkan** (lihat blok di
+  atas), yang benar dibiarkan.
+- **KEKOSONGANNYA DIKATAKAN, berikut ANGKANYA.** `jamRagu()` menyebut jam yang
+  terbaca di baris tabelnya (*"bukti menulis 10:25, tanpa AM/PM"*). Kolom
+  kosong tanpa sebab terbaca sebagai bukti yang gagal dibaca, dan yang
+  membacanya akan men-scan ulang berkali-kali tanpa hasil. Kru tetap bisa
+  mengetik jamnya sendiri lewat Cek/Edit.
+- **Bukti yang memang tidak punya jam sama sekali BUKAN "ragu"** — menyebutnya
+  ragu menyuruh orang mencari angka yang tidak pernah tertulis.
+- **`ocrTimeMentah()` dipisahkan dari `ocrTime()`** justru supaya angka yang
+  ditahan tetap bisa disebut. Digabung, kekosongannya tidak bisa dijelaskan
+  apa pun.
+
+```bash
+node tools/uji-cocok-bri.js     # 233 pemeriksaan (dari 221)
+node tools/uji-bukti-lihat.js   #  67 pemeriksaan (dari 53)
+```
+
+**Enam belas mutasi dicoba, keenam belasnya tertangkap** — satu baru sesudah
+asersinya dipindah:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| `cbGambar()` kembali menyisipkan lightbox ke `#app-view` | asersi "tidak ada di #app-view" berdiri SEBELUM halaman digambar ulang, dan salinan keduanya belum lahir di situ | diperiksa SESUDAH render, plus jumlah `.cb-lightbox` di seluruh halaman dikunci **1** |
+
+
 ### Reservasi: tombol "Lihat" yang tidak memunculkan apa pun, & jam 12 jam (21 Sep 2026)
 
 Dua laporan user, dan **keduanya di halaman Dana Masuk modul Reservasi** —

@@ -8145,7 +8145,11 @@ function timeIn(s){
    PENTING: bukti sering difoto dari layar HP, sehingga JAM DI STATUS BAR HP ("16.55")
    ikut terbaca dan berada di baris PALING ATAS. Makanya jam dicari lebih dulu pada
    baris yang memuat TANGGAL — di situlah jam transaksi sebenarnya berada. */
-function ocrTime(t){
+/* Jam yang DITEMUKAN, tanpa menimbang yakin atau tidak. Dipisahkan dari
+   ocrTime() supaya jamRagu() bisa menyebut ANGKA yang terbaca walau angka
+   itu sengaja tidak dipakai — kekosongan yang tidak bisa dijelaskan
+   terbaca sebagai bukti yang gagal dibaca, padahal jamnya ada di sana. */
+function ocrTimeMentah(t){
   const lines=String(t||"").split(/\r?\n/);
   for(const line of lines){
     if(!dateIn(line)) continue;
@@ -8153,6 +8157,50 @@ function ocrTime(t){
     if(v) return v;
   }
   return timeIn(String(t||""));                                              // cadangan: cari di mana saja
+}
+/* Jam 12 JAM SELALU menulis AM/PM — tidak ada jam dinding 12 jam tanpa
+   meridiem. Jadi jam 1..12 yang buktinya TIDAK menyebut AM/PM sebenarnya
+   24 jam... kecuali kalau OCR-nya yang gagal membaca meridiemnya. Di situ
+   selisihnya DUA BELAS JAM, dan tidak ada satu pun cara membedakannya dari
+   angkanya sendiri.
+
+   Yang PASTI cuma tiga:
+     - jam 00 atau >= 13  -> mustahil 12 jam
+     - buktinya memang menulis AM/PM
+     - buktinya menulis WIB/WITA/WIT -> konvensi 24 jam
+   Sisanya RAGU. */
+const RE_MERIDIEM=/\b\d{1,2}[:.]\d{2}(?:[:.]\d{2})?\s*[AaPp]\.?\s?[Mm]\b(?![A-Za-z])/;
+const RE_ZONA=/\b(WIB|WITA|WIT)\b/i;
+function jamPasti(teks, jam){
+  if(!jam) return false;
+  const h=+String(jam).slice(0,2);
+  if(h===0 || h>=13) return true;
+  return RE_MERIDIEM.test(String(teks||"")) || RE_ZONA.test(String(teks||""));
+}
+/* KALAU RAGU, JAMNYA TIDAK DIISI (21 September 2026, permintaan user:
+   "kalau ragu lebih baik ga usah diisi jamnya").
+
+   ONGKOSNYA DIUKUR, bukan dikira-kira. Atas 494 DP produksi: 209 jamnya
+   >= 13 atau 00, 45 bertanda WIB, 9 bermeridiem jelas — ketiganya lolos.
+   Yang RAGU 33 dari 263 yang terbaca (12,5%), dan di data hari ini
+   semuanya sebenarnya struk 24 jam yang benar (BRI, SeaBank, DANA,
+   m-Transfer BCA). Jadi aturan ini MEMBUANG jam yang kebanyakan benar,
+   demi tidak pernah memajang jam yang meleset dua belas jam.
+
+   Yang hilang tidak didiamkan: jamRagu() menyebut angka yang terbaca di
+   barisnya, dan kru tetap bisa mengetiknya sendiri lewat Cek/Edit. */
+function ocrTime(t){
+  const v=ocrTimeMentah(t);
+  return jamPasti(t, v) ? v : "";
+}
+/* Jam yang SENGAJA tidak diisi karena ragu, berikut angkanya. Dipakai
+   menjelaskan kolom Jam yang kosong — "-" tanpa sebab terbaca sebagai
+   bukti yang gagal dibaca, dan yang membacanya akan men-scan ulang
+   berkali-kali tanpa hasil. */
+function jamRagu(p){
+  if(!p || p.tfTime || !p.tfOcrText) return "";
+  const v=ocrTimeMentah(p.tfOcrText);
+  return (v && !jamPasti(p.tfOcrText, v)) ? v : "";
 }
 /* Tampilan jam mengikuti bukti: "15:21:17 WIB" / "10:31 WIB".
    DIBAKUKAN KE 24 JAM DULU: nilai ber-AM/PM yang lolos dari jalur lain
@@ -8782,6 +8830,7 @@ function renderFinance(){
            <td><b>${p.tfDate?fmtDateShort(p.tfDate):`<span class="muted">${fmtDateShort(r.date)}</span>`}</b>
                ${!p.tfDate?`<div class="muted" style="font-size:11px">dari tgl reservasi</div>`:""}</td>
            <td>${p.tfTime?`<b>${fmtJamTf(p.tfTime)}</b>`:'<span class="muted">-</span>'}
+               ${jamRagu(p)?`<div class="muted" style="font-size:11px" title="Bukti menulis jam tanpa AM/PM dan tanpa WIB, jadi 12 jam dan 24 jam tidak bisa dibedakan — jamnya sengaja tidak diisi daripada meleset dua belas jam">bukti menulis ${esc(jamRagu(p))}, tanpa AM/PM</div>`:""}
                ${jamSeharusnya(p)?`<div style="font-size:11px;color:var(--danger);font-weight:700"
                     title="Teks bukti yang tersimpan menyebut AM/PM, dan jam yang tercatat tidak cocok dengannya">
                     ⚠️ seharusnya ${esc(jamSeharusnya(p))}

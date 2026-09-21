@@ -383,8 +383,14 @@ async function ujiHalaman() {
   const jsdom = cariJsdom();
   if (!jsdom) { L('halaman dijalankan di jsdom', 'jsdom tidak ketemu — setel JSDOM_PATH'); return; }
   const { JSDOM } = jsdom;
+  /* runScripts DIANGKAT KE 'dangerously', dan itu bukan kelonggaran.
+     Dengan 'outside-only' jsdom TIDAK MENJALANKAN onclick inline sama
+     sekali — seluruh tombol di aset ini memakainya, jadi uji yang cuma
+     memanggil fungsinya langsung tidak pernah membuktikan satu tombol pun
+     tersambung. Dokumennya tidak punya <script> sendiri, jadi tidak ada
+     apa pun yang ikut terbawa. */
   const dom = new JSDOM('<!doctype html><html><head></head><body><div id="app-view"></div></body></html>',
-                        { runScripts: 'outside-only' });
+                        { runScripts: 'dangerously' });
   const W = dom.window;
   const SRV = bikinServer();
 
@@ -625,16 +631,47 @@ async function ujiHalaman() {
   }
 
   /* ===== LIGHTBOX: GAMBARNYA BISA DIBUKA ===== */
-  aman('lightbox dibuka', () => { W.cbLihat('p2'); });
-  T('lightbox tergambar', html().indexOf('cb-lightbox') >= 0);
-  T('lightbox memajang gambarnya', /<div class="cb-lightbox"[\s\S]*?<img src="data:image\/jpeg/.test(html()));
-  T('lightbox menyebut nama & nominalnya', /cb-lightbox-kepala[\s\S]{0,200}Arlanda/.test(html()));
+  /* ===== DIBUKA DENGAN MENEKAN GAMBARNYA, BUKAN MEMANGGIL FUNGSINYA =====
+     Inilah lubang yang meloloskan laporan "klik gambar masih tidak bisa
+     dibuka": asersinya memanggil cbLihat() langsung, jadi ia tidak pernah
+     menguji bahwa gambarnya BENAR-BENAR tersambung ke sana. Pelajaran
+     putuskan() di modul Jadwal, dan ini kali kedua bentuk itu menggigit. */
+  {
+    const img = W.document.querySelector('#cb-tabel img.cb-thumb');
+    T('gambar bukti ada di barisnya', !!img);
+    if (img) img.dispatchEvent(new W.MouseEvent('click', { bubbles: true }));
+  }
+  T('menekan gambarnya membuka lightbox', S.lihat === 'p2', 'CB.lihat=' + JSON.stringify(S.lihat));
+
+  /* WADAHNYA DI TINGKAT <body>, bukan di dalam #app-view: position:fixed di
+     dalam pohon tuan rumah bergantung pada tidak adanya satu pun leluhur
+     ber-transform/filter/contain, dan rantai itu milik modul lain yang boleh
+     berubah kapan saja. */
+  const lb = () => W.document.getElementById('cb-lightbox-root');
+  const lbHtml = () => (lb() ? lb().innerHTML : '');
+  T('wadah lightbox menempel langsung ke <body>',
+    !!lb() && lb().parentNode === W.document.body,
+    lb() ? lb().parentNode.tagName : 'wadahnya tidak ada');
+  T('lightbox TIDAK lagi digambar di dalam #app-view', html().indexOf('cb-lightbox') < 0);
+  T('lightbox tergambar', lbHtml().indexOf('cb-lightbox') >= 0);
+  T('lightbox memajang gambarnya', /<div class="cb-lightbox"[\s\S]*?<img src="data:image\/jpeg/.test(lbHtml()));
+  T('lightbox menyebut nama & nominalnya', /cb-lightbox-kepala[\s\S]{0,200}Arlanda/.test(lbHtml()));
   /* DIGAMBAR DARI STATE, bukan disisipkan ke DOM: halaman ini digambar ulang
      tiap penyimpanan, dan overlay yang cuma hidup di DOM lenyap di tengah
      orang memeriksanya. */
   W.cbGambar(el, '2026-09');
   await tidur(20);
-  T('lightbox bertahan sesudah halaman digambar ulang', html().indexOf('cb-lightbox') >= 0);
+  T('lightbox bertahan sesudah halaman digambar ulang', lbHtml().indexOf('cb-lightbox') >= 0);
+  /* DIPERIKSA SESUDAH DIGAMBAR ULANG, dan itu momen yang menentukan:
+     selama cbGambar() masih ikut menyisipkannya ke #app-view, overlay-nya
+     berdiri DUA KALI — satu di wadah <body> yang benar, satu lagi di dalam
+     pohon tuan rumah yang posisinya tidak bisa dipercaya. Diperiksa sebelum
+     render, salinan kedua itu belum lahir dan mutasinya LOLOS. */
+  T('lightbox TIDAK ikut digambar ulang di dalam #app-view',
+    html().indexOf('cb-lightbox') < 0);
+  T('hanya ADA SATU lightbox di seluruh halaman',
+    W.document.querySelectorAll('.cb-lightbox').length === 1,
+    'dapat ' + W.document.querySelectorAll('.cb-lightbox').length);
   {
     const n = TAB.length;
     aman('buka di tab baru', () => { W.cbBukaTab('p2'); });
@@ -647,8 +684,20 @@ async function ujiHalaman() {
     T('yang dibuka URL blob:, bukan data:',
       !!buka && buka.url.indexOf('blob:') === 0, JSON.stringify(buka));
   }
-  aman('lightbox ditutup', () => { W.cbTutupLihat(); });
-  T('lightbox hilang sesudah ditutup', html().indexOf('cb-lightbox') < 0);
+  /* DITUTUP DENGAN MENEKAN TOMBOLNYA, sama alasannya dengan membukanya. */
+  {
+    const tutup = lb() && [...lb().querySelectorAll('.cb-lightbox-alat button')]
+      .find(b => (b.getAttribute('onclick') || '').indexOf('cbTutupLihat') >= 0);
+    T('tombol Tutup ada di lightbox', !!tutup);
+    if (tutup) tutup.dispatchEvent(new W.MouseEvent('click', { bubbles: true }));
+  }
+  T('lightbox hilang sesudah ditutup', lbHtml().indexOf('cb-lightbox') < 0);
+  /* ESC juga menutupnya: overlay yang menutupi seluruh layar wajib punya
+     jalan keluar yang tidak menuntut mengarahkan tetikus ke satu tombol. */
+  W.cbLihat('p2');
+  T('lightbox terbuka lagi', lbHtml().indexOf('cb-lightbox') >= 0);
+  W.document.dispatchEvent(new W.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+  T('Escape menutup lightbox', lbHtml().indexOf('cb-lightbox') < 0, JSON.stringify(S.lihat));
 
   /* ===== POIN 3a: METODE BAYAR BISA DIBETULKAN DARI SINI ===== */
   aman('panel DP non-BRI dibuka lagi', () => { W.cbBuka('luar:p4'); });
@@ -1111,8 +1160,28 @@ function ujiTuanRumah() {
       .map(b => b.replace(/\/\*[\s\S]*?\*\//g, '').trim())
       .filter(b => b && !b.startsWith('/*') && !b.startsWith('*'))
       .filter(b => /\{/.test(b));
-    const nakal = baris.filter(b => b.indexOf('#cb-wrap') !== 0);
-    T('seluruh aturan CSS dikurung #cb-wrap', nakal.length === 0, nakal.slice(0, 3).join(' | '));
+    /* SATU PENGECUALIAN, dan cuma satu: #cb-lightbox-root. Wadahnya memang
+        menempel ke <body>, di luar #cb-wrap — position:fixed di dalam pohon
+        tuan rumah bergantung pada tidak adanya satu pun leluhur
+        ber-transform/filter/contain, dan rantai itu milik modul lain yang
+        boleh berubah kapan saja tanpa ada yang ingat halaman ini.
+        Selain kedua awalan itu, aturan telanjang tetap dilarang: ia akan
+        menggeser dua puluhan halaman lain di kedua modul. */
+    const nakal = baris.filter(b => b.indexOf('#cb-wrap') !== 0 && b.indexOf('#cb-lightbox-root') !== 0);
+    T('seluruh aturan CSS dikurung #cb-wrap atau #cb-lightbox-root',
+      nakal.length === 0, nakal.slice(0, 3).join(' | '));
+    T('gaya lightbox dikurung wadahnya sendiri',
+      /#cb-lightbox-root .cb-lightbox{/.test(mGaya[1]));
+    /* OFFSET DITULIS SATU PER SATU, bukan inset: — pemendekan yang tidak
+       dimengerti peramban lama membuat overlay-nya jatuh ke posisi statis,
+       yaitu di bawah seluruh halaman, tanpa satu pun galat. */
+    T('offset lightbox ditulis satu per satu, bukan inset',
+      /#cb-lightbox-root .cb-lightbox{[^}]*top:0;right:0;bottom:0;left:0/.test(mGaya[1]));
+    /* Tombol di dalamnya berdiri DI LUAR #cb-wrap, jadi gaya tombolnya wajib
+       ditulis lagi — tanpa itu "Tutup" tergambar sebagai tombol polos
+       bawaan peramban. */
+    T('gaya tombol ikut ditulis untuk wadah lightbox',
+      /#cb-lightbox-root .cb-btn{/.test(mGaya[1]));
     T('keadaan aktif saklar ikut dikurung',
       /#cb-wrap \.cb-seg button\.on/.test(mGaya[1]) && /button\.active/.test(mGaya[1]));
     /* Struk transfer berbentuk potret panjang; digambar sebesar aslinya ia

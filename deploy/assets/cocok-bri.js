@@ -1017,6 +1017,42 @@
       return G.URL.createObjectURL(new G.Blob([byte], { type: m[1] }));
     } catch (e) { return ''; }
   }
+  /* ============ WADAHNYA DI TINGKAT <body>, BUKAN DI DALAM #cb-wrap ============
+     (21 September 2026 — dilaporkan user: "klik gambar masih tidak bisa
+     dibuka")
+
+     Bentuk sebelumnya menumpang di ujung #cb-wrap, yaitu di dalam
+     #app-view milik tuan rumah. position:fixed di sana BERGANTUNG pada
+     tidak adanya satu pun leluhur yang membuat containing block —
+     transform, filter, perspective, contain, will-change; satu saja di
+     antaranya di mana pun sepanjang rantai (dan rantai itu milik modul
+     lain, yang boleh berubah kapan saja tanpa ada yang ingat halaman ini)
+     membuat overlay-nya berhenti menutupi layar dan mendarat entah di mana
+     — tanpa satu pun galat, dan dari layar terbaca sebagai "tombolnya tidak
+     melakukan apa-apa".
+
+     Di wadah sendiri yang menempel langsung ke <body>, tidak ada rantai
+     yang perlu dipercaya. Gayanya karena itu dikurung #cb-lightbox-root,
+     bukan #cb-wrap — dan itu SATU-SATUNYA pengecualian aturan kurungan di
+     berkas ini.
+
+     OFFSET-nya DITULIS SATU PER SATU (top/right/bottom/left), bukan inset:
+     — pemendekan yang tidak dimengerti peramban lama membuat overlay-nya
+     jatuh ke posisi statis, yaitu di bawah seluruh halaman. */
+  const LB_ROOT = 'cb-lightbox-root';
+  function gambarLightbox() {
+    let root = document.getElementById(LB_ROOT);
+    const isi = lightboxHtml();
+    if (!isi) { if (root) root.innerHTML = ''; return; }
+    if (!root) {
+      if (!document.body) return;
+      root = document.createElement('div');
+      root.id = LB_ROOT;
+      document.body.appendChild(root);
+    }
+    root.innerHTML = isi;
+  }
+
   function lightboxHtml() {
     if (!CB.lihat) return '';
     const dp = (CB.dps || []).find(d => d.dpId === CB.lihat);
@@ -1296,9 +1332,10 @@
          cocok dengan baris di bawahnya. */
       isi += kartuRingkas(barisGabungan()) + kartuSumber() + kartuUsulan() + kartuTabel() + kartuLuarBri();
     }
-    el.innerHTML = isi + lightboxHtml() + '</div>';
+    el.innerHTML = isi + '</div>';
     pasangGaya();
     pasangPengamatBukti();
+    gambarLightbox();
   };
 
   /* ============ PENGAMAT BUKTI ============
@@ -1485,7 +1522,7 @@
       : pita('bad', 'Bukti transfernya tidak terbaca: <b>' + CB_ESC(salah) + '</b>');
     /* Lightbox yang sedang menunggu gambarnya ikut digambar ulang — di sana
        memang tidak ada apa-apa untuk dilihat sampai unduhannya mendarat. */
-    if (data && CB.lihat === dp.dpId) CB.opsi.gambarUlang();
+    if (data && CB.lihat === dp.dpId) gambarLightbox();
   }
 
   /* ============ MELIHAT BUKTINYA ============ */
@@ -1493,12 +1530,16 @@
     const dp = (CB.dps || []).find(d => d.dpId === dpId);
     if (!dp) return;
     CB.lihat = dpId;
-    CB.opsi.gambarUlang();
+    /* CUKUP WADAHNYA, bukan seluruh halaman. Menggambar ulang 169 baris
+       untuk membuka satu gambar membuang gulir orang ke atas — dan di
+       daftar sepanjang sebulan itu berarti kehilangan baris yang sedang
+       dibacanya. */
+    gambarLightbox();
     if (!cbBuktiIsi(dp)) muatBukti(dp);
   };
   /* Menerima event supaya latar gelapnya ikut menutup; klik di dalam
      kotaknya sudah ditahan stopPropagation di markupnya. */
-  G.cbTutupLihat = () => { CB.lihat = ''; CB.opsi.gambarUlang(); };
+  G.cbTutupLihat = () => { CB.lihat = ''; gambarLightbox(); };
 
   /* DATA URI DIUBAH JADI blob: SEBELUM DIBUKA. Chrome memblokir navigasi
      tingkat atas ke URL data: — window.open("data:image/…") memulangkan
@@ -1796,15 +1837,25 @@
 /* GAMBARNYA DIBESARKAN DI HALAMAN INI, tanpa navigasi sama sekali — Chrome
    memblokir navigasi tingkat atas ke URL data:, jadi tautan biasa ke bukti
    yang masih data URI tidak melakukan apa-apa. */
-#cb-wrap .cb-lightbox{position:fixed;inset:0;z-index:9999;background:rgba(20,17,12,.72);
-  display:flex;align-items:center;justify-content:center;padding:24px}
-#cb-wrap .cb-lightbox-kotak{background:var(--surface,#fff);border-radius:var(--radius,16px);
+#cb-lightbox-root .cb-lightbox{position:fixed;top:0;right:0;bottom:0;left:0;z-index:99999;
+  background:rgba(20,17,12,.72);display:flex;align-items:center;justify-content:center;padding:24px;
+  font-family:var(--font-body,inherit)}
+#cb-lightbox-root .cb-lightbox-kotak{background:var(--surface,#fff);border-radius:var(--radius,16px);
   padding:14px;max-width:min(960px,94vw);max-height:92vh;display:flex;flex-direction:column;gap:10px}
-#cb-wrap .cb-lightbox-kepala{display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+#cb-lightbox-root .cb-lightbox-kepala{display:flex;flex-wrap:wrap;gap:8px;align-items:center;
   font-size:13px;color:var(--ink,#2A2620)}
-#cb-wrap .cb-lightbox-alat{margin-left:auto;display:flex;gap:6px}
-#cb-wrap .cb-lightbox img{max-width:100%;max-height:78vh;object-fit:contain;
+#cb-lightbox-root .cb-lightbox-alat{margin-left:auto;display:flex;gap:6px}
+#cb-lightbox-root .cb-lightbox img{max-width:100%;max-height:78vh;object-fit:contain;
   border-radius:var(--radius-sm,10px);background:var(--paper,#F7F6F4)}
+#cb-lightbox-root .cb-muted{color:var(--muted-2,#928C80)}
+/* Tombol di dalamnya berdiri di luar #cb-wrap, jadi gaya tombolnya wajib
+   ditulis lagi di sini — tanpa itu "Buka di tab baru" dan "Tutup" tergambar
+   sebagai tombol polos bawaan peramban. */
+#cb-lightbox-root .cb-btn{display:inline-flex;align-items:center;gap:6px;padding:7px 13px;
+  font-size:12.5px;font-weight:600;font-family:inherit;border-radius:var(--radius-sm,10px);cursor:pointer;
+  border:1px solid var(--line-hard,rgba(60,55,45,.18));background:var(--surface,#fff);color:var(--ink,#2A2620)}
+#cb-lightbox-root .cb-btn-xs{padding:4px 9px;font-size:11.5px}
+#cb-lightbox-root .cb-btn-utama{background:var(--gold,#A9791F);border-color:var(--gold,#A9791F);color:#fff}
 #cb-wrap .cb-bukti{margin:10px 0}
 #cb-wrap .cb-bukti img{display:block;max-width:100%;max-height:340px;width:auto;cursor:pointer;
   border:1px solid var(--line,#E7E1D3);border-radius:var(--radius-sm,10px);background:var(--paper,#F7F6F4)}
@@ -1812,9 +1863,16 @@
 #cb-wrap code{font-family:ui-monospace,monospace;font-size:11.5px;background:var(--paper,#F7F6F4);
   padding:1px 5px;border-radius:5px}
 `;
+  /* ESC MENUTUPNYA. Overlay yang menutupi seluruh layar wajib punya jalan
+     keluar yang tidak menuntut mengarahkan tetikus ke satu tombol — di layar
+     sempit tombolnya bisa berada di luar jangkauan. Dipasang SEKALI, bersama
+     gayanya, supaya tidak menumpuk satu penangan per render. */
   let gayaTerpasang = false;
   function pasangGaya() {
     if (gayaTerpasang || !document.head) return;
+    document.addEventListener('keydown', e => {
+      if (CB.lihat && (e.key === 'Escape' || e.key === 'Esc')) G.cbTutupLihat();
+    });
     const s = document.createElement('style');
     s.id = 'cb-gaya';
     s.textContent = GAYA;
