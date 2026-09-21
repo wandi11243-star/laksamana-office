@@ -8670,6 +8670,140 @@ nama di berkas ini:
 > juga cocok dengan **`cb-tabel`** — id wadah tabel yang justru baru dipasang
 > hari itu. Pemindai ketiadaan wajib dijepit ke bentuk yang benar-benar dicari.
 
+##### Jam WIB, bukti jadi gambar di barisnya, pensil, & kolom yang dicabut (21 Sep 2026)
+
+Empat revisi user beberapa jam sesudah blok di atas naik. Dua di antaranya
+menutup cacat yang sudah hidup sejak halaman ini lahir.
+
+**1. JAM SELALU 24 JAM WIB — dan yang dibetulkan HULUNYA, bukan cuma
+tampilannya.**
+
+Diukur dulu di kedua server, bukan ditebak: **tidak satu pun dari 494 DP
+produksi menyimpan AM/PM** di `tfTime` (249 `HH:MM:SS`, 42 `HH:MM`, 203
+kosong), dan `bri_mutasi` **KOSONG di dev maupun produksi** — tidak seorang
+pun pernah mengunggah berkas mutasi bank. Jadi AM/PM tidak pernah sampai ke
+layar sebagai teks. Yang sampai ke layar **jamnya yang salah**.
+
+Sebabnya `timeIn()` di `deploy/reservasi/index.html`: tidak satu pun dari
+tiga polanya melihat meridiemnya. Struk bertuliskan **"07:30 PM" tersimpan
+sebagai "07:30"** — transfer setengah delapan MALAM tercatat setengah delapan
+PAGI, tanpa satu pun galat. Selisih dua belas jam itu mengacaukan urutan
+daftar rekonsiliasi dan membuat pencocokan tanggal+jam meleset.
+
+- **Pola meridiem ditaruh PALING DEPAN** di `timeIn()`. Ditaruh di belakang,
+  pola ketiga sudah mencocokkan "07:30" lebih dulu dan tidak pernah sampai ke
+  sana.
+- **Jamnya DIJEPIT 1..12.** Tanpa jepitan, `%12` membuat "15:00 AM" jadi
+  **03:00** — jam yang tidak pernah tertulis di struk mana pun. Itu pula
+  satu-satunya bentuk yang membedakan keduanya: untuk "13:00 PM" jepitan dan
+  `%12` telanjang memberi hasil yang SAMA (13%12=1, +12=13), jadi mutasi yang
+  mencabut jepitannya LOLOS sampai asersi "15:00 AM" ditambahkan.
+- **Huruf sesudah M ditolak** supaya "10:31 Pembayaran" tidak terbaca PM.
+- **`cbJamWIB()` di aset tetap dipasang sebagai lapis kedua**, dan ia
+  DIPAKAI SAAT MENYUSUN BARIS — bukan cuma saat menggambarnya. Kolom jam ikut
+  jadi kunci URUTAN daftar, dan "07:30 PM" berdiri di atas "13:00" kalau
+  dibandingkan sebagai teks apa adanya.
+- **YANG DIKONVERSI BENTUKNYA, BUKAN ZONANYA.** Jam di halaman ini dibaca
+  dari struk yang dicetak dalam waktu setempat, dan tidak satu pun sumbernya
+  membawa keterangan zona — menggesernya beberapa jam berarti mengarang waktu
+  yang tidak pernah tertulis di mana pun. Kepala kolomnya menyebut **(WIB)**;
+  jam tanpa keterangan zona dibaca orang menurut kebiasaannya sendiri.
+- **Yang tidak terbaca dipulangkan APA ADANYA**, bukan dikosongkan: bentuk
+  yang belum pernah kita lihat lebih baik tampil aneh daripada lenyap.
+
+> **DATA LAMA TIDAK IKUT TERBETULKAN, dan itu tidak bisa.** Meridiemnya sudah
+> dibuang waktu struknya discan; yang tersimpan cuma "07:30". Yang
+> memulihkannya scan ulang buktinya di modul Reservasi, atau mengetik jamnya
+> tangan di sana. Perbaikan ini menutup yang BERIKUTNYA.
+
+**2. BUKTINYA JADI GAMBAR DI BARISNYA — dan sebelum ini TIDAK BISA DIBUKA
+sama sekali.** Bentuk lamanya `<a href="data:image/…" target="_blank">`, dan
+**Chrome memblokir navigasi tingkat atas ke URL `data:` sejak versi 60**:
+menekan gambarnya tidak melakukan apa-apa, tanpa satu pun galat, dan yang
+menekannya menyimpulkan buktinya rusak. Itu persis yang dilaporkan
+(*"pastikan bisa dibuka gambarnya"*).
+
+Dua jalan keluar, dan keduanya dipasang:
+
+| | |
+|---|---|
+| `cbLihat()` | dibesarkan **DI HALAMAN INI**, tanpa navigasi sama sekali |
+| `cbBukaTab()` | data URI diubah jadi **Blob lalu `blob:` URL**, yang tidak diblokir |
+
+- **LIGHTBOX-nya DIGAMBAR DARI STATE (`CB.lihat`)**, bukan disisipkan ke DOM.
+  Halaman ini digambar ulang tiap penyimpanan; overlay yang cuma hidup di DOM
+  lenyap di tengah orang memeriksanya.
+- **`blob:` URL TIDAK segera di-revoke** — tab yang baru terbuka masih
+  memuatnya, dan mencabutnya seketika membuat tab itu blank. Dilepas satu
+  menit kemudian.
+- **Gambarnya di BARISNYA, bukan di balik satu klik.** Yang mencocokkan
+  sebulan transfer tidak akan membuka enam puluh panel.
+- **TETAP DIUNDUH MALAS, dan itu tidak bisa ditawar.** Satu bukti ratusan KB,
+  sebulan di produksi 165 DP. Diunduh seluruhnya, halaman ini menyeret
+  puluhan MB gambar yang tidak satu pun dilihat orang — persis masalah yang
+  dulu membuat modul Reservasi memindahkan fotonya ke disk. Yang diunduh
+  hanya baris yang **BENAR-BENAR MASUK LAYAR** (`IntersectionObserver`,
+  `rootMargin: 200px`), dan yang perambannya tidak punya pengamat itu tetap
+  bisa menekan kotaknya satu per satu.
+- **Pengamatnya DIBUANG DAN DIPASANG ULANG tiap render**: halaman digambar
+  ulang dari string HTML, jadi elemen yang diamati sudah bukan yang ada di
+  layar. Yang tidak dilepas menumpuk satu per render sambil memegang node
+  mati.
+- **DUA TEMPAT DISEGARKAN** sesudah unduhannya mendarat — kotak kecil di
+  barisnya DAN panel yang mungkin sedang terbuka untuk DP yang sama. Yang
+  cuma menyegarkan salah satunya meninggalkan kotak "memuat" yang tidak
+  pernah selesai di sebelah gambar yang sudah tergambar.
+- **Tinggi kotaknya DIPATOK 56px**: daftar yang tingginya berubah sendiri
+  waktu gambar demi gambar mendarat membuat orang kehilangan baris yang
+  sedang dibacanya.
+- **`atob` / `Blob` / `URL` / `TextEncoder` / `IntersectionObserver` DIPANGGIL
+  LEWAT `window.*`, bukan nama telanjang.** Aset ini dijalankan uji lewat
+  `new Function('window', …)` di Node, dan di sana nama telanjang mengikat ke
+  global NODE — `URL` Node tidak punya `createObjectURL` sama sekali. Di
+  peramban `window.X === X`, jadi tidak ada yang berubah di sana. Pelajaran
+  yang sama dengan `fetch` yang dioper sebagai parameter.
+
+**3. TOMBOL KOREKSI JADI IKON PENSIL** (✎), dan ✕ waktu panelnya terbuka.
+`title`-nya WAJIB: tombol berikon tanpa keterangan cuma bisa ditebak.
+
+**4. KOLOM "SUMBER BARIS" DICABUT** (*"bukti bayar terisi sendiri itu gunanya
+buat apa? kalau ga dihapus saja"*). Isinya memang tidak menjawab satu
+pertanyaan pun yang dibawa orang ke sini: kolom **Dari** sudah menyebut nama
+tamunya untuk baris DP, catatan berikut nama pengisinya untuk baris manual,
+dan "belum ketahuan" untuk baris yang belum dicocokkan. Tempatnya dipakai
+**BUKTI** — yang memang dicari orang.
+
+- **Kalimat "terisi sendiri dari bukti bayar" TETAP di kepala kartu.** Di sana
+  ia dibaca SEKALI dan menjelaskan kenapa barisnya muncul tanpa ada yang
+  mengetik; yang dicabut chip yang mengulanginya di TIAP baris tanpa menambah
+  apa pun.
+- **Keterangan asal baris yang ikut tercabut PINDAH ke kolom Dari**, dan cuma
+  untuk baris yang belum ketahuan — di situlah ia masih menjawab sesuatu.
+
+```bash
+node tools/uji-cocok-bri.js   # 221 pemeriksaan (dari 170)
+```
+
+**Dua puluh dua mutasi dicoba, kedua puluh duanya tertangkap** — dua baru
+sesudah ujinya dibetulkan:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| jepitan jam 1..12 dicabut | untuk "13:00 PM" jepitan dan `%12` telanjang memberi hasil yang SAMA — satu-satunya bentuk yang membedakannya jam dua digit ber-**AM** | `15:00 AM` di kedua pembacanya |
+| `cbJamWIB()` dicabut dari penyusun baris | **cacat fixture** — tidak satu pun `tfTime` di fixture ber-AM/PM, jadi memotong 5 huruf memberi hasil yang sama persis | `tfTime: '07:30:00 PM'` (jam yang SAMA dengan 19:30:00, jadi tidak satu ekspektasi pun bergeser) |
+
+> **ASERSI URUTAN WAKTU IKUT HILANG waktu berkas ujinya ditulis ulang di
+> putaran sebelumnya**, dan tidak satu pun mutasi menangkapnya — karena tidak
+> ada satu pun mutasi urutan yang pernah dicoba. Ketiganya dipulihkan berikut
+> mutasinya. **Cakupan yang hilang tidak pernah berbunyi sendiri**; yang
+> menangkapnya cuma mutasi yang memang ditulis untuknya.
+
+> **Uji pengamat berdiri di jsdom TERPISAH.** Dipasang di jsdom utama,
+> `IntersectionObserver` tiruan yang langsung berbunyi akan mengunduh seluruh
+> bukti sejak render pertama — dan seluruh asersi *"belum ada yang diunduh
+> sebelum panelnya dibuka"* di sana jadi tidak bisa diuji lagi. Keduanya jalur
+> yang sah dan keduanya diuji.
+
 ### Reservasi: kwitansi ditahan sampai dananya diverifikasi (16 Sep 2026)
 
 Permintaan user: *"request kwitansi yang ada di modul reservasi tidak bisa

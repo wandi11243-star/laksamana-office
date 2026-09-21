@@ -127,6 +127,76 @@ T('nama pendek cocok kalau sama persis', G.cbNamaCocok('Ika', 'ika'));
 T('nama kosong tidak pernah cocok', !G.cbNamaCocok('', 'Arlanda') && !G.cbNamaCocok('Arlanda', ''));
 T('tanggal ISO -> "5 Sep 2026"', G.cbTglID('2026-09-05') === '5 Sep 2026', G.cbTglID('2026-09-05'));
 
+/* ---- jam selalu 24 jam WIB (21 September 2026) ---- */
+console.log('\n[3b] Jam dibakukan ke 24 jam WIB');
+const jam = (a, b) => T('jam ' + JSON.stringify(a) + ' -> ' + JSON.stringify(b),
+  G.cbJamWIB(a) === b, JSON.stringify(G.cbJamWIB(a)));
+jam('07:30 PM', '19:30');
+jam('7.30 pm', '19:30');
+jam('11:59 PM', '23:59');
+/* TENGAH MALAM & TENGAH HARI adalah dua titik yang paling sering salah:
+   12 AM = 00, 12 PM = 12 — bukan sebaliknya, dan bukan 12/24. */
+jam('12:00 AM', '00:00');
+jam('12:05 PM', '12:05');
+jam('19:30:00', '19:30');
+jam('08:15:00', '08:15');
+jam('09:05', '09:05');
+jam('', '');
+/* "13:00 PM" BUKAN meridiem yang sah — dibaca sebagai PM ia memberi jam 25.
+   Dan "10:31 Pembayaran" tidak boleh terbaca sebagai PM. */
+jam('13:00 PM', '13:00');
+/* JEPITAN 1..12 BARU KELIHATAN DI SINI, dan mutasi yang mencabutnya LOLOS
+   tanpa asersi ini: untuk "13:00 PM" jepitan dan %12 memberi hasil yang SAMA
+   (13%12=1, +12=13). Yang membedakannya jam dua digit ber-AM — tanpa
+   jepitan, "15:00 AM" jadi 03:00, yaitu jam yang tidak pernah tertulis di
+   struk mana pun. */
+jam('15:00 AM', '15:00');
+jam('10:31 Pembayaran', '10:31');
+/* YANG TIDAK TERBACA DIPULANGKAN APA ADANYA, bukan dikosongkan: bentuk yang
+   belum pernah kita lihat lebih baik tampil aneh daripada lenyap dari layar
+   tanpa satu pun tanda. */
+jam('7:5 PM', '7:5 PM');
+
+/* ---- HULUNYA: OCR modul Reservasi ----
+   Jam di halaman ini dibaca dari tfTime, yang diisi ocrTime() -> timeIn() di
+   deploy/reservasi/index.html. Sampai 21 September 2026 tidak satu pun pola di
+   sana melihat meridiemnya: struk "07:30 PM" tersimpan sebagai "07:30", dan
+   transfer jam setengah delapan MALAM tercatat setengah delapan PAGI — tanpa
+   satu pun galat. Dikonversi di hilir saja, yang tersimpan tetap salah.
+
+   FUNGSINYA DIPOTONG DARI SUMBER lalu dijalankan, bukan ditulis ulang di
+   sini: uji yang memegang salinan aturannya sendiri tetap hijau kalau yang
+   asli diubah. */
+const srcRsv = fs.readFileSync(path.join(AKAR, 'deploy/reservasi/index.html'), 'utf8');
+function potong(src, nama) {
+  const i = src.indexOf('function ' + nama + '(');
+  if (i < 0) return '';
+  const j = src.indexOf('\nfunction ', i + 1);
+  return src.slice(i, j < 0 ? src.length : j);
+}
+let timeIn = null;
+aman('timeIn() dipotong dari modul Reservasi', () => {
+  timeIn = new Function(potong(srcRsv, 'pad2') + '\n' + potong(srcRsv, 'timeIn')
+    + '\nreturn timeIn;')();
+});
+if (timeIn) {
+  const ti = (a, b) => T('OCR jam ' + JSON.stringify(a) + ' -> ' + JSON.stringify(b),
+    timeIn(a) === b, JSON.stringify(timeIn(a)));
+  ti('21 Sep 2026, 07:30 PM', '19:30');
+  ti('07:30:15 PM', '19:30:15');
+  ti('12:00 AM', '00:00');
+  ti('12:30 PM', '12:30');
+  /* Yang SUDAH 24 jam tidak boleh ikut bergeser. */
+  ti('16:55:03 WIB', '16:55:03');
+  ti('15:21 WIB', '15:21');
+  ti('10:31', '10:31');
+  /* Kata berawalan P/A sesudah jam BUKAN meridiem. */
+  ti('10:31 Pembayaran', '10:31');
+  /* Lihat cbJamWIB di atas: ini satu-satunya bentuk yang membedakan jepitan
+     1..12 dari %12 yang telanjang. */
+  ti('15:00 AM', '15:00');
+}
+
 /* ---- usulan ---- */
 console.log('\n[4] Usulan pencocokan');
 const dpU = [
@@ -202,7 +272,13 @@ function cariJsdom() {
    memicu unduhan sama sekali), dan TIDAK ADA bukti (keterangan tersendiri —
    justru baris itulah yang paling perlu diperiksa). */
 const DP_AWAL = () => [
-  { id: 'p2', amount: 250000, method: 'QRIS',         tfDate: '2026-09-05', tfTime: '19:30:00', tfBank: 'DANA',
+  /* tfTime-nya sengaja BER-PM. Jamnya sama persis dengan 19:30:00, jadi tidak
+     satu pun ekspektasi lain bergeser — tapi pembakuan jamnya jadi punya
+     tempat untuk gagal: dibaca apa adanya (potong 5 huruf) ia berbunyi 07:30
+     dan MELOMPAT ke atas 08:15 di urutan waktu. Tanpa baris seperti ini,
+     mutasi yang mencabut cbJamWIB() dari penyusun baris tidak menggeser satu
+     angka pun dan LOLOS bersih. */
+  { id: 'p2', amount: 250000, method: 'QRIS',         tfDate: '2026-09-05', tfTime: '07:30:00 PM', tfBank: 'DANA',
     proofData: '@f:k2', proofName: 'bukti-arlanda.jpg' },
   { id: 'p1', amount: 300000, method: 'QRIS',         tfDate: '2026-09-05', tfTime: '08:15:00', tfBank: 'Mandiri',
     proofData: 'data:image/png;base64,AAAA', proofName: 'lama.png' },
@@ -325,6 +401,15 @@ async function ujiHalaman() {
   const confirmUji = m => { PESAN.push(String(m)); return jawabConfirm; };
   const promptUji = m => { PESAN.push(String(m)); return jawabPrompt; };
   W.alert = alertUji; W.confirm = confirmUji; W.prompt = promptUji;
+  /* jsdom tidak mengerjakan createObjectURL maupun window.open. Keduanya
+     distub supaya jalur "buka di tab baru" benar-benar dijalankan — yang
+     diuji bukan bahwa kodenya ADA, melainkan bahwa yang dibuka blob: dan
+     bukan data: yang diblokir peramban. */
+  const TAB = [];
+  let blobKe = 0;
+  W.URL.createObjectURL = b => { TAB.push({ jenis: 'blob', tipe: b && b.type }); return 'blob:uji/' + (++blobKe); };
+  W.URL.revokeObjectURL = () => {};
+  W.open = (u) => { TAB.push({ jenis: 'open', url: String(u) }); return {}; };
   new Function('window', 'document', 'fetch', 'alert', 'confirm', 'prompt', srcCb)
     (W, W.document, SRV.fetch, alertUji, confirmUji, promptUji);
 
@@ -386,6 +471,37 @@ async function ujiHalaman() {
   T('DP yang sudah diwakili baris mutasi tidak digambar dua kali',
     b.filter(x => x.indexOf('Arlanda') >= 0).length === 2,
     'baris ber-Arlanda: ' + b.filter(x => x.indexOf('Arlanda') >= 0).length);
+
+  /* ===== URUT WAKTU TRANSAKSI MASUK =====
+     Dipulihkan 21 September 2026: asersi ini ada di suite 19 September dan
+     IKUT HILANG waktu berkas ujinya ditulis ulang — tidak satu pun mutasi
+     menangkapnya, karena tidak ada satu pun mutasi urutan yang pernah
+     dicoba. Urutan daftar rekonsiliasi bukan kerapian: yang menyisirnya
+     mencocokkan baris demi baris dengan rekening koran yang juga urut
+     waktu. */
+  const urutNama = b.map(x => {
+    if (x.indexOf('Arlanda') >= 0) return x.indexOf('Rp300.000') >= 0 ? 'Arlanda-300' : 'Arlanda-250';
+    if (x.indexOf('Bagas') >= 0) return 'Bagas';
+    if (x.indexOf('PT Ibra') >= 0) return 'manual';
+    return 'bank';
+  });
+  T('diurut menurut waktu transaksi masuk',
+    urutNama.join('|') === 'manual|Arlanda-300|bank|Arlanda-250|Bagas', urutNama.join('|'));
+  /* DP tanpa tanggal transfer WAJIB di paling bawah. Diurut sebagai string
+     kosong ia menumpuk di ATAS — persis di tempat orang mencari transaksi
+     paling awal. */
+  T('DP tanpa tanggal transfer ada di paling bawah', urutNama[urutNama.length - 1] === 'Bagas');
+  T('sebab tanggalnya kosong DIKATAKAN, bukan didiamkan',
+    html().indexOf('tidak punya tanggal transfer') >= 0);
+  /* JAM BER-PM DARI SUMBERNYA TERGAMBAR 24 JAM. Dibaca apa adanya ia
+     berbunyi 07:30 — dan baris yang meleset dua belas jam tidak bisa
+     dicocokkan dengan rekening koran mana pun. */
+  {
+    const bp = b.find(x => x.indexOf('Rp250.000') >= 0) || '';
+    T('jam ber-PM dari sumbernya tergambar sebagai 24 jam WIB',
+      bp.indexOf('>19:30<') >= 0 && bp.indexOf('>07:30<') < 0, bp.slice(0, 170));
+  }
+
   const kr0 = html().slice(0, html().indexOf('<h3>'));
   /* 300.000 + 250.000 + 175.000 + 425.000 + 5.000.000 */
   T('total dana masuk = Rp6.150.000', kr0.indexOf('Rp6.150.000') >= 0, kr0.slice(0, 260));
@@ -404,7 +520,14 @@ async function ujiHalaman() {
   for (let i = 0; i < 80 && !S.bukti['@f:k2']; i++) await tidur(10);
   T('berkas buktinya diunduh lewat getFile', SRV.getFile.indexOf('k2') >= 0, JSON.stringify(SRV.getFile));
   T('gambarnya tergambar di panelnya', /<img src="data:image\/jpeg/.test(html()), html().slice(html().indexOf('cb-bukti'), html().indexOf('cb-bukti') + 200));
-  T('gambarnya bisa dibuka sebesar aslinya', /<a target="_blank"[^>]*href="data:image\/jpeg/.test(html()));
+  /* ===== GAMBARNYA BISA DIBUKA — DAN INI BUG YANG DILAPORKAN =====
+     Bentuk lamanya <a href="data:image/…" target="_blank">, dan di Chrome
+     MENEKANNYA TIDAK MELAKUKAN APA-APA: navigasi tingkat atas ke URL data:
+     diblokir sejak Chrome 60. Tidak ada galat, tidak ada tab yang terbuka.
+     Yang dijaga sekarang KETIADAAN bentuk itu, plus dua jalan yang memang
+     bekerja: lightbox di halaman ini, dan blob: untuk tab baru. */
+  T('bukti TIDAK lagi dibuka lewat tautan data: yang diblokir peramban',
+    !/<a[^>]+href="data:/.test(html()), (html().match(/<a[^>]+href="data:[^"]{0,40}/) || [''])[0]);
 
   /* DIUNDUH SEKALI SAJA. Tanpa penjaga CB.buktiSibuk / cache, tiap
      penggambaran ulang memicu unduhan baru untuk berkas yang sama — dan
@@ -451,6 +574,81 @@ async function ujiHalaman() {
       kl.slice(kl.indexOf('cb-bukti'), kl.indexOf('cb-bukti') + 200));
   }
   W.cbBuka('luar:p5');   // tutup lagi
+
+  /* ===== KOLOM BUKTI MENGGANTIKAN "SUMBER BARIS" =====
+     (21 September 2026, permintaan user: "bukti bayar terisi sendiri itu
+     gunanya buat apa? kalau ga dihapus saja") */
+  {
+    const k = kartu('Dana Masuk BRI');
+    T('kolom "Sumber baris" dicabut', k.indexOf('Sumber baris') < 0);
+    /* DIJEPIT KE BARISNYA. Kalimat "terisi sendiri dari bukti bayar" masih
+       berdiri di kepala kartu — di sana ia dibaca SEKALI dan menjelaskan
+       kenapa barisnya muncul tanpa ada yang mengetik. Yang dicabut chip yang
+       mengulanginya di TIAP baris tanpa menambah apa pun. Asersi yang
+       menyapu seluruh kartu merah untuk kode yang benar. */
+    const isiBaris = barisTabel().join('');
+    T('chip "terisi sendiri" di tiap baris ikut hilang', isiBaris.indexOf('terisi sendiri') < 0,
+      isiBaris.slice(Math.max(0, isiBaris.indexOf('terisi sendiri') - 60), isiBaris.indexOf('terisi sendiri') + 40));
+    T('chip "bukti bayar" di tiap baris ikut hilang', isiBaris.indexOf('>bukti bayar<') < 0);
+    T('tempatnya dipakai kolom Bukti', k.indexOf('<th>Bukti</th>') >= 0);
+    /* Jam DISEBUT ZONANYA. Jam tanpa keterangan zona dibaca orang menurut
+       kebiasaannya sendiri, dan di halaman yang dicocokkan dengan rekening
+       koran itu selisih yang tidak pernah ketahuan. */
+    T('kepala kolom jam menyebut WIB', k.indexOf('<th>Jam (WIB)</th>') >= 0);
+    /* Keterangan asal baris yang ikut tercabut bersama kolomnya PINDAH ke
+       kolom Dari — cuma untuk baris yang memang belum ketahuan. */
+    T('baris mutasi yang belum ketahuan tetap menyebut asalnya',
+      k.indexOf('baris mutasi bank') >= 0);
+  }
+  {
+    const bb = barisTabel();
+    const barisBagas = bb.find(x => x.indexOf('Bagas') >= 0) || '';
+    T('DP tanpa bukti ditandai di kolomnya', barisBagas.indexOf('tanpa bukti') >= 0,
+      barisBagas.slice(0, 200));
+    const barisArl2 = bb.find(x => x.indexOf('Rp250.000') >= 0) || '';
+    /* Buktinya SUDAH terunduh di blok sebelumnya, jadi kotaknya wajib sudah
+       berupa gambar — bukan tombol "muat" yang tidak pernah berganti. */
+    T('bukti yang sudah terunduh tergambar sebagai gambar di barisnya',
+      /<img[^>]+class="cb-thumb"[^>]*src="data:image\/jpeg/.test(barisArl2)
+      || /<img[^>]+src="data:image\/jpeg[^"]*"[^>]*class="cb-thumb"/.test(barisArl2),
+      barisArl2.slice(barisArl2.indexOf('cb-selbukti'), barisArl2.indexOf('cb-selbukti') + 220));
+    T('gambarnya bisa ditekan untuk diperbesar', barisArl2.indexOf("cbLihat('p2')") >= 0);
+  }
+
+  /* ===== IKON PENSIL (permintaan user) ===== */
+  {
+    const barisArl2 = barisTabel().find(x => x.indexOf('Rp250.000') >= 0) || '';
+    const aksi = barisArl2.slice(barisArl2.indexOf('cb-aksi'));
+    T('tombol koreksi berupa ikon pensil', aksi.indexOf('✎') >= 0, aksi.slice(0, 200));
+    /* Tombol berikon tanpa keterangan cuma bisa ditebak. */
+    T('ikonnya punya title yang menyebut gunanya', /title="Koreksi[^"]*"/.test(aksi));
+  }
+
+  /* ===== LIGHTBOX: GAMBARNYA BISA DIBUKA ===== */
+  aman('lightbox dibuka', () => { W.cbLihat('p2'); });
+  T('lightbox tergambar', html().indexOf('cb-lightbox') >= 0);
+  T('lightbox memajang gambarnya', /<div class="cb-lightbox"[\s\S]*?<img src="data:image\/jpeg/.test(html()));
+  T('lightbox menyebut nama & nominalnya', /cb-lightbox-kepala[\s\S]{0,200}Arlanda/.test(html()));
+  /* DIGAMBAR DARI STATE, bukan disisipkan ke DOM: halaman ini digambar ulang
+     tiap penyimpanan, dan overlay yang cuma hidup di DOM lenyap di tengah
+     orang memeriksanya. */
+  W.cbGambar(el, '2026-09');
+  await tidur(20);
+  T('lightbox bertahan sesudah halaman digambar ulang', html().indexOf('cb-lightbox') >= 0);
+  {
+    const n = TAB.length;
+    aman('buka di tab baru', () => { W.cbBukaTab('p2'); });
+    const blob = TAB.slice(n).find(x => x.jenis === 'blob');
+    const buka = TAB.slice(n).find(x => x.jenis === 'open');
+    T('buktinya diubah jadi Blob dulu', !!blob && blob.tipe === 'image/jpeg', JSON.stringify(blob));
+    /* INI INTI PERBAIKANNYA: yang dibuka blob:, bukan data: yang diblokir
+       Chrome sejak versi 60 — dengan data: tombolnya diam tanpa satu pun
+       galat, dan yang menekannya menyimpulkan buktinya rusak. */
+    T('yang dibuka URL blob:, bukan data:',
+      !!buka && buka.url.indexOf('blob:') === 0, JSON.stringify(buka));
+  }
+  aman('lightbox ditutup', () => { W.cbTutupLihat(); });
+  T('lightbox hilang sesudah ditutup', html().indexOf('cb-lightbox') < 0);
 
   /* ===== POIN 3a: METODE BAYAR BISA DIBETULKAN DARI SINI ===== */
   aman('panel DP non-BRI dibuka lagi', () => { W.cbBuka('luar:p4'); });
@@ -684,6 +882,66 @@ async function ujiHalaman() {
   bolehUbah = true;
 }
 
+/* ============ 5c. BUKTI TERMUAT SENDIRI SAAT BARISNYA MASUK LAYAR ============
+   Dijalankan di jsdom TERPISAH, dengan IntersectionObserver yang distub
+   supaya langsung berbunyi. Dipasang di jsdom utama, ia akan mengunduh
+   seluruh bukti sejak render pertama — dan seluruh asersi "belum ada yang
+   diunduh sebelum panelnya dibuka" di sana jadi tidak bisa diuji lagi.
+   Keduanya jalur yang sah: yang punya pengamat memuat sendiri, yang tidak
+   punya tetap bisa menekan kotaknya. */
+async function ujiPengamat() {
+  console.log('\n[5c] Bukti termuat sendiri saat barisnya masuk layar');
+  const jsdom = cariJsdom();
+  if (!jsdom) { L('pengamat bukti', 'jsdom tidak ketemu'); return; }
+  const { JSDOM } = jsdom;
+  const dom = new JSDOM('<!doctype html><html><head></head><body><div id="app-view"></div></body></html>',
+                        { runScripts: 'outside-only' });
+  const W = dom.window;
+  const SRV = bikinServer();
+  /* Pengamat tiruan yang LANGSUNG berbunyi untuk tiap elemen yang diamati.
+     Yang dijaga bukan IntersectionObserver-nya — itu milik peramban —
+     melainkan bahwa asetnya BENAR-BENAR mengamati kotak buktinya dan
+     mengunduh begitu barisnya masuk layar. */
+  let diamati = 0, dilepas = 0;
+  W.IntersectionObserver = function (cb) {
+    this.observe = el => { diamati++; cb([{ isIntersecting: true, target: el }]); };
+    this.disconnect = () => { dilepas++; };
+  };
+  W.alert = () => {}; W.confirm = () => true; W.prompt = () => '';
+  new Function('window', 'document', 'fetch', 'alert', 'confirm', 'prompt', srcCb)
+    (W, W.document, SRV.fetch, W.alert, W.confirm, W.prompt);
+  const el = W.document.getElementById('app-view');
+  W.cbPasang({ apiUrl: '/api', rsvUrl: '/rsv', sesi: () => ({ name: 'Rani', token: 't' }),
+               bolehUbah: () => true, gambarUlang: () => W.cbGambar(el, '2026-09') });
+  W.cbGambar(el, '2026-09');
+  const S = W.__cbState;
+  for (let i = 0; i < 80 && (!S.rows.length || !S.dps); i++) await tidur(10);
+  for (let i = 0; i < 80 && !S.bukti['@f:k2']; i++) await tidur(10);
+  T('kotak buktinya diamati', diamati > 0, 'diamati=' + diamati);
+  T('bukti terunduh sendiri tanpa ada yang menekan apa pun',
+    SRV.getFile.indexOf('k2') >= 0, JSON.stringify(SRV.getFile));
+  T('gambarnya tergambar di barisnya', /<img[^>]*class="cb-thumb"/.test(el.innerHTML));
+  /* HANYA YANG PERLU. DP tanpa bukti tidak punya kotak untuk diamati, dan
+     bukti yang sudah inline tidak perlu diunduh sama sekali — menariknya
+     tetap berarti satu permintaan sia-sia per baris. */
+  T('DP tanpa bukti tidak ikut diunduh', SRV.getFile.indexOf('') < 0);
+  T('bukti inline lama tidak ikut diunduh', SRV.getFile.length === new Set(SRV.getFile).size
+    && SRV.getFile.every(k => k === 'k2' || k === 'k5'), JSON.stringify(SRV.getFile));
+  /* PENGAMAT LAMA DILEPAS tiap render: halaman ini digambar ulang dari
+     string HTML, jadi elemen yang diamati sudah bukan yang ada di layar.
+     Yang tidak dilepas menumpuk satu per render sambil memegang node mati. */
+  const d0 = dilepas;
+  W.cbGambar(el, '2026-09');
+  await tidur(20);
+  T('pengamat lama dilepas saat halaman digambar ulang', dilepas > d0, 'dilepas=' + dilepas);
+  /* Dan tidak mengunduh ulang apa yang sudah ada di cache. */
+  const n = SRV.getFile.length;
+  W.cbGambar(el, '2026-09');
+  await tidur(30);
+  T('tidak mengunduh ulang bukti yang sudah di cache', SRV.getFile.length === n,
+    'bertambah ' + (SRV.getFile.length - n));
+}
+
 /* ============ 6. KONTRAK SISI PHP ============ */
 function ujiPhp() {
   console.log('\n[6] Sisi PHP (sintaks + kontrak atas sumbernya)');
@@ -869,6 +1127,7 @@ function ujiTuanRumah() {
 /* ============ JALAN ============ */
 (async () => {
   await ujiHalaman();
+  await ujiPengamat();
   ujiPhp();
   ujiTuanRumah();
   console.log('\n' + '='.repeat(56));

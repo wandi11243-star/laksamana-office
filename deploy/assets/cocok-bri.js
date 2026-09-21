@@ -76,6 +76,37 @@
 
   const NAMA_BLN = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des'];
 
+  /* ============ JAM SELALU 24 JAM WIB (21 September 2026, permintaan user) ============
+     "jam PM dan AM dikonversikan semua menjadi WIB saja."
+
+     YANG DIKONVERSI BENTUKNYA, BUKAN ZONANYA. Jam di halaman ini dibaca dari
+     bukti transfer yang dicetak dalam waktu setempat, dan tidak satu pun
+     sumbernya membawa keterangan zona — menggesernya beberapa jam berarti
+     mengarang waktu yang tidak pernah tertulis di struk mana pun. Yang
+     dibetulkan "07:30 PM" yang tampil sebagai 07:30.
+
+     DIPAKAI SAAT MENYUSUN BARIS, bukan cuma saat menggambarnya: kolom jam
+     ikut jadi kunci URUTAN daftar, dan "07:30 PM" berdiri di atas "13:00"
+     kalau dibandingkan sebagai teks apa adanya. Daftar rekonsiliasi yang
+     urutannya salah dua belas jam tidak bisa dicocokkan dengan rekening
+     koran mana pun.
+
+     YANG TIDAK TERBACA DIPULANGKAN APA ADANYA, bukan dikosongkan: bentuk
+     yang belum pernah kita lihat lebih baik tampil aneh daripada lenyap
+     dari layar tanpa satu pun tanda. */
+  G.cbJamWIB = function (v) {
+    const s = String(v == null ? '' : v).trim();
+    if (!s) return '';
+    const p = n => String(n).padStart(2, '0');
+    /* Jamnya dijepit 1..12 — di luar itu "13:00 PM" bukan meridiem yang sah,
+       dan membacanya sebagai PM memberi jam 25. Huruf sesudah M ditolak
+       supaya "10:31 Pembayaran" tidak terbaca sebagai PM. */
+    let m = s.match(/^(0?[1-9]|1[0-2])[:.]([0-5]\d)(?:[:.][0-5]\d)?\s*([AaPp])\.?\s?[Mm]\.?(?![A-Za-z])/);
+    if (m) { let h = (+m[1]) % 12; if (/p/i.test(m[3])) h += 12; return p(h) + ':' + m[2]; }
+    m = s.match(/^([01]?\d|2[0-3])[:.]([0-5]\d)/);
+    if (m) return p(+m[1]) + ':' + m[2];
+    return s;
+  };
   G.cbTglID = function (iso) {
     const m = String(iso || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if (!m) return String(iso || '');
@@ -178,6 +209,7 @@
        begitu halaman dibuka berarti belasan MB untuk gambar yang tidak satu
        pun dibuka orang. Pola FILE_CACHE di modul Reservasi. */
     bukti: {}, buktiSibuk: {},
+    lihat: '',         // dpId yang buktinya sedang dibesarkan
     sibuk: false, pesan: ''
   };
 
@@ -487,7 +519,7 @@
     const out = [];
     for (const r of CB.rows) {
       out.push({ jenis: r.sumber === 'manual' ? 'manual' : 'bank', id: r.id,
-                 tgl: r.tgl, jam: r.jam, nominal: CB_NUM(r.nominal),
+                 tgl: r.tgl, jam: G.cbJamWIB(r.jam), nominal: CB_NUM(r.nominal),
                  ket: r.ket, mut: r, dp: null });
     }
     if (CB.dps) {
@@ -501,7 +533,7 @@
            akan pernah muncul di bulan mana pun. */
         const t = d.tfTgl || d.resTgl;
         if (!(t >= rg.dari && t <= rg.sampai)) continue;
-        out.push({ jenis: 'rsv', id: 'rsv:' + d.dpId, tgl: d.tfTgl, jam: String(d.tfJam || '').slice(0, 5),
+        out.push({ jenis: 'rsv', id: 'rsv:' + d.dpId, tgl: d.tfTgl, jam: G.cbJamWIB(d.tfJam),
                    nominal: d.nominal, ket: d.nama, mut: null, dp: d,
                    /* Nisan dibawa di barisnya, bukan dibaca lagi dari CB.abai
                       di tiap penggambar: enam tempat yang membacanya
@@ -739,8 +771,19 @@
         + (CB.cari ? ' dan kata kunci <b>' + CB_ESC(CB.cari) + '</b>' : '') + '.</div>';
     } else {
       isi += '<div class="cb-tbl-wrap"><table class="cb-tbl"><thead><tr>'
-        + '<th>Tanggal</th><th>Jam</th><th class="num">Nominal</th><th>Dari</th>'
-        + '<th>Sumber baris</th><th>Keterangan</th><th></th></tr></thead><tbody>';
+        /* (WIB) DITULIS DI KEPALA KOLOM. Jam yang tidak menyebut zonanya
+           dibaca orang menurut kebiasaannya sendiri, dan di halaman yang
+           dicocokkan dengan rekening koran itu selisih yang tidak pernah
+           ketahuan. */
+        + '<th>Tanggal</th><th>Jam (WIB)</th><th class="num">Nominal</th><th>Dari</th>'
+        /* KOLOM "SUMBER BARIS" DICABUT 21 September 2026 (permintaan user:
+           "bukti bayar terisi sendiri itu gunanya buat apa? kalau ga dihapus
+           saja"). Isinya memang tidak menjawab satu pertanyaan pun yang
+           dibawa orang ke sini: kolom Dari sudah menyebut nama tamunya untuk
+           baris DP, catatan berikut nama pengisinya untuk baris manual, dan
+           "belum ketahuan" untuk baris mutasi yang belum dicocokkan.
+           Tempatnya dipakai BUKTI TRANSFERNYA — yang memang dicari orang. */
+        + '<th>Bukti</th><th>Keterangan</th><th></th></tr></thead><tbody>';
       for (const x of list) isi += barisHtml(x, x.mut ? us[x.mut.id] : null);
       isi += '</tbody></table></div>';
       if (CB.total > CB.rows.length) {
@@ -769,23 +812,55 @@
       return '<span class="cb-usul">usul: <b>' + CB_ESC(usul.dp.nama) + '</b>'
         + '<div class="cb-kecil">' + CB_ESC(usul.babak.teks) + '</div></span>'
         + (bisa ? '<button class="cb-btn cb-btn-xs" onclick="cbTerimaUsul(\'' + r.id + '\')">Terima</button>' : '');
-    return '<span class="cb-muted">belum ketahuan</span>';
+    /* Asal barisnya disebut DI SINI sejak kolom "Sumber baris" dicabut.
+       Cuma untuk baris yang belum ketahuan: di situlah keterangannya masih
+       menjawab sesuatu — barisnya datang dari berkas mutasi bank, bukan dari
+       DP yang belum dicocokkan. */
+    return '<span class="cb-muted">belum ketahuan</span>'
+      + '<div class="cb-kecil cb-muted">baris mutasi bank</div>';
   }
 
-  /* Sumber BARISNYA — dan ini kolom yang menjawab "siapa yang mengisi ini".
-     Dibedakan dari kolom Dari: yang satu asal UANGNYA, yang satu asal
-     BARISNYA. Disatukan, tidak ada cara membedakan dana masuk yang tercatat
-     sendiri dari yang diketik orang — dan justru itu yang dicari waktu
-     angkanya dipertanyakan. */
-  function selSumber(x) {
-    if (x.jenis === 'rsv')
-      return '<span class="cb-chip ok">bukti bayar</span>'
-        + '<div class="cb-kecil cb-muted">terisi sendiri</div>';
-    if (x.jenis === 'manual')
-      return '<span class="cb-chip">ditambah tangan</span>'
-        + (x.mut.oleh ? '<div class="cb-kecil cb-muted">' + CB_ESC(x.mut.oleh) + '</div>' : '');
-    return '<span class="cb-chip">mutasi bank</span>'
-      + '<div class="cb-kecil cb-muted">dari berkas</div>';
+  /* ============ KOLOM BUKTI (21 September 2026, permintaan user) ============
+     "buktinya langsung dibuat ada gambar gitu, dan pastikan bisa dibuka
+     gambarnya."
+
+     GAMBARNYA DI BARISNYA, bukan di balik satu klik. Sebelum ini bukti cuma
+     tergambar di dalam panel yang harus dibuka dulu satu per satu — dan yang
+     mencocokkan sebulan transfer tidak akan membuka enam puluh panel.
+
+     TETAP DIUNDUH MALAS, dan itu tidak bisa ditawar: satu bukti ratusan KB,
+     dan sebulan di produksi 165 DP. Diunduh seluruhnya begitu halaman dibuka,
+     halaman ini menyeret puluhan MB gambar yang tidak satu pun dilihat orang
+     — persis masalah yang dulu membuat modul Reservasi memindahkan fotonya ke
+     disk. Yang diunduh hanya baris yang BENAR-BENAR MASUK LAYAR
+     (IntersectionObserver di pasangPengamatBukti), dan yang perambannya tidak
+     punya pengamat itu tetap bisa menekan kotaknya satu per satu. */
+  function selBukti(dp) {
+    if (!dp) return '<span class="cb-muted">&mdash;</span>';
+    const id = 'cb-thumb-' + CB_ESC(dp.dpId);
+    if (!dp.bukti) {
+      /* "TANPA BUKTI" ADALAH KETERANGAN, bukan kekosongan. Justru baris
+         itulah yang paling perlu diperiksa waktu rekonsiliasinya tidak
+         ketemu — uang yang tercatat masuk tanpa satu pun lampiran. */
+      return '<span class="cb-chip warn" id="' + id + '">tanpa bukti</span>';
+    }
+    const isi = cbBuktiIsi(dp);
+    const sel = "'" + CB_ESC(dp.dpId) + "'";
+    if (!isi) {
+      /* Kotaknya SEKALIGUS tombol. Pengamatnya yang biasanya memicu
+         unduhan, tapi tombol yang tetap bisa ditekan adalah satu-satunya
+         jalan di peramban yang tidak punya IntersectionObserver — dan di
+         sana kotak yang diam selamanya terbaca sebagai bukti yang hilang. */
+      return '<button class="cb-thumb cb-thumb-kosong" id="' + id + '" data-bukti-dp="' + CB_ESC(dp.dpId)
+        + '" onclick="cbMuatBukti(' + sel + ')" title="Muat bukti transfer">&#128247;</button>';
+    }
+    if (!cbBuktiGambar(dp.bukti, dp.buktiNama)) {
+      return '<button class="cb-btn cb-btn-xs" id="' + id + '" onclick="cbBukaTab(' + sel + ')" '
+        + 'title="' + CB_ESC(dp.buktiNama || 'berkas') + '">&#128196; PDF</button>';
+    }
+    return '<img class="cb-thumb" id="' + id + '" src="' + CB_ESC(isi) + '" loading="lazy" '
+      + 'alt="Bukti transfer ' + CB_ESC(dp.nama) + '" title="Klik untuk memperbesar" '
+      + 'onclick="cbLihat(' + sel + ')">';
   }
 
   function barisHtml(x, usul) {
@@ -813,8 +888,15 @@
          cuma isian: bukti transfernya ada di sana, dan melihat bukti adalah
          melihat. Yang tidak boleh mengubah tidak diberi kotak metodenya
          (lihat panelDp), bukan ditutup dari buktinya. */
-      aksi = '<button class="cb-btn cb-btn-xs" onclick="cbBuka(\'' + x.id + '\')">'
-        + (terbuka ? 'Tutup' : 'Bukti &amp; koreksi') + '</button>';
+      /* IKON PENSIL (21 September 2026, permintaan user: "kalau koreksi ada
+         gambar pensil biar bisa edit"). Buktinya sudah berdiri sebagai
+         gambar di kolomnya sendiri, jadi tombol ini tinggal soal KOREKSI —
+         dan tulisan "Bukti & koreksi" di kolom paling kanan tidak lagi
+         menyebut apa pun yang tidak sudah kelihatan. title-nya WAJIB:
+         tombol berikon tanpa keterangan cuma bisa ditebak. */
+      aksi = '<button class="cb-btn cb-btn-xs cb-ikon" onclick="cbBuka(\'' + x.id + '\')" '
+        + 'title="Koreksi: metode bayar, atau tandai tidak valid">'
+        + (terbuka ? '&#10005;' : '&#9998;') + '</button>';
     }
     let html = '<tr class="' + (gHidup(x) ? '' : 'cb-coret') + '">'
       + '<td>' + (x.tgl ? CB_ESC(G.cbTglID(x.tgl))
@@ -822,7 +904,7 @@
       + '<td>' + CB_ESC(x.jam || '—') + '</td>'
       + '<td class="num"><b>' + CB_RP(x.nominal) + '</b></td>'
       + '<td>' + selDari(x, usul, bisa) + '</td>'
-      + '<td>' + selSumber(x) + '</td>'
+      + '<td class="cb-selbukti">' + selBukti(x.dp) + '</td>'
       + '<td>' + (r ? (CB_ESC(r.ket || '') || '<span class="cb-muted">—</span>') : '<span class="cb-muted">—</span>')
       + (r && r.booking ? '<div class="cb-kecil cb-muted">booking ' + CB_ESC(G.cbTglID(r.booking)) + '</div>' : '')
       + (r && !gHidup(x) && r.batalAlasan ? '<div class="cb-kecil">dibatalkan: ' + CB_ESC(r.batalAlasan) + '</div>' : '')
@@ -881,19 +963,73 @@
       return '<div class="cb-bukti" id="' + id + '">'
         + '<div class="cb-kosong">Memuat bukti transfer&hellip;</div></div>';
     }
+    const sel = "'" + CB_ESC(dp.dpId) + "'";
     if (!cbBuktiGambar(dp.bukti, dp.buktiNama)) {
       /* BUKAN GAMBAR (PDF) — dibuka di tab sendiri, bukan dipaksa jadi
          <img> yang tergambar sebagai kotak rusak. Kotak rusak di sebelah
          nominal terbaca sebagai "buktinya hilang", padahal ia utuh. */
       return '<div class="cb-bukti" id="' + id + '">'
-        + '<a class="cb-btn" target="_blank" rel="noopener" href="' + CB_ESC(isi) + '">'
-        + '&#128196; Buka bukti (' + CB_ESC(dp.buktiNama || 'berkas') + ')</a></div>';
+        + '<button class="cb-btn" onclick="cbBukaTab(' + sel + ')">'
+        + '&#128196; Buka bukti (' + CB_ESC(dp.buktiNama || 'berkas') + ')</button></div>';
     }
     return '<div class="cb-bukti" id="' + id + '">'
-      + '<a target="_blank" rel="noopener" href="' + CB_ESC(isi) + '">'
-      + '<img src="' + CB_ESC(isi) + '" alt="Bukti transfer ' + CB_ESC(dp.nama) + '"></a>'
+      + '<img src="' + CB_ESC(isi) + '" alt="Bukti transfer ' + CB_ESC(dp.nama) + '" '
+      + 'title="Klik untuk memperbesar" onclick="cbLihat(' + sel + ')">'
       + '<div class="cb-kecil cb-muted">' + CB_ESC(dp.buktiNama || '')
-      + ' &middot; klik gambarnya untuk membukanya sebesar aslinya</div></div>';
+      + ' &middot; klik gambarnya untuk memperbesar</div></div>';
+  }
+
+  /* ============ MEMBUKA BUKTINYA — DAN INI BUKAN KERAPIAN ============
+     Bentuk lamanya <a href="data:image/…" target="_blank">, dan di Chrome
+     MENEKANNYA TIDAK MELAKUKAN APA-APA: perambannya memblokir navigasi
+     tingkat atas ke URL data: sejak Chrome 60. Tidak ada galat, tidak ada
+     tab yang terbuka — gambarnya cuma tidak bisa dibuka, dan yang
+     menekannya menyimpulkan buktinya rusak. Dilaporkan user 21 September
+     2026 ("pastikan bisa dibuka gambarnya").
+
+     Dua jalan keluar, dan keduanya dipasang:
+       cbLihat()   — dibesarkan DI HALAMAN INI, tanpa navigasi sama sekali.
+                     Ini yang dipakai menekan gambarnya.
+       cbBukaTab() — data URI diubah jadi Blob lalu blob: URL, yang TIDAK
+                     diblokir. Dipakai PDF dan tombol "Buka di tab baru".
+
+     LIGHTBOX-nya DIGAMBAR DARI STATE (CB.lihat), bukan disisipkan ke DOM.
+     Halaman ini digambar ulang tiap penyimpanan; overlay yang cuma hidup di
+     DOM akan lenyap di tengah orang memeriksanya. */
+  function cbBlobUrl(dataUri) {
+    const m = String(dataUri || '').match(/^data:([^;,]+)(;base64)?,([\s\S]*)$/);
+    if (!m) return '';
+    try {
+      /* LEWAT window.*, BUKAN nama telanjang. Aset ini dijalankan uji lewat
+         new Function('window',…) di Node, dan di sana nama telanjang
+         mengikat ke global NODE — Blob/URL Node bukan yang dipakai
+         peramban, dan URL Node tidak punya createObjectURL sama sekali.
+         Di peramban window.X === X, jadi tidak ada yang berubah di sana.
+         Pelajaran yang sama dengan fetch yang dioper sebagai parameter. */
+      let byte;
+      if (m[2]) {
+        const bin = G.atob(m[3]);
+        byte = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) byte[i] = bin.charCodeAt(i);
+      } else {
+        byte = new G.TextEncoder().encode(decodeURIComponent(m[3]));
+      }
+      return G.URL.createObjectURL(new G.Blob([byte], { type: m[1] }));
+    } catch (e) { return ''; }
+  }
+  function lightboxHtml() {
+    if (!CB.lihat) return '';
+    const dp = (CB.dps || []).find(d => d.dpId === CB.lihat);
+    const isi = dp ? cbBuktiIsi(dp) : '';
+    if (!isi) return '';
+    return '<div class="cb-lightbox" onclick="cbTutupLihat(event)">'
+      + '<div class="cb-lightbox-kotak" onclick="event.stopPropagation()">'
+      + '<div class="cb-lightbox-kepala"><b>' + CB_ESC(dp.nama || '(tanpa nama)') + '</b> &middot; '
+      + CB_RP(dp.nominal) + ' <span class="cb-muted">' + CB_ESC(dp.buktiNama || '') + '</span>'
+      + '<span class="cb-lightbox-alat">'
+      + '<button class="cb-btn cb-btn-xs" onclick="cbBukaTab(\'' + CB_ESC(dp.dpId) + '\')">Buka di tab baru</button>'
+      + '<button class="cb-btn cb-btn-xs" onclick="cbTutupLihat()">Tutup</button></span></div>'
+      + '<img src="' + CB_ESC(isi) + '" alt="Bukti transfer ' + CB_ESC(dp.nama) + '"></div></div>';
   }
 
   /* ============ PANEL SATU DP ============
@@ -1105,7 +1241,7 @@
          untuk satu kotak pilihan. Yang berpindah lalu harus mencari
          reservasinya lagi di sana, dan yang tidak sempat membiarkannya. */
       + '<div class="cb-tbl-wrap"><table class="cb-tbl"><thead><tr>'
-      + '<th>Nama</th><th>Reservasi</th><th class="num">Nominal</th><th>Metode</th><th></th>'
+      + '<th>Nama</th><th>Reservasi</th><th class="num">Nominal</th><th>Metode</th><th>Bukti</th><th></th>'
       + '</tr></thead><tbody>';
     /* Dipotong 25 baris, dan yang tersisa DISEBUT angkanya. Bulan yang
        sebagian besar DP-nya non-BRI bisa menyisakan seratus baris, dan kartu
@@ -1117,9 +1253,11 @@
         + '<td>' + CB_ESC(G.cbTglID(d.resTgl) || '—') + '</td>'
         + '<td class="num">' + CB_RP(d.nominal) + '</td>'
         + '<td>' + CB_ESC(d.metode || d.bank || '—') + '</td>'
-        + '<td class="cb-aksi"><button class="cb-btn cb-btn-xs" onclick="cbBuka(\'luar:'
-        + CB_ESC(d.dpId) + '\')">' + (terbuka ? 'Tutup' : 'Bukti &amp; koreksi') + '</button></td></tr>';
-      if (terbuka) isi += '<tr class="cb-panel-baris"><td colspan="5">' + panelDp(d, null) + '</td></tr>';
+        + '<td class="cb-selbukti">' + selBukti(d) + '</td>'
+        + '<td class="cb-aksi"><button class="cb-btn cb-btn-xs cb-ikon" onclick="cbBuka(\'luar:'
+        + CB_ESC(d.dpId) + '\')" title="Koreksi: metode bayar, atau tandai tidak valid">'
+        + (terbuka ? '&#10005;' : '&#9998;') + '</button></td></tr>';
+      if (terbuka) isi += '<tr class="cb-panel-baris"><td colspan="6">' + panelDp(d, null) + '</td></tr>';
     }
     isi += '</tbody></table></div>';
     if (lain.length > LUAR_MAKS)
@@ -1158,9 +1296,36 @@
          cocok dengan baris di bawahnya. */
       isi += kartuRingkas(barisGabungan()) + kartuSumber() + kartuUsulan() + kartuTabel() + kartuLuarBri();
     }
-    el.innerHTML = isi + '</div>';
+    el.innerHTML = isi + lightboxHtml() + '</div>';
     pasangGaya();
+    pasangPengamatBukti();
   };
+
+  /* ============ PENGAMAT BUKTI ============
+     Yang diunduh hanya baris yang BENAR-BENAR MASUK LAYAR. Diunduh
+     seluruhnya, sebulan di produksi berarti puluhan MB gambar yang tidak
+     satu pun dilihat orang — dan itu persis masalah yang dulu membuat modul
+     Reservasi memindahkan fotonya ke disk.
+
+     PENGAMATNYA DIBUANG DAN DIPASANG ULANG tiap render: halaman ini digambar
+     ulang dari string HTML, jadi elemen yang sedang diamati sudah bukan
+     elemen yang ada di layar. Pengamat lama yang tidak dilepas menumpuk satu
+     per render dan memegang node yang sudah mati. */
+  let pengamatBukti = null;
+  function pasangPengamatBukti() {
+    const IO = G.IntersectionObserver;
+    if (typeof IO !== 'function') return;                      // jatuh ke tombolnya
+    if (pengamatBukti) pengamatBukti.disconnect();
+    pengamatBukti = new IO(masuk => {
+      for (const e of masuk) {
+        if (!e.isIntersecting) continue;
+        const id = e.target.getAttribute('data-bukti-dp');
+        if (id) G.cbMuatBukti(id);
+      }
+    }, { rootMargin: '200px' });
+    const kotak = document.querySelectorAll('#cb-wrap [data-bukti-dp]');
+    for (const k of kotak) pengamatBukti.observe(k);
+  }
 
   /* ============ PENANGAN (dipanggil dari onclick di HTML aset ini) ============
      Mengetik TIDAK menggambar ulang halaman — kotak yang dibuat ulang
@@ -1279,8 +1444,9 @@
     const r = CB.rows.find(x => x.id === s);
     return (r && r.dpId) ? ((CB.dps || []).find(d => d.dpId === r.dpId) || null) : null;
   }
-  async function muatBuktiUntuk(idPanel) {
-    const dp = dpDariIdPanel(idPanel);
+  async function muatBuktiUntuk(idPanel) { return muatBukti(dpDariIdPanel(idPanel)); }
+  G.cbMuatBukti = dpId => muatBukti((CB.dps || []).find(d => d.dpId === dpId));
+  async function muatBukti(dp) {
     if (!dp || !dp.bukti) return;
     const k = dp.bukti;
     /* Data lama yang masih inline tidak perlu diunduh sama sekali, dan yang
@@ -1302,14 +1468,58 @@
     if (data) CB.bukti[k] = data;
     /* DITULIS LEWAT DOM, bukan lewat gambarUlang() milik tuan rumah: yang
        terakhir menggambar ulang SELURUH halaman, dan gulir melompat ke atas
-       persis saat orang sedang membaca panel yang baru ia buka. Kotaknya
-       mungkin sudah tidak ada (panelnya keburu ditutup) — dan itu bukan
-       kegagalan. */
+       persis saat orang sedang membaca panel yang baru ia buka — dan di
+       daftar sepanjang sebulan, tiap gambar yang mendarat akan melemparnya
+       ke atas sekali lagi.
+
+       DUA TEMPAT DISEGARKAN: kotak kecil di barisnya DAN panel yang mungkin
+       sedang terbuka untuk DP yang sama. Yang cuma menyegarkan salah
+       satunya meninggalkan kotak "memuat" yang tidak pernah selesai di
+       sebelah gambar yang sudah tergambar. Keduanya boleh tidak ada, dan
+       itu bukan kegagalan. */
+    const thumb = document.getElementById('cb-thumb-' + dp.dpId);
+    if (thumb) thumb.outerHTML = data ? selBukti(dp)
+      : '<span class="cb-chip bad" id="cb-thumb-' + CB_ESC(dp.dpId) + '" title="' + CB_ESC(salah) + '">gagal</span>';
     const kotak = document.getElementById('cb-bukti-' + dp.dpId);
-    if (!kotak) return;
-    kotak.outerHTML = data ? blokBukti(dp)
+    if (kotak) kotak.outerHTML = data ? blokBukti(dp)
       : pita('bad', 'Bukti transfernya tidak terbaca: <b>' + CB_ESC(salah) + '</b>');
+    /* Lightbox yang sedang menunggu gambarnya ikut digambar ulang — di sana
+       memang tidak ada apa-apa untuk dilihat sampai unduhannya mendarat. */
+    if (data && CB.lihat === dp.dpId) CB.opsi.gambarUlang();
   }
+
+  /* ============ MELIHAT BUKTINYA ============ */
+  G.cbLihat = dpId => {
+    const dp = (CB.dps || []).find(d => d.dpId === dpId);
+    if (!dp) return;
+    CB.lihat = dpId;
+    CB.opsi.gambarUlang();
+    if (!cbBuktiIsi(dp)) muatBukti(dp);
+  };
+  /* Menerima event supaya latar gelapnya ikut menutup; klik di dalam
+     kotaknya sudah ditahan stopPropagation di markupnya. */
+  G.cbTutupLihat = () => { CB.lihat = ''; CB.opsi.gambarUlang(); };
+
+  /* DATA URI DIUBAH JADI blob: SEBELUM DIBUKA. Chrome memblokir navigasi
+     tingkat atas ke URL data: — window.open("data:image/…") memulangkan
+     null tanpa satu pun galat, dan yang menekannya menyimpulkan buktinya
+     rusak. blob: tidak diblokir.
+
+     URL-nya TIDAK segera di-revoke: tab yang baru terbuka masih memuatnya,
+     dan mencabutnya seketika membuat tab itu blank. Dilepas satu menit
+     kemudian — cukup lama untuk memuat, cukup pendek untuk tidak menahan
+     puluhan MB selama halaman ini terbuka seharian. */
+  G.cbBukaTab = dpId => {
+    const dp = (CB.dps || []).find(d => d.dpId === dpId);
+    const isi = dp ? cbBuktiIsi(dp) : '';
+    if (!isi) { muatBukti(dp); alert('Buktinya sedang diunduh — coba lagi sebentar.'); return; }
+    const u = cbBlobUrl(isi);
+    if (!u) { alert('Bukti transfernya tidak bisa dibuka: bentuk berkasnya tidak dikenali.'); return; }
+    const w = window.open(u, '_blank', 'noopener');
+    if (!w) alert('Peramban menahan tab barunya. Izinkan pop-up untuk halaman ini, '
+      + 'atau klik gambarnya untuk memperbesarnya di halaman ini.');
+    setTimeout(() => { try { G.URL.revokeObjectURL(u); } catch (e) {} }, 60000);
+  };
 
   /* ============ MEMBETULKAN METODE PEMBAYARAN (21 September 2026) ============
      Menulis LANGSUNG ke modul Reservasi. Lihat rsvTulisDp() untuk disiplin
@@ -1574,8 +1784,29 @@
    panjang, dan digambar sebesar aslinya ia mendorong seluruh panel — berikut
    kotak metode dan tombol di bawahnya — jauh keluar layar. Yang perlu
    sebesar aslinya dibuka di tab sendiri lewat tautannya. */
+/* Kotak bukti di barisnya. Tingginya DIPATOK supaya baris tabelnya tidak
+   melompat-lompat waktu gambar demi gambar mendarat — daftar yang tingginya
+   berubah sendiri membuat orang kehilangan baris yang sedang dibacanya. */
+#cb-wrap .cb-thumb{display:block;width:56px;height:56px;padding:0;border-radius:var(--radius-sm,10px);
+  border:1px solid var(--line,#E7E1D3);background:var(--paper,#F7F6F4);object-fit:cover;cursor:pointer}
+#cb-wrap .cb-thumb:hover{border-color:var(--gold,#A9791F)}
+#cb-wrap .cb-thumb-kosong{font-size:18px;color:var(--muted-2,#928C80);cursor:pointer}
+#cb-wrap td.cb-selbukti{width:64px}
+#cb-wrap .cb-ikon{font-size:14px;line-height:1;padding:5px 9px}
+/* GAMBARNYA DIBESARKAN DI HALAMAN INI, tanpa navigasi sama sekali — Chrome
+   memblokir navigasi tingkat atas ke URL data:, jadi tautan biasa ke bukti
+   yang masih data URI tidak melakukan apa-apa. */
+#cb-wrap .cb-lightbox{position:fixed;inset:0;z-index:9999;background:rgba(20,17,12,.72);
+  display:flex;align-items:center;justify-content:center;padding:24px}
+#cb-wrap .cb-lightbox-kotak{background:var(--surface,#fff);border-radius:var(--radius,16px);
+  padding:14px;max-width:min(960px,94vw);max-height:92vh;display:flex;flex-direction:column;gap:10px}
+#cb-wrap .cb-lightbox-kepala{display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+  font-size:13px;color:var(--ink,#2A2620)}
+#cb-wrap .cb-lightbox-alat{margin-left:auto;display:flex;gap:6px}
+#cb-wrap .cb-lightbox img{max-width:100%;max-height:78vh;object-fit:contain;
+  border-radius:var(--radius-sm,10px);background:var(--paper,#F7F6F4)}
 #cb-wrap .cb-bukti{margin:10px 0}
-#cb-wrap .cb-bukti img{display:block;max-width:100%;max-height:340px;width:auto;
+#cb-wrap .cb-bukti img{display:block;max-width:100%;max-height:340px;width:auto;cursor:pointer;
   border:1px solid var(--line,#E7E1D3);border-radius:var(--radius-sm,10px);background:var(--paper,#F7F6F4)}
 #cb-wrap select.cb-in{min-width:190px}
 #cb-wrap code{font-family:ui-monospace,monospace;font-size:11.5px;background:var(--paper,#F7F6F4);
