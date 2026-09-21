@@ -8804,6 +8804,129 @@ sesudah ujinya dibetulkan:
 > sebelum panelnya dibuka"* di sana jadi tidak bisa diuji lagi. Keduanya jalur
 > yang sah dan keduanya diuji.
 
+### Reservasi: tombol "Lihat" yang tidak memunculkan apa pun, & jam 12 jam (21 Sep 2026)
+
+Dua laporan user, dan **keduanya di halaman Dana Masuk modul Reservasi** —
+bukan di Pencocokan QRIS BRI, walau muncul di percakapan yang sama. Keduanya
+cacat yang sudah hidup sejak halaman itu lahir, dan tidak satu pun pernah
+punya asersi.
+
+#### 1. Tombol "Lihat" diam, dan pop-up-lah sebabnya
+
+```
+viewProof()  ->  withFile(proofData, showFileData)
+             ->  await loadFile()        <- satu getFile, lewat apiQueue
+             ->  window.open("")         <- SESUDAH menunggu jaringan
+```
+
+**Izin pop-up Chrome (transient user activation) hanya bertahan sekitar lima
+detik sesudah klik.** Foto bukti disimpan terpisah di server sejak blobnya
+membengkak jadi 5,95 MB, jadi tiap "Lihat" menempuh satu `getFile` — dan
+permintaan di modul ini DISERIALKAN lewat `apiQueue`, sehingga ia bisa
+mengantre di belakang polling yang sedang menarik seluruh database. Lewat dari
+lima detik, `window.open` memulangkan **null**, baris berikutnya melempar, dan
+yang sampai ke layar cuma toast berbunyi *"Cannot read properties of null"* —
+atau tidak ada apa-apa sama sekali.
+
+Sekarang buktinya dibesarkan **DI HALAMAN INI**: tidak ada pop-up, tidak ada
+navigasi, jadi tidak ada izin yang bisa kedaluwarsa.
+
+- **PANELNYA DIBUKA SEKETIKA, SEBELUM SATU PUN `await`**, dengan keadaan
+  "memuat" — lalu diisi begitu berkasnya mendarat. Dibuka sesudah, tombolnya
+  diam beberapa detik dan ditekan berkali-kali orang; dan kalau unduhannya
+  gagal, tidak ada apa pun yang pernah muncul.
+- **WADAHNYA SENDIRI (`#buktiRoot`), bukan `modalRoot`.** "Buka PDF" dipanggil
+  DARI DALAM modal Cek/Edit, dan `openModal()` mengganti seluruh isi
+  `modalRoot` — modal yang sedang diisi orang akan lenyap, dan menutup
+  penampil buktinya meninggalkan layar kosong. `z-index:200` di atas
+  `.modal-back` (100) supaya ia menumpuk, bukan bersembunyi di belakangnya.
+- **"Buka di tab baru" lewat `blob:`, bukan `data:`.** Chrome memblokir
+  navigasi tingkat atas ke URL `data:` sejak versi 60 — `window.open("data:…")`
+  memulangkan null tanpa satu pun galat. Blob-nya dibuat **di dalam penangan
+  klik** (sinkron) supaya izin pop-upnya masih berlaku, dan **tidak segera
+  di-revoke**: tab yang baru terbuka masih memuatnya.
+- **PDF juga lewat `blob:`** — Chrome memblokir `data:` di frame tingkat atas,
+  dan PDF viewer-nya kerap menolak `data:` URI yang panjang; hasilnya frame
+  abu-abu yang terbaca sebagai berkas rusak.
+- **`blobDariData()` BERKAS KEMBAR `cbBlobUrl()`** di `assets/cocok-bri.js`.
+- **`showFileData()` DICABUT** — ia satu-satunya pemakai pop-upnya.
+
+#### 2. Jam ber-AM/PM tersimpan meleset dua belas jam
+
+Struk yang dilaporkan berbunyi **"03 Sep 2026 1:50:02 PM"**, dan barisnya
+tampil **01:50:02 WIB**. Tidak satu pun dari tiga pola di `timeIn()` melihat
+meridiemnya, jadi yang tersimpan "01:50:02": transfer setengah dua SIANG
+tercatat setengah dua DINI HARI. Lihat blok *Jam WIB* di bagian Pencocokan
+QRIS BRI untuk perbaikan `timeIn()`-nya sendiri.
+
+**`fmtJamTf()` membakukan lagi lewat `jam24()`** — jaring kedua untuk nilai
+ber-AM/PM yang lolos dari jalur lain (diketik tangan, diimpor, disetel lewat
+API). Dibiarkan, ia tampil `01:50:02 PM WIB`: dua keterangan zona dalam satu
+sel. **Detiknya DIPERTAHANKAN** — di halaman ini jam transfer memang ditulis
+sama persis dengan buktinya.
+
+##### YANG SUDAH TERLANJUR SALAH MASIH BISA DIPULIHKAN — dari teks scan, bukan tebakan
+
+Angkanya sendiri tidak bisa ditebak: "01:50" yang benar-benar dini hari
+kelihatan sama persis. **TAPI TEKS OCR-nya MASIH TERSIMPAN** (`p.tfOcrText`),
+dan di situ meridiemnya utuh. Jadi jamnya dihitung ULANG dari teks yang memang
+sudah pernah dibaca dari struk itu — tanpa OCR baru, tanpa menebak apa pun.
+
+Diukur atas produksi 21 September 2026: dari **494 DP**, **377** punya teks OCR
+tersimpan, **9** memuat AM/PM, dan **2** jamnya meleset (`05:04` → `17:04`,
+`01:50:02` → `13:50:02`).
+
+- **Barisnya DITANDAI di tabelnya** (⚠️ *seharusnya 13:50:02*) berikut tombol
+  **Betulkan**. Tanpa penanda, dua baris itu tidak akan pernah ditemukan
+  siapa pun di antara 494 DP.
+- **YANG MEMULIHKAN TETAP ORANG**, satu baris satu tombol — bukan disapu
+  sendiri waktu halamannya dibuka. `renderFinance()` sudah memanggil
+  `autoScanFinance()` saat halaman tampil; menumpangkan pemulihan jam di sana
+  berarti menulis ulang jam transaksi atas nama orang yang belum melihatnya.
+  Dijaga asersi yang menghitung jumlah pemanggilannya (**harus 2**: definisi
+  + tombolnya).
+- **HANYA kalau teksnya MEMANG memuat jam ber-meridiem.** Tanpa syarat itu,
+  `ocrTime()` bisa memulangkan jam lain yang kebetulan ada di struk (jam di
+  status bar HP, jam cetak) — dan "perbaikan" seperti itu justru merusak jam
+  yang benar.
+- **Yang sudah benar TIDAK ditandai.** Peringatan yang muncul untuk baris yang
+  tidak salah apa-apa persis yang membuat peringatan berikutnya berhenti
+  dibaca.
+- Konfirmasinya **menyebut angka lama DAN barunya**, jejaknya ditulis
+  (`Betulkan Jam TF`), `updatedAt` dinaikkan (penjaga UPSERT di server
+  membuang cap yang tidak lebih baru), dan perubahannya dikirim lewat
+  `commit()` — pola yang sama dengan `saveTf()`.
+
+```bash
+node tools/uji-bukti-lihat.js   # 53 pemeriksaan, TANPA jsdom
+```
+
+**BERKAS UJI PERTAMA untuk kedua jalur ini.** Modul Reservasi tidak bisa
+di-boot utuh untuk menguji keduanya — ia menuntut `SESSION`, `venue-layouts`,
+dan sederet pemuat — jadi **fungsinya DIPOTONG dari sumber lalu dijalankan**,
+dengan tetangganya (`findDp`, `commit`, `logAudit`, `confirm`, `toast`,
+`navigate`) dioper sebagai PARAMETER `new Function`. Yang tidak bisa
+dijalankan dijaga sebagai kontrak atas sumbernya.
+
+> **`async` WAJIB IKUT DIPOTONG.** `potong()` yang cuma mencari
+> `function <nama>(` memotong `async function betulkanJam(` mulai dari
+> `function` — dan `await` di dalamnya lalu jadi SyntaxError, sehingga
+> potongannya tidak bisa dijalankan sama sekali. Yang terbaca di layar bukan
+> "asersinya merah" melainkan ujinya mati.
+
+**Sembilan belas mutasi dicoba, kesembilan belasnya tertangkap** — dua baru
+sesudah ujinya dibetulkan, dan keduanya bentuk yang sama:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| `if(false && confirm(…))` | asersinya cuma mencari kata `confirm(` di sumbernya — teksnya masih di sana, cabangnya yang mati | `betulkanJam()` DIJALANKAN: yang diukur ada-tidaknya PERUBAHAN & KIRIMAN, bukan ada-tidaknya kata |
+| `if(false) logAudit(…)` | sebab yang sama | idem |
+
+> Keduanya satu keluarga: **kontrak atas sumber tidak bisa membedakan kode
+> yang berjalan dari kode yang tinggal teks.** Kalau sebuah fungsi bisa
+> dipotong dan dijalankan, jalankan.
+
+
 ### Reservasi: kwitansi ditahan sampai dananya diverifikasi (16 Sep 2026)
 
 Permintaan user: *"request kwitansi yang ada di modul reservasi tidak bisa
