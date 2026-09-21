@@ -8476,6 +8476,200 @@ node tools/uji-cocok-bri.js   # 185 pemeriksaan (dari 176)
 
 Enam mutasi dicoba, keenamnya tertangkap.
 
+##### Unggah Excel dicabut, bukti bayar bisa dilihat, baris bisa dibetulkan (21 Sep 2026)
+
+Tiga permintaan user dalam satu pesan, dan yang pertama mencabut jalur yang
+jadi alasan halaman ini lahir dua hari sebelumnya.
+
+**1. UNGGAH MUTASI BANK DARI EXCEL DICABUT.** Ikut dicabut seluruh
+pengurainya — `cbTgl`, `cbJam`, `cbCariKepala`, `cbUraiLembar`, `KOL_CARI`,
+`petaKolom` — pemilih lembar, pratinjau, kotak tempel, dan ketergantungan
+kedua tuan rumah pada `assets/xlsx-baca.js`. Fungsi yang tidak dipanggil siapa
+pun akan dipanggil lagi suatu hari oleh orang yang mengira ia masih berarti
+sesuatu.
+
+- **BARIS HASIL UNGGAH YANG SUDAH TERSIMPAN TETAP DIBACA, DIGAMBAR, DAN TETAP
+  BISA DICOCOKKAN.** Yang dicabut cara MEMASUKKANNYA, bukan barisnya: uang
+  yang sudah tercatat di rekonsiliasi tidak boleh hilang dari layar gara-gara
+  satu tombol dicabut. Itu sebabnya `BABAK`, `cbUsulan()`, dan `panelCocok()`
+  masih berdiri walau tidak ada lagi baris bank yang bisa lahir.
+- **`bri_unggah()` di server SENGAJA dibiarkan hidup**, pola yang sama dengan
+  `simpanTarget` waktu Target dicabut: mencabut endpoint karena satu-satunya
+  pemakainya hilang adalah pekerjaan yang tidak bisa dibatalkan demi kerapian
+  yang tidak diminta. Ia tidak lagi bisa dicapai dari layar mana pun.
+- **Penjaga `bacaBerkasLembar` di `cbGambar()` WAJIB ikut dicabut.** Ia dulu
+  MENOLAK menggambar seluruh halaman kalau pembaca berkasnya tidak ada — benar
+  selama unggah jadi isi halaman ini, dan sejak unggahnya cabut ia cuma
+  mematikan halaman yang sebenarnya baik-baik saja.
+
+**2. BUKTI BAYARNYA BISA DILIHAT.** Tiap baris DP punya tombol **Bukti &
+koreksi**; panelnya memajang gambar buktinya, dan baris mutasi yang SUDAH
+dicocokkan ikut memajang bukti DP yang diwakilinya — tanpa itu, buktinya
+berhenti bisa dilihat dari mana pun begitu pencocokannya disimpan, persis
+waktu orang paling mungkin ingin memeriksanya lagi.
+
+- **DIUNDUH MALAS, SATU PER SATU, LALU DI-CACHE.** Modul Reservasi memisahkan
+  foto bukti ke disk sejak blobnya membengkak jadi 5,95 MB — 97%-nya foto —
+  dan `getAll` sekarang cuma membawa penanda `@f:<key>`. Menariknya untuk
+  seluruh baris begitu halaman dibuka mengembalikan persis masalah yang
+  pemisahan itu tutup. Tanpa penjaga cache + `CB.buktiSibuk`, berkas ratusan
+  KB itu diunduh ulang tiap panelnya dibuka.
+- **DITULIS LEWAT DOM** (`#cb-bukti-<dpId>`), bukan lewat `gambarUlang()`
+  milik tuan rumah: yang terakhir menggambar ulang SELURUH halaman, dan gulir
+  melompat ke atas persis saat orang membaca panel yang baru ia buka.
+- **`cbBuktiGambar()` BERKAS KEMBAR `proofIsImage()`** di modul Reservasi:
+  jenis berkas ditebak dari NAMANYA selama isinya belum diunduh — itu
+  satu-satunya keterangan yang dibawa penanda. **PDF digambar sebagai
+  TAUTAN**, bukan dipaksa jadi `<img>`; kotak rusak di sebelah nominal
+  terbaca sebagai "buktinya hilang", padahal ia utuh di server.
+- **"TANPA BUKTI" ADALAH KETERANGAN, bukan kekosongan** — justru baris itulah
+  yang paling perlu diperiksa waktu rekonsiliasinya tidak ketemu: uang yang
+  tercatat masuk tanpa satu pun lampiran.
+
+**3a. METODE PEMBAYARAN BISA DIBETULKAN LANGSUNG DARI SINI**, di baris tabel
+MAUPUN di kartu *DP Bulan Ini yang Tidak Masuk BRI*. Kalimat lama di kartu itu
+berhenti di *"yang perlu dibetulkan metode DP-nya di modul Reservasi"* — benar,
+dan tetap membuat orang berpindah modul untuk satu kotak pilihan; yang
+berpindah harus mencari reservasinya lagi di sana, dan yang tidak sempat
+membiarkannya.
+
+**INI SATU-SATUNYA JALUR TULIS DARI HALAMAN INI KE MODUL RESERVASI**, dan
+disiplinnya disalin dari `rsvUbahBaris()` di modul Marketing: tarik data
+TERBARU berikut `_ver` → ubah SATU field di satu cicilan → kirim dengan
+`baseVer` → ulangi kalau server menjawab `conflict`.
+
+- **KIRIMANNYA SELURUH STATE, dan itu WAJIB.** `save_all()` di sana MENGHAPUS
+  reservasi yang tidak ada di kiriman (`DELETE ... WHERE id NOT IN`), jadi
+  kiriman sebagian membuang reservasi yang dibuat kru Reservasi di sela-sela
+  itu — tanpa satu pun galat.
+- **CONFLICT DIPERIKSA DALAM DUA BENTUK** (`jw.data.conflict` dan
+  `jw.conflict`): `api.php` di sana membungkus hasil `save_all()` jadi
+  `{ok:true,data:{conflict:true}}`. Diperiksa satu bentuk saja, penolakan
+  versi terbaca sebagai KEBERHASILAN — dan perubahan yang tidak pernah
+  tersimpan dilaporkan tersimpan.
+- **`updatedAt` WAJIB NAIK.** Penjaga UPSERT di sana
+  (`VALUES(updated_at) >= updated_at`) membuang perubahan yang capnya tidak
+  lebih baru, tanpa satu pun galat.
+- **RINGKASANNYA DISAMAKAN LAGI, dan SENGAJA cuma `dpMethod`.** `syncDp()` di
+  modul Reservasi menyentuh tujuh field plus cabang "cicilan terakhir dihapus"
+  yang membersihkan seluruh jejak `tf*`; menyalinnya utuh ke sini berarti
+  berkas kembar untuk aturan yang tidak satu pun kita picu — di sini nominal
+  tidak pernah berubah dan tidak satu cicilan pun pernah dibuang.
+- **JEJAKNYA DITULIS DI KEDUA WADAH** (audit global + `r.log`), sama persis
+  dengan `logAudit()` di sana. Yang cuma menulis ke audit global kehilangan
+  jejaknya dalam semalam sibuk — audit dipotong 500 baris.
+- **DIPERIKSA LAGI ATAS DATA YANG BARU DITARIK**: metodenya bisa sudah
+  dibetulkan kru Reservasi di sela-sela orang membuka panel ini, dan
+  menimpanya berarti membatalkan koreksi yang baru saja benar.
+- **DIBACA DARI DOM**, bukan dari state — kotak pilihannya digambar tanpa
+  penangan `change`, jadi nilainya memang cuma ada di DOM sampai tombolnya
+  ditekan.
+- **NILAI TERSIMPAN YANG SUDAH TIDAK ADA DI `master.dpMethods` TETAP
+  DIGAMBAR**, ditandai `(lama)`. Dibuang, membuka panel DP yang metodenya
+  diimpor dengan ejaan lain MENGGANTINYA ke pilihan pertama begitu Simpan
+  ditekan. Pola `opsiPosisi()` di modul DW dan `opsiBank()` di master vendor.
+- **Metode yang TIDAK berubah tidak dikirim**: penyimpanan yang tidak mengubah
+  apa pun menaikkan `_ver` di sana, dan tab kru Reservasi yang terbuka lalu
+  bentrok tanpa ada yang menyentuh apa pun.
+- **DP DITARIK ULANG sesudahnya**, bukan disetel di memori: layar yang
+  menyetel salinan lokalnya akan memajang metode yang tidak pernah tersimpan
+  di mana pun kalau satu penyimpanan ditolak diam-diam.
+
+**3b. BARIS YANG PENCOCOKANNYA TIDAK VALID BISA DICABUT — DAN ITU NISAN,
+BUKAN PENGHAPUSAN.** Permintaannya berbunyi *"bisa di hapus"*; yang dikerjakan
+menandai **pengakuannya sebagai dana masuk BRI**, bukan DP-nya. Barisnya
+tercoret di daftar, berhenti ikut dijumlahkan, berhenti ditawarkan sebagai
+kandidat pencocokan, berhenti ditagih di kartu non-BRI — dan **bisa
+dipulihkan**.
+
+**Kenapa bukan penghapusan sungguhan, dan jangan diubah tanpa diminta:** DP
+adalah catatan uang yang benar-benar ditransfer tamu berikut bukti
+transfernya, dan yang memegangnya modul Reservasi — ia dipakai kwitansi,
+halaman Dana Masuk, dan `dpTotal()` di sana. Layar rekonsiliasi di Finance yang
+menghapusnya membuang catatan pembayaran tamu, dan di repo ini penghapusan
+**tidak bisa dikembalikan**: tidak ada snapshot dan tidak ada undo. Kalau
+DP-nya sendiri memang salah catat, yang membetulkannya modul Reservasi — dan
+panelnya **mengatakan itu di tempat tombolnya berdiri**, karena yang
+menekannya mengira ia menghapus DP-nya dan kalau itu tidak dibantah di sini ia
+berhenti mencarinya di sana.
+
+- **TABEL SENDIRI `bri_dp_abai`**, bukan kolom baru di `bri_mutasi`: baris
+  `rsv` memang tidak punya baris di sana — itu inti bentuknya (DP DIBACA dari
+  modul Reservasi, tidak disalin). Lahir sendiri lewat `bri_abai_pastikan()`,
+  bukan berkas migrasi.
+- **`dp_id` KUNCI PRIMER + `ON DUPLICATE KEY UPDATE`**: tanpa itu, menandai
+  baris yang sama dua kali melahirkan dua nisan dan pemulihannya cuma mencabut
+  satu.
+- **ALASAN WAJIB, ditegakkan DI SERVER.** Baris yang dicabut dari rekonsiliasi
+  tanpa sebab tidak bisa diperiksa siapa pun, dan ia jadi tempat paling mudah
+  menyembunyikan uang yang sebenarnya belum dicocokkan. Aturan yang sama
+  dengan `cara='bukan'` dan `bri_batal()`.
+- **Nama penandanya dari SESI**, bukan dari badan permintaan — `briAbai` ikut
+  di blok berpagar sesi yang sama dengan `briCocok`/`briBatal`/`briTambah`.
+- **NISANNYA IKUT DI BALASAN `briList` YANG SAMA.** Dua permintaan yang
+  datangnya tidak bersamaan membuat baris tercoret berkedip jadi hidup lagi
+  sekejap tiap halaman digambar ulang.
+- **Nisan tanpa tanggal SELALU ikut** di rentang mana pun: DP yang tanggal
+  transfernya tidak terbaca memang tidak punya bulan, dan membuangnya membuat
+  nisannya lenyap sementara barisnya hidup lagi di daftar.
+- **SATU-SATUNYA `DELETE` di seluruh jalur BRI mencabut NISAN**
+  (`bri_dp_abai`), tidak pernah `bri_mutasi`. Itu jalan pulang penandaan,
+  bukan penghapusan catatan uang — dan ujinya menjaga persis itu, bukan
+  sekadar "tidak ada kata DELETE".
+
+##### KOTAK CARI HALAMAN INI TIDAK MENYARING APA PUN SEJAK 19 SEPTEMBER 2026
+
+Ditemukan saat mengerjakan ini, bukan dari laporan. `gambarTabelSaja()`
+mencari kartu ber-`<h3>` **"Mutasi Masuk BRI"** — nama yang sudah diganti jadi
+"Dana Masuk BRI" pada sore 19 September — jadi perulangannya tidak pernah
+menemukan apa pun dan tabelnya tidak pernah digambar ulang. Mengetik di kotak
+carinya karena itu **tidak melakukan apa-apa**, tanpa satu pun galat:
+penggambar ulangnya cuma diam.
+
+Sekarang wadahnya ber-**id tetap** (`#cb-tabel`). Judul dipakai sebagai kunci
+akan basi lagi; id tidak.
+
+> **Pelajarannya bukan soal judul.** Kartu itu diganti namanya dalam perubahan
+> yang sama yang melahirkan model barisnya, dan tidak satu asersi pun menguji
+> bahwa kotak carinya BENAR-BENAR memangkas tabel — yang diuji cuma bahwa
+> kotaknya ada. Kendali yang cuma diuji keberadaannya adalah kendali yang bisa
+> mati diam-diam.
+
+```bash
+node tools/uji-cocok-bri.js   # 170 pemeriksaan (dari 185)
+```
+
+Jumlahnya **TURUN**, dan itu memang benar: seluruh asersi pengurai lembar
+(termasuk perbandingan dengan baris Total di berkas `Qris BRI 2026.xlsx`) ikut
+dicabut bersama fiturnya, diganti asersi bahwa ketiadaannya memang utuh. Yang
+hilang bersamanya **pemeriksaan terkuat yang pernah ada di berkas ini** —
+pembanding yang ditulis orang, bukan oleh kode yang diuji. Tidak ada lagi
+pembanding sekelas itu di sini; yang tersisa server tiruan yang HIDUP (apa yang
+ditulis `briAbai` dipulangkan `briList` berikutnya, apa yang ditulis `saveAll`
+dipulangkan `getAll` berikutnya), dan itu yang membedakan "tersimpan" dari
+"dilaporkan tersimpan".
+
+**Dua puluh enam mutasi dicoba, kedua puluh enamnya tertangkap** — tapi EMPAT
+baru sesudah ujinya dibetulkan, dan tiga di antaranya bentuk yang sudah punya
+nama di berkas ini:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| konfirmasi ubah metode dicabut | **asersi hampa** — `cbBuka()` itu SAKLAR, dan uji yang memanggilnya dua kali untuk baris yang sama justru MENUTUP panelnya; kirimannya lalu "ditahan" oleh penjaga *pilih dulu metodenya*, bukan oleh konfirmasinya | `bukaPanel()` yang hanya membuka kalau belum terbuka, plus asersi bahwa kotaknya memang ada di DOM |
+| DP bernisan tetap ditawarkan sebagai kandidat | tidak ada satu asersi pun yang menjaganya | tombol `cbPilihDp` direkam DULU selagi masih sah, lalu dituntut hilang sesudah ditandai |
+| DP bernisan tetap ditagih di kartu non-BRI | sebab yang sama | DP non-BRI ditandai lalu kartunya dituntut hilang, lalu dipulihkan dan dituntut kembali |
+| bukti diunduh ulang tiap panelnya dibuka | ujinya cuma menggambar ulang halaman — dan `muatBuktiUntuk()` memang tidak dipanggil dari sana | panelnya ditutup lalu dibuka lagi, jumlah `getFile` dikunci |
+
+> **Satu asersi juga sempat MERAH untuk kode yang benar:** pola
+> `selected>Transfer UOB` tidak pernah cocok, karena yang dibaca `innerHTML`
+> hasil serialisasi jsdom — dan di sana atribut kosong ditulis `selected=""`.
+> Asersi yang membaca DOM wajib menuntut bentuk yang DISERIALKAN, bukan bentuk
+> string yang dihasilkan kodenya.
+
+> **Dan satu pemindai sempat merah untuk kode yang benar:** `kodeCb.indexOf('cb-ta')`
+> juga cocok dengan **`cb-tabel`** — id wadah tabel yang justru baru dipasang
+> hari itu. Pemindai ketiadaan wajib dijepit ke bentuk yang benar-benar dicari.
+
 ### Reservasi: kwitansi ditahan sampai dananya diverifikasi (16 Sep 2026)
 
 Permintaan user: *"request kwitansi yang ada di modul reservasi tidak bisa

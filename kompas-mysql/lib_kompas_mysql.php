@@ -2753,6 +2753,111 @@ function bri_batal($id, $alasan, $oleh) {
   return array('ok' => true, 'saved' => true);
 }
 
+/* ============ DP RESERVASI YANG DITANDAI TIDAK VALID (21 September 2026) ============
+   Permintaan user: "bisa di hapus juga jika kalau reservasi pencocokan
+   dananya itu tidak valid".
+
+   YANG DITANDAI PENGAKUANNYA SEBAGAI DANA MASUK BRI, BUKAN DP-nya. DP itu
+   catatan uang yang benar-benar ditransfer tamu, berikut bukti transfernya,
+   dan yang memegangnya modul Reservasi — ia dipakai kwitansi, halaman Dana
+   Masuk, dan dpTotal di sana. Layar rekonsiliasi yang menghapusnya membuang
+   catatan pembayaran tamu, dan di repo ini penghapusan TIDAK BISA
+   dikembalikan: tidak ada snapshot dan tidak ada undo.
+
+   Jadi yang disimpan di sini NISAN: barisnya tetap tergambar di daftar,
+   tercoret, berhenti ikut dijumlahkan, dan bisa dipulihkan satu klik.
+   Aturan yang sama dengan batal_at di `bri_mutasi` dan void_batal().
+
+   TABEL SENDIRI, bukan kolom baru di `bri_mutasi`: baris `rsv` memang tidak
+   punya baris di sana — itu inti bentuknya (DP DIBACA dari modul Reservasi,
+   tidak disalin). Lahir sendiri lewat bri_abai_pastikan(), bukan berkas
+   migrasi — migrasi di repo ini rutin tertinggal di produksi.
+
+   TGL & NOMINAL DISIMPAN SEBAGAI SALINAN, dan itu bukan duplikasi angka
+   yang dipakai menghitung apa pun: ia cuma penyaring bulan (supaya daftar
+   nisan tidak ikut terbawa seluruhnya tiap bulan dibuka) dan jejak apa yang
+   dulu ditandai. Yang dipajang di layar tetap angka dari modul Reservasi. */
+function bri_abai_pastikan() {
+  $pdo = db();
+  $pdo->exec(
+    "CREATE TABLE IF NOT EXISTS `bri_dp_abai` (
+       `dp_id`   VARCHAR(60)  NOT NULL PRIMARY KEY,
+       `res_id`  VARCHAR(60)  NOT NULL DEFAULT '',
+       `nama`    VARCHAR(160) NOT NULL DEFAULT '',
+       `tgl`     DATE         NULL,
+       `nominal` BIGINT       NOT NULL DEFAULT 0,
+       `alasan`  VARCHAR(255) NOT NULL DEFAULT '',
+       `oleh`    VARCHAR(120) NOT NULL DEFAULT '',
+       `abai_at` BIGINT       NOT NULL DEFAULT 0,
+       KEY `idx_abai_tgl` (`tgl`)
+     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+}
+
+/* ALASAN WAJIB, dan ditegakkan DI SINI — bukan cuma di layar. Baris yang
+   dicabut dari rekonsiliasi tanpa sebab tidak bisa diperiksa siapa pun, dan
+   ia jadi tempat paling mudah menyembunyikan uang yang sebenarnya belum
+   dicocokkan. Aturan yang sama dengan cara='bukan' dan bri_batal(). */
+function bri_abai($d, $oleh) {
+  bri_abai_pastikan();
+  if (!is_array($d)) $d = array();
+  $dpId = trim((string)(isset($d['dpId']) ? $d['dpId'] : ''));
+  if ($dpId === '') return array('ok' => false, 'error' => 'dpId kosong');
+  $pdo = db();
+
+  /* PULIHKAN = membuang nisannya, bukan menandainya lagi dengan penanda
+     kedua. Nisan yang cuma "dinonaktifkan" berarti dua keadaan mati untuk
+     satu baris, dan yang membacanya harus menebak mana yang berlaku. */
+  if (!empty($d['pulih'])) {
+    $pdo->prepare('DELETE FROM `bri_dp_abai` WHERE `dp_id`=?')->execute(array($dpId));
+    return array('ok' => true, 'saved' => true, 'pulih' => true);
+  }
+
+  $alasan = trim((string)(isset($d['alasan']) ? $d['alasan'] : ''));
+  if ($alasan === '') return array('ok' => false, 'error' => 'Sebutkan dulu kenapa baris ini tidak valid.');
+  $st = $pdo->prepare(
+    "INSERT INTO `bri_dp_abai` (`dp_id`,`res_id`,`nama`,`tgl`,`nominal`,`alasan`,`oleh`,`abai_at`)
+     VALUES (:dp,:res,:nama,:tgl,:nom,:alasan,:oleh,:at)
+     ON DUPLICATE KEY UPDATE `alasan`=VALUES(`alasan`),`oleh`=VALUES(`oleh`),`abai_at`=VALUES(`abai_at`)");
+  $st->execute(array(
+    ':dp'     => mb_substr($dpId, 0, 60),
+    ':res'    => mb_substr((string)(isset($d['resId']) ? $d['resId'] : ''), 0, 60),
+    ':nama'   => mb_substr((string)(isset($d['nama'])  ? $d['nama']  : ''), 0, 160),
+    ':tgl'    => bri_tgl_null(isset($d['tgl']) ? $d['tgl'] : ''),
+    ':nom'    => (int)round((float)(isset($d['nominal']) ? $d['nominal'] : 0)),
+    ':alasan' => mb_substr($alasan, 0, 255),
+    ':oleh'   => mb_substr((string)$oleh, 0, 120),
+    ':at'     => (int)(microtime(true) * 1000)));
+  return array('ok' => true, 'saved' => true);
+}
+
+/* Nisan dalam rentang yang sedang dibuka. Yang TGL-nya kosong selalu ikut:
+   DP yang tanggal transfernya tidak terbaca memang tidak punya bulan, dan
+   membuangnya membuat nisannya lenyap sementara barisnya hidup lagi di
+   daftar — persis kebalikan dari yang diminta orang yang menandainya. */
+function bri_abai_list($dari, $sampai) {
+  bri_abai_pastikan();
+  $d = bri_tgl_sah($dari);
+  $s = bri_tgl_sah($sampai);
+  $sql = 'SELECT * FROM `bri_dp_abai`';
+  $arg = array();
+  if ($d !== '' && $s !== '') {
+    $sql .= ' WHERE `tgl` IS NULL OR `tgl` BETWEEN :d AND :s';
+    $arg = array(':d' => $d, ':s' => $s);
+  }
+  $st = db()->prepare($sql);
+  $st->execute($arg);
+  $out = array();
+  foreach ($st->fetchAll() as $r) {
+    $out[] = array(
+      'dpId' => (string)$r['dp_id'], 'resId' => (string)$r['res_id'],
+      'nama' => (string)$r['nama'],
+      'tgl' => $r['tgl'] === null ? '' : (string)$r['tgl'],
+      'nominal' => (float)$r['nominal'], 'alasan' => (string)$r['alasan'],
+      'oleh' => (string)$r['oleh'], 'at' => (float)$r['abai_at']);
+  }
+  return $out;
+}
+
 function bri_list($dari, $sampai) {
   bri_pastikan();
   $d = bri_tgl_sah($dari);
@@ -2792,5 +2897,10 @@ function bri_list($dari, $sampai) {
       'batalAt' => (float)$r['batal_at'], 'batalOleh' => (string)$r['batal_oleh'],
       'batalAlasan' => (string)$r['batal_alasan']);
   }
-  return array('baris' => $baris, 'total' => $total, 'maks' => BRI_LIST_MAKS);
+  /* NISAN IKUT DI BALASAN YANG SAMA, bukan aksi baca kedua: halaman ini
+     menggambar daftar dan nisannya dalam satu render, dan dua permintaan yang
+     datangnya tidak bersamaan membuat baris tercoret berkedip jadi hidup lagi
+     sekejap tiap halaman digambar ulang. */
+  return array('baris' => $baris, 'total' => $total, 'maks' => BRI_LIST_MAKS,
+               'abai' => bri_abai_list($dari, $sampai));
 }
