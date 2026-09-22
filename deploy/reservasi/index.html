@@ -8109,13 +8109,76 @@ function ocrBank(t){
 function dateIn(s){
   let m=s.match(/\b(20\d{2})[-\/.](\d{1,2})[-\/.](\d{1,2})\b/);              // 2026-07-14
   if(m) return isoDate(m[1],m[2],m[3]);
-  m=s.match(/\b(\d{1,2})\s+([A-Za-z]{3,10})\.?,?\s+(20\d{2})\b/);            // 09 Jul 2026 / 14 Agustus 2026 (Livin & SeaBank)
-  if(m){ const mo=OCR_MONTHS[m[2].slice(0,3).toLowerCase()]; if(mo) return isoDate(m[3],mo,m[1]); }
+  /* "09 Jul 2026" / "14 Agustus 2026" (Livin & SeaBank), DAN "01Agu 2026"
+     TANPA SPASI (BRImo, 22 September 2026). Spasinya diwajibkan sampai
+     tanggal itu, jadi struk BRImo tidak pernah punya tanggal sama sekali:
+     bukan pembacaan gambarnya yang gagal — OCR menuliskan "01Agu 2026"
+     dengan benar — melainkan polanya yang tidak mengenalnya.
+
+     DISAPU SELURUH KEMUNCULAN, bukan yang pertama saja. `match` tanpa /g
+     berhenti di kecocokan pertama; kalau kata yang tertangkap di sana
+     ternyata bukan nama bulan, tanggal yang sesungguhnya beberapa baris di
+     bawahnya tidak pernah sempat diperiksa. */
+  for(const mm of s.matchAll(/\b(\d{1,2})\s*([A-Za-z]{3,10})\.?,?\s+(20\d{2})\b/g)){
+    const mo=OCR_MONTHS[mm[2].slice(0,3).toLowerCase()];
+    if(mo) return isoDate(mm[3],mo,mm[1]);
+  }
   m=s.match(/\b(\d{1,2})[-\/.](\d{1,2})[-\/.](20\d{2}|\d{2})\b/);            // 14/07/2026
   if(m) return isoDate(m[3].length===2?("20"+m[3]):m[3], m[2], m[1]);
   return "";
 }
-function ocrDate(t){ return dateIn(String(t||"")); }
+/* Nomor Ref / RRN di struk QRIS memuat stempel waktu transaksinya sendiri
+   sebagai deretan angka — 2026 09 11 2044 … — jadi TANGGALNYA TERCETAK DUA
+   KALI di satu bukti: sekali untuk dibaca orang, sekali di dalam nomornya.
+
+   Itu yang menyelamatkan baris yang barisan tanggalnya salah terbaca.
+   22 September 2026: Tesseract membaca "11/09/2026" sebagai "1/09/2026" —
+   satu angka hilang — dan transfer 11 September tercatat 1 September tanpa
+   satu pun galat. Pengurainya benar; gambarnya yang salah dibaca, jadi
+   men-scan ulang dengan mesin yang sama akan memberi hasil yang sama persis.
+
+   YANG MEMBUAT STEMPEL INI BOLEH DIPERCAYA CUMA SATU: empat angka JAM di
+   dalamnya harus sama persis dengan jam yang dibaca TERPISAH dari barisan
+   jam. Tanpa jangkar itu, deretan angka panjang mana pun di struk (Merchant
+   PAN, Customer PAN, nomor kartu) bisa kebetulan memuat delapan angka yang
+   membentuk tanggal yang sah — dan menebak tanggal uang masuk dari nomor
+   kartu jauh lebih buruk daripada kolom yang jelas-jelas belum terisi.
+
+   Diukur atas 494 baris DP produksi (22 September 2026): 411 punya teks OCR
+   tersimpan, 61 bisa diperiksa silang, 58 cocok, dan KETIGA yang berbeda
+   memang salah bacanya — satu tanggalnya meleset sepuluh hari, dua lagi
+   tanggalnya kosong. Nol positif palsu.
+
+   Lebih dari satu kandidat = TIDAK dipulangkan. Dua stempel berbeda di satu
+   struk berarti tidak ada yang bisa dipastikan, dan menebak salah satunya
+   persis yang sedang dihindari. */
+const STEMPEL_TAHUN_MIN=2024, STEMPEL_TAHUN_MAKS=2035;
+function tglStempel(teks, jam){
+  const hhmm=String(jam==null?"":jam).replace(/[^0-9]/g,"").slice(0,4);
+  if(hhmm.length!==4) return "";
+  const hasil=new Set();
+  for(const run of (String(teks||"").match(/\d{12,}/g)||[])){
+    for(let i=0;i+12<=run.length;i++){
+      if(run.slice(i+8,i+12)!==hhmm) continue;              // jangkarnya: jamnya wajib cocok
+      const y=+run.slice(i,i+4), m=+run.slice(i+4,i+6), d=+run.slice(i+6,i+8);
+      if(y<STEMPEL_TAHUN_MIN||y>STEMPEL_TAHUN_MAKS) continue;
+      /* Dicocokkan ke kalender sungguhan, bukan sekadar 1..31: isoDate()
+         meloloskan 31 Februari, dan tanggal karangan di kolom uang masuk
+         lebih buruk daripada kolom yang belum terisi. */
+      const dt=new Date(Date.UTC(y,m-1,d));
+      if(dt.getUTCFullYear()!==y||dt.getUTCMonth()!==m-1||dt.getUTCDate()!==d) continue;
+      hasil.add(isoDate(y,m,d));
+    }
+  }
+  return hasil.size===1?[...hasil][0]:"";
+}
+/* Jamnya dioper supaya stempel di nomor Ref bisa dipakai menyilang. Dipanggil
+   tanpa jam, yang dipulangkan tetap hasil pembacaan barisan tanggalnya apa
+   adanya — jadi pemanggil lama tidak berubah artinya. */
+function ocrDate(t, jam){
+  const s=String(t||"");
+  return tglStempel(s, jam) || dateIn(s);
+}
 function timeIn(s){
   /* AM/PM DIBACA DULU, DAN ITU WAJIB PALING DEPAN (21 September 2026).
      Sebelumnya tidak satu pun pola di bawah melihat meridiemnya: struk
@@ -8271,6 +8334,44 @@ async function betulkanJam(resId, payId){
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   if(ok) toast("Jam transfer dibetulkan jadi "+benar+" WIB.","ok");
 }
+/* Tanggal yang SEHARUSNYA, dihitung dari stempel di nomor Ref pada teks bukti
+   yang SUDAH TERSIMPAN — bukan dari pembacaan gambar yang baru. Menandai dua
+   keadaan sekaligus: tanggal yang meleset, dan tanggal yang kosong sama
+   sekali karena barisan tanggalnya tidak terbaca.
+
+   MEN-SCAN ULANG TIDAK MENOLONG untuk baris lama, dan itu inti kenapa fungsi
+   ini ada: mesinnya sama, gambarnya sama, jadi angka yang hilang akan hilang
+   lagi. Yang menyelamatkannya nomor Ref, dan nomor itu sudah ada di teks
+   yang tersimpan sejak scan pertama.
+
+   YANG MEMULIHKAN TETAP ORANG, satu baris satu tombol — aturan yang sama
+   dengan jamSeharusnya(). Halaman ini sudah memanggil autoScanFinance() tiap
+   kali digambar; menumpangkan pembetulan tanggal di sana berarti menulis
+   ulang tanggal uang masuk atas nama orang yang belum melihatnya. */
+function tglSeharusnya(p){
+  if(!p || !p.tfOcrText || !p.tfTime) return "";
+  const cap=tglStempel(p.tfOcrText, p.tfTime);
+  return (cap && cap!==String(p.tfDate||"")) ? cap : "";
+}
+async function betulkanTanggal(resId, payId){
+  const {r,p}=findDp(resId,payId); if(!p) return;
+  const benar=tglSeharusnya(p);
+  if(!benar){ toast("Tanggalnya sudah sesuai dengan bukti.","ok"); return; }
+  const lama=String(p.tfDate||"");
+  if(!confirm((lama
+        ? "Tanggal transfer dibetulkan dari "+fmtDateShort(lama)+" jadi "+fmtDateShort(benar)+"."
+        : "Tanggal transfer diisi "+fmtDateShort(benar)+" (sebelumnya kosong).")+"\n\n"
+    +"Angkanya dibaca dari stempel waktu di nomor Ref pada bukti yang sudah tersimpan, "
+    +"dan jam di stempel itu cocok dengan "+fmtJamTf(p.tfTime)+" WIB — bukan ditebak. Lanjut?")) return;
+  p.tfDate=benar;
+  /* updatedAt WAJIB naik: penjaga UPSERT di server membuang perubahan yang
+     capnya tidak lebih baru, tanpa satu pun galat. */
+  if(r) r.updatedAt=Date.now();
+  logAudit("Betulkan Tanggal TF", (r?r.name+": ":"")+(lama||"(kosong)")+" → "+benar+" (dari stempel Ref di bukti tersimpan)", r?r.id:"");
+  const ok=await commit("Membetulkan tanggal transfer…");
+  if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  if(ok) toast("Tanggal transfer jadi "+fmtDateShort(benar)+".","ok");
+}
 // Nominal: utamakan angka yang sebaris dengan kata "Nominal/Jumlah/Total",
 // jauhi baris "Biaya admin/Saldo/Sisa". Kalau seri, ambil yang terbesar.
 function ocrAmount(t){
@@ -8326,7 +8427,12 @@ function ocrName(t){
 }
 function parseTransferText(txt){
   const t=String(txt||"").replace(/\u00a0/g," ");   // nbsp jadi spasi biasa
-  return { bank:ocrBank(t), date:ocrDate(t), time:ocrTime(t), amount:ocrAmount(t), name:ocrName(t) };
+  /* Jamnya dibaca DULU, lalu dioper ke ocrDate(): itulah jangkar yang membuat
+     stempel waktu di nomor Ref boleh dipakai membetulkan tanggal yang salah
+     terbaca. Jam yang ragu dipulangkan kosong oleh ocrTime(), dan di situ
+     penyilangannya memang tidak berjalan \u2014 bukan ditebak. */
+  const time=ocrTime(t);
+  return { bank:ocrBank(t), date:ocrDate(t,time), time, amount:ocrAmount(t), name:ocrName(t) };
 }
 
 /* ---------- Data transaksi ----------
@@ -8828,7 +8934,12 @@ function renderFinance(){
          const r=x.r, p=x.p, scanned=txScanned(x);
          return `<tr>
            <td><b>${p.tfDate?fmtDateShort(p.tfDate):`<span class="muted">${fmtDateShort(r.date)}</span>`}</b>
-               ${!p.tfDate?`<div class="muted" style="font-size:11px">dari tgl reservasi</div>`:""}</td>
+               ${!p.tfDate?`<div class="muted" style="font-size:11px">dari tgl reservasi</div>`:""}
+               ${tglSeharusnya(p)?`<div style="font-size:11px;color:var(--danger);font-weight:700"
+                    title="Nomor Ref di bukti memuat stempel waktu transaksinya sendiri, dan jam di stempel itu cocok dengan jam yang tercatat — tapi tanggalnya berbeda dari yang terbaca di barisan tanggal">
+                    ⚠️ seharusnya ${esc(fmtDateShort(tglSeharusnya(p)))}
+                    <div style="font-weight:500;margin-top:2px"><button class="btn btn-xs btn-ghost"
+                      onclick="betulkanTanggal('${r.id}','${p.id}')">Betulkan</button></div></div>`:""}</td>
            <td>${p.tfTime?`<b>${fmtJamTf(p.tfTime)}</b>`:'<span class="muted">-</span>'}
                ${jamRagu(p)?`<div class="muted" style="font-size:11px" title="Bukti menulis jam tanpa AM/PM dan tanpa WIB, jadi 12 jam dan 24 jam tidak bisa dibedakan — jamnya sengaja tidak diisi daripada meleset dua belas jam">bukti menulis ${esc(jamRagu(p))}, tanpa AM/PM</div>`:""}
                ${jamSeharusnya(p)?`<div style="font-size:11px;color:var(--danger);font-weight:700"

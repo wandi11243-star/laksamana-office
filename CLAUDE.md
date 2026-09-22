@@ -9025,6 +9025,98 @@ sesudah ujinya dibetulkan, dan keduanya bentuk yang sama:
 > yang berjalan dari kode yang tinggal teks.** Kalau sebuah fungsi bisa
 > dipotong dan dijalankan, jalankan.
 
+#### Tanggal TF yang meleset sepuluh hari: OCR, bukan pengurainya (22 Sep 2026)
+
+Dilaporkan user: bukti bertanggal **11 September** tercatat **1 September**.
+Teks OCR-nya **tersimpan** (`p.tfOcrText`), jadi sebabnya tidak perlu ditebak:
+
+```
+1/09/2026 - 20:44:23 WIB            <- Tesseract MENJATUHKAN satu angka "1"
+Ref 950312026091120442141 7...
+       ^^^^^^^^ ^^^^
+       20260911  2044               <- tanggal & jam YANG BENAR
+```
+
+`dateIn()` membaca `1/09/2026` dengan benar. **Yang salah pembacaan
+gambarnya — jadi MEN-SCAN ULANG DENGAN MESIN YANG SAMA memberi hasil yang
+sama persis.** Itu yang membuat "Scan Ulang" bukan jalan keluarnya, dan itu
+pula yang paling mudah salah disimpulkan dari layar.
+
+##### Tanggalnya tercetak DUA KALI di satu bukti
+
+Nomor **Ref / RRN** di struk QRIS memuat stempel waktu transaksinya sendiri
+sebagai deretan angka (`2026 09 11 2044 …`). `tglStempel()` memungutnya.
+
+- **JANGKARNYA JAM, dan itu satu-satunya yang membuatnya boleh dipercaya.**
+  Empat angka jam di dalam stempel wajib sama persis dengan jam yang dibaca
+  TERPISAH dari barisan jam. Tanpa itu, deretan angka panjang mana pun di
+  struk (Merchant PAN, Customer PAN, nomor kartu) bisa kebetulan memuat
+  delapan angka yang membentuk tanggal yang sah — dan menebak tanggal uang
+  masuk dari nomor kartu jauh lebih buruk daripada kolom yang jelas-jelas
+  belum terisi.
+- **Lebih dari satu kandidat TIDAK dipulangkan.** Dua stempel berbeda di satu
+  struk berarti tidak ada yang bisa dipastikan.
+- **Tanggalnya dicocokkan ke kalender sungguhan**, bukan sekadar `1..31`:
+  `isoDate()` meloloskan 31 Februari, dan tanggal karangan di kolom uang
+  masuk lebih buruk daripada kolom yang kosong.
+- **Minimal 12 angka** (yyyymmdd + hhmm). Yang lebih pendek tidak punya
+  jamnya, jadi jangkarnya tidak ada.
+- Diukur atas **494 baris DP produksi**: 411 punya teks OCR tersimpan, 61
+  bisa diperiksa silang, **58 cocok**, dan ketiga yang berbeda memang salah
+  bacanya — satu meleset sepuluh hari, dua lagi tanggalnya kosong.
+  **Nol positif palsu.**
+
+##### `dateIn()` menuntut SPASI, dan struk BRImo tidak punya tanggal karenanya
+
+Cacat kedua, berdiri sendiri, ditemukan saat menelusuri yang pertama:
+
+```
+01Agu 2026 + 10:41:26 WIB           <- OCR-nya BENAR; polanya yang tidak kenal
+```
+
+Pola nama bulan mewajibkan `\s+` antara tanggal dan bulannya, jadi seluruh
+struk BRImo lahir **tanpa tanggal sama sekali** — dan kolom kosong itu
+terbaca sebagai bukti yang gagal dibaca, bukan sebagai pola yang kurang.
+Sekarang `\s*`, dan **disapu SELURUH kemunculan** (`matchAll`): `match` tanpa
+`/g` berhenti di kecocokan pertama, jadi kalau kata yang tertangkap di sana
+ternyata bukan nama bulan, tanggal yang sesungguhnya beberapa baris di
+bawahnya tidak pernah sempat diperiksa. **8 baris produksi** yang selama ini
+tanpa tanggal terbaca sesudah ini.
+
+Yang menahan pola tanpa-spasi menelan teks sembarangan: katanya **wajib ada
+di `OCR_MONTHS`**. `Detail 12 Nomor 2026` karena itu tetap bukan tanggal.
+
+##### Baris yang SUDAH tersimpan: ditandai, bukan disapu sendiri
+
+`tglSeharusnya()` + `betulkanTanggal()`, **polanya disalin persis dari
+`jamSeharusnya()`/`betulkanJam()`** sehari sebelumnya.
+
+- **YANG MEMULIHKAN TETAP ORANG, satu baris satu tombol.** Halaman ini sudah
+  memanggil `autoScanFinance()` tiap kali digambar; menumpangkan pembetulan
+  tanggal di sana berarti menulis ulang tanggal uang masuk atas nama orang
+  yang belum melihatnya.
+- **Tanggal yang KOSONG ikut ditawari**, dan jejaknya berbunyi `(kosong) →`
+  supaya pengisian tidak terbaca sama dengan pembetulan.
+- `updatedAt` **wajib naik** — penjaga UPSERT di server membuang perubahan
+  yang capnya tidak lebih baru, tanpa satu pun galat.
+- **`applyOcr` tetap menghormati `force`**, jadi halaman yang digambar ulang
+  tidak diam-diam menimpa tanggal yang sudah dibetulkan orang.
+
+```bash
+node tools/uji-tanggal-tf.js   # 55 pemeriksaan, TANPA jsdom
+```
+
+**Tiga belas mutasi dicoba; dua belas tertangkap dan satu EKUIVALEN** —
+mencabut penjaga `!p.tfTime` di `tglSeharusnya()` tidak mengubah apa pun,
+karena `tglStempel()` sendiri sudah menolak jam yang bukan empat angka
+(dibuktikan untuk `''`, `undefined`, `null`, dan `'20'`). Penjaganya tetap
+ditulis: maksudnya terbaca, dan ia tidak bergantung pada perilaku internal
+`tglStempel()`.
+
+> **Satu asersi sempat ditulis HAMPA** (`… !== '' || true`) dan lulus apa pun
+> keputusan kodenya. Diganti dua asersi yang benar-benar membedakan: deret 12
+> angka diterima, deret 11 angka tidak.
+
 
 ### Reservasi: kwitansi ditahan sampai dananya diverifikasi (16 Sep 2026)
 
