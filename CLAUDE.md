@@ -9117,6 +9117,28 @@ ditulis: maksudnya terbaca, dan ia tidak bergantung pada perilaku internal
 > keputusan kodenya. Diganti dua asersi yang benar-benar membedakan: deret 12
 > angka diterima, deret 11 angka tidak.
 
+##### Petunjuknya juga berdiri DI DALAM modal Cek/Edit
+
+Dilaporkan user beberapa jam kemudian dengan tangkapan layar modal **Cek Dana
+Masuk** yang masih berbunyi 09/01/2026. Dua sebab sekaligus: berkasnya memang
+belum mendarat di produksi, **dan** tombol Betulkan cuma berdiri di baris
+tabel — padahal yang memeriksa dana masuk bekerja dari modal ini, dan di sana
+tanggal yang salah berdiri tanpa satu pun petunjuk.
+
+`tfPakaiTglStempel()` **HANYA MENGISI KOTAKNYA, TIDAK MENYIMPAN.** Modal itu
+sudah punya Simpan dan Simpan & Verifikasi, keduanya membaca kotaknya lewat
+`readTfForm()`; menyimpan dari petunjuknya berarti dua tombol yang sama-sama
+menulis satu field, dan yang satu melewati verifikasi yang sedang dikerjakan
+orangnya. Petunjuknya berganti bunyi jadi *"belum tersimpan, tekan Simpan"*.
+
+> **Tombol perbaikan harus berdiri di tempat orang bekerja**, bukan di tempat
+> yang paling mudah dipasangi. Petunjuk yang cuma ada di layar sebelah tidak
+> menolong orang yang sedang membuka modalnya.
+
+```bash
+node tools/uji-tanggal-tf.js   # 61 pemeriksaan (dari 55)
+```
+
 
 ### Reservasi: kwitansi ditahan sampai dananya diverifikasi (16 Sep 2026)
 

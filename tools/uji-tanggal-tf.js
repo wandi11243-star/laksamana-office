@@ -262,6 +262,34 @@ const STRUK_HANCUR = [
     }
   } else L('betulkanTanggal()', 'potongan pengurai tidak bisa dijalankan');
 
+  /* ================= [5b] tfPakaiTglStempel(): dari dalam modal ================= */
+  console.log('\n[5b] tfPakaiTglStempel() — petunjuk di modal Cek/Edit');
+  {
+    const buatDom = () => {
+      const el = { tf_date: { value: '2026-09-01' }, tf_date_saran: { style: {}, textContent: 'awal' } };
+      let kirim = 0;
+      const fn = new Function('byId', 'fmtDateShort', 'commit',
+        potong('tfPakaiTglStempel') + '\nreturn tfPakaiTglStempel;')(
+        id => el[id] || null, v => String(v), async () => { kirim++; return true; });
+      return { fn, el, kirim: () => kirim };
+    };
+    {
+      const u = buatDom();
+      u.fn('2026-09-11');
+      T('modal: kotak tanggalnya terisi', u.el.tf_date.value === '2026-09-11', u.el.tf_date.value);
+      /* YANG MENYIMPAN TETAP TOMBOL SIMPAN. Menyimpan dari sini berarti dua
+         tombol yang sama-sama menulis satu field. */
+      T('modal: TIDAK menyimpan apa pun sendiri', u.kirim() === 0);
+      T('modal: petunjuknya mengatakan belum tersimpan',
+        /belum tersimpan/.test(u.el.tf_date_saran.textContent), u.el.tf_date_saran.textContent);
+    }
+    {
+      const u = buatDom();
+      u.fn('bukan-tanggal');
+      T('modal: nilai yang bukan tanggal ditolak', u.el.tf_date.value === '2026-09-01', u.el.tf_date.value);
+    }
+  }
+
   /* ================= [6] Kontrak atas sumbernya ================= */
   console.log('\n[6] Kontrak atas sumber modul Reservasi');
   const bersih = SRC.replace(/\/\*[\s\S]*?\*\//g, '');   // komentar tidak boleh ikut dihitung
@@ -290,6 +318,14 @@ const STRUK_HANCUR = [
   T('kolom Tanggal TF memanggil tglSeharusnya(p)', /\$\{tglSeharusnya\(p\)\?/.test(sel));
   T('penandanya membawa tombol Betulkan', /betulkanTanggal\('\$\{r\.id\}','\$\{p\.id\}'\)/.test(sel));
   T('penandanya memakai warna bahaya', /tglSeharusnya\(p\)\?[\s\S]{0,120}var\(--danger\)/.test(sel));
+
+  /* Modal Cek/Edit ikut menampilkan petunjuknya — di sanalah orang bekerja,
+     dan tombol di baris tabel tidak terlihat dari dalam modal. */
+  const modal = bersih.slice(bersih.indexOf('function openTfEdit('), bersih.indexOf('function openTfEdit(') + 4000);
+  T('modal Cek/Edit memanggil tglSeharusnya(p) di bawah kotak tanggal',
+    /id="tf_date"[\s\S]{0,200}\$\{tglSeharusnya\(p\)\?/.test(modal));
+  T('modal Cek/Edit memakai tfPakaiTglStempel, bukan betulkanTanggal',
+    /tfPakaiTglStempel\(/.test(modal) && !/betulkanTanggal\(/.test(modal));
 
   /* SCAN ULANG TIDAK MENULIS APA PUN SENDIRI ke baris yang sudah benar:
      applyOcr tetap menghormati `force`, jadi halaman yang menggambar ulang
