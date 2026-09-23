@@ -1542,12 +1542,12 @@ function syncDp(r){
 function newDp(){
   return { id:uid(), amount:0, method:"", proofData:"", proofName:"", by:SESSION?SESSION.name:"", at:Date.now(),
            tfDate:"", tfTime:"", tfBank:"", tfName:"", tfAmount:0, tfStatus:"", tfNote:"",
-           tfSource:"", tfBy:"", tfAt:0, tfOcrAt:0, tfOcrText:"" };
+           tfSource:"", tfBy:"", tfAt:0, tfOcrAt:0, tfOcrText:"", tfOcrSaran:null };
 }
 // Bukti diganti → hasil scan lama tidak berlaku lagi.
 function resetDpScan(p){
   p.tfDate=""; p.tfTime=""; p.tfBank=""; p.tfName=""; p.tfAmount=0;
-  p.tfStatus=""; p.tfSource=""; p.tfOcrAt=0; p.tfOcrText="";
+  p.tfStatus=""; p.tfSource=""; p.tfOcrAt=0; p.tfOcrText=""; p.tfOcrSaran=null;
 }
 // Apakah reservasi `r` mengunci mejanya untuk jam datang `time`?
 // Semua diukur H-3 JAM DARI JAM DATANG `r`:
@@ -8488,9 +8488,26 @@ const TF_BADGE = {
 /* Penanda "dari gambar" menempel pada lencana, bukan berdiri sebagai kolom
    sendiri: yang perlu tahu bedanya adalah orang yang sedang membaca status
    baris itu, dan kolom tambahan cuma kosong di 95% baris. */
+/* DUA PENANDA, dan keduanya menjawab pertanyaan yang berbeda:
+
+     (dari gambar)    sudah diverifikasi orang, tapi sebagian kolomnya
+                      memang tidak terbaca — jadi yang dinyatakan benar
+                      uangnya, bukan angkanya.
+     (angka dari mesin)  belum diputuskan siapa pun, DAN angka yang berdiri
+                      di kolomnya berasal dari OCR — bukan dari orang yang
+                      melihat buktinya.
+
+   Yang kedua hanya bisa muncul pada baris yang lahir SEBELUM 23 September
+   2026: sejak applyOcr() berhenti menulis, `tfSource` cuma disetel
+   readTfForm(), yaitu orang yang menekan Simpan. Penandanya karena itu
+   menyusut sendiri seiring baris lama dibereskan — dan selama ia masih ada,
+   ia menunjuk tepat ke tumpukan yang perlu dicocokkan ulang. */
 function tfTandaGambar(p){
-  return (p.tfStatus==="verified" && p.tfTanpaData)
-    ? ` <span class="hint" title="Diverifikasi dari gambar bukti — ${esc(p.tfTanpaData)} tidak terbaca OCR">(dari gambar)</span>` : "";
+  if(p.tfStatus==="verified" && p.tfTanpaData)
+    return ` <span class="hint" title="Diverifikasi dari gambar bukti — ${esc(p.tfTanpaData)} tidak terbaca OCR">(dari gambar)</span>`;
+  if(!p.tfStatus && p.tfSource==="ocr")
+    return ` <span class="hint" style="color:var(--danger)" title="Tanggal, jam, nominal, bank &amp; nama di baris ini dibaca mesin dan belum pernah dicocokkan orang dengan gambar buktinya. Buka Cek / Edit.">(angka dari mesin)</span>`;
+  return "";
 }
 function tfBadge(p){ return (TF_BADGE[p.tfStatus] || '<span class="badge-status st-pending">⏳ Belum terverifikasi</span>') + tfTandaGambar(p); }
 
@@ -8996,7 +9013,9 @@ TBL_RENDER.finance = () => renderFinance();
 
 /* ---------- Scan otomatis saat halaman dibuka ----------
    Halaman ini langsung membaca sendiri bukti-bukti yang belum pernah discan, jadi
-   finance tidak perlu menekan tombol apa pun. Yang sudah punya hasil scan tidak
+   sarannya sudah siap sebelum ada yang membuka Cek / Edit — pembacaan satu
+   gambar makan beberapa detik, dan menunggunya di dalam modal membuat orang
+   menekan tombolnya berkali-kali. Yang sudah punya hasil scan tidak
    dibaca ulang (hemat waktu & kuota), dan bukti yang gagal dibaca tidak dicoba
    terus-menerus dalam sesi yang sama supaya tidak muter-muter. */
 let FIN_SCAN = { busy:false, tried:new Set(), done:0, total:0 };
@@ -9021,8 +9040,8 @@ async function autoScanFinance(){
   logAudit("Scan Bukti TF", `Scan otomatis saat halaman Dana Masuk dibuka: ${FIN_SCAN.total} bukti (${ok} terbaca, ${gagal} gagal)`);
   saveState();
   if(CURRENT_PAGE==="finance") renderFinance();
-  if(ok) toast(`${ok} bukti transfer terbaca otomatis${gagal?`, ${gagal} perlu diisi manual`:""}`, gagal?"":"ok");
-  else if(gagal) toast("Bukti tidak terbaca otomatis. Cek koneksi internet, lalu isi manual lewat tombol Cek / Edit.","err");
+  if(ok) toast(`${ok} bukti punya saran hasil baca mesin — buka Cek / Edit untuk memakainya${gagal?`, ${gagal} gagal dibaca`:""}`, gagal?"":"ok");
+  else if(gagal) toast("Bukti tidak terbaca mesin. Cek koneksi internet, atau ketik sendiri lewat tombol Cek / Edit.","err");
 }
 function paintScanBanner(){
   const el=byId("finScanBanner"); if(!el) return;
@@ -9030,25 +9049,110 @@ function paintScanBanner(){
   const pct=FIN_SCAN.total?Math.round(FIN_SCAN.done/FIN_SCAN.total*100):0;
   el.innerHTML=`<div class="inline-info"><div style="flex:1">
      🔍 <b>Membaca bukti transfer otomatis…</b> ${FIN_SCAN.done} dari ${FIN_SCAN.total} selesai.
-     Tanggal, jam, nominal, bank &amp; nama pengirim akan terisi sendiri. Jangan tutup halaman ini.
+     Hasilnya jadi <b>saran</b> di bawah tiap kotak — kotaknya tidak diisi sendiri, tetap kamu yang memutuskan. Jangan tutup halaman ini.
      <div style="height:8px;background:#fff;border:1px solid var(--line);border-radius:20px;overflow:hidden;margin-top:8px">
        <div style="height:100%;width:${pct}%;background:var(--gold);transition:width .3s"></div>
      </div></div></div>`;
 }
 
-/* ---------- Scan bukti ---------- */
-// Terapkan hasil OCR ke SATU cicilan DP. Field yang sudah diisi manual tidak ditimpa
-// (kecuali force = scan ulang dari tombol).
-function applyOcr(p, parsed, text, force){
-  if(parsed.date   && (force || !p.tfDate))   p.tfDate=parsed.date;
-  if(parsed.time   && (force || !p.tfTime))   p.tfTime=parsed.time;
-  if(parsed.bank   && (force || !p.tfBank))   p.tfBank=parsed.bank;
-  if(parsed.name   && (force || !p.tfName))   p.tfName=parsed.name;
-  if(parsed.amount && (force || !p.tfAmount)) p.tfAmount=parsed.amount;
+/* ---------- Scan bukti ----------
+
+   HASIL OCR ADALAH SARAN, BUKAN ISIAN (23 September 2026, permintaan user:
+   "foto ini jadi masalah untuk membaca tulisan, terkadang salah baca,
+   terkadang benar, terkadang tidak terbaca … saya ingin mencatat uang masuk
+   secara manual saja tapi lewat sistem").
+   ---------------------------------------------------------------------
+   Sampai tanggal ini `applyOcr()` MENULIS LANGSUNG ke tfDate/tfTime/tfBank/
+   tfName/tfAmount, dan sejak itu angka hasil tebakan mesin tidak bisa lagi
+   dibedakan dari angka yang dibaca orang — keduanya berdiri di kotak yang
+   sama, dengan huruf yang sama.
+
+   Diukur atas 494 baris DP produksi (22 September 2026):
+
+     tanggal transfer KOSONG : 180 (36%)      nama pengirim KOSONG : 264 (53%)
+     jam transfer     KOSONG : 173 (35%)      bank          KOSONG :  67 (14%)
+     nominal di bukti BEDA dari yang diketik kru : 15 baris
+
+   Dan yang 15 itu bukan seluruhnya salah ketik kru — sebagian salah BACA,
+   dengan angka yang tetap kelihatan wajar di layar:
+
+     MARIATI       diketik    200.000   terbaca  20.000.000   (100x lipat)
+     Dian Amartha  diketik  2.242.500   terbaca       2.242   (3 digit hilang)
+     rian          diketik    500.000   terbaca       6.500
+
+   Sebaliknya 437 dari 452 nominal terbaca BENAR, jadi mencabut OCR
+   seluruhnya berarti membuang bantuan yang 97% berguna demi menutup 3% yang
+   salah. Yang dicabut karena itu bukan pembacaannya melainkan
+   KEWENANGANNYA MENULIS: hasilnya disimpan di `tfOcrSaran` dan digambar di
+   bawah kotaknya sebagai saran bertombol **Pakai**.
+
+     terbaca benar     -> satu klik, secepat dulu
+     terbaca salah     -> KELIHATAN, karena kotaknya masih kosong di sebelahnya
+     tidak terbaca     -> kotaknya kosong, dan itu jujur
+
+   Yang tersimpan sejak tanggal ini karena itu SELALU angka yang pernah
+   dilihat orang. Baris lama yang terlanjur diisi OCR TIDAK disentuh —
+   menimpanya berarti membuang data yang sebagian besarnya benar; yang
+   membedakannya `tfSource` ("ocr" vs "manual"). */
+function applyOcr(p, parsed, text){
+  p.tfOcrSaran = { date:parsed.date||"", time:parsed.time||"", bank:parsed.bank||"",
+                   name:parsed.name||"", amount:Number(parsed.amount)||0 };
   // teks mentah disimpan seadanya untuk pengecekan; dibatasi supaya blob data di
   // Google Sheet tidak membengkak
   p.tfOcrAt=Date.now(); p.tfOcrText=String(text||"").slice(0,1200);
-  p.tfSource="ocr";
+}
+/* Saran mesin untuk SATU kolom — dipulangkan hanya kalau ada isinya DAN
+   berbeda dari yang sekarang tersimpan. Saran yang mengulang isi kotaknya
+   sendiri cuma menambah baris yang tidak menyuruh apa-apa, dan barisan
+   seperti itu melatih orang berhenti membacanya. */
+const TF_SARAN_KOTAK = { date:"tf_date", time:"tf_time", bank:"tf_bank", name:"tf_name", amount:"tf_amount" };
+function saranOcr(p, kunci){
+  const s = p && p.tfOcrSaran; if(!s) return "";
+  if(kunci==="amount"){
+    const v=Number(s.amount)||0;
+    return (v>0 && v!==(Number(p.tfAmount)||0)) ? v : "";
+  }
+  const v=String(s[kunci]||"").trim(); if(!v) return "";
+  const kini = kunci==="date" ? String(p.tfDate||"")
+             : kunci==="time" ? String(p.tfTime||"")
+             : kunci==="bank" ? String(p.tfBank||"")
+             :                  String(p.tfName||"");
+  if(kini===v) return "";
+  /* Tanggal yang SAMA dengan stempel Ref tidak digambar dua kali: petunjuk
+     stempel berdiri tepat di atasnya dan lebih kuat — jamnya terbukti cocok,
+     sementara ini cuma hasil baca barisan tanggal. */
+  if(kunci==="date" && tglSeharusnya(p)===v) return "";
+  return v;
+}
+function saranTampil(kunci, v){
+  return kunci==="amount" ? rpDot(v) : kunci==="date" ? fmtDateShort(v) : String(v);
+}
+function saranHtml(resId, payId, p, kunci){
+  const v=saranOcr(p,kunci); if(!v) return "";
+  const kotak=TF_SARAN_KOTAK[kunci];
+  return `<div class="tf-saran" id="saran_${kotak}" style="font-size:12px;color:var(--muted);margin-top:6px">
+     🔍 Hasil baca mesin: <b style="color:var(--ink)">${esc(saranTampil(kunci,v))}</b>
+     <button type="button" class="btn btn-xs btn-ghost" style="margin-left:6px"
+       onclick="tfPakaiSaran('${resId}','${payId}','${kunci}')">Pakai</button></div>`;
+}
+/* Nilainya DIBACA ULANG dari `p`, tidak dititipkan lewat atribut onclick —
+   modul ini tidak punya escJs(), dan nama pengirim di bukti bisa memuat
+   kutip. Satu tanda kutip yang lolos merusak seluruh baris saran, dan yang
+   membacanya menyimpulkan tombolnya rusak. */
+function tfPakaiSaran(resId, payId, kunci){
+  const {p}=findDp(resId,payId); if(!p) return;
+  const v=saranOcr(p,kunci); if(!v) return;
+  const el=byId(TF_SARAN_KOTAK[kunci]); if(!el) return;
+  el.value = kunci==="amount" ? rpDot(v) : String(v);
+  const s=byId("saran_"+TF_SARAN_KOTAK[kunci]);
+  if(s){ s.style.color="var(--ok,#2e7d32)";
+    s.innerHTML="✓ diisi "+esc(saranTampil(kunci,v))+" — belum tersimpan, tekan Simpan."; }
+}
+function tfPakaiSemuaSaran(resId, payId){
+  const {p}=findDp(resId,payId); if(!p) return;
+  let n=0;
+  for(const k in TF_SARAN_KOTAK){ if(saranOcr(p,k)){ tfPakaiSaran(resId,payId,k); n++; } }
+  if(n) toast(n+" kolom diisi dari hasil baca mesin — cocokkan dengan gambarnya, lalu Simpan","ok");
 }
 async function scanProof(resId, payId, silent){
   const {r,p}=findDp(resId,payId); if(!r||!p) return null;
@@ -9060,14 +9164,14 @@ async function scanProof(resId, payId, silent){
     if(!gambar) throw new Error("Bukti tidak ditemukan di database");
     const text=await ocrRead(gambar);
     const parsed=parseTransferText(text);
-    applyOcr(p, parsed, text, true);
+    applyOcr(p, parsed, text);
     r.updatedAt=Date.now();
     const miss=["date","time","amount","bank","name"].filter(k=>!parsed[k]);
     if(!silent){
       saveState();
       logAudit("Scan Bukti TF", `${r.name}: ${parsed.bank||"?"} ${parsed.name||"?"} ${parsed.date||"?"} ${parsed.time||"?"} ${parsed.amount?rpDot(parsed.amount):"?"}`, r.id);
       openTfEdit(resId, payId);
-      toast(miss.length? `Bukti terbaca sebagian, lengkapi manual: ${miss.join(", ")}` : "Bukti terbaca ✓ cek lalu verifikasi","ok");
+      toast(miss.length? `Bukti terbaca sebagian — ${miss.join(", ")} tidak terbaca, ketik sendiri` : "Bukti terbaca ✓ cocokkan dengan gambarnya lalu tekan Pakai","ok");
     }
     return parsed;
   }catch(e){
@@ -9100,7 +9204,7 @@ async function scanAllProofs(){
   }
   logAudit("Scan Bukti TF", `Scan borongan: ${todo.length} bukti (${ok} terbaca, ${gagal} gagal/kosong)`);
   saveState(); closeModal(); if(CURRENT_PAGE) navigate(CURRENT_PAGE);   // verifikasi bisa dilakukan dari halaman mana pun (mis. detail reservasi)
-  toast(`Selesai: ${ok} bukti terbaca${gagal?`, ${gagal} perlu diisi manual`:""}`, gagal?"":"ok");
+  toast(`Selesai: ${ok} bukti punya saran${gagal?`, ${gagal} gagal dibaca`:""}`, gagal?"":"ok");
 }
 
 /* ---------- Cek / koreksi manual + verifikasi (per cicilan DP) ---------- */
@@ -9109,6 +9213,7 @@ function openTfEdit(resId, payId){
   const x={r,p};
   const ke=r.dps.findIndex(d=>d.id===p.id)+1, dari=r.dps.length;
   const banks=[...new Set([...OCR_BANKS.map(b=>b[0]), ...(STATE.master.dpMethods||[]).map(bankFromMethod)])].filter(Boolean).sort();
+  const nSaran=Object.keys(TF_SARAN_KOTAK).filter(k=>saranOcr(p,k)).length;
   openModal(`
    <div class="modal-head"><h3>💰 Cek Dana Masuk — ${esc(r.name)}${dari>1?` (DP ${ke} dari ${dari})`:""}</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
@@ -9119,24 +9224,36 @@ function openTfEdit(resId, payId){
            Nominal transfer ini menurut host: <b>${rpDot(p.amount)}</b> (${esc(p.method||"-")})
            ${dari>1?`<br>Total DP semua cicilan: <b>${rpDot(dpTotal(r))}</b> dari ${dari} kali transfer.`:""}
          </div></div>
+         ${nSaran?`<div class="inline-info" style="margin-bottom:12px;border-color:var(--gold)"><div>
+           🔍 <b>${nSaran} kolom punya hasil baca mesin.</b> Angkanya <b>belum masuk</b> —
+           cocokkan dulu dengan gambar di sebelah, baru tekan <b>Pakai</b>.
+           Mesin sering benar, tapi pernah membaca Rp200.000 jadi Rp20.000.000.
+           <div style="margin-top:8px"><button type="button" class="btn btn-sm btn-ghost"
+             onclick="tfPakaiSemuaSaran('${r.id}','${p.id}')">Pakai semua (${nSaran})</button></div>
+         </div></div>`:""}
          <div class="field"><label>Tanggal Transfer</label>
            <input type="date" id="tf_date" value="${esc(p.tfDate||"")}">
            ${tglSeharusnya(p)?`<div id="tf_date_saran" style="font-size:12px;color:var(--danger);font-weight:700;margin-top:6px">
                ⚠️ Nomor Ref di bukti menyebut <b>${esc(fmtDateShort(tglSeharusnya(p)))}</b>, dan jamnya cocok dengan jam transfer ini.
                <div style="font-weight:500;margin-top:4px"><button type="button" class="btn btn-xs btn-ghost"
-                 onclick="tfPakaiTglStempel('${esc(tglSeharusnya(p))}')">Pakai tanggal ini</button></div></div>`:""}</div>
+                 onclick="tfPakaiTglStempel('${esc(tglSeharusnya(p))}')">Pakai tanggal ini</button></div></div>`:""}
+           ${saranHtml(r.id,p.id,p,"date")}</div>
          <div class="field"><label>Jam Transfer <span class="hint" style="font-weight:400">(24 jam, WIB — ikut detik bila ada di bukti)</span></label>
-           <input type="time" id="tf_time" step="1" value="${esc(p.tfTime||"")}"></div>
+           <input type="time" id="tf_time" step="1" value="${esc(p.tfTime||"")}">
+           ${saranHtml(r.id,p.id,p,"time")}</div>
          <div class="field"><label>Bank / Metode</label>
            <input id="tf_bank" list="tfBanks" value="${esc(txBank(x))}" placeholder="mis. BCA">
-           <datalist id="tfBanks">${banks.map(b=>`<option value="${esc(b)}">`).join("")}</datalist></div>
+           <datalist id="tfBanks">${banks.map(b=>`<option value="${esc(b)}">`).join("")}</datalist>
+           ${saranHtml(r.id,p.id,p,"bank")}</div>
          <div class="field"><label>Nama Pemilik Rekening Pengirim</label>
-           <input id="tf_name" value="${esc(p.tfName||"")}" placeholder="mis. DODY IRWANDI"></div>
+           <input id="tf_name" value="${esc(p.tfName||"")}" placeholder="mis. DODY IRWANDI">
+           ${saranHtml(r.id,p.id,p,"name")}</div>
          <div class="field"><label>Nominal di Bukti</label>
-           <input id="tf_amount" inputmode="numeric" value="${txAmount(x)?rpDot(txAmount(x)):""}" oninput="fmtRupiahInput(this)" placeholder="mis. 500.000"></div>
+           <input id="tf_amount" inputmode="numeric" value="${txAmount(x)?rpDot(txAmount(x)):""}" oninput="fmtRupiahInput(this)" placeholder="mis. 500.000">
+           ${saranHtml(r.id,p.id,p,"amount")}</div>
          <div class="field"><label>Catatan Finance</label>
            <input id="tf_note" value="${esc(p.tfNote||"")}" placeholder="mis. dana masuk rek. BCA 12:04"></div>
-         <div class="hint">${p.tfOcrAt?`🔍 Terakhir discan ${fmtTs(p.tfOcrAt)}${p.tfSource==="manual"?", lalu dikoreksi manual":""}`:"Belum pernah discan OCR."}</div>
+         <div class="hint">${p.tfOcrAt?`🔍 Terakhir dibaca mesin ${fmtTs(p.tfOcrAt)}${p.tfSource==="manual"?" · isian di atas sudah pernah disimpan orang":p.tfSource==="ocr"?" · isian di atas <b>berasal dari mesin</b> dan belum pernah dicek orang":""}`:"Belum pernah dibaca mesin."}</div>
          ${p.tfOcrText?`<details style="margin-top:8px"><summary class="hint" style="cursor:pointer">Lihat teks mentah hasil OCR</summary>
            <pre style="white-space:pre-wrap;font-size:11px;background:var(--paper);border:1px solid var(--line);border-radius:8px;padding:8px;margin-top:6px;max-height:160px;overflow:auto">${esc(p.tfOcrText)}</pre></details>`:""}
        </div>

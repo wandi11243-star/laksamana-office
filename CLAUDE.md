@@ -9136,8 +9136,119 @@ orangnya. Petunjuknya berganti bunyi jadi *"belum tersimpan, tekan Simpan"*.
 > menolong orang yang sedang membuka modalnya.
 
 ```bash
-node tools/uji-tanggal-tf.js   # 61 pemeriksaan (dari 55)
+node tools/uji-tanggal-tf.js   # 63 pemeriksaan (dari 55)
 ```
+
+#### HASIL OCR JADI SARAN, BUKAN ISIAN (23 September 2026)
+
+Permintaan user, sesudah dua putaran menambal pembacaan tanggal: *"foto ini
+jadi masalah untuk membaca tulisan, terkadang salah baca, terkadang benar,
+terkadang tidak terbaca … saya ingin mencatat uang masuk secara manual saja
+tapi lewat sistem, mungkin bisa dicocokkan secara manual saja"*.
+
+Sampai tanggal ini `applyOcr()` **MENULIS LANGSUNG** ke `tfDate` / `tfTime` /
+`tfBank` / `tfName` / `tfAmount`, dan sejak itu angka tebakan mesin tidak bisa
+lagi dibedakan dari angka yang dibaca orang — keduanya berdiri di kotak yang
+sama, dengan huruf yang sama.
+
+**DIUKUR ATAS 494 BARIS DP PRODUKSI, bukan dikira-kira:**
+
+| kolom | KOSONG |
+|---|---|
+| tanggal transfer | **180 (36%)** |
+| jam transfer | 173 (35%) |
+| nama pengirim | **264 (53%)** |
+| bank | 67 (14%) |
+| nominal di bukti | 41 (8%) |
+
+Dan dari 452 baris yang nominalnya terbaca, **15 berbeda** dari yang diketik
+kru. Sebagian memang benar (biaya admin Rp500 / Rp2.500), sebagian **salah
+baca — dengan angka yang tetap kelihatan wajar di layar**:
+
+```
+MARIATI       diketik    200.000   terbaca  20.000.000   (100x lipat)
+Dian Amartha  diketik  2.242.500   terbaca       2.242   (3 digit hilang)
+rian          diketik    500.000   terbaca       6.500
+```
+
+**YANG DICABUT BUKAN PEMBACAANNYA, MELAINKAN KEWENANGANNYA MENULIS.** 437 dari
+452 nominal terbaca BENAR, jadi mematikan OCR seluruhnya berarti membuang
+bantuan yang 97% berguna demi menutup 3% yang salah. Hasilnya sekarang
+disimpan di **`tfOcrSaran`** dan digambar di bawah kotaknya sebagai saran
+bertombol **Pakai**:
+
+| | |
+|---|---|
+| terbaca benar | satu klik, secepat dulu |
+| terbaca salah | **KELIHATAN** — kotaknya masih kosong di sebelahnya |
+| tidak terbaca | kotaknya kosong, dan itu jujur |
+
+- **YANG TERSIMPAN SEJAK TANGGAL INI SELALU ANGKA YANG PERNAH DILIHAT ORANG.**
+  Itu satu kalimat yang menjelaskan seluruh perubahan ini.
+- **Baris LAMA tidak disentuh** — menimpanya berarti membuang data yang
+  sebagian besarnya benar, dan penghapusan di repo ini tidak bisa dikembalikan.
+  Yang membedakannya `tfSource`, dan 320 baris produksi yang masih `"ocr"` DAN
+  belum diputuskan siapa pun sekarang bertanda **(angka dari mesin)** di
+  badge-nya. Penandanya **menyusut sendiri** seiring baris lama dibereskan;
+  selama masih ada, ia menunjuk tepat ke tumpukan yang perlu dicocokkan ulang.
+- **`tfSource` TIDAK lagi disetel `"ocr"` oleh `applyOcr()`.** Satu-satunya
+  yang menyetelnya sekarang `readTfForm()` — yaitu orang yang menekan Simpan.
+  Kalau `applyOcr` kembali menyetelnya, penanda di atas berbohong untuk baris
+  yang justru baru dibaca mesin.
+- **TOMBOL PAKAI MENGISI KOTAKNYA, TIDAK MENYIMPAN.** Aturan yang sama dengan
+  `tfPakaiTglStempel()` sehari sebelumnya: modal itu sudah punya Simpan dan
+  Simpan & Verifikasi, dan tombol kedua yang ikut menulis berarti saran mesin
+  masuk ke data tanpa ada yang menekan Simpan — persis perilaku yang dicabut.
+- **Nilainya DIBACA ULANG dari `p`, tidak dititipkan lewat atribut `onclick`.**
+  Modul ini **tidak punya `escJs()`**, dan nama pemilik rekening di bukti bisa
+  memuat tanda kutip. Satu kutip yang lolos merusak seluruh barisnya, dan yang
+  membacanya menyimpulkan tombolnya rusak.
+- **Saran yang MENGULANG isi kotaknya sendiri tidak digambar.** Barisan yang
+  tidak menyuruh apa-apa melatih orang berhenti membacanya — dan yang pertama
+  diabaikan adalah barisan yang memang perlu ditekan.
+- **Tanggal yang SAMA dengan stempel Ref tidak ditawarkan dua kali.** Petunjuk
+  stempel berdiri tepat di atas kotak yang sama dan **lebih kuat** (jamnya
+  terbukti cocok); dua tawaran untuk satu tanggal membuat yang membacanya
+  menebak mana yang berlaku.
+- **Nominal dibandingkan sebagai ANGKA, bukan string** — `"200000"` dan
+  `200000` nominal yang sama, dan saran yang mengulangnya cuma tombol yang
+  tidak mengubah apa pun.
+- **Ganti bukti ikut membuang sarannya** (`resetDpScan`). Tertinggal, modal
+  menawarkan angka dari struk yang sudah tidak ada di baris itu.
+- **Scan otomatis saat halaman dibuka TIDAK dicabut** — sarannya jadi siap
+  sebelum ada yang membuka Cek / Edit, dan pembacaan satu gambar makan
+  beberapa detik. Yang berubah **kalimat pitanya**: ia tidak lagi menjanjikan
+  kotaknya terisi sendiri.
+- **Penjaga verifikasi TIDAK dikembalikan.** Kolom kosong tetap boleh
+  diverifikasi (ditandai `tfTanpaData`) — alasannya sudah tertulis di
+  `verifyTf()` sejak 20 Agustus 2026 dan masih berlaku: orangnya sedang
+  MELIHAT buktinya di layar, dan mengetik ulang isi bukti supaya penjaganya
+  lolos tidak membuat angkanya lebih benar.
+
+**PENCOCOKAN QRIS BRI JUSTRU MEMBAIK, dan tidak ada satu baris pun yang perlu
+diubah di sana.** `cocok-bri.js` sudah memakai `tfAmount` hanya SELAMA ADA dan
+jatuh ke `amount` yang diketik kru; sejak `tfAmount` tidak lagi diisi mesin,
+yang dipakainya angka manusia. DP tanpa `tfDate` pun memang sudah ditoleransi
+di sana (ditaruh di akhir daftar, dan sebabnya dikatakan). Yang berubah cuma
+jumlahnya — lebih banyak baris menunggu tanggalnya diketik orang.
+
+```bash
+node tools/uji-saran-ocr.js   # 70 pemeriksaan, jsdom
+```
+
+**Delapan belas mutasi dicoba; tujuh belas tertangkap dan SATU EKUIVALEN** —
+mencabut penjaga `if(!v) return ""` di `saranOcr()` tidak mengubah apa pun,
+karena nilai kosong tetap jatuh ke `kini===v` atau ke `return v` yang
+sama-sama memulangkan `""`. Dibuktikan dengan menjalankan kedua versi atas 240
+bentuk. Penjaganya tetap ditulis: maksudnya terbaca.
+
+> **BAGIAN [8] UJINYA MERENDER MODALNYA DI JSDOM, bukan membaca sumbernya.**
+> Rujukan yang benar di berkas tidak membuktikan ada barisan saran yang
+> benar-benar muncul — asersi sumber tetap hijau untuk template literal yang
+> jatuh dengan SyntaxError, dan gejalanya bukan galat melainkan modal yang
+> tidak pernah terbuka. Yang dikunci di sana: kotaknya **masih kosong**,
+> barisan sarannya ada di DOM, dan menekan tombolnya benar-benar mengisi kotak
+> TANPA menyentuh datanya. Pelajaran yang sudah dibayar logo panel Kas Kecil.
 
 
 ### Reservasi: kwitansi ditahan sampai dananya diverifikasi (16 Sep 2026)

@@ -327,11 +327,21 @@ const STRUK_HANCUR = [
   T('modal Cek/Edit memakai tfPakaiTglStempel, bukan betulkanTanggal',
     /tfPakaiTglStempel\(/.test(modal) && !/betulkanTanggal\(/.test(modal));
 
-  /* SCAN ULANG TIDAK MENULIS APA PUN SENDIRI ke baris yang sudah benar:
-     applyOcr tetap menghormati `force`, jadi halaman yang menggambar ulang
-     tidak diam-diam menimpa tanggal yang sudah dibetulkan orang. */
-  T('applyOcr tetap menghormati force untuk tfDate',
-    /if\(parsed\.date\s*&&\s*\(force\s*\|\|\s*!p\.tfDate\)\)/.test(bersih));
+  /* SEJAK 23 SEPTEMBER 2026 applyOcr TIDAK MENULIS SATU KOLOM PUN — hasilnya
+     cuma disimpan sebagai saran. Yang dijaga di sini KETIADAAN penulisannya:
+     satu baris `p.tfDate=` yang kembali di sana mengembalikan seluruh
+     persoalan yang perubahan itu tutup, dan gejalanya bukan galat melainkan
+     angka mesin yang berdiri di kotak yang dibaca orang sebagai angka yang
+     sudah dicek. */
+  const badanApply = (() => {
+    const i = bersih.indexOf('function applyOcr(');
+    const j = ['\nfunction ', '\nconst ', '\nlet '].map(k => bersih.indexOf(k, i + 1)).filter(x => x > 0);
+    return bersih.slice(i, j.length ? Math.min(...j) : bersih.length);
+  })();
+  T('applyOcr menyimpan sarannya di tfOcrSaran', /p\.tfOcrSaran\s*=/.test(badanApply));
+  T('applyOcr TIDAK menulis satu kolom tersimpan pun',
+    !/p\.(tfDate|tfTime|tfBank|tfName|tfAmount)\s*=/.test(badanApply));
+  T('applyOcr tidak lagi menerima argumen force', !/\bforce\b/.test(badanApply));
 
   console.log('\n' + '='.repeat(52));
   console.log('  OK: ' + ok + '   GAGAL: ' + gagal + '   LEWAT: ' + lewat);
