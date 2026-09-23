@@ -336,7 +336,11 @@ function bikinServer() {
        menyambungkannya lewat panggilan KEDUA yang butuh id itu. Stub yang
        tidak memulangkannya membuat penyambungannya gagal diam-diam, dan
        asersinya hijau untuk kode yang tidak pernah menyambung apa pun. */
-    nTambah: 0, tolakCocok: false
+    nTambah: 0, tolakCocok: false,
+    /* dpId yang sudah dipegang baris di LUAR rentang yang diminta. Tanpa
+       ini daftar kerja cuma tahu bulan yang sedang dibuka, dan DP yang sudah
+       dicatat di September tetap ditagih di Agustus. */
+    dipakai: []
   };
   S.fetch = (url, opt) => {
     const u = String(url);
@@ -373,7 +377,8 @@ function bikinServer() {
       return jawab({ ok: true, data: { saved: true, n: 1 } });
     }
     if (u.indexOf('briList') >= 0)
-      return jawab({ ok: true, data: { baris: MUT_UJI, total: MUT_UJI.length, maks: 2000, abai: S.abai.slice() } });
+      return jawab({ ok: true, data: { baris: MUT_UJI, total: MUT_UJI.length, maks: 2000,
+                                       abai: S.abai.slice(), dipakai: S.dipakai.slice() } });
     if (u.indexOf('getFile') >= 0) {
       const m = u.match(/key=([^&]+)/);
       S.getFile.push(m ? decodeURIComponent(m[1]) : '');
@@ -462,6 +467,20 @@ async function ujiHalaman() {
      sebab yang sama sekali lain. Satu asersi konfirmasi memang hampa karena
      ini di putaran pertama. */
   const bukaPanel = id => { if (S.buka !== id) W.cbBuka(id); };
+  /* FORMULIRNYA DIISI LEWAT DOM, bukan lewat cbKetikTambah().
+     cbSimpanTambah() MEMBACA ULANG kotaknya dari DOM sebelum mengirim —
+     penangan `input` tidak jalan untuk isian yang diisi autofill atau
+     pemilih tanggal bawaan peramban — jadi uji yang cuma menyetel state
+     mengirim isi kotak yang LAMA. Bentuknya: penyimpanannya ditolak penjaga
+     kelengkapan, CB.pesan tidak pernah terisi, dan asersi "tidak ada
+     penyambungan yang terkirim" hijau karena tidak ada apa pun yang
+     terkirim. */
+  const isiFormTambah = (tgl, jam, nominal, ket) => {
+    const k = W.document.querySelectorAll('#cb-wrap .cb-pra .cb-in');
+    if (k.length < 4) return false;
+    k[0].value = tgl; k[1].value = jam; k[2].value = nominal; k[3].value = ket;
+    return true;
+  };
   const barisTabel = () => {
     const k = kartu('Dana Masuk BRI');
     const m = k.match(/<tbody>([\s\S]*?)<\/tbody>/);
@@ -1038,6 +1057,26 @@ async function ujiHalaman() {
     }
     T('formulirnya tertutup sesudah tersimpan', !S.tambah);
     T('layarnya mengatakan barisnya tersambung', /tersambung ke Arlanda/.test(S.pesan || ''), S.pesan);
+    T('tanggalnya di bulan yang sama, jadi tidak diberi kalimat bulan lain',
+      !/di luar/.test(S.pesan || ''), S.pesan);
+  }
+
+  /* ===== JALUR CATAT JUGA WAJIB MENYEBUT BULANNYA =====
+     Inilah jalur yang benar-benar dipakai user waktu melaporkannya: DP yang
+     tanggal transfernya tidak terbaca muncul di SETIAP bulan, jadi orang
+     membuka Agustus, menekan Catat, lalu mengisi tanggal hari ini — dan
+     barisnya mendarat di September. Kalimat "tersambung" tanpa keterangan
+     bulan membuat layar berbunyi berhasil di atas tabel yang tetap kosong. */
+  {
+    W.cbTutupTambah();
+    W.cbGambar(el, '2026-09');
+    await tidur(20);
+    aman('buka Catat untuk DP tanpa tanggal transfer', () => { W.cbCatatDp('p3'); });
+    T('kotaknya terisi tanggal bulan lain', isiFormTambah('2026-08-20', '', '175000', 'Bagas'));
+    await amanAsync('simpan', async () => { await W.cbSimpanTambah(); });
+    T('pesannya tetap mengatakan barisnya tersambung', /tersambung ke Bagas/.test(S.pesan || ''), S.pesan);
+    T('DAN menyebut barisnya mendarat di bulan lain',
+      /di luar Sep 2026/.test(S.pesan || '') && /Agu 2026 untuk melihatnya/.test(S.pesan || ''), S.pesan);
   }
 
   /* ===== PENYAMBUNGAN YANG GAGAL TIDAK BOLEH DIAM =====
@@ -1071,13 +1110,16 @@ async function ujiHalaman() {
     T('formulir kosong tidak membawa niat menyambung', !(S.tambah && S.tambah.dp));
     const pra2 = html().slice(html().indexOf('cb-pra'));
     T('bunyinya berbeda dari yang dibuka dari DP', pra2.indexOf('langsung disambungkan') < 0);
-    W.cbKetikTambah({ value: '2026-09-11', classList: { remove: () => {} } }, 'tgl');
-    W.cbKetikTambah({ value: '400000', classList: { remove: () => {} } }, 'nominal');
-    W.cbKetikTambah({ value: 'Sewa videotron', classList: { remove: () => {} } }, 'ket');
+    T('kotak formulir kosong terisi', isiFormTambah('2026-09-11', '', '400000', 'Sewa videotron'));
     const n1 = SRV.post.length;
     await amanAsync('simpan formulir kosong', async () => { await W.cbSimpanTambah(); });
-    const baru2 = SRV.post.slice(n1).filter(p => p.body.action === 'briCocok');
-    T('tidak ada penyambungan yang ikut terkirim', baru2.length === 0);
+    const kirim2 = SRV.post.slice(n1).filter(p => p.body.action === 'briTambah' || p.body.action === 'briCocok');
+    /* BARISNYA HARUS BENAR-BENAR TERKIRIM dulu — kalau tidak, "tidak ada
+       penyambungan" hijau cuma karena tidak ada apa pun yang berangkat. */
+    T('barisnya terkirim', kirim2.length === 1 && kirim2[0].body.action === 'briTambah',
+      kirim2.map(x => x.body.action).join('|'));
+    T('tidak ada penyambungan yang ikut terkirim',
+      kirim2.filter(x => x.body.action === 'briCocok').length === 0);
     W.cbTutupTambah();
   }
 
@@ -1089,6 +1131,79 @@ async function ujiHalaman() {
     html().indexOf('terisi sendiri') < 0);
   T('kartu atas menunjuk ke daftar kerjanya',
     html().indexOf('DP Reservasi yang Belum Dicatat') >= 0);
+
+  /* ===== DP YANG SUDAH DICATAT DI BULAN LAIN BERHENTI DITAGIH =====
+     (23 September 2026, dilaporkan user: "udah berhasil dicatat tapi tidak
+     tersimpan")
+     -----------------------------------------------------------------
+     Barisnya MEMANG tersimpan — dua-duanya, berikut pencocokannya. Yang
+     salah dua hal: barisnya bertanggal di luar bulan yang sedang dibuka
+     (jadi tidak terlihat), dan daftar kerjanya TETAP menagih DP-nya karena
+     `dpTerpakai()` cuma membaca baris bulan itu.
+
+     BUKAN kasus pinggiran: DP yang tanggal transfernya tidak terbaca muncul
+     di SETIAP bulan lewat `|| !d.tfTgl` di dpsBulan(), jadi tanpa perbaikan
+     ini ia ditagih selamanya di sebelas bulan lainnya — dan yang menuruti
+     tagihannya mencatatnya untuk kedua kalinya. */
+  {
+    W.cbBuka(''); W.cbTutupTambah(); W.cbKetikCari({ value: '' });
+    const sebelum = kartu('DP Reservasi yang Belum Dicatat');
+    T('p3 masih ditagih sebelum server menyebutnya sudah dipakai',
+      sebelum.indexOf('Bagas') >= 0);
+
+    SRV.dipakai = ['p3'];
+    W.cbSegarkan();
+    for (let i = 0; i < 100 && !S.dipakai['p3']; i++) await tidur(10);
+    T('daftar dpId terpakai terbaca dari server', !!S.dipakai['p3'], JSON.stringify(S.dipakai));
+    W.cbGambar(el, '2026-09');
+    await tidur(20);
+    const sesudah = kartu('DP Reservasi yang Belum Dicatat');
+    T('DP yang sudah dicatat di bulan lain berhenti ditagih',
+      sesudah.indexOf('Bagas') < 0, sesudah.slice(0, 300));
+    /* Yang LAIN tetap ditagih — mutasi yang membuang seluruh daftarnya harus
+       punya tempat untuk gagal. */
+    T('DP lain tetap ditagih', sesudah.indexOf('Arlanda') >= 0);
+    /* DAN IA JUGA BERHENTI DITAWARKAN sebagai kandidat pencocokan: satu DP
+       yang dipegang dua baris berarti satu transfer diakui dua kali. */
+    bukaPanel('b1');
+    T('DP yang sudah dipakai tidak ditawarkan lagi di panel pencocokan',
+      html().indexOf("cbPilihDp('b1','p3')") < 0);
+    W.cbBuka('');
+
+    SRV.dipakai = [];
+    W.cbSegarkan();
+    for (let i = 0; i < 100 && S.dipakai['p3']; i++) await tidur(10);
+    W.cbGambar(el, '2026-09');
+    await tidur(20);
+    T('kembali ditagih begitu barisnya dibatalkan di server',
+      kartu('DP Reservasi yang Belum Dicatat').indexOf('Bagas') >= 0);
+  }
+
+  /* ===== BARIS YANG MENDARAT DI BULAN LAIN WAJIB DIKATAKAN =====
+     Layar yang berbunyi "tersimpan" di atas tabel yang tetap kosong adalah
+     dua pernyataan yang bertentangan — dan yang membacanya menyimpulkan
+     penyimpanannya gagal. */
+  {
+    W.cbTutupTambah();
+    W.cbGambar(el, '2026-09');
+    await tidur(20);
+    aman('buka formulir', () => { W.cbBukaTambah(); });
+    T('kotak formulirnya terisi', isiFormTambah('2026-08-14', '', '250000', 'Sewa videotron'));
+    await amanAsync('simpan baris bulan lain', async () => { await W.cbSimpanTambah(); });
+    T('pesannya menyebut barisnya mendarat di bulan lain',
+      /di luar Sep(tember)? 2026/.test(S.pesan || ''), S.pesan);
+    T('pesannya menyebut bulan mana yang harus dibuka',
+      /Agu(stus)? 2026 untuk melihatnya/.test(S.pesan || ''), S.pesan);
+
+    /* Baris yang tanggalnya MASIH di bulan yang sama tidak diberi kalimat
+       itu — keterangan yang selalu muncul berhenti dibaca. */
+    W.cbTutupTambah();
+    aman('buka formulir lagi', () => { W.cbBukaTambah(); });
+    T('kotak formulirnya terisi lagi', isiFormTambah('2026-09-14', '', '90000', 'Setoran tamu'));
+    await amanAsync('simpan baris bulan ini', async () => { await W.cbSimpanTambah(); });
+    T('baris di bulan yang sama tidak diberi kalimat itu',
+      !/di luar/.test(S.pesan || ''), S.pesan);
+  }
 
   /* ===== PAGINATION KETIGA TABELNYA (23 September 2026) =====
      Diuji dengan MENGECILKAN ukuran halamannya, bukan dengan membesarkan
@@ -1383,6 +1498,21 @@ function ujiPhp() {
   T('jumlah baris dihitung SEBELUM LIMIT',
     bList.indexOf('SELECT COUNT(*)') < bList.indexOf('LIMIT'));
   T('bri_list memulangkan sumber', bList.indexOf("'sumber' => (string)") >= 0);
+  /* dpId TERPAKAI DIPULANGKAN TANPA MEMANDANG BULAN (23 September 2026).
+     Server tiruannya memulangkan apa saja, jadi tanpa kontrak ini seluruh
+     sisi PHP-nya lewat tanpa disentuh — dan di produksi daftar kerja menagih
+     DP yang sudah dicatat di bulan lain, selamanya. */
+  T('bri_list memulangkan daftar dpId yang sudah dipakai', /'dipakai' => \$dipakai/.test(bList),
+    (bList.match(/return array\([\s\S]{0,220}/) || [''])[0]);
+  T('daftar itu TIDAK dijepit ke rentang tanggalnya',
+    /SELECT DISTINCT `dp_id` FROM `bri_mutasi`/.test(bList)
+    && !/SELECT DISTINCT `dp_id`[\s\S]{0,200}BETWEEN/.test(bList));
+  /* Baris yang DIBATALKAN tidak ikut menahan DP-nya — DP itu memang tidak
+     dipegang siapa-siapa lagi, dan menahannya berarti ia tidak akan pernah
+     bisa dicatat ulang. */
+  T('baris yang dibatalkan tidak ikut menahan DP-nya',
+    /`dp_id` <> ''[\s\S]{0,60}`batal_at` = 0/.test(bList),
+    (bList.match(/SELECT DISTINCT[\s\S]{0,140}/) || [''])[0]);
 
   const bTambah = badan('bri_tambah');
   T('bri_tambah ada', !!bTambah);

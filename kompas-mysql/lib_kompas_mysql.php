@@ -2897,10 +2897,35 @@ function bri_list($dari, $sampai) {
       'batalAt' => (float)$r['batal_at'], 'batalOleh' => (string)$r['batal_oleh'],
       'batalAlasan' => (string)$r['batal_alasan']);
   }
+  /* dpId YANG SUDAH DIPEGANG BARIS MANA PUN, TANPA MEMANDANG BULAN
+     (23 September 2026).
+     -----------------------------------------------------------------
+     Daftar kerja "DP Reservasi yang Belum Dicatat" menyaring DP yang sudah
+     punya barisnya lewat `dpTerpakai()` — dan sampai tanggal ini fungsi itu
+     cuma membaca baris BULAN YANG SEDANG DIBUKA. Akibatnya DP yang sudah
+     dicatat di September tetap ditagih di Agustus, Oktober, dan seterusnya;
+     yang menuruti tagihannya mencatatnya untuk kedua kalinya, dan satu
+     transfer berdiri dua kali di daftar dana masuk.
+
+     BUKAN kasus pinggiran: DP yang tanggal transfernya tidak terbaca
+     (sepertiga di produksi) muncul di SETIAP bulan lewat `|| !d.tfTgl` di
+     dpsBulan(), jadi tanpa daftar ini ia ditagih selamanya di sebelas bulan
+     lainnya. Dilaporkan user 23 September 2026 — dua DP yang sudah tercatat
+     dan tersambung masih berdiri di daftar kerja Agustus.
+
+     YANG DIPULANGKAN ID-NYA SAJA, bukan barisnya: yang dibutuhkan layar cuma
+     "sudah dipegang atau belum", dan barisnya sendiri akan menggandakan
+     balasan untuk rentang yang justru sedang disaring. Baris yang DIBATALKAN
+     tidak ikut — DP-nya memang tidak dipegang siapa-siapa lagi. */
+  $dipakai = array();
+  $stp = $pdo->query("SELECT DISTINCT `dp_id` FROM `bri_mutasi`
+                       WHERE `dp_id` <> '' AND `batal_at` = 0");
+  foreach ($stp->fetchAll() as $r) $dipakai[] = (string)$r['dp_id'];
+
   /* NISAN IKUT DI BALASAN YANG SAMA, bukan aksi baca kedua: halaman ini
      menggambar daftar dan nisannya dalam satu render, dan dua permintaan yang
      datangnya tidak bersamaan membuat baris tercoret berkedip jadi hidup lagi
      sekejap tiap halaman digambar ulang. */
   return array('baris' => $baris, 'total' => $total, 'maks' => BRI_LIST_MAKS,
-               'abai' => bri_abai_list($dari, $sampai));
+               'abai' => bri_abai_list($dari, $sampai), 'dipakai' => $dipakai);
 }

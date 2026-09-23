@@ -200,6 +200,11 @@
        permintaan yang datangnya tidak bersamaan membuat baris tercoret
        berkedip jadi hidup lagi sekejap tiap halaman digambar ulang. */
     abai: {},
+    /* dpId yang SUDAH dipegang baris dana masuk mana pun, tanpa memandang
+       bulan (23 September 2026). Dibaca dari server bersama daftarnya —
+       dihitung dari CB.rows saja, ia cuma tahu bulan yang sedang dibuka, dan
+       DP yang sudah dicatat di September tetap ditagih di Agustus. */
+    dipakai: {},
     /* Daftar metode pembayaran milik modul Reservasi (master.dpMethods).
        DIBACA, tidak disalin: yang memutuskan daftar metode modul itu, dan
        daftar kedua di sini pasti menyimpang begitu ada metode baru. */
@@ -260,8 +265,16 @@
       const ab = {};
       for (const a of ((j.data && j.data.abai) || [])) if (a && a.dpId) ab[a.dpId] = a;
       CB.abai = ab;
+      /* dpId yang sudah dipegang baris MANA PUN, tanpa memandang bulan —
+         lihat bri_list(). Server lama yang belum memulangkannya membuat
+         daftar ini kosong, dan perilakunya kembali seperti sebelum
+         23 September 2026: benar untuk bulan yang sedang dibuka, salah
+         untuk bulan lain. Bukan galat, jadi tidak ditolak. */
+      const dp = {};
+      for (const id of ((j.data && j.data.dipakai) || [])) if (id) dp[String(id)] = true;
+      CB.dipakai = dp;
       CB.err = '';
-    } catch (e) { CB.rows = []; CB.abai = {}; CB.err = (e && e.message) || String(e); }
+    } catch (e) { CB.rows = []; CB.abai = {}; CB.dipakai = {}; CB.err = (e && e.message) || String(e); }
     CB.opsi.gambarUlang();
   }
 
@@ -444,7 +457,11 @@
      server (bri_dp_dipakai): layar bisa saja memegang daftar yang sudah
      basi, dan dua orang yang mencocokkan bersamaan hanya ketahuan di sana. */
   function dpTerpakai() {
+    /* DISEMAI DARI SERVER dulu, baru ditimpa baris bulan ini. Urutannya
+       tidak menentukan — keduanya cuma dibaca sebagai "sudah dipegang atau
+       belum" — tapi baris bulan ini yang dibawa utuh, jadi ia yang menang. */
     const p = {};
+    for (const id in CB.dipakai) p[id] = true;
     for (const r of CB.rows) if (sudah(r) && r.dpId) p[r.dpId] = r;
     return p;
   }
@@ -1647,6 +1664,21 @@
     if (CB.salah.length) { CB.opsi.gambarUlang(); return; }
     const nom = CB_NUM(t.nominal);
     const dpId = String(t.dp || '');
+    /* KALAU TANGGALNYA DI LUAR BULAN YANG SEDANG DIBUKA, BARISNYA TIDAK AKAN
+       TERLIHAT DI SINI — dan itu WAJIB dikatakan (dilaporkan user
+       23 September 2026: "udah berhasil dicatat tapi tidak tersimpan").
+       Barisnya memang tersimpan; ia cuma mendarat di bulan lain, dan layar
+       yang berbunyi "tersimpan" di atas tabel yang tetap kosong adalah dua
+       pernyataan yang bertentangan.
+
+       Keadaan ini sering terjadi justru lewat tombol Catat: DP yang tanggal
+       transfernya tidak terbaca muncul di SETIAP bulan, jadi orang membuka
+       Agustus, menekan Catat, lalu mengisi tanggal hari ini. */
+    const blnBaris = String(t.tgl || '').slice(0, 7);
+    const diBulanLain = blnBaris && blnBaris !== CB.ym
+      ? ' Barisnya bertanggal ' + G.cbTglID(t.tgl) + ', di luar ' + labelBulan(CB.ym)
+        + ' yang sedang dibuka — ganti bulannya ke ' + labelBulan(blnBaris) + ' untuk melihatnya.'
+      : '';
     const j = await kirim({ action: 'briTambah', data: {
       tgl: t.tgl, jam: t.jam, nominal: nom, ket: t.ket } }, null);
     if (!j) return;
@@ -1675,7 +1707,7 @@
       const gagalSambung = () => {
         CB.pesan = 'Dana masuk ' + CB_RP(nom) + ' TERSIMPAN, tapi BELUM tersambung ke DP-nya. '
           + 'Sambungkan lewat tombol Cocokkan di barisnya — selama belum, barisnya terhitung '
-          + 'sebagai dana di luar reservasi dan DP-nya tetap ditagih di daftar kerja.';
+          + 'sebagai dana di luar reservasi dan DP-nya tetap ditagih di daftar kerja.' + diBulanLain;
         CB.opsi.gambarUlang();
       };
       if (!id || !d) { gagalSambung(); return; }
@@ -1683,11 +1715,11 @@
         id: id, cara: 'cocok', resId: d.resId, dpId: d.dpId,
         resNama: d.nama, resTgl: d.resTgl } }, null);
       if (!k) { gagalSambung(); return; }
-      CB.pesan = 'Dana masuk ' + CB_RP(nom) + ' tersimpan dan tersambung ke ' + (d.nama || '') + '.';
+      CB.pesan = 'Dana masuk ' + CB_RP(nom) + ' tersimpan dan tersambung ke ' + (d.nama || '') + '.' + diBulanLain;
       CB.opsi.gambarUlang();
       return;
     }
-    CB.pesan = 'Dana masuk ' + CB_RP(nom) + ' ditambahkan.';
+    CB.pesan = 'Dana masuk ' + CB_RP(nom) + ' ditambahkan.' + diBulanLain;
     CB.opsi.gambarUlang();
   };
 

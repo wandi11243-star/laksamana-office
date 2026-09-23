@@ -9098,6 +9098,82 @@ sesudah ujinya dibetulkan, dan **tiga di antaranya satu keluarga: jepitan
 > `cbHal(kunci, h+1)`.** Asersi yang cuma mencari nomornya cocok dengan tombol
 > yang bukan yang diuji; dijepit lewat isi tombolnya.
 
+##### "Sudah dicatat tapi tidak tersimpan" — dua sebab, keduanya nyata (23 Sep 2026)
+
+Dilaporkan user beberapa jam sesudah jalur Catat naik: pita hijau berbunyi
+*"Dana masuk Rp200.000 tersimpan dan tersambung ke sdssssss"*, sementara
+tabelnya berbunyi **0 transaksi** dan daftar kerjanya **tetap menagih 2 DP**.
+
+**BARISNYA MEMANG TERSIMPAN** — dibuktikan dengan membaca `briList` dev, bukan
+disimpulkan dari layar:
+
+```
+2026-09-23  Rp168.800  cara=cocok  dpId=rmu89x5wmrw0t          AAAAA
+2026-09-23  Rp200.000  cara=cocok  dpId=vip-…-dp_47uqx4k       sdssssss
+```
+
+Dua-duanya tersambung. Yang salah **dua hal, dan keduanya berdiri sendiri**.
+
+###### 1. `dpTerpakai()` cuma membaca baris BULAN YANG SEDANG DIBUKA
+
+Kedua DP itu tanggal transfernya **kosong**, dan `dpsBulan()` memang
+meloloskan DP seperti itu di **setiap** bulan (`|| !d.tfTgl` — supaya DP yang
+OCR-nya gagal tidak pernah jadi tidak terjangkau). Jadi keduanya berdiri di
+daftar kerja Agustus, dicatat dengan tanggal hari ini (September), lalu **tetap
+ditagih di Agustus** karena penyaringnya tidak melihat baris September.
+
+Yang menuruti tagihannya mencatatnya untuk kedua kalinya. Server menolak lewat
+`bri_dp_dipakai()` dengan pesan yang benar tapi membingungkan — dan sebelum
+ditolak, satu baris dana masuk sudah terlanjur lahir.
+
+**`bri_list()` sekarang memulangkan `dipakai`** — daftar `dp_id` yang dipegang
+baris mana pun, **tanpa memandang bulan**:
+
+- **Yang dipulangkan ID-nya saja**, bukan barisnya: yang dibutuhkan layar cuma
+  *"sudah dipegang atau belum"*, dan barisnya akan menggandakan balasan untuk
+  rentang yang justru sedang disaring.
+- **Baris yang DIBATALKAN tidak ikut** — DP-nya memang tidak dipegang
+  siapa-siapa lagi, dan menahannya berarti ia tidak akan pernah bisa dicatat
+  ulang.
+- **Server lama yang belum memulangkannya tidak ditolak**: daftarnya kosong dan
+  perilakunya kembali seperti sebelum tanggal ini. Bukan galat, jadi urutan
+  pendaratan FTP tidak menghasilkan layar yang rusak.
+- `dpTerpakai()` **menyemai dari server dulu**, baru menimpanya dengan baris
+  bulan ini — yang kedua membawa barisnya utuh.
+
+###### 2. Baris yang mendarat di bulan lain tidak pernah dikatakan
+
+Layar yang berbunyi *"tersimpan"* di atas tabel yang tetap kosong adalah dua
+pernyataan yang bertentangan, dan yang membacanya menyimpulkan penyimpanannya
+gagal. Pesannya sekarang menyebut tanggalnya, bulan yang sedang dibuka, dan
+bulan mana yang harus dibuka untuk melihatnya.
+
+- **Ikut di KETIGA jalur** — tersambung, gagal tersambung, dan baris biasa.
+  Yang terlewat justru jalur `Catat`, yaitu jalur yang benar-benar dipakai
+  waktu ini dilaporkan.
+- **Tidak digambar kalau bulannya sama.** Keterangan yang selalu muncul
+  berhenti dibaca.
+- **Bukan tombol pindah bulan**, karena bulannya dipegang tuan rumah — dan
+  callback baru yang tidak diimplementasikan kedua tuan rumah cuma jadi kode
+  mati. Yang dibutuhkan keterangannya, dan itu yang diberikan.
+
+```bash
+node tools/uji-cocok-bri.js   # 307 pemeriksaan (dari 287)
+```
+
+Delapan mutasi dicoba, kedelapannya tertangkap — satu baru sesudah asersinya
+ditambah: **kalimat bulannya dicabut dari jalur "tersambung"**, yaitu jalur
+yang justru dipakai waktu ini dilaporkan. Asersi yang cuma menguji jalur biasa
+tidak menyentuhnya.
+
+> **FORMULIRNYA WAJIB DIISI LEWAT DOM di uji, bukan lewat `cbKetikTambah()`.**
+> `cbSimpanTambah()` MEMBACA ULANG kotaknya dari DOM sebelum mengirim (penangan
+> `input` tidak jalan untuk autofill & pemilih tanggal bawaan peramban), jadi
+> uji yang cuma menyetel state mengirim isi kotak yang LAMA — penyimpanannya
+> ditolak penjaga kelengkapan, `CB.pesan` tidak pernah terisi, dan asersi
+> "tidak ada penyambungan yang terkirim" hijau **karena tidak ada apa pun yang
+> terkirim**. Satu asersi memang hampa karena ini sebelum dibetulkan.
+
 
 ### Reservasi: tombol "Lihat" yang tidak memunculkan apa pun, & jam 12 jam (21 Sep 2026)
 
