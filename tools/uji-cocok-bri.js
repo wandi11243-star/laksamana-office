@@ -331,7 +331,12 @@ const MUT_UJI = [
 function bikinServer() {
   const S = {
     res: rsvAwal(), ver: 7, audit: [],
-    abai: [], post: [], getFile: [], tolakSekali: false, getAll: 0
+    abai: [], post: [], getFile: [], tolakSekali: false, getAll: 0,
+    /* briTambah WAJIB memulangkan id barisnya: jalur "Catat dari DP"
+       menyambungkannya lewat panggilan KEDUA yang butuh id itu. Stub yang
+       tidak memulangkannya membuat penyambungannya gagal diam-diam, dan
+       asersinya hijau untuk kode yang tidak pernah menyambung apa pun. */
+    nTambah: 0, tolakCocok: false
   };
   S.fetch = (url, opt) => {
     const u = String(url);
@@ -358,6 +363,12 @@ function bikinServer() {
                        nominal: d.nominal, alasan: d.alasan, oleh: 'Rani', at: 9 }]);
         }
         return jawab({ ok: true, data: { saved: true } });
+      }
+      if (b.action === 'briTambah')
+        return jawab({ ok: true, data: { saved: true, id: 'bBaru' + (++S.nTambah) } });
+      if (b.action === 'briCocok' && S.tolakCocok) {
+        S.tolakCocok = false;
+        return jawab({ ok: false, error: 'DP itu sudah dicocokkan ke mutasi lain.' });
       }
       return jawab({ ok: true, data: { saved: true, n: 1 } });
     }
@@ -468,15 +479,43 @@ async function ujiHalaman() {
   T('tombol tambah dana masuk & muat ulang tetap ada',
     html().indexOf('cbBukaTambah()') >= 0 && html().indexOf('cbSegarkan()') >= 0);
 
-  /* ===== BARIS LAHIR SENDIRI DARI BUKTI BAYAR ===== */
+  /* ===== SATU BARIS = SATU UANG YANG ORANG NYATAKAN MASUK (23 Sep 2026) =====
+     DP reservasi TIDAK lagi lahir jadi baris. Yang ada di tabel cuma baris
+     yang diketik/diunggah orang; DP disambungkan ke baris itu. */
+  const barisBelum = () => {
+    const k = kartu('DP Reservasi yang Belum Dicatat');
+    const m = k.match(/<tbody>([\s\S]*?)<\/tbody>/);
+    return m ? m[1].split('<tr').slice(1).map(x => '<tr' + x) : [];
+  };
   const b = barisTabel();
-  T('baris DP muncul tanpa ada yang mengunggah/mengetik',
-    kartu('Dana Masuk BRI').indexOf('Arlanda') >= 0 && kartu('Dana Masuk BRI').indexOf('Bagas') >= 0);
-  /* 3 DP BRI + 2 baris mutasi = 5 transaksi. */
-  T('5 baris transaksi tergambar', b.length === 5, 'dapat ' + b.length);
-  T('DP yang sudah diwakili baris mutasi tidak digambar dua kali',
-    b.filter(x => x.indexOf('Arlanda') >= 0).length === 2,
+  /* p2 Arlanda 250.000 & p3 Bagas 175.000 sama-sama QRIS dan belum dipegang
+     baris mana pun — keduanya WAJIB tidak ada di tabel, dan WAJIB ada di
+     daftar kerjanya. */
+  T('DP tidak lagi lahir jadi baris di tabel',
+    b.filter(x => x.indexOf('Bagas') >= 0).length === 0, 'baris ber-Bagas: '
+      + b.filter(x => x.indexOf('Bagas') >= 0).length);
+  T('3 baris transaksi tergambar', b.length === 3, 'dapat ' + b.length);
+  /* Yang SUDAH dicocokkan tetap berdiri — ia baris mutasi, bukan DP. */
+  T('baris yang sudah dicocokkan tetap menyebut tamunya',
+    b.filter(x => x.indexOf('Arlanda') >= 0).length === 1,
     'baris ber-Arlanda: ' + b.filter(x => x.indexOf('Arlanda') >= 0).length);
+
+  /* DAFTAR KERJANYA — dan ia yang menahan pencabutan jadi kehilangan. */
+  const kBelum = kartu('DP Reservasi yang Belum Dicatat');
+  T('kartu daftar kerja tergambar', kBelum.length > 0);
+  T('DP BRI yang belum dicatat disebut satu per satu',
+    kBelum.indexOf('Arlanda') >= 0 && kBelum.indexOf('Bagas') >= 0);
+  T('jumlah & nominalnya disebut', kBelum.indexOf('2 DP') >= 0 && kBelum.indexOf('Rp425.000') >= 0,
+    kBelum.slice(0, 400));
+  /* DP yang SUDAH dipegang baris mutasi tidak ikut ditagih — kalau ikut,
+     daftar kerjanya menyuruh mencatat uang yang sudah tercatat. */
+  T('DP yang sudah dicocokkan tidak ikut ditagih',
+    barisBelum().filter(x => x.indexOf('Rp300.000') >= 0).length === 0);
+  /* Yang uangnya masuk rekening lain juga tidak ikut: ia memang tidak akan
+     pernah ada di mutasi BRI, dan menagihnya berarti menyuruh mencatat uang
+     yang tidak pernah masuk rekening ini. */
+  T('DP non-BRI tidak ikut di daftar kerja',
+    kBelum.indexOf('Citra') < 0 && kBelum.indexOf('Dewi') < 0);
 
   /* ===== URUT WAKTU TRANSAKSI MASUK =====
      Dipulihkan 21 September 2026: asersi ini ada di suite 19 September dan
@@ -486,41 +525,35 @@ async function ujiHalaman() {
      mencocokkan baris demi baris dengan rekening koran yang juga urut
      waktu. */
   const urutNama = b.map(x => {
-    if (x.indexOf('Arlanda') >= 0) return x.indexOf('Rp300.000') >= 0 ? 'Arlanda-300' : 'Arlanda-250';
-    if (x.indexOf('Bagas') >= 0) return 'Bagas';
+    if (x.indexOf('Arlanda') >= 0) return 'Arlanda-300';
     if (x.indexOf('PT Ibra') >= 0) return 'manual';
     return 'bank';
   });
   T('diurut menurut waktu transaksi masuk',
-    urutNama.join('|') === 'manual|Arlanda-300|bank|Arlanda-250|Bagas', urutNama.join('|'));
-  /* DP tanpa tanggal transfer WAJIB di paling bawah. Diurut sebagai string
-     kosong ia menumpuk di ATAS — persis di tempat orang mencari transaksi
-     paling awal. */
-  T('DP tanpa tanggal transfer ada di paling bawah', urutNama[urutNama.length - 1] === 'Bagas');
-  T('sebab tanggalnya kosong DIKATAKAN, bukan didiamkan',
-    html().indexOf('tidak punya tanggal transfer') >= 0);
-  /* JAM BER-PM DARI SUMBERNYA TERGAMBAR 24 JAM. Dibaca apa adanya ia
-     berbunyi 07:30 — dan baris yang meleset dua belas jam tidak bisa
-     dicocokkan dengan rekening koran mana pun. */
-  {
-    const bp = b.find(x => x.indexOf('Rp250.000') >= 0) || '';
-    T('jam ber-PM dari sumbernya tergambar sebagai 24 jam WIB',
-      bp.indexOf('>19:30<') >= 0 && bp.indexOf('>07:30<') < 0, bp.slice(0, 170));
-  }
+    urutNama.join('|') === 'manual|Arlanda-300|bank', urutNama.join('|'));
 
   const kr0 = html().slice(0, html().indexOf('<h3>'));
-  /* 300.000 + 250.000 + 175.000 + 425.000 + 5.000.000 */
-  T('total dana masuk = Rp6.150.000', kr0.indexOf('Rp6.150.000') >= 0, kr0.slice(0, 260));
+  /* 425.000 + 5.000.000 + 300.000 — DP yang belum dicatat TIDAK ikut, dan
+     itu inti perubahannya: yang dijumlahkan cuma uang yang dinyatakan
+     orang, bukan uang yang disimpulkan dari foto struk. */
+  T('total dana masuk = Rp5.725.000', kr0.indexOf('Rp5.725.000') >= 0, kr0.slice(0, 260));
+  T('DP yang belum dicatat tidak ikut dijumlahkan', kr0.indexOf('Rp6.150.000') < 0);
 
-  /* ===== POIN 2: BUKTI BAYARNYA BISA DILIHAT ===== */
-  const barisArl = b.find(x => x.indexOf('Arlanda') >= 0 && x.indexOf('Rp250.000') >= 0) || '';
-  T('baris DP sekarang PUNYA tombolnya sendiri', barisArl.indexOf("cbBuka('rsv:p2')") >= 0,
-    barisArl.slice(0, 200));
-  T('tombolnya menyebut bukti', barisArl.indexOf('Bukti') >= 0);
+  /* ===== POIN 2: BUKTI BAYARNYA BISA DILIHAT =====
+     Pindah ke kartu daftar kerja bersama barisnya. Yang diuji tetap sama:
+     buktinya bisa dilihat TANPA berpindah modul, dan tombol koreksinya ada
+     di barisnya sendiri. */
+  const barisArl = barisBelum().find(x => x.indexOf('Arlanda') >= 0) || '';
+  T('baris DP punya tombol koreksinya sendiri', barisArl.indexOf("cbBuka('belum:p2')") >= 0,
+    barisArl.slice(0, 250));
+  /* TOMBOL CATAT — jalan satu-klik dari DP ke baris dana masuk. Tanpa itu
+     tiap DP harus diketik ulang lima kolom, dan aturan "catat manual" cuma
+     jadi pekerjaan tambahan yang ditinggalkan orang. */
+  T('baris DP punya tombol Catat', barisArl.indexOf("cbCatatDp('p2')") >= 0, barisArl.slice(0, 250));
 
   T('belum ada satu berkas bukti pun diunduh sebelum panelnya dibuka', SRV.getFile.length === 0,
     JSON.stringify(SRV.getFile));
-  aman('panel DP terbuka', () => { W.cbBuka('rsv:p2'); });
+  aman('panel DP terbuka', () => { W.cbBuka('belum:p2'); });
   T('kotak bukti tergambar seketika (sebelum unduhannya selesai)',
     html().indexOf('Memuat bukti') >= 0);
   for (let i = 0; i < 80 && !S.bukti['@f:k2']; i++) await tidur(10);
@@ -546,8 +579,8 @@ async function ujiHalaman() {
   /* DAN TIDAK PULA TIAP PANELNYA DIBUKA LAGI. Menutup lalu membuka kembali
      baris yang sama memanggil muatBuktiUntuk() sekali lagi — tanpa cache,
      berkas ratusan KB itu diunduh berulang tiap orang mengintip barisnya. */
-  W.cbBuka('rsv:p2');           // tutup
-  W.cbBuka('rsv:p2');           // buka lagi
+  W.cbBuka('belum:p2');           // tutup
+  W.cbBuka('belum:p2');           // buka lagi
   await tidur(40);
   T('bukti tidak diunduh ulang saat panelnya dibuka lagi', SRV.getFile.length === n0file,
     'bertambah ' + (SRV.getFile.length - n0file));
@@ -555,7 +588,7 @@ async function ujiHalaman() {
 
   /* DP TANPA BUKTI adalah KETERANGAN, bukan kekosongan — justru baris itulah
      yang paling perlu diperiksa waktu rekonsiliasinya tidak ketemu. */
-  aman('panel DP tanpa bukti terbuka', () => { W.cbBuka('rsv:p3'); });
+  aman('panel DP tanpa bukti terbuka', () => { W.cbBuka('belum:p3'); });
   T('DP tanpa bukti mengatakannya', html().indexOf('tidak punya bukti transfer') >= 0);
   T('DP tanpa bukti tidak memicu unduhan apa pun', SRV.getFile.length === n0file);
 
@@ -563,6 +596,16 @@ async function ujiHalaman() {
      dan ia dipajang lewat baris mutasi yang sudah dicocokkan (b3) — tanpa
      itu, buktinya berhenti bisa dilihat dari mana pun begitu pencocokannya
      disimpan. */
+  /* DI KOLOM BUKTI BARISNYA, bukan cuma di dalam panel yang harus dibuka
+     dulu. Sejak DP berhenti jadi baris, kolom itu HANYA terisi lewat DP yang
+     dicari dari r.dpId — dan tanpa pencarian itu seluruh kolom Bukti di tabel
+     utama mati tanpa satu pun galat. */
+  {
+    const barisCocok = barisTabel().find(x => x.indexOf('Arlanda') >= 0) || '';
+    T('baris yang sudah dicocokkan memajang bukti DP-nya di kolomnya',
+      /data:image\/png;base64,AAAA/.test(barisCocok),
+      barisCocok.slice(barisCocok.indexOf('cb-selbukti'), barisCocok.indexOf('cb-selbukti') + 200));
+  }
   aman('panel baris mutasi yang sudah cocok terbuka', () => { W.cbBuka('b3'); });
   T('bukti DP yang sudah dipasangkan ikut tergambar di panel pencocokan',
     /<img src="data:image\/png;base64,AAAA/.test(html()), html().indexOf('cb-bukti') >= 0 ? 'ada cb-bukti' : 'tidak ada cb-bukti');
@@ -607,7 +650,7 @@ async function ujiHalaman() {
       k.indexOf('baris mutasi bank') >= 0);
   }
   {
-    const bb = barisTabel();
+    const bb = barisBelum();
     const barisBagas = bb.find(x => x.indexOf('Bagas') >= 0) || '';
     T('DP tanpa bukti ditandai di kolomnya', barisBagas.indexOf('tanpa bukti') >= 0,
       barisBagas.slice(0, 200));
@@ -623,7 +666,7 @@ async function ujiHalaman() {
 
   /* ===== IKON PENSIL (permintaan user) ===== */
   {
-    const barisArl2 = barisTabel().find(x => x.indexOf('Rp250.000') >= 0) || '';
+    const barisArl2 = barisBelum().find(x => x.indexOf('Rp250.000') >= 0) || '';
     const aksi = barisArl2.slice(barisArl2.indexOf('cb-aksi'));
     T('tombol koreksi berupa ikon pensil', aksi.indexOf('✎') >= 0, aksi.slice(0, 200));
     /* Tombol berikon tanpa keterangan cuma bisa ditebak. */
@@ -637,8 +680,13 @@ async function ujiHalaman() {
      menguji bahwa gambarnya BENAR-BENAR tersambung ke sana. Pelajaran
      putuskan() di modul Jadwal, dan ini kali kedua bentuk itu menggigit. */
   {
-    const img = W.document.querySelector('#cb-tabel img.cb-thumb');
-    T('gambar bukti ada di barisnya', !!img);
+    /* DIJEPIT ke gambar milik p2. Sejak baris yang sudah dicocokkan ikut
+       memajang bukti DP-nya, ada LEBIH DARI SATU img.cb-thumb di halaman —
+       dan yang pertama justru milik p1 di tabel utama. Selektor yang
+       menyapu akan menguji gambar yang bukan yang diuji. */
+    const semua = [...W.document.querySelectorAll('img.cb-thumb')];
+    const img = semua.find(x => (x.getAttribute('onclick') || '').indexOf("'p2'") >= 0);
+    T('gambar bukti ada di barisnya', !!img, semua.length + ' gambar di halaman');
     if (img) img.dispatchEvent(new W.MouseEvent('click', { bubbles: true }));
   }
   T('menekan gambarnya membuka lightbox', S.lihat === 'p2', 'CB.lihat=' + JSON.stringify(S.lihat));
@@ -764,15 +812,21 @@ async function ujiHalaman() {
     JSON.stringify((S.dps || []).map(d => d.dpId + ':' + d.metode)));
   W.cbGambar(el, '2026-09');
   await tidur(20);
-  T('barisnya pindah ke daftar dana masuk BRI begitu metodenya benar',
-    kartu('Dana Masuk BRI').indexOf('Citra') >= 0, 'Citra tidak ketemu di tabel');
+  /* SEJAK BARIS DP TIDAK LAGI LAHIR SENDIRI, yang berpindah bukan lagi ke
+     tabel utama melainkan ke DAFTAR KERJA: metode yang dibetulkan membuat
+     DP-nya ikut ditagih sebagai "belum dicatat". Itu memang yang benar —
+     uangnya masuk BRI, dan belum ada satu baris pun yang mengakuinya. */
+  T('barisnya pindah ke daftar kerja begitu metodenya benar',
+    kartu('DP Reservasi yang Belum Dicatat').indexOf('Citra') >= 0, 'Citra tidak ketemu di daftar kerja');
+  T('dan berhenti disebut sebagai DP non-BRI',
+    kartu('DP Bulan Ini yang Tidak Masuk BRI').indexOf('Citra') < 0);
 
   /* Metode yang tidak berubah TIDAK dikirim: penyimpanan yang tidak mengubah
      apa pun menaikkan versi di sana, dan tab kru Reservasi yang terbuka
      lalu bentrok tanpa ada yang menyentuh apa pun. */
   {
     const n = SRV.post.length;
-    bukaPanel('rsv:p2');
+    bukaPanel('belum:p2');
     T('kotak metode p2 ada di DOM', setSel('cb-met-p2', 'QRIS'));
     await amanAsync('ubah metode ke nilai yang sama tidak melempar', async () => { await W.cbUbahMetode('p2'); });
     T('metode yang tidak berubah tidak dikirim ke server', SRV.post.length === n,
@@ -784,7 +838,7 @@ async function ujiHalaman() {
   {
     const n = SRV.post.length;
     jawabConfirm = false;
-    bukaPanel('rsv:p2');
+    bukaPanel('belum:p2');
     T('kotak metode p2 masih ada di DOM', setSel('cb-met-p2', 'Cash'));
     await amanAsync('konfirmasi ditolak tidak melempar', async () => { await W.cbUbahMetode('p2'); });
     T('kiriman DITAHAN saat konfirmasinya ditolak', SRV.post.length === n,
@@ -799,7 +853,7 @@ async function ujiHalaman() {
   T('DP p2 ditawarkan sebagai kandidat pencocokan selagi masih sah',
     html().indexOf("cbPilihDp('b1','p2')") >= 0);
   W.cbBuka('b1');
-  bukaPanel('rsv:p2');
+  bukaPanel('belum:p2');
   T('tombol tandai tidak valid ada di panel DP', html().indexOf("cbAbaiDp('p2')") >= 0);
   /* DIKATAKAN DI TEMPAT TOMBOLNYA BERDIRI bahwa DP-nya TIDAK dihapus. Yang
      menekannya mengira ia menghapus DP-nya, dan kalau itu tidak dibantah di
@@ -849,20 +903,34 @@ async function ujiHalaman() {
   T('kandidat lain tetap ditawarkan', html().indexOf("cbPilihDp('b1','p3')") >= 0);
   W.cbBuka('b1');
   {
-    const bb = barisTabel();
+    /* PENANDAAN BUKAN PENGHAPUSAN. DP bernisan keluar dari daftar yang
+       DITAGIH, tapi tetap tergambar tercoret di kaki daftar kerjanya —
+       dan di situlah satu-satunya tombol Pulihkannya berdiri. Hilang dari
+       layar, penandaan berubah jadi keputusan yang tidak bisa dibatalkan
+       siapa pun. */
+    const bb = barisBelum();
     const barisP2 = bb.find(x => x.indexOf('Rp250.000') >= 0) || '';
-    T('barisnya tetap tergambar, tercoret', barisP2.indexOf('cb-coret') >= 0, barisP2.slice(0, 120));
+    T('barisnya tetap tergambar, tercoret', barisP2.indexOf('cb-coret') >= 0, barisP2.slice(0, 160));
     T('sebab penandaannya ditulis di barisnya, bukan cuma di panel',
       barisP2.indexOf('dobel dengan transfer 5 Sep') >= 0);
+    /* Yang bernisan TIDAK ditawari tombol Catat: satu layar yang menyuruh
+       mencatat apa yang layar sebelahnya sudah coret membuat penandanya
+       berhenti berarti. */
+    T('yang bernisan tidak ditawari tombol Catat', barisP2.indexOf("cbCatatDp('p2')") < 0);
+    const kb = kartu('DP Reservasi yang Belum Dicatat');
+    T('yang ditandai disebut jumlahnya di kartunya', /1 DP ditandai tidak valid/.test(kb),
+      kb.slice(kb.length - 400));
+    /* Yang ditagih tinggal p3 Bagas 175.000 + p4 Citra 900.000 (metodenya
+       baru dibetulkan jadi Transfer BRI beberapa asersi di atas). */
+    T('nominalnya berhenti ikut ditagih', kb.indexOf('Rp1.075.000') >= 0, kb.slice(0, 400));
+    /* Kartu ringkas TIDAK bergerak: nisan menandai DP, dan DP memang sudah
+       bukan baris di tabel dana masuk. */
     const kr = html().slice(0, html().indexOf('<h3>'));
-    /* 6.150.000 + 900.000 (Citra, yang metodenya baru dibetulkan jadi
-       Transfer BRI beberapa asersi di atas) − 250.000 yang barusan ditandai. */
-    T('nominalnya berhenti ikut dijumlahkan', kr.indexOf('Rp6.800.000') >= 0, kr.slice(0, 260));
-    T('yang dibatalkan/ditandai disebut jumlahnya di kartu', /1 dibatalkan/.test(kr));
+    T('total dana masuk tidak ikut bergeser', kr.indexOf('Rp5.725.000') >= 0, kr.slice(0, 260));
   }
   /* PULIHKAN. Baris mati tanpa jalan pulang adalah penandaan yang tidak bisa
      dibatalkan siapa pun. */
-  W.cbBuka('rsv:p2');
+  W.cbBuka('belum:p2');
   T('panel baris bernisan menawarkan Pulihkan', html().indexOf("cbPulihDp('p2')") >= 0);
   T('panel baris bernisan TIDAK menawarkan tandai tidak valid lagi',
     html().indexOf("cbAbaiDp('p2')") < 0);
@@ -870,9 +938,9 @@ async function ujiHalaman() {
   for (let i = 0; i < 100 && S.abai['p2']; i++) await tidur(10);
   W.cbGambar(el, '2026-09');
   await tidur(30);
-  T('penandaannya tercabut & barisnya dihitung lagi',
-    html().slice(0, html().indexOf('<h3>')).indexOf('Rp7.050.000') >= 0,
-    html().slice(0, 260));
+  T('penandaannya tercabut & DP-nya ditagih lagi',
+    kartu('DP Reservasi yang Belum Dicatat').indexOf('Rp1.325.000') >= 0,
+    kartu('DP Reservasi yang Belum Dicatat').slice(0, 400));
 
   /* NISAN JUGA MENCABUT DP DARI KARTU "TIDAK MASUK BRI". Tetap berdiri di
      sana, kartunya menyuruh membetulkan metode yang memang sengaja
@@ -905,14 +973,122 @@ async function ujiHalaman() {
     W.cbGambar(el, '2026-09');
     await tidur(20);
     const sebelum = barisTabel().length;
-    aman('mengetik di kotak cari tidak melempar', () => { W.cbKetikCari({ value: 'Bagas' }); });
+    aman('mengetik di kotak cari tidak melempar', () => { W.cbKetikCari({ value: 'Arlanda' }); });
     const sesudah = barisTabel().length;
     T('kotak cari benar-benar memangkas tabelnya', sesudah === 1 && sebelum > 1,
       'sebelum=' + sebelum + ' sesudah=' + sesudah);
-    T('yang tersisa memang baris yang dicari', (barisTabel()[0] || '').indexOf('Bagas') >= 0);
+    T('yang tersisa memang baris yang dicari', (barisTabel()[0] || '').indexOf('Arlanda') >= 0);
     aman('kata kunci dikosongkan lagi', () => { W.cbKetikCari({ value: '' }); });
     T('daftarnya kembali utuh', barisTabel().length === sebelum);
   }
+
+  /* ===== CATAT DARI DP: SATU KLIK, LALU TERSAMBUNG SENDIRI =====
+     Inilah yang membuat "catat manual" tetap bisa dikerjakan: tanpa jalur
+     ini tiap DP harus diketik ulang lima kolom, dan aturan barunya cuma
+     jadi pekerjaan tambahan yang ditinggalkan orang. */
+  {
+    W.cbBuka(''); W.cbTutupTambah();
+    W.cbGambar(el, '2026-09');
+    await tidur(20);
+    aman('menekan Catat tidak melempar', () => { W.cbCatatDp('p2'); });
+
+    const pra = html().slice(html().indexOf('cb-pra'));
+    T('formulirnya terbuka', html().indexOf('cb-pra') >= 0);
+    /* ISIANNYA TERISI DARI DP-nya — dan ini pengisi awal, bukan jalan pintas
+       yang melewati orang: yang tersimpan tetap apa yang ada di kotaknya
+       waktu Simpan ditekan. */
+    T('isiannya terisi dari DP-nya', S.tambah && S.tambah.tgl === '2026-09-05'
+      && Number(S.tambah.nominal) === 250000 && S.tambah.ket === 'Arlanda',
+      JSON.stringify(S.tambah));
+    /* DIBAKUKAN 24 JAM. Diisikan apa adanya ("07:30:00 PM"), <input
+       type="time"> tidak bisa menampilkannya sama sekali — kotaknya
+       tergambar KOSONG, dan yang menyimpannya kehilangan jam yang sebenarnya
+       sudah terbaca. */
+    T('jamnya ikut, sudah dibakukan 24 jam', S.tambah && S.tambah.jam === '19:30',
+      S.tambah && S.tambah.jam);
+    T('niat menyambungkannya dibawa di formulirnya', S.tambah && S.tambah.dp === 'p2');
+    /* DIKATAKAN DI LAYAR bahwa barisnya akan tersambung sendiri. Tanpa itu
+       yang menekannya mencari tombol Cocokkan yang tidak perlu ditekan. */
+    T('formulirnya menyebut DP mana yang akan disambungkan',
+      pra.indexOf('Arlanda') >= 0 && pra.indexOf('langsung disambungkan') >= 0, pra.slice(0, 400));
+    /* TANGGAL TRANSFERNYA DARI BUKTI YANG DIBACA MESIN, dan itu disebut —
+       kalau tidak, satu-klik ini jadi cara baru memasukkan tanggal karangan
+       ke daftar rekonsiliasi. */
+    T('formulirnya menyuruh mencocokkan dulu dengan mutasi bank',
+      /dibaca mesin/.test(pra) && /Cocokkan dulu/.test(pra));
+
+    const n0 = SRV.post.length;
+    await amanAsync('menyimpan tidak melempar', async () => { await W.cbSimpanTambah(); });
+    const baru = SRV.post.slice(n0).filter(p => p.body.action === 'briTambah' || p.body.action === 'briCocok');
+    T('dua panggilan: briTambah lalu briCocok',
+      baru.length === 2 && baru[0].body.action === 'briTambah' && baru[1].body.action === 'briCocok',
+      baru.map(x => x.body.action).join('|'));
+    if (baru.length === 2) {
+      T('yang disimpan isi kotaknya, bukan angka DP-nya langsung',
+        baru[0].body.data.nominal === 250000 && baru[0].body.data.tgl === '2026-09-05'
+        && baru[0].body.data.ket === 'Arlanda', JSON.stringify(baru[0].body.data));
+      /* Penyambungnya memakai id yang DIPULANGKAN briTambah — bukan id
+         karangan. Yang salah id menyambungkan DP ke baris orang lain. */
+      T('disambungkan ke id baris yang baru dibuat',
+        baru[1].body.data.id === 'bBaru1' && baru[1].body.data.dpId === 'p2'
+        && baru[1].body.data.cara === 'cocok', JSON.stringify(baru[1].body.data));
+      T('nama & tanggal reservasinya ikut disalin',
+        baru[1].body.data.resNama === 'Arlanda' && baru[1].body.data.resId === 'r1',
+        JSON.stringify(baru[1].body.data));
+    }
+    T('formulirnya tertutup sesudah tersimpan', !S.tambah);
+    T('layarnya mengatakan barisnya tersambung', /tersambung ke Arlanda/.test(S.pesan || ''), S.pesan);
+  }
+
+  /* ===== PENYAMBUNGAN YANG GAGAL TIDAK BOLEH DIAM =====
+     Barisnya sudah tersimpan — uangnya memang masuk — tapi ia berdiri di
+     kelompok yang SALAH sampai ada yang menyambungkannya. Dibiarkan diam,
+     satu DP tetap tertagih di daftar kerja sementara uangnya sudah tercatat
+     sebagai bukan-reservasi, dan totalnya berhenti bisa dicocokkan. */
+  {
+    W.cbTutupTambah();
+    W.cbGambar(el, '2026-09');
+    await tidur(20);
+    /* p4 (Citra), BUKAN p3 — p3 tidak punya tanggal transfer, jadi
+       formulirnya ditahan penjaga kelengkapan dan tidak pernah sampai ke
+       penyambungnya. Asersinya lalu hijau/merah karena sebab yang sama
+       sekali lain. */
+    aman('buka Catat lagi', () => { W.cbCatatDp('p4'); });
+    SRV.tolakCocok = true;
+    await amanAsync('menyimpan tidak melempar walau penyambungnya ditolak',
+      async () => { await W.cbSimpanTambah(); });
+    T('barisnya tetap dinyatakan TERSIMPAN', /TERSIMPAN/.test(S.pesan || ''), S.pesan);
+    T('dan dikatakan BELUM tersambung', /BELUM tersambung/.test(S.pesan || ''), S.pesan);
+    T('berikut apa yang harus dikerjakan', /tombol Cocokkan/.test(S.pesan || ''), S.pesan);
+  }
+
+  /* ===== FORMULIR BIASA (tanpa DP) TIDAK IKUT MENYAMBUNG ===== */
+  {
+    W.cbTutupTambah();
+    W.cbGambar(el, '2026-09');
+    await tidur(20);
+    aman('buka formulir kosong', () => { W.cbBukaTambah(); });
+    T('formulir kosong tidak membawa niat menyambung', !(S.tambah && S.tambah.dp));
+    const pra2 = html().slice(html().indexOf('cb-pra'));
+    T('bunyinya berbeda dari yang dibuka dari DP', pra2.indexOf('langsung disambungkan') < 0);
+    W.cbKetikTambah({ value: '2026-09-11', classList: { remove: () => {} } }, 'tgl');
+    W.cbKetikTambah({ value: '400000', classList: { remove: () => {} } }, 'nominal');
+    W.cbKetikTambah({ value: 'Sewa videotron', classList: { remove: () => {} } }, 'ket');
+    const n1 = SRV.post.length;
+    await amanAsync('simpan formulir kosong', async () => { await W.cbSimpanTambah(); });
+    const baru2 = SRV.post.slice(n1).filter(p => p.body.action === 'briCocok');
+    T('tidak ada penyambungan yang ikut terkirim', baru2.length === 0);
+    W.cbTutupTambah();
+  }
+
+  /* ===== KARTU ATAS TIDAK LAGI MENJANJIKAN BARIS YANG TERISI SENDIRI =====
+     Janji yang tidak ditepati tiap kali dibaca. */
+  W.cbGambar(el, '2026-09');
+  await tidur(20);
+  T('kartu atas tidak lagi bilang dana reservasi terisi sendiri',
+    html().indexOf('terisi sendiri') < 0);
+  T('kartu atas menunjuk ke daftar kerjanya',
+    html().indexOf('DP Reservasi yang Belum Dicatat') >= 0);
 
   /* ===== HAK LIHAT ===== */
   bolehUbah = false;
@@ -922,8 +1098,15 @@ async function ujiHalaman() {
   /* BUKTI TETAP BISA DILIHAT: isinya bukan cuma isian, dan melihat bukti
      adalah melihat. Yang ditutup kotak metodenya, bukan buktinya. */
   T('yang cuma boleh Lihat tetap punya tombol bukti',
-    kartu('Dana Masuk BRI').indexOf("cbBuka('rsv:p2')") >= 0);
-  W.cbBuka('rsv:p2');
+    kartu('DP Reservasi yang Belum Dicatat').indexOf("cbBuka('belum:p2')") >= 0);
+  /* Tombol CATAT ditutup — ia menulis. Yang tidak boleh mengubah tetap
+     melihat daftar kerjanya: tanpa itu ia tidak punya satu pun layar yang
+     menyebutkan DP mana yang belum dicatat. */
+  T('yang cuma boleh Lihat TIDAK diberi tombol Catat',
+    kartu('DP Reservasi yang Belum Dicatat').indexOf("cbCatatDp('p2')") < 0);
+  T('yang cuma boleh Lihat tetap melihat daftar kerjanya',
+    kartu('DP Reservasi yang Belum Dicatat').indexOf('Arlanda') >= 0);
+  W.cbBuka('belum:p2');
   T('yang cuma boleh Lihat melihat buktinya', html().indexOf('cb-bukti') >= 0);
   T('yang cuma boleh Lihat TIDAK diberi kotak metode', html().indexOf('id="cb-met-p2"') < 0);
   T('yang cuma boleh Lihat TIDAK diberi tombol tandai tidak valid',

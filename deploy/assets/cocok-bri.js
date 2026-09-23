@@ -518,31 +518,39 @@
   function barisGabungan() {
     const out = [];
     for (const r of CB.rows) {
+      /* DP-nya dibawa di barisnya supaya kolom BUKTI tetap hidup sesudah
+         sebuah baris dicocokkan. Dulu kolom itu terisi hanya untuk baris
+         `rsv`; sejak baris itu dicabut, tanpa pencarian ini bukti transfer
+         berhenti terlihat dari tabel begitu pencocokannya disimpan —
+         persis waktu orang paling mungkin ingin memeriksanya lagi. */
       out.push({ jenis: r.sumber === 'manual' ? 'manual' : 'bank', id: r.id,
                  tgl: r.tgl, jam: G.cbJamWIB(r.jam), nominal: CB_NUM(r.nominal),
-                 ket: r.ket, mut: r, dp: null });
+                 ket: r.ket, mut: r,
+                 dp: r.dpId ? ((CB.dps || []).find(d => d.dpId === r.dpId) || null) : null });
     }
-    if (CB.dps) {
-      const pakai = dpTerpakai();
-      const rg = rentang(CB.ym);
-      for (const d of CB.dps) {
-        if (pakai[d.dpId]) continue;      // sudah diwakili baris mutasinya
-        if (!dpKeBri(d)) continue;        // uangnya masuk rekening lain
-        /* Bulannya dari tanggal transfer kalau ada; kalau tidak, dari
-           tanggal reservasinya — kalau tidak, DP yang OCR-nya gagal tidak
-           akan pernah muncul di bulan mana pun. */
-        const t = d.tfTgl || d.resTgl;
-        if (!(t >= rg.dari && t <= rg.sampai)) continue;
-        out.push({ jenis: 'rsv', id: 'rsv:' + d.dpId, tgl: d.tfTgl, jam: G.cbJamWIB(d.tfJam),
-                   nominal: d.nominal, ket: d.nama, mut: null, dp: d,
-                   /* Nisan dibawa di barisnya, bukan dibaca lagi dari CB.abai
-                      di tiap penggambar: enam tempat yang membacanya
-                      sendiri-sendiri akan menyimpang, dan yang menyimpang di
-                      sini adalah baris yang tercoret di tabel tapi tetap
-                      ikut dijumlahkan di kartu. */
-                   abai: CB.abai[d.dpId] || null });
-      }
-    }
+    /* DP RESERVASI TIDAK LAGI LAHIR JADI BARIS DI SINI (23 September 2026,
+       permintaan user: "jangan langsung otomatis keisi data reservasi …
+       input manual saja, tapi ketika diisi kalau dananya masuk untuk
+       reservasi bisa di-connect-kan").
+       ------------------------------------------------------------------
+       Sampai tanggal ini tiap DP yang metodenya QRIS/BRI berdiri sendiri
+       sebagai baris `rsv` — dan baris itu MENGAKU uangnya masuk hanya
+       karena ada yang mengunggah foto struk. Fotonya sendiri dibaca mesin
+       yang terbukti bisa salah (lihat OCR jadi saran di modul Reservasi),
+       jadi daftar "Dana Masuk BRI" berisi transaksi yang tidak seorang pun
+       pernah lihat di rekeningnya.
+
+       Sekarang SATU BARIS = SATU UANG YANG ORANG NYATAKAN MASUK. Yang
+       mengetiknya orang yang membaca mutasi banknya; DP reservasi
+       DISAMBUNGKAN ke baris itu lewat panel pencocokan yang memang sudah
+       ada (`cbPilihDp`).
+
+       YANG MENAHAN DP HILANG DARI PANDANGAN: kartu "DP Reservasi yang Belum
+       Dicatat" di bawah tabel. Tanpa kartu itu, DP yang uangnya memang
+       masuk BRI lenyap dari layar ini begitu barisnya dicabut — dan yang
+       membandingkannya dengan modul Reservasi akan melaporkannya sebagai
+       dana yang hilang. Kartunya juga yang memegang tombol satu-klik untuk
+       mencatatnya, jadi cara cepatnya tidak ikut hilang. */
     /* Yang tanpa tanggal transfer SELALU di bawah, ke arah mana pun. Diurut
        sebagai string kosong ia menumpuk di atas — persis di tempat orang
        mencari transaksi paling awal. */
@@ -552,19 +560,15 @@
           || String(a.ket).localeCompare(String(b.ket));
     });
   }
-  /* DUA BENTUK MATI, dan keduanya diperlakukan sama di daftar: baris mutasi
-     yang DIBATALKAN (batal_at) dan DP yang ditandai TIDAK VALID (nisan
-     bri_dp_abai). Keduanya tetap tergambar, tercoret, dan berhenti ikut
-     dijumlahkan — tidak satu pun benar-benar dihapus. */
-  const gHidup = x => x.jenis === 'rsv' ? !x.abai : hidup(x.mut);
-  /* "Dari reservasi" mencakup DUA bentuk: baris DP yang berdiri sendiri, DAN
-     baris mutasi bank yang sudah dicocokkan ke sebuah DP. Dijepit ke yang
-     pertama, seluruh baris yang sudah selesai dicocokkan berpindah ke
-     kelompok lain begitu berkas mutasinya diunggah — dan angkanya berubah
-     tanpa ada yang mengubah apa pun. */
-  const gDariRsv  = x => x.jenis === 'rsv' || (x.mut && x.mut.cara === 'cocok');
+  /* BARIS MATI = yang DIBATALKAN (batal_at). Tetap tergambar, tercoret, dan
+     berhenti ikut dijumlahkan — tidak satu pun benar-benar dihapus.
+     (Nisan `bri_dp_abai` tidak lagi menyentuh daftar ini: ia menandai DP,
+     dan DP sudah tidak berdiri sebagai baris. Yang membacanya sekarang
+     kartu "DP Reservasi yang Belum Dicatat".) */
+  const gHidup = x => hidup(x.mut);
+  const gDariRsv  = x => x.mut && x.mut.cara === 'cocok';
   const gLuarRsv  = x => x.mut && x.mut.cara === 'bukan';
-  const gBelum    = x => x.jenis !== 'rsv' && x.mut && x.mut.cara !== 'cocok' && x.mut.cara !== 'bukan';
+  const gBelum    = x => x.mut && x.mut.cara !== 'cocok' && x.mut.cara !== 'bukan';
 
   /* ============ GAMBAR ============ */
   function stat(lab, val, sub, kelas) {
@@ -583,17 +587,19 @@
     return '<div class="cb-grid4">'
       + stat('Dana Masuk BRI', CB_RP(jml(h)), h.length + ' transaksi'
           + (batal.length ? ' &middot; ' + batal.length + ' dibatalkan / tidak valid, tidak dihitung' : ''))
-      + stat('Dari Reservasi', CB_RP(jml(rsv)), rsv.length + ' transaksi &mdash; terisi sendiri dari bukti bayar', 'ok')
-      + stat('Di Luar Reservasi', CB_RP(jml(luar)), luar.length + ' transaksi, ditambahkan tangan')
-      + stat('Belum Ketahuan', CB_RP(jml(blm)), blm.length + ' baris mutasi bank yang belum dicocokkan',
+      + stat('Dari Reservasi', CB_RP(jml(rsv)), rsv.length + ' transaksi &mdash; sudah disambungkan ke DP', 'ok')
+      + stat('Di Luar Reservasi', CB_RP(jml(luar)), luar.length + ' transaksi, bukan DP reservasi')
+      + stat('Belum Ketahuan', CB_RP(jml(blm)), blm.length + ' baris yang belum disambungkan ke mana pun',
              blm.length ? 'warn' : '')
       + '</div>'
       /* DISEBUT, karena urutan daftarnya memang berhenti berarti untuk baris
-         itu — dan yang membacanya akan mengira daftarnya salah urut. */
+         itu — dan yang membacanya akan mengira daftarnya salah urut. Sejak
+         tiap baris diketik orang, tanggal WAJIB diisi (bri_tambah menolak
+         yang kosong), jadi yang tanpa tanggal cuma sisa baris lama dari
+         jalur unggah Excel yang sudah dicabut. */
       + (tanpaTgl ? pita('info', '<b>' + tanpaTgl + ' transaksi tidak punya tanggal transfer</b> dan berdiri di '
-          + 'paling bawah, di luar urutan waktu. Itu DP yang bukti transfernya gagal terbaca tanggalnya waktu '
-          + 'diunggah di modul Reservasi &mdash; bukan data yang hilang. Tanggalnya ikut terisi sendiri begitu '
-          + 'baris mutasi banknya diunggah dan dicocokkan.') : '');
+          + 'paling bawah, di luar urutan waktu. Itu baris lama dari jalur unggah mutasi bank yang sudah '
+          + 'dicabut &mdash; bukan data yang hilang.') : '');
   }
 
   /* FORMULIR DANA MASUK DI LUAR RESERVASI (permintaan user 19 Sep 2026).
@@ -604,10 +610,32 @@
   function formTambah() {
     const t = CB.tambah, s = CB.salah || [];
     const err = k => s.indexOf(k) >= 0 ? ' err' : '';
-    return '<div class="cb-pra"><b>Dana masuk di luar reservasi</b>'
-      + '<div class="cb-sub">Untuk uang yang memang bukan DP reservasi &mdash; event corporate, sewa '
-      + 'videotron, setoran tamu. Yang dari reservasi <b>tidak perlu ditambahkan di sini</b>: ia sudah '
-      + 'terisi sendiri dari bukti bayarnya.</div>'
+    const d = t.dp ? (CB.dps || []).find(x => x.dpId === t.dp) : null;
+    /* DUA BUNYI, dan bedanya bukan hiasan: yang satu uang yang belum
+       ketahuan miliknya, yang satu uang yang SUDAH tahu ia milik DP siapa.
+       Disamakan, yang menekan Catat dari daftar DP tidak punya satu pun
+       tanda bahwa barisnya akan tersambung sendiri — lalu ia mencari
+       tombol Cocokkan yang tidak perlu ditekan. */
+    const kepala = d
+      ? '<b>Catat dana masuk &mdash; ' + CB_ESC(d.nama || '(tanpa nama)') + '</b>'
+        + pita('info', 'Isian di bawah sudah diisi dari DP-nya. <b>Cocokkan dulu dengan mutasi '
+            + 'bank</b> &mdash; tanggal transfernya berasal dari bukti yang dibaca mesin dan bisa '
+            + 'salah. Begitu disimpan, barisnya <b>langsung disambungkan</b> ke DP '
+            + CB_ESC(d.nama || '') + ' ' + CB_RP(d.nominal)
+            + (d.resTgl ? ' (reservasi ' + CB_ESC(G.cbTglID(d.resTgl)) + ')' : '') + '.'
+            /* TANGGAL YANG MEMANG TIDAK TERBACA DISEBUT DI SINI, bukan
+               dibiarkan jadi kotak merah waktu Simpan ditekan. Sepertiga DP
+               di produksi begitu, jadi ini keadaan yang wajar — dan pesan
+               "Belum lengkap: Tanggal" untuk kotak yang memang tidak pernah
+               bisa terisi sendiri terbaca sebagai formulir yang rusak. */
+            + (d.tfTgl ? '' : '<br><b>Tanggal transfernya tidak terbaca di bukti</b> — isi sendiri '
+                + 'dari mutasi banknya.'))
+      : '<b>Catat dana masuk</b>'
+        + '<div class="cb-sub">Satu baris = satu uang yang kamu lihat masuk di rekening. Kalau uangnya '
+        + 'DP reservasi, sambungkan sesudahnya lewat tombol <b>Cocokkan</b> di barisnya &mdash; atau '
+        + 'pakai tombol <b>Catat</b> di kartu <i>DP Reservasi yang Belum Dicatat</i> supaya isiannya '
+        + 'terisi sendiri dan langsung tersambung.</div>';
+    return '<div class="cb-pra">' + kepala
       + '<div class="cb-form">'
       + '<label>Tanggal <span class="cb-wajib">*</span>'
       + '<input type="date" class="cb-in' + err('tgl') + '" value="' + CB_ESC(t.tgl || '')
@@ -635,10 +663,11 @@
   function kartuSumber() {
     const bisa = CB.opsi.bolehUbah();
     let isi = '<div class="cb-card"><h3>Menambah Dana Masuk</h3>'
-      + '<div class="cb-sub">Dana masuk dari reservasi <b>terisi sendiri</b> dari bukti bayar yang dicatat '
-      + 'kru Reservasi &mdash; tidak ada yang perlu mengetiknya, dan tidak ada berkas yang perlu diunggah. '
-      + 'Yang ditambahkan tangan cuma dana masuk <b>di luar reservasi</b>: event corporate, sewa videotron, '
-      + 'setoran tamu.</div>';
+      + '<div class="cb-sub">Daftar di bawah berisi <b>uang yang orang nyatakan masuk</b> &mdash; '
+      + 'diketik dari mutasi bank, bukan disalin dari bukti bayar. DP reservasi <b>disambungkan</b> '
+      + 'ke barisnya lewat tombol Cocokkan; yang belum tersambung berdiri di kartu '
+      + '<i>DP Reservasi yang Belum Dicatat</i> di bawah tabel, berikut tombol untuk mencatatnya '
+      + 'sekali klik.</div>';
     if (!bisa) {
       isi += pita('info', 'Kamu bisa <b>melihat</b> halaman ini, tapi tidak mengubahnya. '
         + 'Minta admin modul menaikkan aksesmu jadi <b>Boleh Ubah</b> kalau perlu menambah atau membetulkan.');
@@ -710,9 +739,9 @@
        hari itu. Tidak ada galat: penggambar ulangnya cuma diam.
        Judul dipakai sebagai kunci akan basi lagi; id tidak. */
     let isi = '<div class="cb-card" id="cb-tabel"><h3>Dana Masuk BRI &mdash; ' + CB_ESC(labelBulan(CB.ym)) + '</h3>'
-      + '<div class="cb-sub">Satu baris = satu transaksi, <b>urut waktu masuknya</b>. '
-      + 'Yang dari reservasi terisi sendiri dari bukti bayar yang diunggah kru Reservasi &mdash; '
-      + 'tidak ada yang perlu mengetiknya.</div>'
+      + '<div class="cb-sub">Satu baris = <b>satu uang yang dinyatakan masuk</b>, urut waktu masuknya. '
+      + 'DP reservasi tidak lahir jadi baris di sini &mdash; ia <b>disambungkan</b> ke barisnya lewat '
+      + 'tombol Cocokkan.</div>'
       + '<div class="cb-baris-alat">'
       + '<div class="cb-seg">'
       + [['semua', 'Semua'], ['rsv', 'Dari reservasi'], ['luar', 'Di luar reservasi'],
@@ -752,7 +781,19 @@
          ada di modul Reservasi. Keterangan yang benar di tempat yang salah
          sama saja tidak ada. */
       const luar = dpLuarBri();
-      if (luar.length) {
+      const blmCatat = dpBelumDicatat();
+      /* SEJAK BARIS TIDAK LAGI LAHIR SENDIRI (23 September 2026), daftar
+         kosong adalah keadaan yang PALING SERING terjadi di bulan yang belum
+         dikerjakan — bukan pengecualian. Yang dibutuhkan yang membacanya
+         bukan penjelasan kenapa kosong, melainkan JALAN KELUARNYA: berapa DP
+         yang menunggu dicatat, dan di mana tombolnya. */
+      if (blmCatat.length) {
+        isi += '<div class="cb-kosong">Belum ada satu baris dana masuk pun di bulan ini.<br><br>'
+          + 'Bulan ini punya <b>' + blmCatat.length + ' DP reservasi</b> (' + CB_RP(jml(blmCatat)) + ') '
+          + 'yang uangnya masuk <b>BRI</b> dan belum dicatat. Kartu '
+          + '<b>DP Reservasi yang Belum Dicatat</b> di bawah menyebutnya satu per satu, berikut '
+          + 'tombol <b>Catat</b> yang mengisi formulirnya sendiri.</div>';
+      } else if (luar.length) {
         const nama = namaLuar(luar);
         isi += '<div class="cb-kosong">Belum ada satu transaksi <b>BRI</b> pun di bulan ini &mdash; '
           + 'tapi bulan ini punya <b>' + luar.length + ' DP reservasi</b> (' + CB_RP(jml(luar)) + ') '
@@ -762,9 +803,8 @@
           + 'Kalau uangnya sebenarnya masuk BRI, betulkan metode DP itu di modul Reservasi &mdash; '
           + 'barisnya muncul di sini begitu itu beres. Keterangan lengkapnya ada di kartu di bawah.</div>';
       } else {
-        isi += '<div class="cb-kosong">Belum ada satu transaksi pun di bulan ini. '
-          + 'Dana masuk dari reservasi terisi sendiri dari DP yang dicatat kru Reservasi '
-          + '(metode QRIS atau Transfer BRI); yang di luar reservasi ditambahkan lewat tombol di kartu atas.</div>';
+        isi += '<div class="cb-kosong">Belum ada satu transaksi pun di bulan ini, dan tidak ada DP '
+          + 'reservasi yang menunggu dicatat. Tambahkan dana masuk lewat tombol di kartu atas.</div>';
       }
     } else if (!list.length) {
       isi += '<div class="cb-kosong">Tidak ada baris yang cocok dengan saringan yang sedang berlaku'
@@ -796,10 +836,6 @@
 
   /* Dari mana uangnya — kolom yang dulu diketik tangan di berkas Excel. */
   function selDari(x, usul, bisa) {
-    if (x.jenis === 'rsv')
-      return '<b>' + CB_ESC(x.dp.nama || '(tanpa nama)') + '</b>'
-        + '<div class="cb-kecil cb-muted">reservasi ' + CB_ESC(G.cbTglID(x.dp.resTgl) || '—')
-        + ' &middot; ' + CB_ESC(x.dp.metode || x.dp.bank || '—') + '</div>';
     const r = x.mut;
     if (r.cara === 'cocok')
       return '<b>' + CB_ESC(r.resNama || '(tanpa nama)') + '</b>'
@@ -868,35 +904,9 @@
     const r = x.mut;
     const terbuka = CB.buka === x.id;
     let aksi = '';
-    /* BARIS `rsv` SEKARANG PUNYA TOMBOLNYA SENDIRI (21 September 2026).
-       Sampai tanggal itu ia sengaja tanpa tombol, dengan alasan "ia tidak
-       ada di tabel ini, yang memegangnya modul Reservasi". Alasan itu masih
-       benar untuk NOMINAL dan BUKTI-nya — keduanya tetap dibaca, tidak
-       pernah diketik di sini — tapi tidak untuk dua hal yang diminta user:
-       melihat bukti bayarnya, dan membetulkan metode yang salah. Menyuruh
-       pindah modul untuk satu kotak pilihan membuat metode yang salah
-       dibiarkan, dan barisnya menumpuk di daftar yang salah.
-
-       Panelnya dibuka JUGA untuk baris yang sudah bernisan — di situlah
-       tombol Pulihkannya berdiri. Baris mati tanpa jalan pulang adalah
-       penandaan yang tidak bisa dibatalkan siapa pun. */
     if (bisa && r && hidup(r)) {
       aksi = '<button class="cb-btn cb-btn-xs" onclick="cbBuka(\'' + x.id + '\')">'
         + (terbuka ? 'Tutup' : (r.cara ? 'Ubah' : 'Cocokkan')) + '</button>';
-    } else if (x.jenis === 'rsv') {
-      /* TOMBOLNYA DIGAMBAR WALAU CUMA BOLEH LIHAT — yang di dalamnya bukan
-         cuma isian: bukti transfernya ada di sana, dan melihat bukti adalah
-         melihat. Yang tidak boleh mengubah tidak diberi kotak metodenya
-         (lihat panelDp), bukan ditutup dari buktinya. */
-      /* IKON PENSIL (21 September 2026, permintaan user: "kalau koreksi ada
-         gambar pensil biar bisa edit"). Buktinya sudah berdiri sebagai
-         gambar di kolomnya sendiri, jadi tombol ini tinggal soal KOREKSI —
-         dan tulisan "Bukti & koreksi" di kolom paling kanan tidak lagi
-         menyebut apa pun yang tidak sudah kelihatan. title-nya WAJIB:
-         tombol berikon tanpa keterangan cuma bisa ditebak. */
-      aksi = '<button class="cb-btn cb-btn-xs cb-ikon" onclick="cbBuka(\'' + x.id + '\')" '
-        + 'title="Koreksi: metode bayar, atau tandai tidak valid">'
-        + (terbuka ? '&#10005;' : '&#9998;') + '</button>';
     }
     let html = '<tr class="' + (gHidup(x) ? '' : 'cb-coret') + '">'
       + '<td>' + (x.tgl ? CB_ESC(G.cbTglID(x.tgl))
@@ -908,17 +918,9 @@
       + '<td>' + (r ? (CB_ESC(r.ket || '') || '<span class="cb-muted">—</span>') : '<span class="cb-muted">—</span>')
       + (r && r.booking ? '<div class="cb-kecil cb-muted">booking ' + CB_ESC(G.cbTglID(r.booking)) + '</div>' : '')
       + (r && !gHidup(x) && r.batalAlasan ? '<div class="cb-kecil">dibatalkan: ' + CB_ESC(r.batalAlasan) + '</div>' : '')
-      /* SEBAB NISANNYA DITULIS DI BARISNYA, bukan cuma di panel yang harus
-         dibuka dulu. Baris tercoret tanpa sebab terbaca sebagai data rusak,
-         dan yang membacanya akan mencarinya di modul Reservasi. */
-      + (x.jenis === 'rsv' && x.abai
-          ? '<div class="cb-kecil">ditandai tidak valid: ' + CB_ESC(x.abai.alasan || '—')
-            + (x.abai.oleh ? ' <span class="cb-muted">&mdash; ' + CB_ESC(x.abai.oleh) + '</span>' : '') + '</div>'
-          : '')
       + '</td>'
       + '<td class="cb-aksi">' + aksi + '</td></tr>';
     if (terbuka && r) html += '<tr class="cb-panel-baris"><td colspan="7">' + panelCocok(r) + '</td></tr>';
-    else if (terbuka && x.jenis === 'rsv') html += '<tr class="cb-panel-baris"><td colspan="7">' + panelDp(x.dp, x.abai) + '</td></tr>';
     return html;
   }
 
@@ -1260,6 +1262,120 @@
      tidak menjawab "ke mana perginya yang saya cari". */
   const namaLuar = lain => [...new Set(lain.map(d => d.nama).filter(Boolean))].slice(0, 8);
 
+  /* ============ DP RESERVASI YANG BELUM DICATAT (23 September 2026) ============
+     DAFTAR KERJA, dan ia yang menahan pencabutan baris `rsv` jadi kehilangan.
+     Isinya DP yang uangnya memang masuk BRI tapi belum disambungkan ke satu
+     baris dana masuk pun — yaitu uang yang menurut modul Reservasi sudah
+     diterima, dan menurut halaman ini belum pernah dilihat siapa pun di
+     rekening.
+
+     SELISIH ITULAH GUNANYA. Selama daftar ini kosong, dua layar sepakat;
+     selama ia berisi, ia menyebut persis baris mana yang belum dicocokkan.
+     Dibuang, DP yang masuk BRI lenyap dari halaman ini tanpa satu kalimat
+     pun — dan yang membandingkannya dengan modul Reservasi akan
+     melaporkannya sebagai dana yang hilang. */
+  function dpBelumDicatat() {
+    if (!CB.dps || CB.dpErr) return [];
+    /* dpsBulan() yang menyaring bulan, nisan, dan DP yang sudah dipegang
+       baris lain — satu penyaring, bukan salinan kedua yang akan menyimpang
+       dari panel pencocokan di sebelahnya. */
+    return dpsBulan().filter(d => !d.dipakai && dpKeBri(d));
+  }
+  /* DP YANG DITANDAI TIDAK VALID TETAP TERGAMBAR, tercoret, di kaki daftar
+     kerjanya — dan di situlah tombol Pulihkannya berdiri.
+     `dpsBulan()` membuangnya, jadi tanpa daftar kedua ini penandaan berubah
+     jadi penghapusan yang tidak bisa dibatalkan siapa pun: barisnya lenyap
+     dari layar berikut satu-satunya panel yang punya tombol pulihnya.
+     Aturan yang sama dengan baris mutasi yang dibatalkan — tidak satu pun
+     benar-benar dihapus. */
+  function dpBernisan() {
+    if (!CB.dps || CB.dpErr) return [];
+    const rg = rentang(CB.ym);
+    const pakai = dpTerpakai();
+    return CB.dps.filter(d => CB.abai[d.dpId] && !pakai[d.dpId] && dpKeBri(d)
+      && ((d.tfTgl >= rg.dari && d.tfTgl <= rg.sampai)
+          || (!d.tfTgl && d.resTgl >= rg.dari && d.resTgl <= rg.sampai)));
+  }
+
+  function kartuBelumDicatat() {
+    if (!CB.opsi.bolehUbah() && !CB.dps) return '';
+    if (CB.dpErr) {
+      return '<div class="cb-card"><h3>DP Reservasi yang Belum Dicatat</h3>'
+        + pita('bad', 'Daftar DP tidak terbaca dari modul Reservasi: <b>' + CB_ESC(CB.dpErr) + '</b>. '
+          + 'Selama itu belum beres, halaman ini tidak bisa menyebut DP mana yang belum dicatat &mdash; '
+          + '<b>bukan berarti tidak ada</b>.') + '</div>';
+    }
+    if (!CB.dps) {
+      return '<div class="cb-card"><h3>DP Reservasi yang Belum Dicatat</h3>'
+        + '<div class="cb-kosong">Memuat DP dari modul Reservasi&hellip;</div></div>';
+    }
+    const b = dpBelumDicatat();
+    const mati = dpBernisan();
+    let isi = '<div class="cb-card"><h3>DP Reservasi yang Belum Dicatat</h3>'
+      + '<div class="cb-sub">DP yang metodenya QRIS/BRI tapi <b>belum disambungkan</b> ke satu baris '
+      + 'dana masuk pun. Menurut modul Reservasi uangnya sudah diterima; menurut halaman ini belum '
+      + 'ada yang melihatnya di rekening. Selisihnya itulah yang perlu dibereskan.</div>';
+    if (!b.length && !mati.length) {
+      return isi + pita('ok', '<b>Tidak ada.</b> Seluruh DP yang masuk BRI bulan ini sudah punya '
+        + 'baris dana masuknya.') + '</div>';
+    }
+    const bisa = CB.opsi.bolehUbah();
+    if (!b.length) {
+      isi += pita('ok', '<b>Tidak ada yang menunggu dicatat.</b> Yang di bawah sudah ditandai tidak '
+        + 'valid dan tidak ikut dihitung &mdash; tetap tergambar supaya penandaannya bisa dicabut.');
+    }
+    isi += pita('warn', '<b>' + b.length + ' DP, ' + CB_RP(jml(b)) + '</b> belum dicatat sebagai dana masuk.'
+      + (bisa ? ' Tekan <b>Catat</b> di barisnya &mdash; formulirnya terisi dari DP itu, tinggal '
+                + 'dicocokkan dengan mutasi banknya lalu disimpan, dan barisnya langsung tersambung.'
+              : ''))
+      + '<div class="cb-tbl-wrap"><table class="cb-tbl"><thead><tr>'
+      + '<th>Nama</th><th>Reservasi</th><th>Tgl transfer</th><th class="num">Nominal</th>'
+      + '<th>Metode</th><th>Bukti</th><th></th></tr></thead><tbody>';
+    /* Dipotong, dan sisanya DISEBUT angkanya — kartu sepanjang seratus baris
+       mendorong tabel yang jadi isi halaman ini keluar layar. */
+    const MAKS = 25;
+    const barisDp = (d, abai) => {
+      const terbuka = CB.buka === 'belum:' + d.dpId;
+      let t = '<tr class="' + (abai ? 'cb-coret' : '') + '">'
+        + '<td><b>' + CB_ESC(d.nama || '(tanpa nama)') + '</b>'
+        /* SEBAB NISANNYA DITULIS DI BARISNYA, bukan cuma di panel yang harus
+           dibuka dulu. Baris tercoret tanpa sebab terbaca sebagai data
+           rusak, dan yang membacanya akan mencarinya di modul Reservasi. */
+        + (abai ? '<div class="cb-kecil">ditandai tidak valid: ' + CB_ESC(abai.alasan || '—')
+            + (abai.oleh ? ' <span class="cb-muted">&mdash; ' + CB_ESC(abai.oleh) + '</span>' : '') + '</div>' : '')
+        + '</td>'
+        + '<td>' + CB_ESC(G.cbTglID(d.resTgl) || '—') + '</td>'
+        + '<td>' + (d.tfTgl ? CB_ESC(G.cbTglID(d.tfTgl))
+                            : '<span class="cb-muted">tidak terbaca</span>') + '</td>'
+        + '<td class="num">' + CB_RP(d.nominal) + '</td>'
+        + '<td>' + CB_ESC(d.metode || d.bank || '—') + '</td>'
+        + '<td class="cb-selbukti">' + selBukti(d) + '</td>'
+        + '<td class="cb-aksi">'
+        /* Yang sudah ditandai tidak valid TIDAK ditawari tombol Catat: ia
+           sudah dinyatakan bukan dana masuk BRI oleh orang yang
+           menandainya, dan satu layar yang menyuruh mencatat apa yang layar
+           sebelahnya sudah coret membuat penandanya berhenti berarti. */
+        + (bisa && !abai ? '<button class="cb-btn cb-btn-xs cb-btn-utama" onclick="cbCatatDp(\''
+            + CB_ESC(d.dpId) + '\')" title="Catat dana masuknya, lalu sambungkan ke DP ini">Catat</button>' : '')
+        + '<button class="cb-btn cb-btn-xs cb-ikon" onclick="cbBuka(\'belum:' + CB_ESC(d.dpId) + '\')" '
+        + 'title="' + (abai ? 'Pulihkan penandaan, atau betulkan metode bayarnya'
+                            : 'Koreksi: metode bayar, atau tandai tidak valid') + '">'
+        + (terbuka ? '&#10005;' : '&#9998;') + '</button></td></tr>';
+      if (terbuka) t += '<tr class="cb-panel-baris"><td colspan="7">' + panelDp(d, abai) + '</td></tr>';
+      return t;
+    };
+    for (const d of b.slice(0, MAKS)) isi += barisDp(d, null);
+    for (const d of mati.slice(0, MAKS)) isi += barisDp(d, CB.abai[d.dpId]);
+    isi += '</tbody></table></div>';
+    if (b.length > MAKS)
+      isi += '<div class="cb-sub">&hellip; dan ' + (b.length - MAKS) + ' DP lagi tidak ditampilkan.</div>';
+    if (mati.length)
+      isi += '<div class="cb-sub"><b>' + mati.length + ' DP ditandai tidak valid</b> (' + CB_RP(jml(mati))
+        + ') &mdash; tercoret, tidak ikut dihitung, dan tidak ditagih lagi. Penandaannya bisa dicabut '
+        + 'lewat tombol koreksi di barisnya.</div>';
+    return isi + '</div>';
+  }
+
   function kartuLuarBri() {
     const lain = dpLuarBri();
     if (!lain.length) return '';
@@ -1330,7 +1446,8 @@
          daftar DP yang berbeda kalau balasan modul Reservasi datang di
          antaranya, dan kartu di atas tabel lalu menyebut jumlah yang tidak
          cocok dengan baris di bawahnya. */
-      isi += kartuRingkas(barisGabungan()) + kartuSumber() + kartuUsulan() + kartuTabel() + kartuLuarBri();
+      isi += kartuRingkas(barisGabungan()) + kartuSumber() + kartuUsulan() + kartuTabel()
+           + kartuBelumDicatat() + kartuLuarBri();
     }
     el.innerHTML = isi + '</div>';
     pasangGaya();
@@ -1427,12 +1544,75 @@
     if (!(CB_NUM(t.nominal) > 0))    CB.salah.push('nominal');
     if (!String(t.ket || '').trim()) CB.salah.push('ket');
     if (CB.salah.length) { CB.opsi.gambarUlang(); return; }
+    const nom = CB_NUM(t.nominal);
+    const dpId = String(t.dp || '');
     const j = await kirim({ action: 'briTambah', data: {
-      tgl: t.tgl, jam: t.jam, nominal: CB_NUM(t.nominal), ket: t.ket } }, null);
+      tgl: t.tgl, jam: t.jam, nominal: nom, ket: t.ket } }, null);
     if (!j) return;
-    CB.pesan = 'Dana masuk ' + CB_RP(CB_NUM(t.nominal)) + ' ditambahkan.';
     CB.tambah = null; CB.salah = [];
+
+    /* DUA PANGGILAN, dan itu disengaja — tidak ada perubahan di backend.
+       `bri_tambah()` menandai barisnya `cara='bukan'`, lalu `bri_cocok()`
+       mengubahnya jadi `cocok`; keduanya endpoint yang memang sudah ada, dan
+       `bri_cocok_satu()` tidak melarang perpindahan itu.
+
+       YANG GAGAL DI LANGKAH KEDUA TIDAK DIAM. Barisnya sudah tersimpan —
+       uangnya memang masuk — tapi ia berdiri di kelompok yang SALAH ("di
+       luar reservasi") sampai ada yang menyambungkannya. Dibiarkan diam,
+       satu DP tetap tertagih di daftar Belum Dicatat sementara uangnya sudah
+       tercatat sebagai bukan-reservasi, dan totalnya berhenti bisa
+       dicocokkan. Jadi sebabnya disebut berikut apa yang harus dikerjakan. */
+    if (dpId) {
+      const id = (j.data && j.data.id) || '';
+      const d = (CB.dps || []).find(x => x.dpId === dpId);
+      /* SATU PESAN untuk semua sebab gagal menyambung — id yang tidak
+         dipulangkan server, DP yang keburu hilang dari daftar, atau
+         panggilan kedua yang ditolak. Ketiganya meninggalkan keadaan yang
+         SAMA di layar, dan yang mengerjakannya perlu tahu satu hal yang
+         sama: barisnya ada, tapi belum tersambung. Dibedakan jadi tiga
+         kalimat, yang membacanya harus menebak mana yang berlaku. */
+      const gagalSambung = () => {
+        CB.pesan = 'Dana masuk ' + CB_RP(nom) + ' TERSIMPAN, tapi BELUM tersambung ke DP-nya. '
+          + 'Sambungkan lewat tombol Cocokkan di barisnya — selama belum, barisnya terhitung '
+          + 'sebagai dana di luar reservasi dan DP-nya tetap ditagih di daftar kerja.';
+        CB.opsi.gambarUlang();
+      };
+      if (!id || !d) { gagalSambung(); return; }
+      const k = await kirim({ action: 'briCocok', data: {
+        id: id, cara: 'cocok', resId: d.resId, dpId: d.dpId,
+        resNama: d.nama, resTgl: d.resTgl } }, null);
+      if (!k) { gagalSambung(); return; }
+      CB.pesan = 'Dana masuk ' + CB_RP(nom) + ' tersimpan dan tersambung ke ' + (d.nama || '') + '.';
+      CB.opsi.gambarUlang();
+      return;
+    }
+    CB.pesan = 'Dana masuk ' + CB_RP(nom) + ' ditambahkan.';
     CB.opsi.gambarUlang();
+  };
+
+  /* Membuka formulir Catat dengan isian yang sudah terisi dari sebuah DP —
+     DAN dengan niat menyambungkannya (`dp`). Yang tersimpan tetap apa yang
+     ada di kotaknya waktu Simpan ditekan: ini pengisi awal, bukan jalan
+     pintas yang melewati orang. Pola yang sama dengan tombol Pakai pada
+     saran OCR di modul Reservasi. */
+  G.cbCatatDp = function (dpId) {
+    const d = (CB.dps || []).find(x => x.dpId === dpId);
+    if (!d) return;
+    /* JAMNYA DIBAKUKAN 24 JAM. Diisikan apa adanya, jam ber-AM/PM dari
+       bukti ("07:30:00 PM") tidak bisa ditampilkan <input type="time"> sama
+       sekali — kotaknya tergambar KOSONG, dan yang menyimpannya kehilangan
+       jam yang sebenarnya sudah terbaca. */
+    CB.tambah = { tgl: d.tfTgl || '', jam: G.cbJamWIB(d.tfJam || ''), nominal: String(d.nominal || ''),
+                  ket: d.nama || '', dp: d.dpId };
+    CB.salah = []; CB.buka = ''; CB.pesan = '';
+    CB.opsi.gambarUlang();
+    /* FORMULIRNYA DI ATAS, tombolnya jauh di bawah. Tanpa menggulir, yang
+       menekannya melihat halaman yang tidak berubah apa pun dan menekannya
+       berkali-kali. */
+    try {
+      const el = document.querySelector('#cb-wrap .cb-pra');
+      if (el && el.scrollIntoView) el.scrollIntoView({ block: 'center' });
+    } catch (e) { /* peramban tanpa scrollIntoView — tidak fatal */ }
   };
 
   G.cbTapis = k => { CB.tapis = k; CB.buka = ''; CB.opsi.gambarUlang(); };
@@ -1471,11 +1651,14 @@
   }
 
   /* ============ BUKTI: DIUNDUH SAAT PANELNYA DIBUKA ============
-     Id panel yang terbuka membawa dpId-nya sendiri ('rsv:<dpId>' /
-     'luar:<dpId>'); baris mutasi yang sudah cocok dicari lewat r.dpId. */
+     Id panel yang terbuka membawa dpId-nya sendiri ('belum:<dpId>' /
+     'luar:<dpId>'); baris mutasi yang sudah cocok dicari lewat r.dpId.
+     Awalan 'rsv:' dicabut bersama baris `rsv` 23 September 2026 — awalan
+     yang tidak pernah bisa cocok lagi cuma membuat pembaca berikutnya
+     mengira baris itu masih ada. */
   function dpDariIdPanel(id) {
     const s = String(id || '');
-    for (const awalan of ['rsv:', 'luar:']) {
+    for (const awalan of ['belum:', 'luar:']) {
       if (s.indexOf(awalan) === 0) return (CB.dps || []).find(d => d.dpId === s.slice(awalan.length)) || null;
     }
     const r = CB.rows.find(x => x.id === s);

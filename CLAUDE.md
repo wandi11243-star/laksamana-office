@@ -8902,6 +8902,110 @@ asersinya dipindah:
 |---|---|---|
 | `cbGambar()` kembali menyisipkan lightbox ke `#app-view` | asersi "tidak ada di #app-view" berdiri SEBELUM halaman digambar ulang, dan salinan keduanya belum lahir di situ | diperiksa SESUDAH render, plus jumlah `.cb-lightbox` di seluruh halaman dikunci **1** |
 
+##### DP TIDAK LAGI LAHIR JADI BARIS — dicatat manual, lalu disambungkan (23 Sep 2026)
+
+Permintaan user: *"bisa nggak sistemnya jangan langsung otomatis keisi data
+reservasi (yang dana uang masuk) — input manual saja, tapi ketika diisi kalau
+misalnya dananya masuk untuk reservasi bisa di-connect-kan langsung"*.
+
+**SATU BARIS SEKARANG = SATU UANG YANG ORANG NYATAKAN MASUK.** Sampai tanggal
+ini tiap DP bermetode QRIS/BRI berdiri sendiri sebagai baris `rsv` — dan baris
+itu MENGAKU uangnya masuk hanya karena ada yang mengunggah foto struk. Fotonya
+dibaca mesin yang terbukti bisa salah (lihat *OCR jadi saran* di modul
+Reservasi, hari yang sama), jadi daftar "Dana Masuk BRI" berisi transaksi yang
+tidak seorang pun pernah lihat di rekeningnya.
+
+> **Ini MEMBALIK permintaan 19 September 2026** (*"rownya tidak akan selalu
+> diisi oleh user, karena nanti ambil data dari bukti bayar dari reservasi"*),
+> dan pembalikannya beralasan: sumber otomatisnya ternyata tidak bisa
+> dipercaya. Jangan dikembalikan tanpa diminta.
+
+| | sebelum | sesudah |
+|---|---|---|
+| baris dari DP | lahir sendiri, **read-only** | tidak ada |
+| DP → baris | sudah terhubung sejak lahir | **disambungkan** lewat `cbPilihDp` |
+| DP yang belum tersambung | — | kartu **DP Reservasi yang Belum Dicatat** |
+
+**KARTU ITU YANG MENAHAN PENCABUTAN JADI KEHILANGAN**, dan tanpanya perubahan
+ini tidak boleh naik: DP yang uangnya memang masuk BRI lenyap dari halaman ini
+begitu barisnya dicabut, dan yang membandingkannya dengan modul Reservasi akan
+melaporkannya sebagai dana yang hilang. Isinya juga daftar kerja yang
+sebenarnya — *"menurut modul Reservasi uangnya sudah diterima; menurut halaman
+ini belum ada yang melihatnya di rekening"*.
+
+**TOMBOL `Catat` YANG MEMBUATNYA TETAP BISA DIKERJAKAN.** Tanpa satu-klik itu
+tiap DP harus diketik ulang lima kolom, dan aturan "catat manual" cuma jadi
+pekerjaan tambahan yang ditinggalkan orang. Ia **mengisi formulirnya**, bukan
+menyimpan — pola yang sama dengan tombol *Pakai* pada saran OCR: mesin
+mengusulkan, orang menekan.
+
+- **DUA PANGGILAN, TANPA SATU BARIS PUN PERUBAHAN BACKEND.** `bri_tambah()`
+  menandai barisnya `cara='bukan'`, lalu `bri_cocok()` mengubahnya jadi
+  `cocok`; keduanya endpoint yang memang sudah ada, dan `bri_cocok_satu()`
+  tidak melarang perpindahan itu. Backend kompas diunggah lewat workflow, tapi
+  perubahan PHP di repo ini tidak bisa diuji lokal — jadi jalur yang tidak
+  menyentuhnya lebih murah DAN lebih aman.
+- **YANG GAGAL DI LANGKAH KEDUA TIDAK DIAM.** Barisnya sudah tersimpan —
+  uangnya memang masuk — tapi ia berdiri di kelompok yang SALAH ("di luar
+  reservasi") sampai ada yang menyambungkannya, sementara DP-nya tetap
+  ditagih di daftar kerja. Dua layar lalu menghitung uang yang sama dua kali.
+  Pesannya menyebut keduanya berikut apa yang harus dikerjakan. **SATU pesan
+  untuk ketiga sebabnya** (id tidak dipulangkan, DP keburu hilang, panggilan
+  kedua ditolak): ketiganya meninggalkan keadaan yang sama, dan tiga kalimat
+  berbeda cuma membuat yang membacanya menebak mana yang berlaku.
+- **Jamnya DIBAKUKAN 24 jam** saat mengisi formulir (`cbJamWIB`). Diisikan apa
+  adanya, `07:30:00 PM` tidak bisa ditampilkan `<input type="time">` sama
+  sekali — kotaknya tergambar **KOSONG**, dan yang menyimpannya kehilangan jam
+  yang sebenarnya sudah terbaca.
+- **Tanggal transfer yang memang tidak terbaca DISEBUT di pita formulirnya**,
+  bukan dibiarkan jadi kotak merah waktu Simpan ditekan. Sepertiga DP di
+  produksi begitu, jadi ini keadaan yang wajar — dan *"Belum lengkap:
+  Tanggal"* untuk kotak yang tidak pernah bisa terisi sendiri terbaca sebagai
+  formulir yang rusak.
+- **DP bernisan TETAP TERGAMBAR, tercoret, di kaki daftar kerjanya**
+  (`dpBernisan()`). `dpsBulan()` membuangnya, jadi tanpa daftar kedua itu
+  penandaan berubah jadi penghapusan yang tidak bisa dibatalkan siapa pun:
+  barisnya lenyap berikut satu-satunya panel yang punya tombol Pulihkannya.
+  Yang bernisan **tidak ditawari tombol Catat** — satu layar yang menyuruh
+  mencatat apa yang layar sebelahnya sudah coret membuat penandanya berhenti
+  berarti.
+- **Baris yang sudah dicocokkan MEMBAWA DP-nya** (`dp: r.dpId ? …find… : null`).
+  Kolom Bukti dulu terisi hanya untuk baris `rsv`; tanpa pencarian itu seluruh
+  kolom Bukti di tabel utama mati tanpa satu pun galat, dan bukti transfer
+  berhenti terlihat justru sesudah pencocokannya disimpan.
+- **Keadaan kosong menunjuk ke daftar kerjanya**, berikut jumlah & nominalnya.
+  Sejak baris tidak lahir sendiri, daftar kosong adalah keadaan yang PALING
+  SERING terjadi di bulan yang belum dikerjakan — dan yang membacanya butuh
+  jalan keluar, bukan penjelasan.
+- **Kartu ringkas tidak lagi menjanjikan baris yang terisi sendiri.** Janji
+  yang tidak ditepati tiap kali dibaca.
+- `dpKeBri()`, `bri_abai`, `cbPilihDp`, `panelDp`, dan penyaring bulan **tidak
+  disentuh** — yang berubah siapa yang melahirkan barisnya, bukan aturannya.
+
+```bash
+node tools/uji-cocok-bri.js   # 262 pemeriksaan (dari 233)
+```
+
+**Empat belas mutasi dicoba, keempat belasnya tertangkap** — satu baru sesudah
+asersinya ditambah:
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| baris yang sudah dicocokkan kehilangan buktinya | tidak ada satu asersi pun yang membaca kolom Bukti di TABEL — yang ada cuma di dalam panel, dan panel itu mencari DP-nya sendiri lewat `r.dpId` | kolom Bukti barisnya diiris, lalu data URI DP-nya dituntut ada di sana |
+
+> **DUA PULUH ASERSI LAMA LANGSUNG MERAH** saat baris `rsv` dicabut, dan
+> semuanya benar-benar menguji perilaku yang MEMANG berubah — bukan cacat
+> uji. Yang perlu diingat: sebagian besarnya tidak dihapus melainkan
+> **DIARAHKAN ULANG** ke kartu daftar kerja (bukti, lightbox, ikon pensil,
+> koreksi metode, nisan). Perilaku yang pindah tempat tetap perilaku yang
+> harus dijaga; dihapus bersama barisnya, ia berhenti diuji tanpa ada yang
+> menyadarinya.
+
+> **`img.cb-thumb` SEKARANG LEBIH DARI SATU di halaman** — satu di tabel
+> (baris yang sudah dicocokkan) dan satu di daftar kerja. Selektor yang
+> menyapu menemukan yang pertama, dan asersi tentang gambar kedua diuji atas
+> gambar pertama. Dijepit lewat `onclick`-nya.
+
 
 ### Reservasi: tombol "Lihat" yang tidak memunculkan apa pun, & jam 12 jam (21 Sep 2026)
 
