@@ -1090,6 +1090,167 @@ async function ujiHalaman() {
   T('kartu atas menunjuk ke daftar kerjanya',
     html().indexOf('DP Reservasi yang Belum Dicatat') >= 0);
 
+  /* ===== PAGINATION KETIGA TABELNYA (23 September 2026) =====
+     Diuji dengan MENGECILKAN ukuran halamannya, bukan dengan membesarkan
+     fixture: fixture yang ratusan baris membuat tiap asersi lain di berkas
+     ini ikut melambat, dan angkanya berhenti bisa dibaca orang. Yang diuji
+     PEMOTONGANNYA, dan itu tidak peduli berapa totalnya. */
+  {
+    W.cbBuka(''); W.cbTutupTambah();
+    W.cbKetikCari({ value: '' });
+    S.perHal = 2; S.hal.tabel = 1; S.hal.belum = 1; S.hal.luar = 1;
+    W.cbGambar(el, '2026-09');
+    await tidur(20);
+
+    T('tabel utama dipotong menurut ukuran halaman', barisTabel().length === 2,
+      'dapat ' + barisTabel().length);
+    const kt = kartu('Dana Masuk BRI');
+    /* Entitas HTML sudah jadi HURUF waktu dibaca lewat innerHTML — &ndash;
+       keluar sebagai en-dash. Asersi yang menuntut bentuk mentahnya merah
+       untuk kode yang benar. */
+    T('pagernya menyebut baris ke berapa sampai ke berapa',
+      /Menampilkan <b>1.2<\/b> dari <b>3<\/b> baris/.test(kt),
+      (kt.match(/Menampilkan[\s\S]{0,60}/) || [''])[0]);
+    /* TOMBOL MENTOK DIGAMBAR disabled — tombol yang bisa ditekan tapi tidak
+       melakukan apa pun dibaca sebagai halaman rusak. */
+    T('tombol Sebelumnya mati di halaman pertama',
+      /<button disabled(="")? onclick="cbHal\('tabel',0\)"/.test(kt),
+      kt.slice(kt.indexOf('cb-pager'), kt.indexOf('cb-pager') + 300));
+    /* Yang di UJUNG pagernya (›), bukan tombol nomor 2 — yang juga memanggil
+       cbHal('tabel',2). Asersi yang cuma mencari nomornya cocok dengan
+       tombol yang bukan yang diuji. */
+    T('tombol Berikutnya hidup di halaman pertama',
+      /<button onclick="cbHal\('tabel',2\)">›<\/button>/.test(kt),
+      kt.slice(kt.indexOf('cb-pager-nomor'), kt.indexOf('cb-pager-nomor') + 420));
+
+    /* YANG DIPOTONG HANYA TAMPILANNYA. Kartu ringkas dihitung dari daftar
+       PENUH — ikut terpotong, total dana masuk berubah tiap kali orang
+       pindah halaman, dan itu angka yang dipakai mencocokkan rekening
+       koran. */
+    T('kartu ringkas tetap menghitung seluruh baris',
+      html().slice(0, html().indexOf('<h3>')).indexOf('Rp5.725.000') >= 0);
+    T('jumlah di tiap tapis tetap dari daftar penuh', /Semua \(3\)/.test(kt), (kt.match(/Semua \(\d+\)/) || [''])[0]);
+
+    /* MENEKAN NOMORNYA HANYA MENGGAMBAR ULANG KARTUNYA — lewat penggambar
+       penuh, gulir melompat ke atas persis saat orang membaca tabel di
+       bawah, dan kotak cari yang sedang diketik ikut dibuat ulang.
+
+       YANG DIPERIKSA IDENTITAS ELEMENNYA, bukan isi HTML-nya: penggambar
+       penuh menghasilkan HTML yang SAMA PERSIS untuk kartu lain, jadi
+       perbandingan string hijau untuk kedua perilaku. Node-nya yang
+       berbeda — dan itu pula yang menentukan apakah gulir & fokus
+       bertahan. */
+    const nodeLain = W.document.getElementById('cb-belum');
+    aman('pindah halaman tidak melempar', () => { W.cbHal('tabel', 2); });
+    T('halamannya berpindah', S.hal.tabel === 2);
+    T('barisnya ikut berpindah', barisTabel().length === 1, 'dapat ' + barisTabel().length);
+    T('kartu lain tidak ikut dibuat ulang',
+      !!nodeLain && W.document.getElementById('cb-belum') === nodeLain);
+
+    /* DIJEPIT TIAP KALI DIBACA. Halaman 7 yang sudah tidak ada menggambar
+       tabel KOSONG padahal datanya ada — dan itu keadaan yang paling sering
+       terjadi, karena daftarnya menyusut dari tiga arah. */
+    S.hal.tabel = 99;
+    W.cbGambar(el, '2026-09');
+    await tidur(20);
+    T('halaman di luar rentang dijepit, bukan menggambar tabel kosong',
+      S.hal.tabel === 2 && barisTabel().length === 1, 'hal=' + S.hal.tabel + ' baris=' + barisTabel().length);
+
+    /* KATA KUNCI KEMBALI KE HALAMAN 1. Bertahan di halaman lama memajang
+       tabel kosong untuk kata kunci yang hasilnya sedikit — dan yang
+       mengetiknya menyimpulkan yang dicarinya tidak ada. */
+    /* KATA KUNCINYA HARUS MENYISAKAN LEBIH DARI SATU HALAMAN — kalau tidak,
+       jepitan di halAman() mengembalikannya ke 1 dengan sendirinya dan
+       asersinya hijau walau resetnya dicabut. Persis dua mutasi yang LOLOS
+       di pager halaman Menu modul Analytics. "2026-09" cocok dengan
+       ketiga barisnya lewat kolom tanggal. */
+    S.hal.tabel = 2;
+    aman('mengetik kata kunci', () => { W.cbKetikCari({ value: '2026-09' }); });
+    T('kata kuncinya masih menyisakan dua halaman',
+      /dari <b>3<\/b> baris/.test(kartu('Dana Masuk BRI')),
+      (kartu('Dana Masuk BRI').match(/dari <b>\d+<\/b> baris/) || [''])[0]);
+    T('kata kunci mengembalikan ke halaman 1', S.hal.tabel === 1);
+    W.cbKetikCari({ value: '' });
+
+    /* GANTI TAPIS juga. */
+    S.hal.tabel = 2;
+    aman('ganti tapis', () => { W.cbTapis('semua'); });
+    T('ganti tapis mengembalikan ke halaman 1', S.hal.tabel === 1);
+
+    /* DAFTAR KERJA & KARTU NON-BRI ikut berpager — "semua tabel", bukan
+       tabel utamanya saja. */
+    T('daftar kerja punya pagernya sendiri',
+      kartu('DP Reservasi yang Belum Dicatat').indexOf("cbHal('belum'") >= 0);
+    /* Kartu non-BRI di fixture ini tinggal SATU baris (p4 sudah dibetulkan
+       jadi BRI beberapa asersi di atas), jadi nomor halamannya memang tidak
+       digambar — yang wajib ada ukurannya. Menuntut nomor di sini membuat
+       asersinya merah untuk kode yang benar. */
+    T('kartu DP non-BRI punya pagernya sendiri',
+      kartu('DP Bulan Ini yang Tidak Masuk BRI').indexOf('cbPerHal(') >= 0);
+    {
+      const kb = kartu('DP Reservasi yang Belum Dicatat');
+      const m = kb.match(/<tbody>([\s\S]*?)<\/tbody>/);
+      const nb = m ? m[1].split('<tr').slice(1).length : 0;
+      T('daftar kerja ikut dipotong', nb === 2, 'dapat ' + nb);
+      aman('pindah halaman daftar kerja', () => { W.cbHal('belum', 2); });
+      T('halaman daftar kerjanya berpindah sendiri',
+        S.hal.belum === 2 && S.hal.tabel === 1, 'belum=' + S.hal.belum + ' tabel=' + S.hal.tabel);
+    }
+
+    /* KARTU NON-BRI juga dipotong. Di titik ini fixture-nya tinggal SATU DP
+       non-BRI (p4 sudah dibetulkan jadi Transfer BRI beberapa asersi di
+       atas), jadi pemotongannya tidak punya tempat untuk gagal — mutasi
+       "kartu non-BRI berhenti dipotong" memang LOLOS sampai p4 dikembalikan
+       di sini. Yang diubah salinan di layar saja, bukan data di server. */
+    {
+      const p4 = (S.dps || []).find(d => d.dpId === 'p4');
+      if (p4) p4.metode = 'Transfer UOB';
+      S.perHal = 1; S.hal.luar = 1; S.hal.belum = 1; S.hal.tabel = 1;
+      W.cbGambar(el, '2026-09');
+      await tidur(20);
+      const kl = kartu('DP Bulan Ini yang Tidak Masuk BRI');
+      const m = kl.match(/<tbody>([\s\S]*?)<\/tbody>/);
+      const nl = m ? m[1].split('<tr').slice(1).length : 0;
+      T('kartu non-BRI ikut dipotong', nl === 1, 'dapat ' + nl);
+      T('dan pagernya menyebut totalnya', /dari <b>2<\/b> baris/.test(kl),
+        (kl.match(/dari <b>\d+<\/b> baris/) || [''])[0]);
+      aman('pindah halaman kartu non-BRI', () => { W.cbHal('luar', 2); });
+      T('halamannya berpindah sendiri', S.hal.luar === 2 && S.hal.belum === 1,
+        JSON.stringify(S.hal));
+      if (p4) p4.metode = 'Transfer BRI';
+      S.perHal = 2; S.hal.luar = 1;
+      W.cbGambar(el, '2026-09');
+      await tidur(20);
+    }
+
+    /* UKURAN HALAMAN DIPAKAI BERSAMA, dan mengubahnya mengembalikan
+       KETIGANYA ke halaman 1 — nomor yang tertinggal menunjuk ke potongan
+       yang sudah bukan potongan itu lagi. */
+    /* UKURANNYA DIPERKECIL, bukan diperbesar — dan itu satu-satunya arah
+       yang bisa membuktikan resetnya. Diperbesar, seluruh daftarnya muat di
+       satu halaman dan jepitan halAman() mengembalikan nomornya ke 1 dengan
+       sendirinya; asersinya lalu hijau walau resetnya dicabut. */
+    S.perHal = 2; S.hal.tabel = 2; S.hal.belum = 2; S.hal.luar = 1;
+    aman('ganti ukuran halaman', () => { W.cbPerHal(1); });
+    T('ukurannya berubah', S.perHal === 1);
+    T('ketiganya kembali ke halaman 1 walau nomornya masih sah',
+      S.hal.tabel === 1 && S.hal.belum === 1 && S.hal.luar === 1,
+      JSON.stringify(S.hal));
+
+    /* Ukuran yang MEMBESAR: seluruh barisnya muat di satu halaman, dan
+       nomornya tidak digambar lagi. */
+    aman('besarkan ukurannya', () => { W.cbPerHal(50); });
+    T('seluruh barisnya muat di satu halaman', barisTabel().length === 3);
+    /* Satu halaman penuh: nomornya tidak digambar, tapi ukurannya TETAP —
+       kalau tidak, daftar yang dipotong tidak punya cara untuk dilebarkan. */
+    T('satu halaman penuh tidak diberi nomor halaman',
+      kartu('Dana Masuk BRI').indexOf("cbHal('tabel'") < 0);
+    T('ukuran halaman tetap bisa disetel', kartu('Dana Masuk BRI').indexOf('cbPerHal(') >= 0);
+    S.perHal = 25;
+    W.cbGambar(el, '2026-09');
+    await tidur(20);
+  }
+
   /* ===== HAK LIHAT ===== */
   bolehUbah = false;
   W.cbGambar(el, '2026-09');

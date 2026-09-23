@@ -210,8 +210,19 @@
        pun dibuka orang. Pola FILE_CACHE di modul Reservasi. */
     bukti: {}, buktiSibuk: {},
     lihat: '',         // dpId yang buktinya sedang dibesarkan
+    /* PAGINATION KETIGA TABELNYA (23 September 2026, permintaan user).
+       NOMOR HALAMAN HIDUP DI LUAR PENGGAMBARNYA — ditaruh di dalam, ia lahir
+       ulang jadi 1 tiap kali kartunya digambar ulang, dan halaman ini
+       digambar ulang tiap simpan, tiap ketukan di kotak cari, dan tiap
+       panel dibuka. Pelajaran PF_HAL di panel Kas Kecil.
+
+       UKURANNYA SATU untuk ketiganya: tiga kendali yang sama bentuknya tapi
+       menyimpan angkanya sendiri-sendiri membuat orang menyetel yang satu
+       lalu heran yang lain tidak ikut. */
+    hal: { tabel: 1, belum: 1, luar: 1 }, perHal: 25,
     sibuk: false, pesan: ''
   };
+  const PER_HAL_PILIHAN = [25, 50, 100];
 
   /* ============ PEMUAT ============ */
   function post(payload) {
@@ -579,6 +590,67 @@
   }
   function pita(jenis, isi) { return '<div class="cb-notice ' + jenis + '">' + isi + '</div>'; }
 
+  /* ============ PAGINATION (23 September 2026) ============
+     SATU penggambar untuk ketiga tabelnya. Tiga pager yang ditulis
+     sendiri-sendiri akan menyimpang begitu salah satunya diperbaiki — dan
+     yang menyimpang di sini adalah nomor halaman yang tidak cocok dengan
+     baris yang tergambar.
+
+     YANG DIPOTONG HANYA TAMPILANNYA. Kartu ringkas, jumlah di tiap tapis,
+     dan seluruh angka rupiah tetap dihitung dari daftar PENUH — dipotong
+     ikut, total dana masuk berubah tiap kali orang pindah halaman, dan itu
+     angka yang dipakai mencocokkan rekening koran. */
+  function halAman(kunci, n) {
+    const per = CB.perHal;
+    const maks = Math.max(1, Math.ceil(n / per));
+    /* DIJEPIT TIAP KALI DIBACA, bukan cuma saat nomornya ditekan: daftarnya
+       bisa menyusut dari tiga arah (tapis, kata kunci, ganti bulan), dan
+       halaman 7 yang sudah tidak ada menggambar tabel KOSONG padahal
+       datanya ada. */
+    const h = Math.min(Math.max(1, CB.hal[kunci] || 1), maks);
+    CB.hal[kunci] = h;
+    return { h: h, maks: maks, per: per, dari: (h - 1) * per, sampai: Math.min(n, h * per) };
+  }
+  function potongHal(kunci, list) {
+    const p = halAman(kunci, list.length);
+    return list.slice(p.dari, p.sampai);
+  }
+  function pagerHtml(kunci, n) {
+    const p = halAman(kunci, n);
+    /* SATU HALAMAN PENUH TIDAK DIBERI PAGER, tapi TETAP diberi ukuran
+       halaman — kalau tidak, daftar 30 baris yang dipotong jadi 25 tidak
+       punya satu pun cara untuk dilebarkan, dan 5 baris terakhirnya cuma
+       hilang dengan kalimat yang tidak bisa ditindaklanjuti. */
+    const ukuran = '<span class="cb-pager-ukuran">Per halaman '
+      + PER_HAL_PILIHAN.map(x => '<button class="' + (CB.perHal === x ? 'on active' : '')
+          + '" onclick="cbPerHal(' + x + ')">' + x + '</button>').join('')
+      + '</span>';
+    if (n === 0) return '';
+    let nomor = '';
+    if (p.maks > 1) {
+      /* JENDELA LIMA NOMOR di sekitar yang aktif. Deretan nomor yang
+         membungkus dua baris lebih sulit dibaca daripada tidak ada nomornya
+         sama sekali. */
+      let a = Math.max(1, p.h - 2), b = Math.min(p.maks, a + 4);
+      a = Math.max(1, b - 4);
+      /* Tombol yang sudah mentok digambar disabled: tombol yang bisa ditekan
+         tapi tidak melakukan apa pun dibaca sebagai halaman rusak. */
+      nomor = '<span class="cb-pager-nomor">'
+        + '<button ' + (p.h <= 1 ? 'disabled' : '') + ' onclick="cbHal(\'' + kunci + '\',' + (p.h - 1) + ')">&lsaquo;</button>'
+        + (a > 1 ? '<span class="cb-muted">&hellip;</span>' : '');
+      for (let i = a; i <= b; i++)
+        nomor += '<button class="' + (i === p.h ? 'on active' : '') + '" onclick="cbHal(\'' + kunci + '\',' + i + ')">' + i + '</button>';
+      nomor += (b < p.maks ? '<span class="cb-muted">&hellip;</span>' : '')
+        + '<button ' + (p.h >= p.maks ? 'disabled' : '') + ' onclick="cbHal(\'' + kunci + '\',' + (p.h + 1) + ')">&rsaquo;</button>'
+        + '</span>';
+    }
+    /* BARIS KE BERAPA SAMPAI KE BERAPA, bukan cuma nomor halamannya. Daftar
+       yang menyusut tanpa keterangan terbaca sebagai data yang hilang. */
+    return '<div class="cb-pager"><span class="cb-pager-ket">Menampilkan <b>'
+      + (p.dari + 1) + '&ndash;' + p.sampai + '</b> dari <b>' + n + '</b> baris</span>'
+      + nomor + ukuran + '</div>';
+  }
+
   function kartuRingkas(G0) {
     const h = G0.filter(gHidup);
     const rsv = h.filter(gDariRsv), luar = h.filter(gLuarRsv), blm = h.filter(gBelum);
@@ -824,8 +896,8 @@
            "belum ketahuan" untuk baris mutasi yang belum dicocokkan.
            Tempatnya dipakai BUKTI TRANSFERNYA — yang memang dicari orang. */
         + '<th>Bukti</th><th>Keterangan</th><th></th></tr></thead><tbody>';
-      for (const x of list) isi += barisHtml(x, x.mut ? us[x.mut.id] : null);
-      isi += '</tbody></table></div>';
+      for (const x of potongHal('tabel', list)) isi += barisHtml(x, x.mut ? us[x.mut.id] : null);
+      isi += '</tbody></table></div>' + pagerHtml('tabel', list.length);
       if (CB.total > CB.rows.length) {
         isi += pita('warn', CB.total + ' baris ada di server untuk rentang ini, tapi cuma ' + CB.maks
           + ' yang ditampilkan. Sisanya belum tergambar di sini.');
@@ -1300,18 +1372,18 @@
   function kartuBelumDicatat() {
     if (!CB.opsi.bolehUbah() && !CB.dps) return '';
     if (CB.dpErr) {
-      return '<div class="cb-card"><h3>DP Reservasi yang Belum Dicatat</h3>'
+      return '<div class="cb-card" id="cb-belum"><h3>DP Reservasi yang Belum Dicatat</h3>'
         + pita('bad', 'Daftar DP tidak terbaca dari modul Reservasi: <b>' + CB_ESC(CB.dpErr) + '</b>. '
           + 'Selama itu belum beres, halaman ini tidak bisa menyebut DP mana yang belum dicatat &mdash; '
           + '<b>bukan berarti tidak ada</b>.') + '</div>';
     }
     if (!CB.dps) {
-      return '<div class="cb-card"><h3>DP Reservasi yang Belum Dicatat</h3>'
+      return '<div class="cb-card" id="cb-belum"><h3>DP Reservasi yang Belum Dicatat</h3>'
         + '<div class="cb-kosong">Memuat DP dari modul Reservasi&hellip;</div></div>';
     }
     const b = dpBelumDicatat();
     const mati = dpBernisan();
-    let isi = '<div class="cb-card"><h3>DP Reservasi yang Belum Dicatat</h3>'
+    let isi = '<div class="cb-card" id="cb-belum"><h3>DP Reservasi yang Belum Dicatat</h3>'
       + '<div class="cb-sub">DP yang metodenya QRIS/BRI tapi <b>belum disambungkan</b> ke satu baris '
       + 'dana masuk pun. Menurut modul Reservasi uangnya sudah diterima; menurut halaman ini belum '
       + 'ada yang melihatnya di rekening. Selisihnya itulah yang perlu dibereskan.</div>';
@@ -1331,9 +1403,6 @@
       + '<div class="cb-tbl-wrap"><table class="cb-tbl"><thead><tr>'
       + '<th>Nama</th><th>Reservasi</th><th>Tgl transfer</th><th class="num">Nominal</th>'
       + '<th>Metode</th><th>Bukti</th><th></th></tr></thead><tbody>';
-    /* Dipotong, dan sisanya DISEBUT angkanya — kartu sepanjang seratus baris
-       mendorong tabel yang jadi isi halaman ini keluar layar. */
-    const MAKS = 25;
     const barisDp = (d, abai) => {
       const terbuka = CB.buka === 'belum:' + d.dpId;
       let t = '<tr class="' + (abai ? 'cb-coret' : '') + '">'
@@ -1364,11 +1433,12 @@
       if (terbuka) t += '<tr class="cb-panel-baris"><td colspan="7">' + panelDp(d, abai) + '</td></tr>';
       return t;
     };
-    for (const d of b.slice(0, MAKS)) isi += barisDp(d, null);
-    for (const d of mati.slice(0, MAKS)) isi += barisDp(d, CB.abai[d.dpId]);
-    isi += '</tbody></table></div>';
-    if (b.length > MAKS)
-      isi += '<div class="cb-sub">&hellip; dan ' + (b.length - MAKS) + ' DP lagi tidak ditampilkan.</div>';
+    /* YANG BERNISAN IKUT DI DAFTAR YANG SAMA, di ekornya — bukan di pager
+       terpisah. Dipisah, satu kartu punya dua nomor halaman yang keduanya
+       berbunyi "1", dan yang menekannya harus menebak mana yang bergerak. */
+    const semua = b.concat(mati.map(d => Object.assign({}, d, { __abai: CB.abai[d.dpId] })));
+    for (const d of potongHal('belum', semua)) isi += barisDp(d, d.__abai || null);
+    isi += '</tbody></table></div>' + pagerHtml('belum', semua.length);
     if (mati.length)
       isi += '<div class="cb-sub"><b>' + mati.length + ' DP ditandai tidak valid</b> (' + CB_RP(jml(mati))
         + ') &mdash; tercoret, tidak ikut dihitung, dan tidak ditagih lagi. Penandaannya bisa dicabut '
@@ -1379,7 +1449,7 @@
   function kartuLuarBri() {
     const lain = dpLuarBri();
     if (!lain.length) return '';
-    let isi = '<div class="cb-card"><h3>DP Bulan Ini yang Tidak Masuk BRI</h3>'
+    let isi = '<div class="cb-card" id="cb-luar"><h3>DP Bulan Ini yang Tidak Masuk BRI</h3>'
       + '<div class="cb-sub">Sengaja TIDAK ikut di daftar dana masuk di atas &mdash; uangnya masuk '
       + 'rekening lain, jadi ia memang tidak akan pernah ada di mutasi BRI. Disebut di sini supaya '
       + 'yang membandingkan layar ini dengan daftar DP di modul Reservasi tidak mengira ada yang hilang.</div>'
@@ -1398,8 +1468,7 @@
     /* Dipotong 25 baris, dan yang tersisa DISEBUT angkanya. Bulan yang
        sebagian besar DP-nya non-BRI bisa menyisakan seratus baris, dan kartu
        sepanjang itu mendorong tabel yang jadi isi halaman ini keluar layar. */
-    const LUAR_MAKS = 25;
-    for (const d of lain.slice(0, LUAR_MAKS)) {
+    for (const d of potongHal('luar', lain)) {
       const terbuka = CB.buka === 'luar:' + d.dpId;
       isi += '<tr><td><b>' + CB_ESC(d.nama || '(tanpa nama)') + '</b></td>'
         + '<td>' + CB_ESC(G.cbTglID(d.resTgl) || '—') + '</td>'
@@ -1411,9 +1480,7 @@
         + (terbuka ? '&#10005;' : '&#9998;') + '</button></td></tr>';
       if (terbuka) isi += '<tr class="cb-panel-baris"><td colspan="6">' + panelDp(d, null) + '</td></tr>';
     }
-    isi += '</tbody></table></div>';
-    if (lain.length > LUAR_MAKS)
-      isi += '<div class="cb-sub">&hellip; dan ' + (lain.length - LUAR_MAKS) + ' DP lagi tidak ditampilkan.</div>';
+    isi += '</tbody></table></div>' + pagerHtml('luar', lain.length);
     return isi + '</div>';
   }
 
@@ -1435,6 +1502,11 @@
        sebenarnya baik-baik saja. */
     if (ym !== CB.muat) { muatMutasi(ym); }
     if (!CB.dpMuat) { muatDp(); }
+    /* GANTI BULAN KEMBALI KE HALAMAN 1 di ketiga tabelnya. Bertahan di
+       halaman 5 milik bulan sebelumnya memajang tabel kosong untuk bulan
+       yang isinya sedikit — dan yang membukanya menyimpulkan bulan itu
+       memang tidak punya transaksi. */
+    if (ym !== CB.ym) { CB.hal.tabel = 1; CB.hal.belum = 1; CB.hal.luar = 1; }
     CB.ym = ym;
     let isi = '<div id="cb-wrap">';
     if (CB.pesan) isi += pita('ok', CB_ESC(CB.pesan));
@@ -1485,7 +1557,13 @@
      Mengetik TIDAK menggambar ulang halaman — kotak yang dibuat ulang
      kehilangan fokus dan hanya huruf pertama yang masuk. Jebakan yang sudah
      dibayar di queueF() modul Konten. */
-  G.cbKetikCari   = el => { CB.cari = el.value; gambarTabelSaja(); };
+  /* GANTI KATA KUNCI KEMBALI KE HALAMAN 1. Bertahan di halaman 3 milik
+     daftar sebelumnya memajang tabel KOSONG untuk kata kunci yang hasilnya
+     sedikit — dan yang mengetiknya menyimpulkan yang dicarinya tidak ada.
+     (halAman() memang menjepitnya juga, tapi jepitan itu cuma menolong
+     kalau halamannya melampaui batas; kata kunci yang hasilnya masih dua
+     halaman tetap mendarat di halaman 2.) */
+  G.cbKetikCari   = el => { CB.cari = el.value; CB.hal.tabel = 1; gambarTabelSaja(); };
   G.cbKetikCariDp = el => { CB.cariDp = el.value; gambarTabelSaja(); };
 
   /* Menggambar ulang WADAH tabelnya saja, dan kotak cari yang sedang dipegang
@@ -1504,6 +1582,29 @@
       ? document.querySelector('#cb-wrap .cb-panel .cb-cari')
       : document.querySelector('#cb-wrap .cb-card .cb-cari');
     if (baru && tandaCari) { baru.focus(); try { baru.setSelectionRange(pos, pos); } catch (e) {} }
+  }
+  /* SATU KARTU SAJA yang digambar ulang saat nomor halamannya ditekan.
+     Lewat gambarUlang() milik tuan rumah, SELURUH halaman dibangun ulang —
+     gulir melompat ke atas persis saat orang membaca tabel di bawah, dan
+     kotak cari yang sedang diketik ikut dibuat ulang. Jebakan yang sudah
+     dibayar di gambarDaftar() panel Kas Kecil dan queueF() modul Konten. */
+  const PENGGAMBAR_KARTU = {
+    tabel: () => kartuTabel(),
+    belum: () => kartuBelumDicatat(),
+    luar:  () => kartuLuarBri()
+  };
+  function gambarKartuSaja(kunci) {
+    if (kunci === 'tabel') { gambarTabelSaja(); return; }
+    const c = document.getElementById('cb-' + kunci);
+    const f = PENGGAMBAR_KARTU[kunci];
+    if (!c || !f) { if (CB.opsi) CB.opsi.gambarUlang(); return; }
+    const baru = f();
+    /* Kartu yang penggambarnya memulangkan string KOSONG tidak bisa
+       ditukar lewat outerHTML — elemennya hilang dan pengamat buktinya
+       memegang node mati. Di situ halaman penuh yang benar. */
+    if (!baru) { if (CB.opsi) CB.opsi.gambarUlang(); return; }
+    c.outerHTML = baru;
+    pasangPengamatBukti();
   }
 
   /* FORMULIR DANA MASUK DI LUAR RESERVASI (permintaan user 19 Sep 2026) */
@@ -1615,7 +1716,27 @@
     } catch (e) { /* peramban tanpa scrollIntoView — tidak fatal */ }
   };
 
-  G.cbTapis = k => { CB.tapis = k; CB.buka = ''; CB.opsi.gambarUlang(); };
+  G.cbTapis = k => { CB.tapis = k; CB.buka = ''; CB.hal.tabel = 1; CB.opsi.gambarUlang(); };
+  G.cbHal = (kunci, n) => {
+    if (!CB.hal.hasOwnProperty(kunci)) return;
+    CB.hal[kunci] = Math.max(1, Number(n) || 1);
+    /* PANEL YANG TERBUKA IKUT DITUTUP: barisnya belum tentu ada di halaman
+       berikutnya, dan panel yang menggantung di bawah baris yang bukan
+       miliknya terbaca sebagai halaman rusak. */
+    CB.buka = '';
+    gambarKartuSaja(kunci);
+  };
+  G.cbPerHal = n => {
+    n = Number(n) || 25;
+    if (CB.perHal === n) return;
+    CB.perHal = n;
+    /* KETIGANYA kembali ke halaman 1 — ukurannya dipakai bersama, jadi
+       nomor halaman yang tertinggal di kartu lain menunjuk ke potongan yang
+       sudah bukan potongan itu lagi. */
+    CB.hal.tabel = 1; CB.hal.belum = 1; CB.hal.luar = 1;
+    CB.buka = '';
+    CB.opsi.gambarUlang();
+  };
   G.cbBuka = id => {
     CB.buka = (CB.buka === id) ? '' : id;
     CB.cariDp = '';
@@ -1960,6 +2081,23 @@
 #cb-wrap .cb-seg button{padding:6px 12px;font-size:12px;font-weight:600;font-family:inherit;
   border:0;background:transparent;color:var(--muted,#5C574D);border-radius:7px;cursor:pointer}
 #cb-wrap .cb-seg button.on,#cb-wrap .cb-seg button.active{background:var(--gold,#A9791F);color:#fff}
+/* PAGER (23 September 2026). Keadaan aktif ditulis DI DALAM kurungan
+   #cb-wrap — kurungan menaikkan kekhususan seluruh aturannya di atas milik
+   modul tuan rumah, jadi tombol terpilih yang mengandalkan aturan tuan rumah
+   akan berhuruf putih di atas latar terang. Sudah kejadian di #pk-wrap. */
+#cb-wrap .cb-pager{display:flex;flex-wrap:wrap;align-items:center;gap:10px;margin-top:10px;
+  font-size:12px;color:var(--muted,#5C574D)}
+#cb-wrap .cb-pager-nomor{display:inline-flex;flex-wrap:wrap;gap:3px;margin-left:auto}
+#cb-wrap .cb-pager-ukuran{display:inline-flex;flex-wrap:wrap;align-items:center;gap:3px}
+#cb-wrap .cb-pager button{min-width:28px;padding:5px 9px;font-size:12px;font-weight:600;font-family:inherit;
+  border:1px solid var(--line,#E7E1D3);background:var(--surface,#fff);color:var(--muted,#5C574D);
+  border-radius:7px;cursor:pointer}
+#cb-wrap .cb-pager button.on,#cb-wrap .cb-pager button.active{
+  background:var(--gold,#A9791F);border-color:var(--gold,#A9791F);color:#fff}
+/* Tombol mentok: terlihat mati DAN tidak mengundang ditekan. Warnanya yang
+   tetap mengundang akan tetap ditekan orang, lalu mereka menyimpulkan
+   halamannya rusak. */
+#cb-wrap .cb-pager button[disabled]{opacity:.4;cursor:not-allowed}
 #cb-wrap .cb-cari{flex:1;min-width:180px;padding:8px 12px;font-size:12.5px;font-family:inherit;
   border:1px solid var(--line-hard,rgba(60,55,45,.18));border-radius:var(--radius-sm,10px);
   background:var(--surface,#fff);color:var(--ink,#2A2620)}

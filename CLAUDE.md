@@ -9006,6 +9006,98 @@ asersinya ditambah:
 > menyapu menemukan yang pertama, dan asersi tentang gambar kedua diuji atas
 > gambar pertama. Dijepit lewat `onclick`-nya.
 
+##### KETIGA TABELNYA BERPAGER (23 September 2026)
+
+Permintaan user: *"semua table dibuat pagination"*. Sebelum ini tabel utama
+menggambar seluruh barisnya sekaligus (sampai batas server 2000), sementara
+dua kartu di bawahnya dipotong **25 baris mati** dengan kalimat *"… dan N DP
+lagi tidak ditampilkan"* — yaitu baris yang **tidak bisa dicapai dari mana
+pun**.
+
+**SATU PENGGAMBAR untuk ketiganya** (`pagerHtml` / `potongHal` / `halAman`).
+Tiga pager yang ditulis sendiri-sendiri akan menyimpang begitu salah satunya
+diperbaiki, dan yang menyimpang di sini adalah nomor halaman yang tidak cocok
+dengan baris yang tergambar.
+
+- **NOMOR HALAMAN HIDUP DI LUAR PENGGAMBARNYA** (`CB.hal`). Ditaruh di
+  dalamnya, ia lahir ulang jadi 1 tiap kali kartunya digambar — dan halaman
+  ini digambar ulang tiap simpan, tiap ketukan di kotak cari, dan tiap panel
+  dibuka. Pelajaran `PF_HAL` di panel Kas Kecil.
+- **YANG DIPOTONG HANYA TAMPILANNYA.** Kartu ringkas, jumlah di tiap tapis,
+  dan seluruh angka rupiah tetap dihitung dari daftar PENUH. Ikut terpotong,
+  total dana masuk **berubah tiap kali orang pindah halaman** — dan itu angka
+  yang dipakai mencocokkan rekening koran. Dijaga mutasi tersendiri.
+- **DIJEPIT TIAP KALI DIBACA**, bukan cuma saat nomornya ditekan: daftarnya
+  menyusut dari tiga arah (tapis, kata kunci, ganti bulan), dan halaman 7 yang
+  sudah tidak ada menggambar tabel **KOSONG** padahal datanya ada.
+- **EMPAT hal mengembalikan ke halaman 1** — kata kunci, tapis, ganti bulan,
+  dan ganti ukuran halaman. Jepitan di `halAman()` **bukan penggantinya**: ia
+  cuma menolong kalau halamannya melampaui batas, sementara kata kunci yang
+  hasilnya masih dua halaman tetap mendarat di halaman 2. Pelajaran yang sama
+  sudah dibayar di pager halaman Menu modul Analytics, tempat dua mutasi LOLOS
+  persis karena jepitan menutupi resetnya.
+- **MENEKAN NOMORNYA HANYA MENGGAMBAR ULANG KARTUNYA** (`gambarKartuSaja`).
+  Lewat `gambarUlang()` milik tuan rumah, gulir melompat ke atas persis saat
+  orang membaca tabel di bawah, dan kotak cari yang sedang diketik ikut dibuat
+  ulang. Kartu yang penggambarnya memulangkan string KOSONG tetap lewat
+  halaman penuh — `outerHTML` yang diisi kosong menghapus elemennya, dan
+  pengamat buktinya lalu memegang node mati.
+- **Panel yang terbuka ikut ditutup saat pindah halaman**: barisnya belum
+  tentu ada di halaman berikutnya, dan panel yang menggantung di bawah baris
+  yang bukan miliknya terbaca sebagai halaman rusak.
+- **UKURAN HALAMAN DIPAKAI BERSAMA** (25/50/100). Tiga kendali yang sama
+  bentuknya tapi menyimpan angkanya sendiri-sendiri membuat orang menyetel
+  yang satu lalu heran yang lain tidak ikut.
+- **Satu halaman penuh tidak diberi NOMOR, tapi TETAP diberi UKURAN.** Kalau
+  tidak, daftar 30 baris yang terpotong jadi 25 tidak punya satu pun cara
+  untuk dilebarkan — dan lima baris terakhirnya hilang dengan kalimat yang
+  tidak bisa ditindaklanjuti, yaitu persis keadaan yang pagination ini
+  cabut.
+- **Tombol mentok digambar `disabled`** + `cursor:not-allowed`. Tombol yang
+  bisa ditekan tapi tidak melakukan apa pun dibaca sebagai halaman rusak.
+- **DP bernisan ikut di daftar yang SAMA**, di ekornya — bukan pager kedua.
+  Dipisah, satu kartu punya dua nomor halaman yang keduanya berbunyi "1", dan
+  yang menekannya harus menebak mana yang bergerak.
+- **Keadaan aktif pagernya ditulis DI DALAM kurungan `#cb-wrap`.** Kurungan
+  menaikkan kekhususan seluruh aturannya di atas milik modul tuan rumah, jadi
+  tombol terpilih yang mengandalkan aturan tuan rumah berhuruf putih di atas
+  latar terang. Sudah kejadian di `#pk-wrap`.
+
+```bash
+node tools/uji-cocok-bri.js   # 287 pemeriksaan (dari 262)
+```
+
+**Diuji dengan MENGECILKAN ukuran halamannya (`perHal = 2`), bukan dengan
+membesarkan fixture-nya.** Fixture ratusan baris membuat tiap asersi lain di
+berkas itu ikut melambat, dan angkanya berhenti bisa dibaca orang; yang diuji
+PEMOTONGANNYA, dan itu tidak peduli berapa totalnya.
+
+**Lima belas mutasi dicoba, kelima belasnya tertangkap** — tapi EMPAT baru
+sesudah ujinya dibetulkan, dan **tiga di antaranya satu keluarga: jepitan
+`halAman()` MENUTUPI resetnya.**
+
+| yang lolos | sebabnya | yang ditutup |
+|---|---|---|
+| kata kunci berhenti reset ke halaman 1 | kata kuncinya menyisakan satu halaman, jadi jepitannya mengembalikan nomornya dengan sendirinya | kata kunci `2026-09` yang cocok dengan KETIGA barisnya — hasilnya tetap dua halaman |
+| ganti ukuran berhenti reset ketiganya | ukurannya DIBESARKAN, jadi seluruh daftarnya muat di satu halaman dan jepitannya menyelesaikannya | ukurannya DIPERKECIL (2 → 1): nomor halaman 2 tetap SAH, jadi cuma resetnya yang bisa memindahkannya |
+| kartu non-BRI berhenti dipotong | fixture-nya tinggal SATU DP non-BRI di titik itu (p4 sudah dibetulkan jadi BRI beberapa asersi sebelumnya) | p4 dikembalikan ke Transfer UOB di salinan layar, lalu diuji dengan `perHal = 1` |
+| pindah halaman menggambar ulang SELURUH halaman | asersinya membandingkan **isi HTML** kartu lain — dan penggambar penuh menghasilkan HTML yang sama persis | yang dibandingkan **identitas node**-nya (`getElementById(...) === node`) |
+
+> Yang keempat layak diingat terpisah: **isi yang sama tidak berarti elemen
+> yang sama**, dan yang menentukan gulir & fokus justru elemennya. Bentuk yang
+> sama sudah dipakai menjaga kotak cari di `uji-saran-ocr.js`.
+
+> **DUA ASERSI SEMPAT MERAH UNTUK KODE YANG BENAR**, dan keduanya bentuk yang
+> sama: **entitas HTML sudah jadi huruf** waktu dibaca lewat `innerHTML`
+> (`&ndash;` keluar sebagai en-dash), dan **atribut kosong diserialkan
+> `disabled=""`**. Asersi yang membaca DOM wajib menuntut bentuk yang
+> DISERIALKAN, bukan string yang dihasilkan kodenya — ini kali kedua bentuk
+> itu menggigit di berkas ini.
+
+> **Tombol `›` dan tombol nomor berikutnya sama-sama memanggil
+> `cbHal(kunci, h+1)`.** Asersi yang cuma mencari nomornya cocok dengan tombol
+> yang bukan yang diuji; dijepit lewat isi tombolnya.
+
 
 ### Reservasi: tombol "Lihat" yang tidak memunculkan apa pun, & jam 12 jam (21 Sep 2026)
 
