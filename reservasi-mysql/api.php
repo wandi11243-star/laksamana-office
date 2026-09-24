@@ -46,8 +46,19 @@ if (defined('API_TOKEN') && API_TOKEN !== '') {
 
 try {
   if ($action === 'getAll') {
-    $st = baca_state();
+    /* ?dari=&sampai= (opsional, 24 September 2026) memuat berjendela. Tanpa
+       keduanya perilakunya persis seperti dulu. `_fitur` memberi tahu klien
+       server ini sudah mengerti jendela + `dikenal`; klien WAJIB memeriksanya
+       sebelum beralih ke mode berjendela — server lama mengabaikan `dari` dan
+       `dikenal`, lalu rekonsiliasinya menghapus apa pun yang tidak dikirim. */
+    $dari   = isset($_GET['dari'])   && $_GET['dari']   !== '' ? $_GET['dari']   : null;
+    $sampai = isset($_GET['sampai']) && $_GET['sampai'] !== '' ? $_GET['sampai'] : null;
+    $st = baca_state($dari, $sampai);
     $st['_ver'] = read_ver();     // nomor versi utk penjaga anti-timpa (dipakai saveAll)
+    $st['_fitur'] = array('jendela', 'dikenal');
+    if ($dari !== null || $sampai !== null) {
+      $st['_jendela'] = array('dari' => tanggal_valid($dari), 'sampai' => tanggal_valid($sampai));
+    }
     keluar(array('ok' => true, 'data' => $st));
 
   } else if ($action === 'ver') {
@@ -69,8 +80,11 @@ try {
 
   } else if ($action === 'saveAll') {
     $baseVer = isset($body['baseVer']) ? $body['baseVer'] : null;
+    /* `dikenal` = id reservasi yang dipegang tab pengirim (mode berjendela).
+       Tidak dikirim = klien penuh, perilaku lama. */
+    $dikenal = isset($body['dikenal']) && is_array($body['dikenal']) ? $body['dikenal'] : null;
     $lock = db_lock();
-    try { $out = save_all(isset($body['data']) ? $body['data'] : null, $baseVer); }
+    try { $out = save_all(isset($body['data']) ? $body['data'] : null, $baseVer, $dikenal); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
 

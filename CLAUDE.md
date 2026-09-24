@@ -502,6 +502,27 @@ cuma memegang satu halaman data akan MENGHAPUS ribuan reservasi lain pada simpan
 berikutnya. Syaratnya: backend menulis per baris (atau membatasi DELETE &
 gc_files ke jendela yang dipegang klien) lebih dulu.
 
+**TAHAP 1 (backend) SUDAH ADA sejak 24 September 2026; frontend BELUM beralih.**
+
+| | tanpa parameter baru (klien lama) | dengan parameter baru |
+|---|---|---|
+| `getAll` | seluruh riwayat | `?dari=&sampai=` → rentang itu + yang tanggalnya kosong |
+| `saveAll` | `DELETE NOT IN (kiriman)` + `gc_files` | `dikenal:[id…]` → hanya **dikenal − kiriman** dihapus, `gc_files` dilewati |
+
+- **`_fitur: ['jendela','dikenal']` di balasan getAll adalah SATU-SATUNYA izin
+  klien untuk beralih mode.** Server lama mengabaikan `dari` dan `dikenal` diam-diam
+  — klien berjendela yang berbicara dengannya menghapus seluruh riwayat di luar
+  jendelanya pada simpan pertama. Backend Reservasi diunggah MANUAL, jadi keadaan
+  "HTML baru, PHP lama" pasti terjadi.
+- `gc_files` dilewati di mode parsial karena kiriman parsial tidak menyebut foto
+  reservasi di luar jendela. Berkas yatim tertinggal sampai ada klien penuh yang
+  menyimpan — itu harga yang disengaja.
+- Kiriman kosong yang sekaligus menghapus >3 baris dikenal ditahan.
+
+```bash
+node tools/uji-jendela-reservasi.js   # 29 pemeriksaan, php-parser + kontrak sumber
+```
+
 ```bash
 node tools/uji-poll-versi.js   # 23 pemeriksaan, jsdom
 ```

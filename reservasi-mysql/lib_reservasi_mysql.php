@@ -87,10 +87,32 @@ function db_unlock($fh) {
 }
 
 /* ==================== BACA STATE (dari MySQL) ==================== */
-function baca_state() {
+/* JENDELA (24 September 2026). Tanpa argumen: SELURUH riwayat, persis seperti
+   dulu — klien lama tidak berubah perilakunya. Dengan $dari/$sampai
+   (YYYY-MM-DD): hanya reservasi yang tanggalnya di rentang itu, DITAMBAH yang
+   tanggalnya kosong (tidak bisa ditempatkan di jendela mana pun, dan membuangnya
+   membuatnya tak terlihat dari layar mana pun).
+
+   Klien yang memuat berjendela WAJIB mengirim `dikenal` saat saveAll — lihat
+   save_all(). Tanpa itu rekonsiliasi DELETE menghapus seluruh reservasi di luar
+   jendelanya. */
+function baca_state($dari = null, $sampai = null) {
   $pdo = db();
   $reservations = array();
-  foreach ($pdo->query('SELECT data FROM reservations ORDER BY created_at ASC, id ASC') as $row) {
+  $dari   = $dari   !== null ? tanggal_valid($dari)   : null;
+  $sampai = $sampai !== null ? tanggal_valid($sampai) : null;
+  if ($dari === null && $sampai === null) {
+    $q = $pdo->query('SELECT data FROM reservations ORDER BY created_at ASC, id ASC');
+  } else {
+    /* Tiap penanda bernama dipakai SEKALI — EMULATE_PREPARES=false mengikat
+       menurut posisi, dan nama yang dipakai dua kali gagal dengan HY093. */
+    $q = $pdo->prepare('SELECT data FROM reservations
+                         WHERE tanggal IS NULL OR (tanggal >= :d AND tanggal <= :s)
+                         ORDER BY created_at ASC, id ASC');
+    $q->execute(array(':d' => $dari   !== null ? $dari   : '0000-01-01',
+                      ':s' => $sampai !== null ? $sampai : '9999-12-31'));
+  }
+  foreach ($q as $row) {
     $r = json_decode($row['data'], true);
     if (is_array($r)) $reservations[] = $r;
   }
@@ -228,7 +250,7 @@ function gc_files(&$state) {
      - audit        : INSERT IGNORE per-id (append-only, tak pernah menimpa)
      - master       : simpan 1 blob di settings
    Semua dalam 1 transaksi. */
-function save_all($state, $baseVer = null) {
+function save_all($state, $baseVer = null, $dikenal = null) {
   if (!is_array($state)) throw new Exception('Payload data kosong/invalid');
   /* baseVer WAJIB (penjaga anti-timpa). Tanpa ini, perangkat yang masih memakai aplikasi
      versi LAMA akan menghapus/menimpa baris kru lain lewat rekonsiliasi DELETE di bawah.
@@ -257,7 +279,14 @@ function save_all($state, $baseVer = null) {
       $pdo->rollBack();
       return array('conflict' => true, 'saved' => false, 'ver' => $curVer);
     }
-    $buang = gc_files($state);   // aman dijalankan sekarang — kita pemegang kunci tulis
+    /* MODE PARSIAL (`dikenal` dikirim = klien cuma memegang sebagian reservasi):
+       gc_files DILEWATI. Ia membuang berkas foto yang tidak disebut kiriman, dan
+       kiriman parsial memang tidak menyebut foto milik reservasi di luar
+       jendelanya — bukti DP berbulan-bulan akan hilang dari disk tanpa satu pun
+       galat. Berkas yatim yang tertinggal tidak merugikan siapa pun; klien penuh
+       berikutnya tetap membersihkannya. */
+    $parsial = is_array($dikenal);
+    $buang = $parsial ? 0 : gc_files($state);   // aman — kita pemegang kunci tulis
 
     // ---- reservations: UPSERT per-baris dgn penjaga updated_at ----
     $sql = 'INSERT INTO reservations
@@ -301,6 +330,20 @@ function save_all($state, $baseVer = null) {
     }
 
     // ---- hapus reservasi yang hilang dari kiriman ----
+    /* MODE PARSIAL: hanya yang PERNAH DIPEGANG klien (dikenal) tapi tidak ikut
+       dikirim yang dianggap dihapus — pola yang sama dengan perbaikan PR-11 di
+       BD OS (24 September 2026). Reservasi di luar jendela klien TIDAK disentuh.
+       Kiriman kosong yang sekaligus menghapus >3 baris ditahan. */
+    $dihapus = 0;
+    if ($parsial) {
+      $hapus = array_values(array_diff(array_unique(array_map('strval', $dikenal)), $ids));
+      if (count($hapus) > 0 && !(count($ids) === 0 && count($hapus) > 3)) {
+        $ph = implode(',', array_fill(0, count($hapus), '?'));
+        $dh = $pdo->prepare('DELETE FROM reservations WHERE id IN (' . $ph . ')');
+        $dh->execute($hapus);
+        $dihapus = $dh->rowCount();
+      }
+    } else {
     // JAGA-JAGA: kalau kiriman kosong tapi DB berisi, JANGAN hapus semua
     // (lindungi dari state kosong yang tak sengaja). Aplikasi punya guard sendiri,
     // ini lapis tambahan.
@@ -313,6 +356,8 @@ function save_all($state, $baseVer = null) {
       $place = implode(',', array_fill(0, count($ids), '?'));
       $del = $pdo->prepare('DELETE FROM reservations WHERE id NOT IN (' . $place . ')');
       $del->execute($ids);
+      $dihapus = $del->rowCount();
+    }
     }
 
     // ---- audit: append-only per id ----
@@ -353,6 +398,8 @@ function save_all($state, $baseVer = null) {
     'blobChars'    => 0,                 // di MySQL tidak ada 1 blob; 0 = tidak relevan
     'fotoDipisah'  => $ext['moved'],
     'fotoDihapus'  => $buang,
+    'parsial'      => $parsial,
+    'dihapus'      => $dihapus,
     'backend'      => 'php-mysql',
     'ts'           => gmdate('c'),
   );
