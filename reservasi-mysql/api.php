@@ -67,6 +67,10 @@ try {
        nomornya berubah. Satu SELECT satu baris; tidak membaca tabel reservasi. */
     keluar(array('ok' => true, 'data' => array('ver' => read_ver())));
 
+  } else if ($action === 'riwayat') {
+    /* Satu halaman tab Riwayat (24 September 2026) — lihat riwayat_hal(). */
+    keluar(array('ok' => true, 'data' => riwayat_hal($_GET)));
+
   } else if ($action === 'getFile') {
     $key = $method === 'POST' ? (isset($body['data']['key']) ? $body['data']['key'] : @$body['key'])
                               : @$_GET['key'];

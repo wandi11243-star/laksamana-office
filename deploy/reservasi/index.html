@@ -9500,7 +9500,144 @@ function exportFinanceCSV(){
 
 /* ================= RIWAYAT ================= */
 let HIST_F={ q:"", status:"", mode:"all", month:todayStr().slice(0,7), year:new Date().getFullYear() };
+
+/* RIWAYAT DIMUAT PER HALAMAN DARI SERVER (24 September 2026). Permintaan user:
+   "ketika pindah page baru munculin data per 10 per 10 — jangan ketika dibuka
+   langsung memproses semua data, karena semakin banyak data semakin berat."
+
+   Tiap halaman = satu ?action=riwayat berisi `per` baris; penyaringan,
+   pengurutan, dan hitungan totalnya dikerjakan SQL (riwayat_hal() di
+   reservasi-mysql — BERKAS KEMBAR aturan di renderRiwayatLokal()).
+
+   - SERVER LAMA (tanpa aksi ini) jatuh ke renderRiwayatLokal() — cara lama,
+     bukan layar kosong. Backend Reservasi diunggah MANUAL, jadi keadaan
+     "HTML baru, PHP lama" pasti terjadi.
+   - KUNCI CACHE memuat VER_TAMPIL: render() dipanggil ulang tiap polling /
+     simpan, dan tanpa kunci ini tiap render menembak server, jawabannya
+     memanggil render lagi, dan seterusnya selamanya. Versi yang berubah
+     (ada yang menyimpan) sah menarik ulang.
+   - GAGAL JUGA DICATAT di kunci yang sama, alasan yang sama: fetch gagal ->
+     render supaya pitanya muncul -> render menembak lagi, tanpa henti. Yang
+     membersihkannya hanya tombol Coba lagi. Pelajaran muatReqMkt() modul Konten.
+   - JAWABAN YANG SUDAH BASI DIBUANG (RIW.sibuk): mengetik cepat menembak
+     beberapa halaman berurutan, dan jawaban lama yang datang belakangan tidak
+     boleh menimpa layar dengan hasil kata kunci sebelumnya.
+   - BARIS YANG ADA DI STATE DIPAKAI VERSI STATE-nya: suntingan yang belum naik
+     ke server harus tetap terlihat di daftar ini. */
+let RIW_TAK_ADA=false;
+const RIW={ kunci:null, data:null, err:null, sibuk:null, hal:1, per:10, saringan:null };
+function riwSaringan(){ return JSON.stringify([HIST_F.q.trim(),HIST_F.status,HIST_F.mode,HIST_F.month,String(HIST_F.year)]); }
+function riwParam(){
+  return { hal:RIW.hal, per:RIW.per, q:HIST_F.q.trim(), status:HIST_F.status, mode:HIST_F.mode,
+           bulan:HIST_F.month||"", tahun:String(HIST_F.year||""), hariIni:todayStr() };
+}
+async function muatRiwayat(kunci){
+  RIW.sibuk=kunci;
+  try{
+    const d=await apiGet("riwayat", riwParam());
+    if(RIW.sibuk!==kunci) return;                       // sudah ada permintaan yang lebih baru
+    RIW.data=d; RIW.err=null; RIW.kunci=kunci; RIW.sibuk=null;
+    if(d && d.hal) RIW.hal=Number(d.hal)||1;            // server menjepit halaman yang sudah tidak ada
+  }catch(e){
+    if(RIW.sibuk!==kunci) return;
+    RIW.sibuk=null;
+    if(/tidak dikenal/i.test(e.message||"")) RIW_TAK_ADA=true;
+    else { RIW.err=e.message||"gagal memuat"; RIW.kunci=kunci; }
+  }
+  if(CURRENT_PAGE==="riwayat") renderRiwayat();
+}
+function riwHal(n){ RIW.hal=Math.max(1,Number(n)||1); renderRiwayat(); }
+function riwPer(n){ RIW.per=Number(n)||10; RIW.hal=1; renderRiwayat(); }
+function riwCobaLagi(){ RIW.kunci=null; RIW.err=null; renderRiwayat(); }
+let _riwKetik=null;
+function riwCari(v){
+  HIST_F.q=v;
+  /* Ditunda: tiap ketukan = satu permintaan ke server kalau tidak. */
+  clearTimeout(_riwKetik);
+  _riwKetik=setTimeout(()=>afterSearch('histSearch',renderRiwayat), RIW_TAK_ADA?0:300);
+}
+function riwBuka(id){
+  if(STATE.reservations.some(x=>x.id===id)) return openDetail(id);
+  toast("Reservasi ini belum termuat di perangkat ini — muat ulang halaman lalu coba lagi.","warn");
+}
+async function riwEkspor(){
+  try{
+    const d=await apiGet("riwayat", Object.assign(riwParam(), {ekspor:1}));
+    exportCSV((d&&d.ids)||[]);
+  }catch(e){ toast("Gagal menyiapkan CSV: "+e.message,"err"); }
+}
+function riwPagerHtml(total, hal, per){
+  const maxHal=Math.max(1, Math.ceil(total/per));
+  const mulai=total?(hal-1)*per+1:0, akhir=Math.min(hal*per,total);
+  const nomor=[];
+  for(let i=1;i<=maxHal;i++){
+    if(i===1 || i===maxHal || Math.abs(i-hal)<=1) nomor.push(i);
+    else if(nomor[nomor.length-1]!=="…") nomor.push("…");
+  }
+  return `<div class="rv-pager">
+    <span class="rv-pager-info">${mulai}–${akhir} dari ${total}
+      <select onchange="riwPer(this.value)" style="margin-left:8px;padding:2px 6px;font-size:12px">${[10,25,50].map(n=>`<option value="${n}" ${n===per?"selected":""}>${n} / hal</option>`).join("")}</select></span>
+    ${maxHal>1?`<div class="rv-pager-nav">
+      <button class="btn btn-xs btn-ghost" ${hal<=1?"disabled":""} onclick="riwHal(${hal-1})">‹</button>
+      ${nomor.map(n=>n==="…"?`<span class="rv-pager-gap">…</span>`
+        :`<button class="btn btn-xs ${n===hal?"btn-primary":"btn-ghost"}" onclick="riwHal(${n})">${n}</button>`).join("")}
+      <button class="btn btn-xs btn-ghost" ${hal>=maxHal?"disabled":""} onclick="riwHal(${hal+1})">›</button>
+    </div>`:""}
+  </div>`;
+}
+function riwFilterHtml(){
+  return `<div class="page-head"><div><h2>Riwayat Reservasi</h2><div class="desc">Arsip reservasi yang sudah lewat, basis CRM dan evaluasi. Cari nama/HP untuk lihat riwayat pelanggan.</div></div></div>
+   <div class="panel"><div class="panel-body"><div class="filters">
+     <div class="field"><label>Cari Pelanggan</label><div class="search-box"><span class="ico">${icon('search',16)}</span><input id="histSearch" placeholder="Nama / No HP" value="${esc(HIST_F.q)}" oninput="riwCari(this.value)"></div></div>
+     <div class="field"><label>Periode</label><select onchange="HIST_F.mode=this.value;renderRiwayat()"><option value="all" ${HIST_F.mode==="all"?"selected":""}>Semua</option><option value="month" ${HIST_F.mode==="month"?"selected":""}>Bulanan</option><option value="year" ${HIST_F.mode==="year"?"selected":""}>Tahunan</option></select></div>
+     ${HIST_F.mode==="month"?`<div class="field"><label>Bulan</label><input type="month" value="${HIST_F.month}" onchange="HIST_F.month=this.value;renderRiwayat()"></div>`:""}
+     ${HIST_F.mode==="year"?`<div class="field"><label>Tahun</label><input type="number" value="${HIST_F.year}" onchange="HIST_F.year=this.value;renderRiwayat()"></div>`:""}
+     <div class="field"><label>Status Akhir</label><select onchange="HIST_F.status=this.value;renderRiwayat()"><option value="">Semua</option><option ${HIST_F.status==="Datang"?"selected":""}>Datang</option><option ${HIST_F.status==="No-show"?"selected":""}>No-show</option><option ${HIST_F.status==="Cancelled"?"selected":""}>Cancelled</option></select></div>
+   </div></div></div>`;
+}
+function riwBarisHtml(r){
+  const p=customerProfile(r.phone);const dur=dineDuration(r);
+  return `<tr onclick="riwBuka('${r.id}')" style="cursor:pointer" title="Klik untuk detail & edit">
+     <td>${fmtDateShort(r.date)}<div class="muted">${r.time}</div></td>
+     <td><div class="name">${esc(r.name)} ${tagFor(p)}</div><div class="muted">${displayPhone(r.phone)}</div></td>
+     <td>${paxCell(r)}</td>
+     <td>${esc(r.table)||'-'}</td>
+     <td>${dur!=null?`<span class="muted">⏱ ${fmtDur(dur)}</span>`:'<span class="muted">-</span>'}</td>
+     <td><span class="badge-status ${r.dpStatus==="Sudah"?"dp-yes":"dp-no"}" style="font-size:11px">${r.dpStatus==="Sudah"?"✓":"-"}</span></td>
+     <td><span class="badge-status ${STATUS_CLASS[r.status]}">${STATUS_ICON[r.status]} ${r.status}</span></td>
+   </tr>`;
+}
 function renderRiwayat(){
+  if(RIW_TAK_ADA) return renderRiwayatLokal();
+  const saringan=riwSaringan();
+  if(saringan!==RIW.saringan){ RIW.saringan=saringan; RIW.hal=1; }
+  const kunci=saringan+"|"+RIW.hal+"|"+RIW.per+"|"+String(VER_TAMPIL);
+  if(RIW.kunci!==kunci && RIW.sibuk!==kunci) muatRiwayat(kunci);
+  if(RIW_TAK_ADA) return renderRiwayatLokal();         // muatRiwayat bisa gagal sinkron di uji
+  const memuat = RIW.kunci!==kunci;
+  const d=RIW.data;
+  const peta={}; STATE.reservations.forEach(x=>{ peta[x.id]=x; });
+  const rows=(d&&d.rows||[]).map(x=>peta[x.id]||normalizeRes(Object.assign({name:"",phone:"",date:"",time:"",table:"",status:""},x)));
+  const total=d?Number(d.total)||0:0;
+  let isi;
+  if(RIW.err) isi=`<div class="panel"><div class="empty"><div class="big">⚠️</div>Riwayat tidak terbaca dari server: ${esc(RIW.err)}<div style="margin-top:10px"><button class="btn btn-sm btn-primary" onclick="riwCobaLagi()">Coba lagi</button></div></div></div>`;
+  else if(!d) isi=`<div class="panel"><div class="empty"><div class="big">⏳</div>Memuat riwayat…</div></div>`;
+  else if(!total) isi=`<div class="panel"><div class="empty"><div class="big">🗂️</div>${memuat?"Memuat riwayat…":"Belum ada riwayat."}</div></div>`;
+  else isi=`
+   <div class="panel"><div class="panel-head"><h3>Arsip <span class="count-tag">${total}</span>${memuat?' <span class="muted" style="font-size:12px;font-weight:400">memuat…</span>':''}</h3>
+     <button class="btn btn-sm btn-ghost" onclick="riwEkspor()">⬇️ Export CSV</button></div>
+   <div class="table-wrap"><table><thead><tr><th>Tanggal</th><th>Tamu</th><th>Pax</th><th>Meja</th><th>Durasi</th><th>DP</th><th>Status</th></tr></thead>
+   <tbody>${rows.map(riwBarisHtml).join("")}</tbody></table></div>${riwPagerHtml(total, RIW.hal, RIW.per)}</div>`;
+  /* Jawaban server datang SESUDAH orangnya mengetik, dan menggambar ulang
+     membuat ulang kotak cari — tanpa ini kursornya hilang di tengah kata. */
+  const aktif=document.activeElement, fokusCari=aktif&&aktif.id==="histSearch";
+  const posKursor=fokusCari?aktif.selectionStart:null;
+  byId("page-riwayat").innerHTML = riwFilterHtml() + (HIST_F.q.trim() && rows.length ? crmCard(rows) : "") + isi;
+  if(fokusCari){ const i=byId("histSearch"); if(i){ i.focus(); try{ i.setSelectionRange(posKursor,posKursor); }catch(e){} } }
+}
+/* Cara LAMA — seluruh data disaring di peramban. Dipakai hanya kalau server
+   belum mengenal ?action=riwayat. Aturan saringannya BERKAS KEMBAR riwayat_hal(). */
+function renderRiwayatLokal(){
   const today=todayStr();
   let list=STATE.reservations.filter(r=>r.date<today || ["No-show","Cancelled"].includes(r.status));
   if(HIST_F.mode==="month") list=list.filter(r=>r.date.slice(0,7)===HIST_F.month);

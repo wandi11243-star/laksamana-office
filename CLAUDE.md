@@ -523,6 +523,26 @@ gc_files ke jendela yang dipegang klien) lebih dulu.
 node tools/uji-jendela-reservasi.js   # 29 pemeriksaan, php-parser + kontrak sumber
 ```
 
+**Tab Riwayat dimuat per halaman dari server** (24 September 2026, permintaan
+user). `?action=riwayat&hal=&per=&q=&status=&mode=&bulan=&tahun=&hariIni=` →
+`riwayat_hal()`: saring + urut + hitung + LIMIT di SQL, HANYA MEMBACA.
+`&ekspor=1` memulangkan seluruh id yang cocok untuk tombol Export CSV.
+
+- **Aturan saringnya BERKAS KEMBAR LINTAS BAHASA** dengan `renderRiwayatLokal()`
+  (cara lama, dipakai kalau server menjawab "Aksi tidak dikenal" → `RIW_TAK_ADA`).
+- **Kunci cache memuat `VER_TAMPIL`**, dan kegagalan ikut dicatat di kunci itu —
+  tanpa keduanya render → fetch → render berputar selamanya.
+- Jawaban yang datang sesudah permintaan yang lebih baru dibuang (`RIW.sibuk`).
+- Baris yang ada di `STATE` dipakai versi STATE-nya (suntingan belum naik tetap
+  terlihat). **`getAll` saat boot MASIH memuat seluruh riwayat** — yang dihemat
+  baru pemrosesan tab Riwayat; memotong boot adalah tahap 2 (klien berjendela +
+  `dikenal`, hanya kalau `_fitur` ada).
+- Fokus & kursor kotak cari dipulihkan sesudah jawaban datang — ketahuan uji.
+
+```bash
+node tools/uji-riwayat-halaman.js   # 46 pemeriksaan, jsdom + kontrak PHP
+```
+
 ```bash
 node tools/uji-poll-versi.js   # 23 pemeriksaan, jsdom
 ```

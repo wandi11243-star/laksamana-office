@@ -411,6 +411,90 @@ function tanggal_valid($d) {
   return preg_match('/^\d{4}-\d{2}-\d{2}$/', $d) ? $d : null;
 }
 
+/* ==================== RIWAYAT PER HALAMAN (24 September 2026) ====================
+   Tab Riwayat dulu menyaring SELURUH reservasi di peramban lalu memotongnya
+   jadi halaman. Sekarang penyaringan, pengurutan, dan pemotongannya di SQL:
+   satu klik "halaman berikutnya" = satu SELECT berisi `per` baris saja.
+
+   Aturannya SALINAN dari renderRiwayat() di deploy/reservasi/index.html —
+   BERKAS KEMBAR LINTAS BAHASA. Kalau saringan di sana berubah, yang di sini
+   HARUS ikut; kalau tidak, versi server dan versi cadangan peramban (dipakai
+   selama backend lama) menampilkan isi berbeda untuk saringan yang sama.
+     - arsip = tanggal < hari ini  ATAU  status No-show/Cancelled
+       (tanggal kosong ikut: di peramban '' < hari ini bernilai benar)
+     - mode month/year, status, kata kunci nama (tanpa huruf besar-kecil) / HP
+     - urut tanggal+jam TERBARU dulu, lalu id supaya urutan stabil antar halaman
+
+   HANYA MEMBACA. Tidak ada satu pun penulisan di fungsi ini. */
+function riwayat_hal($p) {
+  $pdo = db();
+  $hariIni = tanggal_valid(isset($p['hariIni']) ? $p['hariIni'] : '');
+  if ($hariIni === null) $hariIni = gmdate('Y-m-d', time() + 7 * 3600);   // WIB
+  $per = (int)(isset($p['per']) ? $p['per'] : 10);
+  if ($per < 1) $per = 10;
+  if ($per > 100) $per = 100;
+  $hal = max(1, (int)(isset($p['hal']) ? $p['hal'] : 1));
+
+  $w = array("(tanggal IS NULL OR tanggal < :hari OR status IN ('No-show','Cancelled'))");
+  $arg = array(':hari' => $hariIni);
+  $mode = isset($p['mode']) ? (string)$p['mode'] : 'all';
+  if ($mode === 'month' && isset($p['bulan']) && preg_match('/^\d{4}-\d{2}$/', (string)$p['bulan'])) {
+    /* Batas atas = tanggal 1 bulan BERIKUTNYA, eksklusif. '2026-02-31' bukan
+       tanggal sah, dan membandingkannya dengan kolom DATE bergantung pada mode
+       SQL server — bisa jadi NULL dan bulan itu kosong tanpa satu pun galat. */
+    $w[] = 'tanggal >= :bdari AND tanggal < :bsampai';
+    $arg[':bdari'] = $p['bulan'] . '-01';
+    $arg[':bsampai'] = date('Y-m-d', strtotime($p['bulan'] . '-01 +1 month'));
+  } else if ($mode === 'year' && isset($p['tahun']) && preg_match('/^\d{4}$/', (string)$p['tahun'])) {
+    $w[] = 'tanggal >= :tdari AND tanggal <= :tsampai';
+    $arg[':tdari'] = $p['tahun'] . '-01-01';
+    $arg[':tsampai'] = $p['tahun'] . '-12-31';
+  }
+  $status = isset($p['status']) ? (string)$p['status'] : '';
+  if (in_array($status, array('Datang', 'No-show', 'Cancelled'), true)) {
+    $w[] = 'status = :st';
+    $arg[':st'] = $status;
+  }
+  $q = isset($p['q']) ? trim((string)$p['q']) : '';
+  if ($q !== '') {
+    /* % dan _ di-escape: nama tamu yang memuat garis bawah tidak boleh jadi
+       wildcard yang mencocokkan apa saja. Dua penanda BERBEDA untuk nilai yang
+       sama — EMULATE_PREPARES=false mengikat menurut posisi (HY093). */
+    $pola = '%' . strtr(strtolower($q), array('\\' => '\\\\', '%' => '\\%', '_' => '\\_')) . '%';
+    $w[] = '(LOWER(name) LIKE :q1 OR phone LIKE :q2)';
+    $arg[':q1'] = $pola;
+    $arg[':q2'] = $pola;
+  }
+  $where = implode(' AND ', $w);
+
+  $c = $pdo->prepare('SELECT COUNT(*) c FROM reservations WHERE ' . $where);
+  $c->execute($arg);
+  $total = (int)$c->fetch()['c'];
+
+  $maxHal = max(1, (int)ceil($total / $per));
+  if ($hal > $maxHal) $hal = $maxHal;
+  $mulai = ($hal - 1) * $per;
+
+  $ekspor = !empty($p['ekspor']);
+  if ($ekspor) {
+    /* Ekspor CSV butuh SELURUH baris yang cocok, bukan satu halaman — tapi cukup
+       id-nya: peramban menyusun CSV dari data yang sudah ia pegang. */
+    $s = $pdo->prepare('SELECT id FROM reservations WHERE ' . $where .
+                       ' ORDER BY tanggal DESC, jam DESC, id DESC');
+    $s->execute($arg);
+    $ids = array();
+    foreach ($s as $row) $ids[] = $row['id'];
+    return array('ids' => $ids, 'total' => $total);
+  }
+
+  $s = $pdo->prepare('SELECT data FROM reservations WHERE ' . $where .
+                     ' ORDER BY tanggal DESC, jam DESC, id DESC LIMIT ' . (int)$per . ' OFFSET ' . (int)$mulai);
+  $s->execute($arg);
+  $rows = array();
+  foreach ($s as $row) { $r = json_decode($row['data'], true); if (is_array($r)) $rows[] = $r; }
+  return array('rows' => $rows, 'total' => $total, 'hal' => $hal, 'per' => $per, 'maxHal' => $maxHal);
+}
+
 /* ==================== DIAGNOSTIK ==================== */
 function stats() {
   $pdo = db();
