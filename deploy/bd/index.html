@@ -921,7 +921,9 @@ function _get(action){
 function _post(action,data){
   return fetchTimeout(API_URL,{method:'POST',redirect:'follow',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:action,data:data,sinceTs:_sinceTs})},30000)
+      body:JSON.stringify({action:action,data:data,sinceTs:_sinceTs,
+        /* Hanya untuk saveAll: aksi lain tidak merekonsiliasi apa pun. */
+        dikenal:action==='saveAll'?daftarDikenal():undefined})},30000)
     .catch(function(e){throw new Error(e.name==='AbortError'?'Server tidak merespons (timeout).':e.message);})
     .then(bacaJawaban);
 }
@@ -1056,7 +1058,31 @@ function capPerubahan(){
     if(!r.createdAt) r.createdAt=now;
   });
 }
-function segarkanSnapshot(){var n={};tiapBaris(function(k,r){n[k]=sig(r);});_snap=n;}
+function segarkanSnapshot(){var n={};tiapBaris(function(k,r){n[k]=sig(r);});_snap=n;kenaliBaris();}
+
+/* BARIS YANG PERNAH DILIHAT TAB INI, dikirim bersama saveAll sebagai
+   `dikenal` (24 September 2026). Server hanya menghapus baris yang ada di
+   daftar ini tapi tidak ada di kiriman.
+
+   Sebabnya PR-11 berikut PO "Pelunasan DJ" yang lenyap senyap di produksi:
+   tab yang basi menyimpan, _sinceTs dimajukan ke jam server (tsMs), lalu
+   simpan berikutnya menghapus seluruh baris yang lahir di tab lain SEBELUM
+   jam itu — baris yang tidak pernah dilihatnya sama sekali. Lihat komentar
+   di upsert_collection().
+
+   Hanya BERTAMBAH, tidak pernah dikurangi: id baris yang sudah dihapus tetap
+   di sini, dan itu tidak berbahaya — server cuma menghapus yang sudah tidak
+   ada. Mengosongkannya justru membuat penghapusan berikutnya diam-diam gagal. */
+var _dikenal={};
+function kenaliBaris(){tiapBaris(function(k){_dikenal[k]=1;});}
+function daftarDikenal(){
+  var out={}; KOLEKSI.forEach(function(k){out[k]=[];});
+  Object.keys(_dikenal).forEach(function(key){
+    var i=key.indexOf(':'); var k=key.slice(0,i);
+    if(out[k]) out[k].push(key.slice(i+1));
+  });
+  return out;
+}
 
 function setSync(st,msg){
   var el=$('#sync'); if(!el)return;
@@ -1075,6 +1101,10 @@ function kirim(){
   if(_menyimpan||!_kotor) return Promise.resolve();
   _menyimpan=true; _kotor=false; setSync('saving');
   capPerubahan();
+  /* Dikenali SEBELUM dikirim, bukan cuma sesudah berhasil: kalau jawabannya
+     hilang (timeout) padahal server sudah menulis, baris baru ini tetap harus
+     bisa dihapus tab ini nanti — tanpa ini ia muncul lagi tiap dimuat ulang. */
+  kenaliBaris();
   return apiPost('saveAll',DB).then(function(){
     segarkanSnapshot(); setSync('saved');
   },function(e){

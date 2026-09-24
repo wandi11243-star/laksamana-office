@@ -476,6 +476,37 @@ jadi blob satu baris membuat head yang menyimpan belakangan menghapus kerja head
 lain tanpa error. Penulisannya granular per baris — `simpanSel` di jadwal,
 `simpanAjuan`/`putusAjuan` di dw. Jangan "rapikan" kembali jadi `saveAll`.
 
+### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)
+
+Keluhan user: PR-11 (berikut PO "Pelunasan DJ") hilang dari Purchasing.
+Diperiksa atas `getAll` produksi: lembarnya tidak ada, tapi PO "Tiket Pesawat"
+masih ber-`prId` PR-11 — padahal `hapusPr()` SELALU melepas `prId` itemnya dan
+tidak pernah menghapus item. Jadi bukan tombol hapus, melainkan rekonsiliasi
+`saveAll`:
+
+```
+T0 tab A getAll -> sinceTs=T0 · T1 tab B buat PR-11 · T2 tab A simpan -> sinceTs=tsMs=T2
+T3 tab A simpan lagi -> PR-11 (updated_at T1 <= T2, tak ada di kiriman A) DIHAPUS
+```
+
+Polling tidak menolong: ia berhenti selama tab tersembunyi, modal terbuka,
+atau ada perubahan menggantung. Baris dari `addPo` (Marketing) kena bahaya
+yang sama.
+
+Sekarang klien mengirim **`dikenal`** (id tiap koleksi yang pernah dilihat tab
+itu, hanya bertambah) dan server menghapus **dikenal − kiriman** saja, tanpa
+batas waktu. Klien lama tanpa `dikenal` tetap memakai aturan `sinceTs`.
+Kiriman kosong yang sekaligus menghapus >3 baris ditahan. **Data PR-11 yang
+sudah hilang tidak bisa dipulihkan dari kode** — tabel BD tidak punya log.
+
+```bash
+node tools/uji-dikenal-bd.js   # 18 pemeriksaan, jsdom dua tab + php-parser
+```
+
+Jam server tiruannya WAJIB sejalan dengan `Date.now()` klien: dipatok ke
+angka tetap, `updated_at` klien selalu di atas `sinceTs` dan bug aslinya tidak
+pernah bisa muncul — mutasi "dikenal tidak dikirim" sempat LOLOS karena itu.
+
 ### Pengakuan Omset: "belum ditentukan" bukan pilihan ketiga (5 Sep 2026)
 
 Keluhan user: *"kenapa ada yang menu belum ditentukan, padahal di sistem ada

@@ -33,7 +33,7 @@ else                                            require_once __DIR__ . '/config.
    otomatis (tidak ada di .github/workflows) — ia diunggah manual, jadi angka
    inilah satu-satunya cara memastikan yang di server memang versi terbaru:
    buka <host>/bd-api-mysql/api.php?action=ping dan cocokkan `versi`. */
-define('LIB_VERSI', '2026-08-03a');
+define('LIB_VERSI', '2026-09-24a');
 
 /* Identitas server, ikut di ping & stats.
 
@@ -345,7 +345,7 @@ function put_setting($pdo, $k, $v) {
 /* ==================== UPSERT SATU KOLEKSI ====================
    Menulis per-baris dengan penjaga updated_at, lalu menghapus baris yang
    HILANG dari kiriman. Mengembalikan jumlah baris yang diproses. */
-function upsert_collection($pdo, $c, $rows, $sinceTs = 0) {
+function upsert_collection($pdo, $c, $rows, $sinceTs = 0, $kenal = null) {
   $tabel = $c['table'];
   $cols  = $c['cols'];
   $adaCreated = !empty($c['created']);
@@ -402,6 +402,46 @@ function upsert_collection($pdo, $c, $rows, $sinceTs = 0) {
      tahu isi server". Apa pun yang ADA saat itu dan kini tidak dikirim
      memang sengaja dihapus; apa pun yang lahir SESUDAHNYA milik kru lain dan
      tetap dilindungi. */
+  /* DAFTAR ID YANG DIKENAL KLIEN (24 September 2026) — menang atas sinceTs.
+
+     sinceTs ternyata TIDAK CUKUP, dan sudah memakan data produksi: PR-11
+     berikut PO "Pelunasan DJ" lenyap tanpa satu pun jejak, sementara PO
+     "Tiket Pesawat" di lembar yang sama masih menunjuk ke PR-11 — bukti
+     bahwa lembarnya tidak dihapus lewat tombol (hapusPr() selalu melepas
+     prId itemnya). Urutannya:
+
+       T0  tab A membaca state                -> sinceTs = T0
+       T1  tab B membuat PR-11                -> updated_at = T1
+       T2  tab A menyimpan (PR-11 aman, T1>T0) -> klien memajukan sinceTs = T2
+       T3  tab A menyimpan lagi               -> PR-11 (T1 <= T2) DIHAPUS
+
+     Tab A tidak pernah melihat PR-11, tapi patokan waktunya sudah melewati
+     kelahirannya. Polling tidak menolong: ia berhenti selama tab tersembunyi,
+     ada modal terbuka, atau ada perubahan menggantung.
+
+     Yang benar bukan patokan waktu melainkan PENGETAHUAN: klien hanya boleh
+     menghapus baris yang PERNAH ia lihat. Baris yang lahir di tempat lain —
+     tab lain, orang lain, atau addPo dari modul Marketing — tidak ada di
+     daftarnya, jadi tidak mungkin terhapus olehnya, berapa pun jamnya.
+     Batas updated_at SENGAJA tidak dipakai di jalur ini: baris yang dibuat
+     tab ini lalu dihapus sebelum polling berikutnya harus tetap bisa
+     terhapus, dan itulah cacat yang dulu melahirkan sinceTs.
+
+     Klien lama yang tidak mengirim daftarnya tetap dilayani perilaku lama. */
+  if (is_array($kenal)) {
+    $hapus = array_values(array_diff(array_map('strval', $kenal), $ids));
+    /* Kiriman KOSONG yang sekaligus menghapus banyak baris hampir pasti bukan
+       kehendak orang — tidak ada satu tombol pun yang membuang empat baris
+       sekaligus dari layar. Ditahan di sini; baris terakhir (atau beberapa)
+       tetap bisa dihapus. */
+    if (count($hapus) && !(count($ids) === 0 && count($hapus) > 3)) {
+      $del = $pdo->prepare('DELETE FROM ' . q($tabel) . ' WHERE `id` IN (' .
+                           implode(',', array_fill(0, count($hapus), '?')) . ')');
+      $del->execute($hapus);
+    }
+    return count($ids);
+  }
+
   hapus_yang_hilang($pdo, $tabel, 'id', $ids, $sinceTs > 0 ? $sinceTs : $maxUpd);
   return count($ids);
 }
@@ -449,7 +489,7 @@ function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $batas = 0) {
 /* ==================== SIMPAN (dipanggil di dalam kunci) ====================
    Reconcile SELURUH state kiriman ke MySQL, semua dalam 1 transaksi.
    Koleksi yang TIDAK dikirim sama sekali → tidak disentuh (bukan dikosongkan). */
-function save_all($state, $sinceTs = 0) {
+function save_all($state, $sinceTs = 0, $dikenal = null) {
   if (!is_array($state)) throw new Exception('Payload data kosong/invalid');
 
   $pdo = db();
@@ -460,7 +500,9 @@ function save_all($state, $sinceTs = 0) {
     foreach (collections() as $nama => $c) {
       if (!array_key_exists($nama, $state)) continue;          // tidak dikirim → lewati
       $rows = is_array($state[$nama]) ? $state[$nama] : array();
-      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $sinceTs);
+      $kenal = (is_array($dikenal) && isset($dikenal[$nama]) && is_array($dikenal[$nama]))
+             ? $dikenal[$nama] : null;
+      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $sinceTs, $kenal);
     }
 
     if (isset($state['focus'])) put_setting($pdo, 'focus', $state['focus']);
