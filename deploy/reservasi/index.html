@@ -4,7 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, viewport-fit=cover">
 <title>Sistem Reservasi, Laksamana Muda</title>
-<link rel="icon" type="image/jpeg" href="../assets/LaksamanaMudaLogo.jpeg">
+<!-- WebP 512px (18 KB), bukan JPEG 1600px (102 KB): ia cuma digambar sebagai
+     favicon, dan berkas sepuluh kali lipat kebutuhannya ikut terunduh tiap
+     halaman dibuka (24 September 2026). -->
+<link rel="icon" type="image/webp" href="../assets/LaksamanaMudaLogo.webp">
 <!-- Guard SSO: tanpa sesi Office yang berhak buka reservasi, langsung ke login Office. -->
 <script src="../assets/venue-layouts.js"></script>
 <!-- Lembar kwitansi. Berkas BERSAMA dengan modul Marketing (Reservasi VIP
@@ -39,16 +42,20 @@
   if(!ok)location.replace('../');}catch(e){location.replace('../');}})();
 </script>
 <!-- ===== PWA ===== -->
-<link rel="manifest" href="manifest.webmanifest">
+<!-- manifest.webmanifest, sw.js, dan icons/ TIDAK PERNAH ADA di folder ini —
+     tiga permintaan 404 tiap halaman dibuka (yang manifest butuh ~40 detik di
+     jaringan lambat). Tautannya dicabut 24 September 2026; kalau suatu hari
+     modul ini mau jadi PWA, buat berkasnya dulu, baru pasang tautannya lagi. -->
 <meta name="theme-color" content="#f7f6f4">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Reservasi LM">
-<link rel="apple-touch-icon" href="icons/icon-192.png">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@500;600;700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="apple-touch-icon" href="../assets/LaksamanaMudaLogo.webp">
+<!-- Font disimpan sendiri, bukan dari Google Fonts — lihat catatan di fonts.css. -->
+<link rel="preload" href="../assets/fonts/plus-jakarta-sans-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" href="../assets/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="../assets/fonts/fonts.css">
 <style>
 :root{
   /* Palette diselaraskan dgn COMS (Howandi-style: netral hangat, emas deep) */
@@ -2541,7 +2548,20 @@ function hasLocalChanges(){
   if(JSON.stringify(STATE.master)!==BASE.master) return true;
   return STATE.audit.some(a=>!BASE.auditIds.has(a.id));
 }
+/* NOMOR VERSI SERVER YANG ISINYA SEDANG TERPAJANG DI STATE (24 September 2026).
+   Dipakai polling untuk bertanya murah dulu ("versimu masih N?") sebelum menarik
+   getAll — yang isinya SELURUH riwayat reservasi, 2,6 MB (346 KB gzip) di
+   produksi hari ini, dan ditarik tiap 15 detik selama denah terlihat walau tidak
+   satu baris pun berubah.
+
+   Disetel HANYA di dua titik yang benar-benar tahu STATE = isi server versi itu:
+   applyServer() (d._ver) dan sesudah saveAll berhasil (r.ver). Di tempat lain ia
+   dikosongkan (null), dan null berarti "tidak yakin" → polling menarik getAll
+   seperti dulu. Salah ke arah itu cuma boros; salah ke arah sebaliknya membuat
+   layar tidak pernah menyusul perubahan kru lain. */
+let VER_TAMPIL = null;
 function applyServer(d){
+  VER_TAMPIL = (d && d._ver!==undefined && d._ver!==null) ? String(d._ver) : null;
   STATE.reservations = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
   STATE.master = normalizeMaster(Object.assign(JSON.parse(JSON.stringify(DEFAULT_MASTER)), normalizeMaster(d.master)||{}));
   ensureUsersPerms();
@@ -2659,6 +2679,7 @@ async function flushSave(){
   if(_saving){ _saveAgain=true; return new Promise(res=>_saveWaiters.push(res)); }
   _saving=true;
   let sukses=false;
+  VER_TAMPIL = null;      // STATE akan digabung dgn data server → versinya belum pasti
   try{
     /* TARIK–GABUNG–TULIS dengan PENJAGA VERSI (anti timpa).
        Server menaikkan nomor versi tiap kali data tersimpan. Kita kirim nomor versi yang
@@ -2687,6 +2708,8 @@ async function flushSave(){
         if(++tries>=6) throw new Error("Terlalu banyak tabrakan simpan — coba sekali lagi");
         continue;
       }
+      // Isi server sekarang = payload, dan payload = STATE saat itu → versinya diketahui.
+      VER_TAMPIL = (r && r.ver!==undefined && r.ver!==null) ? String(r.ver) : null;
       break;                                            // tersimpan
     }
     snapshotBaseFrom(payload);                // BASE = persis isi server sekarang
@@ -2841,6 +2864,7 @@ function reportRejected(){
 const POLL_TICK = 5000;    // denyut loop; hampir selalu berhenti di penjaga, tanpa jaringan
 const POLL_JEDA = 15000;   // jarak minimum antar tarikan data sungguhan
 let _lastPoll = 0;
+let VER_TAK_ADA = false;   // server belum punya aksi `ver` → polling pakai getAll seperti dulu
 // Denah sedang terlihat? (Recap tab Denah, atau form Input Reservasi)
 function denahTampak(){
   return (CURRENT_PAGE==="dashboard" && HARIH_VIEW==="map") || CURRENT_PAGE==="input";
@@ -2864,6 +2888,18 @@ async function pollRemote(force){
   _lastPoll = Date.now();
   try{
     _pollJalan = true;
+    /* TANYA VERSI DULU (beberapa puluh byte), baru tarik getAll kalau memang
+       berubah. Server lama yang belum mengenal aksi `ver` menjawab galat →
+       VER_TAK_ADA menyala sekali dan polling kembali ke cara lama, bukan mati. */
+    if(VER_TAMPIL!==null && !VER_TAK_ADA){
+      let v=null;
+      try{ v = await apiGetPoll("ver"); }
+      catch(e){
+        if(/tidak dikenal/i.test(String(e&&e.message||""))) VER_TAK_ADA = true;
+        else throw e;                                    // dibatalkan / offline → tik berikutnya
+      }
+      if(v && v.ver!==undefined && String(v.ver)===VER_TAMPIL) return;   // tidak ada yang berubah
+    }
     const d = await apiGetPoll("getAll");
     const beda = JSON.stringify((d.reservations||[]).map(r=>r.id+"|"+(r.updatedAt||0)).sort())
               !== JSON.stringify(STATE.reservations.map(r=>r.id+"|"+(r.updatedAt||0)).sort());
@@ -10147,10 +10183,16 @@ document.addEventListener("click", (e)=>{
 boot();
 
 /* ================= PWA: service worker ================= */
-if("serviceWorker" in navigator){
-  window.addEventListener("load", ()=>{
-    navigator.serviceWorker.register("sw.js").catch(err=>console.warn("SW gagal:",err));
-  });
+/* sw.js TIDAK PERNAH ADA di server — mendaftarkannya cuma menghasilkan satu
+   404 tiap halaman dibuka. Yang terlanjur terdaftar di peramban (kalau dulu
+   pernah ada) dilepas, supaya tidak ada service worker basi yang menyajikan
+   salinan lama halaman ini. */
+if("serviceWorker" in navigator && navigator.serviceWorker.getRegistrations){
+  navigator.serviceWorker.getRegistrations()
+    /* HANYA yang scope-nya folder ini: getRegistrations() memulangkan seluruh
+       origin, dan modul lain (Service Excellent) punya service worker sendiri. */
+    .then(rs=>rs.forEach(r=>{ if(String(r.scope||"").indexOf("/reservasi/")>-1) r.unregister(); }))
+    .catch(()=>{});
 }
 // tombol "Install App" muncul otomatis (Android/desktop Chrome)
 let _deferredPrompt=null;

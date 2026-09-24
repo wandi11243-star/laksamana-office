@@ -50,6 +50,12 @@ try {
     $st['_ver'] = read_ver();     // nomor versi utk penjaga anti-timpa (dipakai saveAll)
     keluar(array('ok' => true, 'data' => $st));
 
+  } else if ($action === 'ver') {
+    /* Nomor versi SAJA (24 September 2026). Polling di layar menanyakan ini
+       dulu dan baru menarik getAll — seluruh riwayat reservasi, 2,6 MB — kalau
+       nomornya berubah. Satu SELECT satu baris; tidak membaca tabel reservasi. */
+    keluar(array('ok' => true, 'data' => array('ver' => read_ver())));
+
   } else if ($action === 'getFile') {
     $key = $method === 'POST' ? (isset($body['data']['key']) ? $body['data']['key'] : @$body['key'])
                               : @$_GET['key'];

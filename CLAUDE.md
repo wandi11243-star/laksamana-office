@@ -476,6 +476,36 @@ jadi blob satu baris membuat head yang menyimpan belakangan menghapus kerja head
 lain tanpa error. Penulisannya granular per baris — `simpanSel` di jadwal,
 `simpanAjuan`/`putusAjuan` di dw. Jangan "rapikan" kembali jadi `saveAll`.
 
+### Reservasi: polling tanya versi dulu, font & logo lokal (24 Sep 2026)
+
+Keluhan user: modul Reservasi berat dibuka. Diukur atas produksi: `getAll`
+memuat **seluruh riwayat — 2.479 reservasi, 2,6 MB (346 KB gzip)** — dan
+polling menariknya tiap 15 dtk selama denah terlihat walau tidak ada yang
+berubah. Google Fonts memblokir render (gagal sesudah 33 dtk di jaringan user),
+dan `manifest.webmanifest` / `sw.js` / `icons/` **tidak pernah ada** (tiga 404
+tiap buka).
+
+- **Aksi baru `ver`** di `reservasi-mysql/api.php` (cuma `read_ver()`). Polling
+  menanyakannya dulu dan baru menarik getAll kalau beda dari `VER_TAMPIL`.
+  `VER_TAMPIL` disetel HANYA di `applyServer()` dan sesudah saveAll berhasil
+  (`r.ver`); di tempat lain null = "tidak yakin" → getAll seperti dulu.
+  **Backend Reservasi diunggah MANUAL** — sebelum diunggah, server menjawab
+  "Aksi tidak dikenal", `VER_TAK_ADA` menyala, polling kembali ke cara lama.
+- Font disimpan di `deploy/assets/fonts/` (variable, latin), favicon
+  `LaksamanaMudaLogo.webp` (18 KB dari 102 KB). SW lama berscope `/reservasi/`
+  dilepas — HANYA scope itu, Service Excellent punya SW sendiri.
+
+**PAGING / MEMUAT PER HALAMAN BELUM BISA DIKERJAKAN DI FRONTEND SAJA.**
+`save_all()` menjalankan `DELETE FROM reservations WHERE id NOT IN (kiriman)`
+dan `gc_files()` membuang foto yang tidak disebut kiriman — jadi layar yang
+cuma memegang satu halaman data akan MENGHAPUS ribuan reservasi lain pada simpan
+berikutnya. Syaratnya: backend menulis per baris (atau membatasi DELETE &
+gc_files ke jendela yang dipegang klien) lebih dulu.
+
+```bash
+node tools/uji-poll-versi.js   # 23 pemeriksaan, jsdom
+```
+
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)
 
 Keluhan user: PR-11 (berikut PO "Pelunasan DJ") hilang dari Purchasing.
