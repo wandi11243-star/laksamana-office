@@ -4865,7 +4865,14 @@ function applyFilter(list){
 const TBL_PER_HAL_DEF = 25;
 // Baris yang tinggi (isinya teks berparagraf / banyak chip) diberi jatah lebih
 // sedikit supaya satu halaman tetap muat di layar tanpa menggulung jauh.
-const TBL_PER_HAL = { fb:10, belum:10, daftar:10, audit:50 };
+const TBL_PER_HAL = { fb:10, belum:10, daftar:10, audit:10, recap:10, finance:10 };
+/* Tabel yang pagernya SELALU terlihat + bisa dipilih ukurannya (25 Sep 2026,
+   permintaan user: "per 10 per 10"). Sebelumnya pager baru muncul kalau isinya
+   lebih dari satu halaman, jadi Daftar Reservasi, Dana Masuk, dan Audit Log
+   terbaca seolah tidak punya halaman sama sekali — padahal sudah punya. Ukuran
+   yang dipilih disimpan di TBL_PER_HAL (di luar penggambar), jadi bertahan
+   walau polling menggambar ulang halamannya. */
+const TBL_UKURAN = { recap:[10,25,50], finance:[10,25,50], audit:[10,25,50,100] };
 const TBL_HAL = {};      // kunci -> nomor halaman aktif
 const TBL_SIG = {};      // kunci -> sidik jari saringan terakhir
 const TBL_RENDER = {};   // kunci -> fungsi gambar ulang halaman pemilik tabel
@@ -4886,24 +4893,31 @@ function tblSetPage(kunci, n){
   const f=TBL_RENDER[kunci]; if(f) f();
 }
 function tblReset(){ for(const k in TBL_HAL) delete TBL_HAL[k]; }
+function tblSetPer(kunci, n){
+  TBL_PER_HAL[kunci]=Number(n)||TBL_PER_HAL_DEF;
+  TBL_HAL[kunci]=1;               // halaman lama belum tentu ada di ukuran baru
+  const f=TBL_RENDER[kunci]; if(f) f();
+}
 // Navigasi bernomor. Kalau halamannya banyak, yang jauh dari halaman aktif
 // diringkas jadi "…" supaya barisnya tidak melebar tak terkendali.
 function tblPagerHtml(p, kunci){
-  if(p.maxHal<=1) return "";
+  const ukuran=TBL_UKURAN[kunci];
+  if(p.maxHal<=1 && !(ukuran && p.total)) return "";
   const nomor=[];
   for(let i=1;i<=p.maxHal;i++){
     if(i===1 || i===p.maxHal || Math.abs(i-p.hal)<=1) nomor.push(i);
     else if(nomor[nomor.length-1]!=="…") nomor.push("…");
   }
   return `<div class="rv-pager">
-    <span class="rv-pager-info">${p.mulai+1}–${p.akhir} dari ${p.total}</span>
-    <div class="rv-pager-nav">
+    <span class="rv-pager-info">${p.mulai+1}–${p.akhir} dari ${p.total}${ukuran?`
+      <select onchange="tblSetPer('${kunci}',this.value)" style="margin-left:8px;padding:2px 6px;font-size:12px">${ukuran.map(n=>`<option value="${n}" ${n===tblPerHal(kunci)?"selected":""}>${n} / hal</option>`).join("")}</select>`:""}</span>
+    ${p.maxHal>1?`<div class="rv-pager-nav">
       <button class="btn btn-xs btn-ghost" ${p.hal<=1?"disabled":""} onclick="tblSetPage('${kunci}',${p.hal-1})">‹</button>
       ${nomor.map(n=>n==="…"
         ? `<span class="rv-pager-gap">…</span>`
         : `<button class="btn btn-xs ${n===p.hal?"btn-primary":"btn-ghost"}" onclick="tblSetPage('${kunci}',${n})">${n}</button>`).join("")}
       <button class="btn btn-xs btn-ghost" ${p.hal>=p.maxHal?"disabled":""} onclick="tblSetPage('${kunci}',${p.hal+1})">›</button>
-    </div>
+    </div>`:""}
   </div>`;
 }
 

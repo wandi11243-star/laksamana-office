@@ -543,6 +543,26 @@ user). `?action=riwayat&hal=&per=&q=&status=&mode=&bulan=&tahun=&hariIni=` →
 node tools/uji-riwayat-halaman.js   # 46 pemeriksaan, jsdom + kontrak PHP
 ```
 
+**Daftar Reservasi, Dana Masuk, dan Audit Log: 10 per halaman, pager selalu
+terlihat** (25 September 2026). Ketiganya SUDAH berhalaman sejak lama
+(`tblPage`), tapi pagernya cuma digambar kalau isinya lebih dari satu halaman —
+jadi di layar terbaca tidak punya halaman sama sekali, dan user memintanya
+"dibuat". Sekarang `TBL_UKURAN` memasang pemilih 10/25/50 dan pagernya selalu
+tampil untuk tiga kunci itu; tabel lain (waiting list dll.) tidak berubah.
+
+- **Ketiganya TETAP dipotong di peramban, bukan per halaman dari server** seperti
+  Riwayat. Datanya memang sudah seluruhnya di `STATE` sejak boot (`getAll`),
+  jadi menarik per halaman tidak menghemat satu byte pun; dan versi server untuk
+  Daftar Reservasi & Dana Masuk berarti menyalin saringan `recapList()` /
+  `financeList()` ke PHP — berkas kembar lintas bahasa. Yang benar-benar
+  menghemat adalah tahap 2 (boot berjendela), dan sesudah itu baru layak.
+- `tblSetPer()` mengembalikan ke halaman 1 — halaman 3 di ukuran 10 belum tentu
+  ada di ukuran 50.
+
+```bash
+node tools/uji-pager-reservasi.js   # 25 pemeriksaan, jsdom
+```
+
 ```bash
 node tools/uji-poll-versi.js   # 23 pemeriksaan, jsdom
 ```
