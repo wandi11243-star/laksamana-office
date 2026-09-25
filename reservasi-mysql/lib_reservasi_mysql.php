@@ -495,6 +495,199 @@ function riwayat_hal($p) {
   return array('rows' => $rows, 'total' => $total, 'hal' => $hal, 'per' => $per, 'maxHal' => $maxHal);
 }
 
+/* ==================== TIGA TABEL PER HALAMAN (25 September 2026) ====================
+   Daftar Reservasi, Dana Masuk, dan Audit Log dimuat per halaman dari server,
+   permintaan user sesudah tab Riwayat. HANYA MEMBACA — tidak ada satu pun
+   penulisan di blok ini.
+
+   SELURUH ATURAN SARINGNYA BERKAS KEMBAR LINTAS BAHASA dengan
+   deploy/reservasi/index.html:
+     rsv_hal_recap()   <->  applyFilter() + recapList()
+     rsv_hal_dana()    <->  financeTx() + financeList() (+ ensureDps, txBank, …)
+     rsv_hal_audit()   <->  auditCocok()
+   Kalau aturan di sana berubah, yang di sini HARUS ikut. Layar memakai jawaban
+   server ini untuk memilih baris halaman itu; salinan yang menyimpang membuat
+   tabel menampilkan baris yang berbeda dari kartu ringkas di atasnya.
+
+   Saringan yang cuma bisa dihitung peramban (lantai, jenis pelanggan, sisa
+   kursi) SENGAJA tidak ada di sini — layar tetap memotong sendiri untuk itu.
+
+   Disaring di PHP, bukan SQL, karena sebagian besar field-nya hidup di blob
+   data dan harus dinormalkan dulu persis seperti layar menormalkannya. */
+function rsv_js_num($v) { return is_numeric($v) ? (float)$v : 0; }
+function rsv_kecil($s) { $s = (string)$s; return function_exists('mb_strtolower') ? mb_strtolower($s, 'UTF-8') : strtolower($s); }
+function rsv_ada($hay, $q) { return $q === '' || strpos(rsv_kecil($hay), $q) !== false; }
+function rsv_norm_status($s) {            // kembar normStatus()
+  if ($s === 'Checked-in' || $s === 'Completed') return 'Datang';
+  if ($s === 'Booking') return 'Confirmed';
+  return $s;
+}
+function rsv_hal_param($p) {
+  $per = (int)(isset($p['per']) ? $p['per'] : 10);
+  if ($per < 1) $per = 10;
+  if ($per > 100) $per = 100;
+  $hal = max(1, (int)(isset($p['hal']) ? $p['hal'] : 1));
+  return array($hal, $per);
+}
+/* Potong daftar yang SUDAH tersaring & terurut jadi satu halaman. */
+function rsv_potong($list, $p) {
+  list($hal, $per) = rsv_hal_param($p);
+  $total = count($list);
+  $maxHal = max(1, (int)ceil($total / $per));
+  if ($hal > $maxHal) $hal = $maxHal;
+  return array('rows' => array_slice($list, ($hal - 1) * $per, $per), 'total' => $total,
+               'hal' => $hal, 'per' => $per, 'maxHal' => $maxHal);
+}
+/* Urut STABIL: usort baru stabil sejak PHP 8.0, dan layar memakai sort JS yang
+   stabil — tanpa indeks sebagai pemisah, baris berjam sama bisa bertukar
+   tempat antar halaman dan satu tamu muncul di dua halaman. */
+function rsv_urut_stabil(&$arr, $kunciFn, $turun) {
+  $tmp = array();
+  foreach ($arr as $i => $x) $tmp[] = array($kunciFn($x), $i, $x);
+  usort($tmp, function ($a, $b) use ($turun) {
+    $c = strcmp($a[0], $b[0]);
+    if ($turun) $c = -$c;
+    return $c !== 0 ? $c : ($a[1] - $b[1]);
+  });
+  $arr = array();
+  foreach ($tmp as $t) $arr[] = $t[2];
+}
+function rsv_semua_res() {
+  $out = array();
+  foreach (db()->query('SELECT data FROM reservations ORDER BY created_at ASC, id ASC') as $row) {
+    $r = json_decode($row['data'], true);
+    if (!is_array($r)) continue;
+    $r['status'] = rsv_norm_status(isset($r['status']) ? $r['status'] : '');
+    $out[] = $r;
+  }
+  return $out;
+}
+function rsv_s($r, $k) { return isset($r[$k]) && $r[$k] !== null ? (string)$r[$k] : ''; }
+
+/* ---- Daftar Reservasi ---- */
+function rsv_hal_recap($p) {
+  $g = function ($k) use ($p) { return isset($p[$k]) ? (string)$p[$k] : ''; };
+  $mode = $g('mode');
+  $list = array();
+  foreach (rsv_semua_res() as $r) {
+    $d = rsv_s($r, 'date');
+    if ($mode === 'day' && $d !== $g('date')) continue;
+    if ($mode === 'month' && substr($d, 0, 7) !== $g('month')) continue;
+    if ($mode === 'year' && substr($d, 0, 4) !== $g('year')) continue;
+    if ($mode === 'range' && $g('from') !== '' && $g('to') !== '' && !($d >= $g('from') && $d <= $g('to'))) continue;
+    $t = rsv_s($r, 'time');
+    if ($g('fh') !== '' && strcmp($t, $g('fh')) < 0) continue;
+    if ($g('th') !== '' && strcmp($t, $g('th')) > 0) continue;
+    if ($g('status') !== '' && $r['status'] !== $g('status')) continue;
+    if ($g('category') !== '' && rsv_s($r, 'category') !== $g('category')) continue;
+    if ($g('dp') !== '' && rsv_s($r, 'dpStatus') !== $g('dp')) continue;
+    if ($g('pic') !== '' && rsv_s($r, 'picName') !== $g('pic')) continue;
+    $q = rsv_kecil($g('q'));
+    if ($q !== '' && !(rsv_ada(rsv_s($r, 'name'), $q) || strpos(rsv_s($r, 'phone'), $q) !== false)) continue;
+    $list[] = $r;
+  }
+  rsv_urut_stabil($list, function ($r) { return rsv_s($r, 'date') . rsv_s($r, 'time'); }, false);
+  $hq = rsv_kecil(trim($g('hq')));
+  if ($hq !== '') {
+    $list = array_values(array_filter($list, function ($r) use ($hq) {
+      if (rsv_ada(rsv_s($r, 'name'), $hq) || strpos(rsv_s($r, 'phone'), $hq) !== false) return true;
+      foreach (explode(',', rsv_s($r, 'table')) as $mj) { $mj = trim($mj); if ($mj !== '' && rsv_ada($mj, $hq)) return true; }
+      return false;
+    }));
+  }
+  $batal = 0;
+  if ($g('status') !== 'Cancelled') {
+    $n = count($list);
+    $list = array_values(array_filter($list, function ($r) { return $r['status'] !== 'Cancelled'; }));
+    $batal = $n - count($list);
+  }
+  $out = rsv_potong($list, $p);
+  $out['batal'] = $batal;
+  return $out;
+}
+
+/* ---- Dana Masuk (satu baris = satu cicilan DP) ---- */
+function rsv_dps($r) {                    // kembar ensureDps() — TANPA menulis apa pun
+  $dps = isset($r['dps']) && is_array($r['dps']) ? $r['dps'] : array();
+  if (!count($dps) && rsv_s($r, 'dpStatus') === 'Sudah' && (rsv_js_num(isset($r['dpAmount']) ? $r['dpAmount'] : 0) > 0 || rsv_s($r, 'dpProofData') !== '')) {
+    $dps = array(array(
+      'amount' => rsv_js_num(isset($r['dpAmount']) ? $r['dpAmount'] : 0), 'method' => rsv_s($r, 'dpMethod'),
+      'proofData' => rsv_s($r, 'dpProofData'), 'tfDate' => rsv_s($r, 'tfDate'), 'tfTime' => rsv_s($r, 'tfTime'),
+      'tfBank' => rsv_s($r, 'tfBank'), 'tfName' => rsv_s($r, 'tfName'),
+      'tfAmount' => rsv_js_num(isset($r['tfAmount']) ? $r['tfAmount'] : 0), 'tfStatus' => rsv_s($r, 'tfStatus'),
+      'tfOcrAt' => isset($r['tfOcrAt']) ? $r['tfOcrAt'] : 0,
+    ));
+  }
+  return $dps;
+}
+function rsv_tx_bank($x) {                // kembar txBank() + bankFromMethod()
+  $b = rsv_s($x['p'], 'tfBank');
+  return $b !== '' ? $b : trim(preg_replace('/^transfer\s+/i', '', rsv_s($x['p'], 'method')));
+}
+function rsv_tx_date($x) { $d = rsv_s($x['p'], 'tfDate'); return $d !== '' ? $d : rsv_s($x['r'], 'date'); }
+function rsv_hal_dana($p) {
+  $g = function ($k) use ($p) { return isset($p[$k]) ? (string)$p[$k] : ''; };
+  $semua = array();
+  foreach (rsv_semua_res() as $r) {
+    foreach (rsv_dps($r) as $i => $dp) {
+      if (!is_array($dp)) continue;
+      if (!rsv_js_num(isset($dp['amount']) ? $dp['amount'] : 0) && rsv_s($dp, 'proofData') === '') continue;
+      $semua[] = array('r' => $r, 'p' => $dp, 'ke' => $i + 1);
+    }
+  }
+  $dari = $g('from'); $sampai = $g('to'); $basis = $g('basis'); $tab = $g('tab'); $st = $g('status');
+  $q = rsv_kecil(trim($g('q')));
+  $list = array();
+  foreach ($semua as $x) {
+    $d = $basis === 'masuk' ? rsv_tx_date($x) : rsv_s($x['r'], 'date');
+    if ($d === '' || ($dari !== '' && $d < $dari) || ($sampai !== '' && $d > $sampai)) continue;
+    if ($g('bank') !== '' && rsv_tx_bank($x) !== $g('bank')) continue;
+    $tfs = rsv_s($x['p'], 'tfStatus');
+    $scan = !empty($x['p']['tfOcrAt']) || rsv_s($x['p'], 'tfDate') !== '' || rsv_s($x['p'], 'tfTime') !== '';
+    $a = rsv_js_num(isset($x['p']['tfAmount']) ? $x['p']['tfAmount'] : 0);
+    $b = rsv_js_num(isset($x['p']['amount']) ? $x['p']['amount'] : 0);
+    if ($st === 'unscanned' && $scan) continue;
+    if ($st === 'pending' && $tfs !== '') continue;
+    if ($st === 'verified' && $tfs !== 'verified') continue;
+    if ($st === 'mismatch' && !($a > 0 && $b > 0 && $a != $b)) continue;
+    if ($st === 'rejected' && $tfs !== 'rejected') continue;
+    if ($tab === 'perlu' && ($tfs === 'verified' || $tfs === 'rejected')) continue;
+    if ($tab === 'sudah' && $tfs !== 'verified') continue;
+    if ($tab === 'tolak' && $tfs !== 'rejected') continue;
+    if ($q !== '' && !(rsv_ada(rsv_s($x['r'], 'name'), $q) || strpos(rsv_s($x['r'], 'phone'), $q) !== false
+        || rsv_ada(rsv_tx_bank($x), $q) || rsv_ada(rsv_s($x['p'], 'tfName'), $q))) continue;
+    $list[] = $x;
+  }
+  rsv_urut_stabil($list, function ($x) { return rsv_tx_date($x) . rsv_s($x['p'], 'tfTime'); }, true);
+  $out = rsv_potong($list, $p);
+  /* Yang dipulangkan cuma PENUNJUK barisnya (id reservasi + urutan cicilan).
+     Layar sudah memegang isinya; bukti transfer tidak perlu diseret lagi. */
+  $out['rows'] = array_map(function ($x) { return array('res' => rsv_s($x['r'], 'id'), 'ke' => $x['ke']); }, $out['rows']);
+  return $out;
+}
+
+/* ---- Audit Log ---- */
+function rsv_hal_audit($p) {
+  $label = array('host' => 'Host / Captain', 'marketing' => 'Marketing (PIC)', 'cashier' => 'Cashier',
+                 'manager' => 'Manajer / Owner', 'viewer' => 'View Only', 'admin' => 'Admin Sistem');   // kembar ROLE_LABEL
+  $q = rsv_kecil(trim(isset($p['q']) ? (string)$p['q'] : ''));
+  $list = array();
+  foreach (db()->query('SELECT data FROM audit ORDER BY ts DESC') as $row) {
+    $a = json_decode($row['data'], true);
+    if (!is_array($a)) continue;
+    if ($q !== '') {
+      $role = rsv_s($a, 'role');
+      $cocok = false;
+      foreach (array(rsv_s($a, 'user'), isset($label[$role]) ? $label[$role] : $role, rsv_s($a, 'action'), rsv_s($a, 'detail')) as $v) {
+        if (rsv_ada($v, $q)) { $cocok = true; break; }
+      }
+      if (!$cocok) continue;
+    }
+    $list[] = $a;
+  }
+  return rsv_potong($list, $p);
+}
+
 /* ==================== DIAGNOSTIK ==================== */
 function stats() {
   $pdo = db();

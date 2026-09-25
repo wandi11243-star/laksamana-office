@@ -60,7 +60,7 @@ function buka() {
         if (aksi === 'getAll') return balas({ ok: true, data: Object.assign(JSON.parse(JSON.stringify(srv.simpanan)), { _ver: srv.ver }) });
         if (aksi === 'saveAll') { srv.simpanan = body.data; srv.ver++; return balas({ ok: true, data: { saved: true, ver: srv.ver } }); }
         if (aksi === 'ver') return balas({ ok: true, data: { ver: srv.ver } });
-        return balas({ ok: true, data: {} });
+        return balas({ ok: false, error: 'Aksi tidak dikenal: ' + aksi });   // server lama: jalur cadangan lokal
       };
     }
   });

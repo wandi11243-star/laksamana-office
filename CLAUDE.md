@@ -550,17 +550,41 @@ jadi di layar terbaca tidak punya halaman sama sekali, dan user memintanya
 "dibuat". Sekarang `TBL_UKURAN` memasang pemilih 10/25/50 dan pagernya selalu
 tampil untuk tiga kunci itu; tabel lain (waiting list dll.) tidak berubah.
 
-- **Ketiganya TETAP dipotong di peramban, bukan per halaman dari server** seperti
-  Riwayat. Datanya memang sudah seluruhnya di `STATE` sejak boot (`getAll`),
-  jadi menarik per halaman tidak menghemat satu byte pun; dan versi server untuk
-  Daftar Reservasi & Dana Masuk berarti menyalin saringan `recapList()` /
-  `financeList()` ke PHP — berkas kembar lintas bahasa. Yang benar-benar
-  menghemat adalah tahap 2 (boot berjendela), dan sesudah itu baru layak.
 - `tblSetPer()` mengembalikan ke halaman 1 — halaman 3 di ukuran 10 belum tentu
   ada di ukuran 50.
 
 ```bash
-node tools/uji-pager-reservasi.js   # 25 pemeriksaan, jsdom
+node tools/uji-pager-reservasi.js   # 25 pemeriksaan, jsdom (jalur cadangan: server lama)
+```
+
+**Sejak hari yang sama ketiganya MENEMBAK API PER HALAMAN** (permintaan user
+berikutnya): `?action=halRecap / halDana / halAudit` → `rsv_hal_recap()` /
+`rsv_hal_dana()` / `rsv_hal_audit()`, HANYA MEMBACA. Frontend lewat satu
+penghubung `tblPageSrv()` yang bentuk hasilnya sama dengan `tblPage()`.
+
+- **ATURAN SARINGNYA BERKAS KEMBAR LINTAS BAHASA** dengan `applyFilter()` +
+  `recapList()`, `financeList()` (+ `ensureDps`, `txBank`, `txDate`), dan
+  `auditCocok()` + `ROLE_LABEL`. Yang berubah di satu sisi HARUS ikut di sisi
+  lain — kalau tidak, tabel memilih baris yang berbeda dari kartu di atasnya.
+- **Yang di-server-kan cuma PEMILIHAN BARIS HALAMAN.** Kartu, hitungan tab, dan
+  `RECAP_BATAL` tetap dari `STATE` — `getAll` saat boot MASIH memuat seluruh
+  riwayat; yang menghemat muatan boot tetap tahap 2.
+- Saringan yang cuma bisa dihitung peramban (jenis pelanggan, lantai, sisa
+  kursi) membuat Daftar Reservasi kembali memotong LOKAL.
+- `VER_TAMPIL` null → lokal; server lama ("Aksi tidak dikenal") →
+  `SRVPG_TAK_ADA[aksi]`, lokal selamanya sampai muat ulang; gagal dicatat di
+  kunci cache (tidak berputar) + tombol Coba lagi; ganti saringan ditunda 300 ms,
+  pindah halaman langsung.
+- Selama halaman baru belum datang yang digambar potongan LOKAL, jadi layar
+  tidak berkedip. Baris server yang tidak ada di `STATE` (Dana Masuk) membuat
+  halaman itu jatuh ke lokal, bukan tampil bolong.
+- Dana Masuk dipulangkan sebagai PENUNJUK `{res, ke}` saja — bukti transfer
+  sudah ada di `STATE`, tidak diseret lagi.
+- **Backend Reservasi diunggah MANUAL** — sebelum `lib_reservasi_mysql.php` +
+  `api.php` naik, ketiganya jalan dengan cara lama tanpa satu pun galat.
+
+```bash
+node tools/uji-hal-server.js   # 59 pemeriksaan, jsdom + kontrak PHP (php-parser)
 ```
 
 ```bash

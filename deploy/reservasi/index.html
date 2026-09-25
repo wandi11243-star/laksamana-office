@@ -4921,6 +4921,95 @@ function tblPagerHtml(p, kunci){
   </div>`;
 }
 
+/* ===== HALAMAN DARI SERVER untuk Daftar Reservasi, Dana Masuk, Audit Log =====
+   (25 September 2026, permintaan user: pindah halaman harus benar-benar
+   menembak API — satu halaman = satu permintaan berisi 10 baris.)
+
+   Aksinya ?action=halRecap / halDana / halAudit di reservasi-mysql, yang
+   aturan saringnya BERKAS KEMBAR LINTAS BAHASA dengan applyFilter/recapList,
+   financeList, dan auditCocok di berkas ini.
+
+   Bentuknya sengaja sama dengan tblPage(), jadi tblPagerHtml() dan seluruh
+   penggambar baris tidak berubah. Yang perlu dijaga:
+   - KARTU & HITUNGAN di atas tabel TETAP dari STATE. Yang dipindah ke server
+     cuma PEMILIHAN baris halaman itu.
+   - KUNCI CACHE memuat VER_TAMPIL, dan kegagalan ikut dicatat di kunci itu —
+     tanpa keduanya render -> fetch -> render berputar selamanya (pelajaran
+     tab Riwayat & muatReqMkt modul Konten).
+   - Selama halaman baru belum datang, yang digambar potongan LOKAL-nya:
+     layar tidak boleh kosong/berkedip tiap pindah halaman.
+   - Server lama ("Aksi tidak dikenal") -> SRVPG_TAK_ADA[aksi], cara lama.
+     Backend Reservasi diunggah MANUAL, jadi "HTML baru, PHP lama" pasti terjadi.
+   - VER_TAMPIL null (sedang menyimpan / belum yakin isi server) -> lokal.
+   - Baris dari server diganti versi STATE-nya kalau ada, supaya suntingan
+     yang belum naik tetap terlihat.
+   - Mengetik di kotak cari DITUNDA 300 ms: tanpa itu tiap ketukan jadi satu
+     permintaan yang mengantre di apiQueue. */
+const SRVPG = {};            // kunci tabel -> {kunci, data, err, sibuk}
+const SRVPG_TAK_ADA = {};    // aksi -> true kalau server belum mengenalnya
+const SRVPG_HAL = { recap:"dashboard", finance:"finance", audit:"audit" };
+const _srvpgTunda = {};
+async function srvpgMuat(kunci, aksi, param, ck){
+  const st = SRVPG[kunci] || (SRVPG[kunci] = {});
+  st.sibuk = ck;
+  try{
+    const d = await apiGet(aksi, param);
+    if(st.sibuk!==ck) return;                           // ada permintaan yang lebih baru
+    st.data = d; st.err = null; st.kunci = ck; st.sibuk = null;
+    if(d && d.hal) TBL_HAL[kunci] = Number(d.hal)||1;   // server menjepit halaman yang sudah tidak ada
+  }catch(e){
+    if(st.sibuk!==ck) return;
+    st.sibuk = null;
+    if(/tidak dikenal/i.test(e.message||"")) SRVPG_TAK_ADA[aksi] = true;
+    else { st.err = e.message||"gagal memuat"; st.kunci = ck; }
+  }
+  if(CURRENT_PAGE!==SRVPG_HAL[kunci]) return;
+  /* Jawabannya datang SESUDAH orangnya mengetik; menggambar ulang membuat
+     ulang kotak cari, jadi fokus & kursornya dipulihkan. */
+  const a = document.activeElement, id = a && a.id, pos = id ? a.selectionStart : null;
+  const fn = TBL_RENDER[kunci]; if(fn) fn();
+  if(id){ const i = byId(id); if(i && i!==document.activeElement){ i.focus(); try{ i.setSelectionRange(pos,pos); }catch(e){} } }
+}
+function srvpgCobaLagi(kunci){
+  const st = SRVPG[kunci]; if(st){ st.kunci = null; st.err = null; }
+  const fn = TBL_RENDER[kunci]; if(fn) fn();
+}
+/* arr   = daftar lokal yang sudah tersaring & terurut (cadangan + pencocok baris)
+   param = saringan yang dikirim ke server (tanpa hal/per)
+   cocok = fungsi baris server -> objek yang digambar (null = tidak ketemu) */
+function tblPageSrv(arr, kunci, sig, aksi, param, cocok){
+  const lokal = tblPage(arr, kunci, sig);
+  if(SRVPG_TAK_ADA[aksi] || VER_TAMPIL===null) return lokal;
+  const per = tblPerHal(kunci), hal = TBL_HAL[kunci]||1;
+  const ck = aksi+"|"+JSON.stringify(param)+"|"+hal+"|"+per+"|"+String(VER_TAMPIL);
+  const st = SRVPG[kunci] || (SRVPG[kunci] = {});
+  if(st.kunci!==ck && st.sibuk!==ck){
+    clearTimeout(_srvpgTunda[kunci]);
+    const kirim = Object.assign({}, param, { hal, per });
+    /* Pindah halaman / ganti ukuran langsung ditembak; hanya perubahan
+       saringan (mengetik) yang ditunda. */
+    const cepat = st.sig===undefined || st.sig===sig;
+    st.sig = sig;
+    if(cepat) srvpgMuat(kunci, aksi, kirim, ck);
+    else _srvpgTunda[kunci] = setTimeout(()=>srvpgMuat(kunci, aksi, kirim, ck), 300);
+    st.sibuk = ck;
+  }
+  if(st.err && st.kunci===ck) return Object.assign(lokal, { err:st.err });
+  if(st.kunci!==ck || !st.data) return Object.assign(lokal, { memuat:true });
+  const d = st.data, total = Number(d.total)||0;
+  const items = (d.rows||[]).map(cocok);
+  if(items.some(x=>!x)) return lokal;                  // STATE belum memuat barisnya — jangan menampilkan halaman bolong
+  const halS = Number(d.hal)||1, perS = Number(d.per)||per;
+  const mulai = (halS-1)*perS;
+  return { hal:halS, maxHal:Number(d.maxHal)||1, mulai, akhir:Math.min(mulai+items.length,total), total, items, srv:true };
+}
+/* Keterangan kecil di bawah tabel: memuat / gagal (+ Coba lagi). */
+function srvpgKet(pg, kunci){
+  if(pg.err) return `<div class="hint" style="padding:6px 16px;color:var(--danger,#b42318)">Halaman ini tidak terbaca dari server (${esc(pg.err)}) — yang tampil salinan di perangkat ini. <button class="btn btn-xs btn-ghost" onclick="srvpgCobaLagi('${kunci}')">Coba lagi</button></div>`;
+  if(pg.memuat) return `<div class="hint" style="padding:6px 16px">⏳ memuat halaman dari server…</div>`;
+  return "";
+}
+
 /* =====================================================================
    HALAMAN GABUNGAN: DASHBOARD & RECAP
    ---------------------------------------------------------------------
@@ -4959,7 +5048,15 @@ function renderDashboard(){
   const dayList = STATE.reservations.filter(r=>r.date===HARIH_DATE && r.status!=="Cancelled");
   const basis = perTanggal ? dayList : list;
 
-  const pgRecap = tblPage(list, "recap", JSON.stringify(F)+"|"+HARIH_Q);
+  /* Saringan yang cuma bisa dihitung peramban (jenis pelanggan, lantai, sisa
+     kursi) tetap memotong LOKAL — server tidak punya datanya. */
+  const recapParam = { mode:F.mode, date:F.date, month:F.month, year:String(F.year), from:F.from, to:F.to,
+    fh:F.fromHour, th:F.toHour, status:F.status, category:F.category, dp:F.dp, pic:F.pic, q:F.q, hq:HARIH_Q };
+  const petaRes = {}; STATE.reservations.forEach(x=>{ petaRes[x.id]=x; });
+  const pgRecap = (F.ctype||F.lantai||F.kursi)
+    ? tblPage(list, "recap", JSON.stringify(F)+"|"+HARIH_Q)
+    : tblPageSrv(list, "recap", JSON.stringify(F)+"|"+HARIH_Q, "halRecap", recapParam,
+        x=>x && (petaRes[x.id] || normalizeRes(Object.assign({name:"",phone:"",date:"",time:"",table:"",status:""},x))));
   const nowMin = new Date().getHours()*60+new Date().getMinutes();
 
   /* ---- angka kartu ----
@@ -5185,7 +5282,7 @@ function recapTable(list, pg, nowMin, canEdit){
             ${r.followups?.length?`<span class="pill">${r.followups.length} FU</span>`:""}
           </div></td>
         </tr>`; }).join("")}
-     </tbody></table></div>${tblPagerHtml(pg,"recap")}</div>`;
+     </tbody></table></div>${srvpgKet(pg,"recap")}${tblPagerHtml(pg,"recap")}</div>`;
 }
 
 /* dashTable() DIHAPUS — tabelnya melebur ke recapTable() di atas, yang
@@ -8874,7 +8971,10 @@ function renderFinance(){
   // statistik & hitungan tab. list = yang ditampilkan di tabel (ikut tab).
   const listAll = financeList(false);
   const list    = financeList(true);
-  const pgFin   = tblPage(list, "finance", FIN_TAB+"|"+JSON.stringify(FIN_F));
+  const petaTx  = {}; list.forEach(x=>{ petaTx[x.r.id+"#"+x.ke]=x; });
+  const pgFin   = tblPageSrv(list, "finance", FIN_TAB+"|"+JSON.stringify(FIN_F), "halDana",
+    { from:FIN_F.from, to:FIN_F.to, bank:FIN_F.bank, status:FIN_F.status, q:FIN_F.q, basis:FIN_F.basis, tab:FIN_TAB },
+    x=>x && petaTx[x.res+"#"+x.ke]);
   const sum     = arr=>arr.reduce((a,x)=>a+txAmount(x),0);
   // Yang ditolak = dana tidak jadi masuk, jadi tidak ikut dijumlah ke total.
   const total   = sum(listAll.filter(x=>x.p.tfStatus!=="rejected"));
@@ -9054,7 +9154,7 @@ function renderFinance(){
              ${CAN.deleteDp(SESSION.role)?`<button class="btn btn-xs btn-danger" onclick="delDp('${r.id}','${p.id}')" title="Hapus transaksi dana masuk ini (khusus Admin Sistem)">🗑️</button>`:""}
            </div></td>
          </tr>`; }).join("")}</tbody>
-     </table></div>${tblPagerHtml(pgFin,"finance")}`}
+     </table></div>${srvpgKet(pgFin,"finance")}${tblPagerHtml(pgFin,"finance")}`}
    </div>`;
   paintScanBanner();
   setTimeout(autoScanFinance, 60);   // begitu halaman tampil, bukti baru langsung dibaca sendiri
@@ -10261,7 +10361,7 @@ function renderAudit(){
   const list=q?semua.filter(a=>auditCocok(a,q)):semua;
   // Audit log tumbuh terus dan tidak pernah dipangkas, jadi ini tabel yang
   // paling butuh halaman — sebelumnya seluruh isinya digambar sekaligus.
-  const pg=tblPage(list,"audit",q);
+  const pg=tblPageSrv(list,"audit",q,"halAudit",{ q }, x=>x);
   byId("page-audit").innerHTML=`
    <div class="page-head"><div><h2>Audit Log</h2><div class="desc">Jejak seluruh aktivitas: siapa, kapan, apa yang diubah. Untuk akuntabilitas & kontrol data DP.</div></div></div>
    <div class="panel"><div class="panel-body">
@@ -10279,7 +10379,7 @@ function renderAudit(){
      </div>
    </div></div>
    <div class="panel"><div class="table-wrap"><table><thead><tr><th>Waktu</th><th>User</th><th>Role</th><th>Aksi</th><th>Detail</th></tr></thead>
-   <tbody>${pg.total?pg.items.map(a=>`<tr><td class="muted">${fmtTs(a.ts)}</td><td class="name">${esc(a.user)}</td><td class="muted">${ROLE_LABEL[a.role]||a.role}</td><td>${auditAksiSel(a)}</td><td>${esc(a.detail)}</td></tr>`).join(""):`<tr><td colspan="5" class="empty">${q?`Tidak ada jejak yang cocok dengan “${esc(AUDIT_Q)}”.`:"Belum ada aktivitas tercatat."}</td></tr>`}</tbody></table></div>${tblPagerHtml(pg,"audit")}</div>`;
+   <tbody>${pg.total?pg.items.map(a=>`<tr><td class="muted">${fmtTs(a.ts)}</td><td class="name">${esc(a.user)}</td><td class="muted">${ROLE_LABEL[a.role]||a.role}</td><td>${auditAksiSel(a)}</td><td>${esc(a.detail)}</td></tr>`).join(""):`<tr><td colspan="5" class="empty">${q?`Tidak ada jejak yang cocok dengan “${esc(AUDIT_Q)}”.`:"Belum ada aktivitas tercatat."}</td></tr>`}</tbody></table></div>${srvpgKet(pg,"audit")}${tblPagerHtml(pg,"audit")}</div>`;
 }
 TBL_RENDER.audit = () => renderAudit();
 

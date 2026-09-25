@@ -71,6 +71,13 @@ try {
     /* Satu halaman tab Riwayat (24 September 2026) — lihat riwayat_hal(). */
     keluar(array('ok' => true, 'data' => riwayat_hal($_GET)));
 
+  } else if ($action === 'halRecap') {
+    keluar(array('ok' => true, 'data' => rsv_hal_recap($_GET)));      // Daftar Reservasi per halaman
+  } else if ($action === 'halDana') {
+    keluar(array('ok' => true, 'data' => rsv_hal_dana($_GET)));       // Dana Masuk per halaman
+  } else if ($action === 'halAudit') {
+    keluar(array('ok' => true, 'data' => rsv_hal_audit($_GET)));      // Audit Log per halaman
+
   } else if ($action === 'getFile') {
     $key = $method === 'POST' ? (isset($body['data']['key']) ? $body['data']['key'] : @$body['key'])
                               : @$_GET['key'];
