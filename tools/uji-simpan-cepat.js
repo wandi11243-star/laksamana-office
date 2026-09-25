@@ -209,7 +209,7 @@ console.log('\n== Polling tidak lagi menghalangi ==');
   cek('mejaMasihKosong membatalkan polling', /batalkanPolling\(\)/.test(badan));
   cek('dibatalkan SEBELUM getAll-nya',
       badan.indexOf('batalkanPolling()') > -1 &&
-      badan.indexOf('batalkanPolling()') < badan.indexOf('apiGet("getAll")'));
+      badan.indexOf('batalkanPolling()') < badan.indexOf('apiGet("getAll"'));   // sejak tahap 2 getAll-nya berparameter
 }
 
 /* ============ 4b. MEJA BENTROK: tidak ada titipan yang tertinggal ======== */

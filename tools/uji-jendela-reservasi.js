@@ -81,7 +81,7 @@ cek('balasan menyebut parsial & dihapus', /'parsial'\s*=> \$parsial/.test(SAVE) 
 
 console.log('\n== api.php ==');
 cek('getAll membaca ?dari & ?sampai', /\$_GET\['dari'\]/.test(API) && /\$_GET\['sampai'\]/.test(API) && /baca_state\(\$dari, \$sampai\)/.test(API));
-cek('getAll menggemakan _fitur jendela & dikenal', /\$st\['_fitur'\] = array\('jendela', 'dikenal'\)/.test(API));
+cek('getAll menggemakan _fitur jendela & dikenal', /\$st\['_fitur'\] = array\('jendela', 'dikenal'[,)]/.test(API));
 cek('saveAll meneruskan dikenal (hanya kalau array)', /\$dikenal = isset\(\$body\['dikenal'\]\) && is_array\(\$body\['dikenal'\]\)/.test(API) && /save_all\([^;]*\$baseVer, \$dikenal\)/.test(API));
 cek("aksi 'ver' tetap ada", /\$action === 'ver'/.test(API));
 

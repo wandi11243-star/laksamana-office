@@ -502,7 +502,7 @@ cuma memegang satu halaman data akan MENGHAPUS ribuan reservasi lain pada simpan
 berikutnya. Syaratnya: backend menulis per baris (atau membatasi DELETE &
 gc_files ke jendela yang dipegang klien) lebih dulu.
 
-**TAHAP 1 (backend) SUDAH ADA sejak 24 September 2026; frontend BELUM beralih.**
+**TAHAP 1 (backend) SUDAH ADA sejak 24 September 2026; TAHAP 2 (frontend) sejak 25 September 2026 — lihat blok *Muat berjendela* di bawah.**
 
 | | tanpa parameter baru (klien lama) | dengan parameter baru |
 |---|---|---|
@@ -586,6 +586,83 @@ penghubung `tblPageSrv()` yang bentuk hasilnya sama dengan `tblPage()`.
 ```bash
 node tools/uji-hal-server.js   # 59 pemeriksaan, jsdom + kontrak PHP (php-parser)
 ```
+
+#### Muat berjendela — tahap 2: boot tidak lagi menarik seluruh riwayat (25 Sep 2026)
+
+Permintaan user: *"ketika di buka diproses per halaman yang sedang di buka
+misalnya ketika buka Recap & Dashboard, Input Reservasi dia akan memproses
+sendiri sendiri agar proses backgroundnya tidak banyak dan lebih cepat"*.
+
+Boot sekarang cuma menarik **reservasi sejak awal BULAN LALU** (+ yang
+tanggalnya kosong + seluruh yang akan datang). Riwayat sebelum itu dimuat
+halaman yang MEMBACANYA, sekali per sesi (`muatArsip()`):
+
+| halaman / keadaan | riwayat lama dimuat? |
+|---|---|
+| Recap mode Hari ini, Denah, Input Reservasi | **tidak** |
+| Recap mode Semua / bulan / tahun / rentang yang jatuh sebelum jendela, kalender bulan lama | ya (`dashTglMin()`) |
+| Analitik | ya — isinya seluruh riwayat |
+| Dana Masuk dengan rentang sebelum jendela | ya |
+| detail reservasi lama (Riwayat, Audit, tabel berhalaman), ekspor CSV berisi baris lama, Hapus Data Demo | ya, lalu dibuka |
+| tabel berhalaman server yang barisnya belum ada di STATE | ya (jaring di `tblPageSrv`) |
+| Riwayat (tab) | tidak — sudah per halaman dari server |
+
+Profil tamu (Loyal / blacklist / member / isi-otomatis nama) untuk bagian
+sebelum jendela datang dari **`?action=ringkasTamu&sebelum=`** →
+`ringkas_tamu()` — ringkasan per nomor HP, bukan barisnya.
+`profilGabung()` / `guestDirectory()` menjumlahkannya dengan baris di jendela.
+**KEMBAR LINTAS BAHASA**: `rsv_norm_hp()` ↔ `normPhone()`, urutan entri
+`[n, datang, noshow, member, memberNo, vip, kunjungan terakhir, jumlah pax,
+nama pertama, nama terakhir]` ↔ `profilGabung()`.
+
+**YANG MENJAGA DATA — jangan dilonggarkan satu pun:**
+
+- **`JENDELA` hanya menyala kalau `_fitur` memuat `jendela` + `dikenal` +
+  `ringkasTamu`.** Server yang menghormati `dari` tapi fiturnya kurang (mis.
+  `api.php` baru, `lib` lama) memulangkan SEBAGIAN riwayat — dan mode penuh
+  dengan data sebagian = saveAll tanpa `dikenal` = `DELETE NOT IN` = seluruh
+  riwayat lama terhapus. Karena itu `loadState()` **menarik ulang SELURUHNYA**
+  di keadaan itu. Server lama yang mengabaikan `dari` tidak memulangkan
+  `_jendela`, jadi datanya memang sudah penuh.
+- **Selama `JENDELA` menyala, saveAll SELALU membawa `dikenal`** = kiriman +
+  `MERGE_HAPUS` (id yang sengaja dihapus di layar ini).
+- **getAll sebelum menulis yang tiba-tiba tanpa fitur itu MENGGAGALKAN
+  simpan** — server yang diturunkan versinya sesudah halaman dibuka.
+- **Reservasi di luar jendela yang TIDAK diubah tidak dikirim** (`tahan`), dan
+  dikembalikan ke BASE sesudah simpan berhasil. Server tidak memulangkannya,
+  jadi salinan kita bisa basi — mengirimnya menghidupkan lagi baris yang sudah
+  dihapus kru lain. Yang DIUBAH tetap dikirim.
+- **Tiga tempat membawa riwayat yang tidak ada di jawaban berjendela**, dan
+  yang terlewat gagal diam-diam:
+  `mergeIntoState` (baris luar jendela tak berubah → tetap, bukan "dihapus kru
+  lain"), `applyServer` (polling tidak membuang riwayat di layar), dan cabang
+  **conflict** di `flushSave` (potret BASE lama untuk riwayat dibawa).
+- **`luarJendela()` memperlakukan tanggal KOSONG/tak sah sebagai DI DALAM**
+  jendela — kembar `tanggal_valid()`: di server kolomnya NULL dan selalu ikut.
+- **`paramGetAll(tgl)`**: cek meja untuk tanggal sebelum jendela melebarkan
+  `dari` ke sehari sebelum tanggal itu (booking lewat tengah malam).
+- **Audit Log tidak menandai ✕** reservasi yang cuma belum dimuat.
+- Profil tamu **tidak menghitung dua kali** baris lama yang masuk layar lewat
+  jendela yang melebar (disaring `luarJendela(r, JENDELA.dari)` saat ringkasan
+  dipakai). Sesudah `muatArsip()`, ringkasan tidak dipakai lagi.
+
+**Backend Reservasi diunggah MANUAL**: `lib_reservasi_mysql.php` DULU, baru
+`api.php`. Sebaliknya urutannya, `api.php` memanggil `ringkas_tamu()` yang
+belum ada (500) sementara `_fitur` sudah mengiklankannya. Sebelum keduanya
+naik, layar tetap memakai mode penuh — tidak ada yang rusak, cuma belum cepat.
+
+```bash
+node tools/uji-muat-berjendela.js   # 74 pemeriksaan, jsdom + server tiruan HIDUP
+```
+
+Server tiruannya meniru `save_all()` apa adanya — mode parsial menghapus
+`dikenal − kiriman`, mode penuh `DELETE NOT IN` — dan asersinya membaca **ISI
+SERVER** sesudah simpan, bukan layar. Dua puluh satu mutasi dicoba, kedua
+puluh satunya tertangkap. Satu cacat fixture yang layak diingat: baris
+Confirmed bertanggal lampau ditutup otomatis saat boot, dan master disentuh
+sinkron roster — keduanya membuat `hasLocalChanges()` menyala tanpa ada
+hubungannya dengan jendela, jadi uji ini memeriksa bagian RESERVASI-nya saja
+(`resBersih`).
 
 ```bash
 node tools/uji-poll-versi.js   # 23 pemeriksaan, jsdom

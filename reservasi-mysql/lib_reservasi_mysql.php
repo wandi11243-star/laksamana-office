@@ -688,6 +688,63 @@ function rsv_hal_audit($p) {
   return rsv_potong($list, $p);
 }
 
+/* ==================== RINGKASAN TAMU LAMA (tahap 2, 25 September 2026) ====================
+   Profil tamu di layar (Loyal / Repeat / blacklist, jumlah kunjungan, member,
+   dan isi-otomatis nama dari nomor HP) dihitung dari SELURUH riwayat. Klien
+   berjendela tidak memegang riwayat di luar jendelanya, jadi ringkasan untuk
+   reservasi BERTANGGAL SEBELUM :sebelum dihitung di sini, lalu klien
+   menjumlahkannya dengan baris di jendelanya sendiri.
+
+   KEMBAR LINTAS BAHASA: rsv_norm_hp() <-> normPhone(), dan isi tiap entri <->
+   customerProfile() / guestDirectory() di deploy/reservasi/index.html.
+   HANYA MEMBACA.
+
+   Bentuk tiap entri SENGAJA array ringkas, bukan objek bernama: satu entri per
+   nomor HP, dan di produksi itu ribuan entri.
+     [0] n  [1] datang  [2] noshow  [3] member  [4] memberNo  [5] vip
+     [6] kunjungan terakhir  [7] jumlah pax  [8] nama pertama  [9] nama terakhir */
+function rsv_norm_hp($p) {               // kembar normPhone()
+  $x = preg_replace('/[^0-9]/', '', (string)$p);
+  if ($x === '') return '';
+  if ($x[0] === '0') return '62' . substr($x, 1);
+  if (strpos($x, '62') === 0) return $x;
+  return '62' . $x;
+}
+function ringkas_tamu($sebelum) {
+  $s = tanggal_valid($sebelum);
+  if ($s === null) return array();
+  $q = db()->prepare('SELECT data FROM reservations WHERE tanggal IS NOT NULL AND tanggal < :s ORDER BY created_at ASC, id ASC');
+  $q->execute(array(':s' => $s));
+  $out = array();
+  foreach ($q as $row) {
+    $r = json_decode($row['data'], true);
+    if (!is_array($r)) continue;
+    /* Kuncinya diawali 'k' supaya PHP tidak mengubah nomor HP jadi kunci
+       integer — nomor yang melewati PHP_INT_MAX, atau yang kebetulan
+       berurutan, akan mengubah bentuk JSON-nya jadi array. */
+    $k = 'k' . rsv_norm_hp(isset($r['phone']) ? $r['phone'] : '');
+    if (!isset($out[$k])) $out[$k] = array(0, 0, 0, 0, '', 0, '', 0, '', '');
+    $st = rsv_norm_status(rsv_s($r, 'status'));
+    $out[$k][0]++;
+    if ($st === 'Datang') {
+      $out[$k][1]++;
+      $d = rsv_s($r, 'date');
+      if (strcmp($d, $out[$k][6]) > 0) $out[$k][6] = $d;
+    }
+    if ($st === 'No-show') $out[$k][2]++;
+    if (!empty($r['member'])) {
+      $out[$k][3] = 1;
+      if ($out[$k][4] === '' && rsv_s($r, 'memberNo') !== '') $out[$k][4] = rsv_s($r, 'memberNo');
+    }
+    if (!empty($r['vip'])) $out[$k][5] = 1;
+    $out[$k][7] += rsv_js_num(isset($r['pax']) ? $r['pax'] : 0);
+    if ($out[$k][0] === 1) $out[$k][8] = rsv_s($r, 'name');
+    $nm = trim(rsv_s($r, 'name'));
+    if ($nm !== '') $out[$k][9] = $nm;
+  }
+  return $out;
+}
+
 /* ==================== DIAGNOSTIK ==================== */
 function stats() {
   $pdo = db();

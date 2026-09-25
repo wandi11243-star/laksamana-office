@@ -2492,11 +2492,11 @@ let _pollCtrl=null, _pollJalan=false;
 function batalkanPolling(){
   if(_pollCtrl){ try{ _pollCtrl.abort(); }catch(e){} _pollCtrl=null; }
 }
-function apiGetPoll(action){
+function apiGetPoll(action, extra){
   return apiQueue(()=>{
     if(!_pollJalan) return Promise.reject(new Error("poll dibatalkan"));   // keburu dibatalkan saat mengantre
     _pollCtrl = new AbortController();
-    return _apiGetRaw(action, _pollCtrl).finally(()=>{ _pollCtrl=null; });
+    return _apiGetRaw(action, _pollCtrl, extra).finally(()=>{ _pollCtrl=null; });
   });
 }
 
@@ -2562,7 +2562,18 @@ function hasLocalChanges(){
 let VER_TAMPIL = null;
 function applyServer(d){
   VER_TAMPIL = (d && d._ver!==undefined && d._ver!==null) ? String(d._ver) : null;
-  STATE.reservations = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
+  const baru = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
+  /* Jawaban berjendela tidak memuat reservasi sebelum jendelanya. Yang sudah
+     dipegang layar (riwayat lama yang dimuat muatArsip) DIBAWA, bukan dibuang —
+     kalau dibuang, polling berikutnya menghapus riwayat itu dari layar dan tab
+     Analitik tiba-tiba berisi sebulan saja. Ditaruh di DEPAN: urutan STATE =
+     urutan dibuat, dan profil tamu membaca nama dari baris pertamanya. */
+  const dari = dariOf(d);
+  if(dari){
+    const ada = new Set(baru.map(r=>r.id));
+    const luar = STATE.reservations.filter(r=>!ada.has(r.id) && luarJendela(r, dari));
+    STATE.reservations = luar.concat(baru);
+  }else STATE.reservations = baru;
   STATE.master = normalizeMaster(Object.assign(JSON.parse(JSON.stringify(DEFAULT_MASTER)), normalizeMaster(d.master)||{}));
   ensureUsersPerms();
   STATE.audit = Array.isArray(d.audit)? d.audit : [];
@@ -2576,9 +2587,152 @@ async function loadState(){
     throw new Error("API_URL belum diisi (deploy/reservasi-api/api.php).");
   }
   setSync("sync","Memuat data…");
-  applyServer(await apiGet("getAll"));
+  /* MUAT BERJENDELA (tahap 2): yang ditarik saat halaman dibuka cuma reservasi
+     sejak awal BULAN LALU (+ yang tanggalnya kosong + seluruh yang akan datang).
+     Riwayat sebelum itu baru dimuat kalau sebuah halaman memang membacanya —
+     lihat muatArsip(). */
+  let d = await apiGet("getAll", { dari: jendelaDari() });
+  if(fiturLengkap(d) && dariOf(d)){
+    JENDELA = { dari: dariOf(d) };
+  }else{
+    JENDELA = null;
+    /* Server yang MENGHORMATI jendela tapi belum punya seluruh fitur yang
+       dibutuhkan (mis. api.php sudah baru, ringkasTamu belum) memulangkan
+       SEBAGIAN riwayat. Mode penuh dengan data sebagian = saveAll tanpa
+       `dikenal` = DELETE NOT IN kiriman = seluruh riwayat lama terhapus.
+       Jadi tarik ulang SELURUHNYA. Server lama yang mengabaikan `dari` tidak
+       memulangkan _jendela — datanya memang sudah penuh. */
+    if(dariOf(d)) d = await apiGet("getAll");
+  }
+  applyServer(d);
   DATA_LOADED = true;
   setSync("ok","Tersambung");
+}
+
+/* ======================================================================
+   MUAT BERJENDELA — TAHAP 2 (25 September 2026)
+   Keluhan user: modul ini berat dibuka. Dulu getAll saat boot memuat SELURUH
+   riwayat (2.479 reservasi, 2,6 MB di produksi) walau yang dibuka cuma Recap
+   hari ini atau form Input. Sekarang yang dimuat jendela sejak awal bulan
+   lalu, dan tiap halaman yang membaca lebih jauh (Analitik, rentang lama di
+   Recap/Dana Masuk, detail reservasi lama) memuat riwayatnya SENDIRI, sekali.
+
+   YANG MENJAGA DATA, dan tidak boleh dilonggarkan:
+   - JENDELA hanya dinyalakan kalau getAll memulangkan _fitur jendela+dikenal+
+     ringkasTamu. Server lama mengabaikan `dari` dan `dikenal`, lalu
+     rekonsiliasi DELETE NOT IN-nya menghapus apa pun yang tidak dikirim.
+   - Selama JENDELA menyala, saveAll SELALU membawa `dikenal` (kiriman +
+     yang sengaja dihapus di layar ini). Server cuma menghapus dikenal−kiriman.
+   - Jawaban getAll yang tiba-tiba tanpa fitur itu (server diturunkan versinya)
+     MENGGAGALKAN simpan, bukan diteruskan.
+   - Reservasi di luar jendela yang tidak kita ubah TIDAK dikirim sama sekali,
+     jadi server tidak pernah menyentuhnya.
+   ====================================================================== */
+let JENDELA = null;                 // {dari:"YYYY-MM-DD"} = mode berjendela; null = penuh (seperti dulu)
+let ARSIP_DIMUAT = false, ARSIP_SIBUK = null, ARSIP_GAGAL = null;
+let MERGE_HAPUS = [];               // id yang SENGAJA dihapus di layar ini (diisi mergeIntoState)
+function jendelaDari(){
+  const t = todayStr(); let y = +t.slice(0,4), m = +t.slice(5,7) - 1;
+  if(m < 1){ m = 12; y--; }
+  return y + "-" + String(m).padStart(2,"0") + "-01";
+}
+function fiturLengkap(d){
+  const f = d && Array.isArray(d._fitur) ? d._fitur : [];
+  return ["jendela","dikenal","ringkasTamu"].every(k=>f.includes(k));
+}
+// KEMBAR tanggal_valid() di reservasi-mysql: yang tidak sah = kolom tanggal NULL
+// di server = SELALU ikut di jendela mana pun.
+function tglSah(t){ t = String(t==null?"":t).trim(); return /^\d{4}-\d{2}-\d{2}$/.test(t) ? t : null; }
+function luarJendela(r, dari){ const t = tglSah(r && r.date); return !!(dari && t && t < dari); }
+function dariOf(d){ return d && d._jendela && d._jendela.dari ? String(d._jendela.dari) : null; }
+function geserTgl(t, n){ const d = new Date(t + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); return d.toISOString().slice(0,10); }
+/* Parameter getAll untuk tarikan sebelum menulis. tglMin = tanggal paling
+   awal yang perlu diperiksa (mis. tanggal reservasi yang sedang dicek
+   mejanya) — sehari sebelumnya ikut, karena booking lewat tengah malam
+   mengunci meja sejak malam sebelumnya. */
+function paramGetAll(tglMin){
+  if(!JENDELA) return undefined;
+  let dari = JENDELA.dari;
+  const t = tglSah(tglMin);
+  if(t && t <= dari) dari = geserTgl(t, -1);
+  return { dari };
+}
+/* Muat riwayat SEBELUM jendela, sekali per sesi halaman. Baris yang sudah ada
+   di layar (atau sudah dihapus di layar tapi belum naik) tidak disentuh. */
+async function muatArsip(){
+  if(!JENDELA || ARSIP_DIMUAT) return true;
+  if(ARSIP_SIBUK) return ARSIP_SIBUK;
+  ARSIP_GAGAL = null;
+  ARSIP_SIBUK = (async()=>{
+    try{
+      const d = await apiGet("getAll", { dari:"0001-01-01", sampai: geserTgl(JENDELA.dari, -1) });
+      if(!fiturLengkap(d) || !dariOf(d)) throw new Error("server tidak mengenali muat berjendela — muat ulang halaman");
+      /* Jangan menempel di tengah penyimpanan: flushSave memotret BASE dari
+         kirimannya, dan baris yang ditempel sesudah pemotretan akan terbaca
+         sebagai baris baru buatan layar ini. */
+      while(_saving) await new Promise(r=>setTimeout(r, 120));
+      const ada = new Set(STATE.reservations.map(r=>r.id));
+      const lama = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes)
+        .filter(r=>!ada.has(r.id) && !BASE.res.has(r.id) && luarJendela(r, JENDELA.dari));
+      STATE.reservations = lama.concat(STATE.reservations);
+      lama.forEach(r=>BASE.res.set(r.id, JSON.stringify(r)));
+      ARSIP_DIMUAT = true;
+      return true;
+    }catch(e){ ARSIP_GAGAL = (e && e.message) || "gagal memuat"; return false; }
+    finally{ ARSIP_SIBUK = null; }
+  })();
+  const ok = await ARSIP_SIBUK;
+  if(SESSION && CURRENT_PAGE && CURRENT_PAGE!=="input" && !dialogTerbuka()) navigate(CURRENT_PAGE);
+  return ok;
+}
+/* Halaman yang membaca sampai tanggal tgl (true = seluruh riwayat) memanggil
+   ini. Memulangkan true kalau riwayatnya BELUM ada — penggambarnya lalu
+   memasang arsipPita() supaya angkanya tidak dibaca sebagai angka lengkap.
+   Yang gagal TIDAK dicoba ulang sendiri: tiap render akan menembak server
+   lagi, dan yang terlihat bukan galat melainkan halaman berkedip. */
+function butuhArsip(tgl){
+  if(!JENDELA || ARSIP_DIMUAT) return false;
+  if(tgl !== true){ const t = tglSah(tgl); if(!t || t >= JENDELA.dari) return false; }
+  if(!ARSIP_SIBUK && !ARSIP_GAGAL) muatArsip();
+  return true;
+}
+function arsipCobaLagi(){ ARSIP_GAGAL = null; muatArsip(); if(CURRENT_PAGE) navigate(CURRENT_PAGE); }
+function arsipPita(){
+  if(!JENDELA || ARSIP_DIMUAT) return "";
+  if(ARSIP_GAGAL) return `<div class="inline-info" style="border-color:var(--danger,#b42318);color:var(--danger,#b42318);margin-bottom:12px">⚠️ Riwayat sebelum ${esc(fmtDateShort(JENDELA.dari))} tidak terbaca (${esc(ARSIP_GAGAL)}) — angka di halaman ini BELUM mencakupnya. <button class="btn btn-xs btn-ghost" onclick="arsipCobaLagi()">Coba lagi</button></div>`;
+  return `<div class="inline-info" style="margin-bottom:12px">⏳ Memuat riwayat sebelum ${esc(fmtDateShort(JENDELA.dari))}… angka di halaman ini akan diperbarui sendiri.</div>`;
+}
+/* Detail reservasi yang belum termuat: muat riwayatnya dulu, baru buka. */
+async function bukaSesudahArsip(id, pesanTakAda){
+  showBusy("Memuat riwayat lama…", "Reservasi ini di luar data yang dimuat saat halaman dibuka.");
+  const ok = await muatArsip();
+  hideBusy();
+  if(STATE.reservations.some(x=>x.id===id)) return openDetail(id);
+  toast(ok ? pesanTakAda : "Riwayat lama tidak terbaca: " + (ARSIP_GAGAL||""), "err");
+}
+
+/* RINGKASAN TAMU LAMA — profil tamu (Loyal/Repeat/blacklist, member, isi-otomatis
+   nama) dihitung dari SELURUH riwayat. Selama riwayat lama belum dimuat, bagian
+   sebelum jendela diminta ke server sebagai ringkasan (ringkas_tamu() di
+   reservasi-mysql), bukan barisnya. KEMBAR LINTAS BAHASA dengan
+   customerProfile() & guestDirectory() di bawah. */
+let RINGKAS_TAMU = null, RINGKAS_SIBUK = false, RINGKAS_GAGAL = null;
+function ringkasTamu(){
+  if(!JENDELA || ARSIP_DIMUAT) return null;
+  if(RINGKAS_TAMU) return RINGKAS_TAMU;
+  if(!RINGKAS_SIBUK && !RINGKAS_GAGAL) muatRingkasTamu();
+  return null;
+}
+async function muatRingkasTamu(){
+  RINGKAS_SIBUK = true;
+  try{
+    const d = await apiGet("ringkasTamu", { sebelum: JENDELA.dari });
+    const m = new Map();
+    Object.keys((d && d.tamu) || {}).forEach(k=>m.set(k.slice(1), d.tamu[k]));   // buang awalan 'k'
+    RINGKAS_TAMU = m;
+  }catch(e){ RINGKAS_GAGAL = (e && e.message) || "gagal"; }
+  finally{ RINGKAS_SIBUK = false; }
+  if(RINGKAS_TAMU && SESSION && CURRENT_PAGE && CURRENT_PAGE!=="input" && !dialogTerbuka()) navigate(CURRENT_PAGE);
 }
 
 /* Gabungkan koleksi ber-id (waitlist, reviews, feedbacks, users) dgn cara yang sama. */
@@ -2688,23 +2842,45 @@ async function flushSave(){
        DITOLAK. Kita jadikan data server tadi sebagai BASE baru, lalu ulangi: tarik yang
        terbaru, gabungkan (data kru lain aman, bentrok meja diselesaikan createdAt-tercepat),
        tulis lagi. Dengan ini tidak ada tulisan yang bisa saling menimpa. */
-    let payload=null, adaKiriman=false, tries=0;
+    let payload=null, adaKiriman=false, tries=0, tahan=new Map();
     /* Putaran PERTAMA boleh memakai titipan mejaMasihKosong(); putaran ulang
        sesudah ditolak versi TIDAK — di situ justru yang dibutuhkan data yang
        benar-benar segar. */
     let titipan = ambilGetAllSegar();
     while(true){
-      const d = titipan || await apiGet("getAll");      // 1) tarik versi terbaru + nomornya
+      const d = titipan || await apiGet("getAll", paramGetAll());      // 1) tarik versi terbaru + nomornya
       titipan = null;
+      /* Server yang diturunkan versinya sesudah halaman dibuka mengabaikan
+         `dikenal` dan menghapus apa pun yang tidak dikirim. Berhenti di sini;
+         muat ulang halaman membuatnya kembali ke mode penuh. */
+      if(JENDELA && !fiturLengkap(d)) throw new Error("Server belum mendukung muat berjendela — muat ulang halaman (Ctrl+Shift+R)");
+      const dari = JENDELA ? dariOf(d) : null;
       const baseVer = (d && d._ver!==undefined) ? d._ver : null;
       adaKiriman = mergeIntoState(d);                   // 2) gabungkan per baris
       // 3) BEKUKAN apa yang dikirim. Kru bisa saja mengubah/menghapus sesuatu sementara
       //    request ini masih jalan — perubahan itu TIDAK boleh ikut terpotret sbg tersimpan.
-      payload = JSON.parse(JSON.stringify(STATE));
-      const r = await apiPost("saveAll", payload, {baseVer});
+      /* Reservasi di luar jendela yang TIDAK kita ubah ditahan di layar, tidak
+         dikirim: server tidak memulangkannya, jadi kita tidak tahu versi
+         terbarunya — mengirim salinan kita bisa menghidupkan lagi baris yang
+         sudah dihapus kru lain. */
+      tahan = new Map();
+      let kirimRes = STATE.reservations;
+      if(dari) kirimRes = STATE.reservations.filter(r=>{
+        if(!luarJendela(r, dari)) return true;
+        const b = BASE.res.get(r.id);
+        if(b!==undefined && b===JSON.stringify(r)){ tahan.set(r.id, b); return false; }
+        return true;
+      });
+      payload = JSON.parse(JSON.stringify(Object.assign({}, STATE, { reservations: kirimRes })));
+      const extra = { baseVer };
+      if(JENDELA) extra.dikenal = [...new Set(payload.reservations.map(r=>r.id).concat(MERGE_HAPUS))];
+      const r = await apiPost("saveAll", payload, extra);
       if(r && r.conflict){
         // Kru lain menyelip lebih dulu. Anggap data server tadi sbg BASE, lalu coba lagi.
+        // Riwayat di luar jendela tidak ada di `d` — potretnya dibawa dari BASE lama.
+        const lama = BASE.res;
         snapshotBaseFrom(d);
+        if(dari) lama.forEach((b,id)=>{ if(!BASE.res.has(id) && luarJendela(JSON.parse(b), dari)) BASE.res.set(id, b); });
         if(++tries>=6) throw new Error("Terlalu banyak tabrakan simpan — coba sekali lagi");
         continue;
       }
@@ -2713,6 +2889,7 @@ async function flushSave(){
       break;                                            // tersimpan
     }
     snapshotBaseFrom(payload);                // BASE = persis isi server sekarang
+    tahan.forEach((b,id)=>BASE.res.set(id, b));   // + riwayat yang ditahan (tidak berubah)
     // Perubahan yang muncul saat request tadi berjalan otomatis terdeteksi sbg belum
     // tersimpan (STATE ≠ BASE) dan ditulis oleh penyimpanan lanjutan di bawah.
     if(hasLocalChanges()) _saveAgain = true;
@@ -2750,16 +2927,20 @@ function mergeIntoState(d){
   // daftar tolakan supaya hanya hasil merge TERAKHIR (yang benar-benar tersimpan) yang
   // dilaporkan ke kru — tanpa ini satu bentrok bisa memunculkan popup berkali-kali.
   REJECTED.length = 0;
+  MERGE_HAPUS = [];
   const srv = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
   const srvMap = new Map(srv.map(r=>[r.id, r]));
   const out = new Map(srvMap);                       // mulai dari versi server
+  /* Jawaban berjendela: baris sebelum `dari` TIDAK ADA di srv bukan karena
+     dihapus, melainkan karena tidak diminta. */
+  const dari = dariOf(d);
 
   // Apakah kru lain menambah/mengubah/menghapus sesuatu sejak potret terakhir kita?
   // (BASE = versi server yang kita ketahui, jadi beda dgn BASE berarti ulah orang lain.)
   let adaKiriman = srv.some(r=>{
     const b=BASE.res.get(r.id);
     return b===undefined || b!==JSON.stringify(r);
-  }) || [...BASE.res.keys()].some(id=>!srvMap.has(id));
+  }) || [...BASE.res.entries()].some(([id,b])=>!srvMap.has(id) && !(dari && luarJendela(JSON.parse(b), dari)));
 
   STATE.reservations.forEach(L=>{
     const base = BASE.res.get(L.id);
@@ -2797,11 +2978,14 @@ function mergeIntoState(d){
       // Kalau kru lain mengubah baris yang sama LEBIH BARU, versi dia menang.
       const S = srvMap.get(L.id);
       out.set(L.id, (S && (Number(S.updatedAt)||0) > (Number(L.updatedAt)||0)) ? S : L);
+    }else if(dari && !srvMap.has(L.id) && luarJendela(L, dari)){
+      out.set(L.id, L);        // riwayat di luar jendela — tidak diminta, bukan dihapus
     }
     // tidak kita sentuh → biarkan versi server (sudah ada di `out`)
   });
-  // baris yang kita hapus
-  BASE.res.forEach((_,id)=>{ if(!STATE.reservations.some(r=>r.id===id)) out.delete(id); });
+  // baris yang kita hapus — dicatat untuk `dikenal` (mode berjendela)
+  const idLayar = new Set(STATE.reservations.map(r=>r.id));
+  BASE.res.forEach((_,id)=>{ if(!idLayar.has(id)){ out.delete(id); MERGE_HAPUS.push(id); } });
 
   STATE.reservations = [...out.values()];
   // Selalu dialasi DEFAULT_MASTER supaya tidak ada kunci wajib (dpMethods, categories, dll)
@@ -2900,9 +3084,11 @@ async function pollRemote(force){
       }
       if(v && v.ver!==undefined && String(v.ver)===VER_TAMPIL) return;   // tidak ada yang berubah
     }
-    const d = await apiGetPoll("getAll");
+    const d = await apiGetPoll("getAll", paramGetAll());
+    // Dibandingkan di dalam jendela saja — riwayat lama di layar memang tidak ada di jawaban ini.
+    const dariP = dariOf(d);
     const beda = JSON.stringify((d.reservations||[]).map(r=>r.id+"|"+(r.updatedAt||0)).sort())
-              !== JSON.stringify(STATE.reservations.map(r=>r.id+"|"+(r.updatedAt||0)).sort());
+              !== JSON.stringify(STATE.reservations.filter(r=>!luarJendela(r, dariP)).map(r=>r.id+"|"+(r.updatedAt||0)).sort());
     const bedaMaster = JSON.stringify(d.master||{}) !== JSON.stringify(STATE.master);
     if(!beda && !bedaMaster) return;
     // Kru sempat menekan sesuatu saat tarikan ini berjalan → jangan timpa layarnya.
@@ -3179,7 +3365,11 @@ function tutupPopupMeja(){
 /* customer profile dari nomor HP (CRM ringan) */
 function customerProfile(phone){
   const key=normPhone(phone);
-  const hist = STATE.reservations.filter(r=>normPhone(r.phone)===key);
+  /* Mode berjendela: bagian sebelum jendela datang dari ringkasan server (a),
+     baris di layar cuma yang di dalam jendela — jangan dihitung dua kali. */
+  const R = ringkasTamu(), a = R ? R.get(key) : null;
+  const hist = STATE.reservations.filter(r=>normPhone(r.phone)===key && !(R && luarJendela(r, JENDELA.dari)));
+  if(a) return profilGabung(key, a, hist);
   const done = hist.filter(r=>r.status==="Datang");
   const noshow = hist.filter(r=>r.status==="No-show").length;
   const visits = done.length;
@@ -3193,6 +3383,26 @@ function customerProfile(phone){
   const lastVisit = done.map(r=>r.date).sort().slice(-1)[0]||null;
   const avgPax = hist.length? Math.round(hist.reduce((a,r)=>a+(Number(r.pax)||0),0)/hist.length) : 0;
   return {key,count:hist.length,visits,noshow,type,blacklist,isMember,memberNo,vip,lastVisit,avgPax,name:(hist[0]||{}).name||""};
+}
+/* a = [n, datang, noshow, member, memberNo, vip, kunjungan terakhir, jumlah pax,
+   nama pertama, nama terakhir] dari ringkas_tamu(). Aturannya SAMA PERSIS dengan
+   cabang biasa di atas — riwayat lama selalu lebih dulu dibuat. */
+function profilGabung(key, a, hist){
+  const done = hist.filter(r=>r.status==="Datang");
+  const count = (Number(a[0])||0) + hist.length;
+  const visits = (Number(a[1])||0) + done.length;
+  const noshow = (Number(a[2])||0) + hist.filter(r=>r.status==="No-show").length;
+  let type="Baru";
+  if(visits>=5) type="Loyal";
+  else if(visits>=1) type="Repeat";
+  const blacklist = noshow>=2;
+  const isMember = !!a[3] || hist.some(r=>r.member);
+  const memberNo = a[4] || (hist.find(r=>r.member && r.memberNo)||{}).memberNo || "";
+  const vip = !!a[5] || hist.some(r=>r.vip) || visits>=8;
+  const lastVisit = [a[6]||"", ...done.map(r=>r.date)].filter(Boolean).sort().slice(-1)[0]||null;
+  const paxSum = (Number(a[7])||0) + hist.reduce((s,r)=>s+(Number(r.pax)||0),0);
+  const avgPax = count ? Math.round(paxSum/count) : 0;
+  return {key,count,visits,noshow,type,blacklist,isMember,memberNo,vip,lastVisit,avgPax,name:a[8]||""};
 }
 
 /* ================= SESSION / LOGIN ================= */
@@ -4297,7 +4507,12 @@ function toggleMember(){
 // Satu entri per nomor HP, memakai data terbaru yang tercatat.
 function guestDirectory(){
   const m=new Map();
-  [...STATE.reservations]
+  /* Tamu lama dari ringkasan server dulu (nama TERAKHIR yang tidak kosong),
+     lalu ditimpa baris di layar — urutan yang sama dengan membaca seluruh
+     riwayat dari yang paling lama. */
+  const R = ringkasTamu();
+  if(R) R.forEach((a,key)=>{ if(key.length>=8 && a[9]) m.set(key,{phone:key, name:String(a[9]).trim()}); });
+  [...STATE.reservations].filter(r=>!(R && luarJendela(r, JENDELA.dari)))
     .sort((a,b)=>(a.createdAt||0)-(b.createdAt||0))
     .forEach(r=>{
       const key=normPhone(r.phone);
@@ -4389,7 +4604,7 @@ async function mejaMasihKosong(date, table, time, exceptId, sharing, opsi){
   setSync("sync","Memeriksa ketersediaan meja…");
   showBusy("Memeriksa ketersediaan meja…", "Mengecek langsung ke database, bukan ke layar.");
   let d;
-  try{ d = await apiGet("getAll"); }
+  try{ d = await apiGet("getAll", paramGetAll(date)); }
   catch(e){ setSync("err","Gagal cek meja"); return { ok:true, offline:true }; }   // offline → lanjut, penjaga terakhir tetap ada
   const srv = (Array.isArray(d.reservations)?d.reservations:[]).map(normalizeRes);
   const bentrok = conflictCheck(date, table, time, exceptId, sharing, srv, opsi);
@@ -4998,7 +5213,7 @@ function tblPageSrv(arr, kunci, sig, aksi, param, cocok){
   if(st.kunci!==ck || !st.data) return Object.assign(lokal, { memuat:true });
   const d = st.data, total = Number(d.total)||0;
   const items = (d.rows||[]).map(cocok);
-  if(items.some(x=>!x)) return lokal;                  // STATE belum memuat barisnya — jangan menampilkan halaman bolong
+  if(items.some(x=>!x)){ butuhArsip(true); return lokal; }   // STATE belum memuat barisnya — muat riwayat, jangan menampilkan halaman bolong
   const halS = Number(d.hal)||1, perS = Number(d.per)||per;
   const mulai = (halS-1)*perS;
   return { hal:halS, maxHal:Number(d.maxHal)||1, mulai, akhir:Math.min(mulai+items.length,total), total, items, srv:true };
@@ -5026,6 +5241,21 @@ function srvpgKet(pg, kunci){
      map      denah meja        \ keduanya hanya bisa SATU tanggal,
      wait     waiting list      / lihat HARIH_DATE & pemilih "Tanggal denah"
    ===================================================================== */
+/* Tanggal paling awal yang dibaca Dashboard dengan saringan sekarang
+   (true = seluruh riwayat). Mode berjendela memuat riwayat lama hanya
+   kalau angka ini jatuh sebelum jendela. */
+function dashTglMin(){
+  const F=DASH_FILTER, calon=[];
+  if(F.mode==="day") calon.push(F.date);
+  else if(F.mode==="month") calon.push((F.month||"")+"-01");
+  else if(F.mode==="year") calon.push(F.year+"-01-01");
+  else if(F.mode==="range" && F.from && F.to) calon.push(F.from);
+  else return true;                                   // "Semua" / rentang belum lengkap
+  if(HARIH_VIEW==="calendar") calon.push(ymdOf(new Date(CAL_MONTH.getFullYear(), CAL_MONTH.getMonth(), 1).getTime()));
+  if(HARIH_VIEW==="map" || HARIH_VIEW==="wait") calon.push(HARIH_DATE);
+  const sah = calon.map(tglSah).filter(Boolean).sort();
+  return sah.length ? sah[0] : true;
+}
 function renderDashboard(){
   /* Kedua cache dibuang di awal render, sebelum saringan apa pun dipakai:
      hunian diturunkan dari STATE.reservations dan peta lantai dari layout,
@@ -5089,8 +5319,9 @@ function renderDashboard(){
                                       : "semua tanggal";
 
   const tabBtn=(v,label,extra)=>`<button class="${tab===v?'on':''}" onclick="dashTab('${v}')">${label}${extra||""}</button>`;
+  const pitaDash = butuhArsip(dashTglMin()) ? arsipPita() : "";
 
-  byId("page-dashboard").innerHTML = `
+  byId("page-dashboard").innerHTML = pitaDash + `
    <div class="page-head">
      <div><h2>Dashboard &amp; Recap</h2><div class="desc">Satu halaman: data reservasi, denah meja, dan antrean. Klik meja untuk aksi cepat.</div></div>
      <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -5365,7 +5596,18 @@ function calDragEnd(e){
 }
 
 function exportCSV(ids){
-  const list = STATE.reservations.filter(r=>ids.includes(r.id));
+  /* Id dari server (Riwayat / tabel berhalaman) bisa menunjuk reservasi yang
+     belum termuat. Diekspor tanpa riwayatnya, CSV-nya diam-diam kurang baris. */
+  if(JENDELA && !ARSIP_DIMUAT){
+    const ada = new Set(STATE.reservations.map(r=>r.id));
+    if(ids.some(id=>!ada.has(id))){
+      showBusy("Memuat riwayat lama…", "Sebagian baris yang diekspor di luar data yang dimuat saat halaman dibuka.");
+      muatArsip().then(ok=>{ hideBusy(); if(ok) exportCSV(ids); else toast("Riwayat lama tidak terbaca: "+(ARSIP_GAGAL||""),"err"); });
+      return;
+    }
+  }
+  const idSet = new Set(ids);
+  const list = STATE.reservations.filter(r=>idSet.has(r.id));
   // Lantai ikut diekspor, tepat setelah Meja: tanpa itu, rekap yang disaring
   // per lantai di layar kehilangan keterangan lantainya begitu dibuka di Excel.
   // Kosong = mejanya belum dipilih / tidak ada di denah mana pun.
@@ -7488,7 +7730,12 @@ function hapusGrupWA(id){
 
 /* ================= DETAIL MODAL ================= */
 function openDetail(id){
-  const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
+  const r=STATE.reservations.find(x=>x.id===id);
+  if(!r){
+    // Reservasi lama yang belum termuat (mode berjendela) — muat dulu, baru buka.
+    if(JENDELA && !ARSIP_DIMUAT) bukaSesudahArsip(id, "Reservasi itu sudah tidak ada.");
+    return;
+  }
   const p=customerProfile(r.phone);
   const canEdit=CAN.input(SESSION.role), canDel=CAN.deleteReservation(SESSION.role);
   const di=(k,v)=>`<div class="detail-item"><div class="k">${k}</div><div class="v">${v||"-"}</div></div>`;
@@ -9017,7 +9264,8 @@ function renderFinance(){
      dalam ikut terkirim ke innerHTML, dan satu backtick di dalamnya MENUTUP
      literalnya lalu menjatuhkan seluruh modul dengan SyntaxError. Sudah
      kejadian saat baris ini ditulis. */
-  byId("page-finance").innerHTML = finSumberHTML() + `
+  const pitaFin = butuhArsip(FIN_F.from || true) ? arsipPita() : "";
+  byId("page-finance").innerHTML = pitaFin + finSumberHTML() + `
    <div class="page-head">
      <div><h2>Dana Masuk (DP)</h2>
        <div class="desc">Cek uang DP yang benar-benar masuk. Tanggal, jam, nominal, bank &amp; <b>nama pengirim</b> dibaca <b>otomatis</b> dari bukti transfer begitu halaman ini dibuka. Satu baris = satu kali transfer, jadi DP yang dicicil muncul terpisah. Tinggal periksa lalu verifikasi.</div></div>
@@ -9672,6 +9920,7 @@ function riwCari(v){
 }
 function riwBuka(id){
   if(STATE.reservations.some(x=>x.id===id)) return openDetail(id);
+  if(JENDELA && !ARSIP_DIMUAT) return bukaSesudahArsip(id, "Reservasi itu sudah tidak ada.");
   toast("Reservasi ini belum termuat di perangkat ini — muat ulang halaman lalu coba lagi.","warn");
 }
 async function riwEkspor(){
@@ -10056,7 +10305,8 @@ function renderAnalitik(){
   const totalPax=all.reduce((a,r)=>a+paxOf(r),0);
   const avgPax=all.length?(totalPax/all.length).toFixed(1):0;
 
-  byId("page-analitik").innerHTML=`
+  const pitaAn = butuhArsip(true) ? arsipPita() : "";      // seluruh riwayat
+  byId("page-analitik").innerHTML=pitaAn+`
    <div class="page-head"><div><h2>Analitik & Laporan</h2><div class="desc">Insight bisnis dari seluruh data reservasi. Angka menyesuaikan seiring data bertambah.</div></div></div>
    ${dailyPerfPanel()}
    <div class="section-title" style="border:none;color:var(--gold);font-size:14px;margin:22px 0 6px">📈 Ringkasan Keseluruhan</div>
@@ -10333,7 +10583,9 @@ function auditCocok(a,q){
 function auditAksiSel(a){
   const pill=`<span class="pill">${esc(a.action)}</span>`;
   if(!a || !a.res) return pill;
-  const ada=STATE.reservations.some(x=>x.id===a.res);
+  /* Mode berjendela: yang tidak ada di layar belum tentu dihapus — mungkin
+     cuma belum dimuat. Tanda ✕ baru boleh dipasang sesudah riwayatnya ada. */
+  const ada=STATE.reservations.some(x=>x.id===a.res) || !!(JENDELA && !ARSIP_DIMUAT);
   return `<a href="javascript:void(0)" onclick="bukaDariAudit('${esc(a.res)}')" style="text-decoration:none"
     title="${esc(ada?"Buka reservasi ini — status sekarang & riwayat lengkapnya":"Reservasi ini sudah dihapus")}">${pill}${ada?' <span class="muted" style="font-size:11px">↗</span>':' <span class="muted" style="font-size:11px" title="Reservasinya sudah tidak ada">✕</span>'}</a>`;
 }
@@ -10342,6 +10594,7 @@ function auditAksiSel(a){
    adalah kegagalan yang paling sulit dilaporkan orang. */
 function bukaDariAudit(id){
   if(STATE.reservations.some(x=>x.id===id)){ openDetail(id); return; }
+  if(JENDELA && !ARSIP_DIMUAT){ bukaSesudahArsip(id, "Reservasi itu sudah dihapus — jejaknya masih di sini, tapi barisnya tidak ada lagi"); return; }
   toast("Reservasi itu sudah dihapus — jejaknya masih di sini, tapi barisnya tidak ada lagi","err");
 }
 /* Arah sebaliknya: dari detail reservasi ke Audit Log, tersaring ke tamunya.
@@ -10401,6 +10654,12 @@ function isDemoRes(r){
 function demoRecords(){ return STATE.reservations.filter(isDemoRes); }
 function purgeDemo(){
   if(!CAN.deleteDp(SESSION.role)){ toast("Hanya Admin Sistem yang boleh menghapus data","err"); return; }
+  // Data demo bisa ada di riwayat lama — daftarnya harus lengkap sebelum ditanyakan.
+  if(JENDELA && !ARSIP_DIMUAT){
+    showBusy("Memuat riwayat lama…","Supaya daftar data demo lengkap.");
+    muatArsip().then(ok=>{ hideBusy(); if(ok) purgeDemo(); else toast("Riwayat lama tidak terbaca: "+(ARSIP_GAGAL||""),"err"); });
+    return;
+  }
   const list=demoRecords();
   if(!list.length){ toast("Tidak ada data demo yang tersisa","ok"); return; }
   const rincian=list.map(r=>`• ${r.name} — ${fmtDateShort(r.date)}${Number(r.dpAmount)>0?`, DP ${rpDot(r.dpAmount)}`:""}`).join("\n");

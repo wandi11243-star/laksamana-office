@@ -55,7 +55,11 @@ try {
     $sampai = isset($_GET['sampai']) && $_GET['sampai'] !== '' ? $_GET['sampai'] : null;
     $st = baca_state($dari, $sampai);
     $st['_ver'] = read_ver();     // nomor versi utk penjaga anti-timpa (dipakai saveAll)
-    $st['_fitur'] = array('jendela', 'dikenal');
+    /* 'ringkasTamu' WAJIB ada sebelum klien berjendela boleh jalan: tanpanya
+       profil tamu (Loyal / blacklist / isi-otomatis nama) cuma menghitung
+       jendelanya sendiri, dan tamu yang dua kali no-show tahun lalu terbaca
+       "Baru" di form input. */
+    $st['_fitur'] = array('jendela', 'dikenal', 'ringkasTamu');
     if ($dari !== null || $sampai !== null) {
       $st['_jendela'] = array('dari' => tanggal_valid($dari), 'sampai' => tanggal_valid($sampai));
     }
@@ -77,6 +81,10 @@ try {
     keluar(array('ok' => true, 'data' => rsv_hal_dana($_GET)));       // Dana Masuk per halaman
   } else if ($action === 'halAudit') {
     keluar(array('ok' => true, 'data' => rsv_hal_audit($_GET)));      // Audit Log per halaman
+
+  } else if ($action === 'ringkasTamu') {
+    $sebelum = isset($_GET['sebelum']) ? $_GET['sebelum'] : null;
+    keluar(array('ok' => true, 'data' => array('sebelum' => tanggal_valid($sebelum), 'tamu' => ringkas_tamu($sebelum))));
 
   } else if ($action === 'getFile') {
     $key = $method === 'POST' ? (isset($body['data']['key']) ? $body['data']['key'] : @$body['key'])
