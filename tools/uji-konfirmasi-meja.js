@@ -287,6 +287,23 @@ const toastTerakhir = w => {
         !!b32 && !b32.querySelector('.seat-telat'));
     cek('reservasi BESOK yang belum datang disaring dari denah hari ini',
         /if\(r\.date > HARIH_DATE && !isSeated\(r\)\) return;/.test(SRC));
+    /* 26 Sep 2026: klik meja kosong di denah TANGGAL LAIN tidak boleh
+       menyebut booking hari ini (keluhan user: denah besok membaca booking
+       hari ini). */
+    {
+      const hariIni = w.eval('todayStr()');
+      const besok = w.eval('dateOfDayNo(dayNo(todayStr())+1)');
+      const lama = w.eval('HARIH_DATE');
+      w.eval('HARIH_DATE=' + JSON.stringify(hariIni));
+      const nxKini = w.eval('bookingBerikut("32")');
+      w.eval('HARIH_DATE=' + JSON.stringify(besok));
+      const nxBesok = w.eval('bookingBerikut("32")');
+      w.eval('HARIH_DATE=' + JSON.stringify(lama));
+      if (SEGERA.date === hariIni) {
+        cek('denah hari ini: meja 32 menyebut booking Joko', !!nxKini && nxKini.res.name === 'Joko Santoso');
+        cek('denah BESOK: booking hari ini TIDAK disebut', nxBesok === null, nxBesok && nxBesok.res.name);
+      }
+    }
     cek('pita telat menyebut menitnya', /telatTag = m<0 \? `<span class="seat-telat"/.test(SRC));
     w.eval('closeModal()');
     cek('yang jaraknya masih jauh tetap bisa ditekan', !!b21 && b21.disabled === false);

@@ -6634,12 +6634,12 @@ function tanyaDudukSementara(tableId){
      penangan klik; penjaga di sini yang menahan pemanggilan dari tempat
      lain. */
   if(mepetKah(m)){
-    toast(`Meja ${tableId} terkunci — ${nx.res.name} jam ${nx.res.time} (${sisa})`,"err");
+    toast(`Meja ${tableId} terkunci — ${nx.res.name} ${fmtDateShort(nx.res.date)} jam ${nx.res.time} (${sisa})`,"err");
     return false;
   }
   return confirm(
     `⚠️ MEJA ${tableId} SUDAH DIPESAN\n\n`
-    + `${nx.res.name} — jam ${nx.res.time}, ${nx.res.pax} pax (${sisa})${nx.more?` (+${nx.more} reservasi lain di meja ini)`:""}\n\n`
+    + `${nx.res.name} — ${fmtDateShort(nx.res.date)} jam ${nx.res.time}, ${nx.res.pax} pax (${sisa})${nx.more?` (+${nx.more} reservasi lain di meja ini)`:""}\n\n`
     + `Mejanya masih kosong sekarang, dan jamnya masih ${fmtDur(m)} lagi — boleh dipakai duduk sementara.\n\n`
     + `Meja ini TERKUNCI SENDIRI begitu tinggal ${fmtDur(MEPET_MIN)} menjelang jamnya.\n\n`
     + `Dudukkan tamu di meja ini?`);
@@ -6681,9 +6681,20 @@ function walkInSeat(tableId, sharingDefault, paxDefault){
 function bookingBerikut(tableId){
   const ids=String(tableId||"").split(",").map(s=>s.trim()).filter(Boolean);
   if(!ids.length) return null;
-  const now=absNow();
+  /* IKUT TANGGAL DENAH YANG SEDANG DIBUKA (26 September 2026, keluhan user:
+     di denah BESOK, klik meja kosong menyebut "sudah dipesan" oleh booking
+     HARI INI). Dulu acuannya selalu "sekarang" tanpa batas tanggal, jadi
+     booking hari ini jam 15:00 ikut disebut di denah tanggal 27.
+     - denah hari ini : acuannya sekarang, dan booking BESOK tidak disebut
+                        (sama dengan denahnya, yang tidak menggambarnya).
+     - denah tanggal lain : acuannya awal hari itu, hanya sampai hari itu.
+     Tanpa HARIH_DATE (uji terpotong) perilaku lama dipakai. */
+  const tgl = (typeof HARIH_DATE!=="undefined" && HARIH_DATE) || "";
+  const hariIni = tgl && tgl===ymdOf(Date.now());
+  const now = (!tgl || hariIni) ? absNow() : absMin(tgl, "00:00");
   const cal=STATE.reservations.filter(r=>{
     if(!r.date || !r.time) return false;
+    if(tgl && r.date > tgl) return false;
     if(["Cancelled","No-show","Completed"].includes(r.status)) return false;
     if(r.leftAt || isSeated(r)) return false;
     if(!tablesOf(r).some(t=>ids.includes(t))) return false;
@@ -6709,7 +6720,7 @@ function catatanWalkIn(tableId){
 function pitaMejaDipesan(nx){
   const r=nx.res, m=nx.menit;
   const mepet = mepetKah(m);
-  const jam = seatTimeLabel(r);
+  const jam = `${fmtDateShort(r.date)} ${r.time}`;   // tanggal selalu disebut — jam saja bisa dibaca sebagai hari yang salah
   const sisa = m>0 ? `${fmtDur(m)} lagi` : `jamnya sudah lewat ${fmtDur(-m)}`;
   return `<div class="${mepet?'inline-danger':'inline-warn'}" style="margin:0 0 12px">
     ${mepet?'⏰':'🔒'} Meja ini <b>sudah dipesan</b> ${esc(r.name)} jam <b>${esc(jam)}</b> (${esc(sisa)}, ${r.pax} pax)${nx.lain?` <span class="hint">+${nx.lain} reservasi lain</span>`:""}.<br>
