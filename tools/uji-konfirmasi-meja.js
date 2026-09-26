@@ -221,12 +221,12 @@ const toastTerakhir = w => {
     cek('legendanya menyebut yang bisa dipakai dengan gembok TERBUKA',
         legenda.indexOf('🔓 Dipesan nanti') > -1 && legenda.indexOf('bisa dipakai</b>, tapi ditanya dulu') > -1);
     cek('dan yang terkunci dengan gembok TERTUTUP',
-        legenda.indexOf('🔒 Dipesan <b>≤1 jam lagi</b>') > -1 && legenda.indexOf('tidak bisa ditekan') > -1);
+        legenda.indexOf('🔒 Dipesan <b>≤1 jam lagi</b>') > -1 && legenda.indexOf('klik untuk ubah status pemesannya') > -1);
     cek('warna terkunci BUKAN merah — merah di denah ini berarti "Sudah Datang"',
         /\.seat\.avail\.booking-mepet\{[^}]*background:#E2E0DC/.test(SRC)
         && !/\.seat\.avail\.booking-mepet\{[^}]*#C9432B/.test(SRC));
-    cek('dan ia kelihatan tidak bisa ditekan',
-        /\.seat\.avail\.booking-mepet\{[^}]*cursor:not-allowed/.test(SRC));
+    cek('dan kursornya menandakan ia bisa ditekan (buka status pemesan)',
+        /\.seat\.avail\.booking-mepet\{[^}]*cursor:pointer/.test(SRC));
 
     // Meja A1 dipesan 23:30 dan belum datang → ditanya.
     w.eval('HARIH_DATE=' + JSON.stringify(PESAN.date) + ';');
@@ -267,7 +267,19 @@ const toastTerakhir = w => {
     const b32 = seatBtn(w, 'harihMap', '32');
     const b21 = seatBtn(w, 'harihMap', '21');
     cek('denah Hari-H tergambar', !!b32 && !!b21);
-    cek('meja yang dipesan <=1 jam lagi digambar MATI', !!b32 && b32.disabled === true);
+    /* Sejak 26 September 2026 (permintaan user) meja yang terkunci H-1 jam
+       BISA ditekan — bukan untuk walk-in, melainkan untuk mengubah status
+       pemesannya (Datang, Batal, No-show). */
+    cek('meja yang dipesan <=1 jam lagi BISA ditekan', !!b32 && b32.disabled === false);
+    cek('dan menekannya memanggil seatAction pemesannya, bukan seatEmptyClick',
+        !!b32 && /seatAction\('res-segera'\)/.test(b32.getAttribute('onclick') || ''), b32 && b32.getAttribute('onclick'));
+    if (b32) b32.click();
+    await tunggu(80);
+    const mdl32 = w.document.getElementById('modalRoot').innerHTML;
+    cek('panel yang terbuka menyebut pemesannya & tombol Tandai Datang',
+        mdl32.indexOf('Joko Santoso') > -1 && mdl32.indexOf('Tandai Datang') > -1);
+    cek('dan TIDAK membuka formulir walk-in', mdl32.indexOf('Walk-in') < 0);
+    w.eval('closeModal()');
     cek('yang jaraknya masih jauh tetap bisa ditekan', !!b21 && b21.disabled === false);
     /* GEMBOKNYA yang membawa arti, bukan warnanya — yang buta warna pun
        bisa membedakan gembok terbuka dari gembok terkunci. Dibaca dari

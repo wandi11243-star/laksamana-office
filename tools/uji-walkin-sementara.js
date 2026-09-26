@@ -76,7 +76,7 @@ function potongConst(nama) {
 }
 
 const NAMA = ['dayNo', 'absMin', 'toMin', 'hhmm', 'ymdOf', 'absOfTs', 'absNow',
-              'isSeated', 'seatStart', 'lockStart', 'lockEnd', 'locksRange', 'locksAt',
+              'isSeated', 'dudukMenempati', 'seatStart', 'lockStart', 'lockEnd', 'locksRange', 'locksAt',
               'locksTable', 'conflictCheck', 'opsiCekOf', 'izinTumpangBerlaku',
               'bedaMenitRes', 'mepetTerhadap', 'mepetKah',
               'tablesOf', 'menitMenuju',
@@ -209,6 +209,32 @@ console.log('\n[2] Tamu yang SEDANG DUDUK tetap menutup mejanya');
     walkin !== null && walkin.id === 'r1', walkin ? '' : 'diterima — dua tamu satu meja');
 }
 
+/* ============================================================
+   [2b] TAMU YANG DUDUK HARI INI TIDAK MENGHALANGI BESOK (26 Sep 2026)
+
+   Keluhan user: memindah meja reservasi BESOK ditolak "ada yang duduk"
+   karena mejanya sedang diduduki tamu HARI INI. Aturan longgar dulu cuma
+   `isSeated(r)` tanpa melihat jam, padahal jendela pencariannya ±1 hari.
+   ============================================================ */
+console.log('\n[2b] Tamu yang duduk hari ini tidak menghalangi reservasi besok');
+{
+  const m = mesin('18:30')(RES_DUDUK);
+  const BESOK = '2026-09-20';
+  const izinBesok = m.conflictCheck(BESOK, '14', '19:00', 'lain', false, null, { izin: true });
+  T('pindah meja (izin) untuk BESOK 19:00 DITERIMA walau meja diduduki hari ini',
+    izinBesok === null, izinBesok ? 'ditolak oleh ' + izinBesok.name : '');
+  /* Yang masih jatuh di dalam lama duduknya tetap ditolak — estimasi 3 jam
+     dari 19:00 = 22:00. */
+  const izinMalam = m.conflictCheck(HARI, '14', '21:00', 'lain', false, null, { izin: true });
+  T('izin jam 21:00 HARI INI (masih dalam lama duduk) tetap DITOLAK',
+    izinMalam !== null && izinMalam.id === 'r1', izinMalam ? '' : 'diterima — dua tamu satu meja');
+  /* Tamu yang ngaret (estimasinya lewat) tetap menghalangi walk-in SEKARANG. */
+  const ngaret = mesin('23:30')(RES_DUDUK)
+    .conflictCheck(HARI, '14', '23:30', null, false, null, { walkin: true });
+  T('tamu ngaret tetap menghalangi walk-in sekarang', ngaret !== null && ngaret.id === 'r1',
+    ngaret ? '' : 'diterima — tamu yang masih duduk diabaikan');
+}
+
 console.log('\n[3] Sharing tetap berlaku, dan pulang membebaskan mejanya');
 {
   const shareRes = [Object.assign({}, RES_DUDUK[0], { sharing: true })];
@@ -309,7 +335,7 @@ console.log('\n[6] Denah & layar (asersi atas sumber)');
 
   T('meja yang dipesan nanti tetap memanggil seatEmptyClick',
     SRC.indexOf('class="seat avail booking-soon') >= 0
-    && /booking-soon[\s\S]{0,200}?onclick="seatEmptyClick/.test(SRC));
+    && /booking-soon[\s\S]{0,200}?onclick="\$\{mepet\?`seatAction\([\s\S]{0,60}?`seatEmptyClick/.test(SRC));
   /* TANDA BERTINGKAT — satu tanda untuk "5 jam lagi" dan "10 menit lagi"
      membuat keduanya berhenti dibedakan, dan yang mepet itulah yang
      menentukan boleh-tidaknya tamu didudukkan. */
@@ -396,7 +422,7 @@ console.log('\n[6] Denah & layar (asersi atas sumber)');
   T('izin terikat meja+tanggal+jam, jadi kedaluwarsa sendiri',
     /z\.meja===String\(r\.table\|\|""\) && z\.date===String\(r\.date\|\|""\) && z\.time===String\(r\.time\|\|""\)/.test(SRC));
   T('tamu yang SEDANG DUDUK tidak pernah bisa ditimpa lewat izin',
-    /function tanyaTumpang\([\s\S]{0,600}?if\(isSeated\(lawan\)\)\{[\s\S]{0,300}?return false;/.test(SRC));
+    /function tanyaTumpang\([\s\S]{0,600}?if\(dudukMenempati\(lawan, date, time\)\)\{[\s\S]{0,300}?return false;/.test(SRC));
 
   /* Pita & legenda tidak boleh lagi menjanjikan kuncian otomatis — janji yang
      tidak ditepati tiap kali dibaca. */
