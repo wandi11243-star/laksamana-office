@@ -7464,11 +7464,21 @@ async function saveArrival(id, first){
     const el=byId("arvPax"); if(el){ el.focus(); el.select(); }
     return;
   }
+  /* Tamu yang sudah tercatat PULANG lalu ditandai datang lagi = kunjungan
+     BARU. Dulu gelombang baru ditumpuk ke catatan lama (jadi "5/4") dan
+     leftAt lama dibiarkan karena statusnya sudah "Datang" — mejanya tetap
+     tampil kosong padahal tamunya duduk (26 September 2026). */
+  const mulaiBaru = !!r.leftAt;
+  const prevBaru = mulaiBaru ? JSON.parse(JSON.stringify(r)) : null;
+  if(mulaiBaru) bersihkanKunjungan(r);
   const total=arrivedPax(r)+n;
   if(total > Number(r.pax||0) &&
-     !confirm(`Total tamu yang masuk jadi ${total} orang, lebih banyak dari booking (${r.pax} pax).\nTetap catat?`)) return;
+     !confirm(`Total tamu yang masuk jadi ${total} orang, lebih banyak dari booking (${r.pax} pax).\nTetap catat?`)){
+    if(prevBaru) pulihkanRes(r, prevBaru);                 // batal → jejak lama kembali utuh
+    return;
+  }
 
-  const prev=JSON.parse(JSON.stringify(r));
+  const prev=prevBaru || JSON.parse(JSON.stringify(r));    // gagal simpan → kembali ke sebelum dibersihkan
   const now=Date.now();
   r.arrivals.push({ ts:now, pax:n, by:SESSION.name });
   r.actualPax = arrivedPax(r);
@@ -8143,6 +8153,14 @@ function statusButtons(r){
       title="${on?"Status saat ini":"Ubah status jadi "+s}">${STATUS_ICON[s]} ${s}${on?" ✓":""}</button>`;
   }).join("")}</div>`;
 }
+/* Cabut seluruh jejak DUDUK dari sebuah reservasi — dipakai saat statusnya
+   kembali ke belum-datang, atau saat tamu yang sudah tercatat pulang datang
+   lagi (kunjungan baru). Tanpa ini leftAt lama membuat isSeated() palsu dan
+   mejanya tampil kosong padahal tamunya sedang duduk. */
+function bersihkanKunjungan(r){
+  r.checkinAt=null; r.arrivals=[]; r.actualPax=null; r.leftAt=0;
+  r.datangDiasumsikan=0; delete r.autoClosed;
+}
 async function changeStatus(id, status){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   const ns=status;
@@ -8154,6 +8172,16 @@ async function changeStatus(id, status){
   // Berubah → Datang: catat waktu mulai duduk (checkinAt) bila belum ada, + realisasi pax default.
   // Lewat tombol status, rombongan dianggap datang PENUH sekaligus. Kalau datangnya
   // bertahap, pakai tombol "✅ Datang" / "➕ Tamu Datang Lagi" yang mencatat per gelombang.
+  /* SISA KUNJUNGAN LAMA DIBERSIHKAN (26 September 2026, keluhan user).
+     Kejadian nyata: sebuah walk-in (sudah duduk) diubah jadi reservasi besok
+     dan statusnya diganti Confirmed — checkinAt, arrivals, dan kemudian
+     leftAt dari tutup otomatis TETAP menempel. Besoknya ditandai Datang lagi,
+     tapi leftAt lama membuat isSeated() palsu: mejanya tampil KOSONG padahal
+     tamunya duduk, dan baris Confirmed-nya berbunyi "selesai duduk".
+     - Kembali ke Pending/Confirmed = belum datang: seluruh jejak duduk dicabut.
+     - Datang sesudah tercatat pulang = kunjungan BARU: mulai dari nol. */
+  if(ns==="Pending" || ns==="Confirmed") bersihkanKunjungan(r);
+  if(ns==="Datang" && r.leftAt) bersihkanKunjungan(r);
   if(ns==="Datang"){
     if(!r.checkinAt) r.checkinAt=Date.now();
     if(!Array.isArray(r.arrivals)) r.arrivals=[];
@@ -10194,7 +10222,19 @@ function autoCloseDue(){
 /* Dijalankan berkala dan sekali tiap halaman dibuka. Menulis ke database HANYA
    kalau memang ada yang ditutup. Dibatasi ke role yang boleh mengubah data
    supaya View Only tidak diam-diam ikut menulis. */
+/* DIMATIKAN 26 September 2026 (permintaan user: "tadi sempat ada auto
+   selesai duduk padahal tamunya masih duduk — sistem itu ga perlu").
+   Jam 04:00 ternyata bukan tanda pasti kru lupa menekan Selesai: sebuah
+   reservasi yang masih membawa jejak duduk dari walk-in kemarin ikut
+   "dipulangkan", lalu leftAt itu membuat tamu yang benar-benar datang malam
+   harinya terbaca sudah pulang. Meja yang lupa ditutup kini dibereskan kru
+   lewat "🍽️ Selesai" atau "Semua Tamu Pulang"; kuncian mejanya sendiri sudah
+   lepas lewat estimasi lama duduk (lockEnd), jadi penjualan tidak tertahan.
+   Fungsinya TIDAK dihapus — dipanggil saat boot (lihat pemuatnya) dan
+   penanda autoClosed di data lama tetap digambar di Riwayat. */
+var AUTO_TUTUP_AKTIF = false;   // var, bukan const: autoCloseSeated() bisa terpanggil sebelum baris ini dijalankan
 function autoCloseSeated(){
+  if(!AUTO_TUTUP_AKTIF) return false;
   if(!DATA_LOADED || !SESSION || !CAN.input(SESSION.role)) return false;
   const kena=autoCloseDue();
   if(!kena.length) return false;
@@ -10215,7 +10255,7 @@ function autoCloseSeated(){
   if(CURRENT_PAGE && !dialogTerbuka()) navigate(CURRENT_PAGE);
   return true;
 }
-setInterval(autoCloseSeated, 60000);
+if(AUTO_TUTUP_AKTIF) setInterval(autoCloseSeated, 60000);
 // Format menit → "1j 20m" / "45m".
 function fmtDur(min){
   if(min==null) return "-";

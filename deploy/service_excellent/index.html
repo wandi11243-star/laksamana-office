@@ -5797,11 +5797,18 @@ async function saveArrival(id, first){
   ensureArrivals(r);
   const n=Number(byId("arvPax")?.value||0);
   if(!n || n<1){ toast("Jumlah orang yang masuk minimal 1","err"); return; }
+  /* Kembaran perbaikan modul Reservasi (26 Sep 2026): tamu yang sudah
+     tercatat PULANG lalu ditandai datang lagi = kunjungan BARU. */
+  const prevBaru = r.leftAt ? JSON.parse(JSON.stringify(r)) : null;
+  if(prevBaru) bersihkanKunjungan(r);
   const total=arrivedPax(r)+n;
   if(total > Number(r.pax||0) &&
-     !confirm(`Total tamu yang masuk jadi ${total} orang, lebih banyak dari booking (${r.pax} pax).\nTetap catat?`)) return;
+     !confirm(`Total tamu yang masuk jadi ${total} orang, lebih banyak dari booking (${r.pax} pax).\nTetap catat?`)){
+    if(prevBaru) Object.assign(r, prevBaru);
+    return;
+  }
 
-  const prev=JSON.parse(JSON.stringify(r));
+  const prev=prevBaru || JSON.parse(JSON.stringify(r));
   const now=Date.now();
   r.arrivals.push({ ts:now, pax:n, by:SESSION.name });
   r.actualPax = arrivedPax(r);
@@ -6325,6 +6332,12 @@ function statusButtons(r){
       title="${on?"Status saat ini":"Ubah status jadi "+s}">${STATUS_ICON[s]} ${s}${on?" ✓":""}</button>`;
   }).join("")}</div>`;
 }
+/* BERKAS KEMBAR bersihkanKunjungan() di modul Reservasi — kalau di sana
+   berubah, di sini HARUS ikut. */
+function bersihkanKunjungan(r){
+  r.checkinAt=null; r.arrivals=[]; r.actualPax=null; r.leftAt=0;
+  r.datangDiasumsikan=0; delete r.autoClosed;
+}
 async function changeStatus(id, status){
   const r=STATE.reservations.find(x=>x.id===id); if(!r) return;
   const ns=status;
@@ -6336,6 +6349,10 @@ async function changeStatus(id, status){
   // Berubah → Datang: catat waktu mulai duduk (checkinAt) bila belum ada, + realisasi pax default.
   // Lewat tombol status, rombongan dianggap datang PENUH sekaligus. Kalau datangnya
   // bertahap, pakai tombol "✅ Datang" / "➕ Tamu Datang Lagi" yang mencatat per gelombang.
+  /* Kembaran perbaikan modul Reservasi (26 Sep 2026): kembali ke belum-datang
+     mencabut jejak duduk; Datang sesudah tercatat pulang = kunjungan baru. */
+  if(ns==="Pending" || ns==="Confirmed") bersihkanKunjungan(r);
+  if(ns==="Datang" && r.leftAt) bersihkanKunjungan(r);
   if(ns==="Datang"){
     if(!r.checkinAt) r.checkinAt=Date.now();
     if(!Array.isArray(r.arrivals)) r.arrivals=[];
@@ -7261,7 +7278,15 @@ function autoCloseDue(){
 /* Dijalankan berkala dan sekali tiap halaman dibuka. Menulis ke database HANYA
    kalau memang ada yang ditutup. Dibatasi ke role yang boleh mengubah data
    supaya View Only tidak diam-diam ikut menulis. */
+/* DIMATIKAN 26 September 2026 — KEMBARAN autoCloseSeated() di modul
+   Reservasi, yang dimatikan hari yang sama atas permintaan user (tamu yang
+   masih duduk ikut "dipulangkan" sistem). Modul ini menulis ke data
+   reservasi yang SAMA, jadi kalau yang di sini tetap hidup, tutup otomatis
+   tetap terjadi tiap kali Service Excellent terbuka — dan mematikannya di
+   modul Reservasi saja tidak mengubah apa pun. */
+var AUTO_TUTUP_AKTIF = false;   // var, bukan const: autoCloseSeated() bisa terpanggil sebelum baris ini dijalankan
 function autoCloseSeated(){
+  if(!AUTO_TUTUP_AKTIF) return false;
   if(!DATA_LOADED || !SESSION || !CAN.input(SESSION.role)) return false;
   const kena=autoCloseDue();
   if(!kena.length) return false;
@@ -7282,7 +7307,7 @@ function autoCloseSeated(){
   if(CURRENT_PAGE && !dialogTerbuka()) navigate(CURRENT_PAGE);
   return true;
 }
-setInterval(autoCloseSeated, 60000);
+if(AUTO_TUTUP_AKTIF) setInterval(autoCloseSeated, 60000);
 // Format menit → "1j 20m" / "45m".
 function fmtDur(min){
   if(min==null) return "-";
