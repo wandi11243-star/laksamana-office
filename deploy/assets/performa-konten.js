@@ -410,12 +410,11 @@ function pkUrutKonten(list, kunci) {
      1. konten yang ditandai butuh desain  -> c.prod.design.status === 'done'
      2. tugas desain mandiri               -> prodTasks kind='design' status='done'
 
-   REQUEST DESAIN DARI MODUL MARKETING SENGAJA TIDAK IKUT, dan itu DIKATAKAN di
-   layar. Antrian Design Queue memang menariknya (designReqs&aktif=1), tapi
-   yang dipulangkan hanya yang MASIH AKTIF — yang sudah selesai tidak pernah
-   sampai ke sini, jadi menghitungnya berarti menghitung nol untuk pekerjaan
-   yang sudah dikerjakan. Angka yang diam-diam nol lebih buruk daripada angka
-   yang jelas-jelas tidak disertakan. */
+   REQUEST DESAIN DARI MODUL MARKETING — dulu SENGAJA tidak ikut, karena yang
+   dibaca antrian hanya designReqs&aktif=1 (yang masih aktif). Sejak 26
+   September 2026 (permintaan user) ia ikut, dibaca lewat designReqs TANPA
+   aktif=1 yang memang memulangkan yang sudah selesai — dan dihitung TERPISAH
+   (pkKartuMkt), bukan dilebur ke dua sumber di bawah. Lihat pkMuatMkt(). */
 function pkBulanDesain(r) {
   if (r && r.doneAt) {
     var d = new Date(+r.doneAt);
@@ -784,6 +783,93 @@ function pkPanelKonten() {
 }
 
 /* ===================== HALAMAN: PERFORMA DESAIN ===================== */
+/* ---------- REQUEST DESAIN DARI MODUL MARKETING (26 September 2026) ----------
+   Permintaan user: "dari marketing juga termasuk, tapi dipisah berapa banyak".
+
+   Sumbernya endpoint BACA yang sudah ada: marketing-api?action=designReqs
+   TANPA `aktif=1` — ia memulangkan request yang sudah selesai juga, berikut
+   `doneAt` (ISO, ditulis design_req_set()). Tidak ada perubahan backend dan
+   tidak ada data yang ditulis. Yang dibatalkan memang tidak pernah ikut
+   (disaring server lewat batalAt).
+
+   Dimuat SEKALI per sesi halaman, MALAS (hanya saat Performa Desain dibuka),
+   dan satu pemuat untuk kedua tuan rumah. `gagal` ikut menahan pemuatan ulang
+   — kalau tidak: fetch gagal → gambar ulang → pemuat dipanggil lagi, selamanya.
+   Pelajaran muatReqMkt() di modul Konten.
+
+   HANYA jenis 'design' yang ikut total "desain selesai"; request VIDEO ('edit')
+   disebut di kartunya sendiri. Menjumlahkan video ke hitungan desain membuat
+   angka yang tidak bisa dibandingkan dengan dua sumber lain di halaman ini. */
+var PK_MKT = { st:'idle', list:[], err:'' };
+function pkMktUrl() { return (PK_DB && PK_DB.mktApi) || '../marketing-api-mysql/api.php'; }
+function pkMuatMkt(paksa) {
+  if (paksa) PK_MKT = { st:'idle', list:[], err:'' };
+  if (PK_MKT.st !== 'idle') return;
+  if (typeof window.fetch !== 'function') { PK_MKT.st = 'gagal'; PK_MKT.err = 'peramban tidak mendukung fetch'; return; }
+  PK_MKT.st = 'muat';
+  window.fetch(pkMktUrl() + '?action=designReqs&t=' + Date.now(), { method:'GET', redirect:'follow' })
+    .then(function (r) { return r.text(); })
+    .then(function (t) {
+      var j = null; try { j = JSON.parse(t); } catch (e) {}
+      if (!j || !j.ok) throw new Error((j && j.error) || 'balasan modul Marketing bukan JSON');
+      PK_MKT = { st:'ok', list:((j.data && j.data.reqs) || []), err:'' };
+    })
+    .catch(function (e) { PK_MKT = { st:'gagal', list:[], err:(e && e.message) || String(e) }; })
+    .then(function () { if (PK_ST && typeof PK_ST.gambar === 'function') PK_ST.gambar(); });
+}
+function pkMktUlang() { pkMuatMkt(true); if (PK_ST && typeof PK_ST.gambar === 'function') PK_ST.gambar(); }
+/* Bulan selesai, WIB tetap (+7) — doneAt dari server adalah ISO UTC. */
+function pkBulanMkt(r) {
+  var d = new Date(String((r && r.doneAt) || ''));
+  if (!isNaN(d.getTime())) return new Date(d.getTime() + 7 * 3600 * 1000).toISOString().slice(0, 7);
+  var s = String((r && r.deadline) || '');
+  return /^\d{4}-\d{2}/.test(s) ? s.slice(0, 7) : '';
+}
+function pkMktSelesai(bulan) {
+  return (PK_MKT.list || []).filter(function (r) {
+    return r && r.status === 'done' && (!bulan || pkBulanMkt(r) === bulan);
+  });
+}
+function pkKartuMkt() {
+  var h = '<div class="card"><h3>Request dari Modul Marketing</h3>'
+    + '<div class="card-sub">Request Design &amp; Video yang diajukan tim Marketing lalu ditandai <b>Selesai</b> '
+    + 'di Design Queue / Editing Queue. Dihitung <b>terpisah</b> dari desain konten & tugas mandiri; '
+    + 'yang dibatalkan Marketing tidak ikut.</div>';
+  if (PK_MKT.st === 'idle' || PK_MKT.st === 'muat') return h + '<div class="empty">Memuat request dari modul Marketing…</div></div>';
+  if (PK_MKT.st === 'gagal') {
+    return h + '<div class="notice warn">⚠ <div><b>Request dari modul Marketing tidak terbaca</b> — ' + PK_ESC(PK_MKT.err)
+      + '. Angka di kartu atas karena itu <b>belum</b> memuatnya.'
+      + '<div style="margin-top:8px"><button type="button" class="btn btn-ghost btn-sm" onclick="pkMktUlang()">Coba lagi</button></div></div></div></div>';
+  }
+  var list = pkMktSelesai(PK_ST.bulan);
+  var des = list.filter(function (r) { return r.jenis !== 'edit'; });
+  var vid = list.length - des.length;
+  h += '<div class="grid g4">'
+    + pkKartu('Desain dari Marketing', PK_NUM(des.length), 'ikut dihitung di total desain selesai', true)
+    + pkKartu('Video dari Marketing', PK_NUM(vid), 'Editing Queue — tidak ikut total desain')
+    + pkKartu('Total Request Selesai', PK_NUM(list.length), PK_ST.bulan ? 'Pada ' + PK_ESC(pkNamaBulan(PK_ST.bulan)) : 'Seluruh periode')
+    + pkKartu('Masih di Antrian', PK_NUM((PK_MKT.list || []).filter(function (r) { return r && r.status !== 'done'; }).length),
+        'request Marketing yang belum selesai (semua bulan)')
+    + '</div>';
+  if (!list.length) return h + '<div class="empty">Belum ada request Marketing yang selesai pada periode ini.</div></div>';
+  /* Per pemohon — siapa yang paling banyak meminta. */
+  var peta = {};
+  list.forEach(function (r) {
+    var k = String(r.pemohon || '').trim() || '(tanpa nama)';
+    if (!peta[k]) peta[k] = { d:0, v:0 };
+    if (r.jenis === 'edit') peta[k].v++; else peta[k].d++;
+  });
+  var nama = Object.keys(peta).sort(function (a, b) { return (peta[b].d + peta[b].v) - (peta[a].d + peta[a].v) || a.localeCompare(b); });
+  h += '<div class="tbl-wrap"><table><thead><tr><th>Pemohon (Marketing)</th><th class="num">Desain</th>'
+    + '<th class="num">Video</th><th class="num">Total</th></tr></thead><tbody>'
+    + nama.map(function (n) {
+        return '<tr><td><b>' + PK_ESC(n) + '</b></td><td class="num">' + peta[n].d + '</td><td class="num">'
+          + peta[n].v + '</td><td class="num"><b>' + (peta[n].d + peta[n].v) + '</b></td></tr>';
+      }).join('')
+    + '</tbody></table></div>';
+  return h + '</div>';
+}
+
 function pkIsiKatDesain() {
   var rows = pkDesainRows(PK_DB).filter(function (r) {
     return !PK_ST.bulan || pkBulanDesain(r) === PK_ST.bulan;
@@ -821,6 +907,10 @@ function pkPanelDesain() {
   var rowsSemua = pkDesainRows(PK_DB);
   var bulanAda = {};
   rowsSemua.forEach(function (r) { var b = pkBulanDesain(r); if (b) bulanAda[b] = 1; });
+  pkMuatMkt();
+  pkMktSelesai('').forEach(function (r) { var b = pkBulanMkt(r); if (b) bulanAda[b] = 1; });
+  var mktOk = PK_MKT.st === 'ok';
+  var desMkt = mktOk ? pkMktSelesai(PK_ST.bulan).filter(function (r) { return r.jenis !== 'edit'; }).length : 0;
   var rows = rowsSemua.filter(function (r) { return !PK_ST.bulan || pkBulanDesain(r) === PK_ST.bulan; });
   var dariKonten = rows.filter(function (r) { return r.src === 'konten'; }).length;
   var mandiri = rows.length - dariKonten;
@@ -830,20 +920,21 @@ function pkPanelDesain() {
   h += '<div class="card"><div style="display:flex;gap:12px;flex-wrap:wrap;align-items:center">'
     + pkPilihBulan(bulanAda) + '</div>'
     + '<div class="card-sub" style="margin:12px 0 0">Yang dihitung pekerjaan desain yang sudah ditandai '
-    + '<b>Selesai</b> di Design Queue — dari konten maupun tugas mandiri. '
-    + '<b>Request desain dari modul Marketing tidak termasuk</b>: antrian itu hanya memulangkan request '
-    + 'yang MASIH aktif, jadi yang sudah dikerjakan tidak pernah sampai ke sini. Angkanya ada di modul '
-    + 'Marketing → Request Design &amp; Video.</div></div>';
+    + '<b>Selesai</b> di Design Queue — dari konten, tugas mandiri, <b>dan request dari modul Marketing</b>. '
+    + 'Request Marketing dihitung <b>terpisah</b> di kartunya sendiri (dan di kartu di bawah), jadi '
+    + 'jumlah ketiganya bisa dicocokkan satu per satu.</div></div>';
 
   /* --- kartu --- */
   h += '<div class="grid g4">'
-    + pkKartu('Desain Selesai', PK_NUM(rows.length),
-        PK_ST.bulan ? 'Pada ' + PK_ESC(pkNamaBulan(PK_ST.bulan)) : 'Seluruh periode', true)
+    + pkKartu('Desain Selesai', PK_NUM(rows.length + desMkt),
+        (PK_ST.bulan ? 'Pada ' + PK_ESC(pkNamaBulan(PK_ST.bulan)) : 'Seluruh periode')
+        + (mktOk ? ' · termasuk request Marketing' : ' · request Marketing belum terbaca'), true)
     + pkKartu('Dari Konten', PK_NUM(dariKonten), 'Konten yang ditandai butuh desain')
     + pkKartu('Tugas Mandiri', PK_NUM(mandiri), 'Pekerjaan desain di luar konten')
-    + pkKartu('Belum Bercap Selesai', PK_NUM(tanpaCap),
-        tanpaCap ? 'Dihitung memakai tanggal deadline desainnya' : 'Semua punya tanggal selesai')
+    + pkKartu('Request Marketing', mktOk ? PK_NUM(desMkt) : '—',
+        mktOk ? 'Request desain dari modul Marketing (video tidak ikut)' : 'sedang dimuat / belum terbaca')
     + '</div>';
+  h += pkKartuMkt();
   if (tanpaCap) {
     h += '<div class="notice info">ℹ <div><b>' + tanpaCap + ' pekerjaan tidak punya tanggal selesai.</b> '
       + 'Jejak itu baru mulai dicatat 18 September 2026; yang ditandai selesai sebelum itu dihitung '
@@ -889,7 +980,8 @@ function pkPanelDesain() {
   /* --- per kategori --- */
   h += '<div class="card"><h3>Desain Selesai per Kategori</h3>'
     + '<div class="card-sub">Kategori diambil dari kontennya sendiri: Content Pillar, jenis kontennya '
-    + '(Reel / Feed / Story), atau jenis cetaknya (A4 / X Banner / Voucher).</div>'
+    + '(Reel / Feed / Story), atau jenis cetaknya (A4 / X Banner / Voucher). Request Marketing tidak '
+    + 'punya kategori itu, jadi ia tidak ikut di tabel ini — jumlahnya ada di kartu Request dari Modul Marketing.</div>'
     + '<div id="pk-katdesain">' + pkIsiKatDesain() + '</div></div>';
   return h;
 }
@@ -909,6 +1001,7 @@ window.pkPasang       = pkPasang;
 window.pkPanelKonten  = pkPanelKonten;
 window.pkPanelDesain  = pkPanelDesain;
 window.pkHitungPost   = pkHitungPost;
+window.pkMktUlang     = pkMktUlang;
 window.pkSet          = pkSet;
 window.pkCari         = pkCari;
 window.pkUrut         = pkUrut;

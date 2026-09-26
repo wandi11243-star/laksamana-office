@@ -235,6 +235,36 @@ console.log('\n== Agregasi: sum-lalu-bagi, bukan rata-rata persen ==');
   });
 }
 
+/* ============ 2c. REQUEST MARKETING DI PERFORMA DESAIN (26 Sep 2026) ============
+   Dibaca dari designReqs TANPA aktif=1, dihitung terpisah; video tidak ikut
+   total desain. fetch tiruan dipasang di window mesin. */
+console.log('\n== Request desain dari modul Marketing ==');
+await (async () => {
+  const W = {}; let url = '';
+  W.fetch = (u) => { url = String(u); return Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok:true, data:{ reqs:[
+    { id:'m1', jenis:'design', status:'done', pemohon:'Aurel', doneAt:'2026-09-10T03:00:00+00:00' },
+    { id:'m2', jenis:'edit',   status:'done', pemohon:'Aurel', doneAt:'2026-09-11T03:00:00+00:00' },
+    { id:'m3', jenis:'design', status:'done', pemohon:'Devani', doneAt:'2026-08-31T18:00:00+00:00' },   // WIB = 1 Sep
+    { id:'m4', jenis:'design', status:'done', pemohon:'Devani', doneAt:'2026-08-20T03:00:00+00:00' },
+    { id:'m5', jenis:'design', status:'todo', pemohon:'Aurel' } ] } })) }); };
+  let digambar = 0;
+  new Function('window', 'document', SRC_ASET)(W, { getElementById: () => null });
+  const st = { bulan:'2026-09', gambar:() => { digambar++; } };
+  W.pkPasang(st, { content:[], prodTasks:[] });
+  W.pkPanelDesain();
+  await new Promise(r => setTimeout(r, 30));
+  cek('memanggil designReqs TANPA aktif=1', /action=designReqs/.test(url) && !/aktif=1/.test(url), url);
+  cek('halaman digambar ulang sesudah datanya datang', digambar === 1, 'gambar=' + digambar);
+  const h = W.pkPanelDesain();
+  const kartu = h.slice(h.indexOf('Request dari Modul Marketing'));
+  const V = (lab, n) => lab + '</div><div class="val">' + n + '<';
+  cek('desain Marketing September = 2 (m1 + m3 yang WIB-nya 1 Sep)', kartu.indexOf(V('Desain dari Marketing', 2)) >= 0, kartu.slice(0, 400));
+  cek('video dihitung terpisah = 1', kartu.indexOf(V('Video dari Marketing', 1)) >= 0);
+  cek('total Desain Selesai memuat request Marketing (0 + 2)', h.indexOf(V('Desain Selesai', 2)) >= 0);
+  cek('yang belum selesai disebut di antrian', kartu.indexOf(V('Masih di Antrian', 1)) >= 0);
+  cek('per pemohon', kartu.indexOf('Aurel') >= 0 && kartu.indexOf('Devani') >= 0);
+})();
+
 /* ============ 2b. JUMLAH POST (26 Sep 2026) ============
    Dihitung dari konten Posted TANPA menuntut performanya diisi. */
 console.log('\n== Jumlah post per platform x content type ==');
@@ -622,8 +652,10 @@ console.log('\n== Modul Konten: halaman & jalur simpan ==');
     /* BUKAN sebab-akibat, dan itu harus dikatakan: desain dipakai justru untuk
        konten yang sejak awal dianggap penting. */
     cek('dikatakan ini bukan sebab-akibat', h.indexOf('bukan sebab-akibat') >= 0);
-    cek('request Marketing disebut tidak termasuk',
-        h.indexOf('Request desain dari modul Marketing tidak termasuk') >= 0);
+    /* Sejak 26 Sep 2026 request Marketing IKUT, dihitung terpisah. */
+    cek('kartu Request dari Modul Marketing digambar', h.indexOf('Request dari Modul Marketing') >= 0);
+    cek('kalimat lama "tidak termasuk" sudah dicabut',
+        h.indexOf('Request desain dari modul Marketing tidak termasuk') < 0);
   });
 
   aman('kategori desain bisa diganti tanpa menggambar ulang halaman', () => {
