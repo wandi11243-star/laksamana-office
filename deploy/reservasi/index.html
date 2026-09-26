@@ -8169,6 +8169,33 @@ async function changeStatus(id, status){
   // Batal lewat tombol status → pakai popup aplikasi yang sama (konfirmasi + alasan),
   // bukan prompt() browser. Alur pembatalan jadi satu pintu, alasannya selalu tercatat.
   if(ns==="Cancelled"){ openCancelModal(id); return; }
+  /* PENGAMAN STATUS MEJA (26 September 2026, permintaan user: "kasih saya
+     keamanan agar status meja tidak berubah"). Mengubah status tamu yang
+     SEDANG DUDUK, atau yang sudah punya catatan kedatangan, mengubah meja di
+     denah dan (ke Pending/Confirmed) MENGHAPUS catatan kedatangannya — jadi
+     ditanya dulu, dengan kalimat yang menyebut apa yang akan hilang. Salah
+     pilih di dropdown status tidak boleh diam-diam mengosongkan meja. */
+  {
+    const nArv=(Array.isArray(r.arrivals)?r.arrivals:[]).reduce((a,x)=>a+(Number(x.pax)||0),0);
+    const duduk=r.status==="Datang" && !r.leftAt;
+    const hapusJejak=(ns==="Pending"||ns==="Confirmed") && (r.checkinAt || nArv>0 || r.leftAt);
+    if(duduk || hapusJejak){
+      const jam=r.checkinAt?new Date(r.checkinAt).toLocaleTimeString("id-ID",{hour:"2-digit",minute:"2-digit"}):"";
+      const pesan=`⚠️ UBAH STATUS ${r.name} → ${ns}?
+
+`
+        +(duduk?`Tamu ini SEDANG DUDUK di meja ${r.table||"-"}${jam?" sejak "+jam:""}. Sesudah diubah, mejanya tampil KOSONG di denah.
+
+`:"")
+        +(hapusJejak?`Catatan kedatangan (${nArv} pax${jam?", duduk "+jam:""}${r.leftAt?", sudah pulang":""}) akan DIHAPUS dari reservasi ini.
+
+`:"")
+        +`Kalau tamunya sudah pulang, pakai tombol "🍽️ Selesai" — bukan ubah status.
+
+Lanjutkan?`;
+      if(!confirm(pesan)){ if(typeof navigate==="function" && typeof CURRENT_PAGE!=="undefined" && CURRENT_PAGE) navigate(CURRENT_PAGE); return; }
+    }
+  }
   // Berubah → Datang: catat waktu mulai duduk (checkinAt) bila belum ada, + realisasi pax default.
   // Lewat tombol status, rombongan dianggap datang PENUH sekaligus. Kalau datangnya
   // bertahap, pakai tombol "✅ Datang" / "➕ Tamu Datang Lagi" yang mencatat per gelombang.

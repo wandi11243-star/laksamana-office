@@ -85,6 +85,22 @@ async function uji(berkas) {
   cek('Confirmed: checkinAt, arrivals, leftAt dicabut',
       !r.checkinAt && !r.leftAt && r.arrivals.length === 0 && r.actualPax == null && !r.autoClosed);
 
+  // 2b. PENGAMAN: tamu SEDANG DUDUK, status diubah tapi dijawab TIDAK -> tidak berubah apa pun
+  r = barisKejadian(now); r.leftAt = 0; delete r.autoClosed; stub.STATE.reservations = [r];
+  const sebelum = JSON.stringify(r);
+  jawabConfirm = false;
+  await M.changeStatus('r1', 'Confirmed');
+  cek('pengaman: dijawab TIDAK, status & catatan kedatangan UTUH', JSON.stringify(r) === sebelum, r.status);
+  await M.changeStatus('r1', 'No-show');
+  cek('pengaman: tamu duduk ke No-show juga ditanya', r.status === 'Datang');
+  jawabConfirm = true;
+  // 2c. tanpa jejak duduk (Pending -> Confirmed) tidak ditanya
+  r = { id:'r1', name:'x', pax:2, status:'Pending', arrivals:[] }; stub.STATE.reservations = [r];
+  jawabConfirm = false;
+  await M.changeStatus('r1', 'Confirmed');
+  cek('Pending -> Confirmed tanpa jejak duduk: tidak ditanya', r.status === 'Confirmed');
+  jawabConfirm = true;
+
   // 3. Ubah status ke Datang lewat tombol status, dari baris yang tercatat pulang
   r = barisKejadian(now); r.status = 'Confirmed'; stub.STATE.reservations = [r];
   await M.changeStatus('r1', 'Datang');
