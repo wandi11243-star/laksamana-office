@@ -523,13 +523,19 @@ td .muted{color:var(--muted);font-size:13px}
    tahu mana yang ikut tersimpan. */
 .seat.booked.seat-paksa{outline:3px solid #C9432B;outline-offset:-3px;opacity:1}
 .seat.booked.seat-paksa .seat-sub{color:#C9432B;font-weight:800}
-/* TERKUNCI: abu-abu, tidak bisa ditekan, dan kelihatan tidak bisa ditekan.
-   Tombol mati yang warnanya tetap mengundang akan tetap ditekan orang, lalu
-   mereka menyimpulkan layarnya rusak. */
-.seat.avail.booking-mepet{border:2px solid #8A8577;background:#E2E0DC;cursor:pointer;opacity:.85}
-.seat.avail.booking-mepet:hover{transform:none;box-shadow:none}
-.seat.avail.booking-mepet .sn,.seat.avail.booking-mepet .sp{color:#5C574B}
-.seat.avail.booking-mepet .seat-sub{color:#413D34;font-weight:800}
+/* TERKUNCI H-1 JAM: HIJAU, warna yang SAMA dengan status Confirmed
+   (26 September 2026, permintaan user). Dulu abu-abu dan tidak bisa ditekan;
+   sejak hari itu ia bisa ditekan untuk mengubah status pemesannya, dan pada
+   jarak satu jam mejanya memang sudah "milik" tamu itu — jadi ia digambar
+   seperti meja yang sudah dikonfirmasi. Garis SOLID + gembok 🔒 yang
+   membedakannya dari meja teal 🔓 yang masih boleh dipakai walk-in. */
+.seat.avail.booking-mepet{border:2px solid #177A49;background:#1F9D5F;cursor:pointer}
+.seat.avail.booking-mepet:hover{outline:2px solid var(--gold);outline-offset:1px;background:#1F9D5F}
+.seat.avail.booking-mepet .sn,.seat.avail.booking-mepet .sp,.seat.avail.booking-mepet .seat-sub{color:#fff}
+.seat.avail.booking-mepet .seat-sub{font-weight:800}
+/* Tamu TELAT (jam booking sudah lewat, belum datang): menitnya ditulis di
+   mejanya sendiri — kru melihat dari jauh siapa yang perlu di-follow up. */
+.seat .seat-telat{display:block;font-size:10px;font-weight:800;color:#fff;background:#C9432B;border-radius:4px;padding:0 4px;margin-top:1px;line-height:1.4}
 /* Meja terkunci di denah FORM & PINDAH. Yang terisi sudah berwarna status
    pemesannya; yang ini soal MEJANYA, jadi penanda kuncinya ditebalkan
    supaya "boleh dipaksa" dan "tidak bisa" tidak terbaca sama. */
@@ -2152,6 +2158,13 @@ function harihOccupancy(){
        terjadi sekarang. Meja di sana diklik untuk membuka reservasinya. */
     const locked=[], soon=[];
     list.forEach(r=>{
+      /* Reservasi BESOK yang belum datang tidak digambar di denah hari ini
+         (26 September 2026, permintaan user). occupiedMap() menyertakan
+         H+1 karena booking dini hari mengunci mejanya sejak malam sebelumnya
+         — itu tetap berlaku di conflictCheck(), jadi mejanya tetap terjaga;
+         yang dicabut cuma tampilannya, karena "02:10 (27 Sep)" di denah hari
+         ini terbaca sebagai tamu malam ini. */
+      if(r.date > HARIH_DATE && !isSeated(r)) return;
       if(isSeated(r) || !isToday) locked.push(r);
       else soon.push(r);
     });
@@ -2307,7 +2320,13 @@ function seatMapMarkup(layoutKey, mode, occ, later){
            sebelum ini satu-satunya jalan menandainya lewat daftar reservasi.
            Yang dibuka seatAction() — pintu yang SAMA dengan meja yang tamunya
            sudah duduk — jadi tidak ada jalur kedua menuju walk-in di meja ini. */
-        return `<button type="button" class="seat avail booking-soon${mepet?" booking-mepet":""}" onclick="${mepet?`seatAction('${esq(nx.res.id)}')`:`seatEmptyClick('${esq(t.id)}')`}" style="${st}" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${t.cap} pax</span><span class="seat-sub">${mepet?"🔒":"🔓"} ${esc(seatTimeLabel(nx.res))}</span>${nx.more?`<span class="seat-multi" title="${esc(nx.more+" reservasi lain di meja ini")}">+${nx.more}</span>`:""}</button>`;
+        /* NAMA PEMESAN ditulis di mejanya (26 Sep 2026, permintaan user) —
+           dulu kapasitas meja, yang tidak menjawab "ini meja siapa". Tamu
+           yang jamnya SUDAH LEWAT dan belum datang diberi pita menit
+           telatnya, supaya yang perlu di-follow up terlihat dari jauh. */
+        const nmB=(nx.res.name||"").split(" ")[0]||`${t.cap} pax`;
+        const telatTag = m<0 ? `<span class="seat-telat" title="${esc(nx.res.name+" belum datang, sudah lewat "+fmtDur(-m))}">⏰ telat ${esc(fmtDur(-m))}</span>` : "";
+        return `<button type="button" class="seat avail booking-soon${mepet?" booking-mepet":""}" onclick="${mepet?`seatAction('${esq(nx.res.id)}')`:`seatEmptyClick('${esq(t.id)}')`}" style="${st}" title="${esc(tip)}"><span class="sn">${esc(t.id)}</span><span class="sp">${esc(nmB)}</span><span class="seat-sub">${mepet?"🔒":"🔓"} ${esc(seatTimeLabel(nx.res))}</span>${telatTag}${nx.more?`<span class="seat-multi" title="${esc(nx.more+" reservasi lain di meja ini")}">+${nx.more}</span>`:""}</button>`;
       }
       const tipEmpty=`${t.id}, ${t.cap} pax, kosong. Klik untuk `+(nWait?`pilih tamu dari waiting list (${nWait} menunggu) / walk-in`:`walk-in`);
       return `<button type="button" class="seat avail" style="${st}" onclick="seatEmptyClick('${esq(t.id)}')" title="${esc(tipEmpty)}"><span class="sn">${esc(t.id)}</span><span class="sp">${t.cap} pax</span>${nWait?`<span class="seat-sub">⏳ ${nWait}</span>`:""}</button>`;
@@ -5903,7 +5922,7 @@ function harihMapView(){
       <span><i style="background:#7C5FC0"></i>🤝 Sharing (bisa gabung)</span>
       <span><i style="background:#EFE6CE;border:1px solid rgba(120,90,30,.3)"></i>Kosong (available) → klik utk walk-in</span>
       <span><i style="background:#DDEFF2;border:2px dashed #2F7D8C"></i>🔓 Dipesan nanti — <b>bisa dipakai</b>, tapi ditanya dulu</span>
-      <span><i style="background:#E2E0DC;border:2px solid #8A8577"></i>🔒 Dipesan <b>≤1 jam lagi</b> — <b>TERKUNCI</b> untuk walk-in — klik untuk ubah status pemesannya</span>
+      <span><i style="background:#1F9D5F;border:2px solid #177A49"></i>🔒 Dipesan <b>≤1 jam lagi</b> — <b>TERKUNCI</b> untuk walk-in — klik untuk ubah status pemesannya</span>
     </div>
   </div></div>`;
 }

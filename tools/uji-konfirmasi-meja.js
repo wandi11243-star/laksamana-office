@@ -223,7 +223,7 @@ const toastTerakhir = w => {
     cek('dan yang terkunci dengan gembok TERTUTUP',
         legenda.indexOf('🔒 Dipesan <b>≤1 jam lagi</b>') > -1 && legenda.indexOf('klik untuk ubah status pemesannya') > -1);
     cek('warna terkunci BUKAN merah — merah di denah ini berarti "Sudah Datang"',
-        /\.seat\.avail\.booking-mepet\{[^}]*background:#E2E0DC/.test(SRC)
+        /\.seat\.avail\.booking-mepet\{[^}]*background:#1F9D5F/.test(SRC)
         && !/\.seat\.avail\.booking-mepet\{[^}]*#C9432B/.test(SRC));
     cek('dan kursornya menandakan ia bisa ditekan (buka status pemesan)',
         /\.seat\.avail\.booking-mepet\{[^}]*cursor:pointer/.test(SRC));
@@ -279,6 +279,15 @@ const toastTerakhir = w => {
     cek('panel yang terbuka menyebut pemesannya & tombol Tandai Datang',
         mdl32.indexOf('Joko Santoso') > -1 && mdl32.indexOf('Tandai Datang') > -1);
     cek('dan TIDAK membuka formulir walk-in', mdl32.indexOf('Walk-in') < 0);
+    /* 26 Sep 2026: nama pemesan ditulis di mejanya, bukan kapasitasnya. */
+    cek('meja yang sudah dipesan menulis NAMA pemesannya',
+        !!b32 && b32.querySelector('.sp') && b32.querySelector('.sp').textContent === 'Joko',
+        b32 && b32.querySelector('.sp') && b32.querySelector('.sp').textContent);
+    cek('pita telat hanya untuk yang jamnya sudah lewat (Joko belum telat)',
+        !!b32 && !b32.querySelector('.seat-telat'));
+    cek('reservasi BESOK yang belum datang disaring dari denah hari ini',
+        /if\(r\.date > HARIH_DATE && !isSeated\(r\)\) return;/.test(SRC));
+    cek('pita telat menyebut menitnya', /telatTag = m<0 \? `<span class="seat-telat"/.test(SRC));
     w.eval('closeModal()');
     cek('yang jaraknya masih jauh tetap bisa ditekan', !!b21 && b21.disabled === false);
     /* GEMBOKNYA yang membawa arti, bukan warnanya — yang buta warna pun
