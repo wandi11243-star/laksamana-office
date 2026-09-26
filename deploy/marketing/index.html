@@ -13147,7 +13147,20 @@ function invGantiTab(t){
 }
 function renderInvoices(V){
   let h=pageHead('Modul G','Invoice & Payment','Status pembayaran tiap event, real-time untuk Finance & Marketing.','');
-  const evs=S.events.filter(e=>['Confirmed','Deal','Event Done','Quotation Terkirim'].includes(e.status)).sort((a,b)=>b.tanggal.localeCompare(a.tanggal));
+  /* HANYA DEAL & EVENT DONE (26 September 2026, permintaan user: "yang
+     ditampilkan hanya status Deal, Event Done; yang tak jadi dan draft tidak
+     perlu"). 'Confirmed' ikut karena itu nama LAMA untuk Deal — data sebelum
+     pipeline diganti masih memakainya, dan membuangnya menghilangkan tagihan
+     yang sungguhan. Quotation Terkirim (penawaran yang belum disetujui) dan
+     Lost tidak lagi tampil.
+
+     Yang invoice-nya masih DRAFT (belum ada nominal / belum dikirim) juga
+     disembunyikan — tapi JUMLAHNYA DISEBUT di bawah kartu, karena di antara
+     mereka bisa ada deal yang justru belum sempat ditagih; daftar yang
+     menyusut tanpa keterangan dilaporkan sebagai data hilang. */
+  const evsTutup=S.events.filter(e=>['Confirmed','Deal','Event Done'].includes(e.status));
+  const evsDraft=evsTutup.filter(e=>invStatus(e)==='Draft');
+  const evs=evsTutup.filter(e=>invStatus(e)!=='Draft').sort((a,b)=>String(b.tanggal||'').localeCompare(String(a.tanggal||'')));
 
   /* PIUTANG dan POTENSI dipisah — dulu keduanya menyatu jadi satu angka.
 
@@ -13161,19 +13174,23 @@ function renderInvoices(V){
 
      Sekarang: Piutang = yang benar-benar sudah closing dan belum lunas.
      Potensi = penawaran terkirim yang belum diputuskan client. */
-  const evsTagih=evs.filter(e=>e.status!=='Quotation Terkirim');
-  const evsPotensi=evs.filter(e=>e.status==='Quotation Terkirim');
+  const evsTagih=evs;
   const totalOut=evsTagih.reduce((a,e)=>a+eventFinance(e).remaining,0);
-  const totalPotensi=evsPotensi.reduce((a,e)=>a+eventFinance(e).grand,0);
   const overdue=evsTagih.filter(e=>invStatus(e)==='Overdue');
   h+='<div class="grid g-4" style="margin-bottom:16px">'
-   +stat('Total Piutang',rpShort(totalOut),evsTagih.length+' invoice sudah closing','money')
-   +stat('Potensi',rpShort(totalPotensi),evsPotensi.length+' penawaran terkirim','brief')
+   +stat('Total Piutang',rpShort(totalOut),evsTagih.length+' invoice Deal & Event Done','money')
    +stat('Invoice Overdue',overdue.length,'lewat H-7','alert')
    +stat('Lunas',evsTagih.filter(e=>invStatus(e)==='Paid').length,'dari '+evsTagih.length+' invoice','check')
+   +stat('Draft (tidak ditampilkan)',evsDraft.length,'Deal/Event Done yang invoice-nya belum terbit','brief')
    +'</div>';
+  if(evsDraft.length){
+    h+='<div class="tbl-note">'+svg(IC.alert)+'<span><b>'+evsDraft.length+' event Deal / Event Done tidak ditampilkan</b> karena invoice-nya masih Draft '
+      +'(rincian harganya belum diisi atau invoice-nya belum dikirim): '
+      +evsDraft.slice(0,8).map(e=>esc(e.nama||clientName(e.clientId)||'—')).join(', ')+(evsDraft.length>8?' …':'')
+      +'. Lengkapi dari tab Finance event-nya — begitu terbit, barisnya muncul di sini.</span></div>';
+  }
   if(!evs.length){
-    h+=empty('Belum ada invoice','Invoice muncul otomatis begitu event mencapai tahap Quotation Terkirim atau lebih.','money');
+    h+=empty('Belum ada invoice','Invoice muncul di sini begitu event berstatus Deal atau Event Done dan invoice-nya terbit.','money');
     V.innerHTML=h; return;
   }
   /* PENGELOMPOKAN JADI TAB (21 Agustus 2026, permintaan tim). Satu daftar
@@ -15239,6 +15256,37 @@ function rsvDaftarMeja(d){
 
 let VIP_FORM=null;         // draft yang sedang diisi (belum tersimpan)
 let vipFilter='';
+/* Saringan daftar Reservasi VIP (26 September 2026, permintaan user: "bisa
+   difilter hari ini, minggu ini, bulan ini, per tanggal; filter pertama yang
+   Regular & Assisted, yang batal tidak perlu tapi masih bisa dilihat").
+   Periode dibaca dari TANGGAL ACARA (v.tanggal), bukan tanggal input.
+   Bawaan jenis 'aktif' = Regular + Assisted TANPA yang dibatalkan. */
+let VIP_SARING={per:'semua', tgl:'', jenis:'aktif'};
+function vipRentangPeriode(per, tgl){
+  const t=today();
+  if(per==='hari') return [t,t];
+  if(per==='tanggal') return tgl?[tgl,tgl]:null;
+  if(per==='bulan') return [t.slice(0,8)+'01', t.slice(0,8)+'31'];
+  if(per==='minggu'){
+    const d=new Date(t+'T00:00:00'), dow=(d.getDay()+6)%7;           // Senin = 0
+    const a=new Date(d); a.setDate(d.getDate()-dow);
+    const b=new Date(a); b.setDate(a.getDate()+6);
+    const f=x=>x.getFullYear()+'-'+String(x.getMonth()+1).padStart(2,'0')+'-'+String(x.getDate()).padStart(2,'0');
+    return [f(a),f(b)];
+  }
+  return null;                                                        // semua
+}
+function vipCocokJenis(v, jenis){
+  if(jenis==='batal') return !!v.batalAt;
+  if(jenis==='semua') return true;
+  if(v.batalAt) return false;                                         // aktif / Assisted / Regular: tanpa yang batal
+  return jenis==='aktif' || v.jenis===jenis;
+}
+function vipSaring(k, val){
+  VIP_SARING[k]=val;
+  if(k==='tgl') VIP_SARING.per=val?'tanggal':'semua';
+  renderVIP($('view'));
+}
 /* DENAH MANA YANG SEDANG DILIHAT di pemilih meja.
    Sebelumnya Reservasi VIP hanya mengenal denah lantai 1 (Weekday/Weekend
    mengikuti tanggal), padahal modul Reservasi punya lebih dari itu: Weekday,
@@ -16198,11 +16246,19 @@ function renderVIP(V){
      berguna tanpa jawaban itu, jadi ia tidak boleh menunggunya. */
   muatReservasi();
   const mine=ME.role==='marketing';
-  const semua=(S.vip||[]).filter(v=>!mine||v.mktPIC===ME.id)
+  const milik=(S.vip||[]).filter(v=>!mine||v.mktPIC===ME.id)
     .slice().sort((a,b)=>String(b.tanggal||'').localeCompare(String(a.tanggal||'')));
+  /* PERIODE menyaring seluruh halaman — kartu di atas ikut, supaya angkanya
+     menggambarkan daftar yang sama dengan yang terlihat. */
+  const SR=VIP_SARING, rentang=vipRentangPeriode(SR.per, SR.tgl);
+  const semua=!rentang?milik:milik.filter(v=>{ const t=String(v.tanggal||''); return t>=rentang[0] && t<=rentang[1]; });
   const q=(vipFilter||'').trim().toLowerCase();
-  const list=!q?semua:semua.filter(v=>[v.nama,vipPerusahaan(v),v.hp,v.tanggal,v.jenis,(v.meja||[]).join(' ')]
-    .filter(Boolean).join(' ').toLowerCase().includes(q));
+  const cocokCari=v=>!q||[v.nama,vipPerusahaan(v),v.hp,v.tanggal,v.jenis,(v.meja||[]).join(' ')]
+    .filter(Boolean).join(' ').toLowerCase().includes(q);
+  /* Angka tiap tab dihitung TANPA tapis jenis itu sendiri — kalau ikut, tab
+     yang tidak sedang dipilih selalu menulis (0). */
+  const dasarTab=semua.filter(cocokCari);
+  const list=dasarTab.filter(v=>vipCocokJenis(v, SR.jenis));
 
   /* Yang batal keluar dari SEMUA angka di atas — terutama omzet Assisted.
      Reservasi yang dibatalkan tidak menghasilkan uang, dan membiarkannya
@@ -16227,14 +16283,31 @@ function renderVIP(V){
   h+='<div class="toolbar"><input class="inp" id="vip-cari" placeholder="Cari nama, perusahaan, no. HP, tanggal, meja…" '
    +'value="'+esc(vipFilter||'')+'" oninput="vipFilter=this.value;renderVIP($(\'view\'));'
    +'const b=$(\'vip-cari\'); if(b){b.focus();b.setSelectionRange(b.value.length,b.value.length);}">'
-   +'<span class="cell-sub">'+list.length+' dari '+semua.length+'</span></div>';
+   +'<span class="cell-sub">'+list.length+' dari '+milik.length+'</span></div>';
+  const tombol=(k,val,label,n)=>'<button type="button" class="'+(SR[k]===val?'on':'')+'" onclick="vipSaring(\''+k+'\',\''+val+'\')">'
+    +label+(n==null?'':' <span class="cell-sub" style="margin:0">('+n+')</span>')+'</button>';
+  const nJ=j=>dasarTab.filter(v=>vipCocokJenis(v,j)).length;
+  h+='<div class="toolbar" style="flex-wrap:wrap;gap:10px;align-items:center">'
+   +'<div class="seg">'+tombol('per','semua','Semua')+tombol('per','hari','Hari ini')+tombol('per','minggu','Minggu ini')
+     +tombol('per','bulan','Bulan ini')+'</div>'
+   +'<label class="cell-sub" style="display:inline-flex;align-items:center;gap:6px;margin:0">Tanggal '
+     +'<input type="date" class="inp" style="width:auto" value="'+esc(SR.per==='tanggal'?SR.tgl:'')+'" onchange="vipSaring(\'tgl\',this.value)"></label>'
+   +'<div class="seg">'+tombol('jenis','aktif','Regular &amp; Assisted',nJ('aktif'))+tombol('jenis','Assisted','Assisted',nJ('Assisted'))
+     +tombol('jenis','Regular','Regular',nJ('Regular'))+tombol('jenis','batal','Dibatalkan',nJ('batal'))+tombol('jenis','semua','Semua',nJ('semua'))+'</div>'
+   +'</div>';
+  /* Saringannya DISEBUT dengan kata — daftar yang menyusut tanpa keterangan
+     dilaporkan sebagai data hilang. */
+  const namaPer={semua:'semua tanggal',hari:'hari ini',minggu:'minggu ini',bulan:'bulan ini',tanggal:'tanggal '+(SR.tgl?fmtDate(SR.tgl):'—')}[SR.per];
+  const namaJenis={aktif:'Regular & Assisted (tanpa yang dibatalkan)',Assisted:'Assisted',Regular:'Regular',batal:'yang dibatalkan',semua:'semua status'}[SR.jenis];
+  h+='<p class="cell-sub" style="margin:0 0 10px">Menampilkan <b>'+esc(namaJenis)+'</b>, acara <b>'+esc(namaPer)+'</b>'
+   +(rentang&&rentang[0]!==rentang[1]?' ('+esc(fmtDate(rentang[0]))+' – '+esc(fmtDate(rentang[1]))+')':'')+'.</p>';
 
   if(!list.length){
-    h+=empty(q?'Tidak ada yang cocok':'Belum ada reservasi VIP',
-      q?'Coba kata kunci lain.':'Klik "Reservasi VIP Baru" untuk mencatat booking ruang VIP.','star');
+    h+=empty(q||SR.per!=='semua'||SR.jenis!=='aktif'?'Tidak ada yang cocok':'Belum ada reservasi VIP',
+      q||SR.per!=='semua'||SR.jenis!=='aktif'?'Coba kata kunci, periode, atau status lain.':'Klik "Reservasi VIP Baru" untuk mencatat booking ruang VIP.','star');
     V.innerHTML=h; return;
   }
-  const p=tblPage(tblUrut(list,'vip',KOL_VIP),'vip',q);
+  const p=tblPage(tblUrut(list,'vip',KOL_VIP),'vip',q+'|'+SR.per+'|'+SR.tgl+'|'+SR.jenis);
   h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('vip',KOL_VIP)+'<tbody>';
   p.items.forEach(v=>{
     h+='<tr>'
@@ -16528,7 +16601,12 @@ function vipRingkasKwi(v){
        mengarang angka "terverifikasi" dari sisi Marketing berarti Finance
        menerbitkan kwitansi atas pemeriksaan yang tidak pernah terjadi.
        Nol membuat pita peringatan di Finance menyala, dan itu memang benar. */
-    dpVerified:0, dpCount:arr.length, dpVerifiedCount:0,
+    /* Sejak 26 Sep 2026 DIBACA dari baris reservasinya (VIP_VERIF), dan
+       permintaan memang ditahan sampai semuanya terverifikasi. Kalau belum
+       terbaca tetap NOL: angka karangan lebih buruk daripada nol. */
+    dpVerified:(VIP_VERIF[v.resId]&&typeof VIP_VERIF[v.resId]==='object')?VIP_VERIF[v.resId].dpVerified:0,
+    dpCount:arr.length,
+    dpVerifiedCount:(VIP_VERIF[v.resId]&&typeof VIP_VERIF[v.resId]==='object')?VIP_VERIF[v.resId].dpVerifiedCount:0,
     diinputOleh:(v.createdBy||userName(v.mktPIC)||'Marketing')+' (Marketing)',
     dp:arr.map(function(b){
       return {nominal:+b.nominal||0, metode:b.metode||'', bank:'', pengirim:'',
@@ -16539,6 +16617,69 @@ function vipRingkasKwi(v){
 }
 function vipSlotKwi(v){
   return '<span class="vipKwiSlot" data-vip="'+esc(v.id)+'">'+vipSlotKwiIsi(v)+'</span>';
+}
+/* ---------- KWITANSI DITAHAN SELAMA DANANYA BELUM DIVERIFIKASI ----------
+   (26 September 2026, permintaan user: "Reservasi VIP bisa request Kwitansi,
+   konsepnya sama seperti di modul Reservasi".)
+
+   Aturan modul Reservasi (kwiTertahan, 16 Sep 2026): SEMUA transfer DP wajib
+   berstatus terverifikasi sebelum kwitansi boleh diminta — lembarnya menyebut
+   TOTAL DP, jadi satu transfer yang belum dicek berarti kertas di tangan tamu
+   mengakui uang yang belum tentu masuk. Verifikasinya dikerjakan di halaman
+   Dana Masuk modul Reservasi, dan DP VIP memang disalin ke baris reservasinya
+   (vipDpsUntukReservasi) — jadi statusnya DIBACA dari sana, tidak dikarang
+   di sini. Sebelum tanggal ini modul ini tidak membacanya sama sekali dan
+   permintaan berangkat dengan dpVerified NOL.
+
+   VIP_VERIF[resId]: undefined = belum dibaca, 'muat' = sedang dibaca,
+   'gagal' = modul Reservasi tidak menjawab, null = barisnya tidak ada di sana,
+   objek {n, nominal, ditolak, dpVerified, dpVerifiedCount} = hasil bacaan.
+   Keempat keadaan itu menuntut kalimat yang berbeda; disamakan, tombolnya
+   menyala untuk uang yang belum pernah diperiksa siapa pun. */
+let VIP_VERIF = {};
+function vipVerifDariBaris(r){
+  const dps=Array.isArray(r&&r.dps)?r.dps:[];
+  const belum=dps.filter(x=>x && x.tfStatus!=='verified');
+  const ok=dps.filter(x=>x && x.tfStatus==='verified');
+  return { n:belum.length, nominal:belum.reduce((a,x)=>a+(+x.amount||0),0),
+           ditolak:belum.filter(x=>x.tfStatus==='rejected').length,
+           dpVerified:ok.reduce((a,x)=>a+(+x.amount||0),0), dpVerifiedCount:ok.length, dpCount:dps.length };
+}
+async function muatVerifVip(id, paksa){
+  const v=(S.vip||[]).find(x=>x.id===id); if(!v||!v.resId) return;
+  if(VIP_VERIF[v.resId]==='muat') return;
+  VIP_VERIF[v.resId]='muat'; segarkanSlotInv();
+  let d=null;
+  try{
+    /* Tarikan & cache 60 detik yang SAMA dengan denah Detail — satu getAll per
+       buka panel, bukan dua. "Periksa lagi" (paksa) melewatinya: itulah yang
+       ditekan orang sesudah memverifikasi di modul Reservasi. */
+    d=await rsvAmbilDetail(paksa);
+  }catch(e){ VIP_VERIF[v.resId]='gagal'; segarkanSlotInv(); return; }
+  const r=(d.reservations||[]).find(x=>x.id===v.resId);
+  VIP_VERIF[v.resId]=r?vipVerifDariBaris(r):null;
+  segarkanSlotInv();
+}
+/* Penahan yang dipakai slot DAN vipMintaKwitansi() — gerbangnya di fungsi,
+   bukan cuma dengan tidak menggambar tombolnya. Memulangkan string alasan
+   (ditahan) atau '' (boleh). */
+function vipKwiTertahan(v){
+  const s=VIP_VERIF[v.resId];
+  if(s===undefined||s==='muat') return 'Status verifikasi dana masuk sedang diperiksa di modul Reservasi…';
+  if(s==='gagal') return 'Modul Reservasi tidak menjawab — status verifikasi dana masuk belum terbaca.';
+  if(s===null) return 'Baris reservasinya tidak ditemukan di modul Reservasi.';
+  if(s.n>0) return s.n+' transfer belum terverifikasi'+(s.ditolak?' ('+s.ditolak+' ditolak)':'')+' — '+rp(s.nominal)
+    +'. Verifikasi dulu di halaman Dana Masuk (DP) modul Reservasi.';
+  return '';
+}
+function vipKwiTertahanHTML(v){
+  const t=vipKwiTertahan(v); if(!t) return '';
+  const s=VIP_VERIF[v.resId];
+  const memuat=(s===undefined||s==='muat');
+  return '<span class="chip" style="background:color-mix(in srgb,var(--warn) 15%,transparent);color:var(--warn)">'
+    +(memuat?'&#9203; Memeriksa verifikasi dana…':'&#128274; Dana masuk belum diverifikasi')+'</span>'
+    +'<div class="cell-sub" style="margin-top:3px">'+esc(t)+'</div>'
+    +(memuat?'':'<div style="margin-top:6px"><button class="btn sm" onclick="muatVerifVip(\''+escJs(v.id)+'\',true)">Periksa lagi</button></div>');
 }
 function vipSlotKwiIsi(v){
   if(!v.resId){
@@ -16575,9 +16716,12 @@ function vipSlotKwiIsi(v){
     return '<span class="chip" style="background:color-mix(in srgb,var(--danger) 15%,transparent);color:var(--danger)">'
       +'&#10007; Ditolak</span>'
       +'<div class="cell-sub" style="margin-top:3px">'+esc(inv.catatan||'')+'</div>'
-      +(bolehMintaInvoice()?'<div style="margin-top:6px"><button class="btn sm" onclick="vipMintaKwitansi(\''+escJs(v.id)+'\')">Request ulang</button></div>':'');
+      +(bolehMintaInvoice()?(vipKwiTertahan(v)?'<div style="margin-top:6px">'+vipKwiTertahanHTML(v)+'</div>'
+          :'<div style="margin-top:6px"><button class="btn sm" onclick="vipMintaKwitansi(\''+escJs(v.id)+'\')">Request ulang</button></div>'):'');
   }
   if(!bolehMintaInvoice()) return '<span class="cell-sub">Kwitansi belum diminta.</span>';
+  /* Ditahan sampai SEMUA transfer terverifikasi — konsep modul Reservasi. */
+  if(vipKwiTertahan(v)) return vipKwiTertahanHTML(v);
   return '<button class="btn sm" onclick="vipMintaKwitansi(\''+escJs(v.id)+'\')" '
     +'title="Minta Finance menerbitkan kwitansi resmi bertanda tangan untuk DP ini">'
     +svg(IC.invoice)+'Request Kwitansi</button>';
@@ -16600,6 +16744,9 @@ async function vipMintaKwitansi(id){
   if(!v.resId) return toast('Belum terkunci di Reservasi','Kirim reservasinya ke modul Reservasi dulu — kwitansi menempel pada baris reservasinya.','err');
   const dp=vipDpTotal(v);
   if(!dp) return toast('Belum ada DP','Lampirkan bukti transfer & nominalnya dulu.','err');
+  /* GERBANG SUNGGUHAN: fungsi ini global dan bisa dipanggil dari console. */
+  const tahan=vipKwiTertahan(v);
+  if(tahan) return toast('Kwitansi belum bisa diminta',tahan,'err');
   const tanpaBukti=vipBuktiList(v).filter(b=>!b.key).length;
   if(!confirm('Minta Finance menerbitkan kwitansi resmi untuk "'+v.nama+'"?\n\n'
     +'Total DP: '+rp(dp)+'\n'
@@ -18283,8 +18430,14 @@ function vipDetail(id){
    +(can('edit_vip')&&v.jenis==='Assisted'&&!v.batalAt?'<button class="btn" onclick="closeModal();vipIsiNominal(\''+v.id+'\')">'+svg(IC.money)+'Isi Nominal</button>':'')
    +(can('edit_vip')&&!v.batalAt?'<button class="btn danger" onclick="vipBatal(\''+v.id+'\')">Batalkan</button>':'')
    +(can('edit_vip')?'<button class="btn danger" title="Hapus permanen" onclick="vipHapus(\''+v.id+'\')">'+svg(IC.trash)+'</button>':'')
+   /* Request Kwitansi ikut di KAKI modal (26 Sep 2026): slot di badan modal
+      berdiri di bawah bukti transfer dan baru terlihat sesudah digulir — di
+      layar laptop ia tidak pernah kelihatan. Dua slot ditandai class, jadi
+      keduanya tersegarkan bersama. */
+   +(vipDpTotal(v)&&v.resId&&!v.batalAt?'<span style="margin-right:auto;display:inline-flex;align-items:center;gap:8px;flex-wrap:wrap">'+vipSlotKwi(v)+'</span>':'')
    +'<a class="btn pri" href="../reservasi/" target="_blank" rel="noopener">Buka Modul Reservasi</a></div>'
    ,'wide');   // denah butuh ruang: sama seperti pemilih meja & dokumen brief
+  muatVerifVip(v.id);
   vipDetailDenahAsli(v);
   /* Status kwitansi ditanyakan ke Finance saat layar ini dibuka. Slotnya sudah
      ada di DOM karena modal()-nya sudah dipasang di baris-baris di atas. */
@@ -18303,14 +18456,20 @@ function vipDetail(id){
    basi 60 detik tidak berbahaya. Pemilih meja SENGAJA tidak ikut memakai
    cache ini: di sana yang dibaca justru meja mana yang baru saja diambil
    orang lain, dan data basi di sana berarti meja terpesan dua kali. */
-let RSV_DENAH_CACHE={d:null,at:0};
+let RSV_DENAH_CACHE={d:null,at:0}, RSV_DENAH_JALAN=null;
+/* Satu tarikan untuk DUA pemakai panel Detail (denah + verifikasi dana
+   kwitansi): yang datang belakangan menumpang janji yang sedang berjalan,
+   bukan memicu getAll kedua — balasannya megabyte. `paksa` melewati cache. */
+function rsvAmbilDetail(paksa){
+  if(!paksa && RSV_DENAH_CACHE.d && Date.now()-RSV_DENAH_CACHE.at<60000) return Promise.resolve(RSV_DENAH_CACHE.d);
+  if(RSV_DENAH_JALAN) return RSV_DENAH_JALAN;
+  RSV_DENAH_JALAN=rsvAmbil().then(function(d){ RSV_DENAH_CACHE={d:d,at:Date.now()}; return d; })
+    .finally(function(){ RSV_DENAH_JALAN=null; });
+  return RSV_DENAH_JALAN;
+}
 async function vipDetailDenahAsli(v){
   let d;
-  if(RSV_DENAH_CACHE.d && Date.now()-RSV_DENAH_CACHE.at<60000){ d=RSV_DENAH_CACHE.d; }
-  else{
-    try{ d=await rsvAmbil(); }catch(e){ return; }
-    RSV_DENAH_CACHE={d:d,at:Date.now()};
-  }
+  try{ d=await rsvAmbilDetail(); }catch(e){ return; }
   const el=$('vip_det_denah');
   // modal sudah ditutup, atau user keburu membuka Detail reservasi lain
   if(!el || el.getAttribute('data-vip')!==v.id) return;

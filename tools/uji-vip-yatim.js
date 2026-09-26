@@ -397,6 +397,11 @@ console.log('-- pulihkan semuanya --');
 console.log('-- buka kembali --');
 /* Tombolnya hanya untuk yang memang dibatalkan. */
 aman('tombol di daftar', () => {
+  /* Sejak 26 Sep 2026 daftar bawaannya Regular & Assisted TANPA yang
+     dibatalkan — jadi yang dibatalkan dibuka lewat tab "Dibatalkan". */
+  cek('bawaan: baris dibatalkan TIDAK ada di daftar',
+      !/vipBukaLagi\('V_BATAL'\)/.test((w.document.getElementById('view') || { innerHTML: '' }).innerHTML));
+  w.eval("vipSaring('jenis','batal')");
   const v = (w.document.getElementById('view') || { innerHTML: '' }).innerHTML;
   cek('baris yang dibatalkan menawarkan Buka kembali', /vipBukaLagi\('V_BATAL'\)/.test(v), 'tombolnya tidak ada');
   cek('baris yang AKTIF tidak menawarkannya', !/vipBukaLagi\('V_HILANG'\)/.test(v), 'muncul di baris yang aktif');
