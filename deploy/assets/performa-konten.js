@@ -288,6 +288,62 @@ function pkKumpul(konten, tapis) {
   });
   return out;
 }
+/* JUMLAH POST per platform × content type (26 September 2026, permintaan user:
+   "input performa tidak perlu diwajibkan, di-count berdasarkan jumlahnya aja
+   dulu per bulan — berapa Post TikTok, berapa Post Instagram, dibagi per
+   content type, dan keseluruhannya bisa dicek juga").
+
+   Dihitung dari konten berstatus Posted SAJA — TIDAK menuntut angka
+   performanya diisi. Itu bedanya dengan seluruh kartu lain di halaman ini.
+   Satu konten yang tayang di dua platform dihitung di keduanya (memang dua
+   post), dan yang tipenya dua dihitung di keduanya; karena itu kolom/baris
+   TOTAL dihitung terpisah dari konten unik, bukan dijumlahkan dari selnya. */
+var PK_TANPA_TIPE = '(tanpa tipe)', PK_TANPA_PLAT = '(tanpa platform)';
+function pkHitungPost(konten, tapis) {
+  tapis = tapis || {};
+  var sel = {}, plat = {}, tipe = {}, platSet = {}, tipeSet = {}, n = 0;
+  (konten || []).forEach(function (c) {
+    if (!c || c.status !== 'Posted') return;
+    if (tapis.bulan && pkBulanKonten(c) !== tapis.bulan) return;
+    var ps = pkPlat(c); if (!ps.length) ps = [PK_TANPA_PLAT];
+    if (tapis.plat) { ps = ps.filter(function (p) { return p === tapis.plat; }); if (!ps.length) return; }
+    var ts = pkTipeKonten(c); if (!ts.length) ts = [PK_TANPA_TIPE];
+    n++;
+    ts.forEach(function (t) { tipe[t] = (tipe[t] || 0) + 1; tipeSet[t] = 1; });
+    ps.forEach(function (p) {
+      plat[p] = (plat[p] || 0) + 1; platSet[p] = 1;
+      ts.forEach(function (t) { var k = t + '\u0001' + p; sel[k] = (sel[k] || 0) + 1; });
+    });
+  });
+  var urut = function (peta) { return Object.keys(peta).sort(function (a, b) { return (peta[b] - peta[a]) || a.localeCompare(b); }); };
+  return { n:n, sel:sel, plat:plat, tipe:tipe, daftarPlat:urut(plat), daftarTipe:urut(tipe) };
+}
+function pkKartuJumlahPost() {
+  var j = pkHitungPost(PK_DB.content || [], { bulan:PK_ST.bulan, plat:PK_ST.plat });
+  var h = '<div class="card"><h3>Jumlah Post — ' + PK_ESC(pkNamaBulan(PK_ST.bulan)) + '</h3>'
+    + '<div class="card-sub">Dihitung dari konten berstatus <b>Posted</b>, <b>tanpa</b> menunggu angka performanya diisi. '
+    + 'Satu konten yang tayang di dua platform dihitung di keduanya, jadi kolom platform boleh berjumlah lebih besar '
+    + 'daripada total konten.</div>';
+  if (!j.n) return h + '<div class="empty">Belum ada konten berstatus Posted pada periode ini.</div></div>';
+  h += '<div class="grid g4">' + pkKartu('Total Konten Tayang', PK_NUM(j.n), 'konten unik berstatus Posted', true)
+    + j.daftarPlat.slice(0, 3).map(function (p) { return pkKartu('Post ' + p, PK_NUM(j.plat[p]), ''); }).join('')
+    + '</div>';
+  h += '<div class="tbl-wrap"><table><thead><tr><th>Content Type</th>'
+    + j.daftarPlat.map(function (p) { return '<th class="num">' + PK_ESC(p) + '</th>'; }).join('')
+    + '<th class="num">Total konten</th></tr></thead><tbody>';
+  j.daftarTipe.forEach(function (t) {
+    h += '<tr><td><b>' + PK_ESC(t) + '</b></td>'
+      + j.daftarPlat.map(function (p) {
+          var v = j.sel[t + '\u0001' + p] || 0;
+          return '<td class="num">' + (v ? PK_NUM(v) : '<span class="muted">—</span>') + '</td>';
+        }).join('')
+      + '<td class="num"><b>' + PK_NUM(j.tipe[t]) + '</b></td></tr>';
+  });
+  h += '<tr><td><b>Total post</b></td>'
+    + j.daftarPlat.map(function (p) { return '<td class="num"><b>' + PK_NUM(j.plat[p]) + '</b></td>'; }).join('')
+    + '<td class="num"><b>' + PK_NUM(j.n) + '</b></td></tr>';
+  return h + '</tbody></table></div></div>';
+}
 function pkTotal(kumpul) {
   var a = pkKosongAgg();
   kumpul.konten.forEach(function (x) { pkGabungAgg(a, x.agg); });
@@ -462,7 +518,9 @@ function pkPasang(st, db) {
   PK_DB = db || {};
   if (!PK_ST.urut) PK_ST.urut = 'reach';
   if (!PK_ST.kat)  PK_ST.kat  = 'pillar';
-  if (PK_ST.bulan == null) PK_ST.bulan = '';
+  /* Bawaannya BULAN BERJALAN (26 Sep 2026): yang ditanyakan "bulan ini sudah
+     berapa post". "Semua bulan" tetap bisa dipilih di pemilihnya. */
+  if (PK_ST.bulan == null) PK_ST.bulan = new Date(Date.now() + 7 * 3600000).toISOString().slice(0, 7);   // WIB tetap, bukan zona peramban
   if (PK_ST.plat == null)  PK_ST.plat  = '';
   if (PK_ST.cari == null)  PK_ST.cari  = '';
 }
@@ -610,12 +668,15 @@ function pkPanelKonten() {
           + 'onclick="pkSet(\'plat\',\'' + PK_ESC(p.nama) + '\')">' + PK_ESC(p.nama) + '</button>';
       }).join('')
     + '</div></div>'
-    + '<div class="card-sub" style="margin:12px 0 0">Yang dihitung hanya konten berstatus <b>Posted</b> '
-    + 'yang performanya sudah diisi. Semua platform yang didaftarkan tim konten ikut — angkanya dicatat '
+    + '<div class="card-sub" style="margin:12px 0 0"><b>Jumlah Post</b> di bawah menghitung seluruh konten berstatus '
+    + '<b>Posted</b>. Angka performa (reach, engagement, dll.) <b>tidak wajib</b> diisi — kartu-kartu performa '
+    + 'hanya memakai konten yang angkanya sudah diisi. Semua platform yang didaftarkan tim konten ikut — angkanya dicatat '
     + 'per platform, jadi satu konten yang tayang di dua platform punya dua catatan.</div></div>';
 
+  h += pkKartuJumlahPost();
+
   if (!k.konten.length) {
-    h += '<div class="notice warn">⚠ <div><b>Belum ada angka performa pada periode ini.</b> '
+    h += '<div class="notice info">ℹ <div><b>Belum ada angka performa pada periode ini</b> — tidak wajib. '
       + (k.tayang
           ? 'Ada <b>' + k.tayang + '</b> konten berstatus Posted, tapi angkanya belum diisi. '
             + 'Isi lewat halaman <b>Input Performa</b> di modul Konten — reach, impression, likes, '
@@ -649,7 +710,7 @@ function pkPanelKonten() {
 
   /* --- yang belum diisi & catatan lama: DIKATAKAN, bukan didiamkan --- */
   if (k.tanpaData) {
-    h += '<div class="notice warn">⚠ <div><b>' + k.tanpaData + ' konten tayang belum diisi performanya</b> '
+    h += '<div class="notice info">ℹ <div><b>' + k.tanpaData + ' konten tayang belum diisi performanya</b> (tidak wajib) '
       + 'pada periode ini, jadi angkanya tidak ikut di halaman ini. Isi lewat halaman '
       + '<b>Input Performa</b> di modul Konten.</div></div>';
   }
@@ -847,6 +908,7 @@ function pkPanelDesain() {
 window.pkPasang       = pkPasang;
 window.pkPanelKonten  = pkPanelKonten;
 window.pkPanelDesain  = pkPanelDesain;
+window.pkHitungPost   = pkHitungPost;
 window.pkSet          = pkSet;
 window.pkCari         = pkCari;
 window.pkUrut         = pkUrut;

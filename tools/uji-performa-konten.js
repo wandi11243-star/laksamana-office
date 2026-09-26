@@ -235,6 +235,29 @@ console.log('\n== Agregasi: sum-lalu-bagi, bukan rata-rata persen ==');
   });
 }
 
+/* ============ 2b. JUMLAH POST (26 Sep 2026) ============
+   Dihitung dari konten Posted TANPA menuntut performanya diisi. */
+console.log('\n== Jumlah post per platform x content type ==');
+{
+  const W = mesin();
+  const K = [
+    { status:'Posted', publishDate:'2026-09-02', platforms:['Instagram','TikTok'], contentTypes:['Reels'] },
+    { status:'Posted', publishDate:'2026-09-05', platforms:['Instagram'], contentTypes:['Carousel','Reels'] },
+    { status:'Posted', publishDate:'2026-09-09', platforms:['TikTok'] },                       // tanpa tipe, tanpa perf
+    { status:'Draft',  publishDate:'2026-09-09', platforms:['TikTok'], contentTypes:['Reels'] }, // bukan tayang
+    { status:'Posted', publishDate:'2026-08-30', platforms:['TikTok'], contentTypes:['Reels'] }, // bulan lain
+  ];
+  const j = W.pkHitungPost(K, { bulan:'2026-09' });
+  sama('total konten unik bulan ini', j.n, 3);
+  sama('post Instagram', j.plat['IG'], 2);
+  sama('post TikTok (dua platform dihitung di keduanya)', j.plat['TT'], 2);
+  sama('Reels × Instagram', j.sel['Reels\u0001IG'], 2);
+  sama('Reels × TikTok', j.sel['Reels\u0001TT'], 1);
+  sama('konten tanpa tipe tetap dihitung', j.tipe['(tanpa tipe)'], 1);
+  sama('Draft & bulan lain tidak ikut', W.pkHitungPost(K, { bulan:'2026-09', plat:'TT' }).n, 2);
+  sama('semua bulan', W.pkHitungPost(K, {}).n, 4);
+}
+
 /* ============ 3. PER PLATFORM & CONTENT PILLAR ============ */
 console.log('\n== Per platform & Content Pillar Performance ==');
 {
