@@ -441,8 +441,9 @@ console.log('\n[6] Denah & layar (asersi atas sumber)');
     && SRC.indexOf('🔒 Dipesan <b>≤1 jam lagi</b>') >= 0);
   T('yang terkunci dikatakan tidak bisa ditekan',
     SRC.indexOf('tidak bisa ditekan') >= 0);
-  T('klik meja yang sudah dipesan menanyakan konfirmasi dulu',
-    /function seatEmptyClick\([\s\S]{0,400}?if\(!tanyaDudukSementara\(tableId\)\) return;/.test(SRC));
+  T('klik meja yang sudah dipesan membuka PILIHAN (reservasi / walk-in) dulu',
+    /function seatEmptyClick\([\s\S]{0,900}?pilihMejaDipesan\(tableId, nx\)/.test(SRC)
+    && /function lanjutWalkIn\([\s\S]{0,200}?if\(!tanyaDudukSementara\(tableId\)\) return;/.test(SRC));
   T('meja yang memang bebas TIDAK ditanya apa-apa',
     /function tanyaDudukSementara\([\s\S]{0,300}?if\(!nx\) return true;/.test(SRC));
   T('legenda lama yang menyebut terkunci sudah dicabut',

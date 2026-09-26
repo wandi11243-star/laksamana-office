@@ -6612,9 +6612,41 @@ setInterval(updateWaitTimers, 1000);
 function seatEmptyClick(tableId){
   // Meja ini "kosong" menurut denah yang SEDANG DISARING — belum tentu kosong sungguhan.
   if(tolakKarenaFilter()) return;
+  /* MEJA YANG DIPESAN NANTI (masih > H-1 jam): DUA PILIHAN, bukan satu
+     pertanyaan ya/tidak (26 September 2026, permintaan user: "muncul
+     pilihan, masukin tamu walk-in baru atau buka detail reservasi di jam
+     terdekat itu — kalau tamu itu datang lebih cepat kita mau masukin
+     langsung"). Dulu satu-satunya jalan dari meja ini walk-in; tamu pemesan
+     yang datang lebih awal harus dicari dulu di daftar reservasi. */
+  const nx=bookingBerikut(tableId);
+  if(nx && !mepetKah(nx.menit)){ pilihMejaDipesan(tableId, nx); return; }
+  lanjutWalkIn(tableId);
+}
+/* Jalur walk-in yang sesungguhnya — dipanggil langsung untuk meja bebas, dan
+   dari tombol "Walk-in baru" di pilihan di atas. Penjaga H-1 jam TETAP di
+   sini: pilihannya bisa terbuka beberapa menit, dan jamnya bisa keburu
+   masuk jendela kunci sebelum tombolnya ditekan. */
+function lanjutWalkIn(tableId){
   if(!tanyaDudukSementara(tableId)) return;
   if(waitingQueue(HARIH_DATE).length) offerWaitlist(tableId);
   else walkInSeat(tableId);
+}
+function pilihMejaDipesan(tableId, nx){
+  const r=nx.res, m=nx.menit;
+  const sisa = m>0 ? `${fmtDur(m)} lagi` : `jamnya sudah lewat ${fmtDur(-m)}`;
+  const esq=s=>String(s).replace(/\\/g,"\\\\").replace(/'/g,"\\'");
+  openModal(`<div class="modal-head"><h3>Meja ${esc(tableId)} — sudah dipesan</h3><button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div class="inline-warn" style="margin:0 0 14px">🔓 Dipesan <b>${esc(r.name)}</b> — ${esc(fmtDateShort(r.date))} jam <b>${esc(r.time)}</b>, ${r.pax} pax (${esc(sisa)})${nx.lain?` <span class="hint">+${nx.lain} reservasi lain di meja ini</span>`:""}.<br>
+       Mejanya masih kosong. Terkunci sendiri begitu tinggal ${fmtDur(MEPET_MIN)} menjelang jamnya.</div>
+     <div style="display:grid;gap:10px">
+       <button class="btn btn-ok" style="justify-content:flex-start;padding:12px 14px" onclick="closeModal();seatAction('${esq(r.id)}')">
+         📋 <span style="text-align:left"><b>Buka reservasi ${esc(r.name)}</b><br><span class="hint" style="font-weight:400">Tamu pemesan datang lebih cepat — tandai Datang langsung di meja ini</span></span></button>
+       <button class="btn btn-ghost" style="justify-content:flex-start;padding:12px 14px" onclick="closeModal();lanjutWalkIn('${esq(tableId)}')">
+         🚶 <span style="text-align:left"><b>Walk-in baru (duduk sementara)</b><br><span class="hint" style="font-weight:400">Tamu lain, harus selesai sebelum jam ${esc(r.time)}</span></span></button>
+     </div>
+   </div>
+   <div class="modal-foot"><button class="btn btn-ghost" onclick="closeModal()">Batal</button></div>`);
 }
 /* Meja kosong yang SUDAH DIPESAN untuk nanti: tanya dulu. Meja yang memang
    bebas tidak ditanya apa-apa — pertanyaan yang muncul di tiap klik berhenti
@@ -6637,12 +6669,12 @@ function tanyaDudukSementara(tableId){
     toast(`Meja ${tableId} terkunci — ${nx.res.name} ${fmtDateShort(nx.res.date)} jam ${nx.res.time} (${sisa})`,"err");
     return false;
   }
-  return confirm(
-    `⚠️ MEJA ${tableId} SUDAH DIPESAN\n\n`
-    + `${nx.res.name} — ${fmtDateShort(nx.res.date)} jam ${nx.res.time}, ${nx.res.pax} pax (${sisa})${nx.more?` (+${nx.more} reservasi lain di meja ini)`:""}\n\n`
-    + `Mejanya masih kosong sekarang, dan jamnya masih ${fmtDur(m)} lagi — boleh dipakai duduk sementara.\n\n`
-    + `Meja ini TERKUNCI SENDIRI begitu tinggal ${fmtDur(MEPET_MIN)} menjelang jamnya.\n\n`
-    + `Dudukkan tamu di meja ini?`);
+  /* Kotak confirm() "Dudukkan tamu di meja ini?" DICABUT 26 September 2026:
+     yang sampai ke sini sudah memilih "Walk-in baru" di pilihMejaDipesan(),
+     yang menyebut pemesan, jam, dan paxnya. Pertanyaan kedua untuk jawaban
+     yang sama cuma melatih orang menekan OK tanpa membaca. Form walk-in-nya
+     sendiri tetap memasang pita peringatan (pitaMejaDipesan). */
+  return true;
 }
 function walkInSeat(tableId, sharingDefault, paxDefault){
   // Penjaga hak akses di fungsi INTI, bukan cuma di tombol yang memanggilnya —

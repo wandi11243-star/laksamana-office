@@ -232,12 +232,25 @@ const toastTerakhir = w => {
     w.eval('HARIH_DATE=' + JSON.stringify(PESAN.date) + ';');
     await amanTunggu('klik meja yang sudah dipesan', async () => { w.eval('seatEmptyClick("21")'); });
     await tunggu(80);
-    cek('mengklik meja yang sudah dipesan MENANYAKAN dulu', jejak.tanya.length === 1, jejak.tanya.length + '× tanya');
-    const t1 = jejak.tanya[0] || '';
-    cek('pertanyaannya menyebut siapa pemesannya', t1.indexOf('Dewi Anggraini') > -1, t1.slice(0, 160));
-    cek('menyebut jam & jumlah paxnya', t1.indexOf(PESAN.time) > -1 && t1.indexOf('4 pax') > -1, t1.slice(0, 200));
-    cek('dijawab ya, formulir walk-in tetap terbuka',
-        w.document.getElementById('modalRoot').innerHTML.indexOf('Walk-in') > -1);
+    /* Sejak 26 Sep 2026: bukan confirm(), melainkan DUA PILIHAN — buka
+       reservasi pemesannya (datang lebih cepat) atau walk-in baru. */
+    const p1 = w.document.getElementById('modalRoot').innerHTML;
+    cek('mengklik meja yang sudah dipesan membuka PILIHAN, bukan confirm', jejak.tanya.length === 0
+        && /seatAction\('res-nanti'\)/.test(p1) && /lanjutWalkIn\('21'\)/.test(p1), jejak.tanya.length + '× tanya');
+    cek('pilihannya menyebut siapa pemesannya', p1.indexOf('Dewi Anggraini') > -1);
+    cek('menyebut jam & jumlah paxnya', p1.indexOf(PESAN.time) > -1 && p1.indexOf('4 pax') > -1);
+    cek('formulir walk-in BELUM terbuka sebelum memilih', p1.indexOf('wi_name') < 0);
+    w.eval('closeModal(); seatEmptyClick("21")');
+    w.document.querySelector('#modalRoot button[onclick*="seatAction"]').click();
+    await tunggu(60);
+    cek('pilih "Buka reservasi" membuka panel pemesan dengan Tandai Datang',
+        /Tandai Datang/.test(w.document.getElementById('modalRoot').innerHTML)
+        && w.document.getElementById('modalRoot').innerHTML.indexOf('Dewi Anggraini') > -1);
+    w.eval('closeModal(); seatEmptyClick("21")');
+    w.document.querySelector('#modalRoot button[onclick*="lanjutWalkIn"]').click();
+    await tunggu(60);
+    cek('pilih "Walk-in baru" membuka formulir walk-in TANPA pertanyaan kedua',
+        w.document.getElementById('modalRoot').innerHTML.indexOf('Walk-in') > -1 && jejak.tanya.length === 0);
 
     /* Meja yang memang bebas tidak ditanya apa-apa. Pertanyaan yang muncul di
        tiap klik berhenti dibaca — dan yang berhenti dibaca sama saja tidak
@@ -325,8 +338,9 @@ const toastTerakhir = w => {
     w.eval('HARIH_DATE=' + JSON.stringify(PESAN.date) + ';');
     await amanTunggu('klik lalu batal', async () => { w.eval('seatEmptyClick("21")'); });
     await tunggu(80);
-    cek('dijawab TIDAK, formulirnya tidak terbuka', jejak.tanya.length === 1
-        && w.document.getElementById('modalRoot').innerHTML.indexOf('Walk-in') < 0);
+    /* Klik saja belum memilih apa pun — formulir walk-in belum boleh terbuka. */
+    cek('sebelum memilih, formulir walk-in tidak terbuka',
+        w.document.getElementById('modalRoot').innerHTML.indexOf('wi_name') < 0);
   }
 
   /* ================================================================
