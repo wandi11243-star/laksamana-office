@@ -7,6 +7,9 @@
 <!-- Lembar kwitansi. Berkas BERSAMA dengan modul Reservasi — satu lembar,
      dua modul yang mencetaknya. Lihat catatan di dalam berkasnya. -->
 <script src="../assets/kwitansi-sheet.js"></script>
+<!-- Rumus modal HPP & Resep, DIBANGKITKAN dari modul HPP (tools/gen-hpp-mesin.js).
+     Dipakai Menu Kalkulator untuk modal/profit/COGS di tampilan admin. -->
+<script src="../assets/hpp-mesin.js"></script>
 <!-- Mesin performa & bonus. SUMBER TUNGGAL, dipakai bersama panel Finance —
      halaman Performa Omset & Bonus di modul ini menghitung realisasi dengan
      berkas yang sama, bukan salinannya. Lihat kepala berkasnya. -->
@@ -18969,9 +18972,83 @@ function kalkTitikKat(kat){
 
 /* Kategori + jumlah item + rentang harganya. Rentang harga ikut ditampilkan
    supaya orang bisa memilih kategori tanpa membukanya satu per satu. */
+/* ============================================================
+   SUMBER MENU KALKULATOR = RESEP PRASMANAN DI HPP & RESEP (27 Sep 2026)
+   ------------------------------------------------------------
+   Permintaan user: kalkulator memakai menu & harga yang diset di kategori
+   Prasmanan modul HPP & Resep, bukan Database Menu milik modul ini.
+   - Nama, kategori (seksi "PRASMANAN - X" -> "X"), dan HARGA JUAL per porsi
+     dibaca dari hpp.php (GET, hanya baca). Resep nonaktif tidak ditawarkan.
+   - TIM MARKETING hanya melihat harga jual. ADMIN (admin modul Marketing /
+     super admin — pfoAdminModul(), penentu yang sama dengan Performa Omset)
+     juga melihat modal per porsi, profit, dan COGS — dihitung
+     assets/hpp-mesin.js, rumus modul HPP yang DIBANGKITKAN, bukan disalin.
+   - Database Menu TIDAK dicabut: Menu Final & Menu Bar di Event Brief masih
+     memakainya. Yang berganti hanya sumber kalkulator.
+   PERHATIAN: yang disembunyikan cuma TAMPILANNYA. hpp.php sendiri terbuka
+   tanpa sesi, jadi siapa pun yang tahu alamatnya bisa membaca modalnya. */
+let KALK_HPP={st:'idle', err:'', mesin:null, items:{}, jenis:[]};
+const KALK_HPP_API='../stock-api-mysql/hpp.php';
+const KALK_ITEM_API='../stock-api-mysql/items.php';
+function kalkAdmin(){ return pfoAdminModul(); }
+function kalkNamaKat(seksi){
+  var s=String(seksi||'').replace(/^PRASMANAN\s*-?\s*/i,'').trim() || 'Lainnya';
+  return s.toLowerCase().replace(/\b\w/g,function(c){ return c.toUpperCase(); });
+}
+/* `gagal` IKUT menahan pemuatan ulang: tanpa itu fetch gagal -> gambar ulang
+   -> muat lagi, selamanya. Tombol "Coba lagi" yang membersihkannya. */
+function muatHppKalk(paksa){
+  if(paksa) KALK_HPP={st:'idle', err:'', mesin:null, items:{}, jenis:[]};
+  if(KALK_HPP.st!=='idle') return;
+  KALK_HPP.st='muat';
+  var admin=kalkAdmin();
+  var ambil=function(u){ return fetch(u+(u.indexOf('?')>-1?'&':'?')+'t='+Date.now()).then(function(r){ return r.text(); })
+    .then(function(t){ var j=null; try{ j=JSON.parse(t); }catch(e){} if(!j) throw new Error('balasan bukan JSON'); return j; }); };
+  /* Basis Purchasing (items.php) hanya dibutuhkan RUMUS MODAL (konversi satuan
+     kemasan) — jadi cuma ditarik untuk admin. Gagalnya tidak menjatuhkan
+     kalkulator; sama dengan muatProduk() di modul HPP. */
+  Promise.all([ambil(KALK_HPP_API+'?action=all'),
+               admin ? ambil(KALK_ITEM_API).catch(function(){ return {}; }) : Promise.resolve({})])
+    .then(function(h){
+      var j=h[0];
+      if(j.status==='error') throw new Error(j.message||'HPP menolak');
+      if(!Array.isArray(j.resep)) throw new Error('daftar resep HPP tidak terbaca');
+      if(typeof window.LMHppMesin!=='function') throw new Error('assets/hpp-mesin.js tidak termuat');
+      var m=window.LMHppMesin({bahan:j.bahan||[], resep:j.resep, setting:j.setting||{}, produk:(h[1]&&h[1].products)||{}});
+      var items={};
+      m.resep.forEach(function(r){
+        if(!m.prasmananKah(r) || r.aktif===0 || r.aktif==='0' || r.aktif===false) return;
+        var kat=kalkNamaKat(r.seksi), h0=m.hargaJual(r);
+        (items[kat]=items[kat]||[]).push({n:String(r.nama||'').trim(), h:h0>0?h0:null, r:r});
+      });
+      Object.keys(items).forEach(function(k){ items[k].sort(function(a,b){ return a.n.localeCompare(b.n); }); });
+      KALK_HPP={st:'ok', err:'', mesin:m, items:items, jenis:Object.keys(items)};
+    })
+    .catch(function(e){ KALK_HPP={st:'gagal', err:(e&&e.message)||String(e), mesin:null, items:{}, jenis:[]}; })
+    .then(function(){ if($('kalk_body')!==null || $('kalk_hpp_muat')) renderKalkulator($('view')); });
+}
+/* Pengganti menuDbJenis()/mdbItems() KHUSUS kalkulator. */
+function kalkJenis(){ return KALK_HPP.jenis.slice(); }
+function kalkItems(j){ return (KALK_HPP.items[j]||[]); }
+function kalkItemRef(ref){
+  if(!ref) return null;
+  var i=String(ref).indexOf('|'); if(i<0) return null;
+  return kalkItems(ref.slice(0,i)).filter(function(x){return x.n===ref.slice(i+1);})[0]||null;
+}
+/* Modal per porsi — HANYA untuk admin. Yield yang bukan porsi/pcs (Kg, L)
+   ditandai: modal per satuan itu tidak sebanding dengan harga per porsi
+   (catatan COGS Kg/Liter di modul HPP). */
+function kalkModalPorsi(it){
+  if(!it || !KALK_HPP.mesin) return null;
+  return KALK_HPP.mesin.modalPorsi(it.r);
+}
+function kalkYieldAneh(it){
+  var u=String(it&&it.r&&it.r.yield_unit||'').trim().toLowerCase();
+  return !!u && ['porsi','pcs','pax','cup','gelas','buah','pack'].indexOf(u)<0;
+}
 function kalkKategori(){
-  return menuDbJenis().map(function(j){
-    const it=mdbItems(j)||[];
+  return kalkJenis().map(function(j){
+    const it=kalkItems(j)||[];
     const hrg=it.map(function(m){ return +m.h||0; }).filter(function(x){ return x>0; });
     return {kat:j, jml:it.length,
             min:hrg.length?Math.min.apply(null,hrg):0,
@@ -19082,7 +19159,7 @@ function kalkPilihKatHTML(){
     /* Angka di pojok = berapa item kategori ini yang SUDAH dipilih. Tanpa itu,
        orang harus membuka tiap kategori satu per satu cuma untuk mengingat
        mana yang sudah ia sentuh. */
-    const dipilih=(mdbItems(k.kat)||[]).filter(function(m){
+    const dipilih=(kalkItems(k.kat)||[]).filter(function(m){
       return KALK_PILIH.dipilih[kalkRefLabel(k.kat,m.n)]; }).length;
     const harga = k.min ? (k.min===k.max ? rp(k.min) : rp(k.min)+' – '+rp(k.max)) : 'harga belum diisi';
     const w=kalkWarnaKat(k.kat);
@@ -19099,9 +19176,9 @@ function kalkPilihKatHTML(){
 function kalkPilihItemHTML(){
   const kat=KALK_PILIH.kat;
   const cari=String(KALK_PILIH.cari||'').toLowerCase();
-  let it=(mdbItems(kat)||[]);
+  let it=(kalkItems(kat)||[]);
   if(cari) it=it.filter(function(m){ return String(m.n||'').toLowerCase().indexOf(cari)>-1; });
-  const semua=(mdbItems(kat)||[]);
+  const semua=(kalkItems(kat)||[]);
   const semuaTercentang = semua.length>0 && semua.every(function(m){
     return KALK_PILIH.dipilih[kalkRefLabel(kat,m.n)]; });
   let h='<div class="pilih-bar">'
@@ -19152,7 +19229,7 @@ function kalkTogglePilih(ref,on){
   kalkGambarHitung();
 }
 function kalkPilihSemua(on){
-  (mdbItems(KALK_PILIH.kat)||[]).forEach(function(m){
+  (kalkItems(KALK_PILIH.kat)||[]).forEach(function(m){
     const ref=kalkRefLabel(KALK_PILIH.kat,m.n);
     if(on) KALK_PILIH.dipilih[ref]=true; else delete KALK_PILIH.dipilih[ref];
   });
@@ -19191,8 +19268,8 @@ function kalkMenuAll(){
   var out=[];
   /* Kategorinya diurutkan per warna lebih dulu — seluruh yang merah
      berdampingan, baru yang hijau, dan seterusnya. Lihat kalkUrutKat(). */
-  menuDbJenis().slice().sort(kalkUrutKat).forEach(function(j){
-    mdbItems(j).forEach(function(m){ out.push({kat:j,n:m.n,h:m.h}); });
+  kalkJenis().slice().sort(kalkUrutKat).forEach(function(j){
+    kalkItems(j).forEach(function(m){ out.push({kat:j,n:m.n,h:m.h}); });
   });
   return out;
 }
@@ -19214,15 +19291,27 @@ function renderKalkulator(V){
     return '<option value="'+esc(kalkLabel(m))+'"></option>';
   }).join('')+'</datalist>';
 
-  let h=pageHead('Modul E','Menu Kalkulator','Hitung harga jual per pax lalu diskon dari harga deal customer. Tidak tersimpan — alat hitung cepat.','');
-  if(!all.length){
-    h+=empty('Database Menu masih kosong','Isi menu & harganya dulu di halaman Database Menu, lalu kembali ke sini.','brief');
+  let h=pageHead('Modul E','Menu Kalkulator','Hitung harga jual per pax lalu diskon dari harga deal customer. Menu & harga dari Prasmanan di HPP & Resep. Tidak tersimpan — alat hitung cepat.','');
+  muatHppKalk();
+  if(KALK_HPP.st==='idle' || KALK_HPP.st==='muat'){
+    h+='<div class="card" id="kalk_hpp_muat"><div class="cell-sub">Memuat menu Prasmanan dari HPP &amp; Resep…</div></div>';
     V.innerHTML=h; return;
   }
+  if(KALK_HPP.st==='gagal'){
+    h+='<div class="tbl-note" style="border-color:var(--danger)">'+svg(IC.alert)+'<span><b>Menu Prasmanan dari HPP &amp; Resep tidak terbaca</b> — '
+      +esc(KALK_HPP.err)+'. Kalkulator mengambil menu & harganya dari sana, jadi belum bisa dipakai. '
+      +'<button class="btn sm" onclick="muatHppKalk(true);renderKalkulator($(\'view\'))">Coba lagi</button></span></div>';
+    V.innerHTML=h; return;
+  }
+  if(!all.length){
+    h+=empty('Belum ada menu Prasmanan di HPP','Isi resep berkategori Prasmanan (seksi "PRASMANAN - …") beserta harga jualnya di modul HPP & Resep, lalu kembali ke sini.','brief');
+    V.innerHTML=h; return;
+  }
+  const admin=kalkAdmin();
   h+='<div class="card" style="margin-bottom:16px;display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap">'
     +'<div class="field" style="margin:0;max-width:160px"><label>Jumlah Pax</label>'
       +'<input class="inp" type="number" min="1" id="kalk_pax" value="'+(+KALK.pax||0)+'" oninput="kalkSet(\'pax\',this.value)"></div>'
-    +'<div class="cell-sub" style="padding-bottom:8px">Harga menu diambil dari <b>Database Menu</b>. '
+    +'<div class="cell-sub" style="padding-bottom:8px">Menu &amp; harga jual per porsi diambil dari kategori <b>Prasmanan</b> di modul <b>HPP &amp; Resep</b>. '
       +'Kolom <b>Porsi</b> diisi jumlah yang benar-benar dipesan — kalau 100 pax tapi menunya cuma 80 pcs, tulis <b>80</b>. '
       +'Rasio per pax dihitung sendiri.</div>'
     +'</div>';
@@ -19232,7 +19321,9 @@ function renderKalkulator(V){
   h+=opts;
   h+='<div class="card pad0" style="margin-bottom:16px"><div class="tbl-wrap"><table class="tbl kalk-tbl"><thead><tr>'
     +'<th style="width:34px">#</th><th>Menu</th><th style="width:158px">Porsi (pcs)</th>'
-    +'<th style="width:130px" class="r">Harga Satuan</th><th style="width:150px" class="r">Subtotal</th><th style="width:34px"></th>'
+    +'<th style="width:130px" class="r">Harga Satuan</th><th style="width:150px" class="r">Subtotal</th>'
+    +(admin?'<th style="width:150px" class="r" title="Khusus admin — dari rumus modal HPP">Modal / porsi</th>':'')
+    +'<th style="width:34px"></th>'
     +'</tr></thead><tbody id="kalk_body">'+kalkRowsHTML()+'</tbody></table></div>'
     /* Dua jalan masuk, dan yang UTAMA adalah pemilih. "Tambah menu" tetap ada
        untuk orang yang sudah hafal namanya dan lebih cepat mengetik. */
@@ -19502,7 +19593,7 @@ function kalkLabelRef(ref){
   if(!ref) return '';
   var i=String(ref).indexOf('|'); if(i<0) return '';
   var kat=ref.slice(0,i), nama=ref.slice(i+1);
-  var it=mdbItems(kat).filter(function(x){return x.n===nama;})[0];
+  var it=kalkItems(kat).filter(function(x){return x.n===nama;})[0];
   return it?kalkLabel({kat:kat,n:nama,h:it.h}):'';
 }
 /* Kosong -> baris dikosongkan. Cocok -> dipakai. Tidak dikenali -> TIDAK diam-
@@ -19529,7 +19620,7 @@ function kalkSamakanPax(i){
 function kalkHargaRef(ref){
   if(!ref) return null;
   var i=String(ref).indexOf('|'); if(i<0) return null;
-  var it=mdbItems(ref.slice(0,i)).filter(function(x){return x.n===ref.slice(i+1);})[0];
+  var it=kalkItems(ref.slice(0,i)).filter(function(x){return x.n===ref.slice(i+1);})[0];
   return it?it.h:null;
 }
 function kalkSet(k,v){
