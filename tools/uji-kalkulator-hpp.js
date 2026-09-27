@@ -92,7 +92,16 @@ function buka(opsi) {
     await tunggu(20);
     cek('harga jual / pax terhitung (Rp3.000)', /Rp\s?3\.000 \/ pax/.test(w.document.getElementById('kalk_perpax').textContent), w.document.getElementById('kalk_perpax').textContent);
     cek('TIDAK ada kolom/kartu modal untuk marketing', !/Modal \/ porsi|khusus admin|kalk_cogs/.test(v()));
-    cek('Database Menu tetap dari S.menuDb (tidak diganti)', /function mdbItems\(j\)\{ return \(\(S\.menuDb/.test(fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8')));
+    /* Halaman Database Menu DICABUT 27 Sep 2026 — tapi DATANYA tidak boleh
+       ikut hilang (aturan 0): menuDb tetap dikirim balik apa adanya. */
+    cek('halaman Database Menu sudah tidak ada di menu & router',
+        !w.document.querySelector('[data-view="menudb"]') && w.eval("typeof renderMenuDb") === 'undefined' && !w.eval("TITLES.menudb"));
+    w.eval("S.menuDb={Snack:[{n:'Bakwan Lama',h:8000}]}");
+    cek('data menuDb lama TETAP utuh sesudah normalizeState', w.eval("JSON.stringify(normalizeState(S).menuDb)") === JSON.stringify({ Snack: [{ n: 'Bakwan Lama', h: 8000 }] }),
+        w.eval("JSON.stringify(normalizeState(S).menuDb)"));
+    w.eval('paintMenuDatalist()');
+    const dl = w.document.getElementById('dl_menunama');
+    cek('saran Menu Final (Event Brief) dari Prasmanan HPP', !!dl && /Es Kasturi/.test(dl.innerHTML) && !/Bakwan Lama/.test(dl.innerHTML), dl && dl.innerHTML.slice(0, 120));
     cek('tidak ada satu pun tulisan ke server', jejak.tulis === 0, 'tulis=' + jejak.tulis);
   }
   console.log('\n== admin ==');

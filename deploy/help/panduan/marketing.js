@@ -25,7 +25,7 @@ LM_HELP_ISI('marketing', {
             ['Event','Sales Pipeline & Event, Event Brief & Quotation, Reservasi VIP, Request Design & Video','Dari peluang sampai acaranya siap jalan.'],
             ['Finance & Kontrol','Menu Kalkulator, Invoice & Payment, Approval Flow, Purchase Order','Uangnya.'],
             ['Analitik','Performa Omset & Bonus, Reporting','Hasilnya.'],
-            ['Sistem','Database Client, Database Menu, Katalog, Template Task, Pegawai & Akses, Pengaturan','Data induk yang jarang diubah.']
+            ['Sistem','Database Client, Katalog, Template Task, Pegawai & Akses, Pengaturan','Data induk yang jarang diubah.']
           ] },
         { t:'gambar', berkas:'marketing/pipeline.png',
           teks:'Sales Pipeline & Event: tiga tab dalam satu halaman, satu baris penyaring PIC di atasnya.',
