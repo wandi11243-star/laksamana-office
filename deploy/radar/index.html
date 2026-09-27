@@ -711,6 +711,31 @@ function ico(n){
 
 /* ---------- SESI ---------- */
 function sesi(){ try{ return JSON.parse(localStorage.getItem('lm_session')||'null'); }catch(e){ return null; } }
+/* ---------- SIAPA BOLEH MELIHAT ANGKA UANG (27 September 2026) ----------
+   Permintaan user: Radar dibuka SEMUA orang, tapi yang bukan Head tidak
+   melihat nominal harga, DP, dan pelunasan.
+   HEAD = kata UTUH "Head" di kolom Tim/Keterangan Office (lm_session.
+   keterangan) — aturan yang SAMA dengan pbHead() di assets/performa-bonus.js
+   (Bonus Leader & hak lihat tim), supaya satu jabatan punya satu penanda di
+   seluruh Office. Admin modul Radar & super admin ikut boleh.
+   SATU penentu untuk seluruh halaman: tiap tempat angka uang digambar
+   menanyakannya lewat sini. Yang disembunyikan TAMPILANNYA — data mentah
+   modul sumber memang sudah terbuka lewat getAll-nya masing-masing. */
+function radarBolehUang(){
+  var s=sesi()||{};
+  var am=s.adminModules||[];
+  if(am.indexOf('*')>-1 || am.indexOf('radar')>-1) return true;
+  return String(s.keterangan||'').toLowerCase().split(/[\s,;/]+/).some(function(t){ return t==='head'; });
+}
+/* Kunci isian event yang berisi harga / DP / pelunasan / tagihan. Daftar
+   tertutup DITAMBAH pola kata: field baru di Marketing yang namanya menyebut
+   uang ikut tersembunyi walau belum terdaftar di sini. */
+var RADAR_KUNCI_UANG={budgetPax:1,sistemBayar:1,depositNama:1,depositNominal:1,depositVia:1,metodeBayar:1,
+  diskonKasir:1,diskon:1,sewaVenue:1,biayaTeknis:1,biayaLain:1,noteInvoice:1,npwp:1,picBayar:1,refundPIC:1,
+  dealPax:1,limitAnggaran:1,boothRevshare:1};
+function radarKunciUang(k){
+  return !!RADAR_KUNCI_UANG[k] || /harga|nominal|deposit|^dp|lunas|bayar|biaya|diskon|budget|sewa|invoice|tagih|grand|total|payment|price|^fbManual|^fbDeal|rincian|pajak|^tax|svcApply|serviceCharge/i.test(String(k||''));
+}
 
 /* ---------- MUAT DATA ----------
    Ketiga sumber ditarik BERSAMAAN, dan satu sumber yang mati TIDAK boleh
@@ -1069,7 +1094,7 @@ function agendaCard(a){
          drawerAgenda(). Deret garis kecil evBars() di bawah TETAP: ia tidak
          mengklaim angka apa pun, cuma menandai divisi mana yang sudah
          bergerak, dan tidak pernah ikut dikeluhkan. */
-    '</span>'+evBars(a)+'</span></button>';
+    '</span></span></button>';
 }
 /* ---------- TAMPILAN: RADAR ---------- */
 function stat(l,v,d,c){return '<div class="stat '+(c||'')+'"><div class="stat-l">'+esc(l)+'</div><div class="stat-v num">'+v+'</div><div class="stat-d">'+esc(d)+'</div></div>';}
@@ -1567,27 +1592,22 @@ function vDetailEvent(){
      '<div style="text-align:right;font-size:11.5px;color:var(--muted)">Dicetak '+nowStamp()+'<br>oleh '+esc((sesi()||{}).name||'—')+'</div></div>';
 
   if(a.sumber==='mkt'){
-    var cl=klienMkt(e.clientId), byr=(e.payments||[]).length, k=kesiapan(e);
+    var cl=klienMkt(e.clientId), byr=(e.payments||[]).length;
     h+='<div class="kv">'+
       kvRow('Waktu',(a.jam||'—')+(a.selesai?'–'+a.selesai:''))+
       kvRow('Tempat',esc(a.tempat||''))+
       kvRow('Jenis',esc(a.jenis||''))+
       kvRow('Pax event (kontrak)',a.pax||'—')+
       kvRow('Marketing PIC',esc(namaMkt(e.mktPIC)))+
-      kvRow('Pembayaran tercatat',byr?byr+' transaksi':'belum ada')+'</div>';
+      (radarBolehUang()?kvRow('Pembayaran tercatat',byr?byr+' transaksi':'belum ada'):'')+'</div>';
     if(cl) h+='<div class="kv">'+
       kvRow('Klien',esc(cl.nama||'')+(cl.perusahaan?' — '+esc(cl.perusahaan):''))+
       kvRow('PIC klien',esc(cl.pic||cl.nama||''))+
       kvRow('Kontak',esc(cl.hp||''))+'</div>';
-    h+='<div class="sec-h" style="margin-top:6px"><h2>Kesiapan divisi</h2><span class="rule"></span></div>';
-    if(!k.ada) h+='<div class="muted" style="font-size:12.5px">Belum ada daftar job. Susun Template Task di Marketing.</div>';
-    else{
-      h+='<div style="margin:0 0 12px">'+panelKesiapan(e)+'</div><div class="pill-row">';
-      var cat=evDivisi(e)[0]||'';
-      (cat?evSubs(e):[]).forEach(function(dv){ if(!tmplEvDiv(e,cat).filter(function(t){return (t.sub||'')===dv;}).length) return;
-        var p=subProgress(e,cat,dv); h+=pill(dv+' '+p+'%', p>=100?'p-go':(p>0?'p-warn':'p-bad')); });
-      h+='</div>';
-    }
+    /* "Kesiapan divisi" DICABUT 27 September 2026 (permintaan user). Persen
+       & pil per divisi turunan job yang dicentang di modul Marketing; dari
+       Radar tidak ada yang bisa dikerjakan atasnya. Deret bar kesiapan di
+       kartu agenda (evBars) ikut dicabut. */
     var ff=detailFields(e);
     h+='<div class="sec-h" style="margin-top:14px"><h2>Detail lengkap</h2><span class="rule"></span></div>';
     if(!ff.length) h+='<div class="muted" style="font-size:12.5px">Belum ada isian detail.</div>';
@@ -1830,7 +1850,7 @@ function resCard(r){
       (r.category?'<span>'+esc(r.category)+'</span>':'')+'</span>'+
     '<span class="pill-row">'+pill(st,c)+
       (r.vip?pill('VIP','p-vip'):'')+
-      (dp?pill(rp(dp),'p-go'):(/lunas/i.test(String(r.dpStatus||''))?pill('Lunas','p-go'):pill('DP belum','p-mute')))+'</span>'+
+      (radarBolehUang()?(dp?pill(rp(dp),'p-go'):(/lunas/i.test(String(r.dpStatus||''))?pill('Lunas','p-go'):pill('DP belum','p-mute'))):'')+'</span>'+
     (r.notes?'<span style="display:block;font-size:11px;color:var(--muted);margin-top:7px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">'+esc(r.notes)+'</span>':'')+
     '</button>';
 }
@@ -1896,7 +1916,7 @@ function vResList(){
     pgIris('res',list).forEach(function(r){ h+=resCard(r); });
     h+='</div>'+pager('res',list.length,'booking');
   }else{
-  h+='<div class="tw"><table><thead><tr><th>Tanggal</th><th>Jam</th><th>Tamu</th><th style="text-align:right">Pax</th><th>Meja</th><th>Kategori</th><th>DP</th><th>Status</th></tr></thead><tbody>';
+  h+='<div class="tw"><table><thead><tr><th>Tanggal</th><th>Jam</th><th>Tamu</th><th style="text-align:right">Pax</th><th>Meja</th><th>Kategori</th>'+(radarBolehUang()?'<th>DP</th>':'')+'<th>Status</th></tr></thead><tbody>';
   pgIris('res',list).forEach(function(r){
     var st=String(r.status||'—');
     var c=/datang|seat|duduk/i.test(st)?'p-go':(resBatal(r)||resNoShow(r)?'p-bad':'p-warn');
@@ -1909,7 +1929,7 @@ function vResList(){
       '<td class="num" style="text-align:right"><b>'+(+r.pax||0)+'</b></td>'+
       '<td>'+esc(r.table||'—')+'</td>'+
       '<td>'+esc(r.category||'—')+'</td>'+
-      '<td>'+(dp?pill(rp(dp),'p-go'):(/lunas/i.test(String(r.dpStatus||''))?pill('Lunas','p-go'):pill('Belum','p-mute')))+'</td>'+
+      (radarBolehUang()?'<td>'+(dp?pill(rp(dp),'p-go'):(/lunas/i.test(String(r.dpStatus||''))?pill('Lunas','p-go'):pill('Belum','p-mute')))+'</td>':'')+
       '<td>'+pill(st,c)+'</td></tr>';
   });
   h+='</tbody></table></div>'+pager('res',list.length,'booking');
@@ -2089,7 +2109,7 @@ function fmtDetVal(v){
       if('desc' in v[0] && ('harga' in v[0] || 'jumlah' in v[0])) return '';
       if('kegiatan' in v[0] || 'mulai' in v[0]) return v.map(function(r){var j=[r.mulai,r.selesai].filter(Boolean).join('–');return (j?j+' — ':'')+tanpaTag(r.kegiatan||'');}).filter(function(x){return x.trim();}).join('\n');
       if('barang' in v[0]) return v.map(function(r){return tanpaTag(r.barang||'')+([r.tgl,r.jam].filter(Boolean).length?' — '+[r.tgl,r.jam].filter(Boolean).join(' '):'');}).filter(function(x){return x.trim();}).join('\n');
-      if('nama' in v[0]) return v.map(function(r){return tanpaTag(r.nama||'')+((r.nominal!=null&&r.nominal!=='')?' — '+rp(r.nominal):'');}).join('\n');
+      if('nama' in v[0]) return v.map(function(r){return tanpaTag(r.nama||'')+((radarBolehUang()&&r.nominal!=null&&r.nominal!=='')?' — '+rp(r.nominal):'');}).join('\n');
       /* Ekor: yang berbentuk teks tetap digambar, OBJEK YANG TIDAK DIKENAL
          DIJATUHKAN. Dulu di sini JSON.stringify — dan itulah sumber semua
          baris JSON mentah di layar: bentuk data baru mana pun di modul asal
@@ -2119,7 +2139,9 @@ function fmtDetVal(v){
    penjagaan terhadap markup di isian teks tidak ikut longgar. */
 function detailFields(ev){
   var d=(ev&&ev.detail)||{}, out=[], lihat={};
+  var uang=radarBolehUang();
   var baris=function(k){
+    if(!uang && radarKunciUang(k)) return;   // non-Head: nominal harga/DP/pelunasan tidak digambar
     var v=d[k];
     var t=fmtDetVal(v); if(t==='') return;
     out.push(adalahLampiran(v) ? [detLabel(k), t, fmtLampiranHTML(v)] : [detLabel(k), t]);
@@ -2196,7 +2218,7 @@ function drawerAgenda(a){
       kvRow('Jenis', esc(a.jenis||''))+
       kvRow('Pax event (kontrak)', a.pax||'—')+
       kvRow('Marketing PIC', esc(namaMkt(e.mktPIC)))+
-      kvRow('Pembayaran tercatat', byr?byr+' transaksi':'belum ada')+
+      (radarBolehUang()?kvRow('Pembayaran tercatat', byr?byr+' transaksi':'belum ada'):'')+
     '</div>';
     if(cl) h+='<div class="kv">'+
       kvRow('Klien', esc(cl.nama||'')+(cl.perusahaan?' — '+esc(cl.perusahaan):''))+
@@ -2313,8 +2335,8 @@ function drawerRes(r){
     kvRow('Kontak', esc(r.phone||''))+
   '</div>';
   h+='<div class="kv">'+
-    kvRow('DP', dp?rp(dp):(/lunas/i.test(String(r.dpStatus||''))?'Lunas':'Belum ada'))+
-    kvRow('Status DP', esc(r.dpStatus||''))+
+    (radarBolehUang()?kvRow('DP', dp?rp(dp):(/lunas/i.test(String(r.dpStatus||''))?'Lunas':'Belum ada'))+
+    kvRow('Status DP', esc(r.dpStatus||'')):'')+
     kvRow('Member', r.member?('Ya'+(r.memberNo?' · '+esc(r.memberNo):'')):'Bukan')+
   '</div>';
   if(r.notes) h+='<div class="card gold" style="margin-bottom:12px"><div class="eyebrow" style="margin-bottom:6px">Catatan</div><div style="font-size:13px;color:var(--sand-dim);line-height:1.6">'+esc(r.notes)+'</div></div>';

@@ -444,7 +444,12 @@ function modul_bawaan_untuk($userId) {
   static $cache = array();
   $uid = s($userId);
   if (isset($cache[$uid])) return $cache[$uid];
-  $out = array();
+  /* Modul Radar OTOMATIS untuk SEMUA akun (27 September 2026, permintaan
+     user: "semua orang bisa lihat"). Ditaruh DI LUAR try: tidak bergantung
+     pada data apa pun, jadi galat di bawah tidak boleh ikut mencabutnya.
+     Yang bukan Head tetap tidak melihat nominal harga/DP/pelunasan — itu
+     dijaga di layarnya (radarBolehUang di deploy/radar). */
+  $out = array('radar');
   try {
     $u = user_by_id($uid);
     $ket = $u ? s($u['keterangan']) : '';
@@ -469,8 +474,9 @@ function modul_bawaan_untuk($userId) {
     /* Diam, dan memulangkan kosong. Fungsi pemanggilnya (modul_untuk) dipakai
        login dan whoami SETIAP modul — satu galat di sini mematikan seluruh
        Office, bukan cuma fitur ini. Gagal di sini artinya kembali ke perilaku
-       lama: aksesnya harus dicentang manual. */
-    $out = array();
+       lama: aksesnya harus dicentang manual. Radar tetap ikut: ia untuk
+       semua orang dan tidak bergantung pada apa pun yang bisa gagal di atas. */
+    $out = array('radar');
   }
   return $cache[$uid] = $out;
 }
