@@ -104,6 +104,39 @@ function buka(opsi) {
     const mp = w.eval("Math.round(kalkModalPorsi(kalkItemRef('Drink|Es Kasturi')))");
     cek('modal per porsi admin = modul HPP (Es Kasturi 654)', mp === 654, mp);
   }
+  console.log('\n== riwayat perhitungan bernama ==');
+  {
+    const { w, jejak } = buka({ admin: false });
+    let kiriman = null;
+    const fAsli = w.fetch;
+    w.fetch = (u, o) => { if (o && o.method === 'POST') { try { const b = JSON.parse(o.body); if (b.action === 'saveAll') kiriman = b.data; } catch (e) {} } return fAsli(u, o); };
+    w.eval("go('kalkulator')"); await tunggu(300);
+    w.eval("KALK.rows=[{ref:'Drink|Es Kasturi',pcs:100}]; KALK.pax=100; KALK.deal=2500; renderKalkulator($('view'))");
+    const v = () => w.document.getElementById('view').innerHTML;
+    cek('kotak "Untuk kebutuhan apa" & tombol simpan ada', /kalk_nama/.test(v()) && /Simpan ke Riwayat/.test(v()));
+    w.eval('kalkSimpanHistori()');
+    cek('tanpa nama: DITOLAK, riwayat tetap kosong', w.eval('(S.kalkHistori||[]).length') === 0);
+    w.document.getElementById('kalk_nama').value = 'Event PT Maju 12 Okt';
+    w.eval('kalkSimpanHistori()'); await tunggu(400);
+    const hs = JSON.parse(w.eval('JSON.stringify(S.kalkHistori)'));
+    cek('tersimpan satu riwayat bernama', hs.length === 1 && hs[0].nama === 'Event PT Maju 12 Okt', JSON.stringify(hs).slice(0, 200));
+    cek('isi: pax, harga jual/pax, deal, menu', hs[0].pax === 100 && hs[0].perPax === 3000 && hs[0].deal === 2500 && hs[0].rows[0].n === 'Es Kasturi');
+    cek('MODAL TIDAK disimpan (data marketing dibaca semua tim)', !/modal|cogs|profit/i.test(JSON.stringify(hs)));
+    cek('ikut terkirim ke server lewat saveAll', !!kiriman && Array.isArray(kiriman.kalkHistori) && kiriman.kalkHistori.length === 1);
+    cek('tampil di tabel Riwayat', /Event PT Maju 12 Okt/.test(v()) && /Riwayat Perhitungan/.test(v()));
+    w.eval("KALK.rows=[]; KALK.pax=5; KALK.deal=null; kalkBukaHistori(" + JSON.stringify(hs[0].id) + ")");
+    cek('Buka: kalkulator terisi lagi (pax, deal, menu)', w.eval('KALK.pax') === 100 && w.eval('KALK.deal') === 2500 && w.eval('KALK.rows[0].ref') === 'Drink|Es Kasturi');
+    w.eval("S.kalkHistori[0].byId='orang-lain'; S.kalkHistori[0].by='Orang Lain'");
+    cek('riwayat orang lain TIDAK bisa dihapus marketing', w.eval('kalkBolehHapus(S.kalkHistori[0])') === false);
+    w.eval("kalkHapusHistori(S.kalkHistori[0].id)");
+    cek('...dan penghapusan lewat console pun ditolak', w.eval('S.kalkHistori.length') === 1);
+  }
+  {
+    const lib = fs.readFileSync(path.join(ROOT, 'marketing-mysql/lib_marketing_mysql.php'), 'utf8');
+    cek('server: kalkHistori terdaftar di kol_settings (digabung per baris, bukan timpa buta)',
+        /function kol_settings\(\) \{ return array\([^)]*'kalkHistori'/.test(lib));
+  }
+
   console.log('\n== HPP tidak menjawab ==');
   {
     const { w } = buka({ admin: false, hppGagal: true });

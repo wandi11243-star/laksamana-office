@@ -2319,7 +2319,7 @@ let API_READY = false;
    DB kosong balas settings {} — tanpa ini, DEFAULT_SETTINGS (mis. serviceCharge,
    dpPercent) hilang dan perhitungan finance jadi kacau. */
 const MKT_COLS=['clients','events','followups','approvals','users','staff','designreqs',
-                'taskTemplates','taskCategories','categories','notifs','activities','vip'];
+                'taskTemplates','taskCategories','categories','notifs','activities','vip','kalkHistori'];
 // Data LAMA (sebelum matriks None/Lihat/Ubah): s.roleNav[role]=[view,...],
 // s.rolePerms[role]=[action,...], keduanya array terpisah. Naikkan jadi
 // s.roleAcc[role]={view:0|1|2} — view yang tadinya di roleNav dapat minimal
@@ -19154,7 +19154,7 @@ function kalkKosongkanPilihan(){
 }
 function kalkPilihKatHTML(){
   const ks=kalkKategori();
-  if(!ks.length) return '<div class="empty-mini">Database Menu masih kosong. Isi dulu di halaman Database Menu.</div>';
+  if(!ks.length) return '<div class="empty-mini">Belum ada menu Prasmanan di HPP &amp; Resep. Isi dulu resep berseksi PRASMANAN di modul HPP &amp; Resep.</div>';
   return kalkTerpilihHTML()+'<div class="kat-grid">'+ks.map(function(k){
     /* Angka di pojok = berapa item kategori ini yang SUDAH dipilih. Tanpa itu,
        orang harus membuka tiap kategori satu per satu cuma untuk mengingat
@@ -19349,8 +19349,120 @@ function renderKalkulator(V){
       +'<dt>Total deal ('+(+KALK.pax||0)+' pax)</dt><dd class="mono" id="kalk_totaldeal">—</dd>'
       +'</dl></div>'
     +'</div>';
+  h+=kalkHistoriHTML();
   V.innerHTML=h;
   kalkHitung();
+}
+/* ============================================================
+   RIWAYAT PERHITUNGAN BERNAMA (27 September 2026, permintaan user: "bisa
+   disimpan history perhitungan kalkulatornya, dan untuk kebutuhan apa bisa
+   dinamakan").
+   ------------------------------------------------------------
+   Disimpan di koleksi S.kalkHistori — terdaftar di MKT_COLS (klien) DAN
+   kol_settings() (server), jadi digabung PER BARIS dengan penjaga yang sama
+   dengan Reservasi VIP & Request Design. Tanpa pasangan di server ia jatuh ke
+   put_setting() yang menimpa buta — cara seluruh Request Design pernah hilang
+   (8 Sep 2026); tools/uji-hilang-marketing.js menjaga pasangannya.
+
+   YANG DISIMPAN hanya yang boleh dilihat tim marketing: menu, porsi, HARGA
+   JUAL saat disimpan, pax, harga deal. MODAL TIDAK PERNAH DISIMPAN — data
+   modul ini dibaca seluruh tim lewat getAll, jadi modal di sini berarti modal
+   yang terlihat semua orang.
+
+   Harga jual ikut disimpan sebagai POTRET: harga di HPP bisa berubah sesudah
+   penawaran dibuat, dan "harga waktu itu" adalah yang ditanya orang saat
+   membuka riwayatnya. Saat dibuka ulang, kalkulator memakai harga HPP
+   SEKARANG dan menyebut menu yang harganya sudah berubah. */
+let KALK_NAMA='', KALK_DARI='';   // di luar DOM: render di modul ini total
+function kalkHistoriList(){ return (S.kalkHistori||[]).filter(function(x){ return x&&x.id; })
+  .slice().sort(function(a,b){ return String(b.at||'').localeCompare(String(a.at||'')); }); }
+function kalkRingkas(){
+  kalkNormalRows();
+  var pax=+KALK.pax||0, total=0, baris=[];
+  KALK.rows.forEach(function(r){
+    if(!r.ref) return;
+    var it=kalkItemRef(r.ref), i=String(r.ref).indexOf('|');
+    var h=it?it.h:null, pcs=+r.pcs||0;
+    if(h!=null) total+=h*pcs;
+    baris.push({ref:r.ref, kat:r.ref.slice(0,i), n:r.ref.slice(i+1), pcs:pcs, h:h});
+  });
+  return {baris:baris, pax:pax, total:total, perPax:pax?Math.round(total/pax):0};
+}
+function kalkSimpanHistori(){
+  var nama=String(($('kalk_nama')||{}).value||KALK_NAMA||'').trim();
+  if(!nama){ var el=$('kalk_nama'); if(el){ el.focus(); el.classList.add('err'); }
+    return toast('Nama perhitungan wajib','Tulis untuk kebutuhan apa perhitungan ini (mis. "Event PT Maju 12 Okt").','err'); }
+  var rk=kalkRingkas();
+  if(!rk.baris.length) return toast('Belum ada menu','Pilih minimal satu menu dulu sebelum menyimpan.','err');
+  var rec={ id:uid('kh'), nama:nama, pax:rk.pax, deal:KALK.deal, rows:rk.baris,
+            total:rk.total, perPax:rk.perPax,
+            by:(ME&&ME.name)||'', byId:(ME&&ME.id)||'', at:new Date().toISOString(), updatedAt:Date.now() };
+  S.kalkHistori=S.kalkHistori||[];
+  S.kalkHistori.unshift(rec);
+  logAct('kalk',rec.id,'Simpan perhitungan kalkulator',nama+' · '+rk.pax+' pax · '+rp(rk.perPax)+'/pax');
+  save();
+  KALK_NAMA=''; KALK_DARI=rec.id;
+  toast('Tersimpan','"'+nama+'" masuk riwayat perhitungan.','ok');
+  renderKalkulator($('view'));
+}
+function kalkBukaHistori(id){
+  var x=(S.kalkHistori||[]).find(function(h){ return h.id===id; }); if(!x) return;
+  KALK.rows=(x.rows||[]).map(function(r){ return {ref:r.ref, pcs:+r.pcs||0}; });
+  if(!KALK.rows.length) KALK.rows=[kalkBarisBaru()];
+  KALK.pax=+x.pax||0; KALK.deal=(x.deal==null?null:+x.deal); KALK_DARI=id; KALK_NAMA=x.nama||'';
+  /* Harga di HPP bisa sudah berubah sejak disimpan — DIKATAKAN, bukan
+     diam-diam dipakai. Menu yang sudah tidak ada di Prasmanan HPP juga. */
+  var berubah=[], hilang=[];
+  (x.rows||[]).forEach(function(r){
+    var it=kalkItemRef(r.ref);
+    if(!it) hilang.push(r.n);
+    else if((it.h||null)!==(r.h==null?null:+r.h)) berubah.push(r.n+' ('+(r.h==null?'—':rp(r.h))+' → '+(it.h==null?'—':rp(it.h))+')');
+  });
+  renderKalkulator($('view'));
+  if(hilang.length) toast('Ada menu yang sudah tidak ada di HPP',hilang.join(', '),'err');
+  else if(berubah.length) toast('Harga HPP sudah berubah sejak disimpan','Yang dipakai harga sekarang: '+berubah.join(', '),'');
+  else toast('Dibuka','"'+(x.nama||'')+'" dimuat ke kalkulator.','ok');
+}
+function kalkBolehHapus(x){ return !!x && (kalkAdmin() || (ME && (x.byId===ME.id || x.by===ME.name))); }
+function kalkHapusHistori(id){
+  var x=(S.kalkHistori||[]).find(function(h){ return h.id===id; }); if(!x) return;
+  if(!kalkBolehHapus(x)) return toast('Tidak bisa','Hanya pembuatnya atau admin yang bisa menghapus riwayat ini.','err');
+  if(!confirm('Hapus riwayat perhitungan "'+(x.nama||'')+'"?\n\nDibuat '+(x.by||'-')+'. Tidak bisa dibatalkan.')) return;
+  S.kalkHistori=(S.kalkHistori||[]).filter(function(h){ return h.id!==id; });
+  if(KALK_DARI===id) KALK_DARI='';
+  logAct('kalk',id,'Hapus riwayat kalkulator',x.nama||'');
+  save();
+  renderKalkulator($('view'));
+}
+function kalkHistoriHTML(){
+  var list=kalkHistoriList();
+  var dari=KALK_DARI?(S.kalkHistori||[]).find(function(h){ return h.id===KALK_DARI; }):null;
+  var h='<div class="card" style="margin-top:16px"><h4 style="font-size:14px;margin-bottom:4px">Simpan Perhitungan</h4>'
+    +'<div class="fh" style="margin-bottom:10px">Beri nama untuk kebutuhan apa perhitungan ini, lalu simpan — isinya menu, porsi, pax, harga jual saat ini, dan harga deal.</div>'
+    +(dari?'<div class="cell-sub" style="margin-bottom:8px">Sedang membuka riwayat <b>'+esc(dari.nama||'')+'</b>. Menyimpan lagi membuat riwayat BARU — yang lama tetap ada.</div>':'')
+    +'<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end">'
+    +'<div class="field" style="margin:0;flex:1;min-width:220px"><label>Untuk kebutuhan apa <span class="req">*</span></label>'
+      +'<input class="inp" id="kalk_nama" placeholder="mis. Event PT Maju — 12 Okt, 150 pax" value="'+esc(KALK_NAMA)+'" '
+      +'oninput="KALK_NAMA=this.value;this.classList.remove(\'err\')" onkeydown="if(event.key===\'Enter\')kalkSimpanHistori()"></div>'
+    +'<button class="btn pri" onclick="kalkSimpanHistori()">'+svg(IC.check)+'Simpan ke Riwayat</button></div></div>';
+  h+='<div class="card pad0" style="margin-top:16px"><div style="padding:14px 16px 6px"><h4 style="font-size:14px">Riwayat Perhitungan <span class="cell-sub" style="font-weight:400">('+list.length+')</span></h4></div>';
+  if(!list.length) return h+'<div class="empty-mini" style="padding:0 16px 16px">Belum ada perhitungan yang disimpan.</div></div>';
+  h+='<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Kebutuhan</th><th>Disimpan</th><th class="r">Pax</th>'
+    +'<th class="r">Harga jual / pax</th><th class="r">Deal / pax</th><th class="r">Diskon</th><th></th></tr></thead><tbody>';
+  list.forEach(function(x){
+    var dis=(x.deal!=null && x.perPax>0)?(x.perPax-x.deal)/x.perPax*100:null;
+    h+='<tr'+(x.id===KALK_DARI?' style="background:var(--gold-glow)"':'')+'>'
+      +'<td><div class="cell-strong">'+esc(x.nama||'—')+'</div><div class="cell-sub">'+(x.rows||[]).length+' menu</div></td>'
+      +'<td><div>'+esc(fmtDate(String(x.at||'').slice(0,10)))+'</div><div class="cell-sub">'+esc(x.by||'—')+'</div></td>'
+      +'<td class="r mono">'+(+x.pax||0)+'</td>'
+      +'<td class="r mono">'+rp(x.perPax||0)+'</td>'
+      +'<td class="r mono">'+(x.deal==null?'—':rp(x.deal))+'</td>'
+      +'<td class="r">'+(dis==null?'—':(Math.abs(dis)<0.005?'0%':(dis>0?'Diskon ':'Naik ')+Math.abs(dis).toFixed(dis%1?1:0)+'%'))+'</td>'
+      +'<td><div class="aksi-1baris"><button class="btn sm" onclick="kalkBukaHistori(\''+escJs(x.id)+'\')">Buka</button>'
+      +(kalkBolehHapus(x)?'<button class="btn sm danger" title="Hapus riwayat" onclick="kalkHapusHistori(\''+escJs(x.id)+'\')">'+svg(IC.trash)+'</button>':'')
+      +'</div></td></tr>';
+  });
+  return h+'</tbody></table></div></div>';
 }
 function kalkRowsHTML(){
   kalkNormalRows();
@@ -19532,7 +19644,7 @@ function kalkSaranKetik(i,el,semua){
        selesai sendiri kalau tidak dikatakan. */
     kotak.innerHTML='<div class="kosong">'
       +(kalkMenuAll().length ? 'Tidak ada menu yang cocok dengan "'+esc(q)+'"'
-                            : 'Database Menu masih kosong. Isi dulu di halaman <b>Database Menu</b>.')
+                            : 'Belum ada menu Prasmanan di <b>HPP &amp; Resep</b>.')
       +'</div>';
     kotak.classList.add('buka'); return;
   }

@@ -449,7 +449,7 @@ function scalar_keys() { return array('settings', 'baseline', 'rolePerms', 'role
    rutin tertinggal di produksi, sehingga tabel yang lahir dari schema.sql
    saja berarti endpoint yang 500 di satu server dan 200 di server
    sebelahnya. Bentuk simpanannya tetap; yang berubah CARA MENULISNYA. */
-function kol_settings() { return array('designreqs', 'vip'); }
+function kol_settings() { return array('designreqs', 'vip', 'kalkHistori'); }
 
 /* Baris ber-id di dalam sebuah nilai settings. Nilai yang bukan array
    diperlakukan sebagai kosong, bukan dilempar: satu nilai rusak tidak boleh
