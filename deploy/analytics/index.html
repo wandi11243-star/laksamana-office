@@ -901,6 +901,11 @@ let HP = null;                 // {bahan,resep,setting,ts} dari modul HPP — pa
 let HP_ERR = '';               // sebab kenapa tidak terbaca, untuk dikatakan di layar
 let EV = [];                   // {tgl,judul,sumber,kategori} dari Event + Marketing
 let EV_ERR = [];               // modul agenda yang tidak menjawab
+/* JAM MULAI tiap acara, dikunci srcId baris Breakdown Sumber ('evt:'/'mkt:'/'vip:'
+   + id). Dipakai kartu Dua Shift untuk menaruh omset acara ke shift-nya.
+   Baris breakdown sendiri tidak menyimpan jam, jadi inilah satu-satunya
+   jalan — dan yang tidak ketemu TIDAK ditebak (lihat asalShift). */
+let EVJAM = {};
 /* JADWAL TALENT dari modul Event (11 September 2026, permintaan user).
    {tgl, mulai, selesai, nama, kategori, status, tipe}
 
@@ -1114,10 +1119,127 @@ function barisBd(sumber, b) {
     if (!t || blnDari(t) !== b) return;
     const bd = (d && d.bd) || {};
     (Array.isArray(bd[kunci]) ? bd[kunci] : []).forEach(r => {
-      out.push({ tgl:t, nama:String((r && r.eventName) || '').trim(), omset:omsetBarisBd(r) });
+      const src = String((r && r.srcId) || '');
+      out.push({ tgl:t, nama:String((r && r.eventName) || '').trim(), omset:omsetBarisBd(r),
+                 srcId:src, jam:(src && EVJAM[src]) || '' });
     });
   });
   return out;
+}
+
+/* ============ ASAL OMSET: WALK IN / EVENT / MARKETING ============
+   (29 September 2026, permintaan user.) POS tidak menandai bill mana yang
+   milik acara — DINE IN ya DINE IN. Yang tahu hanya BREAKDOWN SUMBER, tempat
+   finance memecah omset harian jadi bagian kasir, event, dan marketing
+   (itulah yang membuat kasir dipotong). Jadi:
+
+     Event      = jumlah baris bd.event bulan itu     (tagihan: +tax+svc+Open Bill)
+     Marketing  = jumlah baris bd.marketing bulan itu (termasuk Reservasi VIP)
+     Walk In    = DINE IN - Event - Marketing
+
+   Rumus barisnya omsetBarisBd() — SAMA dengan kolom "Omset event saja" di
+   halaman Pengaruh Event/Marketing. Dua rumus untuk satu angka berarti dua
+   halaman menyebut omset acara yang berbeda untuk bulan yang sama.
+
+   DUA ANGGAPAN, dan keduanya DIKATAKAN di layar, bukan cuma di sini:
+     1. acaranya tercatat di POS sebagai DINE IN — dikurangkan dari cara datang
+        lain, sisa kanal online bisa jadi minus;
+     2. hari yang breakdown-nya belum diisi finance terhitung sebagai walk in.
+   Walk In yang minus DIJEPIT ke nol dan selisihnya DISEBUT: angka minus tidak
+   akan bisa dijelaskan siapa pun, dan menjepitnya diam-diam menyembunyikan
+   bahwa breakdown-nya lebih besar daripada DINE IN-nya. */
+function asalAcaraBulan(b) {
+  const ev = barisBd('Event', b), mk = barisBd('Marketing', b);
+  const jum = l => l.reduce((a, r) => a + r.omset, 0);
+  /* Hari berACARA SELESAI yang breakdown-nya belum punya satu baris pun dari
+     sumber itu — omsetnya diam-diam jatuh ke walk in, jadi jumlahnya disebut. */
+  const adaBd = { Event:new Set(ev.map(r => r.tgl)), Marketing:new Set(mk.map(r => r.tgl)) };
+  const belum = new Set();
+  EV.forEach(e => {
+    if (!e || blnDari(e.tgl) !== b || !evSelesai(e) || !adaBd[e.sumber]) return;
+    if (!adaBd[e.sumber].has(e.tgl)) belum.add(e.sumber + '|' + e.tgl);
+  });
+  return { ev:ev, mk:mk, evG:jum(ev), mkG:jum(mk), belum:belum.size, kpAda:!!KP };
+}
+/* Jam dari 'HH:MM' / 'HH:MM:SS' — yang bukan jam dipulangkan kosong, TIDAK
+   ditebak. */
+function jamPolos(v) {
+  const m = String(v == null ? '' : v).trim().match(/^(\d{1,2})[:.](\d{2})/);
+  if (!m || +m[1] > 23 || +m[2] > 59) return '';
+  return String(+m[1]).padStart(2, '0') + ':' + m[2];
+}
+/* start_datetime modul Event: INSTANT UTC berakhiran Z. Digeser +7 TETAP,
+   bukan zona peramban — aturan yang sama dengan isoDari(). Yang tanpa zona
+   dibaca apa adanya. */
+function jamWIB(v) {
+  const s = String(v == null ? '' : v).trim();
+  if (!s) return '';
+  if (/(Z|[+-]\d{2}:?\d{2})$/.test(s)) {
+    const t = Date.parse(s);
+    if (isNaN(t)) return '';
+    const w = new Date(t + 7 * 3600000);
+    return String(w.getUTCHours()).padStart(2, '0') + ':' + String(w.getUTCMinutes()).padStart(2, '0');
+  }
+  const m = s.match(/[T ](\d{1,2}:\d{2})/);
+  return m ? jamPolos(m[1]) : '';
+}
+/* Shift sebuah baris acara menurut JAM MULAI-nya: 's1' / 's2' / 'lain', atau
+   '' kalau jamnya tidak diketahui (baris manual finance, acara yang jamnya
+   kosong). Yang kosong TIDAK dijatuhkan ke shift mana pun — menebaknya
+   memindahkan omset acara ke shift yang mungkin tidak pernah melayaninya. */
+function asalShift(jam, S) {
+  const m = String(jam || '').match(/^(\d{2}):/);
+  if (!m) return '';
+  const j = +m[1];
+  if (diRentang(j, S.s1a, S.s1b)) return 's1';
+  if (diRentang(j, S.s2a, S.s2b % 24)) return 's2';
+  return 'lain';
+}
+/* Tabel asal omset per shift, di bawah kartu Dua Shift. Kolom shift DIHITUNG
+   DARI ANGKA KARTU DI ATASNYA (tot), bukan dijumlahkan ulang: baris Total
+   tabel ini wajib sama persis dengan kartunya, kalau tidak dua angka untuk satu
+   shift berdiri berdampingan. */
+function tabelAsalShift(b, S, tot) {
+  const A = asalAcaraBulan(b);
+  if (!A.kpAda) return '<div class="notice warn">&#9888; <div><b>Walk In / Event / Marketing per shift belum bisa dihitung</b> '
+    + '&mdash; Breakdown Sumber tidak terbaca. ' + esc(KP_ERR || '') + '</div></div>';
+  const kol = ['s1', 's2', 'lain'];
+  const nol = () => ({ s1:0, s2:0, lain:0, '':0 });
+  const ev = nol(), mk = nol();
+  A.ev.forEach(r => { ev[asalShift(r.jam, S)] += r.omset; });
+  A.mk.forEach(r => { mk[asalShift(r.jam, S)] += r.omset; });
+  const tak = ev[''] + mk[''];
+  const wi = {}; let minus = 0;
+  kol.forEach(k => { const v = tot[k] - ev[k] - mk[k]; wi[k] = Math.max(0, v); if (v < -0.5) minus += -v; });
+  const tampilLain = tot.lain > 0 || ev.lain > 0 || mk.lain > 0;
+  const kolTampil = kol.filter(k => k !== 'lain' || tampilLain);
+  const judul = { s1:'Siang', s2:'Malam', lain:'Di luar keduanya' };
+  const sel = (v, t) => '<td class="num mono">' + rp0(v) + (t ? '<div class="muted" style="font-size:11px">' + pct(v, t) + '% shift ini</div>' : '') + '</td>';
+  const baris = (nama, o, cat) => '<tr><td><b>' + nama + '</b>' + (cat ? '<div class="muted" style="font-size:11px">' + cat + '</div>' : '') + '</td>'
+    + kolTampil.map(k => sel(o[k], tot[k])).join('')
+    + (tak > 0 ? '<td class="num mono">' + (o[''] == null ? '&mdash;' : rp0(o[''])) + '</td>' : '') + '</tr>';
+  let h = '<h4 style="margin:18px 0 8px">Walk In, Event &amp; Marketing per Shift</h4>'
+    + '<div class="tbl-wrap"><table><thead><tr><th>Asal</th>'
+    + kolTampil.map(k => '<th class="num">' + judul[k] + '</th>').join('')
+    + (tak > 0 ? '<th class="num">Jam acara tak diketahui</th>' : '')
+    + '</tr></thead><tbody>'
+    + baris('Walk In', Object.assign({}, wi, { '':null }), 'omset shift dikurangi acara')
+    + baris('Event', ev, A.ev.length + ' baris breakdown')
+    + baris('Marketing', mk, A.mk.length + ' baris breakdown · termasuk Reservasi VIP')
+    + '</tbody><tfoot><tr><th>Total</th>' + kolTampil.map(k => '<th class="num mono">' + rp0(tot[k]) + '</th>').join('')
+    + (tak > 0 ? '<th class="num mono">' + rp0(tak) + '</th>' : '') + '</tr></tfoot></table></div>'
+    + '<div class="helper">Omset acara dibaca dari <b>Breakdown Sumber</b> (nilai + tax + service + Open Bill, '
+    + 'sama dengan kolom <i>Omset event saja</i> di halaman Pengaruh Event/Marketing) dan ditaruh ke shift menurut '
+    + '<b>jam mulai acaranya</b> di modul Event / Marketing. Walk In = omset shift dikurangi keduanya.</div>';
+  if (tak > 0) h += '<div class="notice info">&#8505; <div><b>' + rp0(tak) + '</b> omset acara tidak punya jam mulai '
+    + '(baris breakdown yang diketik manual, atau acara yang jamnya kosong di modulnya), jadi tidak ditaruh ke shift mana pun. '
+    + 'Walk In di kolom shift karena itu bisa <b>lebih besar</b> dari kenyataannya, paling banyak sebesar angka itu.</div></div>';
+  if (minus > 0) h += '<div class="notice warn">&#9888; <div>Di salah satu shift omset acara <b>lebih besar '
+    + rp0(minus) + '</b> daripada omset shift-nya menurut POS, jadi Walk In-nya ditulis Rp0. Biasanya jam mulai acaranya '
+    + 'jatuh di shift lain daripada jam bill-nya dibuka, atau nilai di Breakdown Sumber belum cocok dengan POS.</div></div>';
+  if (A.belum > 0) h += '<div class="notice warn">&#9888; <div><b>' + A.belum + ' hari</b> ada acara berstatus Event Done '
+    + 'tapi Breakdown Sumber-nya belum diisi untuk sumber itu &mdash; omset acaranya masih terhitung sebagai <b>Walk In</b>.</div></div>';
+  return h;
 }
 
 async function muatSemua() {
@@ -1178,7 +1300,12 @@ async function muatSemua() {
 
   EV = [];
   EV_ERR = [];
+  EVJAM = {};
   if (d.status === 'fulfilled' && d.value && d.value.ok) {
+    ((d.value.data || {}).events || []).forEach(x => {
+      const j = jamWIB(x && x.start_datetime);
+      if (x && x.id != null && j) EVJAM['evt:' + x.id] = j;
+    });
     ((d.value.data || {}).events || []).forEach(x => {
       const t = isoDari(x && (x.start_datetime || x.tanggal));
       /* `category` di modul Event, `jenis` di Marketing — dua nama untuk hal
@@ -1227,6 +1354,18 @@ async function muatSemua() {
     }
   } else { EV_ERR.push('Event'); TAL_ERR = true; }
   if (e.status === 'fulfilled' && e.value && e.value.ok) {
+    /* Jam acara Marketing: jam tamu datang dulu, baru mulai setup — yang
+       dipakai menentukan shift adalah kapan tamunya belanja, bukan kapan kru
+       mulai menata meja. Reservasi VIP memakai jam kedatangannya. */
+    ((e.value.data || {}).events || []).forEach(x => {
+      const dt = (x && x.detail) || {};
+      const j = jamPolos(dt.tamuDatang) || jamPolos(dt.mulaiSetup);
+      if (x && x.id != null && j) EVJAM['mkt:' + x.id] = j;
+    });
+    ((e.value.data || {}).vip || []).forEach(v => {
+      const j = jamPolos(v && v.jamMulai);
+      if (v && v.id != null && j) EVJAM['vip:' + v.id] = j;
+    });
     ((e.value.data || {}).events || []).forEach(x => {
       const t = isoDari(x && x.tanggal);
       if (t) EV.push({ tgl:t, judul:String((x && x.nama) || '(tanpa nama)'),
@@ -1760,6 +1899,7 @@ function vHari() {
        menjumlahkannya akan mengira salah satu halaman salah. */
     + (gLain > 0 ? '<div class="helper">Yang di luar keduanya tetap dihitung supaya '
         + 'jumlah ketiganya sama dengan total di Ringkasan.</div>' : '')
+    + tabelAsalShift(b, S, { s1:g1, s2:g2, lain:gLain })
     + '</div>';
 
   /* ---- sebaran per jam ---- */
@@ -3724,6 +3864,39 @@ const kanalKah = n => KANAL_BAYAR.test(String(n || '').toUpperCase());
    sudah DICABUT atas permintaan user, jadi yang menjaganya sekarang cuma
    tools/uji-analytics.js — dan kalau asersi itu ikut hilang, pemecahan
    kanal yang salah tidak punya satu pun tempat untuk ketahuan. */
+/* DINE IN dipecah jadi Walk In / Event / Marketing (29 September 2026,
+   permintaan user) — lihat asalAcaraBulan(). Digambar sebagai BARIS RINCIAN
+   di bawah baris DINE IN, bukan baris sejajar: rincian itu dari Breakdown
+   Sumber, bukan dari POS, dan menjadikannya baris sejajar membuat kolom Total
+   dan urutan tabel berhenti sama dengan berkas POS. Invariannya tetap: ketiga
+   rinciannya berjumlah sama dengan omset DINE IN (Walk In = sisanya).
+
+   Kolom transaksi Event/Marketing menulis JUMLAH ACARA, bukan bill: breakdown
+   tidak tahu satu acara dibayar lewat berapa bill. Walk In karena itu juga
+   tidak punya jumlah bill yang bisa dipercaya — ditulis tanda hubung. */
+const dineInKah = n => String(n || '').trim().toUpperCase().replace(/[\s_-]+/g, ' ') === 'DINE IN';
+function rincianDineIn(x, b, rkG) {
+  const A = asalAcaraBulan(b);
+  const kecil = 'style="font-size:12px;background:var(--gold-soft)"';
+  if (!A.kpAda) return '<tr ' + kecil + '><td></td><td colspan="7" class="muted">&nbsp;&nbsp;&#8627; Walk In / Event / Marketing belum bisa dipecah &mdash; Breakdown Sumber tidak terbaca.</td></tr>';
+  const acara = A.evG + A.mkG;
+  const wiMentah = x.grand - acara;
+  const wi = Math.max(0, wiMentah);
+  const nAcara = l => new Set(l.map(r => r.srcId || (r.tgl + '|' + r.nama.toLowerCase()))).size;
+  const sub = (nama, g, trx, cat) => '<tr ' + kecil + '><td></td>'
+    + '<td>&nbsp;&nbsp;&#8627; ' + nama + (cat ? ' <span class="muted">&middot; ' + cat + '</span>' : '') + '</td>'
+    + '<td class="num">' + trx + '</td><td class="num muted">' + pct(g, x.grand) + '% dari DINE IN</td>'
+    + '<td class="num mono">' + rp0(g) + '</td><td class="num">' + pct(g, rkG) + '%</td>'
+    + '<td></td><td></td></tr>';
+  let h = sub('Walk In', wi, '&mdash;', 'DINE IN dikurangi acara')
+    + sub('Event', A.evG, nAcara(A.ev) + ' acara', 'Breakdown Sumber')
+    + sub('Marketing', A.mkG, nAcara(A.mk) + ' acara', 'Breakdown Sumber, termasuk Reservasi VIP');
+  const cat = [];
+  if (wiMentah < -0.5) cat.push('Omset acara di Breakdown Sumber <b>' + rp0(-wiMentah) + ' lebih besar</b> daripada DINE IN &mdash; Walk In ditulis Rp0. Sebagian acaranya mungkin tercatat di POS bukan sebagai DINE IN.');
+  if (A.belum > 0) cat.push('<b>' + A.belum + ' hari</b> ada acara Event Done tapi Breakdown Sumber-nya belum diisi &mdash; omsetnya masih terhitung Walk In.');
+  if (cat.length) h += '<tr ' + kecil + '><td></td><td colspan="7" class="muted">&nbsp;&nbsp;&#9888; ' + cat.join(' ') + '</td></tr>';
+  return h;
+}
 function rekapKanal(kj, kb) {
   const out = {}, takKanal = {};
   const tambah = (n, g, b, dari) => {
@@ -3880,6 +4053,7 @@ function vKunjungan() {
       + '<td><div style="background:var(--gold-soft);border-radius:4px;height:10px">'
         + '<div style="width:' + Math.round(x.bill / punRK * 100) + '%;height:10px;border-radius:4px;background:var(--gold)"></div></div></td>'
       + '</tr>';
+    if (dineInKah(x.n)) h += rincianDineIn(x, b, rkG);
   });
   h += '</tbody><tfoot><tr><th></th><th>Total</th>'
     + '<th class="num">' + rkB.toLocaleString('id-ID') + '</th><th class="num">100%</th>'
@@ -3888,7 +4062,11 @@ function vKunjungan() {
 
   h += '<div class="helper">Batangnya menggambarkan <b>jumlah transaksi</b>, bukan omset. '
     + 'Kolom omsetnya berjumlah pas ke omset sebulan: tiap bill dibagi menurut nominal yang '
-    + 'benar-benar dibayar lewat tiap metode, dan porsinya selalu berjumlah satu.</div>';
+    + 'benar-benar dibayar lewat tiap metode, dan porsinya selalu berjumlah satu.</div>'
+    + (RK.baris.some(x => dineInKah(x.n)) ? '<div class="helper"><b>Rincian DINE IN</b> (Walk In / Event / Marketing) '
+      + 'tidak dari POS &mdash; POS tidak menandai bill mana yang milik acara. Event dan Marketing dibaca dari '
+      + '<b>Breakdown Sumber</b> yang diisi finance (nilai + tax + service + Open Bill), dan Walk In adalah sisa '
+      + 'DINE IN sesudah keduanya dikurangkan. Anggapannya: acara tercatat di POS sebagai DINE IN.</div>' : '');
 
   /* KOLOM OMSET BOLEH DIJUMLAHKAN, KOLOM TRANSAKSI TIDAK - dan bedanya wajib
      dikatakan, karena keduanya berdiri bersebelahan di satu baris. Satu bill

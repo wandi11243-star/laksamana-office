@@ -2600,8 +2600,13 @@ async function siap(w) {
     /* Rincian per metode bayar di bawah tiap baris ikut hilang bersamanya.
        Diperiksa lewat PANAH selnya, bukan lewat nama metodenya: GRABFOOD &
        GOFOOD justru WAJIB masih ada, sebagai baris kanal di Rekap Kanal. */
+    /* Sejak 29 September 2026 panah yang SAMA dipakai rincian DINE IN (Walk In
+       / Event / Marketing dari Breakdown Sumber — tools/uji-asal-omset.js).
+       Yang dilarang tetap rincian per METODE BAYAR, jadi panah apa pun yang
+       tidak disusul salah satu dari ketiga nama itu berarti ia kembali. */
+    const panahLain = (v.match(/↳\s*[^<]*/g) || []).filter(s => !/^↳\s*(Walk In|Event|Marketing)\b/.test(s));
     cek('...berikut baris rinciannya di bawah tiap cara datang',
-        v.indexOf('↳') < 0, String(v.indexOf('↳')));
+        panahLain.length === 0, panahLain.join(' | '));
     /* TIGA KETERANGAN PINDAH KE KARTU REKAP KANAL, bukan ikut dibuang:
        ketiganya menjelaskan angka yang MASIH dipajang. Kembalian tunai dan
        pembagian rata menggeser omset tiap kanal; kolom transaksi yang tidak
