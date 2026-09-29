@@ -926,6 +926,34 @@ const AMB_RESEP={
    (salah ketik) tidak boleh ikut, dan yang ikut diam-diam tidak pernah
    ketahuan dari layar. */
 function prasmananKah(r){ return /^PRASMANAN\b/i.test(String((r&&r.seksi)||'')); }
+/* KATEGORI RESEP di penyunting — tiga pilihan, SAMA dengan ketiga tab Daftar
+   Resep (29 September 2026, permintaan user: resep baru bisa langsung dipilih
+   Prasmanan / Menu jadi / Base & olahan, dan bisa diubah).
+
+   TIDAK ADA KOLOM BARU. Prasmanan tetap dikenali dari seksinya (lihat
+   prasmananKah), jadi memilihnya = tipe 'dish' + seksi berawalan
+   "PRASMANAN - ". Kolom baru berarti ALTER TABLE yang rutin tertinggal di
+   produksi, dan resep prasmanan yang sudah ada (seluruhnya berseksi begitu)
+   akan butuh migrasi data — dua hal yang dilarang disentuh.
+
+   Keluar dari Prasmanan MEMBUANG awalannya dari seksi: dibiarkan, resep yang
+   baru dipindah ke Menu jadi / Base tetap berdiri di tab Prasmanan, karena
+   tab itu menyaring menurut seksi, bukan tipe. Sisa seksinya dipertahankan
+   ("PRASMANAN - AYAM" -> "AYAM"), bukan dikosongkan. */
+function kategoriResep(r){ return prasmananKah(r)?'pras':((r&&r.tipe==='base')?'base':'dish'); }
+function seksiTanpaPras(s){ return String(s||'').trim().replace(/^PRASMANAN\b\s*[-–—:]?\s*/i,''); }
+function setKategoriResep(k){
+  if(!ED) return;
+  const sisa=seksiTanpaPras(ED.seksi);
+  if(k==='pras'){
+    ED.tipe='dish';
+    if(!prasmananKah(ED)) ED.seksi='PRASMANAN'+(sisa?' - '+sisa:'');
+  } else {
+    ED.tipe=(k==='base')?'base':'dish';
+    if(prasmananKah(ED)) ED.seksi=sisa;
+  }
+  gambarEditor();
+}
 function resepTersaring(tipe,abaikanJenis){
   const q=low(F.q);
   const l=S.resep.filter(r=>{
@@ -1172,7 +1200,11 @@ function bukaResep(id){
   ED=r?JSON.parse(JSON.stringify(r))
       :{id:'',nama:'',jenis:'food',tipe:'base',seksi:'',yield_qty:1,yield_unit:'Porsi',
         harga_baru:0,harga_upsize:0,modal_manual:0,catatan:'',bahan:[],aktif:1,di_purchasing:0,kode:''};
-  gambarEditor();
+  /* Resep BARU mengikuti tab yang sedang dibuka — yang menekan "+ Resep Baru"
+     di tab Prasmanan hampir pasti sedang membuat menu prasmanan. Tetap bisa
+     diganti di kotak Kategori. */
+  if(!r) setKategoriResep(F.tab==='pras'?'pras':(F.tab==='base'?'base':'dish'));
+  else gambarEditor();
 }
 function tutupModal(){ ED=null; $('modal').innerHTML=''; }
 
@@ -1296,12 +1328,14 @@ function gambarEditor(){
         <div class="field"><label>Jenis</label><select onchange="ED.jenis=this.value;gambarEditor()">
           <option value="food"${r.jenis==='food'?' selected':''}>Makanan</option>
           <option value="drink"${r.jenis==='drink'?' selected':''}>Minuman</option></select></div>
-        <div class="field"><label>Tipe</label><select onchange="ED.tipe=this.value;gambarEditor()">
-          <option value="base"${r.tipe==='base'?' selected':''}>Base (bahan setengah jadi)</option>
-          <option value="dish"${r.tipe==='dish'?' selected':''}>Menu jadi (dijual)</option></select></div>
+        <div class="field"><label>Kategori</label><select id="ed_kat" onchange="setKategoriResep(this.value)">
+          <option value="dish"${kategoriResep(r)==='dish'?' selected':''}>🍽 Menu jadi (dijual)</option>
+          <option value="pras"${kategoriResep(r)==='pras'?' selected':''}>🍛 Prasmanan</option>
+          <option value="base"${kategoriResep(r)==='base'?' selected':''}>🥣 Base &amp; olahan (setengah jadi)</option></select></div>
       </div>
       <div class="g3">
-        <div class="field"><label>Seksi / kelompok</label><input value="${esc(r.seksi||'')}" placeholder="mis. DISH (NASI)" oninput="ED.seksi=this.value"></div>
+        <div class="field"><label>Seksi / kelompok</label><input value="${esc(r.seksi||'')}" placeholder="${kategoriResep(r)==='pras'?'mis. PRASMANAN - AYAM':'mis. DISH (NASI)'}" oninput="ED.seksi=this.value;if($('ed_kat'))$('ed_kat').value=kategoriResep(ED)"
+          title="Prasmanan dikenali dari seksi yang berawalan PRASMANAN — menghapus awalan itu memindahkan resep keluar dari tab Prasmanan"></div>
         <div class="field"><label>Hasil (yield)</label><input type="number" step="any" value="${r.yield_qty}" oninput="ED.yield_qty=this.value;segarSub()"></div>
         <div class="field"><label>Satuan hasil</label><input value="${esc(r.yield_unit||'')}" placeholder="Porsi / Gr / Pcs" oninput="ED.yield_unit=this.value"></div>
       </div>
