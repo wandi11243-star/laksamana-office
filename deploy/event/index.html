@@ -1346,13 +1346,13 @@ async function _apiGet(action){
   if(!json.ok) throw new Error(json.error||"server error");
   return json.data;
 }
-async function _apiPost(action,data){
+async function _apiPost(action,data,extra){
   let res;
   try{
     res=await fetchWithTimeout(API_URL,{
       method:"POST",redirect:"follow",
       headers:{"Content-Type":"text/plain;charset=utf-8"},
-      body:JSON.stringify({action,data})
+      body:JSON.stringify(Object.assign({action,data},extra||{}))
     },30000);
   }catch(e){ throw new Error(e.name==="AbortError"?"Server tidak merespons (timeout).":e.message); }
   const json=await res.json();
@@ -1360,7 +1360,7 @@ async function _apiPost(action,data){
   return json.data;
 }
 const apiGet =action=>apiQueue(()=>_apiGet(action));
-const apiPost=(action,data)=>apiQueue(()=>_apiPost(action,data));
+const apiPost=(action,data,extra)=>apiQueue(()=>_apiPost(action,data,extra));
 
 /* ---- unggah berkas (bukti transfer, dokumen talent, poster event) ----
    Berkasnya TIDAK ikut ke dalam state. State dikirim utuh tiap kali simpan,
@@ -1523,14 +1523,15 @@ function normalize(s){
    Daripada menambah cap di ~40 tempat mutasi satu per satu (gampang kelewat),
    di sini dibandingkan sidik jari tiap baris dengan salinan terakhir yang
    diketahui server: yang berubah saja yang dicap. */
-let _snap={};
-function sig(o){const c=Object.assign({},o);delete c.updatedAt;return JSON.stringify(c);}
-function eachRow(fn){
-  COLS.forEach(k=>(DB[k]||[]).forEach(r=>{ if(r&&r.id) fn(k+':'+r.id,r); }));
-  Object.keys(DB.eventDetails||{}).forEach(eid=>{
-    const d=DB.eventDetails[eid]; if(d) fn('ed:'+eid,d);
+let _snap={}, _serverVer={};
+function sig(o){const c=Object.assign({},o);delete c.updatedAt;delete c.baseUpdatedAt;return JSON.stringify(c);}
+function eachRowOf(obj,fn){
+  COLS.forEach(k=>(obj[k]||[]).forEach(r=>{ if(r&&r.id) fn(k+':'+r.id,r); }));
+  Object.keys(obj.eventDetails||{}).forEach(eid=>{
+    const d=obj.eventDetails[eid]; if(d) fn('ed:'+eid,d);
   });
 }
+function eachRow(fn){ eachRowOf(DB,fn); }
 function stampChanges(){
   const now=Date.now();
   eachRow((key,r)=>{
@@ -1539,7 +1540,49 @@ function stampChanges(){
     if(!r.createdAt) r.createdAt=now;
   });
 }
-function refreshSnapshot(){const n={};eachRow((key,r)=>{n[key]=sig(r);});_snap=n;}
+/* _snap = isi tiap baris menurut yang terakhir diketahui SERVER, _serverVer =
+   capnya. Dipotret dari DB saat memuat, dan dari PAYLOAD YANG DIKIRIM sesudah
+   simpan — bukan dari DB yang hidup: suntingan yang dibuat selagi request
+   berjalan akan ikut terpotret "sudah tersimpan" padahal server tidak pernah
+   menerimanya (pelajaran yang sama di modul Service Excellent). */
+function snapshotDari(obj){
+  const n={}, v={};
+  eachRowOf(obj,(key,r)=>{ n[key]=sig(r); v[key]=r.updatedAt||0; });
+  _snap=n; _serverVer=v; kenaliBaris(obj);
+}
+function refreshSnapshot(){ snapshotDari(DB); }
+/* Salinan untuk dikirim: baris yang berubah diberi baseUpdatedAt = versi yang
+   kita pegang. Server menolak baris itu kalau versinya sudah lebih baru —
+   ada kru lain yang menyimpan duluan. DB sendiri tidak pernah memegang
+   baseUpdatedAt; kalau bocor, simpan berikutnya mengirim base basi dan
+   memancing bentrok palsu (pelajaran Marketing). */
+function buildPayload(){
+  const p=JSON.parse(JSON.stringify(DB));
+  eachRowOf(p,(key,r)=>{ if(_snap[key]!==sig(r)) r.baseUpdatedAt=_serverVer[key]||0; });
+  return p;
+}
+/* BARIS YANG PERNAH DILIHAT TAB INI (1 Oktober 2026), dikirim sebagai
+   `dikenal`. Server hanya menghapus baris di daftar ini yang tidak ada di
+   kiriman — event, jadwal, atau talent yang dibuat kru lain sesudah tab ini
+   dibuka tidak pernah dilihatnya, jadi tidak mungkin terhapus olehnya.
+   Hanya BERTAMBAH: mengosongkannya membuat penghapusan berikutnya gagal. */
+const _dikenal={};
+function kenaliBaris(obj){ eachRowOf(obj||DB, key=>{ _dikenal[key]=1; }); }
+function daftarDikenal(){
+  const out={eventDetails:[]}; COLS.forEach(k=>{ out[k]=[]; });
+  Object.keys(_dikenal).forEach(key=>{
+    const i=key.indexOf(':'), k=key.slice(0,i), id=key.slice(i+1);
+    if(k==='ed') out.eventDetails.push(id); else if(out[k]) out[k].push(id);
+  });
+  return out;
+}
+/* Cap yang dinaikkan server dipasang di DB DAN di payload, sebelum payload
+   dipotret — kalau tidak, versi yang kita pegang beda dari kolom updated_at
+   dan suntingan berikutnya dilaporkan bentrok padahal tidak ada yang menyalip. */
+function terapkanVersi(versi, payload){
+  const k=Object.keys(versi||{}); if(!k.length) return;
+  [DB, payload].forEach(obj=>eachRowOf(obj,(key,r)=>{ if(key in versi) r.updatedAt=versi[key]; }));
+}
 
 /* ---- status sinkronisasi (ditampilkan di sidebar) ---- */
 function setSync(state,msg){
@@ -1562,16 +1605,49 @@ async function syncNow(){
   if(_saving||!_dirty) return;
   _saving=true; _dirty=false; setSync('saving');
   stampChanges();
+  kenaliBaris();                       // baris yang barusan dibuat di tab ini ikut dikenal
+  const payload=buildPayload();
   try{
-    await apiPost('saveAll',DB);
-    refreshSnapshot();
-    setSync('saved');
+    const r=await apiPost('saveAll',payload,{dikenal:daftarDikenal()});
+    terapkanVersi(r&&r.versi, payload);
+    const bentrok=(r&&r.bentrok)||[];
+    if(bentrok.length){
+      /* Kru lain menyimpan baris yang sama duluan. Baris lain di kiriman ini
+         SUDAH tersimpan; yang ditolak diganti versi server lewat tarik ulang —
+         kalau tidak ia tetap "berubah" dan dikirim lagi tiap simpan, ditolak
+         lagi tiap kali. */
+      snapshotDari(payload);
+      bentrok.forEach(b=>{ const key=(b.koleksi==='eventDetails'?'ed':b.koleksi)+':'+b.id; delete _snap[key]; });
+      setSync('error','Sebagian tidak tersimpan — sudah diubah kru lain');
+      toast('Tidak tersimpan karena sudah diubah kru lain sesudah halaman ini dibuka: '+
+        bentrok.slice(0,3).map(b=>b.nama).join(', ')+(bentrok.length>3?' (+'+(bentrok.length-3)+')':'')+
+        '. Data terbaru dimuat — ulangi perubahan Anda.');
+      _tarikSesudahBentrok=true;
+    }else{
+      snapshotDari(payload);
+      setSync('saved');
+    }
   }catch(e){
     _dirty=true;                       // biar dicoba lagi, perubahan tidak hilang
     setSync('error',e.message);
     toast('Gagal simpan: '+e.message);
   }finally{ _saving=false; }
   if(_dirty) setTimeout(syncNow,2000);
+  else if(_tarikSesudahBentrok) tarikSesudahBentrok();
+}
+/* Sesudah bentrok: ganti salinan kita dengan yang ada di server. Hanya kalau
+   tidak ada suntingan baru yang menunggu — menariknya di tengah suntingan
+   membuang ketikan yang belum naik. */
+let _tarikSesudahBentrok=false;
+async function tarikSesudahBentrok(){
+  if(_dirty||_saving) return;
+  _tarikSesudahBentrok=false;
+  try{
+    DB=normalize(await apiGet('getAll'));
+    refreshSnapshot();
+    const gy=window.scrollY||window.pageYOffset||0;
+    router(); window.scrollTo(0,gy);
+  }catch(e){ _tarikSesudahBentrok=true; }
 }
 // Jangan biarkan perubahan terakhir hilang saat tab ditutup.
 window.addEventListener('beforeunload',e=>{
