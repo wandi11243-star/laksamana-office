@@ -7125,18 +7125,26 @@ Dua perbaikan, keduanya di KEDUA modul:
 `hapus` eksplisit; server tidak pernah menghapus baris yang tidak dikirim.
 
 - **Hanya menyala kalau server mengiklankannya** (`_fitur:['delta']` di
-  `getAll`). `konten-mysql` dulu diunggah MANUAL, jadi "HTML baru, PHP lama"
-  pasti terjadi — dan PHP lama yang menerima baris berubah saja TANPA `dikenal`
-  jatuh ke `hapus_yang_hilang` dan **menghapus seluruh baris yang tidak
-  dikirim**. Sebelum iklannya ada, klien memakai state utuh + `dikenal`.
+  `getAll`; iklannya dipasang `api.php`, digerbangi `function_exists` fungsi di
+  lib). `konten-mysql` baru masuk workflow 1 Oktober 2026, jadi sebelumnya
+  diunggah manual — dan "HTML baru, PHP lama" pasti terjadi: PHP lama yang
+  menerima baris berubah saja TANPA `dikenal` jatuh ke `hapus_yang_hilang` dan
+  **menghapus seluruh baris yang tidak dikirim**. Sebelum iklannya ada, klien
+  memakai state utuh + `dikenal`.
 - **`hapus` didahulukan, dan `dikenal − kiriman` TIDAK dipakai di mode ini.**
   Di mode parsial `kiriman` cuma baris yang disunting; memakai aturan lama sama
   dengan menghapus semua yang lain.
 - Daftarnya dibangun dari `_dikenal` (id yang pernah dilihat tab) **dikurangi
   isi DB sekarang** — jadi hanya yang benar-benar dihapus di layar yang masuk.
-- Penjaga lama tetap: kiriman kosong yang membuang **>3 baris** ditahan
-  (`hapus_id_eksplisit` / `mkt_hapus_eksplisit`,
-  `upsert_settings_collection`).
+- **PENGHAPUSAN BERANTAI YANG SAH TIDAK DITAHAN** (diperbaiki 1 Oktober 2026,
+  sesudah cacat pertama). Menghapus client ikut membuang followup-nya, event
+  ikut membuang followup & approval-nya, konten ikut membuang shooting-nya — di
+  mode parsial koleksi itu memang tidak membawa satu baris pun (`$ids` kosong),
+  jadi penjaga lama "kiriman kosong >3 baris" **menolaknya diam-diam**: layar
+  mengaku terhapus, barisnya muncul lagi setelah refresh. Yang dijaga sekarang
+  cuma penghapusan yang akan **MENGOSONGKAN tabel/daftar** (dihitung dari sisa
+  baris di SQL / `count($adaId) - $calon`), bukan jumlahnya. Penjaga lama tetap
+  berlaku di jalur state-utuh (`dikenal`).
 - `logs` (Konten) dikirim hanya yang BARU (`_logNaik`); `activities` (Marketing)
   sudah lewat jalur baris kotor. Server tetap `INSERT IGNORE`, jadi salah tandai
   pun tidak menggandakan.
@@ -7151,6 +7159,11 @@ Baris LAMA tidak disentuh (itu opsi C — pindah ke berkas — belum dikerjakan)
 Gagal di tahap mana pun **bersuara**; gambar yang diam-diam tidak tersimpan baru
 ketahuan saat dibuka orang lain.
 
+- **Kanvas diisi PUTIH sebelum menggambar** (diperbaiki 1 Oktober 2026). JPEG
+  tidak punya transparansi, jadi bagian PNG yang bening (logo, rate card bertepi
+  bening) tersimpan **HITAM** tanpa ini. Urutannya diuji: `fillRect` dulu, baru
+  `drawImage`.
+
 **Laten Konten yang sekalian ditutup:** saat server menaikkan cap `updated_at`
 (cap klien ≤ versi server), cap itu sekarang **ditulis ke `data`** dan
 **dipulangkan sebagai `versi`**; klien memasangnya lewat `terapkanVersiServer()`
@@ -7164,17 +7177,26 @@ ini diunggah manual — persis penyakit kompas/bd/event: perbaikan backend hidup
 di repo tapi tidak pernah mendarat, dan gejalanya cuma fitur yang diam.
 
 ```bash
-node tools/uji-delta-konten.js      # 23 pemeriksaan, jsdom + server tiruan HIDUP
-node tools/uji-delta-marketing.js   # 17 pemeriksaan, jsdom + server tiruan HIDUP
-node tools/uji-konten-simpan.js     # 27 pemeriksaan (termasuk kontrak PHP)
-node tools/uji-dikenal-marketing.js # 22 pemeriksaan (jalur lama tetap ada)
+php tools/uji-hapus-eksplisit.php   # 12 pemeriksaan atas KODE PHP (SQLite)
+node tools/uji-delta-konten.js      # 28 pemeriksaan, jsdom + server tiruan HIDUP
+node tools/uji-delta-marketing.js   # 25 pemeriksaan, jsdom + server tiruan HIDUP
+node tools/uji-konten-simpan.js     # 29 pemeriksaan (termasuk kontrak PHP)
+node tools/uji-dikenal-marketing.js # 25 pemeriksaan (jalur lama tetap ada)
 ```
 
-Server tiruannya MENIRU aturan PHP (`upsert_collection` + hapus eksplisit), dan
-asersinya membaca **ISI SERVER**, bukan layar. Empat mutasi yang harus tertangkap:
-klien kembali mengirim state utuh (payload membengkak), mode parsial memakai
-`dikenal − kiriman` (baris tak berubah terhapus), penghapusan lokal tidak masuk
-`hapus` (gagal diam-diam), dan cap server tidak dipasang (bentrok palsu).
+`uji-hapus-eksplisit.php` menjalankan **fungsi PHP yang sesungguhnya** — di-ekstrak
+dari lib, dijalankan atas SQLite — karena server tiruan JS hanya membuktikan
+klien mengirim yang benar, bukan PHP-nya berperilaku benar. Diuji: hapus 5 dari 6
+jalan, hapus yang mengosongkan tabel ditahan, hapus 3 (≤3) jalan walau jadi
+kosong, dan baris baru dalam simpan yang sama ikut dihitung sebagai sisa.
+
+Server tiruan JS MENIRU aturan PHP (`upsert_collection` + hapus eksplisit,
+termasuk penjaganya), dan asersinya membaca **ISI SERVER**, bukan layar. Mutasi
+yang harus tertangkap: klien kembali mengirim state utuh (payload membengkak),
+mode parsial memakai `dikenal − kiriman` (baris tak berubah terhapus),
+penghapusan lokal tidak masuk `hapus` (gagal diam-diam), cap server tidak
+dipasang (bentrok palsu), dan **penjaga lama yang menolak hapus berantai**
+(dibuktikan dengan mengembalikan guard lamanya di mock — dua uji merah).
 
 ### Master Vendor: di PURCHASING, dibaca Finance & BD (28 Agustus 2026)
 

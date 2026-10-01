@@ -66,6 +66,22 @@ function buatServer() {
       campaigns: Object.values(SRV.campaigns).map(salin),
     }, salin(KOSONG)),
   });
+  /* MENIRU hapus_id_eksplisit() di PHP — TERMASUK penjaganya. Yang ditahan
+     HANYA penghapusan yang akan mengosongkan tabel; hapus berantai yang sah
+     (mis. konten beserta shooting-nya) harus jalan. Kalau mock ini tidak
+     meniru penjaganya, bug "hapus berantai ditolak diam-diam" tidak akan
+     pernah tertangkap. */
+  const hapusDenganPenjaga = (tabel, hapus) => {
+    const ids = [...new Set((hapus || []).map(String))];
+    if (!ids.length) return 0;
+    if (ids.length > 3) {
+      const sisa = Object.keys(tabel).filter(id => ids.indexOf(id) < 0).length;
+      if (sisa === 0) return 0;                       // MENGOSONGKAN tabel -> ditahan
+    }
+    let n = 0;
+    ids.forEach(id => { if (tabel[id] !== undefined) { delete tabel[id]; n++; } });
+    return n;
+  };
   const post = body => {
     kiriman.push(salin(body));
     const st = body.data || {}, hp = body.hapus || null;
@@ -75,7 +91,7 @@ function buatServer() {
         const s = salin(r); delete s.baseUpdatedAt;
         SRV[k][r.id] = s;
       });
-      if (hp && Array.isArray(hp[k])) hp[k].forEach(id => { delete SRV[k][id]; });
+      if (hp && Array.isArray(hp[k])) hapusDenganPenjaga(SRV[k], hp[k]);
     });
     return { ok: true, data: { bentrok: [], versi: versiBalas } };
   };
@@ -164,6 +180,41 @@ const saves = kiriman => kiriman.filter(p => p && p.action === 'saveAll');
     dom.window.close();
   }
 
+  console.log('\n== hapus >3 baris JALAN, yang MENGOSONGKAN tabel ditahan ==');
+  {
+    /* Enam konten; hapus lima (berantai/sekali jalan) — sisa satu baris. Guard
+       lama menolaknya karena mode parsial tidak membawa baris yang diubah,
+       sehingga layar mengaku terhapus tapi barisnya muncul lagi. */
+    const srv = buatServer();
+    srv.SRV.content = {};
+    for (let i = 1; i <= 6; i++) srv.SRV.content['k' + i] = { id:'k'+i, title:'K'+i, brand:'b1', status:'Idea', updatedAt:1000 };
+    const dom = buka(srv); await tunggu(1200);
+    const w = dom.window;
+    w.__uji("DB.content = DB.content.filter(c => c.id==='k6');");
+    await w.__uji('save()'); await tunggu(120);
+    cek('hapus 5 baris (>3) JALAN karena masih ada sisa',
+        [1,2,3,4,5].every(i => !srv.SRV.content['k'+i]),
+        JSON.stringify(Object.keys(srv.SRV.content)));
+    cek('baris sisa tetap ada', !!srv.SRV.content.k6);
+    dom.window.close();
+  }
+  {
+    /* Empat baris, keempatnya dihapus sekaligus -> tabel akan KOSONG -> ditahan
+       (itulah satu-satunya yang memang perlu dijaga). */
+    const srv = buatServer();
+    srv.SRV.content = {};
+    for (let i = 1; i <= 4; i++) srv.SRV.content['m' + i] = { id:'m'+i, title:'M'+i, brand:'b1', status:'Idea', updatedAt:1000 };
+    const dom = buka(srv); await tunggu(1200);
+    const w = dom.window;
+    w.__uji("DB.content = [];");
+    await w.__uji('save()'); await tunggu(120);
+    cek('hapus yang MENGOSONGKAN tabel ditahan (baris tetap ada di server)',
+        [1,2,3,4].every(i => !!srv.SRV.content['m'+i]),
+        JSON.stringify(Object.keys(srv.SRV.content)));
+    cek('layar yakin sudah terhapus — bentuk yang ditutup penjaganya', w.__uji('DB.content.length') === 0);
+    dom.window.close();
+  }
+
   console.log('\n== cap server yang digeser dipasang balik (tidak bentrok palsu) ==');
   {
     const srv = buatServer();
@@ -195,6 +246,10 @@ const saves = kiriman => kiriman.filter(p => p && p.action === 'saveAll');
     const refFn = SRC.slice(SRC.indexOf('function addRefImages('), SRC.indexOf('function escJsAttr('));
     cek('addRefImages tidak lagi membaca berkas apa adanya', refFn.indexOf('readAsDataURL') < 0);
     cek('maks 1280px & target < 1 MB', /IMG_MAKS_PX=1280/.test(SRC) && /IMG_TARGET=700\*1024/.test(SRC));
+    /* JPEG tidak punya transparansi: tanpa latar putih, bagian PNG yang bening
+       (logo) tersimpan HITAM. Diperiksa urutannya: fillRect dulu, baru drawImage. */
+    const besarFn = SRC.slice(SRC.indexOf('function kecilkanGambar('), SRC.indexOf('function addRefImages('));
+    cek('kanvas diisi putih sebelum menggambar', /fillStyle\s*=\s*'#fff'[\s\S]{0,80}fillRect\([\s\S]{0,80}drawImage\(/.test(besarFn));
   }
 
   console.log('\n---------------------------------------');

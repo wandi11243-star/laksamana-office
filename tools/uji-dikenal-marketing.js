@@ -161,10 +161,17 @@ async function simpanTab(w) {
     cek('tabel: jalur dikenal tidak jatuh ke aturan _sejak',
         /if \(is_array\(\$kenal\)\) \{ mkt_hapus_dikenal\([^;]*;\s*return count\(\$ids\); \}/.test(up));
     cek('yang dihapus cuma dikenal − kiriman', /array_diff\(array_map\('strval', \$kenal\), \$ids\)/.test(LIB));
-    cek('kiriman kosong yang menghapus >3 baris ditahan (tabel)', /count\(\$ids\) === 0 && count\(\$hapus\) > 3/.test(LIB));
+    cek('guard state-utuh (dikenal) tetap: kiriman kosong >3 ditahan (tabel)',
+        /count\(\$ids\) === 0 && count\(\$hapus\) > 3/.test(LIB));
     cek('koleksi settings: hanya baris dikenal yang boleh dibuang',
         /isset\(\$kirimId\[\$id\]\) \|\| !isset\(\$kenalPeta\[\(string\)\$id\]\) \|\| \$tahan/.test(us));
-    cek('koleksi settings: kiriman kosong >3 ditahan', /count\(\$kirimId\) === 0 && \$calon > 3/.test(us));
+    cek('koleksi settings: guard state-utuh (dikenal) >3 ditahan', /count\(\$kirimId\) === 0 && \$calon > 3/.test(us));
+    /* Mode parsial: hapus berantai yang sah TIDAK ditahan; hanya yang akan
+       mengosongkan tabel/daftar. */
+    cek('tabel: hapus eksplisit hanya ditahan kalau MENGOSONGKAN tabel',
+        /function mkt_hapus_eksplisit[\s\S]*?if \(count\(\$hapus\) > 3\) \{[\s\S]*?SELECT COUNT\(\*\)[\s\S]*?fetchColumn\(\) === 0\) return 0;/.test(LIB));
+    cek('settings: hapus eksplisit hanya ditahan kalau MENGOSONGKAN daftar',
+        /\$calon > 3 && count\(\$adaId\) - \$calon === 0/.test(us));
     cek('save_all meneruskan dikenal + hapus ke KEDUA jenis koleksi',
         /upsert_collection\([^;]*\$kenal, \$h\)/.test(sa) && /upsert_settings_collection\([^;]*\$kenal, \$h\)/.test(sa));
     cek('api.php meneruskan dikenal DAN hapus',

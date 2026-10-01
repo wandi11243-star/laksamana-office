@@ -46,7 +46,7 @@ function buatServer() {
   const SRV = {
     events: { e1: { id:'e1', nama:'Event Lama', tanggal:'2026-12-01', status:'Confirmed', pipeCol:'Confirmed', updatedAt: SEKARANG - 60000 } },
     designreqs: { d1: { id:'d1', judul:'Request Lama', status:'open', refs:[{ t:'img', v:BLOB, n:'ref.jpg' }], updatedAt: SEKARANG - 3600000 } },
-    clients: {}, users: {}, staff: {}, vip: {}, kalkHistori: {},
+    clients: {}, followups: {}, users: {}, staff: {}, vip: {}, kalkHistori: {},
     simpan: [],
   };
   const versiServer = () => Math.max(0, ...['events', 'designreqs'].flatMap(k => Object.values(SRV[k]).map(r => r.updatedAt || 0)));
@@ -54,25 +54,41 @@ function buatServer() {
     _fitur:['delta'], _versi: versiServer(),
     events: Object.values(SRV.events).map(salin),
     designreqs: Object.values(SRV.designreqs).map(salin),
-    clients: [], users: Object.values(SRV.users).map(salin), staff: [], vip: [], kalkHistori: [],
+    clients: Object.values(SRV.clients).map(salin),
+    followups: Object.values(SRV.followups).map(salin),
+    users: Object.values(SRV.users).map(salin), staff: [], vip: [], kalkHistori: [],
     settings: {}, baseline: 0,
   }});
+  /* MENIRU mkt_hapus_eksplisit() / upsert_settings_collection() — TERMASUK
+     penjaganya: hanya penghapusan yang MENGOSONGKAN tabel/daftar yang ditahan.
+     Tanpa ini, bug "hapus berantai ditolak diam-diam" tidak pernah tertangkap. */
+  const hapusDenganPenjaga = (tabel, hapus) => {
+    const ids = [...new Set((hapus || []).map(String))];
+    if (!ids.length) return 0;
+    if (ids.length > 3) {
+      const sisa = Object.keys(tabel).filter(id => ids.indexOf(id) < 0).length;
+      if (sisa === 0) return 0;
+    }
+    let n = 0;
+    ids.forEach(id => { if (tabel[id] !== undefined) { delete tabel[id]; n++; } });
+    return n;
+  };
   const post = body => {
     SRV.simpan.push(salin(body));
     const st = body.data || {}, hp = body.hapus || null;
-    ['events', 'clients', 'users', 'staff'].forEach(k => {
+    ['events', 'clients', 'followups', 'users', 'staff'].forEach(k => {
       if (Array.isArray(st[k])) st[k].forEach(r => {
         if (!r || !r.id) return;
         const s = salin(r); delete s.baseUpdatedAt; SRV[k][r.id] = s;
       });
-      if (hp && Array.isArray(hp[k])) hp[k].forEach(id => { delete SRV[k][id]; });
+      if (hp && Array.isArray(hp[k])) hapusDenganPenjaga(SRV[k], hp[k]);
     });
     ['designreqs', 'vip', 'kalkHistori'].forEach(k => {
       if (Array.isArray(st[k])) st[k].forEach(r => {
         if (!r || !r.id) return;
         const s = salin(r); delete s.baseUpdatedAt; SRV[k][r.id] = s;
       });
-      if (hp && Array.isArray(hp[k])) hp[k].forEach(id => { delete SRV[k][id]; });
+      if (hp && Array.isArray(hp[k])) hapusDenganPenjaga(SRV[k], hp[k]);
     });
     return { ok:true, data:{ bentrok:[], versi:{} } };
   };
@@ -158,6 +174,58 @@ const saves = srv => srv.SRV.simpan.filter(p => p && p.action === 'saveAll');
     dom.window.close();
   }
 
+  console.log('\n== hapus berantai client + followup (>3) TIDAK ditolak ==');
+  {
+    const srv = buatServer();
+    srv.SRV.clients = { c1:{ id:'c1', nama:'Client Satu', updatedAt:SEKARANG-1000 },
+                        c2:{ id:'c2', nama:'Client Dua', updatedAt:SEKARANG-1000 } };
+    srv.SRV.followups = {};
+    for (let i=1;i<=5;i++) srv.SRV.followups['f'+i] = { id:'f'+i, clientId:'c1', by:'u1', at:'2026-09-0'+i+'T10:00' };
+    srv.SRV.followups.f6 = { id:'f6', clientId:'c2', by:'u1', at:'2026-09-06T10:00' };
+    const dom = buatTab(srv); await siap(dom.window);
+    const w = dom.window;
+    const n0 = saves(srv).length;
+    /* Persis yang dilakukan delClient(): client DAN followup-nya sekaligus. */
+    w.eval("S.clients = S.clients.filter(c=>c.id!=='c1');" +
+           "S.followups = S.followups.filter(f=>f.clientId!=='c1');");
+    await simpanTab(w);
+    const kirim = saves(srv).slice(n0).pop();
+    cek('client ikut daftar hapus', !!kirim && (kirim.hapus.clients||[]).indexOf('c1')>-1);
+    cek('5 followup-nya ikut daftar hapus (>3)', !!kirim && (kirim.hapus.followups||[]).length === 5,
+        JSON.stringify(kirim && kirim.hapus.followups));
+    cek('client terhapus di server', !srv.SRV.clients.c1, JSON.stringify(Object.keys(srv.SRV.clients)));
+    cek('5 followup-nya ikut terhapus — dulu ditolak diam-diam',
+        [1,2,3,4,5].every(i => !srv.SRV.followups['f'+i]), JSON.stringify(Object.keys(srv.SRV.followups)));
+    cek('client lain & followup-nya tetap ada', !!srv.SRV.clients.c2 && !!srv.SRV.followups.f6);
+    dom.window.close();
+  }
+
+  console.log('\n== hapus yang MENGOSONGKAN tabel/daftar ditahan ==');
+  {
+    const srv = buatServer();
+    srv.SRV.events = {};
+    for (let i=1;i<=4;i++) srv.SRV.events['e'+i] = { id:'e'+i, nama:'E'+i, tanggal:'2026-12-01', status:'Confirmed', pipeCol:'Confirmed', updatedAt:SEKARANG-1000 };
+    const dom = buatTab(srv); await siap(dom.window);
+    const w = dom.window;
+    w.eval('S.events = [];');
+    await simpanTab(w);
+    cek('hapus yang mengosongkan tabel events ditahan',
+        [1,2,3,4].every(i => !!srv.SRV.events['e'+i]), JSON.stringify(Object.keys(srv.SRV.events)));
+    dom.window.close();
+  }
+  {
+    const srv = buatServer();
+    srv.SRV.designreqs = {};
+    for (let i=1;i<=4;i++) srv.SRV.designreqs['d'+i] = { id:'d'+i, judul:'D'+i, status:'open', updatedAt:SEKARANG-1000 };
+    const dom = buatTab(srv); await siap(dom.window);
+    const w = dom.window;
+    w.eval('S.designreqs = [];');
+    await simpanTab(w);
+    cek('hapus yang mengosongkan daftar designreqs ditahan (guard settings)',
+        [1,2,3,4].every(i => !!srv.SRV.designreqs['d'+i]), JSON.stringify(Object.keys(srv.SRV.designreqs)));
+    dom.window.close();
+  }
+
   console.log('\n== gambar BARU dikecilkan sebelum disimpan (B) ==');
   {
     cek('ada fungsi pengecil gambar', /function drKecilkanGambar\(/.test(MKT));
@@ -166,6 +234,10 @@ const saves = srv => srv.SRV.simpan.filter(p => p && p.action === 'saveAll');
     const fn = MKT.slice(MKT.indexOf('function drRefFoto('), MKT.indexOf('function drForm('));
     cek('drRefFoto tidak lagi membaca berkas apa adanya', fn.indexOf('readAsDataURL') < 0);
     cek('maks 1280px & target < 1 MB', /DR_IMG_MAKS_PX=1280/.test(MKT) && /DR_IMG_TARGET=700\*1024/.test(MKT));
+    /* JPEG tidak punya transparansi: tanpa latar putih, bagian PNG yang bening
+       jadi HITAM. Diperiksa urutannya: fillRect dulu, baru drawImage. */
+    const besarFn = MKT.slice(MKT.indexOf('function drKecilkanGambar('), MKT.indexOf('function drRefHTML('));
+    cek('kanvas diisi putih sebelum menggambar', /fillStyle\s*=\s*'#fff'[\s\S]{0,80}fillRect\([\s\S]{0,80}drawImage\(/.test(besarFn));
   }
 
   console.log('\n---------------------------------------');

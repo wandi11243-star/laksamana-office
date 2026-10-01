@@ -156,9 +156,15 @@ const isiServer = () => ({ ok:true, data:{
     cek('upsert_collection menerima daftar dikenal DAN hapus',
         /function upsert_collection\([^)]*\$kenal = null, \$hapus = null, &\$versi = null\)/.test(PHP));
     cek('yang dihapus cuma dikenal − kiriman', /array_diff\(array_map\('strval', \$kenal\), \$ids\)/.test(fn));
-    cek('kiriman kosong yang menghapus >3 baris ditahan', /count\(\$ids\) === 0 && count\(\$hapus\) > 3/.test(fn));
+    cek('guard state-utuh (dikenal) tetap: kiriman kosong >3 ditahan',
+        /count\(\$ids\) === 0 && count\(\$buang\) > 3/.test(fn));
     cek('jalur dikenal TIDAK jatuh ke penghapusan lama',
         /if \(is_array\(\$kenal\)\) \{[\s\S]*?return count\(\$ids\);\s*\}/.test(fn));
+    /* Penghapusan berantai yang SAH (client + followup, konten + shooting) di
+       mode parsial tidak boleh ikut ditahan: yang ditahan hanya yang akan
+       MENGOSONGKAN tabel. Dibuktikan dengan menghitung sisa baris. */
+    cek('hapus eksplisit hanya ditahan kalau MENGOSONGKAN tabel',
+        /function hapus_id_eksplisit[\s\S]*?if \(count\(\$hapus\) > 3\) \{[\s\S]*?SELECT COUNT\(\*\)[\s\S]*?fetchColumn\(\) === 0\) return 0;/.test(PHP));
     /* --- mode parsial (A): `hapus` didahulukan, hapus_yang_hilang dilewati --- */
     cek('ada jalur `hapus` eksplisit', /function hapus_id_eksplisit\(/.test(PHP));
     cek('jalur `hapus` MENDAHULUI jalur dikenal & hapus_yang_hilang',
