@@ -381,6 +381,12 @@ function baca_state() {
   if (!isset($out['settings']) || !is_array($out['settings'])) $out['settings'] = new stdClass();
   if (!isset($out['perms']) || !is_array($out['perms'])) $out['perms'] = new stdClass();
 
+  /* CATATAN: `_fitur` SENGAJA TIDAK dipasang di sini. Ia dipasang api.php,
+     dan HANYA kalau lib ini memang punya hapus_id_eksplisit(). lib & api
+     diunggah berkas-per-berkas oleh FTP, jadi "lib baru + api lama" mungkin
+     terjadi — dan api lama tidak meneruskan `hapus`, sehingga save_all jatuh
+     ke hapus_yang_hilang dengan kiriman sepotong = SEMUA baris non-dikirim
+     terhapus. Iklan dari sisi yang benar-benar menangani `hapus` menutup itu. */
   return $out;
 }
 
@@ -410,7 +416,7 @@ function put_setting($pdo, $k, $v) {
 
    Bentrok dikumpulkan, bukan membatalkan seluruh simpanan — perubahan lain
    yang tidak bertabrakan tetap tersimpan. */
-function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $kenal = null) {
+function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $kenal = null, $hapus = null, &$versi = null) {
   $tabel = $c['table'];
   $cols  = $c['cols'];
   $adaCreated = !empty($c['created']);
@@ -471,14 +477,25 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $kenal = nu
     // baseUpdatedAt hanya metadata kiriman — jangan ikut tersimpan di `data`.
     $simpan = $r; unset($simpan['baseUpdatedAt']);
 
-    $ua = ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0);
+    $uaKirim = ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0);
     // Kalau sudah lolos cek bentrok, pastikan penjaga urutan `updated_at >=`
     // TIDAK ikut memblokir: naikkan cap minimal 1 di atas versi server. Tanpa
     // ini, tulisan yang benar bisa terbuang diam-diam kalau cap klien kebetulan
     // <= cap server (mis. jam antar-perangkat sedikit berbeda). Untuk baris
     // yang TIDAK diubah (tanpa baseUpdatedAt), penjaga urutan tetap berlaku.
+    $ua = $uaKirim;
     if ($lolosBentrok && isset($verServer[$id]) && $ua <= $verServer[$id]) {
       $ua = $verServer[$id] + 1;
+    }
+    /* CAP YANG BENAR-BENAR DIPAKAI IKUT DITULIS KE `data` DAN DIPULANGKAN.
+       Kalau server menaikkan cap (cap klien <= versi server), angka itu berbeda
+       dari yang dipegang klien. Tanpa baris ini klien menyimpan acuan bentrok
+       dari cap lamanya, lalu SETIAP suntingan berikutnya pada baris yang sama
+       dilaporkan bentrok padahal tidak ada yang menyalip — persis yang sudah
+       dibayar di modul Event & Marketing (lihat blok `versi` di sana). */
+    if ($ua !== $uaKirim) {
+      $simpan['updatedAt'] = $ua;
+      if (is_array($versi)) $versi[$namaKoleksi . ':' . $id] = $ua;
     }
 
     $args = array(':id' => $id);
@@ -489,32 +506,58 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $kenal = nu
     $st->execute($args);
   }
 
-  /* HANYA BARIS YANG PERNAH DILIHAT TAB INI YANG BOLEH DIHAPUS (1 Oktober 2026).
-     Modul Konten tidak pernah menarik ulang data sesudah halaman dibuka, jadi
-     satu tab bisa basi seharian penuh. Dengan aturan lama (hapus semua yang
-     tidak dikirim) tab basi itu MENGHAPUS konten, ads, KOL, atau shooting yang
-     dibuat kru lain sesudah ia dibuka — tanpa satu pun galat, dan tabel
-     `logs` tidak mencatatnya. Bug yang sama persis menghilangkan PR-11 di BD
-     OS (24 September 2026); polanya disalin dari sana.
+  /* PENGHAPUSAN — TIGA JALUR, dan urutannya penting.
 
-     `dikenal` = id yang pernah dilihat klien (dari getAll + yang ia buat
-     sendiri). Yang dihapus cuma dikenal − kiriman: baris yang lahir di tempat
-     lain tidak ada di daftarnya, jadi tidak mungkin terhapus olehnya.
-     Kiriman KOSONG yang sekaligus menghapus >3 baris ditahan — tidak ada satu
-     tombol pun yang membuang empat baris sekaligus. Klien lama yang tidak
-     mengirim daftarnya tetap dilayani perilaku lama. */
+     1. `hapus` (MODE PARSIAL, 1 Oktober 2026). Klien hanya mengirim baris
+        yang BERUBAH plus daftar id yang benar-benar dihapus di layar, jadi
+        `kiriman` tidak lagi berarti "seluruh isi yang saya pegang".
+        `dikenal − kiriman` di mode ini akan MENGHAPUS SEMUA baris yang tidak
+        sedang disunting — karena itu jalur ini didahulukan dan
+        `hapus_yang_hilang` dilewati sepenuhnya.
+
+     2. `dikenal` (klien state-utuh sejak 1 Oktober 2026 pagi). Modul Konten
+        tidak pernah menarik ulang data sesudah halaman dibuka, jadi satu tab
+        bisa basi seharian; tanpa daftar ini tab basi MENGHAPUS konten, ads,
+        KOL, atau shooting yang dibuat kru lain sesudah ia dibuka. Yang dihapus
+        cuma dikenal − kiriman. Pola BD OS (24 September 2026).
+
+     3. `hapus_yang_hilang` (klien lama tanpa daftar apa pun) — perilaku lama,
+        hanya untuk kiriman state utuh. Kiriman KOSONG tidak pernah
+        mengosongkan tabel.
+
+     Jalur 1 & 2 sama-sama menahan kiriman KOSONG yang menghapus >3 baris —
+     tidak ada satu tombol pun yang membuang empat baris sekaligus. */
+  if (is_array($hapus)) {
+    hapus_id_eksplisit($pdo, $tabel, $ids, $hapus);
+    return count($ids);
+  }
   if (is_array($kenal)) {
-    $hapus = array_values(array_diff(array_map('strval', $kenal), $ids));
-    if (count($hapus) && !(count($ids) === 0 && count($hapus) > 3)) {
+    $buang = array_values(array_diff(array_map('strval', $kenal), $ids));
+    if (count($buang) && !(count($ids) === 0 && count($buang) > 3)) {
       $del = $pdo->prepare('DELETE FROM ' . $tabel . ' WHERE id IN (' .
-                           implode(',', array_fill(0, count($hapus), '?')) . ')');
-      $del->execute($hapus);
+                           implode(',', array_fill(0, count($buang), '?')) . ')');
+      $del->execute($buang);
     }
     return count($ids);
   }
 
   hapus_yang_hilang($pdo, $tabel, 'id', $ids);
   return count($ids);
+}
+
+/* Hapus baris yang disebut EKSPLISIT oleh klien mode parsial (`hapus`).
+   Hanya id yang benar-benar dihapus orang di layar yang masuk daftar ini;
+   baris yang tidak pernah dilihat tab itu tidak mungkin ada di sini, berapa
+   pun jam perangkatnya. Penjaga kiriman KOSONG yang membuang >3 baris tetap
+   ada — tidak ada satu tombol pun yang menghapus empat baris sekaligus. */
+function hapus_id_eksplisit($pdo, $tabel, $ids, $hapus) {
+  $hapus = array_values(array_unique(array_map('strval', $hapus)));
+  if (!count($hapus)) return 0;
+  if (count($ids) === 0 && count($hapus) > 3) return 0;
+  $del = $pdo->prepare('DELETE FROM ' . $tabel . ' WHERE id IN (' .
+                       implode(',', array_fill(0, count($hapus), '?')) . ')');
+  $del->execute($hapus);
+  return $del->rowCount();
 }
 
 /* Hapus baris yang tidak ada di kiriman.
@@ -528,23 +571,34 @@ function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids) {
 }
 
 /* ==================== SIMPAN ==================== */
-function save_all($state, $dikenal = null) {
+function save_all($state, $dikenal = null, $hapus = null) {
   if (!is_array($state)) throw new Exception('Payload data kosong/invalid');
+
+  /* MODE PARSIAL: kehadiran `hapus` (array) menandai klien yang mengirim baris
+     BERUBAH saja. Baris yang tidak dikirim TIDAK dihapus; penghapusan lewat
+     daftar id eksplisit. Klien lama (tanpa `hapus`) tetap memakai perilaku
+     lama (`dikenal`, atau hapus_yang_hilang). */
+  $modeParsial = is_array($hapus);
 
   $pdo = db();
   $pdo->beginTransaction();
   try {
     $hitung = array();
     $bentrok = array();
-    $known = array('logs', '_rev');
+    $versi = array();          // cap yang digeser server, berkunci <koleksi>:<id>
+    $known = array('logs', '_rev', '_fitur');
 
     foreach (collections() as $nama => $c) {
       $known[] = $nama;
-      if (!array_key_exists($nama, $state)) continue;      // tidak dikirim → lewati
-      $rows = is_array($state[$nama]) ? $state[$nama] : array();
+      $ada = array_key_exists($nama, $state);
+      if (!$ada && !$modeParsial) continue;                // tidak dikirim → lewati
+      $rows = ($ada && is_array($state[$nama])) ? $state[$nama] : array();
       $kenal = (is_array($dikenal) && isset($dikenal[$nama]) && is_array($dikenal[$nama]))
              ? $dikenal[$nama] : null;
-      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $kenal);
+      $h = $modeParsial
+         ? (isset($hapus[$nama]) && is_array($hapus[$nama]) ? $hapus[$nama] : array())
+         : null;
+      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $kenal, $h, $versi);
     }
 
     // ---- logs: append-only (jejak audit tidak pernah ditimpa/dihapus) ----
@@ -606,6 +660,10 @@ function save_all($state, $dikenal = null) {
     // semuanya masuk. Aplikasi wajib memberitahu user kalau ini terisi —
     // kalau didiamkan, user mengira perubahannya tersimpan padahal tidak.
     'bentrok' => $bentrok,
+    /* Cap yang digeser server (klien <= versi server), berkunci
+       `<koleksi>:<id>` — bentuk yang SAMA dengan `_eachRow()` di klien. Klien
+       memasangnya supaya acuan bentrok berikutnya tidak basi. */
+    'versi'   => (object)$versi,
     'backend' => 'php-mysql',
     'ts'      => gmdate('c'),
   );

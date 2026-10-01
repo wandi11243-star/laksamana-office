@@ -153,13 +153,32 @@ const isiServer = () => ({ ok:true, data:{
   console.log('\n== Kontrak PHP ==');
   {
     const fn = PHP.slice(PHP.indexOf('function upsert_collection'), PHP.indexOf('function hapus_yang_hilang'));
-    cek('upsert_collection menerima daftar dikenal', /function upsert_collection\([^)]*\$kenal = null\)/.test(PHP));
+    cek('upsert_collection menerima daftar dikenal DAN hapus',
+        /function upsert_collection\([^)]*\$kenal = null, \$hapus = null, &\$versi = null\)/.test(PHP));
     cek('yang dihapus cuma dikenal − kiriman', /array_diff\(array_map\('strval', \$kenal\), \$ids\)/.test(fn));
     cek('kiriman kosong yang menghapus >3 baris ditahan', /count\(\$ids\) === 0 && count\(\$hapus\) > 3/.test(fn));
     cek('jalur dikenal TIDAK jatuh ke penghapusan lama',
         /if \(is_array\(\$kenal\)\) \{[\s\S]*?return count\(\$ids\);\s*\}/.test(fn));
-    cek('save_all meneruskan dikenal per koleksi', /\$dikenal\[\$nama\]/.test(PHP) && /upsert_collection\([^)]*\$kenal\)/.test(PHP));
-    cek('api.php meneruskan body dikenal', /save_all\([\s\S]{0,120}\$body\['dikenal'\]/.test(API));
+    /* --- mode parsial (A): `hapus` didahulukan, hapus_yang_hilang dilewati --- */
+    cek('ada jalur `hapus` eksplisit', /function hapus_id_eksplisit\(/.test(PHP));
+    cek('jalur `hapus` MENDAHULUI jalur dikenal & hapus_yang_hilang',
+        /if \(is_array\(\$hapus\)\) \{[\s\S]*?hapus_id_eksplisit[\s\S]*?return count\(\$ids\);\s*\}/.test(fn));
+    cek('save_all meneruskan dikenal + hapus per koleksi',
+        /\$dikenal\[\$nama\]/.test(PHP) && /\$hapus\[\$nama\]/.test(PHP) &&
+        /upsert_collection\([^)]*\$kenal, \$h, \$versi\)/.test(PHP));
+    cek('save_all menandai mode parsial dari kehadiran `hapus`', /\$modeParsial = is_array\(\$hapus\)/.test(PHP));
+    cek('api.php meneruskan body dikenal DAN hapus',
+        /save_all\([\s\S]{0,120}\$body\['dikenal'\][\s\S]{0,120}\$body\['hapus'\]/.test(API));
+    /* --- cap yang digeser server ditulis ke data & dipulangkan (laten) --- */
+    cek('cap server yang digeser ditulis ke `data`', /\$simpan\['updatedAt'\] = \$ua;/.test(fn));
+    cek('cap yang digeser dipulangkan lewat versi', /if \(\$ua !== \$uaKirim\)[\s\S]{0,120}\$versi\[\$namaKoleksi/.test(fn));
+    cek('save_all memulangkan versi', /'versi'\s*=> \(object\)\$versi/.test(PHP));
+    /* Iklan `_fitur` HARUS dari api.php dan digerbangi fungsi lib, supaya
+       "lib baru + api lama" (FTP unggah berkas-per-berkas) tidak pernah
+       mengiklankan mode yang belum bisa menangani `hapus`. */
+    cek('api.php mengiklankan delta, digerbangi fungsi lib',
+        /\$data\['_fitur'\] = array\('delta'\)/.test(API) && /function_exists\('hapus_id_eksplisit'\)/.test(API));
+    cek('baca_state TIDAK mengiklankan sendiri', !/\$out\['_fitur'\]/.test(PHP));
   }
 
   console.log('\n---------------------------------------');

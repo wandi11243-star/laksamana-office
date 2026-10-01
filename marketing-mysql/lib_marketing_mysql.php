@@ -664,6 +664,11 @@ function baca_state() {
   }
   $out['_versi'] = $maks;
 
+  /* CATATAN: `_fitur` SENGAJA TIDAK dipasang di sini — ia dipasang api.php,
+     dan HANYA kalau lib ini memang punya mkt_hapus_eksplisit(). Alasannya sama
+     dengan Konten: berkas diunggah satu per satu, jadi "lib baru + api lama"
+     mungkin, dan iklannya harus datang dari sisi yang benar-benar meneruskan
+     `hapus`. */
   return $out;
 }
 
@@ -693,7 +698,7 @@ function put_setting($pdo, $k, $v) {
 
    Bentrok dikumpulkan, bukan membatalkan seluruh simpanan — perubahan lain
    yang tidak bertabrakan tetap tersimpan. */
-function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, &$versi, $kenal = null) {
+function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, &$versi, $kenal = null, $hapus = null) {
   $tabel = $c['table'];
   $cols  = $c['cols'];
   $adaCreated = !empty($c['created']);
@@ -831,6 +836,12 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, &$v
     $st->execute($args);
   }
 
+  /* MODE PARSIAL (1 Oktober 2026). Klien hanya mengirim baris yang BERUBAH
+     plus daftar `hapus` eksplisit, jadi `kiriman` tidak lagi berarti "seluruh
+     isi yang saya pegang". `dikenal − kiriman`/`_sejak` di mode ini akan
+     menghapus semua baris yang tidak sedang disunting — karena itu `hapus`
+     didahulukan dan kedua aturan lama dilewati. */
+  if (is_array($hapus)) { mkt_hapus_eksplisit($pdo, $tabel, $ids, $hapus); return count($ids); }
   if (is_array($kenal)) { mkt_hapus_dikenal($pdo, $tabel, $ids, $kenal); return count($ids); }
   hapus_yang_hilang($pdo, $tabel, 'id', $ids, $sejak);
   return count($ids);
@@ -884,6 +895,20 @@ function mkt_hapus_dikenal($pdo, $tabel, $ids, $kenal) {
   return $del->rowCount();
 }
 
+/* Hapus baris yang disebut EKSPLISIT oleh klien mode parsial (`hapus`).
+   Hanya id yang benar-benar dihapus orang di layar yang masuk daftar ini.
+   Penjaga kiriman KOSONG yang membuang >3 baris tetap ada — tidak ada satu
+   tombol pun yang menghapus empat baris sekaligus. */
+function mkt_hapus_eksplisit($pdo, $tabel, $ids, $hapus) {
+  $hapus = array_values(array_unique(array_map('strval', $hapus)));
+  if (!count($hapus)) return 0;
+  if (count($ids) === 0 && count($hapus) > 3) return 0;
+  $del = $pdo->prepare('DELETE FROM ' . $tabel . ' WHERE id IN (' .
+                       implode(',', array_fill(0, count($hapus), '?')) . ')');
+  $del->execute($hapus);
+  return $del->rowCount();
+}
+
 function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $sejak) {
   if (count($ids) === 0) return 0;
   $sejak = (int)$sejak;
@@ -902,7 +927,7 @@ function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $sejak) {
    alasannya. Yang berbeda cuma tempat simpanannya: satu nilai JSON di tabel
    `settings`, bukan tabel tersendiri — jadi penggabungannya dikerjakan di
    PHP, bukan diserahkan ke ON DUPLICATE KEY UPDATE. */
-function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, &$versi, $kenal = null) {
+function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, &$versi, $kenal = null, $hapus = null) {
   $lama = baris_settings($pdo, $nama);
 
   /* Baris yang sudah ada, dikunci id. Yang TIDAK ber-id sengaja tidak ikut:
@@ -977,6 +1002,20 @@ function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, &$ver
      Dua jaring lama ikut dipertahankan: `_sejak` yang tidak dikirim (klien
      versi lama) tidak menghapus apa pun, dan kiriman kosong tidak pernah
      mengosongkan daftar. */
+  /* MODE PARSIAL (1 Oktober 2026): hanya id yang disebut klien yang dibuang —
+     lihat mkt_hapus_eksplisit() untuk aturan yang sama pada koleksi bertabel.
+     Penjaga kiriman kosong >3 baris tetap ada. */
+  if (is_array($hapus)) {
+    $hapusPeta = array_flip(array_map('strval', $hapus));
+    $calon = 0;
+    foreach ($adaId as $id => $r) if (isset($hapusPeta[(string)$id])) $calon++;
+    if (!(count($kirimId) === 0 && $calon > 3)) {
+      foreach (array_keys($hapusPeta) as $hid) unset($adaId[$hid]);
+    }
+    put_setting($pdo, 'extra:' . $nama, array_values($adaId));
+    return count($adaId);
+  }
+
   $hasil = array();
   if (is_array($kenal)) {
     /* Jalur `dikenal` — lihat mkt_hapus_dikenal(). Yang dibuang hanya baris
@@ -1004,8 +1043,14 @@ function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, &$ver
 }
 
 /* ==================== SIMPAN ==================== */
-function save_all($state, $dikenal = null) {
+function save_all($state, $dikenal = null, $hapus = null) {
   if (!is_array($state)) throw new Exception('Payload data kosong/invalid');
+
+  /* MODE PARSIAL: kehadiran `hapus` (array) menandai klien yang mengirim baris
+     BERUBAH saja. Baris yang tidak dikirim TIDAK dihapus; penghapusan lewat
+     daftar id eksplisit. Klien lama (tanpa `hapus`) tetap memakai aturan lama
+     (`dikenal` / `_sejak`). */
+  $modeParsial = is_array($hapus);
 
   $pdo = db();
   $pdo->beginTransaction();
@@ -1015,7 +1060,7 @@ function save_all($state, $dikenal = null) {
     /* `_sejak` = versi server yang dipegang klien saat ia memuat data.
        Dipakai HANYA untuk membatasi penghapusan — lihat hapus_yang_hilang(). */
     $sejak = isset($state['_sejak']) ? ms_valid($state['_sejak']) : 0;
-    $known = array('activities', '_rev', '_sejak', '_versi');
+    $known = array('activities', '_rev', '_sejak', '_versi', '_fitur');
     /* CAP YANG BENAR-BENAR DIPAKAI, dikembalikan ke klien.
 
        Cap yang dipakai server tidak selalu sama dengan yang dikirim klien:
@@ -1040,10 +1085,14 @@ function save_all($state, $dikenal = null) {
 
     foreach (collections() as $nama => $c) {
       $known[] = $nama;
-      if (!array_key_exists($nama, $state)) continue;      // tidak dikirim → lewati
-      $rows = is_array($state[$nama]) ? $state[$nama] : array();
+      $ada = array_key_exists($nama, $state);
+      if (!$ada && !$modeParsial) continue;                // tidak dikirim → lewati
+      $rows = ($ada && is_array($state[$nama])) ? $state[$nama] : array();
       $kenal = (is_array($dikenal) && isset($dikenal[$nama]) && is_array($dikenal[$nama])) ? $dikenal[$nama] : null;
-      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $sejak, $versi, $kenal);
+      $h = $modeParsial
+         ? (isset($hapus[$nama]) && is_array($hapus[$nama]) ? $hapus[$nama] : array())
+         : null;
+      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $sejak, $versi, $kenal, $h);
     }
 
     /* Koleksi yang tinggal di `settings` — digabung PER BARIS, bukan ditimpa.
@@ -1053,10 +1102,14 @@ function save_all($state, $dikenal = null) {
        hiasan yang tidak menahan apa pun. */
     foreach (kol_settings() as $nama) {
       $known[] = $nama;
-      if (!array_key_exists($nama, $state)) continue;   // tidak dikirim -> lewati
-      $rows = is_array($state[$nama]) ? $state[$nama] : array();
+      $ada = array_key_exists($nama, $state);
+      if (!$ada && !$modeParsial) continue;             // tidak dikirim -> lewati
+      $rows = ($ada && is_array($state[$nama])) ? $state[$nama] : array();
       $kenal = (is_array($dikenal) && isset($dikenal[$nama]) && is_array($dikenal[$nama])) ? $dikenal[$nama] : null;
-      $hitung[$nama] = upsert_settings_collection($pdo, $nama, $rows, $bentrok, $sejak, $versi, $kenal);
+      $h = $modeParsial
+         ? (isset($hapus[$nama]) && is_array($hapus[$nama]) ? $hapus[$nama] : array())
+         : null;
+      $hitung[$nama] = upsert_settings_collection($pdo, $nama, $rows, $bentrok, $sejak, $versi, $kenal, $h);
     }
 
     // ---- activities: append-only ----

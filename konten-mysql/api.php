@@ -45,7 +45,14 @@ if (defined('API_TOKEN') && API_TOKEN !== '') {
 
 try {
   if ($action === 'getAll') {
-    keluar(array('ok' => true, 'data' => baca_state()));
+    $data = baca_state();
+    /* IKLAN MODE PARSIAL — di sini, bukan di baca_state(), justru supaya
+       "lib baru + api lama" tidak pernah mengiklankannya. api.php yang baru
+       meneruskan `hapus` ke save_all; kalau lib yang baru sudah ada tapi api
+       belum, klien harus TETAP memakai state utuh. Gating-nya function_exists
+       pada fungsi yang HANYA ada di lib baru. */
+    if (function_exists('hapus_id_eksplisit')) $data['_fitur'] = array('delta');
+    keluar(array('ok' => true, 'data' => $data));
 
   } else if ($action === 'stats') {
     keluar(array('ok' => true, 'data' => stats()));
@@ -67,7 +74,8 @@ try {
   } else if ($action === 'saveAll') {
     $lock = db_lock();
     try { $out = save_all(isset($body['data']) ? $body['data'] : null,
-                          isset($body['dikenal']) && is_array($body['dikenal']) ? $body['dikenal'] : null); }
+                          isset($body['dikenal']) && is_array($body['dikenal']) ? $body['dikenal'] : null,
+                          isset($body['hapus']) && is_array($body['hapus']) ? $body['hapus'] : null); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
 

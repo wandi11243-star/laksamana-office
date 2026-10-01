@@ -165,9 +165,19 @@ async function simpanTab(w) {
     cek('koleksi settings: hanya baris dikenal yang boleh dibuang',
         /isset\(\$kirimId\[\$id\]\) \|\| !isset\(\$kenalPeta\[\(string\)\$id\]\) \|\| \$tahan/.test(us));
     cek('koleksi settings: kiriman kosong >3 ditahan', /count\(\$kirimId\) === 0 && \$calon > 3/.test(us));
-    cek('save_all meneruskan dikenal ke KEDUA jenis koleksi',
-        /upsert_collection\([^;]*\$kenal\)/.test(sa) && /upsert_settings_collection\([^;]*\$kenal\)/.test(sa));
-    cek('api.php meneruskan dikenal', /save_all\([\s\S]{0,140}\$body\['dikenal'\]/.test(API));
+    cek('save_all meneruskan dikenal + hapus ke KEDUA jenis koleksi',
+        /upsert_collection\([^;]*\$kenal, \$h\)/.test(sa) && /upsert_settings_collection\([^;]*\$kenal, \$h\)/.test(sa));
+    cek('api.php meneruskan dikenal DAN hapus',
+        /save_all\([\s\S]{0,140}\$body\['dikenal'\][\s\S]{0,140}\$body\['hapus'\]/.test(API));
+    /* --- mode parsial (A) --- */
+    cek('tabel: ada penghapusan eksplisit',
+        /function mkt_hapus_eksplisit\(/.test(LIB) &&
+        /if \(is_array\(\$hapus\)\) \{ mkt_hapus_eksplisit/.test(up));
+    cek('settings: hapus eksplisit mendahului jalur dikenal & _sejak', /if \(is_array\(\$hapus\)\) \{[\s\S]*?array_values\(\$adaId\)/.test(us));
+    cek('save_all menandai mode parsial', /\$modeParsial = is_array\(\$hapus\)/.test(sa));
+    cek('api.php mengiklankan delta, digerbangi fungsi lib',
+        /\$data\['_fitur'\] = array\('delta'\)/.test(API) && /function_exists\('mkt_hapus_eksplisit'\)/.test(API));
+    cek('baca_state TIDAK mengiklankan sendiri', !/\$out\['_fitur'\]/.test(LIB));
   }
 
   console.log('\n---------------------------------------');

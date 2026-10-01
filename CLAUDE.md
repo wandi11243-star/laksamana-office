@@ -7109,6 +7109,73 @@ Modul Konten seluruhnya terbungkus IIFE (`const COMS = (function(){…})()`), ja
 `eval` KE DALAM IIFE saat uji jalan, bukan menambah kait ke berkas yang
 di-deploy. Pola yang sama dengan `uji-vendor.js` untuk modul BD.
 
+### Konten & Marketing: simpan parsial + gambar dikecilkan (1 Oktober 2026)
+
+Keluhan user: modul Konten terasa lambat dan **kadang gagal menyimpan**, terutama
+dari HP. Diukur di produksi: `getAll` Konten 4,1 MB (2,77 MB gzip) dan **setiap
+simpan mengirim ulang seluruh state ±4 MB tanpa kompresi**. Isinya mayoritas
+gambar base64 di dalam data: `content[].refs[].v` (2,8 MB) dan
+`kols[].rateImage` (0,84 MB). Marketing kena hal yang sama: 1,74 MB (79%) dari
+`designreqs[].refs[].v` — dari TIGA baris saja — dan setiap simpan siapa pun
+membawanya.
+
+Dua perbaikan, keduanya di KEDUA modul:
+
+**A. SIMPAN PARSIAL (delta).** Klien hanya mengirim baris yang BERUBAH + daftar
+`hapus` eksplisit; server tidak pernah menghapus baris yang tidak dikirim.
+
+- **Hanya menyala kalau server mengiklankannya** (`_fitur:['delta']` di
+  `getAll`). `konten-mysql` dulu diunggah MANUAL, jadi "HTML baru, PHP lama"
+  pasti terjadi — dan PHP lama yang menerima baris berubah saja TANPA `dikenal`
+  jatuh ke `hapus_yang_hilang` dan **menghapus seluruh baris yang tidak
+  dikirim**. Sebelum iklannya ada, klien memakai state utuh + `dikenal`.
+- **`hapus` didahulukan, dan `dikenal − kiriman` TIDAK dipakai di mode ini.**
+  Di mode parsial `kiriman` cuma baris yang disunting; memakai aturan lama sama
+  dengan menghapus semua yang lain.
+- Daftarnya dibangun dari `_dikenal` (id yang pernah dilihat tab) **dikurangi
+  isi DB sekarang** — jadi hanya yang benar-benar dihapus di layar yang masuk.
+- Penjaga lama tetap: kiriman kosong yang membuang **>3 baris** ditahan
+  (`hapus_id_eksplisit` / `mkt_hapus_eksplisit`,
+  `upsert_settings_collection`).
+- `logs` (Konten) dikirim hanya yang BARU (`_logNaik`); `activities` (Marketing)
+  sudah lewat jalur baris kotor. Server tetap `INSERT IGNORE`, jadi salah tandai
+  pun tidak menggandakan.
+- **Backend: `save_all($state, $dikenal, $hapus)`** — `api.php` meneruskan
+  `$body['hapus']`. Kehadiran `hapus` (array) menandai mode parsial; klien lama
+  tetap dilayani `dikenal`/`_sejak`/`hapus_yang_hilang`.
+
+**B. GAMBAR BARU DIKECILKAN.** `kecilkanGambar()` (Konten) / `drKecilkanGambar()`
+(Marketing): maks 1280px sisi terpanjang, JPEG, mutu diturunkan bertahap sampai
+< 700 KB. Dipakai `addRefImages`, `onKolRateFile` (1600px/900KB), `drRefFoto`.
+Baris LAMA tidak disentuh (itu opsi C — pindah ke berkas — belum dikerjakan).
+Gagal di tahap mana pun **bersuara**; gambar yang diam-diam tidak tersimpan baru
+ketahuan saat dibuka orang lain.
+
+**Laten Konten yang sekalian ditutup:** saat server menaikkan cap `updated_at`
+(cap klien ≤ versi server), cap itu sekarang **ditulis ke `data`** dan
+**dipulangkan sebagai `versi`**; klien memasangnya lewat `terapkanVersiServer()`
+sebelum `refreshSnapshot()`. Tanpa itu suntingan kedua pada baris yang sama
+dilaporkan bentrok padahal tidak ada yang menyalip. Aturan yang sama sudah lebih
+dulu ada di Event & Marketing.
+
+**`konten-mysql` sekarang IKUT di `deploy.yml` DAN `deploy-dev.yml`**
+(`konten-mysql/` → `/public_html/office/konten-api-mysql/`). Sebelumnya backend
+ini diunggah manual — persis penyakit kompas/bd/event: perbaikan backend hidup
+di repo tapi tidak pernah mendarat, dan gejalanya cuma fitur yang diam.
+
+```bash
+node tools/uji-delta-konten.js      # 23 pemeriksaan, jsdom + server tiruan HIDUP
+node tools/uji-delta-marketing.js   # 17 pemeriksaan, jsdom + server tiruan HIDUP
+node tools/uji-konten-simpan.js     # 27 pemeriksaan (termasuk kontrak PHP)
+node tools/uji-dikenal-marketing.js # 22 pemeriksaan (jalur lama tetap ada)
+```
+
+Server tiruannya MENIRU aturan PHP (`upsert_collection` + hapus eksplisit), dan
+asersinya membaca **ISI SERVER**, bukan layar. Empat mutasi yang harus tertangkap:
+klien kembali mengirim state utuh (payload membengkak), mode parsial memakai
+`dikenal − kiriman` (baris tak berubah terhapus), penghapusan lokal tidak masuk
+`hapus` (gagal diam-diam), dan cap server tidak dipasang (bentrok palsu).
+
 ### Master Vendor: di PURCHASING, dibaca Finance & BD (28 Agustus 2026)
 
 `deploy/stock/purchasing/` → tab **Database & Vendor** → *Daftar Kontak Vendor*.
