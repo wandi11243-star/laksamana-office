@@ -614,24 +614,52 @@ function refreshSnapshot(){
   const snap = {}, ver = {};
   _eachRow(DB, (key, r) => { snap[key] = _sig(r); ver[key] = r.updatedAt || 0; });
   _snap = snap; _serverVer = ver;
+  kenaliBaris();
 }
+
+/* BARIS YANG PERNAH DILIHAT TAB INI, dikirim bersama saveAll sebagai `dikenal`
+   (1 Oktober 2026). Server hanya menghapus baris yang ada di daftar ini tapi
+   tidak ada di kiriman — baris yang dibuat kru lain sesudah halaman ini dibuka
+   tidak pernah dilihatnya, jadi tidak mungkin terhapus olehnya. Modul ini
+   tidak pernah menarik ulang data sesudah dibuka, jadi tanpa daftar ini satu
+   tab yang dibiarkan terbuka seharian menghapus semua yang dibuat orang lain
+   hari itu pada simpan berikutnya. Pola yang sama dengan BD OS.
+
+   Hanya BERTAMBAH, tidak pernah dikurangi: id yang sudah dihapus tetap di
+   sini dan itu tidak berbahaya. Mengosongkannya justru membuat penghapusan
+   berikutnya diam-diam gagal. */
+const _dikenal = {};
+function kenaliBaris(){ _eachRow(DB || {}, key => { _dikenal[key] = 1; }); }
+function daftarDikenal(){
+  const out = {}; KT_COLS.forEach(k => { out[k] = []; });
+  Object.keys(_dikenal).forEach(key => {
+    const i = key.indexOf(':'), k = key.slice(0, i);
+    if (out[k]) out[k].push(key.slice(i + 1));
+  });
+  return out;
+}
+/* Hanya true sesudah getAll BERHASIL. Penyimpanan sebelum itu — atau sesudah
+   pemuatan yang gagal — mengirim state yang tidak pernah berasal dari server. */
+let DATA_DARI_SERVER = false;
 
 // Fungsi SAVE: POST ke MySQL ( ../konten-api-mysql/api.php )
 let _saveBusy = false, _saveLagi = false;
 async function save() {
   // Jangan pernah kirim payload kosong/rusak (bisa menimpa data di server).
-  if (!DB || typeof DB !== 'object' || !DB.users) {
-    console.warn("Save dibatalkan: DB belum siap.");
+  if (!DATA_DARI_SERVER || !DB || typeof DB !== 'object' || !DB.users) {
+    console.warn("Save dibatalkan: DB belum dimuat dari server.");
     return;
   }
   if (_saveBusy) { _saveLagi = true; return; }   // hindari dua POST balapan
   _saveBusy = true;
+  _belumNaik = true;
   try {
     stampChanges();
+    kenaliBaris();           // baris yang barusan dibuat di tab ini ikut dikenal
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // simple request, tanpa preflight CORS
-      body: JSON.stringify({ action: 'saveAll', data: buildPayload() }),
+      body: JSON.stringify({ action: 'saveAll', data: buildPayload(), dikenal: daftarDikenal() }),
       redirect: 'follow'
     });
     const out = await res.json().catch(() => null);
@@ -639,21 +667,37 @@ async function save() {
       throw new Error(out && out.error ? out.error : 'Respons server tidak valid');
     }
     const bentrok = out.data.bentrok || [];
+    _gagalBeruntun = 0; clearTimeout(_ulangTimer);
     if (bentrok.length) {
       // Kru lain sudah mengubah data yang sama duluan. Jangan timpa diam-diam.
       toast('Sebagian perubahan tidak tersimpan — ' + bentrok.length +
             ' data sudah diubah kru lain. Muat ulang halaman.', 'err');
     } else {
       refreshSnapshot();          // versi kita kini = versi server
+      _belumNaik = false;
     }
   } catch (error) {
-    toast("Gagal menyimpan data ke server", "err");
+    /* Dulu: satu toast, lalu tidak ada apa-apa lagi — tidak ada percobaan
+       ulang, dan menutup tab membuang perubahannya tanpa satu pun peringatan.
+       Sekarang dicoba ulang sendiri (5 dtk, 10 dtk, … paling lama 60 dtk),
+       toast-nya cukup sekali, dan beforeunload di bawah menahan tab ditutup
+       selama masih ada yang belum naik. saveAll aman diulang: isinya state
+       utuh, jadi kiriman kedua tidak menggandakan apa pun. */
+    _gagalBeruntun++;
+    if (_gagalBeruntun === 1) toast("Gagal menyimpan ke server — dicoba ulang otomatis. Jangan tutup halaman.", "err");
     console.error("Save Error:", error);
+    clearTimeout(_ulangTimer);
+    _ulangTimer = setTimeout(save, Math.min(60000, 5000 * _gagalBeruntun));
   } finally {
     _saveBusy = false;
     if (_saveLagi) { _saveLagi = false; save(); }
   }
 }
+/* true sejak sebuah simpan dimulai sampai server menerimanya TANPA bentrok. */
+let _belumNaik = false, _gagalBeruntun = 0, _ulangTimer = null;
+window.addEventListener('beforeunload', e => {
+  if (_saveBusy || _belumNaik) { e.preventDefault(); e.returnValue = ''; }
+});
 
 // Fungsi INIT melalui GET Request ke Web App
 async function initAPI() {
@@ -671,15 +715,22 @@ async function initAPI() {
     });
     const jsonResult = await response.json();
 
-    if (jsonResult.ok && jsonResult.data) {
-      DB = jsonResult.data;
+    /* Server yang MENJAWAB TAPI MENOLAK ({ok:false} — MySQL sesaat bermasalah,
+       token salah) DULU jatuh ke cabang seed di bawah: DB tetap {}, seed()
+       melahirkan users:[u_admin], lalu save() mengirimnya — dan server
+       menghapus SELURUH kru Konten kecuali Admin, karena mereka "tidak ada di
+       kiriman". Satu gangguan sesaat cukup untuk itu, tanpa satu pun galat
+       (1 Oktober 2026). Sekarang ia diperlakukan sama dengan jaringan putus:
+       catch di bawah menahan layar loading, dan tidak ada yang tersimpan. */
+    if (!jsonResult || !jsonResult.ok || !jsonResult.data || typeof jsonResult.data !== 'object') {
+      throw new Error((jsonResult && jsonResult.error) || 'balasan server tidak valid');
     }
+    DB = jsonResult.data;
+    DATA_DARI_SERVER = true;
 
-    // Jika DB kosong atau belum ada user, jalankan seed awal dari lokal
-    if (!DB || typeof DB !== 'object') {
-      DB = {};
-    }
-    
+    /* Seed HANYA untuk database yang memang kosong — server sudah menjawab ok
+       dan memang belum punya satu kru pun (pemasangan baru). */
+
     if (!DB.users || Object.keys(DB.users).length === 0) { 
       seed(); 
       save();

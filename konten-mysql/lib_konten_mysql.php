@@ -410,7 +410,7 @@ function put_setting($pdo, $k, $v) {
 
    Bentrok dikumpulkan, bukan membatalkan seluruh simpanan — perubahan lain
    yang tidak bertabrakan tetap tersimpan. */
-function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi) {
+function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $kenal = null) {
   $tabel = $c['table'];
   $cols  = $c['cols'];
   $adaCreated = !empty($c['created']);
@@ -489,6 +489,30 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi) {
     $st->execute($args);
   }
 
+  /* HANYA BARIS YANG PERNAH DILIHAT TAB INI YANG BOLEH DIHAPUS (1 Oktober 2026).
+     Modul Konten tidak pernah menarik ulang data sesudah halaman dibuka, jadi
+     satu tab bisa basi seharian penuh. Dengan aturan lama (hapus semua yang
+     tidak dikirim) tab basi itu MENGHAPUS konten, ads, KOL, atau shooting yang
+     dibuat kru lain sesudah ia dibuka — tanpa satu pun galat, dan tabel
+     `logs` tidak mencatatnya. Bug yang sama persis menghilangkan PR-11 di BD
+     OS (24 September 2026); polanya disalin dari sana.
+
+     `dikenal` = id yang pernah dilihat klien (dari getAll + yang ia buat
+     sendiri). Yang dihapus cuma dikenal − kiriman: baris yang lahir di tempat
+     lain tidak ada di daftarnya, jadi tidak mungkin terhapus olehnya.
+     Kiriman KOSONG yang sekaligus menghapus >3 baris ditahan — tidak ada satu
+     tombol pun yang membuang empat baris sekaligus. Klien lama yang tidak
+     mengirim daftarnya tetap dilayani perilaku lama. */
+  if (is_array($kenal)) {
+    $hapus = array_values(array_diff(array_map('strval', $kenal), $ids));
+    if (count($hapus) && !(count($ids) === 0 && count($hapus) > 3)) {
+      $del = $pdo->prepare('DELETE FROM ' . $tabel . ' WHERE id IN (' .
+                           implode(',', array_fill(0, count($hapus), '?')) . ')');
+      $del->execute($hapus);
+    }
+    return count($ids);
+  }
+
   hapus_yang_hilang($pdo, $tabel, 'id', $ids);
   return count($ids);
 }
@@ -504,7 +528,7 @@ function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids) {
 }
 
 /* ==================== SIMPAN ==================== */
-function save_all($state) {
+function save_all($state, $dikenal = null) {
   if (!is_array($state)) throw new Exception('Payload data kosong/invalid');
 
   $pdo = db();
@@ -518,7 +542,9 @@ function save_all($state) {
       $known[] = $nama;
       if (!array_key_exists($nama, $state)) continue;      // tidak dikirim → lewati
       $rows = is_array($state[$nama]) ? $state[$nama] : array();
-      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama);
+      $kenal = (is_array($dikenal) && isset($dikenal[$nama]) && is_array($dikenal[$nama]))
+             ? $dikenal[$nama] : null;
+      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $kenal);
     }
 
     // ---- logs: append-only (jejak audit tidak pernah ditimpa/dihapus) ----
