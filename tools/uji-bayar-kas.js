@@ -93,8 +93,15 @@ function domKas(opt) {
         if (u.indexOf('kompas-api') > -1)
           return balas({ ok:true, data: opt.kompas || KOMPAS });
         /* ---- finance-api ---- */
+        /* opt.konflik: bayarSave pertama ditolak sebagai bentrok versi, dan
+           brankasGet sesudahnya memulangkan opt.bkSegar — persis yang terjadi
+           kalau tab lain menyimpan duluan (1 Oktober 2026). */
         if (body.action === 'brankasGet')
-          return balas({ ok:true, data: opt.bk || { data:null, akses:{}, peran:{} } });
+          return balas({ ok:true, data: (opt._konflikTerjadi && opt.bkSegar) || opt.bk || { data:null, akses:{}, peran:{} } });
+        if (body.action === 'bayarSave' && opt.konflik && !opt._konflikTerjadi) {
+          opt._konflikTerjadi = true;
+          return balas({ ok:false, error:'conflict', conflict:true, oleh:'Cindy' });
+        }
         if (body.action === 'bayarSave') return balas(opt.gagalSimpan
           ? { ok:false, error:'server sedang mati' } : { ok:true, data:{ saved:true } });
         if (body.action === 'brankasSave') return balas({ ok:true, data:{ saved:true } });
@@ -419,6 +426,51 @@ async function bukaBayar(w) {
     dom.window.close();
   }
 
+  /* ================= 6b. bentrok versi: dua tab Kas Kecil ================= */
+  /* Tab ini memuat daftar KOSONG. Sesudahnya tab lain (Cindy) menambah baris
+     'Dari tab lain'. Dulu simpan dari tab ini MENGHAPUS baris itu tanpa satu
+     pun galat, karena yang dikirim daftar milik tab ini apa adanya. Sekarang
+     server menolak; halaman memuat ulang, drafnya tetap utuh, dan simpan
+     ulang mengirim KEDUA baris. */
+  console.log('\n== Draf: bentrok versi dengan tab lain ==');
+  {
+    const barisLain = { id:'px', name:'Dari tab lain', cat:'', amount:500000, dari:'uob',
+      vendor:'', batch:'2026-08-27', status:'scheduled', bukti:null };
+    const { dom, panggilan } = domKas({
+      konflik: true, vendors: {},
+      bk: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], bayar:[], setting:{} },
+            akses:{}, peran:{}, ver:{ lain:100, bayar:200 } },
+      bkSegar: { data:{ rekening:[], piutang:[], investor:[], mutasi:[], bayar:[ barisLain ], setting:{} },
+            akses:{}, peran:{}, ver:{ lain:100, bayar:300 } }
+    });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    await bukaBayar(w);
+    d.getElementById('by_name').value = 'Bahan baku';
+    d.getElementById('by_amt').value = '885.000';
+    w.byTambahDraf(); await tunggu(100);
+    d.getElementById('by_batch').value = '2026-08-27';
+    await w.bySimpanDraf(); await tunggu(300);
+    const kirim1 = panggilan.filter(p => p.body && p.body.action === 'bayarSave');
+    cek('versi yang dipegang ikut dikirim (baseVer)', kirim1.length === 1 && kirim1[0].body.baseVer === 200,
+        JSON.stringify(kirim1.map(k => k.body.baseVer)));
+    cek('bentrok dikatakan, berikut nama yang menyimpan duluan',
+        panggilan.some(p => p.alert && /TIDAK disimpan/.test(p.alert) && /Cindy/.test(p.alert)));
+    const bayar = w.eval('BK.data.bayar');
+    cek('data terbaru dimuat ulang — baris tab lain TIDAK hilang',
+        bayar.length === 1 && bayar[0].id === 'px', JSON.stringify(bayar));
+    cek('rollback tidak menimpa data segar dengan salinan lama', w.eval('BK.ver.bayar') === 300);
+    cek('draf tetap utuh untuk disimpan ulang', d.querySelectorAll('.qa-sel').length > 0);
+    d.getElementById('by_batch').value = '2026-08-27';
+    await w.bySimpanDraf(); await tunggu(300);
+    const kirim2 = panggilan.filter(p => p.body && p.body.action === 'bayarSave').pop();
+    const nama2 = (kirim2 && kirim2.body.bayar || []).map(r => r.name).sort();
+    cek('simpan ulang membawa KEDUA baris', JSON.stringify(nama2) === JSON.stringify(['Bahan baku','Dari tab lain']),
+        JSON.stringify(nama2));
+    cek('dan memakai versi yang baru', kirim2 && kirim2.body.baseVer === 300);
+    dom.window.close();
+  }
+
   /* ================= 7. lembar lama terarsipkan sendiri ================= */
   console.log('\n== Lembar berjalan & arsip ==');
   {
@@ -548,14 +600,28 @@ async function bukaBayar(w) {
     const PHP = fs.readFileSync(path.join(ROOT, 'finance-mysql', 'lib_finance_mysql.php'), 'utf8');
     cek('`bayar` masih di daftar kunci brankas_simpan()',
         /foreach \(array\([^)]*'bayar'[^)]*\) as \$k\)/.test(PHP));
-    /* Penulis sempit membaca blob dulu lalu mengganti SATU kunci — itu yang
-       membuat dua panel bisa hidup berdampingan di atas satu blob. */
-    const fn = PHP.slice(PHP.indexOf('function brankas_bayar_simpan'),
-                         PHP.indexOf('function brankas_akses_simpan'));
-    cek('penulis sempit membaca blob dulu', fn.indexOf('brankas_baca()') > -1);
-    cek('dan hanya mengganti kunci bayar', /\$data\['bayar'\] = \$rows/.test(fn));
-    cek('penyaringan kuncinya tetap lewat brankas_simpan()',
-        fn.indexOf('brankas_simpan(') > -1);
+    /* Penulis sempit mengganti SATU kunci, dan blob lainnya dibaca di DALAM
+       transaksi yang sama — itu yang membuat dua panel bisa hidup
+       berdampingan di atas satu blob (bentuk sejak 1 Oktober 2026: satu
+       penulis brankas_tulis() untuk kedua panel). */
+    const potong = (a, b) => PHP.slice(PHP.indexOf(a), PHP.indexOf(b));
+    const fn = potong('function brankas_bayar_simpan', 'function brankas_akses_simpan');
+    const tulis = potong('function brankas_tulis', 'function brankas_simpan');
+    const simpanBk = potong('function brankas_simpan', 'function brankas_bayar_simpan');
+    cek('penulis sempit cuma menulis kunci bayar',
+        /brankas_tulis\(array\('bayar' => \$rows\), array\('bayar'\), 'bayar'/.test(fn));
+    cek('blob lama dibaca di dalam transaksi berkunci (FOR UPDATE)',
+        tulis.indexOf('FOR UPDATE') > -1 && tulis.indexOf('beginTransaction') > -1);
+    cek('penyaringan kuncinya tetap satu tempat (brankas_saring)',
+        tulis.indexOf('brankas_saring(') > -1);
+    /* Panel Brankas TIDAK boleh lagi menulis `bayar`: salinannya bisa basi
+       berjam-jam, dan menuliskannya menghapus baris yang diketik di Kas Kecil. */
+    const kunciBk = (simpanBk.match(/brankas_tulis\(\$data, array\(([^)]*)\)/) || [, ''])[1];
+    cek('brankasSave tidak menulis bayar', kunciBk !== '' && kunciBk.indexOf("'bayar'") < 0, kunciBk);
+    cek('versi dipisah per pemilik (lain / bayar)',
+        /'lain'/.test(simpanBk) && /'bayar'\)/.test(fn));
+    cek('bentrok versi ditolak, bukan ditimpa',
+        /\(int\)\$baseVer !== \$ver\[\$jenis\]/.test(tulis) && tulis.indexOf("'conflict' => true") > -1);
   }
 
   console.log('\n---------------------------------------');

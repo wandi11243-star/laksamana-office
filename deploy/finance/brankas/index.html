@@ -888,6 +888,7 @@ async function muatSemua() {
   if (!BK.data) BK.data = {};
   ['rekening','piutang','bayar','investor','mutasi'].forEach(k => { if (!Array.isArray(BK.data[k])) BK.data[k] = []; });
   if (!BK.data.setting || typeof BK.data.setting !== 'object') BK.data.setting = {};
+  BK_TERSIMPAN = JSON.stringify(BK.data);
 
   /* Kompas boleh gagal tanpa mematikan modul: yang bergantung padanya cuma
      halaman Saldo. Kalau seluruh modul ikut mati, piutang & rencana bayar
@@ -908,13 +909,43 @@ async function muatSemua() {
        ? c.value.vendors : null;
   setSync('ok', '✓ Tersimpan');
 }
-/* State dikirim UTUH. Backend menulis blob sekali jalan, jadi mengirim
-   sepotong berarti sisanya lenyap tanpa satu pun pesan. */
+/* State dikirim UTUH, tapi server cuma menulis kunci milik panel ini —
+   `bayar` milik Kas Kecil diambil dari server, bukan dari kiriman ini
+   (lihat brankas_tulis() di finance-mysql).
+
+   baseVer = versi yang dipegang halaman ini (1 Oktober 2026). Kalau tab lain
+   sudah menyimpan sesudah halaman ini memuat, server MENOLAK alih-alih
+   menimpa. Yang dilakukan sesudahnya: data terbaru dimuat ulang dan layar
+   digambar dari situ. Membiarkan salinan lama di layar berarti baris yang
+   tidak pernah tersimpan terlihat seolah ada, dan simpan berikutnya ditolak
+   lagi dengan sebab yang sama. */
+/* BK_TERSIMPAN = salinan BK.data yang TERAKHIR diterima server. Gagal simpan
+   mengembalikan layar ke sana: tanpa itu baris yang ditolak tetap terlihat
+   seolah tercatat, lenyap saat halaman dimuat ulang, dan kalau orangnya
+   mengirim ulang formnya baris itu masuk DUA kali. */
+let MENYIMPAN = false, BK_TERSIMPAN = null;
+/* Tab yang ditutup di tengah simpan membuat orang tidak pernah tahu ia
+   tersimpan atau tidak — dan di halaman ini yang disimpan catatan uang. */
+window.addEventListener('beforeunload', e => { if (MENYIMPAN) { e.preventDefault(); e.returnValue = ''; } });
 async function simpan() {
   setSync('saving', 'Menyimpan…');
+  MENYIMPAN = true;
   try {
-    const r = await postJson(API_BK, { action:'brankasSave', data:BK.data, oleh:(CURRENT_USER && CURRENT_USER.name) || '' });
+    const r = await postJson(API_BK, { action:'brankasSave', data:BK.data,
+      baseVer:(BK.ver && BK.ver.lain) || 0, oleh:(CURRENT_USER && CURRENT_USER.name) || '' });
+    if (r && r.conflict) {
+      setSync('err', '⚠ Tidak tersimpan — data sudah diubah ' + esc(r.oleh || 'pengguna lain'));
+      alert('Perubahan ini TIDAK disimpan.\n\n'
+        + (r.oleh || 'Pengguna lain') + ' sudah menyimpan data Brankas sesudah halaman ini dibuka. '
+        + 'Menyimpan sekarang akan menghapus pekerjaannya.\n\n'
+        + 'Data terbaru akan dimuat — ulangi perubahan Anda sesudahnya.');
+      try { await muatSemua(); } catch (e2) {}
+      render();
+      return false;
+    }
     if (!r || !r.ok) throw new Error((r && r.error) || 'gagal');
+    if (r.data && r.data.ver) BK.ver = r.data.ver;
+    BK_TERSIMPAN = JSON.stringify(BK.data);
     setSync('ok', '✓ Tersimpan');
     return true;
   } catch (e) {
@@ -923,8 +954,9 @@ async function simpan() {
        dan "tersimpan" yang bohong adalah kegagalan paling mahal di repo ini. */
     setSync('err', '⚠ Gagal menyimpan: ' + esc(e.message || e));
     alert('Gagal menyimpan ke server.\n\n' + (e.message || e) + '\n\nPerubahan TIDAK tersimpan. Coba lagi.');
+    if (BK_TERSIMPAN) { BK.data = JSON.parse(BK_TERSIMPAN); render(); }
     return false;
-  }
+  } finally { MENYIMPAN = false; }
 }
 
 /* ============ SALDO DARI REKAP PENJUALAN ============

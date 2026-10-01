@@ -7072,12 +7072,42 @@ async function muatBayar() {
     VD = (j && j.vendors && typeof j.vendors === 'object') ? j.vendors : null;
   } catch (e) { VD = null; }
 }
-/* Pengganti simpan() milik panel Brankas. Yang dikirim HANYA daftar bayar. */
+/* Pengganti simpan() milik panel Brankas. Yang dikirim HANYA daftar bayar.
+
+   baseVer = versi daftar bayar yang dipegang halaman ini (1 Oktober 2026).
+   Dua tab Kas Kecil dulu saling menimpa: tab yang dibuka pagi lalu menyimpan
+   sore hari MENGHAPUS baris yang ditambahkan tab lain siang harinya. Sekarang
+   server menolak, dan BK dimuat ulang di sini.
+
+   BK diganti OBJEK BARU, bukan disunting di tempat — itu yang membuat
+   rollback di pemanggil (`BK.data.bayar = sebelum`) tidak bisa menimpa data
+   segar dengan salinan lama: pemanggil memeriksa BK masih objek yang sama.
+   Draf di lembar isian hidup di luar BK, jadi ia tetap utuh dan cukup
+   disimpan ulang. */
+let BY_MENYIMPAN = false;     // simpanBayar() sedang menunggu jawaban server
 async function simpanBayar() {
   setSync('saving', 'Menyimpan…');
+  BY_MENYIMPAN = true;
   try {
-    await byPostFin({ action:'bayarSave', bayar:(BK && BK.data && BK.data.bayar) || [],
-                      oleh:(CURRENT_USER && CURRENT_USER.name) || '' });
+    const r = await fetch(API_KK_URL, { method:'POST', redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({ action:'bayarSave', bayar:(BK && BK.data && BK.data.bayar) || [],
+        baseVer:(BK && BK.ver && BK.ver.bayar) || 0, oleh:(CURRENT_USER && CURRENT_USER.name) || '' }) });
+    const t = await r.text();
+    let j = null; try { j = JSON.parse(t); } catch (e) {}
+    if (!j) throw new Error('balasan bukan JSON (finance-api-mysql belum ter-deploy?)');
+    if (j.conflict) {
+      setSync('err', '⚠ Tidak tersimpan — data sudah diubah ' + esc(j.oleh || 'pengguna lain'));
+      alert('Perubahan ini TIDAK disimpan.\n\n'
+        + (j.oleh || 'Pengguna lain') + ' sudah menyimpan Planning Pembayaran sesudah halaman ini dibuka. '
+        + 'Menyimpan sekarang akan menghapus pekerjaannya.\n\n'
+        + 'Data terbaru akan dimuat. Draf yang belum tersimpan tetap ada — ulangi perubahan Anda sesudahnya.');
+      await muatBayar();
+      render();
+      return false;
+    }
+    if (!j.ok) throw new Error(j.error || 'ditolak server');
+    if (j.data && j.data.ver && BK) BK.ver = j.data.ver;
     setSync('ok', '✓ Tersimpan');
     return true;
   } catch (e) {
@@ -7086,7 +7116,7 @@ async function simpanBayar() {
     setSync('err', '⚠ Gagal menyimpan: ' + esc(e.message || e));
     alert('Gagal menyimpan ke server.\n\n' + (e.message || e) + '\n\nPerubahan TIDAK tersimpan. Coba lagi.');
     return false;
-  }
+  } finally { BY_MENYIMPAN = false; }
 }
 
 /* ============ HALAMAN: PLANNING PEMBAYARAN ============
@@ -7555,6 +7585,7 @@ async function bySimpanDraf() {
      yang sebenarnya tidak ada di server — dan yang membacanya mengira sudah
      tercatat. */
   const sebelum = (BK.data.bayar || []).slice();
+  const bkAwal = BK;
   BK.data.bayar = sebelum.concat(baris);
   const drafSebelum = DRAF.slice();
   DRAF = [];
@@ -7563,7 +7594,9 @@ async function bySimpanDraf() {
     toast(baris.length + ' baris masuk lembar ' + fmtTgl(b) + '.');
     render();
   } else {
-    BK.data.bayar = sebelum;
+    /* Kalau simpanBayar() memuat ulang BK (bentrok), BK sudah objek baru yang
+       segar — menulis `sebelum` ke sana justru mengembalikan salinan lama. */
+    if (BK === bkAwal) BK.data.bayar = sebelum;
     DRAF = drafSebelum;
     render();
   }
@@ -7612,7 +7645,10 @@ async function byBayarGrup(w) {
    harus tinggal serumah dengannya. Tertinggal di panel lain, ia melempar
    ReferenceError tiap tab ditutup. */
 window.addEventListener('beforeunload', e => {
-  if (typeof DRAF === 'undefined' || !DRAF.length) return;
+  /* Simpan yang sedang berjalan ikut menahan: menutup tab di tengahnya
+     membuat orang tidak pernah tahu ia tersimpan atau tidak. */
+  const menyimpan = typeof BY_MENYIMPAN !== 'undefined' && BY_MENYIMPAN;
+  if (!menyimpan && (typeof DRAF === 'undefined' || !DRAF.length)) return;
   e.preventDefault(); e.returnValue = '';
 });
 

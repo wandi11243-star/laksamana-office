@@ -535,11 +535,16 @@ function brankas_baca() {
   brankas_pastikan();
   $pdo = db();
 
-  $data = null; $ts = 0;
+  $data = null; $ts = 0; $ver = array('lain' => 0, 'bayar' => 0);
   $row = $pdo->query('SELECT `data`,`updated_at` FROM `bk_state` WHERE `id`=1')->fetch();
   if ($row && isset($row['data']) && $row['data'] !== '') {
     $d = json_decode((string)$row['data'], true);
-    if (is_array($d)) { $data = $d; $ts = (int)$row['updated_at']; }
+    if (is_array($d)) {
+      $ts = (int)$row['updated_at'];
+      $ver = brankas_ver($d, $ts);
+      unset($d['_ver']);            // metadata penjaga, bukan isi yang disunting
+      $data = $d;
+    }
   }
   /* Bentuk kosong yang LENGKAP, bukan null. Frontend yang menerima null harus
      menuliskan bentuk bawaannya sendiri, dan begitu dua tempat memegang
@@ -567,42 +572,126 @@ function brankas_baca() {
      tidak kelihatan sampai ada yang bertanya kenapa setelannya hilang.
      Alasan yang sama persis dengan akses_baca() di atas. */
   return array('data' => $data, 'akses' => (object)$akses, 'peran' => (object)$peran,
-               'updated_at' => $ts);
+               'updated_at' => $ts, 'ver' => $ver);
 }
 
-/* Seluruh state ditulis sekali jalan. Yang WAJIB dijaga sebagai gantinya:
-   frontend harus mengirim state UTUH, tidak pernah sepotong — mengirim
-   sepotong berarti sisanya lenyap tanpa satu pun pesan. */
-function brankas_simpan($in) {
-  brankas_pastikan();
-  $data = (isset($in['data']) && is_array($in['data'])) ? $in['data'] : null;
-  if ($data === null) throw new Exception('data brankas kosong');
-  /* Kunci yang dikenal saja yang ditulis. Blob yang menerima apa saja akan
-     menumbuhkan field yang tidak pernah dibaca siapa pun, dan yang membacanya
-     lewat phpMyAdmin tidak punya cara tahu mana yang masih dipakai.
+/* ==================== MENULIS BLOB BRANKAS ====================
+   SATU penulis untuk kedua panel (1 Oktober 2026). Sebelum ini ada dua jalur
+   yang sama-sama MENIMPA BUTA, dan keduanya menghilangkan data tanpa satu pun
+   galat:
 
-     DAFTAR INI SATU-SATUNYA YANG MEMUTUSKAN APA YANG BERTAHAN. Kunci yang
-     dipakai frontend tapi TIDAK disebut di sini hilang tanpa satu pun galat:
-     server membalas ok, layar menggambar ulang dari memori sehingga barisnya
-     kelihatan sudah masuk, dan baru lenyap saat halaman dimuat ulang. Sudah
-     kejadian 2 September 2026 dengan `mutasi` — seluruh Mutasi & Transfer
-     Wallet hilang tiap refresh, dan tools/uji-brankas.js tetap lolos karena
-     servernya di sana tiruan. Kunci baru di BK.data harus ditambahkan DI
-     SINI dan di bentuk kosong brankas_baca(). */
+   1. brankasSave menulis SELURUH blob, termasuk `bayar`. Halaman Brankas yang
+      dibuka pagi lalu menyimpan satu mutasi sore hari MENGHAPUS seluruh baris
+      Planning Pembayaran yang diketik di panel Kas Kecil siang harinya —
+      salinan `bayar` yang ia kirim masih salinan pagi.
+   2. Tidak ada cek versi sama sekali. Dua tab Brankas (atau dua tab Kas Kecil)
+      saling menimpa: yang menyimpan belakangan menghapus mutasi, pengembalian
+      modal, atau baris pembayaran yang baru dicatat tab sebelah.
+
+   Sekarang:
+   - Tiap panel HANYA menulis kuncinya sendiri ($kunci). Kunci lain diambil
+     dari blob yang ADA DI SERVER saat itu, bukan dari kiriman. Halaman Brankas
+     tidak pernah lagi menyunting `bayar` (halamannya pindah ke Kas Kecil
+     2 September 2026), jadi ia tidak boleh menuliskannya.
+   - Versi DIPISAH per pemilik (`_ver.lain` milik Brankas, `_ver.bayar` milik
+     Kas Kecil). Satu versi untuk seluruh blob berarti tiap simpan di Brankas
+     membuat Kas Kecil bentrok padahal yang disentuh kunci yang berbeda —
+     dan bentrok palsu yang muncul terus melatih orang mengabaikannya.
+   - baseVer yang tidak sama dengan versi server = DITOLAK, bukan ditimpa.
+     baseVer kosong = klien versi lama (halaman yang dibuka sebelum perbaikan
+     ini mendarat) dan dibiarkan lewat, sama dengan aturan baseTs di
+     kompas-mysql: menolaknya mematikan penyimpanan untuk siapa pun yang
+     halamannya masih ter-cache. Lubang itu menutup sendiri begitu tiap orang
+     memuat ulang sekali — dan sejak perbaikan ini pun klien lama tidak bisa
+     lagi menimpa `bayar`.
+   - Baca–ubah–tulis di DALAM satu transaksi dengan SELECT ... FOR UPDATE.
+     Tanpa kunci itu dua penyimpanan bersamaan sama-sama membaca blob yang
+     sama, dan yang belakangan menimpa hasil yang duluan. */
+function brankas_ver($data, $ts) {
+  $v = (is_array($data) && isset($data['_ver']) && is_array($data['_ver'])) ? $data['_ver'] : array();
+  $out = array();
+  /* Blob lama belum punya _ver: kedua versinya dianggap updated_at baris itu,
+     angka yang SAMA dengan yang dipulangkan brankas_baca() ke klien. */
+  foreach (array('lain', 'bayar') as $j) $out[$j] = isset($v[$j]) ? (int)$v[$j] : (int)$ts;
+  return $out;
+}
+
+/* Kunci yang dikenal saja yang ditulis. Blob yang menerima apa saja akan
+   menumbuhkan field yang tidak pernah dibaca siapa pun, dan yang membacanya
+   lewat phpMyAdmin tidak punya cara tahu mana yang masih dipakai.
+
+   DAFTAR INI SATU-SATUNYA YANG MEMUTUSKAN APA YANG BERTAHAN. Kunci yang
+   dipakai frontend tapi TIDAK disebut di sini hilang tanpa satu pun galat:
+   server membalas ok, layar menggambar ulang dari memori sehingga barisnya
+   kelihatan sudah masuk, dan baru lenyap saat halaman dimuat ulang. Sudah
+   kejadian 2 September 2026 dengan `mutasi` — seluruh Mutasi & Transfer
+   Wallet hilang tiap refresh, dan tools/uji-brankas.js tetap lolos karena
+   servernya di sana tiruan. Kunci baru di BK.data harus ditambahkan DI
+   SINI dan di bentuk kosong brankas_baca(). */
+function brankas_saring($data) {
   $bersih = array();
   foreach (array('rekening', 'piutang', 'bayar', 'investor', 'mutasi') as $k)
     $bersih[$k] = (isset($data[$k]) && is_array($data[$k])) ? array_values($data[$k]) : array();
-  $bersih['setting'] = (isset($data['setting']) && is_array($data['setting']))
+  /* Setelan kosong WAJIB jadi {} — blob dibaca ulang dengan json_decode(..., true),
+     dan peta kosong pulang sebagai array kosong yang akan ditulis balik sebagai []. */
+  $bersih['setting'] = (isset($data['setting']) && is_array($data['setting']) && $data['setting'])
                      ? $data['setting'] : new stdClass();
+  return $bersih;
+}
 
-  $json = json_encode($bersih, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-  $oleh = isset($in['oleh']) ? substr(trim((string)$in['oleh']), 0, 80) : '';
-  $ts   = (int)round(microtime(true) * 1000);
-  $q = db()->prepare(
-    'INSERT INTO `bk_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:t,:o)
-     ON DUPLICATE KEY UPDATE `data`=VALUES(`data`),`updated_at`=VALUES(`updated_at`),`updated_by`=VALUES(`updated_by`)');
-  $q->execute(array(':d' => $json, ':t' => $ts, ':o' => $oleh));
-  return array('saved' => true, 'updated_at' => $ts);
+function brankas_tulis($baru, $kunci, $jenis, $baseVer, $oleh) {
+  brankas_pastikan();
+  $pdo = db();
+  $pdo->beginTransaction();
+  try {
+    $row = $pdo->query('SELECT `data`,`updated_at`,`updated_by` FROM `bk_state` WHERE `id`=1 FOR UPDATE')->fetch();
+    $lama = array(); $ts = 0; $olehLama = '';
+    if ($row) {
+      $d = json_decode((string)$row['data'], true);
+      if (is_array($d)) $lama = $d;
+      $ts = (int)$row['updated_at'];
+      $olehLama = (string)$row['updated_by'];
+    }
+    $ver = brankas_ver($lama, $ts);
+
+    if ($baseVer !== null && $baseVer !== '' && (int)$baseVer > 0 && (int)$baseVer !== $ver[$jenis]) {
+      $pdo->rollBack();
+      return array('conflict' => true, 'oleh' => $olehLama, 'ver' => $ver);
+    }
+
+    $gabung = $lama;
+    foreach ($kunci as $k) if (is_array($baru) && array_key_exists($k, $baru)) $gabung[$k] = $baru[$k];
+    $bersih = brankas_saring($gabung);
+
+    /* Versi WAJIB naik walau jam server mundur sedikit: versi yang sama
+       dengan sebelumnya membuat penyimpanan dari tab basi lolos cek. */
+    $now = (int)round(microtime(true) * 1000);
+    if ($now <= $ver[$jenis]) $now = $ver[$jenis] + 1;
+    $ver[$jenis] = $now;
+    $bersih['_ver'] = $ver;
+
+    $json = json_encode($bersih, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+    $oleh = substr(trim((string)$oleh), 0, 80);
+    $q = $pdo->prepare(
+      'INSERT INTO `bk_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:t,:o)
+       ON DUPLICATE KEY UPDATE `data`=VALUES(`data`),`updated_at`=VALUES(`updated_at`),`updated_by`=VALUES(`updated_by`)');
+    $q->execute(array(':d' => $json, ':t' => $now, ':o' => $oleh));
+    $pdo->commit();
+    return array('saved' => true, 'updated_at' => $now, 'ver' => $ver);
+  } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
+/* Panel Brankas. Yang ditulis cuma kunci miliknya — `bayar` TIDAK, lihat
+   kepala brankas_tulis(). */
+function brankas_simpan($in) {
+  $data = (isset($in['data']) && is_array($in['data'])) ? $in['data'] : null;
+  if ($data === null) throw new Exception('data brankas kosong');
+  return brankas_tulis($data, array('rekening', 'piutang', 'investor', 'mutasi', 'setting'), 'lain',
+                       isset($in['baseVer']) ? $in['baseVer'] : null,
+                       isset($in['oleh']) ? $in['oleh'] : '');
 }
 
 /* PENULIS SEMPIT: hanya kunci `bayar` (2 September 2026).
@@ -612,25 +701,15 @@ function brankas_simpan($in) {
    dihitung dari baris pembayaran berstatus `paid`, jadi memindahkan datanya
    keluar berarti Brankas kehilangan hitungan saldonya.
 
-   Kas Kecil karena itu MENULIS lewat sini, bukan lewat brankasSave. Bedanya
-   menentukan: brankasSave menulis SELURUH blob, jadi dua panel yang sama-sama
-   memakainya akan saling menimpa — yang menyimpan belakangan menghapus mutasi
-   atau pengembalian modal yang baru saja dicatat di panel sebelah, tanpa satu
-   pun galat. Di sini blob dibaca dulu, hanya `bayar` yang diganti, sisanya
-   ditulis kembali apa adanya.
-
-   Penyaringan kunci tetap dikerjakan brankas_simpan() — satu tempat yang
-   memutuskan apa yang bertahan, dan jalur kedua yang menyaring sendiri pasti
-   menyimpang darinya suatu hari. */
+   Kunci lain diambil dari blob di server di dalam transaksi yang sama, dan
+   penyaringannya tetap brankas_saring() — satu tempat yang memutuskan apa
+   yang bertahan. */
 function brankas_bayar_simpan($in) {
-  brankas_pastikan();
   $rows = (isset($in['bayar']) && is_array($in['bayar'])) ? array_values($in['bayar']) : null;
   if ($rows === null) throw new Exception('daftar pembayaran kosong');
-  $b = brankas_baca();
-  $data = (isset($b['data']) && is_array($b['data'])) ? $b['data'] : array();
-  $data['bayar'] = $rows;
-  return brankas_simpan(array('data' => $data,
-                              'oleh' => isset($in['oleh']) ? $in['oleh'] : ''));
+  return brankas_tulis(array('bayar' => $rows), array('bayar'), 'bayar',
+                       isset($in['baseVer']) ? $in['baseVer'] : null,
+                       isset($in['oleh']) ? $in['oleh'] : '');
 }
 
 /* Matriks ditulis sekali jalan (hapus lalu isi ulang) — alasan dan syaratnya

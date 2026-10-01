@@ -47,6 +47,12 @@ header('Content-Type: application/json; charset=utf-8');
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') { http_response_code(204); exit; }
 
 function keluar($o) { echo json_encode($o, JSON_UNESCAPED_UNICODE); exit; }
+function brankas_balas($h) {
+  if (is_array($h) && !empty($h['conflict']))
+    keluar(array('ok' => false, 'error' => 'conflict', 'conflict' => true,
+                 'oleh' => $h['oleh'], 'ver' => $h['ver']));
+  keluar(array('ok' => true, 'data' => $h));
+}
 
 /* Jaring pengaman terakhir: galat FATAL (parse error, kelas tak dikenal, batas
    memori) tidak bisa ditangkap try/catch, dan tanpa ini ia keluar sebagai
@@ -215,14 +221,17 @@ try {
     case 'brankasGet':
       keluar(array('ok' => true, 'data' => brankas_baca()));
 
+    /* Bentrok versi DITOLAK sebagai ok:false (1 Oktober 2026), bukan ok:true
+       berisi penanda: klien lama yang cuma memeriksa ok akan membaca penanda
+       itu sebagai tersimpan. Lihat kepala brankas_tulis(). */
     case 'brankasSave':
-      keluar(array('ok' => true, 'data' => brankas_simpan($body)));
+      brankas_balas(brankas_simpan($body));
 
     /* Dipakai panel Kas Kecil (Planning Pembayaran). Membacanya tetap lewat
        brankasGet — halaman itu memang perlu seluruh state untuk menghitung
        saldo wallet; yang disempitkan cuma penulisannya. */
     case 'bayarSave':
-      keluar(array('ok' => true, 'data' => brankas_bayar_simpan($body)));
+      brankas_balas(brankas_bayar_simpan($body));
 
     case 'brankasAkses':
       keluar(array('ok' => true, 'data' => brankas_akses_simpan($body)));
