@@ -1521,18 +1521,46 @@ function an_baca() {
   return array('data' => $data, 'akses' => (object)$akses, 'peran' => (object)$peran, 'ts' => $ts);
 }
 
-function an_simpan($data, $oleh) {
+/* PENJAGA TULIS-BASI (1 Oktober 2026). Blob ini memuat SELURUH laporan POS
+   yang pernah diunggah berikut setelannya, dan dulu ditimpa buta: dua orang
+   yang mengunggah bulan berbeda dari dua tab — atau satu tab yang dibiarkan
+   terbuka sejak pagi — membuat yang menyimpan belakangan MENGHAPUS unggahan
+   yang lain, tanpa satu pun galat. Aturannya sama dengan baseTs di save_all()
+   blob omset: versi yang dipegang klien tidak sama dengan versi server =
+   DITOLAK sebagai bentrok. Klien lalu menarik yang terbaru, menggabungkan per
+   bulan, dan mengirim ulang (anGabung() di deploy/analytics).
+   baseTs kosong = klien versi lama, dibiarkan lewat — menolaknya mematikan
+   penyimpanan untuk halaman yang masih ter-cache. */
+function an_simpan($data, $oleh, $baseTs = null) {
   an_pastikan();
   if (!is_array($data)) return array('ok' => false, 'error' => 'data bukan objek');
   $pdo = db();
-  $st = $pdo->prepare(
-    'INSERT INTO `an_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:t,:b)
-     ON DUPLICATE KEY UPDATE `data`=VALUES(`data`), `updated_at`=VALUES(`updated_at`),
-                             `updated_by`=VALUES(`updated_by`)');
-  $st->execute(array(':d' => json_encode($data, JSON_UNESCAPED_UNICODE),
-                     ':t' => (int)(microtime(true) * 1000),
-                     ':b' => mb_substr((string)$oleh, 0, 80)));
-  return array('ok' => true, 'saved' => true);
+  $pdo->beginTransaction();
+  try {
+    $row = $pdo->query('SELECT `updated_at`,`updated_by` FROM `an_state` WHERE `id`=1 FOR UPDATE')->fetch();
+    $tsKini = $row ? (int)$row['updated_at'] : 0;
+    if ($baseTs !== null && $baseTs !== '' && (int)$baseTs > 0 && $tsKini > 0 && (int)$baseTs !== $tsKini) {
+      $pdo->rollBack();
+      return array('ok' => false, 'error' => 'conflict', 'conflict' => true,
+                   'oleh' => $row ? (string)$row['updated_by'] : '', 'ts' => $tsKini);
+    }
+    /* Versi WAJIB naik: dua simpan dalam milidetik yang sama memberi versi
+       yang sama, dan tab yang memegang versi lama lalu lolos cek. */
+    $ts = (int)(microtime(true) * 1000);
+    if ($ts <= $tsKini) $ts = $tsKini + 1;
+    $st = $pdo->prepare(
+      'INSERT INTO `an_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:t,:b)
+       ON DUPLICATE KEY UPDATE `data`=VALUES(`data`), `updated_at`=VALUES(`updated_at`),
+                               `updated_by`=VALUES(`updated_by`)');
+    $st->execute(array(':d' => json_encode($data, JSON_UNESCAPED_UNICODE),
+                       ':t' => $ts,
+                       ':b' => mb_substr((string)$oleh, 0, 80)));
+    $pdo->commit();
+    return array('ok' => true, 'saved' => true, 'ts' => $ts);
+  } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
 }
 
 function an_akses_simpan($peta) {

@@ -236,7 +236,8 @@ try {
   else if ($action === 'analyticsGet') keluar(array('ok' => true, 'data' => an_baca()));
   else if ($action === 'analyticsSave') {
     $r = an_simpan(isset($body['data']) ? $body['data'] : null,
-                   isset($body['oleh']) ? $body['oleh'] : '');
+                   isset($body['oleh']) ? $body['oleh'] : '',
+                   isset($body['baseTs']) ? $body['baseTs'] : null);
     keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
   }
   else if ($action === 'analyticsAkses') {
