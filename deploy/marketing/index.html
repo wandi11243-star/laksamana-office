@@ -19077,7 +19077,7 @@ function muatHppKalk(paksa){
       m.resep.forEach(function(r){
         if(!m.prasmananKah(r) || r.aktif===0 || r.aktif==='0' || r.aktif===false) return;
         var kat=kalkNamaKat(r.seksi), h0=m.hargaJual(r);
-        (items[kat]=items[kat]||[]).push({n:String(r.nama||'').trim(), h:h0>0?h0:null, r:r});
+        (items[kat]=items[kat]||[]).push({n:String(r.nama||'').trim(), h:h0>0?h0:null, u:kalkSatuanDari(r), r:r});
       });
       Object.keys(items).forEach(function(k){ items[k].sort(function(a,b){ return a.n.localeCompare(b.n); }); });
       KALK_HPP={st:'ok', err:'', mesin:m, items:items, jenis:Object.keys(items)};
@@ -19085,6 +19085,20 @@ function muatHppKalk(paksa){
     .catch(function(e){ KALK_HPP={st:'gagal', err:(e&&e.message)||String(e), mesin:null, items:{}, jenis:[]}; })
     .then(function(){ paintMenuDatalist(); if($('kalk_body')!==null || $('kalk_hpp_muat')) renderKalkulator($('view')); });
 }
+/* SATUAN JUAL = satuan hasil (yield_unit) resepnya di HPP & Resep (1 Okt 2026).
+   Permintaan user: Bakwan di HPP dibuat per PCS, tapi kalkulator menulis semua
+   menu sebagai "porsi" — jadi 100 yang diketik terbaca 100 porsi padahal 100
+   biji. Harga jual di modul HPP adalah harga untuk SATU satuan yield (cogsOf:
+   modal / yield / harga), jadi satuan inilah yang benar untuk harganya.
+   Yang kosong jatuh ke "Porsi" — bawaan form resep di HPP. Ditulis apa adanya
+   (huruf awal besar), tidak diterjemahkan: kata yang sama dengan di HPP. */
+function kalkSatuanDari(r){
+  var u=String(r&&r.yield_unit||'').trim();
+  if(!u) return 'Porsi';
+  return u.charAt(0).toUpperCase()+u.slice(1);
+}
+function kalkSatuanRef(ref){ var it=kalkItemRef(ref); return it?(it.u||'Porsi'):''; }
+function kalkHargaSatuan(h,u){ return (h==null||h==='')?'harga belum diisi':rp(h)+' / '+esc(u||'Porsi'); }
 /* Pengganti menuDbJenis()/mdbItems() KHUSUS kalkulator. */
 function kalkJenis(){ return KALK_HPP.jenis.slice(); }
 function kalkItems(j){ return (KALK_HPP.items[j]||[]); }
@@ -19254,7 +19268,7 @@ function kalkPilihItemHTML(){
       +'<input type="checkbox" '+(on?'checked':'')+' onchange="kalkTogglePilih('+escJsAttr(ref)+',this.checked)">'
       +'<span class="tik"></span>'
       +'<span class="mn"><b>'+kalkTitikKat(kat)+esc(m.n)+'</b>'
-        +'<span>'+(m.h==null||m.h===''?'harga belum diisi':rp(m.h))+'</span></span>'
+        +'<span>'+kalkHargaSatuan(m.h,m.u)+'</span></span>'
     +'</label>';
   }).join('')+'</div>';
   return h;
@@ -19327,7 +19341,7 @@ function kalkMenuAll(){
   /* Kategorinya diurutkan per warna lebih dulu — seluruh yang merah
      berdampingan, baru yang hijau, dan seterusnya. Lihat kalkUrutKat(). */
   kalkJenis().slice().sort(kalkUrutKat).forEach(function(j){
-    kalkItems(j).forEach(function(m){ out.push({kat:j,n:m.n,h:m.h}); });
+    kalkItems(j).forEach(function(m){ out.push({kat:j,n:m.n,h:m.h,u:m.u}); });
   });
   return out;
 }
@@ -19369,8 +19383,9 @@ function renderKalkulator(V){
   h+='<div class="card" style="margin-bottom:16px;display:flex;gap:18px;align-items:flex-end;flex-wrap:wrap">'
     +'<div class="field" style="margin:0;max-width:160px"><label>Jumlah Pax</label>'
       +'<input class="inp" type="number" min="1" id="kalk_pax" value="'+(+KALK.pax||0)+'" oninput="kalkSet(\'pax\',this.value)"></div>'
-    +'<div class="cell-sub" style="padding-bottom:8px">Menu &amp; harga jual per porsi diambil dari kategori <b>Prasmanan</b> di modul <b>HPP &amp; Resep</b>. '
-      +'Kolom <b>Porsi</b> diisi jumlah yang benar-benar dipesan — kalau 100 pax tapi menunya cuma 80 pcs, tulis <b>80</b>. '
+    +'<div class="cell-sub" style="padding-bottom:8px">Menu &amp; harga jual diambil dari kategori <b>Prasmanan</b> di modul <b>HPP &amp; Resep</b>. '
+      +'<b>Satuannya ikut resep di HPP</b> — ada yang per <b>Porsi</b>, ada yang per <b>Pcs</b> (mis. gorengan); lihat tulisan di sebelah kotak jumlah. '
+      +'Kolom <b>Jumlah</b> diisi yang benar-benar dipesan dalam satuan itu — kalau 100 pax tapi menunya cuma 80, tulis <b>80</b>. '
       +'Rasio per pax dihitung sendiri.</div>'
     +'</div>';
 
@@ -19378,7 +19393,7 @@ function renderKalkulator(V){
      Inilah yang membuat kotaknya bisa dicari sambil diketik. */
   h+=opts;
   h+='<div class="card pad0" style="margin-bottom:16px"><div class="tbl-wrap"><table class="tbl kalk-tbl"><thead><tr>'
-    +'<th style="width:34px">#</th><th>Menu</th><th style="width:158px">Porsi (pcs)</th>'
+    +'<th style="width:34px">#</th><th>Menu</th><th style="width:200px">Jumlah (satuan HPP)</th>'
     +'<th style="width:130px" class="r">Harga Satuan</th><th style="width:150px" class="r">Subtotal</th>'
     +(admin?'<th style="width:150px" class="r" title="Khusus admin — dari rumus modal HPP">Modal / porsi</th>':'')
     +'<th style="width:34px"></th>'
@@ -19393,7 +19408,7 @@ function renderKalkulator(V){
   h+='<div class="grid g-2" style="gap:16px;align-items:start">'
     +'<div class="card"><h4 style="font-size:14px;margin-bottom:12px">Hasil Hitung</h4>'
       +'<dl class="kv-list">'
-      +'<dt>Total porsi</dt><dd class="mono" id="kalk_pcs">—</dd>'
+      +'<dt>Total jumlah</dt><dd class="mono" id="kalk_pcs">—</dd>'
       +'<dt>Total biaya menu</dt><dd class="mono" id="kalk_sub">—</dd>'
       +'<dt>Harga jual / pax</dt><dd class="mono" id="kalk_perpax" style="font-weight:700">—</dd>'
       +'</dl><div class="fh" style="margin-top:8px">Harga jual / pax = total biaya menu ÷ jumlah pax. Menu yang porsinya kurang dari jumlah pax tetap terhitung apa adanya.</div></div>'
@@ -19544,6 +19559,10 @@ function kalkRowsHTML(){
          boleh berubah sendiri saat jumlah pax dikoreksi. */
       +'<td><div style="display:flex;align-items:center;gap:5px">'
         +'<input class="inp kalk-pcs" type="number" min="0" step="1" value="'+(+r.pcs||0)+'" oninput="kalkSetRow('+i+',\'pcs\',this.value)">'
+        /* Satuan resepnya, DI SEBELAH angkanya — tempat mata membaca angka itu.
+           Disegarkan kalkHitung(), karena memilih menu lewat ketikan tidak
+           menggambar ulang barisnya. */
+        +'<span class="kalk-satuan" style="flex:none;font-size:12px;font-weight:700;color:var(--muted)">'+esc(kalkSatuanRef(r.ref))+'</span>'
         +'<button class="btn sm" style="flex:none;padding:5px 7px" title="Samakan dengan jumlah pax" onclick="kalkSamakanPax('+i+')">=pax</button>'
         +'</div><div class="cell-sub kalk-perpax-baris">-</div></td>'
       +'<td class="r mono kalk-harga">-</td>'
@@ -19717,7 +19736,7 @@ function kalkSaranKetik(i,el,semua){
       +'onmousedown="event.preventDefault();kalkSaranPakai('+i+','+n+')">'
       +'<span class="tt" style="background:'+kalkWarnaKat(m.kat).b+'"></span>'
       +'<span class="nm">'+esc(m.n)+'</span>'
-      +'<span class="hg">'+(m.h==null||m.h===''?'harga -':rp(m.h))+'</span></div>';
+      +'<span class="hg">'+(m.h==null||m.h===''?'harga -':rp(m.h)+' / '+esc(m.u||'Porsi'))+'</span></div>';
   }).join('')+(lebih>0?'<div class="kosong">…dan '+lebih+' lagi. Ketik lebih spesifik.</div>':'');
   kotak.dataset.hasil=JSON.stringify(hasil.map(function(m){ return m.kat+'|'+m.n; }));
   kotak.classList.add('buka');
@@ -19758,13 +19777,13 @@ function kalkSaranTutupNanti(){
   clearTimeout(_saranTutup);
   _saranTutup=setTimeout(kalkSaranTutup, 140);
 }
-function kalkLabel(m){ return m.kat+' - '+m.n+(m.h==null?' (harga -)':' ('+rp(m.h)+')'); }
+function kalkLabel(m){ return m.kat+' - '+m.n+(m.h==null?' (harga -)':' ('+rp(m.h)+' / '+(m.u||'Porsi')+')'); }
 function kalkLabelRef(ref){
   if(!ref) return '';
   var i=String(ref).indexOf('|'); if(i<0) return '';
   var kat=ref.slice(0,i), nama=ref.slice(i+1);
   var it=kalkItems(kat).filter(function(x){return x.n===nama;})[0];
-  return it?kalkLabel({kat:kat,n:nama,h:it.h}):'';
+  return it?kalkLabel({kat:kat,n:nama,h:it.h,u:it.u}):'';
 }
 /* Kosong -> baris dikosongkan. Cocok -> dipakai. Tidak dikenali -> TIDAK diam-
    diam dibuang: kotaknya dikembalikan ke pilihan sebelumnya dan orangnya
@@ -19812,17 +19831,19 @@ function kalkHapusRow(i){ KALK.rows.splice(i,1); if(!KALK.rows.length) KALK.rows
    jadi kotak yang sedang diketik (deal, qty) tidak kehilangan fokus. */
 function kalkHitung(){
   kalkNormalRows();
-  var pax=+KALK.pax||0, sub=0, adaHargaKosong=false;
+  var pax=+KALK.pax||0, sub=0, adaHargaKosong=false, satTotal={};
   var body=$('kalk_body'); if(!body) return;
   var tr=body.querySelectorAll('tr');
   KALK.rows.forEach(function(r,i){
     var harga=kalkHargaRef(r.ref);
-    var pcs=+r.pcs||0;
+    var pcs=+r.pcs||0, sat=kalkSatuanRef(r.ref)||'Porsi';
+    if(r.ref){ satTotal[sat]=(satTotal[sat]||0)+pcs; }
     var baris=harga==null?0:harga*pcs;          // subtotal = harga satuan × porsi
     if(r.ref && harga==null) adaHargaKosong=true;
     if(harga!=null) sub+=baris;
     var row=tr[i]; if(!row) return;
-    row.querySelector('.kalk-harga').textContent = harga==null?'—':rp(harga);
+    row.querySelector('.kalk-harga').textContent = harga==null?'—':rp(harga)+' / '+sat;
+    var su=row.querySelector('.kalk-satuan'); if(su) su.textContent = r.ref?sat:'';
     row.querySelector('.kalk-rowsub').textContent = (harga==null||!r.ref)?'—':rp(baris);
     /* Rasio per pax: turunan, ditampilkan supaya porsi antar menu bisa
        dibandingkan ("yang ini cuma 0,8 per orang"). Tidak pernah diketik. */
@@ -19831,7 +19852,7 @@ function kalkHitung(){
       if(!pax||!pcs) rs.textContent='—';
       else{
         var per=pcs/pax;
-        rs.textContent='= '+(per%1?per.toFixed(2).replace('.',','):per)+' porsi / pax'
+        rs.textContent='= '+(per%1?per.toFixed(2).replace('.',','):per)+' '+sat.toLowerCase()+' / pax'
           +(pcs<pax?'  ·  '+(pax-pcs)+' pax tidak kebagian':'');
       }
     }
@@ -19841,8 +19862,9 @@ function kalkHitung(){
      per pax berkoma bukan angka yang dipakai siapa pun saat menawar. */
   var perPax = pax ? Math.round(sub/pax) : 0;
   var set=function(id,v){ var el=$(id); if(el) el.textContent=v; };
-  var totalPcs=KALK.rows.reduce(function(a,r){ return a+(r.ref?(+r.pcs||0):0); },0);
-  set('kalk_pcs', totalPcs.toLocaleString('id-ID')+' pcs');
+  /* Dijumlahkan PER SATUAN: 100 porsi + 200 pcs bukan "300" apa pun. */
+  var satK=Object.keys(satTotal);
+  set('kalk_pcs', satK.length ? satK.map(function(k){ return satTotal[k].toLocaleString('id-ID')+' '+k; }).join(' · ') : '—');
   set('kalk_sub', rp(sub)+(adaHargaKosong?'  ⚠':''));
   set('kalk_perpax', rp(perPax)+' / pax');
   // diskon dari harga deal
