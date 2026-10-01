@@ -902,7 +902,18 @@ function mkt_hapus_dikenal($pdo, $tabel, $ids, $kenal) {
 function mkt_hapus_eksplisit($pdo, $tabel, $ids, $hapus) {
   $hapus = array_values(array_unique(array_map('strval', $hapus)));
   if (!count($hapus)) return 0;
-  if (count($ids) === 0 && count($hapus) > 3) return 0;
+  /* Penjaga >3 baris di mode parsial: hanya penghapusan yang akan MENGOSONGKAN
+     tabel yang ditahan. Syarat lama (count($ids) === 0) menolak diam-diam hapus
+     berantai yang sah — menghapus client ikut membuang followup-nya, menghapus
+     event ikut membuang followup & approval-nya, dan di mode parsial koleksi
+     itu memang tidak membawa satu baris pun. Barisnya lalu muncul lagi saat
+     dimuat ulang. */
+  if (count($hapus) > 3) {
+    $q = $pdo->prepare('SELECT COUNT(*) FROM ' . $tabel . ' WHERE id NOT IN (' .
+                       implode(',', array_fill(0, count($hapus), '?')) . ')');
+    $q->execute($hapus);
+    if ((int)$q->fetchColumn() === 0) return 0;
+  }
   $del = $pdo->prepare('DELETE FROM ' . $tabel . ' WHERE id IN (' .
                        implode(',', array_fill(0, count($hapus), '?')) . ')');
   $del->execute($hapus);
@@ -1009,7 +1020,7 @@ function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, &$ver
     $hapusPeta = array_flip(array_map('strval', $hapus));
     $calon = 0;
     foreach ($adaId as $id => $r) if (isset($hapusPeta[(string)$id])) $calon++;
-    if (!(count($kirimId) === 0 && $calon > 3)) {
+    if (!($calon > 3 && count($adaId) - $calon === 0)) {   // tahan hanya yang MENGOSONGKAN daftar
       foreach (array_keys($hapusPeta) as $hid) unset($adaId[$hid]);
     }
     put_setting($pdo, 'extra:' . $nama, array_values($adaId));

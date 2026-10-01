@@ -553,7 +553,19 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $kenal = nu
 function hapus_id_eksplisit($pdo, $tabel, $ids, $hapus) {
   $hapus = array_values(array_unique(array_map('strval', $hapus)));
   if (!count($hapus)) return 0;
-  if (count($ids) === 0 && count($hapus) > 3) return 0;
+  /* Penjaga >3 baris di sini BEDA dari mode state-utuh. Di mode parsial,
+     koleksi tanpa baris yang berubah (count($ids) === 0) adalah keadaan
+     NORMAL untuk penghapusan murni — memakai syarat lama berarti hapus
+     berantai (konten beserta shooting-nya, client beserta followup-nya)
+     DITOLAK diam-diam, layar menganggapnya terhapus, dan barisnya muncul
+     lagi saat dimuat ulang. Yang tetap ditahan cuma penghapusan >3 baris
+     yang akan MENGOSONGKAN tabel — itu niat asli penjaganya. */
+  if (count($hapus) > 3) {
+    $q = $pdo->prepare('SELECT COUNT(*) FROM ' . $tabel . ' WHERE id NOT IN (' .
+                       implode(',', array_fill(0, count($hapus), '?')) . ')');
+    $q->execute($hapus);
+    if ((int)$q->fetchColumn() === 0) return 0;
+  }
   $del = $pdo->prepare('DELETE FROM ' . $tabel . ' WHERE id IN (' .
                        implode(',', array_fill(0, count($hapus), '?')) . ')');
   $del->execute($hapus);
