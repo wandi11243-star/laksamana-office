@@ -2891,7 +2891,7 @@ async function kirimPemulihan(jumlah, kalah){
   try{
     const res=await fetch(API_URL,{method:'POST',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:'saveAll', data:buildPayload()}), redirect:'follow'});
+      body:(kenaliBaris(), JSON.stringify({action:'saveAll', data:buildPayload(), dikenal:daftarDikenal()})), redirect:'follow'});
     const j=await res.json();
     if(j && j.ok && j.data){
       /* Cap server DULU, baru acuan dicatat — alasan yang sama dengan cabang
@@ -2963,6 +2963,27 @@ function refreshSnapshot(){
   const snap={}, ver={};
   _eachRow(S,(key,r)=>{ snap[key]=_sig(r); ver[key]=r.updatedAt||0; });
   _snap=snap; _serverVer=ver;
+  kenaliBaris();
+}
+/* BARIS YANG PERNAH DILIHAT TAB INI (1 Oktober 2026), dikirim bersama saveAll
+   sebagai `dikenal`. Server hanya menghapus baris di daftar ini yang tidak ada
+   di kiriman. Batas `_sejak` yang lama memakai cap dari jam PERANGKAT: baris
+   yang dibuat dari HP/laptop yang jamnya terlambat lahir bercap di bawah
+   `_sejak` tab lain, dan sah dihapus olehnya tanpa satu pun galat. Dengan
+   daftar ini, baris yang tidak pernah dilihat tab ini tidak mungkin terhapus
+   olehnya, berapa pun jam perangkatnya. Pola BD/Konten/Event.
+
+   Hanya BERTAMBAH: id yang sudah dihapus tetap di sini dan itu tidak
+   berbahaya. Mengosongkannya membuat penghapusan berikutnya diam-diam gagal. */
+const _dikenal={};
+function kenaliBaris(){ _eachRow(S||{}, key=>{ _dikenal[key]=1; }); }
+function daftarDikenal(){
+  const out={}; MKT_COLS.forEach(k=>{ out[k]=[]; });
+  Object.keys(_dikenal).forEach(key=>{
+    const i=key.indexOf(':'), k=key.slice(0,i);
+    if(out[k]) out[k].push(key.slice(i+1));
+  });
+  return out;
 }
 
 // Ambil data dari server (GET). Fallback ke cache lokal bila gagal.
@@ -3093,7 +3114,8 @@ function save(opsi){
   if(saveInFlight){ savePending=true; if(!diam) _savePendingRamai=true; return; }  // hindari dua POST balapan dari tab yang sama
   saveInFlight=true;
   if(!diam) tungguSimpanMulai();
-  const body={action:'saveAll', data:buildPayload(capBaru.kotor)};  // baseUpdatedAt dibangun di sini, bukan di S
+  kenaliBaris();                                   // baris yang barusan dibuat di tab ini ikut dikenal
+  const body={action:'saveAll', data:buildPayload(capBaru.kotor), dikenal:daftarDikenal()};  // baseUpdatedAt dibangun di sini, bukan di S
   fetch(API_URL, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'}, // simple request, hindari preflight CORS

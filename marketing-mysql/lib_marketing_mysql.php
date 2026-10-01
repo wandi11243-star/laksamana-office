@@ -693,7 +693,7 @@ function put_setting($pdo, $k, $v) {
 
    Bentrok dikumpulkan, bukan membatalkan seluruh simpanan — perubahan lain
    yang tidak bertabrakan tetap tersimpan. */
-function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, &$versi) {
+function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, &$versi, $kenal = null) {
   $tabel = $c['table'];
   $cols  = $c['cols'];
   $adaCreated = !empty($c['created']);
@@ -831,6 +831,7 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, &$v
     $st->execute($args);
   }
 
+  if (is_array($kenal)) { mkt_hapus_dikenal($pdo, $tabel, $ids, $kenal); return count($ids); }
   hapus_yang_hilang($pdo, $tabel, 'id', $ids, $sejak);
   return count($ids);
 }
@@ -861,6 +862,28 @@ function upsert_collection($pdo, $c, $rows, &$bentrok, $namaKoleksi, $sejak, &$v
 
    JAGA-JAGA LAMA yang tetap dipertahankan: kiriman KOSONG tidak pernah
    mengosongkan tabel (mis. aplikasi gagal load lalu menyimpan). */
+/* PENGHAPUSAN MENURUT `dikenal` (1 Oktober 2026), pola BD/Konten/Event.
+
+   Batas `_sejak` di bawah memakai cap dari JAM PERANGKAT. Perangkat yang
+   jamnya TERLAMBAT beberapa menit melahirkan baris bercap di bawah `_sejak`
+   tab lain yang sedang terbuka — dan baris itu sah dihapus olehnya pada simpan
+   berikutnya, tanpa satu pun galat. (Belum terbukti terjadi; salah satu
+   kemungkinan sebab Reservasi VIP Angela & Nana yang hilang September 2026.)
+   Yang benar bukan patokan waktu melainkan PENGETAHUAN: klien hanya boleh
+   menghapus baris yang pernah ia lihat. Baris yang lahir di tempat lain tidak
+   ada di daftarnya, berapa pun jam perangkatnya.
+
+   Kiriman KOSONG yang sekaligus menghapus >3 baris ditahan. Klien lama yang
+   tidak mengirim daftarnya tetap dilayani aturan `_sejak`. */
+function mkt_hapus_dikenal($pdo, $tabel, $ids, $kenal) {
+  $hapus = array_values(array_diff(array_map('strval', $kenal), $ids));
+  if (!count($hapus) || (count($ids) === 0 && count($hapus) > 3)) return 0;
+  $del = $pdo->prepare('DELETE FROM ' . $tabel . ' WHERE id IN (' .
+                       implode(',', array_fill(0, count($hapus), '?')) . ')');
+  $del->execute($hapus);
+  return $del->rowCount();
+}
+
 function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $sejak) {
   if (count($ids) === 0) return 0;
   $sejak = (int)$sejak;
@@ -879,7 +902,7 @@ function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $sejak) {
    alasannya. Yang berbeda cuma tempat simpanannya: satu nilai JSON di tabel
    `settings`, bukan tabel tersendiri — jadi penggabungannya dikerjakan di
    PHP, bukan diserahkan ke ON DUPLICATE KEY UPDATE. */
-function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, &$versi) {
+function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, &$versi, $kenal = null) {
   $lama = baris_settings($pdo, $nama);
 
   /* Baris yang sudah ada, dikunci id. Yang TIDAK ber-id sengaja tidak ikut:
@@ -954,9 +977,22 @@ function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, &$ver
      Dua jaring lama ikut dipertahankan: `_sejak` yang tidak dikirim (klien
      versi lama) tidak menghapus apa pun, dan kiriman kosong tidak pernah
      mengosongkan daftar. */
+  $hasil = array();
+  if (is_array($kenal)) {
+    /* Jalur `dikenal` — lihat mkt_hapus_dikenal(). Yang dibuang hanya baris
+       yang pernah dilihat klien dan tidak ada di kiriman. */
+    $kenalPeta = array_flip(array_map('strval', $kenal));
+    $calon = 0;
+    foreach ($adaId as $id => $r) if (!isset($kirimId[$id]) && isset($kenalPeta[(string)$id])) $calon++;
+    $tahan = (count($kirimId) === 0 && $calon > 3);
+    foreach ($adaId as $id => $r) {
+      if (isset($kirimId[$id]) || !isset($kenalPeta[(string)$id]) || $tahan) $hasil[] = $r;
+    }
+    put_setting($pdo, 'extra:' . $nama, $hasil);
+    return count($hasil);
+  }
   $sejak = (int)$sejak;
   $bolehHapus = ($sejak > 0 && count($kirimId) > 0);
-  $hasil = array();
   foreach ($adaId as $id => $r) {
     if (isset($kirimId[$id]) || !$bolehHapus) { $hasil[] = $r; continue; }
     $v = ms_valid(isset($r['updatedAt']) ? $r['updatedAt'] : 0);
@@ -968,7 +1004,7 @@ function upsert_settings_collection($pdo, $nama, $rows, &$bentrok, $sejak, &$ver
 }
 
 /* ==================== SIMPAN ==================== */
-function save_all($state) {
+function save_all($state, $dikenal = null) {
   if (!is_array($state)) throw new Exception('Payload data kosong/invalid');
 
   $pdo = db();
@@ -1006,7 +1042,8 @@ function save_all($state) {
       $known[] = $nama;
       if (!array_key_exists($nama, $state)) continue;      // tidak dikirim → lewati
       $rows = is_array($state[$nama]) ? $state[$nama] : array();
-      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $sejak, $versi);
+      $kenal = (is_array($dikenal) && isset($dikenal[$nama]) && is_array($dikenal[$nama])) ? $dikenal[$nama] : null;
+      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $sejak, $versi, $kenal);
     }
 
     /* Koleksi yang tinggal di `settings` — digabung PER BARIS, bukan ditimpa.
@@ -1018,7 +1055,8 @@ function save_all($state) {
       $known[] = $nama;
       if (!array_key_exists($nama, $state)) continue;   // tidak dikirim -> lewati
       $rows = is_array($state[$nama]) ? $state[$nama] : array();
-      $hitung[$nama] = upsert_settings_collection($pdo, $nama, $rows, $bentrok, $sejak, $versi);
+      $kenal = (is_array($dikenal) && isset($dikenal[$nama]) && is_array($dikenal[$nama])) ? $dikenal[$nama] : null;
+      $hitung[$nama] = upsert_settings_collection($pdo, $nama, $rows, $bentrok, $sejak, $versi, $kenal);
     }
 
     // ---- activities: append-only ----
