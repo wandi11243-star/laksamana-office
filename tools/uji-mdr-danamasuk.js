@@ -435,6 +435,11 @@ async function ujiDanaMasuk() {
     return w.document.getElementById('page-finance').innerHTML;
   };
   const adaTamu = (html, nama) => html.indexOf('>' + nama + '<') > -1;
+  /* Kartu dicari menurut LABEL-nya, lalu angkanya dibaca dari kartu itu saja. */
+  const kartuEl = lab => [...w.document.querySelectorAll('#page-finance .recap')]
+    .find(k => (k.querySelector('.lbl') || {}).textContent && k.querySelector('.lbl').textContent.indexOf(lab) > -1);
+  const nilaiKartu = lab => { const k = kartuEl(lab); return k ? k.querySelector('.val').textContent : '(kartu tak ada)'; };
+  const subKartu = lab => { const k = kartuEl(lab); return k && k.querySelector('.sub') ? k.querySelector('.sub').textContent : ''; };
 
   /* --- bawaan tidak bergeser --- */
   const bawaan = w.eval('FIN_F.basis');
@@ -463,7 +468,30 @@ async function ujiDanaMasuk() {
      layar justru waktu ia paling perlu diperiksa. */
   cek('basis uang masuk: Tamu Tiga tetap ikut lewat tanggal reservasinya', adaTamu(v, 'Tamu Tiga'));
   cek('basis uang masuk: totalnya Rp1.800.000', v.indexOf('1.800.000') > -1);
-  cek('basis uang masuk: total lama Rp2.500.000 tidak lagi muncul', v.indexOf('2.500.000') < 0);
+  /* Sejak 3 Oktober 2026 Rp2.500.000 SAH tetap muncul di basis ini — di
+     kartu "Total DP · menurut Tgl Reservasi". Yang dijaga sekarang kartu
+     Total Dana Masuk-nya (yang ikut basis), bukan seluruh halaman: asersi
+     yang menyapu halaman akan cocok dengan kartu di sebelahnya. */
+  cek('basis uang masuk: kartu Total Dana Masuk ikut basis (Rp1.800.000)',
+      /1\.800\.000/.test(nilaiKartu('Total Dana Masuk')), nilaiKartu('Total Dana Masuk'));
+
+  /* --- KEDUA total DP berdiri BERSAMAAN, di basis mana pun (3 Okt 2026) ---
+     Data ujinya memang dirancang supaya kedua basis memberi angka BERBEDA,
+     jadi kartu yang diam-diam memakai basis saklar tidak punya tempat
+     bersembunyi: ia akan menulis angka yang sama di kedua kartunya. */
+  ['reservasi', 'masuk'].forEach(b => {
+    gambar(b);
+    cek('[' + b + '] kartu Total DP menurut Tgl Reservasi = Rp2.500.000',
+        /2\.500\.000/.test(nilaiKartu('menurut Tgl Reservasi')), nilaiKartu('menurut Tgl Reservasi'));
+    cek('[' + b + '] kartu Total DP menurut Tgl Uang Masuk = Rp1.800.000',
+        /1\.800\.000/.test(nilaiKartu('menurut Tgl Uang Masuk')), nilaiKartu('menurut Tgl Uang Masuk'));
+  });
+  gambar('reservasi');
+  cek('kartu uang masuk menyebut baris yang memakai tgl reservasi',
+      /1 memakai tgl reservasi/.test(subKartu('menurut Tgl Uang Masuk')), subKartu('menurut Tgl Uang Masuk'));
+  cek('kartu basis yang sedang dipilih yang disorot',
+      kartuEl('menurut Tgl Reservasi').classList.contains('ok') && !kartuEl('menurut Tgl Uang Masuk').classList.contains('ok'));
+  v = gambar('masuk');
   cek('label kotak tanggal ikut berubah', v.indexOf('Tgl Uang Masuk — Dari') > -1);
   cek('judul tabel menyebut uang masuk', v.indexOf('· uang masuk ') > -1);
   cek('pita tanggal cadangan muncul & menyebut jumlahnya',
