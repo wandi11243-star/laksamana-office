@@ -9069,7 +9069,10 @@ const FIN_BASIS_LAB = { reservasi:"Tgl Reservasi", masuk:"Tgl Uang Masuk" };
    tanpa tanggal transfer dibuang begitu saja, DP yang buktinya baru diunggah
    dan belum discan LENYAP dari layar — padahal justru itu yang paling perlu
    diperiksa. */
-function finTglSaring(x){ return FIN_F.basis==="masuk" ? txDate(x) : x.r.date; }
+/* `basis` boleh dioper untuk menghitung dengan basis yang BUKAN sedang
+   dipilih — dipakai kedua kartu Total DP (3 Oktober 2026). Tanpa argumen ia
+   tetap membaca saklarnya, jadi pemanggil lama tidak berubah artinya. */
+function finTglSaring(x, basis){ return (basis||FIN_F.basis)==="masuk" ? txDate(x) : x.r.date; }
 // Tab verifikasi: transaksi yang sudah diverifikasi pindah keluar dari tab
 // "Perlu Diverifikasi" ke tab "Terverifikasi", jadi daftar yang perlu dicek
 // mengecil sampai habis.
@@ -9172,7 +9175,7 @@ function finRange(kind){
      bertentangan di satu layar. */
   dpevSegar();
 }
-function financeList(applyTab){
+function financeList(applyTab, basis){
   if(applyTab===undefined) applyTab=true;
   const q=(FIN_F.q||"").trim().toLowerCase();
   // Rentang tanggal BAWAANNYA disaring ke TANGGAL RESERVASI (r.date), bukan
@@ -9191,7 +9194,7 @@ function financeList(applyTab){
   // penyaring yang hasilnya tidak bisa dipercaya siapa pun.
   const inRange=d=>!!d && (!FIN_F.from || d>=FIN_F.from) && (!FIN_F.to || d<=FIN_F.to);
   return financeTx().filter(x=>{
-    if(!inRange(finTglSaring(x))) return false;
+    if(!inRange(finTglSaring(x, basis))) return false;
     if(FIN_F.bank && txBank(x)!==FIN_F.bank) return false;
     if(FIN_F.status==="unscanned" && txScanned(x)) return false;
     if(FIN_F.status==="pending"  && x.p.tfStatus) return false;
@@ -9385,6 +9388,27 @@ function renderFinance(){
      belum diketahui siapa pun, dan yang menjumlahkannya mengira itu setoran
      hari itu. */
   const tglCadangan = FIN_F.basis==="masuk" ? listAll.filter(x=>!x.p.tfDate) : [];
+  /* TOTAL DP MENURUT KEDUA TANGGAL (3 Oktober 2026, permintaan user: "total
+     dana DP-nya berdasarkan tanggal reservasi dan tanggal uang masuk juga").
+     Dua pertanyaan yang sama-sama wajar untuk RENTANG YANG SAMA — "acara di
+     tanggal ini DP-nya sudah berapa" dan "uang yang masuk di tanggal ini
+     berapa" — dan angkanya hampir selalu berbeda, karena DP ditransfer jauh
+     hari sebelum tanggal makan. Dulu yang kedua cuma bisa dibaca dengan
+     memindah saklar lalu mengingat angka yang pertama.
+     - DIHITUNG LEWAT financeList() YANG SAMA, cuma basisnya dioper. Bank,
+       saringan, dan kata kunci tetap berlaku di keduanya; penyaring kedua
+       yang ditulis terpisah akan menyimpang, dan yang menyimpang di sini dua
+       angka yang tidak bisa dicocokkan dengan tabel di bawahnya.
+     - Yang DITOLAK tidak ikut, aturan yang sama dengan kartu Total Dana Masuk.
+     - Basis uang masuk memakai CADANGAN tanggal reservasi untuk bukti yang
+       tanggal transfernya belum terbaca, persis seperti daftar di bawah — dan
+       jumlahnya disebut di kartunya. Dibuang, angka ini berhenti sama dengan
+       tabelnya begitu saklarnya dipindah ke Tgl Uang Masuk. */
+  const sahTx    = arr=>arr.filter(x=>x.p.tfStatus!=="rejected");
+  const perRes   = sahTx(financeList(false,"reservasi"));
+  const perMasuk = sahTx(financeList(false,"masuk"));
+  const cadMasuk = perMasuk.filter(x=>!x.p.tfDate).length;
+  const labRentang = FIN_F.from||FIN_F.to ? (FIN_F.from?fmtDateShort(FIN_F.from):"awal")+" – "+(FIN_F.to?fmtDateShort(FIN_F.to):"sekarang") : "semua tanggal";
   // rekap per bank (seluruh rentang, bukan cuma tab aktif)
   const perBank={};
   listAll.forEach(x=>{ const b=txBank(x)||"(tanpa bank)"; perBank[b]=perBank[b]||{n:0,sum:0}; perBank[b].n++; perBank[b].sum+=txAmount(x); });
@@ -9425,6 +9449,12 @@ function renderFinance(){
     </div></div>`:""}
    <div id="finScanBanner"></div>
 
+   <div class="recap-grid" style="margin-bottom:12px">
+     <div class="recap ${FIN_F.basis!=="masuk"?"ok":""}"><div class="lbl">📅 Total DP · menurut Tgl Reservasi</div><div class="val" style="font-size:22px">${rpDot(sum(perRes))}</div>
+       <div class="sub">${perRes.length} transfer untuk reservasi yang jadwal makannya ${esc(labRentang)}</div></div>
+     <div class="recap ${FIN_F.basis==="masuk"?"ok":""}"><div class="lbl">💸 Total DP · menurut Tgl Uang Masuk</div><div class="val" style="font-size:22px">${rpDot(sum(perMasuk))}</div>
+       <div class="sub">${perMasuk.length} transfer yang uangnya masuk ${esc(labRentang)}${cadMasuk?` · ${cadMasuk} memakai tgl reservasi (tgl transfer belum terbaca)`:""}</div></div>
+   </div>
    <div class="recap-grid">
      <div class="recap ok"><div class="lbl">💰 Total Dana Masuk</div><div class="val" style="font-size:22px">${rpDot(total)}</div><div class="sub">${list.length} kali transfer${cicilan.length?` · ${cicilan.length} dari DP bertahap`:""}</div></div>
      <div class="recap"><div class="lbl">✓ Total Terverifikasi</div><div class="val" style="font-size:22px">${rpDot(sum(verified))}</div><div class="sub">${verified.length} transaksi, dana dipastikan masuk</div></div>
