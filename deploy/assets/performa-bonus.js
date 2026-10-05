@@ -119,8 +119,9 @@ function pbAgregasi(days, divi, list, comps){
              modulnya sendiri; kosong untuk baris manual yang diketik finance,
              dan yang kosong memang tidak punya pasangan. */
           srcId:String(r.srcId||''),
-          /* Jenis dari modul Marketing, penentu "event corporate" di Skema 1.
-             Yang kosong TIDAK ditebak — lihat mkCorporate(). */
+          /* Jenis dari modul Marketing. Sejak 5 Oktober 2026 TIDAK lagi
+             menentukan bonus apa pun (Skema 1 berlaku untuk semua event) —
+             tetap dibawa supaya bisa dibaca kalau suatu hari dibutuhkan. */
           jenis:String(r.srcJenis||'') });
       } else if(PB_NUM(r.amount)>0 || r.eventName){
         yatim.push({ date:d.date, name:r.eventName||'(tanpa nama)', srcId:String(r.srcId||''),
@@ -145,7 +146,7 @@ function pbAgregasi(days, divi, list, comps){
    atas permintaan user. EMPAT skema, dan pemisahan tunai/non-tunai bukan
    kosmetik:
 
-     Skema 1  Bonus Target        pool TIM dari event corporate, dibagi per PIC
+     Skema 1  Bonus Target        pool TIM dari SEMUA event & Reservasi VIP, dibagi per PIC
      Skema 2  Tangga per PIC      dari total nilai deal PIC itu sebulan
      Skema 3  Total Omset Team    dari omset seluruh tim; leader beda nominal
      Skema 4  Non-Tunai           voucher F&B, cuti tambahan, penghargaan
@@ -172,7 +173,7 @@ function pbAgregasi(days, divi, list, comps){
 
 /* ---- SKEMA 1 — Bonus Target (tim) ---- */
 const MK_S1_MIN_EVENT=20000000;      // "Minimal Rp 20 Juta / event"
-/* Tangga JUMLAH event corporate yang nilainya >= MK_S1_MIN_EVENT. AMBIL YANG
+/* Tangga JUMLAH event yang nilainya >= MK_S1_MIN_EVENT. AMBIL YANG
    TERTINGGI SAJA (keputusan user 7 September 2026): tim yang punya 10 event
    tidak juga menerima bonus baris 5 event — dokumennya berbunyi "salah satu
    dari target berikut". */
@@ -251,13 +252,17 @@ const MK_S4_CUTI_PER=3;          // tiap 3 event besar = 1 hari cuti
 const MK_S4_TOP=350000000;       // "Top Marketer of the Month"
 
 function mkTangga(tab,nilai){ return tab.find(t=>nilai>=t.min)||null; }
-/* Jenisnya dicocokkan LONGGAR ("mengandung kata corporate") karena yang
-   tersimpan teks EVENT_TYPES modul Marketing — 'Corporate Event'. Yang TIDAK
-   punya jenis sama sekali bukan corporate dan TIDAK ditebak: baris manual yang
-   diketik finance dan Reservasi VIP memang tidak punya jenis, dan menjatuhkan
-   keduanya ke corporate berarti membayar bonus atas acara yang tidak pernah
-   memenuhi syaratnya. Jumlahnya dilaporkan di kartu Skema 1. */
-function mkCorporate(ev){ return /corporate/i.test(String(ev.jenis||'')); }
+/* SKEMA 1 TIDAK LAGI DIBATASI EVENT CORPORATE (5 Oktober 2026, keputusan
+   user: "jgn jenis corporate, tapi ini berlaku utk semua event dan reservasi
+   VIP"). Sebelumnya hanya baris berjenis 'Corporate Event' yang dihitung, dan
+   itu membuat event besar berjenis lain (mis. Alfawarrior 3, "Competition",
+   Rp30,7 juta) tidak menyumbang apa pun — begitu pula seluruh Reservasi VIP
+   dan baris manual finance, yang memang tidak pernah punya jenis.
+   mkCorporate() DICABUT, bukan dibiarkan menganggur: fungsi yang tidak
+   dipanggil siapa pun akan dipanggil lagi suatu hari oleh orang yang mengira
+   ia masih menentukan sesuatu. Kalau syarat corporate suatu hari kembali,
+   yang perlu dikembalikan penyaring di bonusMarketing() — Breakdown masih
+   membawa jenisnya (`srcJenis`). */
 function bonusS2(nilai){
   const t=mkTangga(MK_S2,nilai);
   if(t) return Object.assign({},t,{ next:MK_S2[MK_S2.indexOf(t)-1]||null });
@@ -309,19 +314,19 @@ function pbHead(e){
    selisih itu uang — pelajaran yang di repo ini sudah dibayar dua kali lewat
    porsiPic dan potonganHari. */
 function bonusMarketing(list, agg){
-  const evSemua=[]; const aktif=[]; let tanpaJenis=0;
+  const evSemua=[]; const aktif=[];
   list.forEach(e=>{
     const a=agg[e.id]; if(!a) return;
     if(a.events.length) aktif.push(e.id);
-    a.events.forEach(ev=>{ evSemua.push(ev); if(!String(ev.jenis||'').trim()) tanpaJenis++; });
+    a.events.forEach(ev=>evSemua.push(ev));
   });
-  const corp=evSemua.filter(mkCorporate);
 
-  /* --- SKEMA 1 --- */
-  const s1lolos=corp.filter(ev=>ev.porsi>=MK_S1_MIN_EVENT);
+  /* --- SKEMA 1 --- seluruh baris breakdown marketing: event Marketing,
+     Reservasi VIP, dan baris manual finance. Lihat catatan di atas mkTangga. */
+  const s1lolos=evSemua.filter(ev=>ev.porsi>=MK_S1_MIN_EVENT);
   const s1jum=mkTangga(MK_S1_JUMLAH,s1lolos.length);
   const s1ev=[];
-  corp.forEach(ev=>{ const t=mkTangga(MK_S1_EVENT,ev.porsi); if(t) s1ev.push({ev:ev,t:t}); });
+  evSemua.forEach(ev=>{ const t=mkTangga(MK_S1_EVENT,ev.porsi); if(t) s1ev.push({ev:ev,t:t}); });
   const s1pool=(s1jum?s1jum.bonus:0)+s1ev.reduce((s,x)=>s+x.t.bonus,0);
   /* Pembaginya PIC YANG PUNYA EVENT bulan itu (keputusan user), bukan seluruh
      roster. Roster ini tumbuh sendiri dari Tim/Keterangan Office dan rutin
@@ -365,9 +370,9 @@ function bonusMarketing(list, agg){
       voucher:voucher, vJml:vJml, evBesar:evBesar,
       cuti:Math.floor(evBesar/MK_S4_CUTI_PER), top:a.real>=MK_S4_TOP };
   });
-  return { per:per, headIds:headIds, ketAda:ketAda, tanpaJenis:tanpaJenis,
+  return { per:per, headIds:headIds, ketAda:ketAda,
     jumPic:list.length,
-    jumEvent:evSemua.length, corp:corp,
+    jumEvent:evSemua.length,
     s1:{ lolos:s1lolos, jum:s1jum, ev:s1ev, pool:s1pool, bagi:s1bagi, perPic:s1per },
     s3:{ tier:s3, total:totTim },
     tunaiSemua:list.reduce((s,e)=>s+per[e.id].tunai,0),
@@ -449,7 +454,7 @@ function kartuSkema1(info){
   const barisJumlah=MK_S1_JUMLAH.map(t=>{
     const aktif=!!(s1.jum&&s1.jum.min===t.min);
     return `<tr${aktif?MK_HI:''}>
-      <td>Tim mencapai <b>${t.min} event corporate</b> senilai ≥ ${PB_RP(MK_S1_MIN_EVENT)}</td>
+      <td>Tim mencapai <b>${t.min} event</b> senilai ≥ ${PB_RP(MK_S1_MIN_EVENT)}</td>
       <td class="num mono">${s1.lolos.length} event</td>
       <td class="num mono">${PB_RP(t.bonus)}</td>
       <td class="num mono">${aktif?'<b>'+PB_RP(t.bonus)+'</b> ✓':'<span class="muted">—</span>'}</td></tr>`;
@@ -457,24 +462,15 @@ function kartuSkema1(info){
   const barisEvent=MK_S1_EVENT.map(t=>{
     const n=perTangga(t.min);
     return `<tr${n?MK_HI:''}>
-      <td>Tiap event corporate senilai ≥ ${PB_RP(t.min)}</td>
+      <td>Tiap event senilai ≥ ${PB_RP(t.min)}</td>
       <td class="num mono">${n} event</td>
       <td class="num mono">${PB_RP(t.bonus)} <span class="muted">/ event</span></td>
       <td class="num mono">${n?'<b>'+PB_RP(t.bonus*n)+'</b> ✓':'<span class="muted">—</span>'}</td></tr>`;
   }).join('');
-  /* Baris yang tidak punya jenis DIKATAKAN, bukan didiamkan. Jenis event baru
-     ikut tercatat di Breakdown sejak 7 September 2026; bulan-bulan sebelumnya
-     kosong sampai tanggalnya dibuka sekali di Breakdown Sumber — dan pool yang
-     lebih kecil daripada seharusnya tetap kelihatan wajar di layar. */
-  const catatanJenis=info.tanpaJenis
-    ? `<div class="notice warn"><div>${info.tanpaJenis} dari ${info.jumEvent} event <b>belum punya jenis</b>, jadi tidak dihitung sebagai corporate.
-        Baris manual yang diketik finance dan Reservasi VIP memang tidak punya jenis dan itu benar.
-        Tapi event dari modul Marketing yang breakdown-nya tersimpan <b>sebelum 7 September 2026</b> juga masih kosong —
-        buka <b>Omset → Breakdown Sumber</b> sekali pada tanggal-tanggal itu supaya jenisnya tersegar dari modul Marketing.</div></div>`
-    : '';
   return `<div class="card">
     <h3>1️⃣ Skema 1 — Bonus Target Tim</h3>
-    <div class="card-sub">Pool dihitung dari <b>event corporate seluruh tim</b>, lalu dibagi rata ke PIC yang punya event pada periode ini.
+    <div class="card-sub">Pool dihitung dari <b>seluruh event tim</b> — event Marketing, Reservasi VIP, dan baris yang diketik finance di Breakdown —
+      apa pun jenis acaranya, lalu dibagi rata ke PIC yang punya event pada periode ini.
       Nilai tiap event memakai kolom <b>Diakui</b> (omset + tax + service).</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Syarat</th><th class="num">Tercapai</th><th class="num">Bonus</th><th class="num">Diperoleh</th></tr></thead>
@@ -485,7 +481,6 @@ function kartuSkema1(info){
     </table></div>
     <div class="helper" style="margin-top:10px">Dua baris pertama <b>tidak berlipat</b> — yang berlaku hanya yang tertinggi.
       Dua baris terakhir dihitung per event dan boleh berulang; tiap event dihitung sekali, di tangga tertingginya.</div>
-    ${catatanJenis}
   </div>`;
 }
 
@@ -511,7 +506,7 @@ function kartuSkema2(info, pid, a){
         <tr${bawah}><td>${bawah?'<b>Di bawah '+PB_RP(120000000)+'</b> ✓':'Di bawah '+PB_RP(120000000)}</td>${selRealisasi(real,0,!!bawah)}<td class="num mono">—</td></tr>
         ${baris}
       </tbody></table></div>
-    <div class="helper" style="margin-top:10px">Dihitung berdasarkan PIC yang menghandle event corporate — tangganya sendiri memakai <b>seluruh event</b> PIC itu (keputusan user 7 September 2026).</div>
+    <div class="helper" style="margin-top:10px">Dihitung per PIC — tangganya memakai <b>seluruh event</b> PIC itu (keputusan user 7 September 2026).</div>
   </div>`;
 }
 
@@ -952,7 +947,7 @@ window.pbCompCocok=pbCompCocok;
 /* Diekspor KHUSUS untuk uji: keduanya dipotong dan dijalankan langsung oleh
    tools/uji-bonus-*.js. Tanpa ini ujinya harus menulis ulang rumusnya. */
 window.PB_UJI={ mkTangga:mkTangga, bonusS2:bonusS2, tanggaEvS4:tanggaEvS4,
-  mkCorporate:mkCorporate, pbHead:pbHead, selRealisasi:selRealisasi,
+  pbHead:pbHead, selRealisasi:selRealisasi,
   kartuSkema1:kartuSkema1, kartuSkema2:kartuSkema2, kartuSkema3:kartuSkema3, kartuSkema4:kartuSkema4,
   kartuEvS1:kartuEvS1, kartuEvS2:kartuEvS2, kartuEvS3:kartuEvS3, kartuEvS4:kartuEvS4,
   MK_S2:MK_S2, MK_S3:MK_S3, MK_S1_JUMLAH:MK_S1_JUMLAH, MK_S1_EVENT:MK_S1_EVENT,

@@ -20,7 +20,8 @@
  *   2. Skema 1+2+3 diakumulasi, Skema 4 TIDAK ikut. Voucher yang diam-diam
  *      masuk rupiah bonus adalah uang yang dijanjikan tapi tidak pernah cair.
  *   3. Tiap event dihitung SEKALI di tangga tertingginya (Skema 1 & voucher).
- *   4. Event tanpa jenis BUKAN corporate, dan jumlahnya dilaporkan.
+ *   4. Jenis event TIDAK menentukan Skema 1 (sejak 5 Oktober 2026): event
+ *      non-corporate, Reservasi VIP, dan baris manual finance ikut dihitung.
  *   5. srcJenis di deploy/finance/omset/ dan yang dibaca di kas adalah BERKAS
  *      KEMBAR — nama kuncinya dibandingkan langsung dari kedua sumbernya.
  */
@@ -123,41 +124,48 @@ const KET = { Ayu: 'Marketing', Budi: 'Marketing', Citra: 'Marketing', Dewi: 'Ma
 const M = jalan(KET);
 const info = M.bonusMarketing(list, agg);
 
-/* ---------- 1. corporate vs bukan ---------- */
+/* ---------- 1. jenis event TIDAK lagi menentukan Skema 1 ----------
+   Keputusan user 5 Oktober 2026: Skema 1 berlaku untuk SEMUA event dan
+   Reservasi VIP, bukan cuma corporate. Baris manual finance & VIP (jenis
+   kosong) ikut dihitung. */
 console.log('\n-- Jenis event --');
-cek('"Corporate Event" terbaca corporate', M.mkCorporate({ jenis: 'Corporate Event' }));
-cek('"corporate event" (huruf kecil) juga', M.mkCorporate({ jenis: 'corporate event' }));
-cek('"Wedding" BUKAN corporate', !M.mkCorporate({ jenis: 'Wedding' }));
-cek('jenis KOSONG bukan corporate (baris manual & VIP tidak ditebak)', !M.mkCorporate({ jenis: '' }));
-cek('jenis tak ada sama sekali bukan corporate', !M.mkCorporate({}));
-sama('4 event corporate terkumpul', info.corp.length, 4);
-sama('1 event tanpa jenis dilaporkan', info.tanpaJenis, 1);
+cek('mkCorporate sudah dicabut (tidak ada penyaring corporate)', typeof M.mkCorporate === 'undefined');
+cek('aset tidak lagi menyaring Skema 1 dengan kata corporate',
+    ASET.indexOf('/corporate/i') < 0);
 sama('total event tim', info.jumEvent, 8);
 
 /* ---------- 2. Skema 1 ---------- */
 console.log('\n-- Skema 1 (pool tim) --');
-sama('4 corporate lolos ambang Rp20 juta', info.s1.lolos.length, 4);
-cek('tangga 5 event BELUM tercapai (baru 4)', info.s1.jum === null,
-    'malah dapat ' + JSON.stringify(info.s1.jum));
-/* Rp80jt -> Rp500.000 (tangga 70jt), Rp35jt & Rp30jt -> Rp300.000, Rp20jt -> nol */
-sama('pool = 500.000 + 300.000 + 300.000', info.s1.pool, 1100000);
+/* >= Rp20jt: 80, 35, 40 (Wedding), 20, 96 (manual tanpa jenis), 30, 30 (Seminar) */
+sama('7 event lolos ambang Rp20 juta — apa pun jenisnya', info.s1.lolos.length, 7);
+sama('tangga 5 event menyala', info.s1.jum && info.s1.jum.bonus, 500000);
+/* per event: 80 & 96 -> 500.000; 35, 40, 30, 30 -> 300.000; 20 -> nol */
+sama('pool = 500.000 (jumlah) + 2×500.000 + 4×300.000', info.s1.pool, 2700000);
 sama('pembagi = 3 PIC yang punya event (Citra tidak ikut)', info.s1.bagi, 3);
-sama('per PIC', info.s1.perPic, Math.floor(1100000 / 3));
+sama('per PIC', info.s1.perPic, Math.floor(2700000 / 3));
 sama('Citra tidak dapat Skema 1', info.per.c.s1, 0);
-sama('Ayu dapat Skema 1', info.per.a.s1, Math.floor(1100000 / 3));
+sama('Ayu dapat Skema 1', info.per.a.s1, Math.floor(2700000 / 3));
+const evManual = info.s1.ev.filter(x => x.ev.name === 'Manual');
+sama('baris manual tanpa jenis (Rp96 juta) ikut dihitung', evManual.length && evManual[0].t.bonus, 500000);
+const evWed = info.s1.ev.filter(x => x.ev.name === 'Nikahan');
+sama('event non-corporate (Wedding Rp40 juta) ikut dihitung', evWed.length && evWed[0].t.bonus, 300000);
 
 /* Event Rp80jt tidak boleh dihitung DUA KALI (tangga 70jt + tangga 30jt). */
 const ev80 = info.s1.ev.filter(x => x.ev.porsi === 80000000);
 sama('event Rp80 juta dihitung SEKALI', ev80.length, 1);
 sama('...dan di tangga tertingginya (Rp500.000)', ev80[0].t.bonus, 500000);
 
-/* Tambah satu corporate besar lagi sampai tangga 5 event menyala. */
+/* Tangga jumlah: 4 event belum, event ke-5 (VIP tanpa jenis) menyalakannya. */
 (function () {
-  const agg2 = JSON.parse(JSON.stringify(agg));
-  agg2.d.events.push(ev('Corp Ke-5', 25000000, 'Corporate Event'));
-  const i2 = M.bonusMarketing(list, agg2);
-  sama('5 corporate -> tangga jumlah menyala', i2.s1.jum && i2.s1.jum.bonus, 500000);
-  sama('...pool naik persis sebesar bonus tangganya', i2.s1.pool - info.s1.pool, 500000);
+  const agg4 = { a: { real: 0, events: [] }, b: { real: 0, events: [] },
+                 c: { real: 0, events: [] }, d: { real: 0, events: [] } };
+  for (let i = 0; i < 4; i++) agg4.a.events.push(ev('E' + i, 21000000, 'Birthday'));
+  const i4 = M.bonusMarketing(list, agg4);
+  cek('4 event -> tangga jumlah BELUM menyala', i4.s1.jum === null, JSON.stringify(i4.s1.jum));
+  agg4.b.events.push(ev('VIP', 25000000, ''));
+  const i5 = M.bonusMarketing(list, agg4);
+  sama('event ke-5 (Reservasi VIP, tanpa jenis) -> tangga menyala', i5.s1.jum && i5.s1.jum.bonus, 500000);
+  sama('...pool naik persis sebesar bonus tangganya', i5.s1.pool - i4.s1.pool, 500000);
 })();
 
 /* Tangga jumlah TIDAK berlipat: 10 event tidak juga menerima bonus baris 5. */
@@ -166,7 +174,7 @@ sama('...dan di tangga tertingginya (Rp500.000)', ev80[0].t.bonus, 500000);
                  c: { real: 0, events: [] }, d: { real: 0, events: [] } };
   for (let i = 0; i < 10; i++) agg3.a.events.push(ev('C' + i, 21000000, 'Corporate Event'));
   const i3 = M.bonusMarketing(list, agg3);
-  sama('10 event corporate -> tangga Rp2.000.000', i3.s1.jum.bonus, 2000000);
+  sama('10 event -> tangga Rp2.000.000', i3.s1.jum.bonus, 2000000);
   sama('...dan TIDAK ditambah bonus baris 5 event', i3.s1.pool, 2000000);
 })();
 
@@ -385,18 +393,15 @@ cek('menyebut pembagi pool berikut angkanya', /Dibagi ke 3 PIC/.test(html));
       /2 orang<\/b> tercatat sebagai <b>Head<\/b>/.test(duaLeader.kartuSkema3(i2, list, 'a')));
 })();
 
-/* Event tanpa jenis harus disebut di kartunya, berikut cara membetulkannya. */
-cek('kartu Skema 1 menyebut event yang belum punya jenis',
-    /belum punya jenis/.test(M.kartuSkema1(info)));
-cek('...berikut cara membetulkannya (Breakdown Sumber)',
-    /Breakdown Sumber/.test(M.kartuSkema1(info)));
-(function () {
-  const bersih = JSON.parse(JSON.stringify(agg));
-  bersih.b.events[2].jenis = 'Gathering';
-  const i = M.bonusMarketing(list, bersih);
-  sama('tidak ada yang tanpa jenis', i.tanpaJenis, 0);
-  cek('...maka peringatannya tidak digambar', !/belum punya jenis/.test(M.kartuSkema1(i)));
-})();
+/* Sejak jenis tidak lagi menentukan, peringatan "belum punya jenis" tidak
+   punya arti — dan peringatan yang tidak berarti apa pun melatih orang
+   berhenti membaca peringatan. */
+cek('kartu Skema 1 tidak lagi memperingatkan event tanpa jenis',
+    !/belum punya jenis/.test(M.kartuSkema1(info)));
+cek('kartu Skema 1 tidak menyebut "event corporate"',
+    !/event corporate/.test(M.kartuSkema1(info)));
+cek('kartu Skema 1 menyebut Reservasi VIP ikut dihitung',
+    /Reservasi VIP/.test(M.kartuSkema1(info)));
 
 /* ---------- 7b. kolom Realisasi di tabel tangga (7 September 2026) ----------
    Kolom ini ada supaya orang tidak perlu menghitung sendiri sudah di baris mana
@@ -460,8 +465,8 @@ cek('yang membacanya memakai nama kunci yang sama', /jenis:String\(r\.srcJenis\|
 cek('...dan cuma SATU tempat yang merakitnya',
     /jenis:String\(r\.srcJenis\|\|''\)/.test(ASET) !== /jenis:String\(r\.srcJenis\|\|''\)/.test(kas),
     'dirakit di aset DAN di kas — salah satunya akan tertinggal');
-/* VIP sengaja tidak diberi jenis — kalau suatu hari ikut, ia jadi corporate
-   palsu tanpa satu pun galat. */
+/* VIP sengaja tidak diberi jenis — jenisnya memang tidak ada di modul
+   Marketing, dan sejak 5 Oktober 2026 jenis tidak menentukan bonus apa pun. */
 cek('VIP tidak ikut diberi jenis', !/vip:'\+v\.id\]=String\(\(v\.detail/.test(omset));
 
 /* ketOffice: satu pembaca KET_MAP, bukan dua.

@@ -771,7 +771,7 @@ membedakannya lagi.
 
 | | isinya | dasarnya |
 |---|---|---|
-| Skema 1 | pool TIM dari event corporate, dibagi per PIC | nilai tiap event |
+| Skema 1 | pool TIM dari SEMUA event & Reservasi VIP, dibagi per PIC | nilai tiap event |
 | Skema 2 | tangga per PIC | realisasi PIC itu |
 | Skema 3 | tangga total omset TIM; leader beda nominal | realisasi seluruh tim |
 | Skema 4 | voucher F&B, cuti, Top Marketer | per event & realisasi |
@@ -812,6 +812,15 @@ Tangga yang berlubang membuat omset yang **NAIK** bisa **menurunkan** bonus,
 dan tidak ada seorang pun yang bisa menjelaskan itu kepada yang menerimanya.
 Yang ditulis di kolom Syarat pada tabel di layar adalah `min` di kode, bukan
 kalimat dokumennya — supaya yang dibaca sama persis dengan yang dihitung.
+
+> **SYARAT "EVENT CORPORATE" DI SKEMA 1 DICABUT (5 Oktober 2026, keputusan
+> user).** Skema 1 sekarang menghitung SELURUH baris breakdown marketing —
+> event apa pun jenisnya, Reservasi VIP, dan baris manual finance. Pemicunya:
+> Alfawarrior 3 (jenis "Competition") yang omsetnya Rp30,7 juta tidak
+> menyumbang apa pun ke pool. `mkCorporate()` dan peringatan "belum punya
+> jenis" ikut dicabut. `srcJenis` tetap dibawa — kalau syaratnya kembali,
+> yang perlu dikembalikan penyaring di `bonusMarketing()`. Blok di bawah ini
+> tetap benar sebagai sejarah cara jenisnya sampai ke Finance.
 
 **"EVENT CORPORATE" BARU BISA DIBACA SEJAK TANGGAL INI.** Jenis event
 (`detail.jenis` di modul Marketing — `EVENT_TYPES`, 'Corporate Event') tidak
