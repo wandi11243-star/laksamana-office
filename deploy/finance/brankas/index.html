@@ -1619,13 +1619,19 @@ function vModal() {
     + kartu('Sisa Kewajiban', fmtRp(Math.max(modal - kembali, 0)), 'belum dikembalikan')
     + '</div>';
 
-  h += '<div class="card" data-aks><h3>Catat Investor</h3><div class="card-sub">Modal yang masuk dan target pengembaliannya</div>'
+  const ive = IV_EDIT ? baris(IV_EDIT, BK.data.investor) : null;
+  if (IV_EDIT && !ive) IV_EDIT = null;
+  h += '<div class="card" data-aks' + (ive ? ' style="outline:2px solid var(--gold)"' : '') + '><h3>' + (ive ? 'Edit Investor' : 'Catat Investor') + '</h3>'
+    + '<div class="card-sub">' + (ive
+        ? 'Sedang menyunting <b>' + esc(ive.name) + '</b>. Riwayat pengembaliannya tidak tersentuh; nama baru ikut tampil di halaman investor.'
+        : 'Modal yang masuk dan target pengembaliannya') + '</div>'
     + '<div class="grid g4">'
-    + fld('Nama', '<input id="iv_name" placeholder="Nama investor">')
-    + fld('Modal', '<input class="mono" id="iv_cap" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
-    + fld('Kepemilikan (%)', '<input class="mono" id="iv_own" inputmode="numeric" placeholder="0">')
-    + fld('Target Selesai', '<input type="date" id="iv_tgt">')
-    + '</div><button class="btn btn-primary" onclick="ivSimpan()">Simpan Investor</button></div>';
+    + fld('Nama', '<input id="iv_name" placeholder="Nama investor" value="' + esc(ive ? ive.name || '' : '') + '">')
+    + fld('Modal', '<input class="mono" id="iv_cap" inputmode="numeric" oninput="ketikRp(this)" placeholder="0" value="' + (ive ? fmtRpInput(ive.capital) : '') + '">')
+    + fld('Kepemilikan (%)', '<input class="mono" id="iv_own" inputmode="numeric" placeholder="0" value="' + esc(ive ? String(ive.ownership || '') : '') + '">')
+    + fld('Target Selesai', '<input type="date" id="iv_tgt" value="' + esc(ive ? ive.targetDate || '' : '') + '">')
+    + '</div><button class="btn btn-primary" onclick="ivSimpan()">' + (ive ? 'Simpan Perubahan' : 'Simpan Investor') + '</button>'
+    + (ive ? ' <button class="btn" onclick="ivBatalEdit()">Batal</button>' : '') + '</div>';
 
   h += arr.length ? arr.map(i => {
       const ret = (i.returns || []).reduce((a, r) => a + num(r.amount), 0);
@@ -1665,15 +1671,38 @@ function vModal() {
               + '<td data-aks><button class="btn btn-xs" onclick="rvEdit(\'' + i.id + '\',' + ix + ')">Edit</button> '
               + '<button class="btn btn-danger btn-xs" onclick="rvHapus(\'' + i.id + '\',' + ix + ')">Hapus</button></td></tr>').join('')
             + '</tbody></table></div>' : '')
-        + '<div style="margin-top:12px" data-aks><button class="btn btn-danger btn-sm" onclick="hapusBaris(\'investor\',\'' + i.id + '\',\'modal\',\'Hapus investor ini beserta riwayat pengembaliannya?\')">Hapus Investor</button></div>'
+        + '<div style="margin-top:12px" data-aks><button class="btn btn-sm" onclick="ivEdit(\'' + i.id + '\')">Edit Investor</button> '
+        + '<button class="btn btn-danger btn-sm" onclick="hapusBaris(\'investor\',\'' + i.id + '\',\'modal\',\'Hapus investor ini beserta riwayat pengembaliannya?\')">Hapus Investor</button></div>'
         + '</div>';
     }).join('')
     : '<div class="card"><div class="empty"><div class="big">♦</div>Belum ada investor yang dicatat.</div></div>';
   V.innerHTML = h;
 }
+/* Investor yang sedang DISUNTING (6 Oktober 2026, permintaan user: "nama
+   investor juga bisa diedit"). Formulir Catat Investor yang SAMA dipakai
+   ulang; id & riwayat pengembaliannya TIDAK disentuh — membuat investor baru
+   lalu menghapus yang lama akan membuang seluruh riwayat dividen yang tampil
+   di halaman investor. Di luar DOM karena render di modul ini TOTAL. */
+let IV_EDIT = null;
+function ivEdit(id) {
+  if (!bolehAksi('modal')) return;
+  if (!baris(id, BK.data.investor)) return;
+  IV_EDIT = id; render();
+  const f = document.getElementById('iv_name'); if (f) { if (f.scrollIntoView) f.scrollIntoView({ block:'center' }); f.focus(); }
+}
+function ivBatalEdit() { IV_EDIT = null; render(); }
 function ivSimpan() {
   const g = id => (document.getElementById(id) || {}).value || '';
   if (!g('iv_name').trim()) { alert('Nama investor wajib diisi.'); return; }
+  if (IV_EDIT) {
+    const lama = baris(IV_EDIT, BK.data.investor);
+    IV_EDIT = null;
+    if (!lama) { alert('Investor yang disunting sudah tidak ada — muat ulang halaman.'); render(); return; }
+    simpanBaris('investor', Object.assign({}, lama, { name:g('iv_name').trim(), capital:num(g('iv_cap')),
+      ownership:num(g('iv_own')), targetDate:g('iv_tgt'),
+      editBy:(CURRENT_USER && CURRENT_USER.name) || '', editAt:Date.now() }), 'modal');
+    return;
+  }
   simpanBaris('investor', { id:uid('iv'), name:g('iv_name').trim(), capital:num(g('iv_cap')),
     ownership:num(g('iv_own')), targetDate:g('iv_tgt'), returns:[] }, 'modal');
 }
