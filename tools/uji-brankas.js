@@ -494,6 +494,22 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     cek('pengembalian tersunting: wallet & nominal baru', ub && ub.dari === 'mandiri' && ub.amount === 6000000, JSON.stringify(ub));
     cek('catatan lain tidak tersentuh', rs && rs.find(r => r.date === '2026-08-10').amount === 20000000);
     cek('yang menggantung habis', w.modalTanpaWadah().length === 0);
+
+    /* Edit investor: nama berubah, id & riwayat pengembalian TIDAK tersentuh */
+    w.go('modal'); await tunggu(40);
+    cek('kartu investor punya tombol Edit Investor', d.getElementById('app-view').innerHTML.indexOf("ivEdit('i1')") > -1);
+    w.ivEdit('i1'); await tunggu(40);
+    cek('formulir terisi nama investor', d.getElementById('iv_name').value === 'H. Bakri', d.getElementById('iv_name').value);
+    cek('formulir terisi modalnya', d.getElementById('iv_cap').value === '100.000.000', d.getElementById('iv_cap').value);
+    cek('judul berubah jadi Edit Investor', d.getElementById('app-view').innerHTML.indexOf('Edit Investor</h3>') > -1);
+    d.getElementById('iv_name').value = 'H. Bakri Saleh';
+    w.ivSimpan(); await tunggu(120);
+    kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    const ivs = kirim && kirim.body.data.investor;
+    cek('suntingan investor TIDAK menambah investor', ivs && ivs.length === 1, ivs ? String(ivs.length) : '-');
+    cek('nama baru tersimpan, id tetap', ivs && ivs[0].name === 'H. Bakri Saleh' && ivs[0].id === 'i1', JSON.stringify(ivs && ivs[0].name));
+    cek('riwayat pengembalian tetap utuh', ivs && ivs[0].returns.length === 2 && ivs[0].capital === 100000000);
+    cek('sesudah simpan kembali ke Catat Investor', d.getElementById('app-view').innerHTML.indexOf('Edit Investor</h3>') < 0);
     dom.window.close();
   }
 
