@@ -1400,6 +1400,15 @@ function dividen_investor() {
   foreach ($inv as $i) {
     if (!is_array($i)) continue;
     $totalModal += kp_num(isset($i['capital']) ? $i['capital'] : 0);
+    /* Tambahan modal (6 Oktober 2026) ikut di total modal — berkas kembar
+       modalTotal() di deploy/finance/brankas/. Tanpa ini halaman investor
+       menyebut modal lebih kecil daripada panel Brankas, dan persen
+       pengembaliannya lebih besar daripada kenyataan. */
+    if (isset($i['tambahan']) && is_array($i['tambahan'])) {
+      foreach ($i['tambahan'] as $tm) {
+        if (is_array($tm)) $totalModal += kp_num(isset($tm['amount']) ? $tm['amount'] : 0);
+      }
+    }
     $nama = kp_teks(isset($i['name']) ? $i['name'] : '', 80);
     $ret = (isset($i['returns']) && is_array($i['returns'])) ? $i['returns'] : array();
     foreach ($ret as $r) {

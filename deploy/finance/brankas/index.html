@@ -1019,7 +1019,7 @@ function saldoSemua() {
   const peta = petaGrup();
   const out = {}; SEMUA_WADAH().forEach(k => out[k] = {
     awal:saldoAwal(k), masuk:0, setorMasuk:0, setorKeluar:0,
-    mutMasuk:0, mutKeluar:0, keluar:0, modal:0, saldo:0 });
+    mutMasuk:0, mutKeluar:0, keluar:0, modal:0, modalMasuk:0, saldo:0 });
 
   if (KP) {
     tglRekap().forEach(tgl => {
@@ -1071,9 +1071,21 @@ function saldoSemua() {
     });
   });
 
+  /* TAMBAHAN MODAL MASUK ke wadah yang dipilih saat mencatatnya (6 Oktober
+     2026). Modal AWAL tidak ikut di sini — ia sudah ada sebelum hari pertama
+     yang tercatat dan diwakili Saldo Awal di Pengaturan. Tambahan modal lahir
+     SESUDAHNYA, jadi tanpa baris ini uangnya masuk rekening tapi saldonya
+     tidak bertambah. Jangan dicatat lagi sebagai Mutasi "uang masuk dari
+     luar": itu menghitungnya dua kali — dan itu dikatakan di layarnya. */
+  (BK.data.investor || []).forEach(i => {
+    (i.tambahan || []).forEach(t => {
+      if (t.ke && out[t.ke]) out[t.ke].modalMasuk += num(t.amount);
+    });
+  });
+
   SEMUA_WADAH().forEach(k => {
     const o = out[k];
-    o.saldo = o.awal + o.masuk + o.setorMasuk + o.mutMasuk
+    o.saldo = o.awal + o.masuk + o.setorMasuk + o.mutMasuk + o.modalMasuk
             - o.setorKeluar - o.mutKeluar - o.keluar - o.modal;
   });
   return out;
@@ -1150,8 +1162,10 @@ function vRingkasan() {
             burn > 0 ? ('biaya bulanan ' + fmtRp(burn)) : 'isi biaya bulanan di Pengaturan')
     + '</div>';
   const modalKeluar = SEMUA_WADAH().reduce((a, k) => a + s[k].modal, 0);
+  const modalMasuk = SEMUA_WADAH().reduce((a, k) => a + s[k].modalMasuk, 0);
   const mutPindah = (BK.data.mutasi || []).filter(m => m.jenis === 'pindah').length;
-  if (modalKeluar || mutPindah) h += '<div class="notice info">ℹ <div>'
+  if (modalKeluar || modalMasuk || mutPindah) h += '<div class="notice info">ℹ <div>'
+    + (modalMasuk ? 'Sudah <b>' + fmtRp(modalMasuk) + '</b> masuk sebagai tambahan modal investor. ' : '')
     + (modalKeluar ? 'Sudah <b>' + fmtRp(modalKeluar) + '</b> keluar sebagai pengembalian modal investor. ' : '')
     + (mutPindah ? mutPindah + ' pemindahan antar wallet tercatat — pemindahan tidak mengubah total kas, cuma letaknya.' : '')
     + '</div></div>';
@@ -1562,6 +1576,51 @@ async function muSimpan() {
    karena baris pengembalian tidak punya id sendiri. Disimpan di luar DOM
    karena render di modul ini TOTAL. */
 let RV_EDIT = null;
+/* TOTAL MODAL = modal awal + seluruh tambahan modal (6 Oktober 2026,
+   permintaan user). SATU tempat — kartu ringkas, progres tiap investor, dan
+   sisa kewajiban semuanya membacanya. kompas-mysql dividen_investor()
+   menjumlahkan hal yang SAMA untuk halaman investor; kalau aturannya berubah
+   di sini, di sana HARUS ikut. */
+function modalTotal(i) { return num(i.capital) + (i.tambahan || []).reduce((a, t) => a + num(t.amount), 0); }
+/* Tambahan modal yang sedang disunting: {iv, id}. Barisnya punya id sendiri
+   (beda dari returns yang tidak punya), jadi tidak perlu urutan. */
+let TM_EDIT = null;
+function tmEdit(iv, id) {
+  if (!bolehAksi('modal')) return;
+  const i = baris(iv, BK.data.investor); if (!i || !baris(id, i.tambahan)) return;
+  TM_EDIT = { iv:iv, id:id }; render();
+  const f = document.getElementById('tm_a_' + iv); if (f) { if (f.scrollIntoView) f.scrollIntoView({ block:'center' }); f.focus(); }
+}
+function tmBatalEdit() { TM_EDIT = null; render(); }
+function tmSimpan(iv) {
+  if (!bolehAksi('modal')) return;
+  const i = baris(iv, BK.data.investor); if (!i) return;
+  const g = id => (document.getElementById(id) || {}).value || '';
+  const d = g('tm_d_' + iv), a = num(g('tm_a_' + iv)), w = g('tm_w_' + iv), ket = g('tm_k_' + iv).trim();
+  if (!d || !a) { alert('Tanggal dan nominal tambahan modal wajib diisi.'); return; }
+  /* Wallet WAJIB: tambahan modal yang tidak menyebut masuk ke mana membuat
+     uangnya ada di rekening tapi tidak di saldo mana pun. */
+  if (!w) { alert('Pilih wallet tempat uangnya masuk.'); return; }
+  if (!Array.isArray(i.tambahan)) i.tambahan = [];
+  const nama = (CURRENT_USER && CURRENT_USER.name) || '';
+  if (TM_EDIT && TM_EDIT.iv === iv) {
+    const t = baris(TM_EDIT.id, i.tambahan);
+    TM_EDIT = null;
+    if (!t) { alert('Catatan yang disunting sudah tidak ada — muat ulang halaman.'); render(); return; }
+    Object.assign(t, { date:d, amount:a, ke:w, ket:ket, editBy:nama, editAt:Date.now() });
+  } else {
+    i.tambahan.push({ id:uid('tm'), date:d, amount:a, ke:w, ket:ket, by:nama });
+  }
+  simpanBaris('investor', i, 'modal');
+}
+function tmHapus(iv, id) {
+  const i = baris(iv, BK.data.investor); if (!i || !i.tambahan) return;
+  const t = baris(id, i.tambahan); if (!t) return;
+  if (!confirm('Hapus tambahan modal ' + fmtRp(t.amount) + ' (' + fmtTgl(t.date) + ')? Saldo ' + namaBank(t.ke) + ' ikut berkurang.')) return;
+  i.tambahan = i.tambahan.filter(x => x.id !== id);
+  TM_EDIT = null;
+  simpanBaris('investor', i, 'modal');
+}
 function rvUrut(i) { return (i.returns || []).slice().sort((a, b) => String(b.date) < String(a.date) ? -1 : 1); }
 function rvEdit(id, ix) {
   if (!bolehAksi('modal')) return;
@@ -1573,7 +1632,7 @@ function rvBatalEdit() { RV_EDIT = null; render(); }
 function vModal() {
   const V = document.getElementById('app-view');
   const arr = (BK.data.investor || []).slice();
-  const modal = arr.reduce((a, i) => a + num(i.capital), 0);
+  const modal = arr.reduce((a, i) => a + modalTotal(i), 0);
   const kembali = arr.reduce((a, i) => a + (i.returns || []).reduce((x, r) => x + num(r.amount), 0), 0);
   let h = '';
   const gantung = modalTanpaWadah();
@@ -1582,7 +1641,7 @@ function vModal() {
     + 'Saldo &amp; Rekening lebih besar daripada kenyataan sebesar <b>'
     + fmtRp(gantung.reduce((a, x) => a + num(x.r.amount), 0)) + '</b>. Tekan <b>Edit</b> di barisnya lalu pilih wallet asalnya.</div></div>';
   h += '<div class="grid g3" style="margin-bottom:18px">'
-    + kartu('Modal Masuk', fmtRp(modal), arr.length + ' investor')
+    + kartu('Modal Masuk', fmtRp(modal), arr.length + ' investor · termasuk tambahan modal')
     + kartu('Sudah Dikembalikan', fmtRp(kembali), modal > 0 ? (kembali / modal * 100).toFixed(1) + '% dari modal' : '—')
     + kartu('Sisa Kewajiban', fmtRp(Math.max(modal - kembali, 0)), 'belum dikembalikan')
     + '</div>';
@@ -1595,7 +1654,7 @@ function vModal() {
         : 'Modal yang masuk dan target pengembaliannya') + '</div>'
     + '<div class="grid g4">'
     + fld('Nama', '<input id="iv_name" placeholder="Nama investor" value="' + esc(ive ? ive.name || '' : '') + '">')
-    + fld('Modal', '<input class="mono" id="iv_cap" inputmode="numeric" oninput="ketikRp(this)" placeholder="0" value="' + (ive ? fmtRpInput(ive.capital) : '') + '">')
+    + fld(ive ? 'Modal Awal' : 'Modal', '<input class="mono" id="iv_cap" inputmode="numeric" oninput="ketikRp(this)" placeholder="0" value="' + (ive ? fmtRpInput(ive.capital) : '') + '">')
     + fld('Kepemilikan (%)', '<input class="mono" id="iv_own" inputmode="numeric" placeholder="0" value="' + esc(ive ? String(ive.ownership || '') : '') + '">')
     + fld('Target Selesai', '<input type="date" id="iv_tgt" value="' + esc(ive ? ive.targetDate || '' : '') + '">')
     + '</div><button class="btn btn-primary" onclick="ivSimpan()">' + (ive ? 'Simpan Perubahan' : 'Simpan Investor') + '</button>'
@@ -1603,17 +1662,44 @@ function vModal() {
 
   h += arr.length ? arr.map(i => {
       const ret = (i.returns || []).reduce((a, r) => a + num(r.amount), 0);
-      const sisa = Math.max(num(i.capital) - ret, 0);
-      const p = num(i.capital) > 0 ? Math.min(ret / num(i.capital) * 100, 100) : 0;
+      const mTot = modalTotal(i), tmb = (i.tambahan || []);
+      const sisa = Math.max(mTot - ret, 0);
+      const p = mTot > 0 ? Math.min(ret / mTot * 100, 100) : 0;
+      const tme = (TM_EDIT && TM_EDIT.iv === i.id) ? baris(TM_EDIT.id, tmb) : null;
       const ed = (RV_EDIT && RV_EDIT.iv === i.id) ? rvUrut(i)[RV_EDIT.ix] || null : null;
       return '<div class="card"><h3>' + esc(i.name) + '</h3>'
-        + '<div class="card-sub">Tercatat juga di halaman investor sebagai riwayat dividen. Modal ' + fmtRp(i.capital) + ' · kepemilikan ' + esc(String(i.ownership || 0)) + '%'
+        + '<div class="card-sub">Tercatat juga di halaman investor sebagai riwayat dividen. Modal '
+        + (tmb.length ? fmtRp(mTot) + ' (awal ' + fmtRp(i.capital) + ' + ' + tmb.length + '× tambahan ' + fmtRp(mTot - num(i.capital)) + ')' : fmtRp(i.capital))
+        + ' · kepemilikan ' + esc(String(i.ownership || 0)) + '%'
         + (i.targetDate ? ' · target ' + esc(fmtTgl(i.targetDate)) : '') + '</div>'
         + '<div class="grid g3" style="margin:12px 0">'
         + kartu('Dikembalikan', fmtRp(ret), p.toFixed(1) + '% dari modal')
         + kartu('Sisa', fmtRp(sisa), '')
         + kartu('Jumlah Pembayaran', String((i.returns || []).length) + '×', '')
         + '</div>'
+        /* ---- TAMBAHAN MODAL ---- */
+        + '<div data-aks style="margin:4px 0 14px;padding:12px 14px;border:1px dashed var(--line,#ddd);border-radius:10px">'
+        + '<div style="font-weight:700;margin-bottom:4px">' + (tme ? '✎ Edit Tambahan Modal' : 'Tambah Modal') + '</div>'
+        + '<div class="helper" style="margin-bottom:8px">Uang tambahan dari investor ini sesudah modal awal. Saldo wallet tujuannya ikut bertambah — '
+        + '<b>jangan dicatat lagi</b> sebagai Mutasi "uang masuk dari luar", nanti terhitung dua kali.</div>'
+        + '<div class="grid g4">'
+        + fld('Tanggal Masuk', '<input type="date" id="tm_d_' + i.id + '" value="' + esc(tme ? tme.date || '' : todayISO()) + '">')
+        + fld('Nominal', '<input class="mono" id="tm_a_' + i.id + '" inputmode="numeric" oninput="ketikRp(this)" placeholder="0" value="' + (tme ? fmtRpInput(tme.amount) : '') + '">')
+        + fld('Masuk ke Wallet', '<select id="tm_w_' + i.id + '"><option value="">— pilih wallet —</option>'
+            + SEMUA_WADAH().map(k => '<option value="' + k + '"' + (tme && tme.ke === k ? ' selected' : '') + '>' + esc(namaBank(k)) + '</option>').join('') + '</select>')
+        + fld('Keterangan', '<input id="tm_k_' + i.id + '" placeholder="mis. tambahan modal renovasi" value="' + esc(tme ? tme.ket || '' : '') + '">')
+        + '</div>'
+        + '<button class="btn btn-primary btn-sm" onclick="tmSimpan(\'' + i.id + '\')">' + (tme ? 'Simpan Perubahan' : 'Catat Tambahan Modal') + '</button>'
+        + (tme ? ' <button class="btn btn-sm" onclick="tmBatalEdit()">Batal</button>' : '')
+        + '</div>'
+        + (tmb.length ? '<div class="tbl-wrap" style="margin-bottom:14px"><table><thead><tr><th>Tanggal Masuk</th><th>Masuk ke</th><th class="num">Tambahan Modal</th><th>Keterangan</th><th></th></tr></thead><tbody>'
+            + tmb.slice().sort((a, b) => String(b.date) < String(a.date) ? -1 : 1).map(t =>
+              '<tr><td>' + esc(fmtTgl(t.date)) + '</td><td>' + esc(namaBank(t.ke)) + '</td>'
+              + '<td class="num mono">' + fmtRp(t.amount) + '</td><td>' + esc(t.ket || '—') + '</td>'
+              + '<td data-aks><button class="btn btn-xs" onclick="tmEdit(\'' + i.id + '\',\'' + t.id + '\')">Edit</button> '
+              + '<button class="btn btn-danger btn-xs" onclick="tmHapus(\'' + i.id + '\',\'' + t.id + '\')">Hapus</button></td></tr>').join('')
+            + '<tr><td colspan="2"><b>Total tambahan</b></td><td class="num mono"><b>' + fmtRp(mTot - num(i.capital)) + '</b></td><td colspan="2"></td></tr>'
+            + '</tbody></table></div>' : '')
         + (ed ? '<div class="notice info" data-aks>✎ <div>Sedang menyunting pengembalian <b>' + esc(fmtTgl(ed.date)) + ' · ' + fmtRp(ed.amount) + '</b>'
             + (ed.by ? ' (dicatat ' + esc(ed.by) + ')' : '') + '. Saldo wallet asalnya ikut berubah begitu disimpan.</div></div>' : '')
         + '<div data-aks class="grid g4">'

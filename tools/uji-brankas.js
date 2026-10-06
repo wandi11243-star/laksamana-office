@@ -510,6 +510,42 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     cek('nama baru tersimpan, id tetap', ivs && ivs[0].name === 'H. Bakri Saleh' && ivs[0].id === 'i1', JSON.stringify(ivs && ivs[0].name));
     cek('riwayat pengembalian tetap utuh', ivs && ivs[0].returns.length === 2 && ivs[0].capital === 100000000);
     cek('sesudah simpan kembali ke Catat Investor', d.getElementById('app-view').innerHTML.indexOf('Edit Investor</h3>') < 0);
+
+    /* TAMBAHAN MODAL (6 Oktober 2026): masuk ke total modal, menambah saldo
+       wallet tujuannya, wallet wajib, dan suntingannya tidak menambah baris. */
+    w.go('modal'); await tunggu(40);
+    const sebelumBca = w.saldoSemua().bca.saldo;
+    d.getElementById('tm_d_i1').value = '2026-09-01';
+    d.getElementById('tm_a_i1').value = '50.000.000';
+    d.getElementById('tm_w_i1').value = '';
+    let nKirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').length;
+    w.tmSimpan('i1'); await tunggu(60);
+    cek('tambahan modal tanpa wallet DITOLAK', panggilan.filter(p => p.body && p.body.action === 'brankasSave').length === nKirim);
+    d.getElementById('tm_w_i1').value = 'bca';
+    d.getElementById('tm_k_i1').value = 'renovasi';
+    w.tmSimpan('i1'); await tunggu(120);
+    kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    const tm = kirim && kirim.body.data.investor[0].tambahan;
+    cek('tambahan modal tersimpan', tm && tm.length === 1 && tm[0].amount === 50000000 && tm[0].ke === 'bca', JSON.stringify(tm));
+    cek('modal awal TIDAK berubah', kirim && kirim.body.data.investor[0].capital === 100000000);
+    cek('total modal = awal + tambahan', w.modalTotal(w.eval('BK.data.investor[0]')) === 150000000);
+    cek('saldo BCA bertambah sebesar tambahan modal', w.saldoSemua().bca.saldo - sebelumBca === 50000000,
+        String(w.saldoSemua().bca.saldo - sebelumBca));
+    v = d.getElementById('app-view').innerHTML;
+    cek('kartu Modal Masuk memakai total', v.indexOf('Rp150.000.000') > -1);
+    /* 20 jt + 6 jt dikembalikan dari 150 jt -> sisa 124 jt */
+    cek('sisa kewajiban dihitung dari total modal', v.indexOf('Rp124.000.000') > -1);
+    cek('tabel tambahan modal tampil', v.indexOf('renovasi') > -1);
+    const tmId = tm[0].id;
+    w.tmEdit('i1', tmId); await tunggu(40);
+    cek('edit tambahan mengisi formulir', d.getElementById('tm_a_i1').value === '50.000.000' && d.getElementById('tm_w_i1').value === 'bca');
+    d.getElementById('tm_a_i1').value = '40.000.000';
+    w.tmSimpan('i1'); await tunggu(120);
+    kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    const tm2 = kirim && kirim.body.data.investor[0].tambahan;
+    cek('edit tambahan TIDAK menambah baris', tm2 && tm2.length === 1 && tm2[0].amount === 40000000 && tm2[0].id === tmId, JSON.stringify(tm2));
+    cek('halaman investor ikut menjumlahkan tambahan (kontrak PHP)',
+        /\$i\['tambahan'\][\s\S]{0,200}\$totalModal \+= kp_num/.test(fs.readFileSync(path.join(ROOT, 'kompas-mysql', 'lib_kompas_mysql.php'), 'utf8')));
     dom.window.close();
   }
 
