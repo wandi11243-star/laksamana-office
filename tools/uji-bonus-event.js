@@ -91,7 +91,12 @@ console.log('-- dasar angka --');
 sama('Skema 1 Andi dihitung dari Nilai Event (net)', info.per.a.s1, 1000000 + 500000 + 300000);
 cek('...dan BUKAN dari porsi (yang cuma separuh)', info.per.a.s1 !== 400000 + 400000 + 0,
     'angkanya sama dengan hasil kalau porsi yang dipakai');
-sama('Skema 4 Andi memakai jumlah Nilai Event', info.per.a.net, 220000000);
+sama('nilai event utuh Andi tetap tercatat', info.per.a.net, 220000000);
+/* Skema 4 sejak 6 Oktober 2026 (keputusan user): dasarnya REALISASI = separuh
+   nilai event, sama dengan kartu Realisasi. Skema 1 & 3 tetap nilai utuh. */
+sama('Skema 4 Andi memakai realisasi (separuh nilai event)', info.per.a.dasarS4, 110000000);
+cek('...dan BUKAN nilai event utuh', info.per.a.dasarS4 !== info.per.a.net);
+sama('baris tanpa porsi dihitung separuh amount-nya', M.bonusEvent([{id:'x',name:'X'}], {x:{real:0,events:[{amount:300000000}]}}).per.x.dasarS4, 150000000);
 
 /* ---------- 2. Skema 1 — tangga & celah dokumen ---------- */
 console.log('\n-- Skema 1 (per event) --');
@@ -156,8 +161,10 @@ sama('celah Rp250.000.001 naik ke Rp500.000', t4(250000001), 500000);
 sama('celah Rp300.000.001 naik ke Rp700.000', t4(300000001), 700000);
 sama('Rp350.000.000 masih Rp700.000', t4(350000000), 700000);
 sama('di atas Rp350.000.000 dapat Rp1.000.000', t4(350000001), 1000000);
-sama('Andi Rp220 juta -> Rp350.000', info.per.a.s4.bonus, 350000);
-sama('Bima Rp131 juta -> belum masuk tangga', info.per.b.s4.bonus, 0);
+sama('Andi realisasi Rp110 juta -> belum masuk tangga', info.per.a.s4.bonus, 0);
+sama('Bima realisasi Rp65,5 juta -> belum masuk tangga', info.per.b.s4.bonus, 0);
+/* Nilai event Rp440 juta = realisasi Rp220 juta -> Rp350.000 (dulu Rp1.000.000) */
+sama('nilai Rp440 juta -> realisasi Rp220 juta -> Rp350.000', M.bonusEvent([{id:'x',name:'X'}], {x:{real:0,events:[ev('Besar',440000000)]}}).per.x.s4.bonus, 350000);
 cek('next menunjuk tangga DI ATAS', M.tanggaEvS4(220000000).next.bonus === 500000);
 cek('di tangga teratas, next kosong', M.tanggaEvS4(999000000).next === null);
 cek('belum masuk tangga -> next = tangga terendah', M.tanggaEvS4(0).next.bonus === 250000);
@@ -195,8 +202,8 @@ console.log('\n-- kartu di layar --');
 const html = M.kartuBonusEv(info, 'a', list[0], agg.a, list);
 ['Skema 1', 'Skema 2', 'Skema 3', 'Skema 4'].forEach(t => cek('kartu menyebut ' + t, html.indexOf(t) > -1));
 cek('mengatakan Skema 3 berdiri sendiri', /Skema 3 berdiri sendiri/.test(html));
-cek('mengatakan dasarnya net, bukan kolom Diakui',
-    /net, sebelum tax &amp; service/.test(html) && /bukan kolom Diakui/.test(html));
+cek('mengatakan Skema 1 & 3 dari nilai utuh, Skema 4 dari realisasi (separuh)',
+    /nilai event utuh/.test(html) && /Skema 4 dari <b>realisasi<\/b>/.test(html));
 cek('mengatakan nominal Skema 1 itu PER ORANG dan timnya tidak tercatat',
     /Nominalnya per orang/.test(html) && /tidak menyimpan siapa saja anggota tim/.test(html));
 cek('menyebut pembagi pool Skema 2 berikut angkanya', /Dibagi ke 2 PIC/.test(html));
@@ -224,29 +231,32 @@ cek('menyebut pembagi pool Skema 2 berikut angkanya', /Dibagi ke 2 PIC/.test(htm
 console.log('\n-- kolom Realisasi --');
 (function () {
   const rp = n => 'Rp' + Math.round(n).toLocaleString('id-ID');
-  const s4 = M.kartuEvS4(info, 'a');                 // Andi, net Rp220.000.000
+  /* Fixture SENDIRI: realisasi Rp220 juta (nilai event Rp440 juta) supaya ada
+     baris berlaku, baris di atasnya, dan baris terlewati sekaligus. */
+  const infoS4 = M.bonusEvent([{id:'a',name:'Andi'},{id:'b',name:'Bima'}], {a:{real:0,events:[ev('G1',240000000),ev('G2',200000000)]}, b:{real:0,events:[ev('K',262000000)]}});
+  const s4 = M.kartuEvS4(infoS4, 'a');               // Andi, realisasi Rp220.000.000
   cek('Skema 4 punya kolom Realisasi', /<th class="num">Realisasi<\/th>/.test(s4));
   cek('...dan letaknya SEBELUM kolom bonus (di kirinya)',
       s4.indexOf('>Realisasi<') < s4.indexOf('>Bonus untuk Tim Event<'));
   cek('baris yang sedang berlaku memajang ANGKA realisasinya',
-      s4.indexOf('<b>' + rp(info.per.a.net) + '</b> ✓') > -1, 'mencari ' + rp(info.per.a.net));
+      s4.indexOf('<b>' + rp(infoS4.per.a.dasarS4) + '</b> ✓') > -1, 'mencari ' + rp(infoS4.per.a.dasarS4));
   sama('...dan cuma sekali, bukan di tiap baris',
-       (s4.match(new RegExp('<b>' + rp(info.per.a.net).replace(/\./g, '\\.') + '</b> ✓', 'g')) || []).length, 1);
+       (s4.match(new RegExp('<b>' + rp(infoS4.per.a.dasarS4).replace(/\./g, '\\.') + '</b> ✓', 'g')) || []).length, 1);
   cek('baris di atasnya menyebut KURANG berapa lagi',
-      s4.indexOf('kurang ' + rp(250000001 - info.per.a.net)) > -1,
-      'mencari kurang ' + rp(250000001 - info.per.a.net));
+      s4.indexOf('kurang ' + rp(250000001 - infoS4.per.a.dasarS4)) > -1,
+      'mencari kurang ' + rp(250000001 - infoS4.per.a.dasarS4));
   cek('baris yang sudah terlewati ditandai, bukan diulang angkanya', /terlampaui/.test(s4));
 
   /* PIC yang belum masuk tangga: angkanya harus muncul di baris DASAR, bukan
      hilang sama sekali dari tabel. Kalau hilang, yang paling perlu tahu
      posisinya justru tidak melihat angkanya di mana pun. */
-  const s4b = M.kartuEvS4(info, 'b');                // Bima, net Rp131.000.000
+  const s4b = M.kartuEvS4(infoS4, 'b');              // Bima, realisasi Rp131.000.000
   cek('PIC di bawah tangga tetap melihat angkanya, di baris dasar',
-      s4b.indexOf('<b>' + rp(info.per.b.net) + '</b> ✓') > -1, 'mencari ' + rp(info.per.b.net));
+      s4b.indexOf('<b>' + rp(infoS4.per.b.dasarS4) + '</b> ✓') > -1, 'mencari ' + rp(infoS4.per.b.dasarS4));
   cek('...dan tangga pertama menyebut kurang berapa lagi',
-      s4b.indexOf('kurang ' + rp(150000000 - info.per.b.net)) > -1);
+      s4b.indexOf('kurang ' + rp(150000000 - infoS4.per.b.dasarS4)) > -1);
 
-  const s4all = M.kartuEvS4(info, '__all__');
+  const s4all = M.kartuEvS4(infoS4, '__all__');
   cek('segmen Semua TIDAK memajang angka realisasi di tangga per PIC',
       !/terlampaui|kurang Rp/.test(s4all));
 })();

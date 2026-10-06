@@ -721,13 +721,22 @@ function bonusEvent(list, agg){
     let voucher=0; const vJml={};
     evs.forEach(ev=>{ const t=mkTangga(EV_S3_VOUCHER,PB_NUM(ev.amount));
       if(t){ voucher+=t.nilai; vJml[t.min]=(vJml[t.min]||0)+1; } });
-    /* Skema 4 — dasarnya jumlah NILAI EVENT PIC itu, angka yang bisa
-       dijumlahkan sendiri dari kolom Nilai Event di tabel sebelah. */
+    /* Skema 4 — dasarnya REALISASI PIC itu: jumlah kolom Diakui, yaitu
+       SEPARUH nilai event (+ Open Bill), angka yang SAMA dengan kartu
+       Realisasi di atas halaman. Keputusan user 6 Oktober 2026 ("realisasi
+       omsetnya dihitung bagi 2"); sebelumnya dasarnya nilai event utuh, dan
+       tabel tangga menulis Rp157 juta di bawah kartu Realisasi Rp78 juta —
+       dua angka "realisasi" untuk PIC yang sama di satu layar.
+       Skema 1 & 3 (per event) TIDAK ikut berubah: keduanya tetap dari nilai
+       event utuh, sesuai dokumen SDM-nya.
+       Baris yang tidak membawa porsi (bentuk lama) dihitung separuh nilainya
+       sendiri — rumus yang sama dengan pbPorsi() untuk event. */
     const net=evs.reduce((s,ev)=>s+PB_NUM(ev.amount),0);
-    const s4=tanggaEvS4(net);
+    const dasarS4=evs.reduce((s,ev)=>s+(ev.porsi!=null?PB_NUM(ev.porsi):Math.round(PB_NUM(ev.amount)/2)),0);
+    const s4=tanggaEvS4(dasarS4);
     const ikutS2=aktif.indexOf(e.id)>-1;
     per[e.id]={ s1:s1, s1Jml:s1Jml, s2:ikutS2?s2per:0, ikutS2:ikutS2,
-      s4:s4, net:net, jumEvent:evs.length,
+      s4:s4, net:net, dasarS4:dasarS4, jumEvent:evs.length,
       tunai:s1+(ikutS2?s2per:0)+s4.bonus,
       voucher:voucher, vJml:vJml };
   });
@@ -766,7 +775,7 @@ function baguRingkasEv(info, pid, e, a){
     ? `<div class="stat"><div class="lab">Event Tim Bulan Ini</div><div class="val sm">${info.jumEvent}</div>
         <div class="foot">${info.s2.tier?`Skema 2 ${PB_RP(info.s2.pool)} dibagi ${info.s2.bagi} PIC`:`belum mencapai ${EV_S2[EV_S2.length-1].min} event`}</div></div>`
     : (function(){
-        const s4=p.s4, kurang=s4.next?Math.max(0,s4.next.min-p.net):0;
+        const s4=p.s4, kurang=s4.next?Math.max(0,s4.next.min-p.dasarS4):0;
         return `<div class="stat"><div class="lab">${s4.next?'Menuju Tangga Skema 4':'Tangga Skema 4 Tertinggi'}</div>
           <div class="val sm mono">${s4.next?PB_RP(kurang):'—'}</div>
           <div class="foot">${s4.next?`lagi untuk bonus ${PB_RP(s4.next.bonus)}`:'sudah di tangga teratas'}</div></div>`;
@@ -862,7 +871,7 @@ function kartuEvS4(info, pid){
   const semua=pid==='__all__';
   const s4=semua?null:info.per[pid].s4;
   // Segmen Semua tidak menilai satu orang — lihat selRealisasi().
-  const real=semua?null:info.per[pid].net;
+  const real=semua?null:info.per[pid].dasarS4;
   const baris=EV_S4.slice().reverse().map(t=>{
     const aktif=!!(s4&&s4.bonus&&s4.min===t.min);
     return `<tr${aktif?MK_HI:''}><td>${aktif?'<b>'+PB_ESC(t.label)+'</b> ✓':PB_ESC(t.label)}</td>
@@ -872,8 +881,8 @@ function kartuEvS4(info, pid){
   const bawah=(s4&&!s4.bonus)?MK_HI:'';
   return `<div class="card">
     <h3>4️⃣ Skema 4 — Tangga Total Nilai Omset per PIC</h3>
-    <div class="card-sub">Dasarnya <b>jumlah Nilai Event PIC itu sendiri</b> pada periode ini (net, sebelum tax &amp; service).
-      ${semua?'<b>Dinilai per PIC</b>; angka gabungan tidak dipakai di sini, pilih namanya di atas.':`Totalnya ${PB_RP(info.per[pid].net)} dari ${info.per[pid].jumEvent} event — bisa dijumlahkan sendiri dari kolom Nilai Event di tabel sebelah.`}</div>
+    <div class="card-sub">Dasarnya <b>realisasi PIC itu sendiri</b> pada periode ini — <b>separuh nilai event</b> (kolom Diakui), angka yang sama dengan kartu Realisasi di atas.
+      ${semua?'<b>Dinilai per PIC</b>; angka gabungan tidak dipakai di sini, pilih namanya di atas.':`Realisasinya ${PB_RP(info.per[pid].dasarS4)} dari ${info.per[pid].jumEvent} event (nilai event utuh ${PB_RP(info.per[pid].net)} dibagi 2) — bisa dijumlahkan sendiri dari kolom Diakui di tabel sebelah.`}</div>
     <div class="tbl-wrap"><table>
       <thead><tr><th>Total Nilai Omset / Bulan</th><th class="num">Realisasi</th><th class="num">Bonus untuk Tim Event</th></tr></thead>
       <tbody>
@@ -889,7 +898,7 @@ function kartuBonusEv(info, pid, e, a, list){
     +`<div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">
         <b>Skema 1 + 2 + 4 diakumulasi</b> jadi Bonus Tunai${pid==='__all__'?' tiap PIC':''};
         <b>Skema 3 berdiri sendiri</b> karena bentuknya voucher. Penomorannya mengikuti dokumen SDM-nya, jadi yang tunai tidak berurutan.
-        Seluruh angkanya <b>net, sebelum tax &amp; service</b> — bukan kolom Diakui, yang untuk event hanya separuh nilai event.
+        Skema 1 &amp; 3 dihitung dari <b>nilai event utuh</b> (net, sebelum tax &amp; service); Skema 4 dari <b>realisasi</b>, yaitu separuh nilai event (kolom Diakui).
         Laporan maksimal 7–14 hari setelah event selesai; pencairan ikut gajian. Kartu-kartu ini hanya menunjukkan posisi capaian.</div></div>`
     +kartuEvS1(info,pid,list)
     +kartuEvS2(info)

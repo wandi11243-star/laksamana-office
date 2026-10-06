@@ -1410,8 +1410,25 @@ const MUT_JENIS = [
   { k:'masuk',  n:'Uang masuk dari luar (di luar omset harian)' },
   { k:'keluar', n:'Uang keluar ke luar' }
 ];
+/* Baris mutasi yang sedang DISUNTING (6 Oktober 2026, permintaan user).
+   Formulir Catat Mutasi yang SAMA dipakai ulang, terisi isi barisnya —
+   formulir kedua untuk data yang sama akan menyimpang aturannya suatu hari
+   (wallet sama, nominal nol). Disimpan di luar DOM karena render di modul ini
+   TOTAL. Baris otomatis dari Rekap Penjualan TIDAK bisa disunting di sini:
+   yang memegangnya Rekap Penjualan, sama alasannya dengan tombol hapusnya. */
+let MU_EDIT = null;
+function muEdit(id) {
+  if (!bolehAksi('mutasi')) return;
+  if (!baris(id, BK.data.mutasi)) return;
+  MU_EDIT = id; render();
+  const f = document.getElementById('mu_nom'); if (f) { if (f.scrollIntoView) f.scrollIntoView({ block:'center' }); f.focus(); }
+}
+function muBatalEdit() { MU_EDIT = null; render(); }
 function vMutasi() {
   const V = document.getElementById('app-view');
+  const ed = MU_EDIT ? baris(MU_EDIT, BK.data.mutasi) : null;
+  if (MU_EDIT && !ed) MU_EDIT = null;
+  const sel = (a, b) => a === b ? ' selected' : '';
   const s = saldoSemua();
   /* Kompas mati berarti setoran cash tidak terbaca. Halamannya tetap jalan —
      mutasi manual tidak bergantung padanya — tapi daftarnya jadi tidak
@@ -1435,7 +1452,9 @@ function vMutasi() {
     + 'sebagai BRI / Mandiri / BCA / UOB, jadi uangnya keluar dari brankas fisik tapi tidak masuk ke bank mana pun. '
     + 'Betulkan tujuannya di <b>Rekap Penjualan → Setoran Cash</b>.</div></div>';
 
-  h += '<div class="card" data-aks><h3>Catat Mutasi</h3>'
+  h += '<div class="card" data-aks' + (ed ? ' style="outline:2px solid var(--gold)"' : '') + '><h3>' + (ed ? 'Edit Mutasi' : 'Catat Mutasi') + '</h3>'
+    + (ed ? '<div class="notice info">✎ <div>Sedang menyunting mutasi <b>' + esc(fmtTgl(ed.tgl)) + ' · ' + fmtRp(ed.nominal) + '</b>'
+        + (ed.by ? ' (dicatat ' + esc(ed.by) + ')' : '') + '. Saldo wallet yang terlibat ikut berubah begitu disimpan.</div></div>' : '')
     + '<div class="card-sub">Pindah antar wallet dicatat SATU baris, bukan dua. Dua baris yang salah satunya terhapus '
     + 'membuat uang perusahaan bertambah atau hilang tanpa ada yang menyadarinya.'
     + '<br><b>Uang masuk dari luar</b> untuk pemasukan cash yang TIDAK lewat POS — sewa tempat, penjualan barang bekas, '
@@ -1443,17 +1462,18 @@ function vMutasi() {
     + '<b>Aktual Masuk</b> di Rekap Penjualan, dan mencatatnya dua kali menaikkan saldo tanpa satu pun uang yang benar-benar datang.</div>'
     + '<div class="grid g3">'
     + fld('Jenis', '<select id="mu_jenis" onchange="muUbahJenis()">'
-        + MUT_JENIS.map(j => '<option value="' + j.k + '">' + esc(j.n) + '</option>').join('') + '</select>')
-    + fld('Tanggal', '<input type="date" id="mu_tgl" value="' + todayISO() + '">')
-    + fld('Nominal', '<input class="mono" id="mu_nom" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
+        + MUT_JENIS.map(j => '<option value="' + j.k + '"' + sel(j.k, ed && ed.jenis) + '>' + esc(j.n) + '</option>').join('') + '</select>')
+    + fld('Tanggal', '<input type="date" id="mu_tgl" value="' + esc(ed ? ed.tgl : todayISO()) + '">')
+    + fld('Nominal', '<input class="mono" id="mu_nom" inputmode="numeric" oninput="ketikRp(this)" placeholder="0" value="' + (ed ? fmtRpInput(ed.nominal) : '') + '">')
     + '</div><div class="grid g3">'
     + '<div class="field" id="mu_f_dari"><label>Dari Wallet</label><select id="mu_dari">'
-        + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + '</option>').join('') + '</select></div>'
+        + SEMUA_WADAH().map(k => '<option value="' + k + '"' + sel(k, ed && ed.dari) + '>' + esc(namaBank(k)) + '</option>').join('') + '</select></div>'
     + '<div class="field" id="mu_f_ke"><label>Ke Wallet</label><select id="mu_ke">'
-        + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + '</option>').join('') + '</select></div>'
-    + fld('Keterangan', '<input id="mu_ket" placeholder="mis. top-up kas operasional">')
+        + SEMUA_WADAH().map(k => '<option value="' + k + '"' + sel(k, ed && ed.ke) + '>' + esc(namaBank(k)) + '</option>').join('') + '</select></div>'
+    + fld('Keterangan', '<input id="mu_ket" placeholder="mis. top-up kas operasional" value="' + esc(ed ? ed.ket || '' : '') + '">')
     + '</div>'
-    + '<button class="btn btn-primary" onclick="muSimpan()">Simpan Mutasi</button></div>';
+    + '<button class="btn btn-primary" onclick="muSimpan()">' + (ed ? 'Simpan Perubahan' : 'Simpan Mutasi') + '</button>'
+    + (ed ? ' <button class="btn" onclick="muBatalEdit()">Batal</button>' : '') + '</div>';
 
   h += '<div class="tbl-wrap card"><h3>Riwayat Mutasi</h3>'
     + (arr.length ? '<table><thead><tr><th>Tanggal</th><th>Jenis</th><th>Dari</th><th>Ke</th><th class="num">Nominal</th><th>Keterangan</th><th></th></tr></thead><tbody>'
@@ -1472,7 +1492,8 @@ function vMutasi() {
              yang muncul lagi begitu halaman dimuat ulang. */
           + '<td' + (m.auto ? '' : ' data-aks') + '>' + (m.auto
               ? '<span class="helper">dari Rekap Penjualan</span>'
-              : '<button class="btn btn-danger btn-xs" onclick="hapusBaris(\'mutasi\',\'' + m.id + '\',\'mutasi\',\'Hapus mutasi ini? Saldo wallet yang terlibat akan berubah.\')">Hapus</button>') + '</td></tr>').join('')
+              : '<button class="btn btn-xs" onclick="muEdit(\'' + m.id + '\')">Edit</button> '
+                + '<button class="btn btn-danger btn-xs" onclick="hapusBaris(\'mutasi\',\'' + m.id + '\',\'mutasi\',\'Hapus mutasi ini? Saldo wallet yang terlibat akan berubah.\')">Hapus</button>') + '</td></tr>').join('')
       + '</tbody></table>'
       : '<div class="empty"><div class="big">⇄</div>Belum ada mutasi yang dicatat.</div>')
     + '</div>';
@@ -1499,10 +1520,21 @@ async function muSimpan() {
      sebagai baris — dan baris yang tidak berarti apa-apa membuat riwayat
      mutasi tidak bisa dipercaya. Ditolak di sini. */
   if (jenis === 'pindah' && dari === ke) { alert('Wallet asal dan tujuan tidak boleh sama.'); return; }
-  BK.data.mutasi.push({ id:uid('mu'), tgl:g('mu_tgl'), jenis,
+  const isi = { tgl:g('mu_tgl'), jenis,
     dari:(jenis === 'masuk' ? '' : dari), ke:(jenis === 'keluar' ? '' : ke),
-    nominal:n, ket:g('mu_ket').trim(), by:(CURRENT_USER && CURRENT_USER.name) || '' });
-  if (await simpan()) { toast('Mutasi tersimpan.'); render(); }
+    nominal:n, ket:g('mu_ket').trim() };
+  const lama = MU_EDIT ? baris(MU_EDIT, BK.data.mutasi) : null;
+  if (MU_EDIT && !lama) { alert('Mutasi yang disunting sudah tidak ada — mungkin dihapus orang lain. Muat ulang halaman.'); MU_EDIT = null; render(); return; }
+  /* Yang disunting MENIMPA barisnya sendiri (id & pencatat aslinya tetap),
+     bukan menambah baris baru — dua baris untuk satu perpindahan uang
+     membuat saldo bergeser dua kali. Siapa & kapan menyuntingnya dicatat.
+     Gagal simpan MENGEMBALIKAN isi lamanya: baris yang berubah di layar
+     padahal server menolaknya adalah saldo yang tidak pernah ada. */
+  const salinan = lama ? Object.assign({}, lama) : null;
+  if (lama) Object.assign(lama, isi, { editBy:(CURRENT_USER && CURRENT_USER.name) || '', editAt:Date.now() });
+  else BK.data.mutasi.push(Object.assign({ id:uid('mu') }, isi, { by:(CURRENT_USER && CURRENT_USER.name) || '' }));
+  if (await simpan()) { MU_EDIT = null; toast(lama ? 'Perubahan mutasi tersimpan.' : 'Mutasi tersimpan.'); render(); }
+  else if (salinan) { Object.keys(lama).forEach(k => delete lama[k]); Object.assign(lama, salinan); }
 }
 
 
@@ -1524,6 +1556,20 @@ async function muSimpan() {
    Kas Kecil MENULIS lewat aksi sempit `bayarSave`, bukan `brankasSave` — yang
    kedua menulis seluruh blob, jadi dua panel yang sama-sama memakainya akan
    saling menimpa tanpa satu pun galat. */
+/* Catatan pengembalian yang sedang DISUNTING (6 Oktober 2026, permintaan
+   user): {iv: id investor, ix: urutan di daftar TERURUT}. Urutannya sama
+   dengan yang dipakai rvHapus() — rvUrut() satu tempat untuk keduanya,
+   karena baris pengembalian tidak punya id sendiri. Disimpan di luar DOM
+   karena render di modul ini TOTAL. */
+let RV_EDIT = null;
+function rvUrut(i) { return (i.returns || []).slice().sort((a, b) => String(b.date) < String(a.date) ? -1 : 1); }
+function rvEdit(id, ix) {
+  if (!bolehAksi('modal')) return;
+  const i = baris(id, BK.data.investor); if (!i || !rvUrut(i)[ix]) return;
+  RV_EDIT = { iv:id, ix:ix }; render();
+  const f = document.getElementById('rv_a_' + id); if (f) { if (f.scrollIntoView) f.scrollIntoView({ block:'center' }); f.focus(); }
+}
+function rvBatalEdit() { RV_EDIT = null; render(); }
 function vModal() {
   const V = document.getElementById('app-view');
   const arr = (BK.data.investor || []).slice();
@@ -1534,7 +1580,7 @@ function vModal() {
   if (gantung.length) h += '<div class="notice warn">⚠ <div><b>' + gantung.length + ' catatan pengembalian belum menyebut '
     + 'keluar dari wallet mana.</b> Uangnya sudah dibayarkan tapi saldo wallet belum berkurang, jadi saldo di halaman '
     + 'Saldo &amp; Rekening lebih besar daripada kenyataan sebesar <b>'
-    + fmtRp(gantung.reduce((a, x) => a + num(x.r.amount), 0)) + '</b>. Hapus lalu catat ulang dengan wallet asalnya.</div></div>';
+    + fmtRp(gantung.reduce((a, x) => a + num(x.r.amount), 0)) + '</b>. Tekan <b>Edit</b> di barisnya lalu pilih wallet asalnya.</div></div>';
   h += '<div class="grid g3" style="margin-bottom:18px">'
     + kartu('Modal Masuk', fmtRp(modal), arr.length + ' investor')
     + kartu('Sudah Dikembalikan', fmtRp(kembali), modal > 0 ? (kembali / modal * 100).toFixed(1) + '% dari modal' : '—')
@@ -1553,6 +1599,7 @@ function vModal() {
       const ret = (i.returns || []).reduce((a, r) => a + num(r.amount), 0);
       const sisa = Math.max(num(i.capital) - ret, 0);
       const p = num(i.capital) > 0 ? Math.min(ret / num(i.capital) * 100, 100) : 0;
+      const ed = (RV_EDIT && RV_EDIT.iv === i.id) ? rvUrut(i)[RV_EDIT.ix] || null : null;
       return '<div class="card"><h3>' + esc(i.name) + '</h3>'
         + '<div class="card-sub">Tercatat juga di halaman investor sebagai riwayat dividen. Modal ' + fmtRp(i.capital) + ' · kepemilikan ' + esc(String(i.ownership || 0)) + '%'
         + (i.targetDate ? ' · target ' + esc(fmtTgl(i.targetDate)) : '') + '</div>'
@@ -1561,20 +1608,30 @@ function vModal() {
         + kartu('Sisa', fmtRp(sisa), '')
         + kartu('Jumlah Pembayaran', String((i.returns || []).length) + '×', '')
         + '</div>'
+        + (ed ? '<div class="notice info" data-aks>✎ <div>Sedang menyunting pengembalian <b>' + esc(fmtTgl(ed.date)) + ' · ' + fmtRp(ed.amount) + '</b>'
+            + (ed.by ? ' (dicatat ' + esc(ed.by) + ')' : '') + '. Saldo wallet asalnya ikut berubah begitu disimpan.</div></div>' : '')
         + '<div data-aks class="grid g4">'
-        + fld('Tanggal Bayar', '<input type="date" id="rv_d_' + i.id + '">')
-        + fld('Nominal', '<input class="mono" id="rv_a_' + i.id + '" inputmode="numeric" oninput="ketikRp(this)" placeholder="0">')
+        + fld('Tanggal Bayar', '<input type="date" id="rv_d_' + i.id + '" value="' + esc(ed ? ed.date || '' : '') + '">')
+        + fld('Nominal', '<input class="mono" id="rv_a_' + i.id + '" inputmode="numeric" oninput="ketikRp(this)" placeholder="0" value="' + (ed ? fmtRpInput(ed.amount) : '') + '">')
         + fld('Dibayar Dari', '<select id="rv_w_' + i.id + '">'
-            + SEMUA_WADAH().map(k => '<option value="' + k + '">' + esc(namaBank(k)) + '</option>').join('') + '</select>')
-        + fld('&nbsp;', '<button class="btn btn-primary btn-block" onclick="rvTambah(\'' + i.id + '\')">Catat Pengembalian</button>')
+            /* Catatan lama tanpa wallet: kotaknya dibuka KOSONG, bukan jatuh
+               ke wallet pertama — menebaknya berarti mengurangi rekening yang
+               uangnya tidak pernah keluar dari sana. */
+            + (ed && !(ed.dari && SEMUA_WADAH().indexOf(ed.dari) >= 0) ? '<option value="">— pilih wallet —</option>' : '')
+            + SEMUA_WADAH().map(k => '<option value="' + k + '"' + (ed && ed.dari === k ? ' selected' : '') + '>' + esc(namaBank(k)) + '</option>').join('') + '</select>')
+        + fld('&nbsp;', ed
+            ? '<button class="btn btn-primary btn-block" onclick="rvTambah(\'' + i.id + '\')">Simpan Perubahan</button>'
+              + '<button class="btn btn-block" style="margin-top:6px" onclick="rvBatalEdit()">Batal</button>'
+            : '<button class="btn btn-primary btn-block" onclick="rvTambah(\'' + i.id + '\')">Catat Pengembalian</button>')
         + '</div>'
         + ((i.returns || []).length ? '<div class="tbl-wrap"><table><thead><tr><th>Tanggal</th><th>Dibayar Dari</th><th class="num">Nominal</th><th></th></tr></thead><tbody>'
-            + i.returns.slice().sort((a, b) => String(b.date) < String(a.date) ? -1 : 1).map((r, ix) =>
+            + rvUrut(i).map((r, ix) =>
               '<tr><td>' + esc(fmtTgl(r.date)) + '</td>'
               + '<td>' + (r.dari && SEMUA_WADAH().indexOf(r.dari) >= 0 ? esc(namaBank(r.dari))
                         : '<span class="chip" style="background:var(--warn-bg);color:var(--warn)">belum disebut</span>') + '</td>'
               + '<td class="num mono">' + fmtRp(r.amount) + '</td>'
-              + '<td data-aks><button class="btn btn-danger btn-xs" onclick="rvHapus(\'' + i.id + '\',' + ix + ')">Hapus</button></td></tr>').join('')
+              + '<td data-aks><button class="btn btn-xs" onclick="rvEdit(\'' + i.id + '\',' + ix + ')">Edit</button> '
+              + '<button class="btn btn-danger btn-xs" onclick="rvHapus(\'' + i.id + '\',' + ix + ')">Hapus</button></td></tr>').join('')
             + '</tbody></table></div>' : '')
         + '<div style="margin-top:12px" data-aks><button class="btn btn-danger btn-sm" onclick="hapusBaris(\'investor\',\'' + i.id + '\',\'modal\',\'Hapus investor ini beserta riwayat pengembaliannya?\')">Hapus Investor</button></div>'
         + '</div>';
@@ -1595,6 +1652,17 @@ function rvTambah(id) {
   const w = (document.getElementById('rv_w_' + id) || {}).value || '';
   if (!d || !a) { alert('Tanggal dan nominal pengembalian wajib diisi.'); return; }
   if (!Array.isArray(i.returns)) i.returns = [];
+  if (RV_EDIT && RV_EDIT.iv === id) {
+    const target = rvUrut(i)[RV_EDIT.ix];
+    if (!target) { alert('Catatan yang disunting sudah tidak ada — muat ulang halaman.'); RV_EDIT = null; render(); return; }
+    if (!w) { alert('Pilih wallet asal uangnya — tanpa itu saldo rekening tidak berkurang.'); return; }
+    /* Menimpa catatannya sendiri, bukan menambah: dua catatan untuk satu
+       transfer membuat pengembalian terhitung dua kali di halaman investor. */
+    Object.assign(target, { date:d, amount:a, dari:w, editBy:(CURRENT_USER && CURRENT_USER.name) || '', editAt:Date.now() });
+    RV_EDIT = null;
+    simpanBaris('investor', i, 'modal');
+    return;
+  }
   /* `dari` = wadah yang uangnya keluar. Ikut disimpan sejak 27 Agustus 2026:
      tanpa ini saldo rekening tetap utuh padahal uangnya sudah ditransfer ke
      investor, dan selisihnya baru ketahuan saat mencocokkan mutasi bank. */
@@ -1604,9 +1672,9 @@ function rvTambah(id) {
 function rvHapus(id, ix) {
   const i = baris(id, BK.data.investor); if (!i || !i.returns) return;
   if (!confirm('Hapus catatan pengembalian ini?')) return;
-  const urut = i.returns.slice().sort((a, b) => String(b.date) < String(a.date) ? -1 : 1);
-  const target = urut[ix]; if (!target) return;
+  const target = rvUrut(i)[ix]; if (!target) return;
   i.returns.splice(i.returns.indexOf(target), 1);
+  RV_EDIT = null;
   simpanBaris('investor', i, 'modal');
 }
 function fld(label, isi) { return '<div class="field"><label>' + label + '</label>' + isi + '</div>'; }

@@ -436,6 +436,67 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     dom.window.close();
   }
 
+  /* ================= 9b. EDIT mutasi & pengembalian modal (6 Oktober 2026) =================
+     Yang dijaga: suntingan MENIMPA barisnya sendiri (jumlah baris tetap),
+     id & pencatat aslinya tidak hilang, dan pengembalian lama yang belum
+     punya wallet dibuka dengan kotak wallet KOSONG — tidak ditebak. */
+  console.log('\n== Edit mutasi & pengembalian modal ==');
+  {
+    const { dom, panggilan } = domBrankas({
+      bk: { data:{ rekening:[], piutang:[], bayar:[], investor:[
+              { id:'i1', name:'H. Bakri', capital:100000000, ownership:50, targetDate:'',
+                returns:[ { date:'2026-08-10', amount:20000000, dari:'bri', by:'Cindy' },
+                          { date:'2026-08-11', amount:5000000 } ] }
+            ], mutasi:[
+              { id:'m1', tgl:'2026-08-09', jenis:'pindah', dari:'bca', ke:'uob', nominal:1000000, ket:'awal', by:'Cindy' }
+            ], setting:{} }, akses:{}, peran:{} }
+    });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('mutasi'); await tunggu(60);
+    const tbl = d.getElementById('app-view').innerHTML;
+    cek('baris mutasi manual punya tombol Edit', tbl.indexOf("muEdit('m1')") > -1);
+    w.muEdit('m1'); await tunggu(40);
+    cek('formulir terisi nominal barisnya', d.getElementById('mu_nom').value === '1.000.000', d.getElementById('mu_nom').value);
+    cek('formulir terisi wallet asal & tujuan', d.getElementById('mu_dari').value === 'bca' && d.getElementById('mu_ke').value === 'uob');
+    cek('judul berubah jadi Edit Mutasi', d.getElementById('app-view').innerHTML.indexOf('Edit Mutasi') > -1);
+    d.getElementById('mu_nom').value = '2.500.000';
+    d.getElementById('mu_ket').value = 'dibetulkan';
+    await w.muSimpan(); await tunggu(120);
+    let kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    const mu = kirim && kirim.body.data.mutasi;
+    cek('suntingan TIDAK menambah baris', mu && mu.length === 1, mu ? String(mu.length) : '-');
+    cek('nominal & keterangan baru tersimpan', mu && mu[0].nominal === 2500000 && mu[0].ket === 'dibetulkan', JSON.stringify(mu && mu[0]));
+    cek('id & pencatat aslinya tetap', mu && mu[0].id === 'm1' && mu[0].by === 'Cindy');
+    cek('penyuntingnya dicatat', mu && 'editAt' in mu[0]);
+    cek('sesudah simpan kembali ke Catat Mutasi', d.getElementById('app-view').innerHTML.indexOf('Edit Mutasi') < 0);
+
+    w.go('modal'); await tunggu(60);
+    let v = d.getElementById('app-view').innerHTML;
+    cek('baris pengembalian punya tombol Edit', v.indexOf("rvEdit('i1',") > -1);
+    cek('peringatan gantung menyuruh Edit, bukan hapus-catat-ulang', v.indexOf('Tekan <b>Edit</b>') > -1);
+    /* urutan terbaru dulu: ix 0 = 11 Agu (tanpa wallet), ix 1 = 10 Agu */
+    w.rvEdit('i1', 0); await tunggu(40);
+    cek('catatan tanpa wallet dibuka dengan kotak wallet KOSONG', d.getElementById('rv_w_i1').value === '', d.getElementById('rv_w_i1').value);
+    cek('nominal terisi', d.getElementById('rv_a_i1').value === '5.000.000');
+    const sebelum = panggilan.filter(p => p.body && p.body.action === 'brankasSave').length;
+    w.confirm = () => true; w.alert = () => {};
+    await w.rvTambah('i1'); await tunggu(80);
+    cek('wallet kosong DITOLAK, tidak terkirim',
+        panggilan.filter(p => p.body && p.body.action === 'brankasSave').length === sebelum);
+    d.getElementById('rv_w_i1').value = 'mandiri';
+    d.getElementById('rv_a_i1').value = '6.000.000';
+    await w.rvTambah('i1'); await tunggu(80);
+    kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    const rs = kirim && kirim.body.data.investor[0].returns;
+    cek('suntingan pengembalian TIDAK menambah baris', rs && rs.length === 2, rs ? String(rs.length) : '-');
+    const ub = rs && rs.find(r => r.date === '2026-08-11');
+    cek('pengembalian tersunting: wallet & nominal baru', ub && ub.dari === 'mandiri' && ub.amount === 6000000, JSON.stringify(ub));
+    cek('catatan lain tidak tersentuh', rs && rs.find(r => r.date === '2026-08-10').amount === 20000000);
+    cek('yang menggantung habis', w.modalTanpaWadah().length === 0);
+    dom.window.close();
+  }
+
   /* ================= 10. setoran cash muncul di Riwayat Mutasi ================= */
   console.log('\n== Setoran cash ikut tercatat sebagai mutasi ==');
   {
