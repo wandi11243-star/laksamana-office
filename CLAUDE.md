@@ -690,6 +690,11 @@ yang berubah nama tampilannya (judul, sidebar, kartu portal, Help).
   `hapus_yang_hilang()` mengosongkan tabelnya. `vCoord`/`vRoutine` dibiarkan;
   mengembalikannya cukup baris `NAV` + `HALAMAN_ALAMAT`.
 
+**Putaran ketiga:** status papan tinggal **To Do / Doing / Review / Done** — Backlog & Waiting
+tersimpan dipetakan di normalize() (Backlog->To Do, Waiting->Doing). Done mencatat
+ (dibuang saat dibuka lagi) dan deadline-nya digambar hijau berhenti
+(). Detail project terbuka langsung di Kanban ().
+
 **Putaran kedua (hari yang sama):**
 
 - **Arsip = status Done**, bukan field baru (`saringArsip`, Aktif/Arsip/Semua) —
@@ -708,7 +713,7 @@ yang berubah nama tampilannya (judul, sidebar, kartu portal, Help).
   Ditimpa dengan selektor `.field .subrow input[type=checkbox]`.
 
 ```bash
-node tools/uji-board-bd.js   # 52 pemeriksaan, jsdom
+node tools/uji-board-bd.js   # 57 pemeriksaan, jsdom
 ```
 
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)

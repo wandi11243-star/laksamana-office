@@ -79,7 +79,8 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
   W.APP.go('board');
   const v = () => D.getElementById('view');
   const kol = () => [...v().querySelectorAll('.board .kcol')];
-  cek(kol().length===6, 'board punya 6 kolom status');
+  cek(kol().map(k=>k.querySelector('.kt').textContent).join('|')==='To Do|Doing|Review|Done', 'board cuma 4 kolom: To Do, Doing, Review, Done');
+  cek(T('tC').status==='To Do', 'status lama Backlog dipetakan ke To Do');
   const isiKol = st => { const k=kol().find(c=>c.querySelector('.kt').textContent===st); return k?k.querySelector('.kcol-b').textContent:''; };
   cek(isiKol('Doing').indexOf('Booking venue')>-1 && isiKol('To Do').indexOf('Sebar undangan')>-1, 'kartu berdiri di kolom statusnya');
   cek(/Menunggu: Booking venue/.test(isiKol('To Do')), 'kartu yang menunggu menyebut prasyaratnya');
@@ -125,6 +126,14 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
   // --- sesudah prasyarat Done ---
   W.__drag='tA'; dropKe('Done');
   cek(T('tA').status==='Done' && T('tA').progress===100, 'task tanpa prasyarat bisa diseret ke Done');
+  cek(!!T('tA').doneAt, 'Done mencatat tanggal selesainya (waktu berhenti)');
+  W.APP.filterBoard('arsip','semua');
+  const kartuA=[...v().querySelectorAll('.kcard')].find(k=>/Booking venue/.test(k.textContent));
+  cek(!!kartuA && !!kartuA.querySelector('.tag.ok') && !kartuA.querySelector('.tag.overdue'), 'deadline task Done digambar hijau, bukan lewat/hitung mundur');
+  W.APP.filterBoard('arsip','aktif');
+  W.__drag='tA'; dropKe('Doing');
+  cek(!T('tA').doneAt, 'dibuka lagi dari Done -> tanggal selesainya dibuang');
+  W.__drag='tA'; dropKe('Done');
   W.__drag='tB'; dropKe('Done');
   cek(T('tB').status==='Done', 'sesudah prasyarat Done, task yang menunggu bisa Done');
 
@@ -163,6 +172,8 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
   W.__uji.DB.tasks.push({id:'tE',name:'Paling awal',status:'To Do',project:'pj1',deadline:'2026-10-01',pics:['p1']});
   W.__uji.DB.tasks.push({id:'tF',name:'Tanpa deadline',status:'To Do',project:'pj1',deadline:'',pics:['p1']});
   W.APP.bukaProject('pj1');
+  cek(v().querySelectorAll('.board .kcol').length===4, 'membuka project langsung tampil papan Kanban');
+  W.APP.setPd('mode','list');
   const nama = () => [...v().querySelectorAll('.trow .t-name')].map(e=>e.textContent);
   let n = nama();
   cek(n[0]==='Paling awal' && n[n.length-1]==='Tanpa deadline', 'daftar task project diurut deadline terdekat, tanpa deadline paling bawah');
@@ -189,7 +200,7 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
 
   // kanban di detail project
   W.APP.setPd('mode','kanban');
-  cek(v().querySelectorAll('.board .kcol').length===6, 'detail project bisa tampil Kanban');
+  cek(v().querySelectorAll('.board .kcol').length===4, 'detail project bisa kembali ke Kanban');
   cek(!!v().querySelector('.karsip'), 'kolom Done di mode Aktif diringkas jadi arsip, tetap jadi tempat jatuh');
   const ka = v().querySelector('[data-kadd="To Do"]');
   ka.value='Dari kanban project'; ka.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));

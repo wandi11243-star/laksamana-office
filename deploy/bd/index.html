@@ -232,6 +232,7 @@ td .mut{color:var(--muted);font-size:12.5px}
 .tag.div{background:var(--gold-glow);color:var(--gold-deep);border-color:transparent}
 .tag.proj{background:var(--violet-bg);color:var(--violet);border-color:transparent}
 .tag.pic{background:var(--teal-bg);color:var(--teal);border-color:transparent}
+.tag.ok{background:var(--ok-bg);color:var(--ok);border-color:transparent}
 .tag.overdue{background:var(--danger-bg);color:var(--danger);border-color:transparent}
 .t-actions{display:flex;gap:2px;opacity:0;transition:.15s}
 .trow:hover .t-actions{opacity:1}
@@ -749,7 +750,12 @@ const DIV_COLOR = {"Business Development":"#A9791F","Project":"#6748B0","Purchas
   "Kitchen":"#B93A22","Bar":"#6748B0","Marketing":"#8A6412","Finance":"#2367AE",
   "Event":"#12703F","Floor":"#2c4a6b","HR":"#7A560F"};
 
-const STATUS_FLOW  = ["Backlog","To Do","Doing","Waiting","Review","Done"];
+/* Empat status saja (permintaan user 6 Okt 2026), seperti kolom Trello.
+   Backlog & Waiting yang sudah tersimpan DIPETAKAN di normalize() —
+   Backlog -> To Do, Waiting -> Doing — bukan dibiarkan: status yang tidak
+   punya kolom membuat kartunya hilang dari papan tanpa satu pun tanda. */
+const STATUS_FLOW  = ["To Do","Doing","Review","Done"];
+const STATUS_LAMA  = {"Backlog":"To Do","Waiting":"Doing"};
 const STATUS_COLOR = {Backlog:"p-mute","To Do":"p-sea",Doing:"p-warn",Waiting:"p-vip",Review:"p-navy",Done:"p-go"};
 const PRIORITAS    = ["Urgent","High","Medium","Low"];
 const PRIO_COLOR   = {Urgent:"p-bad",High:"p-warn",Medium:"p-sea",Low:"p-mute"};
@@ -1058,6 +1064,10 @@ function normalize(s){
       }
       r.pic = r.pics[0] || '';
     });
+  });
+  s.tasks.forEach(function(t){
+    if(STATUS_LAMA[t.status]) t.status=STATUS_LAMA[t.status];
+    else if(STATUS_FLOW.indexOf(t.status)<0) t.status='To Do';
   });
   return s;
 }
@@ -1479,7 +1489,7 @@ function taskRow(t,o){
         (pr&&!o.hideProj?'<span class="tag proj">'+esc(pr.name)+'</span>':'')+
         avStack(pics(t))+tagSubDep(t)+
         (t.type&&t.type!=='Ad-hoc'?'<span class="tag">'+esc(t.type)+'</span>':'')+
-        (t.deadline?'<span class="tag'+(od?' overdue':'')+'">'+fDue(t.deadline)+'</span>':'')+
+        tagDeadline(t)+
       '</div>'+subDaftarHtml(t)+'</div>'+
     '<div class="t-actions">'+
       '<button class="iconbtn" title="Edit" onclick="APP.taskModal(\''+t.id+'\')">'+ic('edit')+'</button>'+
@@ -1947,8 +1957,12 @@ function subLangsung(id,i,on){
   t.subtasks[i].done=!!on; segarkanProgress(t);
   save(); render();
 }
+/* doneAt dicatat saat task jadi Done dan dibuang saat dibuka lagi. Itulah
+   "waktunya berhenti": task selesai tidak lagi menghitung mundur/lewat —
+   deadline-nya digambar hijau dengan tanggal mati (tagDeadline). */
 function segarkanProgress(t){
-  if(selesai(t)){ t.progress=100; return; }
+  if(selesai(t)){ t.progress=100; if(!t.doneAt) t.doneAt=todayISO(); return; }
+  delete t.doneAt;
   var h=subHitung(t);
   if(h.n) t.progress=Math.round(h.d/h.n*100);
   else if(t.progress===100) t.progress=0;
@@ -1957,6 +1971,14 @@ function segarkanProgress(t){
    dicentang di sana tanpa membuka modal. Keadaan terbukanya di luar DOM
    (SUB_BUKA) karena render di modul ini TOTAL. */
 var SUB_BUKA={};
+function tagDeadline(t){
+  if(selesai(t)){
+    var ket='Selesai'+(t.doneAt?' '+fTgl(t.doneAt):'');
+    return '<span class="tag ok" title="'+esc(ket+(t.deadline?' · deadline '+fTgl(t.deadline):''))+'">✓ '+
+      (t.deadline?fTgl(t.deadline):ket)+'</span>';
+  }
+  return t.deadline?'<span class="tag'+(lewat(t)?' overdue':'')+'">'+fDue(t.deadline)+'</span>':'';
+}
 function tagSubDep(t,tanpaKunci){
   var h=subHitung(t), hal=selesai(t)?[]:penghalang(t);
   return (h.n?'<button type="button" class="tag subtog'+(h.d===h.n?' sub-ok':'')+(SUB_BUKA[t.id]?' on':'')+'" '+
@@ -2127,7 +2149,7 @@ function boardCard(t,tampilProj){
     (hal.length?'<span class="kwait">🔒 Menunggu: '+esc(hal.map(function(x){return x.name;}).join(', '))+'</span>':'')+
     '<span class="kmeta">'+(pr?'<span class="tag proj">'+esc(pr.name)+'</span>':'')+
       avStack(pics(t))+tagSubDep(t,true)+
-      (t.deadline?'<span class="tag'+(od?' overdue':'')+'">'+fDue(t.deadline)+'</span>':'')+'</span>'+
+      tagDeadline(t)+'</span>'+
     subDaftarHtml(t)+
     (subHitung(t).n?bar(t.progress||0,selesai(t)):'')+
   '</div>';
@@ -2203,7 +2225,7 @@ function tuntaskanTaskProject(pid){
   var n=0;
   projTasks(pid).forEach(function(t){
     if(selesai(t)) return;
-    t.status='Done'; t.progress=100; n++;
+    t.status='Done'; t.progress=100; t.doneAt=todayISO(); n++;
   });
   return n;
 }
@@ -2218,7 +2240,7 @@ function projProgress(p){
   return 0;
 }
 var pidAktif=null;
-var pdMode='list', pdArsip='aktif';   // tampilan task di detail project
+var pdMode='kanban', pdArsip='aktif';   // buka project langsung papan (permintaan user)   // tampilan task di detail project
 var pScope='tim', pDiv='';
 function vProjects(){
   var base=saringLingkup(DB.projects,pScope).filter(cocokPic).filter(function(p){ return !pDiv||p.div===pDiv; });
