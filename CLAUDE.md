@@ -668,6 +668,32 @@ hubungannya dengan jendela, jadi uji ini memeriksa bagian RESERVASI-nya saja
 node tools/uji-poll-versi.js   # 23 pemeriksaan, jsdom
 ```
 
+### BD OS jadi Task Management: Board, sub-task, urutan (6 Okt 2026)
+
+Permintaan user: nama "BD OS" terlalu sempit untuk bisnis; modulnya jadi task
+management umum ala Trello. **Kunci izin, folder, dan backend TETAP `bd`** —
+yang berubah nama tampilannya (judul, sidebar, kartu portal, Help).
+
+- **Menu Board** (`vBoard`, view `board`): kolom = `STATUS_FLOW`, kartu = task,
+  disaring per project. Ketik di "+ Tambah kartu" lalu Enter. Kolom Done tanpa
+  kotak tambah, dipotong 30 kartu.
+- **Sub-task** `t.subtasks=[{id,t,done}]` dan **urutan** `t.dependsOn=[taskId]`
+  disimpan DI DALAM baris task — backend menyimpan seluruh baris sebagai JSON
+  di kolom `data`, jadi tidak ada migrasi SQL.
+- **Yang ditahan hanya DONE**, satu penjaga `cekBolehDone()` di ketiga jalan:
+  `toggleTask`, `simpanTask`, `dropBoard`. Prasyarat yang sudah dihapus tidak
+  menghalangi; `hapusTask` ikut melepasnya dari yang menunggu. Modal menolak
+  lingkaran (`menungguTransitif`). Progress task bersub-task dihitung dari
+  sub-task-nya (`segarkanProgress`).
+- **Koordinasi & Routine DICABUT DARI MENU, datanya TIDAK.** `coord`/`routines`
+  tetap di `KOLEKSI` dan ikut tiap saveAll — dicabut dari sana,
+  `hapus_yang_hilang()` mengosongkan tabelnya. `vCoord`/`vRoutine` dibiarkan;
+  mengembalikannya cukup baris `NAV` + `HALAMAN_ALAMAT`.
+
+```bash
+node tools/uji-board-bd.js   # 37 pemeriksaan, jsdom
+```
+
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)
 
 Keluhan user: PR-11 (berikut PO "Pelunasan DJ") hilang dari Purchasing.

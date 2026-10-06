@@ -1,24 +1,24 @@
 /*
-  PANDUAN: BD OS
+  PANDUAN: Task Management (dulu BD OS — kunci izinnya tetap 'bd')
   ---------------------------------------------------------------------------
   Kuncinya 'bd'. Nama menu disalin dari NAV di deploy/bd/index.html.
 */
 LM_HELP_ISI('bd', {
-  ringkas: 'Ruang kerja tim Business Development: task berprioritas, project berjangka, '
-         + 'koordinasi ke divisi lain, promo, dan purchase order.',
-  untuk: 'tim BD',
+  ringkas: 'Ruang kerja tim: board per project ala Trello, task berikut sub-task dan '
+         + 'urutannya, prioritas, promo, dan purchase order.',
+  untuk: 'semua tim yang memegang project',
 
   bagian: [
 
     {
-      id: 'tentang', judul: 'Tentang BD OS',
+      id: 'tentang', judul: 'Tentang Task Management',
       isi: [
         { t:'tabel',
           kepala:['Kelompok','Menu','Isinya'],
           baris:[
-            ['Workspace','Dashboard, Tasks, Projects, Calendar','Pekerjaan sehari-hari.'],
-            ['Operasi','Koordinasi, Routine, Promotion, Purchasing','Yang menyentuh divisi lain.'],
-            ['Tim','Kru BD','Anggota tim.']
+            ['Workspace','Dashboard, Board, Tasks, Projects, Calendar','Pekerjaan sehari-hari.'],
+            ['Operasi','Promotion, Purchasing','Yang menyentuh divisi lain.'],
+            ['Tim','Kru','Anggota tim.']
           ] },
         { t:'catatan', nada:'info', judul:'Tasks memakai prioritas Eisenhower',
           isi:'Penting × Mendesak. Empat kuadran, bukan satu daftar panjang — yang penting tapi '
@@ -27,32 +27,39 @@ LM_HELP_ISI('bd', {
     },
 
     {
-      id: 'kerja', judul: 'Task, Project, dan Routine',
+      id: 'kerja', judul: 'Board, Task, dan Project',
       isi: [
         { t:'tabel',
           kepala:['Menu','Untuk apa','Bedanya'],
           baris:[
-            ['Tasks','Pekerjaan sekali jalan.','Selesai lalu ditutup.'],
-            ['Projects','Pekerjaan besar berjangka.','Punya milestone, berlangsung berminggu-minggu.'],
-            ['Routine','Pekerjaan berulang.','Yang diukur KEPATUHANNYA, bukan selesainya.']
+            ['Board','Melihat task satu project per kolom status.','Seret kartu antar kolom; ketik di "+ Tambah kartu" untuk task baru.'],
+            ['Tasks','Menentukan mana yang duluan.','Matriks Penting × Mendesak.'],
+            ['Projects','Pekerjaan besar berjangka.','Punya milestone dan tombol ke Board-nya.']
           ] },
-        { t:'catatan', nada:'info', judul:'Routine diukur berbeda',
-          isi:'Yang dinilai bukan "sudah selesai atau belum" melainkan seberapa rutin ia '
-            + 'dikerjakan. Memasukkan pekerjaan berulang ke Tasks membuat daftarnya penuh baris '
-            + 'yang sama tiap minggu.' }
+        { t:'langkah', isi:[
+            'Buka *Board*, pilih project di penyaring atas.',
+            'Ketik nama task di kotak *+ Tambah kartu* pada kolom yang sesuai, lalu Enter.',
+            'Klik kartunya untuk mengisi *Sub-task* dan bagian *Baru bisa Done kalau task ini sudah Done*.',
+            'Seret kartu ke kolom berikutnya seiring pekerjaannya berjalan.'
+          ] },
+        { t:'catatan', nada:'awas', judul:'Task yang menunggu tidak bisa Done',
+          isi:'Kartu bertanda 🔒 masih menunggu task lain. Ia tetap boleh dikerjakan, tapi tidak '
+            + 'bisa ditandai Done — lewat centang, modal, maupun seret ke kolom Done — sampai task '
+            + 'yang ditunggunya Done lebih dulu.' },
+        { t:'catatan', nada:'info', judul:'Progress dihitung dari sub-task',
+          isi:'Task yang punya sub-task menghitung progressnya sendiri dari sub-task yang sudah '
+            + 'dicentang. Sub-task disimpan bersama tombol Simpan di modalnya.' }
       ]
     },
 
     {
-      id: 'koordinasi', judul: 'Koordinasi & Promotion',
+      id: 'koordinasi', judul: 'Promotion',
       isi: [
-        { t:'teks', isi:'*Koordinasi* untuk request dan follow-up ke divisi lain — hal-hal yang '
-              + 'kalau cuma disampaikan lisan akan hilang jejaknya.' },
         { t:'catatan', nada:'awas', judul:'Promo yang kamu daftarkan TERBACA SELURUH KRU di Radar',
           isi:'Halaman *Promotion* bukan catatan internal. Promo yang berlangsung dan akan datang '
             + 'otomatis muncul di modul Radar, yang dibuka kru operasional. Jadi tulislah nama, '
             + 'tanggal, dan ketentuannya seperti yang perlu dibaca orang di lapangan — bukan '
-            + 'singkatan yang cuma dimengerti tim BD.' },
+            + 'singkatan yang cuma dimengerti timmu.' },
         { t:'catatan', nada:'info', judul:'Yang sudah berakhir tidak ikut tampil di Radar',
           isi:'Hanya yang berlangsung dan akan datang. Jumlah yang tidak ditampilkan disebut di '
             + 'bawah daftarnya di sana, jadi tidak ada yang terbaca sebagai hilang.' }
@@ -99,9 +106,9 @@ LM_HELP_ISI('bd', {
             ['Task saya hilang dari kuadran',
              'Prioritasnya berubah, atau ia sudah ditandai selesai.',
              'Periksa penyaringnya.'],
-            ['Routine terlihat selalu merah',
-             'Yang diukur kepatuhan, bukan penyelesaian.',
-             'Itu memang bentuknya. Kalau targetnya tidak realistis, ubah jadwalnya.']
+            ['Task tidak mau pindah ke Done',
+             'Ia masih menunggu task lain (tanda 🔒).',
+             'Selesaikan dulu task yang disebut di kartunya, atau lepas urutannya di modal task.']
           ] }
       ]
     }

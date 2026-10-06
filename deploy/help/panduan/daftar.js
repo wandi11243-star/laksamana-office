@@ -101,8 +101,8 @@
       ringkas: 'Posisi kas per bank, piutang, mutasi wallet, dan pengembalian modal.' },
     { izin: 'analytics', grup: 'bisnis', label: 'Analytics',
       ringkas: 'Analisa penjualan dari berkas POS: menu, jam, meja, promo, dan void.' },
-    { izin: 'bd', grup: 'bisnis', label: 'BD OS',
-      ringkas: 'Bizdev, project, purchase order, dan mitra.' },
+    { izin: 'bd', grup: 'bisnis', label: 'Task Management',
+      ringkas: 'Board per project, task & sub-task berurutan, promo, dan purchase order.' },
     { izin: 'investor', grup: 'bisnis', label: 'Investor Compass',
       ringkas: 'Halaman investor: omset, target, dan laporan keuangan bulanan.' },
 
