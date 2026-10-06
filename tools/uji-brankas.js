@@ -76,7 +76,7 @@ function domBrankas(opt) {
       w.confirm = () => opt.confirm !== false;
       try {
         w.localStorage.setItem('lm_session', JSON.stringify(Object.assign({
-          expiry: Date.now() + 3600000, userId:'u-wandi', name:'Wandi Pranata',
+          expiry: Date.now() + 3600000, userId:'u-wandi', name:'Wandi Pranata', token:'TK-uji',
           modules:['brankas'], adminModules:['brankas']
         }, opt.sesi || {})));
       } catch (e) {}
@@ -93,6 +93,9 @@ function domBrankas(opt) {
         if (String(url).indexOf('kompas-api') > -1)
           return { json: async () => (opt.kompasGagal ? { ok:false, error:'x' }
                                                           : { ok:true, data: opt.kompas || KOMPAS }) };
+        if (String(url).indexOf('account-api') > -1 && body.action === 'investorAkun')
+          return { json: async () => (opt.akunGagal ? { ok:false, error:opt.akunGagal }
+            : { ok:true, id: body.userId || 'u-baru', name: body.name || (body.userId === 'u-dina' ? 'Dina' : 'Wandi Pranata') }) };
         if (String(url).indexOf('account-api') > -1)
           return { json: async () => ({ ok:true, members: opt.roster || [
             { id:'u-wandi', name:'Wandi Pranata', keterangan:'Office', isModuleAdmin:true },
@@ -609,8 +612,39 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
     const tm2 = kirim && kirim.body.data.investor[0].tambahan;
     cek('edit tambahan TIDAK menambah baris', tm2 && tm2.length === 1 && tm2[0].amount === 40000000 && tm2[0].id === tmId, JSON.stringify(tm2));
+    /* ---- Akun Office investor (6 Oktober 2026) ---- */
+    v = d.getElementById('app-view').innerHTML;
+    cek('akun: investor belum terhubung menawarkan Buat/Hubungkan', v.includes('Buat akun baru') && v.includes('Hubungkan akun yang sudah ada'));
+    await w.akBuka('i1', 'buat');
+    d.getElementById('ak_p_i1').value = '12';
+    let nAk = panggilan.filter(p => p.body && p.body.action === 'investorAkun').length;
+    await w.akKirim('i1'); await tunggu(60);
+    cek('akun: PIN tidak sah DITOLAK sebelum dikirim', panggilan.filter(p => p.body && p.body.action === 'investorAkun').length === nAk);
+    d.getElementById('ak_p_i1').value = '482913';
+    d.getElementById('ak_h_i1').value = '0812';
+    await w.akKirim('i1'); await tunggu(120);
+    const kAk = panggilan.filter(p => p.body && p.body.action === 'investorAkun').pop();
+    cek('akun: dikirim ke account-api dengan token sesi & PIN', kAk && kAk.body.sesi === 'TK-uji' && kAk.body.pin === '482913' && !kAk.body.userId,
+        JSON.stringify(kAk && kAk.body));
+    kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    const ivAk = kirim && kirim.body.data.investor[0];
+    cek('akun: akunId tersimpan di catatan investor', ivAk && ivAk.akunId === 'u-baru', JSON.stringify(ivAk && ivAk.akunId));
+    cek('akun: riwayat & tambahan tetap utuh sesudah ditautkan', ivAk && (ivAk.tambahan || []).length === 1);
+    v = d.getElementById('app-view').innerHTML;
+    cek('akun: kartu menyebut terhubung', v.includes('Akun Office: <b>'));
+    w.akLepas('i1'); await tunggu(120);
+    kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    cek('akun: lepas tautan membuang akunId', kirim && !('akunId' in kirim.body.data.investor[0]));
+    cek('akun: lepas tautan TIDAK memanggil account-api', panggilan.filter(p => p.body && p.body.action === 'investorAkun').length === nAk + 1);
+    await w.akBuka('i1', 'pilih'); await tunggu(60);
+    d.getElementById('ak_u_i1').value = 'u-dina';
+    await w.akKirim('i1'); await tunggu(120);
+    const kAk2 = panggilan.filter(p => p.body && p.body.action === 'investorAkun').pop();
+    cek('akun: hubungkan mengirim userId, tanpa PIN', kAk2 && kAk2.body.userId === 'u-dina' && !('pin' in kAk2.body));
+    kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    cek('akun: hubungkan menyimpan akunId akun yang dipilih', kirim && kirim.body.data.investor[0].akunId === 'u-dina');
     cek('halaman investor ikut menjumlahkan tambahan (kontrak PHP)',
-        /\$i\['tambahan'\][\s\S]{0,200}\$totalModal \+= kp_num/.test(fs.readFileSync(path.join(ROOT, 'kompas-mysql', 'lib_kompas_mysql.php'), 'utf8')));
+        /\$i\['tambahan'\][\s\S]{0,200}\$modalI \+= kp_num[\s\S]{0,300}\$totalModal \+= \$modalI/.test(fs.readFileSync(path.join(ROOT, 'kompas-mysql', 'lib_kompas_mysql.php'), 'utf8')));
     dom.window.close();
   }
 

@@ -11511,6 +11511,25 @@ Yang perlu dijaga:
   meninggalkan halaman 4 yang sudah tidak ada, dan tabelnya tergambar kosong
   padahal datanya ada.
 
+**Dividen per investor (6 Oktober 2026).** Admin modul `investor` melihat
+SELURUH investor (plus tabel Per Investor); investor biasa HANYA modal &
+dividennya sendiri. Disaring di SERVER (`dividen_investor($u, $semua)`), bukan
+di layar — daftar lengkap yang disaring peramban tetap terbaca lewat devtools.
+
+- Catatan investor di Brankas menyimpan `akunId` (+ `akunNama`), dicocokkan ke
+  id user sesi. Catatan TANPA akunId jatuh ke pencocokan NAMA persis; yang
+  sudah punya akunId tidak pernah dicocokkan lewat nama.
+- Akunnya dibuat/ditautkan dari kartu investor di Brankas lewat
+  `account-api?action=investorAkun` (admin modul investor/brankas/finance):
+  buat baru (nama, HP, PIN 4–6 angka wajib) atau hubungkan akun yang ada.
+  Keduanya memberi grant `investor`=1; akun yang ada TIDAK diubah satu kolom
+  pun, dan aksi ini tidak pernah mencabut apa pun.
+- `semua` yang TIDAK ADA di balasan = PHP lama → layar memperlakukannya
+  sebagai daftar lengkap. Dianggap terbatas, semua orang melihat "belum
+  terhubung" selama PHP-nya belum mendarat.
+- Akun yang belum ditautkan melihat "belum terhubung", dibedakan dari "belum
+  ada pembagian".
+
 **Tab yang masih kosong itu disengaja.** Dividen, laporan keuangan, program,
 event, dan desain buku tidak punya sumber data di Office mana pun. Yang tampil
 adalah keadaan kosong yang menyebutkan apa yang kurang. Tabnya **tidak

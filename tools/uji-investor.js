@@ -651,6 +651,78 @@ async function jalankan(nama, opt) {
     }
   });
 
+  /* ---- 21b. PER INVESTOR (6 Oktober 2026) ----
+     Admin melihat tabel Per Investor; investor biasa cuma angkanya sendiri,
+     dan akun yang belum ditautkan dibedakan dari "belum ada pembagian".
+     Penyaringannya di SERVER — yang diuji di sini cara layar membaca bentuk
+     balasannya (`semua`, `per`). */
+  const PER2 = [
+    { nama:'H. Bakri', modal:600000000, kembali:200000000, kali:1, kepemilikan:30, terhubung:true },
+    { nama:'Ibu Sari', modal:400000000, kembali:100000000, kali:1, kepemilikan:20, terhubung:false } ];
+  await jalankan('Dividen: admin melihat seluruh investor', {
+    sesiTersimpan: { token:'TP1', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ dividen:{ gagal:false, semua:true, modal:1000000000, total:300000000,
+            investor:2, per:PER2, riwayat:[
+              { tgl:'2026-08-10', investor:'H. Bakri', nominal:200000000 },
+              { tgl:'2026-06-30', investor:'Ibu Sari', nominal:100000000 } ] } }) }
+      : { ok:false },
+    periksa(w) {
+      const dv = $(w,'dividenBox').innerHTML;
+      cek('admin: tabel Per Investor tampil', dv.includes('Per Investor'), dv.slice(0,300));
+      cek('admin: sisa per investor (400jt & 300jt)', dv.includes('Rp 400.000.000') && dv.includes('Rp 300.000.000'));
+      cek('admin: penanda akun belum ditautkan', dv.includes('belum ditautkan'));
+      cek('admin: nota menyebut seluruh investor', dv.includes('SELURUH investor'));
+    }
+  });
+  await jalankan('Dividen: investor biasa hanya miliknya', {
+    sesiTersimpan: { token:'TP2', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ dividen:{ gagal:false, semua:false, modal:600000000, total:200000000,
+            investor:1, per:[PER2[0]], riwayat:[ { tgl:'2026-08-10', investor:'H. Bakri', nominal:200000000 } ] } }) }
+      : { ok:false },
+    periksa(w) {
+      const dv = $(w,'dividenBox').innerHTML;
+      cek('investor: tabel Per Investor TIDAK tampil', !dv.includes('Per Investor'), dv.slice(0,300));
+      cek('investor: sisa miliknya 400jt', dv.includes('Rp 400.000.000'));
+      cek('investor: nota menyebut milik sendiri', dv.includes('milik Anda sendiri'));
+      cek('investor: nama investor lain tidak ada', !dv.includes('Ibu Sari'));
+    }
+  });
+  await jalankan('Dividen: akun belum ditautkan', {
+    sesiTersimpan: { token:'TP3', nama:'Uji' },
+    api: b => b.action === 'investorRingkas'
+      ? { ok:true, data: buatRingkas({ dividen:{ gagal:false, semua:false, modal:0, total:0, investor:0, per:[], riwayat:[] } }) }
+      : { ok:false },
+    periksa(w) {
+      const dv = $(w,'dividenBox').innerHTML;
+      cek('belum terhubung dibedakan dari belum ada pembagian',
+          dv.includes('belum terhubung') && !dv.includes('Belum ada pembagian'), dv.slice(0,300));
+      cek('belum terhubung: tidak ada angka', !dv.includes('Rp '));
+    }
+  });
+  {
+    const php = fs.readFileSync(path.join(__dirname, '..', 'kompas-mysql', 'lib_kompas_mysql.php'), 'utf8');
+    const fn = php.slice(php.indexOf('function dividen_investor('), php.indexOf('/* ==================== DIAGNOSTIK'));
+    cek('php: dividen_investor menerima sesi & flag semua', /function dividen_investor\(\$u = null, \$semua = true\)/.test(fn));
+    cek('php: non-admin disaring (continue sebelum dihitung)', /if \(!\$semua\) \{[\s\S]{0,400}if \(!\$milik\) continue;/.test(fn));
+    cek('php: dicocokkan lewat akunId', /\$akun === \$uid/.test(fn));
+    cek('php: nama hanya untuk catatan TANPA akunId', /\$akun === '' && \$unama !== ''/.test(fn));
+    cek('php: jumlah seluruh investor tidak dibocorkan ke non-admin', /'jumlahSemua'=> \$semua \? \$semuaJml : null/.test(fn));
+    const api = fs.readFileSync(path.join(__dirname, '..', 'kompas-mysql', 'api.php'), 'utf8');
+    cek('api: ringkas_investor diberi sesi + status admin', /ringkas_investor\(\$u, \$adminInv\)/.test(api));
+    cek('api: status admin dari sesi_admin_modul investor', /\$adminInv = sesi_admin_modul\(\$u, 'investor'\)/.test(api));
+    const acc = fs.readFileSync(path.join(__dirname, '..', 'account-mysql', 'lib_account_mysql.php'), 'utf8');
+    const ia = acc.slice(acc.indexOf('function aksi_investor_akun('), acc.indexOf('/* ==================== REGISTRI MODUL'));
+    cek('account: investorAkun bergerbang admin modul', /admin_modul_untuk\(\$caller\['id'\]\)/.test(ia) && /'forbidden'/.test(ia));
+    cek('account: PIN akun baru wajib 4-6 angka', /\/\^\\d\{4,6\}\$\//.test(ia));
+    cek('account: akun yang ada TIDAK diubah (tanpa simpan_user_inti di cabang userId)',
+        ia.indexOf('simpan_user_inti(') > ia.indexOf("} else {"));
+    cek('account: grant investor=1, tidak pernah mencabut', /ON DUPLICATE KEY UPDATE `access` = 1/.test(ia) && !/DELETE/.test(ia));
+    cek('account: aksi didaftarkan di api.php',
+        /case 'investorAkun':\s+keluar\(aksi_investor_akun\(\$body\)\)/.test(fs.readFileSync(path.join(__dirname, '..', 'account-mysql', 'api.php'), 'utf8')));
+  }
+
   /* ---- 22. laporan PDF: investor biasa hanya MEMBACA ----
      Dua pagar berbeda untuk satu berkas, dan itu memang bedanya: investor
      perlu membaca neraca, tidak menggantinya. */

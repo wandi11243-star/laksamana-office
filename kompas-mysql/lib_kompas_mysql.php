@@ -1027,7 +1027,7 @@ function laba_rugi_bulanan($peta = null) {
   return $out;
 }
 
-function ringkas_investor() {
+function ringkas_investor($u = null, $semua = true) {
   $peta = kp_peta_harian();
   $b    = kp_peta_bulanan($peta);
 
@@ -1142,7 +1142,7 @@ function ringkas_investor() {
        lebih murah daripada dua. Kalau finance-api mati, `gagal:true` dan
        layar mengatakannya; daftar kosong yang berarti "servernya mati"
        terbaca sebagai "belum pernah ada pembagian". */
-    'dividen' => dividen_investor(),
+    'dividen' => dividen_investor($u, $semua),
     'labaRugi' => laba_rugi_bulanan($peta),
     /* Tanggal data terakhir yang benar-benar diisi. Halaman investor
        memajangnya apa adanya — tanpa itu, omset hari ini yang kosong karena
@@ -1369,11 +1369,26 @@ function agenda_investor() {
 
    Yang dipulangkan cuma nama investor, tanggal, dan nominal. TIDAK ada
    nomor rekening, TIDAK ada wallet asalnya (itu urusan internal Finance),
-   dan TIDAK ada modal maupun kepemilikan investor LAIN — tiap investor
-   melihat daftar yang sama, jadi apa pun yang ada di sini terlihat oleh
-   semuanya.
+   dan modal/kepemilikan investor LAIN hanya untuk admin modul investor —
+   lihat penyaringan per sesi di dividen_investor().
    ====================================================================== */
-function dividen_investor() {
+/* PER INVESTOR (6 Oktober 2026, permintaan user): admin modul `investor`
+   melihat SELURUH investor; investor biasa HANYA melihat modal & dividennya
+   sendiri. Penyaringnya DI SINI, di server — bukan di layar. Kalau seluruh
+   daftar dikirim lalu disaring peramban, modal investor lain tetap terbaca
+   lewat devtools oleh siapa pun yang memegang kunci modul ini.
+
+   Pencocokan catatan investor <-> akun Office:
+     1. `akunId` di catatan Brankas = id user sesi   (ditautkan CFO di Brankas)
+     2. catatan TANPA `akunId` yang namanya sama persis (huruf besar-kecil &
+        spasi tepi diabaikan) dengan nama akun — jaring untuk catatan lama
+        yang belum sempat ditautkan.
+   Catatan yang SUDAH punya akunId tidak pernah dicocokkan lewat nama: akun
+   lain yang kebetulan bernama sama tidak boleh ikut melihatnya.
+
+   $u null + $semua true = perilaku lama (seluruhnya), supaya pemanggil lain
+   yang belum menyerahkan sesi tidak berubah diam-diam. */
+function dividen_investor($u = null, $semua = true) {
   $url = kp_url_modul('finance-api-mysql');
   if ($url === '') return array('riwayat' => array(), 'gagal' => true);
   /* kp_ambil_modul() memakai getAll; brankas punya aksinya sendiri, jadi
@@ -1396,28 +1411,49 @@ function dividen_investor() {
   $inv = $d['data']['data']['investor'];
   if (!is_array($inv)) return array('riwayat' => array(), 'gagal' => true);
 
-  $riwayat = array(); $totalModal = 0;
+  $uid   = is_array($u) && isset($u['id'])   ? trim((string)$u['id'])   : '';
+  $unama = is_array($u) && isset($u['name']) ? strtolower(trim((string)$u['name'])) : '';
+
+  $riwayat = array(); $totalModal = 0; $per = array(); $semuaJml = 0;
   foreach ($inv as $i) {
     if (!is_array($i)) continue;
-    $totalModal += kp_num(isset($i['capital']) ? $i['capital'] : 0);
+    $semuaJml++;
+    $akun = isset($i['akunId']) ? trim((string)$i['akunId']) : '';
+    if (!$semua) {
+      $milik = ($akun !== '' && $uid !== '' && $akun === $uid)
+            || ($akun === '' && $unama !== '' && strtolower(trim((string)(isset($i['name']) ? $i['name'] : ''))) === $unama);
+      if (!$milik) continue;
+    }
+    $modalI = kp_num(isset($i['capital']) ? $i['capital'] : 0);
     /* Tambahan modal (6 Oktober 2026) ikut di total modal — berkas kembar
        modalTotal() di deploy/finance/brankas/. Tanpa ini halaman investor
        menyebut modal lebih kecil daripada panel Brankas, dan persen
        pengembaliannya lebih besar daripada kenyataan. */
     if (isset($i['tambahan']) && is_array($i['tambahan'])) {
       foreach ($i['tambahan'] as $tm) {
-        if (is_array($tm)) $totalModal += kp_num(isset($tm['amount']) ? $tm['amount'] : 0);
+        if (is_array($tm)) $modalI += kp_num(isset($tm['amount']) ? $tm['amount'] : 0);
       }
     }
+    $totalModal += $modalI;
     $nama = kp_teks(isset($i['name']) ? $i['name'] : '', 80);
     $ret = (isset($i['returns']) && is_array($i['returns'])) ? $i['returns'] : array();
+    $kembaliI = 0; $nI = 0;
     foreach ($ret as $r) {
       if (!is_array($r)) continue;
       $t = kp_tgl(isset($r['date']) ? $r['date'] : '');
       $n = kp_num(isset($r['amount']) ? $r['amount'] : 0);
       if (!$t || !$n) continue;
       $riwayat[] = array('tgl' => $t, 'investor' => $nama, 'nominal' => $n);
+      $kembaliI += $n; $nI++;
     }
+    $per[] = array(
+      'nama'        => $nama,
+      'modal'       => $modalI,
+      'kembali'     => $kembaliI,
+      'kali'        => $nI,
+      'kepemilikan' => kp_num(isset($i['ownership']) ? $i['ownership'] : 0),
+      'terhubung'   => $akun !== '',
+    );
   }
   /* Terbaru dulu — yang dibuka investor pertama kali adalah "kapan terakhir
      saya dibayar", bukan yang paling lama. */
@@ -1427,7 +1463,13 @@ function dividen_investor() {
     'riwayat'    => $riwayat,
     'total'      => array_reduce($riwayat, function ($a, $x) { return $a + $x['nominal']; }, 0),
     'modal'      => $totalModal,
-    'investor'   => count($inv),
+    'investor'   => count($per),
+    'per'        => $per,
+    /* `semua` memberi tahu layar apakah ini daftar lengkap (admin) atau
+       milik sendiri. Untuk investor biasa jumlah seluruh investor TIDAK
+       dikirim — angka itu pun bukan urusannya. */
+    'semua'      => (bool)$semua,
+    'jumlahSemua'=> $semua ? $semuaJml : null,
     'gagal'      => false
   );
 }

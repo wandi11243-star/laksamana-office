@@ -107,6 +107,8 @@ try {
     case 'rosterSaveUser':    keluar(aksi_roster_simpan_user($body));
     case 'rosterSetActive':   keluar(aksi_roster_set_active($body));
     case 'rosterHapusUser':   keluar(aksi_roster_hapus_user($body));
+    // Akun investor dari panel Brankas — lihat aksi_investor_akun().
+    case 'investorAkun':      keluar(aksi_investor_akun($body));
     case 'import':            keluar(aksi_import($body));
     case 'sessionRefresh':    keluar(aksi_segarkan_sesi($body));
 
