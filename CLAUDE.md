@@ -692,8 +692,8 @@ yang berubah nama tampilannya (judul, sidebar, kartu portal, Help).
 
 **Putaran ketiga:** status papan tinggal **To Do / Doing / Review / Done** — Backlog & Waiting
 tersimpan dipetakan di normalize() (Backlog->To Do, Waiting->Doing). Done mencatat
- (dibuang saat dibuka lagi) dan deadline-nya digambar hijau berhenti
-(). Detail project terbuka langsung di Kanban ().
+`doneAt` (dibuang saat dibuka lagi) dan deadline-nya digambar hijau berhenti
+(`tagDeadline`). Detail project terbuka langsung di Kanban (`pdMode`).
 
 **Putaran kedua (hari yang sama):**
 
