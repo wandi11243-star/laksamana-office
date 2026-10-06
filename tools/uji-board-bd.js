@@ -131,7 +131,7 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
   // --- tambah kartu cepat ---
   W.APP.bukaBoard('pj1');
   const kadd = v().querySelector('[data-kadd="Review"]');
-  kadd.value='Cek sound system'; W.APP.boardTambah(kadd,'Review');
+  kadd.value='Cek sound system'; kadd.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
   const baru = W.__uji.DB.tasks.find(t=>t.name==='Cek sound system');
   cek(!!baru && baru.status==='Review' && baru.project==='pj1', 'kartu cepat lahir di kolom & project yang dipilih');
   cek(D.activeElement===v().querySelector('[data-kadd="Review"]'), 'fokus kembali ke kotak tambah kolom yang sama');
@@ -148,6 +148,61 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
   const k = kiriman[kiriman.length-1];
   cek(k && (k.data.coord||[]).some(c=>c.id==='c1') && (k.data.routines||[]).some(r=>r.id==='r1'),
       'data Koordinasi & Routine tetap ikut saveAll (tidak terhapus di server)');
+
+  // --- revisi 6 Okt (putaran 2) ---
+  // checkbox sub-task di modal tidak boleh ikut width:100% dari .field input
+  W.APP.taskModal('tB');
+  const cb = D.querySelector('#m_subs .subrow input[type=checkbox]');
+  const gaya = W.getComputedStyle(cb);
+  cb && cek(gaya.width==='16px', 'checkbox sub-task di modal selebar 16px (bukan 100%) — '+gaya.width);
+  const teks = D.querySelector('#m_subs .subrow .subt');
+  cek(!!teks && teks.value==='Desain undangan', 'teks sub-task terbaca di kotaknya');
+  W.closeModal();
+
+  // urutan deadline + arsip di detail project
+  W.__uji.DB.tasks.push({id:'tE',name:'Paling awal',status:'To Do',project:'pj1',deadline:'2026-10-01',pics:['p1']});
+  W.__uji.DB.tasks.push({id:'tF',name:'Tanpa deadline',status:'To Do',project:'pj1',deadline:'',pics:['p1']});
+  W.APP.bukaProject('pj1');
+  const nama = () => [...v().querySelectorAll('.trow .t-name')].map(e=>e.textContent);
+  let n = nama();
+  cek(n[0]==='Paling awal' && n[n.length-1]==='Tanpa deadline', 'daftar task project diurut deadline terdekat, tanpa deadline paling bawah');
+  cek(n.indexOf('Booking venue')<0 && n.indexOf('Sebar undangan')<0, 'mode Aktif menyembunyikan task Done (arsip)');
+  W.APP.setPd('arsip','arsip'); n=nama();
+  cek(n.indexOf('Booking venue')>-1 && n.indexOf('Paling awal')<0, 'mode Arsip hanya task Done');
+  W.APP.setPd('arsip','semua'); n=nama();
+  cek(n.indexOf('Booking venue')>-1 && n.indexOf('Paling awal')>-1, 'mode Semua memuat keduanya');
+  W.APP.setPd('arsip','aktif');
+
+  // dropdown sub-task langsung dari baris
+  W.APP.setPd('arsip','semua');
+  const tog = [...v().querySelectorAll('.subtog')].find(b=>/1\/2|2\/2|0\/2/.test(b.textContent));
+  cek(!!tog, 'baris task punya tombol sub-task');
+  tog.click();
+  const box = v().querySelector('.subdrop input[type=checkbox]');
+  cek(!!box, 'menekan tombolnya membuka daftar sub-task');
+  cek(!D.getElementById('m_name'), 'membuka dropdown tidak ikut membuka modal edit');
+  const sebelum = T('tB').subtasks.filter(x=>x.done).length;
+  const idx = T('tB').subtasks.findIndex(x=>!x.done);
+  v().querySelectorAll('.subdrop input[type=checkbox]')[idx].click();
+  cek(T('tB').subtasks.filter(x=>x.done).length===sebelum+1, 'centang di dropdown langsung menyimpan sub-task');
+  W.APP.setPd('arsip','aktif');
+
+  // kanban di detail project
+  W.APP.setPd('mode','kanban');
+  cek(v().querySelectorAll('.board .kcol').length===6, 'detail project bisa tampil Kanban');
+  cek(!!v().querySelector('.karsip'), 'kolom Done di mode Aktif diringkas jadi arsip, tetap jadi tempat jatuh');
+  const ka = v().querySelector('[data-kadd="To Do"]');
+  ka.value='Dari kanban project'; ka.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
+  const kk = W.__uji.DB.tasks.find(t=>t.name==='Dari kanban project');
+  cek(!!kk && kk.project==='pj1', 'kartu dari kanban project masuk ke project itu');
+  W.APP.setPd('mode','list');
+
+  // board: arsip
+  W.APP.bukaBoard('pj1');
+  cek(!/Booking venue/.test(v().querySelector('.board').textContent), 'Board mode Aktif tidak menggambar kartu Done');
+  W.APP.filterBoard('arsip','semua');
+  cek(/Booking venue/.test(v().querySelector('.board').textContent), 'Board mode Semua menggambar kartu Done');
+  W.APP.filterBoard('arsip','aktif');
 
   // --- halaman lain tetap tergambar ---
   for (const h of ['dashboard','tasks','projects','calendar','promo','purchasing','tim']) {

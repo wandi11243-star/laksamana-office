@@ -690,8 +690,25 @@ yang berubah nama tampilannya (judul, sidebar, kartu portal, Help).
   `hapus_yang_hilang()` mengosongkan tabelnya. `vCoord`/`vRoutine` dibiarkan;
   mengembalikannya cukup baris `NAV` + `HALAMAN_ALAMAT`.
 
+**Putaran kedua (hari yang sama):**
+
+- **Arsip = status Done**, bukan field baru (`saringArsip`, Aktif/Arsip/Semua) —
+  di detail project dan Board. Di Kanban mode Aktif kolom Done TETAP ada
+  sebagai tempat jatuh, isinya diringkas jadi jumlah arsip.
+- **`urutDeadline()` satu urutan baku**: deadline terdekat di atas, tanpa
+  deadline paling bawah. Dipakai detail project, Kanban, dan kuadran Tasks.
+- **Detail project bisa List/Kanban** (`pdMode`), lewat `kanbanHtml()` yang
+  SAMA dengan Board. `boardTambah(inp,st,proj)` menerima project dari
+  pemanggil — dulu membaca `bProj`, sehingga kartu dari detail project lahir
+  tanpa project.
+- **Sub-task terbuka seperti dropdown** dari baris/kartu (`SUB_BUKA`,
+  `subLangsung`), tombolnya `stopPropagation` supaya tidak ikut membuka modal.
+- **Checkbox sub-task di modal sempat selebar 100%** karena `.field input`
+  menyetel `width:100%` — kotak teksnya terdesak habis dan terlihat kosong.
+  Ditimpa dengan selektor `.field .subrow input[type=checkbox]`.
+
 ```bash
-node tools/uji-board-bd.js   # 37 pemeriksaan, jsdom
+node tools/uji-board-bd.js   # 52 pemeriksaan, jsdom
 ```
 
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)

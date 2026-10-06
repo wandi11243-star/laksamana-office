@@ -285,6 +285,18 @@ td .mut{color:var(--muted);font-size:12.5px}
 .sublist,.deplist{display:flex;flex-direction:column;gap:4px}
 .deplist{max-height:190px;overflow-y:auto;border:1px solid var(--line-soft);border-radius:10px;padding:6px 8px}
 .subrow{display:flex;align-items:center;gap:8px}
+.field .subrow input[type=checkbox],.field .deprow input[type=checkbox],.subdi input[type=checkbox]{
+  width:16px;height:16px;flex:none;padding:0;margin:0;accent-color:var(--gold)}
+.field .subrow .subt{min-width:0;width:auto;background-color:transparent;border:1px solid transparent}
+.field .subrow .subt:focus{border-color:var(--line-hard);background-color:#fff}
+.tag.subtog{cursor:pointer;font:inherit;font-family:var(--mono);font-size:10px}
+.tag.subtog.on{border-color:var(--gold);color:var(--gold-deep)}
+.subdrop{margin-top:8px;padding:6px 8px;border:1px solid var(--line-soft);border-radius:9px;background:var(--ink-900);display:flex;flex-direction:column;gap:4px;cursor:default}
+.subdi{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer}
+.subdi span.done{text-decoration:line-through;color:var(--muted)}
+.karsip{font-size:12px;color:var(--muted);text-align:center;padding:14px 6px;border:1px dashed var(--line-hard);border-radius:9px}
+.pdctl{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
+.pdctl .seg button{font-size:12px}
 .subrow .subt{flex:1;border:1px solid transparent;background:transparent;border-radius:7px;padding:6px 8px;font:inherit;font-size:13px;outline:none}
 .subrow .subt:focus{border-color:var(--line-hard);background:#fff}
 .subrow .subt.done{text-decoration:line-through;color:var(--muted)}
@@ -1405,7 +1417,7 @@ function render(){
             calendar:vCalendar,tim:vTim};
   $('#view').innerHTML=(peta[view]||vDashboard)();
   if(view==='dashboard') pasangFokus();
-  if(view==='board') pasangBoard();
+  if(view==='board'||view==='projectDetail') pasangBoard();
 }
 /* ---- alamat halaman (#tasks, #purchasing, …) ----
    Ditambahkan karena modul lain menautkan ke sini: Marketing punya tombol
@@ -1468,7 +1480,7 @@ function taskRow(t,o){
         avStack(pics(t))+tagSubDep(t)+
         (t.type&&t.type!=='Ad-hoc'?'<span class="tag">'+esc(t.type)+'</span>':'')+
         (t.deadline?'<span class="tag'+(od?' overdue':'')+'">'+fDue(t.deadline)+'</span>':'')+
-      '</div></div>'+
+      '</div>'+subDaftarHtml(t)+'</div>'+
     '<div class="t-actions">'+
       '<button class="iconbtn" title="Edit" onclick="APP.taskModal(\''+t.id+'\')">'+ic('edit')+'</button>'+
       '<button class="iconbtn" title="Hapus" onclick="APP.hapusTask(\''+t.id+'\')">'+ic('trash')+'</button>'+
@@ -1670,7 +1682,7 @@ function vTasks(){
 }
 function matrixHtml(base){
   function sel(imp,urg,cls,label,desc){
-    var l=base.filter(function(t){return !selesai(t)&&!!t.important===imp&&!!t.urgent===urg;});
+    var l=base.filter(function(t){return !selesai(t)&&!!t.important===imp&&!!t.urgent===urg;}).sort(urutDeadline);
     return '<div class="quad '+cls+'">'+
       '<div class="quad-h"><span class="qb '+cls+'">'+label+'</span><span class="qd">'+desc+'</span>'+
         '<span class="qc num">'+l.length+'</span></div>'+
@@ -1922,15 +1934,34 @@ function cekBolehDone(t,daftarDeps){
 /* Progress task yang punya sub-task DIHITUNG dari sub-task-nya, bukan diketik:
    angka yang diketik tangan selalu ketinggalan dari kenyataan (alasan yang
    sama dengan projProgress). */
+function subDaftarHtml(t){
+  if(!SUB_BUKA[t.id] || !subs(t).length) return '';
+  return '<div class="subdrop" onclick="event.stopPropagation()" ondragstart="event.preventDefault()">'+subs(t).map(function(x,i){
+    return '<label class="subdi"><input type="checkbox"'+(x.done?' checked':'')+
+      ' onchange="APP.subLangsung(\''+t.id+'\','+i+',this.checked)"><span class="'+(x.done?'done':'')+'">'+esc(x.t)+'</span></label>';
+  }).join('')+'</div>';
+}
+function subBuka(id){ SUB_BUKA[id]=!SUB_BUKA[id]; render(); }
+function subLangsung(id,i,on){
+  var t=taskById(id); if(!t||!subs(t)[i]) return;
+  t.subtasks[i].done=!!on; segarkanProgress(t);
+  save(); render();
+}
 function segarkanProgress(t){
   if(selesai(t)){ t.progress=100; return; }
   var h=subHitung(t);
   if(h.n) t.progress=Math.round(h.d/h.n*100);
   else if(t.progress===100) t.progress=0;
 }
+/* Sub-task bisa dibuka seperti dropdown langsung dari baris/kartunya, dan
+   dicentang di sana tanpa membuka modal. Keadaan terbukanya di luar DOM
+   (SUB_BUKA) karena render di modul ini TOTAL. */
+var SUB_BUKA={};
 function tagSubDep(t,tanpaKunci){
   var h=subHitung(t), hal=selesai(t)?[]:penghalang(t);
-  return (h.n?'<span class="tag'+(h.d===h.n?' sub-ok':'')+'" title="Sub-task selesai">☑ '+h.d+'/'+h.n+'</span>':'')+
+  return (h.n?'<button type="button" class="tag subtog'+(h.d===h.n?' sub-ok':'')+(SUB_BUKA[t.id]?' on':'')+'" '+
+      'title="Lihat sub-task" onclick="event.stopPropagation();APP.subBuka(\''+t.id+'\')" '+
+      'ondragstart="event.stopPropagation()">☑ '+h.d+'/'+h.n+' '+(SUB_BUKA[t.id]?'▴':'▾')+'</button>':'')+
     (hal.length&&!tanpaKunci?'<span class="tag lock" title="Menunggu: '+esc(hal.map(function(x){return x.name;}).join(', '))+'">🔒 tunggu '+hal.length+'</span>':'');
 }
 
@@ -2017,9 +2048,56 @@ function boardTasks(){
     return t.project===bProj;
   });
 }
+/* Urutan baku seluruh daftar task: deadline TERDEKAT di paling atas,
+   yang tanpa deadline paling bawah (bukan paling atas — task tanpa tenggat
+   bukan yang paling mendesak), lalu nama supaya urutannya tidak berubah-ubah
+   tiap render. */
+function urutDeadline(a,b){
+  var da=a.deadline||'9999-99-99', db=b.deadline||'9999-99-99';
+  if(da!==db) return da<db?-1:1;
+  return String(a.name||'').localeCompare(String(b.name||''));
+}
+/* ARSIP = task yang sudah Done. Tidak dihapus dan tidak dipindah ke mana
+   pun — cuma disembunyikan dari tampilan bawaan, dan "Semua"/"Arsip"
+   memunculkannya lagi. Penanda arsipnya status Done itu sendiri, bukan
+   field baru: dua penanda untuk satu keadaan pasti menyimpang (task yang
+   dibuka lagi dari Done tapi lupa dicabut arsipnya hilang dari papan). */
+function saringArsip(list,mode){
+  if(mode==='arsip') return list.filter(selesai);
+  if(mode==='semua') return list;
+  return list.filter(function(t){return !selesai(t);});
+}
+function segArsip(mode,aksi,list){
+  var nA=list.filter(function(t){return !selesai(t);}).length, nD=list.length-nA;
+  return '<div class="seg">'+[['aktif','Aktif',nA],['arsip','Arsip (Done)',nD],['semua','Semua',list.length]].map(function(x){
+    return '<button class="'+(mode===x[0]?'on':'')+'" onclick="'+aksi.replace('$',x[0])+'">'+x[1]+' <span class="num">'+x[2]+'</span></button>';
+  }).join('')+'</div>';
+}
+/* Kanban satu daftar task. proj = project tujuan kartu yang ditambah lewat
+   "+ Tambah kartu" (null = tanpa project). Di mode Aktif kolom Done TETAP
+   ada sebagai tempat menjatuhkan kartu — tanpa itu tidak ada cara
+   menyelesaikan task dari papan — tapi isinya diringkas jadi jumlah arsip. */
+function kanbanHtml(base,proj,tampilProj,arsip){
+  var kolom=arsip==='arsip'?['Done']:STATUS_FLOW;
+  return '<div class="kanban board">'+kolom.map(function(st){
+    var l=base.filter(function(t){return (t.status||'To Do')===st;}).sort(urutDeadline);
+    var sembunyi=(st==='Done'&&arsip==='aktif');
+    var tampil=sembunyi?[]:l;
+    return '<div class="kcol"><div class="kcol-h"><span class="kt">'+st+'</span><span class="kc num">'+l.length+'</span></div>'+
+      '<div class="kcol-b" ondragover="event.preventDefault();this.classList.add(\'drop\')" '+
+      'ondragleave="this.classList.remove(\'drop\')" ondrop="APP.dropBoard(event,\''+st+'\')">'+
+      tampil.map(function(t){return boardCard(t,tampilProj);}).join('')+
+      (sembunyi?'<div class="karsip">'+(l.length?l.length+' task Done diarsipkan':'Seret kartu ke sini kalau sudah selesai')+'</div>':'')+
+      '</div>'+
+      (st==='Done'?'':'<div class="kadd"><input data-kadd="'+esc(st)+'" placeholder="+ Tambah kartu, Enter…" '+
+        'onkeydown="if(event.key===\'Enter\'){event.preventDefault();APP.boardTambah(this,\''+st+'\','+(proj?'\''+proj+'\'':'null')+');}"></div>')+
+      '</div>';
+  }).join('')+'</div>';
+}
+var bArsip='aktif';
 function vBoard(){
   if(bProj && bProj!=='__none__' && !DB.projects.some(function(p){return p.id===bProj;})) bProj='';
-  var base=boardTasks();
+  var semua=boardTasks(), base=saringArsip(semua,bArsip==='aktif'?'semua':bArsip);
   var pr=bProj&&bProj!=='__none__'?DB.projects.find(function(p){return p.id===bProj;}):null;
   var h=head('Board',SUB.board[2],
     (pr?'<button class="btn" onclick="APP.bukaProject(\''+pr.id+'\')">'+ic('projects')+'Detail project</button>':'')+
@@ -2031,26 +2109,10 @@ function vBoard(){
       DB.projects.filter(function(p){return !projBeres(p)||p.id===bProj;}).map(function(p){
         return '<option value="'+p.id+'"'+(bProj===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('')+'</select>'+
     segLingkup(bScope,'APP.filterBoard(\'scope\',this.value)')+
-    filterPic()+
-    '<span class="muted" style="font-size:12px;margin-left:auto">'+base.length+' task</span></div>';
-
-  h+='<div class="kanban board">'+STATUS_FLOW.map(function(st){
-    var l=base.filter(function(t){return (t.status||'To Do')===st;}).sort(function(a,b){
-      return (a.deadline||'9999')<(b.deadline||'9999')?-1:((a.deadline||'9999')>(b.deadline||'9999')?1:
-        String(a.name).localeCompare(String(b.name)));
-    });
-    var tampil=st==='Done'?l.slice(0,30):l;
-    return '<div class="kcol"><div class="kcol-h"><span class="kt">'+st+'</span><span class="kc num">'+l.length+'</span></div>'+
-      '<div class="kcol-b" ondragover="event.preventDefault();this.classList.add(\'drop\')" '+
-      'ondragleave="this.classList.remove(\'drop\')" ondrop="APP.dropBoard(event,\''+st+'\')">'+
-      tampil.map(function(t){return boardCard(t,!pr);}).join('')+
-      (l.length>tampil.length?'<div class="muted" style="font-size:12px;text-align:center;padding:6px">+'+(l.length-tampil.length)+' task Done lainnya</div>':'')+
-      '</div>'+
-      (st==='Done'?'':'<div class="kadd"><input data-kadd="'+esc(st)+'" placeholder="+ Tambah kartu, Enter…" '+
-        'onkeydown="if(event.key===\'Enter\'){event.preventDefault();APP.boardTambah(this,\''+st+'\');}"></div>')+
-      '</div>';
-  }).join('')+'</div>';
-  if(!base.length)
+    segArsip(bArsip,'APP.filterBoard(\'arsip\',\'$\')',semua)+
+    filterPic()+'</div>';
+  h+=kanbanHtml(base,pr?pr.id:null,!pr,bArsip);
+  if(!semua.length)
     h+='<div class="card" style="margin-top:14px"><div class="card-b">'+
       kosong('Belum ada task di sini','Ketik nama task di kotak "+ Tambah kartu" pada kolom mana pun, atau ubah penyaringnya.')+'</div></div>';
   return h;
@@ -2066,6 +2128,7 @@ function boardCard(t,tampilProj){
     '<span class="kmeta">'+(pr?'<span class="tag proj">'+esc(pr.name)+'</span>':'')+
       avStack(pics(t))+tagSubDep(t,true)+
       (t.deadline?'<span class="tag'+(od?' overdue':'')+'">'+fDue(t.deadline)+'</span>':'')+'</span>'+
+    subDaftarHtml(t)+
     (subHitung(t).n?bar(t.progress||0,selesai(t)):'')+
   '</div>';
 }
@@ -2084,9 +2147,9 @@ function dropBoard(e,st){
   var dulu=t.status; t.status=st; segarkanProgress(t);
   save(); render(); toast(namaPendek(t)+': '+dulu+' → '+st);
 }
-function boardTambah(inp,st){
+function boardTambah(inp,st,proj){
   var nama=String(inp.value||'').trim(); if(!nama) return;
-  var proj=(bProj&&bProj!=='__none__')?bProj:null;
+  proj=proj||null;
   var pr=proj&&DB.projects.find(function(p){return p.id===proj;});
   var t={id:uid('t'),name:nama,desc:'',
     div:(AKU&&OWNER_DIVS.indexOf(AKU.div)>-1)?AKU.div:((pr&&pr.div)||'Business Development'),
@@ -2155,6 +2218,7 @@ function projProgress(p){
   return 0;
 }
 var pidAktif=null;
+var pdMode='list', pdArsip='aktif';   // tampilan task di detail project
 var pScope='tim', pDiv='';
 function vProjects(){
   var base=saringLingkup(DB.projects,pScope).filter(cocokPic).filter(function(p){ return !pDiv||p.div===pDiv; });
@@ -2216,6 +2280,7 @@ function vProjectDetail(){
   var p=DB.projects.find(function(x){return x.id===pidAktif;});
   if(!p){ view='projects'; return vProjects(); }
   var ts=projTasks(p.id), pg=projProgress(p), sls=ts.filter(selesai).length;
+  var tsTampil=saringArsip(ts,pdArsip).sort(urutDeadline);
   var hh=PROJ_HEALTH[p.health]||PROJ_HEALTH['on-track'];
   var po=DB.po.filter(function(x){return x.project===p.id;});
   var sisaBudget=(+p.budget||0)-(+p.spent||0);
@@ -2233,10 +2298,16 @@ function vProjectDetail(){
       pics(p).length?pics(p).map(function(id){return String(P(id).name).split(' ')[0];}).join(', '):'belum ditentukan','vi')+
   '</div>'+
   '<div class="grid g12">'+
-    '<div class="card c8"><div class="card-h"><h3>Task di project ini</h3><span class="tagn">'+ts.length+'</span></div>'+
-      '<div class="card-b tight">'+(ts.length?ts.map(function(t){return taskRow(t,{hideProj:true});}).join('')
-        :kosong('Belum ada task','Tambahkan task pertama lewat tombol di atas.'))+'</div></div>'+
-    '<div class="card c4"><div class="card-h"><h3>Milestone</h3></div><div class="card-b tight">'+
+    '<div class="card '+(pdMode==='kanban'?'c12':'c8')+'"><div class="card-h"><h3>Task di project ini</h3>'+
+      '<div class="pdctl">'+segArsip(pdArsip,'APP.setPd(\'arsip\',\'$\')',ts)+
+      '<div class="seg"><button class="'+(pdMode==='list'?'on':'')+'" onclick="APP.setPd(\'mode\',\'list\')">List</button>'+
+      '<button class="'+(pdMode==='kanban'?'on':'')+'" onclick="APP.setPd(\'mode\',\'kanban\')">Kanban</button></div></div></div>'+
+      (pdMode==='kanban'
+        ? '<div class="card-b">'+kanbanHtml(pdArsip==='aktif'?ts:tsTampil,p.id,false,pdArsip)+'</div>'
+        : '<div class="card-b tight">'+(tsTampil.length?tsTampil.map(function(t){return taskRow(t,{hideProj:true});}).join('')
+            :(ts.length?kosong('Tidak ada task di tampilan ini','Ganti ke "Semua" untuk melihat task yang sudah Done.')
+                       :kosong('Belum ada task','Tambahkan task pertama lewat tombol di atas.')))+'</div>')+'</div>'+
+    '<div class="card '+(pdMode==='kanban'?'c12':'c4')+'"><div class="card-h"><h3>Milestone</h3></div><div class="card-b tight">'+
       ((p.milestones||[]).length?p.milestones.map(function(ms,i){
         return '<button type="button" class="mstone'+(ms.done?' done':'')+'" onclick="APP.toggleMilestone(\''+p.id+'\','+i+')">'+
           '<span class="mc">'+(ms.done?ic('check',12):'')+'</span>'+
@@ -4950,7 +5021,9 @@ window.APP={
   subTambah:subTambah, subCentang:subCentang, subUbah:subUbah, subHapus:subHapus,
   depGambar:depGambar, depCentang:depCentang,
   dragBoard:dragBoard, dropBoard:dropBoard, klikBoard:klikBoard, boardTambah:boardTambah, bukaBoard:bukaBoard,
-  filterBoard:function(apa,nilai){ if(apa==='proj') bProj=nilai; else if(apa==='scope') bScope=nilai; render(); },
+  filterBoard:function(apa,nilai){ if(apa==='proj') bProj=nilai; else if(apa==='scope') bScope=nilai; else if(apa==='arsip') bArsip=nilai; render(); },
+  setPd:function(apa,nilai){ if(apa==='mode') pdMode=nilai; else if(apa==='arsip') pdArsip=nilai; render(); },
+  subBuka:subBuka, subLangsung:subLangsung,
   simpanTask:simpanTask, hapusTask:hapusTask, toggleTask:toggleTask,
   dragTask:dragTask, dropTask:dropTask,
   setTaskMode:function(m){taskMode=m;render();},
