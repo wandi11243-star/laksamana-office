@@ -1096,6 +1096,14 @@ satu orang, yang dibayarkan angka itu **dikali jumlah orangnya**. Itu
 Kalau suatu hari perlu tepat, yang harus ditambah adalah kolom jumlah anggota
 tim di modul Event — bukan tebakan di sini.
 
+> **DASAR SKEMA 4 DIGANTI JADI REALISASI (6 Oktober 2026, keputusan user:
+> "realisasi omsetnya dihitung bagi 2").** Skema 4 sekarang memakai jumlah
+> kolom Diakui = **separuh nilai event** (+ Open Bill) — angka yang SAMA dengan
+> kartu Realisasi (`dasarS4` di `bonusEvent()`). Sebelumnya tangganya menulis
+> Rp157 juta di bawah kartu Realisasi Rp78 juta untuk PIC yang sama. **Skema 1
+> & 3 TIDAK berubah** — tetap nilai event utuh per event. Paragraf di bawah ini
+> tentang "dasarnya NET, bukan porsi" kini hanya berlaku untuk Skema 1 & 3.
+
 **Skema 2 dihitung dari JUMLAH event, bukan nilainya** — satu-satunya skema di
 seluruh repo yang begitu, dan gampang "diperbaiki" jadi nilai oleh yang
 membacanya sekilas. Bedanya juga dari Skema 1: yang ini **satu pool yang
