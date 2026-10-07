@@ -4,8 +4,8 @@
   Kuncinya 'bd'. Nama menu disalin dari NAV di deploy/bd/index.html.
 */
 LM_HELP_ISI('bd', {
-  ringkas: 'Ruang kerja tim: board per project ala Trello, task berikut sub-task dan '
-         + 'urutannya, prioritas, promo, dan purchase order.',
+  ringkas: 'Ruang kerja tim: project berbentuk kartu, task berikut sub-task dan urutannya, '
+         + 'timeline (Gantt), kanban per project, My Task, promo, dan purchase order.',
   untuk: 'semua tim yang memegang project',
 
   bagian: [
@@ -16,31 +16,32 @@ LM_HELP_ISI('bd', {
         { t:'tabel',
           kepala:['Kelompok','Menu','Isinya'],
           baris:[
-            ['Workspace','Dashboard, Board, Tasks, Projects, Calendar','Pekerjaan sehari-hari.'],
+            ['Workspace','Dashboard, My Task, Projects, Timeline, Calendar','Pekerjaan sehari-hari.'],
             ['Operasi','Promotion, Purchasing','Yang menyentuh divisi lain.'],
             ['Tim','Kru','Anggota tim.']
           ] },
-        { t:'catatan', nada:'info', judul:'Tasks memakai prioritas Eisenhower',
-          isi:'Penting × Mendesak. Empat kuadran, bukan satu daftar panjang — yang penting tapi '
-            + 'tidak mendesak justru yang paling sering hilang dari daftar biasa.' }
+        { t:'catatan', nada:'info', judul:'My Task = task yang PIC-nya kamu',
+          isi:'Dikelompokkan: lewat deadline, 7 hari ke depan, berikutnya, dan yang masih menunggu '
+            + 'task lain. Bisa dilihat sebagai List atau Kanban.' }
       ]
     },
 
     {
-      id: 'kerja', judul: 'Board, Task, dan Project',
+      id: 'kerja', judul: 'Project, Task, dan Timeline',
       isi: [
         { t:'tabel',
           kepala:['Menu','Untuk apa','Bedanya'],
           baris:[
-            ['Board','Melihat task satu project per kolom status.','Seret kartu antar kolom; ketik di "+ Tambah kartu" untuk task baru.'],
-            ['Tasks','Menentukan mana yang duluan.','Matriks Penting × Mendesak.'],
-            ['Projects','Pekerjaan besar berjangka.','Punya milestone dan tombol ke Board-nya.']
+            ['Projects','Semua project sebagai kartu (atau Kanban stage).','Kartu diurut dari yang paling butuh perhatian.'],
+            ['Detail project','Tab Task & sub-task, Kanban, dan Timeline.','Kanban: seret kartu antar kolom; ketik di "+ Tambah kartu" untuk task baru.'],
+            ['Timeline','Gantt semua project.','Buka project untuk melihat task, sub-task, dan panah urutannya.']
           ] },
         { t:'langkah', isi:[
-            'Buka *Board*, pilih project di penyaring atas.',
+            'Buka *Projects*, klik kartu project-nya, lalu tab *Kanban*.',
             'Ketik nama task di kotak *+ Tambah kartu* pada kolom yang sesuai, lalu Enter.',
             'Klik kartunya untuk mengisi *Sub-task* dan bagian *Baru bisa Done kalau task ini sudah Done*.',
-            'Seret kartu ke kolom berikutnya seiring pekerjaannya berjalan.'
+            'Seret kartu ke kolom berikutnya seiring pekerjaannya berjalan.',
+            'Isi *Mulai* dan *Deadline* task (dan deadline sub-task) supaya batangnya tergambar di *Timeline*.'
           ] },
         { t:'catatan', nada:'awas', judul:'Task yang menunggu tidak bisa Done',
           isi:'Kartu bertanda 🔒 masih menunggu task lain. Ia tetap boleh dikerjakan, tapi tidak '

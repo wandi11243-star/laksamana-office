@@ -713,7 +713,31 @@ tersimpan dipetakan di normalize() (Backlog->To Do, Waiting->Doing). Done mencat
   Ditimpa dengan selektor `.field .subrow input[type=checkbox]`.
 
 ```bash
-node tools/uji-board-bd.js   # 57 pemeriksaan, jsdom
+node tools/uji-board-bd.js   # 60 pemeriksaan, jsdom
+```
+
+**Putaran keempat (7 Okt 2026) — bentuk "Armada"** (`Laksamana_Muda_Armada.html`
+di root, prototipe rujukan). Menu **Board & Tasks DICABUT**, diganti **My Task**
+(`vMyTask`, task yang PIC-nya aku; List/Kanban) dan **Timeline** (`vTimeline`,
+Gantt semua project — `ganttHtml()`). Projects bawaannya **kartu** (`pCard`,
+diurut lewat deadline → off/at-risk → deadline), Kanban stage tetap ada sebagai
+saklar. Detail project: kepala ber-meta (waktu terpakai, budget) + tab
+**Task & sub-task** (`taskTreeRow`, pohon) / **Kanban** (bawaan, permintaan
+6 Okt belum dicabut) / **Timeline**.
+
+- **Field baru OPSIONAL, tanpa migrasi:** task `start`, sub-task `d`
+  (deadline). Task tanpa start digambar belah ketupat di deadline-nya — bukan
+  batang karangan. Mulai > deadline DITOLAK di `simpanTask`.
+- **Alamat lama dialihkan** (`ALAMAT_LAMA`: `#board`→projects, `#tasks`→mytask).
+  `bukaBoard(pid)` = tab Kanban detail project. `vBoard`/`vTasks` masih di peta
+  render (bisa dipanggil `go()`), cuma tidak di menu.
+- **Gulir Gantt dijaga di `render()`** lewat `data-key` — render TOTAL.
+- Panah urutan dari `dependsOn`; hanya digambar kalau kedua task tampil.
+- Uji yang menghitung panah wajib `.g-arrows > path` — path di `<defs>`
+  (kepala panah) ikut terhitung kalau tidak.
+
+```bash
+node tools/uji-timeline-bd.js   # 49 pemeriksaan, jsdom
 ```
 
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)
