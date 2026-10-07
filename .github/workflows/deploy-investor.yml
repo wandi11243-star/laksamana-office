@@ -64,12 +64,37 @@ jobs:
             echo "situs=dev.investor.laksamanamuda.id" >> "$GITHUB_OUTPUT"
           fi
 
+      # Server FTP dihubungi lewat ALAMAT IPv4, bukan nama host — sama dengan
+      # deploy.yml & deploy-dev.yml sejak 14 Sep 2026. Nama hostnya punya A
+      # dan AAAA; runner tidak punya IPv6, dan Node (autoSelectFamily) membatalkan
+      # IPv4 sesudah 250 ms per alamat — jabat tangan ke Indonesia sering lebih
+      # lama dari itu. Gejalanya ETIMEDOUT + internalConnectMultipleTimeout,
+      # terbaca seperti blokir firewall padahal bukan (run 37567877776).
+      # Gagal resolve JATUH KEMBALI ke nama host.
+      - name: Resolve IPv4 server FTP
+        id: ftpip
+        continue-on-error: true
+        env:
+          FTP_SERVER: ${{ secrets.FTP_SERVER }}
+        run: |
+          set +e
+          HOST="${FTP_SERVER#ftp://}"; HOST="${HOST#ftps://}"; HOST="${HOST%/}"
+          IP=$(getent ahostsv4 "$HOST" 2>/dev/null | awk '{print $1; exit}')
+          case "$HOST" in *[!0-9.]*) ;; *) IP="$HOST" ;; esac
+          if [ -z "$IP" ]; then
+            echo "IPv4 tidak bisa di-resolve — dipakai nama hostnya."
+            IP="$HOST"
+          fi
+          echo "host=$IP" >> "$GITHUB_OUTPUT"
+          echo "Server FTP dihubungi lewat IPv4 \`$IP\`." | tee -a "$GITHUB_STEP_SUMMARY"
+          exit 0
+
       - name: Deploy situs investor
         id: ftpinv
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host || secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./investor/
@@ -89,7 +114,7 @@ jobs:
         continue-on-error: true
         uses: SamKirkland/FTP-Deploy-Action@v4.3.5
         with:
-          server: ${{ secrets.FTP_SERVER }}
+          server: ${{ steps.ftpip.outputs.host || secrets.FTP_SERVER }}
           username: ${{ secrets.FTP_USERNAME }}
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./investor/
