@@ -72,7 +72,8 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
   // --- nama & menu ---
   cek(D.title.indexOf('BD OS')<0 && D.title.indexOf('Task Management')>-1, 'judul halaman bukan lagi BD OS');
   const nav = D.getElementById('nav').innerHTML;
-  cek(/APP\.go\('board'\)/.test(nav), 'menu Board ada');
+  cek(!/APP\.go\('board'\)/.test(nav) && !/APP\.go\('tasks'\)/.test(nav), 'menu Board & Tasks dicabut (7 Okt 2026)');
+  cek(/APP\.go\('mytask'\)/.test(nav) && /APP\.go\('timeline'\)/.test(nav), 'menu My Task & Timeline ada');
   cek(!/APP\.go\('coord'\)/.test(nav) && !/APP\.go\('routine'\)/.test(nav), 'menu Koordinasi & Routine dicabut');
 
   // --- board ---
@@ -174,7 +175,7 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
   W.APP.bukaProject('pj1');
   cek(v().querySelectorAll('.board .kcol').length===4, 'membuka project langsung tampil papan Kanban');
   W.APP.setPd('mode','list');
-  const nama = () => [...v().querySelectorAll('.trow .t-name')].map(e=>e.textContent);
+  const nama = () => [...v().querySelectorAll('.tr2:not(.sub) .t-name')].map(e=>e.textContent);
   let n = nama();
   cek(n[0]==='Paling awal' && n[n.length-1]==='Tanpa deadline', 'daftar task project diurut deadline terdekat, tanpa deadline paling bawah');
   cek(n.indexOf('Booking venue')<0 && n.indexOf('Sebar undangan')<0, 'mode Aktif menyembunyikan task Done (arsip)');
@@ -186,15 +187,17 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
 
   // dropdown sub-task langsung dari baris
   W.APP.setPd('arsip','semua');
-  const tog = [...v().querySelectorAll('.subtog')].find(b=>/1\/2|2\/2|0\/2/.test(b.textContent));
-  cek(!!tog, 'baris task punya tombol sub-task');
+  const subBaris = () => v().querySelectorAll('.tr2.sub input[type=checkbox]');
+  cek(subBaris().length===2, 'sub-task tergambar di bawah task-nya (pohon), terbuka secara bawaan');
+  const tog = v().querySelector('.tr2 .caret');
+  cek(!!tog, 'baris task punya tombol buka/tutup sub-task');
   tog.click();
-  const box = v().querySelector('.subdrop input[type=checkbox]');
-  cek(!!box, 'menekan tombolnya membuka daftar sub-task');
-  cek(!D.getElementById('m_name'), 'membuka dropdown tidak ikut membuka modal edit');
+  cek(subBaris().length===0, 'menekan tombolnya menutup sub-task');
+  cek(!D.getElementById('m_name'), 'buka/tutup sub-task tidak ikut membuka modal edit');
+  v().querySelector('.tr2 .caret').click();
   const sebelum = T('tB').subtasks.filter(x=>x.done).length;
   const idx = T('tB').subtasks.findIndex(x=>!x.done);
-  v().querySelectorAll('.subdrop input[type=checkbox]')[idx].click();
+  subBaris()[idx].click();
   cek(T('tB').subtasks.filter(x=>x.done).length===sebelum+1, 'centang di dropdown langsung menyimpan sub-task');
   W.APP.setPd('arsip','aktif');
 
@@ -208,20 +211,20 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
   cek(!!kk && kk.project==='pj1', 'kartu dari kanban project masuk ke project itu');
   W.APP.setPd('mode','list');
 
-  // board: arsip
+  // kanban project: arsip
   W.APP.bukaBoard('pj1');
-  cek(!/Booking venue/.test(v().querySelector('.board').textContent), 'Board mode Aktif tidak menggambar kartu Done');
-  W.APP.filterBoard('arsip','semua');
-  cek(/Booking venue/.test(v().querySelector('.board').textContent), 'Board mode Semua menggambar kartu Done');
-  W.APP.filterBoard('arsip','aktif');
+  cek(!/Booking venue/.test(v().querySelector('.board').textContent), 'Kanban mode Aktif tidak menggambar kartu Done');
+  W.APP.setPd('arsip','semua');
+  cek(/Booking venue/.test(v().querySelector('.board').textContent), 'Kanban mode Semua menggambar kartu Done');
+  W.APP.setPd('arsip','aktif');
 
   // --- halaman lain tetap tergambar ---
-  for (const h of ['dashboard','tasks','projects','calendar','promo','purchasing','tim']) {
+  for (const h of ['dashboard','mytask','projects','timeline','calendar','promo','purchasing','tim']) {
     let e=null; try{ W.APP.go(h); }catch(x){ e=x; }
     cek(!e && v().innerHTML.length>50, 'halaman '+h+' tergambar'+(e?' — '+e.message:''));
   }
   W.APP.bukaProject('pj1');
-  cek(/APP\.bukaBoard\('pj1'\)/.test(v().innerHTML), 'detail project punya tombol Board');
+  cek(/APP\.setPd\('mode','kanban'\)/.test(v().innerHTML) && /APP\.setPd\('mode','timeline'\)/.test(v().innerHTML), 'detail project punya tab Kanban & Timeline');
   cek(v().innerHTML.indexOf('Koordinasi divisi lain')<0, 'kartu Koordinasi dicabut dari detail project');
   selesai();
 })().catch(e=>{ console.log('GAGAL uji melempar: '+e.stack); gagal++; selesai(); });
