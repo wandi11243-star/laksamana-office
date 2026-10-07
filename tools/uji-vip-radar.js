@@ -203,6 +203,19 @@ function buka() {
   cek('rentang pax ditulis SATU tempat', (SRC.match(/function paxVipTeks/g) || []).length === 1,
       'dua penulis untuk satu rentang akan menyimpang, dan yang menyimpang jumlah orang yang disiapkan');
 
+  /* Status modul Event berubah (Draft/Today/Finished -> Planning/Prospect/
+     Approval/Upcoming/Event Done) dan Radar tertinggal: 23 dari 26 acara
+     produksi lenyap dari kalender (7 Okt 2026). Dijaga sebagai invarian
+     LINTAS BERKAS, bukan daftar nama yang harus diingat orang. */
+  const EVT = fs.readFileSync(path.join(ROOT, 'deploy/event/index.html'), 'utf8');
+  const mH = EVT.match(/const EVT_STATUS_HASIL\s*=\s*\[([^\]]*)\]/);
+  const mR = SRC.match(/var ST_EVT_JALAN\s*=\s*\[([^\]]*)\]/);
+  const daftar = m => m ? m[1].split(',').map(x => x.trim().replace(/^'|'$/g, '')).filter(Boolean) : [];
+  const hasil = daftar(mH), radar = daftar(mR);
+  cek('tiap status HASIL modul Event lolos penyaring Radar', hasil.length > 0 && hasil.every(x => radar.indexOf(x) > -1),
+      'hasil=' + hasil.join('/') + ' radar=' + radar.join('/'));
+  cek('Planning & Prospect TIDAK lolos (belum diputuskan)', radar.indexOf('Planning') < 0 && radar.indexOf('Prospect') < 0);
+
   console.log('\n' + ok + ' OK, ' + gagal + ' GAGAL');
   dom.window.close();
   process.exit(gagal ? 1 : 0);
