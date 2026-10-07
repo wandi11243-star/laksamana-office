@@ -750,7 +750,7 @@ function bacaSesi() {
     const m = s.modules || [];
     if (m.indexOf('*') < 0 && m.indexOf('brankas') < 0) return null;
     const adm = s.adminModules || [];
-    return { id:s.userId, name:s.name, keterangan:s.keterangan || '',
+    return { id:s.userId, name:s.name, keterangan:s.keterangan || '', token:s.token || '',
              isAdmin:(adm.indexOf('*') > -1 || adm.indexOf('brankas') > -1 || adm.indexOf('finance') > -1) };
   } catch (e) { return null; }
 }
@@ -888,6 +888,7 @@ async function muatSemua() {
   if (!BK.data) BK.data = {};
   ['rekening','piutang','bayar','investor','mutasi'].forEach(k => { if (!Array.isArray(BK.data[k])) BK.data[k] = []; });
   if (!BK.data.setting || typeof BK.data.setting !== 'object') BK.data.setting = {};
+  BK_TERSIMPAN = JSON.stringify(BK.data);
 
   /* Kompas boleh gagal tanpa mematikan modul: yang bergantung padanya cuma
      halaman Saldo. Kalau seluruh modul ikut mati, piutang & rencana bayar
@@ -908,13 +909,43 @@ async function muatSemua() {
        ? c.value.vendors : null;
   setSync('ok', '✓ Tersimpan');
 }
-/* State dikirim UTUH. Backend menulis blob sekali jalan, jadi mengirim
-   sepotong berarti sisanya lenyap tanpa satu pun pesan. */
+/* State dikirim UTUH, tapi server cuma menulis kunci milik panel ini —
+   `bayar` milik Kas Kecil diambil dari server, bukan dari kiriman ini
+   (lihat brankas_tulis() di finance-mysql).
+
+   baseVer = versi yang dipegang halaman ini (1 Oktober 2026). Kalau tab lain
+   sudah menyimpan sesudah halaman ini memuat, server MENOLAK alih-alih
+   menimpa. Yang dilakukan sesudahnya: data terbaru dimuat ulang dan layar
+   digambar dari situ. Membiarkan salinan lama di layar berarti baris yang
+   tidak pernah tersimpan terlihat seolah ada, dan simpan berikutnya ditolak
+   lagi dengan sebab yang sama. */
+/* BK_TERSIMPAN = salinan BK.data yang TERAKHIR diterima server. Gagal simpan
+   mengembalikan layar ke sana: tanpa itu baris yang ditolak tetap terlihat
+   seolah tercatat, lenyap saat halaman dimuat ulang, dan kalau orangnya
+   mengirim ulang formnya baris itu masuk DUA kali. */
+let MENYIMPAN = false, BK_TERSIMPAN = null;
+/* Tab yang ditutup di tengah simpan membuat orang tidak pernah tahu ia
+   tersimpan atau tidak — dan di halaman ini yang disimpan catatan uang. */
+window.addEventListener('beforeunload', e => { if (MENYIMPAN) { e.preventDefault(); e.returnValue = ''; } });
 async function simpan() {
   setSync('saving', 'Menyimpan…');
+  MENYIMPAN = true;
   try {
-    const r = await postJson(API_BK, { action:'brankasSave', data:BK.data, oleh:(CURRENT_USER && CURRENT_USER.name) || '' });
+    const r = await postJson(API_BK, { action:'brankasSave', data:BK.data,
+      baseVer:(BK.ver && BK.ver.lain) || 0, oleh:(CURRENT_USER && CURRENT_USER.name) || '' });
+    if (r && r.conflict) {
+      setSync('err', '⚠ Tidak tersimpan — data sudah diubah ' + esc(r.oleh || 'pengguna lain'));
+      alert('Perubahan ini TIDAK disimpan.\n\n'
+        + (r.oleh || 'Pengguna lain') + ' sudah menyimpan data Brankas sesudah halaman ini dibuka. '
+        + 'Menyimpan sekarang akan menghapus pekerjaannya.\n\n'
+        + 'Data terbaru akan dimuat — ulangi perubahan Anda sesudahnya.');
+      try { await muatSemua(); } catch (e2) {}
+      render();
+      return false;
+    }
     if (!r || !r.ok) throw new Error((r && r.error) || 'gagal');
+    if (r.data && r.data.ver) BK.ver = r.data.ver;
+    BK_TERSIMPAN = JSON.stringify(BK.data);
     setSync('ok', '✓ Tersimpan');
     return true;
   } catch (e) {
@@ -923,8 +954,9 @@ async function simpan() {
        dan "tersimpan" yang bohong adalah kegagalan paling mahal di repo ini. */
     setSync('err', '⚠ Gagal menyimpan: ' + esc(e.message || e));
     alert('Gagal menyimpan ke server.\n\n' + (e.message || e) + '\n\nPerubahan TIDAK tersimpan. Coba lagi.');
+    if (BK_TERSIMPAN) { BK.data = JSON.parse(BK_TERSIMPAN); render(); }
     return false;
-  }
+  } finally { MENYIMPAN = false; }
 }
 
 /* ============ SALDO DARI REKAP PENJUALAN ============
@@ -1725,6 +1757,7 @@ function vModal() {
               + '<td data-aks><button class="btn btn-xs" onclick="rvEdit(\'' + i.id + '\',' + ix + ')">Edit</button> '
               + '<button class="btn btn-danger btn-xs" onclick="rvHapus(\'' + i.id + '\',' + ix + ')">Hapus</button></td></tr>').join('')
             + '</tbody></table></div>' : '')
+        + akunHtml(i)
         + '<div style="margin-top:12px" data-aks><button class="btn btn-sm" onclick="ivEdit(\'' + i.id + '\')">Edit Investor</button> '
         + '<button class="btn btn-danger btn-sm" onclick="hapusBaris(\'investor\',\'' + i.id + '\',\'modal\',\'Hapus investor ini beserta riwayat pengembaliannya?\')">Hapus Investor</button></div>'
         + '</div>';
@@ -1732,6 +1765,132 @@ function vModal() {
     : '<div class="card"><div class="empty"><div class="big">♦</div>Belum ada investor yang dicatat.</div></div>';
   V.innerHTML = h;
 }
+/* ============ AKUN OFFICE INVESTOR (6 Oktober 2026) ============
+   Permintaan user: investor yang dicatat di sini dibuatkan akun Office juga,
+   supaya tiap investor bisa masuk ke Investor Compass dan HANYA melihat modal
+   & dividennya sendiri. Catatan investor menyimpan akunId (+ akunNama untuk
+   tampilan); kompas-api menyaring dividen_investor() lewat id itu.
+
+   Dua jalan, dan keduanya lewat account-api?action=investorAkun:
+     - HUBUNGKAN akun yang sudah ada (mis. pemilik yang juga pegawai)
+     - BUAT akun baru (nama, no HP, PIN)
+   Keduanya memberi grant modul investor. Akun yang sudah ada TIDAK diubah
+   satu kolom pun — PIN-nya tetap.
+
+   HANYA admin (sayaAdmin): membuat akun Office adalah hak yang lebih besar
+   daripada mencatat modal. Server memeriksanya ulang.
+
+   Melepas tautan cuma membuang akunId di sini — grant modulnya TIDAK dicabut
+   (itu urusan Kelola Akses superadmin), dan itu dikatakan di pertanyaannya.
+   Tanpa tautan, akun itu melihat halaman "belum terhubung", bukan modal
+   siapa pun. */
+let AK_EDIT = null;          // {iv, mode:'pilih'|'buat'}
+let AK_USERS = null;         // daftar akun Office untuk dipilih (dimuat malas)
+let AK_ERR = '';
+async function akMuatUsers() {
+  if (AK_USERS) return;
+  try {
+    const r = await postJson('../../account-api-mysql/api.php', { action:'listDivisiRoster' });
+    AK_USERS = (r && r.ok && Array.isArray(r.members)) ? r.members.filter(u => u.active !== false) : [];
+    AK_ERR = (r && r.ok) ? '' : 'Daftar akun Office tidak terbaca.';
+  } catch (e) { AK_USERS = []; AK_ERR = 'Daftar akun Office tidak terbaca: ' + (e.message || e); }
+}
+function akunHtml(i) {
+  if (i.akunId) {
+    return '<div class="notice info" style="margin-top:12px">🔗 <div>Akun Office: <b>' + esc(i.akunNama || i.akunId) + '</b>'
+      + ' — investor ini bisa masuk ke Investor Compass dan hanya melihat modal & dividennya sendiri.'
+      + (sayaAdmin() ? ' <button class="btn btn-xs" data-aks onclick="akLepas(\'' + i.id + '\')">Lepas tautan</button>' : '')
+      + '</div></div>';
+  }
+  if (!sayaAdmin()) {
+    return '<div class="notice warn" style="margin-top:12px">⚠ <div>Belum terhubung ke akun Office — investor ini belum bisa masuk ke Investor Compass. '
+      + 'Yang bisa menautkannya admin modul Brankas / Finance.</div></div>';
+  }
+  const ed = AK_EDIT && AK_EDIT.iv === i.id ? AK_EDIT : null;
+  let h = '<div class="ak-box" style="margin-top:12px;padding:12px;border:1px dashed var(--line,#ddd);border-radius:10px" data-aks>'
+    + '<div style="font-weight:600;margin-bottom:4px">Akun Office</div>'
+    + '<div class="card-sub">Belum terhubung. Tautkan supaya <b>' + esc(i.name) + '</b> bisa masuk ke Investor Compass dan hanya melihat modal & dividennya sendiri.</div>';
+  if (!ed) {
+    h += '<button class="btn btn-sm" onclick="akBuka(\'' + i.id + '\',\'pilih\')">Hubungkan akun yang sudah ada</button> '
+      + '<button class="btn btn-sm btn-primary" onclick="akBuka(\'' + i.id + '\',\'buat\')">Buat akun baru</button>';
+  } else if (ed.mode === 'pilih') {
+    if (AK_USERS === null) h += '<div class="card-sub">Memuat daftar akun…</div>';
+    else {
+      if (AK_ERR) h += '<div class="notice warn">⚠ <div>' + esc(AK_ERR) + '</div></div>';
+      h += '<div class="grid g2">'
+        + fld('Pilih akun', '<select id="ak_u_' + i.id + '"><option value="">— pilih akun —</option>'
+          + AK_USERS.slice().sort((a, b) => String(a.name).localeCompare(String(b.name)))
+              .map(u => '<option value="' + esc(u.id) + '"' + (String(u.name).trim().toLowerCase() === String(i.name).trim().toLowerCase() ? ' selected' : '') + '>'
+                + esc(u.name) + (u.keterangan ? ' · ' + esc(u.keterangan) : '') + '</option>').join('') + '</select>')
+        + fld('&nbsp;', '<button class="btn btn-primary btn-block" onclick="akKirim(\'' + i.id + '\')">Hubungkan</button>'
+          + '<button class="btn btn-block" style="margin-top:6px" onclick="akBatal()">Batal</button>')
+        + '</div><div class="card-sub">Akun yang dipilih diberi akses modul Investor. Nama & PIN-nya tidak diubah.</div>';
+    }
+  } else {
+    h += '<div class="grid g4">'
+      + fld('Nama akun', '<input id="ak_n_' + i.id + '" value="' + esc(i.name) + '">')
+      + fld('No. HP', '<input id="ak_h_' + i.id + '" inputmode="tel" placeholder="08…">')
+      + fld('PIN (4–6 angka)', '<input id="ak_p_' + i.id + '" inputmode="numeric" maxlength="6" placeholder="mis. 482913">')
+      + fld('&nbsp;', '<button class="btn btn-primary btn-block" onclick="akKirim(\'' + i.id + '\')">Buat Akun</button>'
+        + '<button class="btn btn-block" style="margin-top:6px" onclick="akBatal()">Batal</button>')
+      + '</div><div class="card-sub">Investor masuk ke Investor Compass dengan nama akun + PIN ini. Sampaikan PIN-nya langsung ke orangnya — layar ini tidak menyimpannya.</div>';
+  }
+  return h + '</div>';
+}
+async function akBuka(iv, mode) {
+  if (!sayaAdmin()) return;
+  AK_EDIT = { iv, mode }; render();
+  if (mode === 'pilih' && AK_USERS === null) { await akMuatUsers(); render(); }
+}
+function akBatal() { AK_EDIT = null; render(); }
+const AK_PESAN = { name_taken:'Nama itu sudah dipakai akun lain — pilih "Hubungkan akun yang sudah ada", atau pakai nama lain.',
+  bad_pin:'PIN harus 4–6 angka.', forbidden:'Hanya admin modul Brankas / Finance / Investor yang boleh menautkan akun.',
+  invalid_token:'Sesi Office berakhir — masuk ulang dulu.', not_found:'Akun itu sudah tidak ada.',
+  missing_fields:'Nama akun wajib diisi.', unknown_action:'Server akun belum diperbarui (aksi investorAkun belum ada).' };
+async function akKirim(iv) {
+  const i = baris(iv, BK.data.investor); if (!i || !AK_EDIT || !sayaAdmin()) return;
+  const g = id => ((document.getElementById(id) || {}).value || '').trim();
+  const body = { action:'investorAkun', sesi:(CURRENT_USER && CURRENT_USER.token) || '' };
+  if (AK_EDIT.mode === 'pilih') {
+    body.userId = g('ak_u_' + iv);
+    if (!body.userId) { alert('Pilih akunnya dulu.'); return; }
+  } else {
+    body.name = g('ak_n_' + iv); body.noHp = g('ak_h_' + iv); body.pin = g('ak_p_' + iv);
+    if (!body.name) { alert('Nama akun wajib diisi.'); return; }
+    if (!/^[0-9]{4,6}$/.test(body.pin)) { alert('PIN harus 4–6 angka.'); return; }
+  }
+  let r;
+  try { r = await postJson('../../account-api-mysql/api.php', body); }
+  catch (e) { alert('Server akun tidak menjawab: ' + (e.message || e)); return; }
+  if (!r || !r.ok) {
+    alert(((r && AK_PESAN[r.error]) || ('Gagal: ' + ((r && r.error) || 'tanpa keterangan')))
+      + (r && r.takenBy ? ' (dipakai: ' + r.takenBy + ')' : ''));
+    return;
+  }
+  /* Akun Office SUDAH lahir/ter-grant di titik ini. Kalau simpan blob-nya
+     gagal, yang belum tersimpan cuma tautannya — dan itu dikatakan, supaya
+     yang menekan tidak membuat akun kedua dengan nama yang sama. */
+  AK_EDIT = null; AK_USERS = null;
+  const sebelum = BK.data.investor.slice();
+  const lama = baris(iv, BK.data.investor) || i;
+  const obj = Object.assign({}, lama, { akunId:r.id, akunNama:r.name || '' });
+  const ix = BK.data.investor.findIndex(x => x.id === iv); if (ix >= 0) BK.data.investor[ix] = obj;
+  if (await simpan()) { toast('Akun ' + (r.name || '') + ' terhubung.'); render(); }
+  else {
+    BK.data.investor = sebelum; render();
+    alert('Akun Office "' + (r.name || r.id) + '" sudah ada dan sudah diberi akses Investor, tapi tautannya di Brankas BELUM tersimpan. '
+      + 'Jangan buat akun baru lagi — pakai "Hubungkan akun yang sudah ada" dan pilih nama itu.');
+  }
+}
+function akLepas(iv) {
+  const i = baris(iv, BK.data.investor); if (!i || !sayaAdmin()) return;
+  if (!confirm('Lepas tautan akun "' + (i.akunNama || i.akunId) + '" dari investor ' + i.name + '?\n\n'
+    + 'Akun Office-nya TIDAK dihapus dan akses modul Investor-nya TIDAK dicabut (itu lewat Kelola Akses). '
+    + 'Sesudah dilepas, akun itu cuma melihat "belum terhubung" di Investor Compass.')) return;
+  const obj = Object.assign({}, i); delete obj.akunId; delete obj.akunNama;
+  simpanBaris('investor', obj, 'modal');
+}
+
 /* Investor yang sedang DISUNTING (6 Oktober 2026, permintaan user: "nama
    investor juga bisa diedit"). Formulir Catat Investor yang SAMA dipakai
    ulang; id & riwayat pengembaliannya TIDAK disentuh — membuat investor baru

@@ -668,6 +668,54 @@ hubungannya dengan jendela, jadi uji ini memeriksa bagian RESERVASI-nya saja
 node tools/uji-poll-versi.js   # 23 pemeriksaan, jsdom
 ```
 
+### BD OS jadi Task Management: Board, sub-task, urutan (6 Okt 2026)
+
+Permintaan user: nama "BD OS" terlalu sempit untuk bisnis; modulnya jadi task
+management umum ala Trello. **Kunci izin, folder, dan backend TETAP `bd`** —
+yang berubah nama tampilannya (judul, sidebar, kartu portal, Help).
+
+- **Menu Board** (`vBoard`, view `board`): kolom = `STATUS_FLOW`, kartu = task,
+  disaring per project. Ketik di "+ Tambah kartu" lalu Enter. Kolom Done tanpa
+  kotak tambah, dipotong 30 kartu.
+- **Sub-task** `t.subtasks=[{id,t,done}]` dan **urutan** `t.dependsOn=[taskId]`
+  disimpan DI DALAM baris task — backend menyimpan seluruh baris sebagai JSON
+  di kolom `data`, jadi tidak ada migrasi SQL.
+- **Yang ditahan hanya DONE**, satu penjaga `cekBolehDone()` di ketiga jalan:
+  `toggleTask`, `simpanTask`, `dropBoard`. Prasyarat yang sudah dihapus tidak
+  menghalangi; `hapusTask` ikut melepasnya dari yang menunggu. Modal menolak
+  lingkaran (`menungguTransitif`). Progress task bersub-task dihitung dari
+  sub-task-nya (`segarkanProgress`).
+- **Koordinasi & Routine DICABUT DARI MENU, datanya TIDAK.** `coord`/`routines`
+  tetap di `KOLEKSI` dan ikut tiap saveAll — dicabut dari sana,
+  `hapus_yang_hilang()` mengosongkan tabelnya. `vCoord`/`vRoutine` dibiarkan;
+  mengembalikannya cukup baris `NAV` + `HALAMAN_ALAMAT`.
+
+**Putaran ketiga:** status papan tinggal **To Do / Doing / Review / Done** — Backlog & Waiting
+tersimpan dipetakan di normalize() (Backlog->To Do, Waiting->Doing). Done mencatat
+`doneAt` (dibuang saat dibuka lagi) dan deadline-nya digambar hijau berhenti
+(`tagDeadline`). Detail project terbuka langsung di Kanban (`pdMode`).
+
+**Putaran kedua (hari yang sama):**
+
+- **Arsip = status Done**, bukan field baru (`saringArsip`, Aktif/Arsip/Semua) —
+  di detail project dan Board. Di Kanban mode Aktif kolom Done TETAP ada
+  sebagai tempat jatuh, isinya diringkas jadi jumlah arsip.
+- **`urutDeadline()` satu urutan baku**: deadline terdekat di atas, tanpa
+  deadline paling bawah. Dipakai detail project, Kanban, dan kuadran Tasks.
+- **Detail project bisa List/Kanban** (`pdMode`), lewat `kanbanHtml()` yang
+  SAMA dengan Board. `boardTambah(inp,st,proj)` menerima project dari
+  pemanggil — dulu membaca `bProj`, sehingga kartu dari detail project lahir
+  tanpa project.
+- **Sub-task terbuka seperti dropdown** dari baris/kartu (`SUB_BUKA`,
+  `subLangsung`), tombolnya `stopPropagation` supaya tidak ikut membuka modal.
+- **Checkbox sub-task di modal sempat selebar 100%** karena `.field input`
+  menyetel `width:100%` — kotak teksnya terdesak habis dan terlihat kosong.
+  Ditimpa dengan selektor `.field .subrow input[type=checkbox]`.
+
+```bash
+node tools/uji-board-bd.js   # 57 pemeriksaan, jsdom
+```
+
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)
 
 Keluhan user: PR-11 (berikut PO "Pelunasan DJ") hilang dari Purchasing.
@@ -7126,6 +7174,95 @@ Modul Konten seluruhnya terbungkus IIFE (`const COMS = (function(){…})()`), ja
 `eval` KE DALAM IIFE saat uji jalan, bukan menambah kait ke berkas yang
 di-deploy. Pola yang sama dengan `uji-vendor.js` untuk modul BD.
 
+### Konten & Marketing: simpan parsial + gambar dikecilkan (1 Oktober 2026)
+
+Keluhan user: modul Konten terasa lambat dan **kadang gagal menyimpan**, terutama
+dari HP. Diukur di produksi: `getAll` Konten 4,1 MB (2,77 MB gzip) dan **setiap
+simpan mengirim ulang seluruh state ±4 MB tanpa kompresi**. Isinya mayoritas
+gambar base64 di dalam data: `content[].refs[].v` (2,8 MB) dan
+`kols[].rateImage` (0,84 MB). Marketing kena hal yang sama: 1,74 MB (79%) dari
+`designreqs[].refs[].v` — dari TIGA baris saja — dan setiap simpan siapa pun
+membawanya.
+
+Dua perbaikan, keduanya di KEDUA modul:
+
+**A. SIMPAN PARSIAL (delta).** Klien hanya mengirim baris yang BERUBAH + daftar
+`hapus` eksplisit; server tidak pernah menghapus baris yang tidak dikirim.
+
+- **Hanya menyala kalau server mengiklankannya** (`_fitur:['delta']` di
+  `getAll`; iklannya dipasang `api.php`, digerbangi `function_exists` fungsi di
+  lib). `konten-mysql` baru masuk workflow 1 Oktober 2026, jadi sebelumnya
+  diunggah manual — dan "HTML baru, PHP lama" pasti terjadi: PHP lama yang
+  menerima baris berubah saja TANPA `dikenal` jatuh ke `hapus_yang_hilang` dan
+  **menghapus seluruh baris yang tidak dikirim**. Sebelum iklannya ada, klien
+  memakai state utuh + `dikenal`.
+- **`hapus` didahulukan, dan `dikenal − kiriman` TIDAK dipakai di mode ini.**
+  Di mode parsial `kiriman` cuma baris yang disunting; memakai aturan lama sama
+  dengan menghapus semua yang lain.
+- Daftarnya dibangun dari `_dikenal` (id yang pernah dilihat tab) **dikurangi
+  isi DB sekarang** — jadi hanya yang benar-benar dihapus di layar yang masuk.
+- **PENGHAPUSAN BERANTAI YANG SAH TIDAK DITAHAN** (diperbaiki 1 Oktober 2026,
+  sesudah cacat pertama). Menghapus client ikut membuang followup-nya, event
+  ikut membuang followup & approval-nya, konten ikut membuang shooting-nya — di
+  mode parsial koleksi itu memang tidak membawa satu baris pun (`$ids` kosong),
+  jadi penjaga lama "kiriman kosong >3 baris" **menolaknya diam-diam**: layar
+  mengaku terhapus, barisnya muncul lagi setelah refresh. Yang dijaga sekarang
+  cuma penghapusan yang akan **MENGOSONGKAN tabel/daftar** (dihitung dari sisa
+  baris di SQL / `count($adaId) - $calon`), bukan jumlahnya. Penjaga lama tetap
+  berlaku di jalur state-utuh (`dikenal`).
+- `logs` (Konten) dikirim hanya yang BARU (`_logNaik`); `activities` (Marketing)
+  sudah lewat jalur baris kotor. Server tetap `INSERT IGNORE`, jadi salah tandai
+  pun tidak menggandakan.
+- **Backend: `save_all($state, $dikenal, $hapus)`** — `api.php` meneruskan
+  `$body['hapus']`. Kehadiran `hapus` (array) menandai mode parsial; klien lama
+  tetap dilayani `dikenal`/`_sejak`/`hapus_yang_hilang`.
+
+**B. GAMBAR BARU DIKECILKAN.** `kecilkanGambar()` (Konten) / `drKecilkanGambar()`
+(Marketing): maks 1280px sisi terpanjang, JPEG, mutu diturunkan bertahap sampai
+< 700 KB. Dipakai `addRefImages`, `onKolRateFile` (1600px/900KB), `drRefFoto`.
+Baris LAMA tidak disentuh (itu opsi C — pindah ke berkas — belum dikerjakan).
+Gagal di tahap mana pun **bersuara**; gambar yang diam-diam tidak tersimpan baru
+ketahuan saat dibuka orang lain.
+
+- **Kanvas diisi PUTIH sebelum menggambar** (diperbaiki 1 Oktober 2026). JPEG
+  tidak punya transparansi, jadi bagian PNG yang bening (logo, rate card bertepi
+  bening) tersimpan **HITAM** tanpa ini. Urutannya diuji: `fillRect` dulu, baru
+  `drawImage`.
+
+**Laten Konten yang sekalian ditutup:** saat server menaikkan cap `updated_at`
+(cap klien ≤ versi server), cap itu sekarang **ditulis ke `data`** dan
+**dipulangkan sebagai `versi`**; klien memasangnya lewat `terapkanVersiServer()`
+sebelum `refreshSnapshot()`. Tanpa itu suntingan kedua pada baris yang sama
+dilaporkan bentrok padahal tidak ada yang menyalip. Aturan yang sama sudah lebih
+dulu ada di Event & Marketing.
+
+**`konten-mysql` sekarang IKUT di `deploy.yml` DAN `deploy-dev.yml`**
+(`konten-mysql/` → `/public_html/office/konten-api-mysql/`). Sebelumnya backend
+ini diunggah manual — persis penyakit kompas/bd/event: perbaikan backend hidup
+di repo tapi tidak pernah mendarat, dan gejalanya cuma fitur yang diam.
+
+```bash
+php tools/uji-hapus-eksplisit.php   # 12 pemeriksaan atas KODE PHP (SQLite)
+node tools/uji-delta-konten.js      # 28 pemeriksaan, jsdom + server tiruan HIDUP
+node tools/uji-delta-marketing.js   # 25 pemeriksaan, jsdom + server tiruan HIDUP
+node tools/uji-konten-simpan.js     # 29 pemeriksaan (termasuk kontrak PHP)
+node tools/uji-dikenal-marketing.js # 25 pemeriksaan (jalur lama tetap ada)
+```
+
+`uji-hapus-eksplisit.php` menjalankan **fungsi PHP yang sesungguhnya** — di-ekstrak
+dari lib, dijalankan atas SQLite — karena server tiruan JS hanya membuktikan
+klien mengirim yang benar, bukan PHP-nya berperilaku benar. Diuji: hapus 5 dari 6
+jalan, hapus yang mengosongkan tabel ditahan, hapus 3 (≤3) jalan walau jadi
+kosong, dan baris baru dalam simpan yang sama ikut dihitung sebagai sisa.
+
+Server tiruan JS MENIRU aturan PHP (`upsert_collection` + hapus eksplisit,
+termasuk penjaganya), dan asersinya membaca **ISI SERVER**, bukan layar. Mutasi
+yang harus tertangkap: klien kembali mengirim state utuh (payload membengkak),
+mode parsial memakai `dikenal − kiriman` (baris tak berubah terhapus),
+penghapusan lokal tidak masuk `hapus` (gagal diam-diam), cap server tidak
+dipasang (bentrok palsu), dan **penjaga lama yang menolak hapus berantai**
+(dibuktikan dengan mengembalikan guard lamanya di mock — dua uji merah).
+
 ### Master Vendor: di PURCHASING, dibaca Finance & BD (28 Agustus 2026)
 
 `deploy/stock/purchasing/` → tab **Database & Vendor** → *Daftar Kontak Vendor*.
@@ -11421,6 +11558,25 @@ Yang perlu dijaga:
   dijepit ke rentang sah tiap kali digambar — daftar yang menyusut
   meninggalkan halaman 4 yang sudah tidak ada, dan tabelnya tergambar kosong
   padahal datanya ada.
+
+**Dividen per investor (6 Oktober 2026).** Admin modul `investor` melihat
+SELURUH investor (plus tabel Per Investor); investor biasa HANYA modal &
+dividennya sendiri. Disaring di SERVER (`dividen_investor($u, $semua)`), bukan
+di layar — daftar lengkap yang disaring peramban tetap terbaca lewat devtools.
+
+- Catatan investor di Brankas menyimpan `akunId` (+ `akunNama`), dicocokkan ke
+  id user sesi. Catatan TANPA akunId jatuh ke pencocokan NAMA persis; yang
+  sudah punya akunId tidak pernah dicocokkan lewat nama.
+- Akunnya dibuat/ditautkan dari kartu investor di Brankas lewat
+  `account-api?action=investorAkun` (admin modul investor/brankas/finance):
+  buat baru (nama, HP, PIN 4–6 angka wajib) atau hubungkan akun yang ada.
+  Keduanya memberi grant `investor`=1; akun yang ada TIDAK diubah satu kolom
+  pun, dan aksi ini tidak pernah mencabut apa pun.
+- `semua` yang TIDAK ADA di balasan = PHP lama → layar memperlakukannya
+  sebagai daftar lengkap. Dianggap terbatas, semua orang melihat "belum
+  terhubung" selama PHP-nya belum mendarat.
+- Akun yang belum ditautkan melihat "belum terhubung", dibedakan dari "belum
+  ada pembagian".
 
 **Tab yang masih kosong itu disengaja.** Dividen, laporan keuangan, program,
 event, dan desain buku tidak punya sumber data di Office mana pun. Yang tampil

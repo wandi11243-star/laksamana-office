@@ -851,7 +851,7 @@ else {
 
     const SRC10 = fs.readFileSync(path.join(ROOT, 'deploy/marketing/index.html'), 'utf8');
     cek('daftar baris kotor dioper, tidak dihitung ulang',
-        /buildPayload\(capBaru\.kotor\)/.test(SRC10) && /const kotorTahu = \(kotor instanceof Set\)/.test(SRC10));
+        /buildPayload\(capBaru\.kotor, true\)/.test(SRC10) && /const kotorTahu = \(kotor instanceof Set\)/.test(SRC10));
     cek('payload tidak lagi mengkloning seluruh state',
         SRC10.indexOf('const p = JSON.parse(JSON.stringify(S));') < 0,
         'kloning penuh untuk menempelkan satu field pada segelintir baris');

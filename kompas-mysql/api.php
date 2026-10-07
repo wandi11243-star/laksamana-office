@@ -151,9 +151,13 @@ try {
        menyimpan, apa pun yang datang dari peramban bisa diketik ulang.
        Penjaga sebenarnya tetap di aksi investorLaporUpload di bawah; ini
        cuma yang menentukan formnya digambar atau tidak. */
-    keluar(array('ok' => true, 'data' => ringkas_investor(),
+    $adminInv = sesi_admin_modul($u, 'investor');
+    /* Admin modul melihat SELURUH investor; selain itu hanya catatan milik
+       akun ini sendiri (6 Oktober 2026). Diputuskan server, lihat
+       dividen_investor(). */
+    keluar(array('ok' => true, 'data' => ringkas_investor($u, $adminInv),
                  'user' => array('nama' => isset($u['name']) ? $u['name'] : '',
-                                 'bolehUnggah' => sesi_admin_modul($u, 'investor'))));
+                                 'bolehUnggah' => $adminInv)));
   }
   /* Pintu kedua untuk halaman investor: agenda event & promo, dikumpulkan
      dari Marketing / Event / BD OS server-ke-server. Gerbangnya sama persis
@@ -236,7 +240,8 @@ try {
   else if ($action === 'analyticsGet') keluar(array('ok' => true, 'data' => an_baca()));
   else if ($action === 'analyticsSave') {
     $r = an_simpan(isset($body['data']) ? $body['data'] : null,
-                   isset($body['oleh']) ? $body['oleh'] : '');
+                   isset($body['oleh']) ? $body['oleh'] : '',
+                   isset($body['baseTs']) ? $body['baseTs'] : null);
     keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
   }
   else if ($action === 'analyticsAkses') {

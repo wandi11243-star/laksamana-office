@@ -595,43 +595,156 @@ let calDate = new Date();
    server, supaya tidak perlu menandai perubahan di puluhan tempat satu per satu. */
 const KT_COLS = ['users','brands','campaigns','content','prodTasks','shootings',
                  'assets','bank','kols','visits','ads','adFunds','notifs'];
+/* Apakah backend mengiklankan mode simpan PARSIAL (`_fitur:['delta']` di
+   getAll)? Backend diunggah berkas-per-berkas, jadi "HTML baru, PHP lama"
+   tetap mungkin — dan PHP lama yang menerima baris berubah saja (tanpa
+   `dikenal`) akan jatuh ke hapus_yang_hilang dan MENGHAPUS seluruh baris yang
+   tidak dikirim. Karena itu mode parsial hanya dipakai kalau server
+   mengiklankannya; sebelum itu klien memakai state utuh + `dikenal` seperti
+   dulu. Iklannya sendiri datang dari api.php, digerbangi fungsi di lib. */
+let BISA_DELTA = false;
+/* Log yang SUDAH terkirim sesi ini. `logs` append-only dan getAll memulangkan
+   1000 baris terakhir — mengirimnya ulang tiap simpan berarti ~100 KB yang
+   sebenarnya tidak berubah, persis beban yang mode parsial ini buang. Server
+   tetap memakai INSERT IGNORE, jadi salah tandai pun tidak menggandakan. */
+const _logNaik = new Set();
 let _snap = {}, _serverVer = {};
 function _sig(o){ const c = Object.assign({}, o); delete c.updatedAt; delete c.baseUpdatedAt; return JSON.stringify(c); }
 function _eachRow(obj, fn){ KT_COLS.forEach(k => (obj[k]||[]).forEach(r => { if (r && r.id) fn(k+':'+r.id, r); })); }
 function _dirty(key, r){ return _snap[key] !== _sig(r); }
+/* Sapuan SEKALI: cap baris yang berubah + himpunannya, supaya buildPayload()
+   tidak menyapu `_dirty()` (satu JSON.stringify per baris) untuk kedua kali.
+   Pola yang sama sudah dibayar di modul Marketing (8 September 2026). */
 function stampChanges(){
   const now = Date.now();
-  _eachRow(DB, (key, r) => { if (_dirty(key, r)) r.updatedAt = now; });
+  const kotor = new Set();
+  _eachRow(DB, (key, r) => {
+    if (!_dirty(key, r)) return;
+    kotor.add(key);
+    r.updatedAt = now;
+  });
+  return kotor;
 }
-// Salinan untuk dikirim: baris yang berubah diberi baseUpdatedAt. DB sendiri
-// tetap bersih (kalau bocor, save berikutnya kirim base basi -> bentrok palsu).
-function buildPayload(){
-  const p = JSON.parse(JSON.stringify(DB));
-  _eachRow(p, (key, r) => { if (_dirty(key, r)) r.baseUpdatedAt = _serverVer[key] || 0; });
+/* Salinan untuk dikirim. `parsial` = hanya baris yang BERUBAH (mode delta) —
+   itulah yang memotong muatan 4 MB (mayoritas gambar base64) jadi beberapa KB
+   per simpan. Tanpa `parsial`, seluruh state dikirim seperti dulu.
+   Baris yang berubah diberi baseUpdatedAt. DB sendiri tetap bersih: kalau
+   baseUpdatedAt bocor ke DB, save berikutnya mengirim base basi. */
+function buildPayload(kotor, parsial){
+  if (!parsial) {
+    const p = JSON.parse(JSON.stringify(DB));
+    _eachRow(p, (key, r) => { if (_dirty(key, r)) r.baseUpdatedAt = _serverVer[key] || 0; });
+    delete p._fitur;      // milik server, bukan data kita
+    return p;
+  }
+  const tahu = (kotor instanceof Set);
+  const adalahKotor = (key, r) => tahu ? kotor.has(key) : _dirty(key, r);
+  const p = {};
+  /* Kunci non-koleksi (settings, perms, seeded) kecil dan selalu ikut;
+     `_fitur` milik server dibuang supaya tidak tersimpan sebagai setelan.
+     `logs` append-only dikirim yang BARU saja. Koleksi hanya dikirim
+     sepotong yang berubah. */
+  Object.keys(DB).forEach(k => {
+    if (KT_COLS.indexOf(k) >= 0 || k === '_fitur') return;
+    if (k === 'logs') {
+      const baru = (DB.logs || []).filter(a => a && a.id && !_logNaik.has(a.id));
+      if (baru.length) p.logs = baru;
+      return;
+    }
+    p[k] = DB[k];
+  });
+  KT_COLS.forEach(k => {
+    const arr = DB[k] || [];
+    const rows = [];
+    for (let i = 0; i < arr.length; i++) {
+      const r = arr[i];
+      if (!r || !r.id) continue;
+      const key = k + ':' + r.id;
+      if (!adalahKotor(key, r)) continue;
+      rows.push(Object.assign({}, r, { baseUpdatedAt: _serverVer[key] || 0 }));
+    }
+    if (rows.length) p[k] = rows;
+  });
   return p;
 }
 function refreshSnapshot(){
   const snap = {}, ver = {};
   _eachRow(DB, (key, r) => { snap[key] = _sig(r); ver[key] = r.updatedAt || 0; });
   _snap = snap; _serverVer = ver;
+  kenaliBaris();
 }
+
+/* BARIS YANG PERNAH DILIHAT TAB INI, dikirim bersama saveAll sebagai `dikenal`
+   (1 Oktober 2026). Server hanya menghapus baris yang ada di daftar ini tapi
+   tidak ada di kiriman — baris yang dibuat kru lain sesudah halaman ini dibuka
+   tidak pernah dilihatnya, jadi tidak mungkin terhapus olehnya. Modul ini
+   tidak pernah menarik ulang data sesudah dibuka, jadi tanpa daftar ini satu
+   tab yang dibiarkan terbuka seharian menghapus semua yang dibuat orang lain
+   hari itu pada simpan berikutnya. Pola yang sama dengan BD OS.
+
+   Hanya BERTAMBAH, tidak pernah dikurangi: id yang sudah dihapus tetap di
+   sini dan itu tidak berbahaya. Mengosongkannya justru membuat penghapusan
+   berikutnya diam-diam gagal. */
+const _dikenal = {};
+function kenaliBaris(){ _eachRow(DB || {}, key => { _dikenal[key] = 1; }); }
+function daftarDikenal(){
+  const out = {}; KT_COLS.forEach(k => { out[k] = []; });
+  Object.keys(_dikenal).forEach(key => {
+    const i = key.indexOf(':'), k = key.slice(0, i);
+    if (out[k]) out[k].push(key.slice(i + 1));
+  });
+  return out;
+}
+/* DAFTAR `hapus` EKSPLISIT untuk mode parsial (1 Oktober 2026). Isinya id yang
+   PERNAH dilihat tab ini (ada di `_dikenal`) tapi sudah tidak ada di DB —
+   artinya memang dihapus orang di layar. Server hanya menghapus id di daftar
+   ini, jadi baris yang tidak dikirim (tak berubah) tidak mungkin tersentuh. */
+function daftarHapus(){
+  const out = {}; KT_COLS.forEach(k => { out[k] = []; });
+  const ada = {};
+  KT_COLS.forEach(k => (DB[k] || []).forEach(r => { if (r && r.id) ada[k + ':' + r.id] = 1; }));
+  Object.keys(_dikenal).forEach(key => {
+    if (ada[key]) return;
+    const i = key.indexOf(':'), k = key.slice(0, i);
+    if (out[k]) out[k].push(key.slice(i + 1));
+  });
+  return out;
+}
+/* Pasang cap yang BENAR-BENAR dipakai server pada baris yang capnya bergeser.
+   Server hanya memulangkan baris yang dinaikkan capnya; ketiadaan sebuah kunci
+   berarti `capmu sudah benar`. Dipanggil SEBELUM refreshSnapshot(). */
+function terapkanVersiServer(versi){
+  if (!versi || typeof versi !== 'object') return;
+  _eachRow(DB, (key, r) => { const v = +versi[key]; if (v) r.updatedAt = v; });
+}
+/* Hanya true sesudah getAll BERHASIL. Penyimpanan sebelum itu — atau sesudah
+   pemuatan yang gagal — mengirim state yang tidak pernah berasal dari server. */
+let DATA_DARI_SERVER = false;
 
 // Fungsi SAVE: POST ke MySQL ( ../konten-api-mysql/api.php )
 let _saveBusy = false, _saveLagi = false;
 async function save() {
   // Jangan pernah kirim payload kosong/rusak (bisa menimpa data di server).
-  if (!DB || typeof DB !== 'object' || !DB.users) {
-    console.warn("Save dibatalkan: DB belum siap.");
+  if (!DATA_DARI_SERVER || !DB || typeof DB !== 'object' || !DB.users) {
+    console.warn("Save dibatalkan: DB belum dimuat dari server.");
     return;
   }
   if (_saveBusy) { _saveLagi = true; return; }   // hindari dua POST balapan
   _saveBusy = true;
+  _belumNaik = true;
   try {
-    stampChanges();
+    const kotor = stampChanges();
+    kenaliBaris();           // baris yang barusan dibuat di tab ini ikut dikenal
+    /* MODE PARSIAL kalau server mengiklankannya: kirim baris berubah saja +
+       daftar hapus eksplisit. Kalau tidak, state utuh + `dikenal` seperti dulu
+       (server lama tidak boleh menerima kiriman sepotong). */
+    const isi = BISA_DELTA
+      ? { action: 'saveAll', data: buildPayload(kotor, true), hapus: daftarHapus() }
+      : { action: 'saveAll', data: buildPayload(kotor, false), dikenal: daftarDikenal() };
     const res = await fetch(API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // simple request, tanpa preflight CORS
-      body: JSON.stringify({ action: 'saveAll', data: buildPayload() }),
+      body: JSON.stringify(isi),
       redirect: 'follow'
     });
     const out = await res.json().catch(() => null);
@@ -639,21 +752,44 @@ async function save() {
       throw new Error(out && out.error ? out.error : 'Respons server tidak valid');
     }
     const bentrok = out.data.bentrok || [];
+    _gagalBeruntun = 0; clearTimeout(_ulangTimer);
+    /* Log append-only sudah diterima server (INSERT IGNORE) — tandai supaya
+       tidak ikut lagi di simpan berikutnya. */
+    (DB.logs || []).forEach(a => { if (a && a.id) _logNaik.add(a.id); });
     if (bentrok.length) {
       // Kru lain sudah mengubah data yang sama duluan. Jangan timpa diam-diam.
+      // Baris yang tidak bertabrakan TETAP tersimpan, jadi cap yang digeser
+      // server tetap dipasang — tanpa itu suntingan berikutnya bentrok palsu.
+      terapkanVersiServer(out.data.versi);
       toast('Sebagian perubahan tidak tersimpan — ' + bentrok.length +
             ' data sudah diubah kru lain. Muat ulang halaman.', 'err');
     } else {
-      refreshSnapshot();          // versi kita kini = versi server
+      terapkanVersiServer(out.data.versi);   // cap server dulu...
+      refreshSnapshot();          // ...baru dicatat: versi kita kini = versi server
+      _belumNaik = false;
     }
   } catch (error) {
-    toast("Gagal menyimpan data ke server", "err");
+    /* Dulu: satu toast, lalu tidak ada apa-apa lagi — tidak ada percobaan
+       ulang, dan menutup tab membuang perubahannya tanpa satu pun peringatan.
+       Sekarang dicoba ulang sendiri (5 dtk, 10 dtk, … paling lama 60 dtk),
+       toast-nya cukup sekali, dan beforeunload di bawah menahan tab ditutup
+       selama masih ada yang belum naik. saveAll aman diulang: isinya state
+       utuh, jadi kiriman kedua tidak menggandakan apa pun. */
+    _gagalBeruntun++;
+    if (_gagalBeruntun === 1) toast("Gagal menyimpan ke server — dicoba ulang otomatis. Jangan tutup halaman.", "err");
     console.error("Save Error:", error);
+    clearTimeout(_ulangTimer);
+    _ulangTimer = setTimeout(save, Math.min(60000, 5000 * _gagalBeruntun));
   } finally {
     _saveBusy = false;
     if (_saveLagi) { _saveLagi = false; save(); }
   }
 }
+/* true sejak sebuah simpan dimulai sampai server menerimanya TANPA bentrok. */
+let _belumNaik = false, _gagalBeruntun = 0, _ulangTimer = null;
+window.addEventListener('beforeunload', e => {
+  if (_saveBusy || _belumNaik) { e.preventDefault(); e.returnValue = ''; }
+});
 
 // Fungsi INIT melalui GET Request ke Web App
 async function initAPI() {
@@ -671,15 +807,26 @@ async function initAPI() {
     });
     const jsonResult = await response.json();
 
-    if (jsonResult.ok && jsonResult.data) {
-      DB = jsonResult.data;
+    /* Server yang MENJAWAB TAPI MENOLAK ({ok:false} — MySQL sesaat bermasalah,
+       token salah) DULU jatuh ke cabang seed di bawah: DB tetap {}, seed()
+       melahirkan users:[u_admin], lalu save() mengirimnya — dan server
+       menghapus SELURUH kru Konten kecuali Admin, karena mereka "tidak ada di
+       kiriman". Satu gangguan sesaat cukup untuk itu, tanpa satu pun galat
+       (1 Oktober 2026). Sekarang ia diperlakukan sama dengan jaringan putus:
+       catch di bawah menahan layar loading, dan tidak ada yang tersimpan. */
+    if (!jsonResult || !jsonResult.ok || !jsonResult.data || typeof jsonResult.data !== 'object') {
+      throw new Error((jsonResult && jsonResult.error) || 'balasan server tidak valid');
     }
+    DB = jsonResult.data;
+    DATA_DARI_SERVER = true;
+    /* Izin beralih ke simpan parsial datang DARI server (`_fitur`). Backend
+       lama tidak mengiklankannya, dan kiriman sepotong ke sana menghapus
+       seluruh baris yang tidak dikirim. */
+    BISA_DELTA = Array.isArray(DB._fitur) && DB._fitur.indexOf('delta') > -1;
 
-    // Jika DB kosong atau belum ada user, jalankan seed awal dari lokal
-    if (!DB || typeof DB !== 'object') {
-      DB = {};
-    }
-    
+    /* Seed HANYA untuk database yang memang kosong — server sudah menjawab ok
+       dan memang belum punya satu kru pun (pemasangan baru). */
+
     if (!DB.users || Object.keys(DB.users).length === 0) { 
       seed(); 
       save();
@@ -1822,8 +1969,16 @@ PG_PAINT.plan=renderPlanTable;
    di dalam DOM saja — innerHTML yang ditulis ulang akan membuang
    <input type=file> beserta berkas yang sudah terbaca. */
 let formRefs=[];
-const REF_IMG_MB=3;        // batas per foto
+const REF_IMG_MB=3;        // batas per foto (berkas MENTAH sebelum dikecilkan)
 const REF_TOTAL_MB=9;      // batas seluruh foto pada satu konten
+/* Gambar BARU dikecilkan sebelum disimpan (maks 1280px, JPEG) supaya `data`
+   tidak membengkak lagi ke depannya — foto HP 2-5 MB yang disimpan utuh
+   membuat SETIAP simpan mengirimnya ulang. Pola yang sama dengan promo BD &
+   lampiran Event. */
+const IMG_MAKS_PX=1280;    // sisi terpanjang sesudah dikecilkan
+const IMG_TARGET=700*1024; // sasaran ukuran data URI (karakter base64)
+const KOL_IMG_MAKS_PX=1600;// rate card: teks kecil, beri sedikit lebih lega
+const KOL_IMG_TARGET=900*1024;
 function openContentForm(id){
   if(!can('content')){toast('Kamu tidak punya akses membuat/mengubah konten','err');return;}
   const c=id?getContent(id):null;const isEdit=!!c;
@@ -1946,28 +2101,57 @@ function addRefLink(){
   formRefs.push({t:'link',v,n:v.replace(/^https?:\/\//i,'').slice(0,60)});
   inp.value='';paintRefs();
 }
+/* Kecilkan gambar di peramban SEBELUM disimpan (maks sisi terpanjang `maksPx`,
+   JPEG, mutunya diturunkan bertahap sampai muat `batasByte`). Gambar yang
+   disimpan utuh di dalam `data` ikut dikirim ulang tiap simpan — itulah yang
+   membuat simpan 4 MB dan mudah habis waktu di koneksi HP.
+
+   Gagal di tahap mana pun HARUS bersuara: gambar yang diam-diam tidak
+   tersimpan baru ketahuan saat kontennya dibuka orang lain. */
+function kecilkanGambar(file, maksPx, batasByte, cb){
+  const fr=new FileReader();
+  fr.onerror=()=>cb(null,'berkasnya gagal dibaca');
+  fr.onload=()=>{
+    const img=new Image();
+    img.onerror=()=>cb(null,'gambarnya tidak bisa dibaca — pakai JPG atau PNG');
+    img.onload=()=>{
+      try{
+        let w=img.naturalWidth||img.width||0, h=img.naturalHeight||img.height||0;
+        if(!w||!h)return cb(null,'ukuran gambarnya tidak terbaca');
+        if(w>maksPx||h>maksPx){const s=Math.min(maksPx/w,maksPx/h);w=Math.round(w*s);h=Math.round(h*s);}
+        const c=document.createElement('canvas');c.width=w;c.height=h;
+        /* Latar PUTIH dulu: JPEG tidak punya transparansi, dan bagian PNG yang
+           transparan (logo, rate card bertepi bening) jadi HITAM tanpa ini. */
+        const g=c.getContext('2d');g.fillStyle='#fff';g.fillRect(0,0,w,h);g.drawImage(img,0,0,w,h);
+        const mutu=[0.8,0.65,0.5];
+        let hasil='';
+        for(let i=0;i<mutu.length;i++){hasil=c.toDataURL('image/jpeg',mutu[i]);if(hasil.length<=batasByte)break;}
+        if(!hasil)return cb(null,'gagal memproses gambar');
+        cb(hasil,null);
+      }catch(e){cb(null,'gagal memproses gambar: '+(e&&e.message||e));}
+    };
+    img.src=fr.result;
+  };
+  fr.readAsDataURL(file);
+}
 function addRefImages(input){
   const files=[...(input.files||[])];input.value='';
   if(!files.length)return;
-  /* Batas TOTAL diperiksa, bukan cuma per berkas. Seluruh isi modul ini
-     dikirim ke server sebagai satu muatan tiap kali save(); sepuluh foto 3 MB
-     lolos satu per satu lalu membuat penyimpanan berikutnya gagal — dan
-     gagalnya terjadi saat orang menekan Simpan, jauh dari tempat fotonya
-     ditambahkan. */
+  /* Batas TOTAL diperiksa, bukan cuma per berkas. Sepuluh foto lolos satu per
+     satu lalu membuat penyimpanan berikutnya gagal — dan gagalnya terjadi saat
+     orang menekan Simpan, jauh dari tempat fotonya ditambahkan. */
   const terpakai=()=>formRefs.filter(r=>r.t==='img').reduce((s,r)=>s+(r.v?r.v.length:0),0);
   let ditolak=0;
   files.forEach(f=>{
     if(!/^image\//.test(f.type)){ditolak++;return;}
     if(f.size>REF_IMG_MB*1024*1024){toast(`"${f.name}" lebih dari ${REF_IMG_MB} MB - dilewati`,'err');return;}
-    const r=new FileReader();
-    r.onload=e=>{
-      const data=e.target.result;
+    kecilkanGambar(f,IMG_MAKS_PX,IMG_TARGET,(data,err)=>{
+      if(err){toast(`"${f.name}": ${err}`,'err');return;}
       if(terpakai()+data.length>REF_TOTAL_MB*1024*1024*1.37){   // 1.37 = pengembangan base64
         toast(`Total foto referensi sudah mendekati ${REF_TOTAL_MB} MB - "${f.name}" tidak ditambahkan`,'err');return;
       }
       formRefs.push({t:'img',v:data,n:f.name});paintRefs();
-    };
-    r.readAsDataURL(f);
+    });
   });
   if(ditolak)toast(ditolak+' berkas dilewati karena bukan gambar','err');
 }
@@ -3282,14 +3466,17 @@ function openKolForm(id){
   </div></div>
   <div class="modal-f">${isEdit?`<button class="btn btn-danger" onclick="COMS.delKol('${k.id}')">Hapus</button>`:''}<button class="btn btn-ghost" onclick="COMS.closeDrawer()">Batal</button><button class="btn btn-gold" onclick="COMS.saveKol('${id||''}')">${isEdit?'Simpan Perubahan':'⚓ Simpan'}</button></div>`);
 }
-// Baca file gambar rate card -> base64 (validasi maks 10 MB)
+// Baca file gambar rate card -> base64, DIKECILKAN dulu (validasi maks 10 MB)
 function onKolRateFile(input){
   const f=input.files&&input.files[0];if(!f)return;
   if(!/^image\//.test(f.type)){toast('File harus berupa gambar','err');input.value='';return;}
   if(f.size>10*1024*1024){toast('Ukuran gambar maksimal 10 MB','err');input.value='';return;}
-  const r=new FileReader();
-  r.onload=e=>{_kolRateImg=e.target.result;const pv=$('#k_ratePreview');if(pv){pv.src=_kolRateImg;pv.style.display='block';}toast('Gambar rate card siap disimpan','ok');};
-  r.readAsDataURL(f);
+  kecilkanGambar(f,KOL_IMG_MAKS_PX,KOL_IMG_TARGET,(data,err)=>{
+    if(err){toast('Gambar rate card: '+err,'err');return;}
+    _kolRateImg=data;
+    const pv=$('#k_ratePreview');if(pv){pv.src=_kolRateImg;pv.style.display='block';}
+    toast('Gambar rate card siap disimpan','ok');
+  });
 }
 function saveKol(id){
   const g=k=>{const el=$('#k_'+k);return el?el.value.trim():'';};

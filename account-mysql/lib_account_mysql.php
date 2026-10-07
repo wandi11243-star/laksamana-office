@@ -1187,6 +1187,72 @@ function aksi_roster_set_active($body) {
   return array('ok' => true, 'id' => $id, 'active' => ($aktif === 1));
 }
 
+/* ==================== AKUN INVESTOR (6 Oktober 2026) ====================
+   Permintaan user: investor yang dicatat di Finance → Brankas dibuatkan
+   akun Office juga, supaya tiap investor bisa masuk ke Investor Compass dan
+   hanya melihat modal & dividennya sendiri.
+
+   DUA BENTUK, satu aksi:
+     {sesi, userId}              -> HUBUNGKAN akun yang sudah ada
+     {sesi, name, noHp, pin}     -> BUAT akun baru
+
+   Keduanya berakhir dengan grant modul `investor` = 1 dan memulangkan
+   {id, name}; panel Brankas menyimpan id itu di catatan investornya.
+
+   YANG SENGAJA TIDAK DILAKUKAN:
+   - Akun yang sudah ada TIDAK DIUBAH satu kolom pun — tidak nama, tidak PIN,
+     tidak status aktif. Yang ditambahkan cuma satu baris grant. Kalau aksi
+     ini boleh menulis ulang barisnya, menghubungkan akun pegawai yang
+     kebetulan juga investor akan mengubah PIN-nya tanpa ia tahu.
+   - Tidak pernah MENCABUT grant apa pun. Melepas tautan di Brankas tidak
+     mengunci orangnya keluar; itu tetap urusan Kelola Akses superadmin,
+     tempat seluruh hak akses dicabut.
+   - Tidak pernah memberi hak ADMIN modul. Investor membaca, tidak mengelola.
+
+   Gerbangnya admin modul `investor`, `brankas`, atau `finance` (atau superadmin) —
+   sama dengan sayaAdmin() di panel Brankas: itulah
+   orang yang memang memegang daftar investor. Bukan sekadar pemegang modul
+   brankas — membuat akun Office adalah hak yang lebih besar daripada membaca
+   saldo. */
+function aksi_investor_akun($body) {
+  $caller = user_dari_token(isset($body['sesi']) ? $body['sesi'] : '');
+  if (!$caller) return array('ok' => false, 'error' => 'invalid_token');
+  $adm = admin_modul_untuk($caller['id']);
+  if (!in_array('*', $adm, true) && !in_array('investor', $adm, true) && !in_array('brankas', $adm, true)
+      && !in_array('finance', $adm, true))
+    return array('ok' => false, 'error' => 'forbidden');
+
+  $userId = s(isset($body['userId']) ? $body['userId'] : '');
+  if ($userId !== '') {
+    $u = user_by_id($userId);
+    if (!$u) return array('ok' => false, 'error' => 'not_found');
+    $nama = s($u['name']);
+  } else {
+    $nama = trim(s(isset($body['name']) ? $body['name'] : ''));
+    $pin  = trim(s(isset($body['pin']) ? $body['pin'] : ''));
+    if ($nama === '') return array('ok' => false, 'error' => 'missing_fields');
+    /* PIN WAJIB diisi dan 4–6 angka. simpan_user_inti() menjatuhkan PIN kosong
+       ke '1111' — untuk akun yang memegang angka modal investor, PIN bawaan
+       yang ditebak siapa saja bukan pilihan. */
+    if (!preg_match('/^\d{4,6}$/', $pin)) return array('ok' => false, 'error' => 'bad_pin');
+    $r = simpan_user_inti(array(
+      'name'       => $nama,
+      'pin'        => $pin,
+      'keterangan' => 'Investor',
+      'noHp'       => s(isset($body['noHp']) ? $body['noHp'] : ''),
+      'active'     => true,
+    ));
+    if (empty($r['ok'])) return $r;     // name_taken dll. dipulangkan apa adanya
+    $userId = s($r['id']);
+  }
+
+  q('INSERT INTO `grants` (user_id, `module`, `access`, granted_by, ts)
+     VALUES (:u, :m, 1, :b, NOW())
+     ON DUPLICATE KEY UPDATE `access` = 1, granted_by = VALUES(granted_by), ts = VALUES(ts)',
+    array(':u' => $userId, ':m' => 'investor', ':b' => s($caller['id'])));
+  return array('ok' => true, 'id' => $userId, 'name' => $nama);
+}
+
 /* ==================== REGISTRI MODUL (superadmin) ==================== */
 
 function aksi_list_modules($body) {

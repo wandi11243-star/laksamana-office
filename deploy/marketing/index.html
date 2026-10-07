@@ -2728,9 +2728,16 @@ const KOL_TANPA_JAGA = {users:1, staff:1};
    baris user Budi sekaligus. */
 let _sejakVersi = 0;
 
+/* Apakah backend mengiklankan mode simpan PARSIAL (`_fitur:['delta']` di
+   getAll)? Tanpa iklan itu klien mengirim state UTUH + `dikenal`/`_sejak`
+   seperti dulu — server lama yang menerima baris berubah saja akan menganggap
+   sisanya "dihapus user" dan membuangnya. Backend Marketing ter-deploy
+   otomatis, tapi deploy yang gagal sebagian tetap meninggalkan PHP lama. */
+let MKT_BISA_DELTA = false;
+
 // Salinan S untuk dikirim: baris yang berubah diberi baseUpdatedAt = versi yang
 // kita pegang dari server. S sendiri tetap bersih dari baseUpdatedAt.
-function buildPayload(kotor){
+function buildPayload(kotor, parsial){
   /* SALINAN DANGKAL, bukan JSON.parse(JSON.stringify(S)).
 
      Kloning penuh menyalin SELURUH database dua kali (stringify lalu parse)
@@ -2759,27 +2766,50 @@ function buildPayload(kotor){
   const kotorTahu = (kotor instanceof Set);
   const adalahKotor = (key, r) => kotorTahu ? kotor.has(key) : _dirty(key, r);
   const p = {};
-  for(const k in S) p[k] = S[k];
-  MKT_COLS.forEach(k=>{
-    const arr = S[k];
-    if(!Array.isArray(arr) || KOL_TANPA_JAGA[k]) return;   // baris cermin: tanpa alarm bentrok
-    let adaKotor=false;
-    for(let i=0;i<arr.length;i++){
-      const r=arr[i];
-      if(r && r.id && adalahKotor(k+':'+r.id, r)){ adaKotor=true; break; }
-    }
-    if(!adaKotor) return;                                  // koleksi utuh: pakai referensi
-    p[k] = arr.map(r=>{
-      if(!r || !r.id) return r;
-      const key=k+':'+r.id;
-      if(!adalahKotor(key, r)) return r;
-      return Object.assign({}, r, { baseUpdatedAt: _serverVer[key] || 0 });
+  if(parsial){
+    /* MODE PARSIAL (1 Oktober 2026): hanya baris yang BERUBAH yang dikirim.
+       Inilah yang memotong muatan yang mayoritas berupa gambar base64
+       (designreqs[].refs[].v) — dulu tiap centang job orang lain ikut
+       mengirim seluruh CRM. Kunci non-koleksi (settings, activities, dll.)
+       kecil dan tetap ikut. DB tidak disentuh; baris kotor diganti objek BARU. */
+    for(const k in S) if(MKT_COLS.indexOf(k)<0) p[k] = S[k];
+    MKT_COLS.forEach(k=>{
+      const arr = S[k];
+      if(!Array.isArray(arr)) return;
+      const rows=[];
+      for(let i=0;i<arr.length;i++){
+        const r=arr[i];
+        if(!r || !r.id) continue;
+        const key=k+':'+r.id;
+        if(!adalahKotor(key, r)) continue;
+        rows.push(KOL_TANPA_JAGA[k] ? r : Object.assign({}, r, { baseUpdatedAt: _serverVer[key] || 0 }));
+      }
+      if(rows.length) p[k]=rows;
     });
-  });
-  p._sejak = _sejakVersi;
+  }else{
+    for(const k in S) p[k] = S[k];
+    MKT_COLS.forEach(k=>{
+      const arr = S[k];
+      if(!Array.isArray(arr) || KOL_TANPA_JAGA[k]) return;   // baris cermin: tanpa alarm bentrok
+      let adaKotor=false;
+      for(let i=0;i<arr.length;i++){
+        const r=arr[i];
+        if(r && r.id && adalahKotor(k+':'+r.id, r)){ adaKotor=true; break; }
+      }
+      if(!adaKotor) return;                                  // koleksi utuh: pakai referensi
+      p[k] = arr.map(r=>{
+        if(!r || !r.id) return r;
+        const key=k+':'+r.id;
+        if(!adalahKotor(key, r)) return r;
+        return Object.assign({}, r, { baseUpdatedAt: _serverVer[key] || 0 });
+      });
+    });
+    p._sejak = _sejakVersi;
+  }
   /* `_versi` milik server, bukan bagian data kita — jangan dipantulkan balik
      supaya ia tidak tersimpan sebagai setelan 'extra:'. */
   delete p._versi;
+  delete p._fitur;
   /* `designreqprog` (kemajuan Request Design & Video) DITULIS MODUL KONTEN,
      bukan di sini. Ia ikut terbaca saat getAll, jadi tanpa baris ini ia akan
      dipantulkan balik apa adanya — dan urutan ini terjadi tanpa satu pun
@@ -2891,7 +2921,9 @@ async function kirimPemulihan(jumlah, kalah){
   try{
     const res=await fetch(API_URL,{method:'POST',
       headers:{'Content-Type':'text/plain;charset=utf-8'},
-      body:JSON.stringify({action:'saveAll', data:buildPayload()}), redirect:'follow'});
+      body:(kenaliBaris(), JSON.stringify(MKT_BISA_DELTA
+        ? {action:'saveAll', data:buildPayload(undefined, true), hapus:daftarHapus()}
+        : {action:'saveAll', data:buildPayload(undefined, false), dikenal:daftarDikenal()})), redirect:'follow'});
     const j=await res.json();
     if(j && j.ok && j.data){
       /* Cap server DULU, baru acuan dicatat — alasan yang sama dengan cabang
@@ -2963,6 +2995,41 @@ function refreshSnapshot(){
   const snap={}, ver={};
   _eachRow(S,(key,r)=>{ snap[key]=_sig(r); ver[key]=r.updatedAt||0; });
   _snap=snap; _serverVer=ver;
+  kenaliBaris();
+}
+/* BARIS YANG PERNAH DILIHAT TAB INI (1 Oktober 2026), dikirim bersama saveAll
+   sebagai `dikenal`. Server hanya menghapus baris di daftar ini yang tidak ada
+   di kiriman. Batas `_sejak` yang lama memakai cap dari jam PERANGKAT: baris
+   yang dibuat dari HP/laptop yang jamnya terlambat lahir bercap di bawah
+   `_sejak` tab lain, dan sah dihapus olehnya tanpa satu pun galat. Dengan
+   daftar ini, baris yang tidak pernah dilihat tab ini tidak mungkin terhapus
+   olehnya, berapa pun jam perangkatnya. Pola BD/Konten/Event.
+
+   Hanya BERTAMBAH: id yang sudah dihapus tetap di sini dan itu tidak
+   berbahaya. Mengosongkannya membuat penghapusan berikutnya diam-diam gagal. */
+const _dikenal={};
+function kenaliBaris(){ _eachRow(S||{}, key=>{ _dikenal[key]=1; }); }
+function daftarDikenal(){
+  const out={}; MKT_COLS.forEach(k=>{ out[k]=[]; });
+  Object.keys(_dikenal).forEach(key=>{
+    const i=key.indexOf(':'), k=key.slice(0,i);
+    if(out[k]) out[k].push(key.slice(i+1));
+  });
+  return out;
+}
+/* DAFTAR `hapus` EKSPLISIT untuk mode parsial (1 Oktober 2026). Isinya id yang
+   PERNAH dilihat tab ini tapi sudah tidak ada di S — artinya memang dihapus
+   orang di layar. Server hanya menghapus id di daftar ini; baris yang tidak
+   dikirim (tak berubah) tidak mungkin tersentuh. */
+function daftarHapus(){
+  const out={}; MKT_COLS.forEach(k=>{ out[k]=[]; });
+  const ada={}; _eachRow(S||{}, key=>{ ada[key]=1; });
+  Object.keys(_dikenal).forEach(key=>{
+    if(ada[key]) return;
+    const i=key.indexOf(':'), k=key.slice(0,i);
+    if(out[k]) out[k].push(key.slice(i+1));
+  });
+  return out;
 }
 
 // Ambil data dari server (GET). Fallback ke cache lokal bila gagal.
@@ -2979,6 +3046,7 @@ async function apiLoad(){
        menerimanya karena memang tidak pernah sampai ke database. */
     S = srv;
     _sejakVersi = +(json.data && json.data._versi) || 0;   // batas hapus yang sah
+    MKT_BISA_DELTA = Array.isArray(json.data && json.data._fitur) && json.data._fitur.indexOf('delta') > -1;
     API_READY = true;
     refreshSnapshot();                            // versi server = acuan
     if(adaBelumNaik()) await pulihkanBelumNaik(srv);
@@ -3093,7 +3161,12 @@ function save(opsi){
   if(saveInFlight){ savePending=true; if(!diam) _savePendingRamai=true; return; }  // hindari dua POST balapan dari tab yang sama
   saveInFlight=true;
   if(!diam) tungguSimpanMulai();
-  const body={action:'saveAll', data:buildPayload(capBaru.kotor)};  // baseUpdatedAt dibangun di sini, bukan di S
+  kenaliBaris();                                   // baris yang barusan dibuat di tab ini ikut dikenal
+  // baseUpdatedAt dibangun di buildPayload(), bukan di S. Mode parsial kalau
+  // server mengiklankannya (`_fitur`): kirim baris berubah + `hapus` eksplisit.
+  const body = MKT_BISA_DELTA
+    ? {action:'saveAll', data:buildPayload(capBaru.kotor, true), hapus:daftarHapus()}
+    : {action:'saveAll', data:buildPayload(capBaru.kotor, false), dikenal:daftarDikenal()};
   fetch(API_URL, {
     method:'POST',
     headers:{'Content-Type':'text/plain;charset=utf-8'}, // simple request, hindari preflight CORS
@@ -4729,7 +4802,7 @@ function toggleNav(){
 function initLogin(){
   const sel=$('login-user'); sel.innerHTML='';
   S.users.filter(u=>u.active).forEach(u=>{
-    const o=document.createElement('option'); o.value=u.id; o.textContent=u.name+' — '+ROLES[u.role].t+(u.div?' ('+u.div+')':''); sel.appendChild(o);
+    const o=document.createElement('option'); o.value=u.id; o.textContent=u.name+' — '+namaRole(u.role)+(u.div?' ('+u.div+')':''); sel.appendChild(o);
   });
 }
 function doLogin(){
@@ -4740,7 +4813,7 @@ function doLogin(){
 }
 function updateTopUser(){
   $('su-avatar').textContent=ME.name[0]; $('su-un').textContent=ME.name;
-  $('su-ur').textContent=ROLES[ME.role].t+(ME.div?' · '+ME.div:'');
+  $('su-ur').textContent=namaRole(ME.role)+(ME.div?' · '+ME.div:'');
 }
 
 /* ---------- NAV ---------- */
@@ -15775,9 +15848,42 @@ function drPlatformField(){
    +'<div class="pill-row" id="dr_platChip" style="margin-top:8px">'+drPlatChipHTML()+'</div></div>';
 }
 /* ---------- REFERENSI: tautan & foto ---------- */
-const DR_IMG_MB=2;      // batas per foto
+const DR_IMG_MB=2;      // batas per foto (berkas MENTAH sebelum dikecilkan)
 const DR_TOTAL_MB=6;    // batas seluruh foto pada satu request
+/* Foto BARU dikecilkan sebelum disimpan (maks 1280px, JPEG) supaya `data`
+   tidak membengkak lagi ke depannya — inilah 79% dari 2,2 MB getAll Marketing
+   dan beban SETIAP simpan siapa pun. Pola yang sama dengan promo BD, lampiran
+   Event, dan referensi modul Konten. */
+const DR_IMG_MAKS_PX=1280;
+const DR_IMG_TARGET=700*1024;
 let drRefs=[];
+/* Kecilkan gambar di peramban; gagal di tahap mana pun HARUS bersuara. */
+function drKecilkanGambar(file, maksPx, batasByte, cb){
+  const fr=new FileReader();
+  fr.onerror=function(){ cb(null,'berkasnya gagal dibaca'); };
+  fr.onload=function(){
+    const img=new Image();
+    img.onerror=function(){ cb(null,'gambarnya tidak bisa dibaca — pakai JPG atau PNG'); };
+    img.onload=function(){
+      try{
+        let w=img.naturalWidth||img.width||0, h=img.naturalHeight||img.height||0;
+        if(!w||!h) return cb(null,'ukuran gambarnya tidak terbaca');
+        if(w>maksPx||h>maksPx){ const s=Math.min(maksPx/w,maksPx/h); w=Math.round(w*s); h=Math.round(h*s); }
+        const c=document.createElement('canvas'); c.width=w; c.height=h;
+        /* Latar PUTIH dulu: JPEG tidak punya transparansi, dan bagian PNG yang
+           transparan (logo di referensi desain) jadi HITAM tanpa ini. */
+        const g=c.getContext('2d'); g.fillStyle='#fff'; g.fillRect(0,0,w,h); g.drawImage(img,0,0,w,h);
+        const mutu=[0.8,0.65,0.5];
+        let hasil='';
+        for(let i=0;i<mutu.length;i++){ hasil=c.toDataURL('image/jpeg',mutu[i]); if(hasil.length<=batasByte) break; }
+        if(!hasil) return cb(null,'gagal memproses gambar');
+        cb(hasil,null);
+      }catch(e){ cb(null,'gagal memproses gambar: '+(e&&e.message||e)); }
+    };
+    img.src=fr.result;
+  };
+  fr.readAsDataURL(file);
+}
 function drRefHTML(){
   if(!drRefs.length) return '<div class="cell-sub">Belum ada referensi.</div>';
   return '<div class="pill-row">'+drRefs.map(function(x,i){
@@ -15815,14 +15921,12 @@ function drRefFoto(input){
   files.forEach(function(f){
     if(!/^image\//.test(f.type)) return toast('Bukan gambar',f.name+' dilewati.','err');
     if(f.size>DR_IMG_MB*1024*1024) return toast('Foto terlalu besar',f.name+' lebih dari '+DR_IMG_MB+' MB — dilewati.','err');
-    const rd=new FileReader();
-    rd.onload=function(ev){
-      const data=ev.target.result;
+    drKecilkanGambar(f, DR_IMG_MAKS_PX, DR_IMG_TARGET, function(data,err){
+      if(err) return toast('Foto gagal diproses', f.name+': '+err+'.', 'err');
       if(terpakai()+data.length>DR_TOTAL_MB*1024*1024*1.37)
         return toast('Total foto sudah penuh','Batasnya '+DR_TOTAL_MB+' MB per request — '+f.name+' tidak ditambahkan.','err');
       drRefs.push({t:'img',v:data,n:f.name}); drRefPaint();
-    };
-    rd.readAsDataURL(f);
+    });
   });
 }
 function drForm(id){
@@ -20087,7 +20191,7 @@ function openUserAccess(id){
               :'<button type="button" class="perm-btn" data-v="'+val+'" data-view="'+v+'" title="'+PERM_OPT[val][1]+' — klik untuk ubah" onclick="cyclePerm(this)">'+['None','Lihat','Ubah'][val]+'</button>')
         +'</td></tr>';
     }).join('')+'</tbody></table></div><div class="fh">Menentukan menu yang muncul di sidebar DAN apa yang boleh diubah untuk user ini.</div></div>';
-  modal('<div class="modal-head"><div><h3>Hak Akses · '+esc(u.name)+'</h3><p>'+ROLES[u.role].t+(u.div?' · '+esc(u.div):'')+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+  modal('<div class="modal-head"><div><h3>Hak Akses · '+esc(u.name)+'</h3><p>'+namaRole(u.role)+(u.div?' · '+esc(u.div):'')+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
    +'<div class="modal-body">'+b+'</div>'
    +'<div class="modal-foot">'+(isSA?'':'<button class="btn" onclick="resetUserAccess(\''+u.id+'\')">Reset ke default role</button>')
    +'<button class="btn" onclick="closeModal()">Batal</button>'
@@ -20106,7 +20210,7 @@ function saveUserAccess(id){
 function resetUserAccess(id){
   const u=S.users.find(x=>x.id===id); if(!u)return;
   delete u.acc; delete u.nav; delete u.perms;
-  logAct('user',u.id,'Hak akses direset','kembali ke default role '+ROLES[u.role].t);
+  logAct('user',u.id,'Hak akses direset','kembali ke default role '+namaRole(u.role));
   save(); closeModal(); buildNav(); toast('Direset','Akses '+u.name+' kembali ke default role.','ok'); go('staff');
 }
 
@@ -20155,7 +20259,7 @@ function renderSettings(V){
    +setRow('WA Booking',txt('set_wa',st.waBooking),'Nomor WhatsApp yang dicantumkan pada quotation & brief versi client.')
    +'</tbody></table></div>'
    +'<div style="padding:14px 20px;border-top:1px solid var(--line-soft);display:flex;justify-content:flex-end"><button class="btn pri" onclick="saveSettings()">'+svg(IC.check)+'Simpan Pengaturan</button></div></div>';
-  h+='<div><div class="card" style="margin-bottom:16px"><h3 style="font-size:15px;margin-bottom:12px">Akun Aktif</h3><div style="display:flex;align-items:center;gap:12px"><div class="avatar" style="width:44px;height:44px;font-size:16px">'+ME.name[0]+'</div><div><div style="font-weight:600">'+esc(ME.name)+'</div><div class="cell-sub">'+ROLES[ME.role].t+(ME.div?' · '+ME.div:'')+'</div></div></div><div class="divider"></div><label style="font-size:12px;font-weight:600;color:var(--sand-dim);display:block;margin-bottom:7px">Sesi</label><div class="cell-sub" style="margin-bottom:10px">Identitas dari Office. Ganti akun lewat login Office.</div><button class="btn" onclick="logout()">Keluar ke Office</button></div>';
+  h+='<div><div class="card" style="margin-bottom:16px"><h3 style="font-size:15px;margin-bottom:12px">Akun Aktif</h3><div style="display:flex;align-items:center;gap:12px"><div class="avatar" style="width:44px;height:44px;font-size:16px">'+ME.name[0]+'</div><div><div style="font-weight:600">'+esc(ME.name)+'</div><div class="cell-sub">'+namaRole(ME.role)+(ME.div?' · '+ME.div:'')+'</div></div></div><div class="divider"></div><label style="font-size:12px;font-weight:600;color:var(--sand-dim);display:block;margin-bottom:7px">Sesi</label><div class="cell-sub" style="margin-bottom:10px">Identitas dari Office. Ganti akun lewat login Office.</div><button class="btn" onclick="logout()">Keluar ke Office</button></div>';
   h+='<div class="card"><h3 style="font-size:15px;margin-bottom:6px">Perlu Konfirmasi (PRD Bagian 14)</h3><p class="section-desc">10 poin keputusan sebelum development produksi.</p>';
   // 'Sumber baseline/uplift' dicoret: laporannya sudah dibuang, jadi pertanyaannya gugur.
   const points=['DP 30% vs 50%','Tarif pajak & service final','Integrasi POS in-scope?','Payment gateway vs manual','Ambang approval nominal/diskon','E-signature vs basah','Warna kalender kategori tambahan','Struktur approval (siapa)','Prioritas fasing 1–3'];

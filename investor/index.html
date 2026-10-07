@@ -1394,7 +1394,23 @@ function renderDividen() {
     return;
   }
   const r = (d && Array.isArray(d.riwayat)) ? d.riwayat : [];
-  if (!r.length) {
+  const per = (d && Array.isArray(d.per)) ? d.per : [];
+  /* SEMUA = admin modul investor (diputuskan server). Selain itu yang datang
+     cuma catatan milik akun ini — dan kalau tidak ada satu pun, artinya akun
+     ini belum dihubungkan ke data investor di Brankas. Itu DIBEDAKAN dari
+     "belum ada pembagian": yang pertama urusan Finance menautkan akunnya,
+     yang kedua memang belum ada uang yang dikembalikan. */
+  /* `semua` yang TIDAK ADA = server versi lama (sebelum 6 Oktober 2026), yang
+     memang mengirim seluruh investor. Dianggap terbatas, halaman ini menulis
+     "belum terhubung" untuk SEMUA orang selama PHP-nya belum mendarat. */
+  const semua = !(d && d.semua === false);
+  if (d && !semua && !per.length) {
+    box.innerHTML = '<div class="card">' + kosong('🔗', 'Akun ini belum terhubung ke data investor',
+      'Modal dan dividen Anda dicatat Finance di <b>Brankas</b>. Akun ini belum ditautkan ke catatan investor mana pun, ' +
+      'jadi belum ada angka yang bisa ditampilkan. Hubungi Finance untuk menautkannya.') + '</div>';
+    return;
+  }
+  if (!r.length && !per.length) {
     box.innerHTML = '<div class="card">' + kosong('💰', 'Belum ada pembagian yang dicatat',
       'Pengembalian modal dicatat di <b>Finance → Brankas → Pengembalian Modal</b>. ' +
       'Begitu satu pembayaran dicatat, riwayatnya muncul di sini.') + '</div>';
@@ -1412,18 +1428,40 @@ function renderDividen() {
     h += '<div class="kpi rise"><div class="label">Sisa Kewajiban</div><div class="value mono">' + rp(Math.max(modal - total, 0)) + '</div>'
        + '<div class="foot">belum dikembalikan</div></div>';
   }
-  h += '<div class="kpi rise"><div class="label">Pembagian Terakhir</div><div class="value mono">' + esc(tglPanjang(r[0].tgl)) + '</div>'
+  if (r.length) h += '<div class="kpi rise"><div class="label">Pembagian Terakhir</div><div class="value mono">' + esc(tglPanjang(r[0].tgl)) + '</div>'
      + '<div class="foot">' + rp(r[0].nominal) + ' · ' + esc(r[0].investor || '—') + '</div></div>';
   h += '</div>';
 
   if (pct !== null) {
     h += '<div class="card"><div class="lr-nota" style="margin:0">'
        + '<b>' + pct.toFixed(1) + '% dari modal sudah dikembalikan.</b> '
-       + 'Angka ini menjumlahkan SELURUH investor, bukan porsi satu orang — '
-       + 'rincian per investor ada di catatan Finance.</div></div>';
+       + (semua
+          ? 'Angka ini menjumlahkan SELURUH investor (' + per.length + ' orang) — rinciannya di tabel Per Investor di bawah.'
+          : 'Angka ini hanya modal dan pembagian milik Anda sendiri.')
+       + '</div></div>';
   }
 
-  h += '<div class="card"><h3 style="font-size:16px;margin-bottom:4px">Riwayat Pembagian</h3>'
+  /* Tabel per investor HANYA untuk admin. Untuk investor biasa server memang
+     tidak mengirim catatan orang lain, jadi tabel ini akan berisi satu baris
+     yang mengulang kartu di atasnya. */
+  if (semua && per.length) {
+    h += '<div class="card"><h3 style="font-size:16px;margin-bottom:4px">Per Investor</h3>'
+       + '<div class="lr-nota-kecil" style="margin:0 0 12px">Hanya terlihat oleh admin · sumber: Brankas Finance</div>'
+       + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Investor</th><th class="ka">Modal Masuk</th>'
+       + '<th class="ka">Dikembalikan</th><th class="ka">Sisa</th><th class="ka">%</th><th>Akun</th></tr></thead><tbody>'
+       + per.map(p => {
+           const m = Number(p.modal || 0), k = Number(p.kembali || 0);
+           return '<tr><td><b>' + esc(p.nama || '—') + '</b>'
+             + (p.kepemilikan ? '<div class="lr-nota-kecil" style="margin:0">' + esc(String(p.kepemilikan)) + '% kepemilikan</div>' : '') + '</td>'
+             + '<td class="mono ka">' + rp(m) + '</td><td class="mono ka">' + rp(k) + '</td>'
+             + '<td class="mono ka">' + rp(Math.max(m - k, 0)) + '</td>'
+             + '<td class="mono ka">' + (m > 0 ? (k / m * 100).toFixed(1) + '%' : '—') + '</td>'
+             + '<td>' + (p.terhubung ? '✓ terhubung' : '<span style="color:var(--muted,#888)">belum ditautkan</span>') + '</td></tr>';
+         }).join('')
+       + '</tbody></table></div></div>';
+  }
+
+  if (r.length) h += '<div class="card"><h3 style="font-size:16px;margin-bottom:4px">Riwayat Pembagian</h3>'
      + '<div class="lr-nota-kecil" style="margin:0 0 12px">Terbaru lebih dulu · sumber: Brankas Finance</div>'
      + '<div class="tbl-wrap"><table class="tbl"><thead><tr><th>Tanggal</th><th>Investor</th><th class="ka">Nominal</th></tr></thead><tbody>'
      + r.map(x => '<tr><td class="mono nw">' + esc(tglPanjang(x.tgl)) + '</td>'

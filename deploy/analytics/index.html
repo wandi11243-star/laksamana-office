@@ -1254,19 +1254,8 @@ async function muatSemua() {
 
   if (a.status === 'fulfilled' && a.value && a.value.ok) AN = a.value.data;
   else throw new Error('Analytics: ' + ((a.reason && a.reason.message) || (a.value && a.value.error) || 'gagal dibaca'));
-  if (!AN.data) AN.data = {};
-  if (!AN.data.laporan || typeof AN.data.laporan !== 'object' || Array.isArray(AN.data.laporan)) AN.data.laporan = {};
-  if (!AN.data.setting || typeof AN.data.setting !== 'object') AN.data.setting = {};
-  /* Laporan promo — wadah TERPISAH dari 'laporan', lihat catatan di
-     ringkasPromo(). Bentuknya dipastikan di sini, bukan saat halamannya
-     dibuka: halaman yang harus menuliskan bentuk bawaannya sendiri akan
-     menyimpang dari yang menulisnya begitu ada field baru. */
-  if (!AN.data.promo || typeof AN.data.promo !== 'object' || Array.isArray(AN.data.promo)) AN.data.promo = {};
-  /* Laporan Cancel/Void punya wadahnya SENDIRI, alasan yang sama dengan
-     AN.data.promo: ia laporan yang berbeda dengan periode yang bisa berbeda
-     pula, dan ditumpangkan ke AN.data.laporan, mengunggah salah satunya bisa
-     menimpa ringkasan satunya lagi. */
-  if (!AN.data.voidb || typeof AN.data.voidb !== 'object' || Array.isArray(AN.data.voidb)) AN.data.voidb = {};
+  AN.data = anNormal(AN.data);
+  AN_BASE = JSON.stringify(AN.data);
 
   if (b.status === 'fulfilled' && b.value && b.value.ok) { KP = b.value.data || {}; KP_ERR = ''; }
   else { KP = null; KP_ERR = 'Rekap Penjualan tidak terbaca, jadi angka POS tidak bisa dibandingkan dengan yang diinput manual.'; }
@@ -1376,13 +1365,92 @@ async function muatSemua() {
 
   setSync('ok', '✓ Siap');
 }
-/* State dikirim UTUH. Backend menulis blob sekali jalan, jadi mengirim
-   sepotong berarti sisanya lenyap tanpa satu pun pesan. */
+/* Bentuk AN.data dipastikan SATU tempat — dipakai saat memuat DAN saat
+   menarik ulang sesudah bentrok. Dua tempat yang menormalkan sendiri-sendiri
+   akan menyimpang, dan gabungan di anGabung() lalu membandingkan dua bentuk
+   yang berbeda untuk data yang sama. */
+function anNormal(d) {
+  d = (d && typeof d === 'object') ? d : {};
+  if (!d.laporan || typeof d.laporan !== 'object' || Array.isArray(d.laporan)) d.laporan = {};
+  if (!d.setting || typeof d.setting !== 'object' || Array.isArray(d.setting)) d.setting = {};
+  /* Laporan promo — wadah TERPISAH dari 'laporan', lihat catatan di
+     ringkasPromo(). Bentuknya dipastikan di sini, bukan saat halamannya
+     dibuka: halaman yang harus menuliskan bentuk bawaannya sendiri akan
+     menyimpang dari yang menulisnya begitu ada field baru. */
+  if (!d.promo || typeof d.promo !== 'object' || Array.isArray(d.promo)) d.promo = {};
+  /* Laporan Cancel/Void punya wadahnya SENDIRI, alasan yang sama dengan
+     AN.data.promo: ia laporan yang berbeda dengan periode yang bisa berbeda
+     pula, dan ditumpangkan ke AN.data.laporan, mengunggah salah satunya bisa
+     menimpa ringkasan satunya lagi. */
+  if (!d.voidb || typeof d.voidb !== 'object' || Array.isArray(d.voidb)) d.voidb = {};
+  return d;
+}
+
+/* GABUNG TIGA ARAH (1 Oktober 2026). Blob ini dulu ditimpa buta: dua orang
+   yang mengunggah bulan berbeda — atau satu tab yang dibiarkan terbuka sejak
+   pagi — membuat yang menyimpan belakangan MENGHAPUS unggahan yang lain.
+   Sekarang server menolak simpan dari salinan basi (baseTs), dan di sini
+   salinan kita digabung dengan yang terbaru, per BULAN dan per ENTRI setelan:
+
+     base = yang terakhir kita terima dari server
+     mine = yang ada di layar sekarang
+     theirs = yang ada di server sekarang
+
+   Yang KITA ubah (mine ≠ base) memakai milik kita; selebihnya memakai server.
+   Yang kita hapus tetap terhapus, KECUALI orang lain mengubahnya sesudah kita
+   memuat — membuang suntingan orang lain demi penghapusan kita adalah
+   kehilangan yang tidak bisa dikembalikan, sementara penghapusan bisa diulang.
+   Isi satu bulan TIDAK digabung lebih dalam: ia hasil urai satu berkas POS,
+   dan setengah berkas dari dua unggahan berbeda tidak berarti apa pun. */
+const AN_MASUK = { '': 1, laporan: 1, promo: 1, voidb: 1, setting: 1, petaKode: 1, petaMenu: 1 };
+function anGabung(base, mine, theirs, nama) {
+  const J = v => JSON.stringify(v === undefined ? null : v);
+  const peta = v => v && typeof v === 'object' && !Array.isArray(v);
+  if (!AN_MASUK[nama || ''] || !peta(mine) || !peta(theirs)) {
+    return J(mine) !== J(base) ? mine : theirs;
+  }
+  base = peta(base) ? base : {};
+  const out = {};
+  new Set(Object.keys(base).concat(Object.keys(mine), Object.keys(theirs))).forEach(k => {
+    const adaB = k in base, adaM = k in mine, adaT = k in theirs;
+    if (adaM && adaT) { out[k] = anGabung(base[k], mine[k], theirs[k], k); return; }
+    if (adaM && !adaT) {
+      /* Server tidak punya: kita yang menambah (base juga tidak punya) → simpan;
+         orang lain yang menghapus → ikut hapus, kecuali kita mengubahnya. */
+      if (!adaB || J(mine[k]) !== J(base[k])) out[k] = mine[k];
+      return;
+    }
+    if (!adaM && adaT) {
+      /* Kita tidak punya: orang lain yang menambah → simpan; kita yang
+         menghapus → hapus, kecuali orang lain mengubahnya sesudah kita memuat. */
+      if (!adaB || J(theirs[k]) !== J(base[k])) out[k] = theirs[k];
+    }
+  });
+  return out;
+}
+
+/* State dikirim UTUH, berikut baseTs = versi yang dipegang halaman ini.
+   Ditolak karena basi → tarik yang terbaru, gabung, kirim ulang. */
+let AN_BASE = null;
 async function simpan() {
   setSync('saving', 'Menyimpan…');
   try {
-    const r = await postJson(API_AN, { action:'analyticsSave', data:AN.data, oleh:(CURRENT_USER && CURRENT_USER.name) || '' });
+    let r = null;
+    for (let coba = 0; coba < 4; coba++) {
+      r = await postJson(API_AN, { action:'analyticsSave', data:AN.data, baseTs:AN.ts || 0,
+                                   oleh:(CURRENT_USER && CURRENT_USER.name) || '' });
+      if (!r || !r.conflict) break;
+      const g = await postJson(API_AN, { action:'analyticsGet' });
+      if (!g || !g.ok || !g.data) throw new Error('data terbaru tidak terbaca sesudah bentrok');
+      const srv = anNormal(g.data.data);
+      AN.data = anNormal(anGabung(AN_BASE ? JSON.parse(AN_BASE) : {}, AN.data, srv));
+      AN.ts = g.data.ts;
+      AN_BASE = JSON.stringify(srv);
+    }
+    if (r && r.conflict) throw new Error('data terus berubah di tempat lain — coba sekali lagi');
     if (!r || !r.ok) throw new Error((r && r.error) || 'gagal');
+    if (r.data && r.data.ts) AN.ts = r.data.ts;
+    AN_BASE = JSON.stringify(AN.data);
     setSync('ok', '✓ Tersimpan');
     return true;
   } catch (err) {

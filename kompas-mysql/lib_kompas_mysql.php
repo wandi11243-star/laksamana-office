@@ -1027,7 +1027,7 @@ function laba_rugi_bulanan($peta = null) {
   return $out;
 }
 
-function ringkas_investor() {
+function ringkas_investor($u = null, $semua = true) {
   $peta = kp_peta_harian();
   $b    = kp_peta_bulanan($peta);
 
@@ -1142,7 +1142,7 @@ function ringkas_investor() {
        lebih murah daripada dua. Kalau finance-api mati, `gagal:true` dan
        layar mengatakannya; daftar kosong yang berarti "servernya mati"
        terbaca sebagai "belum pernah ada pembagian". */
-    'dividen' => dividen_investor(),
+    'dividen' => dividen_investor($u, $semua),
     'labaRugi' => laba_rugi_bulanan($peta),
     /* Tanggal data terakhir yang benar-benar diisi. Halaman investor
        memajangnya apa adanya — tanpa itu, omset hari ini yang kosong karena
@@ -1369,11 +1369,26 @@ function agenda_investor() {
 
    Yang dipulangkan cuma nama investor, tanggal, dan nominal. TIDAK ada
    nomor rekening, TIDAK ada wallet asalnya (itu urusan internal Finance),
-   dan TIDAK ada modal maupun kepemilikan investor LAIN — tiap investor
-   melihat daftar yang sama, jadi apa pun yang ada di sini terlihat oleh
-   semuanya.
+   dan modal/kepemilikan investor LAIN hanya untuk admin modul investor —
+   lihat penyaringan per sesi di dividen_investor().
    ====================================================================== */
-function dividen_investor() {
+/* PER INVESTOR (6 Oktober 2026, permintaan user): admin modul `investor`
+   melihat SELURUH investor; investor biasa HANYA melihat modal & dividennya
+   sendiri. Penyaringnya DI SINI, di server — bukan di layar. Kalau seluruh
+   daftar dikirim lalu disaring peramban, modal investor lain tetap terbaca
+   lewat devtools oleh siapa pun yang memegang kunci modul ini.
+
+   Pencocokan catatan investor <-> akun Office:
+     1. `akunId` di catatan Brankas = id user sesi   (ditautkan CFO di Brankas)
+     2. catatan TANPA `akunId` yang namanya sama persis (huruf besar-kecil &
+        spasi tepi diabaikan) dengan nama akun — jaring untuk catatan lama
+        yang belum sempat ditautkan.
+   Catatan yang SUDAH punya akunId tidak pernah dicocokkan lewat nama: akun
+   lain yang kebetulan bernama sama tidak boleh ikut melihatnya.
+
+   $u null + $semua true = perilaku lama (seluruhnya), supaya pemanggil lain
+   yang belum menyerahkan sesi tidak berubah diam-diam. */
+function dividen_investor($u = null, $semua = true) {
   $url = kp_url_modul('finance-api-mysql');
   if ($url === '') return array('riwayat' => array(), 'gagal' => true);
   /* kp_ambil_modul() memakai getAll; brankas punya aksinya sendiri, jadi
@@ -1396,28 +1411,49 @@ function dividen_investor() {
   $inv = $d['data']['data']['investor'];
   if (!is_array($inv)) return array('riwayat' => array(), 'gagal' => true);
 
-  $riwayat = array(); $totalModal = 0;
+  $uid   = is_array($u) && isset($u['id'])   ? trim((string)$u['id'])   : '';
+  $unama = is_array($u) && isset($u['name']) ? strtolower(trim((string)$u['name'])) : '';
+
+  $riwayat = array(); $totalModal = 0; $per = array(); $semuaJml = 0;
   foreach ($inv as $i) {
     if (!is_array($i)) continue;
-    $totalModal += kp_num(isset($i['capital']) ? $i['capital'] : 0);
+    $semuaJml++;
+    $akun = isset($i['akunId']) ? trim((string)$i['akunId']) : '';
+    if (!$semua) {
+      $milik = ($akun !== '' && $uid !== '' && $akun === $uid)
+            || ($akun === '' && $unama !== '' && strtolower(trim((string)(isset($i['name']) ? $i['name'] : ''))) === $unama);
+      if (!$milik) continue;
+    }
+    $modalI = kp_num(isset($i['capital']) ? $i['capital'] : 0);
     /* Tambahan modal (6 Oktober 2026) ikut di total modal — berkas kembar
        modalTotal() di deploy/finance/brankas/. Tanpa ini halaman investor
        menyebut modal lebih kecil daripada panel Brankas, dan persen
        pengembaliannya lebih besar daripada kenyataan. */
     if (isset($i['tambahan']) && is_array($i['tambahan'])) {
       foreach ($i['tambahan'] as $tm) {
-        if (is_array($tm)) $totalModal += kp_num(isset($tm['amount']) ? $tm['amount'] : 0);
+        if (is_array($tm)) $modalI += kp_num(isset($tm['amount']) ? $tm['amount'] : 0);
       }
     }
+    $totalModal += $modalI;
     $nama = kp_teks(isset($i['name']) ? $i['name'] : '', 80);
     $ret = (isset($i['returns']) && is_array($i['returns'])) ? $i['returns'] : array();
+    $kembaliI = 0; $nI = 0;
     foreach ($ret as $r) {
       if (!is_array($r)) continue;
       $t = kp_tgl(isset($r['date']) ? $r['date'] : '');
       $n = kp_num(isset($r['amount']) ? $r['amount'] : 0);
       if (!$t || !$n) continue;
       $riwayat[] = array('tgl' => $t, 'investor' => $nama, 'nominal' => $n);
+      $kembaliI += $n; $nI++;
     }
+    $per[] = array(
+      'nama'        => $nama,
+      'modal'       => $modalI,
+      'kembali'     => $kembaliI,
+      'kali'        => $nI,
+      'kepemilikan' => kp_num(isset($i['ownership']) ? $i['ownership'] : 0),
+      'terhubung'   => $akun !== '',
+    );
   }
   /* Terbaru dulu — yang dibuka investor pertama kali adalah "kapan terakhir
      saya dibayar", bukan yang paling lama. */
@@ -1427,7 +1463,13 @@ function dividen_investor() {
     'riwayat'    => $riwayat,
     'total'      => array_reduce($riwayat, function ($a, $x) { return $a + $x['nominal']; }, 0),
     'modal'      => $totalModal,
-    'investor'   => count($inv),
+    'investor'   => count($per),
+    'per'        => $per,
+    /* `semua` memberi tahu layar apakah ini daftar lengkap (admin) atau
+       milik sendiri. Untuk investor biasa jumlah seluruh investor TIDAK
+       dikirim — angka itu pun bukan urusannya. */
+    'semua'      => (bool)$semua,
+    'jumlahSemua'=> $semua ? $semuaJml : null,
     'gagal'      => false
   );
 }
@@ -1530,18 +1572,46 @@ function an_baca() {
   return array('data' => $data, 'akses' => (object)$akses, 'peran' => (object)$peran, 'ts' => $ts);
 }
 
-function an_simpan($data, $oleh) {
+/* PENJAGA TULIS-BASI (1 Oktober 2026). Blob ini memuat SELURUH laporan POS
+   yang pernah diunggah berikut setelannya, dan dulu ditimpa buta: dua orang
+   yang mengunggah bulan berbeda dari dua tab — atau satu tab yang dibiarkan
+   terbuka sejak pagi — membuat yang menyimpan belakangan MENGHAPUS unggahan
+   yang lain, tanpa satu pun galat. Aturannya sama dengan baseTs di save_all()
+   blob omset: versi yang dipegang klien tidak sama dengan versi server =
+   DITOLAK sebagai bentrok. Klien lalu menarik yang terbaru, menggabungkan per
+   bulan, dan mengirim ulang (anGabung() di deploy/analytics).
+   baseTs kosong = klien versi lama, dibiarkan lewat — menolaknya mematikan
+   penyimpanan untuk halaman yang masih ter-cache. */
+function an_simpan($data, $oleh, $baseTs = null) {
   an_pastikan();
   if (!is_array($data)) return array('ok' => false, 'error' => 'data bukan objek');
   $pdo = db();
-  $st = $pdo->prepare(
-    'INSERT INTO `an_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:t,:b)
-     ON DUPLICATE KEY UPDATE `data`=VALUES(`data`), `updated_at`=VALUES(`updated_at`),
-                             `updated_by`=VALUES(`updated_by`)');
-  $st->execute(array(':d' => json_encode($data, JSON_UNESCAPED_UNICODE),
-                     ':t' => (int)(microtime(true) * 1000),
-                     ':b' => mb_substr((string)$oleh, 0, 80)));
-  return array('ok' => true, 'saved' => true);
+  $pdo->beginTransaction();
+  try {
+    $row = $pdo->query('SELECT `updated_at`,`updated_by` FROM `an_state` WHERE `id`=1 FOR UPDATE')->fetch();
+    $tsKini = $row ? (int)$row['updated_at'] : 0;
+    if ($baseTs !== null && $baseTs !== '' && (int)$baseTs > 0 && $tsKini > 0 && (int)$baseTs !== $tsKini) {
+      $pdo->rollBack();
+      return array('ok' => false, 'error' => 'conflict', 'conflict' => true,
+                   'oleh' => $row ? (string)$row['updated_by'] : '', 'ts' => $tsKini);
+    }
+    /* Versi WAJIB naik: dua simpan dalam milidetik yang sama memberi versi
+       yang sama, dan tab yang memegang versi lama lalu lolos cek. */
+    $ts = (int)(microtime(true) * 1000);
+    if ($ts <= $tsKini) $ts = $tsKini + 1;
+    $st = $pdo->prepare(
+      'INSERT INTO `an_state` (`id`,`data`,`updated_at`,`updated_by`) VALUES (1,:d,:t,:b)
+       ON DUPLICATE KEY UPDATE `data`=VALUES(`data`), `updated_at`=VALUES(`updated_at`),
+                               `updated_by`=VALUES(`updated_by`)');
+    $st->execute(array(':d' => json_encode($data, JSON_UNESCAPED_UNICODE),
+                       ':t' => $ts,
+                       ':b' => mb_substr((string)$oleh, 0, 80)));
+    $pdo->commit();
+    return array('ok' => true, 'saved' => true, 'ts' => $ts);
+  } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
 }
 
 function an_akses_simpan($peta) {

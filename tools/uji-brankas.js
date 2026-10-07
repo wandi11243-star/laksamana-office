@@ -76,7 +76,7 @@ function domBrankas(opt) {
       w.confirm = () => opt.confirm !== false;
       try {
         w.localStorage.setItem('lm_session', JSON.stringify(Object.assign({
-          expiry: Date.now() + 3600000, userId:'u-wandi', name:'Wandi Pranata',
+          expiry: Date.now() + 3600000, userId:'u-wandi', name:'Wandi Pranata', token:'TK-uji',
           modules:['brankas'], adminModules:['brankas']
         }, opt.sesi || {})));
       } catch (e) {}
@@ -93,13 +93,22 @@ function domBrankas(opt) {
         if (String(url).indexOf('kompas-api') > -1)
           return { json: async () => (opt.kompasGagal ? { ok:false, error:'x' }
                                                           : { ok:true, data: opt.kompas || KOMPAS }) };
+        if (String(url).indexOf('account-api') > -1 && body.action === 'investorAkun')
+          return { json: async () => (opt.akunGagal ? { ok:false, error:opt.akunGagal }
+            : { ok:true, id: body.userId || 'u-baru', name: body.name || (body.userId === 'u-dina' ? 'Dina' : 'Wandi Pranata') }) };
         if (String(url).indexOf('account-api') > -1)
           return { json: async () => ({ ok:true, members: opt.roster || [
             { id:'u-wandi', name:'Wandi Pranata', keterangan:'Office', isModuleAdmin:true },
             { id:'u-dina',  name:'Dina',          keterangan:'Finance', isModuleAdmin:false } ] }) };
         // finance-api
+        /* opt.konflik: brankasSave pertama ditolak sebagai bentrok versi, dan
+           brankasGet sesudahnya memulangkan opt.bkSegar (1 Oktober 2026). */
         if (body.action === 'brankasGet')
-          return { json: async () => ({ ok:true, data: opt.bk || { data:null, akses:{}, peran:{} } }) };
+          return { json: async () => ({ ok:true, data: (opt._konflikTerjadi && opt.bkSegar) || opt.bk || { data:null, akses:{}, peran:{} } }) };
+        if (body.action === 'brankasSave' && opt.konflik && !opt._konflikTerjadi) {
+          opt._konflikTerjadi = true;
+          return { json: async () => ({ ok:false, error:'conflict', conflict:true, oleh:'Cindy' }) };
+        }
         if (body.action === 'brankasSave')  return { json: async () => (opt.gagalSimpan
           ? { ok:false, error:'server sedang mati' } : { ok:true, data:{ saved:true } }) };
         if (body.action === 'brankasAkses') return { json: async () => ({ ok:true, data:{ akses: body.peta } }) };
@@ -317,6 +326,65 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     cek('state dikirim UTUH, bukan sepotong',
         kirim && ['rekening','piutang','bayar','investor','mutasi','setting'].every(k => kirim.body.data[k] !== undefined));
     cek('tabel ikut memperbarui', d.getElementById('app-view').innerHTML.indexOf('Uji pindah') > -1);
+    dom.window.close();
+  }
+
+  /* ================= 6b. bentrok versi: dua tab Brankas ================= */
+  /* Tab ini memuat mutasi KOSONG; tab lain (Cindy) sudah mencatat satu mutasi.
+     Dulu simpan dari tab ini MENGHAPUS mutasi itu. Sekarang server menolak,
+     dan layar dimuat ulang dari data terbaru — bukan salinan lama yang
+     barisnya tidak pernah tersimpan. */
+  console.log('\n== Bentrok versi dengan tab lain ==');
+  {
+    const muLain = { id:'mx', tgl:'2026-08-19', jenis:'masuk', dari:'', ke:'bca', nominal:750000, ket:'Dari tab lain', by:'Cindy' };
+    const kosong = () => ({ rekening:[], piutang:[], investor:[], bayar:[], setting:{} });
+    const { dom, panggilan } = domBrankas({ konflik:true,
+      bk:     { data:Object.assign(kosong(), { mutasi:[] }),       akses:{}, peran:{}, ver:{ lain:100, bayar:200 } },
+      bkSegar:{ data:Object.assign(kosong(), { mutasi:[muLain] }), akses:{}, peran:{}, ver:{ lain:150, bayar:200 } } });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('mutasi'); await tunggu(40);
+    d.getElementById('mu_jenis').value = 'pindah';
+    d.getElementById('mu_tgl').value = '2026-08-20';
+    d.getElementById('mu_nom').value = '5.000.000';
+    d.getElementById('mu_dari').value = 'bri';
+    d.getElementById('mu_ke').value = 'bca';
+    d.getElementById('mu_ket').value = 'Uji pindah';
+    await w.muSimpan(); await tunggu(400);
+    const kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave');
+    cek('versi yang dipegang ikut dikirim (baseVer)', kirim.length === 1 && kirim[0].body.baseVer === 100,
+        JSON.stringify(kirim.map(k => k.body.baseVer)));
+    cek('bentrok dikatakan, berikut nama yang menyimpan duluan',
+        panggilan.some(p => p.alert && /TIDAK disimpan/.test(p.alert) && /Cindy/.test(p.alert)));
+    const mu = w.eval('BK.data.mutasi');
+    cek('data terbaru dimuat — mutasi tab lain tidak hilang, yang ditolak tidak tertinggal',
+        mu.length === 1 && mu[0].id === 'mx', JSON.stringify(mu.map(x => x.ket)));
+    cek('layar menggambar data terbaru', d.getElementById('app-view').innerHTML.indexOf('Dari tab lain') > -1);
+    cek('versi baru dipakai sesudahnya', w.eval('BK.ver.lain') === 150);
+    dom.window.close();
+  }
+
+  /* ================= 6c. simpan gagal tidak meninggalkan baris hantu ============ */
+  /* Dulu baris yang ditolak server tetap terlihat di tabel seolah tercatat,
+     lenyap saat dimuat ulang, dan form yang dikirim ulang memasukkannya DUA
+     kali. Sekarang layar kembali ke salinan terakhir yang diterima server. */
+  console.log('\n== Simpan gagal: layar kembali ke yang tersimpan ==');
+  {
+    const { dom } = domBrankas({ gagalSimpan:true });
+    await tunggu(400);
+    const w = dom.window, d = w.document;
+    w.go('mutasi'); await tunggu(40);
+    d.getElementById('mu_jenis').value = 'pindah';
+    d.getElementById('mu_tgl').value = '2026-08-20';
+    d.getElementById('mu_nom').value = '5.000.000';
+    d.getElementById('mu_dari').value = 'bri';
+    d.getElementById('mu_ke').value = 'bca';
+    d.getElementById('mu_ket').value = 'Ditolak server';
+    await w.muSimpan(); await tunggu(150);
+    cek('baris yang ditolak tidak tertinggal di state', w.eval('BK.data.mutasi').length === 0,
+        JSON.stringify(w.eval('BK.data.mutasi')));
+    cek('dan tidak tergambar di layar', d.getElementById('app-view').innerHTML.indexOf('Ditolak server') < 0);
+    cek('tab tidak ditahan lagi sesudah simpan selesai', w.eval('MENYIMPAN') === false);
     dom.window.close();
   }
 
@@ -544,8 +612,39 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
     const tm2 = kirim && kirim.body.data.investor[0].tambahan;
     cek('edit tambahan TIDAK menambah baris', tm2 && tm2.length === 1 && tm2[0].amount === 40000000 && tm2[0].id === tmId, JSON.stringify(tm2));
+    /* ---- Akun Office investor (6 Oktober 2026) ---- */
+    v = d.getElementById('app-view').innerHTML;
+    cek('akun: investor belum terhubung menawarkan Buat/Hubungkan', v.includes('Buat akun baru') && v.includes('Hubungkan akun yang sudah ada'));
+    await w.akBuka('i1', 'buat');
+    d.getElementById('ak_p_i1').value = '12';
+    let nAk = panggilan.filter(p => p.body && p.body.action === 'investorAkun').length;
+    await w.akKirim('i1'); await tunggu(60);
+    cek('akun: PIN tidak sah DITOLAK sebelum dikirim', panggilan.filter(p => p.body && p.body.action === 'investorAkun').length === nAk);
+    d.getElementById('ak_p_i1').value = '482913';
+    d.getElementById('ak_h_i1').value = '0812';
+    await w.akKirim('i1'); await tunggu(120);
+    const kAk = panggilan.filter(p => p.body && p.body.action === 'investorAkun').pop();
+    cek('akun: dikirim ke account-api dengan token sesi & PIN', kAk && kAk.body.sesi === 'TK-uji' && kAk.body.pin === '482913' && !kAk.body.userId,
+        JSON.stringify(kAk && kAk.body));
+    kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    const ivAk = kirim && kirim.body.data.investor[0];
+    cek('akun: akunId tersimpan di catatan investor', ivAk && ivAk.akunId === 'u-baru', JSON.stringify(ivAk && ivAk.akunId));
+    cek('akun: riwayat & tambahan tetap utuh sesudah ditautkan', ivAk && (ivAk.tambahan || []).length === 1);
+    v = d.getElementById('app-view').innerHTML;
+    cek('akun: kartu menyebut terhubung', v.includes('Akun Office: <b>'));
+    w.akLepas('i1'); await tunggu(120);
+    kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    cek('akun: lepas tautan membuang akunId', kirim && !('akunId' in kirim.body.data.investor[0]));
+    cek('akun: lepas tautan TIDAK memanggil account-api', panggilan.filter(p => p.body && p.body.action === 'investorAkun').length === nAk + 1);
+    await w.akBuka('i1', 'pilih'); await tunggu(60);
+    d.getElementById('ak_u_i1').value = 'u-dina';
+    await w.akKirim('i1'); await tunggu(120);
+    const kAk2 = panggilan.filter(p => p.body && p.body.action === 'investorAkun').pop();
+    cek('akun: hubungkan mengirim userId, tanpa PIN', kAk2 && kAk2.body.userId === 'u-dina' && !('pin' in kAk2.body));
+    kirim = panggilan.filter(p => p.body && p.body.action === 'brankasSave').pop();
+    cek('akun: hubungkan menyimpan akunId akun yang dipilih', kirim && kirim.body.data.investor[0].akunId === 'u-dina');
     cek('halaman investor ikut menjumlahkan tambahan (kontrak PHP)',
-        /\$i\['tambahan'\][\s\S]{0,200}\$totalModal \+= kp_num/.test(fs.readFileSync(path.join(ROOT, 'kompas-mysql', 'lib_kompas_mysql.php'), 'utf8')));
+        /\$i\['tambahan'\][\s\S]{0,200}\$modalI \+= kp_num[\s\S]{0,300}\$totalModal \+= \$modalI/.test(fs.readFileSync(path.join(ROOT, 'kompas-mysql', 'lib_kompas_mysql.php'), 'utf8')));
     dom.window.close();
   }
 

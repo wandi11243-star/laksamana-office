@@ -459,10 +459,28 @@ async function apiLoad(){
     // pernah dipakai lalu datanya dikosongkan), pemasangan baru langsung kena
     // modal bentrok dan seed tidak pernah tersimpan.
     if(fresh && json.data && json.data._rev !== undefined) S._rev = json.data._rev;
+    /* PERUBAHAN YANG BELUM SEMPAT NAIK (1 Oktober 2026). Dulu simpan yang gagal
+       cuma meninggalkan perubahannya di cache, lalu muat berikutnya yang
+       berhasil MENIMPA cache itu dengan data server — perubahannya hilang tanpa
+       satu pun tanda, padahal toast-nya berjanji "ada di browser ini".
+       Sekarang: kalau server MASIH di revisi tempat perubahan itu dibuat, tidak
+       ada yang menyalip — salinan lokal dipakai lalu dikirim. Kalau server
+       sudah maju, menggabungkannya tidak mungkin dilakukan dengan aman (simpan
+       modul ini dokumen utuh), dan itu DIKATAKAN, bukan didiamkan. */
+    const revTunda = belumNaikRev();
+    let lanjutKirim = false, lokalTerbuang = false;
+    if(!fresh && revTunda !== null){
+      let lokal = null; try{ lokal = JSON.parse(localStorage.getItem(LS_KEY) || 'null'); }catch(e){}
+      if(lokal && revAngka(json.data._rev) === revTunda){ S = lokal; lanjutKirim = true; }
+      else { hapusBelumNaik(); lokalTerbuang = true; }
+    }
     migrate();
     API_READY = true;
     cacheLocal();
-    if(fresh) save();
+    if(fresh || lanjutKirim) save(lanjutKirim ? 'Perubahan yang tertunda sudah tersimpan ke server.' : undefined);
+    if(lokalTerbuang) setTimeout(()=>toast('Ada perubahan di perangkat ini yang belum sempat tersimpan, tapi ' +
+      ((json.data && json.data._savedBy) || 'pengguna lain') + ' sudah menyimpan sesudahnya. ' +
+      'Perubahan itu tidak bisa digabung otomatis — mohon ulangi.', true), 600);
   }catch(e){
     console.warn('Gagal memuat dari server, pakai cache lokal:', e);
     loadLocal();
@@ -487,6 +505,25 @@ function cacheLocal(){
    server benar-benar mengonfirmasi, supaya tidak pernah bilang "tersimpan" untuk
    simpan yang ternyata ditolak. */
 let saveInFlight = false, savePending = false;
+/* Penanda "ada perubahan yang belum diterima server", disimpan bersama revisi
+   tempat perubahan itu dibuat. Dibaca apiLoad() — lihat komentarnya. */
+const KEY_BELUM_NAIK = 'lm_peopleos_belum_naik';
+function revAngka(r){ return String(+r || 0); }
+function belumNaikRev(){ try{ return localStorage.getItem(KEY_BELUM_NAIK); }catch(e){ return null; } }
+function tandaiBelumNaik(){ try{ localStorage.setItem(KEY_BELUM_NAIK, revAngka(S && S._rev)); }catch(e){} }
+function hapusBelumNaik(){ try{ localStorage.removeItem(KEY_BELUM_NAIK); }catch(e){} }
+/* Gagal jaringan dicoba ulang sendiri (5, 10, … paling lama 60 detik). Dulu
+   tidak ada percobaan ulang sama sekali: perubahannya menunggu orangnya
+   kebetulan menyimpan hal lain. Bentrok TIDAK dicoba ulang — ulangannya pasti
+   ditolak lagi, dan keputusan di sana milik orangnya (modal bentrok). */
+let _ulangHr = null, _gagalHr = 0;
+function jadwalUlangHr(){
+  _gagalHr++; clearTimeout(_ulangHr);
+  _ulangHr = setTimeout(()=>{ if(!_conflictShown) save(); }, Math.min(60000, 5000 * _gagalHr));
+}
+window.addEventListener('beforeunload', e => {
+  if(saveInFlight || belumNaikRev() !== null){ e.preventDefault(); e.returnValue = ''; }
+});
 function save(okMsg){
   cacheLocal();                                     // cache dulu, instan
   if(!WEB_APP_URL || WEB_APP_URL.indexOf('PASTE_') === 0){
@@ -494,6 +531,7 @@ function save(okMsg){
     if(okMsg) toast(okMsg);
     return;
   }
+  tandaiBelumNaik();
   if(saveInFlight){ savePending = true; return; }   // hindari dua POST balapan dari tab sama
   saveInFlight = true;
   const body = {action:'saveAll', data:S, by:(CU && CU.name) || ''};
@@ -508,6 +546,8 @@ function save(okMsg){
   .then(j => {
     if(j && j.ok){
       if(j.data && j.data.rev !== undefined) S._rev = j.data.rev;
+      cacheLocal();                                 // cache ikut memegang rev yang baru
+      hapusBelumNaik(); _gagalHr = 0; clearTimeout(_ulangHr);
       API_READY = true; setSyncBadge('ok');
       if(okMsg) toast(okMsg);
     } else if(j && j.error === 'conflict'){
@@ -516,12 +556,14 @@ function save(okMsg){
     } else {
       API_READY = false; setSyncBadge('err');
       console.warn('Simpan ditolak server:', j && j.error);
-      toast('Gagal menyimpan ke server. Perubahan baru ada di browser ini.', true);
+      if(_gagalHr === 0) toast('Gagal menyimpan ke server — dicoba ulang otomatis. Jangan tutup halaman ini.', true);
+      jadwalUlangHr();
     }
   })
   .catch(err => {
     API_READY = false; setSyncBadge('err'); console.warn('Gagal sinkron ke server:', err);
-    toast('Gagal menyimpan ke server. Perubahan baru ada di browser ini.', true);
+    if(_gagalHr === 0) toast('Gagal menyimpan ke server — dicoba ulang otomatis. Jangan tutup halaman ini.', true);
+    jadwalUlangHr();
   })
   .finally(() => { saveInFlight = false; if(savePending){ savePending = false; save(); } });
 }
@@ -536,7 +578,7 @@ function showSaveConflict(j){
   openModal('Perubahan Tidak Tersimpan',
     '<div class="note w" style="margin-bottom:12px"><b>'+esc(who)+'</b> menyimpan perubahan ('+esc(when)+'), sesudah halaman ini dimuat. Perubahan Anda <b>belum tersimpan</b>.</div>'+
     '<p class="small mut">Kalau dipaksa simpan, semua perubahan '+esc(who)+' akan hilang. Amannya: muat ulang, lalu ulangi perubahan Anda.</p>',
-    {saveLabel:'Muat ulang (disarankan)', onSave:()=>{ location.reload(); }});
+    {saveLabel:'Muat ulang (disarankan)', onSave:()=>{ hapusBelumNaik(); location.reload(); }});
 }
 // Badge hanya tampil kalau ADA masalah. Kalau lancar, topbar tetap bersih.
 function setSyncBadge(state){
@@ -555,6 +597,10 @@ function setSyncBadge(state){
 async function refreshIfStale(){
   if(!WEB_APP_URL || WEB_APP_URL.indexOf('PASTE_') === 0 || !S) return;
   if(saveInFlight || _conflictShown) return;
+  /* Ada perubahan yang belum naik: menggantinya dengan data server berarti
+     membuangnya diam-diam. Biarkan — simpan berikutnya yang memutuskan, dan
+     kalau server memang sudah maju, modal bentrok yang mengatakannya. */
+  if(belumNaikRev() !== null) return;
   try{
     const res = await fetch(WEB_APP_URL + '?action=getAll', {method:'GET', redirect:'follow'});
     const j = await res.json();

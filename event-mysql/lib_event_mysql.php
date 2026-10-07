@@ -294,8 +294,47 @@ function put_setting($pdo, $k, $v) {
 
 /* ==================== UPSERT SATU KOLEKSI ====================
    Menulis per-baris dengan penjaga updated_at, lalu menghapus baris yang
-   HILANG dari kiriman. Mengembalikan jumlah baris yang diproses. */
-function upsert_collection($pdo, $c, $rows) {
+   HILANG dari kiriman. Mengembalikan jumlah baris yang diproses.
+
+   DUA PENJAGA BARU (1 Oktober 2026), pola yang sama dengan Marketing/Konten:
+
+   1. `baseUpdatedAt` — versi baris yang dipegang klien saat mulai menyunting.
+      Kalau versi server sudah lebih baru, ada yang menyimpan duluan: barisnya
+      DITOLAK dan dilaporkan ($bentrok), bukan ditimpa. Tanpa ini penjaga
+      urutan `updated_at >=` memakai jam PERANGKAT: tab basi yang menyunting
+      sekarang selalu bercap lebih baru, jadi ia selalu menang dan suntingan
+      kru lain hilang tanpa satu pun galat.
+   2. `dikenal` — id yang pernah dilihat klien. Penghapusan dibatasi ke
+      dikenal − kiriman. Batas lama ($maxUpd = cap terbaru di kiriman) tidak
+      melindungi apa pun begitu tab itu menyunting satu baris saja: capnya
+      jadi "sekarang", dan seluruh event/jadwal/talent yang dibuat kru lain
+      sejak tab itu dibuka ikut terhapus. Klien lama tetap dilayani aturan lama.
+
+   Cap yang dinaikkan server (lolos bentrok tapi cap klien <= versi server)
+   IKUT ditulis ke `data` dan dipulangkan lewat $versi. Kalau tidak, klien
+   memegang angka yang berbeda dari kolom updated_at dan suntingan berikutnya
+   dilaporkan bentrok padahal tidak ada yang menyalip — pelajaran Marketing
+   8 September 2026. */
+function event_hapus_dikenal($pdo, $tabel, $kolomId, $ids, $kenal) {
+  $hapus = array_values(array_diff(array_map('strval', $kenal), $ids));
+  /* Kiriman KOSONG yang sekaligus menghapus banyak baris hampir pasti bukan
+     kehendak orang — tidak ada satu tombol pun yang membuang empat baris
+     sekaligus. Baris terakhir (atau beberapa) tetap bisa dihapus. */
+  if (!count($hapus) || (count($ids) === 0 && count($hapus) > 3)) return;
+  $del = $pdo->prepare('DELETE FROM ' . $tabel . ' WHERE ' . $kolomId . ' IN (' .
+                       implode(',', array_fill(0, count($hapus), '?')) . ')');
+  $del->execute($hapus);
+}
+function event_versi_server($pdo, $tabel, $kolomId, $ids) {
+  $out = array();
+  if (!$ids) return $out;
+  $q = $pdo->prepare('SELECT ' . $kolomId . ' AS i, updated_at FROM ' . $tabel . ' WHERE ' . $kolomId .
+                     ' IN (' . implode(',', array_fill(0, count($ids), '?')) . ')');
+  $q->execute($ids);
+  foreach ($q as $row) $out[(string)$row['i']] = (int)$row['updated_at'];
+  return $out;
+}
+function upsert_collection($pdo, $c, $rows, &$bentrok = null, $nama = '', $kenal = null, &$versi = null) {
   $tabel = $c['table'];
   $cols  = $c['cols'];
   $adaCreated = !empty($c['created']);
@@ -321,22 +360,47 @@ function upsert_collection($pdo, $c, $rows) {
           ON DUPLICATE KEY UPDATE ' . implode(', ', $upd);
   $st = $pdo->prepare($sql);
 
+  $kirimIds = array();
+  foreach ($rows as $r) if (is_array($r) && !empty($r['id'])) $kirimIds[] = (string)$r['id'];
+  $verServer = event_versi_server($pdo, $tabel, 'id', $kirimIds);
+
   $ids = array();
   $maxUpd = 0;                      // updated_at terbaru yang ADA di kiriman ini
   foreach ($rows as $r) {
     if (!is_array($r) || empty($r['id'])) continue;
     $id = (string)$r['id'];
-    $ids[] = $id;
+    $ids[] = $id;   // tetap "ada" walau bentrok, supaya tidak ikut terhapus
+
+    $lolosBentrok = false;
+    if (array_key_exists('baseUpdatedAt', $r)) {
+      $base = ms_valid($r['baseUpdatedAt']);
+      if (isset($verServer[$id]) && $verServer[$id] > $base) {
+        if (is_array($bentrok)) $bentrok[] = array(
+          'koleksi' => $nama, 'id' => $id,
+          'nama' => isset($r['name']) ? (string)$r['name'] : (isset($r['title']) ? (string)$r['title'] : $id));
+        continue;   // JANGAN timpa kerja orang lain
+      }
+      $lolosBentrok = true;
+    }
+    $simpan = $r; unset($simpan['baseUpdatedAt']);   // metadata kiriman, bukan isi
+    $uaKirim = ms_valid(isset($simpan['updatedAt']) ? $simpan['updatedAt'] : 0);
+    $ua = $uaKirim;
+    if ($lolosBentrok && isset($verServer[$id]) && $ua <= $verServer[$id]) $ua = $verServer[$id] + 1;
+    if ($ua !== $uaKirim) {
+      $simpan['updatedAt'] = $ua;
+      if (is_array($versi)) $versi[$nama . ':' . $id] = $ua;
+    }
 
     $args = array(':id' => $id);
-    foreach ($cols as $kolom => $def) $args[':' . $kolom] = ambil($r, $def[0], $def[1]);
-    $args[':updated_at'] = ms_valid(isset($r['updatedAt']) ? $r['updatedAt'] : 0);
-    if ($args[':updated_at'] > $maxUpd) $maxUpd = $args[':updated_at'];
-    if ($adaCreated) $args[':created_at'] = ms_valid(isset($r[$createdField]) ? $r[$createdField] : 0);
-    $args[':data'] = json_enc($r);
+    foreach ($cols as $kolom => $def) $args[':' . $kolom] = ambil($simpan, $def[0], $def[1]);
+    $args[':updated_at'] = $ua;
+    if ($ua > $maxUpd) $maxUpd = $ua;
+    if ($adaCreated) $args[':created_at'] = ms_valid(isset($simpan[$createdField]) ? $simpan[$createdField] : 0);
+    $args[':data'] = json_enc($simpan);
     $st->execute($args);
   }
 
+  if (is_array($kenal)) { event_hapus_dikenal($pdo, $tabel, 'id', $ids, $kenal); return count($ids); }
   hapus_yang_hilang($pdo, $tabel, 'id', $ids, $maxUpd);
   return count($ids);
 }
@@ -370,18 +434,21 @@ function hapus_yang_hilang($pdo, $tabel, $kolomId, $ids, $batas = 0) {
 /* ==================== SIMPAN (dipanggil di dalam kunci) ====================
    Reconcile SELURUH state kiriman ke MySQL, semua dalam 1 transaksi.
    Koleksi yang TIDAK dikirim sama sekali → tidak disentuh (bukan dikosongkan). */
-function save_all($state) {
+function save_all($state, $dikenal = null) {
   if (!is_array($state)) throw new Exception('Payload data kosong/invalid');
 
   $pdo = db();
   $pdo->beginTransaction();
   try {
     $hitung = array();
+    $bentrok = array();
+    $versi = array();
 
     foreach (collections() as $nama => $c) {
       if (!array_key_exists($nama, $state)) continue;          // tidak dikirim → lewati
       $rows = is_array($state[$nama]) ? $state[$nama] : array();
-      $hitung[$nama] = upsert_collection($pdo, $c, $rows);
+      $kenal = (is_array($dikenal) && isset($dikenal[$nama]) && is_array($dikenal[$nama])) ? $dikenal[$nama] : null;
+      $hitung[$nama] = upsert_collection($pdo, $c, $rows, $bentrok, $nama, $kenal, $versi);
     }
 
     // ---- checkins: append-only, tidak pernah ditimpa/dihapus ----
@@ -407,23 +474,48 @@ function save_all($state) {
     }
 
     // ---- eventDetails: 1 baris per event ----
+    /* Dulu dihapus TANPA BATAS APA PUN: tab basi menghapus rincian event yang
+       dibuat kru lain sesudah tab itu dibuka. Sekarang dua penjaga yang sama
+       dengan upsert_collection(), dan kunci di $bentrok/$versi memakai awalan
+       'ed:' — sama dengan eachRow() di deploy/event. Beda satu huruf tidak
+       melempar apa pun; klien cuma tidak menemukan barisnya. */
     if (isset($state['eventDetails']) && is_array($state['eventDetails'])) {
       $ed = $pdo->prepare('INSERT INTO event_details (event_id, updated_at, data)
               VALUES (:event_id,:updated_at,:data)
               ON DUPLICATE KEY UPDATE
                 data       = IF(VALUES(updated_at) >= updated_at, VALUES(data),       data),
                 updated_at = IF(VALUES(updated_at) >= updated_at, VALUES(updated_at), updated_at)');
+      $verEd = event_versi_server($pdo, 'event_details', 'event_id',
+                                  array_map('strval', array_keys($state['eventDetails'])));
       $ids = array();
       foreach ($state['eventDetails'] as $eid => $d) {
         if (!is_array($d)) continue;
-        $ids[] = (string)$eid;
+        $eid = (string)$eid;
+        $ids[] = $eid;
+        $lolos = false;
+        if (array_key_exists('baseUpdatedAt', $d)) {
+          $base = ms_valid($d['baseUpdatedAt']);
+          if (isset($verEd[$eid]) && $verEd[$eid] > $base) {
+            $bentrok[] = array('koleksi' => 'eventDetails', 'id' => $eid, 'nama' => 'Rincian event ' . $eid);
+            continue;
+          }
+          $lolos = true;
+        }
+        unset($d['baseUpdatedAt']);
+        $uaKirim = ms_valid(isset($d['updatedAt']) ? $d['updatedAt'] : 0);
+        $ua = $uaKirim;
+        if ($lolos && isset($verEd[$eid]) && $ua <= $verEd[$eid]) $ua = $verEd[$eid] + 1;
+        if ($ua !== $uaKirim) { $d['updatedAt'] = $ua; $versi['ed:' . $eid] = $ua; }
         $ed->execute(array(
-          ':event_id'   => (string)$eid,
-          ':updated_at' => ms_valid(isset($d['updatedAt']) ? $d['updatedAt'] : 0),
+          ':event_id'   => $eid,
+          ':updated_at' => $ua,
           ':data'       => json_enc($d),
         ));
       }
-      hapus_yang_hilang($pdo, 'event_details', 'event_id', $ids);
+      $kenalEd = (is_array($dikenal) && isset($dikenal['eventDetails']) && is_array($dikenal['eventDetails']))
+               ? $dikenal['eventDetails'] : null;
+      if (is_array($kenalEd)) event_hapus_dikenal($pdo, 'event_details', 'event_id', $ids, $kenalEd);
+      else hapus_yang_hilang($pdo, 'event_details', 'event_id', $ids);
       $hitung['eventDetails'] = count($ids);
     }
 
@@ -441,6 +533,8 @@ function save_all($state) {
   return array(
     'saved'   => true,
     'jumlah'  => $hitung,
+    'bentrok' => $bentrok,
+    'versi'   => (object)$versi,
     'backend' => 'php-mysql',
     'ts'      => gmdate('c'),
   );

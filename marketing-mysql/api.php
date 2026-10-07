@@ -68,7 +68,11 @@ if (defined('API_TOKEN') && API_TOKEN !== '') {
 
 try {
   if ($action === 'getAll') {
-    keluar(array('ok' => true, 'data' => baca_state()));
+    $data = baca_state();
+    /* Iklan mode simpan PARSIAL (`_fitur`) — lihat catatan di baca_state().
+       Hanya diiklankan kalau lib ini memang bisa menghapus eksplisit. */
+    if (function_exists('mkt_hapus_eksplisit')) $data['_fitur'] = array('delta');
+    keluar(array('ok' => true, 'data' => $data));
 
   } else if ($action === 'stats') {
     keluar(array('ok' => true, 'data' => stats()));
@@ -142,7 +146,9 @@ try {
 
   } else if ($action === 'saveAll') {
     $lock = db_lock();
-    try { $out = save_all(isset($body['data']) ? $body['data'] : null); }
+    try { $out = save_all(isset($body['data']) ? $body['data'] : null,
+                          isset($body['dikenal']) && is_array($body['dikenal']) ? $body['dikenal'] : null,
+                          isset($body['hapus']) && is_array($body['hapus']) ? $body['hapus'] : null); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
 
