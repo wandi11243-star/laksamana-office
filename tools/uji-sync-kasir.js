@@ -9,9 +9,9 @@
        d.bd TERSIMPAN; ditahan selama ada perubahan belum disimpan, baris
        marketing/event bernominal nol, atau shift belum diatur; dan menyebut
        kalau breakdown berubah sesudah sync.
-     - Performa Kasir (finance/kas DAN cashier): mulai 1 Sep 2026 hanya
+     - Performa Kasir (finance/kas DAN cashier): mulai 1 Okt 2026 hanya
        membaca BEKUAN — hari belum di-sync tidak dihitung dan DISEBUT; angka
-       bekuan menang atas d.bd hidup; bulan sebelum September tetap langsung.
+       bekuan menang atas d.bd hidup; bulan sebelum Oktober tetap langsung.
      - Yang diukur ANGKA di layar & isi kiriman saveAll, bukan cuma adanya
        tombol. */
 const fs = require('fs');
@@ -107,25 +107,25 @@ const teksBal = d => (d.getElementById('bd_balance') || {}).innerHTML || '';
   {
     const kiriman = [];
     const w = domOmset([
-      hari('2026-08-05', bdDasar(6000000, 4000000)),
-      hari('2026-09-05', bdDasar(6000000, 4000000, [salin(BARIS_MK)]))
+      hari('2026-09-05', bdDasar(6000000, 4000000)),
+      hari('2026-10-05', bdDasar(6000000, 4000000, [salin(BARIS_MK)]))
     ], kiriman);
     await siapOmset(w);
 
-    let d = await bukaBd(w, '2026-08-05');
-    cek('hari Agustus: tidak ada tombol sync', !tombolSync(d));
+    let d = await bukaBd(w, '2026-09-05');
+    cek('hari September: tidak ada tombol sync', !tombolSync(d));
     cek('...dan dikatakan langsung dihitung', /langsung dihitung di Performa Kasir/.test(teksBal(d)), teksBal(d).slice(-400));
 
-    d = await bukaBd(w, '2026-09-05');
+    d = await bukaBd(w, '2026-10-05');
     const b = tombolSync(d);
-    cek('hari September: tombol sync ada', !!b);
+    cek('hari Oktober: tombol sync ada', !!b);
     cek('...dan hidup (breakdown tersimpan & lengkap)', b && !b.disabled, teksBal(d).slice(-600));
     cek('status "belum di-sync" disebut', /Belum di-sync ke Performa Kasir/.test(teksBal(d)));
 
     b.click();
     await tunggu(300);
     const terakhir = kiriman[kiriman.length - 1];
-    const hr = terakhir && terakhir.daily.find(x => x.date === '2026-09-05');
+    const hr = terakhir && terakhir.daily.find(x => x.date === '2026-10-05');
     const s = hr && hr.bdSync;
     cek('sync terkirim ke server', !!s, JSON.stringify(Object.keys(hr || {})));
     const ani = s && s.kasir.find(x => x.kasirId === 'k-ani');
@@ -135,16 +135,16 @@ const teksBal = d => (d.getElementById('bd_balance') || {}).innerHTML || '';
     cek('pencatatnya dari sesi', s && s.by === 'Fina');
     cek('bekuan DI LUAR d.bd', hr && hr.bd && hr.bd.bdSync === undefined);
 
-    d = await bukaBd(w, '2026-09-05');
+    d = await bukaBd(w, '2026-10-05');
     cek('sesudah sync: status sudah di-sync', /Sudah di-sync ke Performa Kasir/.test(teksBal(d)));
     cek('...dan tombolnya mati (tidak ada yang berubah)', tombolSync(d) && tombolSync(d).disabled);
 
     /* Breakdown disunting & DISIMPAN sesudah sync: bekuannya tetap, layar menyebutnya. */
-    w.eval(`(()=>{const x=DB.daily.find(y=>y.date==='2026-09-05'); x.bd.kasir[1].amount=3000000;})()`);
-    d = await bukaBd(w, '2026-09-05');
+    w.eval(`(()=>{const x=DB.daily.find(y=>y.date==='2026-10-05'); x.bd.kasir[1].amount=3000000;})()`);
+    d = await bukaBd(w, '2026-10-05');
     cek('breakdown berubah sesudah sync: disebut', /berubah sesudah sync terakhir/.test(teksBal(d)));
     cek('...tombol Sync ulang hidup', tombolSync(d) && !tombolSync(d).disabled && /Sync ulang/.test(tombolSync(d).textContent));
-    const bekuLama = w.eval(`JSON.stringify(DB.daily.find(y=>y.date==='2026-09-05').bdSync.kasir)`);
+    const bekuLama = w.eval(`JSON.stringify(DB.daily.find(y=>y.date==='2026-10-05').bdSync.kasir)`);
     cek('...bekuan lama TIDAK ikut berubah sebelum di-sync ulang', JSON.parse(bekuLama).find(x => x.kasirId === 'k-budi').real === 4000000);
 
     /* Perubahan yang BELUM disimpan menahan tombolnya. */
@@ -169,23 +169,23 @@ const teksBal = d => (d.getElementById('bd_balance') || {}).innerHTML || '';
     const kiriman = [];
     const bd = bdDasar(6000000, 4000000, [salin(BARIS_MK)]);
     bd.event = [{ picId: '', eventName: 'Nobar Final', amount: 0 }];
-    const w = domOmset([hari('2026-09-06', bd)], kiriman);
+    const w = domOmset([hari('2026-10-06', bd)], kiriman);
     await siapOmset(w);
-    const d = await bukaBd(w, '2026-09-06');
+    const d = await bukaBd(w, '2026-10-06');
     cek('baris event nominal nol: tombol ditahan', tombolSync(d) && tombolSync(d).disabled);
     cek('...dan nama acaranya disebut', /belum diisi nominalnya/.test(teksBal(d)) && /Nobar Final/.test(teksBal(d)), teksBal(d).slice(-700));
   }
 
   /* ================= 2. Performa Kasir: Kas Kecil & Cashier ================= */
   const DAILY_PERF = [
-    hari('2026-08-05', bdDasar(6000000, 4000000)),
+    hari('2026-09-05', bdDasar(6000000, 4000000)),
     /* Disync: bekuannya SENGAJA berbeda dari d.bd hidup — kalau yang dibaca
        d.bd, Ani berbunyi 9jt; kalau bekuannya, 2jt. */
-    hari('2026-09-05', bdDasar(9000000, 1000000), { bdSync: { at: 1, by: 'Fina', sidik: 'x',
+    hari('2026-10-05', bdDasar(9000000, 1000000), { bdSync: { at: 1, by: 'Fina', sidik: 'x',
       kasir: [{ kasirId: 'k-ani', off: false, real: 2000000, potong: 0 },
               { kasirId: 'k-budi', off: false, real: 3000000, potong: 0 }] } }),
     /* Belum disync: tidak boleh dihitung sama sekali. */
-    hari('2026-09-06', bdDasar(7000000, 3000000))
+    hari('2026-10-06', bdDasar(7000000, 3000000))
   ];
 
   async function perfKas() {
@@ -252,22 +252,22 @@ const teksBal = d => (d.getElementById('bd_balance') || {}).innerHTML || '';
   for (const [nama, buat] of [['Kas Kecil', perfKas], ['Cashier', perfCashier]]) {
     console.log(`\n== Performa Kasir (${nama}) ==`);
     const w = await buat();
-    w.eval("VIEWMODE='bulan'; PERIOD='2026-09';");
+    w.eval("VIEWMODE='bulan'; PERIOD='2026-10';");
     w.go('kasir'); await tunggu(200);
     let v = w.document.getElementById('app-view').innerHTML;
-    cek('September: total Semua = bekuan saja (Rp5.000.000)', /Rp5\.000\.000/.test(v) && !/Rp10\.000\.000/.test(v) && !/Rp20\.000\.000/.test(v),
+    cek('Oktober: total Semua = bekuan saja (Rp5.000.000)', /Rp5\.000\.000/.test(v) && !/Rp10\.000\.000/.test(v) && !/Rp20\.000\.000/.test(v),
         (v.match(/Rp[\d.]+/g) || []).slice(0, 8).join(' '));
-    cek('...hari belum di-sync disebut berikut tanggalnya', /1 hari belum di-sync/.test(v) && /2026-09-06/.test(v));
-    w.eval("PERIOD='2026-08';"); w.go('kasir'); await tunggu(200);
+    cek('...hari belum di-sync disebut berikut tanggalnya', /1 hari belum di-sync/.test(v) && /2026-10-06/.test(v));
+    w.eval("PERIOD='2026-09';"); w.go('kasir'); await tunggu(200);
     v = w.document.getElementById('app-view').innerHTML;
-    cek('Agustus: tetap dihitung langsung (Rp10.000.000)', /Rp10\.000\.000/.test(v));
+    cek('September: tetap dihitung langsung (Rp10.000.000)', /Rp10\.000\.000/.test(v));
     cek('...tanpa peringatan sync', !/belum di-sync/.test(v));
   }
 
   /* ================= 3. Berkas kembar ================= */
   console.log('\n== Berkas kembar ==');
   const mulai = s => (s.match(/const SYNC_KASIR_MULAI='([^']+)'/) || [])[1];
-  cek('tanggal mulai sama di ketiga berkas', mulai(OMSET) === '2026-09-01' && mulai(KAS) === mulai(OMSET) && mulai(CASHIER) === mulai(OMSET),
+  cek('tanggal mulai sama di ketiga berkas', mulai(OMSET) === '2026-10-01' && mulai(KAS) === mulai(OMSET) && mulai(CASHIER) === mulai(OMSET),
       [mulai(OMSET), mulai(KAS), mulai(CASHIER)].join(' / '));
   for (const [n, s] of [['kas', KAS], ['cashier', CASHIER]]) {
     const vk = s.slice(s.indexOf('function viewKasir('), s.indexOf('function viewKasir(') + 6000);

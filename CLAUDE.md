@@ -2971,7 +2971,7 @@ node tools/uji-breakdown-simpan.js    # 36 pemeriksaan (dari 25)
 Permintaan user: breakdown yang masih diisi (kasir saja, atau event yang
 masuk tapi belum diisi) **belum dihitung** di Performa Kasir; finance menekan
 tombol **Sync ke Performa Kasir** kalau sudah final, supaya angka di sana tidak
-berubah-ubah. **Berlaku mulai 1 September 2026** — bulan sebelumnya dihitung
+berubah-ubah. **Berlaku mulai 1 Oktober 2026** (semula ditulis 1 September, dikoreksi user) — bulan sebelumnya dihitung
 langsung seperti dulu ("yang sudah berlalu biarlah berlalu").
 
 - **Yang disimpan BEKUAN ANGKA, bukan penanda final.** `d.bdSync =

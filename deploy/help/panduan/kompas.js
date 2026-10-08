@@ -78,14 +78,14 @@ LM_HELP_ISI('kompas', {
           'Pastikan setiap baris punya *PIC*. Yang masih berbunyi "— pilih PIC —" belum diakui untuk siapa pun.',
           'Tentukan *kasir shift* untuk tiap baris yang memang memotong kasir.',
           'Periksa angka di kotak konfirmasi, lalu simpan.',
-          'Kalau breakdown hari itu sudah FINAL, tekan *Sync ke Performa Kasir* (berlaku mulai 1 September 2026).'
+          'Kalau breakdown hari itu sudah FINAL, tekan *Sync ke Performa Kasir* (berlaku mulai 1 Oktober 2026).'
         ]},
         { t:'catatan', nada:'awas', judul:'Performa Kasir baru menghitung hari yang sudah di-sync',
-          isi:'Mulai 1 September 2026, hari yang breakdown-nya belum di-sync BELUM dihitung di Performa '
+          isi:'Mulai 1 Oktober 2026, hari yang breakdown-nya belum di-sync BELUM dihitung di Performa '
             + 'Kasir sama sekali — supaya angka di sana tidak berubah-ubah selama breakdown masih diisi. '
             + 'Tombolnya baru hidup kalau breakdown sudah disimpan, tidak ada baris marketing/event yang '
             + 'nominalnya masih kosong, dan kasir shift sudah diatur. Mengubah breakdown SESUDAH sync tidak '
-            + 'mengubah Performa Kasir sampai kamu menekan *Sync ulang*. Bulan sebelum September tetap '
+            + 'mengubah Performa Kasir sampai kamu menekan *Sync ulang*. Bulan sebelum Oktober tetap '
             + 'dihitung langsung seperti dulu.' },
         { t:'catatan', nada:'awas', judul:'Simpan dikunci selama masih ada kasir shift yang kosong',
           isi:'Itu disengaja. Dulu peringatannya boleh dilewati, dan yang terjadi: breakdown tetap '
