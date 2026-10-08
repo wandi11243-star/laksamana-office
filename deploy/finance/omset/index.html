@@ -2939,6 +2939,42 @@ function barisTanpaShift(d){
     .filter(r=>potongKasirAktif(r) && num(r.amount)>0 && potonganBaris(r).pembagi<=0);
 }
 
+/* ==== SYNC KE PERFORMA KASIR (8 Oktober 2026, permintaan user) ====
+   "ketika di bagian breakdown sumber jika masih diisi data kasir saja, itu
+   masih belum dihitungkan … ketika sudah final, nnti ada tinggal tekan tombol
+   untuk sync ke performa kasir, agar perubahan-perubahan di Performa Kasir
+   tidak berubah-ubah."
+
+   Mulai SYNC_KASIR_MULAI, Performa Kasir (panel Kas Kecil DAN modul Cashier)
+   TIDAK lagi menghitung dari d.bd yang hidup. Yang dibaca BEKUAN `d.bdSync`,
+   ditulis tombol "Sync ke Performa Kasir" di halaman ini. Hari tanpa bekuan
+   belum dihitung sama sekali — dan itu DISEBUT di Performa Kasir, bukan
+   didiamkan (daftar yang menyusut tanpa keterangan dibaca sebagai data hilang).
+
+   - BEKUANNYA ANGKA, BUKAN PENANDA. Penanda "final" yang membuat Performa
+     tetap menghitung dari d.bd hidup akan ikut berubah begitu breakdown-nya
+     disunting lagi — persis yang diminta untuk dihentikan. Angkanya dihitung
+     DI SINI (potonganHari/omsetKasir halaman ini), jadi kedua layar Performa
+     membaca angka yang sama persis untuk hari yang sama.
+   - DI LUAR `d.bd`, sama dengan bdLog: d.bd diganti UTUH tiap Simpan.
+   - Bulan sebelum SYNC_KASIR_MULAI TIDAK disentuh: dihitung langsung seperti
+     dulu. "Yang sudah berlalu biarlah berlalu" (keputusan user).
+   - BERKAS KEMBAR: SYNC_KASIR_MULAI & bentuk `d.bdSync.kasir`
+     ({kasirId, off, real, potong}) dibaca deploy/finance/kas/ dan
+     deploy/cashier/ (barisKasirPerforma). Yang berubah di sini HARUS ikut. */
+const SYNC_KASIR_MULAI='2026-10-01';
+function syncKasirBerlaku(tgl){ return String(tgl||'')>=SYNC_KASIR_MULAI; }
+function sidikBd(bd){
+  bd=bd||{};
+  return JSON.stringify({m:bd.marketing||[],e:bd.event||[],k:bd.kasir||[],s:bd.self||{}});
+}
+function snapKasir(d){
+  return (d.bd?.kasir||[]).map(r=>{
+    const off=!!r.off, potong=off?0:potonganHari(d,r.kasirId);
+    return {kasirId:r.kasirId, off, real:off?0:omsetKasir(r)-potong, potong};
+  });
+}
+
 /* Modal penentuan kasir shift satu baris event — merekalah yang dipotong.
    Namanya masih modalBagiHasil() supaya diff-nya kecil. Mengembalikan lewat callback
    supaya pemanggilnya yang memutuskan kapan menggambar ulang — baris breakdown
@@ -3328,6 +3364,13 @@ function viewBreakdown(){
      saat Simpan Breakdown. Yang di `d.bd.abaikan` adalah yang SUDAH tersimpan;
      salinannya di sini boleh bertambah tanpa menyentuh server. */
   const state={mk:JSON.parse(JSON.stringify(d.bd.marketing)),ev:JSON.parse(JSON.stringify(d.bd.event)),ks:JSON.parse(JSON.stringify(kasirRows)),so:JSON.parse(JSON.stringify(d.bd.self)),abaikan:(d.bd.abaikan||[]).slice()};
+  /* Isian yang belum disimpan. Sync membekukan d.bd yang TERSIMPAN, jadi
+     selama layar memegang angka yang berbeda tombolnya ditahan — kalau tidak,
+     yang menekannya mengira angka di layar yang dibekukan. Dicatat SEBELUM
+     serapOtomatis menambah baris event, jadi baris otomatis yang belum
+     disimpan pun terhitung sebagai perubahan. */
+  const sidikState=()=>JSON.stringify({m:state.mk,e:state.ev,k:state.ks,s:state.so});
+  const awalBd=sidikState();
 
   /* Cabut satu kasir dari seluruh baris shift marketing & event. Dipakai saat
      kasir dicentang OFF, dan sekali saat halaman dibuka untuk merapikan data
@@ -4050,6 +4093,65 @@ function viewBreakdown(){
       </table></div>
       <div class="helper" style="margin:10px 0 0">Kolom <b>Open Bill</b> tidak menambah maupun mengurangi Realisasi di sebelahnya — uangnya sudah ada di dalam Omset Bruto kasir itu. Ia menandai bagian mana yang datang dari pesanan tambahan event, dan event mana. Nominal yang sama juga diakui untuk PIC event-nya, dan <b>tidak dipotong</b> dari kasir mana pun.</div></div>`;
   }
+  /* ---- SYNC KE PERFORMA KASIR (lihat SYNC_KASIR_MULAI) ----
+     Alasan yang menahan tombolnya DISEBUT satu per satu: tombol mati tanpa
+     sebab terbaca sebagai halaman rusak. Yang diperiksa d.bd yang TERSIMPAN —
+     itu yang akan dibekukan — kecuali "belum disimpan", yang memang soal layar. */
+  function syncAlasan(){
+    const a=[];
+    if(sidikState()!==awalBd) a.push('Ada perubahan yang <b>belum disimpan</b> — tekan <b>Simpan Breakdown</b> dulu.');
+    else if(!d.bdValid) a.push('Breakdown hari ini belum pernah disimpan dalam keadaan <b>Valid</b>.');
+    const kosong=[...(d.bd.marketing||[]).map(r=>['Marketing',r]),...(d.bd.event||[]).map(r=>['Event',r])]
+      .filter(x=>num(x[1].amount)<=0);
+    if(kosong.length) a.push(`${kosong.length} baris marketing/event <b>belum diisi nominalnya</b> (${esc(kosong.map(x=>x[0]+': '+(x[1].eventName||'(tanpa nama)')).join(', '))}). Isi nominalnya, atau buang barisnya kalau acaranya memang tidak jadi.`);
+    const tanpaShift=barisTanpaShift(d);
+    if(tanpaShift.length) a.push(`${tanpaShift.length} baris marketing <b>belum ditentukan kasir shift-nya</b>.`);
+    return a;
+  }
+  function syncHtml(){
+    if(!syncKasirBerlaku(bdDate))
+      return '<div class="helper" style="margin-top:10px">Hari sebelum <b>'+esc(dateLabel(SYNC_KASIR_MULAI))+'</b> langsung dihitung di Performa Kasir seperti dulu — tidak perlu di-sync.</div>';
+    const s=d.bdSync, alasan=syncAlasan();
+    const berubah=!!(s && s.sidik!==sidikBd(d.bd));
+    const sesuai=!!(s && !berubah);
+    const status = !s
+      ? '<div class="notice warn"><div>⏳ <b>Belum di-sync ke Performa Kasir.</b> Hari ini belum ikut dihitung di Performa Kasir sampai tombol di bawah ditekan — supaya angka di sana tidak berubah-ubah selama breakdown masih diisi.</div></div>'
+      : (berubah
+        ? `<div class="notice warn"><div>⚠ Breakdown <b>berubah sesudah sync terakhir</b> (${esc(s.by||'—')}, ${esc(fmtWaktu(s.at))}). Performa Kasir <b>masih memakai angka sync itu</b> — tekan <b>Sync ulang</b> kalau perubahannya memang final.</div></div>`
+        : `<div class="notice ok"><div>✓ Sudah di-sync ke Performa Kasir oleh <b>${esc(s.by||'—')}</b> · ${esc(fmtWaktu(s.at))}. Angka di Performa Kasir untuk hari ini sudah final.</div></div>`);
+    const boleh=!alasan.length && !sesuai;
+    return `<div style="margin-top:12px">${status}
+      ${alasan.length&&!sesuai?`<div class="notice bad"><div><b>Belum bisa di-sync:</b><ul style="margin:6px 0 0 18px;padding:0">${alasan.map(x=>'<li>'+x+'</li>').join('')}</ul></div></div>`:''}
+      <div style="display:flex;justify-content:flex-end;margin-top:8px">
+        <button class="btn btn-primary" id="bd_sync" ${boleh?'':'disabled'}>${s?'🔁 Sync ulang ke Performa Kasir':'📤 Sync ke Performa Kasir'}</button>
+      </div></div>`;
+  }
+  function pasangSync(){
+    const btn=document.getElementById('bd_sync'); if(!btn) return;
+    btn.onclick=()=>{
+      /* Diperiksa LAGI di sini, bukan cuma lewat `disabled`: tombolnya bisa
+         dihidupkan dari devtools, dan yang dibekukan menentukan uang kasir. */
+      if(!syncKasirBerlaku(bdDate) || syncAlasan().length){ calc(); return; }
+      const snap=snapKasir(d);
+      const baris=snap.filter(x=>!x.off).map(x=>'  '+empName('kasir',x.kasirId)+' : '+fmtRp(x.real)+(x.potong?' (potongan event '+fmtRp(x.potong)+')':''));
+      const off=snap.filter(x=>x.off).length;
+      if(!confirm(['Sync breakdown '+dateLabel(bdDate)+' ke Performa Kasir?','',
+        'Realisasi kasir yang dibekukan:'].concat(baris.length?baris:['  (tidak ada kasir yang masuk)'],
+        off?['  '+off+' kasir OFF']:[],['',
+        'Sesudah ini Performa Kasir memakai angka di atas untuk hari ini. Mengubah breakdown nanti TIDAK mengubah Performa Kasir sampai di-sync ulang.']).join('\n'))) return;
+      d.bdSync={at:Date.now(), by:(CURRENT_USER&&CURRENT_USER.name)||'', sidik:sidikBd(d.bd), kasir:snap};
+      save();
+      btn.disabled=true; btn.textContent='Menyimpan…';
+      kirimSekarang().then(()=>{
+        alert('✓ Breakdown '+dateLabel(bdDate)+' sudah di-sync ke Performa Kasir.');
+        render();
+      },err=>{
+        btn.disabled=false; btn.textContent='📤 Sync ke Performa Kasir';
+        alert('⚠ Sync BELUM tersimpan di server.\n\n'+(err&&err.message||'penyebab tidak diketahui')
+          +'\n\nPengiriman dicoba lagi otomatis. JANGAN tutup halaman sampai penanda di pojok berbunyi Tersimpan.');
+      });
+    };
+  }
   function calc(){
     const tot=sumDiakui(), diff=net-tot;
     document.getElementById('bd_efek').innerHTML=kartuEfek();
@@ -4126,7 +4228,9 @@ function viewBreakdown(){
       ${jejakList({log:d.bdLog}).length
         ? jejakHtml({log:d.bdLog},'Diatur')
         : '<div class="helper" style="margin-top:10px">Breakdown hari ini belum pernah disimpan, '
-          + 'atau diatur sebelum jejaknya dicatat (7 September 2026).</div>'}`;
+          + 'atau diatur sebelum jejaknya dicatat (7 September 2026).</div>'}
+      ${syncHtml()}`;
+    pasangSync();
     document.getElementById('bd_save').onclick=()=>{
       const btn=document.getElementById('bd_save');
       /* KONFIRMASI SEBELUM KIRIM (permintaan user 5 September 2026).
