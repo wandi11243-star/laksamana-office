@@ -3610,6 +3610,32 @@ function barisTanpaShift(d){
     .filter(r=>potongKasirAktif(r) && num(r.amount)>0 && potonganBaris(r).pembagi<=0);
 }
 
+/* ==== SYNC KE PERFORMA KASIR (8 Oktober 2026) ====
+   BERKAS KEMBAR dengan SYNC_KASIR_MULAI / snapKasir() di deploy/finance/omset/
+   (Breakdown Sumber) dan dengan salinannya di modul satunya (kas ↔ cashier).
+   Kalau salah satu berubah, KETIGANYA ikut.
+
+   Mulai tanggal itu Performa Kasir membaca BEKUAN `d.bdSync.kasir` yang
+   ditulis tombol "Sync ke Performa Kasir" — bukan d.bd yang masih bisa
+   disunting. Hari yang belum di-sync memulangkan null = BELUM DIHITUNG, dan
+   pemanggilnya wajib menyebutnya di layar. Hari sebelum tanggal itu dihitung
+   langsung seperti dulu (keputusan user: "yang sudah berlalu biarlah
+   berlalu"). Bentuk kembaliannya SAMA untuk kedua jalur supaya perulangan di
+   Performa Kasir tidak bercabang. */
+const SYNC_KASIR_MULAI='2026-09-01';
+function syncKasirBerlaku(tgl){ return String(tgl||'')>=SYNC_KASIR_MULAI; }
+function barisKasirPerforma(d){
+  if(!syncKasirBerlaku(d.date)){
+    return (d.bd?.kasir||[]).map(r=>{
+      const off=!!r.off, potong=off?0:potonganHari(d,r.kasirId);
+      return {kasirId:r.kasirId, off, real:off?0:omsetKasir(r)-potong, potong};
+    });
+  }
+  const s=d.bdSync;
+  if(!s||!Array.isArray(s.kasir)) return null;
+  return s.kasir.map(x=>({kasirId:x.kasirId, off:!!x.off, real:num(x.real), potong:num(x.potong)}));
+}
+
 /* Modal penentuan kasir shift satu baris event — merekalah yang dipotong.
    Namanya masih modalBagiHasil() supaya diff-nya kecil. Mengembalikan lewat callback
    supaya pemanggilnya yang memutuskan kapan menggambar ulang — baris breakdown
@@ -4685,13 +4711,19 @@ function viewKasir(){
   const disaring=semuaPic.filter(e=>!kasirMurni(e));
   const agg={};
   list.forEach(k=>agg[k.id]={real:0,masuk:0,off:0,hist:[],potong:0});
+  /* Hari sesudah SYNC_KASIR_MULAI yang belum di-sync dari Breakdown Sumber
+     BELUM DIHITUNG sama sekali (lihat barisKasirPerforma), dan dikumpulkan di
+     sini supaya bisa disebut di layar. */
+  const belumSync=[];
   days.forEach(d=>{
-    (d.bd?.kasir||[]).forEach(r=>{if(agg[r.kasirId]){
+    const barisKs=barisKasirPerforma(d);
+    if(barisKs===null){ belumSync.push(d); return; }
+    barisKs.forEach(r=>{if(agg[r.kasirId]){
       if(r.off){agg[r.kasirId].off++;agg[r.kasirId].hist.push({date:d.date,real:0,off:true});}
       else{
         // Potongan dihitung dari shift tiap baris event, bukan dari kehadiran
         // hari itu: kasir yang masuk tapi tidak kena shift event tidak dipotong.
-        const potong=potonganHari(d,r.kasirId);
+        const potong=r.potong;
         /* `real` sudah bersih: bruto − diskon yang dia berikan − potongan
            event. Riwayat di bawah SENGAJA hanya memajang angka ini, tidak
            lagi memecahnya jadi kolom omset + kolom potongan (permintaan user
@@ -4699,7 +4731,7 @@ function viewKasir(){
            padahal yang menentukan bonusnya cuma angka finalnya. Rinciannya
            tidak hilang — ada di kartu "Efek ke Realisasi Kasir" di Breakdown,
            tempat orang yang memang perlu memeriksa akan mencarinya. */
-        const real=omsetKasir(r)-potong;
+        const real=r.real;
         agg[r.kasirId].real+=real;
         agg[r.kasirId].potong+=potong;
         agg[r.kasirId].masuk++;
@@ -4729,7 +4761,14 @@ function viewKasir(){
   /* Hari yang punya baris event tanpa kasir shift. Potongannya tidak dibebankan
      ke siapa pun, jadi realisasi kasir di bawah lebih BESAR dari seharusnya —
      sebut alasannya, jangan biarkan angkanya tampak wajar. */
-  const hariBelum=days.filter(d=>barisTanpaShift(d).length);
+  /* Hari yang sudah wajib di-sync tidak ikut di sini: yang belum di-sync
+     memang belum dihitung, dan yang sudah di-sync tidak bisa lolos tanpa
+     shift-nya diatur (Breakdown menahan tombolnya). */
+  const hariBelum=days.filter(d=>!syncKasirBerlaku(d.date)&&barisTanpaShift(d).length);
+  const tempat='<b>Breakdown Sumber</b>';
+  const peringatanSync=belumSync.length
+    ? `<div class="notice warn">⏳ <div><b>${belumSync.length} hari belum di-sync</b> (${esc(belumSync.slice(0,6).map(d=>d.date).join(', '))}${belumSync.length>6?', …':''}) — realisasinya <b>belum dihitung</b> di halaman ini. Angkanya baru masuk sesudah breakdown hari itu final dan tombol <b>Sync ke Performa Kasir</b> ditekan di ${tempat}.</div></div>`
+    : '';
   const peringatan=hariBelum.length
     ? `<div class="notice warn">⚠ ${hariBelum.length} hari punya baris event yang belum ditentukan kasir shift-nya (${esc(hariBelum.slice(0,5).map(d=>d.date).join(', '))}${hariBelum.length>5?', …':''}). Potongannya belum dibebankan ke kasir mana pun, jadi realisasi di bawah masih terlalu besar — atur di <b>Breakdown Sumber</b> pada tanggal tersebut.</div>`
     : '';
@@ -4740,7 +4779,7 @@ function viewKasir(){
      menambah apa pun yang bisa dikerjakan dari sini — memperbaikinya tetap di
      Office. Kalau suatu saat perlu tahu siapa yang tersaring, `disaring` masih
      dihitung di atas; jangan hidupkan lagi sebagai notice permanen. */
-  el.innerHTML=`<div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>`+peringatan+(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
+  el.innerHTML=`<div class="card" style="padding:12px 16px"><div class="card-sub" style="margin:0">Menampilkan <b>${modeHarian()?'satu hari':'satu bulan'}</b> · ${esc(labelRentang())}</div></div>`+peringatan+peringatanSync+(list.length?`<div class="seg" id="ks_seg">${seg}</div>`:'')+`<div id="ks_body"></div>`;
   const draw=kid=>{
     let k,a;
     if(kid==='__all__'){

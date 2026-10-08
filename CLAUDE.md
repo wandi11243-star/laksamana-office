@@ -2966,6 +2966,53 @@ node tools/uji-openbill-performa.js   # 25 pemeriksaan (dari 18)
 node tools/uji-breakdown-simpan.js    # 36 pemeriksaan (dari 25)
 ```
 
+### Performa Kasir menunggu SYNC dari Breakdown Sumber (8 Oktober 2026)
+
+Permintaan user: breakdown yang masih diisi (kasir saja, atau event yang
+masuk tapi belum diisi) **belum dihitung** di Performa Kasir; finance menekan
+tombol **Sync ke Performa Kasir** kalau sudah final, supaya angka di sana tidak
+berubah-ubah. **Berlaku mulai 1 September 2026** — bulan sebelumnya dihitung
+langsung seperti dulu ("yang sudah berlalu biarlah berlalu").
+
+- **Yang disimpan BEKUAN ANGKA, bukan penanda final.** `d.bdSync =
+  {at, by, sidik, kasir:[{kasirId, off, real, potong}]}`, dihitung di
+  `deploy/finance/omset/` (`snapKasir()`, dari potonganHari/omsetKasir halaman
+  itu). Penanda yang membuat Performa tetap membaca `d.bd` hidup akan ikut
+  berubah begitu breakdown disunting lagi — persis yang diminta dihentikan.
+- **DI LUAR `d.bd`**, sama dengan `bdLog`: `d.bd` diganti UTUH tiap Simpan.
+  Aman di blob kompas — `save_all()` menulis apa adanya, ketiga modul tidak
+  menyusun ulang objek harinya.
+- **Tombolnya ditahan** (alasannya DISEBUT satu per satu): ada isian belum
+  disimpan (`sidikState()` vs `awalBd`, dicatat sebelum serapOtomatis jadi
+  baris event otomatis yang belum disimpan ikut terhitung), `bdValid` belum
+  true, baris marketing/event bernominal ≤0 ("event masuk tapi belum diisi"),
+  atau shift belum diatur. Diperiksa LAGI di penangan klik — `disabled` bisa
+  dicabut dari devtools.
+- **Breakdown yang berubah sesudah sync DIKATAKAN** (`sidik` vs `sidikBd(d.bd)`),
+  dan Performa Kasir tetap memakai bekuan lama sampai **Sync ulang**.
+- **Pembacanya `barisKasirPerforma(d)` — BERKAS KEMBAR di `deploy/finance/kas/`
+  dan `deploy/cashier/`**, plus `SYNC_KASIR_MULAI` di ketiga berkas. Sebelum
+  tanggal itu ia menghitung langsung; sesudahnya memulangkan bekuan, atau
+  **null = belum dihitung**, dan `viewKasir` menyebut tanggal-tanggalnya
+  (`peringatanSync`). Pita "shift belum ditentukan" cuma untuk hari sebelum
+  tanggal itu — hari sesudahnya tidak bisa di-sync tanpa shift.
+- **Efek samping yang baik:** untuk hari yang di-sync, Cashier & Kas membaca
+  angka yang SAMA (dihitung omset), jadi selisih `porsiPic` versi lama di
+  Cashier (lihat blok "berkas kembar KETIGA") tidak berlaku lagi untuk hari
+  itu. Hari sebelum September masih memakai rumus masing-masing.
+- **Compliment tetap dibaca hidup** dari registernya — yang dibekukan cuma
+  hasil breakdown. Panel lain yang membaca `d.bd.kasir` (Dashboard Omset →
+  Walk In) tidak ikut menunggu sync.
+
+```bash
+node tools/uji-sync-kasir.js   # 32 pemeriksaan, jsdom (omset + kas + cashier)
+```
+
+Lima mutasi dicoba, kelimanya tertangkap: kas membaca `d.bd` hidup, nominal
+nol tidak menahan, hari belum di-sync tidak disebut, penjaga klik paksa
+dicabut. **Uji jsdom panel Kas WAJIB menyisipkan `performa-bonus.js` inline**
+— `viewKasir` memanggil `pbCompFilterPic` dari aset itu.
+
 ### Open Bill: satu rumus untuk dua layar (5 September 2026)
 
 Keluhan user: *"yang diakui PIC include Open Bill, tapi di Performa tidak

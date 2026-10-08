@@ -131,6 +131,10 @@ LM_HELP_ISI('cashier', {
         { t:'teks', isi:'Halaman ini menampilkan omset yang diakui untukmu, berikut posisi '
               + 'bonusmu. Angkanya final: ia sudah memperhitungkan potongan untuk event yang '
               + 'omsetnya diakui tim marketing.' },
+        { t:'catatan', nada:'info', judul:'Hari yang belum di-sync belum dihitung',
+          isi:'Mulai 1 September 2026, omset sebuah hari baru masuk ke halaman ini sesudah finance '
+            + 'menyelesaikan Breakdown Sumber hari itu dan menekan *Sync ke Performa Kasir*. Hari yang belum '
+            + 'di-sync disebut tanggalnya di atas halaman — bukan hilang, cuma belum final.' },
         { t:'catatan', nada:'info', judul:'Kamu hanya bisa membuka namamu sendiri',
           isi:'Tab dengan namamu dan tab *Semua* terbuka; nama kasir lain tidak bisa dibuka satu '
             + 'per satu. Tab *Semua* sengaja tetap ada — ia angka gabungan yang tidak menyebut '
