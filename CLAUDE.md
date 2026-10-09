@@ -6578,9 +6578,17 @@ berfoto (`bl_item`) dan STOK TERKINI.
   tunggal yang lupa disebut di rantai pengalih jatuh ke Ordering.
 - **HAK AKSES TIDAK IKUT MERGE**: superadmin membuka Kelola Akses sekali di
   tiap server, lalu mencentang *Stock · Break & Loss* ke orangnya.
+- **TAMPILANNYA SAMA DENGAN FORM WASTE** (revisi user hari yang sama: *"ga
+  mau banyak bentuk berbeda"*). `<head>` — tema Tailwind + seluruh lapisan
+  CSS — DISALIN dari `deploy/stock/usage/`, sidebar dari `pasangCangkang()`
+  di `catat-common.js`, dan menu bersub-tab *Catat | Report* persis menu
+  Waste. Ujinya menuntut blok `<style>` pertama kedua berkas **identik**:
+  kalau tema panel Pemakaian diubah, salin ulang ke sini atau ujinya merah.
+  Versi pertama (halaman berdesain sendiri, tanpa Tailwind) DICABUT —
+  jangan dikembalikan.
 
 ```bash
-node tools/uji-breakloss.js   # 40 pemeriksaan, php-parser + jsdom + server tiruan HIDUP
+node tools/uji-breakloss.js   # 47 pemeriksaan, php-parser + jsdom + server tiruan HIDUP
 ```
 
 ### Pemakaian Bahan Baku: pemilih bulan di KETIGA report (2 September 2026)

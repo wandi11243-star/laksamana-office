@@ -137,9 +137,12 @@ function bl_daftar($pdo) {
   $st = $pdo->query("SELECT i.`id`,i.`nama`,i.`kategori`,i.`satuan`,i.`lokasi`,i.`harga`,i.`stok_min`,
                             i.`aktif`,i.`catatan`,i.`thumb`,(COALESCE(i.`foto`,'') <> '') AS ada_foto,
                             i.`dibuat_oleh`,i.`dibuat_at`,i.`diubah_oleh`,i.`diubah_at`,
-                            COALESCE(s.stok,0) AS stok, COALESCE(s.n,0) AS n_mutasi
+                            COALESCE(s.stok,0) AS stok, COALESCE(s.n,0) AS n_mutasi,
+                            COALESCE(s.tot_break,0) AS tot_break, COALESCE(s.tot_loss,0) AS tot_loss
                      FROM `bl_item` i
-                     LEFT JOIN (SELECT `item_id`, SUM(`qty`) AS stok, COUNT(*) AS n
+                     LEFT JOIN (SELECT `item_id`, SUM(`qty`) AS stok, COUNT(*) AS n,
+                                       SUM(CASE WHEN `jenis`='break' THEN -`qty` ELSE 0 END) AS tot_break,
+                                       SUM(CASE WHEN `jenis`='loss'  THEN -`qty` ELSE 0 END) AS tot_loss
                                 FROM `bl_mutasi` WHERE `batal_at` IS NULL GROUP BY `item_id`) s
                        ON s.`item_id` = i.`id`
                      ORDER BY i.`kategori`, i.`nama`");
@@ -151,6 +154,9 @@ function bl_daftar($pdo) {
       'aktif' => (int)$r['aktif'] === 1, 'catatan' => (string)$r['catatan'],
       'thumb' => (string)$r['thumb'], 'adaFoto' => (bool)$r['ada_foto'],
       'stok' => (float)$r['stok'], 'nMutasi' => (int)$r['n_mutasi'],
+      // Sepanjang waktu, bukan periode report: kartu barang tidak boleh
+      // berubah angkanya tiap kali periode di layar lain diganti.
+      'totBreak' => (float)$r['tot_break'], 'totLoss' => (float)$r['tot_loss'],
       'dibuatOleh' => $r['dibuat_oleh'], 'dibuatAt' => $r['dibuat_at'],
       'diubahOleh' => $r['diubah_oleh'], 'diubahAt' => $r['diubah_at'],
     ];

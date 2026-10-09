@@ -72,7 +72,9 @@ function server(url, opt) {
     } else {
       const dari = u.searchParams.get('dari') || '', ke = u.searchParams.get('ke') || '';
       out = { status: 'success',
-        items: DB.items.map(i => Object.assign({}, i, { stok: stokOf(i.id) })),
+        items: DB.items.map(i => Object.assign({}, i, { stok: stokOf(i.id),
+          totBreak: -DB.mutasi.filter(m => m.itemId === i.id && !m.batalAt && m.jenis === 'break').reduce((x, m) => x + m.qty, 0),
+          totLoss:  -DB.mutasi.filter(m => m.itemId === i.id && !m.batalAt && m.jenis === 'loss').reduce((x, m) => x + m.qty, 0) })),
         mutasi: DB.mutasi.filter(m => (!dari || m.tanggal >= dari) && (!ke || m.tanggal <= ke))
                          .map(m => Object.assign({}, m, { foto: undefined })) };
     }
@@ -114,106 +116,114 @@ function server(url, opt) {
       DB.items.find(i => i.id === b.id).aktif = !!b.aktif; out = { status: 'success' };
     } else out = { status: 'error', message: 'aksi tak dikenal' };
   }
-  return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(out)) });
+  return Promise.resolve({ ok: true, status: 200, text: () => Promise.resolve(JSON.stringify(out)), json: () => Promise.resolve(JSON.parse(JSON.stringify(out))) });
 }
 
 (async () => {
-  const dom = new JSDOM(html, {
-    url: 'https://dev.laksamanamuda.id/stock/breakloss/',
-    runScripts: 'dangerously', pretendToBeVisual: true,
-    beforeParse(w) {
-      w.localStorage.setItem('lm_session', JSON.stringify({ name: 'Uji Steward', token: 'tok', modules: ['breakloss'], expiry: Date.now() + 3600e3 }));
-      w.fetch = server;
-      w.confirm = () => true;
-      w.scrollTo = () => {};
-    }
-  });
+  const COMMON = fs.readFileSync(path.join(ROOT, 'deploy/stock/catat-common.js'), 'utf8');
+  const { VirtualConsole } = require(JSDOM_PATH);
+  const dom = new JSDOM(
+    /* CDN Tailwind & FontAwesome tidak bisa dimuat jsdom; blok setelan tema
+       ikut dibuang (menyentuh objek `tailwind`). catat-common.js — yang
+       menggambar sidebar & memegang helper — DISISIPKAN apa adanya, sama
+       dengan uji panel Pemakaian. */
+    html.replace(/<script[^>]+src="https?:\/\/[^"]*"[^>]*><\/script>/g, '')
+        .replace(/<script>[\s\S]*?tailwind\.config[\s\S]*?<\/script>/, '')
+        .replace('<script src="../catat-common.js"></script>', () => '<script>' + COMMON + '</script>'),
+    {
+      url: 'https://dev.laksamanamuda.id/stock/breakloss/',
+      runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
+      beforeParse(w) {
+        w.localStorage.setItem('lm_session', JSON.stringify({ name: 'Uji Steward', token: 'tok', modules: ['breakloss'], expiry: Date.now() + 3600e3 }));
+        w.fetch = server;
+        w.confirm = () => true;
+        w.prompt = () => w.__jawabPrompt;
+        w.scrollTo = () => {};
+      }
+    });
   const w = dom.window, d = w.document;
   await tunggu(80);
-  const app = () => d.getElementById('app').innerHTML;
-  const ev = (el, t) => el.dispatchEvent(new w.Event(t, { bubbles: true }));
+  const $ = id => d.getElementById(id);
+  const isi = id => ($(id) || {}).innerHTML || '';
 
   cek('halaman tidak dialihkan oleh guard', w.location.pathname.endsWith('/stock/breakloss/'));
-  cek('keadaan kosong menyuruh mendaftarkan barang', /Belum ada barang terdaftar/.test(app()));
+  /* TAMPILAN SAMA DENGAN FORM WASTE — permintaan user. Yang dijaga
+     kerangkanya: sidebar dari catat-common, sub-tab Catat | Report, dan
+     kelas komponen yang sama dengan panel Pemakaian. */
+  cek('sidebar digambar catat-common (pasangCangkang)', /Laksamana Muda/.test(isi('app-sidebar')) && !!d.querySelector('[data-nav-tampilan="bl"]') && !!d.querySelector('[data-nav-tampilan="barang"]'));
+  cek('sub-tab Catat | Report seperti Waste', !!d.querySelector('.subtab[data-subgrup="bl"] [data-sub="catat"]') && !!d.querySelector('.subtab[data-subgrup="bl"] [data-sub="report"]'));
+  cek('form memakai panel + field + btn-primary btn-block seperti Waste',
+      !!d.querySelector('[data-subpane="bl:catat"] .panel .panel-body .field') && !!d.querySelector('[data-subpane="bl:catat"] .btn.btn-primary.btn-block'));
+  cek('report memakai recap-grid + bars seperti Waste', !!$('bl-ringkas') && $('bl-ringkas').classList.contains('recap-grid') && !!d.querySelector('#br-sebab.bars'));
+  const usage = fs.readFileSync(path.join(ROOT, 'deploy/stock/usage/index.html'), 'utf8').replace(/\r\n/g, '\n');
+  const potongStyle = s => { const a = s.indexOf('<style>'); return s.slice(a, s.indexOf('</style>', a)); };
+  cek('lapisan CSS identik dengan panel Pemakaian', potongStyle(html.replace(/\r\n/g, '\n')) === potongStyle(usage));
+  cek('halaman terbuka di menu Break & Loss, sub-tab Catat', !d.querySelector('[data-tampilan="bl"]').classList.contains('hidden') && !d.querySelector('[data-subpane="bl:catat"]').classList.contains('hidden'));
+  cek('keadaan kosong menunjuk ke Daftarkan Barang', /Belum ada barang/.test(isi('b-item-info')));
 
-  // Daftarkan barang lewat modal, dengan stok awal.
-  w.bukaItem();
-  d.getElementById('if-nama').value = 'Piring Saji 27cm';
-  d.getElementById('if-kategori').value = 'Piring';
-  d.getElementById('if-satuan').value = 'pcs';
-  d.getElementById('if-harga').value = '45000';
-  d.getElementById('if-min').value = '20';
-  d.getElementById('if-awal').value = '24';
+  // Daftarkan barang, dengan stok awal.
+  w.buka('barang', 'catat');
+  $('i-nama').value = 'Piring Saji 27cm'; $('i-kategori').value = 'Piring';
+  $('i-harga').value = '45000'; $('i-min').value = '20'; $('i-awal').value = '24';
   await w.simpanItem(); await tunggu(30);
   cek('barang tersimpan di server', DB.items.length === 1 && DB.items[0].nama === 'Piring Saji 27cm');
   cek('stok awal jadi mutasi MASUK', DB.mutasi.length === 1 && DB.mutasi[0].jenis === 'masuk' && DB.mutasi[0].qty === 24);
-  cek('kartu barang memajang stok 24', /Piring Saji 27cm/.test(app()) && /<b class="">24<\/b>/.test(app()));
+  cek('sesudah simpan pindah ke Stok Terkini', !d.querySelector('[data-subpane="barang:report"]').classList.contains('hidden'));
+  cek('Stok Terkini memajang stok 24', /Piring Saji 27cm/.test(isi('stok-daftar')) && /bl-stok[^"]*">24</.test(isi('stok-daftar')));
 
-  // Nama kembar ditolak, modal tetap terbuka.
-  w.bukaItem(); d.getElementById('if-nama').value = 'piring saji 27cm';
+  // Nama kembar ditolak dan ditandai.
+  w.buka('barang', 'catat'); $('i-nama').value = 'piring saji 27cm';
   const n0 = DB.items.length; await w.simpanItem(); await tunggu(20);
-  cek('nama kembar ditolak', DB.items.length === n0 && !!d.querySelector('#if-nama.err'));
-  w.tutup();
+  cek('nama kembar ditolak & kotaknya ditandai', DB.items.length === n0 && $('i-nama').classList.contains('err'));
+  w.resetItem();
 
   // Catat: sebab kosong DITAHAN di layar (tidak ada POST).
   const id = DB.items[0].id;
   w.catatUntuk(id); await tunggu(10);
-  cek('tab Catat terbuka dengan barang terpilih', /Stok terkini <b>24 pcs<\/b>/.test(app()));
-  w.ubahForm('qty', '3');
+  cek('Catat terbuka dengan barang terpilih + stok terkini', $('b-item').value === id && /Stok terkini <b[^>]*>24 Pcs<\/b>/.test(isi('b-item-info')));
+  $('b-qty').value = '3';
   const p0 = nPost; await w.simpanCatat(); await tunggu(10);
-  cek('sebab kosong ditahan tanpa kiriman', nPost === p0 && !!d.querySelector('input.err[list="sebab-saran"]'));
+  cek('sebab kosong ditahan tanpa kiriman', nPost === p0 && $('b-sebab').classList.contains('err'));
 
-  w.ubahForm('sebab', 'Pecah saat dicuci'); w.ubahForm('tim', 'Steward');
+  $('b-sebab').value = 'Pecah saat dicuci'; $('b-tim').value = 'Steward';
   await w.simpanCatat(); await tunggu(30);
   const br = DB.mutasi.find(m => m.jenis === 'break');
   cek('break tersimpan bertanda minus', br && br.qty === -3 && br.sebab === 'Pecah saat dicuci');
-  cek('pencatat diambil dari sesi', br && br.oleh === 'Uji Steward');
-  cek('form dikosongkan sesudah simpan', w.eval("ST.form.qty === '' && ST.form.itemId === ''"));
+  cek('pencatat dari sesi', br && br.oleh === 'Uji Steward');
+  cek('sesudah simpan pindah ke Report (seperti Waste)', !d.querySelector('[data-subpane="bl:report"]').classList.contains('hidden'));
+  cek('form dikosongkan sesudah simpan', $('b-sebab').value === '' && $('b-item').value === '');
 
   // Loss
-  w.eval("ST.form = formBaru('" + id + "', 'loss')"); w.ubahForm('qty', '2'); w.ubahForm('sebab', 'Tidak kembali dari meja');
+  w.catatUntuk(id); $('b-jenis').value = 'loss'; $('b-qty').value = '2'; $('b-sebab').value = 'Tidak kembali dari meja';
   await w.simpanCatat(); await tunggu(30);
   cek('stok terkini 24 − 3 − 2 = 19', stokOf(id) === 19);
-
-  // Rekap
-  w.go('rekap'); await tunggu(5);
-  cek('rekap menyebut nilai break 3 × 45.000', /Rp135\.000/.test(app()));
-  cek('rekap menyebut total nilai 5 × 45.000', /Rp225\.000/.test(app()));
-  w.go('stok'); await tunggu(5);
-  cek('stok 19 ≤ minimum 20 ditandai menipis', /Stok menipis/.test(app()) && /<b class="min">19<\/b>/.test(app()));
+  cek('report: kartu Break 3 & nilai 5 × 45.000', /💥 Break[\s\S]*?val">3</.test(isi('bl-ringkas')) && /Rp225\.000/.test(isi('bl-ringkas')));
+  cek('report: daftar memuat kedua catatan', /Pecah saat dicuci/.test(isi('bl-daftar')) && /Tidak kembali dari meja/.test(isi('bl-daftar')));
+  cek('report: tabel per barang memakai tbl', !!d.querySelector('#rekap-bl table.tbl'));
+  cek('stok 19 ≤ minimum 20 ditandai menipis', /Stok menipis/.test(isi('stok-daftar')) && /bl-stok min">19</.test(isi('stok-daftar')));
 
   // Opname: fisik 17 → selisih −2 dihitung server.
-  w.bukaMutasi(id, 'opname');
-  d.getElementById('mt-qty').value = '17';
+  w.bukaMutasi(id, 'opname'); $('m-qty').value = '17';
   await w.simpanMutasi(id, 'opname'); await tunggu(30);
   const op = DB.mutasi.find(m => m.jenis === 'opname');
   cek('opname mencatat selisih −2', op && op.qty === -2 && stokOf(id) === 17);
 
-  // Batalkan break → stok kembali naik 3, baris tetap ada.
-  w.go('riwayat'); await tunggu(5);
-  cek('riwayat bawaan menampilkan break & loss', /Pecah saat dicuci/.test(app()) && /Tidak kembali dari meja/.test(app()));
-  w.bukaBatal(br.id);
-  const p1 = nPost; await w.simpanBatal(br.id); await tunggu(10);
+  // Batal: tanpa alasan ditahan; dengan alasan → dicoret, stok kembali.
+  w.__jawabPrompt = '';
+  const p1 = nPost; await w.batalkan(br.id); await tunggu(10);
   cek('batal tanpa alasan ditahan', nPost === p1 && !br.batalAt);
-  d.getElementById('bt-alasan').value = 'Salah jumlah';
-  await w.simpanBatal(br.id); await tunggu(30);
+  w.__jawabPrompt = 'Salah jumlah';
+  await w.batalkan(br.id); await tunggu(30);
   cek('batal tersimpan, baris TIDAK dihapus', br.batalAt && DB.mutasi.includes(br));
   cek('stok kembali naik sebesar break yang dibatalkan', stokOf(id) === 20);
-  cek('baris batal tercoret di riwayat', !!d.querySelector('tr.batal') && /Salah jumlah/.test(app()));
+  cek('baris batal tercoret di daftar', !!d.querySelector('#bl-daftar .batal-row') && /Salah jumlah/.test(isi('bl-daftar')));
+  cek('tidak ada tombol hapus di daftar', !/trash/.test(isi('bl-daftar')));
 
-  // Nonaktif → tidak muncul di form catat.
-  await w.aktifkanItem(id, 0); await tunggu(30);
-  w.go('catat'); await tunggu(5);
-  cek('barang nonaktif tidak bisa dicatat', /Belum ada barang aktif/.test(app()));
+  // Nonaktif → tidak bisa dipilih di form catat.
+  w.editItem(id); await w.aktifkanItem(); await tunggu(30);
+  cek('barang nonaktif hilang dari pilihan catat', ![...$('b-item').options].some(o => o.value === id));
 
-  // Mengetik di kotak cari tidak membuat ulang kotaknya.
-  w.go('stok'); w.eval("ST.tampil = 'semua'"); w.render();
-  const kotak = d.getElementById('cari-stok'); kotak.value = 'piring'; ev(kotak, 'input');
-  cek('kotak cari tidak dibuat ulang saat mengetik', d.getElementById('cari-stok') === kotak);
-  kotak.value = 'gelas'; ev(kotak, 'input');
-  cek('kata tanpa hasil dikatakan', /Tidak ada barang yang cocok/.test(app()));
-
-  // Pemilih panel Stock mengenal tujuan baru.
+  // Pemilih panel & portal.
   const pem = fs.readFileSync(path.join(ROOT, 'deploy/stock/index.html'), 'utf8');
   cek('pemilih: guard head mengenal breakloss', /m\.indexOf\('breakloss'\) > -1\)\) return null;/.test(pem));
   cek('pemilih: tujuan tunggal diarahkan ke ./breakloss/', /panel\[0\] === 'breakloss' \? '\.\/breakloss\/'/.test(pem));
