@@ -74,6 +74,8 @@
       ringkas: 'Catatan pemakaian, waste, dan serah terima bahan.' },
     { izin: 'hpp', grup: 'operasional', label: 'Stock, HPP & Resep',
       ringkas: 'Resep dapur, harga bahan, modal per menu, dan COGS.' },
+    { izin: 'breakloss', grup: 'operasional', label: 'Stock, Break & Loss',
+      ringkas: 'Barang inventaris yang pecah atau hilang, berikut stok terkininya.' },
 
     { izin: 'jadwal', grup: 'tim', label: 'Roster, Jadwal Shift',
       ringkas: 'Menyusun jadwal shift kru, pengajuan off, dan data pegawai.' },

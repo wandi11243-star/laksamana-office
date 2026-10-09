@@ -6545,6 +6545,44 @@ ujinya dibetulkan, dan bentuknya sudah punya nama di berkas ini:
 > mengiris sebuah blok wajib mulai dari tag pembukanya, bukan dari kalimat
 > yang kebetulan ada di dalamnya.
 
+### Stock: panel Break & Loss (9 Oktober 2026)
+
+Permintaan user: modul baru di Stock, *"konsepnya sama seperti waste produk, ada
+foto list dan stock terkini, item-nya bisa didaftarkan biar terdata"*.
+
+```
+deploy/stock/breakloss/index.html   panel, izin SENDIRI 'breakloss'
+stock-mysql/breakloss.php           endpoint
+stock-mysql/lib_stock_breakloss.php tabel bl_item + bl_mutasi, lahir sendiri
+```
+
+Yang dicatat barang INVENTARIS (piring, gelas, alat bar) yang pecah (break)
+atau hilang (loss) — bukan bahan seperti Waste. Karena itu ada MASTER BARANG
+berfoto (`bl_item`) dan STOK TERKINI.
+
+- **STOK TIDAK PERNAH DISIMPAN SEBAGAI ANGKA.** Ia `SUM(qty)` seluruh
+  `bl_mutasi` yang `batal_at IS NULL`: masuk (+), break (−), loss (−), opname
+  (±, selisih fisik − stok DIHITUNG SERVER di dalam transaksi + `FOR UPDATE`).
+  Stok awal saat mendaftarkan barang juga mutasi `masuk`.
+- **TIDAK ADA DELETE**, di backend maupun layar. Salah input DIBATALKAN
+  (alasan wajib, sekali saja), barang yang tidak dipakai DINONAKTIFKAN.
+- **Harga DISALIN ke baris mutasi** — nilai kerugian bulan lalu tidak ikut
+  berubah waktu harga barangnya disunting.
+- **Daftar membawa `thumb` (320px), bukan `foto`** (1280px, ditarik lewat
+  `?action=foto` saat diklik). Pola yang sama dengan daftar waste.
+- **`mb_substr` hanya lewat `bl_potong()`** berpenjaga `function_exists`.
+- Kuncinya disebut di **pemilih Stock** (guard `<head>`, rantai pengalih
+  tujuan tunggal, kartu, `allowedPanels`, `openPanel`), **portal**
+  (`access` kartu Stock, `accessLabels`, `ALL_MODULE_KEYS_SEED`), dan **Help**
+  (`daftar.js` + `panduan/breakloss.js`). Yang terlewat gagal diam — tujuan
+  tunggal yang lupa disebut di rantai pengalih jatuh ke Ordering.
+- **HAK AKSES TIDAK IKUT MERGE**: superadmin membuka Kelola Akses sekali di
+  tiap server, lalu mencentang *Stock · Break & Loss* ke orangnya.
+
+```bash
+node tools/uji-breakloss.js   # 40 pemeriksaan, php-parser + jsdom + server tiruan HIDUP
+```
+
 ### Pemakaian Bahan Baku: pemilih bulan di KETIGA report (2 September 2026)
 
 `deploy/stock/usage/`. Modul ini punya tiga layar report — **Pemakaian**,
