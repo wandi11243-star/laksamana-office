@@ -387,9 +387,12 @@
           <div data-subpane="bl:catat" class="space-y-5">
           <div class="panel">
             <div class="panel-head">
-              <h3>Catat Break &amp; Loss Baru</h3>
+              <h3 id="b-judul">Catat Break &amp; Loss Baru</h3>
+              <button type="button" id="b-batal-edit" onclick="resetCatat()" class="btn btn-ghost btn-xs hidden">✕ Batal edit</button>
             </div>
             <div class="panel-body space-y-4" id="bl-form">
+              <input type="hidden" id="b-id">
+              <p id="b-edit-info" class="hint hidden" style="margin-top:0"></p>
               <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
                 <div class="field"><label>Tanggal</label><input type="date" id="b-tanggal"></div>
                 <div class="field"><label>Jenis</label>
@@ -687,6 +690,10 @@
   let PERIODE = 'bulan', BULAN = '';
   let FILTER_JENIS = 'BL', FILTER_TIM = 'ALL', FILTER_KAT = '', TAMPIL_STOK = 'aktif';
   let FOTO_CATAT = null;      // {foto, thumb, nama} | null
+  /* Mode ubah: foto lama TIDAK disentuh kecuali diganti atau dibuang —
+     tanpa pembedaan ini, membetulkan salah ketik jumlah ikut menghapus foto
+     buktinya (pelajaran form Waste). */
+  let EDIT_ADA_FOTO = false, FOTO_DIBUANG = false;
   let FOTO_ITEM;              // undefined = tidak disentuh, null = dihapus, objek = baru
   let THUMB_LAMA = '';
   const FOTO_CACHE = {};
@@ -883,6 +890,14 @@
       (SEBAB_SARAN[document.getElementById('b-jenis').value] || []).map(s => `<option value="${esc(s)}">`).join('');
   }
   function resetCatat() {
+    document.getElementById('b-id').value = '';
+    document.getElementById('b-judul').textContent = 'Catat Break & Loss Baru';
+    document.getElementById('b-batal-edit').classList.add('hidden');
+    document.getElementById('b-edit-info').classList.add('hidden');
+    document.getElementById('b-simpan').textContent = '💥 Simpan Catatan Break & Loss';
+    EDIT_ADA_FOTO = false; FOTO_DIBUANG = false;
+    document.querySelectorAll('#b-item option[data-sementara], #b-tim option[data-sementara]').forEach(o => o.remove());
+    if (typeof kunciPilihanTim === 'function' && SESI) kunciPilihanTim();
     document.getElementById('b-tanggal').value = hariIni();
     document.getElementById('b-qty').value = 1;
     document.getElementById('b-sebab').value = '';
@@ -895,11 +910,51 @@
   }
   function buangFotoCatat() {
     FOTO_CATAT = null;
+    if (EDIT_ADA_FOTO) FOTO_DIBUANG = true;
     ['b-foto-cam', 'b-foto-file'].forEach(id => { document.getElementById(id).value = ''; });
     const pra = document.getElementById('b-foto-pratinjau');
     pra.removeAttribute('src'); pra.classList.add('hidden');
     document.getElementById('b-foto-buang').classList.add('hidden');
     document.getElementById('b-foto-info').textContent = '';
+  }
+  /* UBAH catatan dari Report — bentuk yang sama dengan editWaste(): form
+     Catat diisi, lalu pindah ke sub-tab itu. Hanya break & loss yang belum
+     dibatalkan; server menolak yang lain juga. */
+  function editMutasi(id) {
+    const m = MUTASI.find(x => x.id === id);
+    if (!m || m.batalAt || (m.jenis !== 'break' && m.jenis !== 'loss')) return;
+    resetCatat();
+    const g = k => document.getElementById(k);
+    g('b-id').value = m.id;
+    // Barang yang sudah nonaktif tidak ada di daftar pilihan; dipasang
+    // sementara supaya catatannya tetap bisa dibetulkan tanpa pindah barang.
+    if (![...g('b-item').options].some(o => o.value === m.itemId)) {
+      const i = item(m.itemId);
+      g('b-item').insertAdjacentHTML('beforeend', `<option value="${esc(m.itemId)}" data-sementara="1">${esc(i ? i.nama + ' (nonaktif)' : '(barang tidak dikenal)')}</option>`);
+    }
+    g('b-item').value = m.itemId;
+    g('b-jenis').value = m.jenis; gantiJenisCatat();
+    g('b-tanggal').value = m.tanggal;
+    g('b-qty').value = Math.abs(m.qty);
+    g('b-sebab').value = m.sebab || '';
+    g('b-catatan').value = m.catatan || '';
+    /* Tim ASLI catatan dipertahankan walau di luar pilihan yang sekarang —
+       memaksanya ke tim akun berarti memindahkan catatan orang lain hanya
+       karena salah ketik dibetulkan. Pola setNilaiTim() form Waste. */
+    if (m.tim && ![...g('b-tim').options].some(o => o.value === m.tim)) {
+      g('b-tim').insertAdjacentHTML('afterbegin', `<option value="${esc(m.tim)}" data-sementara="1">${esc(m.tim)}</option>`);
+    }
+    g('b-tim').value = m.tim || '';
+    EDIT_ADA_FOTO = !!m.adaFoto; FOTO_DIBUANG = false;
+    g('b-foto-info').textContent = m.adaFoto ? 'Sudah ada foto — pilih foto baru untuk menggantinya.' : '';
+    g('b-judul').textContent = 'Ubah Catatan Break & Loss';
+    g('b-batal-edit').classList.remove('hidden');
+    g('b-simpan').textContent = '💾 Simpan Perubahan';
+    const info = g('b-edit-info');
+    info.textContent = `Mengubah catatan ${fmtTgl(m.tanggal)} oleh ${m.oleh || '-'}. Nilai sebelumnya tetap tersimpan di riwayat catatan ini.`;
+    info.classList.remove('hidden');
+    infoBarangCatat();
+    buka('bl', 'catat');
   }
   function catatUntuk(id) {
     resetCatat();
@@ -924,14 +979,28 @@
       return;
     }
     const i = item(itemId);
-    if (i && qty > i.stok && !confirm(`Jumlah ${fmtQty(qty)} melebihi stok terkini ${fmtQty(i.stok)} ${i.satuan}. Stok akan jadi minus.\n\nTetap simpan? (Sebaiknya lakukan opname setelahnya.)`)) return;
+    const idUbah = g('b-id').value;
+    /* Saat mengubah, jumlah lama catatan ini sudah ikut mengurangi stok — jadi
+       yang tersedia untuknya stok + jumlah lama (kalau barangnya sama). */
+    const lamaM = idUbah ? MUTASI.find(x => x.id === idUbah) : null;
+    const tersedia = i ? i.stok + (lamaM && lamaM.itemId === itemId ? Math.abs(lamaM.qty) : 0) : 0;
+    if (i && qty > tersedia && !confirm(`Jumlah ${fmtQty(qty)} melebihi stok terkini ${fmtQty(i.stok)} ${i.satuan}. Stok akan jadi minus.\n\nTetap simpan? (Sebaiknya lakukan opname setelahnya.)`)) return;
     const btn = g('b-simpan'); btn.disabled = true;
     try {
-      const d = await apiPost(BERKAS, { action: 'mutasiSimpan', itemId, jenis: g('b-jenis').value, qty, tanggal, sebab,
-        pic: SESI.name || '', oleh: SESI.name || '', tim: g('b-tim').value, catatan: g('b-catatan').value.trim(),
-        foto: FOTO_CATAT ? FOTO_CATAT.foto : '', fotoNama: FOTO_CATAT ? FOTO_CATAT.nama : '' });
+      const body = { action: idUbah ? 'mutasiUbah' : 'mutasiSimpan', itemId, jenis: g('b-jenis').value, qty, tanggal, sebab,
+        pic: SESI.name || '', oleh: SESI.name || '', tim: g('b-tim').value, catatan: g('b-catatan').value.trim() };
+      if (idUbah) {
+        body.id = idUbah;
+        // Foto hanya dikirim kalau MEMANG berubah: diganti, atau dibuang.
+        if (FOTO_CATAT) { body.foto = FOTO_CATAT.foto; body.fotoNama = FOTO_CATAT.nama; }
+        else if (FOTO_DIBUANG) { body.foto = ''; body.fotoNama = ''; }
+        delete FOTO_CACHE['mutasi:' + idUbah];
+      } else {
+        body.foto = FOTO_CATAT ? FOTO_CATAT.foto : ''; body.fotoNama = FOTO_CATAT ? FOTO_CATAT.nama : '';
+      }
+      const d = await apiPost(BERKAS, body);
       if (d && d.status === 'success') {
-        toast('Tersimpan', `${i ? i.nama : 'Barang'} — stok sekarang ${fmtQty(d.stok)} ${i ? i.satuan : ''}.`, 'ok');
+        toast(idUbah ? 'Perubahan tersimpan' : 'Tersimpan', `${i ? i.nama : 'Barang'} — stok sekarang ${fmtQty(d.stok)} ${i ? i.satuan : ''}.`, 'ok');
         resetCatat();
         await muat();
         // Sama dengan Waste: form yang cuma jadi kosong tidak membuktikan apa pun.
@@ -942,6 +1011,7 @@
       }
     } catch (e) { toast('Gagal terhubung', 'Cek koneksi lalu coba lagi.', 'err'); }
     btn.disabled = false;
+    if (!g('b-id').value) btn.textContent = '💥 Simpan Catatan Break & Loss';
   }
 
   /* ============================ REPORT ============================ */
@@ -1032,15 +1102,25 @@
             ${fmtTgl(m.tanggal)} · ${esc(m.pic || '-')} · dicatat ${esc(m.oleh || '-')} ${fmtWaktu(m.waktu)}
           </div>
           ${m.catatan ? `<div class="mt-2 text-[13px] leading-relaxed" style="color:var(--ink-2);background:var(--paper);border:1px solid var(--line);border-radius:var(--radius-sm);padding:9px 12px">📝 ${esc(m.catatan)}</div>` : ''}
+          ${m.diubahAt ? `<div class="mt-1.5 text-[12px]" style="color:var(--warn)" title="${esc(teksRiwayat(m))}">✎ Diubah ${esc(m.diubahOleh || '')} · ${fmtWaktu(m.diubahAt)}${(m.riwayat || []).length > 1 ? ' (' + m.riwayat.length + '×)' : ''}</div>` : ''}
           ${m.batalAt ? `<div class="mt-2 text-[12.5px] font-semibold" style="color:var(--danger)">Dibatalkan ${esc(m.batalOleh || '')} · ${fmtWaktu(m.batalAt)}: ${esc(m.batalAlasan || '')}</div>` : ''}
         </div>
         <div class="flex items-center gap-1.5 shrink-0">
           ${m.adaFoto ? `<button onclick="lihatFoto('mutasi','${esc(m.id)}')" title="Lihat foto" class="btn-icon"><i class="fa-solid fa-image"></i></button>` : ''}
+          ${!m.batalAt && (m.jenis === 'break' || m.jenis === 'loss') ? `<button onclick="editMutasi('${esc(m.id)}')" title="Ubah" class="btn-icon"><i class="fa-solid fa-pen"></i></button>` : ''}
           ${m.batalAt ? '' : `<button onclick="batalkan('${esc(m.id)}')" title="Batalkan catatan salah input" class="btn-icon dgr"><i class="fa-solid fa-ban"></i></button>`}
         </div>
       </div>`;
     }).join('');
   }
+  /* Nilai SEBELUM tiap perubahan, untuk tooltip baris "Diubah". */
+  function teksRiwayat(m) {
+    return (m.riwayat || []).map(r => {
+      const s = r.sebelum || {}, i = item(s.itemId);
+      return `${fmtWaktu(r.at)} ${r.oleh || ''} — sebelumnya: ${i ? i.nama : '?'} · ${s.jenis} ${fmtQty(Math.abs(s.qty || 0))} · ${s.tanggal} · ${s.sebab || '-'}`;
+    }).join('\n');
+  }
+
   /* Tidak ada hapus: catatan salah input DIBATALKAN dengan alasan. Barisnya
      tetap terlihat tercoret dan berhenti dihitung. */
   async function batalkan(id) {

@@ -6596,9 +6596,16 @@ berfoto (`bl_item`) dan STOK TERKINI.
   dan ditolak server (`floor($x) != $x`). Satuan di form catat berupa LABEL
   (`span#b-unit`), bukan input readonly: input itu kena `.field input{width:100%}`
   dan terdesak sampai hilang.
+- **Catatan break/loss BISA DIUBAH** (`mutasiUbah` → `bl_mutasi_ubah`), tapi
+  hanya yang hidup & berjenis break/loss — masuk/opname tetap batal-lalu-catat-
+  ulang (selisih opname milik stok SAAT itu). Nilai sebelum tiap ubah disimpan
+  di kolom `riwayat` (JSON, 20 terakhir) + `diubah_oleh`/`diubah_at`; ketiga
+  kolom lahir lewat `bl_pastikan_kolom()` (ALTER), bukan migrasi. Barang sama =
+  harga baris dipertahankan; barang diganti = harga barang baru. Foto tidak
+  dikirim kalau tidak disentuh.
 
 ```bash
-node tools/uji-breakloss.js   # 63 pemeriksaan, php-parser + jsdom + server tiruan HIDUP
+node tools/uji-breakloss.js   # 75 pemeriksaan, php-parser + jsdom + server tiruan HIDUP
 ```
 
 ### Pemakaian Bahan Baku: pemilih bulan di KETIGA report (2 September 2026)

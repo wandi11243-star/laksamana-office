@@ -45,6 +45,30 @@ function bl_pastikan($pdo) {
   static $sudah = false;
   if ($sudah) return;
   $sudah = true;
+  bl_pastikan_tabel($pdo);
+  bl_pastikan_kolom($pdo);
+}
+
+/* Kolom yang lahir SESUDAH tabelnya sudah berisi. CREATE TABLE IF NOT EXISTS
+   tidak pernah menyentuh tabel yang sudah ada, jadi tanpa ALTER ini kolomnya
+   cuma ada di pemasangan baru sementara dev & produksi tertinggal — dan
+   UPDATE yang menyebutnya gagal 500. Pola hpp_pastikan_kolom(). */
+function bl_pastikan_kolom($pdo) {
+  $perlu = [
+    'diubah_oleh' => "VARCHAR(120) NOT NULL DEFAULT ''",
+    'diubah_at'   => 'DATETIME NULL',
+    'riwayat'     => 'TEXT NULL',
+  ];
+  $st = $pdo->prepare("SELECT COLUMN_NAME FROM information_schema.COLUMNS
+                       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'bl_mutasi'");
+  $st->execute();
+  $ada = array_map('strtolower', $st->fetchAll(PDO::FETCH_COLUMN));
+  foreach ($perlu as $k => $def) {
+    if (!in_array($k, $ada, true)) $pdo->exec("ALTER TABLE `bl_mutasi` ADD COLUMN `$k` $def");
+  }
+}
+
+function bl_pastikan_tabel($pdo) {
   $pdo->exec("CREATE TABLE IF NOT EXISTS `bl_item` (
       `id`          VARCHAR(40)   NOT NULL,
       `nama`        VARCHAR(160)  NOT NULL,
@@ -164,7 +188,7 @@ function bl_daftar($pdo) {
 
   $sql = "SELECT `id`,`item_id`,`tanggal`,`jenis`,`qty`,`harga`,`sebab`,`pic`,`tim`,`catatan`,
                  (COALESCE(`foto`,'') <> '') AS ada_foto,`oleh`,`waktu`,
-                 `batal_at`,`batal_oleh`,`batal_alasan`
+                 `batal_at`,`batal_oleh`,`batal_alasan`,`diubah_oleh`,`diubah_at`,`riwayat`
           FROM `bl_mutasi` WHERE 1=1";
   $par = [];
   pur_filter_tanggal($sql, $par);
@@ -179,6 +203,8 @@ function bl_daftar($pdo) {
       'catatan' => (string)$r['catatan'], 'adaFoto' => (bool)$r['ada_foto'],
       'oleh' => $r['oleh'], 'waktu' => $r['waktu'],
       'batalAt' => $r['batal_at'], 'batalOleh' => $r['batal_oleh'], 'batalAlasan' => $r['batal_alasan'],
+      'diubahOleh' => $r['diubah_oleh'], 'diubahAt' => $r['diubah_at'],
+      'riwayat' => ($rw = json_decode((string)$r['riwayat'], true)) && is_array($rw) ? $rw : [],
     ];
   }
   return ['status' => 'success', 'items' => $items, 'mutasi' => $mutasi];
@@ -334,6 +360,90 @@ function bl_mutasi_simpan($pdo, $b) {
                  bl_potong(trim((string)($b->fotoNama ?? '')), 0, 200), $oleh, date('Y-m-d H:i:s')]);
     $pdo->commit();
     return ['status' => 'success', 'id' => $id, 'delta' => $delta, 'stok' => $stokSebelum + $delta];
+  } catch (Throwable $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+}
+
+/* UBAH catatan break / loss (permintaan user 10 Oktober 2026: "report break
+ * & loss bisa di edit").
+ *
+ * HANYA break & loss yang belum dibatalkan. Masuk & opname tidak: selisih
+ * opname dihitung dari stok SAAT itu, dan menyuntingnya belakangan
+ * menghasilkan angka yang tidak pernah benar di titik waktu mana pun — yang
+ * salah di sana dibatalkan lalu dicatat ulang.
+ *
+ * Catatan pertanggungjawaban yang angkanya bisa ditimpa tanpa jejak sama
+ * saja dengan draf, jadi NILAI SEBELUMNYA disimpan di `riwayat` (JSON, 20
+ * terakhir) berikut siapa & kapan mengubahnya.
+ *
+ * Harga: barang yang SAMA mempertahankan harga barisnya (harga saat
+ * kejadian); barang yang DIGANTI memakai harga barang barunya — harga lama
+ * milik barang lain dan tidak berarti apa pun untuk barang ini.
+ *
+ * Foto: tidak dikirim (null) = pertahankan; string kosong = dihapus. */
+function bl_mutasi_ubah($pdo, $b) {
+  bl_pastikan($pdo);
+  $id      = trim((string)($b->id ?? ''));
+  $itemId  = trim((string)($b->itemId ?? ''));
+  $jenis   = trim((string)($b->jenis ?? ''));
+  $tanggal = trim((string)($b->tanggal ?? ''));
+  $sebab   = bl_potong(trim((string)($b->sebab ?? '')), 0, 200);
+  $qty     = isset($b->qty) ? (float)$b->qty : 0;
+  if ($id === '') return ['status' => 'error', 'message' => 'catatan tidak disebut'];
+  if (!in_array($jenis, ['break', 'loss'], true)) return ['status' => 'error', 'message' => 'hanya break & loss yang bisa diubah'];
+  $kurang = [];
+  if ($itemId === '') $kurang[] = 'itemId';
+  if (!bl_tanggal_sah($tanggal)) $kurang[] = 'tanggal';
+  if ($sebab === '') $kurang[] = 'sebab';
+  if ($qty <= 0 || floor($qty) != $qty) $kurang[] = 'qty';
+  if ($kurang) return ['status' => 'error', 'message' => 'Belum lengkap: ' . implode(', ', $kurang), 'kurang' => $kurang];
+  $foto = $b->foto ?? null;
+  if ($foto !== null && !bl_foto_sah($foto, 4 * 1024 * 1024)) return ['status' => 'error', 'message' => 'foto tidak sah atau terlalu besar'];
+  $oleh = bl_nama_pemanggil($b);
+
+  $pdo->beginTransaction();
+  try {
+    $st = $pdo->prepare("SELECT * FROM `bl_mutasi` WHERE `id`=? FOR UPDATE");
+    $st->execute([$id]);
+    $lama = $st->fetch();
+    if (!$lama) { $pdo->rollBack(); return ['status' => 'error', 'message' => 'catatan tidak ditemukan']; }
+    if ($lama['batal_at'] !== null) { $pdo->rollBack(); return ['status' => 'error', 'message' => 'catatan yang sudah dibatalkan tidak bisa diubah']; }
+    if (!in_array($lama['jenis'], ['break', 'loss'], true)) { $pdo->rollBack(); return ['status' => 'error', 'message' => 'catatan masuk / opname tidak bisa diubah — batalkan lalu catat ulang']; }
+
+    $st = $pdo->prepare("SELECT `harga`,`aktif` FROM `bl_item` WHERE `id`=? FOR UPDATE");
+    $st->execute([$itemId]);
+    $it = $st->fetch();
+    if (!$it) { $pdo->rollBack(); return ['status' => 'error', 'message' => 'barang tidak ditemukan']; }
+    $gantiBarang = $itemId !== $lama['item_id'];
+    // Pindah KE barang nonaktif ditolak (sama dengan catatan baru); catatan
+    // lama milik barang yang kemudian dinonaktifkan tetap boleh dibetulkan.
+    if ($gantiBarang && (int)$it['aktif'] !== 1) { $pdo->rollBack(); return ['status' => 'error', 'message' => 'barang tujuan sudah dinonaktifkan']; }
+    $harga = $gantiBarang ? (float)$it['harga'] : (float)$lama['harga'];
+
+    $riwayat = json_decode((string)($lama['riwayat'] ?? ''), true);
+    if (!is_array($riwayat)) $riwayat = [];
+    $riwayat[] = ['at' => date('Y-m-d H:i:s'), 'oleh' => $oleh, 'sebelum' => [
+      'itemId' => $lama['item_id'], 'tanggal' => $lama['tanggal'], 'jenis' => $lama['jenis'],
+      'qty' => (float)$lama['qty'], 'harga' => (float)$lama['harga'], 'sebab' => $lama['sebab'],
+      'tim' => $lama['tim'], 'catatan' => (string)$lama['catatan'], 'adaFoto' => (string)$lama['foto'] !== '',
+    ]];
+    $riwayat = array_slice($riwayat, -20);
+
+    $set = "`item_id`=?,`tanggal`=?,`jenis`=?,`qty`=?,`harga`=?,`sebab`=?,`tim`=?,`catatan`=?,`diubah_oleh`=?,`diubah_at`=?,`riwayat`=?";
+    $par = [$itemId, $tanggal, $jenis, -$qty, $harga, $sebab,
+            bl_potong(trim((string)($b->tim ?? '')), 0, 40), trim((string)($b->catatan ?? '')),
+            $oleh, date('Y-m-d H:i:s'), json_encode($riwayat, JSON_UNESCAPED_UNICODE)];
+    if ($foto !== null) {
+      $set .= ",`foto`=?,`foto_nama`=?";
+      $par[] = (string)$foto; $par[] = bl_potong(trim((string)($b->fotoNama ?? '')), 0, 200);
+    }
+    $par[] = $id;
+    $pdo->prepare("UPDATE `bl_mutasi` SET $set WHERE `id`=?")->execute($par);
+    $stok = bl_stok_satu($pdo, $itemId);
+    $pdo->commit();
+    return ['status' => 'success', 'id' => $id, 'stok' => $stok];
   } catch (Throwable $e) {
     if ($pdo->inTransaction()) $pdo->rollBack();
     throw $e;

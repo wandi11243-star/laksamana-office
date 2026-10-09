@@ -62,6 +62,13 @@ LM_HELP_ISI('breakloss', {
           'Foto bukti: *Buka Kamera* langsung memotret, *Upload Foto* memilih dari galeri.',
           'Tekan *Simpan Catatan Break & Loss* — halaman pindah ke Report.'
         ]},
+        { t:'langkah', judul:'Mengubah catatan yang salah', isi:[
+          'Buka *Report Break & Loss*, tekan tombol *pena (Ubah)* pada catatannya.',
+          'Form Catat terbuka berisi nilai catatan itu — betulkan yang salah.',
+          'Tekan *Simpan Perubahan*. Nilai sebelumnya tetap tersimpan, dan catatannya ditandai *Diubah* berikut nama & waktunya.'
+        ]},
+        { t:'catatan', nada:'info', judul:'Yang bisa diubah hanya break & loss',
+          isi:'Catatan barang masuk dan opname tidak bisa diubah — batalkan lalu catat ulang. Catatan yang sudah dibatalkan juga tidak bisa diubah.' },
         { t:'catatan', nada:'awas', judul:'Salah input dibatalkan, tidak dihapus',
           isi:'Di *Report Break & Loss* tekan tombol *Batalkan* pada catatan yang salah dan tulis alasannya. Barisnya '
             + 'tetap terlihat tercoret dan berhenti dihitung, jadi stoknya kembali seperti sebelum dicatat.' }
