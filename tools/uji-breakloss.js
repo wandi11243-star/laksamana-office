@@ -51,6 +51,13 @@ cek('opname dihitung server dari fisik − stok', /\$delta = round\(\$fisik - \$
 cek('baris barang dikunci FOR UPDATE', /FOR UPDATE/.test(libKode));
 cek('break & loss wajib bersebab', /\(\$jenis === 'break' \|\| \$jenis === 'loss'\) && \$sebab === ''/.test(libKode));
 cek('batal hanya sekali (batal_at IS NULL)', /WHERE `id`=\? AND `batal_at` IS NULL/.test(libKode));
+cek('server menolak pecahan (qty, fisik, stok awal, stok minimum)',
+    /\$qty <= 0 \|\| floor\(\$qty\) != \$qty/.test(libKode) && /floor\(\$fisik\) != \$fisik/.test(libKode)
+    && /floor\(\$awal\) != \$awal/.test(libKode) && /floor\(\$min\) != \$min/.test(libKode));
+cek('ubah: hanya break/loss yang hidup, nilai lama ke riwayat, UPDATE bukan INSERT',
+    /function bl_mutasi_ubah[\s\S]*?\$lama\['batal_at'\] !== null[\s\S]*?'sebelum' =>[\s\S]*?UPDATE `bl_mutasi` SET/.test(libKode));
+cek('kolom ubah lahir lewat ALTER (bukan migrasi)', /information_schema\.COLUMNS[\s\S]*?ALTER TABLE `bl_mutasi` ADD COLUMN/.test(libKode));
+cek('endpoint meneruskan mutasiUbah', /'mutasiUbah'\)\s*pur_json\(bl_mutasi_ubah/.test(epKode));
 cek('harga disalin ke baris mutasi', /\(float\)\$it\['harga'\]/.test(libKode));
 cek('tabel lahir sendiri (CREATE TABLE IF NOT EXISTS ×2)', (libKode.match(/CREATE TABLE IF NOT EXISTS/g) || []).length === 2);
 
@@ -106,6 +113,20 @@ function server(url, opt) {
         DB.mutasi.push({ id: 'BLM-' + (++nId), itemId: it.id, tanggal: b.tanggal, jenis: b.jenis, qty: delta, harga: it.harga,
           sebab: b.sebab, pic: b.pic, tim: b.tim, catatan: b.catatan, adaFoto: !!b.foto, oleh: b.oleh, waktu: '2026-10-09 10:00:00', batalAt: null });
         out = { status: 'success', delta, stok: sebelum + delta };
+      }
+    } else if (b.action === 'mutasiUbah') {
+      // Meniru bl_mutasi_ubah(): hanya break/loss hidup; nilai lama ke riwayat.
+      const m = DB.mutasi.find(x => x.id === b.id);
+      if (!m || m.batalAt || !['break', 'loss'].includes(m.jenis) || !['break', 'loss'].includes(b.jenis)) out = { status: 'error', message: 'tidak bisa diubah' };
+      else if (!(b.qty > 0) || !Number.isInteger(b.qty) || !String(b.sebab || '').trim()) out = { status: 'error', message: 'Belum lengkap' };
+      else {
+        const it = DB.items.find(i => i.id === b.itemId);
+        m.riwayat = (m.riwayat || []).concat([{ at: '2026-10-10 09:00:00', oleh: b.oleh, sebelum: { itemId: m.itemId, tanggal: m.tanggal, jenis: m.jenis, qty: m.qty, sebab: m.sebab } }]);
+        if (b.itemId !== m.itemId) m.harga = it.harga;
+        Object.assign(m, { itemId: b.itemId, jenis: b.jenis, qty: -b.qty, tanggal: b.tanggal, sebab: b.sebab, tim: b.tim, catatan: b.catatan,
+                           diubahOleh: b.oleh, diubahAt: '2026-10-10 09:00:00' });
+        if ('foto' in b) m.adaFoto = !!b.foto;
+        out = { status: 'success', id: m.id, stok: stokOf(m.itemId) };
       }
     } else if (b.action === 'mutasiBatal') {
       const m = DB.mutasi.find(x => x.id === b.id && !x.batalAt);
@@ -210,6 +231,21 @@ function server(url, opt) {
   const p0 = nPost; await w.simpanCatat(); await tunggu(10);
   cek('sebab kosong ditahan tanpa kiriman', nPost === p0 && $('b-sebab').classList.contains('err'));
 
+  /* SATUAN TERLIHAT (laporan user 10 Okt 2026: kotak satuan terdesak sampai
+     hilang). Yang dijaga: satuan berupa label berteks, bukan input readonly
+     yang ikut aturan .field input{width:100%}. */
+  cek('satuan tampil sebagai label berteks', $('b-unit').tagName === 'SPAN' && $('b-unit').textContent === 'Pcs');
+  cek('lebar kotak jumlah dipatok inline', /width:\s*96px/.test($('b-qty').getAttribute('style') || ''));
+
+  /* BILANGAN BULAT: pecahan dibulatkan saat diketik dan ditahan saat simpan. */
+  $('b-qty').value = '1.02'; w.bulatkanKotak($('b-qty'));
+  cek('pecahan dibulatkan saat diketik (1.02 → 1)', $('b-qty').value === '1');
+  cek('kotak jumlah step=1', $('b-qty').getAttribute('step') === '1');
+  $('b-qty').value = '2.5'; $('b-sebab').value = 'x';
+  const pDes = nPost; await w.simpanCatat(); await tunggu(10);
+  cek('pecahan yang lolos ke simpan ditahan tanpa kiriman', nPost === pDes && $('b-qty').classList.contains('err'));
+  $('b-qty').value = '3'; $('b-sebab').value = '';
+
   $('b-sebab').value = 'Pecah saat dicuci'; $('b-tim').value = 'Steward';
   await w.simpanCatat(); await tunggu(30);
   const br = DB.mutasi.find(m => m.jenis === 'break');
@@ -226,6 +262,37 @@ function server(url, opt) {
   cek('report: daftar memuat kedua catatan', /Pecah saat dicuci/.test(isi('bl-daftar')) && /Tidak kembali dari meja/.test(isi('bl-daftar')));
   cek('report: tabel per barang memakai tbl', !!d.querySelector('#rekap-bl table.tbl'));
   cek('stok 19 ≤ minimum 20 ditandai menipis', /Stok menipis/.test(isi('stok-daftar')) && /bl-stok min">19</.test(isi('stok-daftar')));
+
+  /* UBAH CATATAN (permintaan user 10 Okt 2026). Yang dijaga ISI SERVER:
+     baris yang SAMA diperbarui (bukan baris baru), nilai lama masuk riwayat,
+     stok ikut bergeser, dan foto lama tidak terhapus kalau tidak disentuh. */
+  const ls = DB.mutasi.find(m => m.jenis === 'loss');
+  ls.adaFoto = true;                       // foto lama yang tidak boleh ikut hilang
+  await w.muat(); await tunggu(10);
+  cek('tombol Ubah ada di catatan break/loss', new RegExp("editMutasi\\('" + ls.id + "'\\)").test(isi('bl-daftar')));
+  w.editMutasi(ls.id); await tunggu(5);
+  cek('form Catat terisi nilai catatan & masuk mode ubah',
+      $('b-id').value === ls.id && $('b-qty').value === '2' && $('b-jenis').value === 'loss'
+      && $('b-sebab').value === 'Tidak kembali dari meja' && /Ubah Catatan/.test($('b-judul').textContent)
+      && !$('b-batal-edit').classList.contains('hidden') && !d.querySelector('[data-subpane="bl:catat"]').classList.contains('hidden'));
+  const nMut = DB.mutasi.length;
+  $('b-qty').value = '4'; $('b-sebab').value = 'Hilang saat event luar';
+  let kirimUbah = null; const fAsli = w.fetch;
+  w.fetch = (u, o) => { if (o && o.method === 'POST') kirimUbah = JSON.parse(o.body); return fAsli(u, o); };
+  await w.simpanCatat(); await tunggu(30);
+  w.fetch = fAsli;
+  cek('ubah memperbarui baris yang sama, tidak menambah baris', DB.mutasi.length === nMut && ls.qty === -4 && ls.sebab === 'Hilang saat event luar');
+  cek('nilai lama tersimpan di riwayat', (ls.riwayat || []).length === 1 && ls.riwayat[0].sebelum.qty === -2);
+  cek('stok ikut bergeser (19 − 2 = 17)', stokOf(id) === 17);
+  cek('foto lama tidak dikirim ulang/dihapus kalau tidak disentuh', kirimUbah && kirimUbah.action === 'mutasiUbah' && !('foto' in kirimUbah) && ls.adaFoto === true);
+  cek('sesudah ubah form kembali ke mode catat baru', $('b-id').value === '' && /Baru/.test($('b-judul').textContent));
+  cek('daftar menyebut catatan sudah diubah', /Diubah Uji Steward/.test(isi('bl-daftar')));
+  cek('masuk/opname TIDAK punya tombol Ubah', (() => {
+    const ms = DB.mutasi.find(m => m.jenis === 'masuk'); w.eval("FILTER_JENIS='ALL'"); w.renderReport();
+    const ok = !new RegExp("editMutasi\\('" + ms.id + "'\\)").test(isi('bl-daftar'));
+    w.eval("FILTER_JENIS='BL'"); w.renderReport(); return ok; })());
+  // Kembalikan ke angka semula supaya langkah sesudahnya tetap bermakna.
+  w.editMutasi(ls.id); $('b-qty').value = '2'; await w.simpanCatat(); await tunggu(30);
 
   // Opname: fisik 17 → selisih −2 dihitung server.
   w.bukaMutasi(id, 'opname'); $('m-qty').value = '17';

@@ -16,6 +16,8 @@
  * POST {action:'itemAktif', id, aktif}
  * POST {action:'mutasiSimpan', itemId, jenis:break|loss|masuk|opname,
  *       tanggal, qty | fisik, sebab, pic, tim, catatan, foto?, fotoNama?}
+ * POST {action:'mutasiUbah', id, itemId, jenis:break|loss, tanggal, qty, sebab,
+ *       tim, catatan, foto?, fotoNama?}   — nilai lama disimpan di riwayat
  * POST {action:'mutasiBatal', id, alasan}
  *
  * Tidak ada aksi hapus — lihat kepala lib_stock_breakloss.php.
@@ -43,6 +45,7 @@ try {
     if ($a === 'itemSimpan')   pur_json(bl_item_simpan($pdo, $b));
     if ($a === 'itemAktif')    pur_json(bl_item_aktif($pdo, $b));
     if ($a === 'mutasiSimpan') pur_json(bl_mutasi_simpan($pdo, $b));
+    if ($a === 'mutasiUbah')   pur_json(bl_mutasi_ubah($pdo, $b));
     if ($a === 'mutasiBatal')  pur_json(bl_mutasi_batal($pdo, $b));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);
   }
