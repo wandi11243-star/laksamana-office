@@ -58,7 +58,8 @@ LM_HELP_ISI('breakloss', {
           'Buka menu *Break & Loss* → *Catat Break & Loss*, atau tekan tombol *Catat* di Stok Terkini.',
           'Pilih barangnya, lalu jenisnya: *Break* (pecah / rusak) atau *Loss* (hilang).',
           'Isi jumlah, tanggal kejadian, dan *sebab / kronologinya* — sebab wajib diisi.',
-          'Tambahkan PIC, tim, dan foto bukti kalau ada.',
+          'Tim terisi sendiri dari divisi akun Anda (terkunci kalau divisinya satu).',
+          'Foto bukti: *Buka Kamera* langsung memotret, *Upload Foto* memilih dari galeri.',
           'Tekan *Simpan Catatan Break & Loss* — halaman pindah ke Report.'
         ]},
         { t:'catatan', nada:'awas', judul:'Salah input dibatalkan, tidak dihapus',

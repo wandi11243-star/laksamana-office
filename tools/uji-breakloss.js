@@ -145,6 +145,7 @@ function server(url, opt) {
   await tunggu(80);
   const $ = id => d.getElementById(id);
   const isi = id => ($(id) || {}).innerHTML || '';
+  const TIM_JUMLAH = w.eval('TIM_OPSI.length');
 
   cek('halaman tidak dialihkan oleh guard', w.location.pathname.endsWith('/stock/breakloss/'));
   /* TAMPILAN SAMA DENGAN FORM WASTE — permintaan user. Yang dijaga
@@ -160,6 +161,30 @@ function server(url, opt) {
   cek('lapisan CSS identik dengan panel Pemakaian', potongStyle(html.replace(/\r\n/g, '\n')) === potongStyle(usage));
   cek('halaman terbuka di menu Break & Loss, sub-tab Catat', !d.querySelector('[data-tampilan="bl"]').classList.contains('hidden') && !d.querySelector('[data-subpane="bl:catat"]').classList.contains('hidden'));
   cek('keadaan kosong menunjuk ke Daftarkan Barang', /Belum ada barang/.test(isi('b-item-info')));
+
+  /* TIM DARI DIVISI AKUN — aturan form Waste. SESI itu const, tapi isinya
+     objek; keterangannya diganti lalu penguncinya dijalankan ulang. */
+  const timDgn = ket => { w.eval('SESI.keterangan = ' + JSON.stringify(ket) + '; kunciPilihanTim();'); return $('b-tim'); };
+  let sel = timDgn('Bar');
+  cek('divisi tunggal: tim terisi & terkunci', sel.value === 'Bar' && sel.options.length === 1 && sel.classList.contains('locked') && sel.classList.contains('pointer-events-none'));
+  sel = timDgn('Bar, Floor');
+  cek('dua divisi: dipersempit ke miliknya, tidak terkunci', sel.options.length === 2 && sel.value === 'Bar' && !sel.classList.contains('locked'));
+  sel = timDgn('Overhead Barista');
+  cek('kata yang cuma memuat nama divisi tidak dicocokkan', sel.options.length === TIM_JUMLAH + 1 && sel.value === '' && !sel.classList.contains('locked'));
+  sel = timDgn('');
+  cek('tanpa divisi: bebas memilih + dikatakan', sel.options.length === TIM_JUMLAH + 1 && /belum tercatat/.test(isi('b-tim-info')));
+
+  /* FOTO: tombol Buka Kamera memakai input ber-capture (di HP langsung membuka
+     kamera belakang), tombol Upload tanpa capture (galeri). */
+  for (const k of ['b', 'i']) {
+    cek(`foto ${k}: input kamera ber-capture=environment`, ($(k + '-foto-cam') || {}).getAttribute && $(k + '-foto-cam').getAttribute('capture') === 'environment');
+    cek(`foto ${k}: input unggah TANPA capture`, !!$(k + '-foto-file') && !$(k + '-foto-file').hasAttribute('capture'));
+    let diklik = false;
+    $(k + '-foto-cam').addEventListener('click', e => { diklik = true; e.preventDefault(); });
+    const tombol = [...d.querySelectorAll('button')].find(b => /Buka Kamera/.test(b.textContent) && (b.getAttribute('onclick') || '').includes(k + '-foto-cam'));
+    if (tombol) tombol.click();
+    cek(`foto ${k}: tombol Buka Kamera memicu input kamera`, diklik);
+  }
 
   // Daftarkan barang, dengan stok awal.
   w.buka('barang', 'catat');

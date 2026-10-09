@@ -397,7 +397,11 @@
                     <option value="break">💥 Break — pecah / rusak</option>
                     <option value="loss">❓ Loss — hilang</option>
                   </select></div>
-                <div class="field"><label>Tim</label><select id="b-tim"></select></div>
+                <div class="field">
+                  <label>Tim</label>
+                  <select id="b-tim"></select>
+                  <p id="b-tim-info" class="hint"></p>
+                </div>
                 <div class="field">
                   <label>Jumlah</label>
                   <div class="flex gap-2">
@@ -427,10 +431,26 @@
                 <textarea id="b-catatan" rows="2" placeholder="cth: tray jatuh saat clear table meja 12"></textarea>
               </div>
 
+              <!-- DUA JALAN MASUK FOTO, sama dengan form Serah Terima: tombol
+                   kamera (capture → di HP LANGSUNG membuka kamera belakang)
+                   dan tombol unggah (galeri / berkas). Satu input tidak bisa
+                   melayani keduanya — capture ada atau tidak. -->
               <div class="field">
-                <label>Foto (opsional)</label>
-                <input type="file" id="b-foto" accept="image/*">
-                <p id="b-foto-info" class="hint"></p>
+                <label>Foto bukti (opsional)</label>
+                <div class="flex items-center gap-2.5 flex-wrap">
+                  <button type="button" onclick="document.getElementById('b-foto-cam').click()" class="btn btn-ghost btn-sm">
+                    <i class="fa-solid fa-camera"></i> Buka Kamera
+                  </button>
+                  <button type="button" onclick="document.getElementById('b-foto-file').click()" class="btn btn-ghost btn-sm">
+                    <i class="fa-solid fa-arrow-up-from-bracket"></i> Upload Foto
+                  </button>
+                  <img id="b-foto-pratinjau" class="hidden w-14 h-14 object-cover" alt=""
+                       style="border-radius:var(--radius-sm);border:1px solid var(--line)">
+                  <button type="button" id="b-foto-buang" onclick="buangFotoCatat()" class="btn-icon dgr hidden" title="Buang foto"><i class="fa-solid fa-xmark"></i></button>
+                  <span id="b-foto-info" class="hint" style="margin-top:0"></span>
+                </div>
+                <input type="file" id="b-foto-cam"  accept="image/*" capture="environment" class="hidden">
+                <input type="file" id="b-foto-file" accept="image/*" class="hidden">
               </div>
 
               <button type="button" id="b-simpan" onclick="simpanCatat()" class="btn btn-primary btn-block">💥 Simpan Catatan Break &amp; Loss</button>
@@ -536,7 +556,16 @@
               </div>
               <div class="field">
                 <label>Foto Barang</label>
-                <input type="file" id="i-foto" accept="image/*">
+                <div class="flex items-center gap-2.5 flex-wrap">
+                  <button type="button" onclick="document.getElementById('i-foto-cam').click()" class="btn btn-ghost btn-sm">
+                    <i class="fa-solid fa-camera"></i> Buka Kamera
+                  </button>
+                  <button type="button" onclick="document.getElementById('i-foto-file').click()" class="btn btn-ghost btn-sm">
+                    <i class="fa-solid fa-arrow-up-from-bracket"></i> Upload Foto
+                  </button>
+                </div>
+                <input type="file" id="i-foto-cam"  accept="image/*" capture="environment" class="hidden">
+                <input type="file" id="i-foto-file" accept="image/*" class="hidden">
                 <div id="i-foto-info" class="hint"></div>
               </div>
               <p id="i-stok-info" class="hint hidden">Stok tidak diubah dari form ini — pakai tombol <b>+ Stok</b> atau <b>Opname</b> di Stok Terkini supaya perubahannya tercatat.</p>
@@ -602,6 +631,40 @@
 
   const BERKAS = 'breakloss.php';
   const TIM_OPSI = ['Kitchen', 'Bar', 'Floor', 'Cashier', 'Steward', 'Lainnya'];
+
+  /* TIM DIAMBIL DARI AKUN YANG LOGIN — aturan yang SAMA dengan form Waste
+     (kunciPilihanTim di panel Pemakaian). Sumbernya keterangan akun Office
+     (kolom Tim/Keterangan di Kelola User):
+       satu tim     -> terisi & TERKUNCI ke tim itu;
+       beberapa tim -> pilihannya dipersempit ke tim miliknya saja;
+       tanpa tim    -> bebas memilih (biasanya admin).
+     Yang tidak dikenali di keterangan TIDAK ditebak. "Lainnya" tidak pernah
+     dicocokkan dari keterangan: kata itu tidak menyebut divisi apa pun. */
+  function timSayaList() {
+    const ket = String((SESI && SESI.keterangan) || (typeof timSesi === 'function' ? timSesi(SESI) : '') || '').toLowerCase();
+    return TIM_OPSI.filter(t => t !== 'Lainnya' && new RegExp('\\b' + t.toLowerCase() + '\\b').test(ket));
+  }
+  function kunciPilihanTim() {
+    const sel = document.getElementById('b-tim'), info = document.getElementById('b-tim-info');
+    const punya = timSayaList();
+    if (!punya.length) {
+      sel.innerHTML = '<option value="">— pilih tim —</option>' + TIM_OPSI.map(t => `<option>${t}</option>`).join('');
+      sel.classList.remove('pointer-events-none', 'locked');
+      info.textContent = 'Divisi akun Anda belum tercatat di Office, jadi pilih sendiri.';
+      return;
+    }
+    sel.innerHTML = punya.map(t => `<option>${t}</option>`).join('');
+    sel.value = punya[0];
+    if (punya.length > 1) {
+      sel.classList.remove('pointer-events-none', 'locked');
+      info.textContent = 'Dipersempit ke divisi akun Anda.';
+      return;
+    }
+    /* pointer-events-none, BUKAN disabled — sama dengan Waste: select yang
+       disabled tampil pudar seperti rusak, dan nilainya tetap harus terbaca. */
+    sel.classList.add('pointer-events-none', 'locked');
+    info.textContent = 'Terisi dari divisi akun Anda.';
+  }
   const JENIS = {
     break:  { label: 'Break',  bd: 'bd-danger' },
     loss:   { label: 'Loss',   bd: 'bd-purple' },
@@ -804,12 +867,19 @@
     document.getElementById('b-qty').value = 1;
     document.getElementById('b-sebab').value = '';
     document.getElementById('b-catatan').value = '';
-    document.getElementById('b-foto').value = '';
-    document.getElementById('b-foto-info').textContent = '';
+    buangFotoCatat();
     document.getElementById('b-item').value = '';
     FOTO_CATAT = null;
     document.querySelectorAll('#bl-form .err').forEach(e => e.classList.remove('err'));
     infoBarangCatat();
+  }
+  function buangFotoCatat() {
+    FOTO_CATAT = null;
+    ['b-foto-cam', 'b-foto-file'].forEach(id => { document.getElementById(id).value = ''; });
+    const pra = document.getElementById('b-foto-pratinjau');
+    pra.removeAttribute('src'); pra.classList.add('hidden');
+    document.getElementById('b-foto-buang').classList.add('hidden');
+    document.getElementById('b-foto-info').textContent = '';
   }
   function catatUntuk(id) {
     resetCatat();
@@ -984,11 +1054,11 @@
   function tampilFotoItem() {
     const t = FOTO_ITEM ? FOTO_ITEM.thumb : FOTO_ITEM === null ? '' : THUMB_LAMA;
     document.getElementById('i-foto-info').innerHTML = t
-      ? `<span class="bl-prev"><img src="${esc(t)}" alt=""><button type="button" class="btn btn-ghost btn-xs" onclick="FOTO_ITEM=null;document.getElementById('i-foto').value='';tampilFotoItem()">✕ Buang foto</button></span>`
+      ? `<span class="bl-prev"><img src="${esc(t)}" alt=""><button type="button" class="btn btn-ghost btn-xs" onclick="FOTO_ITEM=null;['i-foto-cam','i-foto-file'].forEach(x=>document.getElementById(x).value='');tampilFotoItem()">✕ Buang foto</button></span>`
       : 'Foto membuat barang mudah dikenali saat mencatat.';
   }
   function resetItem() {
-    ['i-id', 'i-nama', 'i-kategori', 'i-lokasi', 'i-harga', 'i-min', 'i-awal', 'i-catatan', 'i-foto'].forEach(id => document.getElementById(id).value = '');
+    ['i-id', 'i-nama', 'i-kategori', 'i-lokasi', 'i-harga', 'i-min', 'i-awal', 'i-catatan', 'i-foto-cam', 'i-foto-file'].forEach(id => document.getElementById(id).value = '');
     isiSatuan('Pcs');
     FOTO_ITEM = undefined; THUMB_LAMA = '';
     tampilFotoItem();
@@ -1179,24 +1249,35 @@
     }
     sel.innerHTML = h; sel.value = bulanIni();
 
-    const timSaya = (typeof timSesi === 'function' ? timSesi(SESI) : '') || '';
-    const cocok = TIM_OPSI.find(t => timSaya.toLowerCase().includes(t.toLowerCase())) || '';
-    document.getElementById('b-tim').innerHTML = `<option value="">—</option>` + TIM_OPSI.map(t => `<option ${t === cocok ? 'selected' : ''}>${t}</option>`).join('');
+    kunciPilihanTim();
     document.getElementById('bf-tim').innerHTML = `<option value="ALL">Semua Tim</option>` + TIM_OPSI.map(t => `<option>${t}</option>`).join('') + `<option value="">(tanpa tim)</option>`;
 
     gantiJenisCatat();
     ['b-item', 'b-qty', 'b-sebab', 'b-tanggal'].forEach(id => document.getElementById(id).addEventListener('input', e => e.target.classList.remove('err')));
     document.getElementById('i-nama').addEventListener('input', e => e.target.classList.remove('err'));
-    document.getElementById('b-foto').addEventListener('change', async e => {
+    /* Dua input per foto (kamera & unggah), satu penangan. Input yang
+       SATUNYA dikosongkan sesudah dipilih — pola Serah Terima — supaya yang
+       tersimpan selalu foto yang terlihat di pratinjau. */
+    ['b-foto-cam', 'b-foto-file'].forEach(id => document.getElementById(id).addEventListener('change', async e => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;                 // dialog ditutup tanpa memilih: biarkan apa adanya
       try {
-        FOTO_CATAT = await bacaFoto(e.target.files && e.target.files[0]);
-        document.getElementById('b-foto-info').textContent = FOTO_CATAT ? 'Foto siap diunggah.' : '';
-      } catch (er) { FOTO_CATAT = null; e.target.value = ''; toast('Foto tidak bisa dipakai', er.message, 'err'); }
-    });
-    document.getElementById('i-foto').addEventListener('change', async e => {
-      try { const f = await bacaFoto(e.target.files && e.target.files[0]); if (f) FOTO_ITEM = f; tampilFotoItem(); }
-      catch (er) { e.target.value = ''; toast('Foto tidak bisa dipakai', er.message, 'err'); }
-    });
+        FOTO_CATAT = await bacaFoto(file);
+        const pra = document.getElementById('b-foto-pratinjau');
+        pra.src = FOTO_CATAT.thumb; pra.classList.remove('hidden');
+        document.getElementById('b-foto-buang').classList.remove('hidden');
+        document.getElementById('b-foto-info').textContent = id === 'b-foto-cam' ? 'Foto kamera siap.' : 'Foto unggahan siap.';
+        document.getElementById(id === 'b-foto-cam' ? 'b-foto-file' : 'b-foto-cam').value = '';
+      } catch (er) { buangFotoCatat(); toast('Foto tidak bisa dipakai', er.message, 'err'); }
+    }));
+    ['i-foto-cam', 'i-foto-file'].forEach(id => document.getElementById(id).addEventListener('change', async e => {
+      const file = e.target.files && e.target.files[0];
+      if (!file) return;
+      try {
+        FOTO_ITEM = await bacaFoto(file); tampilFotoItem();
+        document.getElementById(id === 'i-foto-cam' ? 'i-foto-file' : 'i-foto-cam').value = '';
+      } catch (er) { e.target.value = ''; toast('Foto tidak bisa dipakai', er.message, 'err'); }
+    }));
     resetCatat(); resetItem();
     muat();
   })();

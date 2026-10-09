@@ -6586,9 +6586,14 @@ berfoto (`bl_item`) dan STOK TERKINI.
   kalau tema panel Pemakaian diubah, salin ulang ke sini atau ujinya merah.
   Versi pertama (halaman berdesain sendiri, tanpa Tailwind) DICABUT —
   jangan dikembalikan.
+- **Tim mengikuti divisi akun, aturan form Waste** (`kunciPilihanTim`): satu
+  divisi di keterangan Office → terisi & terkunci; beberapa → dipersempit;
+  tidak ada → bebas pilih + dikatakan. Dicocokkan KATA UTUH ("Overhead
+  Barista" bukan Bar). Foto punya DUA input — kamera (`capture=environment`)
+  dan unggah — pola Serah Terima.
 
 ```bash
-node tools/uji-breakloss.js   # 47 pemeriksaan, php-parser + jsdom + server tiruan HIDUP
+node tools/uji-breakloss.js   # 57 pemeriksaan, php-parser + jsdom + server tiruan HIDUP
 ```
 
 ### Pemakaian Bahan Baku: pemilih bulan di KETIGA report (2 September 2026)
