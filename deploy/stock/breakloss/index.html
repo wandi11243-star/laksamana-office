@@ -404,9 +404,16 @@
                 </div>
                 <div class="field">
                   <label>Jumlah</label>
-                  <div class="flex gap-2">
-                    <input type="number" id="b-qty" value="1" min="0" step="0.01" class="w-20 text-center font-bold" oninput="infoBarangCatat()">
-                    <input type="text" id="b-unit" readonly class="flex-1 min-w-0" value="-">
+                  <!-- Satuan berupa LABEL, bukan kotak isian readonly: kotak itu
+                       ikut aturan .field input{width:100%} dan terdesak sampai
+                       tidak terlihat sama sekali (laporan user 10 Oktober 2026).
+                       Lebar kotak jumlah ditulis inline karena alasan yang sama
+                       — kelas w-20 Tailwind kalah oleh aturan .field itu. -->
+                  <div class="flex gap-2 items-stretch">
+                    <input type="number" id="b-qty" value="1" min="1" step="1" inputmode="numeric" class="text-center font-bold"
+                           style="width:96px;flex:none" oninput="bulatkanKotak(this);infoBarangCatat()">
+                    <span id="b-unit" class="flex-1 min-w-0 flex items-center px-3 font-semibold truncate"
+                          style="border:1.5px solid var(--line);border-radius:var(--radius-sm);background:var(--paper);color:var(--muted)">-</span>
                   </div>
                 </div>
               </div>
@@ -545,9 +552,9 @@
                 <div class="field"><label>Harga Satuan (Rp)</label><input type="number" id="i-harga" min="0" step="any" placeholder="0"></div>
               </div>
               <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div class="field"><label>Stok Minimum</label><input type="number" id="i-min" min="0" step="any" placeholder="0">
+                <div class="field"><label>Stok Minimum</label><input type="number" id="i-min" min="0" step="1" inputmode="numeric" placeholder="0" oninput="bulatkanKotak(this)">
                   <p class="hint">Kartu ditandai "Stok menipis" kalau stoknya sudah sampai angka ini.</p></div>
-                <div class="field" id="i-awal-wrap"><label>Stok Awal (jumlah fisik sekarang)</label><input type="number" id="i-awal" min="0" step="any" placeholder="0">
+                <div class="field" id="i-awal-wrap"><label>Stok Awal (jumlah fisik sekarang)</label><input type="number" id="i-awal" min="0" step="1" inputmode="numeric" placeholder="0" oninput="bulatkanKotak(this)">
                   <p class="hint">Dicatat sebagai "Masuk — Stok awal". Boleh dikosongkan lalu diisi lewat Opname.</p></div>
               </div>
               <div class="field">
@@ -694,6 +701,19 @@
     const [y, m] = ym.split('-').map(Number);
     return { dari: `${ym}-01`, ke: `${ym}-${String(new Date(y, m, 0).getDate()).padStart(2, '0')}` };
   }
+  /* JUMLAH SELALU BILANGAN BULAT (permintaan user 10 Oktober 2026): barang
+     inventaris dihitung per buah — "1,02 piring" tidak pernah ada. Koma &
+     titik dibuang SAAT DIKETIK, bukan cuma ditolak saat simpan, supaya yang
+     terlihat di kotak selalu angka yang akan tersimpan. Server menolak
+     pecahan juga (lib_stock_breakloss.php), jadi ini bukan satu-satunya
+     penjaga. */
+  function bulatkanKotak(el) {
+    if (!el || el.value === '') return;
+    const v = String(el.value);
+    if (/[.,eE]/.test(v)) el.value = String(Math.trunc(Number(v.replace(',', '.')) || 0));
+  }
+  const bulat = v => Number.isInteger(Number(v));
+
   function kartu(label, nilai, sub, warna, mentah) {
     return `<div class="recap ${warna || ''}">
       <div class="lbl">${label}</div>
@@ -846,7 +866,7 @@
   function infoBarangCatat() {
     const i = item(document.getElementById('b-item').value);
     const info = document.getElementById('b-item-info');
-    document.getElementById('b-unit').value = i ? i.satuan : '-';
+    document.getElementById('b-unit').textContent = i ? i.satuan : '-';
     if (!ITEMS.filter(x => x.aktif).length) {
       info.innerHTML = 'Belum ada barang. Daftarkan dulu di menu <b>Barang &amp; Stok</b> → <a href="javascript:buka(\'barang\',\'catat\')" style="color:var(--gold-dim);font-weight:600">Daftarkan Barang</a>.';
       return;
@@ -893,7 +913,7 @@
     const sebab = g('b-sebab').value.trim(), tanggal = g('b-tanggal').value;
     const kurang = [];
     if (!itemId) kurang.push('b-item');
-    if (qty <= 0) kurang.push('b-qty');
+    if (qty <= 0 || !bulat(qty)) kurang.push('b-qty');
     if (!tanggal) kurang.push('b-tanggal');
     if (!sebab) kurang.push('b-sebab');
     document.querySelectorAll('#bl-form .err').forEach(e => e.classList.remove('err'));
@@ -1093,6 +1113,8 @@
   async function simpanItem() {
     const g = id => document.getElementById(id);
     const id = g('i-id').value, nama = g('i-nama').value.trim();
+    const tidakBulat = ['i-min', 'i-awal'].filter(k => g(k).value !== '' && !bulat(g(k).value));
+    if (tidakBulat.length) { tidakBulat.forEach(k => g(k).classList.add('err')); toast('Harus bilangan bulat', 'Stok minimum & stok awal tidak boleh desimal.', 'err'); return; }
     if (!nama) { g('i-nama').classList.add('err'); toast('Nama barang kosong', 'Isi nama barangnya.', 'err'); return; }
     const body = { action: 'itemSimpan', id, nama, kategori: g('i-kategori').value.trim(), lokasi: g('i-lokasi').value.trim(),
       satuan: g('i-satuan').value, harga: Number(g('i-harga').value) || 0, stokMin: Number(g('i-min').value) || 0,
@@ -1193,7 +1215,7 @@
         <div class="bl-prev" style="margin:0">${thumb(i)}<span>Stok terkini menurut catatan: <b>${fmtQty(i.stok)} ${esc(i.satuan)}</b></span></div>
         <div class="grid grid-cols-2 gap-3">
           <div class="field"><label>${op ? 'Jumlah fisik' : 'Jumlah masuk'} (${esc(i.satuan)})</label>
-            <input type="number" id="m-qty" min="0" step="any" class="text-center font-bold" oninput="hintOpname(${op ? i.stok : 'null'})"></div>
+            <input type="number" id="m-qty" min="0" step="1" inputmode="numeric" class="text-center font-bold" oninput="bulatkanKotak(this);hintOpname(${op ? i.stok : 'null'})"></div>
           <div class="field"><label>Tanggal</label><input type="date" id="m-tgl" value="${hariIni()}"></div>
         </div>
         <p id="m-hint" class="hint">${op ? 'Selisihnya dihitung sendiri dan dicatat sebagai koreksi opname.' : ''}</p>
@@ -1213,9 +1235,9 @@
   async function simpanMutasi(id, jenis) {
     const e = document.getElementById('m-qty'), v = e.value;
     const q = Number(v);
-    if (v === '' || q < 0 || (jenis !== 'opname' && q <= 0)) {
+    if (v === '' || q < 0 || !bulat(q) || (jenis !== 'opname' && q <= 0)) {
       e.classList.add('err');
-      toast('Jumlah belum benar', jenis === 'opname' ? 'Isi jumlah fisik (boleh 0).' : 'Jumlah harus lebih dari 0.', 'err'); return;
+      toast('Jumlah belum benar', (jenis === 'opname' ? 'Isi jumlah fisik (boleh 0)' : 'Jumlah harus lebih dari 0') + ', bilangan bulat.', 'err'); return;
     }
     const body = { action: 'mutasiSimpan', itemId: id, jenis, tanggal: document.getElementById('m-tgl').value,
       sebab: document.getElementById('m-ket').value.trim(), pic: SESI.name || '', oleh: SESI.name || '' };

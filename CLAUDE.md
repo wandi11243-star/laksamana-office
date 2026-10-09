@@ -6591,9 +6591,14 @@ berfoto (`bl_item`) dan STOK TERKINI.
   tidak ada → bebas pilih + dikatakan. Dicocokkan KATA UTUH ("Overhead
   Barista" bukan Bar). Foto punya DUA input — kamera (`capture=environment`)
   dan unggah — pola Serah Terima.
+- **JUMLAH SELALU BILANGAN BULAT** (qty, fisik opname, stok awal, stok
+  minimum) — dibulatkan saat diketik (`bulatkanKotak`), ditahan saat simpan,
+  dan ditolak server (`floor($x) != $x`). Satuan di form catat berupa LABEL
+  (`span#b-unit`), bukan input readonly: input itu kena `.field input{width:100%}`
+  dan terdesak sampai hilang.
 
 ```bash
-node tools/uji-breakloss.js   # 57 pemeriksaan, php-parser + jsdom + server tiruan HIDUP
+node tools/uji-breakloss.js   # 63 pemeriksaan, php-parser + jsdom + server tiruan HIDUP
 ```
 
 ### Pemakaian Bahan Baku: pemilih bulan di KETIGA report (2 September 2026)

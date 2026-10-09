@@ -210,6 +210,7 @@ function bl_item_simpan($pdo, $b) {
   $harga  = isset($b->harga) ? (float)$b->harga : 0;
   $min    = isset($b->stokMin) ? (float)$b->stokMin : 0;
   if ($harga < 0 || $min < 0) return ['status' => 'error', 'message' => 'harga & stok minimum tidak boleh minus'];
+  if (floor($min) != $min) return ['status' => 'error', 'message' => 'stok minimum harus bilangan bulat'];
   $cat    = trim((string)($b->catatan ?? ''));
   $foto   = $b->foto ?? null;
   $thumb  = $b->thumb ?? null;
@@ -236,7 +237,7 @@ function bl_item_simpan($pdo, $b) {
        transaksi: barang yang lahir tanpa stok awalnya meninggalkan stok nol
        yang terbaca seolah semuanya sudah pecah. */
     $awal = isset($b->stokAwal) ? (float)$b->stokAwal : 0;
-    if ($awal < 0) return ['status' => 'error', 'message' => 'stok awal tidak boleh minus'];
+    if ($awal < 0 || floor($awal) != $awal) return ['status' => 'error', 'message' => 'stok awal harus bilangan bulat dan tidak minus'];
     $id = pur_uid('BLI');
     $pdo->beginTransaction();
     $pdo->prepare("INSERT INTO `bl_item`
@@ -294,10 +295,11 @@ function bl_mutasi_simpan($pdo, $b) {
   $qty = null; $fisik = null;
   if ($jenis === 'opname') {
     $fisik = isset($b->fisik) && $b->fisik !== '' ? (float)$b->fisik : null;
-    if ($fisik === null || $fisik < 0) $kurang[] = 'fisik';
+    if ($fisik === null || $fisik < 0 || floor($fisik) != $fisik) $kurang[] = 'fisik';
   } else {
     $qty = isset($b->qty) ? (float)$b->qty : 0;
-    if ($qty <= 0) $kurang[] = 'qty';
+    // Bilangan bulat: barang inventaris dihitung per buah (permintaan user).
+    if ($qty <= 0 || floor($qty) != $qty) $kurang[] = 'qty';
   }
   if ($kurang) return ['status' => 'error', 'message' => 'Belum lengkap: ' . implode(', ', $kurang), 'kurang' => $kurang];
 

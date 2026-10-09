@@ -51,6 +51,9 @@ cek('opname dihitung server dari fisik − stok', /\$delta = round\(\$fisik - \$
 cek('baris barang dikunci FOR UPDATE', /FOR UPDATE/.test(libKode));
 cek('break & loss wajib bersebab', /\(\$jenis === 'break' \|\| \$jenis === 'loss'\) && \$sebab === ''/.test(libKode));
 cek('batal hanya sekali (batal_at IS NULL)', /WHERE `id`=\? AND `batal_at` IS NULL/.test(libKode));
+cek('server menolak pecahan (qty, fisik, stok awal, stok minimum)',
+    /\$qty <= 0 \|\| floor\(\$qty\) != \$qty/.test(libKode) && /floor\(\$fisik\) != \$fisik/.test(libKode)
+    && /floor\(\$awal\) != \$awal/.test(libKode) && /floor\(\$min\) != \$min/.test(libKode));
 cek('harga disalin ke baris mutasi', /\(float\)\$it\['harga'\]/.test(libKode));
 cek('tabel lahir sendiri (CREATE TABLE IF NOT EXISTS ×2)', (libKode.match(/CREATE TABLE IF NOT EXISTS/g) || []).length === 2);
 
@@ -209,6 +212,21 @@ function server(url, opt) {
   $('b-qty').value = '3';
   const p0 = nPost; await w.simpanCatat(); await tunggu(10);
   cek('sebab kosong ditahan tanpa kiriman', nPost === p0 && $('b-sebab').classList.contains('err'));
+
+  /* SATUAN TERLIHAT (laporan user 10 Okt 2026: kotak satuan terdesak sampai
+     hilang). Yang dijaga: satuan berupa label berteks, bukan input readonly
+     yang ikut aturan .field input{width:100%}. */
+  cek('satuan tampil sebagai label berteks', $('b-unit').tagName === 'SPAN' && $('b-unit').textContent === 'Pcs');
+  cek('lebar kotak jumlah dipatok inline', /width:\s*96px/.test($('b-qty').getAttribute('style') || ''));
+
+  /* BILANGAN BULAT: pecahan dibulatkan saat diketik dan ditahan saat simpan. */
+  $('b-qty').value = '1.02'; w.bulatkanKotak($('b-qty'));
+  cek('pecahan dibulatkan saat diketik (1.02 → 1)', $('b-qty').value === '1');
+  cek('kotak jumlah step=1', $('b-qty').getAttribute('step') === '1');
+  $('b-qty').value = '2.5'; $('b-sebab').value = 'x';
+  const pDes = nPost; await w.simpanCatat(); await tunggu(10);
+  cek('pecahan yang lolos ke simpan ditahan tanpa kiriman', nPost === pDes && $('b-qty').classList.contains('err'));
+  $('b-qty').value = '3'; $('b-sebab').value = '';
 
   $('b-sebab').value = 'Pecah saat dicuci'; $('b-tim').value = 'Steward';
   await w.simpanCatat(); await tunggu(30);
