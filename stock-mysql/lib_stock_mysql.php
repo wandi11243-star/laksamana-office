@@ -1306,7 +1306,24 @@ function pur_ordering_user_hapus($pdo, $u) {
 // 'ordering' atau 'purchasing' — endpoint masing-masing yang mengunci ini,
 // bukan fungsi ini, supaya satu endpoint tidak bisa menimpa milik modul lain.
 // =====================================================================
+/* TABEL stock_settings TIDAK PERNAH ADA DI SERVER MANA PUN sampai 10 Oktober
+   2026 — ia cuma ditulis di schema.sql, dan schema/migrasi di repo ini tidak
+   ikut ter-deploy. Akibatnya purchasing-settings.php dan ordering-settings.php
+   sama-sama membalas "kesalahan server" di dev maupun produksi: matriks hak
+   akses Purchasing tidak pernah tersimpan (layarnya diam-diam jatuh ke
+   bawaan), dan template chat-nya tidak pernah termuat. Sekarang tabelnya
+   dipastikan ada di pintu masuk, seperti tabel-tabel lain yang lahir sendiri. */
+function pur_settings_pastikan($pdo) {
+  static $sudah = false;
+  if ($sudah) return;
+  $pdo->exec("CREATE TABLE IF NOT EXISTS `stock_settings` (
+      `modul` VARCHAR(20) NOT NULL PRIMARY KEY,
+      `data`  LONGTEXT    NOT NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+  $sudah = true;
+}
 function pur_settings_ambil($pdo, $modul) {
+  pur_settings_pastikan($pdo);
   $st = $pdo->prepare("SELECT `data` FROM `stock_settings` WHERE `modul`=?");
   $st->execute([$modul]);
   $row = $st->fetch();
@@ -1317,6 +1334,7 @@ function pur_settings_ambil($pdo, $modul) {
 
 function pur_settings_simpan($pdo, $modul, $data) {
   if (!is_object($data)) return ['status' => 'error', 'message' => 'data bukan objek'];
+  pur_settings_pastikan($pdo);
   $pdo->prepare("INSERT INTO `stock_settings` (`modul`,`data`) VALUES (?,?)
                  ON DUPLICATE KEY UPDATE `data`=VALUES(`data`)")
       ->execute([$modul, json_encode($data, JSON_UNESCAPED_UNICODE)]);

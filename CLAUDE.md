@@ -6572,6 +6572,42 @@ ujinya dibetulkan, dan bentuknya sudah punya nama di berkas ini:
 > mengiris sebuah blok wajib mulai dari tag pembukanya, bukan dari kalimat
 > yang kebetulan ada di dalamnya.
 
+### Ordering: Gudang Bar + hak akses per sub-menu (10 Oktober 2026)
+
+Permintaan user: sub-menu **Gudang Bar** di `deploy/stock/ordering/` ("seperti
+Central Kitchen, khusus di-view bar"), dan Kelola Akses jadi matriks
+sub-menu × peran (Tak Terlihat / Lihat / Boleh Ubah), bentuk Purchasing.
+
+- **Barang Gudang Bar = master `products` ber-area Bar** (Purchasing → Atur
+  Produk), dibaca `gb_produk()`. Tidak ada daftar kedua. Backend
+  `stock-mysql/gudang-bar.php` + `lib_stock_gb.php`, tabel `gb_stock` lahir
+  sendiri (`gb_pastikan`). Saldo dihitung, qty disimpan dalam satuan dasar
+  (`satuanDasar` + peta `isi`), **tidak ada DELETE** — salah catat dibatalkan
+  (alasan wajib). Satu kiriman banyak barang = satu transaksi.
+- **Matriks**: `ORD_PAGES` × `ORD_ROLES` (`full`, `checkin`), disimpan lewat
+  `ordering-settings.php`. **Bawaannya `ORD_PERM_DEFAULT` = aturan lama
+  persis** (Order & CK hanya `full`, Check-in keduanya, Restock & Forecast
+  admin saja, Gudang Bar: full Ubah, checkin Lihat). Kelola Akses di luar
+  matriks — khusus admin. Halaman pertama mengikuti `PERTAMA`, bukan urutan
+  menu.
+- **Penjaga di tiga lapis**: `switchTab()` (tab Tak Terlihat → layar
+  `noakses`), `terapkanKunciTampilan()` (sembunyikan tombol tulis + pita
+  "hanya bisa melihat"), dan `wajibUbah(page)` di awal SETIAP fungsi tulis
+  (startOrderSubmission, submitCKOrder, submitKirimCK, saveCheckinData,
+  submitEditQty, submitDeleteOrder, kedua upload forecast, gbSimpan, gbBatal).
+  Fungsi tulis baru WAJIB memanggilnya.
+- **`stock_settings` TIDAK PERNAH ADA di server mana pun** sampai tanggal ini
+  (cuma di schema.sql) — `purchasing-settings.php` & `ordering-settings.php`
+  sama-sama "kesalahan server" di dev & produksi, jadi matriks Purchasing
+  tidak pernah tersimpan. Sekarang `pur_settings_pastikan()` membuatnya.
+- Uji jsdom yang mem-boot panel ini WAJIB memanggil `enterApp({...role})`:
+  tanpa pengguna, `wajibUbah` menolak semua tulisan (`uji-konfirmasi-ck.js`
+  ikut disesuaikan).
+
+```bash
+node tools/uji-gudang-bar.js   # 51 pemeriksaan, jsdom + server tiruan HIDUP + kontrak PHP
+```
+
 ### Stock: panel Break & Loss (9 Oktober 2026)
 
 Permintaan user: modul baru di Stock, *"konsepnya sama seperti waste produk, ada
