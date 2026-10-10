@@ -36,7 +36,10 @@ try {
   if ($metode === 'GET') {
     pur_cek_token();
     $pdo = pur_pdo();
-    pur_json(['saldo' => pur_ck_saldo($pdo), 'mutasi' => pur_ck_mutasi_ambil($pdo)]);
+    /* ?gudang=bar -> Gudang Bar; kosong/lain -> Central Kitchen (perilaku lama).
+       Lihat "DUA GUDANG, SATU MESIN" di lib_stock_ck.php. */
+    $g = pur_ck_gudang($_GET['gudang'] ?? 'ck');
+    pur_json(['gudang' => $g, 'saldo' => pur_ck_saldo($pdo, $g), 'mutasi' => pur_ck_mutasi_ambil($pdo, $g)]);
   }
 
   if ($metode === 'POST') {
@@ -45,9 +48,10 @@ try {
     pur_cek_token($b);
     $pdo = pur_pdo();
     $a = $b->action ?? '';
-    if ($a === 'simpan') pur_json(pur_ck_simpan($pdo, $b));
-    if ($a === 'hapus')  pur_json(pur_ck_hapus($pdo, $b->id ?? ''));
-    if ($a === 'kirim')  pur_json(pur_ck_kiriman_simpan($pdo, $b));
+    $g = pur_ck_gudang($b->gudang ?? ($_GET['gudang'] ?? 'ck'));
+    if ($a === 'simpan') pur_json(pur_ck_simpan($pdo, $b, $g));
+    if ($a === 'hapus')  pur_json(pur_ck_hapus($pdo, $b->id ?? '', $g));
+    if ($a === 'kirim')  pur_json(pur_ck_kiriman_simpan($pdo, $b, $g));
     pur_json(['status' => 'error', 'message' => 'action tidak dikenal: ' . $a], 400);
   }
 

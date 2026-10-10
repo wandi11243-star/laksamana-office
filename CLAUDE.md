@@ -6572,6 +6572,64 @@ ujinya dibetulkan, dan bentuknya sudah punya nama di berkas ini:
 > mengiris sebuah blok wajib mulai dari tag pembukanya, bukan dari kalimat
 > yang kebetulan ada di dalamnya.
 
+### Ordering: Gudang Bar + hak akses per sub-menu (10 Oktober 2026)
+
+Permintaan user: sub-menu **Gudang Bar** di `deploy/stock/ordering/` ("seperti
+Central Kitchen, khusus di-view bar"), dan Kelola Akses jadi matriks
+sub-menu × peran (Tak Terlihat / Lihat / Boleh Ubah), bentuk Purchasing.
+
+- **GUDANG BAR = MESIN CENTRAL KITCHEN, gudangnya parameter** (koreksi user
+  hari yang sama: "konsepnya samakan dengan CK, jangan dibuat baru lagi").
+  Versi pertama — buku stok terpisah `gb_stock` + `gudang-bar.php` dari area
+  Bar — DICABUT; jangan dihidupkan lagi. Sekarang:
+
+  | | Central Kitchen | Gudang Bar |
+  |---|---|---|
+  | barang (Atur Produk → sumber) | `ck` / `both` | `bar` ("Vendor & Gudang Bar") |
+  | batch pengajuan | "Central Kitchen" | "Gudang Bar" |
+  | endpoint | `ck.php?gudang=ck` | `ck.php?gudang=bar` |
+  | tabel | `ck_stock` gudang='ck' | `ck_stock` gudang='bar' |
+  | kunci matriks Ordering | `ck` | `gb` |
+
+  - `ck_stock.gudang` lahir lewat ALTER di `pur_ck_pastikan()`, DEFAULT 'ck'
+    (baris lama otomatis milik CK). `pur_ck_sinkron_order()` mengenali kedua
+    batch; mutasi gudang lain tidak bisa disunting/dihapus dari gudang ini.
+  - Ordering: menu Gudang Bar membuka `view-ck` yang SAMA lewat
+    `setGudang('bar')`. Di DALAM tab dipakai `infoGudangItem`, `ckSaldoTab()`,
+    `ckUrlG()`, `gdInfo().batch`; **`infoCKItem`/`adaDiCK`/`ckSaldoPeta` TETAP
+    milik CK** karena Form Order Belanja memakainya. Pindah gudang
+    mengosongkan baris form; draf Minta/Kirim berkunci `ck@bar`/`kirim@bar`.
+    `dariFormCK()` sekarang berarti "dari form gudang mana pun" (pemilih batch &
+    saringan Check-in); yang membedakan `dariFormGudang()`.
+  - Purchasing: tombol sumber "🍸 Vendor & Gudang Bar"; pengajuan Gudang Bar
+    jadi grup sendiri di Jemput (`JEMPUT_GRUP_BAR`); halaman CK punya pemilih
+    gudang (`CK_GUDANG`, sebab masuk Bar = "Terima Barang", bukan produksi).
+  - Yang belum: Dashboard di halaman CK Purchasing masih berjudul/berkalimat
+    CK di beberapa tempat walau angkanya sudah per gudang.
+- **Matriks**: `ORD_PAGES` × `ORD_ROLES` (`full`, `checkin`), disimpan lewat
+  `ordering-settings.php`. **Bawaannya `ORD_PERM_DEFAULT` = aturan lama
+  persis** (Order & CK hanya `full`, Check-in keduanya, Restock & Forecast
+  admin saja, Gudang Bar: full Ubah, checkin Lihat). Kelola Akses di luar
+  matriks — khusus admin. Halaman pertama mengikuti `PERTAMA`, bukan urutan
+  menu.
+- **Penjaga di tiga lapis**: `switchTab()` (tab Tak Terlihat → layar
+  `noakses`), `terapkanKunciTampilan()` (sembunyikan tombol tulis + pita
+  "hanya bisa melihat"), dan `wajibUbah(page)` di awal SETIAP fungsi tulis
+  (startOrderSubmission, submitCKOrder, submitKirimCK, saveCheckinData,
+  submitEditQty, submitDeleteOrder, kedua upload forecast, gbSimpan, gbBatal).
+  Fungsi tulis baru WAJIB memanggilnya.
+- **`stock_settings` TIDAK PERNAH ADA di server mana pun** sampai tanggal ini
+  (cuma di schema.sql) — `purchasing-settings.php` & `ordering-settings.php`
+  sama-sama "kesalahan server" di dev & produksi, jadi matriks Purchasing
+  tidak pernah tersimpan. Sekarang `pur_settings_pastikan()` membuatnya.
+- Uji jsdom yang mem-boot panel ini WAJIB memanggil `enterApp({...role})`:
+  tanpa pengguna, `wajibUbah` menolak semua tulisan (`uji-konfirmasi-ck.js`
+  ikut disesuaikan).
+
+```bash
+node tools/uji-gudang-bar.js   # 65 pemeriksaan, jsdom (ordering + purchasing) + kontrak PHP
+```
+
 ### Stock: panel Break & Loss (9 Oktober 2026)
 
 Permintaan user: modul baru di Stock, *"konsepnya sama seperti waste produk, ada

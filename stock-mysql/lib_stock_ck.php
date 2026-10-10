@@ -40,7 +40,46 @@ require_once __DIR__ . '/lib_stock_catat.php';
    Dibaca dari `products` (data.sumber === 'ck'), bukan tabel sendiri.
    Lihat catatan di pur_product_simpan untuk alasannya.
    --------------------------------------------------------------------- */
-function pur_ck_produk($pdo) {
+/* =====================================================================
+   DUA GUDANG, SATU MESIN (10 Oktober 2026, permintaan user: "Gudang Bar
+   konsepnya samakan dengan Central Kitchen, jangan dibuat baru lagi").
+
+   Seluruh berkas ini sekarang menerima `$gudang`: 'ck' (Central Kitchen,
+   bawaan — perilaku lama persis) atau 'bar' (Gudang Bar). Tabelnya TETAP
+   satu (`ck_stock`), dibedakan kolom `gudang`. Dua tabel untuk dua gudang
+   berarti dua salinan aturan saldo, sinkron check-in, dan kiriman — dan
+   salinan yang tertinggal satu revisi adalah kesalahan yang sudah berulang
+   kali dibayar di repo ini.
+
+   Barang Gudang Bar ditandai `sumber = 'bar'` di Atur Produk ("Vendor &
+   Gudang Bar") — padanan 'both' untuk CK: dibeli ke vendor, disimpan di
+   gudang bar, lalu diminta bar sedikit-sedikit. Pengajuannya ber-batch
+   "Gudang Bar", padanan "Central Kitchen".
+
+   Kolom `gudang` lahir lewat ALTER (pur_ck_pastikan), bukan migrasi: tabel
+   ini sudah berisi di dev & produksi, dan migrasi di repo ini rutin
+   tertinggal. DEFAULT 'ck' membuat seluruh baris lama otomatis milik CK.
+   ===================================================================== */
+function pur_ck_gudang($g) {
+  return strtolower(trim((string)$g)) === 'bar' ? 'bar' : 'ck';
+}
+function pur_ck_nama_gudang($g) {
+  return pur_ck_gudang($g) === 'bar' ? 'Gudang Bar' : 'Central Kitchen';
+}
+function pur_ck_pastikan($pdo) {
+  static $sudah = false;
+  if ($sudah) return;
+  $st = $pdo->prepare("SELECT COUNT(*) FROM information_schema.COLUMNS
+                        WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'ck_stock' AND COLUMN_NAME = 'gudang'");
+  $st->execute();
+  if ((int)$st->fetchColumn() === 0) {
+    $pdo->exec("ALTER TABLE `ck_stock` ADD COLUMN `gudang` VARCHAR(10) NOT NULL DEFAULT 'ck', ADD KEY `idx_ck_gudang` (`gudang`)");
+  }
+  $sudah = true;
+}
+
+function pur_ck_produk($pdo, $gudang = 'ck') {
+  $gudang = pur_ck_gudang($gudang);
   $out = [];
   foreach ($pdo->query("SELECT `nama`,`data` FROM `products` ORDER BY `nama`")->fetchAll() as $r) {
     $d = json_decode($r['data']);
@@ -51,7 +90,8 @@ function pur_ck_produk($pdo) {
        memakai perbandingan === 'ck' seperti dulu akan membuat barang 'both'
        tidak punya saldo di mana pun padahal barangnya jelas ada di rak CK. */
     $sumber = isset($d->sumber) ? (string)$d->sumber : '';
-    if ($sumber !== 'ck' && $sumber !== 'both') continue;
+    if ($gudang === 'bar') { if ($sumber !== 'bar') continue; }
+    elseif ($sumber !== 'ck' && $sumber !== 'both') continue;
     $out[$r['nama']] = (object)[
       'sumber'     => $sumber,
       'packIsi'    => isset($d->packIsi) ? (float)$d->packIsi : 0,
@@ -62,7 +102,7 @@ function pur_ck_produk($pdo) {
       // (retur sisa, titipan stok berlebih). Barang yang cuma ada di CK
       // tidak pernah dipegang outlet, jadi tidak ada yang bisa dikirimnya.
       // Barang 'both' selalu lewat outlet, jadi selalu bisa dikirim balik.
-      'diOutlet'   => ($sumber === 'both') || !empty($d->diOutlet),
+      'diOutlet'   => ($sumber === 'both' || $sumber === 'bar') || !empty($d->diOutlet),
     ];
   }
   return $out;
@@ -91,8 +131,10 @@ function pur_ck_ke_dasar($qty, $unit, $packIsi, $packSatuan) {
    stok sampai ada yang mencatat produksi pertamanya — dan orang akan
    menyimpulkan pendaftarannya gagal.
    --------------------------------------------------------------------- */
-function pur_ck_saldo($pdo) {
-  $produk = pur_ck_produk($pdo);
+function pur_ck_saldo($pdo, $gudang = 'ck') {
+  $gudang = pur_ck_gudang($gudang);
+  pur_ck_pastikan($pdo);
+  $produk = pur_ck_produk($pdo, $gudang);
 
   /* SEMUA baris dihitung, tanpa memandang `status`. Dulu status='pending'
      dikeluarkan karena kiriman outlet baru sah setelah dikonfirmasi orang CK;
@@ -109,8 +151,10 @@ function pur_ck_saldo($pdo) {
                  SUM(CASE WHEN `arah`='masuk'  THEN `qty` ELSE 0 END) AS masuk,
                  SUM(CASE WHEN `arah`='keluar' THEN `qty` ELSE 0 END) AS keluar,
                  MAX(`tanggal`) AS terakhir
-            FROM `ck_stock` GROUP BY `item`";
-  foreach ($pdo->query($sql)->fetchAll() as $r) {
+            FROM `ck_stock` WHERE `gudang` = ? GROUP BY `item`";
+  $stA = $pdo->prepare($sql);
+  $stA->execute([$gudang]);
+  foreach ($stA->fetchAll() as $r) {
     $agg[$r['item']] = $r;
   }
 
@@ -160,11 +204,12 @@ function pur_ck_saldo($pdo) {
 /* ---------------------------------------------------------------------
    DAFTAR MUTASI. Menghormati ?dari=&ke= seperti endpoint catat lainnya.
    --------------------------------------------------------------------- */
-function pur_ck_mutasi_ambil($pdo) {
+function pur_ck_mutasi_ambil($pdo, $gudang = 'ck') {
+  pur_ck_pastikan($pdo);
   $sql = "SELECT `id`,`tanggal`,`item`,`arah`,`qty`,`qty_input`,`unit_input`,
                  `sebab`,`status`,`ref`,`tim`,`pic`,`waktu`,`data`
-            FROM `ck_stock` WHERE 1=1";
-  $par = [];
+            FROM `ck_stock` WHERE `gudang` = ?";
+  $par = [pur_ck_gudang($gudang)];
   pur_filter_tanggal($sql, $par);
   $sql .= " ORDER BY `tanggal` DESC, `waktu` DESC";
   $st = $pdo->prepare($sql);
@@ -204,7 +249,9 @@ function pur_ck_mutasi_ambil($pdo) {
    otomatis, dan mutasi manual ber-ref akan bertabrakan dengan baris yang
    dibuat pur_ck_sinkron_order — lalu salah satunya terhapus diam-diam.
    --------------------------------------------------------------------- */
-function pur_ck_simpan($pdo, $b) {
+function pur_ck_simpan($pdo, $b, $gudang = 'ck') {
+  $gudang = pur_ck_gudang($gudang);
+  pur_ck_pastikan($pdo);
   $id    = trim((string)($b->id ?? ''));
   $item  = trim((string)($b->item ?? ''));
   $arah  = strtolower(trim((string)($b->arah ?? '')));
@@ -219,16 +266,19 @@ function pur_ck_simpan($pdo, $b) {
   // Isi pack diambil dari MASTER, bukan dari yang dikirim browser: kalau
   // dari browser, halaman yang cache-nya basi bisa menghitung dengan isi
   // pack lama dan menulis saldo yang salah tanpa ada yang tahu.
-  $produk = pur_ck_produk($pdo);
+  $produk = pur_ck_produk($pdo, $gudang);
   $p = $produk[$item] ?? null;
-  if (!$p) return ['status' => 'error', 'message' => 'barang bukan barang Central Kitchen: ' . $item];
+  if (!$p) return ['status' => 'error', 'message' => 'barang bukan barang ' . pur_ck_nama_gudang($gudang) . ': ' . $item];
 
   $unitInput = trim((string)($b->unitInput ?? ''));
   if ($unitInput === '') $unitInput = $p->packSatuan !== '' ? $p->packSatuan : 'Pcs';
 
   $qty = pur_ck_ke_dasar($qtyInput, $unitInput, $p->packIsi, $p->packSatuan);
 
-  $sebabSah = ['produksi', 'penyesuaian', 'rusak', 'pengajuan'];
+  /* 'terima' = barang masuk ke gudang dari pembelian. Untuk CK sebab masuk
+     yang lazim 'produksi'; Gudang Bar tidak memproduksi apa pun, jadi masuk
+     manualnya penerimaan. Keduanya sah di kedua gudang. */
+  $sebabSah = ['produksi', 'terima', 'penyesuaian', 'rusak', 'pengajuan'];
   if (!in_array($sebab, $sebabSah, true)) $sebab = ($arah === 'masuk') ? 'produksi' : 'penyesuaian';
 
   $rec = (object)[
@@ -247,9 +297,15 @@ function pur_ck_simpan($pdo, $b) {
     // Baris otomatis (ber-ref) tidak boleh disunting tangan: ia cerminan
     // status kedatangan sebuah order, dan mengubahnya di sini membuat
     // stok tidak lagi cocok dengan apa yang benar-benar diserahkan.
-    $st = $pdo->prepare("SELECT `ref` FROM `ck_stock` WHERE `id`=?");
+    $st = $pdo->prepare("SELECT `ref`,`gudang` FROM `ck_stock` WHERE `id`=?");
     $st->execute([$id]);
-    if ((string)$st->fetchColumn() !== '') {
+    $lama = $st->fetch();
+    // Baris gudang lain tidak bisa disunting dari layar gudang ini — kalau
+    // bisa, satu klik memindahkan stok dari CK ke Gudang Bar diam-diam.
+    if ($lama && (string)$lama['gudang'] !== $gudang) {
+      return ['status' => 'error', 'message' => 'mutasi ini milik ' . pur_ck_nama_gudang($lama['gudang'])];
+    }
+    if ($lama && (string)$lama['ref'] !== '') {
       return ['status' => 'error', 'message' => 'mutasi dari pengajuan hanya berubah lewat check-in'];
     }
     $pdo->prepare("UPDATE `ck_stock` SET `tanggal`=?,`item`=?,`arah`=?,`qty`=?,`qty_input`=?,
@@ -258,22 +314,26 @@ function pur_ck_simpan($pdo, $b) {
     return ['status' => 'success', 'id' => $id];
   }
 
-  $id = pur_uid('CK');
+  $id = pur_uid($gudang === 'bar' ? 'GB' : 'CK');
   $pdo->prepare("INSERT INTO `ck_stock`
                    (`id`,`tanggal`,`item`,`arah`,`qty`,`qty_input`,`unit_input`,
-                    `sebab`,`ref`,`tim`,`pic`,`waktu`,`data`)
-                 VALUES (?,?,?,?,?,?,?,?,NULL,?,?,?,?)")
-      ->execute([$id, $tanggal, $item, $arah, $qty, $qtyInput, $unitInput, $sebab, $tim, $pic, $waktu, $dataJson]);
+                    `sebab`,`ref`,`tim`,`pic`,`waktu`,`data`,`gudang`)
+                 VALUES (?,?,?,?,?,?,?,?,NULL,?,?,?,?,?)")
+      ->execute([$id, $tanggal, $item, $arah, $qty, $qtyInput, $unitInput, $sebab, $tim, $pic, $waktu, $dataJson, $gudang]);
   return ['status' => 'success', 'id' => $id];
 }
 
-function pur_ck_hapus($pdo, $id) {
+function pur_ck_hapus($pdo, $id, $gudang = 'ck') {
+  pur_ck_pastikan($pdo);
   $id = trim((string)$id);
   if ($id === '') return ['status' => 'error', 'message' => 'id kosong'];
-  $st = $pdo->prepare("SELECT `ref` FROM `ck_stock` WHERE `id`=?");
+  $st = $pdo->prepare("SELECT `ref`,`gudang` FROM `ck_stock` WHERE `id`=?");
   $st->execute([$id]);
   $row = $st->fetch();
   if (!$row) return ['status' => 'error', 'message' => 'mutasi tidak ditemukan'];
+  if ((string)$row['gudang'] !== pur_ck_gudang($gudang)) {
+    return ['status' => 'error', 'message' => 'mutasi ini milik ' . pur_ck_nama_gudang($row['gudang'])];
+  }
   if ((string)$row['ref'] !== '') {
     return ['status' => 'error', 'message' => 'mutasi dari pengajuan hanya hilang bila check-in dibatalkan'];
   }
@@ -315,13 +375,17 @@ function pur_ck_sinkron_order($pdo, $rowIndexes) {
   $rows = array_values(array_filter(array_map('intval', $rowIndexes), fn($n) => $n > 0));
   if (!$rows) return ['disinkron' => 0];
 
-  $produk = pur_ck_produk($pdo);
-  if (!$produk) return ['disinkron' => 0];
-
-  // Peta nama barang tanpa memandang besar-kecil huruf: nama di order
-  // diketik lewat autocomplete dan tidak dijamin sama persis dengan master.
-  $petaLower = [];
-  foreach ($produk as $nama => $p) $petaLower[pur_lower($nama)] = $nama;
+  pur_ck_pastikan($pdo);
+  /* Master & peta nama dibuat PER GUDANG: barang yang diminta lewat batch
+     "Gudang Bar" dicocokkan ke master gudang bar, bukan CK. Peta nama tanpa
+     memandang besar-kecil huruf: nama di order diketik lewat autocomplete. */
+  $produkG = ['ck' => pur_ck_produk($pdo, 'ck'), 'bar' => pur_ck_produk($pdo, 'bar')];
+  if (!$produkG['ck'] && !$produkG['bar']) return ['disinkron' => 0];
+  $petaG = [];
+  foreach ($produkG as $g => $daftar) {
+    $petaG[$g] = [];
+    foreach ($daftar as $nama => $p) $petaG[$g][pur_lower($nama)] = $nama;
+  }
 
   $isi = implode(',', array_fill(0, count($rows), '?'));
   $st = $pdo->prepare("SELECT `nomor_order`,`row_index`,`item`,`qty`,`unit`,`tgl_datang`,
@@ -349,7 +413,12 @@ function pur_ck_sinkron_order($pdo, $rowIndexes) {
        Penandanya `batch_name` — nilai yang sama yang ditulis submitCKOrder dan
        dibaca pesananCK() di purchasing serta dariFormCK() di ordering. Satu
        istilah, satu arti, di empat tempat. */
-    if (strtolower(trim((string)($o['batch_name'] ?? ''))) !== 'central kitchen') continue;
+    $bn = strtolower(trim((string)($o['batch_name'] ?? '')));
+    if ($bn === 'central kitchen') $gudang = 'ck';
+    elseif ($bn === 'gudang bar')  $gudang = 'bar';
+    else continue;
+    $produk = $produkG[$gudang];
+    $petaLower = $petaG[$gudang];
 
     $namaMaster = isset($produk[$o['item']]) ? $o['item'] : ($petaLower[pur_lower($o['item'])] ?? '');
     if ($namaMaster === '') continue;              // bukan barang CK — tidak diurus di sini
@@ -377,18 +446,19 @@ function pur_ck_sinkron_order($pdo, $rowIndexes) {
        kunci unik di tabel, bukan urutan perintah di PHP. */
     $ins = $pdo->prepare(
       "INSERT INTO `ck_stock`
-         (`id`,`tanggal`,`item`,`arah`,`qty`,`qty_input`,`unit_input`,`sebab`,`ref`,`tim`,`pic`,`waktu`,`data`)
-       VALUES (?,?,?,'keluar',?,?,?,'pengajuan',?,?,?,?,?)
+         (`id`,`tanggal`,`item`,`arah`,`qty`,`qty_input`,`unit_input`,`sebab`,`ref`,`tim`,`pic`,`waktu`,`data`,`gudang`)
+       VALUES (?,?,?,'keluar',?,?,?,'pengajuan',?,?,?,?,?,?)
        ON DUPLICATE KEY UPDATE
          `tanggal`=VALUES(`tanggal`), `item`=VALUES(`item`), `qty`=VALUES(`qty`),
          `qty_input`=VALUES(`qty_input`), `unit_input`=VALUES(`unit_input`),
-         `tim`=VALUES(`tim`), `pic`=VALUES(`pic`), `data`=VALUES(`data`)");
+         `tim`=VALUES(`tim`), `pic`=VALUES(`pic`), `data`=VALUES(`data`), `gudang`=VALUES(`gudang`)");
     $ins->execute([
       pur_uid('CKO'),
       (string)$o['tgl_datang'] ?: date('Y-m-d'),
       $namaMaster, $qty, $qtyInput, $unit, $ref,
       (string)$o['tim'], (string)$o['pic'], date('Y-m-d H:i:s'),
       json_encode($rec, JSON_UNESCAPED_UNICODE),
+      $gudang,
     ]);
     $n++;
   }
@@ -418,7 +488,9 @@ function pur_ck_sinkron_order($pdo, $rowIndexes) {
    Baris lama yang telanjur 'pending' dinormalkan oleh
    migrasi-2026-07-31-ck-kiriman-langsung.sql.
    ===================================================================== */
-function pur_ck_kiriman_simpan($pdo, $b) {
+function pur_ck_kiriman_simpan($pdo, $b, $gudang = 'ck') {
+  $gudang = pur_ck_gudang($gudang);
+  pur_ck_pastikan($pdo);
   $item = trim((string)($b->item ?? ''));
   if ($item === '') return ['status' => 'error', 'message' => 'barang kosong'];
 
@@ -428,11 +500,11 @@ function pur_ck_kiriman_simpan($pdo, $b) {
   // Isi pack dibaca dari MASTER, bukan dari yang dikirim browser: halaman
   // yang cache-nya basi bisa menghitung dengan isi pack lama dan menulis
   // saldo yang salah tanpa ada yang tahu.
-  $produk = pur_ck_produk($pdo);
+  $produk = pur_ck_produk($pdo, $gudang);
   $p = $produk[$item] ?? null;
-  if (!$p) return ['status' => 'error', 'message' => 'barang bukan barang Central Kitchen: ' . $item];
+  if (!$p) return ['status' => 'error', 'message' => 'barang bukan barang ' . pur_ck_nama_gudang($gudang) . ': ' . $item];
   if (!$p->diOutlet) {
-    return ['status' => 'error', 'message' => 'barang ini tidak disimpan di outlet, jadi tidak bisa dikirim ke CK'];
+    return ['status' => 'error', 'message' => 'barang ini tidak disimpan di outlet, jadi tidak bisa dikirim ke ' . pur_ck_nama_gudang($gudang)];
   }
 
   $unitInput = trim((string)($b->unitInput ?? ''));
@@ -445,13 +517,13 @@ function pur_ck_kiriman_simpan($pdo, $b) {
     'packSatuan' => $p->packSatuan,
   ];
 
-  $id = pur_uid('CKK');
+  $id = pur_uid($gudang === 'bar' ? 'GBK' : 'CKK');
   // status '' = mutasi biasa yang LANGSUNG dihitung ke saldo. Kolomnya tetap
   // ada supaya baris pending peninggalan aturan lama masih bisa dibaca.
   $pdo->prepare("INSERT INTO `ck_stock`
                    (`id`,`tanggal`,`item`,`arah`,`qty`,`qty_input`,`unit_input`,
-                    `sebab`,`status`,`ref`,`tim`,`pic`,`waktu`,`data`)
-                 VALUES (?,?,?,'masuk',?,?,?,'kiriman','',NULL,?,?,?,?)")
+                    `sebab`,`status`,`ref`,`tim`,`pic`,`waktu`,`data`,`gudang`)
+                 VALUES (?,?,?,'masuk',?,?,?,'kiriman','',NULL,?,?,?,?,?)")
       ->execute([
         $id,
         trim((string)($b->tanggal ?? '')) ?: date('Y-m-d'),
@@ -460,6 +532,7 @@ function pur_ck_kiriman_simpan($pdo, $b) {
         trim((string)($b->pic ?? '')),
         date('Y-m-d H:i:s'),
         json_encode($rec, JSON_UNESCAPED_UNICODE),
+        $gudang,
       ]);
   return ['status' => 'success', 'id' => $id];
 }

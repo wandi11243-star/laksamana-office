@@ -102,6 +102,13 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
   /* Master barang & identitas disetel langsung: yang diuji jalur KONFIRMASI,
      bukan gerbang SSO maupun pemuat master. Pola yang sama dengan
      uji-kelola-user.js dan uji-bukti-dp.js. */
+  /* MASUK SEBAGAI PERAN "Order + Check-in" (10 Oktober 2026). Sejak hak akses
+     panel ini jadi matriks per sub-menu, submitCKOrder/submitKirimCK menolak
+     siapa pun yang tidak punya hak Ubah di Central Kitchen — termasuk keadaan
+     tanpa pengguna sama sekali, yang dulu diam-diam dipakai uji ini. Di
+     aplikasi sungguhan form CK baru bisa diisi sesudah enterApp(). */
+  w.eval("enterApp({id:'u1', name:'Wandi', pin:'', role:'full', keterangan:''})");
+  await tunggu(80);
   w.eval('globalProductInfo = ' + JSON.stringify(PRODUK) + ';');
   w.eval("state.appScriptUrlHistory = 'https://contoh/exec';");
   /* Kotak tanggal BUKAN <input> di markup melainkan <div data-kal> yang diisi
