@@ -243,9 +243,22 @@ function baca_state() {
   foreach (collections() as $nama => $c) {
     $urut = isset($c['created']) ? 'created_at ASC, id ASC' : 'id ASC';
     $rows = array();
-    foreach ($pdo->query('SELECT data FROM ' . $c['table'] . ' ORDER BY ' . $urut) as $row) {
+    /* updatedAt DIAMBIL DARI KOLOM updated_at, bukan dari isi `data`
+       (10 Oktober 2026). Backend ticketing (penjualan online, upgrade kursi)
+       menaikkan KOLOM updated_at baris seats / ticket_classes / tickets /
+       orders tanpa ikut memperbarui updatedAt di dalam JSON-nya. Klien
+       mengirim updatedAt dari JSON sebagai baseUpdatedAt, sementara
+       upsert_collection() membandingkannya dengan KOLOM — jadi tiap baris
+       yang pernah tersentuh penjualan online SELALU dilaporkan "sudah diubah
+       kru lain", berapa kali pun dimuat ulang. Gejalanya: tombol Selesaikan
+       refund tidak pernah tersimpan (kelas VIP & kursinya bentrok).
+       Kolom itu yang dipakai penjaga, jadi itu juga yang dipulangkan. */
+    foreach ($pdo->query('SELECT data, updated_at FROM ' . $c['table'] . ' ORDER BY ' . $urut) as $row) {
       $r = json_decode($row['data'], true);
-      if (is_array($r)) $rows[] = $r;
+      if (!is_array($r)) continue;
+      $kol = isset($row['updated_at']) ? (int)$row['updated_at'] : 0;
+      if ($kol > 0) $r['updatedAt'] = $kol;
+      $rows[] = $r;
     }
     $out[$nama] = $rows;
   }
