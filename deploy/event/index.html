@@ -6148,6 +6148,25 @@ function setIzin(hal,peran,nilai){
 }
 function resetIzin(){ DB.perm=emsPermBawaan(); save(); buildNav(); renderAkses(); toast('Matriks izin dikembalikan ke bawaan.'); }
 
+/* ISI KOTAK datetime-local DARI INSTANT UTC (10 Oktober 2026, keluhan user:
+   "pas saya balik jam di event modul kok balik lagi"). start_datetime
+   disimpan sebagai INSTANT UTC (2026-10-25T04:00:00.000Z = 11.00 WIB), tapi
+   form Edit mengisinya dengan slice(0,16) MENTAH — kotaknya berbunyi 04:00,
+   lalu saveEvent() membaca 04:00 itu sebagai jam LOKAL lewat new Date(...).
+   Akibatnya tiap Edit → Simpan memundurkan jam acara 7 jam, tanpa satu pun
+   galat; detail event tetap tampil benar karena fmtDateTime() memakai jam lokal.
+   Sekarang kotaknya diisi jam LOKAL — aturan yang sama dengan yang dipakai
+   saveEvent() untuk membacanya balik, jadi bolak-balik tidak menggeser apa pun.
+   Nilai lama tanpa penanda zona ("2026-10-25T11:00") memang sudah jam lokal
+   dan dipakai apa adanya. */
+function dtLokalInput(s){
+  if(!s) return '';
+  const x=String(s);
+  if(!/(Z|[+-]\d{2}:?\d{2})$/.test(x)) return x.slice(0,16);
+  const d=new Date(x); if(isNaN(d)) return x.slice(0,16);
+  const p=n=>String(n).padStart(2,'0');
+  return d.getFullYear()+'-'+p(d.getMonth()+1)+'-'+p(d.getDate())+'T'+p(d.getHours())+':'+p(d.getMinutes());
+}
 function renderEvents(){
   autoSelesaikanEvent();
   setTop('Event Management','Event yang sudah disetujui manajemen',
@@ -6175,7 +6194,9 @@ function renderEvents(){
   /* Periode disaring LEBIH DULU, baru status, baru teks — supaya angka
      "x dari y" berarti "event pada periode ini". */
   if(r) semua=semua.filter(function(e){
-    const t=String(e.start_datetime||'').slice(0,10);
+    /* Tanggal WIB, bukan potongan UTC mentah: acara lewat tengah malam
+       jatuh di hari sebelumnya — dan di ujung bulan, di BULAN sebelumnya. */
+    const t=e.start_datetime?pevTglWIB(e.start_datetime):'';
     return t && t>=r.a && t<=r.b; });
   let list=semua.filter(function(e){ return evtFilter==='all'||e.status===evtFilter; });
   if(q) list=list.filter(function(e){
@@ -6190,6 +6211,13 @@ function renderEvents(){
     +'<div class="seg-per">'+EVT_PERIODE.map(function(x){
         return '<button class="'+(evtPeriode===x[0]?'on':'')+'" '
           +'onclick="evtSetPeriode(&#39;'+x[0]+'&#39;)">'+x[1]+'</button>'; }).join('')+'</div>'
+    /* PILIH BULAN (10 Oktober 2026, permintaan user: "biar bisa lihat bulan
+       lalu juga"). rentangPeriode() sudah mengerti bentuk YYYY-MM; yang belum
+       ada cuma kendalinya. Pola & tombol geser sama dengan pita Dashboard. */
+    +'<button class="btn ghost sm" title="Bulan sebelumnya" onclick="periodeGeser(&#39;'+esc(String(evtPeriode||''))+'&#39;,-1,&#39;evtSetPeriode&#39;)">‹</button>'
+    +'<input type="month" value="'+esc(periodeBulanAktif(evtPeriode))+'" title="Pilih bulan" style="width:auto" onchange="if(this.value)evtSetPeriode(this.value)">'
+    +'<button class="btn ghost sm" title="Bulan berikutnya" onclick="periodeGeser(&#39;'+esc(String(evtPeriode||''))+'&#39;,1,&#39;evtSetPeriode&#39;)">›</button>'
+    +(evtPeriode?'<span class="pill">'+esc(labelPeriodeEms(evtPeriode))+'</span>':'')
     +'<input placeholder="\u{1F50D} Cari event, venue, atau PIC..." value="'+esc(evtCari||'')+'" '
       +'oninput="evtCari=this.value;renderEvents();sorotCari()">'
     +'<span class="pill">'+list.length+' dari '+semua.length+' event</span>'
@@ -6250,7 +6278,10 @@ function sorotCari(){
    Marketing supaya kru tidak belajar dua istilah untuk satu hal. */
 let evtCari='', evtPeriode='';
 const EVT_PERIODE=[['','Semua'],['hari','Hari ini'],['minggu','Minggu ini'],['bulan','Bulan ini']];
-function evtSetPeriode(k){ evtPeriode=k; renderEvents(); }
+/* Bulan/tanggal TERTENTU membuka tab Semua: yang memilih bulan lalu mencari
+   acara yang sudah Event Done, dan tab Upcoming bawaan akan menjawabnya
+   dengan daftar kosong — terbaca sebagai "bulan itu tidak ada acara". */
+function evtSetPeriode(k){ evtPeriode=k; if(/^\d{4}-\d{2}/.test(String(k||''))) evtFilter='all'; renderEvents(); }
 function evtRentang(){ return rentangPeriode(evtPeriode); }
 /* Satu penghitung rentang untuk SELURUH modul — dipakai daftar event dan
    dashboard. Dua salinan aturan "minggu ini" pasti lambat laun berbeda,
@@ -6375,8 +6406,8 @@ function eventForm(id,awal){
     <div class="field"><label>Theme</label><input id="e_theme" value="${esc(e.theme||'')}"></div>
     <div class="field"><label>Venue</label><input id="e_venue" value="${esc(e.venue||'')}"></div>
     <div class="field"><label>Kapasitas</label><input id="e_cap" type="number" value="${e.capacity||100}"></div>
-    <div class="field"><label>Mulai *</label><input id="e_start" type="datetime-local" value="${e.start_datetime?e.start_datetime.slice(0,16):''}" onchange="document.getElementById('e_end').min=this.value"></div>
-    <div class="field"><label>Selesai</label><input id="e_end" type="datetime-local" value="${e.end_datetime?e.end_datetime.slice(0,16):''}" min="${e.start_datetime?e.start_datetime.slice(0,16):''}"></div>
+    <div class="field"><label>Mulai *</label><input id="e_start" type="datetime-local" value="${dtLokalInput(e.start_datetime)}" onchange="document.getElementById('e_end').min=this.value"></div>
+    <div class="field"><label>Selesai</label><input id="e_end" type="datetime-local" value="${dtLokalInput(e.end_datetime)}" min="${dtLokalInput(e.start_datetime)}"></div>
     ${fieldPicEvent(id,e)}
 <!-- Co-PIC dicabut: satu acara punya satu penanggung jawab. Dua nama di kolom
      PIC membuat pertanyaan "siapa yang harus ditanya" tidak pernah punya
