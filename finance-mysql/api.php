@@ -233,6 +233,23 @@ try {
     case 'bayarSave':
       brankas_balas(brankas_bayar_simpan($body));
 
+    /* ---- TAGIHAN RUTIN (10 Oktober 2026) — lihat lib_tagihan.php ---- */
+    case 'tagihanList':
+      require_once __DIR__ . '/lib_tagihan.php';
+      keluar(array('ok' => true, 'data' => tg_baca()));
+    case 'tagihanSimpan':
+      require_once __DIR__ . '/lib_tagihan.php';
+      keluar(array('ok' => true, 'data' => tg_simpan($body)));
+    case 'tagihanAktif':
+      require_once __DIR__ . '/lib_tagihan.php';
+      keluar(array('ok' => true, 'data' => tg_aktif($body)));
+    case 'tagihanBayar':
+      require_once __DIR__ . '/lib_tagihan.php';
+      keluar(array('ok' => true, 'data' => tg_bayar($body)));
+    case 'tagihanBatal':
+      require_once __DIR__ . '/lib_tagihan.php';
+      keluar(array('ok' => true, 'data' => tg_batal($body)));
+
     case 'brankasAkses':
       keluar(array('ok' => true, 'data' => brankas_akses_simpan($body)));
 
