@@ -1066,8 +1066,10 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
      berarti barang yang tidak masuk daftar mana pun tanpa ada yang tahu
      kenapa. */
   $sumber = strtolower(trim((string)$sumber));
-  if ($sumber !== 'ck' && $sumber !== 'both') $sumber = '';
-  $adaDiCK = ($sumber === 'ck' || $sumber === 'both');
+  /* 'bar' (10 Oktober 2026) = Vendor & Gudang Bar — padanan 'both' untuk
+     gudang kedua. Pack, satuan, dan diOutlet diperlakukan sama persis. */
+  if ($sumber !== 'ck' && $sumber !== 'both' && $sumber !== 'bar') $sumber = '';
+  $adaDiCK = ($sumber === 'ck' || $sumber === 'both' || $sumber === 'bar');
 
   $packIsi    = (float)$packIsi;
   $packSatuan = trim((string)$packSatuan);
@@ -1079,7 +1081,7 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
      pasti melewati outlet, jadi menanyakannya lagi cuma menyediakan cara
      menyimpan jawaban yang salah. */
   $diOutlet = (bool)$diOutlet;
-  if ($sumber === 'both') $diOutlet = true;
+  if ($sumber === 'both' || $sumber === 'bar') $diOutlet = true;
   if (!$adaDiCK) { $packIsi = 0; $packSatuan = ''; $diOutlet = false; }   // pack hanya berarti untuk barang yang ada di CK
   if ($packIsi < 0) $packIsi = 0;
 
@@ -1100,7 +1102,7 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
      semua-boleh jadi dua-saja, diam-diam, tanpa admin pernah memintanya. */
   if ($sumber === 'ck' && $packSatuan !== '') {
     $satuan = $packIsi > 0 ? ['Pack', $packSatuan] : [$packSatuan];
-  } elseif ($sumber === 'both' && $packSatuan !== '' && $satuan) {
+  } elseif (($sumber === 'both' || $sumber === 'bar') && $packSatuan !== '' && $satuan) {
     $wajib = $packIsi > 0 ? ['Pack', $packSatuan] : [$packSatuan];
     foreach ($wajib as $w) if (!in_array($w, $satuan, true)) $satuan[] = $w;
   }

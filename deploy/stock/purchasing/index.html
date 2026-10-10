@@ -481,7 +481,13 @@
         <section id="content-ck" class="tab-content hidden">
             <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-4 mb-6">
                 <div>
-                    <h2 class="text-2xl font-bold text-slate-900">Central Kitchen</h2>
+                    <h2 id="ck-judul-hal" class="text-2xl font-bold text-slate-900">Central Kitchen</h2>
+                    <!-- DUA GUDANG, SATU HALAMAN (10 Oktober 2026): Gudang Bar
+                         memakai mesin stok yang sama persis. -->
+                    <div class="inline-flex bg-slate-100 rounded-xl p-1 mt-2 gap-1">
+                        <button type="button" id="ck-gd-ck"  onclick="setGudangCK('ck')"  class="px-3 py-1.5 rounded-lg text-xs font-bold">👨‍🍳 Central Kitchen</button>
+                        <button type="button" id="ck-gd-bar" onclick="setGudangCK('bar')" class="px-3 py-1.5 rounded-lg text-xs font-bold">🍸 Gudang Bar</button>
+                    </div>
                     <p class="text-slate-500 text-sm mt-1">Sisa stok barang di dapur pusat, beserta riwayat pengambilan &amp; pemasukannya. Barang yang harus disiapkan hari ini ada di <b>Jemput Hari Ini</b>.</p>
                 </div>
                 <button onclick="muatCK(true)" class="px-3 py-2 rounded-xl border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 text-xs font-bold transition-all flex items-center gap-1.5 whitespace-nowrap self-start">
@@ -1263,15 +1269,20 @@
                      tumpuk barang yang nyata. -->
                 <div>
                     <label class="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-1.5">Sumber Barang</label>
-                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <div class="grid grid-cols-1 sm:grid-cols-4 gap-2">
                         <button type="button" onclick="setSumberProduk('')" id="prod-sumber-vendor" class="px-3 py-2.5 text-xs font-bold rounded-xl border transition-all">🏪 Beli dari Vendor</button>
                         <button type="button" onclick="setSumberProduk('ck')" id="prod-sumber-ck" class="px-3 py-2.5 text-xs font-bold rounded-xl border transition-all">👨‍🍳 Central Kitchen</button>
                         <button type="button" onclick="setSumberProduk('both')" id="prod-sumber-both" class="px-3 py-2.5 text-xs font-bold rounded-xl border transition-all">🔁 Vendor &amp; CK</button>
+                        <!-- Vendor & Gudang Bar (10 Oktober 2026): padanan 'both' untuk
+                             gudang kedua — dibeli ke vendor, disimpan di gudang bar,
+                             diminta bar lewat Ordering → Gudang Bar. -->
+                        <button type="button" onclick="setSumberProduk('bar')" id="prod-sumber-bar" class="px-3 py-2.5 text-xs font-bold rounded-xl border transition-all">🍸 Vendor &amp; Gudang Bar</button>
                     </div>
                     <input type="hidden" id="prod-sumber" value="">
                     <span class="text-[10px] text-slate-400 mt-1 block">
                         <b>Central Kitchen</b> = barang produksi dapur sendiri, tidak dipesan ke vendor.
                         <b>Vendor &amp; CK</b> = dibeli ke vendor tapi disimpan di CK &mdash; punya vendor <i>dan</i> punya saldo stok CK.
+                        <b>Vendor &amp; Gudang Bar</b> = sama, tapi disimpan di Gudang Bar dan diminta tim bar.
                     </span>
                 </div>
 
@@ -2916,8 +2927,17 @@
 
            Jejaknya tidak hilang ke mana-mana: semuanya tetap ada di
            "Jemput Hari Ini" dan di Central Kitchen → Riwayat. */
+        /* Gudang asal sebuah pesanan: 'ck', 'bar', atau ''. "Gudang Bar"
+           (10 Oktober 2026) adalah padanan "Central Kitchen" — nilai batch
+           yang sama ditulis Ordering dan dibaca pur_ck_sinkron_order(). */
+        function gudangPesanan(o) {
+            const n = String((o && o.batchName) || '').trim().toLowerCase();
+            if (n === 'gudang bar') return 'bar';
+            return pesananCK(o) ? 'ck' : '';
+        }
         function pesananCK(o) {
             if (String((o && o.batchName) || '').trim().toLowerCase() === 'central kitchen') return true;
+            if (String((o && o.batchName) || '').trim().toLowerCase() === 'gudang bar') return true;
             const m = appState.products[o && o.item];
             return !!(m && m.sumber === 'ck');
         }
@@ -4376,7 +4396,7 @@
                         (Array.isArray(m.satuan) ? m.satuan : []).join(' '),
                         satuanDasarOf(m), isiList(m).map(r => r[0]).join(' '),
                         labelCaraBeli(m.caraBeli),
-                        m.sumber === 'ck' ? 'central kitchen' : (m.sumber === 'both' ? 'vendor & ck' : ''),
+                        m.sumber === 'ck' ? 'central kitchen' : (m.sumber === 'both' ? 'vendor & ck' : (m.sumber === 'bar' ? 'vendor & gudang bar' : '')),
                         m.packSatuan || '',
                         bahanAktif(m) ? 'aktif' : 'non-aktif'].join(' ').toLowerCase();
             };
@@ -4469,6 +4489,7 @@
                 const sumber = mapping.sumber || '';
                 const badgeSumber = sumber === 'ck'   ? chip('👨‍🍳 Central Kitchen', 'bg-teal-50 text-teal-700 border border-teal-200')
                                   : sumber === 'both' ? chip('🔁 Vendor &amp; CK', 'bg-violet-50 text-violet-700 border border-violet-200')
+                                  : sumber === 'bar'  ? chip('🍸 Vendor &amp; Gudang Bar', 'bg-fuchsia-50 text-fuchsia-700 border border-fuchsia-200')
                                   : '';
                 const badgeKategori = mapping.kategori ? chip(mapping.kategori, 'bg-slate-100 text-slate-700 border border-slate-200') : kosong;
                 /* Area boleh lebih dari satu, jadi kolomnya jadi beberapa chip.
@@ -4486,7 +4507,7 @@
                 // Pack hanya berarti untuk barang yang ada di CK — untuk bahan
                 // vendor murni kolomnya memang tidak pernah diisi, dan menulis
                 // "Curah" di sana akan terbaca sebagai keputusan yang tak pernah diambil.
-                const adaCK = (sumber === 'ck' || sumber === 'both');
+                const adaCK = (sumber === 'ck' || sumber === 'both' || sumber === 'bar');
                 const badgePack = !adaCK ? kosong
                     : (mapping.packIsi > 0
                         ? chip(`1 Pack = ${mapping.packIsi} ${mapping.packSatuan || ''}`.trim(), 'bg-emerald-50 text-emerald-700 border border-emerald-200')
@@ -4878,6 +4899,7 @@
         // yang diketik di dua tempat: ia dipakai sebagai KUNCI grup sekaligus
         // judul yang tampil, jadi beda satu huruf memecahnya jadi dua grup.
         const JEMPUT_GRUP_CK = 'Central Kitchen';
+        const JEMPUT_GRUP_BAR = 'Gudang Bar';
 
         function jemputTglAktif() {
             const el = document.getElementById('jemput-date');
@@ -5088,7 +5110,10 @@
                sedang dipesan ke toko. Dilaporkan user 10 Agustus 2026. */
             const grup = {};
             daftar.forEach(o => {
-                if (pesananCK(o)) { (grup[JEMPUT_GRUP_CK] = grup[JEMPUT_GRUP_CK] || []).push(o); return; }
+                if (pesananCK(o)) {
+                    const gk = gudangPesanan(o) === 'bar' ? JEMPUT_GRUP_BAR : JEMPUT_GRUP_CK;
+                    (grup[gk] = grup[gk] || []).push(o); return;
+                }
                 const m = appState.products[o.item];
                 const v = (m && m.utama) || 'Tanpa Vendor';
                 (grup[v] = grup[v] || []).push(o);
@@ -5100,6 +5125,8 @@
             const urutGrup = Object.keys(grup).sort((a, b) => {
                 if (a === JEMPUT_GRUP_CK) return -1;
                 if (b === JEMPUT_GRUP_CK) return 1;
+                if (a === JEMPUT_GRUP_BAR) return -1;
+                if (b === JEMPUT_GRUP_BAR) return 1;
                 return a.localeCompare(b);
             });
             wrap.innerHTML = urutGrup.map(vendor => {
@@ -5132,8 +5159,8 @@
                 <div class="bg-white border ${beres ? 'border-emerald-200' : (nTelat ? 'border-rose-300' : 'border-slate-200')} rounded-2xl shadow-sm overflow-hidden">
                     <div class="px-4 py-3 flex items-center justify-between gap-3 ${beres ? 'bg-emerald-50' : (nTelat ? 'bg-rose-50' : 'bg-slate-50')}">
                         <div class="min-w-0">
-                            <div class="text-[15px] font-black text-slate-800 truncate">${vendor === JEMPUT_GRUP_CK ? '👨‍🍳' : '🏪'} ${vendor}</div>
-                            <div class="text-[12px] text-slate-500 mt-0.5">${items.length} barang${vendor === JEMPUT_GRUP_CK ? ' · mencentang di sini langsung memotong stok CK' : ''}</div>
+                            <div class="text-[15px] font-black text-slate-800 truncate">${vendor === JEMPUT_GRUP_CK ? '👨‍🍳' : (vendor === JEMPUT_GRUP_BAR ? '🍸' : '🏪')} ${vendor}</div>
+                            <div class="text-[12px] text-slate-500 mt-0.5">${items.length} barang${vendor === JEMPUT_GRUP_CK ? ' · mencentang di sini langsung memotong stok CK' : (vendor === JEMPUT_GRUP_BAR ? ' · mencentang di sini langsung memotong stok Gudang Bar' : '')}</div>
                         </div>
                         <div class="shrink-0 flex items-center gap-1.5">
                             ${nTelat ? `<span class="px-2 py-1 rounded-full text-[10px] font-black bg-rose-600 text-white whitespace-nowrap">⚠️ ${nTelat} tertunda</span>` : ''}
@@ -5574,6 +5601,27 @@
         let ckSubTab = 'dash';
         let ckSiapDimuat = false;   // true sesudah tarikan pertama berhasil
 
+        /* Gudang yang sedang dibuka di halaman ini: 'ck' (bawaan) atau 'bar'.
+           Barangnya, endpoint (ck.php?gudang=), dan sebab masuknya ikut gudang;
+           sisanya mesin yang sama. Lihat lib_stock_ck.php. */
+        let CK_GUDANG = 'ck';
+        function ckUrl() { return CK_URL + '?gudang=' + CK_GUDANG; }
+        function setGudangCK(g) {
+            g = g === 'bar' ? 'bar' : 'ck';
+            const ganti = g !== CK_GUDANG;
+            CK_GUDANG = g;
+            const ON = 'px-3 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-900 shadow-sm';
+            const OFF = 'px-3 py-1.5 rounded-lg text-xs font-bold text-slate-500 hover:text-slate-800';
+            const bc = document.getElementById('ck-gd-ck'), bb = document.getElementById('ck-gd-bar');
+            if (bc) bc.className = g === 'ck' ? ON : OFF;
+            if (bb) bb.className = g === 'bar' ? ON : OFF;
+            const j = document.getElementById('ck-judul-hal');
+            if (j) j.textContent = g === 'bar' ? 'Gudang Bar' : 'Central Kitchen';
+            const arah = document.getElementById('ck-m-arah');
+            if (arah) setArahCK(arah.value);   // daftar sebab ikut gudang
+            if (ganti) { ckSaldo = []; ckMutasi = []; ckSiapDimuat = false; muatCK(true); }
+        }
+
         /* Barang yang punya saldo di Central Kitchen. Sejak 31 Juli 2026 itu
            BUKAN cuma sumber==='ck': 'both' berarti dibeli ke vendor tapi juga
            disimpan di CK, dan barang seperti itu jelas punya stok CK. Dipusatkan
@@ -5581,6 +5629,7 @@
            `sumber === 'ck'` sendiri dan diam-diam melewatkan separuh barang. */
         function adaDiCK(p) {
             const s = p && p.sumber;
+            if (CK_GUDANG === 'bar') return s === 'bar';
             return s === 'ck' || s === 'both';
         }
         function produkCK() {
@@ -5690,6 +5739,7 @@
                 dDari.value = tglOffsetLokal(-(ckDashHari - 1));
                 dKe.value   = tglOffsetLokal(0);
             }
+            setGudangCK(CK_GUDANG);   // tombol & judul gudang tergambar sesuai keadaan
             setSubCK(ckSubTab);
             const tglM = document.getElementById('ck-m-tgl');
             if (tglM && !tglM.value) tglM.value = tglOffsetLokal(0);
@@ -5705,7 +5755,7 @@
         async function muatCK(paksa) {
             if (!paksa && ckSiapDimuat) { renderCK(); return; }
             try {
-                const res = await fetch(`${CK_URL}?t=${Date.now()}`);
+                const res = await fetch(ckUrl() + '&t=' + Date.now());
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const d = await res.json();
                 if (d && d.status === 'error') throw new Error(d.message || 'error');
@@ -5781,7 +5831,11 @@
             const sel = document.getElementById('ck-m-sebab');
             if (sel) {
                 const sebelum = sel.value;
-                const opsi = CK_SEBAB[masuk ? 'masuk' : 'keluar'];
+                /* Gudang Bar tidak memproduksi apa pun: masuk manualnya
+                   penerimaan barang, bukan hasil produksi. */
+                const opsi = (CK_GUDANG === 'bar' && masuk)
+                    ? [['terima', '📥 Terima Barang'], ['penyesuaian', '⚖️ Penyesuaian (koreksi)']]
+                    : CK_SEBAB[masuk ? 'masuk' : 'keluar'];
                 sel.innerHTML = opsi.map(([v2, l]) => `<option value="${v2}">${l}</option>`).join('');
                 if (opsi.some(([v2]) => v2 === sebelum)) sel.value = sebelum;
             }
@@ -6304,11 +6358,11 @@
             btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Menyimpan...';
             btn.disabled = true;
             try {
-                const res = await fetch(CK_URL, {
+                const res = await fetch(ckUrl(), {
                     method: 'POST',
                     headers: { 'Content-Type': 'text/plain;charset=utf-8' },
                     body: JSON.stringify({
-                        action: 'simpan', item, arah, sebab, tanggal, catatan,
+                        action: 'simpan', item, arah, sebab, tanggal, catatan, gudang: CK_GUDANG,
                         qtyInput: qty, unitInput: unit,
                         pic: (currentUser && currentUser.name) || '', tim: ''
                     })
@@ -6402,10 +6456,10 @@
             if (!requireEditPage('ck', 'Central Kitchen')) return;
             openConfirmModal("Hapus Mutasi?", "Sisa stok akan dihitung ulang tanpa baris ini.", async () => {
                 try {
-                    const res = await fetch(CK_URL, {
+                    const res = await fetch(ckUrl(), {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                        body: JSON.stringify({ action: 'hapus', id })
+                        body: JSON.stringify({ action: 'hapus', id, gudang: CK_GUDANG })
                     });
                     const d = await res.json();
                     if (!d || d.status !== 'success') throw new Error((d && d.message) || 'gagal');
@@ -7063,9 +7117,9 @@
            Barang 'both' punya kedua sisi sekaligus — itu memang seluruh
            gunanya pilihan itu. */
         function setSumberProduk(v) {
-            const sumber = (v === 'ck' || v === 'both') ? v : '';
-            const adaDiCK   = (sumber === 'ck' || sumber === 'both');
-            const dariVendor = (sumber === '' || sumber === 'both');
+            const sumber = (v === 'ck' || v === 'both' || v === 'bar') ? v : '';
+            const adaDiCK   = (sumber === 'ck' || sumber === 'both' || sumber === 'bar');
+            const dariVendor = (sumber === '' || sumber === 'both' || sumber === 'bar');
             document.getElementById('prod-sumber').value = sumber;
 
             const ON  = 'px-3 py-2.5 text-xs font-bold rounded-xl border transition-all bg-slate-900 text-white border-slate-900 shadow-sm';
@@ -7073,6 +7127,7 @@
             document.getElementById('prod-sumber-vendor').className = sumber === ''     ? ON : OFF;
             document.getElementById('prod-sumber-ck').className     = sumber === 'ck'   ? ON : OFF;
             document.getElementById('prod-sumber-both').className   = sumber === 'both' ? ON : OFF;
+            document.getElementById('prod-sumber-bar').className    = sumber === 'bar'  ? ON : OFF;
 
             document.getElementById('prod-pack-wrap').classList.toggle('hidden', !adaDiCK);
             document.getElementById('prod-vendor-wrap').classList.toggle('hidden', !dariVendor);
@@ -7092,7 +7147,7 @@
                nilainya dipaksa, bukan ditanyakan. */
             const lokasiWrap = document.getElementById('prod-lokasi-wrap');
             if (lokasiWrap) lokasiWrap.classList.toggle('hidden', sumber !== 'ck');
-            if (sumber === 'both') setLokasiCK(true);
+            if (sumber === 'both' || sumber === 'bar') setLokasiCK(true);
             if (!adaDiCK) setLokasiCK(false);   // barang vendor murni tidak punya sisi CK
 
             const selPack = document.getElementById('prod-pack-satuan');
@@ -7195,7 +7250,7 @@
             }
             const editKey = document.getElementById('prod-edit-key').value;
             const sumber = document.getElementById('prod-sumber').value;
-            const adaDiCKProd = (sumber === 'ck' || sumber === 'both');
+            const adaDiCKProd = (sumber === 'ck' || sumber === 'both' || sumber === 'bar');
             // Curah menulis 0 apa pun isi kolomnya — kolomnya memang
             // disembunyikan, dan angka sisa dari pilihan sebelumnya tidak boleh
             // ikut tersimpan diam-diam.
@@ -7656,7 +7711,7 @@
             // Urutannya penting: setSumberProduk() menyusun daftar satuan dasar
             // lebih dulu, baru nilainya bisa dipulihkan. Dibalik, `value` yang
             // disetel akan hilang karena opsinya belum ada saat itu.
-            setSumberProduk(mapping.sumber === 'ck' || mapping.sumber === 'both' ? mapping.sumber : '');
+            setSumberProduk(mapping.sumber === 'ck' || mapping.sumber === 'both' || mapping.sumber === 'bar' ? mapping.sumber : '');
             /* packSatuan dipulihkan SEBELUM setDipackProduk supaya label
                "1 Pack = … <satuan>" langsung benar. `if (mapping.packSatuan)`
                dipertahankan: nilai kosong akan menyetel select ke '' yang tidak
@@ -7668,7 +7723,7 @@
             setDipackProduk(!!(mapping.packIsi > 0));
             // 'both' selalu ada di outlet; setSumberProduk sudah memaksanya, jadi
             // jangan ditimpa nilai lama yang mungkin tersimpan false.
-            if (mapping.sumber !== 'both') setLokasiCK(!!mapping.diOutlet);
+            if (mapping.sumber !== 'both' && mapping.sumber !== 'bar') setLokasiCK(!!mapping.diOutlet);
             cekGantiNamaProduk();   // bersihkan peringatan dari bahan yang disunting sebelumnya
             toggleModal('modal-product', true);
         }

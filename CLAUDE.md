@@ -6578,12 +6578,34 @@ Permintaan user: sub-menu **Gudang Bar** di `deploy/stock/ordering/` ("seperti
 Central Kitchen, khusus di-view bar"), dan Kelola Akses jadi matriks
 sub-menu × peran (Tak Terlihat / Lihat / Boleh Ubah), bentuk Purchasing.
 
-- **Barang Gudang Bar = master `products` ber-area Bar** (Purchasing → Atur
-  Produk), dibaca `gb_produk()`. Tidak ada daftar kedua. Backend
-  `stock-mysql/gudang-bar.php` + `lib_stock_gb.php`, tabel `gb_stock` lahir
-  sendiri (`gb_pastikan`). Saldo dihitung, qty disimpan dalam satuan dasar
-  (`satuanDasar` + peta `isi`), **tidak ada DELETE** — salah catat dibatalkan
-  (alasan wajib). Satu kiriman banyak barang = satu transaksi.
+- **GUDANG BAR = MESIN CENTRAL KITCHEN, gudangnya parameter** (koreksi user
+  hari yang sama: "konsepnya samakan dengan CK, jangan dibuat baru lagi").
+  Versi pertama — buku stok terpisah `gb_stock` + `gudang-bar.php` dari area
+  Bar — DICABUT; jangan dihidupkan lagi. Sekarang:
+
+  | | Central Kitchen | Gudang Bar |
+  |---|---|---|
+  | barang (Atur Produk → sumber) | `ck` / `both` | `bar` ("Vendor & Gudang Bar") |
+  | batch pengajuan | "Central Kitchen" | "Gudang Bar" |
+  | endpoint | `ck.php?gudang=ck` | `ck.php?gudang=bar` |
+  | tabel | `ck_stock` gudang='ck' | `ck_stock` gudang='bar' |
+  | kunci matriks Ordering | `ck` | `gb` |
+
+  - `ck_stock.gudang` lahir lewat ALTER di `pur_ck_pastikan()`, DEFAULT 'ck'
+    (baris lama otomatis milik CK). `pur_ck_sinkron_order()` mengenali kedua
+    batch; mutasi gudang lain tidak bisa disunting/dihapus dari gudang ini.
+  - Ordering: menu Gudang Bar membuka `view-ck` yang SAMA lewat
+    `setGudang('bar')`. Di DALAM tab dipakai `infoGudangItem`, `ckSaldoTab()`,
+    `ckUrlG()`, `gdInfo().batch`; **`infoCKItem`/`adaDiCK`/`ckSaldoPeta` TETAP
+    milik CK** karena Form Order Belanja memakainya. Pindah gudang
+    mengosongkan baris form; draf Minta/Kirim berkunci `ck@bar`/`kirim@bar`.
+    `dariFormCK()` sekarang berarti "dari form gudang mana pun" (pemilih batch &
+    saringan Check-in); yang membedakan `dariFormGudang()`.
+  - Purchasing: tombol sumber "🍸 Vendor & Gudang Bar"; pengajuan Gudang Bar
+    jadi grup sendiri di Jemput (`JEMPUT_GRUP_BAR`); halaman CK punya pemilih
+    gudang (`CK_GUDANG`, sebab masuk Bar = "Terima Barang", bukan produksi).
+  - Yang belum: Dashboard di halaman CK Purchasing masih berjudul/berkalimat
+    CK di beberapa tempat walau angkanya sudah per gudang.
 - **Matriks**: `ORD_PAGES` × `ORD_ROLES` (`full`, `checkin`), disimpan lewat
   `ordering-settings.php`. **Bawaannya `ORD_PERM_DEFAULT` = aturan lama
   persis** (Order & CK hanya `full`, Check-in keduanya, Restock & Forecast
@@ -6605,7 +6627,7 @@ sub-menu × peran (Tak Terlihat / Lihat / Boleh Ubah), bentuk Purchasing.
   ikut disesuaikan).
 
 ```bash
-node tools/uji-gudang-bar.js   # 51 pemeriksaan, jsdom + server tiruan HIDUP + kontrak PHP
+node tools/uji-gudang-bar.js   # 65 pemeriksaan, jsdom (ordering + purchasing) + kontrak PHP
 ```
 
 ### Stock: panel Break & Loss (9 Oktober 2026)
