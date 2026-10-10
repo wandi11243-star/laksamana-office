@@ -831,6 +831,33 @@ marketing, kasir shift dipotong); tidak = bayar sendiri-sendiri di meja
 node tools/uji-menufix.js   # 26 pemeriksaan, jsdom (marketing + omset)
 ```
 
+### Kas Kecil: Tagihan Rutin (10 Oktober 2026)
+
+Permintaan user: langganan berulang (wifi, Claude, ChatGPT, Spotify, YouTube)
+— *dibayar setiap kapan* dan *sudah berapa total yang dibayarkan*. Menu
+**Tagihan Rutin** di grup Kas Kecil (kunci view `tagihan`, ada di
+`AKS_HAL_ISI`). Backend `finance-mysql/lib_tagihan.php`, aksi
+`tagihanList/Simpan/Aktif/Bayar/Batal`, tabel `kk_tagihan` +
+`kk_tagihan_bayar` yang lahir sendiri lewat `tg_pastikan()`.
+
+- **Nominal DISALIN ke baris pembayaran.** Total = jumlah pembayaran hidup
+  dengan angka SAAT dibayar — harga langganan naik, dan menghitung ulang dari
+  harga sekarang menulis ulang sejarah.
+- **Jatuh tempo DIHITUNG** dari `mulai` + `siklus` (1/2/3/6/12 bulan), tanggal
+  31 dijepit ke akhir bulan (`tgTambahBulan`). Jatuh tempo lunas = ada
+  pembayaran hidup ber-`periode` tanggal itu; yang lampau & belum dibayar
+  dihitung terlambat (berapa periode).
+- **Satu jatuh tempo dibayar sekali** — penjaga di SERVER, transaksi + FOR
+  UPDATE. **Tidak ada DELETE**: pembayaran salah DIBATALKAN (alasan wajib),
+  tagihan yang berhenti DINONAKTIFKAN.
+- **Terpisah dari Buku Kas Kecil**: langganan dibayar kartu/transfer, bukan
+  laci. Kalau harus ikut jadi transaksi kas, tambahkan tombol yang MEMBUKA
+  form Input Transaksi terisi — jangan menyalin diam-diam.
+
+```bash
+node tools/uji-tagihan-rutin.js   # 51 pemeriksaan, jsdom + server tiruan HIDUP + kontrak PHP
+```
+
 ### Bonus Marketing: empat skema di Performa Marketing (7 Sep 2026)
 
 Permintaan user. `deploy/finance/kas/` → **Performa Marketing**, meniru bentuk
