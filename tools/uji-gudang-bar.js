@@ -108,6 +108,8 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
     cek('menu Gudang Bar membuka view-ck', tampak(d, 'view-ck') && w.eval('GUDANG') === 'bar', w.eval('GUDANG'));
     cek('menu Gudang Bar yang menyala, bukan Central Kitchen', /bg-indigo-50/.test(d.getElementById('tab-gb').className) && !/bg-indigo-50/.test(d.getElementById('tab-ck').className));
     cek('judul & sub-tab menyebut Gudang Bar', /Gudang Bar/.test(d.getElementById('ck-judul').textContent) && /Gudang Bar/.test(d.getElementById('subcko-minta').textContent));
+    const hdBar = d.getElementById('ck-header').style.background.toLowerCase();
+    cek('kepala halaman Gudang Bar berwarna ungu', /124, 58, 237|7c3aed/.test(hdBar), hdBar);
     cek('daftar barang = sumber bar saja', w.eval('JSON.stringify(daftarBarangCK())') === '["Gin","Lemon"]', w.eval('JSON.stringify(daftarBarangCK())'));
     w.eval("setSubCKOrder('stok')"); await tunggu(150);
     cek('saldo ditarik dari ck.php?gudang=bar', jejak.some(x => /ck\.php\?gudang=bar/.test(x.url) && !x.body));
@@ -147,6 +149,8 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
     w.eval("switchTab('ck')"); await tunggu(150);
     cek('kembali ke Central Kitchen: GUDANG ck', w.eval('GUDANG') === 'ck');
     cek('judul kembali Central Kitchen', /Central Kitchen/.test(d.getElementById('ck-judul').textContent) && !/Gudang Bar/.test(d.getElementById('subcko-minta').textContent));
+    const hdCk = d.getElementById('ck-header').style.background.toLowerCase();
+    cek('kembali ke CK: kepala halaman hijau tosca lagi', /15, 118, 110|0f766e/.test(hdCk), hdCk);
     cek('daftar barang CK = ck & both', w.eval('JSON.stringify(daftarBarangCK())') === '["Ayam Fillet","Bumbu Rendang"]');
     cek('form dikosongkan saat pindah gudang', d.querySelectorAll('#ck-rows-wrapper > *').length <= 2 && ![...d.querySelectorAll('[id^="ck-row-item-"]')].some(x => x.value === 'Ayam Fillet' || x.value === 'Lemon'));
     w.eval("setSubCKOrder('minta')"); await tunggu(30);
