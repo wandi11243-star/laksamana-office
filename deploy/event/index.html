@@ -3041,6 +3041,9 @@ function hapusEvent(eid){
     return modalInfo('Tidak Bisa Dihapus',
       '<p>Event <b>'+esc(e.title)+'</b> sudah punya <b>'+isi.lunas.length+' pesanan lunas</b>. '
       +'Menghapusnya berarti menghapus jejak uang yang benar-benar masuk.</p>'
+      +(isi.lunas.some(function(o){ return (DB.refunds||[]).some(function(r){ return r.order_id===o.id && refundGantung(r); }); })
+        ?'<p style="margin-top:10px"><b>'+isi.lunas.filter(function(o){ return (DB.refunds||[]).some(function(r){ return r.order_id===o.id && refundGantung(r); }); }).length
+          +'</b> di antaranya refundnya sudah disetujui tapi belum diselesaikan — buka <b>Ticketing → Penjualan</b> lalu tekan <b>Selesaikan refund</b> (manajemen).</p>':'')
       +'<p style="margin-top:10px">Kalau acaranya batal, selesaikan lewat <b>refund</b> pada pesanan '
       +'itu dulu. Kalau cuma ingin menyembunyikannya dari daftar aktif, ubah statusnya jadi '
       +'<b>Event Done</b>.</p>');
@@ -5869,6 +5872,8 @@ function apprTabelRefund(list,setuju){
   list.forEach(function(x){
     const r=x.r, o=x.o, e=x.e;
     const st = r.status==='Pending'  ? '<span class="badge b-yellow">Menunggu</span>'
+             : refundGantung(r) ? '<span class="badge b-yellow">Disetujui · belum diselesaikan</span>'
+               +(setuju?' <button class="btn ghost sm" onclick="selesaikanRefund(&#39;'+r.id+'&#39;)">Selesaikan</button>':'')
              : r.status==='Approved' ? '<span class="badge b-green">Disetujui</span>'
              : '<span class="badge b-grey">Ditolak</span>';
     h+='<tr><td><b>'+esc(o.buyer_name||'—')+'</b>'
@@ -7314,7 +7319,11 @@ function salesBody(eid){
   const baris=[];
   r.orders.slice().reverse().forEach(function(o){
     const tks=DB.tickets.filter(t=>t.order_item_id===o.id);
-    const rf=DB.refunds.filter(x=>x.order_id===o.id).slice(-1)[0];
+    /* Pengajuan yang MASIH BERLAKU didahulukan, baru yang terakhir. Satu
+       pesanan boleh punya pengajuan ditolak lalu diajukan lagi; mengambil
+       "yang terakhir di daftar" saja sempat membuat pesanan yang refundnya
+       SUDAH disetujui terbaca "Ditolak" (LMC820246B, 3 Agustus 2026). */
+    const rf=refundAktif(o.id)||DB.refunds.filter(x=>x.order_id===o.id).slice(-1)[0];
     baris.push({o:o,tks:tks,rf:rf});
   });
   const total=baris.length;
@@ -7351,6 +7360,9 @@ function salesBody(eid){
     const masuk=tks.filter(function(t){ return t.status==='Checked-In'; }).length;
     const rfCell = !rf ? '<span class="mini">\u2014</span>'
       : rf.status==='Pending'  ? '<span class="badge b-yellow">On process</span>'
+      : refundGantung(rf) ? '<span class="badge b-yellow">Disetujui · belum diselesaikan</span>'
+        +(bisaSetujui()?' <button class="btn ghost sm" onclick="selesaikanRefund(&#39;'+rf.id+'&#39;)">Selesaikan refund</button>'
+          :'<div class="mini">manajemen perlu menekan Selesaikan refund</div>')
       : rf.status==='Approved' ? '<span class="badge b-green">Refunded</span>'
       : '<span class="badge b-grey">Ditolak</span>';
     const bisaAjukan = tks.length && !refundAktif(o.id) && o.payment_status!=='Refunded';
@@ -10145,11 +10157,12 @@ function approveRefund(rid){
    pesanan 6 kursi yang di-refund menyisakan 5 tiket berstatus Valid, 5 kursi
    tetap terjual di denah, dan kuota kelas berkurang 1 dari 6 yang seharusnya.
    Uangnya sudah dikembalikan tapi kursinya tidak pernah bisa dijual lagi. */
-function approveRefundYakin(rid){
-  const r=(DB.refunds||[]).find(x=>x.id===rid); if(!r||r.status!=='Pending') return closeModal();
-  const o=DB.orders.find(x=>x.id===r.order_id); if(!o) return closeModal();
-  r.status='Approved'; r.penyetuju=namaKru();
-  r.decided_at=r.approved_at=new Date().toISOString();
+/* SATU tempat yang mengeksekusi refund: pesanan jadi Refunded, tiket hangus,
+   kursi & kuota kembali. Dipakai persetujuan baru DAN tombol "Selesaikan
+   refund" untuk persetujuan lama yang dulu cuma mengganti status pengajuannya
+   — dua salinan aturan ini pasti menyimpang, dan yang menyimpang adalah
+   kursi yang tidak pernah bisa dijual lagi. */
+function jalankanRefund(o){
   o.payment_status='Refunded';
   const tiket=DB.tickets.filter(t=>t.order_item_id===o.id && t.status!=='Cancelled');
   tiket.forEach(function(tk){
@@ -10158,6 +10171,55 @@ function approveRefundYakin(rid){
     const c=DB.ticketClasses.find(x=>x.id===tk.ticket_class_id);
     if(c&&c.sold>0) c.sold--;
   });
+  return tiket;
+}
+/* REFUND YANG MENGGANTUNG: pengajuannya Approved, tapi pesanannya belum
+   Refunded. Lahir dari kode persetujuan versi lama (sebelum Agustus 2026
+   selesai) yang hanya mengganti status pengajuan — tiketnya tetap Valid,
+   kursinya tetap terjual, pesanannya tetap Paid. Akibatnya pesanan itu
+   macet: tidak lunas, tidak terrefund, tidak bisa diajukan ulang, dan
+   event-nya tidak bisa dihapus karena dianggap masih punya pesanan lunas. */
+function refundGantung(r){
+  if(!r||r.status!=='Approved') return false;
+  const o=DB.orders.find(x=>x.id===r.order_id);
+  return !!o && o.payment_status!=='Refunded';
+}
+function selesaikanRefund(rid){
+  if(!bisaSetujui()) return toast('Hanya manajemen yang bisa menyelesaikan refund.');
+  const r=(DB.refunds||[]).find(x=>x.id===rid);
+  if(!refundGantung(r)) return toast('Refund ini sudah selesai.');
+  const o=DB.orders.find(x=>x.id===r.order_id);
+  const n=DB.tickets.filter(t=>t.order_item_id===o.id && t.status!=='Cancelled').length;
+  modal('<button class="close" onclick="closeModal()">×</button><h3>Selesaikan Refund</h3>'
+    +'<div class="kv" style="margin-bottom:12px">'
+    +'<div class="k">Pembeli</div><div><b>'+esc(o.buyer_name||'—')+'</b></div>'
+    +'<div class="k">Nominal</div><div><b>'+IDR(o.total)+'</b></div>'
+    +'<div class="k">Disetujui</div><div>'+esc(r.penyetuju||'—')
+      +(r.approved_at?' · '+esc(fmtDate(String(r.approved_at).slice(0,10))):'')+'</div>'
+    +'<div class="k">Alasan</div><div>'+esc(r.reason||'—')+'</div></div>'
+    +'<p class="mini">Refund ini sudah disetujui, tapi oleh versi lama yang tidak ikut membatalkan tiketnya. '
+    +'Menyelesaikannya: pesanan jadi <b>Refunded</b>, '+n+' tiket dibatalkan, kursinya dilepas, dan kuota kelasnya kembali. '
+    +'Tidak bisa dibatalkan.</p>'
+    +'<div class="modal-actions"><button class="btn ghost" onclick="closeModal()">Batal</button>'
+    +'<button class="btn" onclick="selesaikanRefundYakin(&#39;'+rid+'&#39;)">Selesaikan</button></div>');
+}
+function selesaikanRefundYakin(rid){
+  if(!bisaSetujui()) return closeModal();
+  const r=(DB.refunds||[]).find(x=>x.id===rid);
+  if(!refundGantung(r)) return closeModal();
+  const o=DB.orders.find(x=>x.id===r.order_id);
+  const tiket=jalankanRefund(o);
+  r.diselesaikan_oleh=namaKru(); r.diselesaikan_at=new Date().toISOString();
+  save(); closeModal();
+  toast('✓ Refund diselesaikan — '+tiket.length+' tiket dibatalkan & kursinya dilepas.');
+  router();
+}
+function approveRefundYakin(rid){
+  const r=(DB.refunds||[]).find(x=>x.id===rid); if(!r||r.status!=='Pending') return closeModal();
+  const o=DB.orders.find(x=>x.id===r.order_id); if(!o) return closeModal();
+  r.status='Approved'; r.penyetuju=namaKru();
+  r.decided_at=r.approved_at=new Date().toISOString();
+  const tiket=jalankanRefund(o);
   save(); closeModal();
   toast('✓ Refund disetujui — '+tiket.length+' tiket dibatalkan & kursinya dilepas.');
   /* router(), BUKAN renderTicketDetail(). Keputusan ini diambil dari Approval
