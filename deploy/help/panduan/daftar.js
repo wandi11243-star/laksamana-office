@@ -94,6 +94,8 @@
       ringkas: 'Perencanaan acara, talent, ticketing, dan check-in hari H.' },
     { izin: 'konten', grup: 'markom', label: 'Konten',
       ringkas: 'Rencana konten, produksi, performa, dan iklan.' },
+    { izin: 'campaign', grup: 'markom', label: 'Campaign',
+      ringkas: 'Insight konten dari akun TikTok, kalender posting, dan riset tren AI.' },
 
     { izin: 'kompas', grup: 'bisnis', label: 'Finance, Input Omset Harian',
       ringkas: 'Input omset harian, report daily, compliment, dan breakdown sumber.' },

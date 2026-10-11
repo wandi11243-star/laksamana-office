@@ -83,7 +83,7 @@ docs/                       ← Apps Script lama + catatan Office (arsip/rujukan
 .github/workflows/          ← deploy FTP otomatis
 ```
 
-Modul: `marketing` `reservasi` `event` `bd` `konten` `hr` `akademi` `finance`
+Modul: `marketing` `reservasi` `event` `bd` `konten` `campaign` `hr` `akademi` `finance`
 `analytics`
 `radar` `stock` `howandi_life` `jadwal` `dw` — plus `absensi`, yang letaknya
 BERBEDA (lihat di bawah).
@@ -829,6 +829,47 @@ marketing, kasir shift dipotong); tidak = bayar sendiri-sendiri di meja
 
 ```bash
 node tools/uji-menufix.js   # 26 pemeriksaan, jsdom (marketing + omset)
+```
+
+### Modul `campaign`: insight, kalender posting, riset tren AI (11 Okt 2026)
+
+Permintaan user, meniru CampaignOS di AIPreneur Academy: *"riset tren dan
+campaign social media yang bisa auto ambil insight dan auto scheduler utk
+ngepost"*. Frontend `deploy/campaign/index.html` (menu Insight / Kalender /
+Riset Tren / Pengaturan), kunci izin **`campaign`**.
+
+**Backend MENUMPANG `konten-mysql`** (`lib_campaign.php` + `campaign-tiktok.php`),
+aksi `campaign*` diteruskan dari `api.php`. Tabel `cg_insight`, `cg_jadwal`,
+`cg_riset`, `cg_post`, `cg_akun`, `cg_setting` lahir sendiri (`cg_pastikan`).
+Bukan koleksi `saveAll`: modul Konten mengirim state utuh, dan jadwal di sini
+akan tertimpa.
+
+- **SELURUH aksinya berpagar sesi** (`konten-mysql/lib_sesi.php`, SALINAN
+  KEEMPAT berkas kembar) + kunci `campaign`; `campaignSetting` admin modul saja.
+  Di sana tersimpan token TikTok & API key AI.
+- **Rahasia tidak pernah dipulangkan** `campaignGet` — cuma `aiSiap`/`tiktokSiap`.
+  Konstanta `ANTHROPIC_API_KEY` / `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET`
+  di `config.php` MENANG atas isian layar.
+- **Auto ambil insight = TikTok Display API** (Login Kit, scope
+  `user.info.basic,video.list`). OAuth `state` sekali pakai 15 menit; alamat
+  balik `https://<host>/konten-api-mysql/campaign-tiktok.php` WAJIB didaftarkan
+  di TikTok Developer Portal untuk dev DAN produksi. Sinkron otomatis saat
+  halaman dibuka kalau > 6 jam (bukan cron); galatnya disimpan di `sync_galat`.
+- **Konten terpopuler juga membaca `c.perf` modul Konten** (Input Performa) —
+  satu-satunya sumber Instagram & YouTube. Tautan yang sama dengan postingan
+  TikTok tidak digambar dua kali.
+- **AUTO POSTING BELUM ADA, dan itu dikatakan di layar Kalender.** Content
+  Posting API TikTok menuntut audit aplikasi. Kalender jadi pengingat; status
+  `TAYANG` wajib tautan (layar DAN server).
+- **AI = Anthropic Messages API** (`cg_ai_tanya`, model bawaan
+  `claude-opus-5-5`, bisa diganti di Pengaturan). Riset & insight otomatis
+  diberi data postingan brand sebagai bukti; **usulan insight AI tidak tersimpan
+  sendiri**, dan tautan yang tidak ada di data dibuang server.
+- Tidak ada DELETE: insight diarsipkan, jadwal ditandai BATAL, akun diputus
+  dengan mengosongkan tokennya.
+
+```bash
+node tools/uji-campaign.js   # 55 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
 ### Kas Kecil: Tagihan Rutin (10 Oktober 2026)
