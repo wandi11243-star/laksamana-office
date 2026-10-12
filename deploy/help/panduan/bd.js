@@ -5,7 +5,7 @@
 */
 LM_HELP_ISI('bd', {
   ringkas: 'Ruang kerja tim: project berbentuk kartu, task berikut sub-task dan urutannya, '
-         + 'timeline (Gantt), kanban per project, My Task, promo, dan purchase order.',
+         + 'timeline (Gantt) di Projects, kanban per project, My Task, Daily Task berulang, promo, dan purchase order.',
   untuk: 'semua tim yang memegang project',
 
   bagian: [
@@ -16,7 +16,7 @@ LM_HELP_ISI('bd', {
         { t:'tabel',
           kepala:['Kelompok','Menu','Isinya'],
           baris:[
-            ['Workspace','Dashboard, My Task, Projects, Timeline, Calendar','Pekerjaan sehari-hari.'],
+            ['Workspace','Dashboard, My Task, Daily Task, Projects, Calendar','Pekerjaan sehari-hari.'],
             ['Operasi','Promotion, Purchasing','Yang menyentuh divisi lain.'],
             ['Tim','Kru','Anggota tim.']
           ] },
@@ -32,16 +32,16 @@ LM_HELP_ISI('bd', {
         { t:'tabel',
           kepala:['Menu','Untuk apa','Bedanya'],
           baris:[
-            ['Projects','Semua project sebagai kartu (atau Kanban stage).','Kartu diurut dari yang paling butuh perhatian.'],
+            ['Projects','Semua project sebagai Kartu, Kanban stage, atau Timeline (Gantt).','Kartu diurut dari yang paling butuh perhatian; di Timeline tekan ▸ untuk membuka task-nya.'],
             ['Detail project','Tab Task & sub-task, Kanban, dan Timeline.','Kanban: seret kartu antar kolom; ketik di "+ Tambah kartu" untuk task baru.'],
-            ['Timeline','Gantt semua project.','Buka project untuk melihat task, sub-task, dan panah urutannya.']
+            ['Daily Task','Pekerjaan harian tim, seperti satu project tetap.','List, Kanban, atau Timeline; task-nya boleh berulang.']
           ] },
         { t:'langkah', isi:[
             'Buka *Projects*, klik kartu project-nya, lalu tab *Kanban*.',
             'Ketik nama task di kotak *+ Tambah kartu* pada kolom yang sesuai, lalu Enter.',
             'Klik kartunya untuk mengisi *Sub-task* dan bagian *Baru bisa Done kalau task ini sudah Done*.',
             'Seret kartu ke kolom berikutnya seiring pekerjaannya berjalan.',
-            'Isi *Mulai* dan *Deadline* task (dan deadline sub-task) supaya batangnya tergambar di *Timeline*.'
+            'Isi *Mulai* dan *Deadline* task (dan deadline sub-task) supaya batangnya tergambar di *Projects → Timeline*.'
           ] },
         { t:'catatan', nada:'awas', judul:'Task yang menunggu tidak bisa Done',
           isi:'Kartu bertanda 🔒 masih menunggu task lain. Ia tetap boleh dikerjakan, tapi tidak '
@@ -49,7 +49,16 @@ LM_HELP_ISI('bd', {
             + 'yang ditunggunya Done lebih dulu.' },
         { t:'catatan', nada:'info', judul:'Progress dihitung dari sub-task',
           isi:'Task yang punya sub-task menghitung progressnya sendiri dari sub-task yang sudah '
-            + 'dicentang. Sub-task disimpan bersama tombol Simpan di modalnya.' }
+            + 'dicentang. Sub-task disimpan bersama tombol Simpan di modalnya.' },
+        { t:'langkah', judul:'Daily Task & task berulang', isi:[
+            'Buka *Daily Task*, tekan *+ Task* (task baru otomatis bertanda Daily).',
+            'Isi *Deadline*, lalu pilih *Berulang*: setiap hari, hari kerja (Sen–Jum), setiap minggu, atau setiap bulan.',
+            'Saat task ditandai *Done*, task berikutnya lahir sendiri dengan deadline berikutnya — PIC dan sub-task-nya ikut, sub-task belum dicentang.',
+            'Untuk menghentikan, buka task berikutnya lalu ubah *Berulang* jadi *Tidak berulang*.'
+          ] },
+        { t:'catatan', nada:'info', judul:'Task telat tidak menumpuk',
+          isi:'Task berulang yang baru diselesaikan sesudah deadline-nya lewat langsung melompat ke tanggal '
+            + 'berikutnya yang belum lewat, bukan melahirkan deretan task telat.' }
       ]
     },
 

@@ -737,7 +737,33 @@ saklar. Detail project: kepala ber-meta (waktu terpakai, budget) + tab
   (kepala panah) ikut terhitung kalau tidak.
 
 ```bash
-node tools/uji-timeline-bd.js   # 49 pemeriksaan, jsdom
+node tools/uji-timeline-bd.js   # 52 pemeriksaan, jsdom
+```
+
+**Putaran kelima (12 Okt 2026): Timeline pindah ke Projects, lahir Daily Task.**
+
+- **Menu Timeline DICABUT** — jadi tampilan ketiga di Projects (`pView`:
+  Kartu / Kanban stage / Timeline); penyaring status/lingkup/divisi/PIC
+  berlaku sama. Per project tetap di tab Timeline detail. `#timeline` lama
+  dialihkan ke Projects DENGAN `pView='timeline'` (`bacaAlamat`).
+  `vTimeline` dibiarkan hidup, tidak di menu.
+- **Daily Task** (`vDaily`, view `daily`): "project tetap" untuk pekerjaan
+  harian, List/Kanban/Timeline. Penandanya **`t.daily`, BUKAN project palsu**
+  di `DB.projects` (ia akan ikut di kartu, Gantt, pilihan project, dan bisa
+  dihapus). Daily = `project:null` (dipaksa di `simpanTask`). Kanban & modal
+  memakai penanda `'__daily__'` sebagai pengganti id project;
+  `ganttHtml(...,{tasks})` menerima daftar task langsung.
+- **Berulang** `t.ulang` ('harian'|'kerja'|'mingguan'|'bulanan'). Saat Done,
+  `lahirkanUlang()` MELAHIRKAN task baru (`ulangDari` = id yang selesai),
+  bukan membuka ulang yang lama. Dipanggil SATU tempat: `segarkanProgress()`
+  saat `doneAt` baru tercatat — jadi ketiga jalan ke Done ikut. Penjaga
+  kembaran = `ulangDari`. Yang telat dilompati sampai tidak lampau; bulanan
+  dijepit akhir bulan. Berulang tanpa deadline DITOLAK. `setPics` di
+  `simpanTask` kini SEBELUM `segarkanProgress` (PIC yang disalin harus yang
+  baru). Tutup project (`tuntaskanTaskProject`) tidak melahirkan apa pun.
+
+```bash
+node tools/uji-daily-bd.js   # 28 pemeriksaan, jsdom
 ```
 
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)

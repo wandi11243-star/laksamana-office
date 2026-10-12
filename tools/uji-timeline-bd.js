@@ -79,7 +79,7 @@ const v = () => D.getElementById('view');
   const nav = D.getElementById('nav').innerHTML;
   cek(!/APP\.go\('board'\)/.test(nav) && !/APP\.go\('tasks'\)/.test(nav), 'menu Board & Tasks dicabut');
   cek(/APP\.go\('mytask'\)/.test(nav), 'menu My Task ada');
-  cek(/APP\.go\('timeline'\)/.test(nav), 'menu Timeline ada');
+  cek(!/APP\.go\('timeline'\)/.test(nav), 'menu Timeline dicabut (pindah jadi tampilan di Projects)');
   cek(W.__uji.view==='projects', 'alamat lama #board dialihkan ke Projects, bukan memantul ke Dashboard');
   W.location.hash='#tasks'; await tunggu(80);
   cek(W.__uji.view==='mytask', 'alamat lama #tasks dialihkan ke My Task');
@@ -136,8 +136,9 @@ const v = () => D.getElementById('view');
   cek(!!v().querySelector('#gantt .g-scale .dy.td'), 'zoom Hari menandai hari ini di skala');
   W.APP.gZoom('week');
 
-  // --- Timeline semua project ---
-  W.APP.go('timeline');
+  // --- Timeline semua project: tampilan ketiga di Projects ---
+  W.APP.go('projects'); W.APP.filterProj('view','timeline');
+  cek(!v().querySelector('.pcard'), 'tampilan Timeline menggantikan kartu');
   let rowsP = v().querySelectorAll('#gantt .g-row.proj');
   cek(rowsP.length===2, 'Timeline: satu baris per project aktif');
   cek(v().querySelectorAll('#gantt .g-row:not(.proj)').length===0, 'Timeline: project tertutup secara bawaan');
@@ -145,9 +146,16 @@ const v = () => D.getElementById('view');
   cek(v().querySelectorAll('#gantt .g-row:not(.proj)').length===5, 'membuka project memunculkan task + sub-task-nya');
   W.APP.gAll(0);
   cek(v().querySelectorAll('#gantt .g-row:not(.proj)').length===0, 'Tutup semua');
-  W.APP.filterTl('st','semua');
+  W.APP.filterProj('st','semua');
   cek(v().querySelectorAll('#gantt .g-row.proj').length===3, 'Timeline status Semua memuat project selesai');
-  W.APP.filterTl('st','aktif');
+  W.APP.filterProj('st','aktif');
+  W.APP.filterProj('div','Marketing');
+  cek(!v().querySelector('#gantt .g-row.proj'), 'penyaring divisi Projects ikut berlaku di Timeline');
+  W.APP.filterProj('reset'); W.APP.filterProj('view','kartu');
+  W.APP.go('dashboard');
+  W.location.hash='#timeline'; await tunggu(80);
+  cek(W.__uji.view==='projects' && !!v().querySelector('#gantt'), 'alamat lama #timeline mendarat di Projects tampilan Timeline');
+  W.APP.filterProj('view','kartu');
 
   // --- modal: mulai & deadline sub-task ---
   W.APP.taskModal('tC');
@@ -168,7 +176,7 @@ const v = () => D.getElementById('view');
   cek(T('tB').subtasks[1].d===iso(7) && T('tB').subtasks[0].d===iso(6), 'deadline sub-task tersimpan, yang lama tetap');
 
   // --- halaman lain tetap tergambar ---
-  for (const h of ['dashboard','mytask','projects','timeline','calendar','promo','purchasing','tim']) {
+  for (const h of ['dashboard','mytask','daily','projects','calendar','promo','purchasing','tim']) {
     let e=null; try{ W.APP.go(h); }catch(x){ e=x; }
     cek(!e && v().innerHTML.length>50, 'halaman '+h+' tergambar'+(e?' — '+e.message:''));
   }
