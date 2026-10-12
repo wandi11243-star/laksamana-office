@@ -79,6 +79,13 @@ try {
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
 
+  } else if (strpos($action, 'campaign') === 0) {
+    /* Modul Campaign (deploy/campaign/). Seluruh aksinya berpagar sesi Office —
+       lihat lib_campaign.php. Dimuat hanya di sini supaya aksi Konten yang
+       lain tidak ikut membayar require-nya. */
+    require_once __DIR__ . '/lib_campaign.php';
+    keluar(array('ok' => true, 'data' => cg_aksi($action, $body)));
+
   } else {
     keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
   }

@@ -73,7 +73,7 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
   cek(D.title.indexOf('BD OS')<0 && D.title.indexOf('Task Management')>-1, 'judul halaman bukan lagi BD OS');
   const nav = D.getElementById('nav').innerHTML;
   cek(!/APP\.go\('board'\)/.test(nav) && !/APP\.go\('tasks'\)/.test(nav), 'menu Board & Tasks dicabut (7 Okt 2026)');
-  cek(/APP\.go\('mytask'\)/.test(nav) && /APP\.go\('timeline'\)/.test(nav), 'menu My Task & Timeline ada');
+  cek(/APP\.go\('mytask'\)/.test(nav) && /APP\.go\('daily'\)/.test(nav) && !/APP\.go\('timeline'\)/.test(nav), 'menu My Task & Daily Task ada, Timeline pindah ke Projects');
   cek(!/APP\.go\('coord'\)/.test(nav) && !/APP\.go\('routine'\)/.test(nav), 'menu Koordinasi & Routine dicabut');
 
   // --- board ---

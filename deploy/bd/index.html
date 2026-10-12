@@ -1471,9 +1471,12 @@ const NAV=[
   {sec:'Workspace',items:[
     {id:'dashboard',l:'Dashboard',i:'dashboard'},
     {id:'mytask',   l:'My Task',  i:'check'},
+    {id:'daily',    l:'Daily Task', i:'routine'},
     {id:'projects', l:'Projects', i:'projects'},
-    {id:'timeline', l:'Timeline', i:'gantt'},
     {id:'calendar', l:'Calendar', i:'cal'}]},
+  /* Timeline dicabut dari menu 12 Okt 2026 (permintaan user) — pindah jadi
+     tampilan ketiga di Projects (Kartu / Kanban stage / Timeline). Alamat lama
+     #timeline dialihkan ke Projects dengan tampilan Timeline (bacaAlamat). */
   /* Board & Tasks dicabut dari menu 7 Okt 2026 (permintaan user), diganti
      My Task. Kanban per project tetap ada di tab Kanban detail project.
      vBoard/vTasks dibiarkan hidup: alamat lama #board/#tasks dialihkan di
@@ -1493,6 +1496,7 @@ const SUB={dashboard:['Workspace','Dashboard','Kondisi hari ini — task, projec
   board:['Workspace','Board','Papan kerja per project — seret kartu antar kolom, sub-task & urutan di dalam tiap kartu'],
   mytask:['Workspace','My Task','Task yang kamu pegang — yang telat, minggu ini, dan yang masih menunggu task lain'],
   timeline:['Workspace','Timeline','Gantt semua project — buka project untuk melihat task, sub-task & urutannya'],
+  daily:['Workspace','Daily Task','Pekerjaan harian tim — bisa berulang otomatis (harian, hari kerja, mingguan, bulanan)'],
 
   tasks:['Workspace','Tasks','Prioritas ala Eisenhower — Penting × Mendesak'],
   projects:['Workspace','Projects','Pekerjaan besar berjangka + milestone'],
@@ -1522,7 +1526,7 @@ function render(){
   renderNav();
   var s=SUB[view]||SUB.dashboard;
   $('#tbSub').textContent=s[0]; $('#tbTitle').textContent=s[1];
-  var peta={dashboard:vDashboard,board:vBoard,tasks:vTasks,mytask:vMyTask,timeline:vTimeline,projects:vProjects,projectDetail:vProjectDetail,
+  var peta={dashboard:vDashboard,board:vBoard,tasks:vTasks,mytask:vMyTask,daily:vDaily,timeline:vTimeline,projects:vProjects,projectDetail:vProjectDetail,
             coord:vCoord,routine:vRoutine,promo:vPromo,purchasing:vPurchasing,prDetail:vPrDetail,
             calendar:vCalendar,tim:vTim};
   /* Posisi gulir Gantt dijaga antar render (render di modul ini TOTAL):
@@ -1535,7 +1539,7 @@ function render(){
     else g1.scrollLeft=Math.max(0,(+g1.getAttribute('data-todayx')||0)-200);
   }
   if(view==='dashboard') pasangFokus();
-  if(view==='board'||view==='projectDetail'||view==='mytask') pasangBoard();
+  if(view==='board'||view==='projectDetail'||view==='mytask'||view==='daily') pasangBoard();
 }
 /* ---- alamat halaman (#tasks, #purchasing, …) ----
    Ditambahkan karena modul lain menautkan ke sini: Marketing punya tombol
@@ -1546,10 +1550,13 @@ function render(){
    Hanya halaman yang punya menu sendiri yang boleh dituju. prDetail sengaja
    tidak: ia butuh prAktif, dan alamat yang menyebut dokumen yang sudah
    dihapus akan membuka layar kosong tanpa keterangan. */
-var HALAMAN_ALAMAT=['dashboard','mytask','projects','timeline','calendar','promo','purchasing','tim'];
-var ALAMAT_LAMA={board:'projects',tasks:'mytask'};   // menu yang dicabut 7 Okt 2026
+var HALAMAN_ALAMAT=['dashboard','mytask','daily','projects','calendar','promo','purchasing','tim'];
+var ALAMAT_LAMA={board:'projects',tasks:'mytask',timeline:'projects'};   // menu yang dicabut 7 & 12 Okt 2026
 function bacaAlamat(){
   var h=(location.hash||'').replace(/^#\/?/,'').split('/')[0];
+  /* #timeline lama mendarat di Projects DALAM tampilan Timeline — bukan di
+     kartu, yang membuat tautan lama terbaca seolah Gantt-nya hilang. */
+  if(h==='timeline') pView='timeline';
   if(ALAMAT_LAMA[h]) h=ALAMAT_LAMA[h];
   return HALAMAN_ALAMAT.indexOf(h)>-1 ? h : '';
 }
@@ -1937,7 +1944,8 @@ function taskModal(id){
   var baru=!t;
   if(!t) t={name:'',desc:'',div:(AKU&&OWNER_DIVS.indexOf(AKU.div)>-1)?AKU.div:'Business Development',
     pics:AKU?[AKU.id]:[],status:'To Do',priority:'Medium',deadline:todayISO(),
-    important:true,urgent:false,type:_presetProject?'Project':'Ad-hoc',project:_presetProject||null};
+    important:true,urgent:false,type:_presetProject?'Project':'Ad-hoc',project:_presetProject||null,
+    daily:_presetDaily,ulang:''};
   _modalTaskId=baru?null:t.id;
   _subDraft=subs(t).map(function(x){return {id:x.id||uid('s'),t:String(x.t||''),done:!!x.done,d:x.d||''};});
   _depDraft=deps(t).filter(function(d){return d!==t.id && taskById(d);});
@@ -1962,6 +1970,12 @@ function taskModal(id){
         '<div class="field"><label>Deadline</label><input type="date" id="m_due" value="'+(t.deadline||'')+'"></div>'+
         '<div class="field"><label>Project (opsional)</label><select id="m_proj" onchange="APP.depGambar()">'+
           opsiProject(t.project,'— tanpa project —')+'</select></div></div>'+
+      '<div class="frow">'+
+        '<div class="field"><label>Berulang</label><select id="m_ulang">'+opsiUlang(t.ulang)+'</select>'+
+          '<div class="muted" style="font-size:11.5px;margin-top:4px">Saat ditandai Done, task berikutnya lahir otomatis dengan deadline berikutnya. Butuh deadline.</div></div>'+
+        '<div class="field"><label>Daily Task</label><div class="toggles">'+
+          '<button type="button" class="toggle'+(t.daily?' on':'')+'" id="tg_daily" onclick="this.classList.toggle(\'on\')"><span class="tick">'+ic('check')+'</span> Masuk Daily Task</button></div>'+
+          '<div class="muted" style="font-size:11.5px;margin-top:4px">Daily Task tidak masuk project mana pun.</div></div></div>'+
       '<div class="field"><label>Prioritas Eisenhower</label><div class="toggles">'+
         '<button type="button" class="toggle'+(t.important?' on':'')+'" id="tg_imp" onclick="this.classList.toggle(\'on\');APP.qprev()"><span class="tick">'+ic('check')+'</span> Penting</button>'+
         '<button type="button" class="toggle'+(t.urgent?' on':'')+'" id="tg_urg" onclick="this.classList.toggle(\'on\');APP.qprev()"><span class="tick">'+ic('check')+'</span> Mendesak</button>'+
@@ -1972,9 +1986,9 @@ function taskModal(id){
       '<div style="display:flex;gap:10px"><button class="btn" onclick="closeModal()">Batal</button>'+
       '<button class="btn pri" onclick="APP.simpanTask(\''+(id||'')+'\')">'+ic('check')+'Simpan</button></div></div>');
   qprev(); subGambar(); depGambar();
-  _presetProject=null;
+  _presetProject=null; _presetDaily=false;
 }
-var _presetProject=null;
+var _presetProject=null, _presetDaily=false;
 function qprev(){
   var imp=$('#tg_imp').classList.contains('on'), urg=$('#tg_urg').classList.contains('on');
   var q=kuadran({important:imp,urgent:urg});
@@ -1993,7 +2007,15 @@ function simpanTask(id){
   var data={name:nama,desc:g('m_desc').value.trim(),div:g('m_div').value,
     status:g('m_status').value,priority:g('m_prio').value,type:g('m_type').value,
     start:g('m_start').value,deadline:g('m_due').value,project:g('m_proj').value||null,
-    important:g('tg_imp').classList.contains('on'),urgent:g('tg_urg').classList.contains('on')};
+    important:g('tg_imp').classList.contains('on'),urgent:g('tg_urg').classList.contains('on'),
+    ulang:g('m_ulang').value||'',daily:g('tg_daily').classList.contains('on')};
+  /* Daily Task = "project tetap" sendiri, jadi tidak boleh sekaligus milik
+     project lain — dua rumah untuk satu task membuatnya muncul di dua papan
+     dan selesai di salah satunya saja di mata yang membaca. */
+  if(data.daily) data.project=null;
+  /* Tanpa deadline tidak ada patokan "berikutnya kapan" — ditolak di sini,
+     bukan diam-diam tidak pernah berulang. */
+  if(data.ulang && !data.deadline){ g('m_due').focus(); toast('Task berulang butuh deadline sebagai patokan.'); return; }
   /* Sub-task tanpa teks dibuang: baris kosong cuma membuat hitungan x/y
      tidak pernah bisa genap. */
   data.subtasks=_subDraft.map(function(x){var o={id:x.id,t:String(x.t||'').trim(),done:!!x.done}; if(x.d) o.d=x.d; return o;})
@@ -2008,11 +2030,12 @@ function simpanTask(id){
     t=Object.assign({id:uid('t'),progress:0},data);
     DB.tasks.push(t);
   }
-  segarkanProgress(t);
   /* Lewat setPics(), bukan Object.assign — `pic` dan `pics` harus selalu
      ditulis bersamaan supaya kolom SQL tidak menunjuk orang yang sudah
-     dilepas dari task. */
+     dilepas dari task. SEBELUM segarkanProgress: kejadian berikutnya dari
+     task berulang menyalin PIC-nya, dan harus menyalin yang baru diisi. */
   setPics(t,bacaPic('m_pics'));
+  segarkanProgress(t);
   save(); closeModal(); render(); toast(id?'Task diperbarui':'Task ditambahkan');
 }
 
@@ -2076,7 +2099,17 @@ function subLangsung(id,i,on){
    "waktunya berhenti": task selesai tidak lagi menghitung mundur/lewat —
    deadline-nya digambar hijau dengan tanggal mati (tagDeadline). */
 function segarkanProgress(t){
-  if(selesai(t)){ t.progress=100; if(!t.doneAt) t.doneAt=todayISO(); return; }
+  if(selesai(t)){
+    t.progress=100;
+    if(!t.doneAt){
+      t.doneAt=todayISO();
+      /* SATU tempat untuk ketiga jalan ke Done (centang, modal, seret
+         kartu): task berulang melahirkan kejadian berikutnya di sini. */
+      var nx=lahirkanUlang(t);
+      if(nx) setTimeout(function(){ toast('🔁 Berikutnya: '+namaPendek(nx)+' — '+fTgl(nx.deadline)); },60);
+    }
+    return;
+  }
   delete t.doneAt;
   var h=subHitung(t);
   if(h.n) t.progress=Math.round(h.d/h.n*100);
@@ -2265,7 +2298,7 @@ function boardCard(t,tampilProj){
     '<span class="kt2'+(selesai(t)?' done':'')+'">'+esc(t.name)+'</span>'+
     (hal.length?'<span class="kwait">🔒 Menunggu: '+esc(hal.map(function(x){return x.name;}).join(', '))+'</span>':'')+
     '<span class="kmeta">'+(pr?'<span class="tag proj">'+esc(pr.name)+'</span>':'')+
-      avStack(pics(t))+tagSubDep(t,true)+
+      avStack(pics(t))+tagSubDep(t,true)+tagUlang(t)+
       tagDeadline(t)+'</span>'+
     subDaftarHtml(t)+
     (subHitung(t).n?bar(t.progress||0,selesai(t)):'')+
@@ -2289,11 +2322,13 @@ function dropBoard(e,st){
 function boardTambah(inp,st,proj){
   var nama=String(inp.value||'').trim(); if(!nama) return;
   proj=proj||null;
+  var harian=proj==='__daily__'; if(harian) proj=null;
   var pr=proj&&DB.projects.find(function(p){return p.id===proj;});
   var t={id:uid('t'),name:nama,desc:'',
     div:(AKU&&OWNER_DIVS.indexOf(AKU.div)>-1)?AKU.div:((pr&&pr.div)||'Business Development'),
-    status:st,priority:'Medium',deadline:'',important:true,urgent:false,
+    status:st,priority:'Medium',deadline:harian?todayISO():'',important:true,urgent:false,
     type:proj?'Project':'Ad-hoc',project:proj,progress:0,subtasks:[],dependsOn:[]};
+  if(harian) t.daily=true;
   setPics(t,AKU?[AKU.id]:[]);
   DB.tasks.push(t);
   _bFokus=st;
@@ -2336,11 +2371,14 @@ function gUrut(a,b){
 var gZoom='week', GX={}, TX={};   // GX: project terbuka di Timeline; TX: task yang sub-task-nya DITUTUP (bawaan terbuka)
 function ganttHtml(plist,o){
   o=o||{};
+  /* o.tasks: daftar task untuk baris scoped yang BUKAN project sungguhan
+     (Daily Task). Tanpa itu sumbernya task milik project-nya. */
+  var taskOf=function(p){ return o.tasks||projTasks(p.id); };
   var px={day:30,week:13,month:4}[gZoom]||13, LW=270, RH=36, HH=46, T=todayISO();
   var rows=[];
   plist.forEach(function(p){
     if(!o.scoped) rows.push({k:'p',o:p,d:0});
-    if(o.scoped||GX[p.id]) projTasks(p.id).slice().sort(gUrut).forEach(function(t){
+    if(o.scoped||GX[p.id]) taskOf(p).slice().sort(gUrut).forEach(function(t){
       rows.push({k:'t',o:t,d:o.scoped?0:1});
       if(subs(t).length&&!TX[t.id]) subs(t).forEach(function(s,i){ rows.push({k:'s',o:s,t:t,i:i,d:o.scoped?1:2}); });
     });
@@ -2354,7 +2392,7 @@ function ganttHtml(plist,o){
   var ds=[T];
   plist.forEach(function(p){
     [p.start,p.end].forEach(function(x){ if(gSah(x)) ds.push(x); });
-    projTasks(p.id).forEach(function(t){
+    taskOf(p).forEach(function(t){
       [t.start,t.deadline].forEach(function(x){ if(gSah(x)) ds.push(x); });
       subs(t).forEach(function(s){ if(gSah(s.d)) ds.push(s.d); });
     });
@@ -2395,7 +2433,7 @@ function ganttHtml(plist,o){
   var body=rows.map(function(r,idx){
     var ob=r.o, lab='', trk='';
     if(r.k==='p'){
-      var n=projTasks(ob.id).length, buka=!!GX[ob.id], warna=DIV_COLOR[ob.div]||'#A9791F', pg=projProgress(ob);
+      var n=taskOf(ob).length, buka=!!GX[ob.id], warna=DIV_COLOR[ob.div]||'#A9791F', pg=projProgress(ob);
       lab='<div class="g-lab" style="width:'+LW+'px" onclick="APP.bukaProject(\''+ob.id+'\')">'+
         (n?'<button class="caret'+(buka?' open':'')+'" title="Buka task" onclick="event.stopPropagation();APP.gx(\''+ob.id+'\')">'+ic('chevR',13)+'</button>':'<span class="caret-x"></span>')+
         '<i class="g-dot" style="background:'+warna+'"></i><span class="gl-t">'+esc(ob.name)+'</span>'+
@@ -2504,6 +2542,7 @@ function taskTreeRow(t,o){
       '<div class="t-name'+(selesai(t)?' done':'')+'">'+esc(t.name)+'</div>'+
       '<div class="t-meta"><span class="tag st-'+String(t.status||'To Do').replace(/\s+/g,'').toLowerCase()+'">'+esc(t.status||'To Do')+'</span>'+
         (pr?'<span class="tag proj">'+esc(pr.name)+'</span>':'')+
+        (o.proj&&t.daily?'<span class="tag proj">Daily</span>':'')+tagUlang(t)+
         (h.n?'<span class="tag'+(h.d===h.n?' ok':'')+'">☑ '+h.d+'/'+h.n+' sub-task</span>':'')+
         (hal.length?'<span class="tag lock" title="Menunggu">🔒 Menunggu '+esc(hal.map(function(x){return x.name;}).join(', '))+'</span>':'')+
         (t.start?'<span class="tag">mulai '+fTgl(t.start)+'</span>':'')+
@@ -2569,6 +2608,106 @@ function vMyTask(){
   if(!buka.length) h+='<div class="card"><div class="card-b">'+kosong('Tidak ada task terbuka','Mantap. Task baru bisa ditambah lewat tombol di atas.')+'</div></div>';
   if(baru.length) h+='<div class="sect">Baru diselesaikan</div><div class="card"><div class="card-b tight">'+
     baru.map(function(t){return taskTreeRow(t,{proj:true});}).join('')+'</div></div>';
+  return h;
+}
+
+/* ============ DAILY TASK & TASK BERULANG ============
+   Permintaan user 12 Okt 2026: "ibaratnya project tetap" — satu wadah tetap
+   untuk pekerjaan harian, dengan tampilan List / Kanban / Timeline seperti
+   detail project, dan task-nya boleh BERULANG.
+
+   Penandanya `daily:true` di baris task, bukan project sungguhan di
+   DB.projects: project palsu akan ikut tampil di kartu Projects, Gantt,
+   pilihan project, dan progress — lalu bisa diedit, ditutup, atau dihapus
+   siapa pun. Field baru ikut di blob `data`, tanpa migrasi.
+
+   BERULANG = `ulang` ('harian'|'kerja'|'mingguan'|'bulanan'). Saat task
+   ditandai Done, kejadian berikutnya LAHIR sebagai task baru (ulangDari = id
+   yang selesai), bukan task yang sama dibuka ulang: riwayat siapa
+   menyelesaikan kapan tetap utuh, dan yang Done tetap Done. Penjaganya
+   ulangDari — menandai Done, membuka lagi, lalu Done lagi tidak melahirkan
+   kembaran. */
+var ULANG=[['','Tidak berulang'],['harian','Setiap hari'],['kerja','Hari kerja (Sen–Jum)'],['mingguan','Setiap minggu'],['bulanan','Setiap bulan']];
+function opsiUlang(sel){
+  return ULANG.map(function(u){ return '<option value="'+u[0]+'"'+((sel||'')===u[0]?' selected':'')+'>'+u[1]+'</option>'; }).join('');
+}
+function labelUlang(u){ var x=ULANG.find(function(y){return y[0]===u;}); return x&&u?x[1]:''; }
+function tagUlang(t){ return t&&t.ulang&&labelUlang(t.ulang)?'<span class="tag" title="Berulang: '+esc(labelUlang(t.ulang))+'">🔁 '+esc(labelUlang(t.ulang))+'</span>':''; }
+function langkahUlang(iso,u){
+  if(u==='bulanan'){
+    var d=pDate(iso), tg=d.getDate(), x=new Date(d.getFullYear(),d.getMonth()+1,1);
+    var akhir=new Date(x.getFullYear(),x.getMonth()+1,0).getDate();   // 31 Jan -> 28/29 Feb
+    x.setDate(Math.min(tg,akhir)); return isoOf(x);
+  }
+  if(u==='mingguan') return gAdd(iso,7);
+  var n=gAdd(iso,1);
+  if(u==='kerja') while(pDate(n).getDay()===0||pDate(n).getDay()===6) n=gAdd(n,1);
+  return n;
+}
+/* Deadline berikutnya: satu langkah dari deadline yang selesai — tapi kalau
+   task-nya diselesaikan terlambat, dilompati sampai tidak lagi di masa lalu.
+   Tanpa itu task harian yang telat seminggu melahirkan tujuh kejadian telat
+   berturut-turut, satu per centang. */
+function deadlineBerikut(t){
+  var T=todayISO(), n=langkahUlang(t.deadline,t.ulang), aman=0;
+  while(n<T && aman++<400) n=langkahUlang(n,t.ulang);
+  return n;
+}
+function lahirkanUlang(t){
+  if(!t||!t.ulang||!labelUlang(t.ulang)||!gSah(t.deadline)) return null;
+  if(DB.tasks.some(function(x){return x.ulangDari===t.id;})) return null;
+  var nd=deadlineBerikut(t), geser=gDiff(t.deadline,nd);
+  var b={id:uid('t'),name:t.name,desc:t.desc||'',div:t.div,status:'To Do',priority:t.priority||'Medium',
+    deadline:nd,important:!!t.important,urgent:!!t.urgent,type:t.type||'Ad-hoc',project:t.project||null,
+    ulang:t.ulang,ulangDari:t.id,progress:0,dependsOn:[],
+    subtasks:subs(t).map(function(x){ var o={id:uid('s'),t:x.t,done:false}; if(gSah(x.d)) o.d=gAdd(x.d,geser); return o; })};
+  if(t.daily) b.daily=true;
+  if(gSah(t.start)) b.start=gAdd(t.start,geser);
+  setPics(b,pics(t));
+  DB.tasks.push(b);
+  return b;
+}
+var dMode='list', dArsip='aktif';
+function dailyTasks(){ return tasksTerlihat().filter(function(t){return t.daily;}).filter(cocokPic); }
+function vDaily(){
+  var semua=dailyTasks(), T=todayISO();
+  var buka=semua.filter(function(t){return !selesai(t);}).sort(urutDeadline);
+  var hariIni=buka.filter(function(t){return t.deadline===T;});
+  var telat=buka.filter(lewat);
+  var h=head('Daily Task',SUB.daily[2],
+    '<div class="seg">'+[['list','List'],['kanban','Kanban'],['timeline','Timeline']].map(function(x){
+      return '<button class="'+(dMode===x[0]?'on':'')+'" onclick="APP.setDaily(\'mode\',\''+x[0]+'\')">'+x[1]+'</button>';
+    }).join('')+'</div>'+
+    '<button class="btn pri" onclick="APP.taskModal(null,\'__daily__\')">'+ic('plus')+'Task</button>');
+  h+='<div class="stats">'+
+    stat('Hari ini',hariIni.length,'deadline hari ini','')+
+    stat('Lewat deadline',telat.length,telat.length?'perlu ditindak':'aman',telat.length?'rd':'gr')+
+    stat('Berulang',buka.filter(function(t){return t.ulang;}).length,'otomatis lahir lagi saat Done','vi')+
+    stat('Selesai hari ini',semua.filter(function(t){return selesai(t)&&t.doneAt===T;}).length,'','tl')+'</div>';
+  h+='<div class="filters">'+(dMode==='timeline'?zoomSeg():segArsip(dArsip,'APP.setDaily(\'arsip\',\'$\')',semua))+filterPic()+'</div>';
+  if(!semua.length)
+    return h+'<div class="card"><div class="card-b">'+kosong('Belum ada Daily Task',
+      'Tambahkan lewat tombol + Task. Pilih "Berulang" supaya task berikutnya lahir sendiri tiap kali yang ini Done.')+'</div></div>';
+  if(dMode==='kanban')
+    return h+'<div class="card"><div class="card-b">'+kanbanHtml(dArsip==='aktif'?semua:saringArsip(semua,dArsip),'__daily__',false,dArsip)+'</div></div>';
+  if(dMode==='timeline')
+    return h+ganttHtml([{id:'__daily__',name:'Daily Task'}],{scoped:true,tasks:semua});
+  if(dArsip!=='aktif'){
+    var l=saringArsip(semua,dArsip).sort(urutDeadline);
+    return h+'<div class="card"><div class="card-b tight">'+(l.length?l.map(function(t){return taskTreeRow(t);}).join('')
+      :kosong('Tidak ada task di tampilan ini',''))+'</div></div>';
+  }
+  var grp=[
+    ['Lewat deadline','danger',telat],
+    ['Hari ini','warn',hariIni],
+    ['Mendatang','',buka.filter(function(t){return t.deadline&&t.deadline>T;})],
+    ['Tanpa deadline','',buka.filter(function(t){return !t.deadline;})]
+  ];
+  h+=grp.map(function(g){
+    return g[2].length?'<div class="sect"'+(g[1]?' style="color:var(--'+g[1]+')"':'')+'>'+g[0]+' ('+g[2].length+')</div>'+
+      '<div class="card"><div class="card-b tight">'+g[2].map(function(t){return taskTreeRow(t);}).join('')+'</div></div>':'';
+  }).join('');
+  if(!buka.length) h+='<div class="card"><div class="card-b">'+kosong('Semua Daily Task selesai','Task berulang berikutnya sudah lahir di tanggalnya.')+'</div></div>';
   return h;
 }
 
@@ -2659,7 +2798,8 @@ function vProjects(){
   });
   var h=head('Projects',SUB.projects[2],
     '<div class="seg"><button class="'+(pView==='kartu'?'on':'')+'" onclick="APP.filterProj(\'view\',\'kartu\')">Kartu</button>'+
-    '<button class="'+(pView==='kanban'?'on':'')+'" onclick="APP.filterProj(\'view\',\'kanban\')">Kanban stage</button></div>'+
+    '<button class="'+(pView==='kanban'?'on':'')+'" onclick="APP.filterProj(\'view\',\'kanban\')">Kanban stage</button>'+
+    '<button class="'+(pView==='timeline'?'on':'')+'" onclick="APP.filterProj(\'view\',\'timeline\')">Timeline</button></div>'+
     '<button class="btn pri" onclick="APP.projModal()">'+ic('plus')+'Project</button>');
 
   h+='<div class="filters"><span class="flabel">'+ic('projects',14)+' Filter</span>'+
@@ -2670,10 +2810,20 @@ function vProjects(){
     '<select onchange="APP.filterProj(\'div\',this.value)"><option value="">Semua divisi</option>'+
       OWNER_DIVS.map(function(d){return '<option'+(pDiv===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select>'+
     filterPic()+((fPics.length||pDiv||pScope!=='tim')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
+    (pView==='timeline'?zoomSeg():'')+
     '<span class="muted" style="font-size:12px;margin-left:auto">'+tampil.length+' dari '+DB.projects.length+' project</span>'+
   '</div>';
 
-  if(pView==='kartu'){
+  if(pView==='timeline'){
+    /* Gantt semua project yang lolos penyaring di atas — status, lingkup,
+       divisi, dan PIC berlaku sama dengan tampilan kartu. Per project tetap
+       ada di tab Timeline detail project. */
+    if(tampil.length) h+='<div class="filters"><button class="btn sm" onclick="APP.gAll(1)">Buka semua</button>'+
+      '<button class="btn sm" onclick="APP.gAll(0)">Tutup semua</button>'+
+      '<button class="btn sm" onclick="APP.gToday()">Ke hari ini</button>'+
+      '<span class="muted" style="font-size:12px">Klik nama project untuk membuka detailnya, panah ▸ untuk melihat task-nya di sini.</span></div>'+
+      ganttHtml(tampil.slice().sort(function(a,b){ var x=a.start||a.end||'9999', y=b.start||b.end||'9999'; return x<y?-1:x>y?1:0; }));
+  }else if(pView==='kartu'){
     /* Urut dari yang paling butuh perhatian: lewat deadline, off/at-risk,
        baru deadline terdekat. */
     var bobot={over:0,'off-track':1,'at-risk':2,'on-track':3,done:4};
@@ -5485,7 +5635,8 @@ document.addEventListener('keydown',function(e){ if(e.key==='Escape') closeModal
 window.APP={
   infoVendorPO:infoVendorPO,
   go:go, cari:cari, qprev:qprev,
-  taskModal:function(id,proj){ _presetProject=proj||null; taskModal(id); },
+  taskModal:function(id,proj){ _presetDaily=(proj==='__daily__'); _presetProject=_presetDaily?null:(proj||null); taskModal(id); },
+  setDaily:function(apa,nilai){ if(apa==='mode') dMode=nilai; else if(apa==='arsip') dArsip=nilai; render(); },
   subTambah:subTambah, subCentang:subCentang, subUbah:subUbah, subHapus:subHapus, subTgl:subTgl,
   gZoom:function(z){ gZoom=z; render(); },
   gx:function(id){ GX[id]=!GX[id]; render(); },
