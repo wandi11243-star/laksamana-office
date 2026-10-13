@@ -314,7 +314,7 @@ var ST = {
   topSrv: {}, topSibuk: '', topBuka: '',
   insPlat: '', insKat: '', insArsip: false,
   kalBulan: null, kalPilih: null,
-  risetPilih: null, risetJalan: false, risetMulai: 0,
+  risetPilih: null, risetJalan: false, risetMulai: 0, risetGalat: '', risetIsi: null,
   usulan: null, usulanJalan: false,
   sibuk: {}
 };
@@ -368,7 +368,12 @@ function api(action, data){
     body: JSON.stringify({ action: action, sesi: SESI.token || '', data: data || {} }) })
     .then(function(r){ return r.text(); })
     .then(function(t){
-      var j; try { j = JSON.parse(t); } catch(e){ throw new Error('Balasan server bukan JSON. Backend Konten mungkin belum ter-deploy.'); }
+      /* Balasan kosong / halaman HTML biasanya berarti hosting MEMUTUS
+         permintaan yang terlalu lama (AI berpikir > batas waktu server) —
+         bukan backend yang belum ter-deploy. Dua sebab itu dibedakan. */
+      var j; try { j = JSON.parse(t); } catch(e){
+        if (!String(t || '').trim() || /timeout|time-out|504|502|503/i.test(t)) throw new Error('Server berhenti menunggu jawaban AI (batas waktu hosting terlewati). Coba lagi dengan topik yang lebih sempit, atau pilih model yang lebih cepat di Pengaturan → AI.');
+        throw new Error('Balasan server bukan JSON. Backend Konten mungkin belum ter-deploy.'); }
       if (!j.ok) {
         var e = String(j.error || 'Gagal');
         /* Kodenya dibedakan supaya pesannya menyuruh hal yang benar: sesi
@@ -678,7 +683,7 @@ function kartuInsight(){
       + '<button class="btn btn-ghost btn-sm" data-a="ins-ubah" data-i="' + idx + '">Sunting</button>'
       + '<button class="btn btn-ghost btn-sm" data-a="ins-kal" data-i="' + idx + '">📅 Kalender</button>'
       + '<button class="btn btn-ghost btn-sm" data-a="ins-arsipkan" data-i="' + idx + '">' + (+i.arsip === 1 ? 'Pulihkan' : 'Arsipkan') + '</button></div></div>';
-  }).join('') + '</div>' : '<div class="kosong">' + ((D.insight||[]).length ? 'Tidak ada insight yang cocok dengan saringan.' : 'Belum ada insight. Catat dari konten terpopuler di atas, atau pakai contoh pola di bawah.') + '</div>';
+  }).join('') + '</div>' : '<div class="kosong">' + ((D.insight||[]).length ? 'Tidak ada insight yang cocok dengan saringan.' : 'Belum ada insight. Catat dari konten terpopuler di atas, atau minta usulan dari Insight otomatis (AI).') + '</div>';
   return '<div class="kartu"><div class="kepala"><div><h2>Insight konten</h2>'
     + '<div class="sub">Pola yang terbukti jalan, lengkap dengan tautan & tanggal tayangnya, lalu jadikan bahan kalender konten.</div></div>'
     + '<div class="r"><button class="btn btn-primary btn-sm" data-a="ins-baru">+ Catat insight</button></div></div>'
@@ -847,17 +852,23 @@ function simpanJadwal(){
 
 /* ===================== RISET ===================== */
 function vRiset(){
+  var RI = ST.risetIsi || {};
   var siap = D.setting && D.setting.aiSiap;
   var h = '<div class="kartu"><h2>Mulai riset tren</h2>'
     + '<div class="sub">AI membaca postingan brand yang paling jalan, lalu menyusun pola, tren, dan ide konten siap jadwal. '
     + 'AI <b>tidak punya akses internet</b>: tren adalah perkiraan, bukan data pasar langsung. Cek ulang sebelum dipakai untuk keputusan besar.</div>';
   if (!siap) h += '<div class="pita warn">API key AI belum diisi. ' + (admin() ? 'Isi di <a href="#pengaturan">Pengaturan</a>.' : 'Minta admin modul Campaign mengisinya.') + '</div>';
   h += '<div class="form">'
-    + '<div class="field"><label>Topik riset *</label><input id="r-topik" placeholder="Contoh: konten malam minggu & live music"></div>'
-    + '<div class="field"><label>Platform</label><select id="r-plat"><option>TikTok, Instagram</option><option>TikTok</option><option>Instagram</option><option>YouTube</option></select></div>'
-    + '<div class="field full"><label>Catatan / fokus (opsional)</label><input id="r-cat" placeholder="Contoh: target anak muda 18–28, ada promo voucher TikTok bulan ini"></div>'
+    + '<div class="field"><label>Topik riset *</label><input id="r-topik" value="' + esc(RI.topik || '') + '" placeholder="Contoh: konten malam minggu & live music"></div>'
+    + '<div class="field"><label>Platform</label><select id="r-plat">' + ['TikTok, Instagram','TikTok','Instagram','YouTube'].map(function(p){ return '<option' + (RI.platform === p ? ' selected' : '') + '>' + p + '</option>'; }).join('') + '</select></div>'
+    + '<div class="field full"><label>Catatan / fokus (opsional)</label><input id="r-cat" value="' + esc(RI.catatan || '') + '" placeholder="Contoh: target anak muda 18–28, ada promo voucher TikTok bulan ini"></div>'
     + '</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-primary" data-a="riset-jalan"' + (siap && !ST.risetJalan ? '' : ' disabled') + '>'
     + (ST.risetJalan ? 'Menganalisa…' : '⚡ Jalankan riset') + '</button></div>';
+  /* Galat riset MENETAP di layar sampai riset berikutnya dijalankan (14 Okt
+     2026). Dulu cuma toast 7 detik — sesudah menunggu 1–2 menit orangnya
+     sudah tidak menatap layar, dan yang tersisa tombol yang seolah tidak
+     menghasilkan apa-apa. */
+  if (ST.risetGalat && !ST.risetJalan) h += '<div class="pita err" style="margin-top:14px"><b>Riset gagal:</b> ' + esc(ST.risetGalat) + '</div>';
   if (ST.risetJalan) h += '<div class="agen" style="margin-top:14px"><div class="putar"></div><div>AI sedang meriset… biasanya 1–2 menit. Jangan tutup halaman ini.</div></div>';
   h += '</div>';
 
@@ -1029,9 +1040,11 @@ document.addEventListener('click', function(ev){
   if (a === 'riset-jalan') {
     var d = { topik: nilai('r-topik'), platform: nilai('r-plat'), catatan: nilai('r-cat') };
     if (!d.topik) { toast('Isi topik risetnya dulu.', true); return; }
-    ST.risetJalan = true; render();
-    api('campaignRiset', d).then(function(r){ ST.risetPilih = r.id; toast('Riset selesai.'); return muat(); })
-      .catch(function(e){ toast(e.message, true); }).then(function(){ ST.risetJalan = false; render(); });
+    /* Isian disimpan di luar DOM: render() total, dan topik yang hilang
+       sesudah riset gagal berarti mengetik ulang untuk mencoba lagi. */
+    ST.risetIsi = d; ST.risetGalat = ''; ST.risetJalan = true; render();
+    api('campaignRiset', d).then(function(r){ ST.risetPilih = r.id; ST.risetIsi = null; toast('Riset selesai.'); return muat(); })
+      .catch(function(e){ ST.risetGalat = e.message || 'Gagal tanpa keterangan'; toast(e.message, true); }).then(function(){ ST.risetJalan = false; render(); });
     return;
   }
   if (a === 'riset-pilih') { ST.risetPilih = v; render(); return; }

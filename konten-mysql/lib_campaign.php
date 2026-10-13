@@ -570,6 +570,10 @@ function cg_ai_tanya($pdo, $system, $prompt, $maks = 6000) {
   $key = cg_ai_key_untuk($pdo, $p);
   if ($key === '') throw new Exception('API key ' . $x['label'] . ' belum diisi. Admin modul bisa mengisinya di Pengaturan.');
   $model = cg_ai_model_untuk($pdo, $p);
+  /* Muse Spark selalu MENALAR dulu, dan token penalarannya ikut dihitung di
+     max_tokens. Dengan jatah yang sama dengan Claude, jawabannya terpotong
+     sebelum JSON-nya selesai — dan riset gagal tanpa sebab yang terbaca. */
+  if ($p === 'meta') $maks = $maks + 8000;
   @set_time_limit(180);
   /* Meta: Bearer, tanpa anthropic-version. Anthropic: x-api-key. */
   $header = $p === 'meta'
@@ -585,15 +589,28 @@ function cg_ai_tanya($pdo, $system, $prompt, $maks = 6000) {
     $pesan = isset($r['data']['error']['message']) ? $r['data']['error']['message'] : $r['mentah'];
     throw new Exception($x['label'] . ' menolak (' . $r['kode'] . '): ' . (is_string($pesan) ? $pesan : json_encode($pesan)));
   }
+  /* Bentuk jawaban dibaca longgar (14 Okt 2026): blok content bertipe text
+     (Anthropic & Meta Messages), content berupa string, atau bentuk
+     choices[0].message.content. Yang dibaca satu bentuk saja menulis "bukan
+     JSON" untuk jawaban yang sebenarnya utuh. */
   $teks = '';
-  foreach ((isset($r['data']['content']) ? $r['data']['content'] : array()) as $b) {
-    if (isset($b['type']) && $b['type'] === 'text') $teks .= $b['text'];
+  $isi = isset($r['data']['content']) ? $r['data']['content'] : null;
+  if (is_string($isi)) $teks = $isi;
+  elseif (is_array($isi)) foreach ($isi as $b) {
+    if (is_array($b) && isset($b['type']) && $b['type'] === 'text' && isset($b['text']) && is_string($b['text'])) $teks .= $b['text'];
   }
+  if ($teks === '' && isset($r['data']['choices'][0]['message']['content']) && is_string($r['data']['choices'][0]['message']['content'])) $teks = $r['data']['choices'][0]['message']['content'];
   /* Ambil JSON pertama di jawabannya — model kadang membungkusnya dengan
      ```json, dan menolak jawaban gara-gara pagar itu membuang satu riset
      yang sudah dibayar. */
+  /* Terpotong batas token: dikatakan apa adanya, bukan "bukan JSON". */
+  $henti = isset($r['data']['stop_reason']) ? (string)$r['data']['stop_reason'] : '';
+  if ($henti === 'max_tokens') throw new Exception('Jawaban AI terpotong karena terlalu panjang (batas token). Coba topik yang lebih sempit, atau jalankan lagi.');
+  if (trim($teks) === '') throw new Exception('AI tidak memberi jawaban teks' . ($henti !== '' ? ' (berhenti: ' . $henti . ')' : '') . '. Coba jalankan lagi.');
   $a = strpos($teks, '{'); $z = strrpos($teks, '}');
-  if ($a === false || $z === false || $z <= $a) throw new Exception('Jawaban AI bukan JSON. Coba jalankan lagi.');
+  /* Potongan jawabannya ikut disebut — tanpa itu "bukan JSON" tidak bisa
+     dibedakan dari penolakan, jawaban kosong, atau model yang menjawab prosa. */
+  if ($a === false || $z === false || $z <= $a) throw new Exception('Jawaban AI bukan JSON (' . $model . '): "' . cg_potong(preg_replace('/\s+/', ' ', $teks), 160) . '". Coba jalankan lagi.');
   $j = json_decode(substr($teks, $a, $z - $a + 1), true);
   if (!is_array($j)) throw new Exception('Jawaban AI tidak bisa dibaca. Coba jalankan lagi.');
   return array('hasil' => $j, 'model' => $model);
