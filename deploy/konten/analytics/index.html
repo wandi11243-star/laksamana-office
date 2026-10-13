@@ -136,6 +136,14 @@ h1,h2,h3,h4{font-family:var(--k-serif);font-weight:700;letter-spacing:-.02em;lin
 
 .baris{display:flex;align-items:center;gap:12px;padding:11px 0;border-bottom:1px solid var(--line-soft)}
 .baris:last-child{border-bottom:none}
+.rinci{margin:0 0 10px 38px;padding:12px 14px;background:var(--info-bg);border-radius:var(--radius-sm)}
+.rinci-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:8px}
+.rinci-grid div{background:#fff;border-radius:8px;padding:8px 10px}
+.rinci-grid b{display:block;font-size:15px;color:var(--ink)}
+.rinci-grid span{font-size:11px;color:var(--muted)}
+.rinci-grid i{display:block;font-style:normal;font-size:10.5px;color:var(--muted-2)}
+.rinci-grid .kosong-r b{color:var(--muted-2)}
+.rinci p{margin:8px 0 0;font-size:12px;color:var(--muted);line-height:1.5}
 .baris .no{width:26px;height:26px;border-radius:50%;background:var(--info-bg);color:var(--info);font-size:12px;font-weight:700;display:flex;align-items:center;justify-content:center;flex:none}
 .baris .isi{flex:1;min-width:0}
 .baris .isi b{display:block;font-size:13.5px;color:var(--ink);font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -303,7 +311,7 @@ var GALAT = '';          // galat muat
 var VIEW = 'insight';
 var ST = {
   topPlat: '', topUrut: 'views', topHal: 1, topRentang: 'semua', topDari: '', topSampai: '',
-  topSrv: {}, topSibuk: '',
+  topSrv: {}, topSibuk: '', topBuka: '',
   insPlat: '', insKat: '', insArsip: false,
   kalBulan: null, kalPilih: null,
   risetPilih: null, risetJalan: false, risetMulai: 0,
@@ -537,6 +545,37 @@ function kartuAkun(){
     + '<div class="grid g3">' + tk + lain('Instagram') + lain('YouTube') + '</div></div>';
 }
 
+/* Panel detail satu baris Konten terpopuler (13 Okt 2026). Urutan & label
+   kotaknya mengikuti Input Performa modul Konten, supaya yang mengisi di sana
+   dan yang membaca di sini melihat susunan yang sama. */
+var RINCI = [['reach','Reach'],['impr','Impression'],['views','Views'],['likes','Likes'],['comments','Comment'],
+  ['shares','Share'],['saves','Saves'],['cta','Klik CTA'],['follow','Follower Baru']];
+function topKunciBaris(e){ return e.url || (e.platform + '|' + e.tanggal + '|' + e.judul); }
+function rinciHtml(e){
+  /* Server lama belum memulangkan rinci — empat angka yang memang ada di
+     barisnya tetap dipakai, sisanya kosong. */
+  var r = e.rinci || { views:{v:e.views,s:e.sumber==='tiktok'?'api':'manual'}, likes:{v:e.likes,s:''}, comments:{v:e.comments,s:''}, shares:{v:e.shares,s:''} };
+  var kurang = [];
+  var kotak = RINCI.map(function(x){
+    var c = r[x[0]] || {}, ada = c.v != null;
+    if (!ada) kurang.push(x[1]);
+    return '<div class="' + (ada ? '' : 'kosong-r') + '"><span>' + x[1] + '</span><b>' + (ada ? angka(c.v) : '—') + '</b>'
+      + '<i>' + (c.s === 'api' ? 'TikTok API' : c.s === 'manual' ? 'Input Performa' : 'belum ada') + '</i></div>';
+  }).join('');
+  /* Yang kosong DIKATAKAN sebabnya — kotak "—" tanpa penjelasan terbaca
+     sebagai data yang gagal dimuat. Sebabnya berbeda menurut sumbernya. */
+  var ket = '';
+  if (kurang.length) {
+    if (e.sumber === 'tiktok' && !e.tercatat) {
+      ket = kurang.join(', ') + ' tidak disediakan TikTok API (yang terbuka hanya views, likes, komentar, share). '
+        + 'Untuk melengkapinya, catat postingan ini sebagai konten di <b>Konten Planning</b> dengan tautan yang sama, lalu isi angkanya di <b>Input Performa</b> dari TikTok Studio.';
+    } else {
+      ket = kurang.join(', ') + ' belum diisi. Lengkapi di <b>Konten Planning → Input Performa</b>'
+        + (e.sumber === 'tiktok' ? ' — views, likes, komentar & share tetap diambil dari TikTok API karena selalu terbaru.' : '.');
+    }
+  }
+  return '<div class="rinci"><div class="rinci-grid">' + kotak + '</div>' + (ket ? '<p>' + ket + '</p>' : '') + '</div>';
+}
 function kartuTop(){
   var k = topKunci(), hasil = ST.topSrv[k];
   if (!hasil) muatTop();
@@ -564,7 +603,9 @@ function kartuTop(){
         + (e.sumber === 'konten' ? ' · dari Input Performa modul Konten' : '') + '</span></div>'
         + '<div class="ang"><b>' + angka(e.views) + '</b><span>views · ER ' + (e.er == null ? '—' : (e.er*100).toFixed(1).replace('.', ',') + '%') + '</span></div>'
         + (e.url ? '<a class="btn btn-ghost btn-sm" href="' + esc(e.url) + '" target="_blank" rel="noopener" title="Buka postingan">↗</a>' : '')
-        + '<button class="btn btn-ghost btn-sm" data-a="jadikan" data-i="' + i + '">+ Jadikan insight</button></div>';
+        + '<button class="btn btn-ghost btn-sm" data-a="top-rinci" data-i="' + i + '">' + (ST.topBuka === topKunciBaris(e) ? 'Tutup ▴' : 'Detail ▾') + '</button>'
+        + '<button class="btn btn-ghost btn-sm" data-a="jadikan" data-i="' + i + '">+ Jadikan insight</button></div>'
+        + (ST.topBuka === topKunciBaris(e) ? rinciHtml(e) : '');
     }).join('') : '<div class="kosong">' + (ST.topRentang !== 'semua' || ST.topPlat
         ? 'Tidak ada postingan' + (ST.topPlat ? ' ' + esc(ST.topPlat) : '') + ' pada rentang ini.'
         : 'Belum ada postingan. Hubungkan akun TikTok di atas, atau isi Input Performa di modul Konten.') + '</div>';
@@ -942,6 +983,10 @@ document.addEventListener('click', function(ev){
   if (a === 'top-urut') { ST.topUrut = v; ST.topHal = 1; render(); return; }
   if (a === 'top-hal') { ST.topHal = +v; render(); return; }
   if (a === 'top-rentang') { ST.topRentang = v; ST.topHal = 1; render(); return; }
+  if (a === 'top-rinci') {
+    var hb = ST.topSrv[topKunci()], eb = hb && hb.data && hb.data.baris ? hb.data.baris[i] : null; if (!eb) return;
+    var kb = topKunciBaris(eb); ST.topBuka = ST.topBuka === kb ? '' : kb; render(); return;
+  }
   if (a === 'top-ulang') { delete ST.topSrv[topKunci()]; render(); return; }
   if (a === 'ins-plat') { ST.insPlat = v; render(); return; }
   if (a === 'ins-arsip') { ST.insArsip = !ST.insArsip; render(); return; }

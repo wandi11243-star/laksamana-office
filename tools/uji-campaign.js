@@ -52,9 +52,12 @@ function buatServer(opsi) {
       scope: 'user.info.basic,user.info.profile,user.info.stats,video.list', stats_ada: 1, follower: 12345, following: 8, likes_total: 456789, jml_video: 321,
       terverifikasi: 1, bio: 'Coffee & live music Pekanbaru', profil_url: 'https://www.tiktok.com/@laksamanamuda.id', avatar: 'https://p16.tiktokcdn.com/a.jpg' }],
     konten: [
-      { platform: 'instagram', judul: 'Reels kopi', url: 'https://instagram.com/p/a', tanggal: '2026-09-10', views: 5000, likes: 400, comments: 10, shares: 5 },
+      { platform: 'instagram', judul: 'Reels kopi', url: 'https://instagram.com/p/a', tanggal: '2026-09-10', views: 5000, likes: 400, comments: 10, shares: 5,
+        m: { reach: 4200, impr: 6100, views: 5000, likes: 400, comments: 10, shares: 5, saves: 33, cta: 12, follow: 7 } },
       /* Tautan SAMA dengan postingan TikTok 1 — tidak boleh muncul dua kali. */
-      { platform: 'tiktok', judul: 'Goyang (dari Konten)', url: 'https://www.tiktok.com/@x/video/1', tanggal: '2026-09-26', views: 1, likes: 0, comments: 0, shares: 0 }
+      { platform: 'tiktok', judul: 'Goyang (dari Konten)', url: 'https://www.tiktok.com/@x/video/1', tanggal: '2026-09-26', views: 1, likes: 0, comments: 0, shares: 0,
+        /* views 1 di sini TIDAK boleh mengalahkan 109.700 dari API. */
+        m: { views: 1, reach: 88000, saves: 512, cta: 40, follow: 150 } }
     ],
     setting: { aiSiap: true, aiPenyedia: 'meta', aiModel: 'muse-spark-1.3-contributor',
       ai: [{ id: 'meta', label: 'Meta (Muse Spark)', model: ['muse-spark-1.3-contributor', 'muse-spark-1.3'], modelPakai: 'muse-spark-1.3-contributor', siap: true, dariConfig: false },
@@ -92,8 +95,11 @@ function buatServer(opsi) {
   function topTiruan(S, q) {
     const norm = p => { const k = String(p || '').toLowerCase(); return k.includes('tiktok') ? 'TikTok' : (k.includes('insta') ? 'Instagram' : (k.includes('you') ? 'YouTube' : p)); };
     const semua = [], url = {};
-    S.post.forEach(p => { semua.push({ platform: norm(p.platform), judul: p.judul, url: p.url, tanggal: new Date(p.tayang_at + 7 * 3600e3).toISOString().slice(0, 10), views: p.views, likes: p.likes, comments: p.comments, shares: p.shares, sumber: 'tiktok' }); url[p.url] = 1; });
-    S.konten.forEach(k => { if (k.url && url[k.url]) return; semua.push({ platform: norm(k.platform), judul: k.judul, url: k.url, tanggal: k.tanggal, views: k.views, likes: k.likes, comments: k.comments, shares: k.shares, sumber: 'konten' }); });
+    const KOL = ['reach', 'impr', 'views', 'likes', 'comments', 'shares', 'saves', 'cta', 'follow'];
+    const rinci = (api, man) => { const o = {}; KOL.forEach(k => { o[k] = api && k in api ? { v: api[k], s: 'api' } : (man && man[k] != null && man[k] !== '' ? { v: +man[k], s: 'manual' } : { v: null, s: '' }); }); return o; };
+    const kpUrl = {}; S.konten.forEach(k => { if (k.url && norm(k.platform) === 'TikTok') kpUrl[k.url] = k; });
+    S.post.forEach(p => { const man = kpUrl[p.url]; semua.push({ rinci: rinci({ views: p.views, likes: p.likes, comments: p.comments, shares: p.shares }, man && man.m), tercatat: !!man, platform: norm(p.platform), judul: p.judul, url: p.url, tanggal: new Date(p.tayang_at + 7 * 3600e3).toISOString().slice(0, 10), views: p.views, likes: p.likes, comments: p.comments, shares: p.shares, sumber: 'tiktok' }); url[p.url] = 1; });
+    S.konten.forEach(k => { if (k.url && url[k.url]) return; semua.push({ rinci: rinci(null, k.m), tercatat: true, platform: norm(k.platform), judul: k.judul, url: k.url, tanggal: k.tanggal, views: k.views, likes: k.likes, comments: k.comments, shares: k.shares, sumber: 'konten' }); });
     let l = semua.filter(e => (!q.platform || e.platform === q.platform) && (!q.dari || (e.tanggal && e.tanggal >= q.dari)) && (!q.sampai || (e.tanggal && e.tanggal <= q.sampai)));
     l.forEach(e => { e.er = e.views > 0 ? (e.likes + e.comments + e.shares) / e.views : null; });
     l.sort((a, b) => q.urut === 'er' ? ((a.er == null) - (b.er == null) || (b.er - a.er)) : b.views - a.views);
@@ -149,6 +155,29 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('rentang 7 hari mengirim dari (hari ini - 6) & sampai (hari ini)', rq && rq.data.dari === new Date(Date.now() + 7 * 3600e3 - 6 * 864e5).toISOString().slice(0, 10) && rq.data.sampai === new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10), rq && JSON.stringify(rq.data));
     cek('rentang yang kosong mengatakannya', /pada rentang ini/.test(d.getElementById('app').innerHTML));
     klik(d, '[data-a="top-rentang"][data-v="semua"]'); await tunggu(40);
+    /* Detail 9 angka per baris (13 Okt 2026). Baris pertama = Goyang (TikTok
+       API + tercatat di Konten Planning). */
+    cek('detail tertutup sebelum ditekan', !d.querySelector('.rinci'));
+    klik(d, '[data-a="top-rinci"]'); await tunggu(30);
+    let rc = d.querySelector('.rinci');
+    const kotakR = lbl => { const x = [...(rc ? rc.querySelectorAll('.rinci-grid div') : [])].find(n => n.querySelector('span').textContent === lbl); return x ? x.textContent : ''; };
+    cek('detail terbuka dengan 9 kotak berurutan', rc && [...rc.querySelectorAll('.rinci-grid span')].map(n => n.textContent).join('|') === 'Reach|Impression|Views|Likes|Comment|Share|Saves|Klik CTA|Follower Baru');
+    cek('views dari TikTok API menang atas ketikan (109,7 rb, bukan 1)', /109,7 rb/.test(kotakR('Views')) && /TikTok API/.test(kotakR('Views')), kotakR('Views'));
+    cek('reach & saves dilengkapi dari Input Performa', /88/.test(kotakR('Reach')) && /Input Performa/.test(kotakR('Reach')) && /512/.test(kotakR('Saves')), kotakR('Reach') + ' / ' + kotakR('Saves'));
+    cek('yang tidak ada ditulis tanda hubung, bukan 0', /—belum ada/.test(kotakR('Impression')), kotakR('Impression'));
+    cek('yang kosong disebut cara melengkapinya', /Impression belum diisi/.test(rc.textContent) && /Input Performa/.test(rc.textContent));
+    klik(d, '[data-a="top-rinci"]'); await tunggu(30);
+    cek('menekan lagi menutup detail', !d.querySelector('.rinci'));
+    const tombolR = d.querySelectorAll('[data-a="top-rinci"]');
+    tombolR[1].dispatchEvent(new w.MouseEvent('click', { bubbles: true })); await tunggu(30);
+    rc = d.querySelector('.rinci');
+    cek('postingan TikTok yang tidak tercatat: sebabnya TikTok API', rc && /tidak disediakan TikTok API/.test(rc.textContent) && /Konten Planning/.test(rc.textContent), rc && rc.textContent);
+    cek('cuma satu detail terbuka sekaligus', d.querySelectorAll('.rinci').length === 1);
+    const rinciPhp = PHP_LIB.slice(PHP_LIB.indexOf('function cg_rinci('), PHP_LIB.indexOf('function cg_top('));
+    cek('php: angka API menang atas ketikan', rinciPhp.indexOf("'s' => 'api'") > -1 && rinciPhp.indexOf("'s' => 'api'") < rinciPhp.indexOf("'s' => 'manual'"));
+    cek('php: yang tidak ada dipulangkan null, bukan 0', /'v' => null/.test(rinciPhp));
+    cek('php: kesembilan kunci sama dengan PK_KOLOM', /'reach', 'impr', 'views', 'likes', 'comments', 'shares', 'saves', 'cta', 'follow'/.test(rinciPhp));
+    cek('php: hanya catatan TikTok yang dicocokkan ke postingan TikTok', PHP_LIB.includes("cg_plat_norm($k['platform']) === 'TikTok') $kpUrl"));
     cek('pita riwayat TikTok belum lengkap disebut', /Riwayat video TikTok masih ditarik bertahap/.test(d.getElementById('app').innerHTML));
 
     /* Jadikan insight: form terisi tautan, tanggal, metrik. */

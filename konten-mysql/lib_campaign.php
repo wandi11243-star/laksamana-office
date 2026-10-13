@@ -344,6 +344,7 @@ function cg_konten_perf($pdo) {
         'comments' => (float)(isset($m['comments']) ? $m['comments'] : 0),
         'shares'   => (float)(isset($m['shares']) ? $m['shares'] : 0),
         'saves'    => (float)(isset($m['saves']) ? $m['saves'] : 0),
+        'm'        => $m,
       );
     }
   }
@@ -367,6 +368,28 @@ function cg_plat_norm($p) {
   if (strpos($k, 'you') !== false || $k === 'yt') return 'YouTube';
   return $p !== '' ? (string)$p : 'Lainnya';
 }
+/* RINCIAN 9 ANGKA untuk panel detail Konten terpopuler (13 Okt 2026,
+   permintaan user). Kuncinya SAMA dengan PK_KOLOM di
+   deploy/assets/performa-konten.js (reach, impr, views, likes, comments,
+   shares, saves, cta, follow) — itulah kotak Input Performa modul Konten.
+
+   TikTok Display API cuma memberi views/likes/comments/shares, dan untuk
+   keempatnya angka API MENANG: ia ditarik ulang tiap sinkron, sementara
+   ketikan tangan membeku di hari diketik. Sisanya (reach, impression, saves,
+   klik CTA, follower baru) hanya ada kalau diketik di Input Performa.
+
+   Yang tidak ada dipulangkan NULL, bukan 0: nol berarti "diisi dan memang
+   nol", null berarti "tidak ada sumbernya" — dua keadaan yang menuntut
+   tindakan berbeda di layar. */
+function cg_rinci($api, $manual) {
+  $out = array();
+  foreach (array('reach', 'impr', 'views', 'likes', 'comments', 'shares', 'saves', 'cta', 'follow') as $k) {
+    if (is_array($api) && array_key_exists($k, $api)) { $out[$k] = array('v' => (float)$api[$k], 's' => 'api'); continue; }
+    if (is_array($manual) && isset($manual[$k]) && $manual[$k] !== '' && is_numeric($manual[$k])) { $out[$k] = array('v' => (float)$manual[$k], 's' => 'manual'); continue; }
+    $out[$k] = array('v' => null, 's' => '');
+  }
+  return $out;
+}
 function cg_top($pdo, $d) {
   cg_pastikan($pdo);
   $plat = isset($d['platform']) ? (string)$d['platform'] : '';
@@ -377,15 +400,24 @@ function cg_top($pdo, $d) {
   $hal = max(1, (int)(isset($d['hal']) ? $d['hal'] : 1));
 
   $semua = array(); $url = array();
+  /* Angka Input Performa per TAUTAN — dipakai melengkapi baris TikTok yang
+     postingannya juga tercatat di Konten Planning. Hanya platform TikTok yang
+     dicocokkan: tautan TikTok yang ditempel di catatan Instagram bukan angka
+     TikTok. */
+  $kp = cg_konten_perf($pdo); $kpUrl = array();
+  foreach ($kp as $k) if ($k['url'] !== '' && cg_plat_norm($k['platform']) === 'TikTok') $kpUrl[$k['url']] = $k;
   foreach ($pdo->query("SELECT platform, judul, url, tayang_at, views, likes, comments, shares FROM cg_post WHERE hilang=0")->fetchAll() as $p) {
-    $semua[] = array('platform' => cg_plat_norm($p['platform']), 'judul' => (string)$p['judul'] !== '' ? (string)$p['judul'] : '(tanpa keterangan)',
+    $man = ((string)$p['url'] !== '' && isset($kpUrl[(string)$p['url']])) ? $kpUrl[(string)$p['url']] : null;
+    $semua[] = array(
+      'rinci' => cg_rinci(array('views' => $p['views'], 'likes' => $p['likes'], 'comments' => $p['comments'], 'shares' => $p['shares']), $man ? $man['m'] : null),
+      'tercatat' => $man !== null,'platform' => cg_plat_norm($p['platform']), 'judul' => (string)$p['judul'] !== '' ? (string)$p['judul'] : '(tanpa keterangan)',
       'url' => (string)$p['url'], 'tanggal' => (int)$p['tayang_at'] > 0 ? gmdate('Y-m-d', (int)floor((int)$p['tayang_at'] / 1000) + 7 * 3600) : '',
       'views' => (float)$p['views'], 'likes' => (float)$p['likes'], 'comments' => (float)$p['comments'], 'shares' => (float)$p['shares'], 'sumber' => 'tiktok');
     if ((string)$p['url'] !== '') $url[(string)$p['url']] = true;
   }
-  foreach (cg_konten_perf($pdo) as $k) {
+  foreach ($kp as $k) {
     if ($k['url'] !== '' && isset($url[$k['url']])) continue;
-    $semua[] = array('platform' => cg_plat_norm($k['platform']), 'judul' => $k['judul'] !== '' ? $k['judul'] : '(tanpa judul)',
+    $semua[] = array('rinci' => cg_rinci(null, $k['m']), 'tercatat' => true,'platform' => cg_plat_norm($k['platform']), 'judul' => $k['judul'] !== '' ? $k['judul'] : '(tanpa judul)',
       'url' => $k['url'], 'tanggal' => substr($k['tanggal'], 0, 10), 'views' => $k['views'], 'likes' => $k['likes'],
       'comments' => $k['comments'], 'shares' => $k['shares'], 'sumber' => 'konten');
   }
