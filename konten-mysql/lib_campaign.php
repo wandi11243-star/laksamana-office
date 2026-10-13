@@ -198,7 +198,10 @@ function cg_redirect_uri() {
 }
 function cg_halaman_url() {
   $host = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : '';
-  return 'https://' . $host . '/campaign/';
+  /* Panel Analytics modul Konten (pindah dari /campaign/ 13 Okt 2026).
+     /campaign/ lama tetap ada sebagai pengalih, tapi alamat balik langsung
+     ke tempat barunya supaya tidak ada lompatan tambahan. */
+  return 'https://' . $host . '/konten/analytics/';
 }
 
 /* ==================== HTTP KELUAR ==================== */

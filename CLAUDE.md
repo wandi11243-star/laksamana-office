@@ -88,7 +88,11 @@ Modul: `marketing` `reservasi` `event` `bd` `konten` `campaign` `hr` `akademi` `
 `radar` `stock` `howandi_life` `jadwal` `dw` — plus `absensi`, yang letaknya
 BERBEDA (lihat di bawah).
 
-### Modul berpanel: `stock` dan `finance`
+### Modul berpanel: `stock`, `finance`, dan `konten`
+
+`konten` berpanel sejak 13 Okt 2026 (`planning/` + `analytics/`) — lihat blok
+**Modul `campaign`** di bawah.
+
 
 Dua modul TIDAK berbentuk satu `index.html`. `deploy/<modul>/index.html`-nya
 adalah **pemilih panel** (~280 baris, tanpa aplikasi di dalamnya), dan
@@ -861,8 +865,38 @@ node tools/uji-menufix.js   # 26 pemeriksaan, jsdom (marketing + omset)
 
 Permintaan user, meniru CampaignOS di AIPreneur Academy: *"riset tren dan
 campaign social media yang bisa auto ambil insight dan auto scheduler utk
-ngepost"*. Frontend `deploy/campaign/index.html` (menu Insight / Kalender /
-Riset Tren / Pengaturan), kunci izin **`campaign`**.
+ngepost"*. Menu Insight / Kalender / Riset Tren / Pengaturan, kunci izin
+**`campaign`**.
+
+> **SEJAK 13 OKTOBER 2026 IA PANEL ANALYTICS MODUL KONTEN**, bukan modul
+> sendiri (permintaan user: *"dibuka modul konten baru ada pilihan, konten
+> planning atau analytics"* + *"side bar menu tetap harus sama kaya yg modul
+> konten"*). Modul Konten jadi BERPANEL, pola Stock/Finance:
+>
+> ```
+> deploy/konten/index.html            pemilih  ->  planning/  analytics/
+> deploy/konten/planning/index.html   BEKAS deploy/konten/   (izin 'konten')
+> deploy/konten/analytics/index.html  BEKAS deploy/campaign/ (izin 'campaign')
+> deploy/campaign/index.html          PENGALIH ke ../konten/analytics/ + query/hash
+> ```
+>
+> - **Seluruh jalur relatif kedua panel `../../`**, bukan `../`. Yang tertinggal
+>   satu tingkat memulangkan 404 tanpa galat.
+> - Kunci `campaign` pindah ke `access` kartu **Konten** di portal (kartu
+>   Campaign dicabut). Dicabut dari sana, kotak centangnya hilang dari Kelola
+>   Akses — `access` kartu itulah sumber daftar kunci.
+> - **Kerangka panel Analytics DISALIN dari panel Planning** (`.shell`,
+>   `.sidebar`, `.sb-head`, `.nav-item`, `.topbar .crumb`, ikon `ICONS`, warna
+>   avatar `avColor`, `lm_konten_navmini`). Kerangka Planning diubah = salin
+>   ulang ke sini. Grup "Panel" di kedua sidebar menautkan panel sebelahnya,
+>   HANYA untuk yang memegang kuncinya.
+> - `cg_halaman_url()` (alamat balik OAuth TikTok) menunjuk `/konten/analytics/`.
+>   `/campaign/` lama JANGAN dihapus: bookmark + tab lama yang memulai Hubungkan.
+> - Hash alamat lama `/konten/#…` diteruskan pemilih ke `planning/#…`.
+>
+> ```bash
+> node tools/uji-pemilih-konten.js   # 25 pemeriksaan, jsdom
+> ```
 
 **Backend MENUMPANG `konten-mysql`** (`lib_campaign.php` + `campaign-tiktok.php`),
 aksi `campaign*` diteruskan dari `api.php`. Tabel `cg_insight`, `cg_jadwal`,

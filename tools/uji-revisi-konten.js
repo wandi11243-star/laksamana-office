@@ -49,7 +49,7 @@ const sama = (n, d, h) => cek(n, d === h, 'dapat ' + JSON.stringify(d) + ', haru
 const aman = (n, fn) => { try { fn(); } catch (e) { gagal++; console.log('  GAGAL ' + n + '  -> melempar: ' + e.message); } };
 const tunggu = ms => new Promise(r => setTimeout(r, ms));
 
-const SRC = fs.readFileSync(path.join(ROOT, 'deploy/konten/index.html'), 'utf8');
+const SRC = fs.readFileSync(path.join(ROOT, 'deploy/konten/planning/index.html'), 'utf8');
 const ASET = fs.readFileSync(path.join(ROOT, 'deploy/assets/performa-konten.js'), 'utf8');
 /* Komentar dibuang sebelum mencari pemakaian — JS maupun HTML. Sejarahnya
    harus tetap boleh menyebut nama yang dicabut. Pola yang sama dengan
@@ -58,13 +58,13 @@ const KODE = SRC.replace(/\/\*[\s\S]*?\*\//g, '').replace(/<!--[\s\S]*?-->/g, ''
 
 const POST = [];
 function buka() {
-  let h = SRC.replace('<script src="../assets/performa-konten.js"><' + '/script>',
+  let h = SRC.replace('<script src="../../assets/performa-konten.js"><' + '/script>',
     () => '<script>' + ASET + '<' + '/script>');
   const k = 'return API;';
   if (h.split(k).length - 1 !== 1) { console.error('jangkar IIFE tidak ketemu'); process.exit(2); }
   h = h.replace(k, 'window.__uji = function(src){ return eval(src); };' + k);
   return new JSDOM(h, {
-    url: 'https://dev.laksamanamuda.id/konten/', runScripts: 'dangerously',
+    url: 'https://dev.laksamanamuda.id/konten/planning/', runScripts: 'dangerously',
     pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
     beforeParse(w) {
       w.alert = () => {}; w.confirm = () => true; w.scrollTo = () => {};
