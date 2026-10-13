@@ -38,6 +38,11 @@ define('CG_PROFIL_BAWAAN', 'Laksamana Muda: coffee shop, resto, dan venue nongkr
   . 'Ramai malam hari dan akhir pekan, punya live music, DJ, nobar, dan event. '
   . 'Kanal utama TikTok @laksamanamuda.id dan Instagram.');
 
+/* Scope TikTok yang diminta saat Hubungkan. WAJIB sama dengan yang dicentang di
+   app "Laksamana Campaign" di TikTok Developer Portal, dan wajib disebut di
+   deploy/legal/privacy.html — scope baru berarti kebijakan privasi ikut diubah. */
+define('CG_TIKTOK_SCOPE', 'user.info.basic,user.info.profile,user.info.stats,video.list');
+
 function cg_now_ms() { return (int)round(microtime(true) * 1000); }
 function cg_uid($awal) { return $awal . base_convert((string)cg_now_ms(), 10, 36) . bin2hex(random_bytes(3)); }
 
@@ -137,6 +142,21 @@ function cg_pastikan($pdo) {
     k VARCHAR(60) NOT NULL PRIMARY KEY,
     v TEXT NULL
   ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+  /* Kolom profil & statistik akun (scope user.info.profile + user.info.stats,
+     13 Okt 2026). Lewat ALTER, bukan CREATE TABLE: tabel cg_akun sudah ada di
+     produksi, dan CREATE TABLE IF NOT EXISTS tidak pernah menyentuhnya. */
+  $kolomAkun = array(
+    'bio'          => 'TEXT NULL',
+    'profil_url'   => "VARCHAR(400) NOT NULL DEFAULT ''",
+    'terverifikasi'=> 'TINYINT(1) NOT NULL DEFAULT 0',
+    'following'    => 'BIGINT NOT NULL DEFAULT 0',
+    'likes_total'  => 'BIGINT NOT NULL DEFAULT 0',
+    'jml_video'    => 'BIGINT NOT NULL DEFAULT 0',
+    'stats_ada'    => 'TINYINT(1) NOT NULL DEFAULT 0',
+  );
+  foreach ($kolomAkun as $k => $def) {
+    if (!cg_kolom_ada($pdo, 'cg_akun', $k)) $pdo->exec('ALTER TABLE cg_akun ADD COLUMN `' . $k . '` ' . $def);
+  }
   $sudah = true;
 }
 
@@ -216,7 +236,7 @@ function cg_baca($pdo, $u) {
   unset($r);
   $post = $pdo->query('SELECT platform, post_id, judul, url, cover, tayang_at, views, likes, comments, shares, durasi, sync_at FROM cg_post ORDER BY views DESC LIMIT 200')->fetchAll();
   /* Akun TANPA token — kolom rahasia tidak pernah ikut SELECT ini. */
-  $akun = $pdo->query('SELECT platform, nama, avatar, follower, scope, token_exp, refresh_exp, sync_at, sync_galat, oleh, at FROM cg_akun')->fetchAll();
+  $akun = $pdo->query('SELECT platform, nama, avatar, follower, bio, profil_url, terverifikasi, following, likes_total, jml_video, stats_ada, scope, token_exp, refresh_exp, sync_at, sync_galat, oleh, at FROM cg_akun')->fetchAll();
   foreach ($akun as &$a) {
     $a['terhubung'] = (int)$a['refresh_exp'] > cg_now_ms() || (int)$a['token_exp'] > cg_now_ms();
   }
@@ -236,6 +256,7 @@ function cg_baca($pdo, $u) {
       'tiktokSiap' => cg_tiktok_key($pdo) !== '' && cg_tiktok_secret($pdo) !== '',
       'tiktokDariConfig' => defined('TIKTOK_CLIENT_KEY') && TIKTOK_CLIENT_KEY !== '',
       'redirectUri' => cg_redirect_uri(),
+      'tiktokScope' => CG_TIKTOK_SCOPE,
     ),
     'boleh' => array('admin' => sesi_admin_modul($u, 'campaign')),
   );
@@ -503,7 +524,10 @@ function cg_tiktok_mulai($pdo, $nama) {
   cg_set_tulis($pdo, 'tiktok_state', json_encode(array('s' => $state, 'exp' => cg_now_ms() + 15 * 60000, 'by' => $nama)));
   $q = http_build_query(array(
     'client_key' => $key,
-    'scope' => 'user.info.basic,video.list',
+    /* Daftar ini WAJIB sama dengan scope yang dicentang di app TikTok
+       Developer Portal. Meminta scope yang tidak dicentang di sana membuat
+       TikTok menolak otorisasinya sama sekali. */
+    'scope' => CG_TIKTOK_SCOPE,
     'response_type' => 'code',
     'redirect_uri' => cg_redirect_uri(),
     'state' => $state,
@@ -571,13 +595,33 @@ function cg_tiktok_sync($pdo) {
     $tok = cg_tiktok_token($pdo);
     $auth = array('Authorization: Bearer ' . $tok);
 
-    $u = cg_http('GET', 'https://open.tiktokapis.com/v2/user/info/?fields=open_id,display_name,avatar_url', $auth, null, 30);
+    /* Field yang diminta mengikuti scope yang BENAR-BENAR diberikan saat akun
+       dihubungkan (kolom `scope`), bukan daftar yang kita harapkan: akun yang
+       dihubungkan sebelum 13 Okt 2026 cuma punya user.info.basic, dan meminta
+       field di luar izinnya membuat TikTok menolak SELURUH permintaan —
+       nama & avatar pun ikut tidak terbaca. */
+    $qs = $pdo->prepare('SELECT scope FROM cg_akun WHERE platform = :p');
+    $qs->execute(array(':p' => 'tiktok'));
+    $izin = array_map('trim', explode(',', (string)$qs->fetchColumn()));
+    $adaProfil = in_array('user.info.profile', $izin, true);
+    $adaStats  = in_array('user.info.stats', $izin, true);
+    $fu = 'open_id,display_name,avatar_url';
+    if ($adaProfil) $fu .= ',bio_description,profile_web_link,is_verified';
+    if ($adaStats)  $fu .= ',follower_count,following_count,likes_count,video_count';
+    $u = cg_http('GET', 'https://open.tiktokapis.com/v2/user/info/?fields=' . $fu, $auth, null, 30);
     $user = isset($u['data']['data']['user']) ? $u['data']['data']['user'] : array();
     if ($user) {
-      $q = $pdo->prepare('UPDATE cg_akun SET nama=:n, avatar=:a, follower=:f WHERE platform=:p');
-      $q->execute(array(':n' => (string)(isset($user['display_name']) ? $user['display_name'] : ''),
-        ':a' => (string)(isset($user['avatar_url']) ? $user['avatar_url'] : ''),
-        ':f' => (int)(isset($user['follower_count']) ? $user['follower_count'] : 0), ':p' => 'tiktok'));
+      $g = function($k) use ($user) { return isset($user[$k]) ? $user[$k] : null; };
+      $q = $pdo->prepare('UPDATE cg_akun SET nama=:n, avatar=:a, bio=:b, profil_url=:pu, terverifikasi=:tv,
+        follower=:f, following=:fg, likes_total=:lk, jml_video=:jv, stats_ada=:sa WHERE platform=:p');
+      $q->execute(array(':n' => (string)$g('display_name'), ':a' => (string)$g('avatar_url'),
+        ':b' => cg_potong((string)$g('bio_description'), 1000), ':pu' => cg_potong((string)$g('profile_web_link'), 400),
+        ':tv' => $g('is_verified') ? 1 : 0,
+        ':f' => (int)$g('follower_count'), ':fg' => (int)$g('following_count'),
+        ':lk' => (int)$g('likes_count'), ':jv' => (int)$g('video_count'),
+        /* Penanda TERPISAH dari angkanya: follower 0 yang memang nol dan
+           follower 0 karena izinnya belum ada tidak boleh berbunyi sama. */
+        ':sa' => $adaStats ? 1 : 0, ':p' => 'tiktok'));
     }
 
     $fields = 'id,title,video_description,create_time,cover_image_url,share_url,view_count,like_count,comment_count,share_count,duration';

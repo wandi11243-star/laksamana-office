@@ -47,13 +47,15 @@ function buatServer(opsi) {
       { platform: 'tiktok', post_id: '2', judul: 'Beli special combo', url: 'https://www.tiktok.com/@x/video/2', tayang_at: Date.parse('2026-09-03T05:00:00Z'), views: 98300, likes: 1000, comments: 13, shares: 422 },
       { platform: 'tiktok', post_id: '1', judul: 'Goyang terus babe', url: 'https://www.tiktok.com/@x/video/1', tayang_at: Date.parse('2026-09-26T05:00:00Z'), views: 109700, likes: 1900, comments: 38, shares: 343 }
     ],
-    akun: [{ platform: 'tiktok', nama: 'Laksamana Muda Pekanbaru', terhubung: true, sync_at: Date.now(), sync_galat: '' }],
+    akun: (opsi && opsi.akun) || [{ platform: 'tiktok', nama: 'Laksamana Muda Pekanbaru', terhubung: true, sync_at: Date.now(), sync_galat: '',
+      scope: 'user.info.basic,user.info.profile,user.info.stats,video.list', stats_ada: 1, follower: 12345, following: 8, likes_total: 456789, jml_video: 321,
+      terverifikasi: 1, bio: 'Coffee & live music Pekanbaru', profil_url: 'https://www.tiktok.com/@laksamanamuda.id', avatar: 'https://p16.tiktokcdn.com/a.jpg' }],
     konten: [
       { platform: 'instagram', judul: 'Reels kopi', url: 'https://instagram.com/p/a', tanggal: '2026-09-10', views: 5000, likes: 400, comments: 10, shares: 5 },
       /* Tautan SAMA dengan postingan TikTok 1 — tidak boleh muncul dua kali. */
       { platform: 'tiktok', judul: 'Goyang (dari Konten)', url: 'https://www.tiktok.com/@x/video/1', tanggal: '2026-09-26', views: 1, likes: 0, comments: 0, shares: 0 }
     ],
-    setting: { aiSiap: true, aiModel: 'claude-opus-5-5', profil: 'Profil', tiktokSiap: true, redirectUri: 'https://dev.laksamanamuda.id/konten-api-mysql/campaign-tiktok.php' },
+    setting: { aiSiap: true, aiModel: 'claude-opus-5-5', profil: 'Profil', tiktokSiap: true, redirectUri: 'https://dev.laksamanamuda.id/konten-api-mysql/campaign-tiktok.php', tiktokScope: 'user.info.basic,user.info.profile,user.info.stats,video.list' },
     boleh: { admin: !!opsi.admin }
   };
   const log = [];
@@ -228,6 +230,29 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('ada panduan Help', fs.existsSync(path.join(ROOT, 'deploy/help/panduan/campaign.js')));
   }
 
+  console.log('\n== Profil & statistik akun TikTok ==');
+  {
+    const { d } = await buka();
+    const kartu = d.querySelector('.akun').innerHTML;
+    const b0 = d.querySelectorAll('.akun-stat b')[0];
+    cek('follower tampil', /follower/.test(kartu) && b0 && b0.textContent !== '0', b0 && b0.textContent);
+    cek('statistik 4 angka (follower/following/likes/video)', d.querySelectorAll('.akun-stat > div').length === 4);
+    cek('bio tampil', /Coffee &amp; live music Pekanbaru/.test(kartu));
+    cek('centang terverifikasi tampil', !!d.querySelector('.akun-cek'));
+    cek('tautan profil tampil', !!d.querySelector('.akun a[href="https://www.tiktok.com/@laksamanamuda.id"]'));
+    cek('izin lengkap -> tidak ada tombol Hubungkan ulang', !d.querySelector('.akun [data-a="tt-hubung"]'));
+  }
+  {
+    const { d, srv } = await buka({ akun: [{ platform: 'tiktok', nama: 'Akun Lama', terhubung: true, sync_at: Date.now(), sync_galat: '', scope: 'user.info.basic,video.list', stats_ada: 0, follower: 0 }] });
+    const kartu = d.querySelector('.akun').innerHTML;
+    cek('akun lama: statistik TIDAK digambar sebagai 0', !d.querySelector('.akun-stat'));
+    cek('akun lama: izin yang kurang disebut', /user\.info\.profile, user\.info\.stats/.test(kartu));
+    cek('akun lama: tombol Hubungkan ulang ada', !!d.querySelector('.akun [data-a="tt-hubung"]'));
+    klik(d, '.akun [data-a="tt-hubung"]');
+    await tunggu(30);
+    cek('Hubungkan ulang memanggil campaignTiktokMulai', srv.log.some(b => b.action === 'campaignTiktokMulai'));
+  }
+
   console.log('\n== Sisi server ==');
   {
     let P = null;
@@ -252,6 +277,13 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('api.php meneruskan aksi campaign ke cg_aksi', /strpos\(\$action, 'campaign'\) === 0[\s\S]{0,400}cg_aksi\(\$action, \$body\)/.test(PHP_API));
     cek('OAuth memakai state sekali pakai', /hash_equals\(\(string\)\$st\['s'\]/.test(PHP_LIB) && /cg_set_tulis\(\$pdo, 'tiktok_state', ''\)/.test(PHP_LIB));
     cek('Tayang wajib tautan juga di server', /\$status === 'TAYANG' && \$tautan === ''/.test(PHP_LIB));
+    cek('scope OAuth = keempat scope app', /define\('CG_TIKTOK_SCOPE', 'user\.info\.basic,user\.info\.profile,user\.info\.stats,video\.list'\)/.test(PHP_LIB) && /'scope' => CG_TIKTOK_SCOPE/.test(PHP_LIB));
+    const sync = PHP_LIB.slice(PHP_LIB.indexOf('function cg_tiktok_sync('), PHP_LIB.indexOf('function cg_tiktok_putus('));
+    cek('field profil HANYA diminta kalau izinnya ada', /if \(\$adaProfil\) \$fu \.= ',bio_description/.test(sync));
+    cek('field statistik HANYA diminta kalau izinnya ada', /if \(\$adaStats\)  \$fu \.= ',follower_count/.test(sync));
+    cek('kolom baru lahir lewat ALTER', /ALTER TABLE cg_akun ADD COLUMN/.test(PHP_LIB) && /'stats_ada'/.test(PHP_LIB));
+    const priv = fs.readFileSync(path.join(ROOT, 'deploy/legal/privacy.html'), 'utf8');
+    cek('kebijakan privasi menyebut keempat scope', ['user.info.basic','user.info.profile','user.info.stats','video.list'].every(x => priv.includes(x)));
     cek('usulan AI membuang tautan karangan', /if \(!isset\(\$sah\[\$url\]\)\) \$url = ''/.test(PHP_LIB));
   }
 
