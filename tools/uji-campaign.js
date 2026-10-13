@@ -157,6 +157,7 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     klik(d, '[data-a="top-rentang"][data-v="semua"]'); await tunggu(40);
     /* Detail 9 angka per baris (13 Okt 2026). Baris pertama = Goyang (TikTok
        API + tercatat di Konten Planning). */
+    cek('kartu Contoh pola konten sudah dicabut (14 Okt 2026)', !/Contoh pola konten/.test(app) && !d.querySelector('[data-a="contoh"]'));
     cek('detail tertutup sebelum ditekan', !d.querySelector('.rinci'));
     klik(d, '[data-a="top-rinci"]'); await tunggu(30);
     let rc = d.querySelector('.rinci');
