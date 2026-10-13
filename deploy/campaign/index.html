@@ -109,6 +109,14 @@ body{background:var(--paper)}
 .akun .nm{font-weight:700;color:var(--ink);margin:10px 0 2px}
 .akun .ket{font-size:12px;color:var(--muted)}
 .akun .aksi{display:flex;gap:8px;margin-top:12px;flex-wrap:wrap}
+.akun-id{display:flex;align-items:center;gap:10px;margin-top:10px}
+.akun-id .nm{margin:0}
+.akun-av{width:40px;height:40px;border-radius:50%;object-fit:cover;flex:0 0 40px;background:var(--line)}
+.akun-cek{display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;border-radius:50%;background:#20d5ec;color:#fff;font-size:10px;vertical-align:middle}
+.akun-bio{font-size:12px;color:var(--ink);margin:8px 0 0;white-space:pre-line}
+.akun-stat{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0 6px;text-align:center}
+.akun-stat b{display:block;font-size:15px;color:var(--ink)}
+.akun-stat span{font-size:11px;color:var(--muted)}
 
 .ins{border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px;background:var(--surface);display:flex;flex-direction:column;gap:8px}
 .ins .t{display:flex;align-items:center;gap:8px;justify-content:space-between}
@@ -404,11 +412,30 @@ function kartuAkun(){
   var tt = akun('tiktok'), siap = D.setting && D.setting.tiktokSiap;
   var tk;
   if (tt && tt.terhubung) {
+    /* Izin yang BENAR-BENAR diberikan, bukan yang kita minta. Akun yang
+       dihubungkan sebelum scope profil & statistik ditambahkan tidak punya
+       angkanya — dan itu dikatakan, bukan digambar sebagai 0 follower. */
+    var izin = String(tt.scope || '').split(',').map(function(s){ return s.trim(); });
+    var minta = String((D.setting && D.setting.tiktokScope) || '').split(',').filter(Boolean);
+    var kurang = minta.filter(function(s){ return izin.indexOf(s) < 0; });
+    var profilUrl = /^https:\/\//i.test(tt.profil_url || '') ? tt.profil_url : '';
+    var stats = +tt.stats_ada === 1
+      ? '<div class="akun-stat">'
+        + [['follower', tt.follower], ['following', tt.following], ['likes', tt.likes_total], ['video', tt.jml_video]]
+            .map(function(x){ return '<div><b>' + angka(x[1]) + '</b><span>' + x[0] + '</span></div>'; }).join('')
+        + '</div>'
+      : '';
     tk = '<div class="akun">' + chipPlat('TikTok')
-      + '<div class="nm">' + esc(tt.nama || 'Akun TikTok') + '</div>'
+      + '<div class="akun-id">' + (/^https:\/\//i.test(tt.avatar || '') ? '<img class="akun-av" src="' + esc(tt.avatar) + '" alt="" referrerpolicy="no-referrer">' : '')
+      + '<div class="nm">' + esc(tt.nama || 'Akun TikTok') + (+tt.terverifikasi === 1 ? ' <span class="akun-cek" title="Akun terverifikasi TikTok">✓</span>' : '') + '</div></div>'
+      + (tt.bio ? '<div class="akun-bio">' + esc(tt.bio) + '</div>' : '')
+      + stats
+      + (profilUrl ? '<div class="ket"><a href="' + esc(profilUrl) + '" target="_blank" rel="noopener">Buka profil di TikTok ↗</a></div>' : '')
+      + (kurang.length ? '<div class="pita info" style="margin:8px 0 0">Izin <b>' + esc(kurang.join(', ')) + '</b> belum diberikan — tekan <b>Hubungkan ulang</b> supaya profil & statistik akun ikut tertarik.</div>' : '')
       + '<div class="ket">Sinkron terakhir ' + esc(fmtWaktu(tt.sync_at)) + '. Diperbarui otomatis tiap 6 jam saat halaman ini dibuka.</div>'
       + (tt.sync_galat ? '<div class="pita err" style="margin:8px 0 0">Sinkron terakhir gagal: ' + esc(tt.sync_galat) + '</div>' : '')
       + '<div class="aksi"><button class="btn btn-ghost btn-sm" data-a="tt-sync"' + (ST.sibuk.sync ? ' disabled' : '') + '>' + (ST.sibuk.sync ? 'Menyinkronkan…' : 'Sinkronkan') + '</button>'
+      + (kurang.length ? '<button class="btn btn-primary btn-sm" data-a="tt-hubung">Hubungkan ulang</button>' : '')
       + '<button class="btn btn-danger btn-sm" data-a="tt-putus">Putuskan</button></div></div>';
   } else {
     tk = '<div class="akun">' + chipPlat('TikTok')
@@ -767,7 +794,7 @@ function vPengaturan(){
     + '<div class="form"><div class="field"><label>API key ' + (s.aiSiap ? '<span class="pill">terisi</span>' : '') + '</label>'
     + '<input id="s-aikey" type="password" autocomplete="off" placeholder="' + (s.aiSiap ? 'Kosongkan = tidak diubah. Ketik HAPUS untuk menghapus.' : 'sk-ant-…') + '"></div>'
     + '<div class="field"><label>Model</label><input id="s-model" value="' + esc(s.aiModel || '') + '"><div class="bantu">Bawaan claude-opus-5-5. Ganti ke claude-sonnet-5-5 kalau ingin lebih murah & cepat.</div></div></div></div>'
-    + '<div class="kartu"><h2>TikTok</h2><div class="sub">Dari TikTok for Developers: buat app, aktifkan <b>Login Kit</b> + scope <b>user.info.basic</b> dan <b>video.list</b>.</div>'
+    + '<div class="kartu"><h2>TikTok</h2><div class="sub">Dari TikTok for Developers: buat app, aktifkan <b>Login Kit</b> + scope <b>' + esc(String(s.tiktokScope || '').split(',').join(', ')) + '</b> — harus sama persis dengan yang dicentang di app.</div>'
     + '<div class="pita info">Daftarkan alamat ini di Login Kit → Redirect URI (dev & produksi masing-masing punya alamat sendiri):<br><b class="mono">' + esc(s.redirectUri || '') + '</b></div>'
     + (s.tiktokDariConfig ? '<div class="pita info">Client key dikunci di config.php server.</div>' : '')
     + '<div class="form"><div class="field"><label>Client key ' + (s.tiktokSiap ? '<span class="pill">terisi</span>' : '') + '</label><input id="s-ttkey" type="password" autocomplete="off" placeholder="Kosongkan = tidak diubah"></div>'
