@@ -89,8 +89,13 @@ LM_HELP_ISI('campaign', {
           'Isi *Client key* & *Client secret* di Pengaturan, simpan, lalu tekan *Hubungkan* di menu Insight.'
         ]},
         { t:'langkah', judul:'Mengaktifkan AI', isi:[
-          'Buat API key di console.anthropic.com.',
-          'Tempel di *API key* pada Pengaturan, lalu simpan. Isinya tidak pernah ditampilkan lagi.'
+          'Buat API key Meta Model API di dev.meta.ai.',
+          'Tempel di *API key* pada kartu *AI* di Pengaturan, pilih modelnya, lalu simpan. Isinya tidak pernah ditampilkan lagi.'
+        ]},
+        { t:'langkah', judul:'Mengatur kategori pola insight', isi:[
+          'Di Pengaturan, kartu *Kategori pola insight*: satu baris satu kategori (maksimal 20).',
+          'Daftar ini dipakai formulir *Catat insight*, penyaring kategori, dan AI saat *Temukan insight*.',
+          'Insight lama yang kategorinya dihapus tidak berubah — ia tetap tampil, ditandai *(lama)*.'
         ]},
         { t:'tanya', isi:[
           ['Kenapa angka Instagram & YouTube tidak tertarik sendiri?','Jalurnya belum dibuat. Angkanya tetap muncul di Konten terpopuler kalau diisi lewat *Input Performa* di modul Konten.'],

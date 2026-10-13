@@ -295,8 +295,28 @@ var TITLES = {
   pengaturan: 'Pengaturan'
 };
 var PLATFORM = ['TikTok', 'Instagram', 'YouTube'];
-var KATEGORI = ['Hook 3 Detik & Retensi', 'Format Konten & Visual', 'Topik & Tren', 'Waktu Tayang',
+/* Kategori pola insight DISETEL di Pengaturan (14 Okt 2026) dan dibaca dari
+   server (setting.kategori) — daftar yang SAMA dipakai prompt Temukan insight.
+   KATEGORI_BAWAAN cuma cadangan selama server belum menjawab / PHP lama. */
+var KATEGORI_BAWAAN = ['Hook 3 Detik & Retensi', 'Format Konten & Visual', 'Topik & Tren', 'Waktu Tayang',
   'Promo & Ajakan', 'Sentimen & Masukan', 'Kolaborasi & KOL'];
+function kategoriAktif(){
+  var k = D && D.setting && D.setting.kategori;
+  return (k && k.length) ? k : KATEGORI_BAWAAN;
+}
+/* Pilihan kategori: daftar aktif + kategori LAMA yang masih dipakai insight
+   (ditandai), supaya membuka/menyaring insight lama tidak diam-diam
+   mengganti kategorinya ke pilihan pertama. */
+function opsiKategori(terpilih, lama){
+  var k = kategoriAktif().slice(), h = '';
+  if (lama && lama.length) lama.forEach(function(x){ if (x && k.indexOf(x) < 0) k.push(x); });
+  if (terpilih && k.indexOf(terpilih) < 0) k.push(terpilih);
+  var aktif = kategoriAktif();
+  k.forEach(function(x){
+    h += '<option value="' + esc(x) + '"' + (x === terpilih ? ' selected' : '') + '>' + esc(x) + (aktif.indexOf(x) < 0 ? ' (lama)' : '') + '</option>';
+  });
+  return h;
+}
 var STATUS = ['DRAF', 'TERJADWAL', 'TAYANG', 'BATAL'];
 var STATUS_LBL = { DRAF: 'Draf', TERJADWAL: 'Terjadwal', TAYANG: 'Tayang', BATAL: 'Batal' };
 var HARI = ['SEN', 'SEL', 'RAB', 'KAM', 'JUM', 'SAB', 'MIN'];
@@ -669,7 +689,7 @@ function kartuInsight(){
     return '<button class="' + (ST.insPlat === x[0] ? 'on' : '') + '" data-a="ins-plat" data-v="' + esc(x[0]) + '">' + esc(x[1]) + '</button>'; }).join('')
     + '<button class="' + (ST.insArsip ? 'on' : '') + '" data-a="ins-arsip">Arsip (' + nArsip + ')</button></div>';
   var kat = '<select data-a="ins-kat" style="padding:7px 10px;border:1.5px solid var(--line);border-radius:9px;font-size:13px"><option value="">Semua kategori</option>'
-    + KATEGORI.map(function(k){ return '<option' + (ST.insKat===k?' selected':'') + '>' + esc(k) + '</option>'; }).join('') + '</select>';
+    + opsiKategori(ST.insKat, (D.insight || []).map(function(i){ return i.kategori; })) + '</select>';
   var isi = ins.length ? '<div class="grid g3">' + ins.map(function(i){
     var idx = (D.insight || []).indexOf(i);
     return '<div class="ins' + (+i.arsip === 1 ? ' arsip' : '') + '"><div class="t">' + chipPlat(platNorm(i.platform))
@@ -699,7 +719,7 @@ function kartuInsight(){
 function formInsight(awal){
   awal = awal || {};
   var opsiPlat = PLATFORM.map(function(p){ return '<option' + (platNorm(awal.platform || 'TikTok') === p ? ' selected' : '') + '>' + p + '</option>'; }).join('');
-  var opsiKat = KATEGORI.map(function(k){ return '<option' + ((awal.kategori || KATEGORI[0]) === k ? ' selected' : '') + '>' + esc(k) + '</option>'; }).join('');
+  var opsiKat = opsiKategori(awal.kategori || kategoriAktif()[0]);
   bukaModal('<h3>' + (awal.id ? 'Sunting insight' : 'Catat insight baru') + '</h3>'
     + '<div class="sub" style="color:var(--muted);font-size:13px;margin-bottom:12px">Wajib ada tautan konten asli (https) dan tanggal tayangnya, supaya insight bisa ditelusuri.</div>'
     + '<div class="form">'
@@ -918,20 +938,16 @@ function hasilRiset(r){
 }
 
 /* ===================== PENGATURAN ===================== */
-/* Penyedia AI: dipilih satu yang DIPAKAI, tapi key & model kedua penyedia
-   tetap bisa diisi — berganti penyedia tidak menghapus key yang satunya.
-   Isi key tidak pernah ditampilkan; yang dikirim server cuma "terisi". */
-var AI_ISIAN = { meta: { key: 's-aikey-meta', model: 's-model-meta', ph: 'Key dari dev.meta.ai' },
-                 anthropic: { key: 's-aikey', model: 's-model', ph: 'sk-ant-…' } };
+/* AI = Meta (Muse Spark) saja — Anthropic dicabut 14 Okt 2026. Isi key tidak
+   pernah ditampilkan; yang dikirim server cuma "terisi". Daftar dari server
+   tetap disaring ke 'meta' supaya PHP lama yang masih memulangkan Anthropic
+   tidak memunculkan kotaknya lagi. */
+var AI_ISIAN = { meta: { key: 's-aikey-meta', model: 's-model-meta', ph: 'Key dari dev.meta.ai' } };
 function kartuAI(s){
-  var daftar = s.ai || [], pakai = s.aiPenyedia || 'anthropic';
-  var pilih = '<div class="field"><label>Penyedia yang dipakai</label><select id="s-penyedia">'
-    + daftar.map(function(x){ return '<option value="' + esc(x.id) + '"' + (x.id === pakai ? ' selected' : '') + '>' + esc(x.label) + (x.siap ? '' : ' — key belum diisi') + '</option>'; }).join('')
-    + '</select><div class="bantu">Dipakai Insight otomatis & Riset Tren. Key kedua penyedia boleh sama-sama terisi.</div></div>';
+  var daftar = (s.ai || []).filter(function(x){ return AI_ISIAN[x.id]; });
   var blok = daftar.map(function(x){
     var f = AI_ISIAN[x.id] || {};
-    return '<div style="border-top:1px solid var(--k-line-soft);padding-top:12px;margin-top:6px"><b style="font-size:13px">' + esc(x.label) + '</b>'
-      + (x.id === pakai ? ' <span class="pill">dipakai</span>' : '')
+    return '<div><b style="font-size:13px">' + esc(x.label) + '</b>'
       + (x.dariConfig ? '<div class="pita info" style="margin-top:8px">API key dikunci di config.php server; isian key di bawah tidak dipakai.</div>' : '')
       + '<div class="form" style="margin-top:8px"><div class="field"><label>API key ' + (x.siap ? '<span class="pill">terisi</span>' : '') + '</label>'
       + '<input id="' + f.key + '" type="password" autocomplete="off" placeholder="' + (x.siap ? 'Kosongkan = tidak diubah. Ketik HAPUS untuk menghapus.' : esc(f.ph || '')) + '"></div>'
@@ -941,12 +957,21 @@ function kartuAI(s){
       + (x.id === 'meta' ? '<div class="bantu">Model berakhiran <b>-contributor</b> jauh lebih murah karena Meta <b>boleh memakai data yang dikirim (judul & angka postingan, profil brand, topik riset) untuk melatih modelnya</b>. Pilih tanpa -contributor kalau itu tidak boleh — butuh key dengan akses standar.</div>' : '')
       + '</div></div></div>';
   }).join('');
-  return '<div class="kartu"><h2>AI</h2><div class="sub">Isi API key penyedia yang dipakai. Isinya tidak pernah ditampilkan lagi sesudah disimpan.</div>' + pilih + blok + '</div>';
+  return '<div class="kartu"><h2>AI</h2><div class="sub">Dipakai Insight otomatis & Riset Tren. Isi key tidak pernah ditampilkan lagi sesudah disimpan.</div>' + blok + '</div>';
+}
+/* Kategori pola insight: satu baris satu kategori. Teks bebas, bukan daftar
+   tombol — menambah/menghapus/mengurutkan cukup menyunting barisnya. */
+function kartuKategori(s){
+  var k = (s.kategori && s.kategori.length) ? s.kategori : KATEGORI_BAWAAN;
+  return '<div class="kartu"><h2>Kategori pola insight</h2><div class="sub">Pilihan kategori di formulir Catat insight & penyaring, sekaligus daftar yang dipakai AI saat <b>Temukan insight</b>. Satu baris satu kategori, maksimal 20, tiap kategori maksimal 60 huruf.</div>'
+    + '<div class="field"><textarea id="s-kategori" style="min-height:150px">' + esc(k.join('\n')) + '</textarea>'
+    + '<div class="bantu">Insight lama yang kategorinya dihapus dari daftar ini <b>tidak diubah</b> — ia tetap tampil, ditandai <i>(lama)</i>.</div></div></div>';
 }
 function vPengaturan(){
   var s = D.setting || {};
   return '<div class="kartu"><h2>Profil brand</h2><div class="sub">Dipakai AI sebagai konteks setiap riset & analisa insight.</div>'
     + '<div class="field"><textarea id="s-profil" style="min-height:96px">' + esc(s.profil || '') + '</textarea></div></div>'
+    + kartuKategori(s)
     + kartuAI(s)
     + '<div class="kartu"><h2>TikTok</h2><div class="sub">Dari TikTok for Developers: buat app, aktifkan <b>Login Kit</b> + scope <b>' + esc(String(s.tiktokScope || '').split(',').join(', ')) + '</b> — harus sama persis dengan yang dicentang di app.</div>'
     + '<div class="pita info">Daftarkan alamat ini di Login Kit → Redirect URI (dev & produksi masing-masing punya alamat sendiri):<br><b class="mono">' + esc(s.redirectUri || '') + '</b></div>'
@@ -1056,8 +1081,10 @@ document.addEventListener('click', function(ev){
   }
   /* Pengaturan */
   if (a === 'set-simpan') {
-    var s = { profil: document.getElementById('s-profil').value, aiKey: nilai('s-aikey'), aiModel: nilai('s-model'),
-      aiKeyMeta: nilai('s-aikey-meta'), aiModelMeta: nilai('s-model-meta'), aiPenyedia: nilai('s-penyedia'),
+    var kat = document.getElementById('s-kategori').value.split('\n').map(function(x){ return x.trim(); }).filter(Boolean);
+    if (!kat.length) { document.getElementById('s-galat').innerHTML = '<div class="pita err">Kategori pola minimal satu.</div>'; return; }
+    var s = { profil: document.getElementById('s-profil').value, kategori: kat,
+      aiKeyMeta: nilai('s-aikey-meta'), aiModelMeta: nilai('s-model-meta'),
       tiktokKey: nilai('s-ttkey'), tiktokSecret: nilai('s-ttsecret') };
     el.disabled = true;
     api('campaignSetting', s).then(function(){ toast('Pengaturan tersimpan.'); return muat(); })

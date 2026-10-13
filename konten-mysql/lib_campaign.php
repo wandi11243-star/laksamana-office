@@ -32,9 +32,6 @@
 
 require_once __DIR__ . '/lib_sesi.php';
 
-/* Model AI bawaan. Bisa ditimpa admin modul di halaman Pengaturan. */
-define('CG_MODEL_BAWAAN', 'claude-opus-5-5');
-
 /* PENYEDIA AI (13 Okt 2026, permintaan user: "modelnya bisa dipilih, pakai
    Muse Spark dulu"). Keduanya bicara format Anthropic Messages yang SAMA —
    Meta Model API menyediakan endpoint Messages-kompatibel — jadi bedanya
@@ -48,23 +45,59 @@ define('CG_MODEL_BAWAAN', 'claude-opus-5-5');
    "-contributor" (Meta): harga jauh lebih murah KARENA prompt & jawaban
    boleh dipakai Meta melatih modelnya. Itu disebut di layar Pengaturan dan
    di deploy/legal/privacy.html — kalau daftar penyedia berubah, kebijakan
-   privasinya ikut diubah. */
+   privasinya ikut diubah.
+
+   ANTHROPIC DICABUT (14 Okt 2026, permintaan user: "API Anthropic dihapus
+   saja"). Tinggal Meta. Key Anthropic yang terlanjur tersimpan di cg_setting
+   (ai_key, ai_model, ai_penyedia) SENGAJA TIDAK DIHAPUS — ia cuma tidak
+   dibaca lagi. Menghapus data yang tidak bisa dikembalikan demi kerapian
+   bukan pertukaran yang baik; mengembalikan penyedia cukup menambah barisnya
+   lagi di sini. */
 function cg_ai_daftar() {
   return array(
     'meta' => array('label' => 'Meta (Muse Spark)', 'url' => 'https://api.meta.ai/v1/messages',
       'model' => array('muse-spark-1.3-contributor', 'muse-spark-1.3', 'muse-spark-1.2-contributor', 'muse-spark-1.2'),
       'kunci' => 'ai_key_meta', 'kunciModel' => 'ai_model_meta', 'konstanta' => 'META_MODEL_API_KEY'),
-    'anthropic' => array('label' => 'Anthropic (Claude)', 'url' => 'https://api.anthropic.com/v1/messages',
-      'model' => array('claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'),
-      'kunci' => 'ai_key', 'kunciModel' => 'ai_model', 'konstanta' => 'ANTHROPIC_API_KEY'),
   );
 }
-/* Bawaan TETAP anthropic: pemasangan yang sudah berjalan tidak boleh
-   diam-diam pindah penyedia (dan key-nya) begitu berkas ini mendarat. */
-function cg_ai_penyedia($pdo) {
-  $p = cg_set_baca($pdo, 'ai_penyedia', 'anthropic');
-  $d = cg_ai_daftar();
-  return isset($d[$p]) ? $p : 'anthropic';
+/* Penyedia yang dipakai: SELALU Meta. Setelan ai_penyedia lama yang masih
+   berbunyi "anthropic" diabaikan — dibaca, ia menunjuk penyedia yang sudah
+   tidak ada di daftar. */
+function cg_ai_penyedia($pdo) { return 'meta'; }
+/* KATEGORI POLA INSIGHT (14 Okt 2026, permintaan user: "saya ingin ada
+   pengaturannya"). Disimpan di cg_setting 'kategori' (JSON). Dipakai DUA
+   tempat dan keduanya membaca fungsi ini: formulir/penyaring di layar (lewat
+   campaignGet) dan prompt Temukan insight. Daftar kedua di salah satu tempat
+   akan menyimpang, dan AI lalu mengusulkan kategori yang tidak ada di
+   pilihan formulir.
+
+   Insight LAMA yang kategorinya sudah dicabut dari daftar TIDAK diubah —
+   layar menggambarnya ditandai (lama). */
+define('CG_KATEGORI_MAKS', 20);
+function cg_kategori_bawaan() {
+  return array('Hook 3 Detik & Retensi', 'Format Konten & Visual', 'Topik & Tren', 'Waktu Tayang',
+    'Promo & Ajakan', 'Sentimen & Masukan', 'Kolaborasi & KOL');
+}
+/* Dirapikan di SATU tempat: dipangkas, dipotong 60 huruf (lebar kolom
+   cg_insight.kategori), kembar dibuang tanpa memandang huruf besar-kecil. */
+function cg_kategori_rapikan($daftar) {
+  $out = array(); $sudah = array();
+  if (!is_array($daftar)) return $out;
+  foreach ($daftar as $k) {
+    if (!is_string($k) && !is_numeric($k)) continue;
+    $k = cg_potong(trim(preg_replace('/\s+/', ' ', (string)$k)), 60);
+    if ($k === '') continue;
+    $kunci = strtolower($k);
+    if (isset($sudah[$kunci])) continue;
+    $sudah[$kunci] = true; $out[] = $k;
+    if (count($out) >= CG_KATEGORI_MAKS) break;
+  }
+  return $out;
+}
+function cg_kategori($pdo) {
+  $j = json_decode(cg_set_baca($pdo, 'kategori', ''), true);
+  $k = cg_kategori_rapikan($j);
+  return $k ? $k : cg_kategori_bawaan();
 }
 function cg_ai_key_untuk($pdo, $p) {
   $d = cg_ai_daftar(); $c = $d[$p]['konstanta'];
@@ -301,9 +334,9 @@ function cg_baca($pdo, $u) {
     'akun'    => $akun,
     'setting' => array(
       'aiSiap'     => cg_ai_key($pdo) !== '',
-      'aiPenyedia' => cg_ai_penyedia($pdo),
       'aiModel'    => cg_ai_model_untuk($pdo, cg_ai_penyedia($pdo)),
       'ai'         => cg_ai_ringkas($pdo),
+      'kategori'   => cg_kategori($pdo),
       'profil'     => cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN),
       'tiktokSiap' => cg_tiktok_key($pdo) !== '' && cg_tiktok_secret($pdo) !== '',
       'tiktokDariConfig' => defined('TIKTOK_CLIENT_KEY') && TIKTOK_CLIENT_KEY !== '',
@@ -552,7 +585,7 @@ function cg_jadwal_simpan($pdo, $d, $nama) {
   return array('id' => $id);
 }
 
-/* ==================== AI (Anthropic Messages API) ==================== */
+/* ==================== AI (Meta Model API, format Messages) ==================== */
 /* Untuk layar Pengaturan: daftar penyedia & model, mana yang key-nya terisi
    — TANPA isi key-nya. */
 function cg_ai_ringkas($pdo) {
@@ -571,14 +604,12 @@ function cg_ai_tanya($pdo, $system, $prompt, $maks = 6000) {
   if ($key === '') throw new Exception('API key ' . $x['label'] . ' belum diisi. Admin modul bisa mengisinya di Pengaturan.');
   $model = cg_ai_model_untuk($pdo, $p);
   /* Muse Spark selalu MENALAR dulu, dan token penalarannya ikut dihitung di
-     max_tokens. Dengan jatah yang sama dengan Claude, jawabannya terpotong
-     sebelum JSON-nya selesai — dan riset gagal tanpa sebab yang terbaca. */
-  if ($p === 'meta') $maks = $maks + 8000;
+     max_tokens. Tanpa tambahan jatah, jawabannya terpotong sebelum JSON-nya
+     selesai — dan riset gagal tanpa sebab yang terbaca. */
+  $maks = $maks + 8000;
   @set_time_limit(180);
-  /* Meta: Bearer, tanpa anthropic-version. Anthropic: x-api-key. */
-  $header = $p === 'meta'
-    ? array('content-type: application/json', 'Authorization: Bearer ' . $key)
-    : array('content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01');
+  /* Meta: Authorization Bearer. */
+  $header = array('content-type: application/json', 'Authorization: Bearer ' . $key);
   $r = cg_http('POST', $x['url'], $header, json_encode(array(
     'model' => $model,
     'max_tokens' => $maks,
@@ -590,7 +621,7 @@ function cg_ai_tanya($pdo, $system, $prompt, $maks = 6000) {
     throw new Exception($x['label'] . ' menolak (' . $r['kode'] . '): ' . (is_string($pesan) ? $pesan : json_encode($pesan)));
   }
   /* Bentuk jawaban dibaca longgar (14 Okt 2026): blok content bertipe text
-     (Anthropic & Meta Messages), content berupa string, atau bentuk
+     (format Messages), content berupa string, atau bentuk
      choices[0].message.content. Yang dibaca satu bentuk saja menulis "bukan
      JSON" untuk jawaban yang sebenarnya utuh. */
   $teks = '';
@@ -675,11 +706,12 @@ function cg_insight_ai($pdo) {
   $bukti = cg_bukti_post($pdo, 30);
   if (!$bukti) throw new Exception('Belum ada postingan yang bisa dianalisa. Hubungkan & sinkronkan akun TikTok, atau isi Input Performa di modul Konten.');
   $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
+  $kategori = cg_kategori($pdo);
   $system = 'Kamu analis konten media sosial. Jawab dalam Bahasa Indonesia. Analisa HANYA dari data yang diberikan; '
     . 'jangan mengarang angka atau tautan. Balas HANYA dengan satu objek JSON.';
   $prompt = "Profil brand: $profil\nPostingan (diurut views):\n" . json_encode($bukti, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
     . "\n\nTemukan 4-6 pola yang membuat postingan teratas lebih berhasil daripada yang bawah (hook, topik, format, waktu tayang, ajakan). Bentuk JSON:\n"
-    . '{"insight":[{"platform":"TikTok|Instagram|YouTube","kategori":"Hook 3 Detik & Retensi|Format Konten & Visual|Topik & Tren|Waktu Tayang|Promo & Ajakan|Sentimen & Masukan",'
+    . '{"insight":[{"platform":"TikTok|Instagram|YouTube","kategori":"' . implode('|', $kategori) . '",'
     . '"temuan":"","url":"tautan PERSIS dari data di atas yang paling mewakili","tglTayang":"YYYY-MM-DD dari data","metrik":"angka dari data","aksi":""}]}';
   $r = cg_ai_tanya($pdo, $system, $prompt, 4000);
   $daftar = isset($r['hasil']['insight']) && is_array($r['hasil']['insight']) ? $r['hasil']['insight'] : array();
@@ -693,6 +725,9 @@ function cg_insight_ai($pdo) {
     $url = isset($i['url']) ? (string)$i['url'] : '';
     if (!isset($sah[$url])) $url = '';
     $i['url'] = $url;
+    /* Kategori di luar daftar yang disetel DIKOSONGKAN, bukan ditebak: yang
+       menyimpan usulannya memilih sendiri dari formulirnya. */
+    if (!isset($i['kategori']) || !in_array((string)$i['kategori'], $kategori, true)) $i['kategori'] = '';
     $out[] = $i;
   }
   return array('usulan' => $out, 'model' => $r['model']);
@@ -939,17 +974,21 @@ function cg_setting_simpan($pdo, $d) {
   /* Kotak rahasia yang dikosongkan berarti "jangan diubah", bukan "hapus".
      Layar tidak pernah menampilkan isinya, jadi kotak kosong adalah keadaan
      normal tiap kali halamannya dibuka. Menghapus memakai kata HAPUS. */
-  foreach (array('aiKey' => 'ai_key', 'aiKeyMeta' => 'ai_key_meta', 'tiktokKey' => 'tiktok_key', 'tiktokSecret' => 'tiktok_secret') as $f => $k) {
+  foreach (array('aiKeyMeta' => 'ai_key_meta', 'tiktokKey' => 'tiktok_key', 'tiktokSecret' => 'tiktok_secret') as $f => $k) {
     if (!isset($d[$f])) continue;
     $v = trim((string)$d[$f]);
     if ($v === '') continue;
     cg_set_tulis($pdo, $k, $v === 'HAPUS' ? '' : $v);
   }
   $daftar = cg_ai_daftar();
-  if (isset($d['aiPenyedia']) && isset($daftar[(string)$d['aiPenyedia']])) cg_set_tulis($pdo, 'ai_penyedia', (string)$d['aiPenyedia']);
-  /* Model hanya dari daftar penyedia itu — lihat cg_ai_daftar(). */
-  foreach (array('aiModel' => 'anthropic', 'aiModelMeta' => 'meta') as $f => $p) {
-    if (isset($d[$f]) && in_array((string)$d[$f], $daftar[$p]['model'], true)) cg_set_tulis($pdo, $daftar[$p]['kunciModel'], (string)$d[$f]);
+  /* Model hanya dari daftar penyedia — lihat cg_ai_daftar(). */
+  if (isset($d['aiModelMeta']) && in_array((string)$d['aiModelMeta'], $daftar['meta']['model'], true)) cg_set_tulis($pdo, $daftar['meta']['kunciModel'], (string)$d['aiModelMeta']);
+  /* Daftar kosong DITOLAK, bukan disimpan: formulir insight tanpa satu pun
+     kategori tidak bisa diisi siapa pun. */
+  if (isset($d['kategori'])) {
+    $k = cg_kategori_rapikan($d['kategori']);
+    if (!$k) throw new Exception('Kategori pola minimal satu.');
+    cg_set_tulis($pdo, 'kategori', json_encode($k, JSON_UNESCAPED_UNICODE));
   }
   if (isset($d['profil'])) cg_set_tulis($pdo, 'profil', cg_potong($d['profil'], 1500));
   return array('ok' => true);

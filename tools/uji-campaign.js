@@ -34,7 +34,7 @@ function geser(h) { return new Date(Date.now() + 7 * 3600e3 + h * 864e5).toISOSt
 function buatServer(opsi) {
   opsi = opsi || {};
   const S = {
-    insight: [], jadwal: [
+    insight: opsi.insightLama ? [{ id: 'il', platform: 'TikTok', kategori: 'Waktu Tayang', temuan: 'Temuan lama', url: 'https://www.tiktok.com/@x/video/9', tgl_tayang: '2026-09-01', metrik: '', aksi: '', sumber: 'manual', arsip: 0 }] : [], jadwal: [
       { id: 'j1', platform: 'TikTok', judul: 'Teaser DJ', caption: 'Malam minggu!', tanggal: geser(-1), jam: '19:00', status: 'TERJADWAL', insight_id: '', pic: '', tautan: '', catatan: '' },
       { id: 'j2', platform: 'Instagram', judul: 'Menu baru', caption: '', tanggal: geser(3), jam: '18:30', status: 'TERJADWAL', insight_id: '', pic: '', tautan: '', catatan: '' }
     ],
@@ -59,7 +59,7 @@ function buatServer(opsi) {
         /* views 1 di sini TIDAK boleh mengalahkan 109.700 dari API. */
         m: { views: 1, reach: 88000, saves: 512, cta: 40, follow: 150 } }
     ],
-    setting: { aiSiap: true, aiPenyedia: 'meta', aiModel: 'muse-spark-1.3-contributor',
+    setting: { aiSiap: true, aiModel: 'muse-spark-1.3-contributor', kategori: ['Hook 3 Detik & Retensi', 'Topik Lokal'],
       ai: [{ id: 'meta', label: 'Meta (Muse Spark)', model: ['muse-spark-1.3-contributor', 'muse-spark-1.3'], modelPakai: 'muse-spark-1.3-contributor', siap: true, dariConfig: false },
            { id: 'anthropic', label: 'Anthropic (Claude)', model: ['claude-opus-5-5', 'claude-sonnet-5-5'], modelPakai: 'claude-opus-5-5', siap: false, dariConfig: false }],
       profil: 'Profil', tiktokSiap: true, redirectUri: 'https://dev.laksamanamuda.id/konten-api-mysql/campaign-tiktok.php', tiktokScope: 'user.info.basic,user.info.profile,user.info.stats,video.list' },
@@ -222,6 +222,18 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('usulan AI TIDAK tersimpan sendiri', srv.log.filter(b => b.action === 'campaignInsightSimpan').length === nS);
     klik(d, '[data-a="usulan-pakai"][data-i="0"]');
     cek('Simpan usulan membuka form terisi', d.getElementById('f-temuan').value === 'Usulan AI');
+    const fk = d.getElementById('f-kat');
+    cek('kategori form dari Pengaturan (server)', fk && fk.options.length === 2 && fk.options[1].value === 'Topik Lokal' && fk.value === 'Hook 3 Detik & Retensi', fk && fk.innerHTML);
+    klik(d, '[data-a="tutup"]');
+  }
+  {
+    /* Insight lama berkategori yang sudah dicabut: tetap terpilih, ditandai (lama). */
+    const { d } = await buka({ hash: '#insight', insightLama: true });
+    const saring = d.querySelector('[data-a="ins-kat"]');
+    cek('penyaring memuat kategori lama yang masih dipakai, ditandai', saring && saring.innerHTML.includes('Waktu Tayang (lama)'));
+    klik(d, '[data-a="ins-ubah"][data-i="0"]');
+    const fk2 = d.getElementById('f-kat');
+    cek('kategori lama tidak diganti diam-diam', fk2.value === 'Waktu Tayang' && /Waktu Tayang \(lama\)/.test(fk2.innerHTML));
     klik(d, '[data-a="tutup"]');
   }
 
@@ -277,7 +289,7 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('riset gagal: galatnya MENETAP di layar (bukan cuma toast)', app2.includes("Riset gagal:</b> Jawaban AI terpotong"));
     cek('riset gagal: topik & catatan tidak hilang', d2.getElementById('r-topik').value === 'Malam minggu' && d2.getElementById('r-cat').value === 'anak muda');
     const tanyaP = PHP_LIB.slice(PHP_LIB.indexOf('function cg_ai_tanya('), PHP_LIB.indexOf('function cg_bukti_post('));
-    cek('php: jatah token Muse Spark ditambah (token penalaran ikut dihitung)', tanyaP.includes("if ($p === 'meta') $maks = $maks + 8000;"));
+    cek('php: jatah token Muse Spark ditambah (token penalaran ikut dihitung)', tanyaP.includes('$maks = $maks + 8000;'));
     cek('php: terpotong batas token dikatakan apa adanya', tanyaP.includes("$henti === 'max_tokens'"));
     cek('php: content berupa string juga dibaca', tanyaP.includes('if (is_string($isi)) $teks = $isi;'));
     cek('php: galat "bukan JSON" menyebut potongan jawabannya', tanyaP.includes("Jawaban AI bukan JSON (' . $model . '): ") && tanyaP.includes('cg_potong(preg_replace('));
@@ -291,19 +303,26 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     const app = adm.d.getElementById('app').innerHTML;
     cek('admin melihat Pengaturan', /Profil brand/.test(app));
     cek('redirect URI disebut', /campaign-tiktok\.php/.test(app));
-    cek('kotak rahasia bertipe password', adm.d.getElementById('s-aikey').type === 'password' && adm.d.getElementById('s-aikey-meta').type === 'password');
-    const pen = adm.d.getElementById('s-penyedia');
-    cek('penyedia AI bisa dipilih, yang dipakai terpilih', pen && pen.value === 'meta' && pen.options.length === 2);
-    cek('penyedia tanpa key disebut di pilihannya', /Anthropic \(Claude\) — key belum diisi/.test(pen.innerHTML));
+    cek('kotak key Meta bertipe password', adm.d.getElementById('s-aikey-meta').type === 'password');
+    cek('Anthropic dicabut: tanpa pemilih penyedia & kotak key-nya (walau server lama memulangkannya)',
+      !adm.d.getElementById('s-penyedia') && !adm.d.getElementById('s-aikey') && !adm.d.getElementById('s-model') && !/Anthropic/.test(app));
     cek('model Meta dari daftar, contributor terpilih', adm.d.getElementById('s-model-meta').value === 'muse-spark-1.3-contributor');
     cek('arti -contributor (data boleh dipakai melatih) disebut di layar', /boleh memakai data yang dikirim/.test(app));
-    pen.value = 'anthropic';
-    adm.d.getElementById('s-model').value = 'claude-sonnet-5-5';
+    const ka = adm.d.getElementById('s-kategori');
+    cek('kategori pola tampil satu baris satu kategori', ka && ka.value === 'Hook 3 Detik & Retensi\nTopik Lokal', ka && JSON.stringify(ka.value));
+    /* kosong ditahan, tidak terkirim */
+    const n0 = adm.srv.log.filter(b => b.action === 'campaignSetting').length;
+    ka.value = '  \n ';
+    klik(adm.d, '[data-a="set-simpan"]'); await tunggu(40);
+    cek('kategori kosong DITAHAN, tidak terkirim', adm.srv.log.filter(b => b.action === 'campaignSetting').length === n0 && /minimal satu/.test(adm.d.getElementById('s-galat').innerHTML));
+    adm.d.getElementById('s-kategori').value = 'Hook 3 Detik & Retensi\n  Promo Malam  \n\nTopik Lokal';
     adm.d.getElementById('s-aikey-meta').value = 'kunci-uji';
     klik(adm.d, '[data-a="set-simpan"]'); await tunggu(60);
     const kirim = adm.srv.log.filter(b => b.action === 'campaignSetting').pop();
-    cek('Simpan mengirim penyedia, model & key per penyedia', kirim && kirim.data.aiPenyedia === 'anthropic' && kirim.data.aiModel === 'claude-sonnet-5-5'
-      && kirim.data.aiModelMeta === 'muse-spark-1.3-contributor' && kirim.data.aiKeyMeta === 'kunci-uji' && kirim.data.aiKey === '', kirim && JSON.stringify(kirim.data));
+    cek('Simpan mengirim kategori (dipangkas, baris kosong dibuang) + model & key Meta saja', kirim
+      && JSON.stringify(kirim.data.kategori) === JSON.stringify(['Hook 3 Detik & Retensi', 'Promo Malam', 'Topik Lokal'])
+      && kirim.data.aiModelMeta === 'muse-spark-1.3-contributor' && kirim.data.aiKeyMeta === 'kunci-uji'
+      && !('aiKey' in kirim.data) && !('aiPenyedia' in kirim.data) && !('aiModel' in kirim.data), kirim && JSON.stringify(kirim.data));
   }
 
   console.log('\n== Invarian ==');
@@ -383,14 +402,24 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('campaignGet tidak lagi membawa daftar postingan', !/'post'\s*=>/.test(PHP_LIB) && /'postInfo' => \$postInfo/.test(PHP_LIB));
     cek('ganti akun mereset riwayat', /\$lama !== \$baru/.test(PHP_LIB));
     const tanya = PHP_LIB.slice(PHP_LIB.indexOf('function cg_ai_tanya('), PHP_LIB.indexOf('function cg_bukti_post('));
-    cek('Meta: Authorization Bearer, tanpa anthropic-version', /\$p === 'meta'\s*\n?\s*\? array\('content-type: application\/json', 'Authorization: Bearer ' \. \$key\)/.test(tanya));
-    cek('Anthropic tetap x-api-key + anthropic-version', /'x-api-key: ' \. \$key, 'anthropic-version: 2023-06-01'/.test(tanya));
+    cek('Meta: Authorization Bearer', tanya.includes("array('content-type: application/json', 'Authorization: Bearer ' . $key)"));
+    cek('Anthropic dicabut dari pemanggil AI', !/x-api-key|anthropic-version|api\.anthropic\.com/.test(PHP_LIB));
+    const daftarAi = PHP_LIB.slice(PHP_LIB.indexOf('function cg_ai_daftar('), PHP_LIB.indexOf('function cg_ai_penyedia('));
+    cek('daftar penyedia cuma meta', /'meta' =>/.test(daftarAi) && !/'anthropic' =>/.test(daftarAi));
+    cek('penyedia selalu meta', /function cg_ai_penyedia\(\$pdo\) \{ return 'meta'; \}/.test(PHP_LIB));
+    const simpanSet = PHP_LIB.slice(PHP_LIB.indexOf('function cg_setting_simpan('), PHP_LIB.indexOf('/* ==================== PINTU API'));
+    cek('setelan tidak lagi menulis key/model/penyedia Anthropic (dan tidak menghapusnya)', !/'aiKey' =>|ai_penyedia|'aiModel'/.test(simpanSet) && !/DELETE/.test(simpanSet));
+    cek('kategori kosong ditolak server', simpanSet.includes("throw new Exception('Kategori pola minimal satu.')"));
+    cek('kategori dirapikan (kembar, panjang, jumlah) di satu tempat', /function cg_kategori_rapikan/.test(PHP_LIB) && /strtolower\(\$k\)/.test(PHP_LIB) && /CG_KATEGORI_MAKS/.test(PHP_LIB));
+    cek('campaignGet memulangkan kategori', PHP_LIB.includes("'kategori'   => cg_kategori($pdo)"));
+    const insAi = PHP_LIB.slice(PHP_LIB.indexOf('function cg_insight_ai('));
+    cek('prompt Temukan insight memakai kategori dari setelan', insAi.includes("implode('|', $kategori)") && !insAi.includes('Hook 3 Detik & Retensi|Format'));
+    cek('kategori usulan di luar daftar dikosongkan', insAi.includes("in_array((string)$i['kategori'], $kategori, true)"));
     cek('alamat Meta = api.meta.ai/v1/messages', /'https:\/\/api\.meta\.ai\/v1\/messages'/.test(PHP_LIB));
-    cek('model disimpan HANYA dari daftar penyedia', /in_array\(\(string\)\$d\[\$f\], \$daftar\[\$p\]\['model'\], true\)/.test(PHP_LIB));
-    cek('bawaan penyedia tetap anthropic (pemasangan lama tidak pindah diam-diam)', /cg_set_baca\(\$pdo, 'ai_penyedia', 'anthropic'\)/.test(PHP_LIB));
+    cek('model disimpan HANYA dari daftar penyedia', PHP_LIB.includes("in_array((string)$d['aiModelMeta'], $daftar['meta']['model'], true)"));
     cek('key Meta disimpan terpisah', /'aiKeyMeta' => 'ai_key_meta'/.test(PHP_LIB));
     const priv2 = fs.readFileSync(path.join(ROOT, 'deploy/legal/privacy.html'), 'utf8');
-    cek('kebijakan privasi menyebut Meta & tier Contributor', /Meta<\/b> \(Muse Spark/.test(priv2) && /Contributor/.test(priv2));
+    cek('kebijakan privasi menyebut Meta & tier Contributor, tanpa Anthropic', /Meta<\/b> \(Muse Spark/.test(priv2) && /Contributor/.test(priv2) && !/Anthropic/.test(priv2));
     cek('usulan AI membuang tautan karangan', /if \(!isset\(\$sah\[\$url\]\)\) \$url = ''/.test(PHP_LIB));
   }
 

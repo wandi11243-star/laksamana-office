@@ -908,7 +908,7 @@ akan tertimpa.
   KEEMPAT berkas kembar) + kunci `campaign`; `campaignSetting` admin modul saja.
   Di sana tersimpan token TikTok & API key AI.
 - **Rahasia tidak pernah dipulangkan** `campaignGet` — cuma `aiSiap`/`tiktokSiap`.
-  Konstanta `ANTHROPIC_API_KEY` / `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET`
+  Konstanta `META_MODEL_API_KEY` / `TIKTOK_CLIENT_KEY` / `TIKTOK_CLIENT_SECRET`
   di `config.php` MENANG atas isian layar.
 - **Auto ambil insight = TikTok Display API** (Login Kit, scope
   `user.info.basic,video.list`). OAuth `state` sekali pakai 15 menit; alamat
@@ -921,15 +921,23 @@ akan tertimpa.
 - **AUTO POSTING BELUM ADA, dan itu dikatakan di layar Kalender.** Content
   Posting API TikTok menuntut audit aplikasi. Kalender jadi pengingat; status
   `TAYANG` wajib tautan (layar DAN server).
-- **AI = Anthropic Messages API** (`cg_ai_tanya`, model bawaan
-  `claude-opus-5-5`, bisa diganti di Pengaturan). Riset & insight otomatis
-  diberi data postingan brand sebagai bukti; **usulan insight AI tidak tersimpan
-  sendiri**, dan tautan yang tidak ada di data dibuang server.
+- **AI = Meta Model API (Muse Spark), SATU-SATUNYA penyedia** (`cg_ai_tanya`,
+  model dari daftar tertutup, bisa diganti di Pengaturan). **Anthropic DICABUT
+  14 Okt 2026** (permintaan user); key `ai_key`/`ai_model`/`ai_penyedia` lama
+  di `cg_setting` sengaja TIDAK dihapus, cuma tidak dibaca. Jatah `max_tokens`
+  ditambah 8000 karena token penalaran Muse Spark ikut dihitung. Riset &
+  insight otomatis diberi data postingan brand sebagai bukti; **usulan insight
+  AI tidak tersimpan sendiri**, dan tautan yang tidak ada di data dibuang server.
+- **Kategori pola insight DISETEL di Pengaturan** (`cg_setting.kategori`, JSON,
+  maks 20 × 60 huruf, kembar dibuang, kosong ditolak server & layar) lewat
+  `cg_kategori()` — SATU daftar untuk formulir/penyaring DAN prompt Temukan
+  insight. Kategori usulan AI di luar daftar dikosongkan; insight lama yang
+  kategorinya dicabut tetap terpilih, ditandai *(lama)*.
 - Tidak ada DELETE: insight diarsipkan, jadwal ditandai BATAL, akun diputus
   dengan mengosongkan tokennya.
 
 ```bash
-node tools/uji-campaign.js   # 55 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
+node tools/uji-campaign.js   # 128 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
 ### Kas Kecil: Tagihan Rutin (10 Oktober 2026)
