@@ -22,7 +22,7 @@ function cek(nama, syarat, info) {
 }
 const tunggu = ms => new Promise(r => setTimeout(r, ms));
 
-const HTML = fs.readFileSync(path.join(ROOT, 'deploy/campaign/index.html'), 'utf8');
+const HTML = fs.readFileSync(path.join(ROOT, 'deploy/konten/analytics/index.html'), 'utf8');
 const PHP_LIB = fs.readFileSync(path.join(ROOT, 'konten-mysql/lib_campaign.php'), 'utf8');
 const PHP_API = fs.readFileSync(path.join(ROOT, 'konten-mysql/api.php'), 'utf8');
 const PHP_CB = fs.readFileSync(path.join(ROOT, 'konten-mysql/campaign-tiktok.php'), 'utf8');
@@ -88,7 +88,7 @@ function buatServer(opsi) {
 async function buka(opsi) {
   const srv = buatServer(opsi);
   const dom = new JSDOM(HTML, {
-    url: 'https://dev.laksamanamuda.id/campaign/' + ((opsi && opsi.hash) || ''),
+    url: 'https://dev.laksamanamuda.id/konten/analytics/' + ((opsi && opsi.hash) || ''),
     runScripts: 'dangerously', pretendToBeVisual: true,
     beforeParse(w) {
       w.localStorage.setItem('lm_session', JSON.stringify({ name: 'Uji Coba', token: 'tok-uji', expiry: Date.now() + 3600e3, modules: ['campaign'] }));
@@ -114,7 +114,7 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('urutan bawaan: views terbanyak di atas', /Goyang terus babe[\s\S]*Beli special combo[\s\S]*Reels kopi/.test(app));
     cek('ER dihitung (likes+komentar+share)/views', /ER 2,1%/.test(app));
     cek('menu Pengaturan TIDAK tampil untuk bukan admin', !/data-v="pengaturan"/.test(d.getElementById('nav').innerHTML));
-    cek('nav Kalender menandai 1 jadwal yang terlewat', /<span class="n"[^>]*>1<\/span>/.test(d.getElementById('nav').innerHTML));
+    cek('nav Kalender menandai 1 jadwal yang terlewat', /<span class="badge"[^>]*>1<\/span>/.test(d.getElementById('nav').innerHTML));
 
     /* Urut menurut engagement: Reels kopi ER 8,3% harus naik ke atas. */
     klik(d, '[data-a="top-urut"][data-v="er"]');
@@ -226,7 +226,8 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     const halaman = ['insight', 'kalender', 'riset', 'pengaturan'];
     cek('tiap halaman menu punya judul di TITLES', halaman.every(h => w.__cg.TITLES[h]));
     const porto = fs.readFileSync(path.join(ROOT, 'deploy/index.html'), 'utf8');
-    cek('kunci campaign terdaftar di portal', /key:'campaign'[\s\S]{0,120}access:\['campaign'\]/.test(porto));
+    cek('kunci campaign terdaftar di portal (kartu Konten)', /key:'konten'[\s\S]{0,120}access:\['konten','campaign'\]/.test(porto));
+    cek('kartu Campaign mandiri sudah dicabut', !/key:'campaign'/.test(porto));
     cek('ada panduan Help', fs.existsSync(path.join(ROOT, 'deploy/help/panduan/campaign.js')));
   }
 

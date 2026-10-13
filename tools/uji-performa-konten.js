@@ -59,7 +59,7 @@ const aman = (n, fn) => { try { fn(); } catch (e) { gagal++; console.log('  GAGA
 const tunggu = ms => new Promise(r => setTimeout(r, ms));
 
 const SRC_ASET  = fs.readFileSync(path.join(ROOT, 'deploy/assets/performa-konten.js'), 'utf8');
-const SRC_KONTEN = fs.readFileSync(path.join(ROOT, 'deploy/konten/index.html'), 'utf8');
+const SRC_KONTEN = fs.readFileSync(path.join(ROOT, 'deploy/konten/planning/index.html'), 'utf8');
 const SRC_AN     = fs.readFileSync(path.join(ROOT, 'deploy/analytics/index.html'), 'utf8');
 
 /* ===================== DATA UJI =====================
@@ -549,7 +549,7 @@ console.log('\n== Modul Konten: halaman & jalur simpan ==');
   const POST = [];
   const HTML = (() => {
     let h = SRC_KONTEN;
-    const src = '<script src="../assets/performa-konten.js"><' + '/script>';
+    const src = '<script src="../../assets/performa-konten.js"><' + '/script>';
     if (h.indexOf(src) < 0) { console.error('tag performa-konten.js tidak ketemu di modul Konten'); process.exit(2); }
     h = h.replace(src, () => '<script>' + SRC_ASET + '<' + '/script>');
     /* Jembatan ke dalam IIFE — eval LANGSUNG di lingkupnya, jadi seluruh
@@ -560,7 +560,7 @@ console.log('\n== Modul Konten: halaman & jalur simpan ==');
     return h.replace(k, 'window.__uji = function(src){ return eval(src); };' + k);
   })();
   const d = new JSDOM(HTML, {
-    url: 'https://dev.laksamanamuda.id/konten/', runScripts: 'dangerously',
+    url: 'https://dev.laksamanamuda.id/konten/planning/', runScripts: 'dangerously',
     pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
     beforeParse(w) {
       w.alert = () => {}; w.confirm = () => true; w.scrollTo = () => {};

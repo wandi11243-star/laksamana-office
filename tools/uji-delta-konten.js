@@ -37,7 +37,7 @@ const cek = (n, s, k) => { if (s) { ok++; console.log('  OK   ' + n); } else { g
 const tunggu = ms => new Promise(r => setTimeout(r, ms));
 const salin = o => JSON.parse(JSON.stringify(o));
 
-const SRC = fs.readFileSync(path.join(ROOT, 'deploy/konten/index.html'), 'utf8');
+const SRC = fs.readFileSync(path.join(ROOT, 'deploy/konten/planning/index.html'), 'utf8');
 const ASET = fs.readFileSync(path.join(ROOT, 'deploy/assets/performa-konten.js'), 'utf8');
 
 /* "Gambar" besar di c1: inilah yang dulu ikut terkirim tiap simpan. */
@@ -99,12 +99,12 @@ function buatServer() {
 }
 
 function buka(srv) {
-  const h = SRC.replace('<script src="../assets/performa-konten.js"><' + '/script>',
+  const h = SRC.replace('<script src="../../assets/performa-konten.js"><' + '/script>',
     () => '<script>' + ASET + '<' + '/script>');
   const k = 'return API;';
   const hh = h.replace(k, 'window.__uji = function(src){ return eval(src); };' + k);
   const dom = new JSDOM(hh, {
-    url: 'https://dev.laksamanamuda.id/konten/', runScripts: 'dangerously',
+    url: 'https://dev.laksamanamuda.id/konten/planning/', runScripts: 'dangerously',
     pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
     beforeParse(w) {
       w.alert = () => {}; w.confirm = () => true; w.scrollTo = () => {};

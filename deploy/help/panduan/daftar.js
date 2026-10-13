@@ -92,10 +92,10 @@
       ringkas: 'CRM klien, pipeline, event, reservasi VIP, dan request desain.' },
     { izin: 'event', grup: 'markom', label: 'Event',
       ringkas: 'Perencanaan acara, talent, ticketing, dan check-in hari H.' },
-    { izin: 'konten', grup: 'markom', label: 'Konten',
+    { izin: 'konten', grup: 'markom', label: 'Konten, Konten Planning',
       ringkas: 'Rencana konten, produksi, performa, dan iklan.' },
-    { izin: 'campaign', grup: 'markom', label: 'Campaign',
-      ringkas: 'Insight konten dari akun TikTok, kalender posting, dan riset tren AI.' },
+    { izin: 'campaign', grup: 'markom', label: 'Konten, Analytics',
+      ringkas: 'Panel Analytics modul Konten: akun TikTok, insight, kalender posting, dan riset tren AI.' },
 
     { izin: 'kompas', grup: 'bisnis', label: 'Finance, Input Omset Harian',
       ringkas: 'Input omset harian, report daily, compliment, dan breakdown sumber.' },

@@ -18,7 +18,7 @@ const { JSDOM, VirtualConsole } = (() => {
   process.exit(2);
 })();
 
-const KONTEN = fs.readFileSync(path.join(ROOT, 'deploy', 'konten', 'index.html'), 'utf8');
+const KONTEN = fs.readFileSync(path.join(ROOT, 'deploy', 'konten', 'planning', 'index.html'), 'utf8');
 const RSV    = fs.readFileSync(path.join(ROOT, 'deploy', 'reservasi', 'index.html'), 'utf8');
 const SEATS  = fs.readFileSync(path.join(ROOT, 'deploy', 'assets', 'venue-layouts.js'), 'utf8');
 
@@ -30,7 +30,7 @@ const cek = (nama, syarat, ket) => {
 const tunggu = ms => new Promise(r => setTimeout(r, ms));
 /* Dibaca ulang dari disk: asersi yang membandingkan SUMBER harus melihat
    berkas yang sekarang, bukan salinan yang diambil di awal berkas ini. */
-const KONTEN_BARU = () => fs.readFileSync(path.join(ROOT, 'deploy', 'konten', 'index.html'), 'utf8');
+const KONTEN_BARU = () => fs.readFileSync(path.join(ROOT, 'deploy', 'konten', 'planning', 'index.html'), 'utf8');
 
 
 /* Jembatan ke dalam IIFE: eval LANGSUNG di dalam lingkupnya, jadi seluruh
@@ -66,7 +66,7 @@ function dom(html, url, siapkan) {
   /* ================= 1. Konten: arsip otomatis ================= */
   console.log('\n== Konten: yang sudah tayang / selesai otomatis diarsipkan ==');
   {
-    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/');
+    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/planning/');
     await tunggu(500);
     const w = d.window;
 
@@ -188,7 +188,7 @@ function dom(html, url, siapkan) {
   /* ============ 1b. mengetik tidak menggambar ulang halaman ============ */
   console.log('\n== Konten: mengetik di antrian tidak melempar fokus ==');
   {
-    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/');
+    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/planning/');
     await tunggu(500);
     const w = d.window, doc = w.document;
 
@@ -221,7 +221,7 @@ function dom(html, url, siapkan) {
   /* ================= 3. pipeline: tapis PIC ================= */
   console.log('\n== Pipeline bisa disaring per orang ==');
   {
-    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/');
+    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/planning/');
     await tunggu(500);
     const w = d.window;
     w.__uji(`DB.users = [{id:'u-a',name:'Ana'},{id:'u-b',name:'Budi'}];
@@ -258,7 +258,7 @@ function dom(html, url, siapkan) {
   /* ========= 4. dashboard: deadline saya, overdue & yang dekat ========= */
   console.log('\n== Dashboard: tugas SAYA yang lewat / dekat tenggat ==');
   {
-    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/');
+    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/planning/');
     await tunggu(500);
     const w = d.window;
     const geser = n => { const x = new Date(); x.setDate(x.getDate() + n); return x.toISOString().slice(0,10); };
@@ -312,7 +312,7 @@ function dom(html, url, siapkan) {
   /* ========= 5. tampilan PIC: satu bentuk untuk dua halaman ========= */
   console.log('\n== Pilihan PIC seragam di Pipeline & Content Planning ==');
   {
-    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/');
+    const d = dom(jembatan(KONTEN), 'https://team.laksamanamuda.id/konten/planning/');
     await tunggu(500);
     const w = d.window;
     w.__uji(`SES='u-me';

@@ -34,7 +34,7 @@ let ok = 0, gagal = 0;
 const cek = (n, s, k) => { if (s) { ok++; console.log('  OK   ' + n); } else { gagal++; console.log('  GAGAL ' + n + (k ? '  -> ' + k : '')); } };
 const tunggu = ms => new Promise(r => setTimeout(r, ms));
 
-const SRC = fs.readFileSync(path.join(ROOT, 'deploy/konten/index.html'), 'utf8');
+const SRC = fs.readFileSync(path.join(ROOT, 'deploy/konten/planning/index.html'), 'utf8');
 const ASET = fs.readFileSync(path.join(ROOT, 'deploy/assets/performa-konten.js'), 'utf8');
 const PHP = fs.readFileSync(path.join(ROOT, 'konten-mysql/lib_konten_mysql.php'), 'utf8');
 const API = fs.readFileSync(path.join(ROOT, 'konten-mysql/api.php'), 'utf8');
@@ -43,13 +43,13 @@ const API = fs.readFileSync(path.join(ROOT, 'konten-mysql/api.php'), 'utf8');
    terbungkus IIFE, jadi jembatan eval disuntikkan KE DALAM IIFE. */
 function buka(jawabGetAll, jawabPost) {
   const POST = [];
-  let h = SRC.replace('<script src="../assets/performa-konten.js"><' + '/script>',
+  let h = SRC.replace('<script src="../../assets/performa-konten.js"><' + '/script>',
     () => '<script>' + ASET + '<' + '/script>');
   const k = 'return API;';
   if (h.split(k).length - 1 !== 1) { console.error('jangkar IIFE tidak ketemu'); process.exit(2); }
   h = h.replace(k, 'window.__uji = function(src){ return eval(src); };' + k);
   const dom = new JSDOM(h, {
-    url: 'https://dev.laksamanamuda.id/konten/', runScripts: 'dangerously',
+    url: 'https://dev.laksamanamuda.id/konten/planning/', runScripts: 'dangerously',
     pretendToBeVisual: true, virtualConsole: new VirtualConsole(),
     beforeParse(w) {
       w.alert = () => {}; w.confirm = () => true; w.scrollTo = () => {};

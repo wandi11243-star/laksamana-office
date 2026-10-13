@@ -1,7 +1,7 @@
 /*
-  PANDUAN: Campaign
+  PANDUAN: Konten → Analytics (dulu modul Campaign)
   ---------------------------------------------------------------------------
-  Kuncinya 'campaign'. Nama menu disalin dari TITLES di deploy/campaign/:
+  Kuncinya 'campaign'. Nama menu disalin dari TITLES di deploy/konten/analytics/:
   Insight, Kalender, Riset Tren, Pengaturan (admin modul saja).
 */
 LM_HELP_ISI('campaign', {
@@ -11,8 +11,10 @@ LM_HELP_ISI('campaign', {
   bagian: [
 
     {
-      id: 'tentang', judul: 'Tentang Modul Campaign',
+      id: 'tentang', judul: 'Tentang Panel Analytics',
       isi: [
+        { t:'teks', isi:'Buka modul *Konten* di Office, lalu pilih panel *Analytics*. Sidebar panel ini punya tautan ke '
+            + '*Konten Planning*, dan sebaliknya.' },
         { t:'tabel',
           kepala:['Menu','Isinya'],
           baris:[
