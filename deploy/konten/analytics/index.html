@@ -595,7 +595,7 @@ function kartuUsulan(){
     + '<div class="sub">AI membaca konten terpopuler di atas lalu mengusulkan pola yang membuatnya berhasil. Usulan tidak tersimpan sampai kamu menekan Simpan.</div></div>'
     + '<div class="r"><button class="btn btn-primary btn-sm" data-a="usulan"' + (siap && !ST.usulanJalan ? '' : ' disabled') + '>'
     + (ST.usulanJalan ? 'Menganalisa…' : 'Temukan insight') + '</button></div></div>';
-  if (!siap) h += '<div class="pita warn">API key AI belum diisi. ' + (admin() ? 'Isi di Pengaturan.' : 'Minta admin modul Campaign mengisinya.') + '</div>';
+  if (!siap) h += '<div class="pita warn">API key penyedia AI yang dipilih belum diisi. ' + (admin() ? 'Isi di Pengaturan.' : 'Minta admin modul Campaign mengisinya.') + '</div>';
   if (ST.usulanJalan) h += '<div class="agen"><div class="putar"></div><div>AI sedang membaca postingan… biasanya 20–60 detik.</div></div>';
   if (ST.usulan && ST.usulan.length) {
     h += '<div class="grid g3">' + ST.usulan.map(function(u, i){
@@ -880,15 +880,36 @@ function hasilRiset(r){
 }
 
 /* ===================== PENGATURAN ===================== */
+/* Penyedia AI: dipilih satu yang DIPAKAI, tapi key & model kedua penyedia
+   tetap bisa diisi — berganti penyedia tidak menghapus key yang satunya.
+   Isi key tidak pernah ditampilkan; yang dikirim server cuma "terisi". */
+var AI_ISIAN = { meta: { key: 's-aikey-meta', model: 's-model-meta', ph: 'Key dari dev.meta.ai' },
+                 anthropic: { key: 's-aikey', model: 's-model', ph: 'sk-ant-…' } };
+function kartuAI(s){
+  var daftar = s.ai || [], pakai = s.aiPenyedia || 'anthropic';
+  var pilih = '<div class="field"><label>Penyedia yang dipakai</label><select id="s-penyedia">'
+    + daftar.map(function(x){ return '<option value="' + esc(x.id) + '"' + (x.id === pakai ? ' selected' : '') + '>' + esc(x.label) + (x.siap ? '' : ' — key belum diisi') + '</option>'; }).join('')
+    + '</select><div class="bantu">Dipakai Insight otomatis & Riset Tren. Key kedua penyedia boleh sama-sama terisi.</div></div>';
+  var blok = daftar.map(function(x){
+    var f = AI_ISIAN[x.id] || {};
+    return '<div style="border-top:1px solid var(--k-line-soft);padding-top:12px;margin-top:6px"><b style="font-size:13px">' + esc(x.label) + '</b>'
+      + (x.id === pakai ? ' <span class="pill">dipakai</span>' : '')
+      + (x.dariConfig ? '<div class="pita info" style="margin-top:8px">API key dikunci di config.php server; isian key di bawah tidak dipakai.</div>' : '')
+      + '<div class="form" style="margin-top:8px"><div class="field"><label>API key ' + (x.siap ? '<span class="pill">terisi</span>' : '') + '</label>'
+      + '<input id="' + f.key + '" type="password" autocomplete="off" placeholder="' + (x.siap ? 'Kosongkan = tidak diubah. Ketik HAPUS untuk menghapus.' : esc(f.ph || '')) + '"></div>'
+      + '<div class="field"><label>Model</label><select id="' + f.model + '">'
+      + (x.model || []).map(function(m){ return '<option' + (m === x.modelPakai ? ' selected' : '') + '>' + esc(m) + '</option>'; }).join('')
+      + '</select>'
+      + (x.id === 'meta' ? '<div class="bantu">Model berakhiran <b>-contributor</b> jauh lebih murah karena Meta <b>boleh memakai data yang dikirim (judul & angka postingan, profil brand, topik riset) untuk melatih modelnya</b>. Pilih tanpa -contributor kalau itu tidak boleh — butuh key dengan akses standar.</div>' : '')
+      + '</div></div></div>';
+  }).join('');
+  return '<div class="kartu"><h2>AI</h2><div class="sub">Isi API key penyedia yang dipakai. Isinya tidak pernah ditampilkan lagi sesudah disimpan.</div>' + pilih + blok + '</div>';
+}
 function vPengaturan(){
   var s = D.setting || {};
   return '<div class="kartu"><h2>Profil brand</h2><div class="sub">Dipakai AI sebagai konteks setiap riset & analisa insight.</div>'
     + '<div class="field"><textarea id="s-profil" style="min-height:96px">' + esc(s.profil || '') + '</textarea></div></div>'
-    + '<div class="kartu"><h2>AI (Anthropic Claude)</h2><div class="sub">API key dari console.anthropic.com. Isinya tidak pernah ditampilkan lagi sesudah disimpan.</div>'
-    + (s.aiDariConfig ? '<div class="pita info">API key dikunci di config.php server; isian di bawah tidak dipakai.</div>' : '')
-    + '<div class="form"><div class="field"><label>API key ' + (s.aiSiap ? '<span class="pill">terisi</span>' : '') + '</label>'
-    + '<input id="s-aikey" type="password" autocomplete="off" placeholder="' + (s.aiSiap ? 'Kosongkan = tidak diubah. Ketik HAPUS untuk menghapus.' : 'sk-ant-…') + '"></div>'
-    + '<div class="field"><label>Model</label><input id="s-model" value="' + esc(s.aiModel || '') + '"><div class="bantu">Bawaan claude-opus-5-5. Ganti ke claude-sonnet-5-5 kalau ingin lebih murah & cepat.</div></div></div></div>'
+    + kartuAI(s)
     + '<div class="kartu"><h2>TikTok</h2><div class="sub">Dari TikTok for Developers: buat app, aktifkan <b>Login Kit</b> + scope <b>' + esc(String(s.tiktokScope || '').split(',').join(', ')) + '</b> — harus sama persis dengan yang dicentang di app.</div>'
     + '<div class="pita info">Daftarkan alamat ini di Login Kit → Redirect URI (dev & produksi masing-masing punya alamat sendiri):<br><b class="mono">' + esc(s.redirectUri || '') + '</b></div>'
     + (s.tiktokDariConfig ? '<div class="pita info">Client key dikunci di config.php server.</div>' : '')
@@ -993,6 +1014,7 @@ document.addEventListener('click', function(ev){
   /* Pengaturan */
   if (a === 'set-simpan') {
     var s = { profil: document.getElementById('s-profil').value, aiKey: nilai('s-aikey'), aiModel: nilai('s-model'),
+      aiKeyMeta: nilai('s-aikey-meta'), aiModelMeta: nilai('s-model-meta'), aiPenyedia: nilai('s-penyedia'),
       tiktokKey: nilai('s-ttkey'), tiktokSecret: nilai('s-ttsecret') };
     el.disabled = true;
     api('campaignSetting', s).then(function(){ toast('Pengaturan tersimpan.'); return muat(); })

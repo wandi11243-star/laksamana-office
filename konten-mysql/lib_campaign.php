@@ -34,6 +34,48 @@ require_once __DIR__ . '/lib_sesi.php';
 
 /* Model AI bawaan. Bisa ditimpa admin modul di halaman Pengaturan. */
 define('CG_MODEL_BAWAAN', 'claude-opus-5-5');
+
+/* PENYEDIA AI (13 Okt 2026, permintaan user: "modelnya bisa dipilih, pakai
+   Muse Spark dulu"). Keduanya bicara format Anthropic Messages yang SAMA —
+   Meta Model API menyediakan endpoint Messages-kompatibel — jadi bedanya
+   cuma alamat, header otentikasi, dan daftar modelnya. Key disimpan PER
+   penyedia: berganti penyedia tidak menghapus key yang satunya.
+
+   Model dipilih dari DAFTAR TERTUTUP. Nama model yang salah ketik tidak
+   ditolak sampai tombol AI ditekan, dan pesannya dari penyedia — bukan dari
+   layar tempat salah ketiknya terjadi.
+
+   "-contributor" (Meta): harga jauh lebih murah KARENA prompt & jawaban
+   boleh dipakai Meta melatih modelnya. Itu disebut di layar Pengaturan dan
+   di deploy/legal/privacy.html — kalau daftar penyedia berubah, kebijakan
+   privasinya ikut diubah. */
+function cg_ai_daftar() {
+  return array(
+    'meta' => array('label' => 'Meta (Muse Spark)', 'url' => 'https://api.meta.ai/v1/messages',
+      'model' => array('muse-spark-1.3-contributor', 'muse-spark-1.3', 'muse-spark-1.2-contributor', 'muse-spark-1.2'),
+      'kunci' => 'ai_key_meta', 'kunciModel' => 'ai_model_meta', 'konstanta' => 'META_MODEL_API_KEY'),
+    'anthropic' => array('label' => 'Anthropic (Claude)', 'url' => 'https://api.anthropic.com/v1/messages',
+      'model' => array('claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'),
+      'kunci' => 'ai_key', 'kunciModel' => 'ai_model', 'konstanta' => 'ANTHROPIC_API_KEY'),
+  );
+}
+/* Bawaan TETAP anthropic: pemasangan yang sudah berjalan tidak boleh
+   diam-diam pindah penyedia (dan key-nya) begitu berkas ini mendarat. */
+function cg_ai_penyedia($pdo) {
+  $p = cg_set_baca($pdo, 'ai_penyedia', 'anthropic');
+  $d = cg_ai_daftar();
+  return isset($d[$p]) ? $p : 'anthropic';
+}
+function cg_ai_key_untuk($pdo, $p) {
+  $d = cg_ai_daftar(); $c = $d[$p]['konstanta'];
+  if (defined($c) && constant($c) !== '') return constant($c);
+  return cg_set_baca($pdo, $d[$p]['kunci']);
+}
+function cg_ai_model_untuk($pdo, $p) {
+  $d = cg_ai_daftar();
+  $m = cg_set_baca($pdo, $d[$p]['kunciModel'], $d[$p]['model'][0]);
+  return in_array($m, $d[$p]['model'], true) ? $m : $d[$p]['model'][0];
+}
 define('CG_PROFIL_BAWAAN', 'Laksamana Muda: coffee shop, resto, dan venue nongkrong di Pekanbaru, Riau. '
   . 'Ramai malam hari dan akhir pekan, punya live music, DJ, nobar, dan event. '
   . 'Kanal utama TikTok @laksamanamuda.id dan Instagram.');
@@ -178,10 +220,8 @@ function cg_set_tulis($pdo, $k, $v) {
 /* Rahasia dari config.php MENANG atas yang diketik di layar: yang memegang
    cPanel boleh mengunci kuncinya di sana, dan isian layar tidak bisa
    menimpanya diam-diam. */
-function cg_ai_key($pdo) {
-  if (defined('ANTHROPIC_API_KEY') && ANTHROPIC_API_KEY !== '') return ANTHROPIC_API_KEY;
-  return cg_set_baca($pdo, 'ai_key');
-}
+/* Key penyedia yang SEDANG dipakai. */
+function cg_ai_key($pdo) { return cg_ai_key_untuk($pdo, cg_ai_penyedia($pdo)); }
 function cg_tiktok_key($pdo) {
   if (defined('TIKTOK_CLIENT_KEY') && TIKTOK_CLIENT_KEY !== '') return TIKTOK_CLIENT_KEY;
   return cg_set_baca($pdo, 'tiktok_key');
@@ -261,8 +301,9 @@ function cg_baca($pdo, $u) {
     'akun'    => $akun,
     'setting' => array(
       'aiSiap'     => cg_ai_key($pdo) !== '',
-      'aiDariConfig' => defined('ANTHROPIC_API_KEY') && ANTHROPIC_API_KEY !== '',
-      'aiModel'    => cg_set_baca($pdo, 'ai_model', CG_MODEL_BAWAAN),
+      'aiPenyedia' => cg_ai_penyedia($pdo),
+      'aiModel'    => cg_ai_model_untuk($pdo, cg_ai_penyedia($pdo)),
+      'ai'         => cg_ai_ringkas($pdo),
       'profil'     => cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN),
       'tiktokSiap' => cg_tiktok_key($pdo) !== '' && cg_tiktok_secret($pdo) !== '',
       'tiktokDariConfig' => defined('TIKTOK_CLIENT_KEY') && TIKTOK_CLIENT_KEY !== '',
@@ -480,16 +521,29 @@ function cg_jadwal_simpan($pdo, $d, $nama) {
 }
 
 /* ==================== AI (Anthropic Messages API) ==================== */
+/* Untuk layar Pengaturan: daftar penyedia & model, mana yang key-nya terisi
+   — TANPA isi key-nya. */
+function cg_ai_ringkas($pdo) {
+  $out = array();
+  foreach (cg_ai_daftar() as $p => $x) {
+    $out[] = array('id' => $p, 'label' => $x['label'], 'model' => $x['model'],
+      'modelPakai' => cg_ai_model_untuk($pdo, $p), 'siap' => cg_ai_key_untuk($pdo, $p) !== '',
+      'dariConfig' => defined($x['konstanta']) && constant($x['konstanta']) !== '');
+  }
+  return $out;
+}
+
 function cg_ai_tanya($pdo, $system, $prompt, $maks = 6000) {
-  $key = cg_ai_key($pdo);
-  if ($key === '') throw new Exception('API key AI belum diisi. Admin modul Campaign bisa mengisinya di Pengaturan.');
-  $model = cg_set_baca($pdo, 'ai_model', CG_MODEL_BAWAAN);
+  $p = cg_ai_penyedia($pdo); $daftar = cg_ai_daftar(); $x = $daftar[$p];
+  $key = cg_ai_key_untuk($pdo, $p);
+  if ($key === '') throw new Exception('API key ' . $x['label'] . ' belum diisi. Admin modul bisa mengisinya di Pengaturan.');
+  $model = cg_ai_model_untuk($pdo, $p);
   @set_time_limit(180);
-  $r = cg_http('POST', 'https://api.anthropic.com/v1/messages', array(
-    'content-type: application/json',
-    'x-api-key: ' . $key,
-    'anthropic-version: 2023-06-01',
-  ), json_encode(array(
+  /* Meta: Bearer, tanpa anthropic-version. Anthropic: x-api-key. */
+  $header = $p === 'meta'
+    ? array('content-type: application/json', 'Authorization: Bearer ' . $key)
+    : array('content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01');
+  $r = cg_http('POST', $x['url'], $header, json_encode(array(
     'model' => $model,
     'max_tokens' => $maks,
     'system' => $system,
@@ -497,7 +551,7 @@ function cg_ai_tanya($pdo, $system, $prompt, $maks = 6000) {
   ), JSON_UNESCAPED_UNICODE), 160);
   if ($r['kode'] !== 200 || !$r['data']) {
     $pesan = isset($r['data']['error']['message']) ? $r['data']['error']['message'] : $r['mentah'];
-    throw new Exception('Layanan AI menolak (' . $r['kode'] . '): ' . $pesan);
+    throw new Exception($x['label'] . ' menolak (' . $r['kode'] . '): ' . (is_string($pesan) ? $pesan : json_encode($pesan)));
   }
   $teks = '';
   foreach ((isset($r['data']['content']) ? $r['data']['content'] : array()) as $b) {
@@ -836,13 +890,18 @@ function cg_setting_simpan($pdo, $d) {
   /* Kotak rahasia yang dikosongkan berarti "jangan diubah", bukan "hapus".
      Layar tidak pernah menampilkan isinya, jadi kotak kosong adalah keadaan
      normal tiap kali halamannya dibuka. Menghapus memakai kata HAPUS. */
-  foreach (array('aiKey' => 'ai_key', 'tiktokKey' => 'tiktok_key', 'tiktokSecret' => 'tiktok_secret') as $f => $k) {
+  foreach (array('aiKey' => 'ai_key', 'aiKeyMeta' => 'ai_key_meta', 'tiktokKey' => 'tiktok_key', 'tiktokSecret' => 'tiktok_secret') as $f => $k) {
     if (!isset($d[$f])) continue;
     $v = trim((string)$d[$f]);
     if ($v === '') continue;
     cg_set_tulis($pdo, $k, $v === 'HAPUS' ? '' : $v);
   }
-  if (isset($d['aiModel'])) cg_set_tulis($pdo, 'ai_model', cg_potong($d['aiModel'], 60));
+  $daftar = cg_ai_daftar();
+  if (isset($d['aiPenyedia']) && isset($daftar[(string)$d['aiPenyedia']])) cg_set_tulis($pdo, 'ai_penyedia', (string)$d['aiPenyedia']);
+  /* Model hanya dari daftar penyedia itu — lihat cg_ai_daftar(). */
+  foreach (array('aiModel' => 'anthropic', 'aiModelMeta' => 'meta') as $f => $p) {
+    if (isset($d[$f]) && in_array((string)$d[$f], $daftar[$p]['model'], true)) cg_set_tulis($pdo, $daftar[$p]['kunciModel'], (string)$d[$f]);
+  }
   if (isset($d['profil'])) cg_set_tulis($pdo, 'profil', cg_potong($d['profil'], 1500));
   return array('ok' => true);
 }
