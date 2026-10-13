@@ -264,6 +264,23 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('label Estimasi AI tampil', /Estimasi AI, bukan data pasar/.test(app));
     klik(d, '[data-a="ide-jadwal"]');
     cek('Jadwalkan ide membuka form berisi hook + caption', /Hook C/.test(d.getElementById('j-cap').value) && d.getElementById('j-judul').value === 'Ide C');
+    /* Riset yang GAGAL: galatnya menetap di layar, isian tidak hilang (14 Okt 2026). */
+    const { w: w2, d: d2 } = await buka({ hash: '#riset' });
+    const asli = w2.fetch;
+    w2.fetch = (u, i) => JSON.parse(i.body).action === 'campaignRiset'
+      ? Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: false, error: 'Jawaban AI terpotong karena terlalu panjang (batas token).' })) })
+      : asli(u, i);
+    d2.getElementById('r-topik').value = 'Malam minggu';
+    d2.getElementById('r-cat').value = 'anak muda';
+    klik(d2, '[data-a="riset-jalan"]'); await tunggu(60);
+    const app2 = d2.getElementById('app').innerHTML;
+    cek('riset gagal: galatnya MENETAP di layar (bukan cuma toast)', app2.includes("Riset gagal:</b> Jawaban AI terpotong"));
+    cek('riset gagal: topik & catatan tidak hilang', d2.getElementById('r-topik').value === 'Malam minggu' && d2.getElementById('r-cat').value === 'anak muda');
+    const tanyaP = PHP_LIB.slice(PHP_LIB.indexOf('function cg_ai_tanya('), PHP_LIB.indexOf('function cg_bukti_post('));
+    cek('php: jatah token Muse Spark ditambah (token penalaran ikut dihitung)', tanyaP.includes("if ($p === 'meta') $maks = $maks + 8000;"));
+    cek('php: terpotong batas token dikatakan apa adanya', tanyaP.includes("$henti === 'max_tokens'"));
+    cek('php: content berupa string juga dibaca', tanyaP.includes('if (is_string($isi)) $teks = $isi;'));
+    cek('php: galat "bukan JSON" menyebut potongan jawabannya', tanyaP.includes("Jawaban AI bukan JSON (' . $model . '): ") && tanyaP.includes('cg_potong(preg_replace('));
   }
 
   console.log('\n== Pengaturan ==');
