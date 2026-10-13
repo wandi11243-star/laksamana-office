@@ -157,6 +157,9 @@ function cg_pastikan($pdo) {
   foreach ($kolomAkun as $k => $def) {
     if (!cg_kolom_ada($pdo, 'cg_akun', $k)) $pdo->exec('ALTER TABLE cg_akun ADD COLUMN `' . $k . '` ' . $def);
   }
+  /* Video yang tidak lagi dipulangkan TikTok (dihapus/diprivat) — lihat
+     langkah 3 cg_tiktok_sync(). Ditandai, tidak dihapus. */
+  if (!cg_kolom_ada($pdo, 'cg_post', 'hilang')) $pdo->exec('ALTER TABLE cg_post ADD COLUMN hilang TINYINT(1) NOT NULL DEFAULT 0');
   $sudah = true;
 }
 
@@ -237,7 +240,13 @@ function cg_baca($pdo, $u) {
     $r['hasil'] = is_array($h) ? $h : null;
   }
   unset($r);
-  $post = $pdo->query('SELECT platform, post_id, judul, url, cover, tayang_at, views, likes, comments, shares, durasi, sync_at FROM cg_post ORDER BY views DESC LIMIT 200')->fetchAll();
+  /* Daftar postingan TIDAK lagi ikut campaignGet (13 Okt 2026): Konten
+     terpopuler meminta SATU HALAMAN lewat campaignTop. Yang dikirim di sini
+     cuma ringkasannya. */
+  $postInfo = array(
+    'total' => (int)$pdo->query("SELECT COUNT(*) FROM cg_post WHERE platform='tiktok' AND hilang=0")->fetchColumn(),
+    'riwayatSelesai' => cg_set_baca($pdo, 'tiktok_bf_selesai') === '1',
+  );
   /* Akun TANPA token — kolom rahasia tidak pernah ikut SELECT ini. */
   $akun = $pdo->query('SELECT platform, nama, avatar, follower, bio, profil_url, terverifikasi, following, likes_total, jml_video, stats_ada, scope, token_exp, refresh_exp, sync_at, sync_galat, oleh, at FROM cg_akun')->fetchAll();
   foreach ($akun as &$a) {
@@ -248,9 +257,8 @@ function cg_baca($pdo, $u) {
     'insight' => $insight,
     'jadwal'  => $jadwal,
     'riset'   => $riset,
-    'post'    => $post,
+    'postInfo' => $postInfo,
     'akun'    => $akun,
-    'konten'  => cg_konten_perf($pdo),
     'setting' => array(
       'aiSiap'     => cg_ai_key($pdo) !== '',
       'aiDariConfig' => defined('ANTHROPIC_API_KEY') && ANTHROPIC_API_KEY !== '',
@@ -299,6 +307,77 @@ function cg_konten_perf($pdo) {
     }
   }
   return $out;
+}
+
+/* ==================== KONTEN TERPOPULER (per halaman) ====================
+   13 Okt 2026, permintaan user: seluruh video, tapi yang dikirim ke peramban
+   cuma SATU halaman. Penyaringan (platform, rentang tanggal tayang), urutan,
+   dan pemotongan halaman dikerjakan di sini.
+
+   Gabungannya BERKAS KEMBAR daftarTop() yang dulu di peramban: postingan
+   TikTok tarikan API + angka Input Performa modul Konten, dan tautan yang
+   sama dengan postingan TikTok tidak digambar dua kali.
+
+   Tanggal tayang dibaca WIB (+7 tetap), bukan zona server. */
+function cg_plat_norm($p) {
+  $k = strtolower((string)$p);
+  if (strpos($k, 'tiktok') !== false) return 'TikTok';
+  if (strpos($k, 'insta') !== false || $k === 'ig' || strpos($k, 'reels') !== false) return 'Instagram';
+  if (strpos($k, 'you') !== false || $k === 'yt') return 'YouTube';
+  return $p !== '' ? (string)$p : 'Lainnya';
+}
+function cg_top($pdo, $d) {
+  cg_pastikan($pdo);
+  $plat = isset($d['platform']) ? (string)$d['platform'] : '';
+  $urut = (isset($d['urut']) && $d['urut'] === 'er') ? 'er' : 'views';
+  $dari = cg_tgl_sah(isset($d['dari']) ? $d['dari'] : '');
+  $sampai = cg_tgl_sah(isset($d['sampai']) ? $d['sampai'] : '');
+  $per = max(5, min(50, (int)(isset($d['per']) ? $d['per'] : 10)));
+  $hal = max(1, (int)(isset($d['hal']) ? $d['hal'] : 1));
+
+  $semua = array(); $url = array();
+  foreach ($pdo->query("SELECT platform, judul, url, tayang_at, views, likes, comments, shares FROM cg_post WHERE hilang=0")->fetchAll() as $p) {
+    $semua[] = array('platform' => cg_plat_norm($p['platform']), 'judul' => (string)$p['judul'] !== '' ? (string)$p['judul'] : '(tanpa keterangan)',
+      'url' => (string)$p['url'], 'tanggal' => (int)$p['tayang_at'] > 0 ? gmdate('Y-m-d', (int)floor((int)$p['tayang_at'] / 1000) + 7 * 3600) : '',
+      'views' => (float)$p['views'], 'likes' => (float)$p['likes'], 'comments' => (float)$p['comments'], 'shares' => (float)$p['shares'], 'sumber' => 'tiktok');
+    if ((string)$p['url'] !== '') $url[(string)$p['url']] = true;
+  }
+  foreach (cg_konten_perf($pdo) as $k) {
+    if ($k['url'] !== '' && isset($url[$k['url']])) continue;
+    $semua[] = array('platform' => cg_plat_norm($k['platform']), 'judul' => $k['judul'] !== '' ? $k['judul'] : '(tanpa judul)',
+      'url' => $k['url'], 'tanggal' => substr($k['tanggal'], 0, 10), 'views' => $k['views'], 'likes' => $k['likes'],
+      'comments' => $k['comments'], 'shares' => $k['shares'], 'sumber' => 'konten');
+  }
+
+  /* Rentang tanggal memakai tanggal TAYANG. Baris tanpa tanggal tidak ikut
+     kalau rentangnya disetel — tidak ada cara tahu ia jatuh di mana. */
+  $lolos = array();
+  foreach ($semua as $e) {
+    if ($plat !== '' && $e['platform'] !== $plat) continue;
+    if ($dari !== null || $sampai !== null) {
+      if ($e['tanggal'] === '') continue;
+      if ($dari !== null && $e['tanggal'] < $dari) continue;
+      if ($sampai !== null && $e['tanggal'] > $sampai) continue;
+    }
+    $e['er'] = $e['views'] > 0 ? ($e['likes'] + $e['comments'] + $e['shares']) / $e['views'] : null;
+    $lolos[] = $e;
+  }
+  usort($lolos, function($a, $b) use ($urut) {
+    if ($urut === 'er') {
+      /* Yang tidak punya nilai SELALU di bawah. */
+      if ($a['er'] === null && $b['er'] === null) return 0;
+      if ($a['er'] === null) return 1;
+      if ($b['er'] === null) return -1;
+      if ($a['er'] != $b['er']) return $a['er'] < $b['er'] ? 1 : -1;
+    }
+    if ($a['views'] != $b['views']) return $a['views'] < $b['views'] ? 1 : -1;
+    return strcmp($b['tanggal'], $a['tanggal']);
+  });
+  $total = count($lolos);
+  $halMaks = max(1, (int)ceil($total / $per));
+  if ($hal > $halMaks) $hal = $halMaks;   /* dijepit: halaman 7 yang sudah tidak ada = tabel kosong */
+  return array('baris' => array_slice($lolos, ($hal - 1) * $per, $per), 'total' => $total,
+    'hal' => $hal, 'per' => $per, 'halMaks' => $halMaks);
 }
 
 /* ==================== INSIGHT ==================== */
@@ -440,7 +519,7 @@ function cg_ai_tanya($pdo, $system, $prompt, $maks = 6000) {
 function cg_bukti_post($pdo, $n = 25) {
   cg_pastikan($pdo);
   $baris = array();
-  foreach ($pdo->query('SELECT platform, judul, url, tayang_at, views, likes, comments, shares FROM cg_post ORDER BY views DESC LIMIT ' . (int)$n)->fetchAll() as $p) {
+  foreach ($pdo->query('SELECT platform, judul, url, tayang_at, views, likes, comments, shares FROM cg_post WHERE hilang=0 ORDER BY views DESC LIMIT ' . (int)$n)->fetchAll() as $p) {
     $baris[] = array('platform' => $p['platform'], 'judul' => cg_potong($p['judul'], 220), 'url' => $p['url'],
       'tanggal' => $p['tayang_at'] ? gmdate('Y-m-d', (int)($p['tayang_at'] / 1000) + 7 * 3600) : '',
       'views' => (int)$p['views'], 'likes' => (int)$p['likes'], 'comments' => (int)$p['comments'], 'shares' => (int)$p['shares']);
@@ -540,6 +619,17 @@ function cg_tiktok_mulai($pdo, $nama) {
 
 function cg_tiktok_simpan_token($pdo, $t, $nama) {
   $now = cg_now_ms();
+  /* Akun BERBEDA yang dihubungkan: penanda riwayat milik akun lama dibuang,
+     kalau tidak cursor-nya dipakai untuk akun baru dan riwayat akun baru
+     tidak pernah tertarik. Perbarui token (akun sama) tidak menyentuhnya. */
+  $baru = (string)(isset($t['open_id']) ? $t['open_id'] : '');
+  $lq = $pdo->prepare('SELECT open_id FROM cg_akun WHERE platform = :p');
+  $lq->execute(array(':p' => 'tiktok'));
+  $lama = (string)$lq->fetchColumn();
+  if ($baru !== '' && $lama !== '' && $lama !== $baru) {
+    cg_set_tulis($pdo, 'tiktok_bf_cursor', '');
+    cg_set_tulis($pdo, 'tiktok_bf_selesai', '');
+  }
   $q = $pdo->prepare('INSERT INTO cg_akun (platform, open_id, access_token, refresh_token, token_exp, refresh_exp, scope, oleh, at)
     VALUES (:pl, :oi, :ac, :rf, :te, :re, :sc, :by, :at)
     ON DUPLICATE KEY UPDATE open_id=VALUES(open_id), access_token=VALUES(access_token), refresh_token=VALUES(refresh_token),
@@ -628,16 +718,29 @@ function cg_tiktok_sync($pdo) {
     }
 
     $fields = 'id,title,video_description,create_time,cover_image_url,share_url,view_count,like_count,comment_count,share_count,duration';
-    $cursor = null; $n = 0;
-    $ins = $pdo->prepare('INSERT INTO cg_post (platform, post_id, judul, url, cover, tayang_at, views, likes, comments, shares, durasi, sync_at)
-      VALUES (:pl, :id, :ju, :ur, :co, :ta, :vi, :li, :cm, :sh, :du, :sy)
+    $n = 0;
+    $ins = $pdo->prepare('INSERT INTO cg_post (platform, post_id, judul, url, cover, tayang_at, views, likes, comments, shares, durasi, sync_at, hilang)
+      VALUES (:pl, :id, :ju, :ur, :co, :ta, :vi, :li, :cm, :sh, :du, :sy, 0)
       ON DUPLICATE KEY UPDATE judul=VALUES(judul), url=VALUES(url), cover=VALUES(cover), tayang_at=VALUES(tayang_at),
-        views=VALUES(views), likes=VALUES(likes), comments=VALUES(comments), shares=VALUES(shares), durasi=VALUES(durasi), sync_at=VALUES(sync_at)');
-    /* Paling banyak 5 halaman x 20 = 100 postingan terbaru. Cukup untuk
-       membaca pola, dan tidak menahan permintaan sampai batas waktu PHP. */
-    for ($hal = 0; $hal < 5; $hal++) {
+        views=VALUES(views), likes=VALUES(likes), comments=VALUES(comments), shares=VALUES(shares), durasi=VALUES(durasi),
+        sync_at=VALUES(sync_at), hilang=0');
+    $simpan = function($v) use ($ins, $now, &$n) {
+      $judul = trim((string)(isset($v['video_description']) ? $v['video_description'] : ''));
+      if ($judul === '') $judul = (string)(isset($v['title']) ? $v['title'] : '');
+      $ins->execute(array(':pl' => 'tiktok', ':id' => (string)$v['id'], ':ju' => $judul,
+        ':ur' => (string)(isset($v['share_url']) ? $v['share_url'] : ''),
+        ':co' => cg_potong(isset($v['cover_image_url']) ? $v['cover_image_url'] : '', 900),
+        ':ta' => (int)(isset($v['create_time']) ? $v['create_time'] : 0) * 1000,
+        ':vi' => (int)(isset($v['view_count']) ? $v['view_count'] : 0), ':li' => (int)(isset($v['like_count']) ? $v['like_count'] : 0),
+        ':cm' => (int)(isset($v['comment_count']) ? $v['comment_count'] : 0), ':sh' => (int)(isset($v['share_count']) ? $v['share_count'] : 0),
+        ':du' => (int)(isset($v['duration']) ? $v['duration'] : 0), ':sy' => $now));
+      $n++;
+    };
+    /* Satu halaman video.list (maks 20 — batas TikTok). Cursor = penanda
+       waktu; halaman berikutnya selalu video yang LEBIH LAMA. */
+    $halaman = function($cursor) use ($auth, $fields) {
       $isi = array('max_count' => 20);
-      if ($cursor !== null) $isi['cursor'] = $cursor;
+      if ($cursor !== null && $cursor !== '') $isi['cursor'] = (int)$cursor;
       $r = cg_http('POST', 'https://open.tiktokapis.com/v2/video/list/?fields=' . $fields,
         array_merge($auth, array('Content-Type: application/json')), json_encode($isi), 30);
       $data = isset($r['data']['data']) ? $r['data']['data'] : null;
@@ -645,24 +748,69 @@ function cg_tiktok_sync($pdo) {
         $p = isset($r['data']['error']['message']) ? $r['data']['error']['message'] : $r['mentah'];
         throw new Exception('Daftar video TikTok tidak terbaca: ' . $p);
       }
-      foreach ((isset($data['videos']) ? $data['videos'] : array()) as $v) {
-        $judul = trim((string)(isset($v['video_description']) ? $v['video_description'] : ''));
-        if ($judul === '') $judul = (string)(isset($v['title']) ? $v['title'] : '');
-        $ins->execute(array(':pl' => 'tiktok', ':id' => (string)$v['id'], ':ju' => $judul,
-          ':ur' => (string)(isset($v['share_url']) ? $v['share_url'] : ''),
-          ':co' => cg_potong(isset($v['cover_image_url']) ? $v['cover_image_url'] : '', 900),
-          ':ta' => (int)(isset($v['create_time']) ? $v['create_time'] : 0) * 1000,
-          ':vi' => (int)(isset($v['view_count']) ? $v['view_count'] : 0), ':li' => (int)(isset($v['like_count']) ? $v['like_count'] : 0),
-          ':cm' => (int)(isset($v['comment_count']) ? $v['comment_count'] : 0), ':sh' => (int)(isset($v['share_count']) ? $v['share_count'] : 0),
-          ':du' => (int)(isset($v['duration']) ? $v['duration'] : 0), ':sy' => $now));
-        $n++;
-      }
-      if (empty($data['has_more'])) break;
-      $cursor = isset($data['cursor']) ? $data['cursor'] : null;
+      return $data;
+    };
+
+    /* SATU SINKRON TETAP RINGAN — paling banyak 9 permintaan ke TikTok,
+       berapa pun jumlah video akunnya (13 Okt 2026, permintaan user: "semua
+       data, tapi per page per API page aja, jadi sistemnya tidak berat").
+       Sebelumnya cuma 100 video TERBARU yang pernah ditarik, jadi video lama
+       yang justru paling banyak ditonton (mis. Okt 2025, ±1 jt views) tidak
+       pernah muncul di Konten terpopuler.
+
+       1. TERBARU — 2 halaman (40 video): angkanya paling cepat berubah. */
+    $lanjut = null; $habis = false;
+    for ($h = 0; $h < 2; $h++) {
+      $data = $halaman($lanjut);
+      foreach ((isset($data['videos']) ? $data['videos'] : array()) as $v) $simpan($v);
+      if (empty($data['has_more'])) { $habis = true; break; }
+      $lanjut = isset($data['cursor']) ? (string)$data['cursor'] : null;
     }
+
+    /* 2. RIWAYAT — dilanjutkan dari cursor TERSIMPAN, 5 halaman (100 video)
+       per sinkron, sampai TikTok bilang tidak ada lagi. Cursornya disimpan
+       tiap halaman, jadi sinkron yang putus di tengah tidak mengulang dari
+       awal. Pertama kali, ia mulai tepat di ujung halaman terbaru di atas. */
+    $selesai = cg_set_baca($pdo, 'tiktok_bf_selesai') === '1';
+    if (!$selesai) {
+      $c = cg_set_baca($pdo, 'tiktok_bf_cursor');
+      if ($c === '') $c = $habis ? null : $lanjut;
+      if ($c === null) $selesai = true;
+      for ($h = 0; !$selesai && $h < 5; $h++) {
+        $data = $halaman($c);
+        foreach ((isset($data['videos']) ? $data['videos'] : array()) as $v) $simpan($v);
+        if (empty($data['has_more'])) { $selesai = true; break; }
+        $c = isset($data['cursor']) ? (string)$data['cursor'] : '';
+        if ($c === '') { $selesai = true; break; }
+        cg_set_tulis($pdo, 'tiktok_bf_cursor', $c);
+      }
+      if ($selesai) { cg_set_tulis($pdo, 'tiktok_bf_selesai', '1'); cg_set_tulis($pdo, 'tiktok_bf_cursor', ''); }
+    }
+
+    /* 3. SEGARKAN YANG LAMA — 2 x 20 video yang paling lama tidak disegarkan,
+       lewat video/query (pakai id, satu permintaan per 20 video). Tanpa ini
+       angka video lama membeku di hari ia pertama ditarik. Video yang tidak
+       dipulangkan TikTok (dihapus/diprivat) ditandai `hilang` — bukan dihapus
+       dari tabel — dan berhenti tampil; kalau tidak ditandai ia selalu jadi
+       yang "paling lama" dan menahan giliran video lain selamanya. */
+    $tua = $pdo->prepare("SELECT post_id FROM cg_post WHERE platform='tiktok' AND hilang=0 AND sync_at < :s ORDER BY sync_at ASC LIMIT 40");
+    $tua->execute(array(':s' => $now));
+    $ids = array_map('strval', $tua->fetchAll(PDO::FETCH_COLUMN));
+    foreach (array_chunk($ids, 20) as $kelompok) {
+      $r = cg_http('POST', 'https://open.tiktokapis.com/v2/video/query/?fields=' . $fields,
+        array_merge($auth, array('Content-Type: application/json')), json_encode(array('filters' => array('video_ids' => $kelompok))), 30);
+      $data = isset($r['data']['data']) ? $r['data']['data'] : null;
+      if (!$data) break;   /* segar ulang gagal bukan alasan menggagalkan sinkron */
+      $ada = array();
+      foreach ((isset($data['videos']) ? $data['videos'] : array()) as $v) { $simpan($v); $ada[(string)$v['id']] = true; }
+      $tandai = $pdo->prepare("UPDATE cg_post SET hilang=1, sync_at=:s WHERE platform='tiktok' AND post_id=:id");
+      foreach ($kelompok as $id) if (!isset($ada[$id])) $tandai->execute(array(':s' => $now, ':id' => $id));
+    }
+
     $q = $pdo->prepare('UPDATE cg_akun SET sync_at=:s, sync_galat=:g WHERE platform=:p');
     $q->execute(array(':s' => $now, ':g' => '', ':p' => 'tiktok'));
-    return array('jumlah' => $n);
+    $total = (int)$pdo->query("SELECT COUNT(*) FROM cg_post WHERE platform='tiktok' AND hilang=0")->fetchColumn();
+    return array('jumlah' => $n, 'total' => $total, 'riwayatSelesai' => $selesai);
   } catch (Throwable $e) {
     /* Galat sinkron DISIMPAN, bukan cuma dilempar: sinkron otomatis berjalan
        tanpa ada yang menunggu jawabannya, jadi tanpa ini kegagalannya tidak
@@ -716,6 +864,7 @@ function cg_aksi($action, $body) {
     case 'campaignInsightAI':    return cg_insight_ai($pdo);
     case 'campaignTiktokMulai':  return cg_tiktok_mulai($pdo, $nama);
     case 'campaignTiktokSync':   return cg_tiktok_sync($pdo);
+    case 'campaignTop':          return cg_top($pdo, $d);
     case 'campaignTiktokPutus':  return cg_tiktok_putus($pdo, $nama);
     case 'campaignSetting':
       if (!sesi_admin_modul($u, 'campaign')) sesi_tolak_tak_berhak('Pengaturan Campaign hanya untuk admin modul Campaign.');

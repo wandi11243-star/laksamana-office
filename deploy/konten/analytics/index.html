@@ -302,7 +302,8 @@ var D = null;            // jawaban campaignGet
 var GALAT = '';          // galat muat
 var VIEW = 'insight';
 var ST = {
-  topPlat: '', topUrut: 'views', topHal: 1,
+  topPlat: '', topUrut: 'views', topHal: 1, topRentang: 'semua', topDari: '', topSampai: '',
+  topSrv: {}, topSibuk: '',
   insPlat: '', insKat: '', insArsip: false,
   kalBulan: null, kalPilih: null,
   risetPilih: null, risetJalan: false, risetMulai: 0,
@@ -443,21 +444,33 @@ function akun(p){ return ((D && D.akun) || []).filter(function(a){ return a.plat
 /* Konten terpopuler: postingan TikTok yang ditarik dari akun terhubung DAN
    angka yang diisi tim di modul Konten (Input Performa). Yang dari TikTok
    menang kalau tautannya sama — angkanya datang langsung dari platform. */
-function daftarTop(){
-  var out = [], url = {};
-  (D.post || []).forEach(function(p){
-    var e = { platform: platNorm(p.platform), judul: p.judul || '(tanpa keterangan)', url: p.url, tanggal: msKeTgl(p.tayang_at),
-      views: num(p.views), likes: num(p.likes), comments: num(p.comments), shares: num(p.shares), sumber: 'tiktok' };
-    out.push(e); if (p.url) url[p.url] = true;
-  });
-  (D.konten || []).forEach(function(k){
-    if (k.url && url[k.url]) return;
-    out.push({ platform: platNorm(k.platform), judul: k.judul || '(tanpa judul)', url: k.url, tanggal: k.tanggal,
-      views: num(k.views), likes: num(k.likes), comments: num(k.comments), shares: num(k.shares), sumber: 'konten' });
-  });
-  out.forEach(function(e){ e.er = e.views > 0 ? (e.likes + e.comments + e.shares) / e.views : null; });
-  return out;
+/* Rentang tanggal tayang untuk Konten terpopuler. Dihitung dari "hari ini"
+   WIB — sama dengan hariIni() — supaya "7 hari" tidak bergeser satu hari di
+   laptop berzona lain. 'semua' = tanpa batas. */
+function topRentang(){
+  var r = ST.topRentang, kini = hariIni();
+  var mundur = function(n){ var d = new Date(kini + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - (n - 1)); return d.toISOString().slice(0,10); };
+  if (r === '7' || r === '30' || r === '90') return { dari: mundur(+r), sampai: kini };
+  if (r === 'bulan') return { dari: kini.slice(0,8) + '01', sampai: kini };
+  if (r === 'khusus') return { dari: ST.topDari, sampai: ST.topSampai };
+  return { dari: '', sampai: '' };
 }
+/* SATU HALAMAN dari server (campaignTop), bukan seluruh daftar — permintaan
+   user 13 Okt 2026: "per page per API page aja, jadi sistemnya tidak berat".
+   Jawabannya disimpan per KUNCI saringan; kegagalan IKUT dicatat di kunci
+   itu, kalau tidak render -> muat -> render berputar selamanya (pelajaran
+   muatReqMkt() di panel Planning). */
+function topKunci(){ var r = topRentang(); return [ST.topPlat, ST.topUrut, r.dari, r.sampai, ST.topHal].join('|'); }
+function muatTop(){
+  var k = topKunci(), r = topRentang();
+  if (ST.topSrv[k] || ST.topSibuk === k) return;
+  ST.topSibuk = k;
+  api('campaignTop', { platform: ST.topPlat, urut: ST.topUrut, dari: r.dari, sampai: r.sampai, hal: ST.topHal, per: 10 })
+    .then(function(d){ ST.topSrv[k] = { data: d }; })
+    .catch(function(e){ ST.topSrv[k] = { galat: e.message }; })
+    .then(function(){ if (ST.topSibuk === k) ST.topSibuk = ''; if (VIEW === 'insight') render(); });
+}
+
 function metrikTeks(e){
   return angka(e.views) + ' views · ' + angka(e.likes) + ' likes · ' + angka(e.comments) + ' komentar · ' + angka(e.shares) + ' share';
 }
@@ -525,41 +538,55 @@ function kartuAkun(){
 }
 
 function kartuTop(){
-  var semua = daftarTop();
-  var list = semua.filter(function(e){ return !ST.topPlat || e.platform === ST.topPlat; });
-  list.sort(function(a,b){
-    if (ST.topUrut === 'er') {
-      if (a.er == null && b.er == null) return 0;
-      if (a.er == null) return 1; if (b.er == null) return -1;   // yang tak punya nilai selalu di bawah
-      return b.er - a.er;
-    }
-    return b.views - a.views;
-  });
-  var per = 10, hal = Math.max(1, Math.ceil(list.length / per));
-  if (ST.topHal > hal) ST.topHal = hal;
-  var potong = list.slice((ST.topHal-1)*per, ST.topHal*per);
+  var k = topKunci(), hasil = ST.topSrv[k];
+  if (!hasil) muatTop();
   var seg = '<div class="seg">' + [['','Semua']].concat(PLATFORM.map(function(p){ return [p,p]; })).map(function(x){
     return '<button class="' + (ST.topPlat === x[0] ? 'on' : '') + '" data-a="top-plat" data-v="' + esc(x[0]) + '">' + esc(x[1]) + '</button>'; }).join('') + '</div>';
   var urut = '<div class="seg"><button class="' + (ST.topUrut==='views'?'on':'') + '" data-a="top-urut" data-v="views">Paling banyak ditonton</button>'
     + '<button class="' + (ST.topUrut==='er'?'on':'') + '" data-a="top-urut" data-v="er">Engagement tertinggi</button></div>';
-  var isi = potong.length ? potong.map(function(e, i){
-    return '<div class="baris"><div class="no">' + ((ST.topHal-1)*per + i + 1) + '</div>'
-      + '<div class="isi"><b title="' + esc(e.judul) + '">' + esc(e.judul) + '</b><span>' + esc(e.platform) + ' · ' + fmtTgl(e.tanggal)
-      + (e.sumber === 'konten' ? ' · dari Input Performa modul Konten' : '') + '</span></div>'
-      + '<div class="ang"><b>' + angka(e.views) + '</b><span>views · ER ' + (e.er == null ? '—' : (e.er*100).toFixed(1).replace('.', ',') + '%') + '</span></div>'
-      + (e.url ? '<a class="btn btn-ghost btn-sm" href="' + esc(e.url) + '" target="_blank" rel="noopener" title="Buka postingan">↗</a>' : '')
-      + '<button class="btn btn-ghost btn-sm" data-a="jadikan" data-i="' + semua.indexOf(e) + '">+ Jadikan insight</button></div>';
-  }).join('') : '<div class="kosong">' + (semua.length
-      ? 'Tidak ada postingan ' + esc(ST.topPlat) + '.'
-      : 'Belum ada postingan. Hubungkan akun TikTok di atas, atau isi Input Performa di modul Konten.') + '</div>';
-  var pager = hal > 1 ? '<div style="display:flex;gap:6px;justify-content:center;margin-top:12px">'
-    + '<button class="btn btn-ghost btn-sm" data-a="top-hal" data-v="' + (ST.topHal-1) + '"' + (ST.topHal<=1?' disabled':'') + '>‹</button>'
-    + '<span style="align-self:center;font-size:12.5px;color:var(--muted)">Halaman ' + ST.topHal + ' dari ' + hal + '</span>'
-    + '<button class="btn btn-ghost btn-sm" data-a="top-hal" data-v="' + (ST.topHal+1) + '"' + (ST.topHal>=hal?' disabled':'') + '>›</button></div>' : '';
+  var rentang = '<div class="seg">' + [['semua','Semua waktu'],['7','7 hari'],['30','30 hari'],['90','90 hari'],['bulan','Bulan ini'],['khusus','Rentang…']].map(function(x){
+    return '<button class="' + (ST.topRentang === x[0] ? 'on' : '') + '" data-a="top-rentang" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>'
+    + (ST.topRentang === 'khusus'
+      ? ' <span style="display:inline-flex;gap:6px;align-items:center;font-size:12.5px;color:var(--k-txt-3)">'
+        + '<input type="date" data-a="top-dari" value="' + esc(ST.topDari) + '" style="padding:5px 8px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit"> s/d '
+        + '<input type="date" data-a="top-sampai" value="' + esc(ST.topSampai) + '" style="padding:5px 8px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit"></span>'
+      : '');
+  var isi, pager = '', info = '';
+  if (!hasil) {
+    isi = '<div class="kosong">Memuat…</div>';
+  } else if (hasil.galat) {
+    isi = '<div class="pita err">Konten terpopuler tidak bisa dimuat: ' + esc(hasil.galat) + ' <button class="btn btn-ghost btn-sm" data-a="top-ulang">Coba lagi</button></div>';
+  } else {
+    var d = hasil.data, per = d.per || 10, mulai = (d.hal - 1) * per;
+    isi = (d.baris || []).length ? d.baris.map(function(e, i){
+      return '<div class="baris"><div class="no">' + (mulai + i + 1) + '</div>'
+        + '<div class="isi"><b title="' + esc(e.judul) + '">' + esc(e.judul) + '</b><span>' + esc(e.platform) + ' · ' + fmtTgl(e.tanggal)
+        + (e.sumber === 'konten' ? ' · dari Input Performa modul Konten' : '') + '</span></div>'
+        + '<div class="ang"><b>' + angka(e.views) + '</b><span>views · ER ' + (e.er == null ? '—' : (e.er*100).toFixed(1).replace('.', ',') + '%') + '</span></div>'
+        + (e.url ? '<a class="btn btn-ghost btn-sm" href="' + esc(e.url) + '" target="_blank" rel="noopener" title="Buka postingan">↗</a>' : '')
+        + '<button class="btn btn-ghost btn-sm" data-a="jadikan" data-i="' + i + '">+ Jadikan insight</button></div>';
+    }).join('') : '<div class="kosong">' + (ST.topRentang !== 'semua' || ST.topPlat
+        ? 'Tidak ada postingan' + (ST.topPlat ? ' ' + esc(ST.topPlat) : '') + ' pada rentang ini.'
+        : 'Belum ada postingan. Hubungkan akun TikTok di atas, atau isi Input Performa di modul Konten.') + '</div>';
+    if (d.total) info = '<div style="font-size:12px;color:var(--k-txt-3);margin:4px 0 2px">Menampilkan ' + (mulai + 1) + '–' + (mulai + d.baris.length) + ' dari ' + d.total + ' konten</div>';
+    if (d.halMaks > 1) pager = '<div style="display:flex;gap:6px;justify-content:center;margin-top:12px">'
+      + '<button class="btn btn-ghost btn-sm" data-a="top-hal" data-v="' + (d.hal-1) + '"' + (d.hal<=1?' disabled':'') + '>‹</button>'
+      + '<span style="align-self:center;font-size:12.5px;color:var(--k-txt-3)">Halaman ' + d.hal + ' dari ' + d.halMaks + '</span>'
+      + '<button class="btn btn-ghost btn-sm" data-a="top-hal" data-v="' + (d.hal+1) + '"' + (d.hal>=d.halMaks?' disabled':'') + '>›</button></div>';
+  }
+  /* Riwayat TikTok yang belum lengkap DIKATAKAN — tanpa itu daftar "sepanjang
+     masa" yang baru berisi video terbaru terbaca sebagai daftar yang lengkap,
+     dan video lama yang paling laris dikira tidak ada. */
+  var pi = D.postInfo || {}, tt = akun('tiktok');
+  var riwayat = (tt && tt.terhubung && !pi.riwayatSelesai)
+    ? '<div class="pita info">Riwayat video TikTok masih ditarik bertahap (' + num(pi.total) + ' video sejauh ini, 100 video lama per sinkron). '
+      + 'Tekan <b>Sinkronkan</b> di kartu akun untuk melanjutkan — video lama yang paling banyak ditonton baru muncul setelah ikut tertarik.</div>'
+    : '';
   /* ER = (likes + komentar + share) / views. Penyebutnya disebut di sini
      supaya tidak ditebak — pelajaran kolom Kontribusi di modul Analytics. */
-  return '<div class="kartu"><div class="kepala"><div><h2>Konten terpopuler</h2><div class="sub">Konten yang paling jalan dari semua sumber. ER = (likes + komentar + share) dibagi views.</div></div>'
-    + '<div class="r">' + urut + '</div></div><div style="margin-bottom:8px">' + seg + '</div>' + isi + pager + '</div>';
+  return '<div class="kartu"><div class="kepala"><div><h2>Konten terpopuler</h2><div class="sub">Konten yang paling jalan dari semua sumber, menurut tanggal tayang. ER = (likes + komentar + share) dibagi views.</div></div>'
+    + '<div class="r">' + urut + '</div></div>' + riwayat
+    + '<div style="margin-bottom:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">' + seg + rentang + '</div>' + info + isi + pager + '</div>';
 }
 
 function kartuUsulan(){
@@ -878,9 +905,9 @@ function tutupModal(){ document.getElementById('modal').innerHTML = ''; MODAL_DA
 function tiktokSync(diam){
   ST.sibuk.sync = true; if (!diam) render();
   return api('campaignTiktokSync').then(function(r){
-    if (!diam) toast(r.jumlah + ' postingan TikTok diperbarui.');
+    if (!diam) toast(r.jumlah + ' video TikTok diperbarui' + (r.riwayatSelesai ? ' — riwayat lengkap (' + r.total + ' video).' : ' — riwayat masih berlanjut (' + r.total + ' video sejauh ini).'));
   }).catch(function(e){ if (!diam) toast(e.message, true); })
-    .then(function(){ ST.sibuk.sync = false; return muat(); }).then(render);
+    .then(function(){ ST.sibuk.sync = false; ST.topSrv = {}; return muat(); }).then(render);
 }
 
 document.addEventListener('click', function(ev){
@@ -888,16 +915,18 @@ document.addEventListener('click', function(ev){
   var a = el.getAttribute('data-a'), v = el.getAttribute('data-v'), i = +el.getAttribute('data-i');
   if (a === 'latar') { if (ev.target === el) tutupModal(); return; }
   if (el.tagName === 'A' && a !== 'tutup') return;
-  if (a === 'refresh') { muat().then(render); return; }
+  if (a === 'refresh') { ST.topSrv = {}; muat().then(render); return; }
   if (a === 'tutup') { tutupModal(); return; }
   if (a === 'top-plat') { ST.topPlat = v; ST.topHal = 1; render(); return; }
   if (a === 'top-urut') { ST.topUrut = v; ST.topHal = 1; render(); return; }
   if (a === 'top-hal') { ST.topHal = +v; render(); return; }
+  if (a === 'top-rentang') { ST.topRentang = v; ST.topHal = 1; render(); return; }
+  if (a === 'top-ulang') { delete ST.topSrv[topKunci()]; render(); return; }
   if (a === 'ins-plat') { ST.insPlat = v; render(); return; }
   if (a === 'ins-arsip') { ST.insArsip = !ST.insArsip; render(); return; }
   if (a === 'ins-baru') { formInsight({}); return; }
   if (a === 'jadikan') {
-    var e = daftarTop()[i]; if (!e) return;
+    var hs = ST.topSrv[topKunci()], e = hs && hs.data && hs.data.baris ? hs.data.baris[i] : null; if (!e) return;
     formInsight({ platform: e.platform, url: e.url, tglTayang: e.tanggal, metrik: metrikTeks(e), sumber: e.sumber === 'tiktok' ? 'tiktok' : 'konten' });
     return;
   }
@@ -974,6 +1003,8 @@ document.addEventListener('click', function(ev){
 });
 document.addEventListener('change', function(ev){
   var el = ev.target; if (el.getAttribute('data-a') === 'ins-kat') { ST.insKat = el.value; render(); }
+  if (el.getAttribute('data-a') === 'top-dari') { ST.topDari = el.value; ST.topHal = 1; render(); }
+  if (el.getAttribute('data-a') === 'top-sampai') { ST.topSampai = el.value; ST.topHal = 1; render(); }
 });
 document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape' && MODAL_DATA) tutupModal(); });
 
@@ -1011,7 +1042,7 @@ muat().then(function(){
 });
 
 /* Kait uji (tools/uji-campaign.js). */
-window.__cg = { get D(){ return D; }, set D(v){ D = v; }, ST: ST, render: render, daftarTop: daftarTop, jadwalTelat: jadwalTelat, TITLES: TITLES, muat: muat };
+window.__cg = { get D(){ return D; }, set D(v){ D = v; }, ST: ST, render: render, topRentang: topRentang, topKunci: topKunci, jadwalTelat: jadwalTelat, TITLES: TITLES, muat: muat };
 })();
 </script>
 </body>

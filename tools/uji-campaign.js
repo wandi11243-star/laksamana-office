@@ -47,6 +47,7 @@ function buatServer(opsi) {
       { platform: 'tiktok', post_id: '2', judul: 'Beli special combo', url: 'https://www.tiktok.com/@x/video/2', tayang_at: Date.parse('2026-09-03T05:00:00Z'), views: 98300, likes: 1000, comments: 13, shares: 422 },
       { platform: 'tiktok', post_id: '1', judul: 'Goyang terus babe', url: 'https://www.tiktok.com/@x/video/1', tayang_at: Date.parse('2026-09-26T05:00:00Z'), views: 109700, likes: 1900, comments: 38, shares: 343 }
     ],
+    postInfo: { total: 2, riwayatSelesai: false },
     akun: (opsi && opsi.akun) || [{ platform: 'tiktok', nama: 'Laksamana Muda Pekanbaru', terhubung: true, sync_at: Date.now(), sync_galat: '',
       scope: 'user.info.basic,user.info.profile,user.info.stats,video.list', stats_ada: 1, follower: 12345, following: 8, likes_total: 456789, jml_video: 321,
       terverifikasi: 1, bio: 'Coffee & live music Pekanbaru', profil_url: 'https://www.tiktok.com/@laksamanamuda.id', avatar: 'https://p16.tiktokcdn.com/a.jpg' }],
@@ -78,9 +79,23 @@ function buatServer(opsi) {
     } else if (b.action === 'campaignInsightArsip') {
       S.insight.find(x => x.id === b.data.id).arsip = b.data.arsip ? 1 : 0; data = { ok: true };
     } else if (b.action === 'campaignInsightAI') data = { usulan: [{ platform: 'TikTok', kategori: 'Hook 3 Detik & Retensi', temuan: 'Usulan AI', url: 'https://www.tiktok.com/@x/video/1', tglTayang: '2026-09-26', metrik: '109 rb', aksi: 'Pakai' }] };
-    else if (b.action === 'campaignTiktokSync') data = { jumlah: 2 };
+    else if (b.action === 'campaignTiktokSync') data = { jumlah: 2, total: 2, riwayatSelesai: false };
+    else if (b.action === 'campaignTop') data = topTiruan(S, b.data);
     else data = { ok: true };
     return Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: true, data })) });
+  }
+  /* Tiruan cg_top(): gabung TikTok + Input Performa (tautan sama tidak dua
+     kali), saring platform & tanggal tayang WIB, urut, potong per halaman. */
+  function topTiruan(S, q) {
+    const norm = p => { const k = String(p || '').toLowerCase(); return k.includes('tiktok') ? 'TikTok' : (k.includes('insta') ? 'Instagram' : (k.includes('you') ? 'YouTube' : p)); };
+    const semua = [], url = {};
+    S.post.forEach(p => { semua.push({ platform: norm(p.platform), judul: p.judul, url: p.url, tanggal: new Date(p.tayang_at + 7 * 3600e3).toISOString().slice(0, 10), views: p.views, likes: p.likes, comments: p.comments, shares: p.shares, sumber: 'tiktok' }); url[p.url] = 1; });
+    S.konten.forEach(k => { if (k.url && url[k.url]) return; semua.push({ platform: norm(k.platform), judul: k.judul, url: k.url, tanggal: k.tanggal, views: k.views, likes: k.likes, comments: k.comments, shares: k.shares, sumber: 'konten' }); });
+    let l = semua.filter(e => (!q.platform || e.platform === q.platform) && (!q.dari || (e.tanggal && e.tanggal >= q.dari)) && (!q.sampai || (e.tanggal && e.tanggal <= q.sampai)));
+    l.forEach(e => { e.er = e.views > 0 ? (e.likes + e.comments + e.shares) / e.views : null; });
+    l.sort((a, b) => q.urut === 'er' ? ((a.er == null) - (b.er == null) || (b.er - a.er)) : b.views - a.views);
+    const per = q.per || 10, halMaks = Math.max(1, Math.ceil(l.length / per)), hal = Math.min(Math.max(1, q.hal || 1), halMaks);
+    return { baris: l.slice((hal - 1) * per, hal * per), total: l.length, hal, per, halMaks };
   }
   return { S, log, fetchTiruan };
 }
@@ -109,20 +124,29 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('campaignGet dipanggil dengan token sesi Office', srv.log.some(b => b.action === 'campaignGet' && b.sesi === 'tok-uji'));
     cek('halaman Insight tergambar', /Konten terpopuler/.test(app));
     cek('kartu TikTok menyebut akun terhubung', /Laksamana Muda Pekanbaru/.test(app));
-    const top = w.__cg.daftarTop();
-    cek('postingan TikTok + Konten digabung tanpa dobel tautan', top.length === 3, top.length);
+    cek('Konten terpopuler diminta PER HALAMAN dari server (campaignTop)', srv.log.some(b => b.action === 'campaignTop' && b.data.per === 10 && b.data.hal === 1));
+    cek('campaignGet TIDAK lagi dipakai untuk daftar postingan (kartu dibaca dari campaignTop)', /Menampilkan 1–3 dari 3 konten/.test(app), (app.match(/Menampilkan[^<]*/) || [''])[0]);
     cek('urutan bawaan: views terbanyak di atas', /Goyang terus babe[\s\S]*Beli special combo[\s\S]*Reels kopi/.test(app));
     cek('ER dihitung (likes+komentar+share)/views', /ER 2,1%/.test(app));
     cek('menu Pengaturan TIDAK tampil untuk bukan admin', !/data-v="pengaturan"/.test(d.getElementById('nav').innerHTML));
     cek('nav Kalender menandai 1 jadwal yang terlewat', /<span class="badge"[^>]*>1<\/span>/.test(d.getElementById('nav').innerHTML));
 
     /* Urut menurut engagement: Reels kopi ER 8,3% harus naik ke atas. */
-    klik(d, '[data-a="top-urut"][data-v="er"]');
+    klik(d, '[data-a="top-urut"][data-v="er"]'); await tunggu(40);
     cek('urut engagement menaikkan konten ER tertinggi', /Reels kopi[\s\S]*Goyang terus babe/.test(d.getElementById('app').innerHTML));
-    klik(d, '[data-a="top-plat"][data-v="Instagram"]');
+    klik(d, '[data-a="top-plat"][data-v="Instagram"]'); await tunggu(40);
     cek('saring platform Instagram', !/Goyang terus babe/.test(d.getElementById('app').innerHTML.split('Insight otomatis')[0]));
-    klik(d, '[data-a="top-plat"][data-v=""]');
-    klik(d, '[data-a="top-urut"][data-v="views"]');
+    klik(d, '[data-a="top-plat"][data-v=""]'); await tunggu(40);
+    klik(d, '[data-a="top-urut"][data-v="views"]'); await tunggu(40);
+
+    /* Rentang 7 hari: dikirim sebagai dari/sampai tanggal tayang (dari = 6
+       hari sebelum hari ini WIB), dan postingan September tersaring habis. */
+    klik(d, '[data-a="top-rentang"][data-v="7"]'); await tunggu(40);
+    const rq = srv.log.filter(b => b.action === 'campaignTop').pop();
+    cek('rentang 7 hari mengirim dari (hari ini - 6) & sampai (hari ini)', rq && rq.data.dari === new Date(Date.now() + 7 * 3600e3 - 6 * 864e5).toISOString().slice(0, 10) && rq.data.sampai === new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10), rq && JSON.stringify(rq.data));
+    cek('rentang yang kosong mengatakannya', /pada rentang ini/.test(d.getElementById('app').innerHTML));
+    klik(d, '[data-a="top-rentang"][data-v="semua"]'); await tunggu(40);
+    cek('pita riwayat TikTok belum lengkap disebut', /Riwayat video TikTok masih ditarik bertahap/.test(d.getElementById('app').innerHTML));
 
     /* Jadikan insight: form terisi tautan, tanggal, metrik. */
     /* Tombol PERTAMA di layar (sesudah diurut), bukan data-i=0: indeksnya
@@ -285,6 +309,17 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('kolom baru lahir lewat ALTER', /ALTER TABLE cg_akun ADD COLUMN/.test(PHP_LIB) && /'stats_ada'/.test(PHP_LIB));
     const priv = fs.readFileSync(path.join(ROOT, 'deploy/legal/privacy.html'), 'utf8');
     cek('kebijakan privasi menyebut keempat scope', ['user.info.basic','user.info.profile','user.info.stats','video.list'].every(x => priv.includes(x)));
+    const sync2 = PHP_LIB.slice(PHP_LIB.indexOf('function cg_tiktok_sync('), PHP_LIB.indexOf('function cg_tiktok_putus('));
+    cek('sinkron: 2 halaman terbaru', /for \(\$h = 0; \$h < 2; \$h\+\+\)/.test(sync2));
+    cek('sinkron: riwayat 5 halaman per sinkron dari cursor tersimpan', /for \(\$h = 0; !\$selesai && \$h < 5; \$h\+\+\)/.test(sync2) && /cg_set_tulis\(\$pdo, 'tiktok_bf_cursor', \$c\)/.test(sync2));
+    cek('sinkron: video lama disegarkan lewat video/query (40)', /video\/query/.test(sync2) && /LIMIT 40/.test(sync2));
+    cek('video yang tak dipulangkan ditandai hilang, bukan dihapus', /SET hilang=1/.test(sync2) && !/DELETE/i.test(sync2));
+    const top = PHP_LIB.slice(PHP_LIB.indexOf('function cg_top('), PHP_LIB.indexOf('/* ==================== INSIGHT'));
+    cek('cg_top memotong per halaman (per dijepit 5..50)', /max\(5, min\(50/.test(top) && /array_slice\(\$lolos/.test(top));
+    cek('cg_top tanggal tayang WIB', /\+ 7 \* 3600/.test(top));
+    cek('cg_top tidak menampilkan video hilang', /WHERE hilang=0/.test(top));
+    cek('campaignGet tidak lagi membawa daftar postingan', !/'post'\s*=>/.test(PHP_LIB) && /'postInfo' => \$postInfo/.test(PHP_LIB));
+    cek('ganti akun mereset riwayat', /\$lama !== \$baru/.test(PHP_LIB));
     cek('usulan AI membuang tautan karangan', /if \(!isset\(\$sah\[\$url\]\)\) \$url = ''/.test(PHP_LIB));
   }
 
