@@ -348,7 +348,8 @@ var ST = {
   kalBulan: null, kalPilih: null,
   risetPilih: null, risetJalan: false, risetMulai: 0, risetGalat: '', risetIsi: null,
   usulan: null, usulanJalan: false,
-  iklanPe: '30', iklanSrv: {}, iklanSibuk: '', iklanSync: false, iklanLabel: '', iklanNilai: '',
+  iklanPe: '30', iklanSrv: {}, iklanSibuk: '', iklanSync: false, iklanLabel: '', iklanNilai: '', iklanStatus: '', iklanUrut: 'spend', iklanQ: '', iklanRows: [],
+  iklanAI: null, iklanAIJalan: false, iklanAIGalat: '', iklanAIPe: '',
   bankSt: 'IDE', bankPlat: '', bankJalan: false, bankGalat: '', bankIsi: null, bankHasil: null,
   sibuk: {}
 };
@@ -1202,14 +1203,103 @@ function vIklan(){
   var hasilRingkas = Object.keys(label).length ? '<div class="sub" style="margin:-6px 0 12px">Hasil: ' + Object.keys(label).map(function(k){
       return esc(k) + ' <b>' + angka(label[k]) + '</b>' + (med[k] ? ' (median ' + rupiah(med[k]) + (k === 'Jangkauan' ? ' per 1.000' : ' per hasil') + ')' : ''); }).join(' · ') + '</div>' : '';
   var lbls = Object.keys(label);
-  var saring = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px">'
+  ST.iklanRows = semua;
+  var cara = '<div class="pita info" style="margin-top:12px"><b>Cara menilai:</b> tiap iklan dibandingkan dengan <b>median biaya per hasil</b> iklan lain yang hasilnya sejenis pada periode yang sama. '
+    + '<b>Works</b> = ≥20% lebih murah, <b>Tidak works</b> = ≥30% lebih mahal atau belum menghasilkan apa pun, <b>Data belum cukup</b> = biayanya di bawah ' + rupiah(IKLAN_MIN) + '. '
+    + 'Hasil dipilih menurut tujuan kampanye (chat, klik tautan, jangkauan, video views, lead, pembelian).</div>';
+  return kepala + kartu + kartuTopIklan(semua) + kartuSaranIklan()
+    + '<div class="kartu"><h2>Daftar iklan</h2>' + hasilRingkas + saringIklanHtml(lbls)
+    + '<div id="iklan-daftar">' + tabelIklanHtml(semua) + '</div>' + cara + '</div>';
+}
+/* TOP IKLAN (14 Okt 2026): satu juara per jenis hasil — biaya per chat tidak
+   bisa diadu dengan biaya per 1.000 jangkauan, jadi "iklan terbaik" dicari
+   di tiap jenisnya sendiri. Hanya iklan yang datanya cukup (biaya >= ambang)
+   dan sudah punya hasil. */
+function kartuTopIklan(semua){
+  var juara = {};
+  semua.forEach(function(r){
+    var c = biayaHasil(r);
+    if (!r.hasil_label || c == null || num(r.spend) < IKLAN_MIN) return;
+    var j = juara[r.hasil_label];
+    if (!j || c < biayaHasil(j)) juara[r.hasil_label] = r;
+  });
+  var k = Object.keys(juara).sort(function(x, y){ return num(juara[y].spend) - num(juara[x].spend); });
+  if (!k.length) return '';
+  return '<div class="kartu"><h2>Top iklan</h2><div class="sub">Biaya per hasil termurah di tiap jenis hasil (iklan dengan biaya minimal ' + rupiah(IKLAN_MIN) + ').</div>'
+    + '<div class="grid g3">' + k.map(function(lbl){
+      var r = juara[lbl], c = biayaHasil(r);
+      return '<div class="akun"><div class="akun-id">' + (/^https:\/\//i.test(r.thumb || '') ? '<img class="akun-av" style="border-radius:8px" src="' + esc(r.thumb) + '" alt="" referrerpolicy="no-referrer">' : '')
+        + '<div class="nm" title="' + esc(r.nama) + '">' + esc(r.nama || '(tanpa nama)') + '</div></div>'
+        + '<div class="ket" style="margin-top:6px">' + esc(r.kampanye) + ' · ' + esc(IKLAN_STATUS[r.status] || r.status || '') + '</div>'
+        + '<div class="akun-stat" style="grid-template-columns:repeat(3,1fr)">'
+        + '<div><b>' + rupiah(c) + '</b><span>per ' + (lbl === 'Jangkauan' ? '1.000 jangkauan' : esc(lbl.toLowerCase())) + '</span></div>'
+        + '<div><b>' + angka(r.hasil_n) + '</b><span>' + esc(lbl.toLowerCase()) + '</span></div>'
+        + '<div><b>' + rupiah(r.spend) + '</b><span>biaya</span></div></div>'
+        + '<span class="nilai ' + r._nilai + '">' + NILAI_LBL[r._nilai] + '</span>'
+        + (/^https:\/\//i.test(r.permalink || '') ? ' <a href="' + esc(r.permalink) + '" target="_blank" rel="noopener" style="font-size:12px">Lihat postingan ↗</a>' : '') + '</div>';
+    }).join('') + '</div></div>';
+}
+/* SARAN AI: iklan mana yang diteruskan, dihentikan, diperbaiki. Hasilnya
+   USULAN — tidak ada yang diubah di Meta, dan tidak tersimpan. */
+function kartuSaranIklan(){
+  var siap = D.setting && D.setting.aiSiap, S = ST.iklanAI;
+  var h = '<div class="kartu"><div class="kepala"><div><h2>Saran AI</h2><div class="sub">AI membaca performa iklan periode ini lalu menyarankan mana yang diteruskan, dihentikan, atau diperbaiki. Saran saja — tidak ada iklan yang diubah.</div></div>'
+    + '<div class="r"><button class="btn btn-primary btn-sm" data-a="iklan-ai"' + (siap && !ST.iklanAIJalan ? '' : ' disabled') + '>' + (ST.iklanAIJalan ? 'Menganalisa…' : '⚡ Minta saran AI') + '</button></div></div>';
+  if (!siap) h += '<div class="pita warn">API key AI belum diisi di Pengaturan.</div>';
+  if (ST.iklanAIJalan) h += '<div class="agen"><div class="putar"></div><div>AI sedang membaca performa iklan… biasanya kurang dari 1 menit.</div></div>';
+  if (ST.iklanAIGalat && !ST.iklanAIJalan) h += '<div class="pita err"><b>Saran gagal:</b> ' + esc(ST.iklanAIGalat) + '</div>';
+  if (S && !ST.iklanAIJalan) {
+    var blok = function(judul, kelas, daftar){
+      if (!daftar || !daftar.length) return '';
+      return '<div class="ins"><b style="font-size:13.5px;color:var(--ink)"><span class="nilai ' + kelas + '">' + judul + '</span></b>'
+        + daftar.map(function(x){ return '<div style="margin-top:10px"><b style="color:var(--ink);font-size:13px">' + esc(x.nama || x.ad_id) + '</b>'
+          + '<div style="font-size:12.5px;color:var(--muted)">' + esc(x.alasan || '') + '</div>'
+          + (x.saran ? '<div class="aksi-ide">💡 ' + esc(x.saran) + '</div>' : '') + '</div>'; }).join('') + '</div>';
+    };
+    h += (S.ringkasan ? '<p style="font-size:14px;color:var(--ink);margin:6px 0 12px">' + esc(S.ringkasan) + '</p>' : '')
+      + '<div class="grid g3">' + blok('Teruskan', 'works', S.lanjutkan) + blok('Perbaiki', 'wajar', S.perbaiki) + blok('Hentikan', 'tidak', S.hentikan) + '</div>'
+      + ((S.saranUmum || []).length ? '<div class="ins" style="margin-top:12px"><b style="font-size:13px;color:var(--ink)">Saran umum</b><ul style="margin:6px 0 0 18px;font-size:13px">'
+        + S.saranUmum.map(function(x){ return '<li>' + esc(x) + '</li>'; }).join('') + '</ul></div>' : '')
+      + '<div style="font-size:11.5px;color:var(--muted-2);margin-top:8px">Periode ' + esc(ST.iklanAIPe === 'max' ? 'sepanjang waktu' : ST.iklanAIPe + ' hari') + ' · model ' + esc(S.model || '') + '. Estimasi AI — cek ulang di Ads Manager sebelum mengubah budget.</div>';
+  }
+  return h + '</div>';
+}
+var IKLAN_URUT = [['spend','Biaya terbesar'],['hasil','Hasil terbanyak'],['cpr','Biaya/hasil termurah'],['ctr','CTR tertinggi']];
+function saringIklanHtml(lbls){
+  return '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center">'
     + '<div class="seg">' + [['','Semua']].concat(['works','wajar','tidak','kecil'].map(function(v){ return [v, NILAI_LBL[v]]; })).map(function(x){
         return '<button class="' + (ST.iklanNilai === x[0] ? 'on' : '') + '" data-a="iklan-nilai" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>'
+    + '<div class="seg">' + [['','Semua status'],['aktif','Aktif'],['mati','Tidak aktif']].map(function(x){
+        return '<button class="' + (ST.iklanStatus === x[0] ? 'on' : '') + '" data-a="iklan-status" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>'
     + (lbls.length > 1 ? '<div class="seg">' + [['','Semua hasil']].concat(lbls.map(function(k){ return [k, k]; })).map(function(x){
         return '<button class="' + (ST.iklanLabel === x[0] ? 'on' : '') + '" data-a="iklan-label" data-v="' + esc(x[0]) + '">' + esc(x[1]) + '</button>'; }).join('') + '</div>' : '')
-    + '</div>';
-  var tampil = semua.filter(function(r){ return (!ST.iklanNilai || r._nilai === ST.iklanNilai) && (!ST.iklanLabel || r.hasil_label === ST.iklanLabel); });
-  var tabel = '<div style="overflow-x:auto"><table class="tbl-ik"><thead><tr><th></th><th>Iklan</th><th>Status</th><th class="n">Biaya</th><th class="n">Impresi</th><th class="n">Jangkauan</th><th class="n">CTR</th><th class="n">Hasil</th><th class="n">Biaya / hasil</th><th>Penilaian</th></tr></thead><tbody>'
+    + '<select data-a="iklan-urut" style="padding:6px 8px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit;font-size:12.5px">'
+    + IKLAN_URUT.map(function(x){ return '<option value="' + x[0] + '"' + (ST.iklanUrut === x[0] ? ' selected' : '') + '>Urut: ' + x[1] + '</option>'; }).join('') + '</select>'
+    + '<input id="iklan-cari" data-a="iklan-cari" type="search" value="' + esc(ST.iklanQ) + '" placeholder="Cari iklan / kampanye…" autocomplete="off"'
+    + ' style="margin-left:auto;min-width:200px;padding:6px 10px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit;font-size:13px"></div>';
+}
+/* Tabel digambar ke wadahnya sendiri (#iklan-daftar): mengetik di kotak cari
+   cuma menggambar ulang tabelnya, kotaknya tidak kehilangan fokus. */
+function tabelIklanHtml(semua){
+  var q = String(ST.iklanQ || '').toLowerCase();
+  var tampil = semua.filter(function(r){
+    if (ST.iklanNilai && r._nilai !== ST.iklanNilai) return false;
+    if (ST.iklanLabel && r.hasil_label !== ST.iklanLabel) return false;
+    if (ST.iklanStatus === 'aktif' && r.status !== 'ACTIVE') return false;
+    if (ST.iklanStatus === 'mati' && r.status === 'ACTIVE') return false;
+    if (q && (String(r.nama) + ' ' + String(r.kampanye) + ' ' + String(r.adset)).toLowerCase().indexOf(q) < 0) return false;
+    return true;
+  });
+  var u = ST.iklanUrut;
+  tampil.sort(function(x, y){
+    if (u === 'hasil') return num(y.hasil_n) - num(x.hasil_n);
+    if (u === 'ctr') return num(y.ctr) - num(x.ctr);
+    if (u === 'cpr') { var cx = biayaHasil(x), cy = biayaHasil(y);
+      if (cx == null && cy == null) return 0; if (cx == null) return 1; if (cy == null) return -1; return cx - cy; }
+    return num(y.spend) - num(x.spend);
+  });
+  return '<div style="font-size:12px;color:var(--k-txt-3);margin:0 0 6px">' + tampil.length + ' dari ' + semua.length + ' iklan</div>'
+    + '<div style="overflow-x:auto"><table class="tbl-ik"><thead><tr><th></th><th>Iklan</th><th>Status</th><th class="n">Biaya</th><th class="n">Impresi</th><th class="n">Jangkauan</th><th class="n">CTR</th><th class="n">Hasil</th><th class="n">Biaya / hasil</th><th>Penilaian</th></tr></thead><tbody>'
     + tampil.map(function(r){
       var c = biayaHasil(r);
       return '<tr><td>' + (/^https:\/\//i.test(r.thumb || '') ? '<img src="' + esc(r.thumb) + '" alt="" referrerpolicy="no-referrer">' : '') + '</td>'
@@ -1222,11 +1312,7 @@ function vIklan(){
         + '<td class="n">' + (c == null ? '—' : rupiah(c) + (r.hasil_label === 'Jangkauan' ? '<div style="font-size:11px;color:var(--muted)">per 1.000</div>' : '')) + '</td>'
         + '<td><span class="nilai ' + r._nilai + '" title="' + esc(r._ket) + '">' + NILAI_LBL[r._nilai] + '</span><div style="font-size:11px;color:var(--muted);max-width:220px">' + esc(r._ket) + '</div></td></tr>';
     }).join('') + '</tbody></table></div>'
-    + (tampil.length ? '' : '<div class="kosong">Tidak ada iklan di saringan ini.</div>');
-  var cara = '<div class="pita info" style="margin-top:12px"><b>Cara menilai:</b> tiap iklan dibandingkan dengan <b>median biaya per hasil</b> iklan lain yang hasilnya sejenis pada periode yang sama. '
-    + '<b>Works</b> = ≥20% lebih murah, <b>Tidak works</b> = ≥30% lebih mahal atau belum menghasilkan apa pun, <b>Data belum cukup</b> = biayanya di bawah ' + rupiah(IKLAN_MIN) + '. '
-    + 'Hasil dipilih menurut tujuan kampanye (chat, klik tautan, jangkauan, video views, lead, pembelian).</div>';
-  return kepala + kartu + '<div class="kartu"><h2>Daftar iklan</h2>' + hasilRingkas + saring + tabel + cara + '</div>';
+    + (tampil.length ? '' : '<div class="kosong">' + (ST.iklanQ ? 'Tidak ada iklan yang cocok dengan "' + esc(ST.iklanQ) + '".' : 'Tidak ada iklan di saringan ini.') + '</div>');
 }
 
 /* ===================== PENGATURAN ===================== */
@@ -1356,6 +1442,15 @@ document.addEventListener('click', function(ev){
   if (a === 'iklan-nilai') { ST.iklanNilai = v; render(); return; }
   if (a === 'iklan-label') { ST.iklanLabel = v; render(); return; }
   if (a === 'iklan-sync') { iklanSinkron(false); return; }
+  if (a === 'iklan-status') { ST.iklanStatus = v; render(); return; }
+  if (a === 'iklan-ai') {
+    ST.iklanAIJalan = true; ST.iklanAIGalat = ''; render();
+    var peAI = ST.iklanPe;
+    api('campaignAdsAI', { periode: peAI }).then(function(r){ ST.iklanAI = r; ST.iklanAIPe = peAI; })
+      .catch(function(e){ ST.iklanAIGalat = e.message || 'Gagal tanpa keterangan'; })
+      .then(function(){ ST.iklanAIJalan = false; render(); });
+    return;
+  }
   if (a === 'ig-putus') {
     if (!confirm('Putuskan akun Instagram? Postingan yang sudah ditarik tetap tersimpan; sinkron otomatis berhenti sampai dihubungkan lagi.')) return;
     api('campaignIgPutus').then(function(){ toast('Akun Instagram diputus.'); return muat(); }).catch(function(e){ toast(e.message, true); }).then(render);
@@ -1465,6 +1560,15 @@ document.addEventListener('click', function(ev){
     return;
   }
 });
+var IKLAN_CARI_T = null;
+document.addEventListener('input', function(ev){
+  var el = ev.target; if (el.getAttribute('data-a') !== 'iklan-cari') return;
+  clearTimeout(IKLAN_CARI_T);
+  IKLAN_CARI_T = setTimeout(function(){
+    ST.iklanQ = el.value.trim();
+    var w = document.getElementById('iklan-daftar'); if (w) w.innerHTML = tabelIklanHtml(ST.iklanRows);
+  }, 200);
+});
 var TOP_CARI_T = null;
 document.addEventListener('input', function(ev){
   var el = ev.target; if (el.getAttribute('data-a') !== 'top-cari') return;
@@ -1480,6 +1584,7 @@ document.addEventListener('change', function(ev){
   var el = ev.target; if (el.getAttribute('data-a') === 'ins-kat') { ST.insKat = el.value; render(); }
   if (el.getAttribute('data-a') === 'top-dari') { ST.topDari = el.value; ST.topHal = 1; render(); }
   if (el.getAttribute('data-a') === 'top-sampai') { ST.topSampai = el.value; ST.topHal = 1; render(); }
+  if (el.getAttribute('data-a') === 'iklan-urut') { ST.iklanUrut = el.value; var wu = document.getElementById('iklan-daftar'); if (wu) wu.innerHTML = tabelIklanHtml(ST.iklanRows); }
 });
 document.addEventListener('keydown', function(ev){ if (ev.key === 'Escape' && MODAL_DATA) tutupModal(); });
 

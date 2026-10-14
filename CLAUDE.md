@@ -937,7 +937,7 @@ akan tertimpa.
   dengan mengosongkan tokennya.
 
 ```bash
-node tools/uji-campaign.js   # 205 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
+node tools/uji-campaign.js   # 214 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
 **Bank Konten (14 Okt 2026)** — menu `bank`, tabel `cg_bank` (lahir di
@@ -975,6 +975,9 @@ hasil iklan SEJENIS (label sama, spend ≥ Rp50.000, minimal 3). Tanpa DELETE:
 yang dibaca cuma baris sinkron terakhir periode itu. Postingan IG yang
 dipromosikan dicocokkan ke Konten terpopuler lewat ID media / kode tautan,
 dan panel detailnya menyebut angka Instagram API = organik.
+Halaman Iklan: Top iklan (termurah per jenis hasil), cari/saring/urut lokal
+(tabel di #iklan-daftar, kotak cari tidak dibuat ulang), Saran AI `campaignAdsAI`
+(usulan saja, ad_id karangan dibuang, tidak menulis apa pun).
 
 **"MySQL server has gone away" (14 Okt 2026)**: panggilan AI 1–2 menit
 melewati wait_timeout MySQL, sambungan PDO statis sudah diputus server.

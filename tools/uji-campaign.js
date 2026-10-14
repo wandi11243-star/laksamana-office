@@ -119,6 +119,8 @@ function buatServer(opsi) {
     else if (b.action === 'campaignTiktokSync') data = { jumlah: 2, total: 2, riwayatSelesai: false };
     else if (b.action === 'campaignTop') data = topTiruan(S, b.data);
     else if (b.action === 'campaignAds') data = { periode: b.data.periode, syncAt: Date.now(), baris: IKLAN_UJI };
+    else if (b.action === 'campaignAdsAI') data = { ringkasan: 'Ringkasan iklan uji', model: 'm', lanjutkan: [{ ad_id: 'a1', nama: 'Iklan murah', alasan: 'Biaya per chat Rp5.000', saran: 'Naikkan budget 20%' }],
+      perbaiki: [], hentikan: [{ ad_id: 'a4', nama: 'Iklan mahal', alasan: 'Rp30.000 per chat', saran: '' }], saranUmum: ['Uji hook baru'] };
     else data = { ok: true };
     return Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: true, data })) });
   }
@@ -445,8 +447,35 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('biaya di bawah ambang = Data belum cukup', /nilai kecil/.test(baris('Iklan kecil')));
     cek('sudah berbiaya tapi tanpa hasil = Tidak works', /nilai tidak/.test(baris('Iklan nol hasil')) && /belum menghasilkan/.test(baris('Iklan nol hasil')));
     cek('cara menilai dijelaskan di layar', /median biaya per hasil/.test(h));
+    /* Top iklan: juara per jenis hasil = biaya per hasil termurah */
+    const top = h.slice(h.indexOf('<h2>Top iklan</h2>'), h.indexOf('<h2>Saran AI</h2>'));
+    cek('Top iklan menampilkan biaya per hasil termurah (Iklan murah)', /Iklan murah/.test(top) && !/Iklan mahal/.test(top));
+    /* Cari: hanya tabel yang digambar ulang, kotak tetap fokus */
+    const kotak = b.d.getElementById('iklan-cari');
+    kotak.focus(); kotak.value = 'mahal'; kotak.dispatchEvent(new b.w.Event('input', { bubbles: true })); await tunggu(350);
+    const tb = b.d.getElementById('iklan-daftar').innerHTML;
+    cek('cari iklan menyaring tabel', /Iklan mahal/.test(tb) && !/Iklan murah/.test(tb) && /1 dari 6 iklan/.test(tb));
+    cek('kotak cari iklan tetap fokus (tidak dibuat ulang)', b.d.getElementById('iklan-cari') === kotak && b.d.activeElement === kotak);
+    kotak.value = ''; kotak.dispatchEvent(new b.w.Event('input', { bubbles: true })); await tunggu(350);
+    /* Saring status & urut */
+    klik(b.d, '[data-a="iklan-status"][data-v="mati"]');
+    const ts = b.d.getElementById('iklan-daftar').innerHTML;
+    cek('saring status "Tidak aktif" hanya iklan dijeda', /Iklan median B/.test(ts) && !/Iklan murah/.test(ts));
+    klik(b.d, '[data-a="iklan-status"][data-v=""]');
+    const sel = b.d.querySelector('[data-a="iklan-urut"]'); sel.value = 'cpr'; sel.dispatchEvent(new b.w.Event('change', { bubbles: true }));
+    const tu = b.d.getElementById('iklan-daftar').innerHTML;
+    cek('urut biaya/hasil termurah: Iklan murah di atas, tanpa hasil di bawah', tu.indexOf('Iklan murah') < tu.indexOf('Iklan mahal') && tu.indexOf('Iklan mahal') < tu.indexOf('Iklan nol hasil'));
+    /* Saran AI */
+    b.srv.S.setting.aiSiap = true; await b.w.__cg.muat(); b.w.__cg.render();
+    klik(b.d, '[data-a="iklan-ai"]'); await tunggu(80);
+    const ha = b.d.getElementById('app').innerHTML;
+    cek('Saran AI memanggil campaignAdsAI untuk periode yang dibuka', b.srv.log.some(x => x.action === 'campaignAdsAI' && x.data.periode === '30'));
+    cek('Saran AI tampil: Teruskan / Hentikan + saran umum', /Ringkasan iklan uji/.test(ha) && /Teruskan/.test(ha) && /Naikkan budget 20%/.test(ha) && /Hentikan/.test(ha) && /Uji hook baru/.test(ha));
+    const aiP = PHP_LIB.slice(PHP_LIB.indexOf('function cg_ads_ai('), PHP_LIB.indexOf('/* Daftar iklan satu periode'));
+    cek('php: saran AI membuang ad_id yang tidak ada di data', aiP.includes("!isset($ada[(string)$x['ad_id']])"));
+    cek('php: saran AI tidak menulis apa pun', !/INSERT|UPDATE|DELETE/.test(aiP));
     klik(b.d, '[data-a="iklan-nilai"][data-v="works"]');
-    const h2 = b.d.getElementById('app').innerHTML;
+    const h2 = b.d.getElementById('iklan-daftar').innerHTML;
     cek('saring "Works" hanya iklan works', /Iklan murah/.test(h2) && !/Iklan mahal/.test(h2));
     klik(b.d, '[data-a="iklan-pe"][data-v="max"]'); await tunggu(60);
     cek('ganti periode memuat ulang dari server', b.srv.log.some(x => x.action === 'campaignAds' && x.data.periode === 'max'));
@@ -464,7 +493,7 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('php: ID akun iklan bukan angka ditolak', PHP_LIB.includes("ID akun iklan harus angka"));
     cek('php: postingan IG yang dipromosikan dicocokkan lewat ID media & kode tautan', PHP_LIB.includes("$iklanIg['id:' . $r['ig_media']]") && PHP_LIB.includes('function cg_ig_kode('));
     cek('detail postingan Instagram menyebut angka API = organik, dan data iklannya kalau dipromosikan', HTML.includes('Angka dari Instagram API adalah <b>organik</b>') && HTML.includes('pernah dipromosikan'));
-    cek('aksi iklan terdaftar', PHP_LIB.includes("case 'campaignAdsSync'") && PHP_LIB.includes("case 'campaignAds'"));
+    cek('aksi iklan terdaftar', PHP_LIB.includes("case 'campaignAdsSync'") && PHP_LIB.includes("case 'campaignAds'") && PHP_LIB.includes("case 'campaignAdsAI'"));
   }
 
   console.log('\n== Instagram ==');

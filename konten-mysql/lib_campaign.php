@@ -1674,6 +1674,61 @@ function cg_ads_sync($pdo) {
 function cg_ig_kode($url) {
   return preg_match('#instagram.com/(?:[^/]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)#', (string)$url, $m) ? $m[1] : '';
 }
+/* SARAN AI untuk iklan (14 Okt 2026, permintaan user: "minta AI untuk
+   generate mana iklan yang oke untuk kita teruskan"). Hasilnya USULAN:
+   tidak tersimpan dan tidak mengubah apa pun di Meta. ad_id yang tidak ada
+   di data DIBUANG — saran untuk iklan karangan tidak bisa ditindaklanjuti. */
+function cg_ads_ai($pdo, $d) {
+  $data = cg_ads_baca($pdo, $d);
+  if (!$data['baris']) throw new Exception('Belum ada data iklan pada periode ini. Tekan Sinkronkan dulu.');
+  $ringkas = array(); $ada = array();
+  foreach (array_slice($data['baris'], 0, 60) as $r) {
+    $n = (int)$r['hasil_n']; $sp = (float)$r['spend'];
+    $ringkas[] = array('ad_id' => $r['ad_id'], 'nama' => $r['nama'], 'kampanye' => $r['kampanye'], 'tujuan' => $r['objective'],
+      'status' => $r['status'], 'biaya' => round($sp), 'impresi' => (int)$r['impresi'], 'jangkauan' => (int)$r['reach'],
+      'ctr' => (float)$r['ctr'], 'frekuensi' => (float)$r['frekuensi'], 'hasil' => $r['hasil_label'], 'jumlah_hasil' => $n,
+      'biaya_per_hasil' => $n > 0 ? round($r['hasil_label'] === 'Jangkauan' ? $sp / $n * 1000 : $sp / $n) : null,
+      'mulai' => $r['tgl_mulai'], 'selesai' => $r['tgl_selesai']);
+    $ada[(string)$r['ad_id']] = (string)$r['nama'];
+  }
+  $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
+  $periode = $data['periode'] === 'max' ? 'sepanjang waktu' : $data['periode'] . ' hari terakhir';
+  $system = 'Kamu media buyer iklan Meta (Facebook & Instagram) untuk bisnis F&B di Indonesia. Jawab dalam Bahasa Indonesia. '
+    . 'Nilai HANYA dari data yang diberikan; jangan mengarang angka. Bandingkan biaya per hasil hanya antar iklan dengan jenis hasil yang sama. '
+    . 'Iklan dengan biaya kecil (di bawah Rp50.000) belum cukup data — sebutkan, jangan dihakimi. Mata uang Rupiah. Balas HANYA satu objek JSON.';
+  $prompt = "Profil brand: $profil
+Periode: $periode
+Data iklan (biaya_per_hasil untuk Jangkauan = per 1.000 orang):
+"
+    . json_encode($ringkas, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+    . "
+
+Bentuk JSON:
+"
+    . '{"ringkasan":"2-3 kalimat kondisi iklan secara umum",'
+    . '"lanjutkan":[{"ad_id":"","nama":"","alasan":"angka yang mendukung","saran":"mis. naikkan budget bertahap 20%"}],'
+    . '"perbaiki":[{"ad_id":"","nama":"","alasan":"","saran":"apa yang diubah: materi, hook, target, tujuan"}],'
+    . '"hentikan":[{"ad_id":"","nama":"","alasan":"","saran":""}],'
+    . '"saranUmum":["..."]}'
+    . "
+Maksimal 5 iklan per kelompok. ad_id WAJIB persis dari data.";
+  $r = cg_ai_tanya($pdo, $system, $prompt, 3000);
+  $h = $r['hasil'];
+  $out = array('ringkasan' => isset($h['ringkasan']) ? cg_potong($h['ringkasan'], 800) : '', 'model' => $r['model']);
+  foreach (array('lanjutkan', 'perbaiki', 'hentikan') as $k) {
+    $out[$k] = array();
+    foreach ((isset($h[$k]) && is_array($h[$k]) ? $h[$k] : array()) as $x) {
+      if (!is_array($x) || !isset($x['ad_id']) || !isset($ada[(string)$x['ad_id']])) continue;
+      $out[$k][] = array('ad_id' => (string)$x['ad_id'], 'nama' => $ada[(string)$x['ad_id']],
+        'alasan' => cg_potong(isset($x['alasan']) ? $x['alasan'] : '', 400), 'saran' => cg_potong(isset($x['saran']) ? $x['saran'] : '', 400));
+      if (count($out[$k]) >= 5) break;
+    }
+  }
+  $out['saranUmum'] = array();
+  foreach ((isset($h['saranUmum']) && is_array($h['saranUmum']) ? $h['saranUmum'] : array()) as $x) if (is_string($x)) $out['saranUmum'][] = cg_potong($x, 300);
+  return $out;
+}
+
 /* Daftar iklan satu periode, HANYA dari sinkron terakhir periode itu. */
 function cg_ads_baca($pdo, $d) {
   cg_pastikan($pdo);
@@ -1753,6 +1808,7 @@ function cg_aksi($action, $body) {
     case 'campaignIgPutus':      return cg_ig_putus($pdo, $nama);
     case 'campaignAdsSync':      return cg_ads_sync($pdo);
     case 'campaignAds':          return cg_ads_baca($pdo, $d);
+    case 'campaignAdsAI':        return cg_ads_ai($pdo, $d);
     case 'campaignSetting':
       if (!sesi_admin_modul($u, 'campaign')) sesi_tolak_tak_berhak('Pengaturan Campaign hanya untuk admin modul Campaign.');
       return cg_setting_simpan($pdo, $d);
