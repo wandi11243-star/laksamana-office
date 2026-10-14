@@ -680,6 +680,21 @@ function cg_bank_arsip($pdo, $id, $arsip, $nama) {
   return array('id' => $id);
 }
 
+/* HAPUS PERMANEN (14 Okt 2026, permintaan user: "ide yang diarsipkan bisa
+   dihapus"). HANYA yang sudah ARSIP — dua langkah dengan jeda di tengah
+   (arsipkan dulu, baru hapus), dan jeda itulah yang menahan penghapusan
+   karena salah klik. Syaratnya ditegakkan DI SQL, bukan cuma di layar:
+   tombolnya memang hanya digambar di tab Arsip, tapi satu panggilan dari
+   console melewati seluruh penjagaan layar. Jadwal yang pernah lahir dari
+   ide ini TIDAK ikut terhapus — ia milik Kalender. */
+function cg_bank_hapus($pdo, $id) {
+  cg_pastikan($pdo);
+  $q = $pdo->prepare("DELETE FROM cg_bank WHERE id=:id AND status='ARSIP'");
+  $q->execute(array(':id' => (string)$id));
+  if ($q->rowCount() === 0) throw new Exception('Hanya ide yang sudah diarsipkan yang bisa dihapus.');
+  return array('id' => $id);
+}
+
 /* GENERATE CONTENT PLANNING (14 Okt 2026). AI menyusun rencana konten untuk
    satu rentang tanggal dari profil brand, insight yang masih aktif, kategori
    pola, dan postingan brand yang paling jalan. Hasilnya LANGSUNG masuk Bank
@@ -1186,6 +1201,7 @@ function cg_aksi($action, $body) {
     case 'campaignInsightAI':    return cg_insight_ai($pdo);
     case 'campaignBankGenerate': return cg_bank_generate($pdo, $d, $nama);
     case 'campaignBankSimpan':   return cg_bank_simpan($pdo, $d, $nama);
+    case 'campaignBankHapus':    return cg_bank_hapus($pdo, isset($d['id']) ? $d['id'] : '');
     case 'campaignBankArsip':    return cg_bank_arsip($pdo, isset($d['id']) ? $d['id'] : '', !empty($d['arsip']), $nama);
     case 'campaignTiktokMulai':  return cg_tiktok_mulai($pdo, $nama);
     case 'campaignTiktokSync':   return cg_tiktok_sync($pdo);

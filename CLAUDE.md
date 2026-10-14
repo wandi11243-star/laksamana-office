@@ -946,7 +946,10 @@ planning" (rentang ≤2 bulan, 3–20 ide) membaca profil + insight aktif +
 pilar (`cg_kategori`) + `cg_bukti_post`; hasilnya masuk sebagai IDE, BUKAN
 jadwal. *Jadwalkan* membuka form jadwal terisi dan mengirim `bankId` →
 `cg_jadwal_simpan` menandai idenya TERJADWAL. Ide riset bisa *Simpan ke Bank*.
-Tidak ada DELETE: arsip/pulihkan. Tombol Refresh kanan atas DICABUT.
+Arsip/pulihkan; **hapus permanen HANYA untuk ide berstatus ARSIP** (permintaan
+user 14 Okt 2026) — syaratnya di SQL (`WHERE status='ARSIP'`), satu-satunya
+DELETE di lib_campaign (dijaga uji). Jadwal yang lahir dari ide itu tidak ikut
+terhapus. Tombol Refresh kanan atas DICABUT.
 
 **"MySQL server has gone away" (14 Okt 2026)**: panggilan AI 1–2 menit
 melewati wait_timeout MySQL, sambungan PDO statis sudah diputus server.
