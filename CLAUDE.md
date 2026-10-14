@@ -937,7 +937,7 @@ akan tertimpa.
   dengan mengosongkan tokennya.
 
 ```bash
-node tools/uji-campaign.js   # 176 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
+node tools/uji-campaign.js   # 184 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
 **Bank Konten (14 Okt 2026)** — menu `bank`, tabel `cg_bank` (lahir di
@@ -960,6 +960,11 @@ Postingan masuk `cg_post` platform 'instagram'; insight per postingan
 (views/reach/saved/shares) 25 per sinkron lewat `insight_at`. Kolom `reach`,
 `saves` NULL = tidak ada sumbernya (TikTok). App ID/Secret: `ig_id`/`ig_secret`
 di cg_setting atau `INSTAGRAM_APP_ID`/`INSTAGRAM_APP_SECRET` di config.php (menang).
+Insight IG DIEKSPANSI di daftar media (`insights.metric(...)`, 50 postingan per
+permintaan) — dulu cuma 30 per sinkron dan reel 300 rb views tidak terbaca;
+ekspansi ditolak = tarik ulang tanpa insight (`$pakaiIns`). `ig_bf_v`=2 menarik
+ulang riwayat SEKALI. Konten terpopuler punya kotak cari (`q` di cg_top);
+mengetik cuma menggambar ulang `#top-daftar` (gambarTop), kotaknya tidak dibuat ulang.
 
 **"MySQL server has gone away" (14 Okt 2026)**: panggilan AI 1–2 menit
 melewati wait_timeout MySQL, sambungan PDO statis sudah diputus server.

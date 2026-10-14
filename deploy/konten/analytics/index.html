@@ -332,7 +332,7 @@ var GALAT = '';          // galat muat
 var VIEW = 'insight';
 var ST = {
   topPlat: '', topUrut: 'views', topHal: 1, topRentang: 'semua', topDari: '', topSampai: '',
-  topSrv: {}, topSibuk: '', topBuka: '',
+  topSrv: {}, topSibuk: '', topBuka: '', topQ: '',
   insPlat: '', insKat: '', insArsip: false,
   kalBulan: null, kalPilih: null,
   risetPilih: null, risetJalan: false, risetMulai: 0, risetGalat: '', risetIsi: null,
@@ -503,15 +503,24 @@ function topRentang(){
    Jawabannya disimpan per KUNCI saringan; kegagalan IKUT dicatat di kunci
    itu, kalau tidak render -> muat -> render berputar selamanya (pelajaran
    muatReqMkt() di panel Planning). */
-function topKunci(){ var r = topRentang(); return [ST.topPlat, ST.topUrut, r.dari, r.sampai, ST.topHal].join('|'); }
+function topKunci(){ var r = topRentang(); return [ST.topPlat, ST.topUrut, r.dari, r.sampai, ST.topHal, ST.topQ].join('|'); }
 function muatTop(){
   var k = topKunci(), r = topRentang();
   if (ST.topSrv[k] || ST.topSibuk === k) return;
   ST.topSibuk = k;
-  api('campaignTop', { platform: ST.topPlat, urut: ST.topUrut, dari: r.dari, sampai: r.sampai, hal: ST.topHal, per: 10 })
+  api('campaignTop', { platform: ST.topPlat, urut: ST.topUrut, dari: r.dari, sampai: r.sampai, hal: ST.topHal, per: 10, q: ST.topQ })
     .then(function(d){ ST.topSrv[k] = { data: d }; })
     .catch(function(e){ ST.topSrv[k] = { galat: e.message }; })
-    .then(function(){ if (ST.topSibuk === k) ST.topSibuk = ''; if (VIEW === 'insight') render(); });
+    .then(function(){ if (ST.topSibuk === k) ST.topSibuk = ''; if (VIEW === 'insight') gambarTop(); });
+}
+/* Yang sedang mengetik di kotak cari TIDAK boleh kehilangan fokus: kalau
+   kotaknya sedang dipegang, yang digambar ulang cuma daftarnya
+   (#top-daftar), bukan seluruh halaman — render di modul ini TOTAL, dan
+   kotak yang dibuat ulang cuma menerima huruf pertama. */
+function gambarTop(){
+  var w = document.getElementById('top-daftar'), cari = document.getElementById('top-cari');
+  if (w && cari && document.activeElement === cari) { w.innerHTML = daftarTopHtml(ST.topSrv[topKunci()]); return; }
+  render();
 }
 
 function metrikTeks(e){
@@ -644,20 +653,7 @@ function rinciHtml(e){
   }
   return '<div class="rinci"><div class="rinci-grid">' + kotak + '</div>' + (ket ? '<p>' + ket + '</p>' : '') + '</div>';
 }
-function kartuTop(){
-  var k = topKunci(), hasil = ST.topSrv[k];
-  if (!hasil) muatTop();
-  var seg = '<div class="seg">' + [['','Semua']].concat(PLATFORM.map(function(p){ return [p,p]; })).map(function(x){
-    return '<button class="' + (ST.topPlat === x[0] ? 'on' : '') + '" data-a="top-plat" data-v="' + esc(x[0]) + '">' + esc(x[1]) + '</button>'; }).join('') + '</div>';
-  var urut = '<div class="seg"><button class="' + (ST.topUrut==='views'?'on':'') + '" data-a="top-urut" data-v="views">Paling banyak ditonton</button>'
-    + '<button class="' + (ST.topUrut==='er'?'on':'') + '" data-a="top-urut" data-v="er">Engagement tertinggi</button></div>';
-  var rentang = '<div class="seg">' + [['semua','Semua waktu'],['7','7 hari'],['30','30 hari'],['90','90 hari'],['bulan','Bulan ini'],['khusus','Rentang…']].map(function(x){
-    return '<button class="' + (ST.topRentang === x[0] ? 'on' : '') + '" data-a="top-rentang" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>'
-    + (ST.topRentang === 'khusus'
-      ? ' <span style="display:inline-flex;gap:6px;align-items:center;font-size:12.5px;color:var(--k-txt-3)">'
-        + '<input type="date" data-a="top-dari" value="' + esc(ST.topDari) + '" style="padding:5px 8px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit"> s/d '
-        + '<input type="date" data-a="top-sampai" value="' + esc(ST.topSampai) + '" style="padding:5px 8px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit"></span>'
-      : '');
+function daftarTopHtml(hasil){
   var isi, pager = '', info = '';
   if (!hasil) {
     isi = '<div class="kosong">Memuat…</div>';
@@ -674,7 +670,7 @@ function kartuTop(){
         + '<button class="btn btn-ghost btn-sm" data-a="top-rinci" data-i="' + i + '">' + (ST.topBuka === topKunciBaris(e) ? 'Tutup ▴' : 'Detail ▾') + '</button>'
         + '<button class="btn btn-ghost btn-sm" data-a="jadikan" data-i="' + i + '">+ Jadikan insight</button></div>'
         + (ST.topBuka === topKunciBaris(e) ? rinciHtml(e) : '');
-    }).join('') : '<div class="kosong">' + (ST.topRentang !== 'semua' || ST.topPlat
+    }).join('') : '<div class="kosong">' + (ST.topQ ? 'Tidak ada postingan yang cocok dengan "' + esc(ST.topQ) + '".' : '') + (ST.topQ ? '' : ST.topRentang !== 'semua' || ST.topPlat
         ? 'Tidak ada postingan' + (ST.topPlat ? ' ' + esc(ST.topPlat) : '') + ' pada rentang ini.'
         : 'Belum ada postingan. Hubungkan akun TikTok atau Instagram di atas, atau isi Input Performa di modul Konten.') + '</div>';
     if (d.total) info = '<div style="font-size:12px;color:var(--k-txt-3);margin:4px 0 2px">Menampilkan ' + (mulai + 1) + '–' + (mulai + d.baris.length) + ' dari ' + d.total + ' konten</div>';
@@ -683,6 +679,22 @@ function kartuTop(){
       + '<span style="align-self:center;font-size:12.5px;color:var(--k-txt-3)">Halaman ' + d.hal + ' dari ' + d.halMaks + '</span>'
       + '<button class="btn btn-ghost btn-sm" data-a="top-hal" data-v="' + (d.hal+1) + '"' + (d.hal>=d.halMaks?' disabled':'') + '>›</button></div>';
   }
+  return info + isi + pager;
+}
+function kartuTop(){
+  var k = topKunci(), hasil = ST.topSrv[k];
+  if (!hasil) muatTop();
+  var seg = '<div class="seg">' + [['','Semua']].concat(PLATFORM.map(function(p){ return [p,p]; })).map(function(x){
+    return '<button class="' + (ST.topPlat === x[0] ? 'on' : '') + '" data-a="top-plat" data-v="' + esc(x[0]) + '">' + esc(x[1]) + '</button>'; }).join('') + '</div>';
+  var urut = '<div class="seg"><button class="' + (ST.topUrut==='views'?'on':'') + '" data-a="top-urut" data-v="views">Paling banyak ditonton</button>'
+    + '<button class="' + (ST.topUrut==='er'?'on':'') + '" data-a="top-urut" data-v="er">Engagement tertinggi</button></div>';
+  var rentang = '<div class="seg">' + [['semua','Semua waktu'],['7','7 hari'],['30','30 hari'],['90','90 hari'],['bulan','Bulan ini'],['khusus','Rentang…']].map(function(x){
+    return '<button class="' + (ST.topRentang === x[0] ? 'on' : '') + '" data-a="top-rentang" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>'
+    + (ST.topRentang === 'khusus'
+      ? ' <span style="display:inline-flex;gap:6px;align-items:center;font-size:12.5px;color:var(--k-txt-3)">'
+        + '<input type="date" data-a="top-dari" value="' + esc(ST.topDari) + '" style="padding:5px 8px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit"> s/d '
+        + '<input type="date" data-a="top-sampai" value="' + esc(ST.topSampai) + '" style="padding:5px 8px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit"></span>'
+      : '');
   /* Riwayat TikTok yang belum lengkap DIKATAKAN — tanpa itu daftar "sepanjang
      masa" yang baru berisi video terbaru terbaca sebagai daftar yang lengkap,
      dan video lama yang paling laris dikira tidak ada. */
@@ -708,7 +720,10 @@ function kartuTop(){
      supaya tidak ditebak — pelajaran kolom Kontribusi di modul Analytics. */
   return '<div class="kartu"><div class="kepala"><div><h2>Konten terpopuler</h2><div class="sub">Konten yang paling jalan dari semua sumber, menurut tanggal tayang. ER = (likes + komentar + share) dibagi views.</div></div>'
     + '<div class="r">' + urut + '</div></div>' + riwayat
-    + '<div style="margin-bottom:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">' + seg + rentang + '</div>' + info + isi + pager + '</div>';
+    + '<div style="margin-bottom:8px;display:flex;flex-wrap:wrap;gap:8px;align-items:center">' + seg + rentang
+    + '<input id="top-cari" data-a="top-cari" type="search" value="' + esc(ST.topQ) + '" placeholder="Cari judul / caption…" autocomplete="off"'
+    + ' style="margin-left:auto;min-width:200px;padding:6px 10px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit;font-size:13px"></div>'
+    + '<div id="top-daftar">' + daftarTopHtml(hasil) + '</div></div>';
 }
 
 function kartuUsulan(){
@@ -1309,6 +1324,17 @@ document.addEventListener('click', function(ev){
       .then(function(){ el.disabled = false; render(); });
     return;
   }
+});
+var TOP_CARI_T = null;
+document.addEventListener('input', function(ev){
+  var el = ev.target; if (el.getAttribute('data-a') !== 'top-cari') return;
+  clearTimeout(TOP_CARI_T);
+  TOP_CARI_T = setTimeout(function(){
+    ST.topQ = el.value.trim(); ST.topHal = 1; ST.topBuka = '';
+    var w = document.getElementById('top-daftar');
+    if (!ST.topSrv[topKunci()] && w) w.innerHTML = '<div class="kosong">Mencari…</div>';
+    if (ST.topSrv[topKunci()]) gambarTop(); else muatTop();
+  }, 350);
 });
 document.addEventListener('change', function(ev){
   var el = ev.target; if (el.getAttribute('data-a') === 'ins-kat') { ST.insKat = el.value; render(); }

@@ -487,6 +487,9 @@ function cg_top($pdo, $d) {
   $sampai = cg_tgl_sah(isset($d['sampai']) ? $d['sampai'] : '');
   $per = max(5, min(50, (int)(isset($d['per']) ? $d['per'] : 10)));
   $hal = max(1, (int)(isset($d['hal']) ? $d['hal'] : 1));
+  /* Kata kunci (14 Okt 2026, permintaan user): dicari di judul/caption,
+     tanpa memandang huruf besar-kecil. */
+  $cari = strtolower(trim((string)(isset($d['q']) ? $d['q'] : '')));
 
   $semua = array(); $url = array();
   /* Angka Input Performa per TAUTAN — dipakai melengkapi baris TikTok yang
@@ -524,6 +527,7 @@ function cg_top($pdo, $d) {
   $lolos = array();
   foreach ($semua as $e) {
     if ($plat !== '' && $e['platform'] !== $plat) continue;
+    if ($cari !== '' && strpos(strtolower($e['judul']), $cari) === false) continue;
     if ($dari !== null || $sampai !== null) {
       if ($e['tanggal'] === '') continue;
       if ($dari !== null && $e['tanggal'] < $dari) continue;
@@ -1331,12 +1335,33 @@ function cg_ig_sync($pdo) {
       ':f' => (int)$g('followers_count'), ':fg' => (int)$g('follows_count'), ':jv' => (int)$g('media_count'), ':p' => 'instagram'));
 
     $fields = 'id,caption,media_type,media_product_type,permalink,timestamp,thumbnail_url,media_url,like_count,comments_count';
+    /* VIEWS SEBELUMNYA CUMA TERISI 30 POSTINGAN PER SINKRON (14 Okt 2026,
+       keluhan user: "views terbanyak cuma 29 rb padahal ada yang 300-an rb").
+       Postingan yang belum kebagian giliran berdiri dengan views 0, jadi reel
+       yang paling laris bisa tidak muncul di Konten terpopuler sama sekali.
+       Sekarang insight ikut DIEKSPANSI di daftar media — satu permintaan
+       untuk 50 postingan. Kalau Instagram menolak ekspansinya (metrik yang
+       tidak berlaku untuk salah satu jenis media menolak SELURUH permintaan),
+       daftar ditarik ulang tanpa insight dan giliran langkah 3 yang mengisi. */
+    $fieldsIns = $fields . ',insights.metric(views,reach,saved,shares)';
+    $pakaiIns = true;
+    $insUp = $pdo->prepare("UPDATE cg_post SET views=:vi, reach=:re, saves=:sa, shares=:sh, insight_at=:at WHERE platform='instagram' AND post_id=:id");
+    $insDari = function($m) {
+      if (!isset($m['insights']['data']) || !is_array($m['insights']['data'])) return null;
+      $o = array();
+      foreach ($m['insights']['data'] as $x) {
+        if (!isset($x['name'])) continue;
+        $v = isset($x['values'][0]['value']) ? $x['values'][0]['value'] : (isset($x['total_value']['value']) ? $x['total_value']['value'] : null);
+        if (is_numeric($v)) $o[$x['name']] = (int)$v;
+      }
+      return $o ? $o : null;
+    };
     $n = 0;
     $ins = $pdo->prepare('INSERT INTO cg_post (platform, post_id, judul, url, cover, tayang_at, views, likes, comments, shares, durasi, sync_at, hilang)
       VALUES (:pl, :id, :ju, :ur, :co, :ta, 0, :li, :cm, 0, 0, :sy, 0)
       ON DUPLICATE KEY UPDATE judul=VALUES(judul), url=VALUES(url), cover=VALUES(cover), tayang_at=VALUES(tayang_at),
         likes=VALUES(likes), comments=VALUES(comments), sync_at=VALUES(sync_at), hilang=0');
-    $simpan = function($m) use ($ins, $now, &$n) {
+    $simpan = function($m) use ($ins, $now, &$n, $insDari, $insUp) {
       $ts = isset($m['timestamp']) ? strtotime((string)$m['timestamp']) : 0;
       $cover = isset($m['thumbnail_url']) ? $m['thumbnail_url'] : (isset($m['media_url']) && (!isset($m['media_type']) || $m['media_type'] !== 'VIDEO') ? $m['media_url'] : '');
       $ins->execute(array(':pl' => 'instagram', ':id' => (string)$m['id'], ':ju' => (string)(isset($m['caption']) ? $m['caption'] : ''),
@@ -1344,11 +1369,20 @@ function cg_ig_sync($pdo) {
         ':ta' => $ts ? $ts * 1000 : 0, ':li' => (int)(isset($m['like_count']) ? $m['like_count'] : 0),
         ':cm' => (int)(isset($m['comments_count']) ? $m['comments_count'] : 0), ':sy' => $now));
       $n++;
+      $ix = $insDari($m);
+      if ($ix) $insUp->execute(array(':vi' => isset($ix['views']) ? $ix['views'] : (isset($ix['reach']) ? $ix['reach'] : 0),
+        ':re' => isset($ix['reach']) ? $ix['reach'] : null, ':sa' => isset($ix['saved']) ? $ix['saved'] : null,
+        ':sh' => isset($ix['shares']) ? $ix['shares'] : 0, ':at' => $now, ':id' => (string)$m['id']));
     };
-    $halaman = function($after) use ($tok, $fields) {
-      $qs = array('fields' => $fields, 'limit' => 50, 'access_token' => $tok);
+    $halaman = function($after) use ($tok, $fields, $fieldsIns, &$pakaiIns) {
+      $qs = array('fields' => $pakaiIns ? $fieldsIns : $fields, 'limit' => 50, 'access_token' => $tok);
       if ($after !== null && $after !== '') $qs['after'] = $after;
       $r = cg_http('GET', CG_IG_GRAPH . '/me/media?' . http_build_query($qs), array(), null, 30);
+      if ($pakaiIns && (!$r['data'] || !isset($r['data']['data']))) {
+        $pakaiIns = false;
+        $qs['fields'] = $fields;
+        $r = cg_http('GET', CG_IG_GRAPH . '/me/media?' . http_build_query($qs), array(), null, 30);
+      }
       if (!$r['data'] || !isset($r['data']['data'])) throw new Exception(cg_ig_galat($r, 'Daftar postingan Instagram tidak terbaca'));
       return $r['data'];
     };
@@ -1366,6 +1400,11 @@ function cg_ig_sync($pdo) {
        dari cursor TERSIMPAN, 4 halaman (200 postingan) per sinkron, sampai
        Instagram bilang tidak ada lagi. Cursor disimpan tiap halaman, jadi
        sinkron yang putus di tengah tidak mengulang dari awal. */
+    /* SEKALI SAJA sesudah ekspansi insight lahir: riwayat yang sudah
+       tertarik tanpa views ditarik ulang dari awal supaya ikut terisi. */
+    if ($pakaiIns && cg_set_baca($pdo, 'ig_bf_v') !== '2') {
+      cg_set_tulis($pdo, 'ig_bf_selesai', ''); cg_set_tulis($pdo, 'ig_bf_after', ''); cg_set_tulis($pdo, 'ig_bf_v', '2');
+    }
     $selesai = cg_set_baca($pdo, 'ig_bf_selesai') === '1';
     if (!$selesai) {
       $c = cg_set_baca($pdo, 'ig_bf_after');

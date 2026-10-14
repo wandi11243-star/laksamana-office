@@ -120,7 +120,7 @@ function buatServer(opsi) {
     const kpUrl = {}; S.konten.forEach(k => { if (k.url && norm(k.platform) === 'TikTok') kpUrl[k.url] = k; });
     S.post.forEach(p => { const man = kpUrl[p.url]; semua.push({ rinci: rinci({ views: p.views, likes: p.likes, comments: p.comments, shares: p.shares }, man && man.m), tercatat: !!man, platform: norm(p.platform), judul: p.judul, url: p.url, tanggal: new Date(p.tayang_at + 7 * 3600e3).toISOString().slice(0, 10), views: p.views, likes: p.likes, comments: p.comments, shares: p.shares, sumber: 'tiktok' }); url[p.url] = 1; });
     S.konten.forEach(k => { if (k.url && url[k.url]) return; semua.push({ rinci: rinci(null, k.m), tercatat: true, platform: norm(k.platform), judul: k.judul, url: k.url, tanggal: k.tanggal, views: k.views, likes: k.likes, comments: k.comments, shares: k.shares, sumber: 'konten' }); });
-    let l = semua.filter(e => (!q.platform || e.platform === q.platform) && (!q.dari || (e.tanggal && e.tanggal >= q.dari)) && (!q.sampai || (e.tanggal && e.tanggal <= q.sampai)));
+    let l = semua.filter(e => (!q.q || e.judul.toLowerCase().includes(String(q.q).toLowerCase())) && (!q.platform || e.platform === q.platform) && (!q.dari || (e.tanggal && e.tanggal >= q.dari)) && (!q.sampai || (e.tanggal && e.tanggal <= q.sampai)));
     l.forEach(e => { e.er = e.views > 0 ? (e.likes + e.comments + e.shares) / e.views : null; });
     l.sort((a, b) => q.urut === 'er' ? ((a.er == null) - (b.er == null) || (b.er - a.er)) : b.views - a.views);
     const per = q.per || 10, halMaks = Math.max(1, Math.ceil(l.length / per)), hal = Math.min(Math.max(1, q.hal || 1), halMaks);
@@ -393,6 +393,27 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('campaignGet memulangkan bank', PHP_LIB.includes("'bank'    => $bank"));
     cek('jadwal dari bank menandai ide TERJADWAL', PHP_LIB.includes("UPDATE cg_bank SET status='TERJADWAL', jadwal_id=:j"));
     cek('aksi bank terdaftar', ['campaignBankGenerate', 'campaignBankSimpan', 'campaignBankArsip', 'campaignBankHapus'].every(x => PHP_LIB.includes("case '" + x + "'")));
+  }
+
+  console.log('\n== Cari di Konten terpopuler ==');
+  {
+    const { w, d, srv } = await buka({ hash: '#insight' });
+    const kotak = d.getElementById('top-cari');
+    cek('kotak cari ada di Konten terpopuler', !!kotak);
+    kotak.focus(); kotak.value = 'combo';
+    kotak.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await tunggu(500);
+    const rq = srv.log.filter(b => b.action === 'campaignTop').pop();
+    cek('kata kunci dikirim ke server (halaman 1)', rq && rq.data.q === 'combo' && rq.data.hal === 1, rq && JSON.stringify(rq.data));
+    const daftar = d.getElementById('top-daftar').innerHTML;
+    cek('hasil cari hanya yang cocok', /Beli special combo/.test(daftar) && !/Goyang terus babe/.test(daftar));
+    cek('kotak cari TIDAK dibuat ulang (fokus tetap)', d.getElementById('top-cari') === kotak && d.activeElement === kotak);
+    kotak.value = 'zzzz'; kotak.dispatchEvent(new w.Event('input', { bubbles: true })); await tunggu(500);
+    cek('tanpa hasil disebut kata kuncinya', /cocok dengan "zzzz"/.test(d.getElementById('top-daftar').innerHTML));
+    cek('php: cg_top menyaring kata kunci di judul', PHP_LIB.includes("strpos(strtolower($e['judul']), $cari) === false"));
+    const igs = PHP_LIB.slice(PHP_LIB.indexOf('function cg_ig_sync('));
+    cek('php: insight IG diekspansi di daftar media (seluruh postingan dapat views)', igs.includes("insights.metric(views,reach,saved,shares)") && igs.includes('$pakaiIns = false;'));
+    cek('php: riwayat IG ditarik ulang SEKALI supaya postingan lama dapat views', igs.includes("cg_set_baca($pdo, 'ig_bf_v') !== '2'"));
   }
 
   console.log('\n== Instagram ==');
