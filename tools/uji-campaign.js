@@ -198,7 +198,7 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('php: angka API menang atas ketikan', rinciPhp.indexOf("'s' => 'api'") > -1 && rinciPhp.indexOf("'s' => 'api'") < rinciPhp.indexOf("'s' => 'manual'"));
     cek('php: yang tidak ada dipulangkan null, bukan 0', /'v' => null/.test(rinciPhp));
     cek('php: kesembilan kunci sama dengan PK_KOLOM', /'reach', 'impr', 'views', 'likes', 'comments', 'shares', 'saves', 'cta', 'follow'/.test(rinciPhp));
-    cek('php: hanya catatan TikTok yang dicocokkan ke postingan TikTok', PHP_LIB.includes("cg_plat_norm($k['platform']) === 'TikTok') $kpUrl"));
+    cek('php: catatan Input Performa dicocokkan per PLATFORM + tautan', PHP_LIB.includes("$kpUrl[cg_plat_norm($k['platform']) . '|' . $k['url']] = $k;") && PHP_LIB.includes("$kunciKp = cg_plat_norm($p['platform']) . '|' . (string)$p['url'];"));
     cek('pita riwayat TikTok belum lengkap disebut', /Riwayat video TikTok masih ditarik bertahap/.test(d.getElementById('app').innerHTML));
 
     /* Jadikan insight: form terisi tautan, tanggal, metrik. */
@@ -393,6 +393,55 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('campaignGet memulangkan bank', PHP_LIB.includes("'bank'    => $bank"));
     cek('jadwal dari bank menandai ide TERJADWAL', PHP_LIB.includes("UPDATE cg_bank SET status='TERJADWAL', jadwal_id=:j"));
     cek('aksi bank terdaftar', ['campaignBankGenerate', 'campaignBankSimpan', 'campaignBankArsip', 'campaignBankHapus'].every(x => PHP_LIB.includes("case '" + x + "'")));
+  }
+
+  console.log('\n== Instagram ==');
+  {
+    /* Belum terhubung, kunci app terisi: tombol Hubungkan aktif & memanggil campaignIgMulai. */
+    const a = await buka({ hash: '#insight' });
+    a.srv.S.setting.igSiap = true;
+    await a.w.__cg.muat(); a.w.__cg.render();
+    const k0 = a.d.getElementById('app').innerHTML;
+    cek('kartu Instagram bukan lagi "Segera hadir"', !/Segera hadir<\/div><div class="ket">Sementara ini angka Instagram/.test(k0) && /data-a="ig-hubung"/.test(k0));
+    const loc = a.w.location.href;
+    a.w.fetch = ((asli) => (u, i) => JSON.parse(i.body).action === 'campaignIgMulai'
+      ? Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: true, data: { url: '#ig-auth' } })) }) : asli(u, i))(a.w.fetch);
+    klik(a.d, '[data-a="ig-hubung"]'); await tunggu(40);
+    cek('Hubungkan Instagram meminta URL otorisasi dari server', a.srv.log.some(b => b.action === 'campaignIgMulai') || /ig-auth/.test(a.w.location.href), loc);
+
+    /* Terhubung: profil + sinkron + putus */
+    const b = await buka({ hash: '#insight', akun: [
+      { platform: 'tiktok', nama: 'TT', terhubung: true, sync_at: Date.now(), sync_galat: '', scope: 'user.info.basic,user.info.profile,user.info.stats,video.list', stats_ada: 0 },
+      { platform: 'instagram', nama: 'Laksamana Muda', terhubung: true, sync_at: Date.now(), sync_galat: '', stats_ada: 1, follower: 5432, following: 10, jml_video: 210,
+        bio: 'Coffee Pekanbaru', profil_url: 'https://www.instagram.com/laksamanamuda.id/', avatar: '', token_exp: Date.now() + 50 * 864e5 }] });
+    const k1 = b.d.getElementById('app').innerHTML;
+    cek('kartu Instagram terhubung: nama, follower & tautan profil', /Laksamana Muda/.test(k1) && /5\.432|5,4|5\.4/.test(k1) && /Buka profil di Instagram/.test(k1), '');
+    klik(b.d, '[data-a="ig-sync"]'); await tunggu(60);
+    cek('Sinkronkan memanggil campaignIgSync', b.srv.log.some(x => x.action === 'campaignIgSync'));
+    klik(b.d, '[data-a="ig-putus"]'); await tunggu(60);
+    cek('Putuskan memanggil campaignIgPutus', b.srv.log.some(x => x.action === 'campaignIgPutus'));
+
+    /* Pengaturan: kotak App ID & Secret, terkirim */
+    const c = await buka({ hash: '#pengaturan', admin: true });
+    cek('Pengaturan punya kotak ID & Rahasia aplikasi Instagram (password)', c.d.getElementById('s-igid').type === 'password' && c.d.getElementById('s-igsecret').type === 'password');
+    c.d.getElementById('s-igid').value = 'id-uji'; c.d.getElementById('s-igsecret').value = 'rahasia-uji';
+    klik(c.d, '[data-a="set-simpan"]'); await tunggu(60);
+    const ks = c.srv.log.filter(x => x.action === 'campaignSetting').pop();
+    cek('Simpan mengirim igId & igSecret', ks && ks.data.igId === 'id-uji' && ks.data.igSecret === 'rahasia-uji');
+
+    /* Server */
+    const cb = fs.readFileSync(path.join(ROOT, 'konten-mysql/campaign-instagram.php'), 'utf8');
+    cek('alamat balik campaign-instagram.php memakai cg_ig_callback', cb.includes('cg_ig_callback(db(), $code, $state)'));
+    const ig = PHP_LIB.slice(PHP_LIB.indexOf('/* ==================== INSTAGRAM'), PHP_LIB.indexOf('/* ==================== SETELAN (admin'));
+    cek('OAuth Instagram: state sekali pakai', ig.includes("hash_equals((string)$st['s'], (string)$state)") && ig.includes("cg_set_tulis($pdo, 'ig_state', '')"));
+    cek('token pendek ditukar jadi token 60 hari', ig.includes("'grant_type' => 'ig_exchange_token'"));
+    cek('token diperbarui sebelum habis (ig_refresh_token)', ig.includes("'grant_type' => 'ig_refresh_token'"));
+    cek('scope = izin yang ditambahkan di app', /define\('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights'\)/.test(PHP_LIB));
+    cek('insight per postingan dibatasi per sinkron', ig.includes('LIMIT 25') && ig.includes('/insights?'));
+    cek('reach & saves lahir lewat ALTER, NULL bawaan', PHP_LIB.includes("ADD COLUMN reach BIGINT NULL") && PHP_LIB.includes("ADD COLUMN saves BIGINT NULL"));
+    cek('campaignGet TIDAK memulangkan App Secret Instagram', !/'ig_secret'\s*\)?\s*[,)]/.test(PHP_LIB.slice(PHP_LIB.indexOf('function cg_baca('), PHP_LIB.indexOf('function cg_konten_perf('))));
+    cek('aksi Instagram terdaftar', ['campaignIgMulai', 'campaignIgSync', 'campaignIgPutus'].every(x => PHP_LIB.includes("case '" + x + "'")));
+    cek('App ID/Secret disimpan sebagai rahasia (kosong = tidak diubah)', PHP_LIB.includes("'igId' => 'ig_id', 'igSecret' => 'ig_secret'"));
   }
 
   console.log('\n== Pengaturan ==');

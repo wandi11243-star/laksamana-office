@@ -117,6 +117,10 @@ define('CG_PROFIL_BAWAAN', 'Laksamana Muda: coffee shop, resto, dan venue nongkr
    app "Laksamana Campaign" di TikTok Developer Portal, dan wajib disebut di
    deploy/legal/privacy.html — scope baru berarti kebijakan privasi ikut diubah. */
 define('CG_TIKTOK_SCOPE', 'user.info.basic,user.info.profile,user.info.stats,video.list');
+/* Instagram API dengan login bisnis Instagram (14 Okt 2026). Scope WAJIB sama
+   dengan izin yang ditambahkan di kasus penggunaan app Meta. */
+define('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights');
+define('CG_IG_GRAPH', 'https://graph.instagram.com/v23.0');
 
 function cg_now_ms() { return (int)round(microtime(true) * 1000); }
 function cg_uid($awal) { return $awal . base_convert((string)cg_now_ms(), 10, 36) . bin2hex(random_bytes(3)); }
@@ -260,6 +264,11 @@ function cg_pastikan($pdo) {
   /* Video yang tidak lagi dipulangkan TikTok (dihapus/diprivat) — lihat
      langkah 3 cg_tiktok_sync(). Ditandai, tidak dihapus. */
   if (!cg_kolom_ada($pdo, 'cg_post', 'hilang')) $pdo->exec('ALTER TABLE cg_post ADD COLUMN hilang TINYINT(1) NOT NULL DEFAULT 0');
+  /* Reach & saves (14 Okt 2026): cuma Instagram yang menyediakannya lewat
+     API. NULL = tidak ada sumbernya (TikTok), beda dari 0 yang memang nol. */
+  if (!cg_kolom_ada($pdo, 'cg_post', 'reach')) $pdo->exec('ALTER TABLE cg_post ADD COLUMN reach BIGINT NULL');
+  if (!cg_kolom_ada($pdo, 'cg_post', 'saves')) $pdo->exec('ALTER TABLE cg_post ADD COLUMN saves BIGINT NULL');
+  if (!cg_kolom_ada($pdo, 'cg_post', 'insight_at')) $pdo->exec('ALTER TABLE cg_post ADD COLUMN insight_at BIGINT NOT NULL DEFAULT 0');
   $sudah = true;
 }
 
@@ -287,6 +296,20 @@ function cg_tiktok_key($pdo) {
 function cg_tiktok_secret($pdo) {
   if (defined('TIKTOK_CLIENT_SECRET') && TIKTOK_CLIENT_SECRET !== '') return TIKTOK_CLIENT_SECRET;
   return cg_set_baca($pdo, 'tiktok_secret');
+}
+
+function cg_ig_id($pdo) {
+  if (defined('INSTAGRAM_APP_ID') && INSTAGRAM_APP_ID !== '') return INSTAGRAM_APP_ID;
+  return cg_set_baca($pdo, 'ig_id');
+}
+function cg_ig_secret($pdo) {
+  if (defined('INSTAGRAM_APP_SECRET') && INSTAGRAM_APP_SECRET !== '') return INSTAGRAM_APP_SECRET;
+  return cg_set_baca($pdo, 'ig_secret');
+}
+function cg_ig_redirect_uri() {
+  $host = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : '';
+  if ($host === '') return '';
+  return 'https://' . $host . '/konten-api-mysql/campaign-instagram.php';
 }
 
 /* Alamat balik OAuth. Diturunkan dari SERVER_NAME (bukan HTTP_HOST yang bisa
@@ -345,6 +368,8 @@ function cg_baca($pdo, $u) {
   $postInfo = array(
     'total' => (int)$pdo->query("SELECT COUNT(*) FROM cg_post WHERE platform='tiktok' AND hilang=0")->fetchColumn(),
     'riwayatSelesai' => cg_set_baca($pdo, 'tiktok_bf_selesai') === '1',
+    'igTotal' => (int)$pdo->query("SELECT COUNT(*) FROM cg_post WHERE platform='instagram' AND hilang=0")->fetchColumn(),
+    'igRiwayatSelesai' => cg_set_baca($pdo, 'ig_bf_selesai') === '1',
   );
   /* Akun TANPA token — kolom rahasia tidak pernah ikut SELECT ini. */
   $akun = $pdo->query('SELECT platform, nama, avatar, follower, bio, profil_url, terverifikasi, following, likes_total, jml_video, stats_ada, scope, token_exp, refresh_exp, sync_at, sync_galat, oleh, at FROM cg_akun')->fetchAll();
@@ -369,6 +394,9 @@ function cg_baca($pdo, $u) {
       'tiktokDariConfig' => defined('TIKTOK_CLIENT_KEY') && TIKTOK_CLIENT_KEY !== '',
       'redirectUri' => cg_redirect_uri(),
       'tiktokScope' => CG_TIKTOK_SCOPE,
+      'igSiap'      => cg_ig_id($pdo) !== '' && cg_ig_secret($pdo) !== '',
+      'igDariConfig' => defined('INSTAGRAM_APP_ID') && INSTAGRAM_APP_ID !== '',
+      'igRedirectUri' => cg_ig_redirect_uri(),
     ),
     'boleh' => array('admin' => sesi_admin_modul($u, 'campaign')),
   );
@@ -465,14 +493,22 @@ function cg_top($pdo, $d) {
      dicocokkan: tautan TikTok yang ditempel di catatan Instagram bukan angka
      TikTok. */
   $kp = cg_konten_perf($pdo); $kpUrl = array();
-  foreach ($kp as $k) if ($k['url'] !== '' && cg_plat_norm($k['platform']) === 'TikTok') $kpUrl[$k['url']] = $k;
-  foreach ($pdo->query("SELECT platform, judul, url, tayang_at, views, likes, comments, shares FROM cg_post WHERE hilang=0")->fetchAll() as $p) {
-    $man = ((string)$p['url'] !== '' && isset($kpUrl[(string)$p['url']])) ? $kpUrl[(string)$p['url']] : null;
+  /* Dicocokkan per PLATFORM + tautan: tautan TikTok yang ditempel di catatan
+     Instagram bukan angka TikTok (dan sebaliknya). */
+  foreach ($kp as $k) if ($k['url'] !== '') $kpUrl[cg_plat_norm($k['platform']) . '|' . $k['url']] = $k;
+  foreach ($pdo->query("SELECT platform, judul, url, tayang_at, views, likes, comments, shares, reach, saves FROM cg_post WHERE hilang=0")->fetchAll() as $p) {
+    $kunciKp = cg_plat_norm($p['platform']) . '|' . (string)$p['url'];
+    $man = ((string)$p['url'] !== '' && isset($kpUrl[$kunciKp])) ? $kpUrl[$kunciKp] : null;
+    $api = array('views' => $p['views'], 'likes' => $p['likes'], 'comments' => $p['comments'], 'shares' => $p['shares']);
+    /* Reach & saves hanya dari API Instagram; NULL (TikTok) tidak ikut, jadi
+       angka Input Performa tetap yang dipakai. */
+    if ($p['reach'] !== null) $api['reach'] = $p['reach'];
+    if ($p['saves'] !== null) $api['saves'] = $p['saves'];
     $semua[] = array(
-      'rinci' => cg_rinci(array('views' => $p['views'], 'likes' => $p['likes'], 'comments' => $p['comments'], 'shares' => $p['shares']), $man ? $man['m'] : null),
+      'rinci' => cg_rinci($api, $man ? $man['m'] : null),
       'tercatat' => $man !== null,'platform' => cg_plat_norm($p['platform']), 'judul' => (string)$p['judul'] !== '' ? (string)$p['judul'] : '(tanpa keterangan)',
       'url' => (string)$p['url'], 'tanggal' => (int)$p['tayang_at'] > 0 ? gmdate('Y-m-d', (int)floor((int)$p['tayang_at'] / 1000) + 7 * 3600) : '',
-      'views' => (float)$p['views'], 'likes' => (float)$p['likes'], 'comments' => (float)$p['comments'], 'shares' => (float)$p['shares'], 'sumber' => 'tiktok');
+      'views' => (float)$p['views'], 'likes' => (float)$p['likes'], 'comments' => (float)$p['comments'], 'shares' => (float)$p['shares'], 'sumber' => (string)$p['platform'] === 'instagram' ? 'instagram' : 'tiktok');
     if ((string)$p['url'] !== '') $url[(string)$p['url']] = true;
   }
   foreach ($kp as $k) {
@@ -552,7 +588,7 @@ function cg_insight_simpan($pdo, $d, $nama) {
     return array('id' => $id);
   }
   $id = cg_uid('ins');
-  $sumber = isset($d['sumber']) && in_array($d['sumber'], array('manual', 'tiktok', 'konten', 'ai'), true) ? $d['sumber'] : 'manual';
+  $sumber = isset($d['sumber']) && in_array($d['sumber'], array('manual', 'tiktok', 'instagram', 'konten', 'ai'), true) ? $d['sumber'] : 'manual';
   $q = $pdo->prepare('INSERT INTO cg_insight (id, platform, kategori, temuan, url, tgl_tayang, metrik, aksi, sumber, dibuat_oleh, dibuat_at) VALUES (:id, :pl, :ka, :te, :ur, :tg, :me, :ak, :su, :by, :at)');
   $q->execute($nilai + array(':id' => $id, ':su' => $sumber, ':by' => $nama, ':at' => $now));
   return array('id' => $id);
@@ -1158,13 +1194,231 @@ function cg_tiktok_putus($pdo, $nama) {
   return array('ok' => true);
 }
 
+/* ==================== INSTAGRAM (login bisnis Instagram) ====================
+   14 Okt 2026. Pola yang SAMA dengan TikTok: state OAuth sekali pakai,
+   token ditukar server-ke-server (App Secret tidak pernah menyentuh
+   peramban), postingan masuk cg_post dengan platform 'instagram'.
+
+   Bedanya: token Instagram berumur 60 HARI dan TIDAK punya refresh token —
+   token itu sendiri yang diperbarui (ig_refresh_token), syaratnya sudah
+   berumur >= 24 jam dan belum kedaluwarsa. Diperbarui begitu sisa umurnya
+   di bawah 30 hari; kalau gagal, token lama tetap dipakai sampai habis. */
+function cg_ig_mulai($pdo, $nama) {
+  cg_pastikan($pdo);
+  $id = cg_ig_id($pdo);
+  if ($id === '' || cg_ig_secret($pdo) === '') throw new Exception('Instagram App ID & App Secret belum diisi di Pengaturan.');
+  $state = bin2hex(random_bytes(16));
+  cg_set_tulis($pdo, 'ig_state', json_encode(array('s' => $state, 'exp' => cg_now_ms() + 15 * 60000, 'by' => $nama)));
+  $q = http_build_query(array(
+    'client_id' => $id,
+    'redirect_uri' => cg_ig_redirect_uri(),
+    'response_type' => 'code',
+    'scope' => CG_IG_SCOPE,
+    'state' => $state,
+    'enable_fb_login' => '0',
+    'force_authentication' => '1',
+  ));
+  return array('url' => 'https://www.instagram.com/oauth/authorize?' . $q);
+}
+
+function cg_ig_galat($r, $awal) {
+  $p = isset($r['data']['error']['message']) ? $r['data']['error']['message']
+    : (isset($r['data']['error_message']) ? $r['data']['error_message'] : $r['mentah']);
+  return $awal . ': ' . (is_string($p) ? $p : json_encode($p));
+}
+
+function cg_ig_simpan_token($pdo, $tok, $exp, $userId, $scope, $nama) {
+  $now = cg_now_ms();
+  $lq = $pdo->prepare('SELECT open_id FROM cg_akun WHERE platform = :p');
+  $lq->execute(array(':p' => 'instagram'));
+  $lama = (string)$lq->fetchColumn();
+  /* Akun BERBEDA: penanda riwayat akun lama dibuang. */
+  if ($userId !== '' && $lama !== '' && $lama !== $userId) {
+    cg_set_tulis($pdo, 'ig_bf_after', '');
+    cg_set_tulis($pdo, 'ig_bf_selesai', '');
+  }
+  $q = $pdo->prepare('INSERT INTO cg_akun (platform, open_id, access_token, refresh_token, token_exp, refresh_exp, scope, oleh, at)
+    VALUES (:pl, :oi, :ac, :rf, :te, :re, :sc, :by, :at)
+    ON DUPLICATE KEY UPDATE open_id=VALUES(open_id), access_token=VALUES(access_token), refresh_token=VALUES(refresh_token),
+      token_exp=VALUES(token_exp), refresh_exp=VALUES(refresh_exp), scope=VALUES(scope), oleh=VALUES(oleh), at=VALUES(at)');
+  $q->execute(array(':pl' => 'instagram', ':oi' => $userId, ':ac' => $tok, ':rf' => '',
+    ':te' => $exp, ':re' => $exp, ':sc' => $scope, ':by' => $nama, ':at' => $now));
+}
+
+/* Dipanggil campaign-instagram.php (alamat balik OAuth). */
+function cg_ig_callback($pdo, $code, $state) {
+  cg_pastikan($pdo);
+  $st = json_decode(cg_set_baca($pdo, 'ig_state'), true);
+  if (!is_array($st) || !hash_equals((string)$st['s'], (string)$state)) throw new Exception('Tautan otorisasi tidak dikenal. Ulangi dari tombol Hubungkan.');
+  if ((int)$st['exp'] < cg_now_ms()) throw new Exception('Tautan otorisasi sudah kedaluwarsa (15 menit). Ulangi dari tombol Hubungkan.');
+  cg_set_tulis($pdo, 'ig_state', '');
+  /* Instagram kadang menempelkan "#_" di ujung kodenya. */
+  $code = preg_replace('/#_$/', '', (string)$code);
+  /* 1. Kode -> token berumur pendek (1 jam). */
+  $r = cg_http('POST', 'https://api.instagram.com/oauth/access_token', array('Content-Type: application/x-www-form-urlencoded'),
+    http_build_query(array('client_id' => cg_ig_id($pdo), 'client_secret' => cg_ig_secret($pdo), 'grant_type' => 'authorization_code',
+      'redirect_uri' => cg_ig_redirect_uri(), 'code' => $code)), 30);
+  $d = $r['data'];
+  if (isset($d['data'][0]) && is_array($d['data'][0])) $d = $d['data'][0];   /* bentuk lama */
+  if (!$d || empty($d['access_token'])) throw new Exception(cg_ig_galat($r, 'Instagram menolak token'));
+  $userId = (string)(isset($d['user_id']) ? $d['user_id'] : '');
+  $izin = isset($d['permissions']) ? (is_array($d['permissions']) ? implode(',', $d['permissions']) : (string)$d['permissions']) : CG_IG_SCOPE;
+  /* 2. Token pendek -> token 60 hari. */
+  $r2 = cg_http('GET', 'https://graph.instagram.com/access_token?' . http_build_query(array('grant_type' => 'ig_exchange_token',
+    'client_secret' => cg_ig_secret($pdo), 'access_token' => (string)$d['access_token'])), array(), null, 30);
+  if (!$r2['data'] || empty($r2['data']['access_token'])) throw new Exception(cg_ig_galat($r2, 'Instagram menolak token jangka panjang'));
+  $exp = cg_now_ms() + (int)(isset($r2['data']['expires_in']) ? $r2['data']['expires_in'] : 5184000) * 1000;
+  cg_ig_simpan_token($pdo, (string)$r2['data']['access_token'], $exp, $userId, $izin, (string)$st['by']);
+  return cg_ig_sync($pdo);
+}
+
+function cg_ig_token($pdo) {
+  $q = $pdo->prepare('SELECT * FROM cg_akun WHERE platform = :p');
+  $q->execute(array(':p' => 'instagram'));
+  $a = $q->fetch();
+  if (!$a || (string)$a['access_token'] === '') throw new Exception('Akun Instagram belum terhubung.');
+  $now = cg_now_ms();
+  if ((int)$a['token_exp'] < $now) throw new Exception('Izin Instagram sudah habis masa berlakunya (60 hari). Tekan Hubungkan lagi.');
+  $tok = (string)$a['access_token'];
+  if ((int)$a['token_exp'] - $now < 30 * 86400000 && $now - (int)$a['at'] > 86400000) {
+    $r = cg_http('GET', 'https://graph.instagram.com/refresh_access_token?' . http_build_query(array('grant_type' => 'ig_refresh_token', 'access_token' => $tok)), array(), null, 30);
+    if ($r['data'] && !empty($r['data']['access_token'])) {
+      $tok = (string)$r['data']['access_token'];
+      cg_ig_simpan_token($pdo, $tok, $now + (int)(isset($r['data']['expires_in']) ? $r['data']['expires_in'] : 5184000) * 1000,
+        (string)$a['open_id'], (string)$a['scope'], (string)$a['oleh']);
+    }
+  }
+  return $tok;
+}
+
+/* Angka per postingan dari /{media}/insights. Metrik yang tidak berlaku untuk
+   jenis medianya membuat SELURUH permintaan ditolak, jadi dicoba bertingkat:
+   lengkap dulu, lalu yang paling dasar. Yang gagal dipulangkan null — bukan
+   0 — supaya kolomnya tetap terbaca "belum ada". */
+function cg_ig_insight_media($tok, $id) {
+  foreach (array('views,reach,saved,shares', 'reach,saved', 'reach') as $m) {
+    $r = cg_http('GET', CG_IG_GRAPH . '/' . rawurlencode($id) . '/insights?' . http_build_query(array('metric' => $m, 'access_token' => $tok)), array(), null, 20);
+    if (!$r['data'] || !isset($r['data']['data']) || !is_array($r['data']['data'])) continue;
+    $out = array();
+    foreach ($r['data']['data'] as $x) {
+      if (!isset($x['name'])) continue;
+      $v = isset($x['values'][0]['value']) ? $x['values'][0]['value'] : (isset($x['total_value']['value']) ? $x['total_value']['value'] : null);
+      if (is_numeric($v)) $out[$x['name']] = (int)$v;
+    }
+    return $out;
+  }
+  return null;
+}
+
+function cg_ig_sync($pdo) {
+  cg_pastikan($pdo);
+  @set_time_limit(150);
+  $now = cg_now_ms();
+  try {
+    $tok = cg_ig_token($pdo);
+
+    /* Profil + statistik akun. */
+    $u = cg_http('GET', CG_IG_GRAPH . '/me?' . http_build_query(array('fields' => 'user_id,username,name,profile_picture_url,followers_count,follows_count,media_count,biography', 'access_token' => $tok)), array(), null, 30);
+    if (!$u['data'] || isset($u['data']['error'])) throw new Exception(cg_ig_galat($u, 'Profil Instagram tidak terbaca'));
+    $p = $u['data'];
+    $g = function($k) use ($p) { return isset($p[$k]) ? $p[$k] : null; };
+    $uname = (string)$g('username');
+    $q = $pdo->prepare('UPDATE cg_akun SET nama=:n, avatar=:a, bio=:b, profil_url=:pu, terverifikasi=0,
+      follower=:f, following=:fg, likes_total=0, jml_video=:jv, stats_ada=1 WHERE platform=:p');
+    $q->execute(array(':n' => (string)($g('name') ? $g('name') : $uname), ':a' => cg_potong((string)$g('profile_picture_url'), 900),
+      ':b' => cg_potong((string)$g('biography'), 1000), ':pu' => $uname !== '' ? 'https://www.instagram.com/' . rawurlencode($uname) . '/' : '',
+      ':f' => (int)$g('followers_count'), ':fg' => (int)$g('follows_count'), ':jv' => (int)$g('media_count'), ':p' => 'instagram'));
+
+    $fields = 'id,caption,media_type,media_product_type,permalink,timestamp,thumbnail_url,media_url,like_count,comments_count';
+    $n = 0;
+    $ins = $pdo->prepare('INSERT INTO cg_post (platform, post_id, judul, url, cover, tayang_at, views, likes, comments, shares, durasi, sync_at, hilang)
+      VALUES (:pl, :id, :ju, :ur, :co, :ta, 0, :li, :cm, 0, 0, :sy, 0)
+      ON DUPLICATE KEY UPDATE judul=VALUES(judul), url=VALUES(url), cover=VALUES(cover), tayang_at=VALUES(tayang_at),
+        likes=VALUES(likes), comments=VALUES(comments), sync_at=VALUES(sync_at), hilang=0');
+    $simpan = function($m) use ($ins, $now, &$n) {
+      $ts = isset($m['timestamp']) ? strtotime((string)$m['timestamp']) : 0;
+      $cover = isset($m['thumbnail_url']) ? $m['thumbnail_url'] : (isset($m['media_url']) && (!isset($m['media_type']) || $m['media_type'] !== 'VIDEO') ? $m['media_url'] : '');
+      $ins->execute(array(':pl' => 'instagram', ':id' => (string)$m['id'], ':ju' => (string)(isset($m['caption']) ? $m['caption'] : ''),
+        ':ur' => cg_potong(isset($m['permalink']) ? $m['permalink'] : '', 600), ':co' => cg_potong((string)$cover, 900),
+        ':ta' => $ts ? $ts * 1000 : 0, ':li' => (int)(isset($m['like_count']) ? $m['like_count'] : 0),
+        ':cm' => (int)(isset($m['comments_count']) ? $m['comments_count'] : 0), ':sy' => $now));
+      $n++;
+    };
+    $halaman = function($after) use ($tok, $fields) {
+      $qs = array('fields' => $fields, 'limit' => 50, 'access_token' => $tok);
+      if ($after !== null && $after !== '') $qs['after'] = $after;
+      $r = cg_http('GET', CG_IG_GRAPH . '/me/media?' . http_build_query($qs), array(), null, 30);
+      if (!$r['data'] || !isset($r['data']['data'])) throw new Exception(cg_ig_galat($r, 'Daftar postingan Instagram tidak terbaca'));
+      return $r['data'];
+    };
+    $lanjut = function($data) {
+      return (!empty($data['paging']['next']) && isset($data['paging']['cursors']['after'])) ? (string)$data['paging']['cursors']['after'] : '';
+    };
+
+    /* 1. TERBARU — 1 halaman (50 postingan). */
+    $data = $halaman(null);
+    foreach ($data['data'] as $m) $simpan($m);
+    $after = $lanjut($data);
+
+    /* 2. RIWAYAT — dilanjutkan dari cursor TERSIMPAN, 3 halaman per sinkron,
+       pola yang sama dengan TikTok: sinkron tetap ringan, riwayat lengkap
+       tertarik bertahap. */
+    $selesai = cg_set_baca($pdo, 'ig_bf_selesai') === '1';
+    if (!$selesai) {
+      $c = cg_set_baca($pdo, 'ig_bf_after');
+      if ($c === '') $c = $after;
+      if ($c === '') $selesai = true;
+      for ($h = 0; !$selesai && $h < 3; $h++) {
+        $data = $halaman($c);
+        foreach ($data['data'] as $m) $simpan($m);
+        $c = $lanjut($data);
+        if ($c === '') { $selesai = true; break; }
+        cg_set_tulis($pdo, 'ig_bf_after', $c);
+      }
+      if ($selesai) { cg_set_tulis($pdo, 'ig_bf_selesai', '1'); cg_set_tulis($pdo, 'ig_bf_after', ''); }
+    }
+
+    /* 3. INSIGHT per postingan (views, reach, saves, shares) — satu
+       permintaan per postingan, jadi dibatasi 25 per sinkron: yang belum
+       pernah punya insight dulu, lalu yang paling lama tidak disegarkan. */
+    $tua = $pdo->query("SELECT post_id FROM cg_post WHERE platform='instagram' AND hilang=0 ORDER BY insight_at ASC, tayang_at DESC LIMIT 25")->fetchAll(PDO::FETCH_COLUMN);
+    $up = $pdo->prepare("UPDATE cg_post SET views=:vi, reach=:re, saves=:sa, shares=:sh, insight_at=:at WHERE platform='instagram' AND post_id=:id");
+    $tandai = $pdo->prepare("UPDATE cg_post SET insight_at=:at WHERE platform='instagram' AND post_id=:id");
+    foreach ($tua as $id) {
+      $ix = cg_ig_insight_media($tok, (string)$id);
+      if ($ix === null) { $tandai->execute(array(':at' => $now, ':id' => $id)); continue; }
+      $up->execute(array(':vi' => isset($ix['views']) ? $ix['views'] : (isset($ix['reach']) ? $ix['reach'] : 0),
+        ':re' => isset($ix['reach']) ? $ix['reach'] : null, ':sa' => isset($ix['saved']) ? $ix['saved'] : null,
+        ':sh' => isset($ix['shares']) ? $ix['shares'] : 0, ':at' => $now, ':id' => $id));
+    }
+
+    $q = $pdo->prepare('UPDATE cg_akun SET sync_at=:s, sync_galat=:g WHERE platform=:p');
+    $q->execute(array(':s' => $now, ':g' => '', ':p' => 'instagram'));
+    $total = (int)$pdo->query("SELECT COUNT(*) FROM cg_post WHERE platform='instagram' AND hilang=0")->fetchColumn();
+    return array('jumlah' => $n, 'total' => $total, 'riwayatSelesai' => $selesai);
+  } catch (Throwable $e) {
+    try {
+      $q = $pdo->prepare('UPDATE cg_akun SET sync_galat=:g WHERE platform=:p');
+      $q->execute(array(':g' => cg_potong($e->getMessage(), 400), ':p' => 'instagram'));
+    } catch (Throwable $e2) {}
+    throw $e;
+  }
+}
+
+function cg_ig_putus($pdo, $nama) {
+  cg_pastikan($pdo);
+  $q = $pdo->prepare("UPDATE cg_akun SET access_token='', refresh_token='', token_exp=0, refresh_exp=0, oleh=:by, at=:at WHERE platform=:p");
+  $q->execute(array(':by' => $nama, ':at' => cg_now_ms(), ':p' => 'instagram'));
+  return array('ok' => true);
+}
+
 /* ==================== SETELAN (admin modul) ==================== */
 function cg_setting_simpan($pdo, $d) {
   cg_pastikan($pdo);
   /* Kotak rahasia yang dikosongkan berarti "jangan diubah", bukan "hapus".
      Layar tidak pernah menampilkan isinya, jadi kotak kosong adalah keadaan
      normal tiap kali halamannya dibuka. Menghapus memakai kata HAPUS. */
-  foreach (array('aiKeyMeta' => 'ai_key_meta', 'tiktokKey' => 'tiktok_key', 'tiktokSecret' => 'tiktok_secret') as $f => $k) {
+  foreach (array('aiKeyMeta' => 'ai_key_meta', 'tiktokKey' => 'tiktok_key', 'tiktokSecret' => 'tiktok_secret', 'igId' => 'ig_id', 'igSecret' => 'ig_secret') as $f => $k) {
     if (!isset($d[$f])) continue;
     $v = trim((string)$d[$f]);
     if ($v === '') continue;
@@ -1207,6 +1461,9 @@ function cg_aksi($action, $body) {
     case 'campaignTiktokSync':   return cg_tiktok_sync($pdo);
     case 'campaignTop':          return cg_top($pdo, $d);
     case 'campaignTiktokPutus':  return cg_tiktok_putus($pdo, $nama);
+    case 'campaignIgMulai':      return cg_ig_mulai($pdo, $nama);
+    case 'campaignIgSync':       return cg_ig_sync($pdo);
+    case 'campaignIgPutus':      return cg_ig_putus($pdo, $nama);
     case 'campaignSetting':
       if (!sesi_admin_modul($u, 'campaign')) sesi_tolak_tak_berhak('Pengaturan Campaign hanya untuk admin modul Campaign.');
       return cg_setting_simpan($pdo, $d);
