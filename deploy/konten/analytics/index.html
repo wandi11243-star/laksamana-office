@@ -292,11 +292,32 @@ var TITLES = {
   insight: 'Insight Konten',
   kalender: 'Kalender & Jadwal Posting',
   riset: 'Riset Tren (AI)',
+  bank: 'Bank Konten',
   pengaturan: 'Pengaturan'
 };
 var PLATFORM = ['TikTok', 'Instagram', 'YouTube'];
-var KATEGORI = ['Hook 3 Detik & Retensi', 'Format Konten & Visual', 'Topik & Tren', 'Waktu Tayang',
+/* Kategori pola insight DISETEL di Pengaturan (14 Okt 2026) dan dibaca dari
+   server (setting.kategori) — daftar yang SAMA dipakai prompt Temukan insight.
+   KATEGORI_BAWAAN cuma cadangan selama server belum menjawab / PHP lama. */
+var KATEGORI_BAWAAN = ['Hook 3 Detik & Retensi', 'Format Konten & Visual', 'Topik & Tren', 'Waktu Tayang',
   'Promo & Ajakan', 'Sentimen & Masukan', 'Kolaborasi & KOL'];
+function kategoriAktif(){
+  var k = D && D.setting && D.setting.kategori;
+  return (k && k.length) ? k : KATEGORI_BAWAAN;
+}
+/* Pilihan kategori: daftar aktif + kategori LAMA yang masih dipakai insight
+   (ditandai), supaya membuka/menyaring insight lama tidak diam-diam
+   mengganti kategorinya ke pilihan pertama. */
+function opsiKategori(terpilih, lama){
+  var k = kategoriAktif().slice(), h = '';
+  if (lama && lama.length) lama.forEach(function(x){ if (x && k.indexOf(x) < 0) k.push(x); });
+  if (terpilih && k.indexOf(terpilih) < 0) k.push(terpilih);
+  var aktif = kategoriAktif();
+  k.forEach(function(x){
+    h += '<option value="' + esc(x) + '"' + (x === terpilih ? ' selected' : '') + '>' + esc(x) + (aktif.indexOf(x) < 0 ? ' (lama)' : '') + '</option>';
+  });
+  return h;
+}
 var STATUS = ['DRAF', 'TERJADWAL', 'TAYANG', 'BATAL'];
 var STATUS_LBL = { DRAF: 'Draf', TERJADWAL: 'Terjadwal', TAYANG: 'Tayang', BATAL: 'Batal' };
 var HARI = ['SEN', 'SEL', 'RAB', 'KAM', 'JUM', 'SAB', 'MIN'];
@@ -316,6 +337,7 @@ var ST = {
   kalBulan: null, kalPilih: null,
   risetPilih: null, risetJalan: false, risetMulai: 0, risetGalat: '', risetIsi: null,
   usulan: null, usulanJalan: false,
+  bankSt: 'IDE', bankPlat: '', bankJalan: false, bankGalat: '', bankIsi: null, bankHasil: null,
   sibuk: {}
 };
 
@@ -408,6 +430,7 @@ var ICONS = {
   cal:'<rect x="3" y="4" width="18" height="17" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/>',
   bulb:'<path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-4 10.5c.7.7 1 1.3 1 2.5h6c0-1.2.3-1.8 1-2.5A6 6 0 0 0 12 3z"/>',
   gear:'<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>',
+  box:'<path d="M21 8l-9-5-9 5 9 5 9-5z"/><path d="M3 8v8l9 5 9-5V8"/><line x1="12" y1="13" x2="12" y2="21"/>',
   list:'<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1.5"/><circle cx="3.5" cy="12" r="1.5"/><circle cx="3.5" cy="18" r="1.5"/>'
 };
 function icon(n){ return '<svg class="ic" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + (ICONS[n] || '') + '</svg>'; }
@@ -415,11 +438,12 @@ var SUBJUDUL = {
   insight: 'Postingan terpopuler, akun terhubung & insight per platform',
   kalender: 'Rencana posting & pengingat tayang',
   riset: 'Riset tren & ide konten dibantu AI',
+  bank: 'Content planning dari AI, riset & ide manual — siap dijadwalkan',
   pengaturan: 'Profil brand, kunci AI & akun TikTok'
 };
 function bolehPlanning(){ var m = SESI.modules || []; return m.indexOf('*') > -1 || m.indexOf('konten') > -1; }
 function gambarNav(){
-  var menu = [['insight','Insight','chart'],['kalender','Kalender','cal'],['riset','Riset Tren','bulb']];
+  var menu = [['insight','Insight','chart'],['kalender','Kalender','cal'],['riset','Riset Tren','bulb'],['bank','Bank Konten','box']];
   if (admin()) menu.push(['pengaturan','Pengaturan','gear']);
   var telat = D ? jadwalTelat().length : 0;
   var item = function(m){
@@ -439,7 +463,10 @@ function render(){
   document.getElementById('judul').firstChild.textContent = TITLES[VIEW];
   document.getElementById('judulSub').textContent = SUBJUDUL[VIEW] || '';
   document.title = TITLES[VIEW] + ' - Konten Analytics';
-  document.getElementById('topAksi').innerHTML = '<button class="btn btn-ghost btn-sm" data-a="refresh">Refresh</button>';
+  /* Tombol Refresh di kanan atas DICABUT (14 Okt 2026, permintaan user): tiap
+     simpan sudah memuat ulang dari server, dan Konten terpopuler punya tombol
+     Coba lagi sendiri. Wadahnya dikosongkan, bukan dibuang dari markup. */
+  document.getElementById('topAksi').innerHTML = '';
   var app = document.getElementById('app');
   if (GALAT && !D) { app.innerHTML = '<div class="pita err">Data tidak bisa dimuat: ' + esc(GALAT) + '</div>'; return; }
   if (!D) { app.innerHTML = '<div class="kosong">Memuat…</div>'; return; }
@@ -448,7 +475,7 @@ function render(){
   if (q.get('tiktok')) {
     pita = '<div class="pita ' + (q.get('tiktok') === 'ok' ? 'ok' : 'err') + '">' + esc(q.get('pesan') || '') + '</div>';
   }
-  app.innerHTML = pita + (VIEW === 'kalender' ? vKalender() : VIEW === 'riset' ? vRiset() : VIEW === 'pengaturan' ? vPengaturan() : vInsight());
+  app.innerHTML = pita + (VIEW === 'kalender' ? vKalender() : VIEW === 'riset' ? vRiset() : VIEW === 'bank' ? vBank() : VIEW === 'pengaturan' ? vPengaturan() : vInsight());
 }
 
 /* ===================== INSIGHT ===================== */
@@ -669,7 +696,7 @@ function kartuInsight(){
     return '<button class="' + (ST.insPlat === x[0] ? 'on' : '') + '" data-a="ins-plat" data-v="' + esc(x[0]) + '">' + esc(x[1]) + '</button>'; }).join('')
     + '<button class="' + (ST.insArsip ? 'on' : '') + '" data-a="ins-arsip">Arsip (' + nArsip + ')</button></div>';
   var kat = '<select data-a="ins-kat" style="padding:7px 10px;border:1.5px solid var(--line);border-radius:9px;font-size:13px"><option value="">Semua kategori</option>'
-    + KATEGORI.map(function(k){ return '<option' + (ST.insKat===k?' selected':'') + '>' + esc(k) + '</option>'; }).join('') + '</select>';
+    + opsiKategori(ST.insKat, (D.insight || []).map(function(i){ return i.kategori; })) + '</select>';
   var isi = ins.length ? '<div class="grid g3">' + ins.map(function(i){
     var idx = (D.insight || []).indexOf(i);
     return '<div class="ins' + (+i.arsip === 1 ? ' arsip' : '') + '"><div class="t">' + chipPlat(platNorm(i.platform))
@@ -699,7 +726,7 @@ function kartuInsight(){
 function formInsight(awal){
   awal = awal || {};
   var opsiPlat = PLATFORM.map(function(p){ return '<option' + (platNorm(awal.platform || 'TikTok') === p ? ' selected' : '') + '>' + p + '</option>'; }).join('');
-  var opsiKat = KATEGORI.map(function(k){ return '<option' + ((awal.kategori || KATEGORI[0]) === k ? ' selected' : '') + '>' + esc(k) + '</option>'; }).join('');
+  var opsiKat = opsiKategori(awal.kategori || kategoriAktif()[0]);
   bukaModal('<h3>' + (awal.id ? 'Sunting insight' : 'Catat insight baru') + '</h3>'
     + '<div class="sub" style="color:var(--muted);font-size:13px;margin-bottom:12px">Wajib ada tautan konten asli (https) dan tanggal tayangnya, supaya insight bisa ditelusuri.</div>'
     + '<div class="form">'
@@ -740,7 +767,7 @@ function kirim(aksi, data, pesanOk){
     return muat().then(render);
   }).catch(function(e){
     if (tbl) { tbl.disabled = false; tbl.textContent = 'Simpan'; }
-    var g = document.getElementById('f-galat') || document.getElementById('j-galat');
+    var g = document.getElementById('f-galat') || document.getElementById('j-galat') || document.getElementById('b-galat');
     if (g) g.innerHTML = '<div class="pita err">' + esc(e.message) + '</div>'; else toast(e.message, true);
   });
 }
@@ -836,10 +863,10 @@ function formJadwal(awal){
     + '<div class="field full"><label>Catatan</label><input id="j-cat" value="' + esc(awal.catatan || '') + '"></div>'
     + '</div><div id="j-galat"></div>'
     + '<div class="kaki"><button class="btn btn-ghost" data-a="tutup">Batal</button><button class="btn btn-primary" data-a="jdw-simpan">Simpan jadwal</button></div>');
-  MODAL_DATA = { id: awal.id || '' };
+  MODAL_DATA = { id: awal.id || '', bankId: awal.bankId || '' };
 }
 function simpanJadwal(){
-  var d = { id: MODAL_DATA.id, platform: nilai('j-plat'), status: nilai('j-st'), judul: nilai('j-judul'), caption: document.getElementById('j-cap').value,
+  var d = { id: MODAL_DATA.id, bankId: MODAL_DATA.bankId || '', platform: nilai('j-plat'), status: nilai('j-st'), judul: nilai('j-judul'), caption: document.getElementById('j-cap').value,
     tanggal: nilai('j-tgl'), jam: nilai('j-jam'), pic: nilai('j-pic'), tautan: nilai('j-tautan'), insightId: nilai('j-ins'), catatan: nilai('j-cat') };
   var kurang = [];
   if (!d.judul) kurang.push('Judul');
@@ -906,7 +933,7 @@ function hasilRiset(r){
         + (d.hook ? '<div class="hook">🎬 ' + esc(d.hook) + '</div>' : '')
         + (d.caption ? '<div class="cap">' + esc(d.caption) + '</div>' : '')
         + (d.alasan ? '<div style="font-size:12px;color:var(--muted-2);margin-top:6px">Kenapa: ' + esc(d.alasan) + '</div>' : '')
-        + '<div style="display:flex;justify-content:flex-end;margin-top:10px"><button class="btn btn-ghost btn-sm" data-a="ide-jadwal" data-r="' + esc(r.id) + '" data-i="' + i + '">📅 Jadwalkan</button></div></div>';
+        + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px"><button class="btn btn-ghost btn-sm" data-a="ide-bank" data-r="' + esc(r.id) + '" data-i="' + i + '">＋ Simpan ke Bank</button><button class="btn btn-ghost btn-sm" data-a="ide-jadwal" data-r="' + esc(r.id) + '" data-i="' + i + '">📅 Jadwalkan</button></div></div>';
     }).join('') + '</div>';
   }
   var bawah = '';
@@ -917,21 +944,106 @@ function hasilRiset(r){
   return h + '</div>';
 }
 
+/* ===================== BANK KONTEN ===================== */
+/* Content planning (14 Okt 2026, permintaan user). AI menyusun rencana dari
+   profil brand + insight aktif + postingan terbaik; hasilnya masuk ke sini
+   sebagai IDE, bukan langsung jadi jadwal — yang menjadwalkan tetap orang
+   (tombol Jadwalkan membuka formulir jadwal yang sudah terisi). */
+var BANK_ST = [['IDE','Ide'],['TERJADWAL','Terjadwal'],['ARSIP','Arsip'],['','Semua']];
+var BANK_SUMBER = { ai: 'AI', riset: 'Riset', manual: 'Manual' };
+function tglPlus(n){ var d = new Date(Date.now() + 7*3600e3 + n*86400e3); return d.toISOString().slice(0,10); }
+function vBank(){
+  var BI = ST.bankIsi || {};
+  var siap = D.setting && D.setting.aiSiap;
+  var h = '<div class="kartu"><h2>Buat content planning dengan AI</h2>'
+    + '<div class="sub">AI menyusun rencana konten dari profil brand, <b>insight yang masih aktif</b>, pilar konten di Pengaturan, dan postingan brand yang paling jalan. '
+    + 'Hasilnya masuk ke Bank Konten di bawah sebagai ide — belum terjadwal sampai ada yang menekan <b>Jadwalkan</b>.</div>';
+  if (!siap) h += '<div class="pita warn">API key AI belum diisi. ' + (admin() ? 'Isi di <a href="#pengaturan">Pengaturan</a>.' : 'Minta admin modul Campaign mengisinya.') + '</div>';
+  h += '<div class="form">'
+    + '<div class="field"><label>Dari tanggal *</label><input id="b-dari" type="date" value="' + esc(BI.dari || tglPlus(1)) + '"></div>'
+    + '<div class="field"><label>Sampai tanggal *</label><input id="b-sampai" type="date" value="' + esc(BI.sampai || tglPlus(14)) + '"></div>'
+    + '<div class="field"><label>Platform</label><select id="b-plat">' + ['TikTok, Instagram','TikTok','Instagram','YouTube'].map(function(p){ return '<option' + (BI.platform === p ? ' selected' : '') + '>' + p + '</option>'; }).join('') + '</select></div>'
+    + '<div class="field"><label>Jumlah konten</label><select id="b-jml">' + [5, 8, 10, 14, 20].map(function(n){ return '<option' + (+(BI.jumlah || 10) === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></div>'
+    + '<div class="field full"><label>Fokus / catatan (opsional)</label><input id="b-fokus" value="' + esc(BI.fokus || '') + '" placeholder="Contoh: promo weekend, live music Jumat–Sabtu, target anak muda"></div>'
+    + '</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-primary" data-a="bank-jalan"' + (siap && !ST.bankJalan ? '' : ' disabled') + '>'
+    + (ST.bankJalan ? 'Menyusun…' : '⚡ Buat content planning') + '</button></div>';
+  if (ST.bankGalat && !ST.bankJalan) h += '<div class="pita err" style="margin-top:14px"><b>Gagal membuat planning:</b> ' + esc(ST.bankGalat) + '</div>';
+  if (ST.bankJalan) h += '<div class="agen" style="margin-top:14px"><div class="putar"></div><div>AI sedang menyusun content planning… biasanya 1–2 menit. Jangan tutup halaman ini.</div></div>';
+  if (ST.bankHasil && !ST.bankJalan) h += '<div class="pita ok" style="margin-top:14px"><b>' + ST.bankHasil.jumlah + ' ide masuk ke Bank Konten.</b>' + (ST.bankHasil.ringkasan ? ' ' + esc(ST.bankHasil.ringkasan) : '') + '</div>';
+  h += '</div>';
+
+  var semua = D.bank || [];
+  var plat = semua.filter(function(b){ return !ST.bankPlat || platNorm(b.platform) === ST.bankPlat; });
+  var hitung = function(st){ return plat.filter(function(b){ return !st || b.status === st; }).length; };
+  var daftar = plat.filter(function(b){ return !ST.bankSt || b.status === ST.bankSt; });
+  h += '<div class="kartu"><div class="kepala"><div><h2>Bank Konten</h2><div class="sub">' + semua.length + ' ide tersimpan. Yang tidak dipakai diarsipkan, tidak dihapus.</div></div>'
+    + '<button class="btn btn-ghost btn-sm" data-a="bank-tambah">＋ Ide manual</button></div>'
+    + '<div style="display:flex;flex-wrap:wrap;gap:8px;margin:10px 0 14px">'
+    + '<div class="seg">' + BANK_ST.map(function(x){ return '<button class="' + (ST.bankSt === x[0] ? 'on' : '') + '" data-a="bank-st" data-v="' + x[0] + '">' + x[1] + ' (' + hitung(x[0]) + ')</button>'; }).join('') + '</div>'
+    + '<div class="seg">' + [['','Semua']].concat(PLATFORM.map(function(p){ return [p,p]; })).map(function(x){
+        return '<button class="' + (ST.bankPlat === x[0] ? 'on' : '') + '" data-a="bank-plat" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div></div>';
+  if (!daftar.length) {
+    h += '<div class="kosong">' + (semua.length ? 'Tidak ada ide di saringan ini.' : 'Belum ada ide. Buat content planning dengan AI di atas, simpan ide dari Riset Tren, atau tambah manual.') + '</div>';
+  } else {
+    h += '<div class="grid g2">' + daftar.map(function(b){
+      var idx = semua.indexOf(b);
+      var st = b.status === 'TERJADWAL' ? '<span class="pill">Terjadwal</span>' : b.status === 'ARSIP' ? '<span class="pill">Arsip</span>' : '';
+      return '<div class="ide"' + (b.status === 'ARSIP' ? ' style="opacity:.65"' : '') + '><div class="kepala" style="align-items:center">' + chipPlat(platNorm(b.platform))
+        + '<span class="kat" style="font-size:12px;color:var(--muted)">' + esc([b.format, b.pilar].filter(Boolean).join(' · ')) + '</span>'
+        + '<div class="r" style="font-size:12px;color:var(--muted)">' + (b.tanggal ? esc(fmtTgl(b.tanggal)) + (b.jam ? ' · ' + esc(b.jam) : '') : 'tanpa tanggal') + '</div></div>'
+        + '<b style="display:block;margin-top:8px;color:var(--ink)">' + esc(b.judul) + '</b> ' + st
+        + (b.hook ? '<div class="hook">🎬 ' + esc(b.hook) + '</div>' : '')
+        + (b.caption ? '<div class="cap">' + esc(b.caption) + '</div>' : '')
+        + (b.alasan ? '<div style="font-size:12px;color:var(--muted-2);margin-top:6px">Kenapa: ' + esc(b.alasan) + '</div>' : '')
+        + '<div style="font-size:11.5px;color:var(--muted-2);margin-top:6px">' + esc(BANK_SUMBER[b.sumber] || b.sumber) + ' · ' + esc(b.dibuat_oleh || '—') + '</div>'
+        + '<div style="display:flex;justify-content:flex-end;gap:8px;margin-top:10px">'
+        + (b.status === 'IDE' ? '<button class="btn btn-ghost btn-sm" data-a="bank-arsip" data-i="' + idx + '">Arsipkan</button>' : '')
+        + (b.status === 'ARSIP' ? '<button class="btn btn-ghost btn-sm" data-a="bank-pulih" data-i="' + idx + '">Pulihkan</button>' : '')
+        + (b.status !== 'ARSIP' ? '<button class="btn btn-ghost btn-sm" data-a="bank-ubah" data-i="' + idx + '">Sunting</button>' : '')
+        + (b.status === 'IDE' ? '<button class="btn btn-primary btn-sm" data-a="bank-jadwal" data-i="' + idx + '">📅 Jadwalkan</button>' : '')
+        + (b.status === 'TERJADWAL' ? '<a class="btn btn-ghost btn-sm" href="#kalender">Lihat di Kalender</a>' : '')
+        + '</div></div>';
+    }).join('') + '</div>';
+  }
+  return h + '</div>';
+}
+function formBank(awal){
+  awal = awal || {};
+  var opsiPlat = PLATFORM.map(function(p){ return '<option' + (platNorm(awal.platform || 'TikTok') === p ? ' selected' : '') + '>' + p + '</option>'; }).join('');
+  var opsiPilar = '<option value="">— tanpa pilar —</option>' + opsiKategori(awal.pilar || '');
+  bukaModal('<h3>' + (awal.id ? 'Sunting ide' : 'Tambah ide ke Bank Konten') + '</h3><div style="height:10px"></div>'
+    + '<div class="form">'
+    + '<div class="field full"><label>Judul ide *</label><input id="b-judul" value="' + esc(awal.judul || '') + '"></div>'
+    + '<div class="field"><label>Platform</label><select id="b-fplat">' + opsiPlat + '</select></div>'
+    + '<div class="field"><label>Format</label><input id="b-format" value="' + esc(awal.format || '') + '" placeholder="Reels, Carousel, Story…"></div>'
+    + '<div class="field"><label>Pilar</label><select id="b-pilar">' + opsiPilar + '</select></div>'
+    + '<div class="field"><label>Rencana tanggal</label><input id="b-tgl" type="date" value="' + esc(awal.tanggal || '') + '"></div>'
+    + '<div class="field"><label>Jam (WIB)</label><input id="b-jam" type="time" value="' + esc(awal.jam || '') + '"></div>'
+    + '<div class="field full"><label>Hook (3 detik pertama)</label><input id="b-hook" value="' + esc(awal.hook || '') + '"></div>'
+    + '<div class="field full"><label>Caption</label><textarea id="b-cap" style="min-height:100px">' + esc(awal.caption || '') + '</textarea></div>'
+    + '<div class="field full"><label>Alasan / catatan</label><input id="b-alasan" value="' + esc(awal.alasan || '') + '"></div>'
+    + '</div><div id="b-galat"></div>'
+    + '<div class="kaki"><button class="btn btn-ghost" data-a="tutup">Batal</button><button class="btn btn-primary" data-a="bank-simpan">Simpan ide</button></div>');
+  MODAL_DATA = { id: awal.id || '' };
+}
+function simpanBank(){
+  var d = { id: MODAL_DATA.id, judul: nilai('b-judul'), platform: nilai('b-fplat'), format: nilai('b-format'), pilar: nilai('b-pilar'),
+    tanggal: nilai('b-tgl'), jam: nilai('b-jam'), hook: nilai('b-hook'), caption: document.getElementById('b-cap').value, alasan: nilai('b-alasan') };
+  if (!d.judul) { document.getElementById('b-galat').innerHTML = '<div class="pita err">Belum lengkap: Judul ide.</div>'; return; }
+  kirim('campaignBankSimpan', d, 'Ide tersimpan di Bank Konten.');
+}
+
 /* ===================== PENGATURAN ===================== */
-/* Penyedia AI: dipilih satu yang DIPAKAI, tapi key & model kedua penyedia
-   tetap bisa diisi — berganti penyedia tidak menghapus key yang satunya.
-   Isi key tidak pernah ditampilkan; yang dikirim server cuma "terisi". */
-var AI_ISIAN = { meta: { key: 's-aikey-meta', model: 's-model-meta', ph: 'Key dari dev.meta.ai' },
-                 anthropic: { key: 's-aikey', model: 's-model', ph: 'sk-ant-…' } };
+/* AI = Meta (Muse Spark) saja — Anthropic dicabut 14 Okt 2026. Isi key tidak
+   pernah ditampilkan; yang dikirim server cuma "terisi". Daftar dari server
+   tetap disaring ke 'meta' supaya PHP lama yang masih memulangkan Anthropic
+   tidak memunculkan kotaknya lagi. */
+var AI_ISIAN = { meta: { key: 's-aikey-meta', model: 's-model-meta', ph: 'Key dari dev.meta.ai' } };
 function kartuAI(s){
-  var daftar = s.ai || [], pakai = s.aiPenyedia || 'anthropic';
-  var pilih = '<div class="field"><label>Penyedia yang dipakai</label><select id="s-penyedia">'
-    + daftar.map(function(x){ return '<option value="' + esc(x.id) + '"' + (x.id === pakai ? ' selected' : '') + '>' + esc(x.label) + (x.siap ? '' : ' — key belum diisi') + '</option>'; }).join('')
-    + '</select><div class="bantu">Dipakai Insight otomatis & Riset Tren. Key kedua penyedia boleh sama-sama terisi.</div></div>';
+  var daftar = (s.ai || []).filter(function(x){ return AI_ISIAN[x.id]; });
   var blok = daftar.map(function(x){
     var f = AI_ISIAN[x.id] || {};
-    return '<div style="border-top:1px solid var(--k-line-soft);padding-top:12px;margin-top:6px"><b style="font-size:13px">' + esc(x.label) + '</b>'
-      + (x.id === pakai ? ' <span class="pill">dipakai</span>' : '')
+    return '<div><b style="font-size:13px">' + esc(x.label) + '</b>'
       + (x.dariConfig ? '<div class="pita info" style="margin-top:8px">API key dikunci di config.php server; isian key di bawah tidak dipakai.</div>' : '')
       + '<div class="form" style="margin-top:8px"><div class="field"><label>API key ' + (x.siap ? '<span class="pill">terisi</span>' : '') + '</label>'
       + '<input id="' + f.key + '" type="password" autocomplete="off" placeholder="' + (x.siap ? 'Kosongkan = tidak diubah. Ketik HAPUS untuk menghapus.' : esc(f.ph || '')) + '"></div>'
@@ -941,12 +1053,21 @@ function kartuAI(s){
       + (x.id === 'meta' ? '<div class="bantu">Model berakhiran <b>-contributor</b> jauh lebih murah karena Meta <b>boleh memakai data yang dikirim (judul & angka postingan, profil brand, topik riset) untuk melatih modelnya</b>. Pilih tanpa -contributor kalau itu tidak boleh — butuh key dengan akses standar.</div>' : '')
       + '</div></div></div>';
   }).join('');
-  return '<div class="kartu"><h2>AI</h2><div class="sub">Isi API key penyedia yang dipakai. Isinya tidak pernah ditampilkan lagi sesudah disimpan.</div>' + pilih + blok + '</div>';
+  return '<div class="kartu"><h2>AI</h2><div class="sub">Dipakai Insight otomatis & Riset Tren. Isi key tidak pernah ditampilkan lagi sesudah disimpan.</div>' + blok + '</div>';
+}
+/* Kategori pola insight: satu baris satu kategori. Teks bebas, bukan daftar
+   tombol — menambah/menghapus/mengurutkan cukup menyunting barisnya. */
+function kartuKategori(s){
+  var k = (s.kategori && s.kategori.length) ? s.kategori : KATEGORI_BAWAAN;
+  return '<div class="kartu"><h2>Kategori pola insight</h2><div class="sub">Pilihan kategori di formulir Catat insight & penyaring, sekaligus daftar yang dipakai AI saat <b>Temukan insight</b>. Satu baris satu kategori, maksimal 20, tiap kategori maksimal 60 huruf.</div>'
+    + '<div class="field"><textarea id="s-kategori" style="min-height:150px">' + esc(k.join('\n')) + '</textarea>'
+    + '<div class="bantu">Insight lama yang kategorinya dihapus dari daftar ini <b>tidak diubah</b> — ia tetap tampil, ditandai <i>(lama)</i>.</div></div></div>';
 }
 function vPengaturan(){
   var s = D.setting || {};
   return '<div class="kartu"><h2>Profil brand</h2><div class="sub">Dipakai AI sebagai konteks setiap riset & analisa insight.</div>'
     + '<div class="field"><textarea id="s-profil" style="min-height:96px">' + esc(s.profil || '') + '</textarea></div></div>'
+    + kartuKategori(s)
     + kartuAI(s)
     + '<div class="kartu"><h2>TikTok</h2><div class="sub">Dari TikTok for Developers: buat app, aktifkan <b>Login Kit</b> + scope <b>' + esc(String(s.tiktokScope || '').split(',').join(', ')) + '</b> — harus sama persis dengan yang dicentang di app.</div>'
     + '<div class="pita info">Daftarkan alamat ini di Login Kit → Redirect URI (dev & produksi masing-masing punya alamat sendiri):<br><b class="mono">' + esc(s.redirectUri || '') + '</b></div>'
@@ -974,7 +1095,6 @@ document.addEventListener('click', function(ev){
   var a = el.getAttribute('data-a'), v = el.getAttribute('data-v'), i = +el.getAttribute('data-i');
   if (a === 'latar') { if (ev.target === el) tutupModal(); return; }
   if (el.tagName === 'A' && a !== 'tutup') return;
-  if (a === 'refresh') { ST.topSrv = {}; muat().then(render); return; }
   if (a === 'tutup') { tutupModal(); return; }
   if (a === 'top-plat') { ST.topPlat = v; ST.topHal = 1; render(); return; }
   if (a === 'top-urut') { ST.topUrut = v; ST.topHal = 1; render(); return; }
@@ -1048,6 +1168,44 @@ document.addEventListener('click', function(ev){
     return;
   }
   if (a === 'riset-pilih') { ST.risetPilih = v; render(); return; }
+  if (a === 'ide-bank') {
+    var rb = (D.riset || []).filter(function(r){ return r.id === el.getAttribute('data-r'); })[0];
+    var ib = rb && rb.hasil && rb.hasil.ide ? rb.hasil.ide[i] : null; if (!ib) return;
+    el.disabled = true;
+    api('campaignBankSimpan', { sumber: 'riset', batch: rb.id, judul: ib.judul, platform: platNorm(ib.platform), format: ib.format || '',
+      hook: ib.hook || '', caption: ib.caption || '', alasan: (ib.alasan || '') + (ib.hari ? ' (saran tayang: ' + ib.hari + ')' : '') })
+      .then(function(){ toast('Ide disimpan ke Bank Konten.'); el.textContent = '✓ Di Bank'; return muat(); })
+      .catch(function(e){ el.disabled = false; toast(e.message, true); });
+    return;
+  }
+  /* Bank Konten */
+  if (a === 'bank-st') { ST.bankSt = v; render(); return; }
+  if (a === 'bank-plat') { ST.bankPlat = v; render(); return; }
+  if (a === 'bank-tambah') { formBank(); return; }
+  if (a === 'bank-simpan') { simpanBank(); return; }
+  if (a === 'bank-ubah') { var bu = (D.bank || [])[i]; if (bu) formBank(bu); return; }
+  if (a === 'bank-jadwal') {
+    var bj = (D.bank || [])[i]; if (!bj) return;
+    formJadwal({ platform: platNorm(bj.platform), judul: bj.judul, caption: (bj.hook ? 'Hook: ' + bj.hook + '\n\n' : '') + (bj.caption || ''),
+      tanggal: bj.tanggal || '', jam: bj.jam || '', status: 'TERJADWAL', catatan: 'Dari Bank Konten' + (bj.pilar ? ' · ' + bj.pilar : ''), bankId: bj.id });
+    return;
+  }
+  if (a === 'bank-arsip' || a === 'bank-pulih') {
+    var ba = (D.bank || [])[i]; if (!ba) return;
+    el.disabled = true;
+    api('campaignBankArsip', { id: ba.id, arsip: a === 'bank-arsip' }).then(function(){ toast(a === 'bank-arsip' ? 'Ide diarsipkan.' : 'Ide dipulihkan.'); return muat(); })
+      .catch(function(e){ toast(e.message, true); }).then(render);
+    return;
+  }
+  if (a === 'bank-jalan') {
+    var bd = { dari: nilai('b-dari'), sampai: nilai('b-sampai'), platform: nilai('b-plat'), jumlah: nilai('b-jml'), fokus: nilai('b-fokus') };
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(bd.dari) || !/^\d{4}-\d{2}-\d{2}$/.test(bd.sampai)) { ST.bankIsi = bd; ST.bankGalat = 'Rentang tanggal wajib diisi.'; render(); return; }
+    if (bd.sampai < bd.dari) { ST.bankIsi = bd; ST.bankGalat = 'Tanggal akhir tidak boleh sebelum tanggal awal.'; render(); return; }
+    ST.bankIsi = bd; ST.bankGalat = ''; ST.bankHasil = null; ST.bankJalan = true; render();
+    api('campaignBankGenerate', bd).then(function(r){ ST.bankHasil = r; ST.bankSt = 'IDE'; toast(r.jumlah + ' ide masuk ke Bank Konten.'); return muat(); })
+      .catch(function(e){ ST.bankGalat = e.message || 'Gagal tanpa keterangan'; toast(e.message, true); }).then(function(){ ST.bankJalan = false; render(); });
+    return;
+  }
   if (a === 'ide-jadwal') {
     var rr = (D.riset || []).filter(function(r){ return r.id === el.getAttribute('data-r'); })[0];
     var ide = rr && rr.hasil && rr.hasil.ide ? rr.hasil.ide[i] : null; if (!ide) return;
@@ -1056,8 +1214,10 @@ document.addEventListener('click', function(ev){
   }
   /* Pengaturan */
   if (a === 'set-simpan') {
-    var s = { profil: document.getElementById('s-profil').value, aiKey: nilai('s-aikey'), aiModel: nilai('s-model'),
-      aiKeyMeta: nilai('s-aikey-meta'), aiModelMeta: nilai('s-model-meta'), aiPenyedia: nilai('s-penyedia'),
+    var kat = document.getElementById('s-kategori').value.split('\n').map(function(x){ return x.trim(); }).filter(Boolean);
+    if (!kat.length) { document.getElementById('s-galat').innerHTML = '<div class="pita err">Kategori pola minimal satu.</div>'; return; }
+    var s = { profil: document.getElementById('s-profil').value, kategori: kat,
+      aiKeyMeta: nilai('s-aikey-meta'), aiModelMeta: nilai('s-model-meta'),
       tiktokKey: nilai('s-ttkey'), tiktokSecret: nilai('s-ttsecret') };
     el.disabled = true;
     api('campaignSetting', s).then(function(){ toast('Pengaturan tersimpan.'); return muat(); })

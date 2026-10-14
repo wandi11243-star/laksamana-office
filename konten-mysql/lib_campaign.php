@@ -32,9 +32,6 @@
 
 require_once __DIR__ . '/lib_sesi.php';
 
-/* Model AI bawaan. Bisa ditimpa admin modul di halaman Pengaturan. */
-define('CG_MODEL_BAWAAN', 'claude-opus-5-5');
-
 /* PENYEDIA AI (13 Okt 2026, permintaan user: "modelnya bisa dipilih, pakai
    Muse Spark dulu"). Keduanya bicara format Anthropic Messages yang SAMA —
    Meta Model API menyediakan endpoint Messages-kompatibel — jadi bedanya
@@ -48,23 +45,59 @@ define('CG_MODEL_BAWAAN', 'claude-opus-5-5');
    "-contributor" (Meta): harga jauh lebih murah KARENA prompt & jawaban
    boleh dipakai Meta melatih modelnya. Itu disebut di layar Pengaturan dan
    di deploy/legal/privacy.html — kalau daftar penyedia berubah, kebijakan
-   privasinya ikut diubah. */
+   privasinya ikut diubah.
+
+   ANTHROPIC DICABUT (14 Okt 2026, permintaan user: "API Anthropic dihapus
+   saja"). Tinggal Meta. Key Anthropic yang terlanjur tersimpan di cg_setting
+   (ai_key, ai_model, ai_penyedia) SENGAJA TIDAK DIHAPUS — ia cuma tidak
+   dibaca lagi. Menghapus data yang tidak bisa dikembalikan demi kerapian
+   bukan pertukaran yang baik; mengembalikan penyedia cukup menambah barisnya
+   lagi di sini. */
 function cg_ai_daftar() {
   return array(
     'meta' => array('label' => 'Meta (Muse Spark)', 'url' => 'https://api.meta.ai/v1/messages',
       'model' => array('muse-spark-1.3-contributor', 'muse-spark-1.3', 'muse-spark-1.2-contributor', 'muse-spark-1.2'),
       'kunci' => 'ai_key_meta', 'kunciModel' => 'ai_model_meta', 'konstanta' => 'META_MODEL_API_KEY'),
-    'anthropic' => array('label' => 'Anthropic (Claude)', 'url' => 'https://api.anthropic.com/v1/messages',
-      'model' => array('claude-opus-5-5', 'claude-sonnet-5-5', 'claude-haiku-5-5'),
-      'kunci' => 'ai_key', 'kunciModel' => 'ai_model', 'konstanta' => 'ANTHROPIC_API_KEY'),
   );
 }
-/* Bawaan TETAP anthropic: pemasangan yang sudah berjalan tidak boleh
-   diam-diam pindah penyedia (dan key-nya) begitu berkas ini mendarat. */
-function cg_ai_penyedia($pdo) {
-  $p = cg_set_baca($pdo, 'ai_penyedia', 'anthropic');
-  $d = cg_ai_daftar();
-  return isset($d[$p]) ? $p : 'anthropic';
+/* Penyedia yang dipakai: SELALU Meta. Setelan ai_penyedia lama yang masih
+   berbunyi "anthropic" diabaikan — dibaca, ia menunjuk penyedia yang sudah
+   tidak ada di daftar. */
+function cg_ai_penyedia($pdo) { return 'meta'; }
+/* KATEGORI POLA INSIGHT (14 Okt 2026, permintaan user: "saya ingin ada
+   pengaturannya"). Disimpan di cg_setting 'kategori' (JSON). Dipakai DUA
+   tempat dan keduanya membaca fungsi ini: formulir/penyaring di layar (lewat
+   campaignGet) dan prompt Temukan insight. Daftar kedua di salah satu tempat
+   akan menyimpang, dan AI lalu mengusulkan kategori yang tidak ada di
+   pilihan formulir.
+
+   Insight LAMA yang kategorinya sudah dicabut dari daftar TIDAK diubah —
+   layar menggambarnya ditandai (lama). */
+define('CG_KATEGORI_MAKS', 20);
+function cg_kategori_bawaan() {
+  return array('Hook 3 Detik & Retensi', 'Format Konten & Visual', 'Topik & Tren', 'Waktu Tayang',
+    'Promo & Ajakan', 'Sentimen & Masukan', 'Kolaborasi & KOL');
+}
+/* Dirapikan di SATU tempat: dipangkas, dipotong 60 huruf (lebar kolom
+   cg_insight.kategori), kembar dibuang tanpa memandang huruf besar-kecil. */
+function cg_kategori_rapikan($daftar) {
+  $out = array(); $sudah = array();
+  if (!is_array($daftar)) return $out;
+  foreach ($daftar as $k) {
+    if (!is_string($k) && !is_numeric($k)) continue;
+    $k = cg_potong(trim(preg_replace('/\s+/', ' ', (string)$k)), 60);
+    if ($k === '') continue;
+    $kunci = strtolower($k);
+    if (isset($sudah[$kunci])) continue;
+    $sudah[$kunci] = true; $out[] = $k;
+    if (count($out) >= CG_KATEGORI_MAKS) break;
+  }
+  return $out;
+}
+function cg_kategori($pdo) {
+  $j = json_decode(cg_set_baca($pdo, 'kategori', ''), true);
+  $k = cg_kategori_rapikan($j);
+  return $k ? $k : cg_kategori_bawaan();
 }
 function cg_ai_key_untuk($pdo, $p) {
   $d = cg_ai_daftar(); $c = $d[$p]['konstanta'];
@@ -180,6 +213,31 @@ function cg_pastikan($pdo) {
     oleh VARCHAR(120) NOT NULL DEFAULT '',
     at BIGINT NOT NULL DEFAULT 0
   ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+  /* BANK KONTEN (14 Okt 2026): ide/rencana konten — hasil AI "Buat content
+     planning", disimpan dari Riset Tren, atau diketik manual. Tidak ada
+     DELETE: yang tidak dipakai DIARSIPKAN. Menjadwalkan sebuah ide
+     melahirkan baris cg_jadwal dan menandai idenya TERJADWAL. */
+  $pdo->exec("CREATE TABLE IF NOT EXISTS cg_bank (
+    id VARCHAR(40) NOT NULL PRIMARY KEY,
+    judul VARCHAR(200) NOT NULL DEFAULT '',
+    platform VARCHAR(20) NOT NULL DEFAULT '',
+    format VARCHAR(80) NOT NULL DEFAULT '',
+    pilar VARCHAR(80) NOT NULL DEFAULT '',
+    hook TEXT NULL,
+    caption TEXT NULL,
+    tanggal DATE NULL,
+    jam VARCHAR(5) NOT NULL DEFAULT '',
+    alasan TEXT NULL,
+    sumber VARCHAR(20) NOT NULL DEFAULT 'manual',
+    batch VARCHAR(40) NOT NULL DEFAULT '',
+    status VARCHAR(20) NOT NULL DEFAULT 'IDE',
+    jadwal_id VARCHAR(40) NOT NULL DEFAULT '',
+    dibuat_oleh VARCHAR(120) NOT NULL DEFAULT '',
+    dibuat_at BIGINT NOT NULL DEFAULT 0,
+    diubah_oleh VARCHAR(120) NOT NULL DEFAULT '',
+    diubah_at BIGINT NOT NULL DEFAULT 0,
+    KEY idx_cgb_tgl (tanggal)
+  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
   $pdo->exec("CREATE TABLE IF NOT EXISTS cg_setting (
     k VARCHAR(60) NOT NULL PRIMARY KEY,
     v TEXT NULL
@@ -275,6 +333,7 @@ function cg_baca($pdo, $u) {
   $insight = $pdo->query('SELECT * FROM cg_insight ORDER BY (tgl_tayang IS NULL), tgl_tayang DESC, dibuat_at DESC LIMIT 1000')->fetchAll();
   $jadwal  = $pdo->query('SELECT * FROM cg_jadwal ORDER BY tanggal DESC, jam DESC LIMIT 1500')->fetchAll();
   $riset   = $pdo->query('SELECT id, jenis, topik, platform, catatan, hasil, model, oleh, at FROM cg_riset ORDER BY at DESC LIMIT 30')->fetchAll();
+  $bank    = $pdo->query('SELECT * FROM cg_bank ORDER BY (tanggal IS NULL), tanggal ASC, dibuat_at DESC LIMIT 1000')->fetchAll();
   foreach ($riset as &$r) {
     $h = json_decode((string)$r['hasil'], true);
     $r['hasil'] = is_array($h) ? $h : null;
@@ -297,13 +356,14 @@ function cg_baca($pdo, $u) {
     'insight' => $insight,
     'jadwal'  => $jadwal,
     'riset'   => $riset,
+    'bank'    => $bank,
     'postInfo' => $postInfo,
     'akun'    => $akun,
     'setting' => array(
       'aiSiap'     => cg_ai_key($pdo) !== '',
-      'aiPenyedia' => cg_ai_penyedia($pdo),
       'aiModel'    => cg_ai_model_untuk($pdo, cg_ai_penyedia($pdo)),
       'ai'         => cg_ai_ringkas($pdo),
+      'kategori'   => cg_kategori($pdo),
       'profil'     => cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN),
       'tiktokSiap' => cg_tiktok_key($pdo) !== '' && cg_tiktok_secret($pdo) !== '',
       'tiktokDariConfig' => defined('TIKTOK_CLIENT_KEY') && TIKTOK_CLIENT_KEY !== '',
@@ -549,10 +609,155 @@ function cg_jadwal_simpan($pdo, $d, $nama) {
   $id = cg_uid('jdw');
   $q = $pdo->prepare('INSERT INTO cg_jadwal (id, platform, judul, caption, tanggal, jam, status, insight_id, pic, tautan, catatan, dibuat_oleh, dibuat_at) VALUES (:id, :pl, :ju, :ca, :tg, :jm, :st, :ii, :pc, :ta, :ct, :by, :at)');
   $q->execute($nilai + array(':id' => $id, ':by' => $nama, ':at' => $now));
+  /* Dijadwalkan dari Bank Konten: idenya ditandai TERJADWAL berikut id
+     jadwalnya, supaya ide yang sama tidak dijadwalkan dua kali tanpa tanda. */
+  $bankId = isset($d['bankId']) ? cg_potong($d['bankId'], 40) : '';
+  if ($bankId !== '') {
+    $q = $pdo->prepare("UPDATE cg_bank SET status='TERJADWAL', jadwal_id=:j, diubah_oleh=:by, diubah_at=:at WHERE id=:id");
+    $q->execute(array(':j' => $id, ':by' => $nama, ':at' => $now, ':id' => $bankId));
+  }
   return array('id' => $id);
 }
 
-/* ==================== AI (Anthropic Messages API) ==================== */
+/* ==================== BANK KONTEN ==================== */
+function cg_plat_bank($p, $cadangan) {
+  $p = strtolower(trim((string)$p));
+  if (strpos($p, 'tik') !== false) return 'TikTok';
+  if (strpos($p, 'insta') !== false || $p === 'ig') return 'Instagram';
+  if (strpos($p, 'you') !== false) return 'YouTube';
+  return $cadangan;
+}
+function cg_jam_sah($j) {
+  $j = trim((string)$j);
+  return preg_match('/^([01]\d|2[0-3]):[0-5]\d$/', $j) ? $j : '';
+}
+function cg_bank_nilai($d) {
+  return array(
+    ':ju' => cg_potong(isset($d['judul']) ? $d['judul'] : '', 200),
+    ':pl' => cg_plat_bank(isset($d['platform']) ? $d['platform'] : '', 'TikTok'),
+    ':fo' => cg_potong(isset($d['format']) ? $d['format'] : '', 80),
+    ':pi' => cg_potong(isset($d['pilar']) ? $d['pilar'] : '', 80),
+    ':ho' => cg_potong(isset($d['hook']) ? $d['hook'] : '', 1000),
+    ':ca' => cg_potong(isset($d['caption']) ? $d['caption'] : '', 5000),
+    ':tg' => cg_tgl_sah(isset($d['tanggal']) ? $d['tanggal'] : ''),
+    ':jm' => cg_jam_sah(isset($d['jam']) ? $d['jam'] : ''),
+    ':al' => cg_potong(isset($d['alasan']) ? $d['alasan'] : '', 2000),
+  );
+}
+function cg_bank_tambah($pdo, $d, $sumber, $batch, $nama, $now) {
+  $nilai = cg_bank_nilai($d);
+  if ($nilai[':ju'] === '') return null;
+  $id = cg_uid('bnk');
+  $q = $pdo->prepare('INSERT INTO cg_bank (id, judul, platform, format, pilar, hook, caption, tanggal, jam, alasan, sumber, batch, status, dibuat_oleh, dibuat_at) VALUES (:id, :ju, :pl, :fo, :pi, :ho, :ca, :tg, :jm, :al, :su, :ba, \'IDE\', :by, :at)');
+  $q->execute($nilai + array(':id' => $id, ':su' => $sumber, ':ba' => $batch, ':by' => $nama, ':at' => $now));
+  return $id;
+}
+/* Tambah manual / dari Riset, atau sunting. Status & jadwal_id TIDAK disentuh
+   di sini — itu urusan Jadwalkan & Arsip. */
+function cg_bank_simpan($pdo, $d, $nama) {
+  cg_pastikan($pdo);
+  $nilai = cg_bank_nilai($d);
+  if ($nilai[':ju'] === '') throw new Exception('Judul ide wajib diisi.');
+  $now = cg_now_ms();
+  $id = isset($d['id']) ? trim((string)$d['id']) : '';
+  if ($id !== '') {
+    $q = $pdo->prepare('UPDATE cg_bank SET judul=:ju, platform=:pl, format=:fo, pilar=:pi, hook=:ho, caption=:ca, tanggal=:tg, jam=:jm, alasan=:al, diubah_oleh=:by, diubah_at=:at WHERE id=:id');
+    $q->execute($nilai + array(':by' => $nama, ':at' => $now, ':id' => $id));
+    if ($q->rowCount() === 0) throw new Exception('Ide yang disunting tidak ditemukan.');
+    return array('id' => $id);
+  }
+  $sumber = (isset($d['sumber']) && $d['sumber'] === 'riset') ? 'riset' : 'manual';
+  return array('id' => cg_bank_tambah($pdo, $d, $sumber, cg_potong(isset($d['batch']) ? $d['batch'] : '', 40), $nama, $now));
+}
+/* Arsip / pulihkan. Yang dipulihkan kembali ke TERJADWAL kalau ia memang
+   sudah punya jadwal — kalau tidak, ia muncul lagi sebagai ide yang belum
+   dijadwalkan dan dijadwalkan dua kali. */
+function cg_bank_arsip($pdo, $id, $arsip, $nama) {
+  cg_pastikan($pdo);
+  $q = $pdo->prepare("UPDATE cg_bank SET status = CASE WHEN :ar = 1 THEN 'ARSIP' WHEN jadwal_id <> '' THEN 'TERJADWAL' ELSE 'IDE' END, diubah_oleh=:by, diubah_at=:at WHERE id=:id");
+  $q->execute(array(':ar' => $arsip ? 1 : 0, ':by' => $nama, ':at' => cg_now_ms(), ':id' => (string)$id));
+  if ($q->rowCount() === 0) throw new Exception('Ide tidak ditemukan.');
+  return array('id' => $id);
+}
+
+/* GENERATE CONTENT PLANNING (14 Okt 2026). AI menyusun rencana konten untuk
+   satu rentang tanggal dari profil brand, insight yang masih aktif, kategori
+   pola, dan postingan brand yang paling jalan. Hasilnya LANGSUNG masuk Bank
+   Konten sebagai ide (bukan jadwal): yang menjadwalkan tetap orang. */
+function cg_bank_generate($pdo, $d, $nama) {
+  cg_pastikan($pdo);
+  $dari = cg_tgl_sah(isset($d['dari']) ? $d['dari'] : '');
+  $sampai = cg_tgl_sah(isset($d['sampai']) ? $d['sampai'] : '');
+  if ($dari === null || $sampai === null) throw new Exception('Rentang tanggal wajib diisi.');
+  if ($sampai < $dari) throw new Exception('Tanggal akhir tidak boleh sebelum tanggal awal.');
+  if ((strtotime($sampai) - strtotime($dari)) / 86400 > 62) throw new Exception('Rentang maksimal 2 bulan.');
+  $jumlah = max(3, min(20, (int)(isset($d['jumlah']) ? $d['jumlah'] : 10)));
+  $platform = cg_potong(isset($d['platform']) ? $d['platform'] : 'TikTok, Instagram', 40);
+  $fokus = cg_potong(isset($d['fokus']) ? $d['fokus'] : '', 1500);
+  $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
+  $kategori = cg_kategori($pdo);
+  $insight = array();
+  foreach ($pdo->query('SELECT platform, kategori, temuan, aksi FROM cg_insight WHERE arsip=0 ORDER BY dibuat_at DESC LIMIT 30')->fetchAll() as $i) {
+    $insight[] = array('platform' => $i['platform'], 'kategori' => $i['kategori'], 'temuan' => cg_potong($i['temuan'], 300), 'aksi' => cg_potong($i['aksi'], 300));
+  }
+  $bukti = cg_bukti_post($pdo, 20);
+  $platPilih = cg_plat_bank($platform, 'TikTok');
+
+  $system = 'Kamu ahli strategi konten media sosial untuk bisnis F&B di Indonesia. Jawab dalam Bahasa Indonesia. '
+    . 'Susun rencana konten yang realistis dikerjakan tim kecil. Jangan mengarang angka statistik, nama akun, atau tautan. '
+    . 'Balas HANYA dengan satu objek JSON, tanpa teks lain.';
+  $prompt = "Profil brand: $profil
+Rentang tanggal: $dari sampai $sampai
+Platform: $platform
+Jumlah konten: $jumlah
+"
+    . ($fokus !== '' ? "Fokus / catatan: $fokus
+" : '')
+    . "Pilar konten yang dipakai tim: " . implode(', ', $kategori) . "
+"
+    . "
+Insight tim yang masih berlaku (pakai sebagai dasar):
+" . json_encode($insight, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+    . "
+
+Postingan brand yang paling jalan (diurut views):
+" . json_encode($bukti, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+    . "
+
+Buat content planning berbentuk JSON persis:
+"
+    . '{"ringkasan":"1-2 kalimat strategi","ide":[{"judul":"","platform":"TikTok|Instagram|YouTube","format":"misal Reels/Video pendek/Carousel/Story",'
+    . '"pilar":"salah satu pilar di atas","tanggal":"YYYY-MM-DD di dalam rentang","jam":"HH:MM WIB","hook":"kalimat 3 detik pertama",'
+    . '"caption":"caption siap pakai dengan hashtag","alasan":"kenapa konten ini, sebut insight/postingan yang jadi dasarnya"}]}'
+    . "
+Buat tepat $jumlah ide, sebar merata di rentang tanggal, variasikan pilar dan format.";
+
+  $r = cg_ai_tanya($pdo, $system, $prompt, 7000);
+  /* Sambungan BARU: yang lama kemungkinan sudah diputus MySQL selama menunggu
+     AI — lihat db() di lib_konten_mysql.php. */
+  $pdo = db(true);
+  $daftar = isset($r['hasil']['ide']) && is_array($r['hasil']['ide']) ? $r['hasil']['ide'] : array();
+  $batch = cg_uid('gen');
+  $now = cg_now_ms();
+  $ids = array();
+  foreach ($daftar as $ide) {
+    if (!is_array($ide)) continue;
+    /* Tanggal di luar rentang dikosongkan, bukan ditebak: yang menjadwalkan
+       memilih sendiri. Pilar di luar daftar juga dikosongkan. */
+    $tg = cg_tgl_sah(isset($ide['tanggal']) ? $ide['tanggal'] : '');
+    $ide['tanggal'] = ($tg !== null && $tg >= $dari && $tg <= $sampai) ? $tg : '';
+    if (!isset($ide['pilar']) || !in_array((string)$ide['pilar'], $kategori, true)) $ide['pilar'] = '';
+    $ide['platform'] = cg_plat_bank(isset($ide['platform']) ? $ide['platform'] : '', $platPilih);
+    $id = cg_bank_tambah($pdo, $ide, 'ai', $batch, $nama, $now);
+    if ($id !== null) $ids[] = $id;
+    if (count($ids) >= 20) break;
+  }
+  if (!$ids) throw new Exception('AI tidak menghasilkan satu pun ide yang bisa disimpan. Coba jalankan lagi.');
+  return array('batch' => $batch, 'jumlah' => count($ids),
+    'ringkasan' => isset($r['hasil']['ringkasan']) ? cg_potong($r['hasil']['ringkasan'], 600) : '', 'model' => $r['model']);
+}
+
+/* ==================== AI (Meta Model API, format Messages) ==================== */
 /* Untuk layar Pengaturan: daftar penyedia & model, mana yang key-nya terisi
    — TANPA isi key-nya. */
 function cg_ai_ringkas($pdo) {
@@ -571,14 +776,12 @@ function cg_ai_tanya($pdo, $system, $prompt, $maks = 6000) {
   if ($key === '') throw new Exception('API key ' . $x['label'] . ' belum diisi. Admin modul bisa mengisinya di Pengaturan.');
   $model = cg_ai_model_untuk($pdo, $p);
   /* Muse Spark selalu MENALAR dulu, dan token penalarannya ikut dihitung di
-     max_tokens. Dengan jatah yang sama dengan Claude, jawabannya terpotong
-     sebelum JSON-nya selesai — dan riset gagal tanpa sebab yang terbaca. */
-  if ($p === 'meta') $maks = $maks + 8000;
+     max_tokens. Tanpa tambahan jatah, jawabannya terpotong sebelum JSON-nya
+     selesai — dan riset gagal tanpa sebab yang terbaca. */
+  $maks = $maks + 8000;
   @set_time_limit(180);
-  /* Meta: Bearer, tanpa anthropic-version. Anthropic: x-api-key. */
-  $header = $p === 'meta'
-    ? array('content-type: application/json', 'Authorization: Bearer ' . $key)
-    : array('content-type: application/json', 'x-api-key: ' . $key, 'anthropic-version: 2023-06-01');
+  /* Meta: Authorization Bearer. */
+  $header = array('content-type: application/json', 'Authorization: Bearer ' . $key);
   $r = cg_http('POST', $x['url'], $header, json_encode(array(
     'model' => $model,
     'max_tokens' => $maks,
@@ -590,7 +793,7 @@ function cg_ai_tanya($pdo, $system, $prompt, $maks = 6000) {
     throw new Exception($x['label'] . ' menolak (' . $r['kode'] . '): ' . (is_string($pesan) ? $pesan : json_encode($pesan)));
   }
   /* Bentuk jawaban dibaca longgar (14 Okt 2026): blok content bertipe text
-     (Anthropic & Meta Messages), content berupa string, atau bentuk
+     (format Messages), content berupa string, atau bentuk
      choices[0].message.content. Yang dibaca satu bentuk saja menulis "bukan
      JSON" untuk jawaban yang sebenarnya utuh. */
   $teks = '';
@@ -660,6 +863,9 @@ function cg_riset_jalankan($pdo, $d, $nama) {
     . "\nBerikan 3-5 pola, 4-6 tren, dan 8 ide konten. Pola WAJIB bersumber dari data postingan di atas; kalau datanya kosong, kosongkan array pola.";
 
   $r = cg_ai_tanya($pdo, $system, $prompt, 7000);
+  /* Sambungan BARU sesudah menunggu AI — tanpa ini INSERT di bawah gagal
+     "MySQL server has gone away" (lihat db()). Sudah kejadian 14 Okt 2026. */
+  $pdo = db(true);
   $id = cg_uid('rst');
   $q = $pdo->prepare('INSERT INTO cg_riset (id, jenis, topik, platform, catatan, hasil, model, oleh, at) VALUES (:id, :je, :to, :pl, :ca, :ha, :mo, :by, :at)');
   $q->execute(array(':id' => $id, ':je' => 'tren', ':to' => $topik, ':pl' => $platform, ':ca' => $catatan,
@@ -675,11 +881,12 @@ function cg_insight_ai($pdo) {
   $bukti = cg_bukti_post($pdo, 30);
   if (!$bukti) throw new Exception('Belum ada postingan yang bisa dianalisa. Hubungkan & sinkronkan akun TikTok, atau isi Input Performa di modul Konten.');
   $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
+  $kategori = cg_kategori($pdo);
   $system = 'Kamu analis konten media sosial. Jawab dalam Bahasa Indonesia. Analisa HANYA dari data yang diberikan; '
     . 'jangan mengarang angka atau tautan. Balas HANYA dengan satu objek JSON.';
   $prompt = "Profil brand: $profil\nPostingan (diurut views):\n" . json_encode($bukti, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
     . "\n\nTemukan 4-6 pola yang membuat postingan teratas lebih berhasil daripada yang bawah (hook, topik, format, waktu tayang, ajakan). Bentuk JSON:\n"
-    . '{"insight":[{"platform":"TikTok|Instagram|YouTube","kategori":"Hook 3 Detik & Retensi|Format Konten & Visual|Topik & Tren|Waktu Tayang|Promo & Ajakan|Sentimen & Masukan",'
+    . '{"insight":[{"platform":"TikTok|Instagram|YouTube","kategori":"' . implode('|', $kategori) . '",'
     . '"temuan":"","url":"tautan PERSIS dari data di atas yang paling mewakili","tglTayang":"YYYY-MM-DD dari data","metrik":"angka dari data","aksi":""}]}';
   $r = cg_ai_tanya($pdo, $system, $prompt, 4000);
   $daftar = isset($r['hasil']['insight']) && is_array($r['hasil']['insight']) ? $r['hasil']['insight'] : array();
@@ -693,6 +900,9 @@ function cg_insight_ai($pdo) {
     $url = isset($i['url']) ? (string)$i['url'] : '';
     if (!isset($sah[$url])) $url = '';
     $i['url'] = $url;
+    /* Kategori di luar daftar yang disetel DIKOSONGKAN, bukan ditebak: yang
+       menyimpan usulannya memilih sendiri dari formulirnya. */
+    if (!isset($i['kategori']) || !in_array((string)$i['kategori'], $kategori, true)) $i['kategori'] = '';
     $out[] = $i;
   }
   return array('usulan' => $out, 'model' => $r['model']);
@@ -939,17 +1149,21 @@ function cg_setting_simpan($pdo, $d) {
   /* Kotak rahasia yang dikosongkan berarti "jangan diubah", bukan "hapus".
      Layar tidak pernah menampilkan isinya, jadi kotak kosong adalah keadaan
      normal tiap kali halamannya dibuka. Menghapus memakai kata HAPUS. */
-  foreach (array('aiKey' => 'ai_key', 'aiKeyMeta' => 'ai_key_meta', 'tiktokKey' => 'tiktok_key', 'tiktokSecret' => 'tiktok_secret') as $f => $k) {
+  foreach (array('aiKeyMeta' => 'ai_key_meta', 'tiktokKey' => 'tiktok_key', 'tiktokSecret' => 'tiktok_secret') as $f => $k) {
     if (!isset($d[$f])) continue;
     $v = trim((string)$d[$f]);
     if ($v === '') continue;
     cg_set_tulis($pdo, $k, $v === 'HAPUS' ? '' : $v);
   }
   $daftar = cg_ai_daftar();
-  if (isset($d['aiPenyedia']) && isset($daftar[(string)$d['aiPenyedia']])) cg_set_tulis($pdo, 'ai_penyedia', (string)$d['aiPenyedia']);
-  /* Model hanya dari daftar penyedia itu — lihat cg_ai_daftar(). */
-  foreach (array('aiModel' => 'anthropic', 'aiModelMeta' => 'meta') as $f => $p) {
-    if (isset($d[$f]) && in_array((string)$d[$f], $daftar[$p]['model'], true)) cg_set_tulis($pdo, $daftar[$p]['kunciModel'], (string)$d[$f]);
+  /* Model hanya dari daftar penyedia — lihat cg_ai_daftar(). */
+  if (isset($d['aiModelMeta']) && in_array((string)$d['aiModelMeta'], $daftar['meta']['model'], true)) cg_set_tulis($pdo, $daftar['meta']['kunciModel'], (string)$d['aiModelMeta']);
+  /* Daftar kosong DITOLAK, bukan disimpan: formulir insight tanpa satu pun
+     kategori tidak bisa diisi siapa pun. */
+  if (isset($d['kategori'])) {
+    $k = cg_kategori_rapikan($d['kategori']);
+    if (!$k) throw new Exception('Kategori pola minimal satu.');
+    cg_set_tulis($pdo, 'kategori', json_encode($k, JSON_UNESCAPED_UNICODE));
   }
   if (isset($d['profil'])) cg_set_tulis($pdo, 'profil', cg_potong($d['profil'], 1500));
   return array('ok' => true);
@@ -970,6 +1184,9 @@ function cg_aksi($action, $body) {
     case 'campaignJadwalSimpan': return cg_jadwal_simpan($pdo, $d, $nama);
     case 'campaignRiset':        return cg_riset_jalankan($pdo, $d, $nama);
     case 'campaignInsightAI':    return cg_insight_ai($pdo);
+    case 'campaignBankGenerate': return cg_bank_generate($pdo, $d, $nama);
+    case 'campaignBankSimpan':   return cg_bank_simpan($pdo, $d, $nama);
+    case 'campaignBankArsip':    return cg_bank_arsip($pdo, isset($d['id']) ? $d['id'] : '', !empty($d['arsip']), $nama);
     case 'campaignTiktokMulai':  return cg_tiktok_mulai($pdo, $nama);
     case 'campaignTiktokSync':   return cg_tiktok_sync($pdo);
     case 'campaignTop':          return cg_top($pdo, $d);
