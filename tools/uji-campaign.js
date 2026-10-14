@@ -41,6 +41,22 @@ const IKLAN_UJI = [
   { ad_id: 'a6', nama: 'Iklan nol hasil', kampanye: 'K2', status: 'ACTIVE', spend: 90000, impresi: 9000, reach: 8000, ctr: 0.2, hasil_label: 'Chat dimulai', hasil_n: 0 }
 ];
 
+/* Data harian tiruan: 60 hari Instagram. Hari ganjil (dari hari ini) beriklan
+   Rp50.000 dan views-nya 2.000; hari genap tanpa iklan, views 1.000.
+   Periode 30 hari terakhir views dobel dari 30 hari sebelumnya (+100%). */
+function tumbuhUji(hari) {
+  const kini = hariIni(), h = [], ik = [];
+  for (let i = 1; i <= 60; i++) {
+    const t = geser(-i), lama = i > 30, beriklan = i % 2 === 1;
+    const v = (beriklan ? 2000 : 1000) / (lama ? 2 : 1);
+    h.push({ platform: 'instagram', tgl: t, views: v, reach: v / 2, likes: 10, comments: 2, shares: 1, saves: 1, interaksi: 14, follower_baru: beriklan ? 6 : 2, follower: null });
+    if (beriklan) ik.push({ tgl: t, spend: 50000, impresi: 4000, reach: 3000, klik: 20, video_view: 500, interaksi: 40, chat: 3 });
+  }
+  h.push({ platform: 'tiktok', tgl: geser(-2), follower: 1000, likes_total: 5000, jml_post: 300 });
+  h.push({ platform: 'tiktok', tgl: geser(-1), follower: 1010, likes_total: 5100, jml_post: 301 });
+  return { hari, kini, harian: h, iklan: ik, iklanAda: true };
+}
+
 /* ---------- Server tiruan HIDUP ---------- */
 function buatServer(opsi) {
   opsi = opsi || {};
@@ -119,6 +135,7 @@ function buatServer(opsi) {
     else if (b.action === 'campaignTiktokSync') data = { jumlah: 2, total: 2, riwayatSelesai: false };
     else if (b.action === 'campaignTop') data = topTiruan(S, b.data);
     else if (b.action === 'campaignAds') data = { periode: b.data.periode, syncAt: Date.now(), baris: IKLAN_UJI };
+    else if (b.action === 'campaignTumbuh') data = tumbuhUji(b.data.hari);
     else if (b.action === 'campaignAdsAI') data = { ringkasan: 'Ringkasan iklan uji', model: 'm', lanjutkan: [{ ad_id: 'a1', nama: 'Iklan murah', alasan: 'Biaya per chat Rp5.000', saran: 'Naikkan budget 20%' }],
       perbaiki: [], hentikan: [{ ad_id: 'a4', nama: 'Iklan mahal', alasan: 'Rp30.000 per chat', saran: '' }], saranUmum: ['Uji hook baru'] };
     else data = { ok: true };
@@ -494,6 +511,35 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('php: postingan IG yang dipromosikan dicocokkan lewat ID media & kode tautan', PHP_LIB.includes("$iklanIg['id:' . $r['ig_media']]") && PHP_LIB.includes('function cg_ig_kode('));
     cek('detail postingan Instagram menyebut angka API = organik, dan data iklannya kalau dipromosikan', HTML.includes('Angka dari Instagram API adalah <b>organik</b>') && HTML.includes('pernah dipromosikan'));
     cek('aksi iklan terdaftar', PHP_LIB.includes("case 'campaignAdsSync'") && PHP_LIB.includes("case 'campaignAds'") && PHP_LIB.includes("case 'campaignAdsAI'"));
+  }
+
+  console.log('\n== Pertumbuhan ==');
+  {
+    const p = await buka({ hash: '#tumbuh' });
+    await tunggu(60);
+    let h = p.d.getElementById('app').innerHTML;
+    cek('menu Pertumbuhan ada', /data-v="tumbuh"/.test(p.d.getElementById('nav').innerHTML));
+    cek('campaignTumbuh diminta 30 hari', p.srv.log.some(x => x.action === 'campaignTumbuh' && x.data.hari === 30));
+    /* 30 hari: 15 hari x 2.000 + 15 x 1.000 = 45.000 views; periode lalu 22.500 -> +100% */
+    cek('kartu Views = jumlah 30 hari + naik 100% vs periode sebelumnya', /Views<\/div><div class="v"[^>]*>45 rb/.test(h) && /▲ 100%/.test(h), '');
+    cek('grafik views menandai hari beriklan', (h.match(/class="ik"/g) || []).length === 15);
+    const dampak = h.slice(h.indexOf('<h2>Pengaruh iklan</h2>'), h.indexOf('<h2>Rincian per hari</h2>'));
+    cek('pengaruh iklan: views rata-rata hari beriklan 2 rb vs 1 rb (+100%)', /Hari beriklan \(15\)/.test(dampak) && /Hari tanpa iklan \(15\)/.test(dampak) && /2 rb/.test(dampak) && /▲ 100%/.test(dampak));
+    cek('pengaruh iklan menyebut bukan sebab-akibat', /bukan bukti sebab-akibat/.test(dampak));
+    cek('total dari iklan disebut', /biaya <b>Rp750\.000<\/b>/.test(dampak));
+    klik(p.d, '[data-a="tumbuh-plat"][data-v="tiktok"]');
+    h = p.d.getElementById('app').innerHTML;
+    cek('TikTok: kenaikan follower & likes dari potret', /\+10/.test(h) && /\+100/.test(h) && /tidak menyediakan insight harian/.test(h));
+    klik(p.d, '[data-a="tumbuh-hari"][data-v="7"]'); await tunggu(60);
+    cek('ganti rentang memuat ulang (7 hari)', p.srv.log.some(x => x.action === 'campaignTumbuh' && x.data.hari === 7));
+    const tb = PHP_LIB.slice(PHP_LIB.indexOf('/* ==================== PERTUMBUHAN HARIAN'), PHP_LIB.indexOf('/* ==================== IKLAN META'));
+    cek('php: insight akun IG per hari (total_value), dicicil 15 hari per sinkron', tb.includes("'metric_type' => 'total_value'") && tb.includes('if (count($daftar) >= 15) break;'));
+    cek('php: kolom NULL tidak menimpa angka yang ada (COALESCE)', tb.includes('COALESCE(VALUES('));
+    cek('php: follower baru dari follower_count', tb.includes("'metric' => 'follower_count'"));
+    cek('php: potret TikTok hanya kalau izin statistik ada', PHP_LIB.includes("if ($adaStats) cg_harian_simpan($pdo, 'tiktok'"));
+    cek('php: iklan per hari (time_increment=1)', PHP_LIB.includes("'time_increment' => 1"));
+    cek('php: galat insight harian tidak menggagalkan sinkron IG', /function cg_ig_harian[\s\S]*?catch \(Throwable \$e\) \{\}/.test(tb));
+    cek('aksi campaignTumbuh terdaftar', PHP_LIB.includes("case 'campaignTumbuh'"));
   }
 
   console.log('\n== Instagram ==');

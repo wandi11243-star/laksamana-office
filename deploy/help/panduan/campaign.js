@@ -22,6 +22,7 @@ LM_HELP_ISI('campaign', {
             ['Kalender','Kalender konten bulanan, jadwal per tanggal, dan daftar yang sudah waktunya diposting.'],
             ['Riset Tren','Riset AI: pola dari konten brand, tren, dan ide konten siap jadwal.'],
             ['Bank Konten','Content planning buatan AI, ide yang disimpan dari Riset Tren, dan ide manual — siap dijadwalkan.'],
+            ['Pertumbuhan','Kenaikan views, reach, likes, komentar, share, saves & follower per hari, dan perbandingan hari beriklan vs tanpa iklan.'],
             ['Iklan','Performa iklan Facebook & Instagram dari Meta Ads: biaya, jangkauan, hasil, dan penilaian works / tidak works.'],
             ['Pengaturan','Profil brand, API key AI, kunci TikTok & Instagram. Hanya untuk admin modul.']
           ] },

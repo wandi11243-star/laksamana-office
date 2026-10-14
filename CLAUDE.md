@@ -937,7 +937,7 @@ akan tertimpa.
   dengan mengosongkan tokennya.
 
 ```bash
-node tools/uji-campaign.js   # 214 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
+node tools/uji-campaign.js   # 230 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
 **Bank Konten (14 Okt 2026)** — menu `bank`, tabel `cg_bank` (lahir di
@@ -978,6 +978,15 @@ dan panel detailnya menyebut angka Instagram API = organik.
 Halaman Iklan: Top iklan (termurah per jenis hasil), cari/saring/urut lokal
 (tabel di #iklan-daftar, kotak cari tidak dibuat ulang), Saran AI `campaignAdsAI`
 (usulan saja, ad_id karangan dibuang, tidak menulis apa pun).
+
+**PERTUMBUHAN (14 Okt 2026)** — menu `tumbuh`, aksi `campaignTumbuh`, tabel
+`cg_harian` (platform+tgl WIB; upsert `COALESCE` — kolom NULL tidak menimpa) dan
+`cg_iklan_harian` (Ads insights time_increment=1, level akun, 90 hari).
+Instagram: insight AKUN per hari (`cg_ig_harian`, total_value, 15 hari per
+sinkron + 3 hari terakhir disegarkan; follower baru dari follower_count, cuma
+30 hari). TikTok: potret follower & likes_total tiap sinkron (API tidak punya
+insight harian). Pengaruh iklan = rata-rata hari beriklan (≥ Rp10.000) vs
+tanpa iklan — korelasi, dan itu ditulis di layar.
 
 **"MySQL server has gone away" (14 Okt 2026)**: panggilan AI 1–2 menit
 melewati wait_timeout MySQL, sambungan PDO statis sudah diputus server.
