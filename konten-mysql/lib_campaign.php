@@ -370,6 +370,7 @@ function cg_baca($pdo, $u) {
     'riwayatSelesai' => cg_set_baca($pdo, 'tiktok_bf_selesai') === '1',
     'igTotal' => (int)$pdo->query("SELECT COUNT(*) FROM cg_post WHERE platform='instagram' AND hilang=0")->fetchColumn(),
     'igRiwayatSelesai' => cg_set_baca($pdo, 'ig_bf_selesai') === '1',
+    'igInsight' => (int)$pdo->query("SELECT COUNT(*) FROM cg_post WHERE platform='instagram' AND hilang=0 AND insight_at > 0")->fetchColumn(),
   );
   /* Akun TANPA token — kolom rahasia tidak pernah ikut SELECT ini. */
   $akun = $pdo->query('SELECT platform, nama, avatar, follower, bio, profil_url, terverifikasi, following, likes_total, jml_video, stats_ada, scope, token_exp, refresh_exp, sync_at, sync_galat, oleh, at FROM cg_akun')->fetchAll();
@@ -1360,15 +1361,17 @@ function cg_ig_sync($pdo) {
     foreach ($data['data'] as $m) $simpan($m);
     $after = $lanjut($data);
 
-    /* 2. RIWAYAT — dilanjutkan dari cursor TERSIMPAN, 3 halaman per sinkron,
-       pola yang sama dengan TikTok: sinkron tetap ringan, riwayat lengkap
-       tertarik bertahap. */
+    /* 2. RIWAYAT — SELURUH postingan akun, bukan cuma yang terbaru (14 Okt
+       2026, permintaan user: "samakan dengan konsep TikTok"). Dilanjutkan
+       dari cursor TERSIMPAN, 4 halaman (200 postingan) per sinkron, sampai
+       Instagram bilang tidak ada lagi. Cursor disimpan tiap halaman, jadi
+       sinkron yang putus di tengah tidak mengulang dari awal. */
     $selesai = cg_set_baca($pdo, 'ig_bf_selesai') === '1';
     if (!$selesai) {
       $c = cg_set_baca($pdo, 'ig_bf_after');
       if ($c === '') $c = $after;
       if ($c === '') $selesai = true;
-      for ($h = 0; !$selesai && $h < 3; $h++) {
+      for ($h = 0; !$selesai && $h < 4; $h++) {
         $data = $halaman($c);
         foreach ($data['data'] as $m) $simpan($m);
         $c = $lanjut($data);
@@ -1378,13 +1381,28 @@ function cg_ig_sync($pdo) {
       if ($selesai) { cg_set_tulis($pdo, 'ig_bf_selesai', '1'); cg_set_tulis($pdo, 'ig_bf_after', ''); }
     }
 
-    /* 3. INSIGHT per postingan (views, reach, saves, shares) — satu
-       permintaan per postingan, jadi dibatasi 25 per sinkron: yang belum
-       pernah punya insight dulu, lalu yang paling lama tidak disegarkan. */
-    $tua = $pdo->query("SELECT post_id FROM cg_post WHERE platform='instagram' AND hilang=0 ORDER BY insight_at ASC, tayang_at DESC LIMIT 25")->fetchAll(PDO::FETCH_COLUMN);
+    /* 3. SEGARKAN YANG LAMA + INSIGHT per postingan — padanan langkah 3
+       TikTok. Tiap sinkron menyentuh 30 postingan yang paling lama tidak
+       disegarkan (yang belum pernah punya insight duluan): likes & komentar
+       ditarik ulang, lalu views, reach, saves, share. Berputar terus, jadi
+       SELURUH postingan kebagian dan angkanya tidak membeku di hari ia
+       pertama ditarik. Postingan yang sudah tidak dipulangkan Instagram
+       (dihapus/diarsipkan) ditandai `hilang`, bukan dihapus dari tabel. */
+    $tua = $pdo->query("SELECT post_id FROM cg_post WHERE platform='instagram' AND hilang=0 ORDER BY insight_at ASC, tayang_at DESC LIMIT 30")->fetchAll(PDO::FETCH_COLUMN);
     $up = $pdo->prepare("UPDATE cg_post SET views=:vi, reach=:re, saves=:sa, shares=:sh, insight_at=:at WHERE platform='instagram' AND post_id=:id");
     $tandai = $pdo->prepare("UPDATE cg_post SET insight_at=:at WHERE platform='instagram' AND post_id=:id");
+    $dasar = $pdo->prepare("UPDATE cg_post SET likes=:li, comments=:cm, sync_at=:sy WHERE platform='instagram' AND post_id=:id");
+    $hilang = $pdo->prepare("UPDATE cg_post SET hilang=1, insight_at=:at WHERE platform='instagram' AND post_id=:id");
     foreach ($tua as $id) {
+      $mb = cg_http('GET', CG_IG_GRAPH . '/' . rawurlencode((string)$id) . '?' . http_build_query(array('fields' => 'id,like_count,comments_count', 'access_token' => $tok)), array(), null, 20);
+      if (isset($mb['data']['error'])) {
+        /* Kode 100 = objek tidak ada / tidak bisa dibaca lagi. Galat lain
+           (batas permintaan, jaringan) TIDAK menandai hilang. */
+        if ((int)(isset($mb['data']['error']['code']) ? $mb['data']['error']['code'] : 0) === 100) { $hilang->execute(array(':at' => $now, ':id' => $id)); continue; }
+      } elseif ($mb['data']) {
+        $dasar->execute(array(':li' => (int)(isset($mb['data']['like_count']) ? $mb['data']['like_count'] : 0),
+          ':cm' => (int)(isset($mb['data']['comments_count']) ? $mb['data']['comments_count'] : 0), ':sy' => $now, ':id' => $id));
+      }
       $ix = cg_ig_insight_media($tok, (string)$id);
       if ($ix === null) { $tandai->execute(array(':at' => $now, ':id' => $id)); continue; }
       $up->execute(array(':vi' => isset($ix['views']) ? $ix['views'] : (isset($ix['reach']) ? $ix['reach'] : 0),

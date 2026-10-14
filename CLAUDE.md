@@ -937,7 +937,7 @@ akan tertimpa.
   dengan mengosongkan tokennya.
 
 ```bash
-node tools/uji-campaign.js   # 171 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
+node tools/uji-campaign.js   # 176 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
 **Bank Konten (14 Okt 2026)** — menu `bank`, tabel `cg_bank` (lahir di

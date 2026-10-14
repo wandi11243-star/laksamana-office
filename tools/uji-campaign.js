@@ -416,6 +416,11 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
         bio: 'Coffee Pekanbaru', profil_url: 'https://www.instagram.com/laksamanamuda.id/', avatar: '', token_exp: Date.now() + 50 * 864e5 }] });
     const k1 = b.d.getElementById('app').innerHTML;
     cek('kartu Instagram terhubung: nama, follower & tautan profil', /Laksamana Muda/.test(k1) && /5\.432|5,4|5\.4/.test(k1) && /Buka profil di Instagram/.test(k1), '');
+    /* Pita riwayat Instagram muncul selama belum lengkap. */
+    b.srv.S.postInfo.igTotal = 120; b.srv.S.postInfo.igInsight = 30; b.srv.S.postInfo.igRiwayatSelesai = false;
+    await b.w.__cg.muat(); b.w.__cg.render(); await tunggu(40);
+    const kp = b.d.getElementById('app').innerHTML;
+    cek('pita riwayat Instagram menyebut jumlah tersimpan & ber-insight', /Postingan Instagram masih ditarik bertahap: 120 dari 210/.test(kp) && /untuk 30 postingan/.test(kp));
     klik(b.d, '[data-a="ig-sync"]'); await tunggu(60);
     cek('Sinkronkan memanggil campaignIgSync', b.srv.log.some(x => x.action === 'campaignIgSync'));
     klik(b.d, '[data-a="ig-putus"]'); await tunggu(60);
@@ -437,7 +442,11 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('token pendek ditukar jadi token 60 hari', ig.includes("'grant_type' => 'ig_exchange_token'"));
     cek('token diperbarui sebelum habis (ig_refresh_token)', ig.includes("'grant_type' => 'ig_refresh_token'"));
     cek('scope = izin yang ditambahkan di app', /define\('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights'\)/.test(PHP_LIB));
-    cek('insight per postingan dibatasi per sinkron', ig.includes('LIMIT 25') && ig.includes('/insights?'));
+    cek('insight per postingan bergilir 30 per sinkron', ig.includes('ORDER BY insight_at ASC, tayang_at DESC LIMIT 30') && ig.includes('/insights?'));
+    cek('riwayat SELURUH postingan dari cursor tersimpan (4 halaman per sinkron)', ig.includes('for ($h = 0; !$selesai && $h < 4; $h++)') && ig.includes("cg_set_tulis($pdo, 'ig_bf_after', $c)"));
+    cek('postingan lama disegarkan likes & komentarnya', ig.includes("UPDATE cg_post SET likes=:li, comments=:cm"));
+    cek('postingan yang hilang ditandai, tidak dihapus (hanya galat kode 100)', ig.includes("SET hilang=1") && ig.includes("=== 100") && !/DELETE/.test(ig));
+    cek('campaignGet memulangkan jumlah yang sudah ber-insight', PHP_LIB.includes("'igInsight' =>"));
     cek('reach & saves lahir lewat ALTER, NULL bawaan', PHP_LIB.includes("ADD COLUMN reach BIGINT NULL") && PHP_LIB.includes("ADD COLUMN saves BIGINT NULL"));
     cek('campaignGet TIDAK memulangkan App Secret Instagram', !/'ig_secret'\s*\)?\s*[,)]/.test(PHP_LIB.slice(PHP_LIB.indexOf('function cg_baca('), PHP_LIB.indexOf('function cg_konten_perf('))));
     cek('aksi Instagram terdaftar', ['campaignIgMulai', 'campaignIgSync', 'campaignIgPutus'].every(x => PHP_LIB.includes("case '" + x + "'")));
