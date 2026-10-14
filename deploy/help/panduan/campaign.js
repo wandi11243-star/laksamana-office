@@ -22,6 +22,7 @@ LM_HELP_ISI('campaign', {
             ['Kalender','Kalender konten bulanan, jadwal per tanggal, dan daftar yang sudah waktunya diposting.'],
             ['Riset Tren','Riset AI: pola dari konten brand, tren, dan ide konten siap jadwal.'],
             ['Bank Konten','Content planning buatan AI, ide yang disimpan dari Riset Tren, dan ide manual — siap dijadwalkan.'],
+            ['Iklan','Performa iklan Facebook & Instagram dari Meta Ads: biaya, jangkauan, hasil, dan penilaian works / tidak works.'],
             ['Pengaturan','Profil brand, API key AI, kunci TikTok & Instagram. Hanya untuk admin modul.']
           ] },
         { t:'catatan', nada:'info', judul:'Posting otomatis belum aktif',
@@ -110,6 +111,11 @@ LM_HELP_ISI('campaign', {
           'Di app Meta → Instagram → Pengaturan login bisnis, daftarkan *URI pengalihan* yang tertulis di kartu Instagram halaman *Pengaturan* (dev dan produksi).',
           'Isi *ID aplikasi Instagram* & *Rahasia aplikasi Instagram* di Pengaturan, simpan, lalu tekan *Hubungkan* di kartu Instagram menu Insight.',
           'Izinnya berlaku 60 hari dan diperbarui otomatis saat sinkron. Kalau kartu menulis izin hampir habis, tekan *Hubungkan ulang*.'
+        ]},
+        { t:'langkah', judul:'Menghubungkan Meta Ads (menu Iklan)', isi:[
+          'Di app Meta, tambahkan kasus penggunaan iklan (Marketing API) supaya izin *ads_read* tersedia.',
+          'Di Business Manager → *Pengguna sistem*, buat pengguna sistem, tetapkan akun iklan (minimal lihat performa) dan app Meta-nya, lalu *Buat token* dengan izin *ads_read*.',
+          'Isi token itu dan *ID akun iklan* (angka sesudah act= di Ads Manager) di kartu *Meta Ads* halaman Pengaturan, simpan, lalu buka menu *Iklan* → *Sinkronkan*.'
         ]},
         { t:'langkah', judul:'Mengaktifkan AI', isi:[
           'Buat API key Meta Model API di dev.meta.ai.',
