@@ -96,6 +96,10 @@ function buatServer(opsi) {
       if (d.id) Object.assign(S.bank.find(x => x.id === d.id), { judul: d.judul });
       else S.bank.push({ id: 'bn' + S.bank.length, judul: d.judul, platform: d.platform, format: d.format || '', pilar: d.pilar || '', hook: d.hook || '', caption: d.caption || '', tanggal: d.tanggal || null, jam: d.jam || '', alasan: d.alasan || '', sumber: d.sumber || 'manual', status: 'IDE', jadwal_id: '', dibuat_oleh: 'Uji' });
       data = { id: 'x' };
+    } else if (b.action === 'campaignBankHapus') {
+      const ix = S.bank.findIndex(x => x.id === b.data.id && x.status === 'ARSIP');
+      if (ix < 0) return Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: false, error: 'Hanya ide yang sudah diarsipkan yang bisa dihapus.' })) });
+      S.bank.splice(ix, 1); data = { id: b.data.id };
     } else if (b.action === 'campaignBankArsip') {
       const bb = S.bank.find(x => x.id === b.data.id); bb.status = b.data.arsip ? 'ARSIP' : (bb.jadwal_id ? 'TERJADWAL' : 'IDE'); data = { id: bb.id };
     } else if (b.action === 'campaignInsightArsip') {
@@ -357,6 +361,19 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     const ka = srv.log.filter(b => b.action === 'campaignBankArsip').pop();
     cek('arsipkan mengirim arsip:true (bukan hapus)', ka && ka.data.arsip === true);
 
+    /* Hapus permanen: hanya di tab Arsip, ditanya dulu */
+    cek('tombol Hapus TIDAK ada di tab Ide', !d.querySelector('[data-a="bank-hapus"]'));
+    klik(d, '[data-a="bank-st"][data-v="ARSIP"]');
+    let tanya = '';
+    w.confirm = (m) => { tanya = m; return false; };
+    const nH = srv.log.filter(b => b.action === 'campaignBankHapus').length;
+    klik(d, '[data-a="bank-hapus"]'); await tunggu(30);
+    cek('hapus ditanya dulu & menyebut judulnya; Batal = tidak terkirim', /Hapus permanen ide "/.test(tanya) && srv.log.filter(b => b.action === 'campaignBankHapus').length === nH);
+    w.confirm = () => true;
+    const jmlArsip = d.querySelectorAll('[data-a="bank-hapus"]').length;
+    klik(d, '[data-a="bank-hapus"]'); await tunggu(80);
+    cek('hapus permanen terkirim & idenya hilang', srv.log.some(b => b.action === 'campaignBankHapus') && d.querySelectorAll('[data-a="bank-hapus"]').length === jmlArsip - 1);
+
     /* Riset: Simpan ke Bank */
     const r = await buka({ hash: '#riset' });
     klik(r.d, '[data-a="ide-bank"]'); await tunggu(80);
@@ -375,7 +392,7 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('tabel cg_bank lahir lewat CREATE TABLE IF NOT EXISTS', /CREATE TABLE IF NOT EXISTS cg_bank/.test(PHP_LIB));
     cek('campaignGet memulangkan bank', PHP_LIB.includes("'bank'    => $bank"));
     cek('jadwal dari bank menandai ide TERJADWAL', PHP_LIB.includes("UPDATE cg_bank SET status='TERJADWAL', jadwal_id=:j"));
-    cek('aksi bank terdaftar', ['campaignBankGenerate', 'campaignBankSimpan', 'campaignBankArsip'].every(x => PHP_LIB.includes("case '" + x + "'")));
+    cek('aksi bank terdaftar', ['campaignBankGenerate', 'campaignBankSimpan', 'campaignBankArsip', 'campaignBankHapus'].every(x => PHP_LIB.includes("case '" + x + "'")));
   }
 
   console.log('\n== Pengaturan ==');
@@ -461,7 +478,9 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('campaignGet TIDAK memulangkan token', !/access_token|refresh_token/.test(baca.replace(/\/\*[\s\S]*?\*\//g, '')));
     cek('campaignGet TIDAK memulangkan API key', !/'ai_key'|cg_ai_key\(\$pdo\)\s*[,)]/.test(baca.replace(/cg_ai_key\(\$pdo\) !== ''/g, '')));
     const tanpaKomentar = PHP_LIB.replace(/\/\*[\s\S]*?\*\//g, '');
-    cek('tidak ada DELETE di lib_campaign', !/\bDELETE\b/i.test(tanpaKomentar));
+    /* Satu-satunya DELETE: hapus permanen ide Bank Konten, dan HANYA yang ARSIP. */
+    const del = tanpaKomentar.match(/\bDELETE\b[^"']*/gi) || [];
+    cek('DELETE hanya satu: ide Bank Konten berstatus ARSIP', del.length === 1 && tanpaKomentar.includes("DELETE FROM cg_bank WHERE id=:id AND status='ARSIP'"), del.join(' | '));
     cek('tabel lahir lewat CREATE TABLE IF NOT EXISTS', /CREATE TABLE IF NOT EXISTS cg_insight/.test(PHP_LIB) && /CREATE TABLE IF NOT EXISTS cg_jadwal/.test(PHP_LIB));
     cek('api.php meneruskan aksi campaign ke cg_aksi', /strpos\(\$action, 'campaign'\) === 0[\s\S]{0,400}cg_aksi\(\$action, \$body\)/.test(PHP_API));
     cek('OAuth memakai state sekali pakai', /hash_equals\(\(string\)\$st\['s'\]/.test(PHP_LIB) && /cg_set_tulis\(\$pdo, 'tiktok_state', ''\)/.test(PHP_LIB));
