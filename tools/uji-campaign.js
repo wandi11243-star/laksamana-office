@@ -48,6 +48,11 @@ function buatServer(opsi) {
       { platform: 'tiktok', post_id: '1', judul: 'Goyang terus babe', url: 'https://www.tiktok.com/@x/video/1', tayang_at: Date.parse('2026-09-26T05:00:00Z'), views: 109700, likes: 1900, comments: 38, shares: 343 }
     ],
     postInfo: { total: 2, riwayatSelesai: false },
+    bank: [
+      { id: 'b1', judul: 'Ide bank satu', platform: 'TikTok', format: 'Video', pilar: 'Topik Lokal', hook: 'Hook B1', caption: 'Caption B1', tanggal: geser(2), jam: '19:00', alasan: 'dari insight', sumber: 'ai', status: 'IDE', jadwal_id: '', dibuat_oleh: 'Uji' },
+      { id: 'b2', judul: 'Ide terjadwal', platform: 'Instagram', format: 'Reels', pilar: '', hook: '', caption: '', tanggal: geser(4), jam: '', alasan: '', sumber: 'manual', status: 'TERJADWAL', jadwal_id: 'j2', dibuat_oleh: 'Uji' },
+      { id: 'b3', judul: 'Ide arsip', platform: 'TikTok', format: '', pilar: '', hook: '', caption: '', tanggal: null, jam: '', alasan: '', sumber: 'riset', status: 'ARSIP', jadwal_id: '', dibuat_oleh: 'Uji' }
+    ],
     akun: (opsi && opsi.akun) || [{ platform: 'tiktok', nama: 'Laksamana Muda Pekanbaru', terhubung: true, sync_at: Date.now(), sync_galat: '',
       scope: 'user.info.basic,user.info.profile,user.info.stats,video.list', stats_ada: 1, follower: 12345, following: 8, likes_total: 456789, jml_video: 321,
       terverifikasi: 1, bio: 'Coffee & live music Pekanbaru', profil_url: 'https://www.tiktok.com/@laksamanamuda.id', avatar: 'https://p16.tiktokcdn.com/a.jpg' }],
@@ -82,6 +87,17 @@ function buatServer(opsi) {
       const lama = S.jadwal.findIndex(x => x.id === j.id);
       if (lama > -1) S.jadwal[lama] = j; else S.jadwal.push(j);
       data = { id: j.id };
+      if (d.bankId) { const bb = S.bank.find(x => x.id === d.bankId); if (bb) { bb.status = 'TERJADWAL'; bb.jadwal_id = j.id; } }
+    } else if (b.action === 'campaignBankGenerate') {
+      S.bank.push({ id: 'bg1', judul: 'Ide dari AI', platform: 'TikTok', format: 'Video', pilar: '', hook: 'H', caption: 'C', tanggal: b.data.dari, jam: '18:00', alasan: '', sumber: 'ai', status: 'IDE', jadwal_id: '', dibuat_oleh: 'Uji' });
+      data = { jumlah: 1, ringkasan: 'Strategi uji', model: 'm' };
+    } else if (b.action === 'campaignBankSimpan') {
+      const d = b.data;
+      if (d.id) Object.assign(S.bank.find(x => x.id === d.id), { judul: d.judul });
+      else S.bank.push({ id: 'bn' + S.bank.length, judul: d.judul, platform: d.platform, format: d.format || '', pilar: d.pilar || '', hook: d.hook || '', caption: d.caption || '', tanggal: d.tanggal || null, jam: d.jam || '', alasan: d.alasan || '', sumber: d.sumber || 'manual', status: 'IDE', jadwal_id: '', dibuat_oleh: 'Uji' });
+      data = { id: 'x' };
+    } else if (b.action === 'campaignBankArsip') {
+      const bb = S.bank.find(x => x.id === b.data.id); bb.status = b.data.arsip ? 'ARSIP' : (bb.jadwal_id ? 'TERJADWAL' : 'IDE'); data = { id: bb.id };
     } else if (b.action === 'campaignInsightArsip') {
       S.insight.find(x => x.id === b.data.id).arsip = b.data.arsip ? 1 : 0; data = { ok: true };
     } else if (b.action === 'campaignInsightAI') data = { usulan: [{ platform: 'TikTok', kategori: 'Hook 3 Detik & Retensi', temuan: 'Usulan AI', url: 'https://www.tiktok.com/@x/video/1', tglTayang: '2026-09-26', metrik: '109 rb', aksi: 'Pakai' }] };
@@ -293,6 +309,73 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('php: terpotong batas token dikatakan apa adanya', tanyaP.includes("$henti === 'max_tokens'"));
     cek('php: content berupa string juga dibaca', tanyaP.includes('if (is_string($isi)) $teks = $isi;'));
     cek('php: galat "bukan JSON" menyebut potongan jawabannya', tanyaP.includes("Jawaban AI bukan JSON (' . $model . '): ") && tanyaP.includes('cg_potong(preg_replace('));
+  }
+
+  console.log('\n== Bank Konten ==');
+  {
+    const { w, d, srv } = await buka({ hash: '#bank' });
+    const nav = d.getElementById('nav').innerHTML;
+    cek('menu Bank Konten ada di sidebar', /data-v="bank"/.test(nav) && /Bank Konten/.test(nav));
+    cek('tombol Refresh di kanan atas DICABUT', d.getElementById('topAksi').innerHTML === '' && !d.querySelector('[data-a="refresh"]'));
+    let app = d.getElementById('app').innerHTML;
+    cek('halaman Bank Konten tergambar dengan form generate', /Buat content planning dengan AI/.test(app) && d.getElementById('b-dari') && d.getElementById('b-sampai'));
+    cek('bawaan tab Ide: hanya ide yang belum terjadwal', /Ide bank satu/.test(app) && !/Ide terjadwal/.test(app) && !/Ide arsip/.test(app));
+    cek('hitungan tiap status', /Ide \(1\)/.test(app) && /Terjadwal \(1\)/.test(app) && /Arsip \(1\)/.test(app) && /Semua \(3\)/.test(app));
+
+    /* Jadwalkan: form jadwal terisi, dan bankId ikut terkirim */
+    klik(d, '[data-a="bank-jadwal"]');
+    cek('Jadwalkan membuka form jadwal terisi (judul, tanggal, jam, hook)', d.getElementById('j-judul').value === 'Ide bank satu'
+      && d.getElementById('j-tgl').value === geser(2) && d.getElementById('j-jam').value === '19:00' && /Hook B1/.test(d.getElementById('j-cap').value));
+    klik(d, '[data-a="jdw-simpan"]'); await tunggu(80);
+    const kj = srv.log.filter(b => b.action === 'campaignJadwalSimpan').pop();
+    cek('jadwal dari bank mengirim bankId', kj && kj.data.bankId === 'b1', kj && JSON.stringify(kj.data));
+    app = d.getElementById('app').innerHTML;
+    cek('ide yang dijadwalkan pindah dari tab Ide', !/Ide bank satu/.test(app) && /Terjadwal \(2\)/.test(app));
+
+    /* Generate: tanggal terbalik ditahan, yang sah terkirim */
+    d.getElementById('b-dari').value = geser(10); d.getElementById('b-sampai').value = geser(5);
+    const n0 = srv.log.filter(b => b.action === 'campaignBankGenerate').length;
+    klik(d, '[data-a="bank-jalan"]'); await tunggu(30);
+    cek('rentang terbalik DITAHAN, tidak terkirim', srv.log.filter(b => b.action === 'campaignBankGenerate').length === n0 && /tidak boleh sebelum/.test(d.getElementById('app').innerHTML));
+    d.getElementById('b-dari').value = geser(1); d.getElementById('b-sampai').value = geser(14);
+    d.getElementById('b-jml').value = '5'; d.getElementById('b-fokus').value = 'promo weekend';
+    klik(d, '[data-a="bank-jalan"]'); await tunggu(80);
+    const kg = srv.log.filter(b => b.action === 'campaignBankGenerate').pop();
+    cek('generate mengirim rentang, jumlah & fokus', kg && kg.data.dari === geser(1) && kg.data.sampai === geser(14) && kg.data.jumlah === '5' && kg.data.fokus === 'promo weekend', kg && JSON.stringify(kg.data));
+    app = d.getElementById('app').innerHTML;
+    cek('hasil generate tampil di Bank & disebut jumlahnya', /Ide dari AI/.test(app) && /1 ide masuk ke Bank Konten/.test(app));
+
+    /* Manual + arsip */
+    klik(d, '[data-a="bank-tambah"]');
+    const nS = srv.log.filter(b => b.action === 'campaignBankSimpan').length;
+    klik(d, '[data-a="bank-simpan"]'); await tunggu(30);
+    cek('ide manual tanpa judul DITAHAN', srv.log.filter(b => b.action === 'campaignBankSimpan').length === nS);
+    d.getElementById('b-judul').value = 'Ide manual uji';
+    klik(d, '[data-a="bank-simpan"]'); await tunggu(80);
+    cek('ide manual tersimpan & tampil', /Ide manual uji/.test(d.getElementById('app').innerHTML));
+    klik(d, '[data-a="bank-arsip"]'); await tunggu(80);
+    const ka = srv.log.filter(b => b.action === 'campaignBankArsip').pop();
+    cek('arsipkan mengirim arsip:true (bukan hapus)', ka && ka.data.arsip === true);
+
+    /* Riset: Simpan ke Bank */
+    const r = await buka({ hash: '#riset' });
+    klik(r.d, '[data-a="ide-bank"]'); await tunggu(80);
+    const kr = r.srv.log.filter(b => b.action === 'campaignBankSimpan').pop();
+    cek('ide riset bisa disimpan ke Bank (sumber riset)', kr && kr.data.sumber === 'riset' && kr.data.judul === 'Ide C' && kr.data.hook === 'Hook C');
+
+    /* Server */
+    const lib = fs.readFileSync(path.join(ROOT, 'konten-mysql/lib_konten_mysql.php'), 'utf8');
+    cek('db(true) membuka sambungan baru', /function db\(\$baru = false\)/.test(lib) && lib.includes('if ($pdo !== null && !$baru) return $pdo;'));
+    const riset = PHP_LIB.slice(PHP_LIB.indexOf('function cg_riset_jalankan('), PHP_LIB.indexOf('function cg_insight_ai('));
+    cek('riset: sambungan BARU sesudah AI, sebelum INSERT (MySQL gone away)', riset.indexOf('$pdo = db(true);') > riset.indexOf('cg_ai_tanya(') && riset.indexOf('$pdo = db(true);') < riset.indexOf('INSERT INTO cg_riset'));
+    const gen = PHP_LIB.slice(PHP_LIB.indexOf('function cg_bank_generate('));
+    cek('generate: sambungan BARU sesudah AI, sebelum menulis', gen.indexOf('$pdo = db(true);') > gen.indexOf('cg_ai_tanya(') && gen.indexOf('$pdo = db(true);') < gen.indexOf('cg_bank_tambah('));
+    cek('generate memakai insight aktif & bukti post', gen.includes('FROM cg_insight WHERE arsip=0') && gen.includes('cg_bukti_post('));
+    cek('generate: tanggal di luar rentang dikosongkan', gen.includes("$tg >= $dari && $tg <= $sampai"));
+    cek('tabel cg_bank lahir lewat CREATE TABLE IF NOT EXISTS', /CREATE TABLE IF NOT EXISTS cg_bank/.test(PHP_LIB));
+    cek('campaignGet memulangkan bank', PHP_LIB.includes("'bank'    => $bank"));
+    cek('jadwal dari bank menandai ide TERJADWAL', PHP_LIB.includes("UPDATE cg_bank SET status='TERJADWAL', jadwal_id=:j"));
+    cek('aksi bank terdaftar', ['campaignBankGenerate', 'campaignBankSimpan', 'campaignBankArsip'].every(x => PHP_LIB.includes("case '" + x + "'")));
   }
 
   console.log('\n== Pengaturan ==');

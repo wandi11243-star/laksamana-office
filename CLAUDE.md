@@ -937,8 +937,22 @@ akan tertimpa.
   dengan mengosongkan tokennya.
 
 ```bash
-node tools/uji-campaign.js   # 128 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
+node tools/uji-campaign.js   # 151 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
+
+**Bank Konten (14 Okt 2026)** — menu `bank`, tabel `cg_bank` (lahir di
+`cg_pastikan`), aksi `campaignBankGenerate/Simpan/Arsip`. AI "Buat content
+planning" (rentang ≤2 bulan, 3–20 ide) membaca profil + insight aktif +
+pilar (`cg_kategori`) + `cg_bukti_post`; hasilnya masuk sebagai IDE, BUKAN
+jadwal. *Jadwalkan* membuka form jadwal terisi dan mengirim `bankId` →
+`cg_jadwal_simpan` menandai idenya TERJADWAL. Ide riset bisa *Simpan ke Bank*.
+Tidak ada DELETE: arsip/pulihkan. Tombol Refresh kanan atas DICABUT.
+
+**"MySQL server has gone away" (14 Okt 2026)**: panggilan AI 1–2 menit
+melewati wait_timeout MySQL, sambungan PDO statis sudah diputus server.
+`db(true)` di `lib_konten_mysql.php` membuka sambungan baru; tiap fungsi yang
+MENULIS sesudah `cg_ai_tanya()` WAJIB memanggil `$pdo = db(true);` dulu
+(riset, generate bank). Fungsi AI baru yang lupa = galat yang sama.
 
 ### Kas Kecil: Tagihan Rutin (10 Oktober 2026)
 

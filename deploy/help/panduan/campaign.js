@@ -2,7 +2,7 @@
   PANDUAN: Konten → Analytics (dulu modul Campaign)
   ---------------------------------------------------------------------------
   Kuncinya 'campaign'. Nama menu disalin dari TITLES di deploy/konten/analytics/:
-  Insight, Kalender, Riset Tren, Pengaturan (admin modul saja).
+  Insight, Kalender, Riset Tren, Bank Konten, Pengaturan (admin modul saja).
 */
 LM_HELP_ISI('campaign', {
   ringkas: 'Menarik postingan TikTok brand beserta metriknya, mencatat insight, menjadwalkan konten, dan riset tren dengan AI.',
@@ -21,6 +21,7 @@ LM_HELP_ISI('campaign', {
             ['Insight','Akun terhubung, konten terpopuler, insight otomatis (AI), dan daftar insight tim.'],
             ['Kalender','Kalender konten bulanan, jadwal per tanggal, dan daftar yang sudah waktunya diposting.'],
             ['Riset Tren','Riset AI: pola dari konten brand, tren, dan ide konten siap jadwal.'],
+            ['Bank Konten','Content planning buatan AI, ide yang disimpan dari Riset Tren, dan ide manual — siap dijadwalkan.'],
             ['Pengaturan','Profil brand, API key AI, dan kunci TikTok. Hanya untuk admin modul.']
           ] },
         { t:'catatan', nada:'info', judul:'Posting otomatis belum aktif',
@@ -73,10 +74,26 @@ LM_HELP_ISI('campaign', {
         { t:'langkah', judul:'Menjalankan riset', isi:[
           'Buka menu *Riset Tren*, isi *Topik riset* dan platformnya.',
           'Tekan *Jalankan riset*. Prosesnya 1–2 menit; jangan tutup halaman.',
-          'Baca *Pola dari konten brand*, *Tren*, dan *Ide konten*. Tekan *Jadwalkan* pada ide yang ingin dipakai.'
+          'Baca *Pola dari konten brand*, *Tren*, dan *Ide konten*. Tekan *Jadwalkan* pada ide yang ingin dipakai, atau *Simpan ke Bank* untuk dipakai nanti.'
         ]},
         { t:'catatan', nada:'warn', judul:'Estimasi AI, bukan data pasar',
           isi:'AI tidak punya akses internet. Pola dibaca dari postingan brand sendiri; tren dan ide adalah perkiraan. Cek ulang sebelum dipakai untuk keputusan besar.' }
+      ]
+    },
+
+    {
+      id: 'bank', judul: 'Bank Konten & Content Planning AI',
+      isi: [
+        { t:'langkah', judul:'Membuat content planning', isi:[
+          'Buka menu *Bank Konten*. Isi rentang tanggal, platform, jumlah konten, dan fokus (opsional).',
+          'Tekan *Buat content planning*. AI memakai profil brand, insight yang masih aktif, pilar konten di Pengaturan, dan postingan brand yang paling jalan. Prosesnya 1–2 menit.',
+          'Hasilnya masuk ke Bank Konten sebagai *Ide* — belum terjadwal.'
+        ]},
+        { t:'langkah', judul:'Memakai ide', isi:[
+          'Tekan *Jadwalkan* pada ide: formulir jadwal terbuka sudah terisi judul, tanggal, jam, hook, dan caption. Simpan, dan idenya pindah ke tab *Terjadwal*.',
+          'Ide yang tidak dipakai tekan *Arsipkan* — bisa dipulihkan dari tab *Arsip*. Tidak ada yang dihapus.',
+          'Ide sendiri bisa ditambah lewat *+ Ide manual*.'
+        ]}
       ]
     },
 

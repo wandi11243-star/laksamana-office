@@ -23,9 +23,15 @@ if (file_exists(__DIR__ . '/config.local.php')) require_once __DIR__ . '/config.
 else                                            require_once __DIR__ . '/config.php';
 
 /* ==================== KONEKSI MYSQL (PDO) ==================== */
-function db() {
+/* db(true) MEMBUKA SAMBUNGAN BARU (14 Okt 2026). Panggilan AI di modul
+   Campaign bisa memakan 1–2 menit, lebih lama daripada wait_timeout MySQL di
+   hosting — sambungan lama sudah diputus server, dan INSERT sesudahnya gagal
+   "General error: 2006 MySQL server has gone away". Pemanggil yang baru saja
+   menunggu panggilan HTTP panjang WAJIB meminta sambungan baru. */
+function db($baru = false) {
   static $pdo = null;
-  if ($pdo !== null) return $pdo;
+  if ($pdo !== null && !$baru) return $pdo;
+  $pdo = null;
   $dsn = 'mysql:host=' . DB_HOST . ';port=' . DB_PORT . ';dbname=' . DB_NAME . ';charset=' . DB_CHARSET;
   $pdo = new PDO($dsn, DB_USER, DB_PASS, array(
     PDO::ATTR_ERRMODE            => PDO::ERRMODE_EXCEPTION,
