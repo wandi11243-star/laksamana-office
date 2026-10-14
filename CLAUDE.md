@@ -937,7 +937,7 @@ akan tertimpa.
   dengan mengosongkan tokennya.
 
 ```bash
-node tools/uji-campaign.js   # 151 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
+node tools/uji-campaign.js   # 171 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
 **Bank Konten (14 Okt 2026)** — menu `bank`, tabel `cg_bank` (lahir di
@@ -950,6 +950,16 @@ Arsip/pulihkan; **hapus permanen HANYA untuk ide berstatus ARSIP** (permintaan
 user 14 Okt 2026) — syaratnya di SQL (`WHERE status='ARSIP'`), satu-satunya
 DELETE di lib_campaign (dijaga uji). Jadwal yang lahir dari ide itu tidak ikut
 terhapus. Tombol Refresh kanan atas DICABUT.
+
+**INSTAGRAM (14 Okt 2026)** — login bisnis Instagram (app Meta "Laksamana Muda
+Insight", akun laksamanamuda.id = Penguji Instagram, tanpa app review).
+Alamat balik `konten-mysql/campaign-instagram.php` (dev & produksi WAJIB
+terdaftar di Pengaturan login bisnis). Scope `CG_IG_SCOPE`. Token 60 hari
+TANPA refresh token — diperbarui `ig_refresh_token` saat sisa < 30 hari.
+Postingan masuk `cg_post` platform 'instagram'; insight per postingan
+(views/reach/saved/shares) 25 per sinkron lewat `insight_at`. Kolom `reach`,
+`saves` NULL = tidak ada sumbernya (TikTok). App ID/Secret: `ig_id`/`ig_secret`
+di cg_setting atau `INSTAGRAM_APP_ID`/`INSTAGRAM_APP_SECRET` di config.php (menang).
 
 **"MySQL server has gone away" (14 Okt 2026)**: panggilan AI 1–2 menit
 melewati wait_timeout MySQL, sambungan PDO statis sudah diputus server.

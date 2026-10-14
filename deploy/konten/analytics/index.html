@@ -439,7 +439,7 @@ var SUBJUDUL = {
   kalender: 'Rencana posting & pengingat tayang',
   riset: 'Riset tren & ide konten dibantu AI',
   bank: 'Content planning dari AI, riset & ide manual — siap dijadwalkan',
-  pengaturan: 'Profil brand, kunci AI & akun TikTok'
+  pengaturan: 'Profil brand, kunci AI, TikTok & Instagram'
 };
 function bolehPlanning(){ var m = SESI.modules || []; return m.indexOf('*') > -1 || m.indexOf('konten') > -1; }
 function gambarNav(){
@@ -474,6 +474,9 @@ function render(){
   var q = new URLSearchParams(location.search);
   if (q.get('tiktok')) {
     pita = '<div class="pita ' + (q.get('tiktok') === 'ok' ? 'ok' : 'err') + '">' + esc(q.get('pesan') || '') + '</div>';
+  }
+  if (q.get('instagram')) {
+    pita = '<div class="pita ' + (q.get('instagram') === 'ok' ? 'ok' : 'err') + '">' + esc(q.get('pesan') || '') + '</div>';
   }
   app.innerHTML = pita + (VIEW === 'kalender' ? vKalender() : VIEW === 'riset' ? vRiset() : VIEW === 'bank' ? vBank() : VIEW === 'pengaturan' ? vPengaturan() : vInsight());
 }
@@ -566,15 +569,45 @@ function kartuAkun(){
       + (tt && tt.sync_galat ? '<div class="pita err" style="margin:8px 0 0">' + esc(tt.sync_galat) + '</div>' : '')
       + '<div class="aksi"><button class="btn btn-primary btn-sm" data-a="tt-hubung"' + (siap ? '' : ' disabled') + '>Hubungkan</button></div></div>';
   }
-  /* Instagram & YouTube belum punya jalur API di sini. Angkanya TETAP bisa
-     masuk lewat Input Performa di modul Konten — dan itu dikatakan, supaya
-     "segera hadir" tidak terbaca sebagai "tidak bisa sama sekali". */
+  /* YouTube belum punya jalur API di sini. Angkanya TETAP bisa masuk lewat
+     Input Performa di modul Konten — dan itu dikatakan, supaya "segera
+     hadir" tidak terbaca sebagai "tidak bisa sama sekali". */
   var lain = function(p){
     return '<div class="akun">' + chipPlat(p) + '<div class="nm">Segera hadir</div>'
       + '<div class="ket">Sementara ini angka ' + p + ' diambil dari <b>Input Performa</b> di modul Konten.</div></div>';
   };
   return '<div class="kartu"><h2>Akun terhubung</h2><div class="sub">Hubungkan akun brand untuk menarik postingan terbaru beserta metriknya, lalu jadikan insight.</div>'
-    + '<div class="grid g3">' + tk + lain('Instagram') + lain('YouTube') + '</div></div>';
+    + '<div class="grid g3">' + tk + kartuIg() + lain('YouTube') + '</div></div>';
+}
+/* Instagram (login bisnis Instagram, 14 Okt 2026). Bentuknya sama dengan
+   kartu TikTok supaya keduanya terbaca dengan cara yang sama. Token
+   Instagram berumur 60 hari dan diperbarui otomatis saat sinkron. */
+function kartuIg(){
+  var ig = akun('instagram'), siap = D.setting && D.setting.igSiap;
+  if (ig && ig.terhubung) {
+    var profilUrl = /^https:\/\//i.test(ig.profil_url || '') ? ig.profil_url : '';
+    var sisaHari = Math.floor((num(ig.token_exp) - Date.now()) / 86400e3);
+    return '<div class="akun">' + chipPlat('Instagram')
+      + '<div class="akun-id">' + (/^https:\/\//i.test(ig.avatar || '') ? '<img class="akun-av" src="' + esc(ig.avatar) + '" alt="" referrerpolicy="no-referrer">' : '')
+      + '<div class="nm">' + esc(ig.nama || 'Akun Instagram') + '</div></div>'
+      + (ig.bio ? '<div class="akun-bio">' + esc(ig.bio) + '</div>' : '')
+      + (+ig.stats_ada === 1 ? '<div class="akun-stat">'
+        + [['follower', ig.follower], ['following', ig.following], ['postingan', ig.jml_video]]
+            .map(function(x){ return '<div><b>' + angka(x[1]) + '</b><span>' + x[0] + '</span></div>'; }).join('') + '</div>' : '')
+      + (profilUrl ? '<div class="ket"><a href="' + esc(profilUrl) + '" target="_blank" rel="noopener">Buka profil di Instagram ↗</a></div>' : '')
+      + '<div class="ket">Sinkron terakhir ' + esc(fmtWaktu(ig.sync_at)) + '. Diperbarui otomatis tiap 6 jam saat halaman ini dibuka.'
+      + (sisaHari >= 0 && sisaHari < 14 ? ' <b>Izin habis ' + sisaHari + ' hari lagi</b> — tekan Hubungkan ulang kalau sinkron berikutnya tidak memperbaruinya.' : '') + '</div>'
+      + (ig.sync_galat ? '<div class="pita err" style="margin:8px 0 0">Sinkron terakhir gagal: ' + esc(ig.sync_galat) + '</div>' : '')
+      + '<div class="aksi"><button class="btn btn-ghost btn-sm" data-a="ig-sync"' + (ST.sibuk.igSync ? ' disabled' : '') + '>' + (ST.sibuk.igSync ? 'Menyinkronkan…' : 'Sinkronkan') + '</button>'
+      + (sisaHari >= 0 && sisaHari < 14 ? '<button class="btn btn-primary btn-sm" data-a="ig-hubung">Hubungkan ulang</button>' : '')
+      + '<button class="btn btn-danger btn-sm" data-a="ig-putus">Putuskan</button></div></div>';
+  }
+  return '<div class="akun">' + chipPlat('Instagram')
+    + '<div class="ket" style="margin-top:10px">' + (siap
+        ? 'Hubungkan akun Instagram bisnis brand untuk menarik postingan beserta likes, komentar, views, reach, saves, dan share-nya.'
+        : 'Instagram App ID & App Secret belum diisi. ' + (admin() ? 'Isi di Pengaturan.' : 'Minta admin modul Campaign mengisinya di Pengaturan.')) + '</div>'
+    + (ig && ig.sync_galat ? '<div class="pita err" style="margin:8px 0 0">' + esc(ig.sync_galat) + '</div>' : '')
+    + '<div class="aksi"><button class="btn btn-primary btn-sm" data-a="ig-hubung"' + (siap ? '' : ' disabled') + '>Hubungkan</button></div></div>';
 }
 
 /* Panel detail satu baris Konten terpopuler (13 Okt 2026). Urutan & label
@@ -592,18 +625,21 @@ function rinciHtml(e){
     var c = r[x[0]] || {}, ada = c.v != null;
     if (!ada) kurang.push(x[1]);
     return '<div class="' + (ada ? '' : 'kosong-r') + '"><span>' + x[1] + '</span><b>' + (ada ? angka(c.v) : '—') + '</b>'
-      + '<i>' + (c.s === 'api' ? 'TikTok API' : c.s === 'manual' ? 'Input Performa' : 'belum ada') + '</i></div>';
+      + '<i>' + (c.s === 'api' ? (e.sumber === 'instagram' ? 'Instagram API' : 'TikTok API') : c.s === 'manual' ? 'Input Performa' : 'belum ada') + '</i></div>';
   }).join('');
   /* Yang kosong DIKATAKAN sebabnya — kotak "—" tanpa penjelasan terbaca
      sebagai data yang gagal dimuat. Sebabnya berbeda menurut sumbernya. */
   var ket = '';
   if (kurang.length) {
-    if (e.sumber === 'tiktok' && !e.tercatat) {
+    if (e.sumber === 'instagram' && !e.tercatat) {
+      ket = kurang.join(', ') + ' tidak disediakan Instagram API untuk postingan ini. '
+        + 'Untuk melengkapinya, catat postingan ini sebagai konten di <b>Konten Planning</b> dengan tautan yang sama, lalu isi angkanya di <b>Input Performa</b>.';
+    } else if (e.sumber === 'tiktok' && !e.tercatat) {
       ket = kurang.join(', ') + ' tidak disediakan TikTok API (yang terbuka hanya views, likes, komentar, share). '
         + 'Untuk melengkapinya, catat postingan ini sebagai konten di <b>Konten Planning</b> dengan tautan yang sama, lalu isi angkanya di <b>Input Performa</b> dari TikTok Studio.';
     } else {
       ket = kurang.join(', ') + ' belum diisi. Lengkapi di <b>Konten Planning → Input Performa</b>'
-        + (e.sumber === 'tiktok' ? ' — views, likes, komentar & share tetap diambil dari TikTok API karena selalu terbaru.' : '.');
+        + (e.sumber === 'tiktok' ? ' — views, likes, komentar & share tetap diambil dari TikTok API karena selalu terbaru.' : e.sumber === 'instagram' ? ' — angka yang tersedia di Instagram API tetap diambil dari sana karena selalu terbaru.' : '.');
     }
   }
   return '<div class="rinci"><div class="rinci-grid">' + kotak + '</div>' + (ket ? '<p>' + ket + '</p>' : '') + '</div>';
@@ -640,7 +676,7 @@ function kartuTop(){
         + (ST.topBuka === topKunciBaris(e) ? rinciHtml(e) : '');
     }).join('') : '<div class="kosong">' + (ST.topRentang !== 'semua' || ST.topPlat
         ? 'Tidak ada postingan' + (ST.topPlat ? ' ' + esc(ST.topPlat) : '') + ' pada rentang ini.'
-        : 'Belum ada postingan. Hubungkan akun TikTok di atas, atau isi Input Performa di modul Konten.') + '</div>';
+        : 'Belum ada postingan. Hubungkan akun TikTok atau Instagram di atas, atau isi Input Performa di modul Konten.') + '</div>';
     if (d.total) info = '<div style="font-size:12px;color:var(--k-txt-3);margin:4px 0 2px">Menampilkan ' + (mulai + 1) + '–' + (mulai + d.baris.length) + ' dari ' + d.total + ' konten</div>';
     if (d.halMaks > 1) pager = '<div style="display:flex;gap:6px;justify-content:center;margin-top:12px">'
       + '<button class="btn btn-ghost btn-sm" data-a="top-hal" data-v="' + (d.hal-1) + '"' + (d.hal<=1?' disabled':'') + '>‹</button>'
@@ -701,7 +737,7 @@ function kartuInsight(){
     var idx = (D.insight || []).indexOf(i);
     return '<div class="ins' + (+i.arsip === 1 ? ' arsip' : '') + '"><div class="t">' + chipPlat(platNorm(i.platform))
       + '<span class="kat">Tayang ' + fmtTgl(i.tgl_tayang) + '</span></div>'
-      + '<div class="kat">' + esc(i.kategori || '—') + (i.sumber && i.sumber !== 'manual' ? ' · dari ' + esc(i.sumber === 'ai' ? 'AI' : i.sumber === 'tiktok' ? 'TikTok' : 'modul Konten') : '') + '</div>'
+      + '<div class="kat">' + esc(i.kategori || '—') + (i.sumber && i.sumber !== 'manual' ? ' · dari ' + esc(i.sumber === 'ai' ? 'AI' : i.sumber === 'tiktok' ? 'TikTok' : i.sumber === 'instagram' ? 'Instagram' : 'modul Konten') : '') + '</div>'
       + '<div class="temuan">' + esc(i.temuan) + '</div>'
       + (i.aksi ? '<div class="aksi-ide">💡 ' + esc(i.aksi) + '</div>' : '')
       + (i.metrik ? '<div class="met">' + esc(platNorm(i.platform)) + ' · ' + esc(i.metrik) + '</div>' : '')
@@ -1075,6 +1111,12 @@ function vPengaturan(){
     + (s.tiktokDariConfig ? '<div class="pita info">Client key dikunci di config.php server.</div>' : '')
     + '<div class="form"><div class="field"><label>Client key ' + (s.tiktokSiap ? '<span class="pill">terisi</span>' : '') + '</label><input id="s-ttkey" type="password" autocomplete="off" placeholder="Kosongkan = tidak diubah"></div>'
     + '<div class="field"><label>Client secret</label><input id="s-ttsecret" type="password" autocomplete="off" placeholder="Kosongkan = tidak diubah"></div></div></div>'
+    + '<div class="kartu"><h2>Instagram</h2><div class="sub">Dari app Meta → Kasus penggunaan → <b>Kelola pesan & konten di Instagram</b> → Pengaturan API dengan login bisnis Instagram. '
+    + 'Yang dipakai <b>ID aplikasi Instagram</b> & <b>Rahasia aplikasi Instagram</b> — bukan App ID Facebook di halaman Dasar. Izin: <b>instagram_business_basic, instagram_business_manage_insights</b>.</div>'
+    + '<div class="pita info">Daftarkan alamat ini di Pengaturan login bisnis → URI pengalihan OAuth (dev & produksi masing-masing punya alamat sendiri):<br><b class="mono">' + esc(s.igRedirectUri || '') + '</b></div>'
+    + (s.igDariConfig ? '<div class="pita info">App ID Instagram dikunci di config.php server.</div>' : '')
+    + '<div class="form"><div class="field"><label>ID aplikasi Instagram ' + (s.igSiap ? '<span class="pill">terisi</span>' : '') + '</label><input id="s-igid" type="password" autocomplete="off" placeholder="Kosongkan = tidak diubah"></div>'
+    + '<div class="field"><label>Rahasia aplikasi Instagram</label><input id="s-igsecret" type="password" autocomplete="off" placeholder="Kosongkan = tidak diubah"></div></div></div>'
     + '<div id="s-galat"></div><div style="display:flex;justify-content:flex-end"><button class="btn btn-primary" data-a="set-simpan">Simpan pengaturan</button></div>';
 }
 
@@ -1083,6 +1125,13 @@ function bukaModal(html){ document.getElementById('modal').innerHTML = '<div cla
 function tutupModal(){ document.getElementById('modal').innerHTML = ''; MODAL_DATA = null; }
 
 /* ===================== AKSI ===================== */
+function igSync(diam){
+  ST.sibuk.igSync = true; if (!diam) render();
+  return api('campaignIgSync').then(function(r){
+    if (!diam) toast(r.jumlah + ' postingan Instagram diperbarui' + (r.riwayatSelesai ? ' — riwayat lengkap (' + r.total + ' postingan).' : ' — riwayat masih berlanjut (' + r.total + ' postingan sejauh ini).'));
+  }).catch(function(e){ if (!diam) toast(e.message, true); })
+    .then(function(){ ST.sibuk.igSync = false; ST.topSrv = {}; return muat(); }).then(render);
+}
 function tiktokSync(diam){
   ST.sibuk.sync = true; if (!diam) render();
   return api('campaignTiktokSync').then(function(r){
@@ -1111,7 +1160,7 @@ document.addEventListener('click', function(ev){
   if (a === 'ins-baru') { formInsight({}); return; }
   if (a === 'jadikan') {
     var hs = ST.topSrv[topKunci()], e = hs && hs.data && hs.data.baris ? hs.data.baris[i] : null; if (!e) return;
-    formInsight({ platform: e.platform, url: e.url, tglTayang: e.tanggal, metrik: metrikTeks(e), sumber: e.sumber === 'tiktok' ? 'tiktok' : 'konten' });
+    formInsight({ platform: e.platform, url: e.url, tglTayang: e.tanggal, metrik: metrikTeks(e), sumber: (e.sumber === 'tiktok' || e.sumber === 'instagram') ? e.sumber : 'konten' });
     return;
   }
   if (a === 'usulan-pakai') { var u = ST.usulan[i]; formInsight({ platform: u.platform, kategori: u.kategori, temuan: u.temuan, url: u.url, tglTayang: u.tglTayang, metrik: u.metrik, aksi: u.aksi, sumber: 'ai' }); return; }
@@ -1135,6 +1184,16 @@ document.addEventListener('click', function(ev){
     return;
   }
   if (a === 'tt-sync') { tiktokSync(false); return; }
+  if (a === 'ig-hubung') {
+    api('campaignIgMulai').then(function(r){ location.href = r.url; }).catch(function(e){ toast(e.message, true); });
+    return;
+  }
+  if (a === 'ig-sync') { igSync(false); return; }
+  if (a === 'ig-putus') {
+    if (!confirm('Putuskan akun Instagram? Postingan yang sudah ditarik tetap tersimpan; sinkron otomatis berhenti sampai dihubungkan lagi.')) return;
+    api('campaignIgPutus').then(function(){ toast('Akun Instagram diputus.'); return muat(); }).catch(function(e){ toast(e.message, true); }).then(render);
+    return;
+  }
   if (a === 'tt-putus') {
     if (!confirm('Putuskan akun TikTok? Postingan yang sudah ditarik tetap tersimpan; sinkron otomatis berhenti sampai dihubungkan lagi.')) return;
     api('campaignTiktokPutus').then(function(){ toast('Akun TikTok diputus.'); return muat(); }).catch(function(e){ toast(e.message, true); }).then(render);
@@ -1230,7 +1289,7 @@ document.addEventListener('click', function(ev){
     if (!kat.length) { document.getElementById('s-galat').innerHTML = '<div class="pita err">Kategori pola minimal satu.</div>'; return; }
     var s = { profil: document.getElementById('s-profil').value, kategori: kat,
       aiKeyMeta: nilai('s-aikey-meta'), aiModelMeta: nilai('s-model-meta'),
-      tiktokKey: nilai('s-ttkey'), tiktokSecret: nilai('s-ttsecret') };
+      tiktokKey: nilai('s-ttkey'), tiktokSecret: nilai('s-ttsecret'), igId: nilai('s-igid'), igSecret: nilai('s-igsecret') };
     el.disabled = true;
     api('campaignSetting', s).then(function(){ toast('Pengaturan tersimpan.'); return muat(); })
       .catch(function(e){ document.getElementById('s-galat').innerHTML = '<div class="pita err">' + esc(e.message) + '</div>'; })
@@ -1276,6 +1335,8 @@ muat().then(function(){
      dibuka, diam-diam, dan galatnya disimpan server di kartu akunnya. */
   var tt = akun('tiktok');
   if (tt && tt.terhubung && (Date.now() - num(tt.sync_at)) > 6 * 3600e3) tiktokSync(true);
+  var ig = akun('instagram');
+  if (ig && ig.terhubung && (Date.now() - num(ig.sync_at)) > 6 * 3600e3) igSync(true);
 });
 
 /* Kait uji (tools/uji-campaign.js). */

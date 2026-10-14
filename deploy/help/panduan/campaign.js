@@ -5,7 +5,7 @@
   Insight, Kalender, Riset Tren, Bank Konten, Pengaturan (admin modul saja).
 */
 LM_HELP_ISI('campaign', {
-  ringkas: 'Menarik postingan TikTok brand beserta metriknya, mencatat insight, menjadwalkan konten, dan riset tren dengan AI.',
+  ringkas: 'Menarik postingan TikTok & Instagram brand beserta metriknya, mencatat insight, menjadwalkan konten, dan riset tren dengan AI.',
   untuk: 'tim konten, sosial media, dan marketing',
 
   bagian: [
@@ -22,7 +22,7 @@ LM_HELP_ISI('campaign', {
             ['Kalender','Kalender konten bulanan, jadwal per tanggal, dan daftar yang sudah waktunya diposting.'],
             ['Riset Tren','Riset AI: pola dari konten brand, tren, dan ide konten siap jadwal.'],
             ['Bank Konten','Content planning buatan AI, ide yang disimpan dari Riset Tren, dan ide manual — siap dijadwalkan.'],
-            ['Pengaturan','Profil brand, API key AI, dan kunci TikTok. Hanya untuk admin modul.']
+            ['Pengaturan','Profil brand, API key AI, kunci TikTok & Instagram. Hanya untuk admin modul.']
           ] },
         { t:'catatan', nada:'info', judul:'Posting otomatis belum aktif',
           isi:'TikTok mewajibkan audit aplikasi untuk memposting lewat API. Sampai itu selesai, kalender '
@@ -34,7 +34,7 @@ LM_HELP_ISI('campaign', {
       id: 'insight', judul: 'Mencatat Insight',
       isi: [
         { t:'langkah', judul:'Dari konten terpopuler', isi:[
-          'Buka menu *Insight*. Kalau akun TikTok sudah terhubung, postingannya tertarik sendiri tiap 6 jam saat halaman dibuka.',
+          'Buka menu *Insight*. Kalau akun TikTok/Instagram sudah terhubung, postingannya tertarik sendiri tiap 6 jam saat halaman dibuka.',
           'Di *Konten terpopuler*, pilih urutan *Paling banyak ditonton* atau *Engagement tertinggi*.',
           'Tekan *+ Jadikan insight* pada postingan yang ingin dipelajari — tautan, tanggal, dan metriknya terisi sendiri.',
           'Tulis *Temuan* (kenapa konten itu berhasil) dan *Rencana aksi*, lalu *Simpan insight*.'
@@ -104,6 +104,12 @@ LM_HELP_ISI('campaign', {
           'Di TikTok for Developers, buat app lalu aktifkan *Login Kit* dengan scope *user.info.basic* dan *video.list*.',
           'Daftarkan alamat *Redirect URI* yang tertulis di halaman *Pengaturan* (dev dan produksi masing-masing punya alamat sendiri).',
           'Isi *Client key* & *Client secret* di Pengaturan, simpan, lalu tekan *Hubungkan* di menu Insight.'
+        ]},
+        { t:'langkah', judul:'Menghubungkan Instagram', isi:[
+          'Akun Instagram harus akun *Profesional* (Bisnis/Kreator) dan sudah jadi *Penguji Instagram* di app Meta (undangannya diterima di Instagram → Izin situs web → Aplikasi dan situs web → Undangan penguji).',
+          'Di app Meta → Instagram → Pengaturan login bisnis, daftarkan *URI pengalihan* yang tertulis di kartu Instagram halaman *Pengaturan* (dev dan produksi).',
+          'Isi *ID aplikasi Instagram* & *Rahasia aplikasi Instagram* di Pengaturan, simpan, lalu tekan *Hubungkan* di kartu Instagram menu Insight.',
+          'Izinnya berlaku 60 hari dan diperbarui otomatis saat sinkron. Kalau kartu menulis izin hampir habis, tekan *Hubungkan ulang*.'
         ]},
         { t:'langkah', judul:'Mengaktifkan AI', isi:[
           'Buat API key Meta Model API di dev.meta.ai.',
