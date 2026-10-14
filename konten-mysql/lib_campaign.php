@@ -1890,7 +1890,25 @@ function cg_ads_baca($pdo, $d) {
   $q = $pdo->prepare('SELECT ad_id, akun, nama, kampanye, adset, objective, status, thumb, permalink, ig_media, spend, impresi, reach, klik, ctr, cpm,
       frekuensi, video_view, hasil_label, hasil_n, tgl_mulai, tgl_selesai FROM cg_iklan WHERE periode = :p AND sync_at = :s ORDER BY spend DESC LIMIT 1000');
   $q->execute(array(':p' => $pe, ':s' => $terakhir));
-  return array('periode' => $pe, 'baris' => $q->fetchAll(), 'syncAt' => $terakhir);
+  $baris = $q->fetchAll();
+  /* Postingan Instagram yang diiklankan: keterangan & angka ORGANIK-nya
+     dibaca dari cg_post (dicocokkan lewat ID media, lalu kode tautan —
+     tautan iklan /p/KODE/, tautan reel organik /reel/KODE/). */
+  $pid = array(); $pkd = array();
+  foreach ($pdo->query("SELECT post_id, url, judul, views, likes, comments, tayang_at FROM cg_post WHERE platform='instagram'")->fetchAll() as $p) {
+    $isi = array('judul' => cg_potong((string)$p['judul'], 300), 'url' => (string)$p['url'], 'views' => (int)$p['views'],
+      'likes' => (int)$p['likes'], 'comments' => (int)$p['comments'],
+      'tanggal' => (int)$p['tayang_at'] > 0 ? gmdate('Y-m-d', (int)floor((int)$p['tayang_at'] / 1000) + 7 * 3600) : '');
+    $pid[(string)$p['post_id']] = $isi;
+    $kd = cg_ig_kode((string)$p['url']); if ($kd !== '') $pkd[$kd] = $isi;
+  }
+  foreach ($baris as &$r) {
+    $kd = cg_ig_kode((string)$r['permalink']);
+    $r['post'] = ((string)$r['ig_media'] !== '' && isset($pid[(string)$r['ig_media']])) ? $pid[(string)$r['ig_media']] : ($kd !== '' && isset($pkd[$kd]) ? $pkd[$kd] : null);
+    $r['kode'] = $kd;
+  }
+  unset($r);
+  return array('periode' => $pe, 'baris' => $baris, 'syncAt' => $terakhir);
 }
 
 /* ==================== SETELAN (admin modul) ==================== */

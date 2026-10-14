@@ -937,7 +937,7 @@ akan tertimpa.
   dengan mengosongkan tokennya.
 
 ```bash
-node tools/uji-campaign.js   # 230 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
+node tools/uji-campaign.js   # 236 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
 **Bank Konten (14 Okt 2026)** — menu `bank`, tabel `cg_bank` (lahir di
@@ -978,6 +978,9 @@ dan panel detailnya menyebut angka Instagram API = organik.
 Halaman Iklan: Top iklan (termurah per jenis hasil), cari/saring/urut lokal
 (tabel di #iklan-daftar, kotak cari tidak dibuat ulang), Saran AI `campaignAdsAI`
 (usulan saja, ad_id karangan dibuang, tidak menulis apa pun).
+Saklar Per iklan / Per postingan: iklan dikelompokkan per postingan IG
+(ig_media, lalu kode tautan; materi non-IG berdiri sendiri), "Diiklankan Nx",
+biaya & hasil gabungan, views organik dari cg_post (`post` di cg_ads_baca).
 
 **PERTUMBUHAN (14 Okt 2026)** — menu `tumbuh`, aksi `campaignTumbuh`, tabel
 `cg_harian` (platform+tgl WIB; upsert `COALESCE` — kolom NULL tidak menimpa) dan

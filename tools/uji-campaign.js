@@ -33,8 +33,8 @@ function geser(h) { return new Date(Date.now() + 7 * 3600e3 + h * 864e5).toISOSt
 /* Iklan uji: 4 iklan "Chat dimulai" (median biaya/chat = Rp15.000),
    satu berbiaya kecil, satu tanpa hasil. */
 const IKLAN_UJI = [
-  { ad_id: 'a1', nama: 'Iklan murah', kampanye: 'K1', status: 'ACTIVE', spend: 100000, impresi: 20000, reach: 15000, ctr: 1.5, hasil_label: 'Chat dimulai', hasil_n: 20 },  // 5.000/chat -> works
-  { ad_id: 'a2', nama: 'Iklan median A', kampanye: 'K1', status: 'ACTIVE', spend: 150000, impresi: 20000, reach: 15000, ctr: 1, hasil_label: 'Chat dimulai', hasil_n: 10 }, // 15.000
+  { ad_id: 'a1', nama: 'Iklan murah', kampanye: 'K1', status: 'ACTIVE', spend: 100000, impresi: 20000, reach: 15000, ctr: 1.5, hasil_label: 'Chat dimulai', hasil_n: 20, ig_media: 'm1', post: { judul: 'Reel Night of King', url: 'https://www.instagram.com/reel/KODE1/', views: 272000, tanggal: '2026-07-21' } },  // 5.000/chat -> works
+  { ad_id: 'a2', nama: 'Iklan median A', kampanye: 'K1', status: 'ACTIVE', spend: 150000, impresi: 20000, reach: 15000, ctr: 1, hasil_label: 'Chat dimulai', hasil_n: 10, ig_media: 'm1', post: { judul: 'Reel Night of King', url: 'https://www.instagram.com/reel/KODE1/', views: 272000, tanggal: '2026-07-21' } }, // 15.000
   { ad_id: 'a3', nama: 'Iklan median B', kampanye: 'K1', status: 'PAUSED', spend: 160000, impresi: 20000, reach: 15000, ctr: 1, hasil_label: 'Chat dimulai', hasil_n: 10 }, // 16.000
   { ad_id: 'a4', nama: 'Iklan mahal', kampanye: 'K2', status: 'ACTIVE', spend: 300000, impresi: 20000, reach: 15000, ctr: 0.5, hasil_label: 'Chat dimulai', hasil_n: 10 }, // 30.000 -> tidak
   { ad_id: 'a5', nama: 'Iklan kecil', kampanye: 'K2', status: 'ACTIVE', spend: 20000, impresi: 2000, reach: 1500, ctr: 1, hasil_label: 'Chat dimulai', hasil_n: 1 },
@@ -491,6 +491,19 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     const aiP = PHP_LIB.slice(PHP_LIB.indexOf('function cg_ads_ai('), PHP_LIB.indexOf('/* Daftar iklan satu periode'));
     cek('php: saran AI membuang ad_id yang tidak ada di data', aiP.includes("!isset($ada[(string)$x['ad_id']])"));
     cek('php: saran AI tidak menulis apa pun', !/INSERT|UPDATE|DELETE/.test(aiP));
+    /* Per postingan: a1 + a2 memakai postingan yang sama -> satu baris, 2x */
+    klik(b.d, '[data-a="iklan-tampil"][data-v="post"]');
+    const tp = b.d.getElementById('iklan-daftar').innerHTML;
+    const bp = tp.slice(tp.indexOf('Reel Night of King'), tp.indexOf('</tr>', tp.indexOf('Reel Night of King')));
+    cek('per postingan: dua iklan pada postingan yang sama jadi satu baris "2x"', (tp.match(/Reel Night of King/g) || []).length === 1 && /<b>2x<\/b>/.test(bp), '');
+    cek('per postingan: biaya dijumlah & views organik ikut', /Rp250\.000/.test(bp) && /272 rb/.test(bp) && /views organik/.test(bp));
+    cek('per postingan: penilaian dari biaya per hasil gabungan (8.333 < median) = Works', /nilai works/.test(bp));
+    cek('per postingan: materi bukan postingan IG berdiri sendiri', /materi khusus iklan/.test(tp));
+    klik(b.d, '[data-a="iklan-buka-post"][data-v="id:m1"]');
+    const tb2 = b.d.getElementById('iklan-daftar').innerHTML;
+    cek('per postingan: dibuka menampilkan daftar iklannya', /Iklan murah/.test(tb2) && /Iklan median A/.test(tb2));
+    cek('php: iklan dicocokkan ke postingan IG lewat ID media & kode', PHP_LIB.includes("$r['post'] = ((string)$r['ig_media'] !== ''"));
+    klik(b.d, '[data-a="iklan-tampil"][data-v="iklan"]');
     klik(b.d, '[data-a="iklan-nilai"][data-v="works"]');
     const h2 = b.d.getElementById('iklan-daftar').innerHTML;
     cek('saring "Works" hanya iklan works', /Iklan murah/.test(h2) && !/Iklan mahal/.test(h2));
