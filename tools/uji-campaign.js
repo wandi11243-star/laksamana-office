@@ -30,6 +30,17 @@ const PHP_CB = fs.readFileSync(path.join(ROOT, 'konten-mysql/campaign-tiktok.php
 function hariIni() { return new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10); }
 function geser(h) { return new Date(Date.now() + 7 * 3600e3 + h * 864e5).toISOString().slice(0, 10); }
 
+/* Iklan uji: 4 iklan "Chat dimulai" (median biaya/chat = Rp15.000),
+   satu berbiaya kecil, satu tanpa hasil. */
+const IKLAN_UJI = [
+  { ad_id: 'a1', nama: 'Iklan murah', kampanye: 'K1', status: 'ACTIVE', spend: 100000, impresi: 20000, reach: 15000, ctr: 1.5, hasil_label: 'Chat dimulai', hasil_n: 20 },  // 5.000/chat -> works
+  { ad_id: 'a2', nama: 'Iklan median A', kampanye: 'K1', status: 'ACTIVE', spend: 150000, impresi: 20000, reach: 15000, ctr: 1, hasil_label: 'Chat dimulai', hasil_n: 10 }, // 15.000
+  { ad_id: 'a3', nama: 'Iklan median B', kampanye: 'K1', status: 'PAUSED', spend: 160000, impresi: 20000, reach: 15000, ctr: 1, hasil_label: 'Chat dimulai', hasil_n: 10 }, // 16.000
+  { ad_id: 'a4', nama: 'Iklan mahal', kampanye: 'K2', status: 'ACTIVE', spend: 300000, impresi: 20000, reach: 15000, ctr: 0.5, hasil_label: 'Chat dimulai', hasil_n: 10 }, // 30.000 -> tidak
+  { ad_id: 'a5', nama: 'Iklan kecil', kampanye: 'K2', status: 'ACTIVE', spend: 20000, impresi: 2000, reach: 1500, ctr: 1, hasil_label: 'Chat dimulai', hasil_n: 1 },
+  { ad_id: 'a6', nama: 'Iklan nol hasil', kampanye: 'K2', status: 'ACTIVE', spend: 90000, impresi: 9000, reach: 8000, ctr: 0.2, hasil_label: 'Chat dimulai', hasil_n: 0 }
+];
+
 /* ---------- Server tiruan HIDUP ---------- */
 function buatServer(opsi) {
   opsi = opsi || {};
@@ -107,6 +118,9 @@ function buatServer(opsi) {
     } else if (b.action === 'campaignInsightAI') data = { usulan: [{ platform: 'TikTok', kategori: 'Hook 3 Detik & Retensi', temuan: 'Usulan AI', url: 'https://www.tiktok.com/@x/video/1', tglTayang: '2026-09-26', metrik: '109 rb', aksi: 'Pakai' }] };
     else if (b.action === 'campaignTiktokSync') data = { jumlah: 2, total: 2, riwayatSelesai: false };
     else if (b.action === 'campaignTop') data = topTiruan(S, b.data);
+    else if (b.action === 'campaignAds') data = { periode: b.data.periode, syncAt: Date.now(), baris: IKLAN_UJI };
+    else if (b.action === 'campaignAdsAI') data = { ringkasan: 'Ringkasan iklan uji', model: 'm', lanjutkan: [{ ad_id: 'a1', nama: 'Iklan murah', alasan: 'Biaya per chat Rp5.000', saran: 'Naikkan budget 20%' }],
+      perbaiki: [], hentikan: [{ ad_id: 'a4', nama: 'Iklan mahal', alasan: 'Rp30.000 per chat', saran: '' }], saranUmum: ['Uji hook baru'] };
     else data = { ok: true };
     return Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: true, data })) });
   }
@@ -120,7 +134,7 @@ function buatServer(opsi) {
     const kpUrl = {}; S.konten.forEach(k => { if (k.url && norm(k.platform) === 'TikTok') kpUrl[k.url] = k; });
     S.post.forEach(p => { const man = kpUrl[p.url]; semua.push({ rinci: rinci({ views: p.views, likes: p.likes, comments: p.comments, shares: p.shares }, man && man.m), tercatat: !!man, platform: norm(p.platform), judul: p.judul, url: p.url, tanggal: new Date(p.tayang_at + 7 * 3600e3).toISOString().slice(0, 10), views: p.views, likes: p.likes, comments: p.comments, shares: p.shares, sumber: 'tiktok' }); url[p.url] = 1; });
     S.konten.forEach(k => { if (k.url && url[k.url]) return; semua.push({ rinci: rinci(null, k.m), tercatat: true, platform: norm(k.platform), judul: k.judul, url: k.url, tanggal: k.tanggal, views: k.views, likes: k.likes, comments: k.comments, shares: k.shares, sumber: 'konten' }); });
-    let l = semua.filter(e => (!q.platform || e.platform === q.platform) && (!q.dari || (e.tanggal && e.tanggal >= q.dari)) && (!q.sampai || (e.tanggal && e.tanggal <= q.sampai)));
+    let l = semua.filter(e => (!q.q || e.judul.toLowerCase().includes(String(q.q).toLowerCase())) && (!q.platform || e.platform === q.platform) && (!q.dari || (e.tanggal && e.tanggal >= q.dari)) && (!q.sampai || (e.tanggal && e.tanggal <= q.sampai)));
     l.forEach(e => { e.er = e.views > 0 ? (e.likes + e.comments + e.shares) / e.views : null; });
     l.sort((a, b) => q.urut === 'er' ? ((a.er == null) - (b.er == null) || (b.er - a.er)) : b.views - a.views);
     const per = q.per || 10, halMaks = Math.max(1, Math.ceil(l.length / per)), hal = Math.min(Math.max(1, q.hal || 1), halMaks);
@@ -395,6 +409,93 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('aksi bank terdaftar', ['campaignBankGenerate', 'campaignBankSimpan', 'campaignBankArsip', 'campaignBankHapus'].every(x => PHP_LIB.includes("case '" + x + "'")));
   }
 
+  console.log('\n== Cari di Konten terpopuler ==');
+  {
+    const { w, d, srv } = await buka({ hash: '#insight' });
+    const kotak = d.getElementById('top-cari');
+    cek('kotak cari ada di Konten terpopuler', !!kotak);
+    kotak.focus(); kotak.value = 'combo';
+    kotak.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await tunggu(500);
+    const rq = srv.log.filter(b => b.action === 'campaignTop').pop();
+    cek('kata kunci dikirim ke server (halaman 1)', rq && rq.data.q === 'combo' && rq.data.hal === 1, rq && JSON.stringify(rq.data));
+    const daftar = d.getElementById('top-daftar').innerHTML;
+    cek('hasil cari hanya yang cocok', /Beli special combo/.test(daftar) && !/Goyang terus babe/.test(daftar));
+    cek('kotak cari TIDAK dibuat ulang (fokus tetap)', d.getElementById('top-cari') === kotak && d.activeElement === kotak);
+    kotak.value = 'zzzz'; kotak.dispatchEvent(new w.Event('input', { bubbles: true })); await tunggu(500);
+    cek('tanpa hasil disebut kata kuncinya', /cocok dengan "zzzz"/.test(d.getElementById('top-daftar').innerHTML));
+    cek('php: cg_top menyaring kata kunci di judul', PHP_LIB.includes("strpos(strtolower($e['judul']), $cari) === false"));
+    const igs = PHP_LIB.slice(PHP_LIB.indexOf('function cg_ig_sync('));
+    cek('php: insight IG diekspansi di daftar media (seluruh postingan dapat views)', igs.includes("insights.metric(views,reach,saved,shares)") && igs.includes('$pakaiIns = false;'));
+    cek('php: riwayat IG ditarik ulang SEKALI supaya postingan lama dapat views', igs.includes("cg_set_baca($pdo, 'ig_bf_v') !== '2'"));
+  }
+
+  console.log('\n== Iklan (Meta Ads) ==');
+  {
+    const a = await buka({ hash: '#iklan' });
+    cek('menu Iklan ada di sidebar', /data-v="iklan"/.test(a.d.getElementById('nav').innerHTML));
+    cek('belum disetel: halaman menyuruh mengisi Pengaturan', /Hubungkan Meta Ads/.test(a.d.getElementById('app').innerHTML));
+    const b = await buka({ hash: '#iklan' });
+    b.srv.S.setting.adsSiap = true; b.srv.S.setting.adsAkun = '123'; b.srv.S.setting.adsSyncAt = Date.now();
+    await b.w.__cg.muat(); b.w.__cg.render(); await tunggu(60);
+    const h = b.d.getElementById('app').innerHTML;
+    const baris = nm => { const i = h.indexOf('>' + nm + '<'); return i < 0 ? '' : h.slice(i, h.indexOf('</tr>', i)); };
+    cek('daftar iklan tampil, diminta periode 30 hari', /Iklan murah/.test(h) && b.srv.log.some(x => x.action === 'campaignAds' && x.data.periode === '30'));
+    cek('biaya per chat 5.000 = Works (median sejenis)', /nilai works/.test(baris('Iklan murah')));
+    cek('biaya per chat 2x median = Tidak works', /nilai tidak/.test(baris('Iklan mahal')));
+    cek('sekitar median = Wajar', /nilai wajar/.test(baris('Iklan median A')));
+    cek('biaya di bawah ambang = Data belum cukup', /nilai kecil/.test(baris('Iklan kecil')));
+    cek('sudah berbiaya tapi tanpa hasil = Tidak works', /nilai tidak/.test(baris('Iklan nol hasil')) && /belum menghasilkan/.test(baris('Iklan nol hasil')));
+    cek('cara menilai dijelaskan di layar', /median biaya per hasil/.test(h));
+    /* Top iklan: juara per jenis hasil = biaya per hasil termurah */
+    const top = h.slice(h.indexOf('<h2>Top iklan</h2>'), h.indexOf('<h2>Saran AI</h2>'));
+    cek('Top iklan menampilkan biaya per hasil termurah (Iklan murah)', /Iklan murah/.test(top) && !/Iklan mahal/.test(top));
+    /* Cari: hanya tabel yang digambar ulang, kotak tetap fokus */
+    const kotak = b.d.getElementById('iklan-cari');
+    kotak.focus(); kotak.value = 'mahal'; kotak.dispatchEvent(new b.w.Event('input', { bubbles: true })); await tunggu(350);
+    const tb = b.d.getElementById('iklan-daftar').innerHTML;
+    cek('cari iklan menyaring tabel', /Iklan mahal/.test(tb) && !/Iklan murah/.test(tb) && /1 dari 6 iklan/.test(tb));
+    cek('kotak cari iklan tetap fokus (tidak dibuat ulang)', b.d.getElementById('iklan-cari') === kotak && b.d.activeElement === kotak);
+    kotak.value = ''; kotak.dispatchEvent(new b.w.Event('input', { bubbles: true })); await tunggu(350);
+    /* Saring status & urut */
+    klik(b.d, '[data-a="iklan-status"][data-v="mati"]');
+    const ts = b.d.getElementById('iklan-daftar').innerHTML;
+    cek('saring status "Tidak aktif" hanya iklan dijeda', /Iklan median B/.test(ts) && !/Iklan murah/.test(ts));
+    klik(b.d, '[data-a="iklan-status"][data-v=""]');
+    const sel = b.d.querySelector('[data-a="iklan-urut"]'); sel.value = 'cpr'; sel.dispatchEvent(new b.w.Event('change', { bubbles: true }));
+    const tu = b.d.getElementById('iklan-daftar').innerHTML;
+    cek('urut biaya/hasil termurah: Iklan murah di atas, tanpa hasil di bawah', tu.indexOf('Iklan murah') < tu.indexOf('Iklan mahal') && tu.indexOf('Iklan mahal') < tu.indexOf('Iklan nol hasil'));
+    /* Saran AI */
+    b.srv.S.setting.aiSiap = true; await b.w.__cg.muat(); b.w.__cg.render();
+    klik(b.d, '[data-a="iklan-ai"]'); await tunggu(80);
+    const ha = b.d.getElementById('app').innerHTML;
+    cek('Saran AI memanggil campaignAdsAI untuk periode yang dibuka', b.srv.log.some(x => x.action === 'campaignAdsAI' && x.data.periode === '30'));
+    cek('Saran AI tampil: Teruskan / Hentikan + saran umum', /Ringkasan iklan uji/.test(ha) && /Teruskan/.test(ha) && /Naikkan budget 20%/.test(ha) && /Hentikan/.test(ha) && /Uji hook baru/.test(ha));
+    const aiP = PHP_LIB.slice(PHP_LIB.indexOf('function cg_ads_ai('), PHP_LIB.indexOf('/* Daftar iklan satu periode'));
+    cek('php: saran AI membuang ad_id yang tidak ada di data', aiP.includes("!isset($ada[(string)$x['ad_id']])"));
+    cek('php: saran AI tidak menulis apa pun', !/INSERT|UPDATE|DELETE/.test(aiP));
+    klik(b.d, '[data-a="iklan-nilai"][data-v="works"]');
+    const h2 = b.d.getElementById('iklan-daftar').innerHTML;
+    cek('saring "Works" hanya iklan works', /Iklan murah/.test(h2) && !/Iklan mahal/.test(h2));
+    klik(b.d, '[data-a="iklan-pe"][data-v="max"]'); await tunggu(60);
+    cek('ganti periode memuat ulang dari server', b.srv.log.some(x => x.action === 'campaignAds' && x.data.periode === 'max'));
+    const c = await buka({ hash: '#pengaturan', admin: true });
+    cek('Pengaturan: token iklan (password) & ID akun iklan', c.d.getElementById('s-adstoken').type === 'password' && !!c.d.getElementById('s-adsakun'));
+    c.d.getElementById('s-adstoken').value = 'tok-uji'; c.d.getElementById('s-adsakun').value = 'act_999';
+    klik(c.d, '[data-a="set-simpan"]'); await tunggu(60);
+    const ks = c.srv.log.filter(x => x.action === 'campaignSetting').pop();
+    cek('Simpan mengirim adsToken & adsAkun', ks && ks.data.adsToken === 'tok-uji' && ks.data.adsAkun === 'act_999');
+    const ads = PHP_LIB.slice(PHP_LIB.indexOf('/* ==================== IKLAN META'), PHP_LIB.indexOf('/* ==================== SETELAN (admin'));
+    cek('php: insight level iklan, tiga periode', ads.includes("'level' => 'ad'") && ads.includes("'7' => 'last_7d', '30' => 'last_30d', 'max' => 'maximum'"));
+    cek('php: hasil dipilih menurut tujuan kampanye', ads.includes('function cg_ads_hasil(') && ads.includes("onsite_conversion.messaging_conversation_started_7d"));
+    cek('php: baca hanya sinkron terakhir, tanpa DELETE', ads.includes('sync_at = :s') && !/DELETE/.test(ads));
+    cek('php: token iklan tidak dipulangkan campaignGet', !/'ads_token'\s*\)\s*[,)]/.test(PHP_LIB.slice(PHP_LIB.indexOf('function cg_baca('), PHP_LIB.indexOf('function cg_konten_perf('))) && PHP_LIB.includes("'adsTokenAda' => cg_ads_token($pdo) !== ''"));
+    cek('php: ID akun iklan bukan angka ditolak', PHP_LIB.includes("ID akun iklan harus angka"));
+    cek('php: postingan IG yang dipromosikan dicocokkan lewat ID media & kode tautan', PHP_LIB.includes("$iklanIg['id:' . $r['ig_media']]") && PHP_LIB.includes('function cg_ig_kode('));
+    cek('detail postingan Instagram menyebut angka API = organik, dan data iklannya kalau dipromosikan', HTML.includes('Angka dari Instagram API adalah <b>organik</b>') && HTML.includes('pernah dipromosikan'));
+    cek('aksi iklan terdaftar', PHP_LIB.includes("case 'campaignAdsSync'") && PHP_LIB.includes("case 'campaignAds'") && PHP_LIB.includes("case 'campaignAdsAI'"));
+  }
+
   console.log('\n== Instagram ==');
   {
     /* Belum terhubung, kunci app terisi: tombol Hubungkan aktif & memanggil campaignIgMulai. */
@@ -416,6 +517,11 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
         bio: 'Coffee Pekanbaru', profil_url: 'https://www.instagram.com/laksamanamuda.id/', avatar: '', token_exp: Date.now() + 50 * 864e5 }] });
     const k1 = b.d.getElementById('app').innerHTML;
     cek('kartu Instagram terhubung: nama, follower & tautan profil', /Laksamana Muda/.test(k1) && /5\.432|5,4|5\.4/.test(k1) && /Buka profil di Instagram/.test(k1), '');
+    /* Pita riwayat Instagram muncul selama belum lengkap. */
+    b.srv.S.postInfo.igTotal = 120; b.srv.S.postInfo.igInsight = 30; b.srv.S.postInfo.igRiwayatSelesai = false;
+    await b.w.__cg.muat(); b.w.__cg.render(); await tunggu(40);
+    const kp = b.d.getElementById('app').innerHTML;
+    cek('pita riwayat Instagram menyebut jumlah tersimpan & ber-insight', /Postingan Instagram masih ditarik bertahap: 120 dari 210/.test(kp) && /untuk 30 postingan/.test(kp));
     klik(b.d, '[data-a="ig-sync"]'); await tunggu(60);
     cek('Sinkronkan memanggil campaignIgSync', b.srv.log.some(x => x.action === 'campaignIgSync'));
     klik(b.d, '[data-a="ig-putus"]'); await tunggu(60);
@@ -437,7 +543,11 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('token pendek ditukar jadi token 60 hari', ig.includes("'grant_type' => 'ig_exchange_token'"));
     cek('token diperbarui sebelum habis (ig_refresh_token)', ig.includes("'grant_type' => 'ig_refresh_token'"));
     cek('scope = izin yang ditambahkan di app', /define\('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights'\)/.test(PHP_LIB));
-    cek('insight per postingan dibatasi per sinkron', ig.includes('LIMIT 25') && ig.includes('/insights?'));
+    cek('insight per postingan bergilir 30 per sinkron', ig.includes('ORDER BY insight_at ASC, tayang_at DESC LIMIT 30') && ig.includes('/insights?'));
+    cek('riwayat SELURUH postingan dari cursor tersimpan (4 halaman per sinkron)', ig.includes('for ($h = 0; !$selesai && $h < 4; $h++)') && ig.includes("cg_set_tulis($pdo, 'ig_bf_after', $c)"));
+    cek('postingan lama disegarkan likes & komentarnya', ig.includes("UPDATE cg_post SET likes=:li, comments=:cm"));
+    cek('postingan yang hilang ditandai, tidak dihapus (hanya galat kode 100)', ig.includes("SET hilang=1") && ig.includes("=== 100") && !/DELETE/.test(ig));
+    cek('campaignGet memulangkan jumlah yang sudah ber-insight', PHP_LIB.includes("'igInsight' =>"));
     cek('reach & saves lahir lewat ALTER, NULL bawaan', PHP_LIB.includes("ADD COLUMN reach BIGINT NULL") && PHP_LIB.includes("ADD COLUMN saves BIGINT NULL"));
     cek('campaignGet TIDAK memulangkan App Secret Instagram', !/'ig_secret'\s*\)?\s*[,)]/.test(PHP_LIB.slice(PHP_LIB.indexOf('function cg_baca('), PHP_LIB.indexOf('function cg_konten_perf('))));
     cek('aksi Instagram terdaftar', ['campaignIgMulai', 'campaignIgSync', 'campaignIgPutus'].every(x => PHP_LIB.includes("case '" + x + "'")));

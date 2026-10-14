@@ -937,7 +937,7 @@ akan tertimpa.
   dengan mengosongkan tokennya.
 
 ```bash
-node tools/uji-campaign.js   # 171 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
+node tools/uji-campaign.js   # 214 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
 **Bank Konten (14 Okt 2026)** — menu `bank`, tabel `cg_bank` (lahir di
@@ -960,6 +960,24 @@ Postingan masuk `cg_post` platform 'instagram'; insight per postingan
 (views/reach/saved/shares) 25 per sinkron lewat `insight_at`. Kolom `reach`,
 `saves` NULL = tidak ada sumbernya (TikTok). App ID/Secret: `ig_id`/`ig_secret`
 di cg_setting atau `INSTAGRAM_APP_ID`/`INSTAGRAM_APP_SECRET` di config.php (menang).
+Insight IG DIEKSPANSI di daftar media (`insights.metric(...)`, 50 postingan per
+permintaan) — dulu cuma 30 per sinkron dan reel 300 rb views tidak terbaca;
+ekspansi ditolak = tarik ulang tanpa insight (`$pakaiIns`). `ig_bf_v`=2 menarik
+ulang riwayat SEKALI. Konten terpopuler punya kotak cari (`q` di cg_top);
+mengetik cuma menggambar ulang `#top-daftar` (gambarTop), kotaknya tidak dibuat ulang.
+
+**IKLAN META (14 Okt 2026)** — menu `iklan`, tabel `cg_iklan` (PK ad_id+periode
+7/30/max), aksi `campaignAdsSync`/`campaignAds`. Token pengguna sistem
+Business Manager (ads_read) di `ads_token` / `META_ADS_TOKEN`, akun di
+`ads_akun`. Hasil per iklan dipilih `cg_ads_hasil()` menurut objective;
+penilaian works/wajar/tidak/kecil di layar (`nilaiIklan`): median biaya per
+hasil iklan SEJENIS (label sama, spend ≥ Rp50.000, minimal 3). Tanpa DELETE:
+yang dibaca cuma baris sinkron terakhir periode itu. Postingan IG yang
+dipromosikan dicocokkan ke Konten terpopuler lewat ID media / kode tautan,
+dan panel detailnya menyebut angka Instagram API = organik.
+Halaman Iklan: Top iklan (termurah per jenis hasil), cari/saring/urut lokal
+(tabel di #iklan-daftar, kotak cari tidak dibuat ulang), Saran AI `campaignAdsAI`
+(usulan saja, ad_id karangan dibuang, tidak menulis apa pun).
 
 **"MySQL server has gone away" (14 Okt 2026)**: panggilan AI 1–2 menit
 melewati wait_timeout MySQL, sambungan PDO statis sudah diputus server.

@@ -121,6 +121,8 @@ define('CG_TIKTOK_SCOPE', 'user.info.basic,user.info.profile,user.info.stats,vid
    dengan izin yang ditambahkan di kasus penggunaan app Meta. */
 define('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights');
 define('CG_IG_GRAPH', 'https://graph.instagram.com/v23.0');
+/* Meta Marketing API (iklan), 14 Okt 2026. */
+define('CG_FB_GRAPH', 'https://graph.facebook.com/v23.0');
 
 function cg_now_ms() { return (int)round(microtime(true) * 1000); }
 function cg_uid($awal) { return $awal . base_convert((string)cg_now_ms(), 10, 36) . bin2hex(random_bytes(3)); }
@@ -242,6 +244,38 @@ function cg_pastikan($pdo) {
     diubah_at BIGINT NOT NULL DEFAULT 0,
     KEY idx_cgb_tgl (tanggal)
   ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+  /* IKLAN META (14 Okt 2026): ringkasan performa per iklan per PERIODE
+     ('7', '30', 'max'). Tidak ada DELETE: iklan yang tidak muncul lagi di
+     sinkron berikutnya tertinggal dengan sync_at lama, dan yang dibaca cuma
+     baris dari sinkron terakhir periode itu. */
+  $pdo->exec("CREATE TABLE IF NOT EXISTS cg_iklan (
+    ad_id VARCHAR(40) NOT NULL,
+    periode VARCHAR(5) NOT NULL,
+    akun VARCHAR(40) NOT NULL DEFAULT '',
+    nama VARCHAR(255) NOT NULL DEFAULT '',
+    kampanye VARCHAR(255) NOT NULL DEFAULT '',
+    adset VARCHAR(255) NOT NULL DEFAULT '',
+    objective VARCHAR(60) NOT NULL DEFAULT '',
+    status VARCHAR(40) NOT NULL DEFAULT '',
+    thumb VARCHAR(900) NOT NULL DEFAULT '',
+    permalink VARCHAR(600) NOT NULL DEFAULT '',
+    ig_media VARCHAR(80) NOT NULL DEFAULT '',
+    spend DECIMAL(16,2) NOT NULL DEFAULT 0,
+    impresi BIGINT NOT NULL DEFAULT 0,
+    reach BIGINT NOT NULL DEFAULT 0,
+    klik BIGINT NOT NULL DEFAULT 0,
+    ctr DECIMAL(10,4) NOT NULL DEFAULT 0,
+    cpm DECIMAL(16,2) NOT NULL DEFAULT 0,
+    frekuensi DECIMAL(10,2) NOT NULL DEFAULT 0,
+    video_view BIGINT NOT NULL DEFAULT 0,
+    hasil_label VARCHAR(60) NOT NULL DEFAULT '',
+    hasil_n BIGINT NOT NULL DEFAULT 0,
+    tgl_mulai DATE NULL,
+    tgl_selesai DATE NULL,
+    actions MEDIUMTEXT NULL,
+    sync_at BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (ad_id, periode)
+  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
   $pdo->exec("CREATE TABLE IF NOT EXISTS cg_setting (
     k VARCHAR(60) NOT NULL PRIMARY KEY,
     v TEXT NULL
@@ -305,6 +339,22 @@ function cg_ig_id($pdo) {
 function cg_ig_secret($pdo) {
   if (defined('INSTAGRAM_APP_SECRET') && INSTAGRAM_APP_SECRET !== '') return INSTAGRAM_APP_SECRET;
   return cg_set_baca($pdo, 'ig_secret');
+}
+/* Token iklan: token PENGGUNA SISTEM dari Business Manager (ads_read).
+   Tidak lewat OAuth — dibuat sekali oleh admin bisnis, berlaku tanpa
+   kedaluwarsa, dan bisa dicabut kapan saja di Business Manager. */
+function cg_ads_token($pdo) {
+  if (defined('META_ADS_TOKEN') && META_ADS_TOKEN !== '') return META_ADS_TOKEN;
+  return cg_set_baca($pdo, 'ads_token');
+}
+/* Daftar akun iklan, dibakukan jadi angka saja (boleh diketik "act_123"). */
+function cg_ads_akun($pdo) {
+  $out = array();
+  foreach (preg_split('/[\s,;]+/', cg_set_baca($pdo, 'ads_akun')) as $a) {
+    $a = preg_replace('/^act_/i', '', trim($a));
+    if ($a !== '' && ctype_digit($a)) $out[] = $a;
+  }
+  return array_values(array_unique($out));
 }
 function cg_ig_redirect_uri() {
   $host = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : '';
@@ -370,6 +420,7 @@ function cg_baca($pdo, $u) {
     'riwayatSelesai' => cg_set_baca($pdo, 'tiktok_bf_selesai') === '1',
     'igTotal' => (int)$pdo->query("SELECT COUNT(*) FROM cg_post WHERE platform='instagram' AND hilang=0")->fetchColumn(),
     'igRiwayatSelesai' => cg_set_baca($pdo, 'ig_bf_selesai') === '1',
+    'igInsight' => (int)$pdo->query("SELECT COUNT(*) FROM cg_post WHERE platform='instagram' AND hilang=0 AND insight_at > 0")->fetchColumn(),
   );
   /* Akun TANPA token — kolom rahasia tidak pernah ikut SELECT ini. */
   $akun = $pdo->query('SELECT platform, nama, avatar, follower, bio, profil_url, terverifikasi, following, likes_total, jml_video, stats_ada, scope, token_exp, refresh_exp, sync_at, sync_galat, oleh, at FROM cg_akun')->fetchAll();
@@ -397,6 +448,12 @@ function cg_baca($pdo, $u) {
       'igSiap'      => cg_ig_id($pdo) !== '' && cg_ig_secret($pdo) !== '',
       'igDariConfig' => defined('INSTAGRAM_APP_ID') && INSTAGRAM_APP_ID !== '',
       'igRedirectUri' => cg_ig_redirect_uri(),
+      'adsSiap'     => cg_ads_token($pdo) !== '' && count(cg_ads_akun($pdo)) > 0,
+      'adsTokenAda' => cg_ads_token($pdo) !== '',
+      'adsDariConfig' => defined('META_ADS_TOKEN') && META_ADS_TOKEN !== '',
+      'adsAkun'     => implode(', ', cg_ads_akun($pdo)),
+      'adsSyncAt'   => (int)cg_set_baca($pdo, 'ads_sync_at', '0'),
+      'adsGalat'    => cg_set_baca($pdo, 'ads_galat'),
     ),
     'boleh' => array('admin' => sesi_admin_modul($u, 'campaign')),
   );
@@ -486,6 +543,9 @@ function cg_top($pdo, $d) {
   $sampai = cg_tgl_sah(isset($d['sampai']) ? $d['sampai'] : '');
   $per = max(5, min(50, (int)(isset($d['per']) ? $d['per'] : 10)));
   $hal = max(1, (int)(isset($d['hal']) ? $d['hal'] : 1));
+  /* Kata kunci (14 Okt 2026, permintaan user): dicari di judul/caption,
+     tanpa memandang huruf besar-kecil. */
+  $cari = strtolower(trim((string)(isset($d['q']) ? $d['q'] : '')));
 
   $semua = array(); $url = array();
   /* Angka Input Performa per TAUTAN — dipakai melengkapi baris TikTok yang
@@ -496,7 +556,7 @@ function cg_top($pdo, $d) {
   /* Dicocokkan per PLATFORM + tautan: tautan TikTok yang ditempel di catatan
      Instagram bukan angka TikTok (dan sebaliknya). */
   foreach ($kp as $k) if ($k['url'] !== '') $kpUrl[cg_plat_norm($k['platform']) . '|' . $k['url']] = $k;
-  foreach ($pdo->query("SELECT platform, judul, url, tayang_at, views, likes, comments, shares, reach, saves FROM cg_post WHERE hilang=0")->fetchAll() as $p) {
+  foreach ($pdo->query("SELECT platform, post_id, judul, url, tayang_at, views, likes, comments, shares, reach, saves FROM cg_post WHERE hilang=0")->fetchAll() as $p) {
     $kunciKp = cg_plat_norm($p['platform']) . '|' . (string)$p['url'];
     $man = ((string)$p['url'] !== '' && isset($kpUrl[$kunciKp])) ? $kpUrl[$kunciKp] : null;
     $api = array('views' => $p['views'], 'likes' => $p['likes'], 'comments' => $p['comments'], 'shares' => $p['shares']);
@@ -508,7 +568,7 @@ function cg_top($pdo, $d) {
       'rinci' => cg_rinci($api, $man ? $man['m'] : null),
       'tercatat' => $man !== null,'platform' => cg_plat_norm($p['platform']), 'judul' => (string)$p['judul'] !== '' ? (string)$p['judul'] : '(tanpa keterangan)',
       'url' => (string)$p['url'], 'tanggal' => (int)$p['tayang_at'] > 0 ? gmdate('Y-m-d', (int)floor((int)$p['tayang_at'] / 1000) + 7 * 3600) : '',
-      'views' => (float)$p['views'], 'likes' => (float)$p['likes'], 'comments' => (float)$p['comments'], 'shares' => (float)$p['shares'], 'sumber' => (string)$p['platform'] === 'instagram' ? 'instagram' : 'tiktok');
+      'views' => (float)$p['views'], 'likes' => (float)$p['likes'], 'comments' => (float)$p['comments'], 'shares' => (float)$p['shares'], 'sumber' => (string)$p['platform'] === 'instagram' ? 'instagram' : 'tiktok', 'pid' => (string)$p['post_id']);
     if ((string)$p['url'] !== '') $url[(string)$p['url']] = true;
   }
   foreach ($kp as $k) {
@@ -523,6 +583,7 @@ function cg_top($pdo, $d) {
   $lolos = array();
   foreach ($semua as $e) {
     if ($plat !== '' && $e['platform'] !== $plat) continue;
+    if ($cari !== '' && strpos(strtolower($e['judul']), $cari) === false) continue;
     if ($dari !== null || $sampai !== null) {
       if ($e['tanggal'] === '') continue;
       if ($dari !== null && $e['tanggal'] < $dari) continue;
@@ -543,6 +604,32 @@ function cg_top($pdo, $d) {
     return strcmp($b['tanggal'], $a['tanggal']);
   });
   $total = count($lolos);
+  /* Postingan Instagram yang pernah DIPROMOSIKAN: ringkasan iklannya
+     (sepanjang waktu) ikut di barisnya. Angka Instagram API organik saja —
+     tanpa ini selisihnya dengan angka di aplikasi Instagram tidak terjelaskan. */
+  $iklanIg = array();
+  try {
+    $ts = (int)$pdo->query("SELECT MAX(sync_at) FROM cg_iklan WHERE periode='max'")->fetchColumn();
+    if ($ts > 0) {
+      $qi = $pdo->prepare("SELECT ig_media, permalink, SUM(spend) sp, SUM(impresi) im, SUM(reach) re, SUM(video_view) vv, COUNT(*) n FROM cg_iklan WHERE periode='max' AND sync_at=:s AND (ig_media<>'' OR permalink<>'') GROUP BY ig_media, permalink");
+      $qi->execute(array(':s' => $ts));
+      foreach ($qi->fetchAll() as $r) {
+        $isi = array('spend' => (float)$r['sp'], 'impresi' => (int)$r['im'], 'reach' => (int)$r['re'], 'videoView' => (int)$r['vv'], 'n' => (int)$r['n']);
+        /* Dicocokkan lewat ID media DAN kode tautan: tautan iklan berbentuk
+           /p/KODE/ sementara tautan reel organiknya /reel/KODE/. */
+        if ((string)$r['ig_media'] !== '') $iklanIg['id:' . $r['ig_media']] = $isi;
+        $kd = cg_ig_kode((string)$r['permalink']);
+        if ($kd !== '') $iklanIg['kd:' . $kd] = $isi;
+      }
+    }
+  } catch (Throwable $e) {}
+  if ($iklanIg) foreach ($lolos as &$e) {
+    if ($e['platform'] !== 'Instagram') continue;
+    $kd = cg_ig_kode((string)$e['url']);
+    if (isset($e['pid']) && isset($iklanIg['id:' . $e['pid']])) $e['iklan'] = $iklanIg['id:' . $e['pid']];
+    elseif ($kd !== '' && isset($iklanIg['kd:' . $kd])) $e['iklan'] = $iklanIg['kd:' . $kd];
+  }
+  unset($e);
   $halMaks = max(1, (int)ceil($total / $per));
   if ($hal > $halMaks) $hal = $halMaks;   /* dijepit: halaman 7 yang sudah tidak ada = tabel kosong */
   return array('baris' => array_slice($lolos, ($hal - 1) * $per, $per), 'total' => $total,
@@ -1330,12 +1417,33 @@ function cg_ig_sync($pdo) {
       ':f' => (int)$g('followers_count'), ':fg' => (int)$g('follows_count'), ':jv' => (int)$g('media_count'), ':p' => 'instagram'));
 
     $fields = 'id,caption,media_type,media_product_type,permalink,timestamp,thumbnail_url,media_url,like_count,comments_count';
+    /* VIEWS SEBELUMNYA CUMA TERISI 30 POSTINGAN PER SINKRON (14 Okt 2026,
+       keluhan user: "views terbanyak cuma 29 rb padahal ada yang 300-an rb").
+       Postingan yang belum kebagian giliran berdiri dengan views 0, jadi reel
+       yang paling laris bisa tidak muncul di Konten terpopuler sama sekali.
+       Sekarang insight ikut DIEKSPANSI di daftar media — satu permintaan
+       untuk 50 postingan. Kalau Instagram menolak ekspansinya (metrik yang
+       tidak berlaku untuk salah satu jenis media menolak SELURUH permintaan),
+       daftar ditarik ulang tanpa insight dan giliran langkah 3 yang mengisi. */
+    $fieldsIns = $fields . ',insights.metric(views,reach,saved,shares)';
+    $pakaiIns = true;
+    $insUp = $pdo->prepare("UPDATE cg_post SET views=:vi, reach=:re, saves=:sa, shares=:sh, insight_at=:at WHERE platform='instagram' AND post_id=:id");
+    $insDari = function($m) {
+      if (!isset($m['insights']['data']) || !is_array($m['insights']['data'])) return null;
+      $o = array();
+      foreach ($m['insights']['data'] as $x) {
+        if (!isset($x['name'])) continue;
+        $v = isset($x['values'][0]['value']) ? $x['values'][0]['value'] : (isset($x['total_value']['value']) ? $x['total_value']['value'] : null);
+        if (is_numeric($v)) $o[$x['name']] = (int)$v;
+      }
+      return $o ? $o : null;
+    };
     $n = 0;
     $ins = $pdo->prepare('INSERT INTO cg_post (platform, post_id, judul, url, cover, tayang_at, views, likes, comments, shares, durasi, sync_at, hilang)
       VALUES (:pl, :id, :ju, :ur, :co, :ta, 0, :li, :cm, 0, 0, :sy, 0)
       ON DUPLICATE KEY UPDATE judul=VALUES(judul), url=VALUES(url), cover=VALUES(cover), tayang_at=VALUES(tayang_at),
         likes=VALUES(likes), comments=VALUES(comments), sync_at=VALUES(sync_at), hilang=0');
-    $simpan = function($m) use ($ins, $now, &$n) {
+    $simpan = function($m) use ($ins, $now, &$n, $insDari, $insUp) {
       $ts = isset($m['timestamp']) ? strtotime((string)$m['timestamp']) : 0;
       $cover = isset($m['thumbnail_url']) ? $m['thumbnail_url'] : (isset($m['media_url']) && (!isset($m['media_type']) || $m['media_type'] !== 'VIDEO') ? $m['media_url'] : '');
       $ins->execute(array(':pl' => 'instagram', ':id' => (string)$m['id'], ':ju' => (string)(isset($m['caption']) ? $m['caption'] : ''),
@@ -1343,11 +1451,20 @@ function cg_ig_sync($pdo) {
         ':ta' => $ts ? $ts * 1000 : 0, ':li' => (int)(isset($m['like_count']) ? $m['like_count'] : 0),
         ':cm' => (int)(isset($m['comments_count']) ? $m['comments_count'] : 0), ':sy' => $now));
       $n++;
+      $ix = $insDari($m);
+      if ($ix) $insUp->execute(array(':vi' => isset($ix['views']) ? $ix['views'] : (isset($ix['reach']) ? $ix['reach'] : 0),
+        ':re' => isset($ix['reach']) ? $ix['reach'] : null, ':sa' => isset($ix['saved']) ? $ix['saved'] : null,
+        ':sh' => isset($ix['shares']) ? $ix['shares'] : 0, ':at' => $now, ':id' => (string)$m['id']));
     };
-    $halaman = function($after) use ($tok, $fields) {
-      $qs = array('fields' => $fields, 'limit' => 50, 'access_token' => $tok);
+    $halaman = function($after) use ($tok, $fields, $fieldsIns, &$pakaiIns) {
+      $qs = array('fields' => $pakaiIns ? $fieldsIns : $fields, 'limit' => 50, 'access_token' => $tok);
       if ($after !== null && $after !== '') $qs['after'] = $after;
       $r = cg_http('GET', CG_IG_GRAPH . '/me/media?' . http_build_query($qs), array(), null, 30);
+      if ($pakaiIns && (!$r['data'] || !isset($r['data']['data']))) {
+        $pakaiIns = false;
+        $qs['fields'] = $fields;
+        $r = cg_http('GET', CG_IG_GRAPH . '/me/media?' . http_build_query($qs), array(), null, 30);
+      }
       if (!$r['data'] || !isset($r['data']['data'])) throw new Exception(cg_ig_galat($r, 'Daftar postingan Instagram tidak terbaca'));
       return $r['data'];
     };
@@ -1360,15 +1477,22 @@ function cg_ig_sync($pdo) {
     foreach ($data['data'] as $m) $simpan($m);
     $after = $lanjut($data);
 
-    /* 2. RIWAYAT — dilanjutkan dari cursor TERSIMPAN, 3 halaman per sinkron,
-       pola yang sama dengan TikTok: sinkron tetap ringan, riwayat lengkap
-       tertarik bertahap. */
+    /* 2. RIWAYAT — SELURUH postingan akun, bukan cuma yang terbaru (14 Okt
+       2026, permintaan user: "samakan dengan konsep TikTok"). Dilanjutkan
+       dari cursor TERSIMPAN, 4 halaman (200 postingan) per sinkron, sampai
+       Instagram bilang tidak ada lagi. Cursor disimpan tiap halaman, jadi
+       sinkron yang putus di tengah tidak mengulang dari awal. */
+    /* SEKALI SAJA sesudah ekspansi insight lahir: riwayat yang sudah
+       tertarik tanpa views ditarik ulang dari awal supaya ikut terisi. */
+    if ($pakaiIns && cg_set_baca($pdo, 'ig_bf_v') !== '2') {
+      cg_set_tulis($pdo, 'ig_bf_selesai', ''); cg_set_tulis($pdo, 'ig_bf_after', ''); cg_set_tulis($pdo, 'ig_bf_v', '2');
+    }
     $selesai = cg_set_baca($pdo, 'ig_bf_selesai') === '1';
     if (!$selesai) {
       $c = cg_set_baca($pdo, 'ig_bf_after');
       if ($c === '') $c = $after;
       if ($c === '') $selesai = true;
-      for ($h = 0; !$selesai && $h < 3; $h++) {
+      for ($h = 0; !$selesai && $h < 4; $h++) {
         $data = $halaman($c);
         foreach ($data['data'] as $m) $simpan($m);
         $c = $lanjut($data);
@@ -1378,13 +1502,28 @@ function cg_ig_sync($pdo) {
       if ($selesai) { cg_set_tulis($pdo, 'ig_bf_selesai', '1'); cg_set_tulis($pdo, 'ig_bf_after', ''); }
     }
 
-    /* 3. INSIGHT per postingan (views, reach, saves, shares) — satu
-       permintaan per postingan, jadi dibatasi 25 per sinkron: yang belum
-       pernah punya insight dulu, lalu yang paling lama tidak disegarkan. */
-    $tua = $pdo->query("SELECT post_id FROM cg_post WHERE platform='instagram' AND hilang=0 ORDER BY insight_at ASC, tayang_at DESC LIMIT 25")->fetchAll(PDO::FETCH_COLUMN);
+    /* 3. SEGARKAN YANG LAMA + INSIGHT per postingan — padanan langkah 3
+       TikTok. Tiap sinkron menyentuh 30 postingan yang paling lama tidak
+       disegarkan (yang belum pernah punya insight duluan): likes & komentar
+       ditarik ulang, lalu views, reach, saves, share. Berputar terus, jadi
+       SELURUH postingan kebagian dan angkanya tidak membeku di hari ia
+       pertama ditarik. Postingan yang sudah tidak dipulangkan Instagram
+       (dihapus/diarsipkan) ditandai `hilang`, bukan dihapus dari tabel. */
+    $tua = $pdo->query("SELECT post_id FROM cg_post WHERE platform='instagram' AND hilang=0 ORDER BY insight_at ASC, tayang_at DESC LIMIT 30")->fetchAll(PDO::FETCH_COLUMN);
     $up = $pdo->prepare("UPDATE cg_post SET views=:vi, reach=:re, saves=:sa, shares=:sh, insight_at=:at WHERE platform='instagram' AND post_id=:id");
     $tandai = $pdo->prepare("UPDATE cg_post SET insight_at=:at WHERE platform='instagram' AND post_id=:id");
+    $dasar = $pdo->prepare("UPDATE cg_post SET likes=:li, comments=:cm, sync_at=:sy WHERE platform='instagram' AND post_id=:id");
+    $hilang = $pdo->prepare("UPDATE cg_post SET hilang=1, insight_at=:at WHERE platform='instagram' AND post_id=:id");
     foreach ($tua as $id) {
+      $mb = cg_http('GET', CG_IG_GRAPH . '/' . rawurlencode((string)$id) . '?' . http_build_query(array('fields' => 'id,like_count,comments_count', 'access_token' => $tok)), array(), null, 20);
+      if (isset($mb['data']['error'])) {
+        /* Kode 100 = objek tidak ada / tidak bisa dibaca lagi. Galat lain
+           (batas permintaan, jaringan) TIDAK menandai hilang. */
+        if ((int)(isset($mb['data']['error']['code']) ? $mb['data']['error']['code'] : 0) === 100) { $hilang->execute(array(':at' => $now, ':id' => $id)); continue; }
+      } elseif ($mb['data']) {
+        $dasar->execute(array(':li' => (int)(isset($mb['data']['like_count']) ? $mb['data']['like_count'] : 0),
+          ':cm' => (int)(isset($mb['data']['comments_count']) ? $mb['data']['comments_count'] : 0), ':sy' => $now, ':id' => $id));
+      }
       $ix = cg_ig_insight_media($tok, (string)$id);
       if ($ix === null) { $tandai->execute(array(':at' => $now, ':id' => $id)); continue; }
       $up->execute(array(':vi' => isset($ix['views']) ? $ix['views'] : (isset($ix['reach']) ? $ix['reach'] : 0),
@@ -1412,13 +1551,204 @@ function cg_ig_putus($pdo, $nama) {
   return array('ok' => true);
 }
 
+/* ==================== IKLAN META (Marketing API) ====================
+   14 Okt 2026, permintaan user: "setting utk ambil ads juga, jadi tau ads
+   mana yg works dan yang tidak". Insight per IKLAN (level=ad) untuk tiga
+   periode. "Hasil" tiap iklan dipilih menurut TUJUAN kampanyenya — biaya
+   per chat, per klik, dan per 1.000 jangkauan tidak bisa dibandingkan satu
+   sama lain, jadi penilaian works/tidak dikerjakan layar DALAM label hasil
+   yang sama. */
+function cg_ads_hasil($objective, $actions, $reach) {
+  $a = array();
+  if (is_array($actions)) foreach ($actions as $x) {
+    if (isset($x['action_type'], $x['value'])) $a[(string)$x['action_type']] = (float)$x['value'];
+  }
+  $o = strtoupper((string)$objective);
+  $coba = function($daftar) use ($a) {
+    foreach ($daftar as $k => $label) if (isset($a[$k]) && $a[$k] > 0) return array($label, $a[$k]);
+    return null;
+  };
+  $chat = array('onsite_conversion.messaging_conversation_started_7d' => 'Chat dimulai', 'onsite_conversion.total_messaging_connection' => 'Chat dimulai');
+  $klik = array('link_click' => 'Klik tautan', 'landing_page_view' => 'Klik tautan');
+  $lead = array('lead' => 'Prospek (lead)', 'onsite_conversion.lead_grouped' => 'Prospek (lead)', 'offsite_conversion.fb_pixel_lead' => 'Prospek (lead)');
+  $beli = array('purchase' => 'Pembelian', 'offsite_conversion.fb_pixel_purchase' => 'Pembelian', 'omni_purchase' => 'Pembelian');
+  $video = array('video_view' => 'Video views');
+  $intr = array('post_engagement' => 'Interaksi', 'page_engagement' => 'Interaksi');
+  if (strpos($o, 'AWARENESS') !== false || $o === 'REACH' || $o === 'BRAND_AWARENESS') return array('Jangkauan', (float)$reach);
+  if ($o === 'VIDEO_VIEWS') { $r = $coba($video); if ($r) return $r; }
+  if (strpos($o, 'LEAD') !== false) { $r = $coba($lead); if ($r) return $r; }
+  if (strpos($o, 'SALES') !== false || $o === 'CONVERSIONS') { $r = $coba($beli); if ($r) return $r; }
+  if (strpos($o, 'TRAFFIC') !== false || $o === 'LINK_CLICKS') { $r = $coba($klik); if ($r) return $r; }
+  if (strpos($o, 'ENGAGEMENT') !== false || $o === 'MESSAGES' || $o === 'POST_ENGAGEMENT') {
+    $r = $coba($chat); if ($r) return $r;
+    $r = $coba($intr); if ($r) return $r;
+  }
+  $r = $coba($chat + $lead + $beli + $klik + $video + $intr);
+  return $r ? $r : array('', 0);
+}
+
+function cg_ads_get($url) {
+  $r = cg_http('GET', $url, array(), null, 40);
+  if (!$r['data'] || isset($r['data']['error'])) {
+    $p = isset($r['data']['error']['message']) ? $r['data']['error']['message'] : $r['mentah'];
+    throw new Exception('Meta Ads menolak: ' . (is_string($p) ? $p : json_encode($p)));
+  }
+  return $r['data'];
+}
+
+function cg_ads_sync($pdo) {
+  cg_pastikan($pdo);
+  @set_time_limit(170);
+  $tok = cg_ads_token($pdo);
+  $akunList = cg_ads_akun($pdo);
+  if ($tok === '' || !$akunList) throw new Exception('Token iklan & ID akun iklan belum diisi di Pengaturan.');
+  $now = cg_now_ms();
+  try {
+    $up = $pdo->prepare('INSERT INTO cg_iklan (ad_id, periode, akun, nama, kampanye, adset, objective, status, thumb, permalink, ig_media,
+        spend, impresi, reach, klik, ctr, cpm, frekuensi, video_view, hasil_label, hasil_n, tgl_mulai, tgl_selesai, actions, sync_at)
+      VALUES (:id, :pe, :ak, :nm, :ka, :as, :ob, :st, :th, :pl, :ig, :sp, :im, :re, :kl, :ct, :cp, :fr, :vv, :hl, :hn, :tm, :ts, :ac, :sy)
+      ON DUPLICATE KEY UPDATE akun=VALUES(akun), nama=VALUES(nama), kampanye=VALUES(kampanye), adset=VALUES(adset), objective=VALUES(objective),
+        status=VALUES(status), thumb=VALUES(thumb), permalink=VALUES(permalink), ig_media=VALUES(ig_media), spend=VALUES(spend),
+        impresi=VALUES(impresi), reach=VALUES(reach), klik=VALUES(klik), ctr=VALUES(ctr), cpm=VALUES(cpm), frekuensi=VALUES(frekuensi),
+        video_view=VALUES(video_view), hasil_label=VALUES(hasil_label), hasil_n=VALUES(hasil_n), tgl_mulai=VALUES(tgl_mulai),
+        tgl_selesai=VALUES(tgl_selesai), actions=VALUES(actions), sync_at=VALUES(sync_at)');
+    $jumlah = 0;
+    foreach ($akunList as $akun) {
+      /* 1. Daftar iklan: status, tanggal mulai, materi (gambar & postingan Instagram-nya). */
+      $meta = array();
+      $url = CG_FB_GRAPH . '/act_' . $akun . '/ads?' . http_build_query(array('fields' => 'id,effective_status,created_time,campaign{objective},creative{thumbnail_url,image_url,instagram_permalink_url,effective_instagram_media_id}',
+        'limit' => 200, 'access_token' => $tok));
+      for ($h = 0; $url !== '' && $h < 10; $h++) {
+        $d = cg_ads_get($url);
+        foreach ((isset($d['data']) ? $d['data'] : array()) as $ad) $meta[(string)$ad['id']] = $ad;
+        $url = !empty($d['paging']['next']) ? (string)$d['paging']['next'] : '';
+      }
+      /* 2. Insight per iklan untuk tiap periode. */
+      foreach (array('7' => 'last_7d', '30' => 'last_30d', 'max' => 'maximum') as $pe => $preset) {
+        $url = CG_FB_GRAPH . '/act_' . $akun . '/insights?' . http_build_query(array('level' => 'ad', 'date_preset' => $preset,
+          'fields' => 'ad_id,ad_name,adset_name,campaign_name,objective,spend,impressions,reach,clicks,inline_link_clicks,ctr,cpm,frequency,actions,video_play_actions,date_start,date_stop',
+          'limit' => 200, 'access_token' => $tok));
+        for ($h = 0; $url !== '' && $h < 10; $h++) {
+          $d = cg_ads_get($url);
+          foreach ((isset($d['data']) ? $d['data'] : array()) as $x) {
+            $id = (string)(isset($x['ad_id']) ? $x['ad_id'] : '');
+            if ($id === '') continue;
+            $m = isset($meta[$id]) ? $meta[$id] : array();
+            $cr = isset($m['creative']) ? $m['creative'] : array();
+            $obj = isset($x['objective']) ? (string)$x['objective'] : (isset($m['campaign']['objective']) ? (string)$m['campaign']['objective'] : '');
+            $acts = isset($x['actions']) ? $x['actions'] : array();
+            $hs = cg_ads_hasil($obj, $acts, isset($x['reach']) ? $x['reach'] : 0);
+            $vv = 0;
+            if (isset($x['video_play_actions'][0]['value'])) $vv = (int)$x['video_play_actions'][0]['value'];
+            foreach ($acts as $ac) if (isset($ac['action_type']) && $ac['action_type'] === 'video_view') $vv = max($vv, (int)$ac['value']);
+            $up->execute(array(':id' => $id, ':pe' => $pe, ':ak' => $akun,
+              ':nm' => cg_potong(isset($x['ad_name']) ? $x['ad_name'] : '', 255), ':ka' => cg_potong(isset($x['campaign_name']) ? $x['campaign_name'] : '', 255),
+              ':as' => cg_potong(isset($x['adset_name']) ? $x['adset_name'] : '', 255), ':ob' => cg_potong($obj, 60),
+              ':st' => cg_potong(isset($m['effective_status']) ? $m['effective_status'] : '', 40),
+              ':th' => cg_potong(isset($cr['thumbnail_url']) ? $cr['thumbnail_url'] : (isset($cr['image_url']) ? $cr['image_url'] : ''), 900),
+              ':pl' => cg_potong(isset($cr['instagram_permalink_url']) ? $cr['instagram_permalink_url'] : '', 600),
+              ':ig' => cg_potong(isset($cr['effective_instagram_media_id']) ? $cr['effective_instagram_media_id'] : '', 80),
+              ':sp' => (float)(isset($x['spend']) ? $x['spend'] : 0), ':im' => (int)(isset($x['impressions']) ? $x['impressions'] : 0),
+              ':re' => (int)(isset($x['reach']) ? $x['reach'] : 0),
+              ':kl' => (int)(isset($x['inline_link_clicks']) ? $x['inline_link_clicks'] : (isset($x['clicks']) ? $x['clicks'] : 0)),
+              ':ct' => (float)(isset($x['ctr']) ? $x['ctr'] : 0), ':cp' => (float)(isset($x['cpm']) ? $x['cpm'] : 0),
+              ':fr' => (float)(isset($x['frequency']) ? $x['frequency'] : 0), ':vv' => $vv,
+              ':hl' => cg_potong($hs[0], 60), ':hn' => (int)round($hs[1]),
+              ':tm' => cg_tgl_sah(isset($x['date_start']) ? $x['date_start'] : ''), ':ts' => cg_tgl_sah(isset($x['date_stop']) ? $x['date_stop'] : ''),
+              ':ac' => json_encode($acts, JSON_UNESCAPED_UNICODE), ':sy' => $now));
+            if ($pe === 'max') $jumlah++;
+          }
+          $url = !empty($d['paging']['next']) ? (string)$d['paging']['next'] : '';
+        }
+      }
+    }
+    cg_set_tulis($pdo, 'ads_sync_at', (string)$now);
+    cg_set_tulis($pdo, 'ads_galat', '');
+    return array('jumlah' => $jumlah);
+  } catch (Throwable $e) {
+    try { cg_set_tulis($pdo, 'ads_galat', cg_potong($e->getMessage(), 400)); } catch (Throwable $e2) {}
+    throw $e;
+  }
+}
+
+function cg_ig_kode($url) {
+  return preg_match('#instagram.com/(?:[^/]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)#', (string)$url, $m) ? $m[1] : '';
+}
+/* SARAN AI untuk iklan (14 Okt 2026, permintaan user: "minta AI untuk
+   generate mana iklan yang oke untuk kita teruskan"). Hasilnya USULAN:
+   tidak tersimpan dan tidak mengubah apa pun di Meta. ad_id yang tidak ada
+   di data DIBUANG — saran untuk iklan karangan tidak bisa ditindaklanjuti. */
+function cg_ads_ai($pdo, $d) {
+  $data = cg_ads_baca($pdo, $d);
+  if (!$data['baris']) throw new Exception('Belum ada data iklan pada periode ini. Tekan Sinkronkan dulu.');
+  $ringkas = array(); $ada = array();
+  foreach (array_slice($data['baris'], 0, 60) as $r) {
+    $n = (int)$r['hasil_n']; $sp = (float)$r['spend'];
+    $ringkas[] = array('ad_id' => $r['ad_id'], 'nama' => $r['nama'], 'kampanye' => $r['kampanye'], 'tujuan' => $r['objective'],
+      'status' => $r['status'], 'biaya' => round($sp), 'impresi' => (int)$r['impresi'], 'jangkauan' => (int)$r['reach'],
+      'ctr' => (float)$r['ctr'], 'frekuensi' => (float)$r['frekuensi'], 'hasil' => $r['hasil_label'], 'jumlah_hasil' => $n,
+      'biaya_per_hasil' => $n > 0 ? round($r['hasil_label'] === 'Jangkauan' ? $sp / $n * 1000 : $sp / $n) : null,
+      'mulai' => $r['tgl_mulai'], 'selesai' => $r['tgl_selesai']);
+    $ada[(string)$r['ad_id']] = (string)$r['nama'];
+  }
+  $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
+  $periode = $data['periode'] === 'max' ? 'sepanjang waktu' : $data['periode'] . ' hari terakhir';
+  $system = 'Kamu media buyer iklan Meta (Facebook & Instagram) untuk bisnis F&B di Indonesia. Jawab dalam Bahasa Indonesia. '
+    . 'Nilai HANYA dari data yang diberikan; jangan mengarang angka. Bandingkan biaya per hasil hanya antar iklan dengan jenis hasil yang sama. '
+    . 'Iklan dengan biaya kecil (di bawah Rp50.000) belum cukup data — sebutkan, jangan dihakimi. Mata uang Rupiah. Balas HANYA satu objek JSON.';
+  $prompt = "Profil brand: $profil
+Periode: $periode
+Data iklan (biaya_per_hasil untuk Jangkauan = per 1.000 orang):
+"
+    . json_encode($ringkas, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+    . "
+
+Bentuk JSON:
+"
+    . '{"ringkasan":"2-3 kalimat kondisi iklan secara umum",'
+    . '"lanjutkan":[{"ad_id":"","nama":"","alasan":"angka yang mendukung","saran":"mis. naikkan budget bertahap 20%"}],'
+    . '"perbaiki":[{"ad_id":"","nama":"","alasan":"","saran":"apa yang diubah: materi, hook, target, tujuan"}],'
+    . '"hentikan":[{"ad_id":"","nama":"","alasan":"","saran":""}],'
+    . '"saranUmum":["..."]}'
+    . "
+Maksimal 5 iklan per kelompok. ad_id WAJIB persis dari data.";
+  $r = cg_ai_tanya($pdo, $system, $prompt, 3000);
+  $h = $r['hasil'];
+  $out = array('ringkasan' => isset($h['ringkasan']) ? cg_potong($h['ringkasan'], 800) : '', 'model' => $r['model']);
+  foreach (array('lanjutkan', 'perbaiki', 'hentikan') as $k) {
+    $out[$k] = array();
+    foreach ((isset($h[$k]) && is_array($h[$k]) ? $h[$k] : array()) as $x) {
+      if (!is_array($x) || !isset($x['ad_id']) || !isset($ada[(string)$x['ad_id']])) continue;
+      $out[$k][] = array('ad_id' => (string)$x['ad_id'], 'nama' => $ada[(string)$x['ad_id']],
+        'alasan' => cg_potong(isset($x['alasan']) ? $x['alasan'] : '', 400), 'saran' => cg_potong(isset($x['saran']) ? $x['saran'] : '', 400));
+      if (count($out[$k]) >= 5) break;
+    }
+  }
+  $out['saranUmum'] = array();
+  foreach ((isset($h['saranUmum']) && is_array($h['saranUmum']) ? $h['saranUmum'] : array()) as $x) if (is_string($x)) $out['saranUmum'][] = cg_potong($x, 300);
+  return $out;
+}
+
+/* Daftar iklan satu periode, HANYA dari sinkron terakhir periode itu. */
+function cg_ads_baca($pdo, $d) {
+  cg_pastikan($pdo);
+  $pe = isset($d['periode']) && in_array($d['periode'], array('7', '30', 'max'), true) ? $d['periode'] : '30';
+  $q = $pdo->prepare('SELECT MAX(sync_at) FROM cg_iklan WHERE periode = :p');
+  $q->execute(array(':p' => $pe));
+  $terakhir = (int)$q->fetchColumn();
+  $q = $pdo->prepare('SELECT ad_id, akun, nama, kampanye, adset, objective, status, thumb, permalink, ig_media, spend, impresi, reach, klik, ctr, cpm,
+      frekuensi, video_view, hasil_label, hasil_n, tgl_mulai, tgl_selesai FROM cg_iklan WHERE periode = :p AND sync_at = :s ORDER BY spend DESC LIMIT 1000');
+  $q->execute(array(':p' => $pe, ':s' => $terakhir));
+  return array('periode' => $pe, 'baris' => $q->fetchAll(), 'syncAt' => $terakhir);
+}
+
 /* ==================== SETELAN (admin modul) ==================== */
 function cg_setting_simpan($pdo, $d) {
   cg_pastikan($pdo);
   /* Kotak rahasia yang dikosongkan berarti "jangan diubah", bukan "hapus".
      Layar tidak pernah menampilkan isinya, jadi kotak kosong adalah keadaan
      normal tiap kali halamannya dibuka. Menghapus memakai kata HAPUS. */
-  foreach (array('aiKeyMeta' => 'ai_key_meta', 'tiktokKey' => 'tiktok_key', 'tiktokSecret' => 'tiktok_secret', 'igId' => 'ig_id', 'igSecret' => 'ig_secret') as $f => $k) {
+  foreach (array('aiKeyMeta' => 'ai_key_meta', 'tiktokKey' => 'tiktok_key', 'tiktokSecret' => 'tiktok_secret', 'igId' => 'ig_id', 'igSecret' => 'ig_secret', 'adsToken' => 'ads_token') as $f => $k) {
     if (!isset($d[$f])) continue;
     $v = trim((string)$d[$f]);
     if ($v === '') continue;
@@ -1435,6 +1765,18 @@ function cg_setting_simpan($pdo, $d) {
     cg_set_tulis($pdo, 'kategori', json_encode($k, JSON_UNESCAPED_UNICODE));
   }
   if (isset($d['profil'])) cg_set_tulis($pdo, 'profil', cg_potong($d['profil'], 1500));
+  /* ID akun iklan bukan rahasia; yang bukan angka ditolak supaya salah tempel
+     (mis. token ke kotak ini) tidak tersimpan diam-diam. */
+  if (isset($d['adsAkun'])) {
+    $akun = array();
+    foreach (preg_split('/[\s,;]+/', (string)$d['adsAkun']) as $a) {
+      $a = preg_replace('/^act_/i', '', trim($a));
+      if ($a === '') continue;
+      if (!ctype_digit($a) || strlen($a) > 25) throw new Exception('ID akun iklan harus angka (contoh: act_1234567890 atau 1234567890).');
+      $akun[] = $a;
+    }
+    cg_set_tulis($pdo, 'ads_akun', implode(',', array_unique($akun)));
+  }
   return array('ok' => true);
 }
 
@@ -1464,6 +1806,9 @@ function cg_aksi($action, $body) {
     case 'campaignIgMulai':      return cg_ig_mulai($pdo, $nama);
     case 'campaignIgSync':       return cg_ig_sync($pdo);
     case 'campaignIgPutus':      return cg_ig_putus($pdo, $nama);
+    case 'campaignAdsSync':      return cg_ads_sync($pdo);
+    case 'campaignAds':          return cg_ads_baca($pdo, $d);
+    case 'campaignAdsAI':        return cg_ads_ai($pdo, $d);
     case 'campaignSetting':
       if (!sesi_admin_modul($u, 'campaign')) sesi_tolak_tak_berhak('Pengaturan Campaign hanya untuk admin modul Campaign.');
       return cg_setting_simpan($pdo, $d);
