@@ -276,6 +276,42 @@ function cg_pastikan($pdo) {
     sync_at BIGINT NOT NULL DEFAULT 0,
     PRIMARY KEY (ad_id, periode)
   ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+  /* PERTUMBUHAN HARIAN (14 Okt 2026). Satu baris per platform per hari (WIB).
+     Instagram: angka akun per hari dari Instagram account insights (sumber
+     'api'). TikTok: potret angka akun saat sinkron (sumber 'potret') — API
+     TikTok tidak punya insight harian, jadi kenaikannya selisih antar potret. */
+  $pdo->exec("CREATE TABLE IF NOT EXISTS cg_harian (
+    platform VARCHAR(20) NOT NULL,
+    tgl DATE NOT NULL,
+    follower BIGINT NULL,
+    follower_baru BIGINT NULL,
+    views BIGINT NULL,
+    reach BIGINT NULL,
+    likes BIGINT NULL,
+    comments BIGINT NULL,
+    shares BIGINT NULL,
+    saves BIGINT NULL,
+    interaksi BIGINT NULL,
+    likes_total BIGINT NULL,
+    jml_post BIGINT NULL,
+    sumber VARCHAR(10) NOT NULL DEFAULT '',
+    sync_at BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (platform, tgl)
+  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
+  /* Iklan per HARI per akun iklan — dasar perbandingan hari beriklan vs tidak. */
+  $pdo->exec("CREATE TABLE IF NOT EXISTS cg_iklan_harian (
+    tgl DATE NOT NULL,
+    akun VARCHAR(40) NOT NULL,
+    spend DECIMAL(16,2) NOT NULL DEFAULT 0,
+    impresi BIGINT NOT NULL DEFAULT 0,
+    reach BIGINT NOT NULL DEFAULT 0,
+    klik BIGINT NOT NULL DEFAULT 0,
+    video_view BIGINT NOT NULL DEFAULT 0,
+    interaksi BIGINT NOT NULL DEFAULT 0,
+    chat BIGINT NOT NULL DEFAULT 0,
+    sync_at BIGINT NOT NULL DEFAULT 0,
+    PRIMARY KEY (tgl, akun)
+  ) CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci");
   $pdo->exec("CREATE TABLE IF NOT EXISTS cg_setting (
     k VARCHAR(60) NOT NULL PRIMARY KEY,
     v TEXT NULL
@@ -1166,6 +1202,10 @@ function cg_tiktok_sync($pdo) {
         /* Penanda TERPISAH dari angkanya: follower 0 yang memang nol dan
            follower 0 karena izinnya belum ada tidak boleh berbunyi sama. */
         ':sa' => $adaStats ? 1 : 0, ':p' => 'tiktok'));
+      /* Potret harian akun TikTok (follower & total likes akun). Hanya kalau
+         izin statistiknya ada — tanpa itu angkanya 0 dan selisihnya bohong. */
+      if ($adaStats) cg_harian_simpan($pdo, 'tiktok', cg_wib_hari(0), array('follower' => (int)$g('follower_count'),
+        'likes_total' => (int)$g('likes_count'), 'jml_post' => (int)$g('video_count')), 'potret');
     }
 
     $fields = 'id,title,video_description,create_time,cover_image_url,share_url,view_count,like_count,comment_count,share_count,duration';
@@ -1415,6 +1455,7 @@ function cg_ig_sync($pdo) {
     $q->execute(array(':n' => (string)($g('name') ? $g('name') : $uname), ':a' => cg_potong((string)$g('profile_picture_url'), 900),
       ':b' => cg_potong((string)$g('biography'), 1000), ':pu' => $uname !== '' ? 'https://www.instagram.com/' . rawurlencode($uname) . '/' : '',
       ':f' => (int)$g('followers_count'), ':fg' => (int)$g('follows_count'), ':jv' => (int)$g('media_count'), ':p' => 'instagram'));
+    cg_ig_harian($pdo, $tok, (int)$g('followers_count'));
 
     $fields = 'id,caption,media_type,media_product_type,permalink,timestamp,thumbnail_url,media_url,like_count,comments_count';
     /* VIEWS SEBELUMNYA CUMA TERISI 30 POSTINGAN PER SINKRON (14 Okt 2026,
@@ -1551,6 +1592,92 @@ function cg_ig_putus($pdo, $nama) {
   return array('ok' => true);
 }
 
+/* ==================== PERTUMBUHAN HARIAN ==================== */
+function cg_wib_hari($offset = 0) { return gmdate('Y-m-d', time() + 7 * 3600 + $offset * 86400); }
+/* Upsert satu hari. Kolom NULL di $isi TIDAK menimpa yang sudah ada —
+   potret follower siang tidak boleh menghapus angka insight hari itu. */
+function cg_harian_simpan($pdo, $platform, $tgl, $isi, $sumber) {
+  $kol = array('follower', 'follower_baru', 'views', 'reach', 'likes', 'comments', 'shares', 'saves', 'interaksi', 'likes_total', 'jml_post');
+  $nilai = array(':pl' => $platform, ':tg' => $tgl, ':su' => $sumber, ':sy' => cg_now_ms());
+  $set = array();
+  foreach ($kol as $k) {
+    $nilai[':' . $k] = (isset($isi[$k]) && $isi[$k] !== null) ? (int)$isi[$k] : null;
+    $set[] = "`$k` = COALESCE(VALUES(`$k`), `$k`)";
+  }
+  $q = $pdo->prepare('INSERT INTO cg_harian (platform, tgl, ' . implode(', ', $kol) . ', sumber, sync_at) VALUES (:pl, :tg, :'
+    . implode(', :', $kol) . ', :su, :sy) ON DUPLICATE KEY UPDATE ' . implode(', ', $set) . ', sumber=VALUES(sumber), sync_at=VALUES(sync_at)');
+  $q->execute($nilai);
+}
+
+/* Insight AKUN Instagram per hari (views, reach, likes, komentar, share,
+   saves, interaksi). Satu permintaan per hari (metric_type=total_value),
+   jadi dicicil: 3 hari terakhir selalu disegarkan (angkanya masih bergerak),
+   lalu hari lama yang belum ada sampai 90 hari ke belakang, 15 per sinkron.
+   Follower baru per hari dari follower_count (Instagram cuma menyediakan 30
+   hari terakhir). Galat di sini TIDAK menggagalkan sinkron postingan. */
+function cg_ig_harian($pdo, $tok, $follower) {
+  cg_harian_simpan($pdo, 'instagram', cg_wib_hari(0), array('follower' => $follower), 'api');
+  try {
+    $ada = array();
+    foreach ($pdo->query("SELECT tgl FROM cg_harian WHERE platform='instagram' AND reach IS NOT NULL")->fetchAll(PDO::FETCH_COLUMN) as $t) $ada[$t] = true;
+    $daftar = array();
+    for ($i = 1; $i <= 90; $i++) {
+      $t = cg_wib_hari(-$i);
+      if ($i <= 3 || !isset($ada[$t])) $daftar[] = $t;
+      if (count($daftar) >= 15) break;
+    }
+    $metrikSet = array('views,reach,likes,comments,shares,saves,total_interactions', 'reach,likes,comments,shares,saves,total_interactions', 'reach');
+    $pakai = 0;
+    foreach ($daftar as $t) {
+      $mulai = strtotime($t . ' 00:00:00 UTC') - 7 * 3600;
+      $hasil = null;
+      for ($m = $pakai; $m < count($metrikSet); $m++) {
+        $r = cg_http('GET', CG_IG_GRAPH . '/me/insights?' . http_build_query(array('metric' => $metrikSet[$m], 'period' => 'day',
+          'metric_type' => 'total_value', 'since' => $mulai, 'until' => $mulai + 86400, 'access_token' => $tok)), array(), null, 20);
+        if ($r['data'] && isset($r['data']['data']) && is_array($r['data']['data'])) { $hasil = $r['data']['data']; $pakai = $m; break; }
+      }
+      if ($hasil === null) continue;
+      $o = array();
+      foreach ($hasil as $x) {
+        if (!isset($x['name'])) continue;
+        $v = isset($x['total_value']['value']) ? $x['total_value']['value'] : (isset($x['values'][0]['value']) ? $x['values'][0]['value'] : null);
+        if (is_numeric($v)) $o[$x['name']] = (int)$v;
+      }
+      cg_harian_simpan($pdo, 'instagram', $t, array('views' => isset($o['views']) ? $o['views'] : null,
+        'reach' => isset($o['reach']) ? $o['reach'] : null, 'likes' => isset($o['likes']) ? $o['likes'] : null,
+        'comments' => isset($o['comments']) ? $o['comments'] : null, 'shares' => isset($o['shares']) ? $o['shares'] : null,
+        'saves' => isset($o['saves']) ? $o['saves'] : null, 'interaksi' => isset($o['total_interactions']) ? $o['total_interactions'] : null), 'api');
+    }
+    /* Follower baru per hari, 30 hari terakhir (deret waktu). */
+    $r = cg_http('GET', CG_IG_GRAPH . '/me/insights?' . http_build_query(array('metric' => 'follower_count', 'period' => 'day',
+      'since' => strtotime(cg_wib_hari(-29) . ' 00:00:00 UTC') - 7 * 3600, 'until' => strtotime(cg_wib_hari(0) . ' 00:00:00 UTC') - 7 * 3600, 'access_token' => $tok)), array(), null, 20);
+    if ($r['data'] && isset($r['data']['data'][0]['values']) && is_array($r['data']['data'][0]['values'])) {
+      foreach ($r['data']['data'][0]['values'] as $v) {
+        if (!isset($v['end_time'], $v['value']) || !is_numeric($v['value'])) continue;
+        /* end_time = akhir hari; hari yang dimaksud sehari sebelumnya (WIB). */
+        $t = gmdate('Y-m-d', strtotime((string)$v['end_time']) + 7 * 3600 - 86400);
+        cg_harian_simpan($pdo, 'instagram', $t, array('follower_baru' => (int)$v['value']), 'api');
+      }
+    }
+  } catch (Throwable $e) {}
+}
+
+/* Data halaman Pertumbuhan: harian platform + iklan harian, untuk rentang
+   yang diminta DAN rentang sebelumnya (pembanding "naik/turun"). */
+function cg_tumbuh($pdo, $d) {
+  cg_pastikan($pdo);
+  $hari = max(7, min(90, (int)(isset($d['hari']) ? $d['hari'] : 30)));
+  $dari = cg_wib_hari(-$hari * 2);
+  $q = $pdo->prepare('SELECT * FROM cg_harian WHERE tgl >= :d ORDER BY tgl ASC');
+  $q->execute(array(':d' => $dari));
+  $h = $q->fetchAll();
+  $q = $pdo->prepare('SELECT tgl, SUM(spend) spend, SUM(impresi) impresi, SUM(reach) reach, SUM(klik) klik, SUM(video_view) video_view, SUM(interaksi) interaksi, SUM(chat) chat
+    FROM cg_iklan_harian WHERE tgl >= :d GROUP BY tgl ORDER BY tgl ASC');
+  $q->execute(array(':d' => $dari));
+  return array('hari' => $hari, 'kini' => cg_wib_hari(0), 'harian' => $h, 'iklan' => $q->fetchAll(),
+    'iklanAda' => (int)$pdo->query('SELECT COUNT(*) FROM cg_iklan_harian')->fetchColumn() > 0);
+}
+
 /* ==================== IKLAN META (Marketing API) ====================
    14 Okt 2026, permintaan user: "setting utk ambil ads juga, jadi tau ads
    mana yg works dan yang tidak". Insight per IKLAN (level=ad) untuk tiga
@@ -1662,6 +1789,30 @@ function cg_ads_sync($pdo) {
         }
       }
     }
+    /* 3. Iklan per HARI (90 hari, tingkat akun) untuk halaman Pertumbuhan. */
+    $uh = $pdo->prepare('INSERT INTO cg_iklan_harian (tgl, akun, spend, impresi, reach, klik, video_view, interaksi, chat, sync_at)
+      VALUES (:tg, :ak, :sp, :im, :re, :kl, :vv, :in, :ch, :sy)
+      ON DUPLICATE KEY UPDATE spend=VALUES(spend), impresi=VALUES(impresi), reach=VALUES(reach), klik=VALUES(klik),
+        video_view=VALUES(video_view), interaksi=VALUES(interaksi), chat=VALUES(chat), sync_at=VALUES(sync_at)');
+    foreach ($akunList as $akun) {
+      $url = CG_FB_GRAPH . '/act_' . $akun . '/insights?' . http_build_query(array('level' => 'account', 'date_preset' => 'last_90d', 'time_increment' => 1,
+        'fields' => 'spend,impressions,reach,inline_link_clicks,actions,date_start', 'limit' => 100, 'access_token' => $tok));
+      for ($h = 0; $url !== '' && $h < 5; $h++) {
+        $d = cg_ads_get($url);
+        foreach ((isset($d['data']) ? $d['data'] : array()) as $x) {
+          $tg = cg_tgl_sah(isset($x['date_start']) ? $x['date_start'] : ''); if ($tg === null) continue;
+          $ac = array();
+          foreach ((isset($x['actions']) ? $x['actions'] : array()) as $a) if (isset($a['action_type'], $a['value'])) $ac[$a['action_type']] = (int)$a['value'];
+          $uh->execute(array(':tg' => $tg, ':ak' => $akun, ':sp' => (float)(isset($x['spend']) ? $x['spend'] : 0),
+            ':im' => (int)(isset($x['impressions']) ? $x['impressions'] : 0), ':re' => (int)(isset($x['reach']) ? $x['reach'] : 0),
+            ':kl' => (int)(isset($x['inline_link_clicks']) ? $x['inline_link_clicks'] : 0),
+            ':vv' => isset($ac['video_view']) ? $ac['video_view'] : 0, ':in' => isset($ac['post_engagement']) ? $ac['post_engagement'] : 0,
+            ':ch' => isset($ac['onsite_conversion.messaging_conversation_started_7d']) ? $ac['onsite_conversion.messaging_conversation_started_7d'] : 0,
+            ':sy' => $now));
+        }
+        $url = !empty($d['paging']['next']) ? (string)$d['paging']['next'] : '';
+      }
+    }
     cg_set_tulis($pdo, 'ads_sync_at', (string)$now);
     cg_set_tulis($pdo, 'ads_galat', '');
     return array('jumlah' => $jumlah);
@@ -1739,7 +1890,25 @@ function cg_ads_baca($pdo, $d) {
   $q = $pdo->prepare('SELECT ad_id, akun, nama, kampanye, adset, objective, status, thumb, permalink, ig_media, spend, impresi, reach, klik, ctr, cpm,
       frekuensi, video_view, hasil_label, hasil_n, tgl_mulai, tgl_selesai FROM cg_iklan WHERE periode = :p AND sync_at = :s ORDER BY spend DESC LIMIT 1000');
   $q->execute(array(':p' => $pe, ':s' => $terakhir));
-  return array('periode' => $pe, 'baris' => $q->fetchAll(), 'syncAt' => $terakhir);
+  $baris = $q->fetchAll();
+  /* Postingan Instagram yang diiklankan: keterangan & angka ORGANIK-nya
+     dibaca dari cg_post (dicocokkan lewat ID media, lalu kode tautan —
+     tautan iklan /p/KODE/, tautan reel organik /reel/KODE/). */
+  $pid = array(); $pkd = array();
+  foreach ($pdo->query("SELECT post_id, url, judul, views, likes, comments, tayang_at FROM cg_post WHERE platform='instagram'")->fetchAll() as $p) {
+    $isi = array('judul' => cg_potong((string)$p['judul'], 300), 'url' => (string)$p['url'], 'views' => (int)$p['views'],
+      'likes' => (int)$p['likes'], 'comments' => (int)$p['comments'],
+      'tanggal' => (int)$p['tayang_at'] > 0 ? gmdate('Y-m-d', (int)floor((int)$p['tayang_at'] / 1000) + 7 * 3600) : '');
+    $pid[(string)$p['post_id']] = $isi;
+    $kd = cg_ig_kode((string)$p['url']); if ($kd !== '') $pkd[$kd] = $isi;
+  }
+  foreach ($baris as &$r) {
+    $kd = cg_ig_kode((string)$r['permalink']);
+    $r['post'] = ((string)$r['ig_media'] !== '' && isset($pid[(string)$r['ig_media']])) ? $pid[(string)$r['ig_media']] : ($kd !== '' && isset($pkd[$kd]) ? $pkd[$kd] : null);
+    $r['kode'] = $kd;
+  }
+  unset($r);
+  return array('periode' => $pe, 'baris' => $baris, 'syncAt' => $terakhir);
 }
 
 /* ==================== SETELAN (admin modul) ==================== */
@@ -1809,6 +1978,7 @@ function cg_aksi($action, $body) {
     case 'campaignAdsSync':      return cg_ads_sync($pdo);
     case 'campaignAds':          return cg_ads_baca($pdo, $d);
     case 'campaignAdsAI':        return cg_ads_ai($pdo, $d);
+    case 'campaignTumbuh':       return cg_tumbuh($pdo, $d);
     case 'campaignSetting':
       if (!sesi_admin_modul($u, 'campaign')) sesi_tolak_tak_berhak('Pengaturan Campaign hanya untuk admin modul Campaign.');
       return cg_setting_simpan($pdo, $d);

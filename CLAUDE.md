@@ -770,6 +770,29 @@ node tools/uji-timeline-bd.js   # 52 pemeriksaan, jsdom
 node tools/uji-daily-bd.js   # 28 pemeriksaan, jsdom
 ```
 
+**Putaran keenam (15 Okt 2026): tag "untuk siapa" di task.** Modal task (Daily
+maupun project) punya kolom **Tag**: chip pilihan + kotak ketik (Enter/koma =
+tag baru, boleh banyak). Disimpan `t.tags` (array string) di baris task — tanpa
+migrasi.
+
+- **Pilihan TIDAK punya master sendiri** — `semuaTag()` dihitung dari tag yang
+  dipakai task mana pun. Cocok abaikan huruf besar-kecil, ejaan yang sudah ada
+  menang ("andi" tidak jadi kembaran "Andi").
+- Draf di luar DOM (`_tagDraft`, Batal tidak menyimpan); `_tagSesi` menahan
+  tag yang baru diketik tetap jadi pilihan walau dilepas lagi.
+- Teks yang masih di kotak ketik **ikut** saat Simpan. Task berulang menyalin
+  tag-nya (`lahirkanUlang`). Tampil di List, Kanban, dan pohon detail project.
+- **Warna tag** (hari yang sama): tag BARU diberi warna acak dari `TAG_PALET`
+  (mendahulukan yang belum dipakai), diganti lewat titik warna di chip. Warna
+  milik TAG, bukan task. Disimpan `DB.tagWarna` {tagHurufKecil: #rrggbb} di
+  tabel settings, dan **server MENGGABUNGNYA per kunci** (bukan timpa buta). Tag
+  tanpa entri memakai warna turunan namanya — stabil, data lama tetap berwarna.
+  Palet tertutup supaya teks selalu terbaca; berlaku saat Simpan (Batal tidak).
+
+```bash
+node tools/uji-tag-bd.js   # 35 pemeriksaan, jsdom + kontrak PHP
+```
+
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)
 
 Keluhan user: PR-11 (berikut PO "Pelunasan DJ") hilang dari Purchasing.
@@ -937,7 +960,7 @@ akan tertimpa.
   dengan mengosongkan tokennya.
 
 ```bash
-node tools/uji-campaign.js   # 214 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
+node tools/uji-campaign.js   # 236 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
 **Bank Konten (14 Okt 2026)** — menu `bank`, tabel `cg_bank` (lahir di
@@ -978,6 +1001,18 @@ dan panel detailnya menyebut angka Instagram API = organik.
 Halaman Iklan: Top iklan (termurah per jenis hasil), cari/saring/urut lokal
 (tabel di #iklan-daftar, kotak cari tidak dibuat ulang), Saran AI `campaignAdsAI`
 (usulan saja, ad_id karangan dibuang, tidak menulis apa pun).
+Saklar Per iklan / Per postingan: iklan dikelompokkan per postingan IG
+(ig_media, lalu kode tautan; materi non-IG berdiri sendiri), "Diiklankan Nx",
+biaya & hasil gabungan, views organik dari cg_post (`post` di cg_ads_baca).
+
+**PERTUMBUHAN (14 Okt 2026)** — menu `tumbuh`, aksi `campaignTumbuh`, tabel
+`cg_harian` (platform+tgl WIB; upsert `COALESCE` — kolom NULL tidak menimpa) dan
+`cg_iklan_harian` (Ads insights time_increment=1, level akun, 90 hari).
+Instagram: insight AKUN per hari (`cg_ig_harian`, total_value, 15 hari per
+sinkron + 3 hari terakhir disegarkan; follower baru dari follower_count, cuma
+30 hari). TikTok: potret follower & likes_total tiap sinkron (API tidak punya
+insight harian). Pengaruh iklan = rata-rata hari beriklan (≥ Rp10.000) vs
+tanpa iklan — korelasi, dan itu ditulis di layar.
 
 **"MySQL server has gone away" (14 Okt 2026)**: panggilan AI 1–2 menit
 melewati wait_timeout MySQL, sambungan PDO statis sudah diputus server.
