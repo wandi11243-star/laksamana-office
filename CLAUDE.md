@@ -770,6 +770,23 @@ node tools/uji-timeline-bd.js   # 52 pemeriksaan, jsdom
 node tools/uji-daily-bd.js   # 28 pemeriksaan, jsdom
 ```
 
+**Putaran keenam (15 Okt 2026): tag "untuk siapa" di task.** Modal task (Daily
+maupun project) punya kolom **Tag**: chip pilihan + kotak ketik (Enter/koma =
+tag baru, boleh banyak). Disimpan `t.tags` (array string) di baris task — tanpa
+migrasi.
+
+- **Pilihan TIDAK punya master sendiri** — `semuaTag()` dihitung dari tag yang
+  dipakai task mana pun. Cocok abaikan huruf besar-kecil, ejaan yang sudah ada
+  menang ("andi" tidak jadi kembaran "Andi").
+- Draf di luar DOM (`_tagDraft`, Batal tidak menyimpan); `_tagSesi` menahan
+  tag yang baru diketik tetap jadi pilihan walau dilepas lagi.
+- Teks yang masih di kotak ketik **ikut** saat Simpan. Task berulang menyalin
+  tag-nya (`lahirkanUlang`). Tampil di List, Kanban, dan pohon detail project.
+
+```bash
+node tools/uji-tag-bd.js   # 18 pemeriksaan, jsdom
+```
+
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)
 
 Keluhan user: PR-11 (berikut PO "Pelunasan DJ") hilang dari Purchasing.
