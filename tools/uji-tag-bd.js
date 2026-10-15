@@ -2,6 +2,7 @@
  *
  *   JSDOM_PATH=… node tools/uji-tag-bd.js
  *
+ * Warna: tag baru diacak dari palet, bisa diganti, tersimpan per tag.
  * Pilihan tag dihitung dari tag yang dipakai task mana pun; boleh lebih dari
  * satu; tag baru tinggal diketik. Yang diukur DATANYA (t.tags & kiriman).
  */
@@ -33,7 +34,7 @@ const { JSDOM } = JSDOM_MOD;
 const ASLI = fs.readFileSync(path.join(ROOT,'deploy','bd','index.html'),'utf8');
 const iTutup = ASLI.lastIndexOf('})();');
 const html = ASLI.slice(0,iTutup) +
-  '\nwindow.__uji={get DB(){return DB;},get view(){return view;},langkah:langkahUlang,berikut:deadlineBerikut};\n' + ASLI.slice(iTutup);
+  '\nwindow.__uji={get DB(){return DB;},get view(){return view;},langkah:langkahUlang,berikut:deadlineBerikut,ev:function(x){return eval(x);}};\n' + ASLI.slice(iTutup);
 
 function iso(n){ const d=new Date(); d.setDate(d.getDate()+n); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
 const now = Date.now();
@@ -101,6 +102,7 @@ const v = () => D.getElementById('view');
   W.APP.tagTambah();
   cek(on().filter(x=>x.toLowerCase()==='klien toffin').length===1 && on().indexOf('Klien Toffin')>-1,
       'ejaan beda huruf besar-kecil memakai tag yang sudah ada, tidak jadi kembar');
+  cek(!W.__uji.ev("_warnaDraft['klien toffin']"), 'tag lama tanpa warna tersimpan yang diketik ulang TIDAK diberi warna acak');
 
   // --- klik chip = lepas pilihan ---
   chips().find(b=>b.getAttribute('data-tag')==='Andi').click();
@@ -149,5 +151,61 @@ const v = () => D.getElementById('view');
   W.APP.go('board'); await tunggu(50);
   /* Lewat DOM, bukan innerHTML: jsdom menserialkan atribut title tanpa escape <, jadi pencarian teks cocok dengan atribut yang aman. */
   cek(!v().querySelector('.tag.untuk b') && [...v().querySelectorAll('.tag.untuk')].some(e=>e.textContent==='#<b>x</b>'), 'nama tag di-escape');
+
+  // ===== WARNA TAG =====
+  const PALET = W.__uji.ev('TAG_PALET');
+  const warnaChip = tag => { const b=chips().find(x=>x.getAttribute('data-tag')===tag); return b && b.querySelector('.tdot').style.background; };
+  const hex2rgb = h => 'rgb('+[1,3,5].map(i=>parseInt(h.slice(i,i+2),16)).join(', ')+')';
+
+  // tag lama tanpa warna tersimpan: warna turunan nama, stabil
+  W.APP.taskModal(null,'__daily__');
+  const w1=warnaChip('Klien Toffin');
+  W.APP.tagBukaWarna(''); W.APP.taskModal(null,'__daily__');
+  cek(!!w1 && w1===warnaChip('Klien Toffin'), 'tag lama tanpa warna tersimpan memakai warna stabil (tidak berganti tiap buka)');
+
+  // tag baru → warna acak dari palet, belum tersimpan sebelum Simpan
+  const inp2=D.getElementById('m_tagBaru');
+  inp2.value='Tamu VIP'; W.APP.tagTambah();
+  const wBaru=W.__uji.ev("_warnaDraft['tamu vip']");
+  cek(PALET.indexOf(wBaru)>-1, 'tag baru diberi warna acak dari palet: '+wBaru);
+  cek(warnaChip('Tamu VIP')===hex2rgb(wBaru), 'chip tag baru tergambar dengan warnanya');
+  cek(!DB().tagWarna['tamu vip'], 'warna tag baru belum tersimpan sebelum Simpan');
+
+  // ganti warna lewat titik warna
+  D.querySelector('#m_tags .tagchip[data-tag="Tamu VIP"] .tdot').click();
+  cek(!!D.querySelector('#m_tagWarna .twarna'), 'menekan titik warna membuka pilihan warna');
+  cek(W.__uji.ev("_tagDraft").filter(x=>x==='Tamu VIP').length===1, 'menekan titik warna TIDAK ikut melepas/menyalakan tag');
+  const lain=PALET.find(c=>c!==wBaru);
+  D.querySelector('#m_tagWarna .sw[title="'+lain+'"]').click();
+  cek(W.__uji.ev("_warnaDraft['tamu vip']")===lain, 'warna bisa diganti dari palet');
+  D.getElementById('m_name').value='Task VIP';
+  W.APP.simpanTask('');
+  cek(DB().tagWarna['tamu vip']===lain, 'warna tersimpan di DB.tagWarna saat Simpan');
+  await tunggu(1500);
+  cek(JSON.stringify(kiriman[kiriman.length-1]).indexOf('"tamu vip":"'+lain+'"')>-1, 'tagWarna ikut terkirim ke server');
+  W.APP.go('daily'); await tunggu(50);
+  const span=[...v().querySelectorAll('.tag.untuk')].find(e=>e.textContent==='#Tamu VIP');
+  cek(span && span.getAttribute('style').indexOf(lain)>-1, 'tag di daftar tergambar dengan warna yang dipilih');
+
+  // Batal tidak mengubah warna
+  W.APP.taskModal(null,'__daily__');
+  D.querySelector('#m_tags .tagchip[data-tag="Tamu VIP"] .tdot').click();
+  D.querySelector('#m_tagWarna .sw[title="'+wBaru+'"]').click();
+  D.querySelector('.modal-f .btn:not(.pri):not(.bad)').click();
+  cek(DB().tagWarna['tamu vip']===lain, 'Batal tidak mengubah warna tag');
+
+  // tag lama yang diketik ulang tidak diacak ulang
+  W.APP.taskModal(null,'__daily__');
+  D.getElementById('m_tagBaru').value='tamu vip'; W.APP.tagTambah();
+  cek(!W.__uji.ev("_warnaDraft['tamu vip']"), 'mengetik tag yang sudah ada tidak mengacak ulang warnanya');
+  D.getElementById('m_tagBaru').value='klien toffin'; W.APP.tagTambah();
+  cek(!W.__uji.ev("_warnaDraft['klien toffin']") && warnaChip('Klien Toffin')===w1, 'tag lama TANPA warna tersimpan yang diketik ulang tetap memakai warnanya, tidak diacak');
+  D.querySelector('.modal-f .btn:not(.pri):not(.bad)').click();
+
+  // kontrak PHP: digabung, bukan ditimpa
+  const php=fs.readFileSync(path.join(ROOT,'bd-mysql','lib_bd_mysql.php'),'utf8');
+  cek(/\$out\['tagWarna'\]\s*=\s*\(object\)get_setting\('tagWarna'/.test(php), 'php: getAll memulangkan tagWarna');
+  cek(/\$tw = get_setting\('tagWarna'[\s\S]{0,600}\$tw\[\$k\] = \$c;[\s\S]{0,200}put_setting\(\$pdo, 'tagWarna'/.test(php), 'php: tagWarna digabung per kunci dengan yang tersimpan');
+  cek(/preg_match\('\/\^#\[0-9a-fA-F\]\{6\}\$\/'/.test(php), 'php: warna yang bukan #rrggbb dibuang');
   selesai();
 })().catch(e=>{ console.log('GAGAL uji melempar: '+(e&&e.stack||e)); gagal++; selesai(); });

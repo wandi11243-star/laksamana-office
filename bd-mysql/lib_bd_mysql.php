@@ -304,6 +304,9 @@ function baca_state() {
      Bawaannya array kosong, bukan objek: frontend membacanya dengan
      Array.isArray(). */
   $out['promos'] = get_setting('promos', array());
+  /* Warna tag task {namaTagHurufKecil: '#rrggbb'} (15 Okt 2026). Objek, bukan
+     array: frontend membacanya sebagai peta. */
+  $out['tagWarna'] = (object)get_setting('tagWarna', array());
   /* `vendors` SENGAJA TIDAK ADA DI SINI. Master vendor perusahaan ada di
      modul Purchasing (stock-mysql/vendors.php) — sudah berisi 35+ vendor
      dengan WhatsApp dan hari tutupnya sejak lama. Percobaan pertama sempat
@@ -516,6 +519,21 @@ function save_all($state, $sinceTs = 0, $dikenal = null) {
        benar-benar tersimpan kosong, bukan diabaikan sehingga daftar lamanya
        hidup lagi di muat berikutnya. */
     if (array_key_exists('promos', $state)) put_setting($pdo, 'promos', $state['promos']);
+    /* Warna tag: DIGABUNG per kunci dengan yang tersimpan, BUKAN ditimpa.
+       Ditimpa buta, tab yang sudah lama terbuka menghapus warna yang baru
+       dipilih orang lain — bentuk timpa-buta yang sudah memakan data di modul
+       Marketing (8 Sep 2026). Yang tidak sah (bukan #rrggbb) dibuang. */
+    if (isset($state['tagWarna']) && is_array($state['tagWarna'])) {
+      $tw = get_setting('tagWarna', array());
+      if (!is_array($tw)) $tw = array();
+      foreach ($state['tagWarna'] as $k => $c) {
+        $k = trim((string)$k);
+        if ($k === '' || strlen($k) > 80 || !is_string($c) || !preg_match('/^#[0-9a-fA-F]{6}$/', $c)) continue;
+        $tw[$k] = $c;
+      }
+      if (count($tw) > 1000) $tw = array_slice($tw, -1000, null, true);
+      put_setting($pdo, 'tagWarna', (object)$tw);
+    }
 
     $pdo->commit();
   } catch (Throwable $e) {

@@ -782,9 +782,15 @@ migrasi.
   tag yang baru diketik tetap jadi pilihan walau dilepas lagi.
 - Teks yang masih di kotak ketik **ikut** saat Simpan. Task berulang menyalin
   tag-nya (`lahirkanUlang`). Tampil di List, Kanban, dan pohon detail project.
+- **Warna tag** (hari yang sama): tag BARU diberi warna acak dari `TAG_PALET`
+  (mendahulukan yang belum dipakai), diganti lewat titik warna di chip. Warna
+  milik TAG, bukan task. Disimpan `DB.tagWarna` {tagHurufKecil: #rrggbb} di
+  tabel settings, dan **server MENGGABUNGNYA per kunci** (bukan timpa buta). Tag
+  tanpa entri memakai warna turunan namanya — stabil, data lama tetap berwarna.
+  Palet tertutup supaya teks selalu terbaca; berlaku saat Simpan (Batal tidak).
 
 ```bash
-node tools/uji-tag-bd.js   # 18 pemeriksaan, jsdom
+node tools/uji-tag-bd.js   # 35 pemeriksaan, jsdom + kontrak PHP
 ```
 
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)

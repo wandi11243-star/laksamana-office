@@ -485,9 +485,14 @@ input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums
 .tagpick{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px}
 .tagchip{display:inline-flex;align-items:center;gap:5px;padding:4px 11px;border-radius:999px;border:1px solid var(--line);background:transparent;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit}
 .tagchip:hover{border-color:var(--gold)}
-.tagchip.on{border-color:var(--gold);background:var(--gold-glow);color:var(--gold-deep);font-weight:600}
+.tagchip.on{font-weight:600}
+.tagchip .tdot{width:13px;height:13px;border-radius:50%;flex:none;box-shadow:0 0 0 2px #fff,0 0 0 3px rgba(0,0,0,.12);cursor:pointer}
+.tagchip .tdot:hover{transform:scale(1.2)}
+.twarna{display:flex;flex-wrap:wrap;align-items:center;gap:7px;padding:8px 10px;margin-bottom:8px;border:1px dashed var(--line);border-radius:10px;font-size:12px}
+.twarna .sw{width:22px;height:22px;border-radius:50%;border:2px solid #fff;box-shadow:0 0 0 1px rgba(0,0,0,.15);cursor:pointer;padding:0}
+.twarna .sw.on{box-shadow:0 0 0 2px var(--ink-700)}
 .tagbaru{display:flex;gap:8px;align-items:center}.tagbaru input{flex:1}
-.tag.untuk{background:var(--gold-glow);color:var(--gold-deep)}
+.tag.untuk{font-weight:600}
 .picchip{display:inline-flex;align-items:center;gap:7px;padding:5px 12px 5px 5px;border-radius:999px;
   border:1px solid var(--line-hard);background:var(--ink-900);font-size:12.5px;font-weight:600;
   color:var(--muted);transition:.15s}
@@ -1106,6 +1111,11 @@ function normalize(s){
      galat; yang menyelamatkan datanya adalah lib_bd_mysql.php yang sudah
      memuat 'promos' di baca_state() dan save_all(). */
   if(!Array.isArray(s.promos)) s.promos=[];
+  /* Warna tag task {namaTagHurufKecil: '#rrggbb'} (15 Okt 2026). Di tabel
+     settings, DIGABUNG per kunci di server — bukan ditimpa — jadi dua tab
+     yang mewarnai tag berbeda tidak saling menghapus. Tag tanpa entri
+     memakai warna turunan namanya (warnaTag), jadi data lama tetap berwarna. */
+  if(!s.tagWarna||typeof s.tagWarna!=='object'||Array.isArray(s.tagWarna)) s.tagWarna={};
   /* `s.vendors` SENGAJA TIDAK ADA LAGI. Percobaan pertama menyimpan master
      vendor di sini; masternya sekarang di Purchasing, dan menyisakan wadah
      kosong yang tidak dibaca siapa pun cuma membuat orang berikutnya mengira
@@ -1956,7 +1966,7 @@ function taskModal(id){
   _modalTaskId=baru?null:t.id;
   _subDraft=subs(t).map(function(x){return {id:x.id||uid('s'),t:String(x.t||''),done:!!x.done,d:x.d||''};});
   _depDraft=deps(t).filter(function(d){return d!==t.id && taskById(d);});
-  _tagDraft=tagsOf(t).slice(); _tagSesi=[];
+  _tagDraft=tagsOf(t).slice(); _tagSesi=[]; _warnaDraft={}; _warnaBuka='';
   showModal(
     '<div class="modal-h"><h3>'+(baru?'Task Baru':'Edit Task')+'</h3>'+
       '<button class="x" onclick="closeModal()">'+ic('x')+'</button></div>'+
@@ -1967,7 +1977,7 @@ function taskModal(id){
         OWNER_DIVS.map(function(d){return '<option'+(t.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
       '<div class="field"><label>PIC — boleh lebih dari satu</label>'+picPicker('m_pics',pics(t))+'</div>'+
       '<div class="field"><label>Tag — task ini untuk siapa (boleh lebih dari satu)</label>'+
-        '<div class="tagpick" id="m_tags"></div>'+
+        '<div class="tagpick" id="m_tags"></div><div id="m_tagWarna"></div>'+
         '<div class="tagbaru"><input id="m_tagBaru" list="m_tagList" placeholder="Pilih / ketik tag baru, lalu Enter…" '+
           'onkeydown="if(event.key===\'Enter\'||event.key===\',\'){event.preventDefault();APP.tagTambah();}">'+
           '<datalist id="m_tagList"></datalist>'+
@@ -2039,6 +2049,9 @@ function simpanTask(id){
      Simpan tanpa Enter, dan tag yang hilang diam-diam terbaca sebagai bug. */
   var sisaTag=g('m_tagBaru'); if(sisaTag&&sisaTag.value.trim()) tagTambah();
   data.tags=_tagDraft.slice();
+  /* Warna yang dipilih/diacak di modal baru berlaku saat Simpan — Batal
+     tidak boleh mewarnai ulang tag yang dipakai task lain. */
+  Object.keys(_warnaDraft).forEach(function(k){ DB.tagWarna[k]=_warnaDraft[k]; });
   if(data.status==='Done' && !cekBolehDone({id:id,name:nama},data.dependsOn)){ g('m_status').focus(); return; }
   var t;
   if(id){
@@ -2172,6 +2185,39 @@ var _subDraft=[], _depDraft=[], _modalTaskId=null;
    sebagai dua tag. Draf hidup di luar DOM (_tagDraft) seperti sub-task:
    Batal tidak boleh ikut menyimpan. */
 var _tagDraft=[], _tagSesi=[];  /* _tagSesi: tag yang diketik selama modal terbuka — tetap jadi pilihan walau dilepas lagi, kalau tidak chip-nya lenyap begitu ditekan. */
+/* WARNA TAG (15 Okt 2026, permintaan user): tag baru dapat warna ACAK dari
+   palet, dan warnanya bisa diganti lewat titik warna di chip. Warna milik
+   TAG, bukan milik task: mengganti warna #Andi mewarnai ulang seluruh task
+   ber-#Andi. Palet tertutup supaya teksnya selalu terbaca di atas latar
+   pudarnya sendiri — warna bebas dari color picker bisa kuning muda di atas
+   kuning muda. */
+var TAG_PALET=['#B7791F','#C53030','#D53F8C','#805AD5','#3182CE','#00A3C4','#2F855A','#68A63A','#DD6B20','#718096','#2C5282','#975A16'];
+var _warnaDraft={}, _warnaBuka='';
+function kunciTag(x){ return String(x).trim().toLowerCase(); }
+function warnaSah(c){ return typeof c==='string' && /^#[0-9a-f]{6}$/i.test(c); }
+/* Tag tanpa warna tersimpan (data lama, atau server yang belum diperbarui)
+   memakai warna TURUNAN NAMANYA — stabil, bukan acak tiap render: warna yang
+   berganti sendiri tiap halaman digambar ulang tidak bisa dipakai mengenali apa pun. */
+function warnaTag(x,pakaiDraft){
+  var k=kunciTag(x);
+  if(pakaiDraft && warnaSah(_warnaDraft[k])) return _warnaDraft[k];
+  if(DB.tagWarna && warnaSah(DB.tagWarna[k])) return DB.tagWarna[k];
+  var h=0; for(var i=0;i<k.length;i++) h=(h*31+k.charCodeAt(i))>>>0;
+  return TAG_PALET[h%TAG_PALET.length];
+}
+/* Acak, tapi mendahulukan warna yang BELUM dipakai tag lain — dua tag
+   berwarna sama di satu kartu membuat warnanya berhenti berarti. */
+function warnaAcak(){
+  var dipakai={};
+  semuaTag().forEach(function(x){ dipakai[warnaTag(x,true)]=1; });
+  var bebas=TAG_PALET.filter(function(c){return !dipakai[c];});
+  var dari=bebas.length?bebas:TAG_PALET;
+  return dari[Math.floor(Math.random()*dari.length)];
+}
+function gayaTag(c,on){
+  return on===false ? 'border-color:'+c+'55;color:'+c
+                    : 'background:'+c+'1f;border-color:'+c+';color:'+c;
+}
 function tagsOf(t){ return (t&&Array.isArray(t.tags)) ? t.tags.filter(function(x){return typeof x==='string'&&x.trim();}) : []; }
 function samaTag(a,b){ return String(a).toLowerCase()===String(b).toLowerCase(); }
 function semuaTag(){
@@ -2185,12 +2231,31 @@ function tagGambar(){
   _tagDraft.concat(_tagSesi).forEach(function(x){ if(!semua.some(function(y){return samaTag(x,y);})) semua.push(x); });
   var on=function(x){ return _tagDraft.some(function(y){return samaTag(x,y);}); };
   el.innerHTML=semua.length?semua.map(function(x){
-    return '<button type="button" class="tagchip'+(on(x)?' on':'')+'" data-tag="'+esc(x)+'" '+
-      'onclick="APP.tagToggle(this.getAttribute(\'data-tag\'))">#'+esc(x)+'</button>';
+    var c=warnaTag(x,true);
+    return '<button type="button" class="tagchip'+(on(x)?' on':'')+'" data-tag="'+esc(x)+'" style="'+gayaTag(c,on(x))+'" '+
+      'onclick="APP.tagToggle(this.getAttribute(\'data-tag\'))">'+
+      '<span class="tdot" style="background:'+c+'" title="Ganti warna" '+
+        'onclick="event.stopPropagation();APP.tagBukaWarna(this.parentNode.getAttribute(\'data-tag\'))"></span>#'+esc(x)+'</button>';
   }).join(''):'<span class="muted" style="font-size:12.5px">Belum ada tag — ketik yang pertama di bawah.</span>';
   var dl=document.getElementById('m_tagList');
   if(dl) dl.innerHTML=semua.filter(function(x){return !on(x);}).map(function(x){return '<option value="'+esc(x)+'">';}).join('');
+  var pw=document.getElementById('m_tagWarna');
+  if(pw){
+    if(!_warnaBuka){ pw.innerHTML=''; }
+    else{
+      var cb=warnaTag(_warnaBuka,true);
+      pw.innerHTML='<div class="twarna"><span>Warna <b style="color:'+cb+'">#'+esc(_warnaBuka)+'</b>:</span>'+
+        TAG_PALET.map(function(c){
+          return '<button type="button" class="sw'+(c===cb?' on':'')+'" style="background:'+c+'" title="'+c+'" '+
+            'onclick="APP.tagSetWarna(\''+c+'\')"></button>';
+        }).join('')+
+        '<button type="button" class="btn sm" onclick="APP.tagBukaWarna(\'\')">Selesai</button>'+
+        '<span class="muted" style="flex-basis:100%;font-size:11.5px">Berlaku untuk semua task yang memakai tag ini.</span></div>';
+    }
+  }
 }
+function tagBukaWarna(x){ _warnaBuka=(x && !samaTag(x,_warnaBuka))?x:''; tagGambar(); }
+function tagSetWarna(c){ if(!_warnaBuka||TAG_PALET.indexOf(c)<0) return; _warnaDraft[kunciTag(_warnaBuka)]=c; tagGambar(); }
 function tagToggle(x){
   var i=_tagDraft.findIndex(function(y){return samaTag(x,y);});
   if(i>-1) _tagDraft.splice(i,1); else _tagDraft.push(x);
@@ -2201,6 +2266,9 @@ function tagTambah(){
   String(inp.value||'').split(',').forEach(function(v){
     v=v.trim().replace(/^#+/,'').slice(0,40); if(!v) return;
     var ada=semuaTag().concat(_tagDraft).find(function(y){return samaTag(v,y);});
+    /* Tag yang BENAR-BENAR baru (belum dipakai task mana pun dan belum
+       punya warna tersimpan) diberi warna acak. Tag lama tidak diacak ulang. */
+    if(!ada && !warnaSah((DB.tagWarna||{})[kunciTag(v)]) && !warnaSah(_warnaDraft[kunciTag(v)])) _warnaDraft[kunciTag(v)]=warnaAcak();
     v=ada||v;
     if(!_tagDraft.some(function(y){return samaTag(v,y);})) _tagDraft.push(v);
     if(!_tagSesi.some(function(y){return samaTag(v,y);})) _tagSesi.push(v);
@@ -2208,7 +2276,9 @@ function tagTambah(){
   inp.value=''; tagGambar(); inp.focus();
 }
 function tagHtml(t){
-  return tagsOf(t).map(function(x){return '<span class="tag untuk" title="Untuk: '+esc(x)+'">#'+esc(x)+'</span>';}).join('');
+  return tagsOf(t).map(function(x){
+    return '<span class="tag untuk" style="'+gayaTag(warnaTag(x))+'" title="Untuk: '+esc(x)+'">#'+esc(x)+'</span>';
+  }).join('');
 }
 function subGambar(){
   var el=document.getElementById('m_subs'); if(!el) return;
@@ -5707,7 +5777,7 @@ window.APP={
   go:go, cari:cari, qprev:qprev,
   taskModal:function(id,proj){ _presetDaily=(proj==='__daily__'); _presetProject=_presetDaily?null:(proj||null); taskModal(id); },
   setDaily:function(apa,nilai){ if(apa==='mode') dMode=nilai; else if(apa==='arsip') dArsip=nilai; render(); },
-  tagTambah:tagTambah, tagToggle:tagToggle,
+  tagTambah:tagTambah, tagToggle:tagToggle, tagBukaWarna:tagBukaWarna, tagSetWarna:tagSetWarna,
   subTambah:subTambah, subCentang:subCentang, subUbah:subUbah, subHapus:subHapus, subTgl:subTgl,
   gZoom:function(z){ gZoom=z; render(); },
   gx:function(id){ GX[id]=!GX[id]; render(); },
