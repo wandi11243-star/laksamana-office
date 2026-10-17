@@ -283,6 +283,12 @@ function gr_lokasi_tarik($pdo) {
     for ($h = 0; $url !== '' && $h < 10; $h++) {
       $d = gr_get($tok, $url);
       foreach ((isset($d['locations']) ? $d['locations'] : array()) as $l) {
+        /* Profil yang ditandai Google sebagai DUPLIKAT dilewati (17 Okt 2026:
+           akun Laksamana memegang 1 profil terverifikasi + 2 duplikat di alamat
+           yang sama). Duplikat tidak tampil ke publik dan tidak menerima review;
+           ditarik, ia cuma melahirkan kartu kembar berisi galat. Karena tidak
+           masuk $ada, baris lamanya ikut dinonaktifkan di bawah. */
+        if (!empty($l['metadata']['duplicateLocation'])) continue;
         /* Nama v4 untuk review = accounts/A/locations/L. */
         $locId = preg_replace('#^locations/#', '', (string)$l['name']);
         $id = $acc . '/locations/' . $locId;
