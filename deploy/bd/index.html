@@ -295,6 +295,19 @@ td .mut{color:var(--muted);font-size:12.5px}
 .subdrop{margin-top:8px;padding:6px 8px;border:1px solid var(--line-soft);border-radius:9px;background:var(--ink-900);display:flex;flex-direction:column;gap:4px;cursor:default}
 .subdi{display:flex;align-items:center;gap:8px;font-size:12.5px;cursor:pointer}
 .subdi span.done{text-decoration:line-through;color:var(--muted)}
+.tag.subpic{display:inline-flex;align-items:center;gap:4px;margin-left:auto}
+.tag.subpic .av{width:16px;height:16px;border-radius:50%;display:inline-grid;place-items:center;font-size:8.5px;font-weight:700;background:var(--gold-bg,#F3E7C9);color:var(--gold,#A9791F)}
+.field .subrow select.subp{width:112px;flex:none;padding:5px 6px;font-size:12px}
+#cariWrap{position:relative}
+#cariHasil{position:absolute;top:calc(100% + 6px);left:0;width:min(480px,92vw);max-height:420px;overflow:auto;z-index:60;
+  background:#fff;border:1px solid var(--line-soft);border-radius:12px;box-shadow:var(--shadow);padding:6px;display:none}
+#cariHasil.show{display:block}
+#cariHasil .ch-g{font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);padding:8px 8px 4px}
+#cariHasil .ch-i{display:block;width:100%;text-align:left;background:none;border:0;border-radius:8px;padding:7px 8px;cursor:pointer;font:inherit;font-size:13px;color:inherit}
+#cariHasil .ch-i:hover,#cariHasil .ch-i.on{background:var(--ink-900)}
+#cariHasil .ch-s{display:block;font-size:11.5px;color:var(--muted);margin-top:2px}
+#cariHasil mark{background:#F6E3A8;color:inherit;border-radius:3px;padding:0 1px}
+#cariHasil .ch-k{padding:12px 8px;font-size:12.5px;color:var(--muted)}
 .karsip{font-size:12px;color:var(--muted);text-align:center;padding:14px 6px;border:1px dashed var(--line-hard);border-radius:9px}
 .pdctl{display:flex;gap:8px;flex-wrap:wrap;margin-left:auto}
 .pdctl .seg button{font-size:12px}
@@ -793,7 +806,7 @@ input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums
       <div class="tb-sp"></div>
       <div class="search">
         <svg viewBox="0 0 24 24" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.2-3.2"/></svg>
-        <input id="cari" placeholder="Cari task, project, PO…" oninput="APP.cari(this.value)">
+        <span id="cariWrap"><input id="cari" placeholder="Cari task, sub-task, project, PO…" autocomplete="off" oninput="APP.cari(this.value)" onfocus="if(this.value.trim().length>1) APP.cari(this.value)"><div id="cariHasil"></div></span>
       </div>
       <div class="sync" id="sync"><i></i><span>Tersimpan</span></div>
     </header>
@@ -1799,10 +1812,10 @@ function cocokPic(o){
   if(!fPics.length) return true;
   return pics(o).some(function(id){ return fPics.indexOf(id)>-1; });
 }
-function filterPic(){
+function filterPic(label){
   var kru=DB.people.filter(function(p){return p.active!==false && !p.tanpaAkses;});
   if(!kru.length) return '';
-  return '<span class="flabel">'+ic('users',14)+' PIC</span>'+
+  return '<span class="flabel">'+ic('users',14)+' '+(label||'PIC')+'</span>'+
     '<div class="picfil">'+kru.map(function(p){
       var on=fPics.indexOf(p.id)>-1;
       return '<button type="button" class="picchip sm'+(on?' on':'')+'" data-id="'+esc(p.id)+'" '+
@@ -1984,7 +1997,7 @@ function taskModal(id){
     important:true,urgent:false,type:_presetProject?'Project':'Ad-hoc',project:_presetProject||null,
     daily:_presetDaily,ulang:''};
   _modalTaskId=baru?null:t.id;
-  _subDraft=subs(t).map(function(x){return {id:x.id||uid('s'),t:String(x.t||''),done:!!x.done,d:x.d||''};});
+  _subDraft=subs(t).map(function(x){return {id:x.id||uid('s'),t:String(x.t||''),done:!!x.done,d:x.d||'',p:x.p||''};});
   _depDraft=deps(t).filter(function(d){return d!==t.id && taskById(d);});
   _tagDraft=tagsOf(t).slice(); _tagSesi=[]; _warnaDraft={}; _warnaBuka='';
   showModal(
@@ -2062,7 +2075,7 @@ function simpanTask(id){
   if(data.ulang && !data.deadline){ g('m_due').focus(); toast('Task berulang butuh deadline sebagai patokan.'); return; }
   /* Sub-task tanpa teks dibuang: baris kosong cuma membuat hitungan x/y
      tidak pernah bisa genap. */
-  data.subtasks=_subDraft.map(function(x){var o={id:x.id,t:String(x.t||'').trim(),done:!!x.done}; if(x.d) o.d=x.d; return o;})
+  data.subtasks=_subDraft.map(function(x){var o={id:x.id,t:String(x.t||'').trim(),done:!!x.done}; if(x.d) o.d=x.d; if(x.p) o.p=x.p; return o;})
                 .filter(function(x){return x.t;});
   data.dependsOn=_depDraft.filter(function(d){return d!==id && taskById(d);});
   /* Tag yang masih tertinggal di kotak ketik ikut — orang sering menekan
@@ -2137,7 +2150,7 @@ function subDaftarHtml(t){
   if(!SUB_BUKA[t.id] || !subs(t).length) return '';
   return '<div class="subdrop" onclick="event.stopPropagation()" ondragstart="event.preventDefault()">'+subs(t).map(function(x,i){
     return '<label class="subdi"><input type="checkbox"'+(x.done?' checked':'')+
-      ' onchange="APP.subLangsung(\''+t.id+'\','+i+',this.checked)"><span class="'+(x.done?'done':'')+'">'+esc(x.t)+'</span></label>';
+      ' onchange="APP.subLangsung(\''+t.id+'\','+i+',this.checked)"><span class="'+(x.done?'done':'')+'">'+esc(x.t)+'</span>'+subPicTag(x)+'</label>';
   }).join('')+'</div>';
 }
 function subBuka(id){ SUB_BUKA[id]=!SUB_BUKA[id]; render(); }
@@ -2309,6 +2322,7 @@ function subGambar(){
       '<input type="checkbox"'+(s.done?' checked':'')+' onchange="APP.subCentang('+i+',this.checked)">'+
       '<input class="subt'+(s.done?' done':'')+'" value="'+esc(s.t)+'" oninput="APP.subUbah('+i+',this.value)">'+
       '<input type="date" class="subd" title="Deadline sub-task (opsional)" value="'+esc(s.d||'')+'" onchange="APP.subTgl('+i+',this.value)">'+
+      subPicSelect(s.p,i)+
       '<button type="button" class="iconbtn" title="Hapus sub-task" onclick="APP.subHapus('+i+')">'+ic('x',13)+'</button></div>';
   }).join(''):'<div class="muted" style="font-size:12.5px;padding:4px 2px">Belum ada sub-task.</div>';
 }
@@ -2322,6 +2336,33 @@ function subCentang(i,on){ if(_subDraft[i]){ _subDraft[i].done=!!on; subGambar()
 function subUbah(i,v){ if(_subDraft[i]) _subDraft[i].t=v; }
 function subTgl(i,v){ if(_subDraft[i]) _subDraft[i].d=v||''; }
 function subHapus(i){ _subDraft.splice(i,1); subGambar(); }
+/* Sub-task boleh di-assign ke SATU kru (permintaan user 18 Okt 2026) —
+   disimpan sebagai p (id kru) di dalam sub-task, ikut di blob data task,
+   tanpa migrasi. Kosong = belum di-assign, bukan "milik PIC task": menebak
+   pemiliknya membuat sub-task muncul di My Task orang yang tidak pernah
+   ditugasi. Pilihannya kruTersedia() yang sama dengan PIC task — kru yang
+   sudah kehilangan akses tetap tergambar kalau memang sudah di-assign. */
+function subPicSelect(p,i){
+  return '<select class="subp" title="Di-assign ke" onchange="APP.subPic('+i+',this.value)">'+
+    '<option value="">— assign —</option>'+
+    kruTersedia(p?[p]:[]).map(function(k){
+      return '<option value="'+esc(k.id)+'"'+(k.id===p?' selected':'')+'>'+esc(String(k.name).split(' ')[0])+'</option>';
+    }).join('')+'</select>';
+}
+function subPic(i,v){ if(_subDraft[i]) _subDraft[i].p=v||''; }
+/* Siapa saja yang mengerjakan task ini: PIC-nya DAN yang di-assign sub-task.
+   Dipakai My Task dan penyaring Assign di Projects → Task, supaya orang yang
+   cuma kebagian satu sub-task tetap menemukan pekerjaannya. */
+function pelaksana(t){
+  var a=pics(t).slice();
+  subs(t).forEach(function(x){ if(x&&x.p&&a.indexOf(x.p)<0) a.push(x.p); });
+  return a;
+}
+function subPicTag(s){
+  if(!s||!s.p) return '';
+  var o=P(s.p);
+  return '<span class="tag subpic" title="Di-assign ke '+esc(o.name)+'"><span class="av">'+esc(inisial(o.name))+'</span>'+esc(String(o.name).split(' ')[0])+'</span>';
+}
 
 function depGambar(){
   var el=document.getElementById('m_deps'); if(!el) return;
@@ -2715,7 +2756,7 @@ function taskTreeRow(t,o){
     return '<div class="tr2 sub"><span class="caret-x"></span>'+
       '<label class="subcek"><input type="checkbox"'+(s.done?' checked':'')+' onchange="APP.subLangsung(\''+t.id+'\','+i+',this.checked)"></label>'+
       '<div class="tr2-m"><div class="t-name'+(s.done?' done':'')+'">'+esc(s.t)+'</div></div>'+
-      '<div class="tr2-pic"></div>'+
+      '<div class="tr2-pic">'+(s.p?avStack([s.p]):'')+'</div>'+
       '<div class="tr2-dl">'+(gSah(s.d)?'<span class="tag'+(s.done?' ok':lw?' overdue':'')+'">'+(s.done?'✓ '+fTgl(s.d):fDue(s.d))+'</span>':'')+'</div>'+
       '<div class="tr2-pr"></div></div>';
   }).join('');
@@ -2793,7 +2834,7 @@ function hapusKembar(idLama){
 var myMode='list', myArsip='aktif';
 function tugasSaya(){
   var vt=tasksTerlihat();
-  return AKU ? vt.filter(function(t){ return pics(t).indexOf(AKU.id)>-1; }) : vt;
+  return AKU ? vt.filter(function(t){ return pelaksana(t).indexOf(AKU.id)>-1; }) : vt;
 }
 function vMyTask(){
   var semua=tugasSaya(), T=todayISO();
@@ -3013,9 +3054,12 @@ var pidAktif=null;
    Bawaannya tetap KANBAN — permintaan user 6 Okt 2026 ("buka project langsung
    dalam bentuk board") belum pernah dicabut. */
 var pdMode='kanban', pdArsip='aktif';
-var pScope='tim', pDiv='', pView='kartu', pSt='aktif';
+var pScope='tim', pDiv='', pView='kartu', pSt='aktif', pTaskArsip='aktif', pTaskQ='';
 function vProjects(){
-  var base=saringLingkup(DB.projects,pScope).filter(cocokPic).filter(function(p){ return !pDiv||p.div===pDiv; });
+  /* Di tampilan Task penyaring PIC berarti ASSIGN TASK, bukan PIC project:
+     yang dicari "pekerjaan siapa", dan task di project orang lain yang
+     di-assign ke Wandi harus tetap muncul saat Wandi dipilih. */
+  var base=saringLingkup(DB.projects,pScope).filter(pView==='task'?function(){return true;}:cocokPic).filter(function(p){ return !pDiv||p.div===pDiv; });
   var tampil=base.filter(function(p){
     if(pSt==='aktif') return !projBeres(p);
     if(pSt==='selesai') return projBeres(p);
@@ -3024,7 +3068,8 @@ function vProjects(){
   var h=head('Projects',SUB.projects[2],
     '<div class="seg"><button class="'+(pView==='kartu'?'on':'')+'" onclick="APP.filterProj(\'view\',\'kartu\')">Kartu</button>'+
     '<button class="'+(pView==='kanban'?'on':'')+'" onclick="APP.filterProj(\'view\',\'kanban\')">Kanban stage</button>'+
-    '<button class="'+(pView==='timeline'?'on':'')+'" onclick="APP.filterProj(\'view\',\'timeline\')">Timeline</button></div>'+
+    '<button class="'+(pView==='timeline'?'on':'')+'" onclick="APP.filterProj(\'view\',\'timeline\')">Timeline</button>'+
+    '<button class="'+(pView==='task'?'on':'')+'" onclick="APP.filterProj(\'view\',\'task\')">Task</button></div>'+
     '<button class="btn pri" onclick="APP.projModal()">'+ic('plus')+'Project</button>');
 
   h+='<div class="filters"><span class="flabel">'+ic('projects',14)+' Filter</span>'+
@@ -3034,11 +3079,12 @@ function vProjects(){
     segLingkup(pScope,'APP.filterProj(\'scope\',this.value)')+
     '<select onchange="APP.filterProj(\'div\',this.value)"><option value="">Semua divisi</option>'+
       OWNER_DIVS.map(function(d){return '<option'+(pDiv===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select>'+
-    filterPic()+((fPics.length||pDiv||pScope!=='tim')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
+    (pView==='task'?filterPic('Assign'):filterPic())+((fPics.length||pDiv||pScope!=='tim')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
     (pView==='timeline'?zoomSeg():'')+
-    '<span class="muted" style="font-size:12px;margin-left:auto">'+tampil.length+' dari '+DB.projects.length+' project</span>'+
+    (pView==='task'?'':'<span class="muted" style="font-size:12px;margin-left:auto">'+tampil.length+' dari '+DB.projects.length+' project</span>')+
   '</div>';
 
+  if(pView==='task'){ h+=projTaskHtml(tampil); return h; }
   if(pView==='timeline'){
     /* Gantt semua project yang lolos penyaring di atas — status, lingkup,
        divisi, dan PIC berlaku sama dengan tampilan kartu. Per project tetap
@@ -3075,6 +3121,49 @@ function vProjects(){
       kosong('Tidak ada project pada penyaring ini',
         DB.projects.length?'Ada '+DB.projects.length+' project di papan — coba ubah statusnya jadi "Semua" atau lingkupnya jadi "Semua".':'Buat project pertama lewat tombol di atas.')+'</div></div>';
   return h;
+}
+/* Projects → Task (permintaan user 18 Okt 2026): seluruh task dari project
+   yang lolos penyaring di atas, dikelompokkan per project, dan bisa disaring
+   ASSIGN-nya (PIC task atau yang di-assign sub-task — pelaksana()). Kotak
+   cari & saklar Aktif/Arsip menggambar ulang WADAHNYA (#ptask) saja, supaya
+   kotak yang sedang diketik tidak kehilangan fokus. */
+function projTaskData(tampil){
+  var ids={}; tampil.forEach(function(p){ ids[p.id]=1; });
+  var q=pTaskQ.trim().toLowerCase();
+  var semua=tasksTerlihat().filter(function(t){ return t.project&&ids[t.project]; })
+    .filter(function(t){ return !fPics.length||pelaksana(t).some(function(id){ return fPics.indexOf(id)>-1; }); })
+    .filter(function(t){ return !q||String(t.name).toLowerCase().indexOf(q)>-1||subs(t).some(function(x){return String(x.t).toLowerCase().indexOf(q)>-1;}); });
+  return {semua:semua,list:saringArsip(semua,pTaskArsip)};
+}
+function projTaskHtml(tampil){
+  return '<div class="filters">'+
+      '<input id="ptaskQ" placeholder="Cari task di project ini…" value="'+esc(pTaskQ)+'" oninput="APP.pTaskCari(this.value)" style="min-width:220px">'+
+      '<span id="ptaskSeg"></span></div>'+
+    '<div id="ptask">'+projTaskIsi(tampil)+'</div>';
+}
+function projTaskIsi(tampil){
+  var d=projTaskData(tampil), L=d.list.slice().sort(urutDeadline);
+  var seg=document.getElementById('ptaskSeg');
+  var segH=segArsip(pTaskArsip,'APP.pTaskArsip(\'$\')',d.semua);
+  if(seg) seg.innerHTML=segH; else setTimeout(function(){ var s=document.getElementById('ptaskSeg'); if(s) s.innerHTML=segH; },0);
+  if(!L.length) return '<div class="card"><div class="card-b">'+kosong('Tidak ada task pada penyaring ini',
+    (fPics.length?'Assign yang dipilih tidak memegang task di project ini. ':'')+(pTaskQ?'Coba kata kunci lain. ':'')+
+    (pTaskArsip==='aktif'?'Task yang sudah Done ada di "Arsip".':''))+'</div></div>';
+  var per={}, urut=[];
+  L.forEach(function(t){ if(!per[t.project]){ per[t.project]=[]; urut.push(t.project); } per[t.project].push(t); });
+  return '<div class="muted" style="font-size:12px;margin:2px 0 10px">'+L.length+' task di '+urut.length+' project'+
+      (fPics.length?' · assign: '+fPics.map(function(id){return esc(P(id).name);}).join(', '):'')+'</div>'+
+    urut.map(function(pid){
+      var p=DB.projects.find(function(x){return x.id===pid;})||{name:'(project tidak ada)'};
+      return '<div class="sect" style="cursor:pointer" onclick="APP.bukaProject(\''+pid+'\')">'+esc(p.name)+' ('+per[pid].length+')</div>'+
+        '<div class="card"><div class="card-b tight">'+per[pid].map(function(t){ return taskTreeRow(t,{}); }).join('')+'</div></div>';
+    }).join('');
+}
+function pTaskSegarkan(){
+  var el=document.getElementById('ptask'); if(!el){ render(); return; }
+  var base=saringLingkup(DB.projects,pScope).filter(function(p){ return !pDiv||p.div===pDiv; });
+  var tampil=base.filter(function(p){ if(pSt==='aktif') return !projBeres(p); if(pSt==='selesai') return projBeres(p); return true; });
+  el.innerHTML=projTaskIsi(tampil);
 }
 function projCard(p){
   var pg=projProgress(p), nt=projTasks(p.id).length;
@@ -5830,19 +5919,88 @@ function hapusOrang(id){
    membingungkan (kenapa papan Eisenhower tiba-tiba kosong?). Jadi yang
    dilakukan adalah melompat ke hal yang paling cocok. */
 var _cariTimer=null;
+/* Pencarian (18 Okt 2026, keluhan user "search task sulit"). Dulu kotak ini
+   LANGSUNG membuka hasil PERTAMA yang cocok sesudah 3 huruf — mengetik
+   "design" membuka satu task acak, dan task lain bernama mirip tidak pernah
+   bisa dicapai. Sekarang ia menggambar DAFTAR hasil di bawah kotaknya, dan
+   yang membuka adalah klik / Enter.
+
+   Yang dicari: nama & deskripsi task, teks sub-task, tag, nama PIC / yang
+   di-assign sub-task, nama project. Hanya task yang memang boleh dilihat
+   (tasksTerlihat) — kotak cari tidak boleh jadi pintu ke task orang lain.
+   Daftarnya digambar ke wadahnya sendiri (#cariHasil), BUKAN lewat render():
+   render menggambar ulang seluruh halaman dan kotak yang sedang diketik
+   kehilangan fokus. */
+var _cariList=[], _cariIdx=-1;
+function cariSorot(teks,q){
+  var t=String(teks||''), i=t.toLowerCase().indexOf(q);
+  if(!q||i<0) return esc(t);
+  return esc(t.slice(0,i))+'<mark>'+esc(t.slice(i,i+q.length))+'</mark>'+esc(t.slice(i+q.length));
+}
+function cariHitung(q){
+  var hasil=[];
+  var cocok=function(v){ return String(v||'').toLowerCase().indexOf(q)>-1; };
+  projectsTerlihat().forEach(function(p){
+    if(cocok(p.name)) hasil.push({jenis:'Project',id:p.id,nama:p.name,ket:(p.stage||'')+(projBeres(p)?' · selesai':'')});
+  });
+  tasksTerlihat().forEach(function(t){
+    var sebab='';
+    if(cocok(t.name)) sebab='';
+    else if(cocok(t.desc)) sebab='deskripsi';
+    else if(subs(t).some(function(x){return cocok(x.t);})) sebab='sub-task: '+subs(t).find(function(x){return cocok(x.t);}).t;
+    else if(tagsOf(t).some(cocok)) sebab='tag #'+tagsOf(t).find(cocok);
+    else if(pelaksana(t).some(function(id){return cocok(P(id).name);})) sebab='assign: '+P(pelaksana(t).find(function(id){return cocok(P(id).name);})).name;
+    else return;
+    var pr=t.project&&DB.projects.find(function(p){return p.id===t.project;});
+    hasil.push({jenis:'Task',id:t.id,nama:t.name,selesai:selesai(t),
+      ket:(t.status||'To Do')+(t.daily?' · Daily':pr?' · '+pr.name:'')+(t.deadline?' · '+fTgl(t.deadline):'')+(sebab?' · '+sebab:'')});
+  });
+  (DB.po||[]).forEach(function(o){ if(cocok(o.item)) hasil.push({jenis:'PO',id:o.id,nama:o.item,ket:o.status||''}); });
+  /* Yang masih jalan di atas, yang Done di bawah: yang dicari hampir selalu
+     pekerjaan yang belum selesai. */
+  return hasil.sort(function(a,b){ return (a.selesai?1:0)-(b.selesai?1:0); });
+}
+function cariGambar(q){
+  var el=document.getElementById('cariHasil'); if(!el) return;
+  if(q.length<2){ el.classList.remove('show'); el.innerHTML=''; _cariList=[]; return; }
+  _cariList=cariHitung(q); _cariIdx=_cariList.length?0:-1;
+  var MAKS=40, tampil=_cariList.slice(0,MAKS), grup='';
+  var h=tampil.length?tampil.map(function(r,i){
+    var kepala=r.jenis!==grup?'<div class="ch-g">'+r.jenis+'</div>':''; grup=r.jenis;
+    return kepala+'<button type="button" class="ch-i'+(i===_cariIdx?' on':'')+'" onmousedown="event.preventDefault()" onclick="APP.cariPilih('+i+')">'+
+      '<span'+(r.selesai?' style="text-decoration:line-through;color:var(--muted)"':'')+'>'+cariSorot(r.nama,q)+'</span>'+
+      (r.ket?'<span class="ch-s">'+cariSorot(r.ket,q)+'</span>':'')+'</button>';
+  }).join(''):'<div class="ch-k">Tidak ada task, project, atau PO yang cocok dengan "'+esc(q)+'".</div>';
+  if(_cariList.length>MAKS) h+='<div class="ch-k">'+(_cariList.length-MAKS)+' hasil lain tidak ditampilkan — ketik lebih spesifik.</div>';
+  el.innerHTML=h; el.classList.add('show');
+}
 function cari(q){
   clearTimeout(_cariTimer);
-  _cariTimer=setTimeout(function(){
-    q=String(q||'').trim().toLowerCase();
-    if(q.length<3) return;
-    var p=DB.projects.find(function(x){return String(x.name).toLowerCase().indexOf(q)>-1;});
-    if(p){ bukaProject(p.id); return; }
-    var t=DB.tasks.find(function(x){return String(x.name).toLowerCase().indexOf(q)>-1;});
-    if(t){ taskModal(t.id); return; }
-    var o=DB.po.find(function(x){return String(x.item).toLowerCase().indexOf(q)>-1;});
-    if(o){ poModal(o.id); }
-  },420);
+  _cariTimer=setTimeout(function(){ cariGambar(String(q||'').trim().toLowerCase()); },150);
 }
+function cariPilih(i){
+  var r=_cariList[i]; if(!r) return;
+  cariTutup();
+  if(r.jenis==='Project') bukaProject(r.id);
+  else if(r.jenis==='Task') taskModal(r.id);
+  else poModal(r.id);
+}
+function cariTutup(){ var el=document.getElementById('cariHasil'); if(el){ el.classList.remove('show'); } }
+document.addEventListener('keydown',function(e){
+  var inp=document.getElementById('cari');
+  if(!inp||document.activeElement!==inp) return;
+  var el=document.getElementById('cariHasil'); if(!el||!el.classList.contains('show')) return;
+  var n=Math.min(_cariList.length,40);
+  if(e.key==='ArrowDown'||e.key==='ArrowUp'){
+    if(!n) return; e.preventDefault();
+    _cariIdx=(_cariIdx+(e.key==='ArrowDown'?1:-1)+n)%n;
+    [].forEach.call(el.querySelectorAll('.ch-i'),function(b,i){ b.classList.toggle('on',i===_cariIdx); if(i===_cariIdx) b.scrollIntoView({block:'nearest'}); });
+  }else if(e.key==='Enter'){ if(_cariIdx>-1){ e.preventDefault(); cariPilih(_cariIdx); } }
+  else if(e.key==='Escape'){ cariTutup(); }
+});
+document.addEventListener('click',function(e){
+  var w=document.getElementById('cariWrap'); if(w&&!w.contains(e.target)) cariTutup();
+});
 
 /* ============ MODAL ============ */
 window.closeModal=function(){ $('#overlay').classList.remove('show'); $('#modal').innerHTML=''; };
@@ -5863,7 +6021,8 @@ window.APP={
   taskModal:function(id,proj){ _presetDaily=(proj==='__daily__'); _presetProject=_presetDaily?null:(proj||null); taskModal(id); },
   setDaily:function(apa,nilai){ if(apa==='mode') dMode=nilai; else if(apa==='arsip') dArsip=nilai; render(); },
   tagTambah:tagTambah, tagToggle:tagToggle, tagBukaWarna:tagBukaWarna, tagSetWarna:tagSetWarna,
-  subTambah:subTambah, subCentang:subCentang, subUbah:subUbah, subHapus:subHapus, subTgl:subTgl,
+  subTambah:subTambah, subCentang:subCentang, subUbah:subUbah, subHapus:subHapus, subTgl:subTgl, subPic:subPic,
+  cariPilih:cariPilih, cariTutup:cariTutup,
   gZoom:function(z){ gZoom=z; render(); },
   gx:function(id){ GX[id]=!GX[id]; render(); },
   tx:function(id){ TX[id]=!TX[id]; render(); },
@@ -5900,6 +6059,8 @@ window.APP={
     while(i<el.value.length && n<digitSebelum){ if(el.value.charCodeAt(i)>=48&&el.value.charCodeAt(i)<=57) n++; i++; }
     el.selectionStart=el.selectionEnd=i;
   },
+  pTaskCari:function(v){ pTaskQ=v||''; pTaskSegarkan(); },
+  pTaskArsip:function(v){ pTaskArsip=v; pTaskSegarkan(); },
   filterProj:function(apa,nilai){
     if(apa==='reset'){ pScope='tim'; pDiv=''; fPics=[]; }
     else if(apa==='scope') pScope=nilai;
