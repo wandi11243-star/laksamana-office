@@ -9451,6 +9451,15 @@ function renderCapaian(){
           {v:"minggu", label:"Mingguan"},
           {v:"bulan",  label:"Bulanan"}
         ],REVIEW_MODE,"setReviewMode")}
+       <!-- Pemilih bulan/tanggal di papan ini sendiri (18 Oktober 2026). Dulu
+            papan ini cuma bisa menampilkan bulan yang kebetulan dipilih di
+            halaman Google Review — jadi pencapaian bulan lalu tidak bisa
+            dibuka dari Dashboard sama sekali. -->
+       <div style="display:flex;gap:8px;align-items:center;margin-top:8px">
+         ${REVIEW_MODE==="bulan"
+           ? `<div class="field" style="margin:0"><input type="month" value="${REVIEW_MONTH}" onchange="setReviewMonth(this.value)"></div>`
+           : `<div class="field" style="margin:0"><input type="date" value="${REVIEW_DATE}" onchange="setReviewDate(this.value)"></div>`}
+       </div>
        <div class="muted" style="font-size:11.5px;margin-top:6px">Menampilkan <b>${esc(reviewRangeLabel())}</b>. Sama dengan periode yang dipilih di halaman Feedback &amp; Review.</div>
        <div class="rv-progress" style="margin:12px 0 10px"><i style="width:${pctTim}%"></i></div>
        <div style="display:flex;justify-content:space-between;font-size:12.5px;color:var(--muted);margin-bottom:16px">
@@ -9508,7 +9517,98 @@ function renderCapaian(){
          Itulah selisih antara penjumlahan tabel dan kartu <b>Terverifikasi</b> di atas.
        </div>` : ''}
      </div>
+   </div>
+
+   ${riwayatCapaianHtml()}`;
+}
+
+/* ===== RIWAYAT PENCAPAIAN PER BULAN (permintaan user 18 Oktober 2026) =====
+   "Setiap bulannya ada riwayatnya — tetap di-reset, tapi bisa dilihat
+   pencapaian tiap bulannya untuk masing-masing."
+
+   RESET-NYA SUDAH TERJADI DENGAN SENDIRINYA, dan itu sebabnya riwayat ini
+   tidak butuh tabel atau tombol "tutup bulan" apa pun: perolehan tiap kru
+   dihitung ulang dari review TERVERIFIKASI yang tanggalnya jatuh di bulan itu.
+   Bulan baru mulai dari nol karena belum ada review bertanggal di sana — dan
+   bulan lama tetap utuh karena review-nya tidak pernah dihapus. Menyimpan
+   salinan angkanya justru berbahaya: review yang baru diverifikasi minggu
+   depan untuk tanggal bulan lalu tidak akan pernah masuk ke salinan itu, dan
+   riwayatnya berhenti cocok dengan Daftar Review.
+
+   YANG DIHITUNG DENGAN SETELAN SEKARANG: tangga reward. Setelan reward tidak
+   menyimpan riwayat perubahannya, jadi kalau tangganya diubah, reward bulan
+   lalu ikut dihitung ulang dengan tangga baru. Itu dikatakan di bawah tabel —
+   angka uang yang diam-diam berubah lebih buruk daripada yang diberi tahu.
+
+   Aturan siapa yang tampil SAMA dengan Perolehan per Kru (keluarDariPapan),
+   supaya kolom bulan berjalan di sini tidak menyebut angka lain daripada
+   tabel di atasnya. */
+function riwayatCapaianHtml(){
+  const sah = reviews().filter(x=>x.status==="terverifikasi" && /^\d{4}-\d{2}/.test(String(x.date||"")));
+  const bulanIni = todayStr().slice(0,7);
+  const setBln = new Set(sah.map(x=>String(x.date).slice(0,7)));
+  setBln.add(bulanIni);
+  // Bulan masa depan (tanggal salah ketik) tidak dijadikan kolom.
+  const bulan = [...setBln].filter(m=>m<=bulanIni).sort().reverse().slice(0,12);
+  const tersembunyi = setBln.size - bulan.length - [...setBln].filter(m=>m>bulanIni).length;
+
+  const peta = {};
+  const isi = n => { const k=String(n||"—").trim()||"—"; if(!peta[k]) peta[k]={nama:k, per:{}, total:0}; return peta[k]; };
+  kruCapaian().forEach(n=>isi(n));
+  sah.forEach(x=>{
+    const m=String(x.date).slice(0,7);
+    if(bulan.indexOf(m)<0) return;
+    const o=isi(rvHostOf(x)); o.per[m]=(o.per[m]||0)+1; o.total++;
+  });
+  const baris = Object.values(peta).filter(o=>!keluarDariPapan(o.nama))
+    .sort((a,b)=> b.total-a.total || a.nama.localeCompare(b.nama));
+
+  const totBln = {}, bonusBln = {};
+  bulan.forEach(m=>{
+    totBln[m] = baris.reduce((a,o)=>a+(o.per[m]||0),0);
+    bonusBln[m] = baris.reduce((a,o)=>a+rewardOf(o.per[m]||0).bonus,0);
+  });
+  const totBonus = bulan.reduce((a,m)=>a+bonusBln[m],0);
+
+  const sel = (n)=>{
+    if(!n) return '<span class="muted">—</span>';
+    const w=rewardOf(n);
+    return `<b>${n}</b>${w.bonus>0?`<span style="display:block;font-size:11px;color:var(--ok)">${esc(rpDot(w.bonus))}</span>`:""}`;
+  };
+  const hd = m => `<th class="no-sort" style="white-space:nowrap">
+      <a href="javascript:void 0" onclick="bukaBulanCapaian('${m}')" title="Buka pencapaian ${esc(fmtMonth(m))}">${esc(fmtMonth(m))}</a>
+      ${m===bulanIni?'<span class="muted" style="display:block;font-size:10.5px;font-weight:400">berjalan</span>':""}</th>`;
+
+  return `
+   <div class="panel">
+     <div class="panel-head"><h3>🗓️ Riwayat Pencapaian per Bulan</h3>
+       <span class="muted" style="font-size:12.5px">review terverifikasi per kru · ${bulan.length} bulan terakhir</span></div>
+     <div class="panel-body">
+       <div class="table-wrap"><table>
+         <thead><tr><th>Kru</th>${bulan.map(hd).join("")}<th>Total</th></tr></thead>
+         <tbody>${baris.length ? baris.map(o=>`<tr>
+           <td><div class="name">${esc(o.nama)}</div></td>
+           ${bulan.map(m=>`<td>${sel(o.per[m]||0)}</td>`).join("")}
+           <td><b>${o.total||0}</b></td>
+         </tr>`).join("") : `<tr><td colspan="${bulan.length+2}"><div class="empty">Belum ada review terverifikasi.</div></td></tr>`}</tbody>
+         <tfoot><tr>
+           <td><b>Tim</b></td>
+           ${bulan.map(m=>`<td><b>${totBln[m]}</b>${bonusBln[m]?`<span style="display:block;font-size:11px;color:var(--ok)">${esc(rpDot(bonusBln[m]))}</span>`:""}</td>`).join("")}
+           <td><b>${baris.reduce((a,o)=>a+o.total,0)}</b>${totBonus?`<span style="display:block;font-size:11px;color:var(--ok)">${esc(rpDot(totBonus))}</span>`:""}</td>
+         </tr></tfoot>
+       </table></div>
+       <div class="hint" style="margin-top:10px">
+         Perolehan tiap bulan <b>mulai dari nol</b> — dihitung dari review terverifikasi yang tanggalnya jatuh di bulan itu, jadi bulan lalu tetap utuh di sini.
+         Angka hijau = reward bulan itu, dihitung dengan <b>tangga reward yang berlaku sekarang</b>; kalau tangganya pernah diubah, angka bulan lama ikut memakai tangga baru.
+         Klik nama bulan untuk membuka rincian lengkapnya di atas.${tersembunyi>0?` ${tersembunyi} bulan yang lebih lama tidak ditampilkan — buka lewat pemilih bulan.`:""}
+       </div>
+     </div>
    </div>`;
+}
+function bukaBulanCapaian(m){
+  REVIEW_MODE="bulan"; REVIEW_MONTH=m; rvResetPages(); TBL_HAL.capaian=1;
+  renderCapaian();
+  const el=byId("page-capaian"); if(el && el.scrollIntoView) el.scrollIntoView({behavior:"smooth", block:"start"});
 }
 
 /* HALAMAN AUDIT LOG DIBUANG (5 Agustus 2026, permintaan user). logAudit()

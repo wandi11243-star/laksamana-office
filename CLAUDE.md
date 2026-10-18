@@ -1014,6 +1014,26 @@ sinkron + 3 hari terakhir disegarkan; follower baru dari follower_count, cuma
 insight harian). Pengaruh iklan = rata-rata hari beriklan (≥ Rp10.000) vs
 tanpa iklan — korelasi, dan itu ditulis di layar.
 
+**GOOGLE REVIEW (17 Okt 2026)** — menu `greview`, backend `konten-mysql/lib_greview.php`
+(di-require lib_campaign), alamat balik OAuth `campaign-google.php`. Tabel
+`cg_gtempat`, `cg_gtempat_harian`, `cg_greview` (id = sha1 nama resource).
+DUA sumber: **Business Profile** (OAuth scope `business.manage`, SELURUH review,
+BISA DIBALAS — `PUT v4/{review}/reply`) dan **Places API** (API key, 5 review per
+tarikan, baca saja, dikumpulkan tiap sinkron). Place yang sudah dicakup Business
+Profile (metadata.placeId) tidak ditarik lewat Places. Akses Business Profile API
+harus DIAJUKAN ke Google (kuota 0 sebelum disetujui); app OAuth berstatus Testing
+= refresh token putus tiap 7 hari. Kunci: `google_client_id/secret`,
+`google_places_key` (config `GOOGLE_*` menang), `google_places` (daftar Place ID).
+Prioritas "perlu ditangani" DIHITUNG di layar (`grSkor`: bintang, panjang keluhan,
+umur, penanda AI, sudah dibalas). Analisa AI (`campaignGoogleAI`) disimpan di
+`cg_setting.gr_ai`; id review karangan AI dibuang. Draf balasan di `ST.grDraf`
+(di luar DOM). Tidak ada DELETE ke database; satu-satunya hapus = balasan kita
+sendiri di Google, lewat tombolnya.
+
+```bash
+node tools/uji-google-review.js   # 54 pemeriksaan, jsdom + server tiruan HIDUP + kontrak PHP
+```
+
 **"MySQL server has gone away" (14 Okt 2026)**: panggilan AI 1–2 menit
 melewati wait_timeout MySQL, sambungan PDO statis sudah diputus server.
 `db(true)` di `lib_konten_mysql.php` membuka sambungan baru; tiap fungsi yang

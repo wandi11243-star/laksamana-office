@@ -31,6 +31,8 @@
  ************************************************************************/
 
 require_once __DIR__ . '/lib_sesi.php';
+/* Google Review (17 Okt 2026) — berkas sendiri supaya berkas ini tidak terus membengkak. */
+require_once __DIR__ . '/lib_greview.php';
 
 /* PENYEDIA AI (13 Okt 2026, permintaan user: "modelnya bisa dipilih, pakai
    Muse Spark dulu"). Keduanya bicara format Anthropic Messages yang SAMA —
@@ -490,7 +492,7 @@ function cg_baca($pdo, $u) {
       'adsAkun'     => implode(', ', cg_ads_akun($pdo)),
       'adsSyncAt'   => (int)cg_set_baca($pdo, 'ads_sync_at', '0'),
       'adsGalat'    => cg_set_baca($pdo, 'ads_galat'),
-    ),
+    ) + gr_setting_ringkas($pdo),
     'boleh' => array('admin' => sesi_admin_modul($u, 'campaign')),
   );
 }
@@ -1946,6 +1948,7 @@ function cg_setting_simpan($pdo, $d) {
     }
     cg_set_tulis($pdo, 'ads_akun', implode(',', array_unique($akun)));
   }
+  gr_setting_simpan($pdo, $d);
   return array('ok' => true);
 }
 
@@ -1979,6 +1982,22 @@ function cg_aksi($action, $body) {
     case 'campaignAds':          return cg_ads_baca($pdo, $d);
     case 'campaignAdsAI':        return cg_ads_ai($pdo, $d);
     case 'campaignTumbuh':       return cg_tumbuh($pdo, $d);
+    /* Google Review — lihat lib_greview.php. */
+    case 'campaignGoogle':       return gr_baca($pdo);
+    case 'campaignGoogleSync':   return gr_sync($pdo);
+    case 'campaignGoogleMulai':  return gr_mulai($pdo, $nama);
+    case 'campaignGoogleLokasi': return array('jumlah' => gr_lokasi_tarik($pdo));
+    case 'campaignGoogleBalas':  return gr_balas($pdo, $d, $nama);
+    case 'campaignGoogleBalasHapus': return gr_balas_hapus($pdo, $d);
+    case 'campaignGoogleTangani': return gr_tangani($pdo, $d, $nama);
+    case 'campaignGoogleAI':     return gr_ai($pdo, $d, $nama);
+    case 'campaignGoogleDraf':   return gr_ai_draf($pdo, $d);
+    case 'campaignGoogleCari':
+      if (!sesi_admin_modul($u, 'campaign')) sesi_tolak_tak_berhak('Mencari tempat hanya untuk admin modul Campaign.');
+      return gr_cari($pdo, $d);
+    case 'campaignGooglePutus':
+      if (!sesi_admin_modul($u, 'campaign')) sesi_tolak_tak_berhak('Memutus akun Google hanya untuk admin modul Campaign.');
+      return gr_putus($pdo, $nama);
     case 'campaignSetting':
       if (!sesi_admin_modul($u, 'campaign')) sesi_tolak_tak_berhak('Pengaturan Campaign hanya untuk admin modul Campaign.');
       return cg_setting_simpan($pdo, $d);
