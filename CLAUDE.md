@@ -798,11 +798,10 @@ node tools/uji-tag-bd.js   # 35 pemeriksaan, jsdom + kontrak PHP
 - **Sub-task punya assignee** `p` (id kru, opsional) — ikut di blob task, tanpa migrasi. Kosong TIDAK ditebak jadi PIC task. `pelaksana(t)` = PIC + yang di-assign sub-task; dipakai My Task (orang yang cuma kebagian satu sub-task tetap melihat task-nya) dan penyaring Assign.
 - **Kotak cari menggambar DAFTAR hasil** (`#cariHasil`, ditulis lewat DOM, bukan render()). Dulu ia langsung membuka hasil PERTAMA sesudah 3 huruf, jadi task lain bernama mirip tidak pernah bisa dicapai. Mencari nama, deskripsi, sub-task, tag, nama PIC/assign, project, PO; hanya `tasksTerlihat()`. ↑↓ + Enter.
 - **Projects → tampilan Task** (`pView='task'`): task dari project yang lolos penyaring, per project; penyaring PIC berganti arti jadi **Assign** (`pelaksana`), project TIDAK disaring PIC-nya di tampilan ini. Kotak cari & Aktif/Arsip menggambar ulang `#ptask` saja.
-- **Task Kembar** (`kembarHtml` di My Task) membereskan 26 pasang salinan Daily yang diketik ulang 12 Okt; hanya menghapus versi bukan-Daily, satu per satu.
+- **Task Kembar** (penanda + tombol hapus versi lama di My Task) sempat ada 18 Okt 2026 untuk membereskan 26 pasang salinan Daily yang diketik ulang 12 Okt; **dicabut lagi hari itu juga** sesudah produksi bersih (0 nama kembar). Jangan dihidupkan lagi tanpa diminta.
 
 ```bash
 node tools/uji-subassign-cari-bd.js   # 32 pemeriksaan, jsdom + server tiruan HIDUP
-node tools/uji-kembar-bd.js           # 18 pemeriksaan
 node tools/uji-sync-status-bd.js      #  9 pemeriksaan
 ```
 

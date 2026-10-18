@@ -2763,70 +2763,6 @@ function taskTreeRow(t,o){
   return out;
 }
 
-/* ---- Task kembar (18 Okt 2026) ----
-   12 Okt 2026, saat menu Daily Task lahir, task lama DIKETIK ULANG sebagai
-   Daily Task alih-alih dicentang "Masuk Daily Task". Hasilnya dua baris
-   bernama sama: versi lama (bukan Daily) dan salinan Daily. Daily Task cuma
-   menggambar salinannya, My Task menggambar keduanya — jadi satu task terbaca
-   berstatus dua (dilaporkan user sebagai "status tidak sync").
-
-   Yang dikenali HANYA pasangan tepat satu Daily + satu bukan-Daily dengan
-   nama sama (abaikan huruf besar & spasi). Nama sama tanpa Daily (On
-   Boarding milik dua orang, Absensi di project) BUKAN kembaran ini dan tidak
-   disentuh. Yang dihapus SELALU versi lama, satu per satu, lewat tombol yang
-   ditekan orang — tidak ada hapus massal. */
-var STATUS_RANK={'To Do':0,'Doing':1,'Review':2,'Done':3};
-function namaKunci(t){ return String(t.name||'').trim().toLowerCase().replace(/\s+/g,' '); }
-function taskKembar(){
-  var g={};
-  tasksTerlihat().forEach(function(t){ var k=namaKunci(t); if(k) (g[k]=g[k]||[]).push(t); });
-  var out=[];
-  Object.keys(g).forEach(function(k){
-    var l=g[k], d=l.filter(function(t){return t.daily;}), n=l.filter(function(t){return !t.daily;});
-    if(d.length===1 && n.length===1) out.push({lama:n[0],daily:d[0]});
-  });
-  return out.sort(function(a,b){ return namaKunci(a.daily)<namaKunci(b.daily)?-1:1; });
-}
-function kembarCatatan(p){
-  var c=[];
-  if((STATUS_RANK[p.lama.status]||0)>(STATUS_RANK[p.daily.status]||0))
-    c.push('versi lama lebih maju ('+p.lama.status+') — naikkan dulu status Daily-nya');
-  var pl=pics(p.lama).slice().sort().join(','), pd=pics(p.daily).slice().sort().join(',');
-  if(pl!==pd) c.push('PIC beda: lama '+pics(p.lama).map(function(x){return P(x).name;}).join(', ')+
-    ' · Daily '+pics(p.daily).map(function(x){return P(x).name;}).join(', '));
-  return c;
-}
-function kembarHtml(){
-  var L=taskKembar(); if(!L.length) return '';
-  return '<details class="card" style="margin-bottom:14px"><summary class="card-b" style="cursor:pointer;font-weight:600">'+
-    '⚠️ '+L.length+' task tercatat dua kali (versi lama + salinan Daily Task)</summary><div class="card-b tight">'+
-    '<div class="notice">Satu task terbaca berstatus dua karena ada dua baris bernama sama. '+
-    'Tombol di tiap baris <b>hanya menghapus versi lama</b> (yang bukan Daily); salinan Daily Task tetap. '+
-    'Periksa yang bertanda ⚠️ dulu.</div>'+
-    '<div class="tw"><table><thead><tr><th>Task</th><th>Versi lama (dihapus)</th><th>Daily Task (tetap)</th><th></th></tr></thead><tbody>'+
-    L.map(function(p){
-      var c=kembarCatatan(p);
-      return '<tr><td><b>'+esc(p.daily.name)+'</b>'+(c.length?'<div style="color:var(--danger);font-size:12px">⚠️ '+esc(c.join(' · '))+'</div>':'')+'</td>'+
-        '<td>'+esc(p.lama.status)+'<div style="font-size:11.5px;color:var(--muted)">deadline '+esc(p.lama.deadline||'—')+'</div></td>'+
-        '<td>'+esc(p.daily.status)+'<div style="font-size:11.5px;color:var(--muted)">deadline '+esc(p.daily.deadline||'—')+'</div></td>'+
-        '<td><button class="btn sm" onclick="APP.hapusKembar(\''+p.lama.id+'\')">Hapus versi lama</button></td></tr>';
-    }).join('')+'</tbody></table></div></div></details>';
-}
-function hapusKembar(idLama){
-  var p=taskKembar().find(function(x){return x.lama.id===idLama;});
-  // Diperiksa ULANG di sini: daftarnya bisa berubah sejak digambar, dan yang
-  // dihapus HARUS versi bukan-Daily yang masih punya kembaran Daily.
-  if(!p){ toast('Pasangan ini sudah tidak kembar — tidak ada yang dihapus'); render(); return; }
-  var c=kembarCatatan(p);
-  if(!confirm('Hapus VERSI LAMA "'+p.lama.name+'"?\n\nDihapus : versi lama, status '+p.lama.status+', deadline '+(p.lama.deadline||'—')+
-    '\nTetap   : Daily Task, status '+p.daily.status+', deadline '+(p.daily.deadline||'—')+
-    (c.length?'\n\n⚠️ '+c.join('\n⚠️ '):''))) return;
-  var nunggu=penunggu(idLama);
-  DB.tasks=DB.tasks.filter(function(t){return t.id!==idLama;});
-  nunggu.forEach(function(t){ t.dependsOn=deps(t).filter(function(d){return d!==idLama;}); });
-  save(); render(); toast('Versi lama dihapus — Daily Task tetap');
-}
-
 /* ---- My Task ----
    "Punyaku" = task yang PIC-nya memuat aku. Kru yang belum tercocokkan ke
    roster (AKU null) melihat seluruh task yang terlihat, dan itu DIKATAKAN —
@@ -2850,7 +2786,6 @@ function vMyTask(){
     stat('Lewat deadline',telat.length,telat.length?'perlu ditindak':'aman',telat.length?'rd':'gr')+
     stat('Menunggu task lain',buka.filter(function(t){return penghalang(t).length;}).length,'belum bisa Done','vi')+
     stat('Selesai',semua.length-buka.length,'diarsipkan','tl')+'</div>';
-  h+=kembarHtml();
   if(myMode==='kanban'){
     h+='<div class="filters">'+segArsip(myArsip,'APP.setMy(\'arsip\',\'$\')',semua)+'</div>'+
       kanbanHtml(myArsip==='aktif'?semua:saringArsip(semua,myArsip),null,true,myArsip);
@@ -6029,7 +5964,6 @@ window.APP={
   gAll:function(v){ GX={}; if(v) DB.projects.forEach(function(p){ GX[p.id]=true; }); render(); },
   gToday:function(){ var g=document.getElementById('gantt'); if(g) g.scrollLeft=Math.max(0,(+g.getAttribute('data-todayx')||0)-200); },
   filterTl:function(apa,nilai){ if(apa==='st') tlSt=nilai; else if(apa==='div') tlDiv=nilai; render(); },
-  hapusKembar:hapusKembar,
   setMy:function(apa,nilai){ if(apa==='mode') myMode=nilai; else if(apa==='arsip') myArsip=nilai; render(); },
   depGambar:depGambar, depCentang:depCentang,
   dragBoard:dragBoard, dropBoard:dropBoard, klikBoard:klikBoard, boardTambah:boardTambah, bukaBoard:bukaBoard,
