@@ -51,6 +51,7 @@ const SEED = {
   ],
   routines:[],coord:[],po:[],agenda:[],pr:[],focus:{},approverSets:[],promos:[]
 };
+let SERVER = JSON.parse(JSON.stringify(SEED));
 const kiriman=[];
 const dom = new JSDOM(html.replace(/<script[^>]+src=[^>]*><\/script>/g,''), {
   runScripts:'dangerously', pretendToBeVisual:true, url:'https://dev.laksamanamuda.id/bd/#daily',
@@ -59,8 +60,12 @@ const dom = new JSDOM(html.replace(/<script[^>]+src=[^>]*><\/script>/g,''), {
     w.fetch = async (url, opts)=>{
       const u=String(url); let data;
       if (u.indexOf('account-api')>-1) data={ok:true,members:[{id:'u1',name:'Wandi Pranata',isAdmin:true},{id:'u2',name:'Sari Lestari'}]};
-      else if (u.indexOf('action=getAll')>-1) data={ok:true,data:JSON.parse(JSON.stringify(SEED))};
-      else if (opts && opts.body){ const b=JSON.parse(opts.body); if(b.action==='saveAll') kiriman.push(b); data={ok:true,data:{saved:true,tsMs:Date.now()}}; }
+      /* Server tiruan HIDUP: yang ditulis saveAll dipulangkan getAll berikutnya.
+         Modul menarik getAll sesudah tiap simpan (18 Okt 2026); tiruan statis
+         akan mengembalikan SEED dan membuang yang barusan disimpan — perilaku
+         yang tidak pernah ada di server sungguhan. */
+      else if (u.indexOf('action=getAll')>-1) data={ok:true,data:JSON.parse(JSON.stringify(SERVER))};
+      else if (opts && opts.body){ const b=JSON.parse(opts.body); if(b.action==='saveAll'){ kiriman.push(b); SERVER=JSON.parse(JSON.stringify(b.data)); } data={ok:true,data:{saved:true,tsMs:Date.now()}}; }
       else data={ok:true,data:{}};
       const teks=JSON.stringify(data);
       return { ok:true, status:200, text:async()=>teks, json:async()=>JSON.parse(teks) };

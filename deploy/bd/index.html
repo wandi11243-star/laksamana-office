@@ -1208,7 +1208,15 @@ function capPerubahan(){
   var now=Date.now();
   tiapBaris(function(key,r){
     if(_snap[key]===sig(r)) return;    // tidak berubah -> jangan dicap ulang
-    r.updatedAt=now;
+    /* Minimal SATU di atas versi yang terakhir kita lihat (18 Okt 2026).
+       Cap datang dari jam PERANGKAT: HP yang jamnya tertinggal beberapa menit
+       mencap perubahan status LEBIH LAMA daripada versi yang tersimpan, server
+       menolaknya diam-diam (penjaga updated_at), dan 20 detik kemudian
+       polling mengembalikan status lamanya — terbaca sebagai My Task & Daily
+       Task yang "tidak sync". Perubahan atas versi yang kita lihat harus
+       selalu lebih baru daripada versi itu; bentrok sungguhan dengan kru lain
+       yang menyimpan SESUDAHNYA tetap ditentukan penjaga yang sama. */
+    r.updatedAt=Math.max(now,(+r.updatedAt||0)+1);
     if(!r.createdAt) r.createdAt=now;
   });
 }
@@ -1261,6 +1269,10 @@ function kirim(){
   kenaliBaris();
   return apiPost('saveAll',DB).then(function(){
     segarkanSnapshot(); setSync('saved');
+    /* Langsung cocokkan dengan isi server, jangan menunggu polling 20 detik:
+       kalau ada baris yang ditolak penjaga updated_at, layar harus segera
+       menunjukkan status yang benar-benar tersimpan. */
+    setTimeout(tarikServer,300);
   },function(e){
     _kotor=true;                       // dicoba lagi; perubahan tidak hilang
     setSync('error',e.message);
@@ -1276,10 +1288,13 @@ window.addEventListener('beforeunload',function(e){ if(_kotor||_menyimpan){e.pre
 /* ---- tarik perubahan kru lain ----
    Hanya saat idle: tidak sedang menyimpan, tidak ada perubahan menggantung,
    tab sedang dilihat, dan tidak ada modal terbuka (biar isian tidak hilang). */
-setInterval(function(){
+function tarikServer(){
   if(_kotor||_menyimpan||document.hidden) return;
   if($('#overlay').classList.contains('show')) return;
   apiGet('getAll').then(function(s){
+    /* Diperiksa lagi: ada yang mengubah sesuatu selama permintaan berjalan,
+       dan menimpanya dengan isi server akan membuang perubahan itu. */
+    if(_kotor||_menyimpan) return;
     var baru=normalize(s);
     if(JSON.stringify(baru)===JSON.stringify(DB)) return;
     DB=baru; segarkanSnapshot();
@@ -1287,7 +1302,12 @@ setInterval(function(){
        people, AKU harus ikut terisi tanpa perlu reload halaman. */
     kenali(); cetakIdentitas(); render();
   },function(){ /* diam: polling gagal bukan alasan mengganggu kerja */ });
-},20000);
+}
+setInterval(tarikServer,20000);
+/* Tab yang kembali dilihat langsung menarik isi terbaru — My Task di satu tab
+   dan Daily Task di tab/perangkat lain tidak perlu menunggu 20 detik. */
+document.addEventListener('visibilitychange',function(){ if(!document.hidden) tarikServer(); });
+window.addEventListener('focus',function(){ tarikServer(); });
 
 /* ============ IDENTITAS & DAFTAR KRU ============
    Daftar kru TIDAK diketik di modul ini. Sumbernya database account
