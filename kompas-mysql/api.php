@@ -237,6 +237,20 @@ try {
      memasangnya di sini sekarang akan mematikan panel Finance yang memanggil
      tetangganya tanpa token. Yang menahan siapa boleh membuka apa adalah
      kunci modul `analytics` di Kelola Akses, sama seperti modul lain. */
+  /* SATU HALAMAN data penjualan dari API POS ESB (20 Oktober 2026). BERPAGAR
+     SESI — beda dari aksi analytics lain — karena di baliknya ada token yang
+     membuka seluruh penjualan perusahaan. Lihat lib_esb.php. */
+  else if ($action === 'esbHalaman') {
+    require_once __DIR__ . '/lib_sesi.php';
+    require_once __DIR__ . '/lib_esb.php';
+    $u = sesi_user($body);
+    if (!$u) sesi_tolak_tak_dikenal();
+    if (!sesi_punya_modul($u, 'analytics')) sesi_tolak_tanpa_modul('Analytics');
+    $r = esb_halaman(isset($body['dari']) ? $body['dari'] : '',
+                     isset($body['sampai']) ? $body['sampai'] : '',
+                     isset($body['page']) ? $body['page'] : 1);
+    keluar($r);
+  }
   else if ($action === 'analyticsGet') keluar(array('ok' => true, 'data' => an_baca()));
   else if ($action === 'analyticsSave') {
     $r = an_simpan(isset($body['data']) ? $body['data'] : null,

@@ -5209,6 +5209,33 @@ seluruh transaksi sebulan.
 node tools/uji-analytics.js   # 230 pemeriksaan
 ```
 
+#### Tarik dari API POS ESB (20 Oktober 2026)
+
+Halaman **Unggah** Analytics punya kartu **Tarik dari API POS (ESB)**: pilih
+bulan → seluruh halaman API ditarik → pratinjau → Simpan yang SAMA dengan
+unggah berkas.
+
+- **Token ESB di `config.php` kompas-mysql** (`define('ESB_TOKEN','...')`),
+  TIDAK PERNAH di HTML. Perantaranya `esbHalaman` (`kompas-mysql/lib_esb.php`),
+  berpagar sesi + kunci `analytics`, SATU halaman per panggilan — sebulan
+  dalam satu proses PHP dipotong hosting di tengah.
+- Kuncinya **Bearer** (dibuktikan: 401 + `www-authenticate: Bearer`). Jumlah
+  halaman dari header `X-Pagination-Page-Count`; kalau tidak ada, lanjut
+  sampai halaman kosong/lebih pendek. Peramban menarik 3 halaman sekaligus.
+- **Tidak ada pengurai kedua**: `esbKeBaris()` meratakan JSON jadi baris
+  berkolom Detail Report lalu masuk `uraiBerkas()`. Paket ditaruh TEPAT di
+  bawah menunya sebagai `<NAMA> (PACKAGE)` supaya aturan baris ukuran berlaku.
+- **`otherTax` = SERVICE, `vat` = PAJAK** — namanya terbalik dari dugaan.
+- Grand per baris disetarakan ke `grandTotal` bill. Bill/menu berstatus
+  cancel/void dibuang dan DISEBUT; bill ganda antar halaman disaring per
+  `salesNum`.
+- Satu halaman gagal 3× = BERHENTI, tidak ada yang disimpan — bulan bolong
+  yang terlihat lengkap lebih buruk daripada tidak ada.
+
+```bash
+node tools/uji-esb.js   # 39 pemeriksaan, jsdom + php-parser
+```
+
 #### Pengurai .xlsx menelan sel sesudah tiap sel kosong (10 Sep 2026)
 
 Pertanyaan user: *"kenapa tertulis tanpa keterangan, padahal di Excel ada

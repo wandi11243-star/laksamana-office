@@ -19,3 +19,8 @@ define('DB_CHARSET', 'utf8mb4');
 define('ENV_LABEL', 'produksi');   // dev: 'dev'
 
 define('API_TOKEN', '');
+
+// Token API POS ESB untuk Analytics -> "Tarik dari ESB" (lihat lib_esb.php).
+// Isi dengan token yang sama dengan di Postman (boleh dengan/tanpa "Bearer ").
+// Kosong = tombolnya menyebut token belum dipasang.
+define('ESB_TOKEN', '');
