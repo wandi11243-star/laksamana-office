@@ -245,7 +245,11 @@ try {
     require_once __DIR__ . '/lib_esb.php';
     $u = sesi_user($body);
     if (!$u) sesi_tolak_tak_dikenal();
-    if (!sesi_punya_modul($u, 'analytics')) sesi_tolak_tanpa_modul('Analytics');
+    /* Dipakai Analytics (Sinkronkan ESB) DAN Report Daily modul Cashier
+       (Isi POS dari ESB, 20 Okt 2026). Kunci yang mana pun cukup: isinya cuma
+       bill penjualan, sama dengan yang sudah dilihat kasir di mesin POS. */
+    if (!sesi_punya_modul($u, 'analytics') && !sesi_punya_modul($u, 'cashier') && !sesi_punya_modul($u, 'kompas'))
+      sesi_tolak_tanpa_modul('Analytics / Cashier');
     $r = esb_halaman(isset($body['dari']) ? $body['dari'] : '',
                      isset($body['sampai']) ? $body['sampai'] : '',
                      isset($body['page']) ? $body['page'] : 1);
