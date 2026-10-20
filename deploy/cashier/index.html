@@ -1188,6 +1188,121 @@ function render(){
 let repDate=todayISO();
 function repOf(date){ return (DB.reports||{})[date]||null; }
 function repPay(rec,k){ const p=(rec&&rec.pay&&rec.pay[k])||{}; return {pos:num(p.pos),actual:num(p.actual)}; }
+
+/* ISI KOLOM POS DARI ESB (20 Oktober 2026, permintaan user)
+   Kolom POS selama ini diketik ulang kasir dari layar mesin POS. Sekarang
+   bisa ditarik langsung: seluruh bill tanggal itu diambil lewat perantara
+   esbHalaman (kompas-api, token ESB tinggal di config.php — sama dengan
+   Sinkronkan ESB di modul Analytics), lalu dijumlahkan per metode bayar.
+
+   - HANYA MENGISI KOTAKNYA, TIDAK MENYIMPAN. Report tetap disimpan lewat
+     Submit, supaya jejak "siapa yang submit" tetap orang yang memeriksanya.
+     Kolom Actual tidak disentuh: itu uang yang benar-benar dihitung kasir.
+   - Bill berstatus cancel/void TIDAK dihitung (aturan yang sama dengan
+     Analytics); bill ganda antar halaman disaring per salesNum.
+   - KEMBALIAN: nominal CASH di ESB adalah uang yang DISERAHKAN tamu. Kalau
+     jumlah pembayaran sebuah bill melebihi grandTotal-nya, kelebihannya
+     dipotong dari komponen CASH — aturan yang sama dengan BAYAR_TUNAI di
+     Analytics. Tanpa itu POS Cash selalu lebih besar daripada uang di laci.
+   - Nama metode yang TIDAK dikenali tidak ditebak ke kotak mana pun —
+     disebut di layar berikut nominalnya. Masuk ke kotak yang salah berarti
+     selisih POS vs Actual di dua baris sekaligus, dan dua-duanya terlihat
+     wajar. Tambahkan ejaannya di ESB_PETA_BAYAR.
+   - BARIS "QRIS POS" = BILL ESB ORDER (permintaan user 20 Okt 2026). Bill
+     yang visitPurposeName-nya ESB ORDER (pesan sendiri lewat QR meja) dibayar
+     lewat gateway ESB, jadi pembayarannya masuk qris_esb — APA PUN nama
+     metodenya di ESB, kecuali metode yang jelas bukan QRIS (cash, voucher,
+     compliment, deposit, EDC, error_*): uang itu memang tidak lewat gateway,
+     dan memindahkannya ke QRIS POS membuat dua baris berselisih sekaligus. */
+const ESB_PETA_BAYAR={
+  CASH:'cash', TUNAI:'cash', COMPLIMENT:'compliment', COMPLIMENTARY:'compliment',
+  EDCBCA:'edc_bca', EDCBRI:'edc_bri', EDCMANDIRI:'edc_mandiri',
+  ERRORBAR:'error_bar', ERRORCUSTOMER:'error_customer', ERRORFLOOR:'error_floor',
+  ERRORKASIR:'error_kasir', ERRORCASHIER:'error_kasir', ERRORKITCHEN:'error_kitchen',
+  GOFOOD:'gofood', GRABFOOD:'grabfood', MEMBERDEPOSIT:'member_dep', DEPOSIT:'member_dep',
+  QRISBCA:'qris_bca', QRISBRI:'qris_bri', QRISMANDIRI:'qris_mandiri',
+  QRISESB:'qris_esb', QRISPOS:'qris_esb',
+  TIKTOKGO:'tiktokgo', TRANSFERUOB:'transfer_uob', TRANSFER:'transfer_uob',
+  VOUCHER:'voucher'
+};
+const ESB_BATAL_RE=/cancel|void|batal/i;
+const ESB_ORDER_RE=/^\s*ESB\s*ORDER\s*$/i;
+const ESB_BUKAN_QRIS=['cash','voucher','compliment','member_dep','edc_bca','edc_bri','edc_mandiri',
+  'error_bar','error_customer','error_floor','error_kasir','error_kitchen'];
+function esbKunciBayar(nama){ return ESB_PETA_BAYAR[String(nama||'').toUpperCase().replace(/[^A-Z0-9]/g,'')]||''; }
+let ESB_POS_JALAN=false;
+async function esbIsiPos(el,hitung){
+  if(ESB_POS_JALAN) return;
+  const info=document.getElementById('rp_esb_info');
+  const btn=document.getElementById('rp_esb');
+  const tgl=repDate;
+  const terisi=PAYS.filter(p=>num((el.querySelector(`.rf[data-k="${p.k}"][data-f="pos"]`)||{}).value)>0).length;
+  if(terisi && !confirm(`${terisi} kotak POS tanggal ${dateLabel(tgl)} sudah terisi.\n\nTimpa seluruh kolom POS dengan angka dari ESB? (Kolom Actual tidak disentuh, dan belum ada yang tersimpan sampai Submit ditekan.)`)) return;
+  ESB_POS_JALAN=true; btn.disabled=true;
+  const tulis=h=>{ if(info) info.innerHTML=h; };
+  tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB…</div>`);
+  const ambil=async page=>{
+    let e=null;
+    for(let i=0;i<3;i++){
+      try{
+        const r=await vdPost({action:'esbHalaman',dari:tgl,sampai:tgl,page});
+        if(r&&r.ok) return r.data;
+        e=new Error((r&&r.error)||'balasan tidak dikenal');
+        if(/token|sesi|akses|modul/i.test(e.message)) break;
+      }catch(x){ e=(x instanceof TypeError)?new Error('koneksi ke server Office terputus (bukan dari ESB). Periksa internet lalu coba lagi.'):x; }
+      await new Promise(s=>setTimeout(s,800*(i+1)));
+    }
+    throw new Error('Halaman '+page+': '+(e?e.message:'gagal'));
+  };
+  try{
+    const bills={}; let page=1, total=null;
+    while(true){
+      const d=await ambil(page);
+      const isi=(d&&d.bills)||[];
+      isi.forEach(B=>{ if(B&&B.salesNum) bills[B.salesNum]=B; });
+      if(d&&d.pageCount) total=d.pageCount;
+      tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB… halaman ${page}${total?' dari '+total:''}</div>`);
+      if(!isi.length) break;
+      if(total && page>=total) break;
+      if(!total && d.perPage && isi.length<d.perPage) break;
+      if(page>=500) break;
+      page++;
+    }
+    const jum={}; PAYS.forEach(p=>{ jum[p.k]=0; });
+    const asing={}; let nBill=0, nBatal=0, nOrder=0, nilOrder=0;
+    Object.values(bills).forEach(B=>{
+      if(ESB_BATAL_RE.test(String(B.statusName||''))){ nBatal++; return; }
+      nBill++;
+      const ps=(B.salesPayments||[]).filter(p=>p&&p.paymentMethodName).map(p=>({nama:String(p.paymentMethodName).trim(),nil:Number(p.paymentAmount)||0}));
+      const grand=Number(B.grandTotal);
+      const lebih=Number.isFinite(grand)&&grand>0 ? ps.reduce((a,p)=>a+p.nil,0)-grand : 0;
+      if(lebih>0){
+        const tunai=ps.find(p=>esbKunciBayar(p.nama)==='cash');
+        if(tunai) tunai.nil=Math.max(0,tunai.nil-lebih);
+      }
+      const order=ESB_ORDER_RE.test(String(B.visitPurposeName||''));
+      if(order) nOrder++;
+      ps.forEach(p=>{
+        let k=esbKunciBayar(p.nama);
+        if(order && ESB_BUKAN_QRIS.indexOf(k)<0){ k='qris_esb'; nilOrder+=p.nil; }
+        if(k && k in jum) jum[k]+=p.nil;
+        else asing[p.nama]=(asing[p.nama]||0)+p.nil;
+      });
+    });
+    PAYS.forEach(p=>{
+      const inp=el.querySelector(`.rf[data-k="${p.k}"][data-f="pos"]`);
+      if(inp) inp.value=fmtRpInput(String(Math.round(jum[p.k])));
+    });
+    hitung();
+    const tot=Object.values(jum).reduce((a,b)=>a+b,0);
+    const daftarAsing=Object.keys(asing);
+    tulis(`<div class="notice ok"><div>✓ Kolom POS diisi dari ESB: <b>${nBill}</b> bill, total <b>${fmtRp(Math.round(tot))}</b>${nBatal?` · ${nBatal} bill batal/void tidak dihitung`:''}${nOrder?` · ${nOrder} bill ESB Order (${fmtRp(Math.round(nilOrder))}) masuk ke QRIS POS`:''}. <b>Belum tersimpan</b> — periksa lalu tekan Submit.</div></div>`
+      + (daftarAsing.length?`<div class="notice warn"><div>⚠ Metode ini ada di ESB tapi tidak dikenali, jadi <b>tidak dimasukkan</b> ke kotak mana pun: ${daftarAsing.map(n=>`<b>${esc(n)}</b> ${fmtRp(Math.round(asing[n]))}`).join(' · ')}. Isi manual ke barisnya, dan kabari admin supaya ejaannya didaftarkan.</div></div>`:'')
+      + (nBill?'':`<div class="notice warn"><div>ESB tidak memulangkan satu bill pun untuk ${esc(dateLabel(tgl))}.</div></div>`));
+  }catch(e){
+    tulis(`<div class="notice bad"><div>⚠ Gagal menarik dari ESB: ${esc(e.message||String(e))}. Kolom POS tidak diubah.</div></div>`);
+  }finally{ ESB_POS_JALAN=false; btn.disabled=false; }
+}
 function viewReport(){
   CAL_ST.rp.open=false;
   const el=document.getElementById('app-view');
@@ -1207,10 +1322,12 @@ function viewReport(){
   const thBon = bh.ada ? '<th class="num">Sisa Selisih</th>' : '';
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode. Boleh disubmit kapan saja.</div></div>
+      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode. Boleh disubmit kapan saja.</div>
+        <button class="btn" id="rp_esb" style="margin-top:8px">🔄 Isi kolom POS dari ESB</button></div>
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="rp_cal">${calInner('rp')}</div></div>
     </div>
     ${jejakHtml(rec)}
+    <div id="rp_esb_info"></div>
     <div class="card">
       <div class="tbl-wrap"><table>
         <thead><tr><th>Metode Pembayaran</th><th class="num">POS</th><th class="num">Actual</th><th class="num">Selisih</th>${thBon}</tr></thead>
@@ -1330,6 +1447,7 @@ function viewReport(){
   };
   function inputVal(k,f){ const e=el.querySelector(`.rf[data-k="${k}"][data-f="${f}"]`); return e?e.value:0; }
   el.querySelectorAll('.rf').forEach(i=>i.addEventListener('input',hitung));
+  document.getElementById('rp_esb').addEventListener('click',()=>esbIsiPos(el,hitung));
   document.getElementById('rp_save').addEventListener('click',()=>{
     const h=hitung();
     const box=document.getElementById('rp_err');
