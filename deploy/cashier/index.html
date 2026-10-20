@@ -1207,7 +1207,13 @@ function repPay(rec,k){ const p=(rec&&rec.pay&&rec.pay[k])||{}; return {pos:num(
    - Nama metode yang TIDAK dikenali tidak ditebak ke kotak mana pun —
      disebut di layar berikut nominalnya. Masuk ke kotak yang salah berarti
      selisih POS vs Actual di dua baris sekaligus, dan dua-duanya terlihat
-     wajar. Tambahkan ejaannya di ESB_PETA_BAYAR. */
+     wajar. Tambahkan ejaannya di ESB_PETA_BAYAR.
+   - BARIS "QRIS POS" = BILL ESB ORDER (permintaan user 20 Okt 2026). Bill
+     yang visitPurposeName-nya ESB ORDER (pesan sendiri lewat QR meja) dibayar
+     lewat gateway ESB, jadi pembayarannya masuk qris_esb — APA PUN nama
+     metodenya di ESB, kecuali metode yang jelas bukan QRIS (cash, voucher,
+     compliment, deposit, EDC, error_*): uang itu memang tidak lewat gateway,
+     dan memindahkannya ke QRIS POS membuat dua baris berselisih sekaligus. */
 const ESB_PETA_BAYAR={
   CASH:'cash', TUNAI:'cash', COMPLIMENT:'compliment', COMPLIMENTARY:'compliment',
   EDCBCA:'edc_bca', EDCBRI:'edc_bri', EDCMANDIRI:'edc_mandiri',
@@ -1220,6 +1226,9 @@ const ESB_PETA_BAYAR={
   VOUCHER:'voucher'
 };
 const ESB_BATAL_RE=/cancel|void|batal/i;
+const ESB_ORDER_RE=/^\s*ESB\s*ORDER\s*$/i;
+const ESB_BUKAN_QRIS=['cash','voucher','compliment','member_dep','edc_bca','edc_bri','edc_mandiri',
+  'error_bar','error_customer','error_floor','error_kasir','error_kitchen'];
 function esbKunciBayar(nama){ return ESB_PETA_BAYAR[String(nama||'').toUpperCase().replace(/[^A-Z0-9]/g,'')]||''; }
 let ESB_POS_JALAN=false;
 async function esbIsiPos(el,hitung){
@@ -1260,7 +1269,7 @@ async function esbIsiPos(el,hitung){
       page++;
     }
     const jum={}; PAYS.forEach(p=>{ jum[p.k]=0; });
-    const asing={}; let nBill=0, nBatal=0;
+    const asing={}; let nBill=0, nBatal=0, nOrder=0, nilOrder=0;
     Object.values(bills).forEach(B=>{
       if(ESB_BATAL_RE.test(String(B.statusName||''))){ nBatal++; return; }
       nBill++;
@@ -1271,8 +1280,11 @@ async function esbIsiPos(el,hitung){
         const tunai=ps.find(p=>esbKunciBayar(p.nama)==='cash');
         if(tunai) tunai.nil=Math.max(0,tunai.nil-lebih);
       }
+      const order=ESB_ORDER_RE.test(String(B.visitPurposeName||''));
+      if(order) nOrder++;
       ps.forEach(p=>{
-        const k=esbKunciBayar(p.nama);
+        let k=esbKunciBayar(p.nama);
+        if(order && ESB_BUKAN_QRIS.indexOf(k)<0){ k='qris_esb'; nilOrder+=p.nil; }
         if(k && k in jum) jum[k]+=p.nil;
         else asing[p.nama]=(asing[p.nama]||0)+p.nil;
       });
@@ -1284,7 +1296,7 @@ async function esbIsiPos(el,hitung){
     hitung();
     const tot=Object.values(jum).reduce((a,b)=>a+b,0);
     const daftarAsing=Object.keys(asing);
-    tulis(`<div class="notice ok"><div>✓ Kolom POS diisi dari ESB: <b>${nBill}</b> bill, total <b>${fmtRp(Math.round(tot))}</b>${nBatal?` · ${nBatal} bill batal/void tidak dihitung`:''}. <b>Belum tersimpan</b> — periksa lalu tekan Submit.</div></div>`
+    tulis(`<div class="notice ok"><div>✓ Kolom POS diisi dari ESB: <b>${nBill}</b> bill, total <b>${fmtRp(Math.round(tot))}</b>${nBatal?` · ${nBatal} bill batal/void tidak dihitung`:''}${nOrder?` · ${nOrder} bill ESB Order (${fmtRp(Math.round(nilOrder))}) masuk ke QRIS POS`:''}. <b>Belum tersimpan</b> — periksa lalu tekan Submit.</div></div>`
       + (daftarAsing.length?`<div class="notice warn"><div>⚠ Metode ini ada di ESB tapi tidak dikenali, jadi <b>tidak dimasukkan</b> ke kotak mana pun: ${daftarAsing.map(n=>`<b>${esc(n)}</b> ${fmtRp(Math.round(asing[n]))}`).join(' · ')}. Isi manual ke barisnya, dan kabari admin supaya ejaannya didaftarkan.</div></div>`:'')
       + (nBill?'':`<div class="notice warn"><div>ESB tidak memulangkan satu bill pun untuk ${esc(dateLabel(tgl))}.</div></div>`));
   }catch(e){
