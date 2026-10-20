@@ -6,10 +6,10 @@ const sisip=(h,src)=>h.replace(`<script src="${src}"></script>`,'<script>'+aset+
 const tgl=new Date(); const T=tgl.getFullYear()+'-'+String(tgl.getMonth()+1).padStart(2,'0')+'-'+String(tgl.getDate()).padStart(2,'0');
 const M=(n,kat,price,qty,extra)=>Object.assign({menuName:n,menuCategoryName:kat,price,qty,statusName:'Ordered'},extra||{});
 const bills=[
- {salesNum:'B1',statusName:'Paid',editedBy:'ANDY',visitPurposeName:'DINE IN',paxTotal:3,subtotal:100000,otherTaxTotal:5000,vatTotal:10000,grandTotal:115000,
+ {salesNum:'B1',statusName:'Paid',editedBy:'MUDAKASIR2',visitPurposeName:'DINE IN',paxTotal:3,subtotal:100000,otherTaxTotal:5000,vatTotal:10000,grandTotal:115000,
    salesPayments:[{paymentMethodName:'CASH',paymentAmount:120000}],
-   salesMenus:[M('NASI GORENG','FOOD',60000,1),M('ICE TEA','BEVERAGES',20000,2),M('LA BOLD','OTHERS',35000,1,{statusName:'Void',cancelNotes:'salah input',createdBy:'SULIS'})]},
- {salesNum:'B2',statusName:'Paid',editedBy:'ANDY',additionalInfo:'Ultah Pak Budi',paxTotal:1,otherTaxTotal:2500,vatTotal:5000,grandTotal:57500,
+   salesMenus:[M('NASI GORENG','FOOD',60000,1),M('ICE TEA','BEVERAGES',20000,2),M('LA BOLD','OTHERS',35000,1,{statusName:'Void',cancelNotes:'salah input',createdBy:'MUDANINDY'})]},
+ {salesNum:'B2',statusName:'Paid',editedBy:'MUDAKASIR2',additionalInfo:'Ultah Pak Budi',paxTotal:1,otherTaxTotal:2500,vatTotal:5000,grandTotal:57500,
    salesPayments:[{paymentMethodName:'COMPLIMENT',paymentAmount:57500}],
    salesMenus:[M('BIRTHDAY CAKE','FOOD',50000,1)]},
  {salesNum:'B3',statusName:'Paid',visitPurposeName:'ESB ORDER',createdBy:'SYSTEM',paxTotal:1,otherTaxTotal:1000,vatTotal:2000,grandTotal:23000,
@@ -24,7 +24,7 @@ const bills=[
      M('KOIN 2 PCS','OTHERS',0,1,{menuCategoryDetailName:'COIN'}),M('GUDANG GARAM','OTHERS',0,1,{menuCategoryDetailName:'ROKOK'})]},
  {salesNum:'B5',statusName:'Cancel',cancelNotes:'tamu batal',createdBy:'TASYA',grandTotal:30000,salesPayments:[],
    salesMenus:[M('MIE AYAM','FOOD',30000,1)]},
- {salesNum:'B6',statusName:'Paid',editedBy:'MUDAFEILA',paxTotal:2,otherTaxTotal:0,vatTotal:0,grandTotal:10000,
+ {salesNum:'B6',statusName:'Paid',editedBy:'MUDADEVI',paxTotal:2,otherTaxTotal:0,vatTotal:0,grandTotal:10000,
    salesPayments:[{paymentMethodName:'CASH',paymentAmount:10000}],salesMenus:[M('AIR','BEVERAGES',10000,1)]}
 ];
 let hasil={ok:0,gagal:0};
@@ -73,7 +73,7 @@ function buka(path,src,mods,stub){
   ok(/B5/.test(vv)&&/MIE AYAM/.test(vv)&&/bill dibatalkan/.test(vv),'bill batal terdaftar');
   w.eval("esbVoidPakai(0)"); await tunggu(200);
   const F=w.eval("VD_FORM");
-  ok(F.bill==='B1'&&F.penginput==='SULIS'&&F.alasan==='salah input','form void: '+F.bill+'/'+F.penginput+'/'+F.alasan);
+  ok(F.bill==='B1'&&F.penginput==='TASYA'&&F.alasan==='salah input','form void: '+F.bill+'/'+F.penginput+'/'+F.alasan);
   ok(F.items.length===1&&F.items[0].item==='LA BOLD'&&F.items[0].sub==='35000','item void '+JSON.stringify(F.items));
   ok(F.salah==='','kesalahan dari siapa tidak diisi');
   ok(w.document.getElementById('vd_bill').value==='B1','form void tergambar');
@@ -136,7 +136,7 @@ function buka(path,src,mods,stub){
   ok(/252\.000/.test(o.document.getElementById('s_omset').textContent),'omset net ikut: '+o.document.getElementById('s_omset').textContent);
   ok(!O.posts.some(p=>p.action==='saveAll'),'omset belum menyimpan');
   // breakdown: butuh hari tersimpan + kasir
-  o.eval(`DB.employees.kasir=[{id:'k1',name:'Andy Pratama'},{id:'k2',name:'Rina'},{id:'k3',name:'Budi'},{id:'k4',name:'Faila Ayu Pratiwi'}];
+  o.eval(`DB.employees.kasir=[{id:'k1',name:'Safriandi'},{id:'k2',name:'Rina'},{id:'k3',name:'Budi'},{id:'k4',name:'Faila Ayu Pratiwi'}];
     DB.daily=(DB.daily||[]).filter(x=>x.date!=='${T}');
     DB.daily.push({date:'${T}',food:110000,bev:70000,lainnya:72000,discount:0,service_charge:8500,tax:17000,traffic:8,bill:5});
     bdDate='${T}'; PERIOD='${T.slice(0,7)}'; go('breakdown')`); await tunggu(400);
@@ -144,19 +144,27 @@ function buka(path,src,mods,stub){
   ok(!!bb,'tombol breakdown ada');
   if(bb){ bb.click(); await tunggu(500);
     const ks=k=>o.document.querySelector(`.ksf[data-i="${k}"][data-f="amount"]`).value;
-    ok(ks(0)==='150.000','Andy: B1 100rb + B2 50rb = '+ks(0));
+    ok(ks(0)==='150.000','MUDAKASIR2 = ANDY -> Safriandi: B1 100rb + B2 50rb = '+ks(0));
     ok(ks(1)==='72.000','MUDARINA -> Rina (awalan MUDA dibuang): '+ks(1));
     ok(ks(2)==='0','Budi nol: '+ks(2));
     ok(o.document.querySelector('.sof[data-f="amount"]').value==='20.000','self order 20rb');
     const inf=o.document.getElementById('bd_esb_info').textContent;
-    ok(/MUDAFEILA/.test(inf),'akun tak dikenal disebut');
+    ok(/DEVI/.test(inf)&&/MUDADEVI/.test(inf),'karyawan tak dikenal disebut dgn Employee Name');
     ok(ks(3)==='0','Faila belum terisi sebelum dipetakan: '+ks(3));
-    const sel=o.document.querySelector('.bd-esb-akun[data-akun="MUDAFEILA"]'); ok(!!sel,'pilihan kasir untuk akun tak dikenal');
+    const sel=o.document.querySelector('.bd-esb-akun[data-akun="MUDADEVI"]'); ok(!!sel,'pilihan kasir untuk akun tak dikenal');
     if(sel){ sel.value='k4'; o.document.getElementById('bd_esb_peta').click(); await tunggu(200);
       ok(ks(3)==='10.000','sesudah dipetakan Faila terisi: '+ks(3));
-      ok(o.eval("DB.esbAkunKasir&&DB.esbAkunKasir.MUDAFEILA")==='k4','pemetaan tersimpan di DB');
+      ok(o.eval("DB.esbAkunKasir&&DB.esbAkunKasir.MUDADEVI")==='k4','pemetaan tersimpan di DB');
       ok(!o.document.querySelector('.bd-esb-akun'),'tidak ada akun tak dikenal lagi');
-      ok(/Faila Ayu Pratiwi<\/b> ← MUDAFEILA/.test(o.document.getElementById('bd_esb_info').innerHTML),'akun yang dipakai disebut');
+      ok(/Faila Ayu Pratiwi<\/b> ← DEVI \(MUDADEVI\)/.test(o.document.getElementById('bd_esb_info').innerHTML),'karyawan yang dipakai disebut dgn Employee Name');
+      ok(/Safriandi<\/b> ← ANDY \(MUDAKASIR2\)/.test(o.document.getElementById('bd_esb_info').innerHTML),'MUDAKASIR2 tampil sebagai ANDY');
+      // pemetaan Employee Name -> kasir Office dgn nama produksi
+      const P=o.eval(`esbPos.petakanKasir(['Faila Ayu Pratiwi','Gita Ananda Putri','Safriandi','Tasya Rahmalia Putri','Rizki Arnold','Gresya Aulodia Nainggolan','Cindy Juliawati','Novianti Kemala','Sulis','Yasmin Ghaliyah Denofri'].map((n,i)=>({id:'e'+i,name:n})),
+        Object.fromEntries(['MUDAKASIR2','MUDACINDY','MUDAFEILA','MUDAGITA','MUDAGRACE','MUDAKASIR1','MUDARIZKI','MUDASULIS','MUDANINDY','MUDAYASMIN','MUDASPV','MUDADEVI'].map(a=>[a,{amount:1,disc:0,n:1}])),{})`);
+      ok(Object.keys(P.hasil).length===10,'10 kasir produksi terbaca otomatis: '+Object.keys(P.hasil).length);
+      ok(P.hasil.e3&&P.hasil.e3.akun[0]==='TASYA (MUDANINDY)','MUDANINDY -> Tasya, bukan Novianti');
+      ok(P.hasil.e7&&P.hasil.e7.akun[0]==='NOVI (MUDAKASIR1)','MUDAKASIR1 -> Novianti');
+      ok(Object.keys(P.takKenal).sort().join()==='MUDADEVI,MUDASPV','yang tersisa hanya DEVI & SPV: '+Object.keys(P.takKenal).join());
     }
     ok(!O.posts.some(p=>p.action==='saveAll'),'breakdown belum menyimpan');
   }

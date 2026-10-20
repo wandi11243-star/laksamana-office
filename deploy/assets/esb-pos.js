@@ -142,7 +142,7 @@
         R.nBatal++;
         const items = (B.salesMenus || []).map(M => ({ item: String(M.menuName || '').trim(), qty: N(M.qty), sub: nilaiMenu(M) }))
           .filter(x => x.item);
-        if (items.length) R.void.push({ bill, utuh: true, waiter: String(B.createdBy || ''), kasir: kasirBill(B),
+        if (items.length) R.void.push({ bill, utuh: true, waiter: namaKaryawan(B.createdBy), kasir: namaKaryawan(kasirBill(B)),
           alasan: String(B.cancelNotes || B.additionalInfo || '').trim(), items, meja: String(B.tableName || '') });
         return;
       }
@@ -179,14 +179,14 @@
         const tax = Math.round(A.tax * share), service = Math.round(A.svc * share);
         const menus = (B.salesMenus || []).filter(menuHidup).map(M => String(M.menuName || '').trim()).filter(Boolean);
         R.komp.push({ bill, jenis, nominal: Math.round(nil), tax, service, subTotal: Math.round(nil) - tax - service,
-          info: String(B.additionalInfo || '').trim(), menu: menus, kasir: kasirBill(B), meja: String(B.tableName || '') });
+          info: String(B.additionalInfo || '').trim(), menu: menus, kasir: namaKaryawan(kasirBill(B)), meja: String(B.tableName || '') });
       });
 
       /* Menu void di dalam bill yang tetap jalan. */
       const vd = (B.salesMenus || []).filter(M => M && !menuHidup(M))
         .map(M => ({ item: String(M.menuName || '').trim(), qty: N(M.qty), sub: nilaiMenu(M),
-          waiter: String(M.createdBy || ''), alasan: String(M.cancelNotes || '').trim() })).filter(x => x.item);
-      if (vd.length) R.void.push({ bill, utuh: false, waiter: vd[0].waiter, kasir: kasirBill(B),
+          waiter: namaKaryawan(M.createdBy), alasan: String(M.cancelNotes || '').trim() })).filter(x => x.item);
+      if (vd.length) R.void.push({ bill, utuh: false, waiter: vd[0].waiter, kasir: namaKaryawan(kasirBill(B)),
         alasan: vd.map(x => x.alasan).filter(Boolean).filter((a, i, s) => s.indexOf(a) === i).join('; '),
         items: vd, meja: String(B.tableName || '') });
 
@@ -260,24 +260,48 @@
         sebagian dengan ejaan lain dari nama di Office (FEILA vs Faila), dan
         sebagian akun bersama — tidak ada aturan yang bisa menebak semuanya.
      2. Kalau belum ada di peta: awalan MUDA dibuang, lalu cocok kalau seluruh
-        token akun ada di nama karyawan (atau sebaliknya). Tepat satu. */
+        token akun ada di nama karyawan (atau sebaliknya). Tepat satu.
+
+     EMPLOYEE NAME (21 Okt 2026, dari layar master user ESB yang dikirim
+     user): API penjualan cuma memulangkan USERNAME (createdBy/editedBy),
+     jadi pasangan username -> Employee Name dicatat di sini. Ini yang
+     dipakai mencocokkan ke kasir Office DAN yang ditampilkan di layar —
+     bukan username. Yang penting: MUDAKASIR2 = ANDY, MUDAKASIR1 = NOVI,
+     MUDANINDY = TASYA (username-nya TIDAK sama dengan orangnya).
+     Username baru di ESB yang belum ada di sini jatuh ke username tanpa
+     awalan MUDA, dan tetap bisa dipetakan manual di Breakdown. */
+  const KARYAWAN_ESB = {
+    MUDAKASIR2: 'ANDY', MUDACINDY: 'CINDY', MUDADEVANI: 'DEVANI', MUDADEVI: 'DEVI',
+    MUDAFEILA: 'FEILA', MUDAGITA: 'GITA', MUDAGRACE: 'GRACE', MUDAKASIR1: 'NOVI',
+    MUDARIZKI: 'RIZKI', MUDASPV: 'SPV', MUDASULIS: 'SULIS', MUDANINDY: 'TASYA',
+    MUDAYASMIN: 'YASMIN'
+  };
+  /* Nama panggilan di ESB -> kata yang ada di nama lengkap Office. Hanya
+     yang ejaannya beda: FEILA = Faila Ayu Pratiwi, ANDY = Safriandi,
+     NOVI = Novianti Kemala, GRACE = Gresya Aulodia. Ini TEBAKAN dari
+     kemiripan nama (21 Okt 2026); yang salah dibetulkan lewat pemetaan
+     manual di Breakdown, yang selalu menang. */
+  const PANGGILAN_OFFICE = { FEILA: 'FAILA', ANDY: 'SAFRIANDI', NOVI: 'NOVIANTI', GRACE: 'GRESYA' };
   const tanpaAwalan = a => { const b = baku(a); const m = b.match(/^MUDA\s*(.{3,})$/); return m ? m[1] : b; };
+  const namaKaryawan = u => { const b = baku(u); return KARYAWAN_ESB[b] || (b ? tanpaAwalan(b) : ''); };
   function petakanKasir(emps, kasirEsb, peta) {
     const hasil = {}, takKenal = {};
     peta = peta || {};
     Object.keys(kasirEsb).forEach(akun => {
       const idPeta = peta[baku(akun)];
       const lewatPeta = idPeta ? emps.filter(e => String(e.id) === String(idPeta)) : [];
-      const inti = tanpaAwalan(akun);
+      const nama = namaKaryawan(akun);
+      const inti = PANGGILAN_OFFICE[nama] || nama;
+      kasirEsb[akun].nama = nama;
       const cand = lewatPeta.length ? lewatPeta
         : emps.filter(e => cocokToken(inti, e.name) || cocokToken(e.name, inti));
       if (cand.length === 1) {
         const r = hasil[cand[0].id] || (hasil[cand[0].id] = { amount: 0, disc: 0, akun: [] });
-        r.amount += kasirEsb[akun].amount; r.disc += kasirEsb[akun].disc; r.akun.push(akun);
+        r.amount += kasirEsb[akun].amount; r.disc += kasirEsb[akun].disc; r.akun.push(nama + ' (' + akun + ')');
       } else takKenal[akun] = Object.assign({ ambigu: cand.length > 1 }, kasirEsb[akun]);
     });
     return { hasil, takKenal };
   }
 
-  W.esbPos = { tarikHari, ringkasHari, kunciBayar, petakanRokok, petakanKasir, cocokToken, baku, PETA_BAYAR };
+  W.esbPos = { tarikHari, ringkasHari, kunciBayar, petakanRokok, petakanKasir, cocokToken, baku, namaKaryawan, KARYAWAN_ESB, PETA_BAYAR };
 })(window);
