@@ -5209,6 +5209,47 @@ seluruh transaksi sebulan.
 node tools/uji-analytics.js   # 230 pemeriksaan
 ```
 
+#### Sinkronkan dengan POS ESB (20 Oktober 2026)
+
+Satu tombol **🔄 Sinkronkan dengan ESB** — di halaman **Ringkasan** dan
+**Unggah** — tanpa memilih bulan dan langsung tersimpan (permintaan user:
+"tombol synchronize yang menarik sampai hari ini"). Versi pertama hari yang
+sama berupa pilih-bulan + pratinjau; DICABUT, jangan dikembalikan.
+
+- Yang ditarik: **bulan ini dari tanggal 1 s.d. HARI INI**, plus bulan lalu
+  yang sinkron terakhirnya (`laporan[b].esb.sampai`) belum sampai akhir
+  bulan. Bulan yang diisi dari **Excel tidak disentuh**, kecuali bulan ini —
+  dan itu ditanya dulu.
+- **Sebulan ditarik ULANG seluruhnya**, bukan hari barunya saja: ringkasan
+  tersimpan sudah dijumlahkan (bill unik, porsi, pembagian bayar) dan tidak
+  bisa ditambah per hari tanpa menghitung bill dua kali.
+- Disimpan **per bulan** (bulan lalu yang berhasil tidak ikut hilang kalau
+  bulan ini gagal); gagal simpan memulihkan ringkasan lama.
+- `anBentukLaporan(u)` = SATU daftar kunci tertutup untuk unggah berkas DAN
+  sinkron; `esb` ditempel sesudahnya.
+- Kartu versi Ringkasan **tanpa `data-aks`** — `terapkanKunci()` mencabut
+  seluruh `[data-aks]` di halaman berhak Lihat, dan tombolnya hilang diam.
+- **Token ESB di `config.php` kompas-mysql** (`define('ESB_TOKEN','...')`),
+  TIDAK PERNAH di HTML. Perantaranya `esbHalaman` (`kompas-mysql/lib_esb.php`),
+  berpagar sesi + kunci `analytics`, SATU halaman per panggilan — sebulan
+  dalam satu proses PHP dipotong hosting di tengah.
+- Kuncinya **Bearer** (dibuktikan: 401 + `www-authenticate: Bearer`). Jumlah
+  halaman dari header `X-Pagination-Page-Count`; kalau tidak ada, lanjut
+  sampai halaman kosong/lebih pendek. Peramban menarik 3 halaman sekaligus.
+- **Tidak ada pengurai kedua**: `esbKeBaris()` meratakan JSON jadi baris
+  berkolom Detail Report lalu masuk `uraiBerkas()`. Paket ditaruh TEPAT di
+  bawah menunya sebagai `<NAMA> (PACKAGE)` supaya aturan baris ukuran berlaku.
+- **`otherTax` = SERVICE, `vat` = PAJAK** — namanya terbalik dari dugaan.
+- Grand per baris disetarakan ke `grandTotal` bill. Bill/menu berstatus
+  cancel/void dibuang dan DISEBUT; bill ganda antar halaman disaring per
+  `salesNum`.
+- Satu halaman gagal 3× = BERHENTI, tidak ada yang disimpan — bulan bolong
+  yang terlihat lengkap lebih buruk daripada tidak ada.
+
+```bash
+node tools/uji-esb.js   # 50 pemeriksaan, jsdom (jam dipatok) + php-parser
+```
+
 #### Pengurai .xlsx menelan sel sesudah tiap sel kosong (10 Sep 2026)
 
 Pertanyaan user: *"kenapa tertulis tanpa keterangan, padahal di Excel ada

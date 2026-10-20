@@ -1534,7 +1534,10 @@ const pct = (x, t) => t ? Math.round(x / t * 100) : 0;
 function vRingkasan() {
   const V = document.getElementById('app-view');
   const b = blnAktif(), d = lap(b);
-  let h = pilihBulan();
+  /* Tombol Sinkronkan ikut di sini: halaman inilah yang dibuka tiap pagi,
+     dan menyuruh orang pindah ke halaman Unggah untuk satu tombol berarti
+     sinkronnya ditunda. */
+  let h = kartuSinkronEsb(true) + pilihBulan();
 
   if (!d) { V.innerHTML = h + kosongBelumAda(); return; }
 
@@ -6538,6 +6541,8 @@ function vUnggah() {
     + '<div id="an_status" class="helper" style="margin-top:10px"></div>'
     + '</div>';
 
+  h += kartuSinkronEsb();
+
   if (UNGGAH_HASIL) h += pratinjauUnggah(UNGGAH_HASIL);
 
   /* Riwayat: bulan mana saja yang sudah ada, dan dari laporan jenis apa. */
@@ -7815,6 +7820,288 @@ function uraiBerkas(baris, namaBerkas) {
   const u = ringkasPos(baris, namaBerkas); u.kind = 'pos'; return u;
 }
 
+/* ============ TARIK DARI API POS ESB (20 Oktober 2026) ============
+   Permintaan user: data penjualan ditarik langsung dari API ESB, bukan lewat
+   unggah Excel. Tokennya TIDAK ada di sini — ia di config.php server, dan
+   halaman ini memanggil perantara `esbHalaman` (kompas-mysql/lib_esb.php).
+
+   TIDAK ADA PENGURAI KEDUA. JSON ESB diratakan jadi baris berkolom SAMA
+   dengan Detail Report, lalu diserahkan ke uraiBerkas() yang sama persis
+   dengan jalur Excel. Seluruh aturan yang sudah dibayar mahal di sana —
+   bill dari nomor unik, kembalian tunai, baris ukuran paket, kategori EVENT,
+   bulan sebelah — ikut berlaku tanpa disalin. Pengurai JSON tersendiri akan
+   menyimpang dari yang Excel, dan dua angka untuk satu bulan di satu modul
+   adalah selisih yang tidak bisa dijelaskan siapa pun.
+
+   Yang perlu diingat soal NAMA FIELD ESB, dan salahnya diam:
+     otherTax / otherTaxValue = SERVICE CHARGE (5%)
+     vat / vatValue           = PAJAK PB1 (10%)
+   Namanya terbalik dari dugaan. Ditukar, kedua kolom tetap terlihat wajar. */
+const ESB_KOLOM = ['Sales Date','Order Time','Sales Number','Total After Bill Discount','Nett Sales',
+  'Subtotal','Menu Discount','Service Charge','Tax','Pax Total','Visit Purpose','Table Name',
+  'Payment Method','Waiter','Cashier','Additional Info','Menu Notes','Menu','Qty','Menu Total',
+  'Menu Code','Menu Category','Menu Category Detail'];
+const ESB_BATAL_RE = /cancel|void|batal/i;
+/* Jam dari "2026-09-30T23:11:05+07:00" atau "2026-09-30 23:10:00". ESB sudah
+   menulisnya WIB (ber-zona +07:00), jadi jamnya diambil APA ADANYA dari teks —
+   bukan lewat Date(), yang membacanya di zona peramban. */
+const esbJam = v => { const m = String(v || '').match(/[T ](\d{2}:\d{2}(?::\d{2})?)/); return m ? m[1] : ''; };
+/* Satu bill dibayar beberapa metode -> ditulis SAMA dengan Detail Report:
+   "QRIS BRI (500.000),CASH (30.000)". pecahBayar() yang sudah ada yang
+   membacanya, termasuk aturan kembalian tunai. */
+function esbBayar(pays) {
+  const ps = (pays || []).filter(p => p && p.paymentMethodName);
+  if (ps.length === 1) return String(ps[0].paymentMethodName).trim();
+  return ps.map(p => String(p.paymentMethodName).trim() + ' ('
+    + Math.round(Number(p.paymentAmount) || 0).toLocaleString('id-ID') + ')').join(',');
+}
+function esbKeBaris(bills) {
+  const kepala = {}; ESB_KOLOM.forEach((k, i) => { kepala['c' + i] = k; });
+  const rows = [kepala];
+  const info = { bill:0, billBatal:0, menuBatal:0, cabang:{} };
+  (bills || []).forEach(B => {
+    if (!B || !B.salesNum) return;
+    if (ESB_BATAL_RE.test(String(B.statusName || ''))) { info.billBatal++; return; }
+    info.bill++;
+    if (B.branchName) info.cabang[B.branchName] = 1;
+    /* Baris mentah dulu: tiap menu, lalu paketnya TEPAT di bawahnya — urutan
+       itu yang dipakai ringkasPos() untuk mengenali induk baris ukuran
+       (REGULAR/LARGE). Extras tidak berdiri sendiri: nilainya ditambahkan
+       ke menu induknya, supaya tidak lahir sebagai menu palsu. */
+    const mentah = [];
+    (B.salesMenus || []).forEach(M => {
+      if (ESB_BATAL_RE.test(String(M.statusName || ''))) { info.menuBatal++; return; }
+      const ex = (M.extras || []).reduce((a, x) => a + (Number(x.total) || 0), 0);
+      const exNil = (M.extras || []).reduce((a, x) => a + (Number(x.price) || 0) * (Number(x.qty) || 0), 0);
+      mentah.push({ M, nama: String(M.menuName || '').trim(), qty: Number(M.qty) || 0,
+        nilai: (Number(M.price) || 0) * (Number(M.qty) || 0) - (Number(M.discountValue) || 0) + exNil,
+        total: (Number(M.total) || 0) + ex, svc: Number(M.otherTaxValue) || 0, tax: Number(M.vatValue) || 0,
+        disc: Number(M.discountValue) || 0, kode: M.menuCode || '', catatan: M.notes || '',
+        waiter: M.createdBy || '', jam: esbJam(M.createdDate) || esbJam(B.salesDateIn) });
+      (M.packages || []).forEach(P => {
+        if (ESB_BATAL_RE.test(String(P.statusName || ''))) return;
+        mentah.push({ M, nama: String(P.menuName || '').trim() + ' (PACKAGE)', qty: Number(P.qty) || 0,
+          nilai: (Number(P.price) || 0) * (Number(P.qty) || 0) - (Number(P.discountValue) || 0),
+          total: Number(P.total) || 0, svc: Number(P.otherTaxValue) || 0, tax: Number(P.vatValue) || 0,
+          disc: Number(P.discountValue) || 0, kode: P.menuCode || '', catatan: P.notes || '',
+          waiter: M.createdBy || '', jam: esbJam(M.createdDate) || esbJam(B.salesDateIn) });
+      });
+    });
+    /* GRAND PER BARIS DISETARAKAN ke grandTotal bill. Diskon tingkat bill &
+       promo tidak menempel di baris menu mana pun, jadi jumlah total menu
+       bisa lebih besar daripada yang benar-benar ditagih. Dibagi menurut
+       porsi tiap baris, kolom grand berjumlah PAS ke grandTotal — sifat yang
+       sama dengan "Total After Bill Discount" di Detail Report. */
+    const gBill = Number(B.grandTotal) || 0;
+    const jml = mentah.reduce((a, x) => a + x.total, 0);
+    const pay = esbBayar(B.salesPayments);
+    mentah.forEach((x, i) => {
+      const g = jml > 0 ? gBill * x.total / jml : (i === 0 ? gBill : 0);
+      const r = {};
+      const isi = [B.salesDate, x.jam, B.salesNum, g, g - x.svc - x.tax,
+        x.nilai + x.disc, x.disc, x.svc, x.tax, i === 0 ? (Number(B.paxTotal) || 0) : '',
+        B.visitPurposeName || '', B.tableName || '', pay, x.waiter, B.editedBy || B.createdBy || '',
+        B.additionalInfo || '', x.catatan, x.nama, x.qty, x.nilai, x.kode,
+        x.M.menuCategoryName || '', x.M.menuCategoryDetailName || ''];
+      isi.forEach((v, k) => { r['c' + k] = v; });
+      rows.push(r);
+    });
+    /* Bill tanpa satu menu pun tetap membawa omset; dibuang, total bulan
+       berhenti sama dengan POS. */
+    if (!mentah.length && gBill) {
+      const r = {}; ESB_KOLOM.forEach((k, i) => { r['c' + i] = ''; });
+      r.c0 = B.salesDate; r.c1 = esbJam(B.salesDateIn); r.c2 = B.salesNum; r.c3 = gBill; r.c4 = gBill;
+      r.c10 = B.visitPurposeName || ''; r.c11 = B.tableName || ''; r.c12 = pay;
+      rows.push(r);
+    }
+  });
+  return { rows, info };
+}
+
+/* SINKRONKAN DENGAN ESB (20 Oktober 2026, permintaan user: "tidak perlu
+   tarik data per bulan, cukup tombol synchronize yang menarik sampai hari
+   ini"). Satu tombol, tanpa memilih bulan, langsung tersimpan.
+
+   YANG DITARIK: bulan ini dari tanggal 1 sampai HARI INI — plus bulan-bulan
+   sebelumnya yang sinkron terakhirnya BELUM sampai akhir bulan (sinkron
+   tanggal 25 lalu tidak dibuka lagi sampai bulan berganti meninggalkan
+   tanggal 26-31 yang tidak pernah tertarik).
+
+   SEBULAN DITARIK ULANG SELURUHNYA, BUKAN HANYA HARI YANG BARU. Ringkasan
+   yang tersimpan sudah dijumlahkan — bill unik per jam, porsi per menu,
+   pembagian metode bayar — dan tidak bisa ditambah hari demi hari tanpa
+   menghitung bill yang menyeberang dua kali. Menariknya ulang juga yang
+   membuat koreksi di POS (bill yang dibatalkan kemarin) ikut terbawa.
+   Harganya waktu: menjelang akhir bulan ±270 halaman. */
+let ESB_JALAN = null;   /* {bln, teks} — di luar DOM, render TOTAL */
+function esbSesiToken() {
+  try { const s = JSON.parse(localStorage.getItem(SESSION_KEY) || 'null'); return (s && s.token) || ''; }
+  catch (e) { return ''; }
+}
+function esbLapor(teks, kelas) {
+  if (ESB_JALAN) ESB_JALAN.teks = teks;
+  const st = document.getElementById('esb_status');
+  if (st) st.innerHTML = teks;
+  setSync(kelas || 'saving', String(teks).replace(/<[^>]+>/g, ''));
+}
+const esbAkhirBulan = b => { const [th, bl] = b.split('-').map(Number);
+  return b + '-' + String(new Date(th, bl, 0).getDate()).padStart(2, '0'); };
+/* Bulan yang perlu disinkronkan, urut dari yang tertua. Hanya yang PERNAH
+   disinkronkan yang dilanjutkan — bulan yang diisi dari Excel tidak
+   disentuh tombol ini; menimpanya diam-diam mengganti data yang sengaja
+   diunggah orang. */
+function esbBulanSinkron() {
+  const kini = todayISO().slice(0, 7);
+  const out = [];
+  Object.keys(AN.data.laporan || {}).sort().forEach(b => {
+    const L = AN.data.laporan[b];
+    if (b < kini && L && L.esb && (L.esb.sampai || '') < esbAkhirBulan(b)) out.push(b);
+  });
+  out.push(kini);
+  return out;
+}
+async function esbTarikRentang(dari, sampai, label) {
+  const sesi = esbSesiToken();
+  const semua = [];
+  const ambil = async page => {
+    /* Satu halaman yang gagal dicoba ulang dua kali. Lebih dari itu
+       BERHENTI — melompatinya berarti menyimpan bulan yang bolong satu
+       halaman (~20 bill) dengan angka yang tetap terlihat wajar. */
+    let e = null;
+    for (let c = 0; c < 3; c++) {
+      try {
+        const r = await postJson(API_AN, { action:'esbHalaman', sesi, dari, sampai, page });
+        if (r && r.ok && r.data) return r.data;
+        e = new Error((r && r.error) || 'balasan kosong');
+        if (/token|sesi|akses/i.test(e.message)) break;
+      } catch (x) { e = x; }
+      await new Promise(s => setTimeout(s, 800 * (c + 1)));
+    }
+    throw new Error('Halaman ' + page + ': ' + (e && e.message || e));
+  };
+  esbLapor(label + ': menarik halaman 1…');
+  const p1 = await ambil(1);
+  (p1.bills || []).forEach(b => semua.push(b));
+  const total = p1.pageCount || null;
+  if (total) {
+    /* Tiga permintaan sekaligus — cukup cepat tanpa membanjiri ESB maupun
+       hosting sendiri. Urutannya tidak penting: ringkasPos() mengelompokkan
+       per nomor bill. */
+    let berikut = 2, selesai = 1;
+    const pekerja = async () => {
+      while (berikut <= total) {
+        const pg = berikut++;
+        const d = await ambil(pg);
+        (d.bills || []).forEach(b => semua.push(b));
+        selesai++;
+        esbLapor(label + ': halaman ' + selesai + ' dari ' + total + ' · ' + semua.length + ' bill');
+      }
+    };
+    await Promise.all([pekerja(), pekerja(), pekerja()]);
+  } else {
+    /* Jumlah halaman tidak disebut ESB -> lanjut sampai halaman KOSONG atau
+       lebih pendek. Batas 2000 menahan putaran tanpa akhir kalau ESB
+       memulangkan halaman terakhir berulang-ulang. */
+    let pg = 1, d = p1; const perPg = (p1.bills || []).length;
+    while (d.bills && d.bills.length && pg < 2000 && !(perPg && d.bills.length < perPg)) {
+      pg++;
+      esbLapor(label + ': halaman ' + pg + ' · ' + semua.length + ' bill');
+      d = await ambil(pg);
+      (d.bills || []).forEach(b => semua.push(b));
+    }
+  }
+  /* Halaman yang bergeser selama ditarik bisa memulangkan bill yang sama
+     dua kali. Disaring per salesNum — dihitung dua kali, omsetnya ikut. */
+  const unik = {}; semua.forEach(b => { if (b && b.salesNum) unik[b.salesNum] = b; });
+  return { bills: Object.values(unik), ganda: semua.length - Object.keys(unik).length };
+}
+/* Kartu Sinkronkan. ringkas = versi satu baris untuk halaman Ringkasan.
+   Menyebut sampai TANGGAL BERAPA bulan ini sudah tertarik — tanpa itu,
+   angka bulan berjalan terbaca sebagai angka sebulan penuh. */
+function kartuSinkronEsb(ringkas) {
+  if (!bolehAksi('unggah')) return '';
+  const kini = todayISO().slice(0, 7);
+  const L = (AN.data.laporan || {})[kini];
+  const ket = (L && L.esb)
+    ? 'Bulan ini tersinkron s.d. <b>' + esc(fmtTgl(L.esb.sampai)) + '</b>'
+      + (L.esb.at ? ' · ' + esc(new Date(L.esb.at).toLocaleString('id-ID', { day:'numeric', month:'short', hour:'2-digit', minute:'2-digit' })) : '')
+      + (L.esb.oleh ? ' oleh ' + esc(L.esb.oleh) : '')
+      /* Yang SENGAJA tidak ikut disebut — didiamkan, selisihnya dengan
+         layar ESB dicari orang di tempat lain. */
+      + (L.esb.billBatal ? ' · ' + L.esb.billBatal + ' bill batal tidak dihitung' : '')
+      + (L.esb.menuBatal ? ' · ' + L.esb.menuBatal + ' menu batal tidak dihitung' : '')
+    : (L ? 'Bulan ini diisi dari unggahan Excel — sinkron akan menggantinya dengan data ESB.'
+         : 'Bulan ini belum pernah disinkronkan.');
+  const tombol = '<button class="btn" id="esb_btn" onclick="anSinkronEsb()"' + (ESB_JALAN ? ' disabled' : '') + '>'
+    + (ESB_JALAN ? 'Menyinkronkan…' : '🔄 Sinkronkan dengan ESB') + '</button>';
+  const status = '<div id="esb_status" class="helper" style="margin-top:8px">'
+    + (ESB_JALAN ? esc(ESB_JALAN.teks || 'Menyinkronkan…') + ' — jangan tutup halaman ini.' : ket) + '</div>';
+  /* Versi Ringkasan SENGAJA tanpa data-aks: halaman Ringkasan hampir selalu
+     berhak "Lihat" saja, dan terapkanKunci() mencabut seluruh [data-aks] di
+     sana — tombolnya hilang untuk orang yang justru berhak mengunggah. Yang
+     menjaganya bolehAksi('unggah') di atas, dan di anSinkronEsb(). */
+  if (ringkas) return '<div class="card" style="margin-bottom:18px">'
+    + '<div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">' + tombol + '</div>' + status + '</div>';
+  return '<div class="card" data-aks><h3>Sinkronkan dengan POS (ESB)</h3>'
+    + '<div class="card-sub">Menarik seluruh bill <b>bulan ini sampai hari ini</b> langsung dari ESB, '
+    + 'lalu menyimpannya — tanpa memilih bulan dan tanpa berkas. Bulan lalu yang sinkron terakhirnya '
+    + 'belum sampai akhir bulan ikut dilengkapi. Diringkas dengan aturan yang <b>sama persis</b> dengan '
+    + 'unggahan Detail Report. Bulan-bulan lama tetap bisa diunggah dari Excel di bawah.</div>'
+    + tombol + status + '</div>';
+}
+async function anSinkronEsb() {
+  if (!bolehAksi('unggah') || ESB_JALAN) return;
+  const daftar = esbBulanSinkron();
+  /* Bulan yang isinya dari EXCEL ditanya dulu, sekali — sinkron akan
+     menggantinya dengan data ESB. */
+  const dariExcel = daftar.filter(b => { const L = AN.data.laporan[b]; return L && !L.esb; });
+  if (dariExcel.length && !confirm('Ringkasan ' + dariExcel.map(fmtBln).join(', ')
+      + ' saat ini dari unggahan Excel dan akan DIGANTI data ESB.\n\nLanjut?')) return;
+  ESB_JALAN = { bln: daftar[daftar.length - 1], teks: '' };
+  const btn = document.getElementById('esb_btn'); if (btn) btn.disabled = true;
+  const hariIni = todayISO();
+  const hasil = [];
+  try {
+    for (const b of daftar) {
+      const sampai = esbAkhirBulan(b) < hariIni ? esbAkhirBulan(b) : hariIni;
+      const { bills, ganda } = await esbTarikRentang(b + '-01', sampai, fmtBln(b));
+      if (!bills.length) { hasil.push(fmtBln(b) + ': belum ada bill'); continue; }
+      const { rows, info } = esbKeBaris(bills);
+      const u = uraiBerkas(rows, 'API ESB · ' + fmtBln(b));
+      if (u.kind !== 'pos') throw new Error('Hasil ESB ' + fmtBln(b) + ' tidak terbaca sebagai laporan penjualan.');
+      /* Bulan hasil urai harus bulan yang DIMINTA. Kalau tidak, ESB
+         memulangkan rentang lain dan ringkasannya akan tersimpan di bawah
+         bulan yang salah. */
+      if (u.bulan !== b) throw new Error('ESB memulangkan data ' + fmtBln(u.bulan) + ' untuk permintaan ' + fmtBln(b) + '.');
+      u.diunggah = hariIni;
+      u.oleh = (CURRENT_USER && CURRENT_USER.name) || '';
+      const sebelum = AN.data.laporan[b];
+      AN.data.laporan[b] = anBentukLaporan(u);
+      AN.data.laporan[b].esb = { sampai, at: new Date().toISOString(), oleh: u.oleh,
+        bill: info.bill, billBatal: info.billBatal, menuBatal: info.menuBatal, ganda };
+      esbLapor(fmtBln(b) + ': menyimpan…');
+      /* DISIMPAN PER BULAN, bukan sekali di ujung: bulan lalu yang sudah
+         tertarik tidak boleh ikut hilang gara-gara bulan ini gagal. */
+      if (!(await simpan())) {
+        if (sebelum) AN.data.laporan[b] = sebelum; else delete AN.data.laporan[b];
+        throw new Error('Gagal menyimpan ' + fmtBln(b) + ' ke server.');
+      }
+      hasil.push(fmtBln(b) + ': ' + info.bill.toLocaleString('id-ID') + ' bill s.d. ' + fmtTgl(sampai));
+      BLN = b;
+    }
+    ESB_JALAN = null;
+    setSync('ok', '✓ Tersinkron');
+    toast('Tersinkron — ' + hasil.join(' · '));
+    render();
+  } catch (e) {
+    ESB_JALAN = null;
+    if (btn) btn.disabled = false;
+    esbLapor('⚠ ' + esc(e.message || e)
+      + (hasil.length ? '<br>Yang sudah tersimpan: ' + esc(hasil.join(' · ')) : '')
+      + '<br>Bulan yang gagal tidak berubah — tekan Sinkronkan lagi untuk mengulang.', 'err');
+  }
+}
+
 async function anPilihBerkas(el) {
   const f = el && el.files && el.files[0];
   if (!f) return;
@@ -7843,6 +8130,18 @@ async function anPilihBerkas(el) {
   }
 }
 function anBatalUnggah() { UNGGAH_HASIL = null; render(); }
+/* DAFTAR KUNCI TERTUTUP laporan penjualan yang tersimpan — SATU tempat,
+   dipakai unggah berkas DAN Sinkronkan ESB. Dua daftar berarti kunci baru
+   yang cuma ditambahkan di salah satunya hilang diam-diam di jalur lain;
+   alasan panjangnya di anSimpanUnggah() di bawah. */
+function anBentukLaporan(u) {
+  return {
+    diunggah: u.diunggah, oleh: u.oleh, berkas: u.berkas, jenis: u.jenis,
+    hari: u.hari, jam: u.jam, hariJam: u.hariJam, menu: u.menu, paket: u.paket, ukuran: u.ukuran,
+    kategori: u.kategori, katMenu: u.katMenu, kunjung: u.kunjung,
+    bayar: u.bayar, kunjungBayar: u.kunjungBayar, error: u.error, meja: u.meja, ringkas: u.ringkas
+  };
+}
 async function anSimpanUnggah() {
   if (!bolehAksi('unggah') || !UNGGAH_HASIL) return;
   const u = UNGGAH_HASIL;
@@ -7870,12 +8169,7 @@ async function anSimpanUnggah() {
      Yang SENGAJA tidak ikut: nBaris, nLewat, blnLain, billDariBaris,
      tglAwal, tglAkhir. Keenamnya cuma dibaca di layar pratinjau (`u`),
      tidak pernah dari laporan tersimpan. */
-  AN.data.laporan[u.bulan] = {
-    diunggah: u.diunggah, oleh: u.oleh, berkas: u.berkas, jenis: u.jenis,
-    hari: u.hari, jam: u.jam, hariJam: u.hariJam, menu: u.menu, paket: u.paket, ukuran: u.ukuran,
-    kategori: u.kategori, katMenu: u.katMenu, kunjung: u.kunjung,
-    bayar: u.bayar, kunjungBayar: u.kunjungBayar, error: u.error, meja: u.meja, ringkas: u.ringkas
-  };
+  AN.data.laporan[u.bulan] = anBentukLaporan(u);
   if (await simpan()) {
     UNGGAH_HASIL = null; BLN = u.bulan;
     toast('Ringkasan ' + fmtBln(u.bulan) + ' tersimpan.');
