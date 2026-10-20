@@ -1367,6 +1367,37 @@ async function esbIsiInput(){
   }finally{ ESB_OMSET_JALAN=false; if(btn) btn.disabled=false; }
 }
 
+/* Report Daily: kolom POS dari ESB. KEMBARAN esbIsiPos() di deploy/cashier/
+   — keduanya menulis blob reports yang SAMA, jadi aturannya (kembalian,
+   ESB Order -> QRIS POS, metode asing tidak ditebak) wajib sama; karena itu
+   seluruh hitungannya di esbPos.ringkasHari(), bukan di sini. Kolom Actual
+   tidak disentuh. */
+async function esbIsiPosOmset(el,hitung){
+  if(ESB_OMSET_JALAN) return;
+  const info=document.getElementById('rp_esb_info'), btn=document.getElementById('rp_esb');
+  const tulis=h=>{ if(info) info.innerHTML=h; };
+  const tgl=repDate;
+  const terisi=PAYS.filter(p=>num((el.querySelector(`.rf[data-k="${p.k}"][data-f="pos"]`)||{}).value)>0).length;
+  if(terisi && !confirm(`${terisi} kotak POS tanggal ${dateLabel(tgl)} sudah terisi.\n\nTimpa seluruh kolom POS dengan angka dari ESB? (Kolom Actual tidak disentuh, dan belum ada yang tersimpan sampai Submit ditekan.)`)) return;
+  ESB_OMSET_JALAN=true; if(btn) btn.disabled=true;
+  tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB…</div>`);
+  try{
+    const R=await esbRingkasOmset(tgl,tulis);
+    PAYS.forEach(p=>{
+      const inp=el.querySelector(`.rf[data-k="${p.k}"][data-f="pos"]`);
+      if(inp) inp.value=fmtRpInput(String(Math.round(num(R.bayar[p.k]))));
+    });
+    hitung();
+    const tot=PAYS.reduce((a,p)=>a+num(R.bayar[p.k]),0);
+    const asing=Object.keys(R.asing);
+    tulis(`<div class="notice ok"><div>✓ Kolom POS diisi dari ESB: <b>${R.nBill}</b> bill, total <b>${fmtRp(Math.round(tot))}</b>${R.nBatal?` · ${R.nBatal} bill batal/void tidak dihitung`:''}${R.order.n?` · ${R.order.n} bill ESB Order (${fmtRp(Math.round(R.order.nil))}) masuk ke QRIS POS`:''}. <b>Belum tersimpan</b> — periksa lalu tekan Submit.</div></div>`
+      + (asing.length?`<div class="notice warn"><div>⚠ Metode ini ada di ESB tapi tidak dikenali, jadi <b>tidak dimasukkan</b> ke kotak mana pun: ${asing.map(n=>`<b>${esc(n)}</b> ${fmtRp(Math.round(R.asing[n]))}`).join(' · ')}. Isi manual ke barisnya, dan kabari admin supaya ejaannya didaftarkan.</div></div>`:'')
+      + (R.nBill?'':`<div class="notice warn"><div>ESB tidak memulangkan satu bill pun untuk ${esc(dateLabel(tgl))}.</div></div>`));
+  }catch(x){
+    tulis(`<div class="notice bad"><div>⚠ Gagal menarik dari ESB: ${esc(x.message||String(x))}. Kolom POS tidak diubah.</div></div>`);
+  }finally{ ESB_OMSET_JALAN=false; if(btn) btn.disabled=false; }
+}
+
 function viewInput(){
   CAL_ST.in.open=false;   // selalu mulai tertutup saat halaman digambar ulang
   const el=document.getElementById('app-view');
@@ -1631,10 +1662,12 @@ function viewReport(){
   const thBon = bh.ada ? '<th class="num">Sisa Selisih</th>' : '';
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode. Boleh disubmit kapan saja.</div></div>
+      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode. Boleh disubmit kapan saja.</div>
+        <button class="btn" id="rp_esb" type="button" style="margin-top:10px">🔄 Isi kolom POS dari ESB</button></div>
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="rp_cal">${calInner('rp')}</div></div>
     </div>
     ${jejakHtml(rec)}
+    <div id="rp_esb_info"></div>
     <div class="card">
       <div class="tbl-wrap"><table>
         <thead><tr><th>Metode Pembayaran</th><th class="num">POS</th><th class="num">Actual</th><th class="num">Selisih</th>${thBon}</tr></thead>
@@ -1754,6 +1787,7 @@ function viewReport(){
   };
   function inputVal(k,f){ const e=el.querySelector(`.rf[data-k="${k}"][data-f="${f}"]`); return e?e.value:0; }
   el.querySelectorAll('.rf').forEach(i=>i.addEventListener('input',hitung));
+  document.getElementById('rp_esb').addEventListener('click',()=>esbIsiPosOmset(el,hitung));
   document.getElementById('rp_save').addEventListener('click',()=>{
     const h=hitung();
     const box=document.getElementById('rp_err');

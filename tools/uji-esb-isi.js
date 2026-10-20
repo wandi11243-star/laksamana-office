@@ -94,6 +94,15 @@ function buka(path,src,mods,stub){
   const O=buka('finance/omset/index.html','../../assets/esb-pos.js',['kompas']);
   await tunggu(1500); const o=O.w;
   ok(!!o.esbPos,'aset termuat di omset');
+  // Report Daily di Finance > Omset — angkanya wajib sama dengan Cashier
+  o.eval("repDate='"+T+"'; go('report')"); await tunggu(300);
+  const rb=o.document.getElementById('rp_esb'); ok(!!rb,'tombol POS dari ESB ada di Report Daily finance');
+  if(rb){ rb.click(); await tunggu(500);
+    const qv=k=>o.document.querySelector(`.rf[data-k="${k}"][data-f="pos"]`).value;
+    ok(qv('cash')==='125.000'&&qv('compliment')==='57.500'&&qv('qris_esb')==='23.000'&&qv('qris_bri')==='72.000','finance report sama dengan cashier: '+qv('cash')+' '+qv('compliment')+' '+qv('qris_esb')+' '+qv('qris_bri'));
+    ok(/277\.500/.test(o.document.getElementById('rc_pos').textContent),'total POS finance ikut: '+o.document.getElementById('rc_pos').textContent);
+    ok(!O.posts.some(p=>p.action==='saveAll'),'report finance belum menyimpan');
+  }
   o.eval("inputDate='"+T+"'; go('input')"); await tunggu(300);
   o.document.getElementById('i_esb').click(); await tunggu(500);
   const iv=id=>o.document.getElementById(id).value;
