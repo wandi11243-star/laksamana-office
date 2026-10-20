@@ -4398,6 +4398,48 @@ function viewBreakdown(){
      ke dua kasir TIDAK ditebak, nominalnya disebut di layar dan diisi tangan.
      Kasir yang tidak memproses satu bill pun di ESB diisi nol. Hanya Section A
      & Self Order yang disentuh; Marketing & Event tetap dari modulnya. */
+  /* Ringkasan ESB terakhir untuk tanggal ini — dipakai ulang saat pemetaan
+     akun disimpan, supaya tidak perlu menarik seluruh halaman ESB lagi. */
+  let esbR=null;
+  const terapkanEsb=(R)=>{
+    const info=document.getElementById('bd_esb_info');
+    const peta=(DB.esbAkunKasir&&typeof DB.esbAkunKasir==='object')?DB.esbAkunKasir:{};
+    const emps=(DB.employees.kasir||[]).map(k=>({id:k.id,name:k.name}));
+    const P=esbPos.petakanKasir(emps,R.kasir,peta);
+    state.ks.forEach(r=>{
+      const h=P.hasil[r.kasirId];
+      r.amount=h?Math.round(h.amount):0; r.disc=h?Math.round(h.disc):0;
+      if(h) r.off=false;
+    });
+    state.so.amount=Math.round(R.self.amount); state.so.disc=Math.round(R.self.disc);
+    drawKs(); drawSo(); calc();
+    const asing=Object.keys(P.takKenal).sort((x,y)=>P.takKenal[y].amount-P.takKenal[x].amount);
+    const netEsb=R.grand-R.svc-R.tax;
+    const dipakai=Object.keys(P.hasil).map(id=>`<b>${esc(empName('kasir',id))}</b> ← ${P.hasil[id].akun.map(esc).join(', ')}`).join(' · ');
+    const opsi=sel=>'<option value="">— pilih kasir —</option>'+emps.map(e=>`<option value="${esc(e.id)}"${String(sel)===String(e.id)?' selected':''}>${esc(e.name)}</option>`).join('');
+    info.innerHTML=`<div class="notice ok"><div>✓ Diisi dari ESB: ${Object.keys(P.hasil).length} kasir${R.self.n?`, Self Order ${R.self.n} bill`:''} — net ESB <b>${fmtRp(netEsb)}</b>${Math.abs(netEsb-net)>=1?` (omset net harian yang tersimpan ${fmtRp(net)} — kalau berbeda, isi ulang Input Omset Harian dari ESB dulu)`:''}. <b>Belum tersimpan</b> — periksa lalu tekan Simpan Breakdown.${dipakai?`<br><span style="font-size:12px">Akun POS yang dipakai: ${dipakai}</span>`:''}</div></div>`
+      + (asing.length?`<div class="notice warn" style="display:block"><div>⚠ <b>Akun POS ini belum dikenali sebagai kasir</b>, jadi omsetnya <b>belum dimasukkan</b>. Pilih kasirnya lalu tekan Simpan pemetaan — pilihan ini diingat untuk tanggal-tanggal berikutnya. Akun bersama (mis. KASIR2) biarkan kosong dan bagi manual.</div>
+        <div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>Akun POS (ESB)</th><th class="num">Bill</th><th class="num">Omset bruto</th><th class="num">Diskon</th><th>Kasir</th></tr></thead><tbody>${asing.map(akun=>{ const x=P.takKenal[akun];
+          return `<tr><td class="mono"><b>${esc(akun)}</b>${x.ambigu?'<div class="helper" style="margin:2px 0 0">cocok ke lebih dari satu kasir</div>':''}</td><td class="num mono">${x.n}</td><td class="num mono">${fmtRp(x.amount)}</td><td class="num mono">${fmtRp(x.disc)}</td><td><select class="bd-esb-akun" data-akun="${esc(akun)}">${opsi(peta[esbPos.baku(akun)]||'')}</select></td></tr>`;}).join('')}</tbody></table></div>
+        <button class="btn btn-sm" id="bd_esb_peta" type="button" style="margin-top:8px">💾 Simpan pemetaan &amp; isi ulang</button></div>`:'');
+    const bp=document.getElementById('bd_esb_peta');
+    if(bp) bp.addEventListener('click',()=>{
+      const pt=Object.assign({},peta); let n=0;
+      info.querySelectorAll('.bd-esb-akun').forEach(sel=>{ if(sel.value){ pt[esbPos.baku(sel.dataset.akun)]=sel.value; n++; } });
+      if(!n){ alert('Belum ada kasir yang dipilih.'); return; }
+      /* Disimpan di blob omset (save_all menulisnya apa adanya, tanpa daftar
+         kunci tertutup). Hanya pemetaannya yang ikut naik sekarang; angka
+         breakdown di layar tetap menunggu Simpan Breakdown. */
+      DB.esbAkunKasir=pt; save();
+      terapkanEsb(R);
+    });
+  };
+  /* ISI DARI ESB. Akun POS (editedBy, jatuh ke createdBy) dipasangkan ke
+     kasir lewat pemetaan tersimpan (DB.esbAkunKasir), lalu lewat nama —
+     esbPos.petakanKasir. Akun yang cocok ke nol atau ke dua kasir TIDAK
+     ditebak: nominalnya disebut di layar dan bisa dipetakan di sana. Kasir
+     yang tidak memproses satu bill pun di ESB diisi nol. Hanya Section A &
+     Self Order yang disentuh; Marketing & Event tetap dari modulnya. */
   document.getElementById('bd_esb').addEventListener('click',async()=>{
     if(ESB_OMSET_JALAN) return;
     const info=document.getElementById('bd_esb_info'), btn=document.getElementById('bd_esb');
@@ -4411,18 +4453,7 @@ function viewBreakdown(){
       const R=await esbRingkasOmset(tgl,tulis);
       if(tgl!==bdDate) return;
       if(!R.nBill){ tulis(`<div class="notice warn"><div>ESB tidak memulangkan satu bill pun untuk ${esc(dateLabel(tgl))}. Isian tidak diubah.</div></div>`); return; }
-      const P=esbPos.petakanKasir((DB.employees.kasir||[]).map(k=>({id:k.id,name:k.name})),R.kasir);
-      state.ks.forEach(r=>{
-        const h=P.hasil[r.kasirId];
-        r.amount=h?Math.round(h.amount):0; r.disc=h?Math.round(h.disc):0;
-        if(h) r.off=false;
-      });
-      state.so.amount=Math.round(R.self.amount); state.so.disc=Math.round(R.self.disc);
-      drawKs(); drawSo(); calc();
-      const asing=Object.keys(P.takKenal);
-      const netEsb=R.grand-R.svc-R.tax;
-      tulis(`<div class="notice ok"><div>✓ Diisi dari ESB: ${Object.keys(P.hasil).length} kasir${R.self.n?`, Self Order ${R.self.n} bill`:''} — net ESB <b>${fmtRp(netEsb)}</b>${Math.abs(netEsb-net)>=1?` (omset net harian yang tersimpan ${fmtRp(net)} — kalau berbeda, isi ulang Input Omset Harian dari ESB dulu)`:''}. <b>Belum tersimpan</b> — periksa lalu tekan Simpan Breakdown.</div></div>`
-        + (asing.length?`<div class="notice warn"><div>⚠ Akun POS ini ${asing.some(a=>P.takKenal[a].ambigu)?'tidak bisa dipastikan':'tidak dikenali'} sebagai kasir mana pun, jadi omsetnya <b>belum dimasukkan</b>: ${asing.map(a=>`<b>${esc(a)}</b> ${fmtRp(P.takKenal[a].amount)}${P.takKenal[a].disc?` (diskon ${fmtRp(P.takKenal[a].disc)})`:''}${P.takKenal[a].ambigu?' — cocok ke lebih dari satu kasir':''}`).join(' · ')}. Tambahkan ke kasir yang benar secara manual.</div></div>`:''));
+      esbR=R; terapkanEsb(R);
     }catch(x){
       tulis(`<div class="notice bad"><div>⚠ Gagal menarik dari ESB: ${esc(x.message||String(x))}. Isian tidak diubah.</div></div>`);
     }finally{ ESB_OMSET_JALAN=false; btn.disabled=false; }

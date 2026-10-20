@@ -214,31 +214,63 @@
 
   /* Item rokok -> qty keluar. Tiap menu ESB diberikan ke item yang tokennya
      PALING BANYAK cocok (Dos Hermanos vs Dos H. Rojo); seri = ambigu. */
+  /* NAMA DI POS (20 Okt 2026). Nama menu di POS tidak sama dengan nama item
+     di lembar stok — "LA ICE PURPLE" itu LA Purple (dan kebetulan juga memuat
+     kata LA ICE), "LA MANGGO" salah eja LA Mango, "SUPER"/"MILD" tanpa kata
+     Djarum. Pencocokan kata tidak bisa menebak itu, jadi item boleh membawa
+     daftar nama POS-nya sendiri (`pos`: [{nama, kali}]) yang dicocokkan PERSIS
+     sesudah dibakukan. `kali` untuk menu yang menjual beberapa unit sekaligus
+     (KOIN 2 PCS = 2 coin). Item TANPA daftar tetap memakai kemiripan kata,
+     tapi tidak pernah mengambil menu yang sudah diklaim daftar item lain. */
+  const baku = s => String(s || '').toUpperCase().replace(/[^A-Z0-9]+/g, ' ').trim();
   function petakanRokok(items, menuQty) {
     const out = {}; items.forEach(it => { out[it.k] = 0; });
-    const ambigu = [], takKenal = [];
+    const ambigu = [], takKenal = [], kena = {};
+    const persis = {};
+    items.forEach(it => (it.pos || []).forEach(p => {
+      const n = baku(p.nama); if (!n) return;
+      (persis[n] = persis[n] || []).push({ it, kali: Number(p.kali) > 0 ? Number(p.kali) : 1 });
+    }));
+    const bebas = items.filter(it => !(it.pos || []).length);
     Object.keys(menuQty).forEach(nama => {
-      const cand = items.filter(it => cocokToken(it.n, nama));
+      const P = persis[baku(nama)];
+      if (P) {
+        if (P.length > 1) { ambigu.push({ nama, qty: menuQty[nama].qty, ke: P.map(x => x.it.n) }); return; }
+        out[P[0].it.k] += menuQty[nama].qty * P[0].kali; kena[P[0].it.k] = true; return;
+      }
+      const cand = bebas.filter(it => cocokToken(it.n, nama));
       if (!cand.length) {
         const m = menuQty[nama];
-        if (/ROKOK|CIGAR|TOBACCO|SMOK/.test(m.kat)) takKenal.push({ nama, qty: m.qty });
+        if (/ROKOK|CIGAR|TOBACCO|SMOK|COIN|KOIN/.test(m.kat)) takKenal.push({ nama, qty: m.qty });
         return;
       }
       const skor = it => token(it.n).length;
       const max = Math.max.apply(null, cand.map(skor));
       const top = cand.filter(it => skor(it) === max);
       if (top.length > 1) { ambigu.push({ nama, qty: menuQty[nama].qty, ke: top.map(t => t.n) }); return; }
-      out[top[0].k] += menuQty[nama].qty;
+      out[top[0].k] += menuQty[nama].qty; kena[top[0].k] = true;
     });
-    return { out, ambigu, takKenal };
+    return { out, ambigu, takKenal, kena };
   }
 
-  /* Akun kasir POS -> karyawan. Cocok kalau seluruh token akun ada di nama
-     karyawan, ATAU seluruh token nama karyawan ada di akun. Tepat satu. */
-  function petakanKasir(emps, kasirEsb) {
+  /* Akun kasir POS -> karyawan.
+     1. PETA TERSIMPAN dulu (`peta`: {AKUN BAKU: id karyawan}) — diisi orang di
+        Breakdown Sumber. Akun POS di produksi bernama MUDAFEILA, MUDANINDY,
+        MUDAKASIR2 (diperiksa 20 Okt 2026): nama panggilan berawalan "MUDA",
+        sebagian dengan ejaan lain dari nama di Office (FEILA vs Faila), dan
+        sebagian akun bersama — tidak ada aturan yang bisa menebak semuanya.
+     2. Kalau belum ada di peta: awalan MUDA dibuang, lalu cocok kalau seluruh
+        token akun ada di nama karyawan (atau sebaliknya). Tepat satu. */
+  const tanpaAwalan = a => { const b = baku(a); const m = b.match(/^MUDA\s*(.{3,})$/); return m ? m[1] : b; };
+  function petakanKasir(emps, kasirEsb, peta) {
     const hasil = {}, takKenal = {};
+    peta = peta || {};
     Object.keys(kasirEsb).forEach(akun => {
-      const cand = emps.filter(e => cocokToken(akun, e.name) || cocokToken(e.name, akun));
+      const idPeta = peta[baku(akun)];
+      const lewatPeta = idPeta ? emps.filter(e => String(e.id) === String(idPeta)) : [];
+      const inti = tanpaAwalan(akun);
+      const cand = lewatPeta.length ? lewatPeta
+        : emps.filter(e => cocokToken(inti, e.name) || cocokToken(e.name, inti));
       if (cand.length === 1) {
         const r = hasil[cand[0].id] || (hasil[cand[0].id] = { amount: 0, disc: 0, akun: [] });
         r.amount += kasirEsb[akun].amount; r.disc += kasirEsb[akun].disc; r.akun.push(akun);
@@ -247,5 +279,5 @@
     return { hasil, takKenal };
   }
 
-  W.esbPos = { tarikHari, ringkasHari, kunciBayar, petakanRokok, petakanKasir, cocokToken, PETA_BAYAR };
+  W.esbPos = { tarikHari, ringkasHari, kunciBayar, petakanRokok, petakanKasir, cocokToken, baku, PETA_BAYAR };
 })(window);

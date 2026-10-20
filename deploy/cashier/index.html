@@ -714,7 +714,10 @@ function normalizeDB(d){
     else {
       d.rokok_items=d.rokok_items
         .filter(it=>it&&typeof it==='object'&&String(it.k||'').trim()&&String(it.n||'').trim())
-        .map(it=>({k:String(it.k).trim(), n:String(it.n).trim(), lain:!!it.lain}));
+        /* `pos` (nama menu di POS, 20 Okt 2026) WAJIB ikut — tanpa baris
+           ini isian Nama di POS dibuang tiap halaman dimuat ulang. */
+        .map(it=>{ const o={k:String(it.k).trim(), n:String(it.n).trim(), lain:!!it.lain};
+          if(typeof it.pos==='string') o.pos=it.pos; return o; });
       if(!d.rokok_items.length) delete d.rokok_items;
     }
   }
@@ -1356,20 +1359,19 @@ async function esbIsiRokok(el){
   tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB…</div>`);
   try{
     const R=await esbAmbilHari(tgl,tulis,true);
-    const P=esbPos.petakanRokok(rokokItems(),R.menuQty);
+    const P=esbPos.petakanRokok(rokokItems().map(it=>Object.assign({},it,{pos:rokokPosDaftar(it)})),R.menuQty);
     const terisiDari=[], kosong=[];
     rokokItems().forEach(it=>{
       const inp=el.querySelector(`.rkf[data-k="${it.k}"][data-f="out"]`);
       if(!inp) return;
-      const ada=Object.keys(R.menuQty).some(n=>esbPos.cocokToken(it.n,n));
-      if(!ada){ kosong.push(it.n); return; }
+      if(!P.kena[it.k]){ kosong.push(it.n); return; }
       inp.value=String(P.out[it.k]||0); terisiDari.push(it.n);
       inp.dispatchEvent(new Event('input'));
     });
     tulis(`<div class="notice ok"><div>✓ Kolom <b>Keluar</b> diisi dari ESB untuk ${terisiDari.length} item. <b>Belum tersimpan</b> — periksa lalu tekan Simpan Stock Harian.</div></div>`
       + (kosong.length?`<div class="notice info"><div>Tidak terjual / tidak ada menu bernama mirip di ESB hari ini — <b>tidak disentuh</b>: ${esc(kosong.join(', '))}.</div></div>`:'')
-      + (P.ambigu.length?`<div class="notice warn"><div>⚠ Menu ini cocok ke lebih dari satu item, jadi <b>tidak dihitung</b>: ${P.ambigu.map(a=>`<b>${esc(a.nama)}</b> ×${a.qty} (${esc(a.ke.join(' / '))})`).join(' · ')}. Isi manual.</div></div>`:'')
-      + (P.takKenal.length?`<div class="notice warn"><div>⚠ Menu rokok di ESB yang tidak punya item di lembar ini: ${P.takKenal.map(a=>`<b>${esc(a.nama)}</b> ×${a.qty}`).join(' · ')}. Tambahkan itemnya di Pengaturan Item kalau perlu dicatat.</div></div>`:''));
+      + (P.ambigu.length?`<div class="notice warn"><div>⚠ Menu ini cocok ke lebih dari satu item, jadi <b>tidak dihitung</b>: ${P.ambigu.map(a=>`<b>${esc(a.nama)}</b> ×${a.qty} (${esc(a.ke.join(' / '))})`).join(' · ')}. Isi manual, lalu betulkan <b>Nama di POS</b>-nya di Pengaturan Item supaya berikutnya terbaca.</div></div>`:'')
+      + (P.takKenal.length?`<div class="notice warn"><div>⚠ Menu rokok di ESB yang tidak punya item di lembar ini: ${P.takKenal.map(a=>`<b>${esc(a.nama)}</b> ×${a.qty}`).join(' · ')}. Kalau itu item yang sudah ada dengan nama lain, isi <b>Nama di POS</b>-nya di Pengaturan Item; kalau item baru, tambahkan di sana.</div></div>`:''));
   }catch(e){
     tulis(`<div class="notice bad"><div>⚠ Gagal menarik dari ESB: ${esc(e.message||String(e))}. Kolom Keluar tidak diubah.</div></div>`);
   }finally{ ESB_ROKOK_JALAN=false; if(btn) btn.disabled=false; }
@@ -3384,6 +3386,31 @@ function rokokItems(){
   const d=DB&&DB.rokok_items;
   return (Array.isArray(d)&&d.length) ? d : ROKOK_BAWAAN;
 }
+/* NAMA DI POS per item (20 Oktober 2026). Dipakai tombol "Isi kolom Keluar
+   dari ESB". Bawaannya DIAMBIL DARI NAMA MENU KATEGORI ROKOK & COIN yang
+   sungguh-sungguh ada di POS (laporan Juli–Oktober 2026), bukan ditebak:
+     LA ICE PURPLE = LA Purple   LA MANGGO = LA Mango (ejaan POS)
+     SUPER / MILD  = Djarum      KOIN 2 PCS = 2 Coin per porsi (x2)
+   Bisa diubah per item di Pengaturan Item (field `pos`, teks, dipisah koma,
+   akhiran "x2" = satu porsi menu mengeluarkan dua unit). `pos` yang sudah
+   disetel — termasuk dikosongkan — MENANG atas bawaan ini. Item tanpa daftar
+   jatuh ke pencocokan kemiripan kata. */
+const ROKOK_POS_BAWAAN={
+  la_purple:'LA ICE PURPLE, LA PURPLE', la_mango:'LA MANGGO, LA MANGO', la_bold:'LA BOLD',
+  la_ice:'LA ICE', la_light:'LA LIGHT', djarum_super:'SUPER, DJARUM SUPER',
+  djarum_mild:'MILD, DJARUM MILD', insta:'INSTA', korek:'KOREK',
+  dos_hermanos:'DOS HERMANOS', dos_h_rojo:'DOS H. ROJO', dos_h_maduro:'DOS H. MADURO',
+  dos_h_corona:'DOS H. CORONA', dos_h_torito:'DOS H. TORITO',
+  gold_seal_petit:'GOLD SEAL PETIT', gold_seal_senor:'GOLD SEAL SENOR',
+  coin:'KOIN 2 PCS x2, KOIN, COIN'
+};
+function rokokPosTeks(it){ return (it&&typeof it.pos==='string') ? it.pos : (ROKOK_POS_BAWAAN[it&&it.k]||''); }
+function rokokPosDaftar(it){
+  return rokokPosTeks(it).split(',').map(s=>s.trim()).filter(Boolean).map(s=>{
+    const m=s.match(/^(.*?)\s*[xX×]\s*(\d+)$/);
+    return m&&m[1] ? {nama:m[1].trim(),kali:+m[2]} : {nama:s,kali:1};
+  });
+}
 // Kunci non-rokok PERTAMA — dipakai menaruh garis pemisah SEKALI saja. Dulu
 // pemisahnya menempel di tiap item ber-`lain`, jadi dengan dua item begitu
 // tabelnya punya dua garis dan terbaca seperti tiga kelompok.
@@ -3531,7 +3558,17 @@ function rksKunci(nama){
 /* Menulis daftar ke DB. Bawaan disalin dulu kalau belum pernah disetel —
    penyuntingan pertama harus berangkat dari daftar yang SEDANG TERLIHAT di
    lembar stok, bukan dari daftar kosong. */
-function rksDaftar(){ return rokokItems().map(it=>({k:it.k,n:it.n,lain:!!it.lain})); }
+function rksDaftar(){ return rokokItems().map(it=>{ const o={k:it.k,n:it.n,lain:!!it.lain}; if(typeof it.pos==='string') o.pos=it.pos; return o; }); }
+/* Nama menu di POS untuk item ini — lihat ROKOK_POS_BAWAAN. Dikosongkan =
+   kembali ke pencocokan kemiripan kata (bukan ke bawaan). */
+function rksUbahPos(k){
+  const daftar=rksDaftar();
+  const it=daftar.find(x=>x.k===k); if(!it) return;
+  const v=prompt('Nama menu di POS untuk "'+it.n+'" — persis seperti di ESB, pisahkan dengan koma.\nAkhiran x2 = satu porsi menu mengeluarkan dua unit (mis. KOIN 2 PCS x2).', rokokPosTeks(it));
+  if(v===null) return;
+  it.pos=v.trim();
+  rksSimpan(daftar,'ok|Nama di POS untuk <b>'+esc(it.n)+'</b> '+(it.pos?'jadi <b>'+esc(it.pos)+'</b>':'dikosongkan — dicocokkan lewat kemiripan nama')+'.');
+}
 function rksSimpan(daftar,pesan){
   DB.rokok_items=daftar;
   save();
@@ -3623,11 +3660,13 @@ function viewRokokSet(){
         <button class="btn btn-ghost btn-xs" title="Turunkan" ${i===daftar.length-1?'disabled':''} onclick="rksGeser('${esc(it.k)}',1)">↓</button></td>
       <td><b>${esc(it.n)}</b></td>
       <td class="mono" style="font-size:11.5px;color:var(--muted)">${esc(it.k)}</td>
+      <td class="mono" style="font-size:11.5px">${rokokPosTeks(it)?esc(rokokPosTeks(it)):'<span class="muted">— kemiripan nama</span>'}</td>
       <td>${it.lain
           ? '<span class="chip mute">Lainnya</span>'
           : '<span class="chip info">Rokok</span>'}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="btn btn-ghost btn-xs" onclick="rksUbahNama('${esc(it.k)}')">Ubah nama</button>
+        <button class="btn btn-ghost btn-xs" onclick="rksUbahPos('${esc(it.k)}')">Nama di POS</button>
         <button class="btn btn-ghost btn-xs" title="Pindah kelompok Rokok / Lainnya" onclick="rksToggleLain('${esc(it.k)}')">${it.lain?'Jadikan Rokok':'Jadikan Lainnya'}</button>
         <button class="btn btn-danger btn-xs" onclick="rksHapus('${esc(it.k)}')">Buang</button>
       </td></tr>`;
@@ -3650,7 +3689,7 @@ function viewRokokSet(){
       </div>
       <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr>
         <th style="text-align:center">Urut</th><th style="text-align:left">Nama</th>
-        <th style="text-align:left">Kunci data</th><th style="text-align:left">Kelompok</th><th></th>
+        <th style="text-align:left">Kunci data</th><th style="text-align:left">Nama di POS (ESB)</th><th style="text-align:left">Kelompok</th><th></th>
       </tr></thead><tbody>${daftar.map(baris).join('')}</tbody></table></div>
     </div>
     <div class="card">
