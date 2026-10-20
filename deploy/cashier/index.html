@@ -37,6 +37,7 @@
      assets/xlsx-baca.js DICABUT 21 September 2026 bersama jalur unggah
      mutasi bank — modul ini tidak memakainya untuk apa pun yang lain. -->
 <script src="../assets/cocok-bri.js"></script>
+<script src="../assets/esb-pos.js"></script>
 <style>
 /* ===== TEMA OFFICE LAKSAMANA (emas di atas krem/putih, tanpa hitam) ===== */
 :root{
@@ -713,7 +714,10 @@ function normalizeDB(d){
     else {
       d.rokok_items=d.rokok_items
         .filter(it=>it&&typeof it==='object'&&String(it.k||'').trim()&&String(it.n||'').trim())
-        .map(it=>({k:String(it.k).trim(), n:String(it.n).trim(), lain:!!it.lain}));
+        /* `pos` (nama menu di POS, 20 Okt 2026) WAJIB ikut — tanpa baris
+           ini isian Nama di POS dibuang tiap halaman dimuat ulang. */
+        .map(it=>{ const o={k:String(it.k).trim(), n:String(it.n).trim(), lain:!!it.lain};
+          if(typeof it.pos==='string') o.pos=it.pos; return o; });
       if(!d.rokok_items.length) delete d.rokok_items;
     }
   }
@@ -1214,22 +1218,164 @@ function repPay(rec,k){ const p=(rec&&rec.pay&&rec.pay[k])||{}; return {pos:num(
      metodenya di ESB, kecuali metode yang jelas bukan QRIS (cash, voucher,
      compliment, deposit, EDC, error_*): uang itu memang tidak lewat gateway,
      dan memindahkannya ke QRIS POS membuat dua baris berselisih sekaligus. */
-const ESB_PETA_BAYAR={
-  CASH:'cash', TUNAI:'cash', COMPLIMENT:'compliment', COMPLIMENTARY:'compliment',
-  EDCBCA:'edc_bca', EDCBRI:'edc_bri', EDCMANDIRI:'edc_mandiri',
-  ERRORBAR:'error_bar', ERRORCUSTOMER:'error_customer', ERRORFLOOR:'error_floor',
-  ERRORKASIR:'error_kasir', ERRORCASHIER:'error_kasir', ERRORKITCHEN:'error_kitchen',
-  GOFOOD:'gofood', GRABFOOD:'grabfood', MEMBERDEPOSIT:'member_dep', DEPOSIT:'member_dep',
-  QRISBCA:'qris_bca', QRISBRI:'qris_bri', QRISMANDIRI:'qris_mandiri',
-  QRISESB:'qris_esb', QRISPOS:'qris_esb',
-  TIKTOKGO:'tiktokgo', TRANSFERUOB:'transfer_uob', TRANSFER:'transfer_uob',
-  VOUCHER:'voucher'
+/* Peta nama metode, aturan kembalian, dan aturan ESB ORDER -> QRIS POS PINDAH
+   ke deploy/assets/esb-pos.js (20 Okt 2026): lima halaman memakainya, dan
+   salinan di tiap halaman pasti menyimpang. Ejaan metode baru didaftarkan di
+   PETA_BAYAR di sana. */
+
+/* Ringkasan ESB per tanggal, DISIMPAN DI MEMORI selama halaman terbuka.
+   Compliment, Void, dan Rokok digambar ulang tiap simpan (render TOTAL);
+   tanpa cache, tiap Simpan menarik ulang seluruh halaman ESB sehari. Report
+   Daily selalu menarik segar (paksa) — angkanya dipakai mencocokkan uang. */
+const ESB_HARI={};
+async function esbAmbilHari(tgl,tulis,paksa){
+  if(!window.esbPos) throw new Error('berkas assets/esb-pos.js tidak termuat. Muat ulang halaman (Ctrl+F5).');
+  if(!paksa && ESB_HARI[tgl]) return ESB_HARI[tgl];
+  const bills=await esbPos.tarikHari(tgl, vdPost, (p,t)=>{ if(tulis) tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB… halaman ${p}${t?' dari '+t:''}</div>`); });
+  const R=esbPos.ringkasHari(bills); R.at=Date.now(); ESB_HARI[tgl]=R;
+  return R;
+}
+
+/* ---- Kartu "Dari ESB" untuk Compliment, Void Menu, dan Daily Stock Rokok
+   (20 Okt 2026). Ketiganya HANYA MENGISI FORM — yang menyimpan tetap tombol
+   Tambah/Simpan di halaman itu, supaya jejak siapa yang mencatat tetap orang
+   yang memeriksanya, dan PIC / pihak yang salah tetap dipilih orang (ESB
+   tidak tahu siapa yang memberi compliment atau siapa yang salah).
+   Kartunya digambar ke wadahnya sendiri (#esb_<kunci>): menarik ESB makan
+   beberapa detik, dan menggambar ulang seluruh halaman membuang isian form
+   yang sedang diketik. */
+const ESB_UI={};
+const ESB_GAMBAR={};
+function esbGambarUlang(kunci){ const b=document.getElementById('esb_'+kunci); if(b&&ESB_GAMBAR[kunci]) b.innerHTML=ESB_GAMBAR[kunci](); }
+async function esbMuat(kunci,tgl){
+  const u=ESB_UI[kunci]||(ESB_UI[kunci]={});
+  if(u.jalan) return;
+  u.jalan=true; u.err=''; u.prog='';
+  esbGambarUlang(kunci);
+  try{ await esbAmbilHari(tgl,h=>{ u.prog=h; esbGambarUlang(kunci); },true); }
+  catch(e){ u.err=e.message||String(e); }
+  finally{ u.jalan=false; u.prog=''; esbGambarUlang(kunci); }
+}
+function esbKepalaHtml(kunci,tgl,judul,sub){
+  const u=ESB_UI[kunci]||{}, R=ESB_HARI[tgl];
+  return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div><h3>${judul}</h3><div class="card-sub" style="margin:0">${sub}</div></div>
+      <button class="btn" ${u.jalan?'disabled':''} onclick="esbMuat('${kunci}','${tgl}')">🔄 ${R?'Tarik ulang':'Ambil'} dari ESB</button>
+    </div>
+    ${u.prog?`<div style="margin-top:10px">${u.prog}</div>`:''}
+    ${u.err?`<div class="notice bad" style="margin-top:10px"><div>⚠ Gagal menarik dari ESB: ${esc(u.err)}</div></div>`:''}
+    ${R&&!u.jalan?`<div class="helper" style="margin:8px 0 0">${R.nBill} bill ESB ${esc(dateLabel(tgl))}${R.nBatal?` · ${R.nBatal} batal`:''} · ditarik ${new Date(R.at).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})}</div>`:''}`;
+}
+
+/* COMPLIMENT: bill yang dibayar COMPLIMENT atau MEMBER DEPOSIT. Sub total,
+   tax, dan service dihitung dari porsi nominalnya terhadap tagihan bill itu
+   (esb-pos.js), jadi angkanya sama dengan yang dicetak mesin. Yang sudah
+   dicatat ditandai lewat esbBill di baris compliment — bukan disembunyikan:
+   satu bill bisa memang dicatat dua kali (compliment + member deposit). */
+let ESB_KOMP_PILIH=null;
+ESB_GAMBAR.komp=()=>{
+  const tgl=compDate, R=ESB_HARI[tgl];
+  const kepala=esbKepalaHtml('komp',tgl,'Compliment dari ESB',
+    'Bill yang dibayar <b>Compliment</b> atau <b>Member Deposit</b> di POS. <b>Pakai</b> mengisi form di atas — PIC Kasir & Pemberi tetap dipilih, dan belum tersimpan sampai <b>Tambah</b> ditekan.');
+  if(!R) return kepala;
+  const sudah=(bill,jenis)=>compsOn(tgl).some(c=>c.esbBill===bill&&(c.esbJenis||'compliment')===jenis);
+  const tot=R.komp.reduce((a,x)=>a+x.nominal,0);
+  return kepala+(R.komp.length?`
+    <div class="tbl-wrap" style="margin-top:10px"><table>
+      <thead><tr><th>Bill</th><th>Keterangan</th><th class="num">Sub Total</th><th class="num">Tax</th><th class="num">Service</th><th class="num">Total</th><th></th></tr></thead>
+      <tbody>${R.komp.map((x,i)=>`<tr>
+        <td><b class="mono">${esc(x.bill)}</b><div class="helper" style="margin:2px 0 0">${x.jenis==='member_dep'?'Member Deposit':'Compliment'}${x.meja?' · meja '+esc(x.meja):''}${x.kasir?' · '+esc(x.kasir):''}</div></td>
+        <td>${esc(x.info||'—')}<div class="helper" style="margin:2px 0 0">${esc(x.menu.slice(0,4).join(', '))}${x.menu.length>4?' …':''}</div></td>
+        <td class="num mono">${fmtRp(x.subTotal)}</td><td class="num mono">${fmtRp(x.tax)}</td><td class="num mono">${fmtRp(x.service)}</td>
+        <td class="num mono"><b>${fmtRp(x.nominal)}</b></td>
+        <td style="white-space:nowrap">${sudah(x.bill,x.jenis)?'<span class="chip ok">sudah dicatat</span> ':''}<button class="btn btn-sm" onclick="esbKompPakai(${i})">Pakai</button></td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="font-weight:800"><td colspan="5">Total di ESB</td><td class="num mono">${fmtRp(tot)}</td><td></td></tr></tfoot>
+    </table></div>`
+    :`<div class="notice info" style="margin-top:10px"><div>ESB tidak mencatat satu pun bill Compliment / Member Deposit pada ${esc(dateLabel(tgl))}.</div></div>`);
 };
-const ESB_BATAL_RE=/cancel|void|batal/i;
-const ESB_ORDER_RE=/^\s*ESB\s*ORDER\s*$/i;
-const ESB_BUKAN_QRIS=['cash','voucher','compliment','member_dep','edc_bca','edc_bri','edc_mandiri',
-  'error_bar','error_customer','error_floor','error_kasir','error_kitchen'];
-function esbKunciBayar(nama){ return ESB_PETA_BAYAR[String(nama||'').toUpperCase().replace(/[^A-Z0-9]/g,'')]||''; }
+function esbKompPakai(i){
+  const R=ESB_HARI[compDate], x=R&&R.komp[i]; if(!x) return;
+  const isi=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v; return e; };
+  const nama=x.info||x.menu.slice(0,3).join(', ')+(x.menu.length>3?' …':'')||('Bill '+x.bill);
+  isi('c_nama',(x.jenis==='member_dep'?'Member Deposit — ':'')+nama);
+  isi('c_sub',fmtRpInput(String(x.subTotal)));
+  isi('c_tax',fmtRpInput(String(x.tax)));
+  const s=isi('c_svc',fmtRpInput(String(x.service)));
+  if(s) s.dispatchEvent(new Event('input'));
+  ESB_KOMP_PILIH={tgl:compDate,bill:x.bill,jenis:x.jenis};
+  const f=document.getElementById('c_nama'); if(f){ f.scrollIntoView({block:'center'}); f.focus(); }
+}
+
+/* VOID: menu berstatus void/cancel di bill yang tetap jalan, plus seluruh
+   menu bill yang dibatalkan. Pakai mengisi nomor bill, siapa yang input
+   (pembuat menunya di POS), item & subtotalnya, dan alasan dari POS kalau
+   ada. "Kesalahan dari siapa" SENGAJA tidak diisi — POS tidak tahu. */
+ESB_GAMBAR.void=()=>{
+  const tgl=voidDate, R=ESB_HARI[tgl];
+  const kepala=esbKepalaHtml('void',tgl,'Void dari ESB',
+    'Menu yang di-void / di-cancel di POS. <b>Pakai</b> mengisi form di atas; <b>kesalahan dari siapa</b> dan kronologinya tetap diisi, dan belum tersimpan sampai <b>Tambah Catatan</b> ditekan.');
+  if(!R) return kepala;
+  const dicatat=new Set(vdHari(tgl).filter(vdAktif).map(r=>String(r.bill||'').trim().toUpperCase()));
+  return kepala+(R.void.length?`
+    <div class="tbl-wrap" style="margin-top:10px"><table>
+      <thead><tr><th>Bill</th><th>Item</th><th class="num">Subtotal</th><th></th></tr></thead>
+      <tbody>${R.void.map((g,i)=>`<tr>
+        <td><b class="mono">${esc(g.bill)}</b><div class="helper" style="margin:2px 0 0">${g.utuh?'bill dibatalkan':'menu di-void'}${g.waiter?' · input '+esc(g.waiter):''}${g.meja?' · meja '+esc(g.meja):''}</div>${g.alasan?`<div class="helper" style="margin:2px 0 0">“${esc(g.alasan)}”</div>`:''}</td>
+        <td>${g.items.map(x=>esc(x.item)+(x.qty>1?' ×'+x.qty:'')).join('<br>')}</td>
+        <td class="num mono">${fmtRp(Math.round(g.items.reduce((a,x)=>a+x.sub,0)))}</td>
+        <td style="white-space:nowrap">${dicatat.has(g.bill.toUpperCase())?'<span class="chip ok">sudah dicatat</span> ':''}<button class="btn btn-sm" onclick="esbVoidPakai(${i})">Pakai</button></td>
+      </tr>`).join('')}</tbody>
+    </table></div>`
+    :`<div class="notice info" style="margin-top:10px"><div>ESB tidak mencatat satu pun menu void pada ${esc(dateLabel(tgl))}.</div></div>`);
+};
+function esbVoidPakai(i){
+  const R=ESB_HARI[voidDate], g=R&&R.void[i]; if(!g) return;
+  const terisi=VD_FORM.bill||VD_FORM.alasan||vdItems().some(x=>x.item);
+  if(terisi && !confirm('Form void sedang berisi. Timpa dengan bill '+g.bill+' dari ESB?')) return;
+  VD_EDIT='';
+  VD_FORM={bill:g.bill,penginput:g.waiter||'',salah:'',alasan:g.alasan||'',
+    items:g.items.map(x=>({item:x.item+(x.qty>1?' x'+x.qty:''),sub:String(Math.round(x.sub))})),
+    svc:'',tax:'',svcManual:false,taxManual:false};
+  VD_SALAH=[];
+  vdHitungOtomatis();
+  render();
+  const f=document.getElementById(VD_FORM.alasan?'vd_salah':'vd_alasan'); if(f){ f.scrollIntoView({block:'center'}); f.focus(); }
+}
+
+/* ROKOK: qty terjual hari itu per menu, dipasangkan ke item lewat namanya
+   (esbPos.petakanRokok). Hanya kolom KELUAR yang diisi — barang masuk tidak
+   ada di POS. Item yang tidak punya pasangan menu di ESB tidak disentuh;
+   menu yang cocok ke dua item tidak ditebak. */
+let ESB_ROKOK_JALAN=false;
+async function esbIsiRokok(el){
+  if(ESB_ROKOK_JALAN) return;
+  const info=document.getElementById('rk_esb_info'), btn=document.getElementById('rk_esb');
+  const tulis=h=>{ if(info) info.innerHTML=h; };
+  const tgl=rokokDate;
+  const terisi=rokokItems().filter(it=>num((el.querySelector(`.rkf[data-k="${it.k}"][data-f="out"]`)||{}).value)>0).length;
+  if(terisi && !confirm(`${terisi} kotak Keluar tanggal ${dateLabel(tgl)} sudah terisi.\n\nTimpa dengan jumlah terjual dari ESB? (Kolom Masuk tidak disentuh, dan belum ada yang tersimpan sampai Simpan ditekan.)`)) return;
+  ESB_ROKOK_JALAN=true; if(btn) btn.disabled=true;
+  tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB…</div>`);
+  try{
+    const R=await esbAmbilHari(tgl,tulis,true);
+    const P=esbPos.petakanRokok(rokokItems().map(it=>Object.assign({},it,{pos:rokokPosDaftar(it)})),R.menuQty);
+    const terisiDari=[], kosong=[];
+    rokokItems().forEach(it=>{
+      const inp=el.querySelector(`.rkf[data-k="${it.k}"][data-f="out"]`);
+      if(!inp) return;
+      if(!P.kena[it.k]){ kosong.push(it.n); return; }
+      inp.value=String(P.out[it.k]||0); terisiDari.push(it.n);
+      inp.dispatchEvent(new Event('input'));
+    });
+    tulis(`<div class="notice ok"><div>✓ Kolom <b>Keluar</b> diisi dari ESB untuk ${terisiDari.length} item. <b>Belum tersimpan</b> — periksa lalu tekan Simpan Stock Harian.</div></div>`
+      + (kosong.length?`<div class="notice info"><div>Tidak terjual / tidak ada menu bernama mirip di ESB hari ini — <b>tidak disentuh</b>: ${esc(kosong.join(', '))}.</div></div>`:'')
+      + (P.ambigu.length?`<div class="notice warn"><div>⚠ Menu ini cocok ke lebih dari satu item, jadi <b>tidak dihitung</b>: ${P.ambigu.map(a=>`<b>${esc(a.nama)}</b> ×${a.qty} (${esc(a.ke.join(' / '))})`).join(' · ')}. Isi manual, lalu betulkan <b>Nama di POS</b>-nya di Pengaturan Item supaya berikutnya terbaca.</div></div>`:'')
+      + (P.takKenal.length?`<div class="notice warn"><div>⚠ Menu rokok di ESB yang tidak punya item di lembar ini: ${P.takKenal.map(a=>`<b>${esc(a.nama)}</b> ×${a.qty}`).join(' · ')}. Kalau itu item yang sudah ada dengan nama lain, isi <b>Nama di POS</b>-nya di Pengaturan Item; kalau item baru, tambahkan di sana.</div></div>`:''));
+  }catch(e){
+    tulis(`<div class="notice bad"><div>⚠ Gagal menarik dari ESB: ${esc(e.message||String(e))}. Kolom Keluar tidak diubah.</div></div>`);
+  }finally{ ESB_ROKOK_JALAN=false; if(btn) btn.disabled=false; }
+}
 let ESB_POS_JALAN=false;
 async function esbIsiPos(el,hitung){
   if(ESB_POS_JALAN) return;
@@ -1241,54 +1387,10 @@ async function esbIsiPos(el,hitung){
   ESB_POS_JALAN=true; btn.disabled=true;
   const tulis=h=>{ if(info) info.innerHTML=h; };
   tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB…</div>`);
-  const ambil=async page=>{
-    let e=null;
-    for(let i=0;i<3;i++){
-      try{
-        const r=await vdPost({action:'esbHalaman',dari:tgl,sampai:tgl,page});
-        if(r&&r.ok) return r.data;
-        e=new Error((r&&r.error)||'balasan tidak dikenal');
-        if(/token|sesi|akses|modul/i.test(e.message)) break;
-      }catch(x){ e=(x instanceof TypeError)?new Error('koneksi ke server Office terputus (bukan dari ESB). Periksa internet lalu coba lagi.'):x; }
-      await new Promise(s=>setTimeout(s,800*(i+1)));
-    }
-    throw new Error('Halaman '+page+': '+(e?e.message:'gagal'));
-  };
   try{
-    const bills={}; let page=1, total=null;
-    while(true){
-      const d=await ambil(page);
-      const isi=(d&&d.bills)||[];
-      isi.forEach(B=>{ if(B&&B.salesNum) bills[B.salesNum]=B; });
-      if(d&&d.pageCount) total=d.pageCount;
-      tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB… halaman ${page}${total?' dari '+total:''}</div>`);
-      if(!isi.length) break;
-      if(total && page>=total) break;
-      if(!total && d.perPage && isi.length<d.perPage) break;
-      if(page>=500) break;
-      page++;
-    }
-    const jum={}; PAYS.forEach(p=>{ jum[p.k]=0; });
-    const asing={}; let nBill=0, nBatal=0, nOrder=0, nilOrder=0;
-    Object.values(bills).forEach(B=>{
-      if(ESB_BATAL_RE.test(String(B.statusName||''))){ nBatal++; return; }
-      nBill++;
-      const ps=(B.salesPayments||[]).filter(p=>p&&p.paymentMethodName).map(p=>({nama:String(p.paymentMethodName).trim(),nil:Number(p.paymentAmount)||0}));
-      const grand=Number(B.grandTotal);
-      const lebih=Number.isFinite(grand)&&grand>0 ? ps.reduce((a,p)=>a+p.nil,0)-grand : 0;
-      if(lebih>0){
-        const tunai=ps.find(p=>esbKunciBayar(p.nama)==='cash');
-        if(tunai) tunai.nil=Math.max(0,tunai.nil-lebih);
-      }
-      const order=ESB_ORDER_RE.test(String(B.visitPurposeName||''));
-      if(order) nOrder++;
-      ps.forEach(p=>{
-        let k=esbKunciBayar(p.nama);
-        if(order && ESB_BUKAN_QRIS.indexOf(k)<0){ k='qris_esb'; nilOrder+=p.nil; }
-        if(k && k in jum) jum[k]+=p.nil;
-        else asing[p.nama]=(asing[p.nama]||0)+p.nil;
-      });
-    });
+    const R=await esbAmbilHari(tgl,tulis,true);
+    const jum={}; PAYS.forEach(p=>{ jum[p.k]=num(R.bayar[p.k]); });
+    const asing=R.asing, nBill=R.nBill, nBatal=R.nBatal, nOrder=R.order.n, nilOrder=R.order.nil;
     PAYS.forEach(p=>{
       const inp=el.querySelector(`.rf[data-k="${p.k}"][data-f="pos"]`);
       if(inp) inp.value=fmtRpInput(String(Math.round(jum[p.k])));
@@ -2169,6 +2271,7 @@ function viewCompliment(){
       <button class="btn btn-primary" id="c_add">${edit?'💾 Simpan Perubahan':'+ Tambah'}</button>
       ${edit?'<button class="btn" id="c_batal" style="margin-left:8px">Batal</button>':''}
     </div>
+    <div class="card" id="esb_komp">${ESB_GAMBAR.komp()}</div>
     <div class="grid g3">
       <div class="stat accent"><div class="lab">Total Compliment ${esc(dateLabel(compDate))}</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${list.length} catatan</div></div>
       <div class="stat"><div class="lab">Report Daily (POS)</div><div class="val sm mono">${fmtRp(rd.total)}</div><div class="foot">Compliment ${fmtRp(rd.comp)} + Member Deposit ${fmtRp(rd.dep)}</div></div>
@@ -2237,6 +2340,11 @@ function viewCompliment(){
       picName:u?u.name:'Tamu', picOfficeId:u?u.id:'', picDiv:u?'kasir':'tamu',
       pemberiName:pv?pv.name:'Tamu', pemberiOfficeId:pv?pv.id:'', pemberiDiv:pv?divPemberi(pv):'tamu'
     };
+    /* Jejak bill ESB-nya, supaya kartu "Compliment dari ESB" bisa menandai
+       yang sudah dicatat. Hanya kalau form diisi lewat Pakai untuk tanggal
+       ini — pilihan dari tanggal lain tidak boleh menempel. */
+    if(ESB_KOMP_PILIH&&ESB_KOMP_PILIH.tgl===compDate){ isi.esbBill=ESB_KOMP_PILIH.bill; isi.esbJenis=ESB_KOMP_PILIH.jenis; }
+    ESB_KOMP_PILIH=null;
     DB.compliments=DB.compliments||[];
     const lama=COMP_EDIT?compById(COMP_EDIT):null;
     if(lama){
@@ -3139,6 +3247,7 @@ function viewVoid(){
         <div class="helper" style="margin:0">Dicatat atas nama <b>${esc(CURRENT_USER?CURRENT_USER.name:'—')}</b> — namanya diambil dari sesi Office, bukan diketik.</div>
       </div>
     </div>
+    <div class="card" id="esb_void">${ESB_GAMBAR.void()}</div>
     ${vdSetelanHtml()}
     <div class="grid g3">
       <div class="stat accent"><div class="lab">Void ${esc(dateLabel(voidDate))}</div><div class="val sm mono">${fmtRp(totalHari)}</div><div class="foot">${hidup.length} item dari ${nBillHari} bill${dibatalkan?` · ${dibatalkan} dibatalkan`:''}</div></div>
@@ -3277,6 +3386,31 @@ function rokokItems(){
   const d=DB&&DB.rokok_items;
   return (Array.isArray(d)&&d.length) ? d : ROKOK_BAWAAN;
 }
+/* NAMA DI POS per item (20 Oktober 2026). Dipakai tombol "Isi kolom Keluar
+   dari ESB". Bawaannya DIAMBIL DARI NAMA MENU KATEGORI ROKOK & COIN yang
+   sungguh-sungguh ada di POS (laporan Juli–Oktober 2026), bukan ditebak:
+     LA ICE PURPLE = LA Purple   LA MANGGO = LA Mango (ejaan POS)
+     SUPER / MILD  = Djarum      KOIN 2 PCS = 2 Coin per porsi (x2)
+   Bisa diubah per item di Pengaturan Item (field `pos`, teks, dipisah koma,
+   akhiran "x2" = satu porsi menu mengeluarkan dua unit). `pos` yang sudah
+   disetel — termasuk dikosongkan — MENANG atas bawaan ini. Item tanpa daftar
+   jatuh ke pencocokan kemiripan kata. */
+const ROKOK_POS_BAWAAN={
+  la_purple:'LA ICE PURPLE, LA PURPLE', la_mango:'LA MANGGO, LA MANGO', la_bold:'LA BOLD',
+  la_ice:'LA ICE', la_light:'LA LIGHT', djarum_super:'SUPER, DJARUM SUPER',
+  djarum_mild:'MILD, DJARUM MILD', insta:'INSTA', korek:'KOREK',
+  dos_hermanos:'DOS HERMANOS', dos_h_rojo:'DOS H. ROJO', dos_h_maduro:'DOS H. MADURO',
+  dos_h_corona:'DOS H. CORONA', dos_h_torito:'DOS H. TORITO',
+  gold_seal_petit:'GOLD SEAL PETIT', gold_seal_senor:'GOLD SEAL SENOR',
+  coin:'KOIN 2 PCS x2, KOIN, COIN'
+};
+function rokokPosTeks(it){ return (it&&typeof it.pos==='string') ? it.pos : (ROKOK_POS_BAWAAN[it&&it.k]||''); }
+function rokokPosDaftar(it){
+  return rokokPosTeks(it).split(',').map(s=>s.trim()).filter(Boolean).map(s=>{
+    const m=s.match(/^(.*?)\s*[xX×]\s*(\d+)$/);
+    return m&&m[1] ? {nama:m[1].trim(),kali:+m[2]} : {nama:s,kali:1};
+  });
+}
 // Kunci non-rokok PERTAMA — dipakai menaruh garis pemisah SEKALI saja. Dulu
 // pemisahnya menempel di tiap item ber-`lain`, jadi dengan dua item begitu
 // tabelnya punya dua garis dan terbaca seperti tiga kelompok.
@@ -3317,6 +3451,11 @@ function viewRokok(){
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="rk_cal">${calInner('rk')}</div></div>
     </div>
     ${jejakHtml(rec)}
+    <div class="card" style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+      <div class="card-sub" style="margin:0">Kolom <b>Keluar</b> bisa diisi dari jumlah terjual di POS ESB hari itu. Kolom Masuk tetap diisi manual.</div>
+      <button class="btn" id="rk_esb">🔄 Isi kolom Keluar dari ESB</button>
+    </div>
+    <div id="rk_esb_info"></div>
     <div class="card" style="padding:0;overflow:hidden">
       <div class="tbl-wrap"><table>
         <thead><tr><th>Item</th><th class="num">Sisa Awal</th><th class="num">Masuk</th><th class="num">Keluar</th><th class="num">Sisa Akhir</th></tr></thead>
@@ -3367,6 +3506,7 @@ function viewRokok(){
       : '';
   }
   el.querySelectorAll('.rkf').forEach(i=>i.addEventListener('input',hitung));
+  document.getElementById('rk_esb').addEventListener('click',()=>esbIsiRokok(el));
   document.getElementById('rk_save').addEventListener('click',()=>{
     /* Kunci yang TIDAK ADA lagi di rokokItems() dipertahankan apa adanya —
        item yang dihapus dari daftar (mis. LA Menthol & Djarum Mild, 30 Juli
@@ -3418,7 +3558,17 @@ function rksKunci(nama){
 /* Menulis daftar ke DB. Bawaan disalin dulu kalau belum pernah disetel —
    penyuntingan pertama harus berangkat dari daftar yang SEDANG TERLIHAT di
    lembar stok, bukan dari daftar kosong. */
-function rksDaftar(){ return rokokItems().map(it=>({k:it.k,n:it.n,lain:!!it.lain})); }
+function rksDaftar(){ return rokokItems().map(it=>{ const o={k:it.k,n:it.n,lain:!!it.lain}; if(typeof it.pos==='string') o.pos=it.pos; return o; }); }
+/* Nama menu di POS untuk item ini — lihat ROKOK_POS_BAWAAN. Dikosongkan =
+   kembali ke pencocokan kemiripan kata (bukan ke bawaan). */
+function rksUbahPos(k){
+  const daftar=rksDaftar();
+  const it=daftar.find(x=>x.k===k); if(!it) return;
+  const v=prompt('Nama menu di POS untuk "'+it.n+'" — persis seperti di ESB, pisahkan dengan koma.\nAkhiran x2 = satu porsi menu mengeluarkan dua unit (mis. KOIN 2 PCS x2).', rokokPosTeks(it));
+  if(v===null) return;
+  it.pos=v.trim();
+  rksSimpan(daftar,'ok|Nama di POS untuk <b>'+esc(it.n)+'</b> '+(it.pos?'jadi <b>'+esc(it.pos)+'</b>':'dikosongkan — dicocokkan lewat kemiripan nama')+'.');
+}
 function rksSimpan(daftar,pesan){
   DB.rokok_items=daftar;
   save();
@@ -3510,11 +3660,13 @@ function viewRokokSet(){
         <button class="btn btn-ghost btn-xs" title="Turunkan" ${i===daftar.length-1?'disabled':''} onclick="rksGeser('${esc(it.k)}',1)">↓</button></td>
       <td><b>${esc(it.n)}</b></td>
       <td class="mono" style="font-size:11.5px;color:var(--muted)">${esc(it.k)}</td>
+      <td class="mono" style="font-size:11.5px">${rokokPosTeks(it)?esc(rokokPosTeks(it)):'<span class="muted">— kemiripan nama</span>'}</td>
       <td>${it.lain
           ? '<span class="chip mute">Lainnya</span>'
           : '<span class="chip info">Rokok</span>'}</td>
       <td style="text-align:right;white-space:nowrap">
         <button class="btn btn-ghost btn-xs" onclick="rksUbahNama('${esc(it.k)}')">Ubah nama</button>
+        <button class="btn btn-ghost btn-xs" onclick="rksUbahPos('${esc(it.k)}')">Nama di POS</button>
         <button class="btn btn-ghost btn-xs" title="Pindah kelompok Rokok / Lainnya" onclick="rksToggleLain('${esc(it.k)}')">${it.lain?'Jadikan Rokok':'Jadikan Lainnya'}</button>
         <button class="btn btn-danger btn-xs" onclick="rksHapus('${esc(it.k)}')">Buang</button>
       </td></tr>`;
@@ -3537,7 +3689,7 @@ function viewRokokSet(){
       </div>
       <div class="tbl-wrap" style="margin-top:12px"><table><thead><tr>
         <th style="text-align:center">Urut</th><th style="text-align:left">Nama</th>
-        <th style="text-align:left">Kunci data</th><th style="text-align:left">Kelompok</th><th></th>
+        <th style="text-align:left">Kunci data</th><th style="text-align:left">Nama di POS (ESB)</th><th style="text-align:left">Kelompok</th><th></th>
       </tr></thead><tbody>${daftar.map(baris).join('')}</tbody></table></div>
     </div>
     <div class="card">

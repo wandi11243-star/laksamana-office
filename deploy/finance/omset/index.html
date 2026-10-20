@@ -525,6 +525,7 @@ tr.baris-edit{background:rgba(201,162,39,.10)}
   </main>
 </div>
 
+<script src="../../assets/esb-pos.js"></script>
 <script>
 /* =========================================================
    KOMPAS — engine
@@ -653,7 +654,9 @@ function bacaSesi(){
     // dengan flag isModuleAdmin yang dipakai roster Office di Kelola Akses.
     const adm=s.adminModules||[];
     const level=(adm.indexOf('*')>-1||adm.indexOf('kompas')>-1) ? 'full' : 'ops';
-    return {id:s.userId,name:s.name,keterangan:s.keterangan||'',level};
+    /* token ikut dibawa sejak 20 Okt 2026: esbHalaman (isi Input Omset &
+       Breakdown dari ESB) berpagar sesi Office di server. */
+    return {id:s.userId,name:s.name,keterangan:s.keterangan||'',level,token:s.token||''};
   }catch(e){ return null; }
 }
 function levelSaya(){ return CURRENT_USER?CURRENT_USER.level:'ops'; }
@@ -1314,6 +1317,87 @@ function render(){
 
 /* ============ 1. INPUT OMSET HARIAN ============ */
 let inputDate=todayISO();
+/* ---- ISI DARI ESB (20 Oktober 2026, permintaan user) ----
+   Input Omset Harian dan Breakdown Sumber bisa diisi dari bill POS ESB hari
+   itu. Penarik & perangkumnya deploy/assets/esb-pos.js — SATU sumber dengan
+   modul Cashier (Report Daily, Compliment, Void, Rokok), supaya angka hari
+   yang sama tidak bisa berbeda di dua modul.
+
+   HANYA MENGISI KOTAK, TIDAK MENYIMPAN. Yang menyimpan tetap Simpan Omset /
+   Simpan Breakdown, jadi jejak penginput tetap orang yang memeriksanya. */
+function esbPostOmset(payload){
+  return fetchTimeout(API_URL,{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify(Object.assign({sesi:(CURRENT_USER&&CURRENT_USER.token)||''},payload))},30000)
+    .then(r=>r.json());
+}
+let ESB_OMSET_JALAN=false;
+async function esbRingkasOmset(tgl,tulis){
+  if(!window.esbPos) throw new Error('berkas assets/esb-pos.js tidak termuat. Muat ulang halaman (Ctrl+F5).');
+  const bills=await esbPos.tarikHari(tgl,esbPostOmset,(p,t)=>tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB… halaman ${p}${t?' dari '+t:''}</div>`));
+  return esbPos.ringkasHari(bills);
+}
+/* Input Omset: Food/Beverage/Lainnya = nilai menu per kelompok (bruto),
+   Discount = bruto − net, sehingga omset net = Σ (grand − service − tax) dan
+   tagihannya sama dengan grand total POS. Traffic dari Pax POS (minimal satu
+   per bill — POS mengisi 1 pax hampir di semua bill, jadi ia sering sama
+   dengan jumlah bill; itu dikatakan, bukan ditebak lebih besar). */
+async function esbIsiInput(){
+  if(ESB_OMSET_JALAN) return;
+  const info=document.getElementById('i_esb_info'), btn=document.getElementById('i_esb');
+  const tulis=h=>{ if(info) info.innerHTML=h; };
+  const tgl=inputDate;
+  const ids=['i_food','i_bev','i_lainnya','i_discount','i_svc','i_tax','i_qfood','i_qbev','i_qothers','i_traffic','i_bill'];
+  const terisi=ids.filter(id=>num((document.getElementById(id)||{}).value)>0).length;
+  if(terisi && !confirm(`Isian omset ${dateLabel(tgl)} sudah ada angkanya.\n\nTimpa dengan angka dari ESB? (Belum ada yang tersimpan sampai Simpan Omset ditekan.)`)) return;
+  ESB_OMSET_JALAN=true; if(btn) btn.disabled=true;
+  tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB…</div>`);
+  try{
+    const R=await esbRingkasOmset(tgl,tulis);
+    if(!R.nBill){ tulis(`<div class="notice warn"><div>ESB tidak memulangkan satu bill pun untuk ${esc(dateLabel(tgl))}. Isian tidak diubah.</div></div>`); return; }
+    const set=(id,v,rp)=>{ const e=document.getElementById(id); if(e) e.value=rp?fmtRpInput(String(Math.round(v))):String(Math.round(v)); };
+    set('i_food',R.food,1); set('i_bev',R.bev,1); set('i_lainnya',R.lainnya,1); set('i_discount',R.disc,1);
+    set('i_svc',R.svc,1); set('i_tax',R.tax,1);
+    set('i_qfood',R.qty.food); set('i_qbev',R.qty.bev); set('i_qothers',R.qty.lainnya);
+    set('i_bill',R.nBill); set('i_traffic',Math.max(R.pax,R.nBill));
+    const e=document.getElementById('i_food'); if(e) e.dispatchEvent(new Event('input'));
+    tulis(`<div class="notice ok"><div>✓ Diisi dari ESB: <b>${R.nBill}</b> bill, tagihan <b>${fmtRp(R.grand)}</b> (net ${fmtRp(R.grand-R.svc-R.tax)} + service ${fmtRp(R.svc)} + tax ${fmtRp(R.tax)})${R.nBatal?` · ${R.nBatal} bill batal/void tidak dihitung`:''}. Traffic dari kolom Pax POS. <b>Belum tersimpan</b> — periksa lalu tekan Simpan Omset.</div></div>`);
+  }catch(x){
+    tulis(`<div class="notice bad"><div>⚠ Gagal menarik dari ESB: ${esc(x.message||String(x))}. Isian tidak diubah.</div></div>`);
+  }finally{ ESB_OMSET_JALAN=false; if(btn) btn.disabled=false; }
+}
+
+/* Report Daily: kolom POS dari ESB. KEMBARAN esbIsiPos() di deploy/cashier/
+   — keduanya menulis blob reports yang SAMA, jadi aturannya (kembalian,
+   ESB Order -> QRIS POS, metode asing tidak ditebak) wajib sama; karena itu
+   seluruh hitungannya di esbPos.ringkasHari(), bukan di sini. Kolom Actual
+   tidak disentuh. */
+async function esbIsiPosOmset(el,hitung){
+  if(ESB_OMSET_JALAN) return;
+  const info=document.getElementById('rp_esb_info'), btn=document.getElementById('rp_esb');
+  const tulis=h=>{ if(info) info.innerHTML=h; };
+  const tgl=repDate;
+  const terisi=PAYS.filter(p=>num((el.querySelector(`.rf[data-k="${p.k}"][data-f="pos"]`)||{}).value)>0).length;
+  if(terisi && !confirm(`${terisi} kotak POS tanggal ${dateLabel(tgl)} sudah terisi.\n\nTimpa seluruh kolom POS dengan angka dari ESB? (Kolom Actual tidak disentuh, dan belum ada yang tersimpan sampai Submit ditekan.)`)) return;
+  ESB_OMSET_JALAN=true; if(btn) btn.disabled=true;
+  tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB…</div>`);
+  try{
+    const R=await esbRingkasOmset(tgl,tulis);
+    PAYS.forEach(p=>{
+      const inp=el.querySelector(`.rf[data-k="${p.k}"][data-f="pos"]`);
+      if(inp) inp.value=fmtRpInput(String(Math.round(num(R.bayar[p.k]))));
+    });
+    hitung();
+    const tot=PAYS.reduce((a,p)=>a+num(R.bayar[p.k]),0);
+    const asing=Object.keys(R.asing);
+    tulis(`<div class="notice ok"><div>✓ Kolom POS diisi dari ESB: <b>${R.nBill}</b> bill, total <b>${fmtRp(Math.round(tot))}</b>${R.nBatal?` · ${R.nBatal} bill batal/void tidak dihitung`:''}${R.order.n?` · ${R.order.n} bill ESB Order (${fmtRp(Math.round(R.order.nil))}) masuk ke QRIS POS`:''}. <b>Belum tersimpan</b> — periksa lalu tekan Submit.</div></div>`
+      + (asing.length?`<div class="notice warn"><div>⚠ Metode ini ada di ESB tapi tidak dikenali, jadi <b>tidak dimasukkan</b> ke kotak mana pun: ${asing.map(n=>`<b>${esc(n)}</b> ${fmtRp(Math.round(R.asing[n]))}`).join(' · ')}. Isi manual ke barisnya, dan kabari admin supaya ejaannya didaftarkan.</div></div>`:'')
+      + (R.nBill?'':`<div class="notice warn"><div>ESB tidak memulangkan satu bill pun untuk ${esc(dateLabel(tgl))}.</div></div>`));
+  }catch(x){
+    tulis(`<div class="notice bad"><div>⚠ Gagal menarik dari ESB: ${esc(x.message||String(x))}. Kolom POS tidak diubah.</div></div>`);
+  }finally{ ESB_OMSET_JALAN=false; if(btn) btn.disabled=false; }
+}
+
 function viewInput(){
   CAL_ST.in.open=false;   // selalu mulai tertutup saat halaman digambar ulang
   const el=document.getElementById('app-view');
@@ -1325,6 +1409,11 @@ function viewInput(){
       <div class="card">
         <h3>Informasi & Pendapatan</h3>
         <div class="card-sub">Tanggal menentukan periode. Hari terisi otomatis.</div>
+        <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+          <button class="btn" id="i_esb" type="button">🔄 Isi dari ESB</button>
+          <span class="helper" style="margin:0">Mengisi seluruh kotak di bawah dari bill POS ESB tanggal ini — belum tersimpan sampai Simpan Omset ditekan.</span>
+        </div>
+        <div id="i_esb_info"></div>
         <div class="row-in">
           <div class="field"><label>Tanggal</label><div class="calwrap" id="i_cal">${calInner('in')}</div></div>
           <div class="field"><label>Hari</label><input id="i_hari" value="${HARI[new Date(inputDate+'T00:00:00').getDay()]}" readonly></div>
@@ -1479,6 +1568,7 @@ function viewInput(){
     return {tagihan};
   };
   el.querySelectorAll('.ci').forEach(i=>i.addEventListener('input',recalc));
+  document.getElementById('i_esb').addEventListener('click',esbIsiInput);
   document.getElementById('i_save').addEventListener('click',saveDaily);
   if(document.getElementById('i_del'))document.getElementById('i_del').addEventListener('click',()=>{
     if(confirm('Hapus data omset '+inputDate+'? Breakdown ikut terhapus.')){DB.daily=DB.daily.filter(x=>x.date!==inputDate);save();render();}
@@ -1572,10 +1662,12 @@ function viewReport(){
   const thBon = bh.ada ? '<th class="num">Sisa Selisih</th>' : '';
   el.innerHTML=`
     <div class="card" style="display:flex;justify-content:space-between;align-items:flex-start;gap:14px;flex-wrap:wrap">
-      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode. Boleh disubmit kapan saja.</div></div>
+      <div><h3>Setoran per Metode Pembayaran</h3><div class="card-sub">Isi POS dan Actual tiap metode. Boleh disubmit kapan saja.</div>
+        <button class="btn" id="rp_esb" type="button" style="margin-top:10px">🔄 Isi kolom POS dari ESB</button></div>
       <div class="field" style="margin:0"><label>Tanggal</label><div class="calwrap" id="rp_cal">${calInner('rp')}</div></div>
     </div>
     ${jejakHtml(rec)}
+    <div id="rp_esb_info"></div>
     <div class="card">
       <div class="tbl-wrap"><table>
         <thead><tr><th>Metode Pembayaran</th><th class="num">POS</th><th class="num">Actual</th><th class="num">Selisih</th>${thBon}</tr></thead>
@@ -1695,6 +1787,7 @@ function viewReport(){
   };
   function inputVal(k,f){ const e=el.querySelector(`.rf[data-k="${k}"][data-f="${f}"]`); return e?e.value:0; }
   el.querySelectorAll('.rf').forEach(i=>i.addEventListener('input',hitung));
+  document.getElementById('rp_esb').addEventListener('click',()=>esbIsiPosOmset(el,hitung));
   document.getElementById('rp_save').addEventListener('click',()=>{
     const h=hitung();
     const box=document.getElementById('rp_err');
@@ -3337,6 +3430,11 @@ function viewBreakdown(){
 
       <span class="divlabel ks">Section A — Omset per Kasir <span style="opacity:.75;font-weight:600">(isi ini dulu)</span></span>
       <div class="helper" style="margin-bottom:10px">Semua uang lewat meja kasir, <b>termasuk tiket event dan tagihan gathering</b> — jadi isi omset apa adanya sesuai setoran tiap kasir. Kolom <b>Omset diisi BRUTO</b> (sebelum diskon), lalu diskon bill yang diberikan kasir itu diisi di kolom sebelahnya; yang diakui = bruto − diskon. Total <b>yang diakui</b> inilah yang harus sama dengan omset net; section B dan C di bawah tidak menambah total, tapi <b>memotong</b> dari kasir yang kena shift-nya. Centang OFF jika kasir libur, nominal otomatis nol.</div>
+      <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:10px">
+        <button class="btn" id="bd_esb" type="button">🔄 Isi kasir &amp; Self Order dari ESB</button>
+        <span class="helper" style="margin:0">Bill dipasangkan ke kasir lewat akun POS yang memprosesnya; bill <b>ESB Order</b> masuk Self Order. Belum tersimpan sampai Simpan Breakdown ditekan.</span>
+      </div>
+      <div id="bd_esb_info"></div>
       <div id="bd_ks"></div>
 
       <span class="divlabel so" style="margin-top:20px">Self Order <span style="opacity:.75;font-weight:600">(tanpa kasir)</span></span>
@@ -4295,6 +4393,71 @@ function viewBreakdown(){
      dibiarkan kosong — bukan dijatuhkan ke siapa pun. */
   document.getElementById('add_ev').onclick=()=>{state.ev.push({picId:picPengisi('event')||undefined,eventName:'',amount:0,tiket:false,dw:0});drawEv();calc();};
   drawMk();drawEv();drawKs();drawSo();calc();
+  /* ISI DARI ESB. Akun POS (editedBy, jatuh ke createdBy) dipasangkan ke
+     kasir lewat namanya (esbPos.petakanKasir) — akun yang cocok ke nol atau
+     ke dua kasir TIDAK ditebak, nominalnya disebut di layar dan diisi tangan.
+     Kasir yang tidak memproses satu bill pun di ESB diisi nol. Hanya Section A
+     & Self Order yang disentuh; Marketing & Event tetap dari modulnya. */
+  /* Ringkasan ESB terakhir untuk tanggal ini — dipakai ulang saat pemetaan
+     akun disimpan, supaya tidak perlu menarik seluruh halaman ESB lagi. */
+  let esbR=null;
+  const terapkanEsb=(R)=>{
+    const info=document.getElementById('bd_esb_info');
+    const peta=(DB.esbAkunKasir&&typeof DB.esbAkunKasir==='object')?DB.esbAkunKasir:{};
+    const emps=(DB.employees.kasir||[]).map(k=>({id:k.id,name:k.name}));
+    const P=esbPos.petakanKasir(emps,R.kasir,peta);
+    state.ks.forEach(r=>{
+      const h=P.hasil[r.kasirId];
+      r.amount=h?Math.round(h.amount):0; r.disc=h?Math.round(h.disc):0;
+      if(h) r.off=false;
+    });
+    state.so.amount=Math.round(R.self.amount); state.so.disc=Math.round(R.self.disc);
+    drawKs(); drawSo(); calc();
+    const asing=Object.keys(P.takKenal).sort((x,y)=>P.takKenal[y].amount-P.takKenal[x].amount);
+    const netEsb=R.grand-R.svc-R.tax;
+    const dipakai=Object.keys(P.hasil).map(id=>`<b>${esc(empName('kasir',id))}</b> ← ${P.hasil[id].akun.map(esc).join(', ')}`).join(' · ');
+    const opsi=sel=>'<option value="">— pilih kasir —</option>'+emps.map(e=>`<option value="${esc(e.id)}"${String(sel)===String(e.id)?' selected':''}>${esc(e.name)}</option>`).join('');
+    info.innerHTML=`<div class="notice ok"><div>✓ Diisi dari ESB: ${Object.keys(P.hasil).length} kasir${R.self.n?`, Self Order ${R.self.n} bill`:''} — net ESB <b>${fmtRp(netEsb)}</b>${Math.abs(netEsb-net)>=1?` (omset net harian yang tersimpan ${fmtRp(net)} — kalau berbeda, isi ulang Input Omset Harian dari ESB dulu)`:''}. <b>Belum tersimpan</b> — periksa lalu tekan Simpan Breakdown.${dipakai?`<br><span style="font-size:12px">Dari ESB: ${dipakai}</span>`:''}</div></div>`
+      + (asing.length?`<div class="notice warn" style="display:block"><div>⚠ <b>Karyawan ESB ini belum dikenali sebagai kasir</b>, jadi omsetnya <b>belum dimasukkan</b>. Pilih kasirnya lalu tekan Simpan pemetaan — pilihan ini diingat untuk tanggal-tanggal berikutnya. Yang memang bukan kasir (mis. SPV) biarkan kosong dan bagi manual.</div>
+        <div class="tbl-wrap" style="margin-top:8px"><table><thead><tr><th>Karyawan ESB (username)</th><th class="num">Bill</th><th class="num">Omset bruto</th><th class="num">Diskon</th><th>Kasir</th></tr></thead><tbody>${asing.map(akun=>{ const x=P.takKenal[akun];
+          return `<tr><td><b>${esc(x.nama||akun)}</b> <span class="mono muted" style="font-size:11px">${esc(akun)}</span>${x.ambigu?'<div class="helper" style="margin:2px 0 0">cocok ke lebih dari satu kasir</div>':''}</td><td class="num mono">${x.n}</td><td class="num mono">${fmtRp(x.amount)}</td><td class="num mono">${fmtRp(x.disc)}</td><td><select class="bd-esb-akun" data-akun="${esc(akun)}">${opsi(peta[esbPos.baku(akun)]||'')}</select></td></tr>`;}).join('')}</tbody></table></div>
+        <button class="btn btn-sm" id="bd_esb_peta" type="button" style="margin-top:8px">💾 Simpan pemetaan &amp; isi ulang</button></div>`:'');
+    const bp=document.getElementById('bd_esb_peta');
+    if(bp) bp.addEventListener('click',()=>{
+      const pt=Object.assign({},peta); let n=0;
+      info.querySelectorAll('.bd-esb-akun').forEach(sel=>{ if(sel.value){ pt[esbPos.baku(sel.dataset.akun)]=sel.value; n++; } });
+      if(!n){ alert('Belum ada kasir yang dipilih.'); return; }
+      /* Disimpan di blob omset (save_all menulisnya apa adanya, tanpa daftar
+         kunci tertutup). Hanya pemetaannya yang ikut naik sekarang; angka
+         breakdown di layar tetap menunggu Simpan Breakdown. */
+      DB.esbAkunKasir=pt; save();
+      terapkanEsb(R);
+    });
+  };
+  /* ISI DARI ESB. Akun POS (editedBy, jatuh ke createdBy) dipasangkan ke
+     kasir lewat pemetaan tersimpan (DB.esbAkunKasir), lalu lewat nama —
+     esbPos.petakanKasir. Akun yang cocok ke nol atau ke dua kasir TIDAK
+     ditebak: nominalnya disebut di layar dan bisa dipetakan di sana. Kasir
+     yang tidak memproses satu bill pun di ESB diisi nol. Hanya Section A &
+     Self Order yang disentuh; Marketing & Event tetap dari modulnya. */
+  document.getElementById('bd_esb').addEventListener('click',async()=>{
+    if(ESB_OMSET_JALAN) return;
+    const info=document.getElementById('bd_esb_info'), btn=document.getElementById('bd_esb');
+    const tulis=h=>{ if(info) info.innerHTML=h; };
+    const tgl=bdDate;
+    const terisi=state.ks.some(r=>num(r.amount)||num(r.disc))||num(state.so.amount)||num(state.so.disc);
+    if(terisi && !confirm(`Omset kasir / Self Order ${dateLabel(tgl)} sudah ada angkanya.\n\nTimpa dengan angka dari ESB? (Section Marketing & Event tidak disentuh, dan belum ada yang tersimpan sampai Simpan Breakdown ditekan.)`)) return;
+    ESB_OMSET_JALAN=true; btn.disabled=true;
+    tulis(`<div class="notice info">⏳ Menarik bill ${esc(dateLabel(tgl))} dari ESB…</div>`);
+    try{
+      const R=await esbRingkasOmset(tgl,tulis);
+      if(tgl!==bdDate) return;
+      if(!R.nBill){ tulis(`<div class="notice warn"><div>ESB tidak memulangkan satu bill pun untuk ${esc(dateLabel(tgl))}. Isian tidak diubah.</div></div>`); return; }
+      esbR=R; terapkanEsb(R);
+    }catch(x){
+      tulis(`<div class="notice bad"><div>⚠ Gagal menarik dari ESB: ${esc(x.message||String(x))}. Isian tidak diubah.</div></div>`);
+    }finally{ ESB_OMSET_JALAN=false; btn.disabled=false; }
+  });
 
   /* Penarikan event otomatis dijalankan PALING AKHIR, sesudah halaman lengkap
      tergambar. Menunggunya lebih dulu berarti Breakdown baru muncul setelah
