@@ -143,9 +143,18 @@ const posX = L => ((L && L.tables && L.tables[0]) || {}).x;
     cek('Senin tetap Weekday', w.vipDenahKeyOtomatis({}, '2026-09-07') === 'weekday');
     /* Aturannya dibandingkan dengan modul Reservasi, bukan dihafal: kalau
        hariAkhirPekan di sana berubah, uji ini yang menyalakannya. */
-    cek('aturan akhir pekan sama dengan modul Reservasi',
-        /dg===0\|\|dg===5\|\|dg===6/.test(RSV.replace(/\s/g, '')),
-        'hariAkhirPekan di reservasi berubah — vipAkhirPekan harus ikut');
+    cek('bawaan hari weekend sama dengan modul Reservasi',
+        /HARI_WEEKEND_BAWAAN=\[0,5,6\]/.test(RSV.replace(/\s/g, '')),
+        'HARI_WEEKEND_BAWAAN di reservasi berubah — vipAkhirPekan harus ikut');
+    /* Sejak 21 Okt 2026 harinya disetel di Master Data Reservasi
+       (master.hariWeekend), dan Marketing wajib membacanya dari data yang
+       sama — kalau tidak, kedua modul menggambar denah berbeda. */
+    cek('setelan hariWeekend Reservasi dipakai (Kamis jadi Weekend)',
+        w.vipDenahKeyOtomatis({ master: { hariWeekend: [4] } }, '2026-09-03') === 'weekend');
+    cek('setelan hariWeekend membuang hari bawaan (Sabtu jadi Weekday)',
+        w.vipDenahKeyOtomatis({ master: { hariWeekend: [4] } }, '2026-09-05') === 'weekday');
+    cek('daftar kosong = semua Weekday, bukan jatuh ke bawaan',
+        w.vipDenahKeyOtomatis({ master: { hariWeekend: [] } }, '2026-09-05') === 'weekday');
   }
 
   /* ================= 2. kunci meja H-3 jam ================= */
