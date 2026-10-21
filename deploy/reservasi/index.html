@@ -1272,9 +1272,21 @@ function layoutOverrides2(){ return ovLantai(2); }
    "Layout" di Recap (layoutOverrides), mis. event di hari Rabu. Tanggal yang
    sudah pernah ditimpa TIDAK berubah oleh perubahan ini — lihat dayTypeLayout,
    override selalu menang. */
+/* Sejak 21 Oktober 2026 hari-harinya DISETEL di Master Data
+   (master.hariWeekend, daftar getDay() 0..6). Disimpan di blob master yang
+   SAMA dengan denahnya, jadi Reservasi, Service Excellent, dan Marketing
+   (vipAkhirPekan) membaca satu setelan. Belum pernah disetel = bawaan
+   Jumat/Sabtu/Minggu. Daftar KOSONG itu sah (tidak ada hari weekend) dan
+   tidak boleh jatuh ke bawaan. */
+const HARI_WEEKEND_BAWAAN=[0,5,6];
+function hariWeekend(){
+  const v=STATE&&STATE.master&&STATE.master.hariWeekend;
+  if(!Array.isArray(v)) return HARI_WEEKEND_BAWAAN.slice();
+  return v.map(Number).filter(n=>Number.isInteger(n)&&n>=0&&n<=6);
+}
 function hariAkhirPekan(date){
   const dg=new Date(date+"T00:00:00").getDay();
-  return (dg===0||dg===5||dg===6);
+  return hariWeekend().indexOf(dg)>=0;
 }
 /* Denah bawaan sebuah lantai pada sebuah tanggal — sebelum jadwal khusus. */
 function defaultDayTypeLt(date,lt){ const c=ltCfg(lt); return hariAkhirPekan(date)?c.we:c.wd; }
@@ -5990,7 +6002,7 @@ function openLayoutSettings(lt){
   openModal(`<div class="modal-head"><h3>⚙️ Denah ${esc(C.nama)}, ${fmtDate(date)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
    <div class="modal-body">
      <div style="display:flex;gap:8px;margin-bottom:12px">${tab(1,"Lantai 1")}${tab(2,"Lantai 2")}</div>
-     <div class="inline-info" style="margin-bottom:14px"><div>Pilih denah <b>${esc(C.nama)}</b> untuk <b>${fmtDate(date)}</b>. Berlaku <b>hanya tanggal ini</b> — tanggal lain otomatis kembali ke bawaan hari (Jumat/Sabtu/Minggu = Weekend, selain itu Weekday). Lantai 1 dan Lantai 2 dijadwalkan <b>sendiri-sendiri</b>.</div></div>
+     <div class="inline-info" style="margin-bottom:14px"><div>Pilih denah <b>${esc(C.nama)}</b> untuk <b>${fmtDate(date)}</b>. Berlaku <b>hanya tanggal ini</b> — tanggal lain otomatis kembali ke bawaan hari (hari Weekend diatur di Master Data, selain itu Weekday). Lantai 1 dan Lantai 2 dijadwalkan <b>sendiri-sendiri</b>.</div></div>
      ${opt("",`Bawaan hari (otomatis: ${esc(layoutName(def))})`,"Ikuti aturan hari — tidak ada perubahan khusus.")}
      ${tplOpts}
      <div style="margin-top:4px;display:flex;gap:8px;flex-wrap:wrap">
@@ -10566,6 +10578,7 @@ function renderMaster(){
        jadi satu tamu yang lupa ditandai <b>🍽️ Selesai</b> tidak memblokir mejanya berhari-hari.
        Sekarang: <b>${fmtDur(dineEst())}</b>. Contoh: tamu duduk jam 02:00 → meja bebas lagi sekitar jam ${hhmm(toMin("02:00")+dineEst())}.</p>
    </div></div>
+   ${panelHariWeekend()}
    <div class="chart-row">${listBlock("🏷️ Jenis Reservasi (Tag)","categories",m.categories||[])}${listBlock("💳 Metode DP","dpMethods",m.dpMethods)}</div>
    <div class="chart-row">${listBlock("📣 Sumber Informasi","infoSources",m.infoSources)}
      <div class="panel"><div class="panel-head"><h3>💬 Tujuan WhatsApp</h3></div><div class="panel-body">
@@ -10575,6 +10588,37 @@ function renderMaster(){
    </div>
    ${CAN.manageUsers(SESSION.role) ? userAccessBlock() : ""}`;
 }
+/* Hari mana yang otomatis memakai denah WEEKEND (Lt.1 & Lt.2). Urutan Senin
+   dulu karena begitu orang membaca seminggu; nilainya tetap getDay(). */
+const HARI_PILIH=[[1,"Senin"],[2,"Selasa"],[3,"Rabu"],[4,"Kamis"],[5,"Jumat"],[6,"Sabtu"],[0,"Minggu"]];
+function panelHariWeekend(){
+  const aktif=hariWeekend();
+  const nama=HARI_PILIH.filter(([n])=>aktif.indexOf(n)>=0).map(x=>x[1]);
+  return `<div class="panel"><div class="panel-head"><h3>🗓️ Hari Denah Weekend</h3></div><div class="panel-body">
+     <div class="pill-row" style="margin:0;gap:8px">
+       ${HARI_PILIH.map(([n,lbl])=>`<label class="pill" style="cursor:pointer;display:inline-flex;align-items:center;gap:6px"><input type="checkbox" class="hariWe" value="${n}"${aktif.indexOf(n)>=0?" checked":""}> ${lbl}</label>`).join("")}
+     </div>
+     <div style="display:flex;gap:8px;margin-top:12px">
+       <button class="btn btn-sm btn-primary" onclick="saveHariWeekend()">💾 Simpan</button>
+       <button class="btn btn-sm btn-ghost" onclick="resetHariWeekend()">↺ Bawaan (Jumat, Sabtu, Minggu)</button></div>
+     <p class="hint" style="margin-top:10px">Hari yang dicentang otomatis memakai denah <b>Weekend</b> (Lantai 1 &amp; Lantai 2), selain itu <b>Weekday</b>.
+       Sekarang: <b>${nama.length?nama.join(", "):"tidak ada — semua hari Weekday"}</b>.
+       Tanggal yang sudah dijadwalkan denahnya sendiri (Layout per tanggal) tidak ikut berubah. Berlaku juga di modul Marketing (Reservasi VIP) dan Service Excellent.</p>
+   </div></div>`;
+}
+function simpanHariWeekend(hari,ket){
+  STATE.master.hariWeekend=hari;
+  logAudit("Master","Hari denah weekend → "+ket);
+  saveState(); renderMaster();
+  toast("Hari denah weekend disimpan ✓","ok");
+}
+function saveHariWeekend(){
+  const hari=[...document.querySelectorAll("#page-master .hariWe:checked")].map(x=>Number(x.value));
+  const ket=HARI_PILIH.filter(([n])=>hari.indexOf(n)>=0).map(x=>x[1]).join(", ")||"(tidak ada)";
+  if(!hari.length && !confirm("Tidak ada hari yang dicentang — semua tanggal akan memakai denah Weekday. Lanjutkan?")) return;
+  simpanHariWeekend(hari,ket);
+}
+function resetHariWeekend(){ simpanHariWeekend(HARI_WEEKEND_BAWAAN.slice(),"Jumat, Sabtu, Minggu (bawaan)"); }
 function saveDineEst(){
   const n=Number(byId("dineEstInput").value||0);
   if(!n || n<30){ toast("Estimasi lama duduk minimal 30 menit","err"); return; }
