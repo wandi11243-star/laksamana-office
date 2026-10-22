@@ -1503,12 +1503,118 @@ const TITLES = {
 /* ============ BULAN & RINGKASAN ============ */
 const blnAda = () => Object.keys((AN.data.laporan) || {}).sort().reverse();
 function blnAktif() {
+  if (harianMode()) return HARI.slice(0, 7);
   const a = blnAda();
   if (BLN && a.indexOf(BLN) >= 0) return BLN;
   return a.length ? a[0] : '';
 }
-function lap(b) { return (AN.data.laporan || {})[b || blnAktif()] || null; }
-function blnPilih(b) { BLN = b; MN_HAL = 1; render(); }
+/* Di mode harian, bulan dari tanggal yang dipilih DIGANTI ringkasan satu hari
+   itu — di SATU tempat ini, jadi seluruh halaman yang membaca lap() ikut
+   tanpa satu pun perlu tahu ada mode harian. */
+function lap(b) {
+  const k = b || blnAktif();
+  if (harianMode() && k === HARI.slice(0, 7)) return HARI_DATA[HARI] || null;
+  return (AN.data.laporan || {})[k] || null;
+}
+function blnPilih(b) { BLN = b; HARI = ''; MN_HAL = 1; render(); }
+
+/* ============ MODE HARIAN (22 Oktober 2026) ============
+   Permintaan user: "saya ingin bisa dilihat berdasarkan per harian juga".
+
+   Yang tersimpan per bulan cuma RINGKASANNYA — menu, kategori, kanal, meja,
+   dan error sudah dijumlahkan sebulan dan tidak bisa dipecah balik per hari.
+   Jadi tanggal yang dipilih DITARIK ULANG dari ESB (esbTarikRentang dengan
+   dari = sampai) dan diurai uraiBerkas() yang SAMA dengan sinkron bulanan —
+   tidak ada pengurai kedua, dan angkanya dihitung dengan aturan yang sama.
+
+   TIDAK DISIMPAN ke server. Ringkasan bulan tetap satu-satunya yang tersimpan;
+   hasil harian cuma hidup di memori halaman ini (HARI_DATA), sekali tarik per
+   tanggal per sesi.
+
+   HANYA halaman yang menjawab pertanyaan satu periode (HARIAN_VIEW). Tren,
+   Pengaruh Event/Marketing, dan Talent membandingkan HARI-HARI dalam sebulan —
+   diberi satu hari, pembandingnya hilang dan angkanya tetap terlihat wajar. */
+let HARI = '';
+const HARI_DATA = {};
+const HARI_MUAT = {};
+const HARIAN_VIEW = ['ringkasan', 'hari', 'menu', 'kategori', 'kunjungan', 'meja', 'error'];
+function harianMode() { return !!HARI && HARIAN_VIEW.indexOf(CURRENT) >= 0; }
+function hariPilih(t) {
+  if (!t || !/^\d{4}-\d{2}-\d{2}$/.test(t)) { HARI = ''; render(); return; }
+  if (t > todayISO()) { toast('Tanggal ' + fmtTgl(t) + ' belum terjadi.'); return; }
+  HARI = t; BLN = t.slice(0, 7); MN_HAL = 1;
+  if (!HARI_DATA[t] && HARI_MUAT[t] !== 'memuat') muatHari(t);
+  render();
+}
+function hariGeser(n) {
+  const d = new Date((HARI || todayISO()) + 'T00:00:00'); d.setDate(d.getDate() + n);
+  hariPilih(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'));
+}
+async function muatHari(t, ulang) {
+  if (ulang) { delete HARI_DATA[t]; }
+  HARI_MUAT[t] = 'memuat';
+  if (HARI === t) render();
+  try {
+    const { bills, ganda } = await esbTarikRentang(t, t, fmtTgl(t));
+    if (!bills.length) { HARI_MUAT[t] = { kosong: true }; }
+    else {
+      const { rows, info } = esbKeBaris(bills);
+      const u = uraiBerkas(rows, 'API ESB · ' + t);
+      if (u.kind !== 'pos') throw new Error('Hasil ESB tidak terbaca sebagai laporan penjualan.');
+      u.diunggah = todayISO();
+      u.oleh = (CURRENT_USER && CURRENT_USER.name) || '';
+      const L = anBentukLaporan(u);
+      /* Hari yang ditarik harus hari yang DIMINTA. Baris tanggal lain yang
+         ikut terbawa dibuang dari hari[]/hariJam[] oleh pengurainya, tapi
+         kalau tidak satu pun jatuh di tanggal itu, ESB memulangkan rentang
+         yang salah — lebih baik dikatakan daripada memajang hari lain. */
+      if (!(L.hari || {})[t]) throw new Error('ESB tidak memulangkan bill bertanggal ' + fmtTgl(t) + '.');
+      L.esb = { sampai: t, harian: true, at: new Date().toISOString(),
+        bill: info.bill, billBatal: info.billBatal, menuBatal: info.menuBatal, ganda };
+      HARI_DATA[t] = L;
+      delete HARI_MUAT[t];
+    }
+    setSync('ok', '✓ ' + fmtTgl(t) + ' termuat');
+  } catch (e) {
+    HARI_MUAT[t] = { galat: (e && e.message) || String(e) };
+    setSync('err', '⚠ ' + fmtTgl(t) + ' gagal dimuat');
+  }
+  if (HARI === t) render();
+}
+/* Kendali harian di bawah pemilih bulan. Digambar juga saat belum ada satu
+   pun laporan bulanan — mode harian tidak butuh ringkasan bulan sama sekali. */
+function pilihHari() {
+  if (HARIAN_VIEW.indexOf(CURRENT) < 0) return '';
+  const st = HARI ? HARI_MUAT[HARI] : null, L = HARI ? HARI_DATA[HARI] : null;
+  let ket = '';
+  if (!HARI) ket = 'Pilih tanggal untuk melihat halaman ini per hari — datanya ditarik langsung dari ESB.';
+  else if (st === 'memuat') ket = '⏳ Menarik ' + esc(fmtTgl(HARI)) + ' dari ESB…';
+  else if (L) ket = 'Menampilkan <b>' + esc(fmtTgl(HARI)) + '</b> saja · ' + (L.esb.bill || 0).toLocaleString('id-ID') + ' bill dari ESB'
+    + (HARI === todayISO() ? ' (hari ini — masih berjalan)' : '')
+    + (L.esb.billBatal ? ' · ' + L.esb.billBatal + ' bill batal tidak dihitung' : '')
+    + ' · tidak disimpan, ringkasan bulanan tidak berubah';
+  return '<div class="card" style="padding:12px 18px;margin-bottom:16px">'
+    + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
+    + '<b style="font-size:13px">Per hari</b>'
+    + (HARI ? '<button class="btn btn-sm" onclick="hariGeser(-1)" title="Hari sebelumnya">‹</button>' : '')
+    + '<input type="date" class="cari" id="an_hari" style="width:auto" max="' + todayISO() + '" value="' + esc(HARI) + '" onchange="hariPilih(this.value)">'
+    + (HARI ? '<button class="btn btn-sm" onclick="hariGeser(1)" title="Hari berikutnya"' + (HARI >= todayISO() ? ' disabled' : '') + '>›</button>'
+            + '<span class="qa-chip" onclick="hariPilih(\'\')">✕ Kembali ke bulanan</span>' : '')
+    + (L ? '<button class="btn btn-sm" onclick="muatHari(HARI,true)" title="Tarik ulang dari ESB">↻</button>' : '')
+    + '</div><div class="helper" style="margin:8px 0 0">' + ket + '</div></div>';
+}
+/* Keadaan kosong di mode harian: tiga sebab, tiga kalimat — "belum ada
+   laporan yang diunggah" di sini menyuruh orang mengunggah berkas yang
+   tidak ada hubungannya dengan tanggal yang ia pilih. */
+function kosongHarian() {
+  const st = HARI_MUAT[HARI];
+  if (st && st.kosong) return '<div class="empty"><div class="big">◫</div><b>Tidak ada bill di ESB pada '
+    + esc(fmtTgl(HARI)) + '.</b><div style="margin-top:6px">Kalau venue memang buka hari itu, tekan ↻ untuk menarik ulang.</div></div>';
+  if (st && st.galat) return '<div class="notice bad">⚠ <div><b>' + esc(fmtTgl(HARI)) + ' gagal ditarik dari ESB.</b> '
+    + esc(st.galat) + ' <button class="btn btn-sm" onclick="muatHari(HARI,true)">Coba lagi</button></div></div>';
+  return '<div class="empty"><div class="big">⏳</div><b>Menarik ' + esc(fmtTgl(HARI)) + ' dari ESB…</b>'
+    + '<div style="margin-top:6px">Satu hari biasanya selesai dalam beberapa detik.</div></div>';
+}
 
 /* Batas shift. Bawaannya 10:00–18:00 dan 18:00–24:00 (ditetapkan user 28
    Agustus 2026), tapi DISETEL, bukan dikunci: jam buka berubah, dan angka yang
@@ -1616,15 +1722,15 @@ function vRingkasan() {
    diunggah. Sekarang semuanya digambar; chip-nya membungkus sendiri. */
 function pilihBulan() {
   const a = blnAda(), b = blnAktif();
-  if (!a.length) return '';
+  if (!a.length) return pilihHari();
   return '<div class="card" style="padding:14px 18px;margin-bottom:16px">'
     + '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">'
     + '<b style="font-size:13px">Bulan</b>'
     + a.map(x => '<span class="qa-chip' + (x === b ? ' on' : '') + '" data-b="' + esc(x) + '"'
         + ' onclick="blnPilih(this.dataset.b)">' + esc(fmtBln(x)) + '</span>').join('')
     + '<span style="flex:1"></span>'
-    + '<span class="helper" style="margin:0">' + esc(ketLaporan(lap(b))) + '</span>'
-    + '</div></div>';
+    + '<span class="helper" style="margin:0">' + esc(harianMode() ? '' : ketLaporan(lap(b))) + '</span>'
+    + '</div></div>' + pilihHari();
 }
 function ketLaporan(d) {
   if (!d) return '';
@@ -1632,6 +1738,7 @@ function ketLaporan(d) {
     + fmtTgl(d.diunggah) + (d.oleh ? ' oleh ' + d.oleh : '');
 }
 function kosongBelumAda() {
+  if (harianMode()) return kosongHarian();
   return '<div class="empty"><div class="big">◫</div>'
     + '<b>Belum ada laporan yang diunggah.</b>'
     + '<div style="margin-top:6px">Buka <b>Unggah Laporan</b> lalu pilih berkas '
@@ -1654,7 +1761,7 @@ function bandingKompas(b, d) {
   const rekap = {};
   daily.forEach(x => {
     const t = isoDari(x && x.date);
-    if (!t || blnDari(t) !== b) return;
+    if (!t || !cocokPeriode(t, b)) return;
     /* Satu tanggal bisa punya lebih dari satu baris daily — dijumlahkan,
        bukan ditimpa. Yang ditimpa membuang omset separuh hari tanpa satu pun
        tanda. */
@@ -1799,11 +1906,19 @@ function rincianSelisih(d, rekap, selisih) {
    Memulangkan null kalau registernya TIDAK TERBACA, bukan 0. Nol membuat Net
    Sales sama persis dengan Dibayar Tamu — angka yang salah, terlihat sangat
    wajar, dan justru di baris yang dibaca investor. */
+/* Tanggal t termasuk periode yang sedang dibuka? Di mode harian periodenya
+   SATU tanggal itu — Rekap Penjualan dan compliment yang dijumlahkan sebulan
+   akan dibandingkan dengan POS satu hari, dan selisihnya selalu raksasa. */
+function cocokPeriode(t, b) {
+  if (!t) return false;
+  if (harianMode() && b === HARI.slice(0, 7)) return t === HARI;
+  return blnDari(t) === b;
+}
 function complimentBulan(b) {
   if (!KP || !Array.isArray(KP.compliments)) return null;
   let n = 0;
   KP.compliments.forEach(c => {
-    if (!c || blnDari(isoDari(c.date)) !== b) return;
+    if (!c || !cocokPeriode(isoDari(c.date), b)) return;
     n += (+c.nominal || 0);
   });
   return n;
@@ -2644,11 +2759,15 @@ function kelSegHtml(opsi, aktif, fn) {
    kali dibaca (blnBandingAktif) — bukan cuma saat memilih. */
 let BLN_BANDING = '';
 function blnBandingAktif() {
+  /* Satu hari dibandingkan dengan sebulan penuh memajang selisih raksasa
+     yang tidak berarti apa pun — pembanding dimatikan di mode harian. */
+  if (harianMode()) return '';
   if (!BLN_BANDING || BLN_BANDING === blnAktif()) return '';
   return (AN.data.laporan || {})[BLN_BANDING] ? BLN_BANDING : '';
 }
 function bandingPilih(v) { BLN_BANDING = v || ''; MN_HAL = 1; render(); }
 function pilihBanding(catatan) {
+  if (harianMode()) return '';
   const a = blnAda().filter(x => x !== blnAktif());
   if (!a.length) return '';
   const bb = blnBandingAktif();

@@ -5250,6 +5250,27 @@ sama berupa pilih-bulan + pratinjau; DICABUT, jangan dikembalikan.
 node tools/uji-esb.js   # 50 pemeriksaan, jsdom (jam dipatok) + php-parser
 ```
 
+#### Mode harian (22 Oktober 2026)
+
+Kendali **Per hari** di bawah pemilih bulan (halaman `HARIAN_VIEW`: Ringkasan,
+Hari & Jam, Menu, Kategori, Kanal, Meja, Error). Ringkasan bulanan tidak bisa
+dipecah per hari, jadi tanggal yang dipilih **ditarik ulang dari ESB**
+(`esbTarikRentang(t,t)`) dan diurai `uraiBerkas()` yang sama.
+
+- Dipasang di SATU tempat: `lap()` mengganti bulan tanggal itu dengan
+  `HARI_DATA[HARI]`; `blnAktif()` memulangkan bulannya. Halaman tidak perlu
+  tahu ada mode harian.
+- **TIDAK disimpan** — cuma di memori, sekali tarik per tanggal per sesi.
+- Tren, Pengaruh Event/Marketing, Talent **tidak ikut** (mereka membandingkan
+  hari-hari dalam sebulan). Pembanding bulan dimatikan; Rekap Penjualan &
+  compliment di Ringkasan disaring ke tanggal itu (`cocokPeriode()`).
+- Bulan yang tidak pernah disinkron ESB (Excel) tetap bisa dilihat per hari —
+  sumbernya ESB, bukan laporan tersimpan.
+
+```bash
+node tools/uji-analytics-harian.js   # 20 pemeriksaan, jsdom + ESB tiruan
+```
+
 #### Pengurai .xlsx menelan sel sesudah tiap sel kosong (10 Sep 2026)
 
 Pertanyaan user: *"kenapa tertulis tanpa keterangan, padahal di Excel ada
