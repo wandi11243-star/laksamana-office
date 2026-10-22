@@ -80,7 +80,7 @@ const v = () => D.getElementById('view');
   cek(!/Task project biasa/.test(isi), 'task project TIDAK ikut di Daily Task');
   cek(/Setiap hari/.test(isi) && /Setiap minggu/.test(isi), 'task berulang ditandai jenis ulangnya');
   W.APP.setDaily('mode','kanban');
-  cek(v().querySelectorAll('.board .kcol').length===4, 'Daily Task bisa dilihat sebagai Kanban');
+  cek(v().querySelectorAll('.board .kcol').length===5, 'Daily Task bisa dilihat sebagai Kanban');
   cek(!/Task project biasa/.test(v().querySelector('.board').textContent), 'Kanban Daily hanya task daily');
   W.APP.setDaily('mode','timeline');
   const g=v().querySelector('#gantt');

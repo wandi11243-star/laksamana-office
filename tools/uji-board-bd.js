@@ -80,7 +80,7 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
   W.APP.go('board');
   const v = () => D.getElementById('view');
   const kol = () => [...v().querySelectorAll('.board .kcol')];
-  cek(kol().map(k=>k.querySelector('.kt').textContent).join('|')==='To Do|Doing|Review|Done', 'board cuma 4 kolom: To Do, Doing, Review, Done');
+  cek(kol().map(k=>k.querySelector('.kt').textContent).join('|')==='To Do|Doing|Pending|Review|Done', 'board 5 kolom: To Do, Doing, Pending, Review, Done');
   cek(T('tC').status==='To Do', 'status lama Backlog dipetakan ke To Do');
   const isiKol = st => { const k=kol().find(c=>c.querySelector('.kt').textContent===st); return k?k.querySelector('.kcol-b').textContent:''; };
   cek(isiKol('Doing').indexOf('Booking venue')>-1 && isiKol('To Do').indexOf('Sebar undangan')>-1, 'kartu berdiri di kolom statusnya');
@@ -173,7 +173,7 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
   W.__uji.DB.tasks.push({id:'tE',name:'Paling awal',status:'To Do',project:'pj1',deadline:'2026-10-01',pics:['p1']});
   W.__uji.DB.tasks.push({id:'tF',name:'Tanpa deadline',status:'To Do',project:'pj1',deadline:'',pics:['p1']});
   W.APP.bukaProject('pj1');
-  cek(v().querySelectorAll('.board .kcol').length===4, 'membuka project langsung tampil papan Kanban');
+  cek(v().querySelectorAll('.board .kcol').length===5, 'membuka project langsung tampil papan Kanban');
   W.APP.setPd('mode','list');
   const nama = () => [...v().querySelectorAll('.tr2:not(.sub) .t-name')].map(e=>e.textContent);
   let n = nama();
@@ -203,7 +203,7 @@ const dropKe = st => { W.APP.dragBoard({dataTransfer:{setData(){}},target:{class
 
   // kanban di detail project
   W.APP.setPd('mode','kanban');
-  cek(v().querySelectorAll('.board .kcol').length===4, 'detail project bisa kembali ke Kanban');
+  cek(v().querySelectorAll('.board .kcol').length===5, 'detail project bisa kembali ke Kanban');
   cek(!!v().querySelector('.karsip'), 'kolom Done di mode Aktif diringkas jadi arsip, tetap jadi tempat jatuh');
   const ka = v().querySelector('[data-kadd="To Do"]');
   ka.value='Dari kanban project'; ka.dispatchEvent(new W.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));
