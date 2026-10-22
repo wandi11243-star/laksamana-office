@@ -1252,9 +1252,13 @@ async function esbMuat(kunci,tgl){
   if(u.jalan) return;
   u.jalan=true; u.err=''; u.prog='';
   esbGambarUlang(kunci);
-  try{ await esbAmbilHari(tgl,h=>{ u.prog=h; esbGambarUlang(kunci); },true); }
+  let R=null;
+  try{ R=await esbAmbilHari(tgl,h=>{ u.prog=h; esbGambarUlang(kunci); },true); }
   catch(e){ u.err=e.message||String(e); }
-  finally{ u.jalan=false; u.prog=''; esbGambarUlang(kunci); }
+  finally{ u.jalan=false; u.prog=''; }
+  /* Compliment langsung dicatat; render() supaya daftar & kartu total ikut. */
+  if(R && kunci==='komp' && tgl===compDate){ esbKompCatat(tgl,R); if(CURRENT==='compliment'){ render(); return; } }
+  esbGambarUlang(kunci);
 }
 function esbKepalaHtml(kunci,tgl,judul,sub){
   const u=ESB_UI[kunci]||{}, R=ESB_HARI[tgl];
@@ -1269,43 +1273,42 @@ function esbKepalaHtml(kunci,tgl,judul,sub){
 
 /* COMPLIMENT: bill yang dibayar COMPLIMENT atau MEMBER DEPOSIT. Sub total,
    tax, dan service dihitung dari porsi nominalnya terhadap tagihan bill itu
-   (esb-pos.js), jadi angkanya sama dengan yang dicetak mesin. Yang sudah
-   dicatat ditandai lewat esbBill di baris compliment — bukan disembunyikan:
-   satu bill bisa memang dicatat dua kali (compliment + member deposit). */
+   (esb-pos.js). Sejak 22 Okt 2026 menarik LANGSUNG MENCATAT yang belum ada
+   (esbKompCatat) — tidak ada lagi tombol Pakai. */
 let ESB_KOMP_PILIH=null;
+const ESB_KOMP_PESAN={};
+/* Mencatat bill compliment ESB yang belum ada — lihat esbPos.kompBaru().
+   Langsung disimpan (permintaan user 22 Okt 2026: tanpa tombol Pakai). */
+function esbKompCatat(tgl,R){
+  DB.compliments=DB.compliments||[];
+  const baru=esbPos.kompBaru(R,tgl,DB.compliments,CURRENT_USER?CURRENT_USER.name:'');
+  if(baru.length){ DB.compliments.push(...baru); save(); }
+  ESB_KOMP_PESAN[tgl]=baru.length
+    ? `✓ ${baru.length} compliment dari ESB langsung dicatat (${fmtRp(baru.reduce((a,c)=>a+c.nominal,0))}), PIC <b>Tamu</b>. Ubah PIC lewat ✏️ di daftar kalau perlu.`
+    : (R.komp.length?'Semua compliment ESB tanggal ini sudah tercatat — tidak ada yang ditambahkan.':'');
+  return baru.length;
+}
 ESB_GAMBAR.komp=()=>{
-  const tgl=compDate, R=ESB_HARI[tgl];
+  const tgl=compDate, R=ESB_HARI[tgl], pesan=ESB_KOMP_PESAN[tgl]||'';
   const kepala=esbKepalaHtml('komp',tgl,'Compliment dari ESB',
-    'Bill yang dibayar <b>Compliment</b> atau <b>Member Deposit</b> di POS. <b>Pakai</b> mengisi form di atas — PIC Kasir & Pemberi tetap dipilih, dan belum tersimpan sampai <b>Tambah</b> ditekan.');
+    'Bill yang dibayar <b>Compliment</b> atau <b>Member Deposit</b> di POS. Menarik dari ESB <b>langsung mencatat</b> yang belum ada ke daftar di bawah, dengan PIC Kasir &amp; Pemberi <b>Tamu</b> — ubah lewat ✏️ kalau compliment itu membebani PIC tertentu. Menarik ulang tidak menggandakan.');
   if(!R) return kepala;
   const sudah=(bill,jenis)=>compsOn(tgl).some(c=>c.esbBill===bill&&(c.esbJenis||'compliment')===jenis);
   const tot=R.komp.reduce((a,x)=>a+x.nominal,0);
-  return kepala+(R.komp.length?`
+  return kepala+(pesan?`<div class="notice ok" style="margin-top:10px"><div>${pesan}</div></div>`:'')+(R.komp.length?`
     <div class="tbl-wrap" style="margin-top:10px"><table>
       <thead><tr><th>Bill</th><th>Keterangan</th><th class="num">Sub Total</th><th class="num">Tax</th><th class="num">Service</th><th class="num">Total</th><th></th></tr></thead>
-      <tbody>${R.komp.map((x,i)=>`<tr>
+      <tbody>${R.komp.map(x=>`<tr>
         <td><b class="mono">${esc(x.bill)}</b><div class="helper" style="margin:2px 0 0">${x.jenis==='member_dep'?'Member Deposit':'Compliment'}${x.meja?' · meja '+esc(x.meja):''}${x.kasir?' · '+esc(x.kasir):''}</div></td>
         <td>${esc(x.info||'—')}<div class="helper" style="margin:2px 0 0">${esc(x.menu.slice(0,4).join(', '))}${x.menu.length>4?' …':''}</div></td>
         <td class="num mono">${fmtRp(x.subTotal)}</td><td class="num mono">${fmtRp(x.tax)}</td><td class="num mono">${fmtRp(x.service)}</td>
         <td class="num mono"><b>${fmtRp(x.nominal)}</b></td>
-        <td style="white-space:nowrap">${sudah(x.bill,x.jenis)?'<span class="chip ok">sudah dicatat</span> ':''}<button class="btn btn-sm" onclick="esbKompPakai(${i})">Pakai</button></td>
+        <td style="white-space:nowrap">${sudah(x.bill,x.jenis)?'<span class="chip ok">tercatat</span>':'<span class="chip">belum</span>'}</td>
       </tr>`).join('')}</tbody>
       <tfoot><tr style="font-weight:800"><td colspan="5">Total di ESB</td><td class="num mono">${fmtRp(tot)}</td><td></td></tr></tfoot>
     </table></div>`
     :`<div class="notice info" style="margin-top:10px"><div>ESB tidak mencatat satu pun bill Compliment / Member Deposit pada ${esc(dateLabel(tgl))}.</div></div>`);
 };
-function esbKompPakai(i){
-  const R=ESB_HARI[compDate], x=R&&R.komp[i]; if(!x) return;
-  const isi=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v; return e; };
-  const nama=x.info||x.menu.slice(0,3).join(', ')+(x.menu.length>3?' …':'')||('Bill '+x.bill);
-  isi('c_nama',(x.jenis==='member_dep'?'Member Deposit — ':'')+nama);
-  isi('c_sub',fmtRpInput(String(x.subTotal)));
-  isi('c_tax',fmtRpInput(String(x.tax)));
-  const s=isi('c_svc',fmtRpInput(String(x.service)));
-  if(s) s.dispatchEvent(new Event('input'));
-  ESB_KOMP_PILIH={tgl:compDate,bill:x.bill,jenis:x.jenis};
-  const f=document.getElementById('c_nama'); if(f){ f.scrollIntoView({block:'center'}); f.focus(); }
-}
 
 /* VOID: menu berstatus void/cancel di bill yang tetap jalan, plus seluruh
    menu bill yang dibatalkan. Pakai mengisi nomor bill, siapa yang input

@@ -55,15 +55,20 @@ function buka(path,src,mods,stub){
   const kk=w.document.getElementById('esb_komp').textContent;
   ok(/B2/.test(kk)&&/Ultah Pak Budi/.test(kk),'bill compliment terdaftar');
   ok(!/B1/.test(kk),'bill bukan compliment tidak ikut');
-  w.eval("esbKompPakai(0)"); await tunggu(100);
-  const val=id=>w.document.getElementById(id).value;
-  ok(val('c_nama')==='Ultah Pak Budi','nama dari additionalInfo: '+val('c_nama'));
-  ok(val('c_sub')==='50.000'&&val('c_tax')==='5.000'&&val('c_svc')==='2.500','sub/tax/svc '+val('c_sub')+' '+val('c_tax')+' '+val('c_svc'));
-  ok(/57\.500/.test(w.document.getElementById('c_total').textContent),'total compliment ikut dihitung');
-  ok(!C.posts.some(p=>p.action==='saveAll'),'compliment belum menyimpan');
-  w.document.getElementById('c_add').click(); await tunggu(200);
-  ok(w.eval("(DB.compliments||[]).some(c=>c.esbBill==='B2')"),'esbBill tercatat saat Tambah');
-  ok(/sudah dicatat/.test(w.document.getElementById('esb_komp').textContent),'ditandai sudah dicatat sesudah tambah');
+  /* Sejak 22 Okt 2026 menarik LANGSUNG mencatat — tanpa tombol Pakai. */
+  const kc=w.eval(`JSON.stringify((DB.compliments||[]).filter(c=>c.esbBill==='B2'))`);
+  const kb=JSON.parse(kc);
+  ok(kb.length===1,'compliment ESB langsung tercatat: '+kb.length);
+  ok(kb[0]&&kb[0].nama==='Ultah Pak Budi'&&kb[0].subTotal===50000&&kb[0].tax===5000&&kb[0].service===2500&&kb[0].nominal===57500,'isi baris: '+kc);
+  ok(kb[0]&&kb[0].picDiv==='tamu'&&kb[0].pemberiDiv==='tamu'&&kb[0].date===T,'PIC kasir & pemberi Tamu, tanggal benar');
+  ok(!w.document.querySelector('#esb_komp button.btn-sm'),'tidak ada tombol Pakai lagi');
+  ok(/tercatat/.test(w.document.getElementById('esb_komp').textContent)&&/langsung dicatat/.test(w.document.getElementById('esb_komp').textContent),'kartu menyebut sudah dicatat');
+  ok(/Ultah Pak Budi/.test(w.document.getElementById('app-view').textContent.split('Compliment dari ESB')[1]||''),'muncul di daftar compliment hari ini');
+  await tunggu(1500);
+  ok(C.posts.some(p=>p.action==='saveAll'),'langsung disimpan ke server');
+  w.eval("esbMuat('komp','"+T+"')"); await tunggu(600);
+  ok(w.eval("(DB.compliments||[]).filter(c=>c.esbBill==='B2').length")===1,'tarik ulang tidak menggandakan');
+  ok(/sudah tercatat/.test(w.document.getElementById('esb_komp').textContent),'tarik ulang menyebut semua sudah tercatat');
   // Void
   w.eval("voidDate='"+T+"'; go('voidb')"); await tunggu(400);
   ok(!!w.document.getElementById('esb_void'),'kartu void ada');
@@ -116,14 +121,12 @@ function buka(path,src,mods,stub){
   ok(!!o.document.getElementById('esb_komp'),'kartu compliment ESB ada di finance');
   o.eval("esbKompMuat()"); await tunggu(500);
   ok(/B2/.test(o.document.getElementById('esb_komp').textContent),'bill compliment terdaftar di finance');
-  o.eval("esbKompPakai(0)"); await tunggu(100);
-  const ov=id=>o.document.getElementById(id).value;
-  ok(ov('c_nama')==='Ultah Pak Budi'&&ov('c_sub')==='50.000'&&ov('c_tax')==='5.000'&&ov('c_svc')==='2.500','form compliment finance terisi: '+ov('c_sub')+' '+ov('c_tax')+' '+ov('c_svc'));
-  ok(!O.posts.some(p=>p.action==='saveAll'),'compliment finance belum menyimpan');
-  o.document.getElementById('c_add').click(); await tunggu(200);
-  ok(o.eval("(DB.compliments||[]).some(c=>c.esbBill==='B2')"),'esbBill tercatat di finance');
-  ok(/sudah dicatat/.test(o.document.getElementById('esb_komp').textContent),'finance: ditandai sudah dicatat tanpa menarik ulang');
-  /* Tambah memang menyimpan — kosongkan catatan kiriman, kalau tidak
+  const fb=JSON.parse(o.eval(`JSON.stringify((DB.compliments||[]).filter(c=>c.esbBill==='B2'))`));
+  ok(fb.length===1&&fb[0].subTotal===50000&&fb[0].picDiv==='tamu','finance: compliment ESB langsung tercatat, PIC Tamu');
+  ok(!o.document.querySelector('#esb_komp button.btn-sm'),'finance: tidak ada tombol Pakai lagi');
+  o.eval("esbKompMuat()"); await tunggu(500);
+  ok(o.eval("(DB.compliments||[]).filter(c=>c.esbBill==='B2').length")===1,'finance: tarik ulang tidak menggandakan');
+  /* Menarik memang menyimpan — kosongkan catatan kiriman, kalau tidak
      asersi "belum menyimpan" di bawah ikut menghitung kiriman ini. */
   await tunggu(1500); O.posts.length=0;
   // Report Daily di Finance > Omset — angkanya wajib sama dengan Cashier
