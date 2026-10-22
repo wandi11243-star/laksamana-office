@@ -179,7 +179,7 @@
         const tax = Math.round(A.tax * share), service = Math.round(A.svc * share);
         const menus = (B.salesMenus || []).filter(menuHidup).map(M => String(M.menuName || '').trim()).filter(Boolean);
         R.komp.push({ bill, jenis, nominal: Math.round(nil), tax, service, subTotal: Math.round(nil) - tax - service,
-          info: String(B.additionalInfo || '').trim(), menu: menus, kasir: namaKaryawan(kasirBill(B)), meja: String(B.tableName || '') });
+          info: String(B.additionalInfo || '').trim(), menu: menus, kasir: namaKaryawan(kasirBill(B)), akun: kasirBill(B), meja: String(B.tableName || '') });
       });
 
       /* Menu void di dalam bill yang tetap jalan. */
@@ -309,10 +309,19 @@
      (dicocokkan lewat esbBill + esbJenis — jadi menarik dua kali tidak
      menggandakan). Dipakai Cashier DAN Finance > Omset: keduanya menulis
      daftar yang sama, dan dua pembuat baris pasti menyimpang.
-     PIC Kasir & Pemberi SENGAJA "Tamu": PIC kasir memotong realisasi orang,
-     dan ESB tidak tahu siapa yang memberi compliment — menebaknya berarti
-     memotong omset orang yang salah. Diubah lewat ✏️ di daftar. */
-  function kompBaru(R, tgl, ada, oleh) {
+
+     PIC KASIR = KASIR YANG MEMPROSES BILL ITU DI ESB (koreksi user hari yang
+     sama: versi pertama mengisi Tamu untuk semuanya). `cariPic(akun)` dibuat
+     pembuatCariPic() — Employee Name + pemetaan manual Breakdown, aturan yang
+     SAMA dengan petakanKasir(). Kasir yang tidak dikenali tetap Tamu dan
+     disebut di layar; PIC Pemberi tetap Tamu karena ESB tidak tahu siapa
+     yang memberi compliment-nya. */
+  function picDari(x, cariPic) {
+    const u = cariPic ? cariPic(x.akun) : null;
+    return u ? { picName: u.name, picOfficeId: u.id, picDiv: 'kasir' }
+             : { picName: 'Tamu', picOfficeId: '', picDiv: 'tamu' };
+  }
+  function kompBaru(R, tgl, ada, oleh, cariPic) {
     const sudah = new Set((ada || []).filter(c => c && c.date === tgl && c.esbBill)
       .map(c => c.esbBill + '|' + (c.esbJenis || 'compliment')));
     const out = [];
@@ -320,19 +329,56 @@
       if (sudah.has(x.bill + '|' + x.jenis)) return;
       sudah.add(x.bill + '|' + x.jenis);
       const nama = x.info || x.menu.slice(0, 3).join(', ') + (x.menu.length > 3 ? ' …' : '') || ('Bill ' + x.bill);
-      out.push({
+      out.push(Object.assign({
         id: 'c' + Date.now().toString(36) + i + Math.floor(Math.random() * 1e4), alasan: '',
         date: tgl, nama: (x.jenis === 'member_dep' ? 'Member Deposit — ' : '') + nama,
-        subTotal: x.subTotal, tax: x.tax, service: x.service, nominal: x.nominal,
-        picName: 'Tamu', picOfficeId: '', picDiv: 'tamu',
+        subTotal: x.subTotal, tax: x.tax, service: x.service, nominal: x.nominal
+      }, picDari(x, cariPic), {
         pemberiName: 'Tamu', pemberiOfficeId: '', pemberiDiv: 'tamu',
         pemberiStatus: 'menunggu', putusOleh: '', putusAt: 0,
-        esbBill: x.bill, esbJenis: x.jenis,
+        esbBill: x.bill, esbJenis: x.jenis, esbKasir: x.kasir || '',
         by: oleh || '', at: Date.now()
-      });
+      }));
     });
     return out;
   }
+  /* Baris yang SUDAH dicatat otomatis dengan PIC Tamu (versi pertama, atau
+     kasirnya belum dikenali waktu itu) dibetulkan saat ditarik ulang.
+     Hanya yang belum pernah disunting orang (tanpa ubahOleh) — PIC yang
+     dipilih tangan tidak pernah ditimpa. Memulangkan jumlah yang diubah. */
+  function kompPerbaikiPic(ada, R, tgl, cariPic) {
+    let n = 0;
+    (ada || []).forEach(c => {
+      if (!c || c.date !== tgl || !c.esbBill || c.picDiv !== 'tamu' || c.ubahOleh) return;
+      const x = (R.komp || []).find(k => k.bill === c.esbBill && k.jenis === (c.esbJenis || 'compliment'));
+      if (!x) return;
+      const p = picDari(x, cariPic);
+      if (p.picDiv !== 'kasir') return;
+      Object.assign(c, p, { esbKasir: x.kasir || '' }); n++;
+    });
+    return n;
+  }
+  /* roster  : akun Office ber-Tim Kasir [{id, name}] — pilihan kotak PIC Kasir.
+     peta    : DB.esbAkunKasir {AKUN: id employees.kasir} dari Breakdown.
+     empKasir: DB.employees.kasir — penerjemah id breakdown -> id Office
+               (officeUserId, cadangan nama sama persis). */
+  function pembuatCariPic(roster, peta, empKasir) {
+    roster = roster || [];
+    const petaOffice = {};
+    Object.keys(peta || {}).forEach(a => {
+      const e = (empKasir || []).find(x => String(x.id) === String(peta[a]));
+      if (!e) return;
+      const r = e.officeUserId ? roster.find(x => String(x.id) === String(e.officeUserId))
+        : roster.find(x => String(x.name).trim().toLowerCase() === String(e.name).trim().toLowerCase());
+      if (r) petaOffice[a] = r.id;
+    });
+    return akun => {
+      if (!akun || !roster.length) return null;
+      const P = petakanKasir(roster, { [akun]: { amount: 0, disc: 0 } }, petaOffice);
+      const id = Object.keys(P.hasil)[0];
+      return id ? roster.find(r => String(r.id) === String(id)) || null : null;
+    };
+  }
 
-  W.esbPos = { kompBaru, tarikHari, ringkasHari, kunciBayar, petakanRokok, petakanKasir, cocokToken, baku, namaKaryawan, KARYAWAN_ESB, PETA_BAYAR };
+  W.esbPos = { kompBaru, kompPerbaikiPic, pembuatCariPic, tarikHari, ringkasHari, kunciBayar, petakanRokok, petakanKasir, cocokToken, baku, namaKaryawan, KARYAWAN_ESB, PETA_BAYAR };
 })(window);

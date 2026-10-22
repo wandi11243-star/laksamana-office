@@ -45,7 +45,10 @@ function buka(path,src,mods,stub){
 }
 (async()=>{
   /* ---------- CASHIER ---------- */
-  const C=buka('cashier/index.html','../assets/esb-pos.js',['cashier']);
+  /* Daftar akun Office — kotak PIC Kasir compliment memakai akun ber-Tim Kasir. */
+  const ROSTER={ok:true,members:[{id:'o1',name:'Safriandi',keterangan:'Kasir'},{id:'o2',name:'Tasya Rahmalia Putri',keterangan:'Kasir'},{id:'o9',name:'Devani',keterangan:'Marketing'}]};
+  const stubRoster=(u,b)=>b.action==='listDivisiRoster'?ROSTER:null;
+  const C=buka('cashier/index.html','../assets/esb-pos.js',['cashier'],stubRoster);
   await tunggu(1500); const w=C.w;
   ok(!!w.esbPos,'aset termuat di cashier');
   // Compliment
@@ -60,7 +63,8 @@ function buka(path,src,mods,stub){
   const kb=JSON.parse(kc);
   ok(kb.length===1,'compliment ESB langsung tercatat: '+kb.length);
   ok(kb[0]&&kb[0].nama==='Ultah Pak Budi'&&kb[0].subTotal===50000&&kb[0].tax===5000&&kb[0].service===2500&&kb[0].nominal===57500,'isi baris: '+kc);
-  ok(kb[0]&&kb[0].picDiv==='tamu'&&kb[0].pemberiDiv==='tamu'&&kb[0].date===T,'PIC kasir & pemberi Tamu, tanggal benar');
+  ok(kb[0]&&kb[0].picDiv==='kasir'&&kb[0].picName==='Safriandi'&&kb[0].picOfficeId==='o1','PIC Kasir dari kasir ESB (MUDAKASIR2=ANDY -> Safriandi): '+(kb[0]&&kb[0].picName));
+  ok(kb[0]&&kb[0].pemberiDiv==='tamu'&&kb[0].date===T,'PIC Pemberi tetap Tamu, tanggal benar');
   ok(!w.document.querySelector('#esb_komp button.btn-sm'),'tidak ada tombol Pakai lagi');
   ok(/tercatat/.test(w.document.getElementById('esb_komp').textContent)&&/langsung dicatat/.test(w.document.getElementById('esb_komp').textContent),'kartu menyebut sudah dicatat');
   ok(/Ultah Pak Budi/.test(w.document.getElementById('app-view').textContent.split('Compliment dari ESB')[1]||''),'muncul di daftar compliment hari ini');
@@ -113,16 +117,20 @@ function buka(path,src,mods,stub){
   ok(pv('compliment')==='57.500'&&pv('qris_esb')==='23.000'&&pv('qris_bri')==='72.000','report kolom lain');
 
   /* ---------- OMSET ---------- */
-  const O=buka('finance/omset/index.html','../../assets/esb-pos.js',['kompas']);
+  const O=buka('finance/omset/index.html','../../assets/esb-pos.js',['kompas'],stubRoster);
   await tunggu(1500); const o=O.w;
   ok(!!o.esbPos,'aset termuat di omset');
   // Compliment di Finance > Omset — kembar Cashier
+  /* Baris otomatis versi lama: PIC Tamu, belum disunting -> wajib dibetulkan saat ditarik ulang. */
+  o.eval(`DB.compliments=[{id:'lama1',date:'${T}',nama:'Ultah Pak Budi',subTotal:50000,tax:5000,service:2500,nominal:57500,picName:'Tamu',picOfficeId:'',picDiv:'tamu',pemberiName:'Tamu',pemberiDiv:'tamu',esbBill:'B2',esbJenis:'compliment'}]`);
   o.eval("compDate='"+T+"'; go('compliment')"); await tunggu(300);
   ok(!!o.document.getElementById('esb_komp'),'kartu compliment ESB ada di finance');
   o.eval("esbKompMuat()"); await tunggu(500);
   ok(/B2/.test(o.document.getElementById('esb_komp').textContent),'bill compliment terdaftar di finance');
   const fb=JSON.parse(o.eval(`JSON.stringify((DB.compliments||[]).filter(c=>c.esbBill==='B2'))`));
-  ok(fb.length===1&&fb[0].subTotal===50000&&fb[0].picDiv==='tamu','finance: compliment ESB langsung tercatat, PIC Tamu');
+  ok(fb.length===1&&fb[0].id==='lama1','finance: tidak menambah baris untuk bill yang sudah ada');
+  ok(fb[0]&&fb[0].picDiv==='kasir'&&fb[0].picName==='Safriandi','finance: baris lama ber-PIC Tamu dibetulkan ke kasirnya: '+(fb[0]&&fb[0].picName));
+  ok(/dibetulkan/.test(o.document.getElementById('esb_komp').textContent),'finance: pembetulan disebut');
   ok(!o.document.querySelector('#esb_komp button.btn-sm'),'finance: tidak ada tombol Pakai lagi');
   o.eval("esbKompMuat()"); await tunggu(500);
   ok(o.eval("(DB.compliments||[]).filter(c=>c.esbBill==='B2').length")===1,'finance: tarik ulang tidak menggandakan');
