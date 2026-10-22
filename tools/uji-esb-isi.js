@@ -111,6 +111,21 @@ function buka(path,src,mods,stub){
   const O=buka('finance/omset/index.html','../../assets/esb-pos.js',['kompas']);
   await tunggu(1500); const o=O.w;
   ok(!!o.esbPos,'aset termuat di omset');
+  // Compliment di Finance > Omset — kembar Cashier
+  o.eval("compDate='"+T+"'; go('compliment')"); await tunggu(300);
+  ok(!!o.document.getElementById('esb_komp'),'kartu compliment ESB ada di finance');
+  o.eval("esbKompMuat()"); await tunggu(500);
+  ok(/B2/.test(o.document.getElementById('esb_komp').textContent),'bill compliment terdaftar di finance');
+  o.eval("esbKompPakai(0)"); await tunggu(100);
+  const ov=id=>o.document.getElementById(id).value;
+  ok(ov('c_nama')==='Ultah Pak Budi'&&ov('c_sub')==='50.000'&&ov('c_tax')==='5.000'&&ov('c_svc')==='2.500','form compliment finance terisi: '+ov('c_sub')+' '+ov('c_tax')+' '+ov('c_svc'));
+  ok(!O.posts.some(p=>p.action==='saveAll'),'compliment finance belum menyimpan');
+  o.document.getElementById('c_add').click(); await tunggu(200);
+  ok(o.eval("(DB.compliments||[]).some(c=>c.esbBill==='B2')"),'esbBill tercatat di finance');
+  ok(/sudah dicatat/.test(o.document.getElementById('esb_komp').textContent),'finance: ditandai sudah dicatat tanpa menarik ulang');
+  /* Tambah memang menyimpan — kosongkan catatan kiriman, kalau tidak
+     asersi "belum menyimpan" di bawah ikut menghitung kiriman ini. */
+  await tunggu(1500); O.posts.length=0;
   // Report Daily di Finance > Omset — angkanya wajib sama dengan Cashier
   o.eval("repDate='"+T+"'; go('report')"); await tunggu(300);
   const rb=o.document.getElementById('rp_esb'); ok(!!rb,'tombol POS dari ESB ada di Report Daily finance');

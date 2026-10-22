@@ -1398,6 +1398,68 @@ async function esbIsiPosOmset(el,hitung){
   }finally{ ESB_OMSET_JALAN=false; if(btn) btn.disabled=false; }
 }
 
+/* COMPLIMENT DARI ESB (22 Okt 2026, permintaan user) — KEMBARAN kartu yang
+   sama di deploy/cashier/. Kedua halaman menulis DB.compliments di blob yang
+   sama; perangkumnya (porsi sub total / tax / service terhadap tagihan bill)
+   di esbPos.ringkasHari(), jadi angkanya tidak bisa berbeda. Pakai hanya
+   mengisi form — PIC tetap dipilih, menyimpan tetap lewat Tambah. Kartu
+   digambar ke wadahnya sendiri: menggambar ulang seluruh halaman membuang
+   isian form yang sedang diketik. Ringkasan disimpan per tanggal selama
+   halaman terbuka, supaya Tambah (yang menggambar ulang) tidak menarik ESB
+   lagi. */
+const ESB_KOMP_HARI={};
+let ESB_KOMP_PILIH=null;
+const ESB_KOMP_UI={jalan:false,err:'',prog:''};
+function esbKompGambar(){ const b=document.getElementById('esb_komp'); if(b) b.innerHTML=esbKompHtml(); }
+async function esbKompMuat(){
+  if(ESB_KOMP_UI.jalan) return;
+  const tgl=compDate;
+  Object.assign(ESB_KOMP_UI,{jalan:true,err:'',prog:''}); esbKompGambar();
+  try{
+    const R=await esbRingkasOmset(tgl,h=>{ ESB_KOMP_UI.prog=h; esbKompGambar(); });
+    R.at=Date.now(); ESB_KOMP_HARI[tgl]=R;
+  }catch(x){ ESB_KOMP_UI.err=x.message||String(x); }
+  finally{ ESB_KOMP_UI.jalan=false; ESB_KOMP_UI.prog=''; esbKompGambar(); }
+}
+function esbKompHtml(){
+  const tgl=compDate, R=ESB_KOMP_HARI[tgl], u=ESB_KOMP_UI;
+  const kepala=`<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
+      <div><h3>Compliment dari ESB</h3><div class="card-sub" style="margin:0">Bill yang dibayar <b>Compliment</b> atau <b>Member Deposit</b> di POS. <b>Pakai</b> mengisi form di atas — PIC Kasir &amp; Pemberi tetap dipilih, dan belum tersimpan sampai <b>Tambah</b> ditekan.</div></div>
+      <button class="btn" ${u.jalan?'disabled':''} onclick="esbKompMuat()">🔄 ${R?'Tarik ulang':'Ambil'} dari ESB</button>
+    </div>
+    ${u.prog?`<div style="margin-top:10px">${u.prog}</div>`:''}
+    ${u.err?`<div class="notice bad" style="margin-top:10px"><div>⚠ Gagal menarik dari ESB: ${esc(u.err)}</div></div>`:''}
+    ${R&&!u.jalan?`<div class="helper" style="margin:8px 0 0">${R.nBill} bill ESB ${esc(dateLabel(tgl))}${R.nBatal?` · ${R.nBatal} batal`:''} · ditarik ${new Date(R.at).toLocaleTimeString('id-ID',{hour:'2-digit',minute:'2-digit'})}</div>`:''}`;
+  if(!R) return kepala;
+  const sudah=(bill,jenis)=>compsOn(tgl).some(c=>c.esbBill===bill&&(c.esbJenis||'compliment')===jenis);
+  const tot=R.komp.reduce((a,x)=>a+x.nominal,0);
+  return kepala+(R.komp.length?`
+    <div class="tbl-wrap" style="margin-top:10px"><table>
+      <thead><tr><th>Bill</th><th>Keterangan</th><th class="num">Sub Total</th><th class="num">Tax</th><th class="num">Service</th><th class="num">Total</th><th></th></tr></thead>
+      <tbody>${R.komp.map((x,i)=>`<tr>
+        <td><b class="mono">${esc(x.bill)}</b><div class="helper" style="margin:2px 0 0">${x.jenis==='member_dep'?'Member Deposit':'Compliment'}${x.meja?' · meja '+esc(x.meja):''}${x.kasir?' · '+esc(x.kasir):''}</div></td>
+        <td>${esc(x.info||'—')}<div class="helper" style="margin:2px 0 0">${esc(x.menu.slice(0,4).join(', '))}${x.menu.length>4?' …':''}</div></td>
+        <td class="num mono">${fmtRp(x.subTotal)}</td><td class="num mono">${fmtRp(x.tax)}</td><td class="num mono">${fmtRp(x.service)}</td>
+        <td class="num mono"><b>${fmtRp(x.nominal)}</b></td>
+        <td style="white-space:nowrap">${sudah(x.bill,x.jenis)?'<span class="chip ok">sudah dicatat</span> ':''}<button class="btn btn-sm" onclick="esbKompPakai(${i})">Pakai</button></td>
+      </tr>`).join('')}</tbody>
+      <tfoot><tr style="font-weight:800"><td colspan="5">Total di ESB</td><td class="num mono">${fmtRp(tot)}</td><td></td></tr></tfoot>
+    </table></div>`
+    :`<div class="notice info" style="margin-top:10px"><div>ESB tidak mencatat satu pun bill Compliment / Member Deposit pada ${esc(dateLabel(tgl))}.</div></div>`);
+}
+function esbKompPakai(i){
+  const R=ESB_KOMP_HARI[compDate], x=R&&R.komp[i]; if(!x) return;
+  const isi=(id,v)=>{ const e=document.getElementById(id); if(e) e.value=v; return e; };
+  const nama=x.info||x.menu.slice(0,3).join(', ')+(x.menu.length>3?' …':'')||('Bill '+x.bill);
+  isi('c_nama',(x.jenis==='member_dep'?'Member Deposit — ':'')+nama);
+  isi('c_sub',fmtRpInput(String(x.subTotal)));
+  isi('c_tax',fmtRpInput(String(x.tax)));
+  const s=isi('c_svc',fmtRpInput(String(x.service)));
+  if(s) s.dispatchEvent(new Event('input'));
+  ESB_KOMP_PILIH={tgl:compDate,bill:x.bill,jenis:x.jenis};
+  const f=document.getElementById('c_nama'); if(f){ if(f.scrollIntoView) f.scrollIntoView({block:'center'}); f.focus(); }
+}
+
 function viewInput(){
   CAL_ST.in.open=false;   // selalu mulai tertutup saat halaman digambar ulang
   const el=document.getElementById('app-view');
@@ -2522,6 +2584,7 @@ function viewCompliment(){
       <button class="btn btn-primary" id="c_add">${edit?'💾 Simpan Perubahan':'+ Tambah'}</button>
       ${edit?'<button class="btn" id="c_batal" style="margin-left:8px">Batal</button>':''}
     </div>
+    <div class="card" id="esb_komp">${esbKompHtml()}</div>
     <div class="grid g3">
       <div class="stat accent"><div class="lab">Total Compliment ${esc(dateLabel(compDate))}</div><div class="val sm mono">${fmtRp(total)}</div><div class="foot">${list.length} catatan</div></div>
       <div class="stat"><div class="lab">Report Daily (POS)</div><div class="val sm mono">${fmtRp(rd.total)}</div><div class="foot">Compliment ${fmtRp(rd.comp)} + Member Deposit ${fmtRp(rd.dep)}</div></div>
@@ -2593,6 +2656,10 @@ function viewCompliment(){
       picName:u?u.name:'Tamu', picOfficeId:u?u.id:'', picDiv:u?'kasir':'tamu',
       pemberiName:pv?pv.name:'Tamu', pemberiOfficeId:pv?pv.id:'', pemberiDiv:pv?divPemberi(pv):'tamu'
     };
+    /* Jejak bill ESB — KEMBAR dengan deploy/cashier/. Hanya kalau form diisi
+       lewat Pakai untuk tanggal ini. */
+    if(ESB_KOMP_PILIH&&ESB_KOMP_PILIH.tgl===compDate){ isi.esbBill=ESB_KOMP_PILIH.bill; isi.esbJenis=ESB_KOMP_PILIH.jenis; }
+    ESB_KOMP_PILIH=null;
     DB.compliments=DB.compliments||[];
     const lama=COMP_EDIT?compById(COMP_EDIT):null;
     if(lama){
