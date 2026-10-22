@@ -155,6 +155,17 @@ const posX = L => ((L && L.tables && L.tables[0]) || {}).x;
         w.vipDenahKeyOtomatis({ master: { hariWeekend: [4] } }, '2026-09-05') === 'weekday');
     cek('daftar kosong = semua Weekday, bukan jatuh ke bawaan',
         w.vipDenahKeyOtomatis({ master: { hariWeekend: [] } }, '2026-09-05') === 'weekday');
+    /* Denah yang diklik manual TERIKAT tanggalnya (22 Okt 2026): sesudah
+       tanggal form diganti ke hari weekend, Weekday yang tadi diklik tidak
+       boleh ikut terbawa. */
+    w.eval("VIP_FORM={tanggal:'2026-09-02'}; VIP_RSV=null;");
+    w.vipSetDenah('weekday');
+    cek('pilihan manual berlaku di tanggal yang sama',
+        w.vipDenahKey({}, '2026-09-02') === 'weekday');
+    w.eval("VIP_FORM.tanggal='2026-09-05';");
+    cek('ganti tanggal ke Sabtu: denah manual Weekday dilepas, jadi Weekend',
+        w.vipDenahKey({}, '2026-09-05') === 'weekend');
+    w.eval("VIP_FORM=null; VIP_LAYOUT=''; VIP_LAYOUT_TGL='';");
   }
 
   /* ================= 2. kunci meja H-3 jam ================= */
