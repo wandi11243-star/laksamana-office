@@ -96,7 +96,7 @@ const v = () => D.getElementById('view');
   const badge = D.querySelector('#nav .badge');
   cek(!!badge && badge.textContent==='1', 'badge menu My Task = jumlah task milikku yang telat');
   W.APP.setMy('mode','kanban');
-  cek(v().querySelectorAll('.board .kcol').length===4, 'My Task bisa dilihat sebagai Kanban 4 kolom');
+  cek(v().querySelectorAll('.board .kcol').length===5, 'My Task bisa dilihat sebagai Kanban 5 kolom');
   cek(!/Punya Sari/.test(v().querySelector('.board').textContent), 'Kanban My Task juga hanya milikku');
   W.APP.setMy('mode','list');
 
@@ -111,11 +111,18 @@ const v = () => D.getElementById('view');
   cek(v().querySelectorAll('.pcard').length===3, 'status Semua memuat project yang sudah selesai');
   W.APP.filterProj('view','kanban');
   cek(v().querySelectorAll('.kanban .kcol').length===5 && !v().querySelector('.pcard'), 'tampilan Kanban stage tetap ada');
+  /* 22 Okt 2026: kolom Kanban stage = kolom kanban task (+ Pending). Stage
+     lama tersimpan (Running/Completed di fixture) wajib dipetakan, kalau
+     tidak project-nya hilang dari papan tanpa satu pun tanda. */
+  const kolP = [...v().querySelectorAll('.kanban .kcol')];
+  cek(kolP.map(k=>k.querySelector('.kt').textContent).join('|')==='To Do|Doing|Pending|Review|Done', 'kolom Kanban stage sama dengan kanban task + Pending');
+  const isiP = st => { const k=kolP.find(c=>c.querySelector('.kt').textContent===st); return k?k.querySelector('.kcol-b').textContent:''; };
+  cek(/Grand Opening/.test(isiP('Doing')) && /Project Beres/.test(isiP('Done')), 'stage lama Running->Doing, Completed->Done');
   W.APP.filterProj('view','kartu'); W.APP.filterProj('st','aktif');
 
   // --- detail project ---
   W.APP.bukaProject('pj1');
-  cek(v().querySelectorAll('.board .kcol').length===4, 'detail project bawaannya tetap Kanban');
+  cek(v().querySelectorAll('.board .kcol').length===5, 'detail project bawaannya tetap Kanban');
   cek(!!v().querySelector('.meta-grid') && /Waktu terpakai/.test(v().textContent), 'kepala project memuat meta (PIC, mulai, deadline, progress, waktu terpakai)');
   W.APP.setPd('mode','list');
   cek(v().querySelectorAll('.tr2.sub').length===2, 'tab Task & sub-task menggambar sub-task di bawah task-nya');

@@ -724,6 +724,7 @@ input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums
 .caret:hover{background:var(--gold-glow);color:var(--gold-deep)}
 .caret-x{width:22px}
 .tag.st-doing{background:var(--info-bg);color:var(--info);border-color:transparent}
+.tag.st-pending{background:var(--danger-bg);color:var(--danger);border-color:transparent}
 .tag.st-review{background:var(--violet-bg);color:var(--violet);border-color:transparent}
 .tag.st-done{background:var(--ok-bg);color:var(--ok);border-color:transparent}
 @media(max-width:760px){
@@ -872,12 +873,23 @@ const DIV_COLOR = {"Business Development":"#A9791F","Project":"#6748B0","Purchas
    Backlog & Waiting yang sudah tersimpan DIPETAKAN di normalize() —
    Backlog -> To Do, Waiting -> Doing — bukan dibiarkan: status yang tidak
    punya kolom membuat kartunya hilang dari papan tanpa satu pun tanda. */
-const STATUS_FLOW  = ["To Do","Doing","Review","Done"];
+/* PENDING ditambahkan 22 Okt 2026 (permintaan user): pekerjaan yang
+   tertahan (menunggu pihak lain, ditunda) — beda dari Doing, supaya yang
+   macet terlihat di kolomnya sendiri. Bukan Done, jadi tidak diarsipkan
+   dan tidak melahirkan task berulang. */
+const STATUS_FLOW  = ["To Do","Doing","Pending","Review","Done"];
 const STATUS_LAMA  = {"Backlog":"To Do","Waiting":"Doing"};
-const STATUS_COLOR = {Backlog:"p-mute","To Do":"p-sea",Doing:"p-warn",Waiting:"p-vip",Review:"p-navy",Done:"p-go"};
+const STATUS_COLOR = {Backlog:"p-mute","To Do":"p-sea",Doing:"p-warn",Waiting:"p-vip",Pending:"p-bad",Review:"p-navy",Done:"p-go"};
 const PRIORITAS    = ["Urgent","High","Medium","Low"];
 const PRIO_COLOR   = {Urgent:"p-bad",High:"p-warn",Medium:"p-sea",Low:"p-mute"};
-const PROJ_STAGES  = ["Idea","Planning","Running","Review","Completed"];
+/* STAGE PROJECT = KOLOM YANG SAMA dengan kanban task (permintaan user
+   22 Okt 2026: "konsepnya sama seperti kanban yang lain"). Dulu
+   Idea/Planning/Running/Review/Completed — yang tersimpan DIPETAKAN di
+   normalize() lewat STAGE_LAMA, bukan dibiarkan: stage tanpa kolom membuat
+   project-nya hilang dari papan Kanban tanpa satu pun tanda. Kolom stage di
+   server teks bebas, jadi tidak ada migrasi SQL. */
+const PROJ_STAGES  = STATUS_FLOW;
+const STAGE_LAMA   = {"Idea":"To Do","Planning":"To Do","Running":"Doing","Completed":"Done"};
 const PROJ_HEALTH  = {"on-track":{c:"p-go",l:"On track"},"at-risk":{c:"p-warn",l:"At risk"},"off-track":{c:"p-bad",l:"Off track"}};
 const COORD_FLOW   = ["Diminta","Diproses","Review","Selesai"];
 const COORD_COLOR  = {Diminta:"p-warn",Diproses:"p-sea",Review:"p-vip",Selesai:"p-go"};
@@ -1192,6 +1204,10 @@ function normalize(s){
   s.tasks.forEach(function(t){
     if(STATUS_LAMA[t.status]) t.status=STATUS_LAMA[t.status];
     else if(STATUS_FLOW.indexOf(t.status)<0) t.status='To Do';
+  });
+  s.projects.forEach(function(p){
+    if(STAGE_LAMA[p.stage]) p.stage=STAGE_LAMA[p.stage];
+    else if(PROJ_STAGES.indexOf(p.stage)<0) p.stage='To Do';
   });
   return s;
 }
@@ -1691,7 +1707,7 @@ function vDashboard(){
      menjawab "apa yang jadi urusanku hari ini", bukan mendaftar seluruh
      perusahaan. Papan Projects punya penyaringnya sendiri untuk melihat lebih
      luas. */
-  var jalan=projectsTerlihat().filter(function(p){return p.stage!=='Completed'&&p.stage!=='Idea';});
+  var jalan=projectsTerlihat().filter(function(p){return p.stage!=='Done'&&p.stage!=='To Do';});
   var nunggu=aktif.filter(function(t){return penghalang(t).length;});
   var poP=DB.po.filter(function(p){return p.status!=='Diterima';});
   var t0=todayISO();
@@ -2936,7 +2952,7 @@ function pCard(p){
 
 /* ============ PROJECTS ============ */
 function projTasks(pid){return DB.tasks.filter(function(t){return t.project===pid;});}
-function projBeres(p){ return !!p && p.stage==='Completed'; }
+function projBeres(p){ return !!p && p.stage==='Done'; }
 
 /* Kotak pilihan project — dipakai task, koordinasi, dan purchase order.
    Project yang sudah Completed TIDAK ditawarkan lagi: pekerjaan baru untuk
@@ -3121,7 +3137,7 @@ function dropProj(e,st){
   if(!p) return;
   var dulu=p.stage;
   p.stage=st;
-  var ikut=(st==='Completed'&&dulu!=='Completed')?tuntaskanTaskProject(p.id):0;
+  var ikut=(st==='Done'&&dulu!=='Done')?tuntaskanTaskProject(p.id):0;
   save(); render();
   toast('Project dipindah ke '+st+(ikut?' — '+ikut+' task ikut jadi Done':''));
 }
@@ -3198,7 +3214,7 @@ function toggleMilestone(pid,i){
 function projModal(id){
   var p=id?DB.projects.find(function(x){return x.id===id;}):null;
   var baru=!p;
-  if(!p) p={name:'',type:'Internal',stage:'Idea',div:'Business Development',pics:AKU?[AKU.id]:[],
+  if(!p) p={name:'',type:'Internal',stage:'To Do',div:'Business Development',pics:AKU?[AKU.id]:[],
     start:todayISO(),end:inDays(30),budget:0,spent:0,health:'on-track',desc:'',milestones:[]};
   var ms=(p.milestones||[]);
   showModal(
@@ -3260,7 +3276,7 @@ function simpanProj(id){
   /* Sesudah setPics, sebelum save: task yang ikut ditutup harus ikut terkirim
      dalam satu simpanan yang sama. Menutupnya sesudah save() berarti layar
      sudah menampilkan Done sementara servernya belum tahu. */
-  var ikut=(p.stage==='Completed'&&dulu!=='Completed')?tuntaskanTaskProject(p.id):0;
+  var ikut=(p.stage==='Done'&&dulu!=='Done')?tuntaskanTaskProject(p.id):0;
   save(); closeModal(); render();
   toast((id?'Project diperbarui':'Project ditambahkan')+(ikut?' — '+ikut+' task ikut jadi Done':''));
 }
