@@ -303,5 +303,36 @@
     return { hasil, takKenal };
   }
 
-  W.esbPos = { tarikHari, ringkasHari, kunciBayar, petakanRokok, petakanKasir, cocokToken, baku, namaKaryawan, KARYAWAN_ESB, PETA_BAYAR };
+  /* COMPLIMENT LANGSUNG DICATAT (22 Okt 2026, permintaan user: "ga usah
+     tekan Pakai, langsung saja"). Membangun baris DB.compliments untuk tiap
+     bill compliment / member deposit ESB yang BELUM tercatat pada tanggal itu
+     (dicocokkan lewat esbBill + esbJenis — jadi menarik dua kali tidak
+     menggandakan). Dipakai Cashier DAN Finance > Omset: keduanya menulis
+     daftar yang sama, dan dua pembuat baris pasti menyimpang.
+     PIC Kasir & Pemberi SENGAJA "Tamu": PIC kasir memotong realisasi orang,
+     dan ESB tidak tahu siapa yang memberi compliment — menebaknya berarti
+     memotong omset orang yang salah. Diubah lewat ✏️ di daftar. */
+  function kompBaru(R, tgl, ada, oleh) {
+    const sudah = new Set((ada || []).filter(c => c && c.date === tgl && c.esbBill)
+      .map(c => c.esbBill + '|' + (c.esbJenis || 'compliment')));
+    const out = [];
+    (R.komp || []).forEach((x, i) => {
+      if (sudah.has(x.bill + '|' + x.jenis)) return;
+      sudah.add(x.bill + '|' + x.jenis);
+      const nama = x.info || x.menu.slice(0, 3).join(', ') + (x.menu.length > 3 ? ' …' : '') || ('Bill ' + x.bill);
+      out.push({
+        id: 'c' + Date.now().toString(36) + i + Math.floor(Math.random() * 1e4), alasan: '',
+        date: tgl, nama: (x.jenis === 'member_dep' ? 'Member Deposit — ' : '') + nama,
+        subTotal: x.subTotal, tax: x.tax, service: x.service, nominal: x.nominal,
+        picName: 'Tamu', picOfficeId: '', picDiv: 'tamu',
+        pemberiName: 'Tamu', pemberiOfficeId: '', pemberiDiv: 'tamu',
+        pemberiStatus: 'menunggu', putusOleh: '', putusAt: 0,
+        esbBill: x.bill, esbJenis: x.jenis,
+        by: oleh || '', at: Date.now()
+      });
+    });
+    return out;
+  }
+
+  W.esbPos = { kompBaru, tarikHari, ringkasHari, kunciBayar, petakanRokok, petakanKasir, cocokToken, baku, namaKaryawan, KARYAWAN_ESB, PETA_BAYAR };
 })(window);
