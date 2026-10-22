@@ -598,6 +598,21 @@ const toastTerakhir = w => {
     cek('modal pindah meja terbuka',
         w.document.getElementById('modalRoot').innerHTML.indexOf('Pindah Meja') > -1);
 
+    /* Tombol "Lantai 2" mengikuti tanggal reservasinya: di hari weekend ia
+       membuka Weekend Lt.2, bukan kunci tetap "lantai2" (22 Okt 2026). */
+    {
+      const tglRes = w.eval('STATE.reservations.find(x=>x.id==="res-pindah").date');
+      const dg = new Date(tglRes + 'T00:00:00').getDay();
+      w.eval('STATE.master.hariWeekend=[' + dg + ']; renderMoveModal();');
+      const b2 = [...w.document.querySelectorAll('#modalRoot .seat-switch button')].find(b => /Lantai 2/.test(b.textContent));
+      b2 && b2.click();
+      cek('Lantai 2 di hari weekend membuka Weekend Lt.2',
+          w.eval('MOVE_LAYOUT') === 'lantai2_weekend', w.eval('MOVE_LAYOUT'));
+      const b2b = [...w.document.querySelectorAll('#modalRoot .seat-switch button')].find(b => /Lantai 2/.test(b.textContent));
+      cek('dan tombol Lantai 2-nya menyala', !!b2b && b2b.classList.contains('on'));
+      w.eval('delete STATE.master.hariWeekend; MOVE_LAYOUT=dayTypeLayout(STATE.reservations.find(x=>x.id==="res-pindah").date); renderMoveModal();');
+    }
+
     jejak.tanya.length = 0;
     await amanTunggu('pilih meja terkunci di modal pindah', async () => { w.eval('toggleMoveSeat("21")'); });
     await tunggu(80);

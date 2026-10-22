@@ -1412,14 +1412,29 @@ let ESB_KOMP_PILIH=null;
 const ESB_KOMP_UI={jalan:false,err:'',prog:''};
 const ESB_KOMP_PESAN={};
 /* Mencatat bill compliment ESB yang belum ada — lihat esbPos.kompBaru().
-   Langsung disimpan (permintaan user 22 Okt 2026: tanpa tombol Pakai). */
-function esbKompCatat(tgl,R){
+   Langsung disimpan (permintaan user 22 Okt 2026: tanpa tombol Pakai).
+   PIC KASIR = kasir yang memproses bill di ESB, dicocokkan ke akun Office
+   ber-Tim Kasir (pilihan kotak PIC Kasir) lewat Employee Name + pemetaan
+   Breakdown. Daftar Office ditunggu dulu kalau belum termuat — tanpa itu
+   semuanya jatuh ke Tamu, persis keluhan versi pertama. Baris otomatis lama
+   yang masih Tamu dan belum pernah disunting ikut dibetulkan. */
+async function esbKompCatat(tgl,R){
+  if(COMP_ROSTER===null){ try{ await ambilRoster(); }catch(e){} }
+  const roster=(COMP_ROSTER||[]).filter(u=>(u.divs||[u.div]).indexOf('kasir')>-1);
+  const cariPic=esbPos.pembuatCariPic(roster,DB.esbAkunKasir||{},(DB.employees&&DB.employees.kasir)||[]);
   DB.compliments=DB.compliments||[];
-  const baru=esbPos.kompBaru(R,tgl,DB.compliments,CURRENT_USER?CURRENT_USER.name:'');
-  if(baru.length){ DB.compliments.push(...baru); save(); }
-  ESB_KOMP_PESAN[tgl]=baru.length
-    ? `✓ ${baru.length} compliment dari ESB langsung dicatat (${fmtRp(baru.reduce((a,c)=>a+c.nominal,0))}), PIC <b>Tamu</b>. Ubah PIC lewat ✏️ di daftar kalau perlu.`
-    : (R.komp.length?'Semua compliment ESB tanggal ini sudah tercatat — tidak ada yang ditambahkan.':'');
+  const baru=esbPos.kompBaru(R,tgl,DB.compliments,CURRENT_USER?CURRENT_USER.name:'',cariPic);
+  const dibetulkan=esbPos.kompPerbaikiPic(DB.compliments,R,tgl,cariPic);
+  if(baru.length) DB.compliments.push(...baru);
+  if(baru.length||dibetulkan) save();
+  const tamu=baru.filter(c=>c.picDiv==='tamu');
+  const takKenal=[...new Set(tamu.map(c=>c.esbKasir).filter(Boolean))];
+  const bagian=[];
+  if(baru.length) bagian.push(`✓ ${baru.length} compliment dari ESB langsung dicatat (${fmtRp(baru.reduce((a,c)=>a+c.nominal,0))}), PIC Kasir dari kasir yang memproses bill-nya`);
+  else if(R.komp.length) bagian.push('Semua compliment ESB tanggal ini sudah tercatat — tidak ada yang ditambahkan');
+  if(dibetulkan) bagian.push(`${dibetulkan} catatan lama yang PIC Kasir-nya Tamu dibetulkan ke kasirnya`);
+  if(tamu.length) bagian.push(`${tamu.length} tetap <b>Tamu</b> karena kasirnya tidak dikenali${takKenal.length?' ('+takKenal.map(esc).join(', ')+')':''}${COMP_ROSTER_ERR?' — daftar kasir Office gagal dimuat: '+esc(COMP_ROSTER_ERR):''} — ubah lewat ✏️`);
+  ESB_KOMP_PESAN[tgl]=bagian.length?bagian.join('. ')+'. PIC Pemberi tetap Tamu — ESB tidak mencatat siapa yang memberi.':'';
   return baru.length;
 }
 
@@ -1431,7 +1446,7 @@ async function esbKompMuat(){
   try{
     const R=await esbRingkasOmset(tgl,h=>{ ESB_KOMP_UI.prog=h; esbKompGambar(); });
     R.at=Date.now(); ESB_KOMP_HARI[tgl]=R;
-    esbKompCatat(tgl,R);
+    await esbKompCatat(tgl,R);
   }catch(x){ ESB_KOMP_UI.err=x.message||String(x); }
   finally{ ESB_KOMP_UI.jalan=false; ESB_KOMP_UI.prog=''; }
   /* render() supaya daftar compliment & kartu total ikut berubah. */
@@ -1440,7 +1455,7 @@ async function esbKompMuat(){
 function esbKompHtml(){
   const tgl=compDate, R=ESB_KOMP_HARI[tgl], u=ESB_KOMP_UI, pesan=ESB_KOMP_PESAN[tgl]||'';
   const kepala=`<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap">
-      <div><h3>Compliment dari ESB</h3><div class="card-sub" style="margin:0">${'Bill yang dibayar <b>Compliment</b> atau <b>Member Deposit</b> di POS. Menarik dari ESB <b>langsung mencatat</b> yang belum ada ke daftar di bawah, dengan PIC Kasir &amp; Pemberi <b>Tamu</b> — ubah lewat ✏️ kalau compliment itu membebani PIC tertentu. Menarik ulang tidak menggandakan.'}</div></div>
+      <div><h3>Compliment dari ESB</h3><div class="card-sub" style="margin:0">${'Bill yang dibayar <b>Compliment</b> atau <b>Member Deposit</b> di POS. Menarik dari ESB <b>langsung mencatat</b> yang belum ada ke daftar di bawah, dengan <b>PIC Kasir = kasir yang memproses bill-nya</b> di ESB (PIC Pemberi tetap Tamu) — ubah lewat ✏️ kalau perlu. Menarik ulang tidak menggandakan.'}</div></div>
       <button class="btn" ${u.jalan?'disabled':''} onclick="esbKompMuat()">🔄 ${R?'Tarik ulang':'Ambil'} dari ESB</button>
     </div>
     ${u.prog?`<div style="margin-top:10px">${u.prog}</div>`:''}
