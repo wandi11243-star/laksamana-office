@@ -428,8 +428,27 @@ function cg_http($metode, $url, $header, $isi, $batas = 30) {
     CURLOPT_CUSTOMREQUEST  => $metode,
   );
   if ($isi !== null) $opt[CURLOPT_POSTFIELDS] = $isi;
+  /* IPv4 DIPAKSA (23 Okt 2026). Balasan Google Review gagal "Operation timed
+     out after 10001 milliseconds with 0 out of 0 bytes received" — nol byte
+     berarti sambungannya tidak pernah jadi. *.googleapis.com punya A DAN AAAA;
+     server hosting yang jalur IPv6-nya tidak tembus menghabiskan seluruh
+     CONNECTTIMEOUT untuk mencoba alamat IPv6 sebelum sempat ke IPv4 — dan
+     gejalanya hilang-timbul, jadi tarikan review bisa jalan sementara balasan
+     gagal. Bentuk yang sama dengan ETIMEDOUT di deploy FTP (lihat CLAUDE.md). */
+  if (defined('CURLOPT_IPRESOLVE')) $opt[CURLOPT_IPRESOLVE] = CURL_IPRESOLVE_V4;
   curl_setopt_array($ch, $opt);
   $jawab = curl_exec($ch);
+  /* Diulang SEKALI, dan hanya kalau sambungannya memang tidak pernah terbentuk
+     (tidak ada kode HTTP, tidak ada byte terkirim). Di titik itu permintaannya
+     belum sampai ke mana pun, jadi mengulangnya aman untuk metode apa pun —
+     termasuk panggilan AI yang berbayar. Yang gagal SESUDAH tersambung tidak
+     pernah diulang: bisa saja servernya sudah menerima dan memprosesnya. */
+  if ($jawab === false && (int)curl_getinfo($ch, CURLINFO_HTTP_CODE) === 0
+      && (float)curl_getinfo($ch, CURLINFO_SIZE_UPLOAD) == 0
+      && (float)curl_getinfo($ch, CURLINFO_CONNECT_TIME) == 0
+      && in_array(curl_errno($ch), array(6, 7, 28), true)) {
+    $jawab = curl_exec($ch);
+  }
   $kode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
   $galat = curl_error($ch);
   curl_close($ch);
