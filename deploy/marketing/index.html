@@ -1842,6 +1842,8 @@ select.inp{cursor:pointer;appearance:none;background-image:url("data:image/svg+x
    isinya, dan text-overflow:ellipsis pada .ev tidak pernah aktif. */
 .cal .cell{min-height:96px;min-width:0;background:var(--ink-900);border:1px solid var(--line-soft);border-radius:10px;padding:7px;font-size:12px;transition:.14s}
 .cal .cell.other{opacity:.35}
+.cal .cell.cal-klik{cursor:pointer}
+.cal .cell.cal-klik:hover{border-color:var(--gold)}
 .cal .cell.today{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold-glow) inset}
 .cal .cell .dn{font-weight:600;color:var(--sand-dim);margin-bottom:5px}
 .cal .ev{font-size:10.5px;padding:3px 6px;border-radius:6px;margin-bottom:3px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600;border-left:3px solid}
@@ -6939,7 +6941,12 @@ function setMenuFixBaru(v){
   const fh=seg&&seg.parentNode?seg.parentNode.querySelector('.fh'):null;
   if(fh) fh.outerHTML=menuFixHelpHTML(v);
 }
-function newEvent(){
+/* tgl (opsional) = tanggal yang ditekan di Kalender (23 Okt 2026). Diperiksa
+   bentuknya dulu: yang bukan yyyy-mm-dd jatuh ke hari ini, bukan dioper apa
+   adanya ke <input type=date> — kotak tanggal yang diberi nilai rusak tampil
+   KOSONG, dan formulir lalu ditolak dengan alasan yang tidak dimengerti. */
+function newEvent(tgl){
+  const tglAwal=/^\d{4}-\d{2}-\d{2}$/.test(String(tgl||''))?tgl:today();
   NE_MENUFIX='';                       // modal baru, pilihan sebelumnya tidak ikut
   const dealClients=S.clients.slice().sort((a,b)=>String(a.nama).localeCompare(String(b.nama)));
   // "+ Client baru" ikut jadi salah satu baris daftar, bukan tombol terpisah:
@@ -6960,7 +6967,7 @@ function newEvent(){
    +'<div class="form-grid">'+ff('Nama Event','ne_nama','','text',1)
    +'<div class="field"><label>Jenis Event<span class="req">*</span></label><select class="inp" id="ne_jenis" onchange="neJenisToggle()">'+EVENT_TYPES.map(t=>'<option>'+t+'</option>').join('')+'</select>'
      +'<input class="inp" id="ne_jenisLain" style="margin-top:8px;display:none" placeholder="Tulis jenis eventnya"></div>'
-   +'<div class="field"><label>Tanggal<span class="req">*</span></label><input class="inp" type="date" id="ne_tanggal" value="'+today()+'"></div>'
+   +'<div class="field"><label>Tanggal<span class="req">*</span></label><input class="inp" type="date" id="ne_tanggal" value="'+tglAwal+'"></div>'
    +ff('Estimasi Pax','ne_pax','','number')+'</div>'
    /* PENGAKUAN OMSET DITANYAKAN DI SINI, DAN WAJIB (5 September 2026, keluhan
       user: "kenapa ada yang menu belum ditentukan, padahal di sistem ada
@@ -12366,7 +12373,13 @@ function renderCalendar(V){
     const ds=cell.other?'':y+'-'+String(m+1).padStart(2,'0')+'-'+String(cell.d).padStart(2,'0');
     const isToday=ds===today();
     const evs=cell.other?[]:S.events.filter(e=>eventPadaTgl(e,ds)&&(calStatusFilter?e.status===calStatusFilter:e.status!=='Lost'));
-    h+='<div class="cell'+(cell.other?' other':'')+(isToday?' today':'')+'"><div class="dn">'+cell.d+'</div>';
+    /* Seluruh sel bisa ditekan (23 Okt 2026) -> calHariPopup: daftar jadwal
+       hari itu + tombol Add Event. Pita di dalamnya tetap membuka popupnya
+       sendiri, karena itu WAJIB event.stopPropagation() — tanpa itu menekan
+       satu pita membuka dua modal sekaligus dan yang terakhir menang. */
+    h+='<div class="cell'+(cell.other?' other':' cal-klik')+(isToday?' today':'')+'"'
+      +(cell.other?'':' onclick="calHariPopup(\''+ds+'\')" title="Klik untuk jadwal & tambah event tanggal ini"')
+      +'><div class="dn">'+cell.d+'</div>';
     /* Emas = milik Marketing, apa pun jenis acaranya. Jenisnya tetap ikut
        ditulis di title, jadi yang tidak menekan pitanya pun masih bisa tahu
        dengan menyorotnya. */
@@ -12375,18 +12388,18 @@ function renderCalendar(V){
        terbaca sekilas tanpa menyorot satu per satu. Ditulis lengkap "120 pax",
        bukan disingkat "120p": singkatan satu huruf itu tidak terbaca
        sebagai satuan apa pun oleh yang belum pernah diberi tahu. */
-evs.forEach(e=>{ const col='--gold'; h+='<div class="ev" style="background:color-mix(in srgb,var('+col+') 20%,transparent);border-left-color:var('+col+')" onclick="calEventPopup(\''+e.id+'\')" title="'+esc(e.nama)+' — '+esc(jenisEvent(e))+(e.pax?' · '+e.pax+' pax':'')+'">'+esc(e.nama)+(e.pax?'<b style="float:right;margin-left:6px">'+e.pax+' pax</b>':'')+'</div>'; });
+evs.forEach(e=>{ const col='--gold'; h+='<div class="ev" style="background:color-mix(in srgb,var('+col+') 20%,transparent);border-left-color:var('+col+')" onclick="event.stopPropagation();calEventPopup(\''+e.id+'\')" title="'+esc(e.nama)+' — '+esc(jenisEvent(e))+(e.pax?' · '+e.pax+' pax':'')+'">'+esc(e.nama)+(e.pax?'<b style="float:right;margin-left:6px">'+e.pax+' pax</b>':'')+'</div>'; });
     /* Acara milik EMS. Warnanya sengaja beda (abu bergaris putus) supaya
        jelas ia bukan peluang Marketing dan tidak bisa disunting dari sini. */
     if(!cell.other) EMS_EVENTS.filter(x=>x.tgl===ds).forEach(x=>{
-      h+='<div class="ev ev-ems" onclick="emsEventPopup(\''+esc(x.id)+'\')" title="Acara EMS: '
+      h+='<div class="ev ev-ems" onclick="event.stopPropagation();emsEventPopup(\''+esc(x.id)+'\')" title="Acara EMS: '
         +esc(x.nama)+'">'+esc(x.nama)+'</div>'; });
     /* Reservasi paling bawah, dan cuma SATU baris ringkasan per hari.
        Ditaruh di bawah supaya event — yang bisa disunting dari sini —
        tetap yang pertama terbaca. */
     if(!cell.other && RSV_HARI[ds]){
       const rr=RSV_HARI[ds];
-      h+='<div class="ev ev-rsv" onclick="rsvHariPopup(\''+ds+'\')" '
+      h+='<div class="ev ev-rsv" onclick="event.stopPropagation();rsvHariPopup(\''+ds+'\')" '
         +'title="'+rr.jml+' reservasi · '+rr.pax+' pax — klik untuk rinciannya">'
         +'\u25cf '+rr.jml+' reservasi'+(rr.pax?' · '+rr.pax+' pax':'')+'</div>';
     }
@@ -12413,6 +12426,47 @@ function calTotalPax(d){
 }
 function calNav(n){ calDate.setMonth(calDate.getMonth()+n); go('calendar'); }
 function calToday(){ calDate=new Date(); calDate.setDate(1); go('calendar'); }
+/* Klik SEL tanggal -> daftar seluruh jadwal hari itu + tombol Add Event
+   (23 Oktober 2026, permintaan user). Tanggal di formulir Event Baru terisi
+   sendiri dengan tanggal yang ditekan.
+
+   Daftarnya memakai sumber & penyaring yang SAMA dengan sel kalendernya
+   (eventPadaTgl + calStatusFilter, EMS_EVENTS, RSV_HARI) — popup yang
+   menyebut jadwal berbeda dari kotak yang baru saja ditekan adalah dua
+   jawaban untuk satu pertanyaan. Tiap baris membuka popup miliknya yang
+   sudah ada; tidak ada salinan kedua isinya di sini.
+
+   Tombol Add Event mengikuti izin yang sama dengan tombol "Event Baru" di
+   Pipeline (can('edit_event')). Yang tidak berhak tetap bisa melihat
+   daftarnya — itu memang gunanya kalender ini. */
+function calHariPopup(ds){
+  const evs=S.events.filter(e=>eventPadaTgl(e,ds)&&(calStatusFilter?e.status===calStatusFilter:e.status!=='Lost'));
+  const ems=EMS_EVENTS.filter(x=>x.tgl===ds);
+  const rr=RSV_HARI[ds];
+  const baris=(klik,warna,judul,sub)=>'<div onclick="'+klik+'" style="cursor:pointer;display:flex;gap:10px;align-items:center;padding:9px 10px;border-radius:9px;border:1px solid var(--line-soft);margin-bottom:6px;border-left:3px solid var('+warna+')">'
+    +'<div style="flex:1;min-width:0"><div class="cell-strong" style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis">'+judul+'</div>'
+    +(sub?'<div class="cell-sub">'+sub+'</div>':'')+'</div><span style="color:var(--muted)">'+svg(IC.chevR)+'</span></div>';
+  let isi='';
+  evs.forEach(e=>{ isi+=baris('calEventPopup(\''+e.id+'\')','--gold',esc(e.nama),
+    esc(jenisEvent(e))+' · '+esc(e.status||'—')+(e.pax?' · '+e.pax+' pax':'')+(e.mktPIC?' · '+esc(userName(e.mktPIC)):'')); });
+  ems.forEach(x=>{ isi+=baris('emsEventPopup(\''+esc(x.id)+'\')','--violet',esc(x.nama),
+    'Acara EMS · '+esc(x.status||'—')+(x.venue?' · '+esc(x.venue):'')); });
+  if(rr) isi+=baris('rsvHariPopup(\''+ds+'\')','--teal',rr.jml+' reservasi',rr.pax?rr.pax+' pax':'');
+  if(!isi) isi='<div class="fh" style="padding:14px 4px;text-align:center">Belum ada jadwal di tanggal ini'
+    +(calStatusFilter?' untuk status <b>'+esc(calStatusFilter)+'</b>':'')+'.</div>';
+  const lampau=ds<today();
+  const bolehTambah=can('edit_event');
+  modal('<div class="modal-head"><div><div class="eyebrow">Kalender</div>'
+     +'<h3 style="margin-top:6px">'+esc(fmtDateLong(ds))+'</h3>'
+     +'<p>'+evs.length+' event marketing'+(ems.length?' · '+ems.length+' acara EMS':'')+(rr?' · '+rr.jml+' reservasi':'')+'</p></div>'
+     +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+   +'<div class="modal-body">'+isi
+     +(bolehTambah&&lampau?'<p class="fh" style="margin-top:8px">Tanggal ini sudah lewat — tetap bisa menambah event, misalnya untuk mencatat acara yang terlanjur berjalan.</p>':'')
+   +'</div>'
+   +'<div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button>'
+     +(bolehTambah?'<button class="btn pri" onclick="closeModal();newEvent(\''+ds+'\')">'+svg(IC.plus)+'Add Event</button>':'')
+   +'</div>');
+}
 // Klik event di kalender -> popup ringkas (bukan langsung pindah halaman).
 function calEventPopup(id){
   const e=S.events.find(x=>x.id===id); if(!e)return;
