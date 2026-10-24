@@ -7929,7 +7929,7 @@ function openDetail(id){
          ${dpsOf(r).map((p,i)=>`
            <div class="fu-log" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
              <div style="flex:1;min-width:170px">
-               <b>DP ${i+1} · ${rpDot(p.amount)}</b> ${dpBadge(p)}
+               <b>DP ${i+1} · ${rpDot(p.amount)}</b>${canEdit?` <button class="btn btn-xs btn-ghost" style="padding:2px 7px" title="Ubah nominal DP ini" onclick="openUbahNominalDp('${r.id}','${p.id}')">✏️</button>`:""} ${dpBadge(p)}
                <div class="meta">${esc(p.method||"-")}${p.tfName?" · a.n. "+esc(p.tfName):""}${p.tfDate?" · "+fmtDateShort(p.tfDate)+(p.tfTime?" "+esc(p.tfTime):""):""} · dicatat ${esc(p.by||"-")}, ${fmtTs(p.at)}</div>
              </div>
              ${p.proofData?`<button class="btn btn-xs btn-ghost" onclick="viewProof('${r.id}','${p.id}')">🖼️ Bukti</button>`:`<span class="badge-status st-noshow" style="font-size:10px">tanpa bukti</span>`}
@@ -8095,6 +8095,64 @@ async function saveAddDp(resId){
   closeModal(); buildNav();
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
   toast(`DP ${rpDot(amount)} tercatat — total DP ${rpDot(dpTotal(r))} ✓`,"ok");
+}
+/* ===== UBAH NOMINAL SATU DP (24 Oktober 2026, permintaan user) =====
+   Sebelumnya nominal yang salah ketik cuma bisa dibetulkan dengan menghapus
+   DP-nya (khusus Admin Sistem) lalu mencatat ulang berikut buktinya.
+
+   - Izinnya SAMA dengan "Tambah Bukti TF DP" (canEdit di detail): yang boleh
+     mencatat cicilan boleh membetulkan angkanya.
+   - DP yang SUDAH DIVERIFIKASI dikembalikan ke "belum terverifikasi" begitu
+     nominalnya berubah. Verifikasi menyatakan "uang sebesar ITU sudah masuk";
+     angka yang diganti sesudahnya tidak pernah diperiksa siapa pun, dan
+     membiarkan tanda ✓ menempel berarti Dana Masuk & kwitansi mengakui uang
+     yang belum dicocokkan. Itu DIKATAKAN di modalnya sebelum disimpan.
+   - Bukti, rekening, dan hasil scan TIDAK disentuh — yang dibetulkan cuma
+     angka yang diketik orang.
+   - Jejaknya menyebut angka lama → baru (audit + r.log lewat logAudit). */
+function openUbahNominalDp(resId, payId){
+  const {r,p}=findDp(resId,payId); if(!r||!p) return;
+  const ke=(r.dps||[]).findIndex(x=>x.id===payId)+1;
+  openModal(`
+   <div class="modal-head"><h3>✏️ Ubah Nominal DP ${ke} — ${esc(r.name)}</h3><button class="close-x" onclick="closeModal()">×</button></div>
+   <div class="modal-body">
+     <div class="field"><label>Nominal DP <span class="req">*</span></label>
+       <input id="udp_amount" inputmode="numeric" value="${rpDot(p.amount).replace(/^Rp\.?\s*/,"")}" oninput="fmtRupiahInput(this)"></div>
+     <div class="hint">Sekarang tercatat <b>${rpDot(p.amount)}</b>${p.tfAmount?` · nominal di bukti transfer terbaca <b>${rpDot(p.tfAmount)}</b>`:""}.</div>
+     ${p.tfStatus==="verified"?`<div class="inline-warn" style="margin-top:10px"><div>DP ini <b>sudah diverifikasi</b>. Kalau nominalnya diubah, statusnya kembali <b>belum terverifikasi</b> dan perlu dicek ulang di Dana Masuk.</div></div>`:""}
+   </div>
+   <div class="modal-foot">
+     <button class="btn btn-ghost" onclick="closeModal()">Batal</button>
+     <button class="btn btn-primary" onclick="simpanNominalDp('${r.id}','${p.id}')">💾 Simpan</button>
+   </div>`);
+  setTimeout(()=>{ const el=byId("udp_amount"); if(el){ el.focus(); el.select(); } },30);
+}
+async function simpanNominalDp(resId, payId){
+  const {r,p}=findDp(resId,payId); if(!r||!p) return;
+  const baru=rupiahVal(byId("udp_amount")?.value||"");
+  if(!baru){ toast("Nominal DP wajib diisi","err"); return; }
+  const lama=+p.amount||0;
+  if(baru===lama){ closeModal(); return; }   // tidak ada yang berubah = tidak ada kiriman
+  const prev=JSON.parse(JSON.stringify(r));
+  const ke=(r.dps||[]).findIndex(x=>x.id===payId)+1;
+  const batalVerif=p.tfStatus==="verified";
+  p.amount=baru;
+  if(batalVerif){ p.tfStatus=""; p.tfBy=""; p.tfAt=0; }
+  /* tfAmount (nominal di bukti) DIBACA LEBIH DULU oleh Dana Masuk & Pencocokan
+     BRI (txAmount, cocok-bri.js). verifyTfGo() menyalin amount ke sana kalau
+     kosong, jadi tfAmount yang SAMA dengan nominal lama hampir pasti salinan
+     itu — dibiarkan, kedua halaman tetap memajang angka lama. Dikosongkan,
+     bukan diisi angka baru: angka di bukti harus dibaca orang lagi saat
+     verifikasi ulang. Yang BERBEDA dari nominal lama memang hasil baca bukti,
+     dan tetap; selisihnya ditandai txMismatch() seperti biasa. */
+  if(Number(p.tfAmount)===lama) p.tfAmount=0;
+  syncDp(r);
+  logAudit("Ubah Nominal DP", `${r.name}: DP ke-${ke} ${rpDot(lama)} → ${rpDot(baru)} (total ${rpDot(dpTotal(r))})${batalVerif?" — verifikasi dibatalkan":""}`, r.id);
+  const ok=await commit("Menyimpan nominal DP…");
+  if(!ok){ Object.assign(r, prev); return; }
+  closeModal(); buildNav();
+  if(CURRENT_PAGE) navigate(CURRENT_PAGE);
+  toast(`Nominal DP ke-${ke} jadi ${rpDot(baru)} ✓${batalVerif?" — perlu diverifikasi ulang":""}`,"ok");
 }
 // Hapus satu catatan uang masuk. Dibatasi Admin Sistem — ini menghapus bukti uang,
 // jadi selain tercatat di audit log, dicegah juga di sisi tombol maupun di sini.
