@@ -35,6 +35,25 @@
 define('GR_SCOPE', 'https://www.googleapis.com/auth/business.manage');
 define('GR_PLACES', 'https://places.googleapis.com/v1');
 define('GR_MAKS_BALAS', 4000);
+/* NOMOR RESERVASI RESMI di balasan Google Review (24 Okt 2026, permintaan user).
+   Draf AI sempat menutup balasan dengan "Reservasi meja via chat 0812-7788-3818"
+   — nomor yang tidak ada di kode maupun di profil bawaan: dikarang modelnya.
+   Balasan review itu PUBLIK, jadi nomor karangan berarti tamu menghubungi orang
+   lain. Dua lapis: AI diberi nomornya + dilarang mengarang, DAN setiap nomor HP
+   Indonesia di hasilnya diganti nomor ini (gr_nomor_resmi). Ganti nomor = ubah
+   baris ini saja. */
+define('GR_NOMOR_RESERVASI', '+62 853-6523-4898');
+function gr_nomor_resmi($teks) {
+  $teks = (string)$teks;
+  if ($teks === '') return $teks;
+  /* +62 / 62 / 0 lalu 8, diikuti 8-12 angka yang boleh dipisah spasi, titik,
+     atau tanda hubung. Kurung (0812) ikut tertangkap. Nomor yang sudah benar
+     ikut diganti dengan bentuk bakunya — hasilnya sama. */
+  return preg_replace('/\(?(?:\+62|62|0)\)?[\s.\-]?8(?:[\s.\-()]{0,2}\d){8,12}/', GR_NOMOR_RESERVASI, $teks);
+}
+function gr_aturan_nomor() {
+  return ' Kalau perlu menyebut nomor kontak/reservasi, pakai HANYA ' . GR_NOMOR_RESERVASI . ' (WhatsApp/chat); jangan pernah mengarang nomor lain.';
+}
 
 /* ==================== TABEL ==================== */
 function gr_pastikan($pdo) {
@@ -494,6 +513,14 @@ function gr_baca($pdo) {
   $akun = $q->fetch();
   if ($akun) $akun['terhubung'] = (int)$akun['refresh_exp'] > cg_now_ms();
   $ai = json_decode(cg_set_baca($pdo, 'gr_ai'), true);
+  /* Analisa yang tersimpan SEBELUM nomor resmi dipasang masih membawa nomor
+     karangan di usulanBalasan — disaring saat dibaca, supaya "Pakai draf dari
+     analisa AI" tidak menempelkannya tanpa harus menganalisa ulang. */
+  if (is_array($ai) && isset($ai['tangani']) && is_array($ai['tangani'])) {
+    foreach ($ai['tangani'] as $i => $t) {
+      if (is_array($t) && isset($t['usulanBalasan'])) $ai['tangani'][$i]['usulanBalasan'] = gr_nomor_resmi($t['usulanBalasan']);
+    }
+  }
   return array('tempat' => $tempat, 'harian' => $harian, 'review' => $review, 'totalTersimpan' => $totalTersimpan,
     'akun' => $akun ?: null, 'ai' => is_array($ai) ? $ai : null,
     'syncAt' => (int)cg_set_baca($pdo, 'google_sync_at', '0'), 'galat' => cg_set_baca($pdo, 'google_galat'));
@@ -575,7 +602,7 @@ function gr_ai($pdo, $d, $nama) {
   $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
   $system = 'Kamu manajer pengalaman tamu (guest experience) untuk bisnis F&B di Indonesia. Jawab dalam Bahasa Indonesia. '
     . 'Analisa HANYA dari review yang diberikan; jangan mengarang review, angka, atau kejadian. Setiap temuan wajib menyebut id review buktinya. '
-    . 'Balas HANYA dengan satu objek JSON, tanpa teks lain.';
+    . 'Balas HANYA dengan satu objek JSON, tanpa teks lain.' . gr_aturan_nomor();
   $prompt = "Profil bisnis: $profil\nReview Google ($hari hari terakhir, terbaru dulu):\n" . json_encode($data, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
     . "\n\nBuat analisa dengan bentuk JSON persis berikut:\n"
     . '{"ringkasan":"3-4 kalimat kondisi umum","sentimen":{"positif":0,"netral":0,"negatif":0},'
@@ -614,7 +641,7 @@ function gr_ai($pdo, $d, $nama) {
     $out['tangani'][] = array('id' => $peta[(string)$x['review']],
       'urgensi' => in_array(isset($x['urgensi']) ? $x['urgensi'] : '', array('segera', 'tinggi', 'sedang'), true) ? $x['urgensi'] : 'sedang',
       'alasan' => cg_potong(isset($x['alasan']) ? $x['alasan'] : '', 500), 'tindakan' => cg_potong(isset($x['tindakan']) ? $x['tindakan'] : '', 600),
-      'usulanBalasan' => cg_potong(isset($x['usulanBalasan']) ? $x['usulanBalasan'] : '', 1200));
+      'usulanBalasan' => gr_nomor_resmi(cg_potong(isset($x['usulanBalasan']) ? $x['usulanBalasan'] : '', 1200)));
   }
   $out['meta'] = array('at' => cg_now_ms(), 'oleh' => $nama, 'model' => $r['model'], 'hari' => $hari, 'jumlah' => count($baris), 'tempat' => $tempat);
   cg_set_tulis($pdo, 'gr_ai', json_encode($out, JSON_UNESCAPED_UNICODE));
@@ -628,11 +655,11 @@ function gr_ai_draf($pdo, $d) {
   $r = gr_review_by_id($pdo, isset($d['id']) ? $d['id'] : '');
   $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
   $system = 'Kamu menulis balasan review Google atas nama bisnis F&B di Indonesia. Bahasa mengikuti bahasa review (default Indonesia), sopan, hangat, personal, '
-    . 'tidak defensif, tidak menjanjikan kompensasi yang tidak disebut, maksimal 600 huruf. Balas HANYA dengan JSON {"balasan":"..."}.';
+    . 'tidak defensif, tidak menjanjikan kompensasi yang tidak disebut, maksimal 600 huruf. Balas HANYA dengan JSON {"balasan":"..."}.' . gr_aturan_nomor();
   $prompt = "Profil bisnis: $profil\nNama tamu: " . $r['penulis'] . "\nBintang: " . (int)$r['rating'] . "\nReview: " . cg_potong((string)$r['teks'], 2000)
     . (isset($d['arahan']) && trim($d['arahan']) !== '' ? "\nArahan dari tim: " . cg_potong($d['arahan'], 500) : '');
   $x = cg_ai_tanya($pdo, $system, $prompt, 1500);
-  return array('balasan' => cg_potong(isset($x['hasil']['balasan']) ? $x['hasil']['balasan'] : '', GR_MAKS_BALAS));
+  return array('balasan' => gr_nomor_resmi(cg_potong(isset($x['hasil']['balasan']) ? $x['hasil']['balasan'] : '', GR_MAKS_BALAS)));
 }
 
 function gr_putus($pdo, $nama) {
