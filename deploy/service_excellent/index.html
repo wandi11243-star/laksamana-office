@@ -8162,64 +8162,56 @@ function saveReview(rvId, resId){
 
    Dibaca lewat konten-api?action=campaignGoogleCocok, pintu baca SEMPIT yang
    terbuka untuk pemegang kunci service_excellent (penulis, rating, waktu,
-   potongan teks). Dimuat SEKALI per rentang; yang GAGAL ikut dicatat di
-   kuncinya supaya render -> muat -> render tidak berputar selamanya. */
+   potongan teks, tautan).
+
+   HASILNYA DISIMPAN DI KLAIMNYA SENDIRI (rv.googleCek, revisi user hari yang
+   sama: "pas refresh jadinya hilang"). Bukan di memori: hasil yang lenyap
+   tiap muat ulang memaksa admin menekan tombolnya lagi tiap kali membuka
+   halaman, dan manager yang memverifikasi besok pagi tidak melihat apa pun.
+   Disimpan lewat saveState() — blob master tidak menyaring kunci, jadi field
+   baru di baris review ikut bertahan. */
 const KONTEN_API = "../konten-api-mysql/api.php";
-let RVG = {kunci:"", memuat:false, data:null, galat:""};
+let RVG = {memuat:false, galat:""};
 function rvgWib(ms){ return new Date(Number(ms||0)+7*3600000).toISOString().slice(0,10); }
 function rvgGeser(ymd, hari){ const d=new Date(ymd+"T00:00:00Z"); d.setUTCDate(d.getUTCDate()+hari); return d.toISOString().slice(0,10); }
 // Nama akun Google dibandingkan tanpa huruf besar-kecil, spasi ganda, dan tanda baca.
-function rvgNorm(s){ return String(s||"").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim(); }
-/* Jendela pencarian: ulasan biasanya baru tayang sesudah tamu pulang, kadang
-   beberapa hari kemudian — jadi dari 3 hari SEBELUM tanggal klaim sampai 14
-   hari SESUDAHNYA. */
-const RVG_SEBELUM=3, RVG_SESUDAH=14;
+function rvgNorm(s){ return String(s||"").toLowerCase().normalize("NFKD").replace(/[̀-ͯ]/g,"").replace(/[^a-z0-9]+/g," ").trim(); }
+/* Jendela tarik: 30 HARI TERAKHIR sampai hari ini (permintaan user), tidak
+   lagi mengikuti periode yang sedang dibuka. Ulasan yang dipakai untuk satu
+   klaim harus tayang paling cepat SEHARI SEBELUM tanggal klaimnya — ulasan
+   ditulis sesudah tamu datang; toleransi sehari menampung klaim yang dicatat
+   keesokan harinya. Klaim yang lebih tua dari jendela tidak dicek. */
+const RVG_HARI=30, RVG_TOLERANSI=1;
 /* TOMBOL, BUKAN OTOMATIS, dan HANYA ADMIN (permintaan user 25 Okt 2026).
-   Kolom & pitanya tidak digambar sama sekali untuk role lain — kolom yang
-   cuma berbunyi "tidak berhak" di tiap baris tidak menolong siapa pun. Yang
-   menjaga sungguhan juga fungsinya sendiri (rvgCek), bukan cuma tombolnya:
-   onclick bisa dipanggil dari console. */
+   Kolom & pitanya tidak digambar sama sekali untuk role lain. Yang menjaga
+   sungguhan juga fungsinya sendiri (rvgCek), bukan cuma tombolnya: onclick
+   bisa dipanggil dari console. */
 function rvgBoleh(){ return !!(SESSION && SESSION.role==="admin"); }
-function rvgRentang(){
-  const rg=reviewRange();
-  return {dari:rvgGeser(rg.from,-RVG_SEBELUM), sampai:rvgGeser(rg.to,RVG_SESUDAH)};
-}
-// Hasil hanya berlaku untuk rentang yang ditarik. Pindah periode = belum dicek,
-// bukan "tidak ditemukan" untuk klaim yang memang belum pernah dicari.
-function rvgBerlaku(){ const r=rvgRentang(); return RVG.kunci===r.dari+"|"+r.sampai; }
+function rvgRentang(){ const t=todayStr(); return {dari:rvgGeser(t,-RVG_HARI), sampai:t}; }
+const RVG_BERJALAN=["diklaim"];
 function rvgCek(){
   if(!rvgBoleh()){ toast("Cek ke Google hanya untuk admin","err"); return; }
-  RVG.kunci=""; rvgMuat(); rvgSegarkan();
-}
-function rvgMuat(){
-  if(!rvgBoleh()) return;
+  if(RVG.memuat) return;
   const {dari, sampai}=rvgRentang();
-  const kunci=dari+"|"+sampai;
-  if(RVG.memuat || (RVG.kunci===kunci && (RVG.data||RVG.galat))) return;
-  RVG={kunci, memuat:true, data:null, galat:""};
+  RVG={memuat:true, galat:""}; rvgSegarkan();
   let tok=""; try{ tok=(JSON.parse(localStorage.getItem("lm_session")||"null")||{}).token||""; }catch(e){}
-  fetch(KONTEN_API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+  return fetch(KONTEN_API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
     body:JSON.stringify({action:"campaignGoogleCocok", sesi:tok, data:{dari, sampai}})})
     .then(r=>r.text()).then(t=>{
       let j; try{ j=JSON.parse(t); }catch(e){ throw new Error("balasan server Konten bukan JSON — backend-nya mungkin belum ter-deploy"); }
       if(!j.ok){ let e=String(j.error||"gagal"); e=e.replace(/^(sesi_tidak_sah|tanpa_modul|tak_berhak):\s*/,""); throw new Error(e); }
-      if(RVG.kunci!==kunci) return;
-      RVG.data=j.data||{review:[]};
-    }).catch(e=>{ if(RVG.kunci===kunci) RVG.galat=e.message||String(e); })
-    .finally(()=>{ if(RVG.kunci!==kunci) return; RVG.memuat=false; rvgSegarkan(); });
+      const n=rvgTerapkan(j.data||{review:[]}, dari);
+      toast(n?`Cek Google selesai — ${n} klaim diperbarui`:"Cek Google selesai — tidak ada yang berubah","ok");
+    }).catch(e=>{ RVG.galat=e.message||String(e); })
+    .finally(()=>{ RVG.memuat=false; rvgSegarkan(); });
 }
-/* Hasil untuk SATU klaim. Ulasan yang sudah dipegang klaim lain yang sah
-   (diklaim/terverifikasi) ditandai — satu ulasan Google tidak boleh jadi
-   bukti dua klaim. */
-function rvgCocok(rv){
-  if(!RVG.data || !rvgBerlaku()) return null;
+/* Cocokkan SATU klaim dengan daftar ulasan. Murni: tidak menyentuh apa pun. */
+function rvgCocokDengan(rv, list, dari){
   const nama=rvgNorm(rv.reviewerName);
   if(!nama) return {jenis:"tanpaNama"};
   const tgl=String(rv.date||"");
-  const kandidat=(RVG.data.review||[]).filter(g=>{
-    const t=rvgWib(g.waktu_ms);
-    return (!tgl || (t>=rvgGeser(tgl,-RVG_SEBELUM) && t<=rvgGeser(tgl,RVG_SESUDAH)));
-  });
+  if(tgl && tgl<dari) return {jenis:"luar"};
+  const kandidat=(list||[]).filter(g=>!tgl || rvgWib(g.waktu_ms)>=rvgGeser(tgl,-RVG_TOLERANSI));
   const sama=kandidat.filter(g=>rvgNorm(g.penulis)===nama);
   const tok=nama.split(" ").filter(w=>w.length>=3);
   const mirip=sama.length?[]:kandidat.filter(g=>{
@@ -8227,40 +8219,79 @@ function rvgCocok(rv){
     const pt=p.split(" ");
     return tok.length && tok.every(w=>pt.some(x=>x===w || (w.length>=4 && x.startsWith(w))));
   });
-  const pilih=(sama[0]||mirip[0]||null);
-  if(!pilih) return {jenis:"tidak"};
-  const dipakai=reviews().find(x=>x.id!==rv.id && x.googleReviewId===pilih.id && ["diklaim","terverifikasi"].includes(x.status));
-  return {jenis:sama.length?"cocok":"mirip", g:pilih, lain:(sama.length||mirip.length)-1, dipakai};
+  const g=(sama[0]||mirip[0]||null);
+  if(!g) return {jenis:"tidak"};
+  return {jenis:sama.length?"cocok":"mirip", id:g.id, penulis:g.penulis||"", rating:Number(g.rating)||0,
+    tgl:rvgWib(g.waktu_ms), teks:String(g.teks||"").slice(0,160), url:g.url||"", tempat:g.tnama||"",
+    lain:(sama.length||mirip.length)-1};
+}
+/* Hasil ditempel ke tiap klaim yang MASIH menunggu verifikasi. Yang sudah
+   diverifikasi/ditolak tidak disentuh — catatannya milik keputusan itu.
+   Klaim yang kini di luar jendela 30 hari TIDAK menimpa hasil lamanya:
+   "di luar jendela" bukan temuan baru, dan menimpanya membuang kecocokan
+   yang dulu sudah ditemukan. Memulangkan jumlah klaim yang berubah, dan
+   saveState() hanya dipanggil kalau memang ada — simpan tanpa perubahan
+   cuma menaikkan versi dan membuat tab kru lain bentrok. */
+function rvgTerapkan(data, dari){
+  const lemah=!(data.sumber||[]).includes("bp");
+  const at=Date.now(), by=(SESSION&&SESSION.name)||"";
+  let n=0;
+  reviews().forEach(rv=>{
+    if(!RVG_BERJALAN.includes(rv.status)) return;
+    const c=rvgCocokDengan(rv, data.review, dari);
+    if(c.jenis==="luar" && rv.googleCek && ["cocok","mirip"].includes(rv.googleCek.jenis)) return;
+    const lama=rv.googleCek||{};
+    const baru=Object.assign(c,{lemah, syncAt:Number(data.syncAt)||0});
+    const sidik=o=>JSON.stringify(Object.assign({},o,{at:0,by:"",syncAt:0}));
+    if(sidik(lama)===sidik(baru) && lama.syncAt===baru.syncAt) return;
+    rv.googleCek=Object.assign(baru,{at,by}); n++;
+  });
+  if(n) saveState();
+  return n;
+}
+/* Ulasan yang sudah dipegang klaim lain — satu ulasan Google tidak boleh jadi
+   bukti dua klaim. Dihitung SAAT DIBACA dari data tersimpan, bukan ikut
+   disimpan: klaim lain bisa berubah status sesudah cek ini. */
+function rvgDipakai(rv, gid){
+  if(!gid) return null;
+  return reviews().find(x=>x.id!==rv.id && ["diklaim","terverifikasi"].includes(x.status)
+    && (x.googleReviewId===gid || (x.googleCek && x.googleCek.jenis==="cocok" && x.googleCek.id===gid))) || null;
 }
 function rvgSel(rv){
   if(!["diklaim","terverifikasi"].includes(rv.status)) return '<span class="muted">-</span>';
   if(rv.status==="terverifikasi" && rv.googleReviewId) return '<span class="muted" style="font-size:11.5px">✓ dicocokkan saat verifikasi</span>';
-  if(RVG.memuat && rvgBerlaku()) return '<span class="muted" style="font-size:11.5px">memeriksa…</span>';
-  if(!rvgBerlaku() || (!RVG.data && !RVG.galat)) return '<span class="muted" style="font-size:11.5px">belum dicek</span>';
-  if(RVG.galat) return '<span class="muted" style="font-size:11.5px">tidak bisa dicek</span>';
-  const c=rvgCocok(rv);
-  if(!c || c.jenis==="tanpaNama") return '<span class="muted" style="font-size:11.5px">nama akun kosong</span>';
-  if(c.jenis==="tidak") return '<span style="font-size:11.5px;color:var(--urgent,#C2691F)">⚪ tidak ditemukan</span>';
-  const g=c.g, bintang="★".repeat(Math.max(0,Math.min(5,Number(g.rating)||0)));
+  const c=rv.googleCek;
+  if(RVG.memuat && rv.status==="diklaim") return '<span class="muted" style="font-size:11.5px">memeriksa…</span>';
+  if(!c) return '<span class="muted" style="font-size:11.5px">belum dicek</span>';
+  const kapan=c.at?`<div class="muted" style="font-size:10.5px">dicek ${esc(new Date(c.at).toLocaleString("id-ID",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}))}${c.by?" · "+esc(c.by):""}</div>`:"";
+  if(c.jenis==="tanpaNama") return '<span class="muted" style="font-size:11.5px">nama akun kosong</span>'+kapan;
+  if(c.jenis==="luar") return `<span class="muted" style="font-size:11.5px">klaim &gt; ${RVG_HARI} hari — cek manual</span>`+kapan;
+  if(c.jenis==="tidak") return `<span style="font-size:11.5px;color:var(--urgent,#C2691F)">⚪ tidak ditemukan</span>${c.lemah?'<div class="muted" style="font-size:10.5px">data hanya Places API</div>':""}`+kapan;
+  const bintang="★".repeat(Math.max(0,Math.min(5,Number(c.rating)||0)));
+  const dipakai=rvgDipakai(rv, c.id);
+  const beda=rv.rating && c.rating && Number(rv.rating)!==Number(c.rating);
   return `<div style="font-size:11.5px;line-height:1.35">
     ${c.jenis==="cocok"?'<b style="color:#2E7D4F">🟢 Ada di Google</b>':'<b style="color:#B7791F">🟡 Nama mirip</b>'}
-    <div>${esc(g.penulis)} · <span style="color:#C9A227">${bintang}</span> · ${fmtDateShort(rvgWib(g.waktu_ms))}</div>
+    <div>${esc(c.penulis)} · <span style="color:#C9A227">${bintang}</span> · ${fmtDateShort(c.tgl)}</div>
+    ${c.teks?`<div class="muted" style="font-style:italic">“${esc(c.teks.slice(0,80))}${c.teks.length>80?"…":""}”</div>`:""}
+    ${c.url?`<a href="${esc(c.url)}" target="_blank" rel="noopener">buka di Google ↗</a>`:""}
     ${c.lain>0?`<div class="muted">+${c.lain} kandidat lain</div>`:""}
-    ${c.dipakai?`<div style="color:var(--danger,#B3261E)">⚠️ sudah dipakai klaim ${esc(c.dipakai.name)}</div>`:""}
-  </div>`;
+    ${beda?`<div style="color:var(--urgent,#C2691F)">⚠️ bintang di Google ${c.rating}, di klaim ${esc(rv.rating)}</div>`:""}
+    ${dipakai?`<div style="color:var(--danger,#B3261E)">⚠️ sudah dipakai klaim ${esc(dipakai.name)}</div>`:""}
+  </div>${kapan}`;
 }
-// Pita di atas daftar: menyebut sumber & kesegaran datanya, supaya "tidak
+// Pita di atas daftar: tombolnya + kapan terakhir dicek, supaya "tidak
 // ditemukan" tidak dibaca sebagai bukti review palsu.
 function rvgPita(){
   if(!rvgBoleh()) return "";
   const tombol=(lbl)=>`<button class="btn btn-xs btn-primary" onclick="rvgCek()">${lbl}</button>`;
-  if(RVG.memuat && rvgBerlaku()) return '<div class="hint" style="margin-bottom:10px">🔎 Mencocokkan klaim dengan data Google Review…</div>';
-  if(!rvgBerlaku() || (!RVG.data && !RVG.galat)) return `<div class="hint" style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">${tombol("🔎 Cek ke Google")}<span>Cari nama akun tiap klaim di ulasan Google yang ditarik modul Konten. Hasilnya saran — verifikasi tetap ditekan manual.</span></div>`;
-  if(RVG.galat) return `<div class="inline-warn" style="margin-bottom:10px">Data Google Review tidak terbaca (${esc(RVG.galat)}). Verifikasi tetap bisa dilakukan manual. ${tombol("Coba lagi")}</div>`;
-  const d=RVG.data, sumber=d.sumber||[];
-  const sync=d.syncAt?new Date(d.syncAt).toLocaleString("id-ID",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"belum pernah";
-  const lemah=!sumber.includes("bp");
-  return `<div class="hint" style="margin-bottom:10px">🔎 Kolom <b>Cek Google</b> mencari nama akun di ulasan yang ditarik modul Konten (terakhir disinkron ${esc(sync)}), dari ${RVG_SEBELUM} hari sebelum s.d. ${RVG_SESUDAH} hari sesudah tanggal klaim. Ini <b>saran</b> — keputusan tetap lewat tombol ✅ Verifikasi. ${tombol("🔄 Cek ulang")}${lemah?" <b>Catatan:</b> data saat ini hanya dari Places API (5 ulasan terbaru per tarikan), jadi “tidak ditemukan” belum tentu berarti review-nya tidak ada.":""}</div>`;
+  if(RVG.memuat) return '<div class="hint" style="margin-bottom:10px">🔎 Mencocokkan klaim dengan data Google Review…</div>';
+  const galat=RVG.galat?`<div class="inline-warn" style="margin-bottom:10px">Data Google Review tidak terbaca (${esc(RVG.galat)}). Hasil cek sebelumnya tetap ditampilkan; verifikasi tetap bisa manual. ${tombol("Coba lagi")}</div>`:"";
+  const sudah=reviews().filter(x=>x.googleCek && x.googleCek.at);
+  const akhir=sudah.reduce((m,x)=>x.googleCek.at>m.at?x.googleCek:m,{at:0});
+  if(!akhir.at) return galat||`<div class="hint" style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">${tombol("🔎 Cek ke Google")}<span>Cari nama akun tiap klaim yang menunggu verifikasi di ulasan Google ${RVG_HARI} hari terakhir (data ditarik modul Konten). Hasilnya saran dan tersimpan — verifikasi tetap ditekan manual.</span></div>`;
+  const f=ms=>new Date(ms).toLocaleString("id-ID",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
+  return galat+`<div class="hint" style="margin-bottom:10px">🔎 Kolom <b>Cek Google</b>: terakhir dicek ${esc(f(akhir.at))}${akhir.by?" oleh "+esc(akhir.by):""}, atas ulasan ${RVG_HARI} hari terakhir (data Google disinkron ${akhir.syncAt?esc(f(akhir.syncAt)):"belum pernah"}). Ini <b>saran</b> — keputusan tetap lewat tombol ✅ Verifikasi. ${tombol("🔄 Cek ulang")}${akhir.lemah?" <b>Catatan:</b> data saat itu hanya dari Places API (5 ulasan terbaru per tarikan), jadi “tidak ditemukan” belum tentu berarti review-nya tidak ada.":""}</div>`;
 }
 function rvgSegarkan(){
   const pita=byId("rvg-pita"); if(pita) pita.innerHTML=rvgPita();
@@ -8274,17 +8305,20 @@ function verifyReview(id){
   // Foto 2 (bukti poin bertambah) memang boleh menyusul saat catat, TAPI
   // wajib ada sebelum disahkan — itulah bukti review-nya benar-benar masuk.
   if(!rv.proof2Data){ toast("Belum bisa diverifikasi — Foto 2 (bukti poin bertambah) belum dilampirkan. Minta host melengkapinya lewat ✏️ Edit.","err"); return; }
-  const c=rvgCocok(rv);
-  const info = !c ? (rvgBoleh() ? "Belum dicek ke Google (tombol 🔎 Cek ke Google) — cocokkan manual." : "Cocokkan manual di Google Business Profile.")
-    : c.jenis==="cocok" ? `Ditemukan di Google: ${c.g.penulis}, ${c.g.rating}★, ${fmtDateShort(rvgWib(c.g.waktu_ms))}.`
-    : c.jenis==="mirip" ? `Hanya NAMA MIRIP di Google: ${c.g.penulis}, ${c.g.rating}★ — pastikan orangnya sama.`
+  const c=rv.googleCek||null;
+  const info = !c ? "Belum dicek ke Google (admin: tombol 🔎 Cek ke Google) — cocokkan manual di Google Business Profile."
+    : c.jenis==="cocok" ? `Ditemukan di Google: ${c.penulis}, ${c.rating}★, ${fmtDateShort(c.tgl)}.${c.teks?`\n“${c.teks.slice(0,120)}”`:""}`
+    : c.jenis==="mirip" ? `Hanya NAMA MIRIP di Google: ${c.penulis}, ${c.rating}★ — pastikan orangnya sama.`
+    : c.jenis==="luar" ? `Klaim lebih dari ${RVG_HARI} hari — tidak dicek otomatis, cocokkan manual.`
+    : c.jenis==="tanpaNama" ? "Nama akun Google di klaim kosong — cocokkan manual."
     : "TIDAK ditemukan di data Google Review yang sudah ditarik.";
-  const peringatan = c && c.dipakai ? `\n\n⚠️ Ulasan itu sudah dipakai klaim ${c.dipakai.name}.` : "";
+  const dipakai = c && rvgDipakai(rv, c.id);
+  const peringatan = dipakai ? `\n\n⚠️ Ulasan itu sudah dipakai klaim ${dipakai.name}.` : "";
   if(!confirm(`Verifikasi review "${rv.reviewerName}"?\n\n${info}${peringatan}\n\nTekan OK hanya jika review-nya BENAR-BENAR ada di Google.`)) return;
   rv.status="terverifikasi"; rv.verifiedBy=SESSION.name; rv.verifiedAt=Date.now(); rv.rejectNote="";
   // Ulasan yang cocok PERSIS dicatat, supaya tidak bisa jadi bukti klaim kedua.
   // Yang cuma mirip tidak dicatat — itu tebakan, bukan kepastian.
-  if(c && c.jenis==="cocok"){ rv.googleReviewId=c.g.id; rv.googleRating=Number(c.g.rating)||0; }
+  if(c && c.jenis==="cocok"){ rv.googleReviewId=c.id; rv.googleRating=Number(c.rating)||0; }
   logAudit("Google Review", `Review ${rv.name} (${rv.reviewerName}) TERVERIFIKASI`);
   saveState(); renderReview(); toast("Review terverifikasi ✅","ok");
 }
