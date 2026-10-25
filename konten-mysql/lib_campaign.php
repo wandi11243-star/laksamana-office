@@ -1975,6 +1975,13 @@ function cg_setting_simpan($pdo, $d) {
 function cg_aksi($action, $body) {
   $u = sesi_user($body);
   if (!$u) sesi_tolak_tak_dikenal();
+  /* Satu-satunya aksi yang TIDAK menuntut kunci Campaign: dibaca modul
+     Service Excellent untuk membantu memverifikasi klaim review. Ia cuma
+     membaca, dan isinya disaring sempit di gr_cocok(). */
+  if ($action === 'campaignGoogleCocok') {
+    if (!sesi_punya_modul($u, 'service_excellent') && !sesi_punya_modul($u, 'campaign')) sesi_tolak_tanpa_modul('Service Excellent');
+    return gr_cocok(db(), isset($body['data']) && is_array($body['data']) ? $body['data'] : array());
+  }
   if (!sesi_punya_modul($u, 'campaign')) sesi_tolak_tanpa_modul('Campaign');
   $nama = (string)(isset($u['name']) ? $u['name'] : '');
   $pdo = db();

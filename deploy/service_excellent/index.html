@@ -8154,14 +8154,116 @@ function saveReview(rvId, resId){
   toast("Klaim dicatat — menunggu manager memverifikasi ⏳", "ok");
   if(CURRENT_PAGE) navigate(CURRENT_PAGE);
 }
+/* ===================== CEK KE GOOGLE REVIEW =====================
+   Permintaan user 25 Okt 2026: verifikasi klaim dibantu data ulasan yang
+   sudah ditarik halaman Google Review di modul Konten > Analytics.
+   SEMENTARA HANYA SARAN: tombol ✅ Verifikasi tetap ditekan manager sebagai
+   pemeriksaan terakhir — tidak ada satu klaim pun yang disahkan sendiri.
+
+   Dibaca lewat konten-api?action=campaignGoogleCocok, pintu baca SEMPIT yang
+   terbuka untuk pemegang kunci service_excellent (penulis, rating, waktu,
+   potongan teks). Dimuat SEKALI per rentang; yang GAGAL ikut dicatat di
+   kuncinya supaya render -> muat -> render tidak berputar selamanya. */
+const KONTEN_API = "../konten-api-mysql/api.php";
+let RVG = {kunci:"", memuat:false, data:null, galat:""};
+function rvgWib(ms){ return new Date(Number(ms||0)+7*3600000).toISOString().slice(0,10); }
+function rvgGeser(ymd, hari){ const d=new Date(ymd+"T00:00:00Z"); d.setUTCDate(d.getUTCDate()+hari); return d.toISOString().slice(0,10); }
+// Nama akun Google dibandingkan tanpa huruf besar-kecil, spasi ganda, dan tanda baca.
+function rvgNorm(s){ return String(s||"").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g," ").trim(); }
+/* Jendela pencarian: ulasan biasanya baru tayang sesudah tamu pulang, kadang
+   beberapa hari kemudian — jadi dari 3 hari SEBELUM tanggal klaim sampai 14
+   hari SESUDAHNYA. */
+const RVG_SEBELUM=3, RVG_SESUDAH=14;
+function rvgMuat(){
+  const rg=reviewRange();
+  const dari=rvgGeser(rg.from,-RVG_SEBELUM), sampai=rvgGeser(rg.to,RVG_SESUDAH);
+  const kunci=dari+"|"+sampai;
+  if(RVG.kunci===kunci || RVG.memuat) return;
+  RVG={kunci, memuat:true, data:null, galat:""};
+  let tok=""; try{ tok=(JSON.parse(localStorage.getItem("lm_session")||"null")||{}).token||""; }catch(e){}
+  fetch(KONTEN_API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
+    body:JSON.stringify({action:"campaignGoogleCocok", sesi:tok, data:{dari, sampai}})})
+    .then(r=>r.text()).then(t=>{
+      let j; try{ j=JSON.parse(t); }catch(e){ throw new Error("balasan server Konten bukan JSON — backend-nya mungkin belum ter-deploy"); }
+      if(!j.ok){ let e=String(j.error||"gagal"); e=e.replace(/^(sesi_tidak_sah|tanpa_modul|tak_berhak):\s*/,""); throw new Error(e); }
+      if(RVG.kunci!==kunci) return;
+      RVG.data=j.data||{review:[]};
+    }).catch(e=>{ if(RVG.kunci===kunci) RVG.galat=e.message||String(e); })
+    .finally(()=>{ if(RVG.kunci!==kunci) return; RVG.memuat=false; rvgSegarkan(); });
+}
+/* Hasil untuk SATU klaim. Ulasan yang sudah dipegang klaim lain yang sah
+   (diklaim/terverifikasi) ditandai — satu ulasan Google tidak boleh jadi
+   bukti dua klaim. */
+function rvgCocok(rv){
+  if(!RVG.data) return null;
+  const nama=rvgNorm(rv.reviewerName);
+  if(!nama) return {jenis:"tanpaNama"};
+  const tgl=String(rv.date||"");
+  const kandidat=(RVG.data.review||[]).filter(g=>{
+    const t=rvgWib(g.waktu_ms);
+    return (!tgl || (t>=rvgGeser(tgl,-RVG_SEBELUM) && t<=rvgGeser(tgl,RVG_SESUDAH)));
+  });
+  const sama=kandidat.filter(g=>rvgNorm(g.penulis)===nama);
+  const tok=nama.split(" ").filter(w=>w.length>=3);
+  const mirip=sama.length?[]:kandidat.filter(g=>{
+    const p=rvgNorm(g.penulis); if(!p) return false;
+    const pt=p.split(" ");
+    return tok.length && tok.every(w=>pt.some(x=>x===w || (w.length>=4 && x.startsWith(w))));
+  });
+  const pilih=(sama[0]||mirip[0]||null);
+  if(!pilih) return {jenis:"tidak"};
+  const dipakai=reviews().find(x=>x.id!==rv.id && x.googleReviewId===pilih.id && ["diklaim","terverifikasi"].includes(x.status));
+  return {jenis:sama.length?"cocok":"mirip", g:pilih, lain:(sama.length||mirip.length)-1, dipakai};
+}
+function rvgSel(rv){
+  if(!["diklaim","terverifikasi"].includes(rv.status)) return '<span class="muted">-</span>';
+  if(rv.status==="terverifikasi" && rv.googleReviewId) return '<span class="muted" style="font-size:11.5px">✓ dicocokkan saat verifikasi</span>';
+  if(RVG.memuat || (!RVG.data && !RVG.galat)) return '<span class="muted" style="font-size:11.5px">memeriksa…</span>';
+  if(RVG.galat) return '<span class="muted" style="font-size:11.5px">tidak bisa dicek</span>';
+  const c=rvgCocok(rv);
+  if(!c || c.jenis==="tanpaNama") return '<span class="muted" style="font-size:11.5px">nama akun kosong</span>';
+  if(c.jenis==="tidak") return '<span style="font-size:11.5px;color:var(--urgent,#C2691F)">⚪ tidak ditemukan</span>';
+  const g=c.g, bintang="★".repeat(Math.max(0,Math.min(5,Number(g.rating)||0)));
+  return `<div style="font-size:11.5px;line-height:1.35">
+    ${c.jenis==="cocok"?'<b style="color:#2E7D4F">🟢 Ada di Google</b>':'<b style="color:#B7791F">🟡 Nama mirip</b>'}
+    <div>${esc(g.penulis)} · <span style="color:#C9A227">${bintang}</span> · ${fmtDateShort(rvgWib(g.waktu_ms))}</div>
+    ${c.lain>0?`<div class="muted">+${c.lain} kandidat lain</div>`:""}
+    ${c.dipakai?`<div style="color:var(--danger,#B3261E)">⚠️ sudah dipakai klaim ${esc(c.dipakai.name)}</div>`:""}
+  </div>`;
+}
+// Pita di atas daftar: menyebut sumber & kesegaran datanya, supaya "tidak
+// ditemukan" tidak dibaca sebagai bukti review palsu.
+function rvgPita(){
+  if(RVG.memuat || (!RVG.data && !RVG.galat)) return '<div class="hint" style="margin-bottom:10px">🔎 Mencocokkan klaim dengan data Google Review…</div>';
+  if(RVG.galat) return `<div class="inline-warn" style="margin-bottom:10px">Data Google Review tidak terbaca (${esc(RVG.galat)}). Verifikasi tetap bisa dilakukan manual. <button class="btn btn-xs btn-ghost" onclick="RVG.kunci='';rvgMuat();rvgSegarkan()">Coba lagi</button></div>`;
+  const d=RVG.data, sumber=d.sumber||[];
+  const sync=d.syncAt?new Date(d.syncAt).toLocaleString("id-ID",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"belum pernah";
+  const lemah=!sumber.includes("bp");
+  return `<div class="hint" style="margin-bottom:10px">🔎 Kolom <b>Cek Google</b> mencari nama akun di ulasan yang ditarik modul Konten (terakhir disinkron ${esc(sync)}), dari ${RVG_SEBELUM} hari sebelum s.d. ${RVG_SESUDAH} hari sesudah tanggal klaim. Ini <b>saran</b> — keputusan tetap lewat tombol ✅ Verifikasi.${lemah?" <b>Catatan:</b> data saat ini hanya dari Places API (5 ulasan terbaru per tarikan), jadi “tidak ditemukan” belum tentu berarti review-nya tidak ada.":""}</div>`;
+}
+function rvgSegarkan(){
+  const pita=byId("rvg-pita"); if(pita) pita.innerHTML=rvgPita();
+  document.querySelectorAll("[data-rvg]").forEach(td=>{
+    const rv=reviews().find(x=>x.id===td.getAttribute("data-rvg")); if(rv) td.innerHTML=rvgSel(rv);
+  });
+}
 function verifyReview(id){
   if(!CAN.master(SESSION.role)){ toast("Hanya manager/admin yang bisa memverifikasi","err"); return; }
   const rv=reviews().find(x=>x.id===id); if(!rv) return;
   // Foto 2 (bukti poin bertambah) memang boleh menyusul saat catat, TAPI
   // wajib ada sebelum disahkan — itulah bukti review-nya benar-benar masuk.
   if(!rv.proof2Data){ toast("Belum bisa diverifikasi — Foto 2 (bukti poin bertambah) belum dilampirkan. Minta host melengkapinya lewat ✏️ Edit.","err"); return; }
-  if(!confirm(`Sudah cocokkan review "${rv.reviewerName}" di Google Business Profile?\n\nTekan OK hanya jika review-nya BENAR-BENAR ada di Google.`)) return;
+  const c=rvgCocok(rv);
+  const info = !c ? "Data Google Review belum terbaca — cocokkan manual."
+    : c.jenis==="cocok" ? `Ditemukan di Google: ${c.g.penulis}, ${c.g.rating}★, ${fmtDateShort(rvgWib(c.g.waktu_ms))}.`
+    : c.jenis==="mirip" ? `Hanya NAMA MIRIP di Google: ${c.g.penulis}, ${c.g.rating}★ — pastikan orangnya sama.`
+    : "TIDAK ditemukan di data Google Review yang sudah ditarik.";
+  const peringatan = c && c.dipakai ? `\n\n⚠️ Ulasan itu sudah dipakai klaim ${c.dipakai.name}.` : "";
+  if(!confirm(`Verifikasi review "${rv.reviewerName}"?\n\n${info}${peringatan}\n\nTekan OK hanya jika review-nya BENAR-BENAR ada di Google.`)) return;
   rv.status="terverifikasi"; rv.verifiedBy=SESSION.name; rv.verifiedAt=Date.now(); rv.rejectNote="";
+  // Ulasan yang cocok PERSIS dicatat, supaya tidak bisa jadi bukti klaim kedua.
+  // Yang cuma mirip tidak dicatat — itu tebakan, bukan kepastian.
+  if(c && c.jenis==="cocok"){ rv.googleReviewId=c.g.id; rv.googleRating=Number(c.g.rating)||0; }
   logAudit("Google Review", `Review ${rv.name} (${rv.reviewerName}) TERVERIFIKASI`);
   saveState(); renderReview(); toast("Review terverifikasi ✅","ok");
 }
@@ -8730,6 +8832,7 @@ function renderReview(){
       `${reviewCfg().link?`<button class="btn btn-sm btn-ghost" onclick="copyReviewLink()">📋 Salin Link Review</button>`:""}
        ${CAN.catatReview(SESSION.role)?`<button class="btn btn-sm btn-primary" onclick="openReviewForm()">⭐ Catat Review</button>`:""}`)
     + reviewGoogleView();
+  rvgMuat();
 }
 function renderFeedbackPage(){
   byId("page-feedback").innerHTML =
@@ -8776,6 +8879,7 @@ function reviewGoogleView(){
       <td>${x.reviewerName?`<b>${esc(x.reviewerName)}</b>`:'<span class="muted">-</span>'}</td>
       <td>${fmtDateShort(x.date)}</td>
       <td><span class="badge-status ${st.cls}">${st.ico} ${st.label}</span>${x.rejectNote?`<div class="muted" style="font-size:11px">${esc(x.rejectNote)}</div>`:""}${perluFoto2?`<div class="muted" style="font-size:11px;color:var(--urgent,#C2691F)">⏳ menunggu Foto 2</div>`:""}</td>
+      <td data-rvg="${x.id}">${rvgSel(x)}</td>
       <td>${esc(x.host||x.claimedBy||x.by||"-")}</td>
       <td><div class="mini-actions">
         ${(x.proofData||x.proof2Data)?`<button class="btn btn-xs btn-ghost" onclick="viewReviewProof('${x.id}')" title="Lihat bukti">🖼️</button>`:""}
@@ -8837,12 +8941,13 @@ function reviewGoogleView(){
      <div class="panel-head"><h3>📋 Daftar Review${semua?"":" Saya"}, ${esc(reviewRangeLabel())}</h3><span class="muted" style="font-size:12.5px">${dasarDaftar.length} catatan</span></div>
      <div class="panel-body">
        ${semua?"":`<div class="hint" style="margin-bottom:12px">Hanya review atas nama Anda sendiri.</div>`}
+       <div id="rvg-pita">${rvgPita()}</div>
        <div class="rv-toolbar">
          ${rvSearchHtml("daftar","Cari nama tamu, akun Google, atau pencatat…")}
          ${rvHitHtml("daftar", daftarTersaring.length)}
        </div>
        ${daftarTersaring.length?`<div class="table-wrap"><table>
-         <thead><tr><th>Tamu</th><th>Nama Akun Google</th><th>Tanggal</th><th>Status</th><th>Nama</th><th>Aksi</th></tr></thead>
+         <thead><tr><th>Tamu</th><th>Nama Akun Google</th><th>Tanggal</th><th>Status</th><th>Cek Google</th><th>Nama</th><th>Aksi</th></tr></thead>
          <tbody>${rows}</tbody></table></div>
          ${rvPagerHtml(pDaftar,"daftar")}`
          :`<div class="empty" style="padding:30px"><div class="big">${qDaftar?"🔍":"⭐"}</div>${qDaftar
