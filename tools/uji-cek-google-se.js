@@ -16,10 +16,11 @@ ok(a > 0 && b > a && v2 > b, 'blok Cek Google & verifyReview ditemukan');
 const blok = SRC.slice(a, v2);
 
 const REV = [];
+const SES = { name: 'Manager A', role: 'manager' };
 const env = { toast: (m, t) => env.toasts.push([m, t]), toasts: [], conf: [], confirmJawab: true, simpan: 0 };
 const fn = new Function('reviews', 'esc', 'fmtDateShort', 'byId', 'document', 'localStorage', 'fetch', 'reviewRange',
   'toast', 'confirm', 'CAN', 'SESSION', 'logAudit', 'saveState', 'renderReview',
-  blok + '\nreturn {rvgCocok, rvgSel, rvgPita, rvgWib, rvgNorm, rvgMuat, verifyReview, get RVG(){return RVG;}, set RVG(v){RVG=v;}};');
+  blok + '\nreturn {rvgCocok, rvgSel, rvgPita, rvgWib, rvgNorm, rvgMuat, rvgCek, verifyReview, get RVG(){return RVG;}, set RVG(v){RVG=v;}};');
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const POST = [];
 let jawabFetch = null;
@@ -27,7 +28,7 @@ const M = fn(() => REV, esc, s => s, () => null, { querySelectorAll: () => [] },
   { getItem: () => JSON.stringify({ token: 'TOK' }) },
   (u, o) => { POST.push([u, JSON.parse(o.body)]); return Promise.resolve({ text: () => Promise.resolve(JSON.stringify(jawabFetch)) }); },
   () => ({ from: '2026-10-01', to: '2026-10-31' }),
-  env.toast, m => { env.conf.push(m); return env.confirmJawab; }, { master: () => true }, { name: 'Manager A' },
+  env.toast, m => { env.conf.push(m); return env.confirmJawab; }, { master: () => true }, SES,
   () => {}, () => { env.simpan++; }, () => {});
 
 // WIB: 10 Okt 2026 20:00 WIB = 13:00 UTC
@@ -36,6 +37,14 @@ ok(M.rvgWib(Date.parse('2026-10-10T17:30:00Z')) === '2026-10-11', 'tanggal WIB: 
 ok(M.rvgNorm('  Budi  SANTOSO!! ') === 'budi santoso', 'nama dinormalkan');
 
 (async () => {
+  // ---- gerbang admin ----
+  M.rvgCek(); M.rvgMuat();
+  ok(POST.length === 0, 'bukan admin: tidak menarik data sama sekali (fungsinya menolak, bukan cuma tombolnya)');
+  ok(env.toasts.some(t => /hanya untuk admin/.test(t[0])), 'bukan admin: rvgCek menolak dengan pesan');
+  ok(M.rvgPita() === '', 'bukan admin: pita & tombol tidak digambar');
+  SES.role = 'admin';
+  ok(/rvgCek\(\)/.test(M.rvgPita()) && /Cek ke Google/.test(M.rvgPita()), 'admin: tombol Cek ke Google tampil');
+  ok(/belum dicek/.test(M.rvgSel({ id: 'q', status: 'diklaim', reviewerName: 'Budi' })), 'sebelum ditekan: "belum dicek"');
   // ---- muat ----
   jawabFetch = { ok: true, data: { review: [
     { id: 'g1', sumber: 'bp', penulis: 'Budi Santoso', rating: 5, waktu_ms: ms('2026-10-11') },
@@ -43,7 +52,7 @@ ok(M.rvgNorm('  Budi  SANTOSO!! ') === 'budi santoso', 'nama dinormalkan');
     { id: 'g3', sumber: 'bp', penulis: 'Andi Lama', rating: 5, waktu_ms: ms('2026-09-01') },
     { id: 'g4', sumber: 'bp', penulis: 'Siti', rating: 3, waktu_ms: ms('2026-10-05') }
   ], sumber: ['bp'], syncAt: Date.now() } };
-  M.rvgMuat();
+  M.rvgCek();
   ok(POST.length === 1 && POST[0][1].action === 'campaignGoogleCocok' && POST[0][1].sesi === 'TOK', 'memanggil campaignGoogleCocok membawa token sesi');
   ok(POST[0][1].data.dari === '2026-09-28' && POST[0][1].data.sampai === '2026-11-14', 'jendela tarik: rentang -3 hari s.d. +14 hari');
   ok(/memeriksa/.test(M.rvgSel({ id: 'x', status: 'diklaim', reviewerName: 'Budi' })), 'selama memuat: "memeriksa…", bukan "tidak ditemukan"');
@@ -101,12 +110,12 @@ ok(M.rvgNorm('  Budi  SANTOSO!! ') === 'budi santoso', 'nama dinormalkan');
   ok(/tidak bisa dicek/.test(M.rvgSel(rv3)), 'galat: sel berbunyi tidak bisa dicek, bukan tidak ditemukan');
   const nPost = POST.length; M.rvgMuat();
   ok(POST.length === nPost, 'kegagalan dicatat di kuncinya (tidak berputar)');
-  M.RVG = { kunci: 'x', memuat: false, data: { review: [], sumber: ['places'], syncAt: 0 }, galat: '' };
+  M.RVG = { kunci: '2026-09-28|2026-11-14', memuat: false, data: { review: [], sumber: ['places'], syncAt: 0 }, galat: '' };
   ok(/Places API/.test(M.rvgPita()), 'data hanya dari Places: dikatakan "tidak ditemukan" lemah');
 
   // ---- tabel ----
-  ok(/<th>Cek Google<\/th>/.test(SRC) && /data-rvg="\$\{x\.id\}">\$\{rvgSel\(x\)\}/.test(SRC), 'kolom Cek Google ada di daftar');
-  ok(/\+ reviewGoogleView\(\);\n  rvgMuat\(\);/.test(SRC), 'renderReview memicu pemuatan');
+  ok(SRC.includes('${rvgBoleh()?"<th>Cek Google</th>":""}') && SRC.includes('${rvgBoleh()?`<td data-rvg="${x.id}">${rvgSel(x)}</td>`:""}'), 'kolom Cek Google hanya digambar untuk admin');
+  ok(!SRC.includes('+ reviewGoogleView();\n  rvgMuat();'), 'render TIDAK memuat sendiri — lewat tombol');
   ok(/id="rvg-pita"/.test(SRC), 'pita penjelasan ada di atas daftar');
 
   // ---- PHP ----

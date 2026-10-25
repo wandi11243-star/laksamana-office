@@ -8174,11 +8174,28 @@ function rvgNorm(s){ return String(s||"").toLowerCase().normalize("NFKD").replac
    beberapa hari kemudian — jadi dari 3 hari SEBELUM tanggal klaim sampai 14
    hari SESUDAHNYA. */
 const RVG_SEBELUM=3, RVG_SESUDAH=14;
-function rvgMuat(){
+/* TOMBOL, BUKAN OTOMATIS, dan HANYA ADMIN (permintaan user 25 Okt 2026).
+   Kolom & pitanya tidak digambar sama sekali untuk role lain — kolom yang
+   cuma berbunyi "tidak berhak" di tiap baris tidak menolong siapa pun. Yang
+   menjaga sungguhan juga fungsinya sendiri (rvgCek), bukan cuma tombolnya:
+   onclick bisa dipanggil dari console. */
+function rvgBoleh(){ return !!(SESSION && SESSION.role==="admin"); }
+function rvgRentang(){
   const rg=reviewRange();
-  const dari=rvgGeser(rg.from,-RVG_SEBELUM), sampai=rvgGeser(rg.to,RVG_SESUDAH);
+  return {dari:rvgGeser(rg.from,-RVG_SEBELUM), sampai:rvgGeser(rg.to,RVG_SESUDAH)};
+}
+// Hasil hanya berlaku untuk rentang yang ditarik. Pindah periode = belum dicek,
+// bukan "tidak ditemukan" untuk klaim yang memang belum pernah dicari.
+function rvgBerlaku(){ const r=rvgRentang(); return RVG.kunci===r.dari+"|"+r.sampai; }
+function rvgCek(){
+  if(!rvgBoleh()){ toast("Cek ke Google hanya untuk admin","err"); return; }
+  RVG.kunci=""; rvgMuat(); rvgSegarkan();
+}
+function rvgMuat(){
+  if(!rvgBoleh()) return;
+  const {dari, sampai}=rvgRentang();
   const kunci=dari+"|"+sampai;
-  if(RVG.kunci===kunci || RVG.memuat) return;
+  if(RVG.memuat || (RVG.kunci===kunci && (RVG.data||RVG.galat))) return;
   RVG={kunci, memuat:true, data:null, galat:""};
   let tok=""; try{ tok=(JSON.parse(localStorage.getItem("lm_session")||"null")||{}).token||""; }catch(e){}
   fetch(KONTEN_API,{method:"POST",headers:{"Content-Type":"text/plain;charset=utf-8"},
@@ -8195,7 +8212,7 @@ function rvgMuat(){
    (diklaim/terverifikasi) ditandai — satu ulasan Google tidak boleh jadi
    bukti dua klaim. */
 function rvgCocok(rv){
-  if(!RVG.data) return null;
+  if(!RVG.data || !rvgBerlaku()) return null;
   const nama=rvgNorm(rv.reviewerName);
   if(!nama) return {jenis:"tanpaNama"};
   const tgl=String(rv.date||"");
@@ -8218,7 +8235,8 @@ function rvgCocok(rv){
 function rvgSel(rv){
   if(!["diklaim","terverifikasi"].includes(rv.status)) return '<span class="muted">-</span>';
   if(rv.status==="terverifikasi" && rv.googleReviewId) return '<span class="muted" style="font-size:11.5px">✓ dicocokkan saat verifikasi</span>';
-  if(RVG.memuat || (!RVG.data && !RVG.galat)) return '<span class="muted" style="font-size:11.5px">memeriksa…</span>';
+  if(RVG.memuat && rvgBerlaku()) return '<span class="muted" style="font-size:11.5px">memeriksa…</span>';
+  if(!rvgBerlaku() || (!RVG.data && !RVG.galat)) return '<span class="muted" style="font-size:11.5px">belum dicek</span>';
   if(RVG.galat) return '<span class="muted" style="font-size:11.5px">tidak bisa dicek</span>';
   const c=rvgCocok(rv);
   if(!c || c.jenis==="tanpaNama") return '<span class="muted" style="font-size:11.5px">nama akun kosong</span>';
@@ -8234,12 +8252,15 @@ function rvgSel(rv){
 // Pita di atas daftar: menyebut sumber & kesegaran datanya, supaya "tidak
 // ditemukan" tidak dibaca sebagai bukti review palsu.
 function rvgPita(){
-  if(RVG.memuat || (!RVG.data && !RVG.galat)) return '<div class="hint" style="margin-bottom:10px">🔎 Mencocokkan klaim dengan data Google Review…</div>';
-  if(RVG.galat) return `<div class="inline-warn" style="margin-bottom:10px">Data Google Review tidak terbaca (${esc(RVG.galat)}). Verifikasi tetap bisa dilakukan manual. <button class="btn btn-xs btn-ghost" onclick="RVG.kunci='';rvgMuat();rvgSegarkan()">Coba lagi</button></div>`;
+  if(!rvgBoleh()) return "";
+  const tombol=(lbl)=>`<button class="btn btn-xs btn-primary" onclick="rvgCek()">${lbl}</button>`;
+  if(RVG.memuat && rvgBerlaku()) return '<div class="hint" style="margin-bottom:10px">🔎 Mencocokkan klaim dengan data Google Review…</div>';
+  if(!rvgBerlaku() || (!RVG.data && !RVG.galat)) return `<div class="hint" style="margin-bottom:10px;display:flex;gap:10px;align-items:center;flex-wrap:wrap">${tombol("🔎 Cek ke Google")}<span>Cari nama akun tiap klaim di ulasan Google yang ditarik modul Konten. Hasilnya saran — verifikasi tetap ditekan manual.</span></div>`;
+  if(RVG.galat) return `<div class="inline-warn" style="margin-bottom:10px">Data Google Review tidak terbaca (${esc(RVG.galat)}). Verifikasi tetap bisa dilakukan manual. ${tombol("Coba lagi")}</div>`;
   const d=RVG.data, sumber=d.sumber||[];
   const sync=d.syncAt?new Date(d.syncAt).toLocaleString("id-ID",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"belum pernah";
   const lemah=!sumber.includes("bp");
-  return `<div class="hint" style="margin-bottom:10px">🔎 Kolom <b>Cek Google</b> mencari nama akun di ulasan yang ditarik modul Konten (terakhir disinkron ${esc(sync)}), dari ${RVG_SEBELUM} hari sebelum s.d. ${RVG_SESUDAH} hari sesudah tanggal klaim. Ini <b>saran</b> — keputusan tetap lewat tombol ✅ Verifikasi.${lemah?" <b>Catatan:</b> data saat ini hanya dari Places API (5 ulasan terbaru per tarikan), jadi “tidak ditemukan” belum tentu berarti review-nya tidak ada.":""}</div>`;
+  return `<div class="hint" style="margin-bottom:10px">🔎 Kolom <b>Cek Google</b> mencari nama akun di ulasan yang ditarik modul Konten (terakhir disinkron ${esc(sync)}), dari ${RVG_SEBELUM} hari sebelum s.d. ${RVG_SESUDAH} hari sesudah tanggal klaim. Ini <b>saran</b> — keputusan tetap lewat tombol ✅ Verifikasi. ${tombol("🔄 Cek ulang")}${lemah?" <b>Catatan:</b> data saat ini hanya dari Places API (5 ulasan terbaru per tarikan), jadi “tidak ditemukan” belum tentu berarti review-nya tidak ada.":""}</div>`;
 }
 function rvgSegarkan(){
   const pita=byId("rvg-pita"); if(pita) pita.innerHTML=rvgPita();
@@ -8254,7 +8275,7 @@ function verifyReview(id){
   // wajib ada sebelum disahkan — itulah bukti review-nya benar-benar masuk.
   if(!rv.proof2Data){ toast("Belum bisa diverifikasi — Foto 2 (bukti poin bertambah) belum dilampirkan. Minta host melengkapinya lewat ✏️ Edit.","err"); return; }
   const c=rvgCocok(rv);
-  const info = !c ? "Data Google Review belum terbaca — cocokkan manual."
+  const info = !c ? (rvgBoleh() ? "Belum dicek ke Google (tombol 🔎 Cek ke Google) — cocokkan manual." : "Cocokkan manual di Google Business Profile.")
     : c.jenis==="cocok" ? `Ditemukan di Google: ${c.g.penulis}, ${c.g.rating}★, ${fmtDateShort(rvgWib(c.g.waktu_ms))}.`
     : c.jenis==="mirip" ? `Hanya NAMA MIRIP di Google: ${c.g.penulis}, ${c.g.rating}★ — pastikan orangnya sama.`
     : "TIDAK ditemukan di data Google Review yang sudah ditarik.";
@@ -8832,7 +8853,6 @@ function renderReview(){
       `${reviewCfg().link?`<button class="btn btn-sm btn-ghost" onclick="copyReviewLink()">📋 Salin Link Review</button>`:""}
        ${CAN.catatReview(SESSION.role)?`<button class="btn btn-sm btn-primary" onclick="openReviewForm()">⭐ Catat Review</button>`:""}`)
     + reviewGoogleView();
-  rvgMuat();
 }
 function renderFeedbackPage(){
   byId("page-feedback").innerHTML =
@@ -8879,7 +8899,7 @@ function reviewGoogleView(){
       <td>${x.reviewerName?`<b>${esc(x.reviewerName)}</b>`:'<span class="muted">-</span>'}</td>
       <td>${fmtDateShort(x.date)}</td>
       <td><span class="badge-status ${st.cls}">${st.ico} ${st.label}</span>${x.rejectNote?`<div class="muted" style="font-size:11px">${esc(x.rejectNote)}</div>`:""}${perluFoto2?`<div class="muted" style="font-size:11px;color:var(--urgent,#C2691F)">⏳ menunggu Foto 2</div>`:""}</td>
-      <td data-rvg="${x.id}">${rvgSel(x)}</td>
+      ${rvgBoleh()?`<td data-rvg="${x.id}">${rvgSel(x)}</td>`:""}
       <td>${esc(x.host||x.claimedBy||x.by||"-")}</td>
       <td><div class="mini-actions">
         ${(x.proofData||x.proof2Data)?`<button class="btn btn-xs btn-ghost" onclick="viewReviewProof('${x.id}')" title="Lihat bukti">🖼️</button>`:""}
@@ -8947,7 +8967,7 @@ function reviewGoogleView(){
          ${rvHitHtml("daftar", daftarTersaring.length)}
        </div>
        ${daftarTersaring.length?`<div class="table-wrap"><table>
-         <thead><tr><th>Tamu</th><th>Nama Akun Google</th><th>Tanggal</th><th>Status</th><th>Cek Google</th><th>Nama</th><th>Aksi</th></tr></thead>
+         <thead><tr><th>Tamu</th><th>Nama Akun Google</th><th>Tanggal</th><th>Status</th>${rvgBoleh()?"<th>Cek Google</th>":""}<th>Nama</th><th>Aksi</th></tr></thead>
          <tbody>${rows}</tbody></table></div>
          ${rvPagerHtml(pDaftar,"daftar")}`
          :`<div class="empty" style="padding:30px"><div class="big">${qDaftar?"🔍":"⭐"}</div>${qDaftar
