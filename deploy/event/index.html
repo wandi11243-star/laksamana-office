@@ -2948,7 +2948,13 @@ function schedInfo(id){
     return '<button class="'+(s.status===st?'on':'')+'" onclick="setSchedStatus(\''+id+'\',\''+st+'\')">'+st+'</button>';
   }).join('');
   modal(`<button class="close" onclick="closeModal()">×</button><h3>${esc(t?t.name:'(talent terhapus)')}</h3>
-  <div class="kv"><div class="k">Tanggal</div><div>${fmtDate(s.date)}</div><div class="k">Jam</div><div>${s.start_time} – ${s.end_time}</div><div class="k">Tipe</div><div>${s.performance_type}</div><div class="k">Fee</div><div>${IDR(s.fee)}</div><div class="k">Source</div><div><span class="pill">${s.source}</span></div></div>
+  <div class="kv"><div class="k">Tanggal</div><div>${fmtDate(s.date)}</div><div class="k">Jam</div><div>
+    <span style="display:inline-flex;gap:6px;align-items:center;flex-wrap:wrap">
+      <input type="time" id="sched_mulai" value="${esc(s.start_time||'')}" style="width:auto">
+      <span>–</span>
+      <input type="time" id="sched_selesai" value="${esc(s.end_time||'')}" style="width:auto">
+      <button class="btn ghost sm" onclick="ubahJamSched('${id}')">Simpan jam</button>
+    </span></div><div class="k">Tipe</div><div>${s.performance_type}</div><div class="k">Fee</div><div>${IDR(s.fee)}</div><div class="k">Source</div><div><span class="pill">${s.source}</span></div></div>
   <div class="field" style="margin-top:14px"><label>Status</label>
     <div class="seg-per seg-status" id="sched_status">${tombol}</div>
     <div class="mini" style="margin-top:6px">Langsung tersimpan begitu ditekan.</div></div>
@@ -2974,6 +2980,34 @@ function setSchedStatus(id,st){
   if(location.hash.indexOf('#/schedule')===0) renderSchedule();
   else if(location.hash.indexOf('#/calendar')===0) renderCalendar();
   toast('Status: '+lama+' → '+st);
+}
+/* UBAH JAM satu jadwal di tempat (permintaan user 25 Okt 2026). Sebelumnya
+   satu-satunya jalan adalah Hapus lalu + Jadwal lagi — fee harus diketik
+   ulang, dan jadwal dari Recurring/Generate Bulanan berubah sumbernya jadi
+   "manual". Di sini yang berubah HANYA jamnya: fee, status, sumber, dan
+   recurring_rule_id tetap. Aturannya sama dengan saveSchedule(): selesai harus
+   sesudah mulai, dan bentrok diperiksa terhadap jadwal talent yang sama —
+   jadwal ini sendiri dikecualikan (ignoreId), kalau tidak setiap perubahan
+   kecil akan "bentrok dengan dirinya sendiri". Aturan Recurring-nya TIDAK
+   disentuh: yang diubah satu tanggal, bukan seluruh pola. */
+function ubahJamSched(id){
+  const s=DB.schedules.find(x=>x.id===id); if(!s) return;
+  const elM=document.getElementById('sched_mulai'), elS=document.getElementById('sched_selesai');
+  const st=elM?elM.value:'', et=elS?elS.value:'';
+  if(!st||!et){ toast('Jam mulai & selesai wajib diisi.'); return; }
+  if(st>=et){ toast('Jam selesai harus > jam mulai.'); return; }
+  if(st===s.start_time && et===s.end_time){ toast('Jamnya tidak berubah.'); return; }
+  if(s.status!=='Cancelled' && hasConflict(s.talent_id,s.date,st,et,s.id)){
+    const t=DB.talents.find(x=>x.id===s.talent_id);
+    toast('Bentrok: '+((t&&t.name)||'talent ini')+' sudah punya jadwal lain di jam itu pada '+fmtDate(s.date)+'.');
+    return;
+  }
+  const lama=s.start_time+'–'+s.end_time;
+  s.start_time=st; s.end_time=et; save();
+  if(location.hash.indexOf('#/schedule')===0) renderSchedule();
+  else if(location.hash.indexOf('#/calendar')===0) renderCalendar();
+  schedInfo(id);
+  toast('Jam diubah: '+lama+' → '+st+'–'+et);
 }
 /* ============================================================
    MENGHAPUS DI MODUL EMS
