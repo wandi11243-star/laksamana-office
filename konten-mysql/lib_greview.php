@@ -526,6 +526,40 @@ function gr_baca($pdo) {
     'syncAt' => (int)cg_set_baca($pdo, 'google_sync_at', '0'), 'galat' => cg_set_baca($pdo, 'google_galat'));
 }
 
+/* ==================== COCOKKAN KLAIM SERVICE EXCELLENT ====================
+   Pintu baca SEMPIT untuk modul Service Excellent (25 Okt 2026): kru mengklaim
+   review tamu di sana, dan verifikasinya dibantu dengan mencari nama akun
+   Google-nya di ulasan yang sudah ditarik halaman Google Review. Yang
+   dipulangkan HANYA penulis, rating, waktu, potongan teks, dan tautan —
+   bukan balasan, catatan penanganan, atau analisa AI, yang memang bukan
+   urusan kru di sana. HANYA MEMBACA: keputusan verifikasinya tetap ditekan
+   manager di modul itu. */
+function gr_cocok($pdo, $d) {
+  gr_pastikan($pdo);
+  $pola = '/^\d{4}-\d{2}-\d{2}$/';
+  $dari = isset($d['dari']) ? (string)$d['dari'] : '';
+  $sampai = isset($d['sampai']) ? (string)$d['sampai'] : '';
+  if (!preg_match($pola, $dari) || !preg_match($pola, $sampai)) throw new Exception('Rentang tanggal tidak sah.');
+  /* Batas dihitung dalam WIB: ulasan jam 23.30 WIB tanggal 10 tidak boleh
+     jatuh ke tanggal 11 hanya karena servernya berjam UTC. */
+  $msDari = (strtotime($dari . ' 00:00:00 UTC') - 7 * 3600) * 1000;
+  $msSampai = (strtotime($sampai . ' 23:59:59 UTC') - 7 * 3600) * 1000 + 999;
+  if ($msSampai < $msDari) throw new Exception('Rentang tanggal terbalik.');
+  if ($msSampai - $msDari > 400 * 86400000) throw new Exception('Rentang paling panjang 400 hari.');
+  $q = $pdo->prepare('SELECT g.id, g.sumber, g.penulis, g.rating, g.waktu_ms, LEFT(COALESCE(g.teks, \'\'), 240) teks, g.url, t.nama tnama
+      FROM cg_greview g LEFT JOIN cg_gtempat t ON t.id = g.tempat_id
+      WHERE g.waktu_ms BETWEEN :a AND :b ORDER BY g.waktu_ms DESC LIMIT 3000');
+  $q->execute(array(':a' => $msDari, ':b' => $msSampai));
+  $review = $q->fetchAll();
+  /* Sumber yang PERNAH mengisi tabel ini, bukan cuma rentang ini: Places API
+     cuma memberi 5 ulasan per tarikan, jadi "tidak ditemukan" dari sumber
+     itu jauh lebih lemah daripada dari Business Profile — dan layarnya
+     wajib mengatakan bedanya. */
+  $sumber = $pdo->query('SELECT DISTINCT sumber FROM cg_greview')->fetchAll(PDO::FETCH_COLUMN);
+  return array('review' => $review, 'sumber' => $sumber,
+    'syncAt' => (int)cg_set_baca($pdo, 'google_sync_at', '0'));
+}
+
 /* ==================== BALAS & TANGANI ==================== */
 function gr_review_by_id($pdo, $id) {
   $q = $pdo->prepare('SELECT * FROM cg_greview WHERE id = :id');
