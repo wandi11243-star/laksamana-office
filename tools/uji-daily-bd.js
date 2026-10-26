@@ -107,10 +107,14 @@ const v = () => D.getElementById('view');
   W.APP.toggleTask('dA'); W.APP.toggleTask('dA');
   cek(anak('dA').length===1, 'Done → buka lagi → Done tidak melahirkan kembaran');
 
-  // --- telat dilompati ---
+  // --- telat MAJU SENDIRI (26 Okt 2026): tanpa Done, task yang sama digeser ke jadwal berikutnya ---
+  cek(T('dB').deadline>=iso(0) && T('dB').deadline<=iso(6) && T('dB').status!=='Done', 'task mingguan telat 10 hari maju sendiri saat boot, ke 7 hari ke depan, TIDAK ditandai Done');
+  cek(Array.isArray(T('dB').terlewat) && T('dB').terlewat.length===1 && T('dB').terlewat[0].d===iso(-10), 'tanggal yang terlewat dicatat');
+  cek(anak('dB').length===0, 'maju sendiri tidak melahirkan task baru');
+  const dl=T('dB').deadline;
   W.APP.toggleTask('dB');
   const b=anak('dB')[0];
-  cek(!!b && b.deadline>=iso(0) && b.deadline<=iso(6), 'task mingguan yang telat 10 hari: berikutnya tidak di masa lalu (dalam 7 hari ke depan)');
+  cek(!!b && b.deadline>dl && b.deadline<=iso(13), 'Done sesudahnya tetap melahirkan kejadian berikutnya');
 
   // --- tidak berulang: tidak melahirkan apa pun ---
   const n0=DB().tasks.length;

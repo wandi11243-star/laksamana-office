@@ -1326,13 +1326,21 @@ function tarikServer(){
     if(_kotor||_menyimpan) return;
     var baru=normalize(s);
     if(JSON.stringify(baru)===JSON.stringify(DB)) return;
-    DB=baru; segarkanSnapshot();
+    DB=baru; segarkanSnapshot(); terapkanGulir();
     /* kenali() diulang: kalau kru lain baru saja mendaftarkan kita di tabel
        people, AKU harus ikut terisi tanpa perlu reload halaman. */
     kenali(); cetakIdentitas(); render();
   },function(){ /* diam: polling gagal bukan alasan mengganggu kerja */ });
 }
 setInterval(tarikServer,20000);
+/* Tab yang terbuka melewati tengah malam: tarikServer di atas berhenti lebih
+   awal kalau isi server tidak berubah, jadi pergeseran harian diperiksa
+   sendiri. Hanya saat idle, alasan yang sama dengan tarikServer. */
+setInterval(function(){
+  if(_kotor||_menyimpan||document.hidden||!DB||!DB.tasks) return;
+  if($('#overlay').classList.contains('show')) return;
+  if(terapkanGulir()) render();
+},60000);
 /* Tab yang kembali dilihat langsung menarik isi terbaru — My Task di satu tab
    dan Daily Task di tab/perangkat lain tidak perlu menunggu 20 detik. */
 document.addEventListener('visibilitychange',function(){ if(!document.hidden) tarikServer(); });
@@ -1563,7 +1571,7 @@ const SUB={dashboard:['Workspace','Dashboard','Kondisi hari ini — task, projec
   board:['Workspace','Board','Papan kerja per project — seret kartu antar kolom, sub-task & urutan di dalam tiap kartu'],
   mytask:['Workspace','My Task','Task yang kamu pegang — yang telat, minggu ini, dan yang masih menunggu task lain'],
   timeline:['Workspace','Timeline','Gantt semua project — buka project untuk melihat task, sub-task & urutannya'],
-  recurring:['Workspace','Recurring Task','Semua task berulang — pola, jatuh tempo berikutnya, dan berapa kali sudah diselesaikan'],
+  recurring:['Workspace','Recurring Task','Semua task berulang — maju sendiri ke jadwal berikutnya, ditandai Done atau tidak'],
   daily:['Workspace','Daily Task','Pekerjaan harian tim — bisa berulang otomatis (harian, hari kerja, mingguan, bulanan)'],
 
   tasks:['Workspace','Tasks','Prioritas ala Eisenhower — Penting × Mendesak'],
@@ -2047,7 +2055,7 @@ function taskModal(id){
           opsiProject(t.project,'— tanpa project —')+'</select></div></div>'+
       '<div class="frow">'+
         '<div class="field"><label>Berulang</label><select id="m_ulang">'+opsiUlang(t.ulang)+'</select>'+
-          '<div class="muted" style="font-size:11.5px;margin-top:4px">Saat ditandai Done, task berikutnya lahir otomatis dengan deadline berikutnya. Butuh deadline.</div></div>'+
+          '<div class="muted" style="font-size:11.5px;margin-top:4px">Lewat deadline tanpa Done, task-nya maju sendiri ke jadwal berikutnya (yang terlewat dicatat). Ditandai Done, kejadian berikutnya lahir sebagai task baru. Butuh deadline.</div></div>'+
         '<div class="field"><label>Daily Task</label><div class="toggles">'+
           '<button type="button" class="toggle'+(t.daily?' on':'')+'" id="tg_daily" onclick="this.classList.toggle(\'on\')"><span class="tick">'+ic('check')+'</span> Masuk Daily Task</button></div>'+
           '<div class="muted" style="font-size:11.5px;margin-top:4px">Daily Task tidak masuk project mana pun.</div></div></div>'+
@@ -2886,6 +2894,52 @@ function lahirkanUlang(t){
   DB.tasks.push(b);
   return b;
 }
+/* ---- task berulang MAJU SENDIRI ----
+   Permintaan user 26 Okt 2026: "tidak ingin harus dibuat Done — selalu
+   update ke minggu depan berikutnya". Sebelum ini kejadian berikutnya HANYA
+   lahir saat yang sekarang ditandai Done, jadi task mingguan yang lupa
+   dicentang membeku di tanggal lamanya dan menumpuk sebagai "lewat deadline".
+
+   Sekarang kejadian yang deadline-nya SUDAH LEWAT dan belum Done DIGESER ke
+   jadwal berikutnya yang belum lampau — task yang SAMA, bukan task baru:
+   melahirkan task baru tiap minggu untuk yang tidak dikerjakan akan
+   menumpuk satu baris telat per periode, dan membersihkannya justru menuntut
+   orang menekan Done — persis yang diminta ditiadakan. Menandainya Done
+   sendiri juga tidak: Done berarti dikerjakan, dan itu tidak terjadi.
+
+   - Yang terlewat DICATAT (t.terlewat: [{d, sub}]), bukan dibuang diam-diam:
+     tanggal yang tidak dikerjakan tetap bisa dibaca di menu Recurring Task.
+   - Periode baru = mulai dari nol: status To Do, sub-task dikosongkan
+     centangnya, mulai & deadline sub-task ikut bergeser sejauh deadline-nya.
+   - Done TETAP bekerja seperti dulu (lahirkanUlang) — riwayat yang selesai
+     tetap berdiri sebagai barisnya sendiri.
+   - Deadline HARI INI belum lewat (sama dengan lewat()): yang digeser hanya
+     yang deadline-nya < hari ini.
+   - Deterministik: dua tab yang menggeser bersamaan menghasilkan tanggal yang
+     sama (deadlineBerikut hanya bergantung pada deadline & hari ini). */
+function gulirUlang(){
+  var T=todayISO(), n=0;
+  DB.tasks.forEach(function(t){
+    if(!t||!t.ulang||!labelUlang(t.ulang)||selesai(t)||!gSah(t.deadline)||t.deadline>=T) return;
+    var nd=deadlineBerikut(t), geser=gDiff(t.deadline,nd);
+    if(geser<=0) return;
+    var ss=subs(t), h=ss.filter(function(x){return x.done;}).length;
+    if(!Array.isArray(t.terlewat)) t.terlewat=[];
+    t.terlewat.push({d:t.deadline, sub:ss.length?(h+'/'+ss.length):''});
+    if(t.terlewat.length>52) t.terlewat=t.terlewat.slice(-52);
+    t.deadline=nd;
+    if(gSah(t.start)) t.start=gAdd(t.start,geser);
+    ss.forEach(function(x){ x.done=false; if(gSah(x.d)) x.d=gAdd(x.d,geser); });
+    t.status='To Do'; t.progress=0; delete t.doneAt;
+    n++;
+  });
+  return n;
+}
+function terapkanGulir(){
+  var n=gulirUlang();
+  if(n){ save(); setTimeout(function(){ toast('🔁 '+n+' task berulang maju ke jadwal berikutnya'); },80); }
+  return n;
+}
 var dMode='list', dArsip='aktif';
 function dailyTasks(){ return tasksTerlihat().filter(function(t){return t.daily;}).filter(cocokPic); }
 function vDaily(){
@@ -2957,7 +3011,8 @@ function seriUlang(){
     if(!pola) return null;
     var done=r.filter(selesai);
     var akhir=done.map(function(x){return x.doneAt||'';}).filter(Boolean).sort().pop()||'';
-    return {head:t,rantai:r,pola:pola,aktif:!!(t.ulang&&labelUlang(t.ulang)),nSelesai:done.length,terakhir:akhir};
+    var lewat=[]; r.forEach(function(x){ if(Array.isArray(x.terlewat)) lewat=lewat.concat(x.terlewat); });
+    return {head:t,rantai:r,pola:pola,aktif:!!(t.ulang&&labelUlang(t.ulang)),nSelesai:done.length,terakhir:akhir,terlewat:lewat};
   }).filter(Boolean).filter(function(sr){ return cocokPic(sr.head); });
 }
 function tempatTask(t){
@@ -2999,7 +3054,8 @@ function vRecurring(){
           '<div class="mut" style="font-size:11px">'+esc(t.status)+'</div>':'<span class="mut">Done'+(t.doneAt?' · '+fTgl(t.doneAt):'')+'</span>')+'</td>'+
         '<td>'+avStack(pics(t))+'</td>'+
         '<td>'+tempatTask(t)+'</td>'+
-        '<td><span class="num">'+x.nSelesai+'×</span>'+(x.terakhir?'<div class="mut" style="font-size:11px">terakhir '+fTgl(x.terakhir)+'</div>':'')+'</td>'+
+        '<td><span class="num">'+x.nSelesai+'×</span>'+(x.terakhir?'<div class="mut" style="font-size:11px">terakhir '+fTgl(x.terakhir)+'</div>':'')+
+          (x.terlewat.length?'<div style="font-size:11px;color:var(--warn)" title="Lewat tanpa ditandai Done: '+esc(x.terlewat.map(function(z){return fTgl(z.d)+(z.sub?' ('+z.sub+' sub-task)':'');}).join(', '))+'">terlewat '+x.terlewat.length+'× · terakhir '+fTgl(x.terlewat[x.terlewat.length-1].d)+'</div>':'')+'</td>'+
         '<td>'+(x.aktif
           ?'<button class="btn sm" onclick="event.stopPropagation();APP.hentikanUlang(\''+t.id+'\')">Hentikan</button>'
           :(berjalan?'<button class="btn sm" onclick="event.stopPropagation();APP.lanjutkanUlang(\''+t.id+'\')">Lanjutkan</button>'
@@ -6344,6 +6400,7 @@ apiGet('getAll').then(function(s){
   segarkanSnapshot();
   kenali();
   cetakIdentitas();
+  terapkanGulir();   // SESUDAH snapshot: yang digeser harus terbaca berubah dan ikut terkirim
   // Halaman awal dari alamat (#purchasing dari Marketing, bookmark, dst).
   var awal=bacaAlamat(); if(awal) view=awal;
   $('#loading').style.display='none';

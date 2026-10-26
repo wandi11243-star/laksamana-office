@@ -805,10 +805,10 @@ node tools/uji-subassign-cari-bd.js   # 32 pemeriksaan, jsdom + server tiruan HI
 node tools/uji-sync-status-bd.js      #  9 pemeriksaan
 ```
 
-**Putaran kedelapan (26 Okt 2026): menu Recurring Task** (`vRecurring`, view `recurring`, di bawah Daily Task). Satu baris per SERI = kepala rantai `ulangDari` (task tanpa penerus), Daily maupun project — dibaca, bukan disalin, tanpa data baru. **Hentikan** mencabut `ulang` dari kepalanya dan menyimpan polanya di `ulangBerhenti` `{u,at,by}`; **Lanjutkan** (tab Dihentikan) memulihkannya — task yang sudah Done tidak bisa dilanjutkan (tidak ada yang melahirkan kejadian berikutnya). Tombol + Task Berulang = `taskModal` dengan `_presetUlang='mingguan'`.
+**Putaran kedelapan (26 Okt 2026): menu Recurring Task** (`vRecurring`, view `recurring`, di bawah Daily Task). Satu baris per SERI = kepala rantai `ulangDari` (task tanpa penerus), Daily maupun project — dibaca, bukan disalin, tanpa data baru. **Hentikan** mencabut `ulang` dari kepalanya dan menyimpan polanya di `ulangBerhenti` `{u,at,by}`; **Lanjutkan** (tab Dihentikan) memulihkannya — task yang sudah Done tidak bisa dilanjutkan (tidak ada yang melahirkan kejadian berikutnya). Tombol + Task Berulang = `taskModal` dengan `_presetUlang='mingguan'`. **Maju sendiri tanpa Done (26 Okt 2026, permintaan user)**: `gulirUlang()` menggeser task berulang yang belum Done & deadline-nya < hari ini ke `deadlineBerikut()` — task yang SAMA (bukan task baru, supaya tidak menumpuk satu baris telat per periode; bukan Done, karena tidak dikerjakan). Periode baru: To Do, sub-task tak tercentang, start & deadline sub-task ikut bergeser; yang terlewat dicatat `t.terlewat=[{d,sub}]` (maks 52) dan disebut di menu Recurring. Dipanggil `terapkanGulir()` saat boot (SESUDAH `segarkanSnapshot`, supaya terkirim), sesudah `tarikServer` memasang data baru, dan tiap 60 dtk saat idle (tab yang melewati tengah malam). Done tetap melahirkan task baru seperti dulu.
 
 ```bash
-node tools/uji-recurring-bd.js   # 15 pemeriksaan, jsdom
+node tools/uji-recurring-bd.js   # 24 pemeriksaan, jsdom
 ```
 
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)

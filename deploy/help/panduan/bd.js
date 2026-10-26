@@ -54,6 +54,7 @@ LM_HELP_ISI('bd', {
             'Buka *Daily Task*, tekan *+ Task* (task baru otomatis bertanda Daily).',
             'Isi *Deadline*, lalu pilih *Berulang*: setiap hari, hari kerja (Sen–Jum), setiap minggu, atau setiap bulan.',
             'Saat task ditandai *Done*, task berikutnya lahir sendiri dengan deadline berikutnya — PIC dan sub-task-nya ikut, sub-task belum dicentang.',
+            'Tidak perlu ditandai Done supaya jalan terus: begitu deadline-nya lewat, task berulang *maju sendiri* ke jadwal berikutnya (mis. minggu depan), mulai lagi dari To Do. Tanggal yang terlewat dicatat dan terlihat di menu Recurring Task.',
             'Seluruh task berulang (Daily maupun project) terkumpul di menu *Recurring Task*: pola, jatuh tempo berikutnya, dan berapa kali sudah selesai.',
             'Untuk menghentikan, tekan *Hentikan* di menu Recurring Task — polanya disimpan dan bisa dilanjutkan lagi dari tab *Dihentikan*.'
           ] },
