@@ -813,9 +813,9 @@ node tools/uji-recurring-bd.js   # 24 pemeriksaan, jsdom
 
 **Pintu AI agent — reminder task lewat WhatsApp (26 Okt 2026).** Agent di VPS user (opencode) mengirim reminder & memanggil `bd-mysql/lib_agent.php`: `agentTugas` (task belum Done, deadline <= hari ini WIB, + noHp PIC dari `listDivisiRoster`), `agentSelesai`, `agentCatat`. Panduan agent: `docs/agent-reminder-bd.md`.
 
-- ** kosong = TERTUTUP** (config.php tidak ikut deploy — user mengisinya manual di cPanel, beda dev/prod). Token dari badan POST / header, tidak pernah dari URL.
-- ** pengirim WAJIB cocok dengan PIC/pelaksana task**; roster Office tak terbaca = ditolak, bukan diloloskan.  dihormati.
-- Menulis per baris (bukan saveAll). **Kejadian berikutnya TIDAK dibuat di PHP**: server memasang , frontend ( di ) melahirkannya lewat  — id TETAP supaya dua tab tidak melahirkan kembaran. Balasan agent di , tampil di modal task.
+- **`AGENT_TOKEN` kosong = TERTUTUP** (config.php tidak ikut deploy — user mengisinya manual di cPanel, beda dev/prod). Token dari badan POST / header, tidak pernah dari URL.
+- **`noHp` pengirim WAJIB cocok dengan PIC/pelaksana task**; roster Office tak terbaca = ditolak, bukan diloloskan. `dependsOn` dihormati.
+- Menulis per baris (bukan saveAll). **Kejadian berikutnya TIDAK dibuat di PHP**: server memasang `penerusTertunda`, frontend (`lahirkanTertunda()` di `terapkanGulir()`) melahirkannya lewat `lahirkanUlang(t, t.id+"_u")` — id TETAP supaya dua tab tidak melahirkan kembaran. Balasan agent di `t.agentLog`, tampil di modal task.
 
 ```bash
 node tools/uji-agent-bd.js   # 30 pemeriksaan, jsdom + kontrak PHP
