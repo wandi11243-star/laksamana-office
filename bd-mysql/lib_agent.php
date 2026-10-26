@@ -161,7 +161,7 @@ function agent_orang($peopleId, $people, $roster) {
 function agent_tgl_teks($d) {
   if (!agent_tgl_sah($d)) return '';
   $hari = array('Min','Sen','Sel','Rab','Kam','Jum','Sab');
-  $bln  = array('Jan','Feb','Mar','Apr','Mei','Jun','Jul','Agu','Sep','Okt','Nov','Des');
+  $bln  = array('Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des');
   $p = explode('-', $d);
   $w = (int)gmdate('w', gmmktime(0, 0, 0, (int)$p[1], (int)$p[2], (int)$p[0]));
   return $hari[$w] . ', ' . (int)$p[2] . ' ' . $bln[(int)$p[1] - 1] . ' ' . $p[0];
