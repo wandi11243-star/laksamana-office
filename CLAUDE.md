@@ -805,6 +805,12 @@ node tools/uji-subassign-cari-bd.js   # 32 pemeriksaan, jsdom + server tiruan HI
 node tools/uji-sync-status-bd.js      #  9 pemeriksaan
 ```
 
+**Putaran kedelapan (26 Okt 2026): menu Recurring Task** (`vRecurring`, view `recurring`, di bawah Daily Task). Satu baris per SERI = kepala rantai `ulangDari` (task tanpa penerus), Daily maupun project — dibaca, bukan disalin, tanpa data baru. **Hentikan** mencabut `ulang` dari kepalanya dan menyimpan polanya di `ulangBerhenti` `{u,at,by}`; **Lanjutkan** (tab Dihentikan) memulihkannya — task yang sudah Done tidak bisa dilanjutkan (tidak ada yang melahirkan kejadian berikutnya). Tombol + Task Berulang = `taskModal` dengan `_presetUlang='mingguan'`.
+
+```bash
+node tools/uji-recurring-bd.js   # 15 pemeriksaan, jsdom
+```
+
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)
 
 Keluhan user: PR-11 (berikut PO "Pelunasan DJ") hilang dari Purchasing.

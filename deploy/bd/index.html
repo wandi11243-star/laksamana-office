@@ -1538,6 +1538,7 @@ const NAV=[
     {id:'dashboard',l:'Dashboard',i:'dashboard'},
     {id:'mytask',   l:'My Task',  i:'check'},
     {id:'daily',    l:'Daily Task', i:'routine'},
+    {id:'recurring',l:'Recurring Task', i:'routine'},
     {id:'projects', l:'Projects', i:'projects'},
     {id:'calendar', l:'Calendar', i:'cal'}]},
   /* Timeline dicabut dari menu 12 Okt 2026 (permintaan user) — pindah jadi
@@ -1562,6 +1563,7 @@ const SUB={dashboard:['Workspace','Dashboard','Kondisi hari ini — task, projec
   board:['Workspace','Board','Papan kerja per project — seret kartu antar kolom, sub-task & urutan di dalam tiap kartu'],
   mytask:['Workspace','My Task','Task yang kamu pegang — yang telat, minggu ini, dan yang masih menunggu task lain'],
   timeline:['Workspace','Timeline','Gantt semua project — buka project untuk melihat task, sub-task & urutannya'],
+  recurring:['Workspace','Recurring Task','Semua task berulang — pola, jatuh tempo berikutnya, dan berapa kali sudah diselesaikan'],
   daily:['Workspace','Daily Task','Pekerjaan harian tim — bisa berulang otomatis (harian, hari kerja, mingguan, bulanan)'],
 
   tasks:['Workspace','Tasks','Prioritas ala Eisenhower — Penting × Mendesak'],
@@ -1592,7 +1594,7 @@ function render(){
   renderNav();
   var s=SUB[view]||SUB.dashboard;
   $('#tbSub').textContent=s[0]; $('#tbTitle').textContent=s[1];
-  var peta={dashboard:vDashboard,board:vBoard,tasks:vTasks,mytask:vMyTask,daily:vDaily,timeline:vTimeline,projects:vProjects,projectDetail:vProjectDetail,
+  var peta={dashboard:vDashboard,board:vBoard,tasks:vTasks,mytask:vMyTask,daily:vDaily,recurring:vRecurring,timeline:vTimeline,projects:vProjects,projectDetail:vProjectDetail,
             coord:vCoord,routine:vRoutine,promo:vPromo,purchasing:vPurchasing,prDetail:vPrDetail,
             calendar:vCalendar,tim:vTim};
   /* Posisi gulir Gantt dijaga antar render (render di modul ini TOTAL):
@@ -1616,7 +1618,7 @@ function render(){
    Hanya halaman yang punya menu sendiri yang boleh dituju. prDetail sengaja
    tidak: ia butuh prAktif, dan alamat yang menyebut dokumen yang sudah
    dihapus akan membuka layar kosong tanpa keterangan. */
-var HALAMAN_ALAMAT=['dashboard','mytask','daily','projects','calendar','promo','purchasing','tim'];
+var HALAMAN_ALAMAT=['dashboard','mytask','daily','recurring','projects','calendar','promo','purchasing','tim'];
 var ALAMAT_LAMA={board:'projects',tasks:'mytask',timeline:'projects'};   // menu yang dicabut 7 & 12 Okt 2026
 function bacaAlamat(){
   var h=(location.hash||'').replace(/^#\/?/,'').split('/')[0];
@@ -2011,7 +2013,7 @@ function taskModal(id){
   if(!t) t={name:'',desc:'',div:(AKU&&OWNER_DIVS.indexOf(AKU.div)>-1)?AKU.div:'Business Development',
     pics:AKU?[AKU.id]:[],status:'To Do',priority:'Medium',deadline:todayISO(),
     important:true,urgent:false,type:_presetProject?'Project':'Ad-hoc',project:_presetProject||null,
-    daily:_presetDaily,ulang:''};
+    daily:_presetDaily,ulang:_presetUlang||''};
   _modalTaskId=baru?null:t.id;
   _subDraft=subs(t).map(function(x){return {id:x.id||uid('s'),t:String(x.t||''),done:!!x.done,d:x.d||'',p:x.p||''};});
   _depDraft=deps(t).filter(function(d){return d!==t.id && taskById(d);});
@@ -2059,9 +2061,9 @@ function taskModal(id){
       '<div style="display:flex;gap:10px"><button class="btn" onclick="closeModal()">Batal</button>'+
       '<button class="btn pri" onclick="APP.simpanTask(\''+(id||'')+'\')">'+ic('check')+'Simpan</button></div></div>');
   qprev(); subGambar(); depGambar(); tagGambar();
-  _presetProject=null; _presetDaily=false;
+  _presetProject=null; _presetDaily=false; _presetUlang='';
 }
-var _presetProject=null, _presetDaily=false;
+var _presetProject=null, _presetDaily=false, _presetUlang='';
 function qprev(){
   var imp=$('#tg_imp').classList.contains('on'), urg=$('#tg_urg').classList.contains('on');
   var q=kuadran({important:imp,urgent:urg});
@@ -2926,6 +2928,100 @@ function vDaily(){
   }).join('');
   if(!buka.length) h+='<div class="card"><div class="card-b">'+kosong('Semua Daily Task selesai','Task berulang berikutnya sudah lahir di tanggalnya.')+'</div></div>';
   return h;
+}
+
+/* ============ RECURRING TASK ============
+   Permintaan user 26 Okt 2026: satu menu yang mengumpulkan SELURUH task
+   berulang, Daily maupun yang ada di project. Tidak ada data baru — tiap
+   "seri" disusun dari rantai `ulangDari` yang sudah ada: kepalanya task
+   yang belum punya penerus (kejadian yang sedang berjalan), ekornya
+   kejadian-kejadian yang sudah Done. Dibaca, bukan disalin, jadi Daily
+   Task / My Task / Kanban tetap menyebut task yang sama.
+
+   Menghentikan seri = mencabut `ulang` dari kepalanya, dan pola lamanya
+   disimpan di `ulangBerhenti` supaya bisa dilanjutkan lagi tanpa ada yang
+   perlu mengingat polanya. Tidak ada yang dihapus. */
+var rArsip='aktif';
+function rantaiUlang(t){
+  var l=[t], lihat={}, x=t; lihat[t.id]=1;
+  while(x.ulangDari && (x=taskById(x.ulangDari)) && !lihat[x.id]){ lihat[x.id]=1; l.unshift(x); }
+  return l;
+}
+function seriUlang(){
+  var penerus={};
+  DB.tasks.forEach(function(x){ if(x.ulangDari) penerus[x.ulangDari]=1; });
+  return tasksTerlihat().filter(function(t){ return !penerus[t.id]; }).map(function(t){
+    var r=rantaiUlang(t);
+    var asal=r.slice().reverse().find(function(x){return x.ulang&&labelUlang(x.ulang);});
+    var pola=(t.ulang&&labelUlang(t.ulang))?t.ulang:(t.ulangBerhenti&&t.ulangBerhenti.u)||(asal&&asal.ulang)||'';
+    if(!pola) return null;
+    var done=r.filter(selesai);
+    var akhir=done.map(function(x){return x.doneAt||'';}).filter(Boolean).sort().pop()||'';
+    return {head:t,rantai:r,pola:pola,aktif:!!(t.ulang&&labelUlang(t.ulang)),nSelesai:done.length,terakhir:akhir};
+  }).filter(Boolean).filter(function(sr){ return cocokPic(sr.head); });
+}
+function tempatTask(t){
+  if(t.daily) return '<span class="tag">Daily Task</span>';
+  var pr=t.project&&DB.projects.find(function(p){return p.id===t.project;});
+  return pr?'<span class="tag">'+esc(pr.name)+'</span>':'<span class="mut">—</span>';
+}
+function vRecurring(){
+  var semua=seriUlang(), T=todayISO(), bln=T.slice(0,7);
+  var aktif=semua.filter(function(x){return x.aktif;}), henti=semua.filter(function(x){return !x.aktif;});
+  var jalan=aktif.filter(function(x){return !selesai(x.head);});
+  var telat=jalan.filter(function(x){return lewat(x.head);});
+  var hariIni=jalan.filter(function(x){return x.head.deadline===T;});
+  var selesaiBln=aktif.reduce(function(n,x){ return n+x.rantai.filter(function(y){return selesai(y)&&String(y.doneAt||'').slice(0,7)===bln;}).length; },0);
+  var h=head('Recurring Task',SUB.recurring[2],
+    '<button class="btn pri" onclick="APP.taskUlangBaru()">'+ic('plus')+'Task Berulang</button>');
+  h+='<div class="stats">'+
+    stat('Seri aktif',aktif.length,henti.length?henti.length+' dihentikan':'','')+
+    stat('Lewat deadline',telat.length,telat.length?'perlu ditindak':'aman',telat.length?'rd':'gr')+
+    stat('Jatuh tempo hari ini',hariIni.length,'','vi')+
+    stat('Selesai bulan ini',selesaiBln,'kejadian dari seri aktif','tl')+'</div>';
+  h+='<div class="filters"><div class="seg">'+[['aktif','Aktif ('+aktif.length+')'],['henti','Dihentikan ('+henti.length+')']].map(function(x){
+      return '<button class="'+(rArsip===x[0]?'on':'')+'" onclick="APP.setRecurring(\''+x[0]+'\')">'+x[1]+'</button>';
+    }).join('')+'</div>'+filterPic()+'</div>';
+  if(!semua.length)
+    return h+'<div class="card"><div class="card-b">'+kosong('Belum ada task berulang',
+      'Buat lewat tombol + Task Berulang, atau pilih "Berulang" di form task mana pun (Daily maupun project).')+'</div></div>';
+  var l=(rArsip==='henti'?henti:aktif).slice().sort(function(a,b){ return urutDeadline(a.head,b.head); });
+  if(!l.length)
+    return h+'<div class="card"><div class="card-b">'+kosong(rArsip==='henti'?'Tidak ada seri yang dihentikan':'Tidak ada seri aktif','')+'</div></div>';
+  h+='<div class="tw"><table><thead><tr><th>Task</th><th>Pola</th><th>Kejadian berjalan</th><th>PIC</th><th>Tempat</th>'+
+    '<th>Sudah selesai</th><th></th></tr></thead><tbody>'+
+    l.map(function(x){
+      var t=x.head, berjalan=!selesai(t);
+      return '<tr class="clk" onclick="APP.taskModal(\''+t.id+'\')">'+
+        '<td><span class="nm">'+esc(t.name)+'</span>'+(tagsOf(t).length?'<div class="mut" style="font-size:11px">'+esc(tagsOf(t).join(', '))+'</div>':'')+'</td>'+
+        '<td><span class="tag">🔁 '+esc(labelUlang(x.pola)||x.pola)+'</span></td>'+
+        '<td>'+(berjalan?(t.deadline?'<span class="tag'+(lewat(t)?' overdue':'')+'">'+fDue(t.deadline)+'</span>':'<span class="mut">tanpa deadline</span>')+
+          '<div class="mut" style="font-size:11px">'+esc(t.status)+'</div>':'<span class="mut">Done'+(t.doneAt?' · '+fTgl(t.doneAt):'')+'</span>')+'</td>'+
+        '<td>'+avStack(pics(t))+'</td>'+
+        '<td>'+tempatTask(t)+'</td>'+
+        '<td><span class="num">'+x.nSelesai+'×</span>'+(x.terakhir?'<div class="mut" style="font-size:11px">terakhir '+fTgl(x.terakhir)+'</div>':'')+'</td>'+
+        '<td>'+(x.aktif
+          ?'<button class="btn sm" onclick="event.stopPropagation();APP.hentikanUlang(\''+t.id+'\')">Hentikan</button>'
+          :(berjalan?'<button class="btn sm" onclick="event.stopPropagation();APP.lanjutkanUlang(\''+t.id+'\')">Lanjutkan</button>'
+                    :'<span class="mut" style="font-size:11px">sudah Done — buat task baru untuk mulai lagi</span>'))+'</td></tr>';
+    }).join('')+'</tbody></table></div>';
+  return h;
+}
+function hentikanUlang(id){
+  var t=taskById(id); if(!t||!t.ulang) return;
+  if(!confirm('Hentikan pengulangan "'+t.name+'"?\n\nTask yang sedang berjalan tetap ada; hanya saja saat ditandai Done tidak ada kejadian berikutnya yang lahir. Bisa dilanjutkan lagi dari menu ini.')) return;
+  t.ulangBerhenti={u:t.ulang,at:Date.now(),by:(AKU&&AKU.name)||((sesi()||{}).name)||''};
+  t.ulang='';
+  save(); render(); toast('Pengulangan dihentikan');
+}
+function lanjutkanUlang(id){
+  var t=taskById(id); if(!t||selesai(t)) return;
+  var u=(t.ulangBerhenti&&t.ulangBerhenti.u)||'';
+  if(!u){ var a=rantaiUlang(t).slice().reverse().find(function(x){return x.ulang;}); u=a?a.ulang:''; }
+  if(!labelUlang(u)) return;
+  if(!t.deadline){ toast('Isi deadline task ini dulu — task berulang butuh deadline sebagai patokan.'); APP.taskModal(t.id); return; }
+  t.ulang=u; delete t.ulangBerhenti;
+  save(); render(); toast('Pengulangan dilanjutkan: '+labelUlang(u));
 }
 
 /* ---- kartu project (bentuk Armada) ---- */
@@ -5970,6 +6066,9 @@ window.APP={
   infoVendorPO:infoVendorPO,
   go:go, cari:cari, qprev:qprev,
   taskModal:function(id,proj){ _presetDaily=(proj==='__daily__'); _presetProject=_presetDaily?null:(proj||null); taskModal(id); },
+  taskUlangBaru:function(){ _presetDaily=false; _presetProject=null; _presetUlang='mingguan'; taskModal(null); },
+  setRecurring:function(v){ rArsip=v; render(); },
+  hentikanUlang:hentikanUlang, lanjutkanUlang:lanjutkanUlang,
   setDaily:function(apa,nilai){ if(apa==='mode') dMode=nilai; else if(apa==='arsip') dArsip=nilai; render(); },
   tagTambah:tagTambah, tagToggle:tagToggle, tagBukaWarna:tagBukaWarna, tagSetWarna:tagSetWarna,
   subTambah:subTambah, subCentang:subCentang, subUbah:subUbah, subHapus:subHapus, subTgl:subTgl, subPic:subPic,
