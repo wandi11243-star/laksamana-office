@@ -3596,7 +3596,10 @@ const FU_RESULT = {
   'Deal':'Deal',
   'Lost':'Lost'
 };
-const INV_STATUS = { Draft:'--muted', Sent:'--info', Pending:'--warn', Paid:'--ok', Overdue:'--danger' };
+/* 'Overdue' DICABUT 26 Oktober 2026 (permintaan user). Ia menyala untuk Deal
+   yang belum ada pembayaran H-7 — label merah untuk acara yang memang belum
+   lewat, dan event yang SUDAH lewat tanpa bayar justru tidak pernah kena. */
+const INV_STATUS = { Draft:'--muted', Sent:'--info', Pending:'--warn', Paid:'--ok' };
 const TASK_STATUS = { Pending:'--muted', 'On Progress':'--warn', Done:'--ok' };
 const EVENT_TYPES = ['Wedding','Corporate Event','Birthday','Gathering','Seminar','Launching','Competition','Private Party','Collaboration Event','Compliment','Lainnya'];
 /* Jenis event untuk DITAMPILKAN. "Lainnya" itu penanda isian bebas, bukan
@@ -4629,8 +4632,8 @@ function invStatus(ev){
   if(f.grand===0)return 'Draft';
   if(f.remaining<=0)return 'Paid';
   if(f.paid>0)return 'Pending';
-  // no payment: check overdue (H-7)
-  if(ev.tanggal && daysTo(ev.tanggal)<7 && ['Confirmed','Deal'].includes(ev.status))return 'Overdue';
+  /* Status 'Overdue' (H-7 tanpa pembayaran) dicabut 26 Oktober 2026 atas
+     permintaan user. Jangan dikembalikan tanpa diminta. */
   return ev.invoiceSent?'Sent':'Draft';
 }
 
@@ -13305,10 +13308,9 @@ function renderInvoices(V){
      Potensi = penawaran terkirim yang belum diputuskan client. */
   const evsTagih=evs;
   const totalOut=evsTagih.reduce((a,e)=>a+eventFinance(e).remaining,0);
-  const overdue=evsTagih.filter(e=>invStatus(e)==='Overdue');
   h+='<div class="grid g-4" style="margin-bottom:16px">'
    +stat('Total Piutang',rpShort(totalOut),evsTagih.length+' invoice Deal & Event Done','money')
-   +stat('Invoice Overdue',overdue.length,'lewat H-7','alert')
+   +stat('Belum Payment',evsTagih.filter(e=>eventFinance(e).paid<=0).length,'belum ada uang masuk','alert')
    +stat('Lunas',evsTagih.filter(e=>invStatus(e)==='Paid').length,'dari '+evsTagih.length+' invoice','check')
    +stat('Draft (tidak ditampilkan)',evsDraft.length,'Deal/Event Done yang invoice-nya belum terbit','brief')
    +'</div>';
@@ -13358,9 +13360,34 @@ function renderInvoices(V){
       : 'Semua tagihan sudah menerima pembayaran — tidak ada yang kosong.','money');
     V.innerHTML=h; return;
   }
-  const urutInv=tblUrut(evsTab,'invoices',KOL_INVOICES);
-  const pInv=tblPage(urutInv,'invoices');
-  h+='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('invoices',KOL_INVOICES)+'<tbody>';
+  INV_DAFTAR=evsTab;
+  h+='<div class="searchbar" style="margin-bottom:12px">'+svg(IC.search)+'<input id="inv-q" placeholder="Cari client, nama event, tanggal, atau nomor invoice…" value="'+esc(INV_Q)+'" oninput="invCari(this.value)"></div>';
+  h+='<div id="inv-tabel">'+invTabelHtml()+'</div>';
+  V.innerHTML=h;
+  /* SESUDAH innerHTML: muatInvMkt menyegarkan slot lewat querySelectorAll('.invSlot'). */
+  muatInvMkt(INV_HAL_ITEMS);
+}
+/* KOTAK CARI (26 Oktober 2026, permintaan user). Tabelnya digambar ke wadahnya
+   sendiri (#inv-tabel) supaya mengetik tidak membuat ulang kotak carinya —
+   render di modul ini TOTAL, dan kotak yang dibuat ulang kehilangan fokus
+   sehingga hanya huruf pertama yang masuk. Pager & urutan kolom ikut memakai
+   wadah ini lewat TBL_RENDER. Yang dicari: client, nama event, tanggal, dan
+   nomor invoice resmi Finance. Pencarian berlaku di dalam tab yang aktif. */
+let INV_Q='', INV_DAFTAR=[], INV_HAL_ITEMS=[];
+function invCocok(e,q){
+  if(!q) return true;
+  const t=[clientName(e.clientId),e.nama,e.tanggal,fmtDate(e.tanggal),invNoResmi(e)].join(' ').toLowerCase();
+  return q.split(/\s+/).every(k=>t.indexOf(k)>=0);
+}
+function invTabelHtml(){
+  const q=String(INV_Q||'').trim().toLowerCase();
+  const daftar=INV_DAFTAR.filter(e=>invCocok(e,q));
+  if(!daftar.length){ INV_HAL_ITEMS=[];
+    return empty('Tidak ada yang cocok','Tidak ada invoice di tab ini yang cocok dengan "'+esc(INV_Q)+'". Coba kata lain, atau pindah ke tab Semua.','money'); }
+  const urutInv=tblUrut(daftar,'invoices',KOL_INVOICES);
+  const pInv=tblPage(urutInv,'invoices',INV_TAB_AKTIF+'|'+q);
+  INV_HAL_ITEMS=pInv.items;
+  let h='<div class="card pad0"><div class="tbl-wrap"><table class="tbl">'+tblHead('invoices',KOL_INVOICES)+'<tbody>';
   pInv.items.forEach(e=>{ const f=eventFinance(e);
     h+='<tr><td><div class="cell-strong">'+esc(clientName(e.clientId))+'</div><div class="cell-sub">'+esc(e.nama)+'</div></td><td class="mono">'+rp(f.grand)+'</td><td class="mono">'+rp(f.paid)+'<div class="cell-sub">target '+dpLabel(f)+': '+rp(f.dp)+'</div></td><td class="mono" style="color:'+(f.remaining>0?'var(--warn)':'var(--ok)')+'">'+rp(f.remaining)+'</td><td>'+statusChip(invStatus(e),INV_STATUS_MAP())+'</td>'
      /* Dua dokumen dalam satu sel — DP di atas, pelunasan di bawah. Bukan dua
@@ -13389,14 +13416,14 @@ function renderInvoices(V){
      +'<td><div class="aksi-1baris">'+(((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0)?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+'</div></td></tr>';
   });
   h+='</tbody></table></div>'+tblPagerHtml(pInv,'invoices')+'</div>';
-  V.innerHTML=h;
-  /* SESUDAH innerHTML, bukan sebelum: muatInvMkt menyegarkan slot lewat
-     querySelectorAll('.invSlot'), dan slotnya baru ada di DOM setelah baris
-     ini. Yang dimuat cuma halaman yang sedang tampil — daftar invoice bisa
-     ratusan event, dan menanyakan seluruhnya ke Finance tiap kali halaman
-     dibuka adalah permintaan yang isinya 99% tidak akan dilihat siapa pun. */
-  muatInvMkt(pInv.items);
+  return h;
 }
+function invCari(v){
+  INV_Q=v; const w=$('inv-tabel'); if(!w) return go('invoices');
+  w.innerHTML=invTabelHtml(); muatInvMkt(INV_HAL_ITEMS);
+}
+TBL_RENDER['invoices']=function(){ const w=$('inv-tabel'); if(!w) return refreshView(); w.innerHTML=invTabelHtml(); muatInvMkt(INV_HAL_ITEMS); };
+
 /* KOLOM "No. Invoice" DIBUANG (21 Agustus 2026). Isinya nomor internal yang
    dikarang modul ini sendiri, dan sejak invoice resmi datang dari Finance ada
    DUA nomor untuk satu tagihan — yang tercetak di lembar bertanda tangan dan
@@ -18854,7 +18881,6 @@ function renderNotifications(V){
   S.events.filter(e=>{const d=daysTo(e.tanggal);return ['Confirmed','Deal'].includes(e.status)&&d>=0&&d<=7;}).forEach(e=>{const d=daysTo(e.tanggal);live.push({type:'event',title:'Event '+(d===0?'HARI INI':'H-'+d),body:e.nama+' · cek kesiapan divisi ('+taskProgress(e)+'%).',link:'#event/'+e.id});});
   S.events.filter(e=>isOpenEvent(e)&&e.nextFU===today()).forEach(e=>live.push({type:'fu',title:'Follow up hari ini',body:e.nama+' · '+clientName(e.clientId),link:'#pipeline'}));
   S.clients.filter(c=>c.nextFU===today()&&!clientOpenEvents(c.id).length).forEach(c=>live.push({type:'fu',title:'Follow up (nurture)',body:c.nama,link:'#pipeline'}));
-  S.events.filter(e=>invStatus(e)==='Overdue').forEach(e=>live.push({type:'inv',title:'Invoice Overdue',body:e.nama+' lewat H-7 tanpa pelunasan.',link:'#event/'+e.id}));
   const icMap={dp:'money',event:'cal',fu:'pipe',inv:'invoice',approval:'approve',payment:'money',birthday:'star',repeat:'star'};
   const colMap={dp:'--warn',event:'--info',fu:'--gold',inv:'--danger',approval:'--violet',payment:'--ok'};
   h+='<div class="card"><h3 style="font-size:14px;margin-bottom:12px">Pengingat Aktif</h3>';

@@ -16,7 +16,7 @@ LM_HELP_ISI('bd', {
         { t:'tabel',
           kepala:['Kelompok','Menu','Isinya'],
           baris:[
-            ['Workspace','Dashboard, My Task, Daily Task, Projects, Calendar','Pekerjaan sehari-hari.'],
+            ['Workspace','Dashboard, My Task, Daily Task, Recurring Task, Projects, Calendar','Pekerjaan sehari-hari.'],
             ['Operasi','Promotion, Purchasing','Yang menyentuh divisi lain.'],
             ['Tim','Kru','Anggota tim.']
           ] },
@@ -54,7 +54,8 @@ LM_HELP_ISI('bd', {
             'Buka *Daily Task*, tekan *+ Task* (task baru otomatis bertanda Daily).',
             'Isi *Deadline*, lalu pilih *Berulang*: setiap hari, hari kerja (Sen–Jum), setiap minggu, atau setiap bulan.',
             'Saat task ditandai *Done*, task berikutnya lahir sendiri dengan deadline berikutnya — PIC dan sub-task-nya ikut, sub-task belum dicentang.',
-            'Untuk menghentikan, buka task berikutnya lalu ubah *Berulang* jadi *Tidak berulang*.'
+            'Seluruh task berulang (Daily maupun project) terkumpul di menu *Recurring Task*: pola, jatuh tempo berikutnya, dan berapa kali sudah selesai.',
+            'Untuk menghentikan, tekan *Hentikan* di menu Recurring Task — polanya disimpan dan bisa dilanjutkan lagi dari tab *Dihentikan*.'
           ] },
         { t:'catatan', nada:'info', judul:'Task telat tidak menumpuk',
           isi:'Task berulang yang baru diselesaikan sesudah deadline-nya lewat langsung melompat ke tanggal '
