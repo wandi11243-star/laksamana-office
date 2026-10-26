@@ -3399,7 +3399,7 @@ function uid(p){ return (p||'id')+'_'+Math.random().toString(36).slice(2,9); }
 
 /* ---------- SETTINGS / BUSINESS RULES (Bagian 9 & 14) ---------- */
 const DEFAULT_SETTINGS = {
-  dpPercent:50, pb1:10, serviceCharge:5,
+  pb1:10, serviceCharge:5,
   /* DUA ambang approval sudah DIHAPUS dan tidak perlu dihidupkan lagi:
        approvalThreshold (dulu Rp25 jt)  — nilai event tidak memicu approval
        discountThreshold (dulu 15%)      — besarnya diskon juga tidak
@@ -4554,9 +4554,14 @@ function eventFinance(ev){
      Kalau belum diisi, DP jatuh ke persentase bawaan seperti dulu supaya event
      lama tidak kehilangan angkanya begitu saja. */
   const dpNom=+d.depositNominal||0;
-  const dpPct=ev.dpPercent||st.dpPercent;
-  const dp=dpNom>0?dpNom:Math.round(grand*dpPct/100);
-  const dpDariNominal=dpNom>0;
+  /* DP DEFAULT (%) DICABUT 26 Oktober 2026 (permintaan user: DP tidak selalu
+     dipakai, jadi angka bawaan 50% tidak boleh muncul sendiri). Kalau nominal
+     DP tidak diisi, DP = jumlah pembayaran berjenis DP yang SUDAH tercatat —
+     angka yang memang terjadi, bukan karangan. ev.dpPercent (sisa data lama,
+     isinya salinan 50%) dan settings.dpPercent sengaja tidak dibaca lagi. */
+  const dpTercatat=(ev.payments||[]).filter(p=>String(p.type||'')==='DP').reduce((a,p)=>a+(+p.amount||0),0);
+  const dp=dpNom>0?dpNom:dpTercatat;
+  const dpPct=0, dpDariNominal=true;
   const bayarTercatat=(ev.payments||[]).reduce((a,p)=>a+(+p.amount||0),0);
   /* CENTANG "DP SUDAH DIBAYAR" (d.dpPaid). Yang dijawabnya: DP hampir selalu
      ditransfer jauh sebelum ada yang sempat mencatatnya sebagai pembayaran di
@@ -4604,7 +4609,7 @@ function eventFinance(ev){
    invoice adalah bohong: angkanya tidak pernah lagi dihitung dari persen itu.
    Persentase hanya disebut kalau nominalnya memang dikosongkan dan angkanya
    BENAR-BENAR datang dari persentase bawaan. */
-function dpLabel(f){ return f && f.dpDariNominal ? 'DP' : ('DP '+((f&&f.dpPct)||0)+'%'); }
+function dpLabel(f){ return 'DP'; }   // persentase DP default sudah dicabut
 
 /* ---------- NOMOR KWITANSI ----------
    Dulu nomor invoice dihitung dari posisi baris (String(1000+i)) sehingga bergeser
@@ -7125,7 +7130,7 @@ function renderEventForm(V,id){
   // finance strip
   h+='<div class="grid g-4" style="margin-bottom:18px">'
    +'<div class="card stat"><div class="sl">Grand Total</div><div class="sv num" style="font-size:24px">'+rpShort(f.grand)+'</div><div class="sd">'+rp(f.grand)+'</div></div>'
-   +'<div class="card stat"><div class="sl">'+dpLabel(f)+'</div><div class="sv num" style="font-size:24px">'+rpShort(f.dp)+'</div><div class="sd">'+(f.paid>=f.dp?'✓ terpenuhi':'belum masuk')+'</div></div>'
+   +'<div class="card stat"><div class="sl">'+dpLabel(f)+'</div><div class="sv num" style="font-size:24px">'+(f.dp?rpShort(f.dp):'—')+'</div><div class="sd">'+(!f.dp?'tidak ditetapkan':(f.paid>=f.dp?'✓ terpenuhi':'belum masuk'))+'</div></div>'
    /* "Sisa" adalah Grand Total dikurangi yang SUDAH dibayar — itu angka yang
       ditanyakan client dan finance, dan sekarang ditulis besar di kartunya
       sendiri alih-alih jadi keterangan kecil di bawah "Terbayar". */
@@ -9970,7 +9975,7 @@ function kirimPenawaran(id){
      dua tombol — unduh PDF-nya, lalu buka WhatsApp untuk melampirkannya. */
   const c=S.clients.find(x=>x.id===ev.clientId)||{}, f=eventFinance(ev);
   const msg='Halo '+(c.pic||c.nama||'')+', berikut surat penawaran untuk *'+ev.nama+'* ('+fmtDate(ev.tanggal)+')'
-    +(f.grand?('.\nGrand Total: '+rp(f.grand)+'\nDP: '+rp(f.dp)+(f.paid?('\nSudah dibayar: '+rp(f.paid)+'\nSisa: '+rp(f.remaining)):'')):'.')
+    +(f.grand?('.\nGrand Total: '+rp(f.grand)+(f.dp?'\nDP: '+rp(f.dp):'')+(f.paid?('\nSudah dibayar: '+rp(f.paid)+'\nSisa: '+rp(f.remaining)):'')):'.')
     +'\n\nSalam, '+ME.name+' — Laksamana Muda ⚓';
   modal('<div class="modal-head"><div><h3>Kirim Surat Penawaran</h3><p>'+esc(ev.nama)+' · '+esc(clientName(ev.clientId))+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
    +'<div class="modal-body">'
@@ -10349,7 +10354,7 @@ function financeTab(ev,canEdit){
      jatuh persis di angka yang benar-benar ditransfer. */
   h+=finBaris('DP / Uang Muka',
       rupiahInputHTML('efd_dpNominal',(d.depositNominal===''||d.depositNominal==null)?'':d.depositNominal,dis),
-      'Kosong = '+(ev.dpPercent||st.dpPercent)+'% dari Grand Total. '
+      'Kosong = tidak ada DP yang ditetapkan (tidak ada lagi DP bawaan %). '
       +'Angka ini masih KETENTUAN penawaran — yang menyatakan uangnya sudah masuk centang di bawah.');
   /* REKENING TUJUAN, TANGGAL & BUKTI TRANSFER (20 September 2026, permintaan
      user). Ketiganya menemani centang "DP sudah dibayar", dan sejak tanggal
@@ -12003,7 +12008,7 @@ function buildBriefDoc(id,mode){
     const vg=venueGallery();
     if(vg.length) body+='<div style="margin-top:16px"><div style="font-family:Georgia,serif;font-weight:700;font-size:13px;margin-bottom:6px">Galeri Venue — Laksamana Muda</div>'+pdfGambar(vg)+'</div>';
     // Syarat & Ketentuan — pakai yang diisi di form Penawaran bila ada.
-    const terms=(pen.terms&&pen.terms.trim())?pen.terms:(dpLabel(f).replace('DP','DP minimum')+' ('+rp(f.dp)+') sebagai konfirmasi reservasi, maks. 3 hari setelah penawaran disetujui — non-refundable.\nPelunasan maksimal H-7 sebelum acara.\nPenambahan hari-H dilunasi hari yang sama.');
+    const terms=(pen.terms&&pen.terms.trim())?pen.terms:(((f.dp&&finPakaiDp(ev))?dpLabel(f).replace('DP','DP minimum')+' ('+rp(f.dp)+') sebagai konfirmasi reservasi, maks. 3 hari setelah penawaran disetujui — non-refundable.\n':'')+'Pelunasan maksimal H-7 sebelum acara.\nPenambahan hari-H dilunasi hari yang sama.');
     body+='<div style="margin-top:16px;font-size:12px;color:#444;line-height:1.75"><div style="font-family:Georgia,serif;font-weight:700;font-size:13px;margin-bottom:6px;color:#1a1a1a">Syarat &amp; Ketentuan</div><div style="white-space:pre-wrap">'+esc(terms)+'</div></div>';
     if(pen.validUntil) body+='<div style="margin-top:8px;font-size:11.5px;color:#B8860B;font-weight:600">Penawaran ini berlaku sampai '+fmtDateLong(pen.validUntil)+'.</div>';
     body+='<div style="font-size:12.5px;line-height:1.75;margin-top:18px">Kami siap mendiskusikan penyesuaian sesuai kebutuhan Anda. Atas perhatian dan kerja samanya, kami ucapkan terima kasih.</div>';
@@ -13960,7 +13965,7 @@ function waInvoice(evId){
     'Halo '+c.nama+', berikut rincian invoice untuk event *'+e.nama+'* ('+fmtDate(e.tanggal)+'):',
     '',
     'Grand Total : '+rp(f.grand),
-    dpLabel(f)+' : '+rp(f.dp),
+  ]).concat(f.dp?[dpLabel(f)+' : '+rp(f.dp)]:[]).concat([
     'Terbayar : '+rp(f.paid),
     'Sisa tagihan : '+rp(f.remaining),
     '',
@@ -18903,7 +18908,7 @@ function renderNotifications(V){
     '<button class="btn sm" onclick="markAllRead()">Tandai semua dibaca</button>');
   // live reminders
   const live=[];
-  S.events.filter(e=>['Confirmed','Deal'].includes(e.status)&&eventFinance(e).paid===0).forEach(e=>live.push({type:'dp',title:'DP belum masuk',body:e.nama+' — DP '+rpShort(eventFinance(e).dp)+' belum diverifikasi.',link:'#event/'+e.id}));
+  S.events.filter(e=>['Confirmed','Deal'].includes(e.status)&&eventFinance(e).paid===0).forEach(e=>live.push({type:'dp',title:'DP belum masuk',body:e.nama+(eventFinance(e).dp?' — DP '+rpShort(eventFinance(e).dp):' — belum ada pembayaran')+' belum diverifikasi.',link:'#event/'+e.id}));
   S.events.filter(e=>{const d=daysTo(e.tanggal);return ['Confirmed','Deal'].includes(e.status)&&d>=0&&d<=7;}).forEach(e=>{const d=daysTo(e.tanggal);live.push({type:'event',title:'Event '+(d===0?'HARI INI':'H-'+d),body:e.nama+' · cek kesiapan divisi ('+taskProgress(e)+'%).',link:'#event/'+e.id});});
   S.events.filter(e=>isOpenEvent(e)&&e.nextFU===today()).forEach(e=>live.push({type:'fu',title:'Follow up hari ini',body:e.nama+' · '+clientName(e.clientId),link:'#pipeline'}));
   S.clients.filter(c=>c.nextFU===today()&&!clientOpenEvents(c.id).length).forEach(c=>live.push({type:'fu',title:'Follow up (nurture)',body:c.nama,link:'#pipeline'}));
@@ -20347,7 +20352,6 @@ function renderSettings(V){
   const txt=(id,val)=>'<input class="inp" id="'+id+'" value="'+esc(val==null?'':val)+'">';
   h+='<div class="card pad0"><div style="padding:16px 20px;border-bottom:1px solid var(--line-soft)"><h3 style="font-size:15px">Aturan Bisnis & Tarif</h3><div class="cell-sub" style="margin-top:2px">Angka bisa dikalibrasi ulang setelah 2–3 bulan data aktual.</div></div>'
    +'<div class="tbl-wrap"><table class="tbl set-tbl"><thead><tr><th>Pengaturan</th><th>Nilai</th><th>Keterangan</th></tr></thead><tbody>'
-   +setRow('DP Default (%)',num('set_dp',st.dpPercent),'Cadangan saja. DP tiap event sekarang diisi NOMINAL rupiah di tab Finance; persentase ini hanya dipakai kalau nominalnya dikosongkan.')
    +setRow('PB1 / Pajak (%)',num('set_pb1',st.pb1),'Dihitung dari subtotal setelah diskon + service charge.')
    +setRow('Service Charge (%)',num('set_service',st.serviceCharge),'Dihitung dari subtotal setelah diskon.')
    +setRow('Target Follow Up / Hari',num('set_fu',st.fuTarget),'Dipakai di Dashboard & Sales Pipeline untuk mengukur target harian marketing.')
@@ -20406,7 +20410,7 @@ function saveSettings(){
   // discountThreshold DIBUANG bersama approval berbasis ambang diskon. Kotaknya
   // sudah tidak ada di halaman ini — membacanya berarti `null.value` dan
   // seluruh Simpan Pengaturan gagal tanpa pesan.
-  Object.assign(S.settings,{dpPercent:+$('set_dp').value,pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,
+  Object.assign(S.settings,{pb1:+$('set_pb1').value,serviceCharge:+$('set_service').value,fuTarget:+$('set_fu').value,kwPrefix:$('set_kw').value,waBooking:$('set_wa').value,fuNextDays:+$('set_funext').value||3,
     freeTemplate:($('set_free')?$('set_free').value:(S.settings.freeTemplate||''))});
   // S.baseline TIDAK dibaca lagi: kotaknya sudah tidak ada di halaman ini, dan
   // membacanya berarti `null.value` — persis kegagalan diam yang sudah pernah
@@ -20430,9 +20434,7 @@ async function boot(){
   ['users','staff','clients','events','followups','activities','notifs','approvals','taskTemplates','taskCategories'].forEach(k=>{ if(!Array.isArray(S[k])) S[k]=[]; });
   // setting baru mungkin belum ada di data lama -> isi dari default
   S.settings = Object.assign({}, DEFAULT_SETTINGS, S.settings||{});
-  // Migrasi sekali jalan: DP standar kini 50% (dari sebelumnya 30%). Setelah ini
-  // masih bisa diubah manual di Pengaturan; flag mencegah pemaksaan berulang.
-  if(!S.settings._dp50){ S.settings.dpPercent=50; S.settings._dp50=true; }
+  // (Migrasi DP 50% dicabut 26 Oktober 2026 bersama setelan DP Default.)
   // Migrasi sekali jalan: buang user contoh bawaan seed lama ('u_nahkoda').
   // Identitas asli hanya datang dari Office, jadi user dummy ini menyesatkan.
   if(S.users.some(u=>u.id==='u_nahkoda')){
