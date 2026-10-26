@@ -32,9 +32,10 @@ const SEED = {
   tasks:[
     {id:'dA',name:'Cek stok bar',div:'Business Development',pics:['p1'],status:'To Do',daily:true,ulang:'harian',deadline:iso(0),updatedAt:now},
     {id:'tP0',name:'Laporan vendor',div:'Business Development',pics:['p2'],status:'Done',doneAt:iso(-7),project:'pj1',ulang:'mingguan',deadline:iso(-7),updatedAt:now},
-    {id:'tP1',name:'Laporan vendor',div:'Business Development',pics:['p2'],status:'To Do',project:'pj1',ulang:'mingguan',ulangDari:'tP0',deadline:iso(-1),updatedAt:now},
+    {id:'tP1',name:'Laporan vendor',div:'Business Development',pics:['p2'],status:'Doing',project:'pj1',ulang:'mingguan',ulangDari:'tP0',deadline:iso(-1),start:iso(-3),subtasks:[{id:'s1',t:'Kirim',done:true,d:iso(-2)}],updatedAt:now},
     {id:'dS',name:'Audit bulanan',div:'Business Development',pics:['p1'],status:'To Do',daily:true,ulang:'',ulangBerhenti:{u:'bulanan',at:now,by:'X'},deadline:iso(5),updatedAt:now},
-    {id:'dC',name:'Bersih gudang',div:'Business Development',pics:['p1'],status:'Doing',daily:true,deadline:iso(1),updatedAt:now}
+    {id:'dC',name:'Bersih gudang',div:'Business Development',pics:['p1'],status:'Doing',daily:true,deadline:iso(1),updatedAt:now},
+    {id:'dL',name:'Telat biasa',div:'Business Development',pics:['p1'],status:'To Do',daily:true,deadline:iso(-4),updatedAt:now}
   ],
   routines:[],coord:[],po:[],agenda:[],pr:[],focus:{},approverSets:[],promos:[]
 };
@@ -66,6 +67,17 @@ const v = () => D.getElementById('view');
   for(let i=0;i<100 && !(W.__uji && W.__uji.DB);i++) await tunggu(50);
   cek(!!(W.__uji && W.__uji.DB), 'modul boot');
   await tunggu(200);
+  // --- maju sendiri tanpa Done (26 Okt 2026) ---
+  const P1=T('tP1');
+  cek(P1.deadline===iso(6), 'task mingguan yang lewat 1 hari maju sendiri ke +6 hari (task yang sama)');
+  cek(P1.status==='To Do' && P1.subtasks[0].done===false, 'periode baru mulai dari nol: To Do, sub-task tidak dicentang');
+  cek(P1.start===iso(4) && P1.subtasks[0].d===iso(5), 'mulai & deadline sub-task ikut bergeser 7 hari');
+  cek(Array.isArray(P1.terlewat) && P1.terlewat[0].d===iso(-1) && P1.terlewat[0].sub==='1/1', 'yang terlewat dicatat berikut sub-task-nya');
+  cek(anak('tP1').length===0, 'tidak melahirkan task baru');
+  cek(T('tP0').deadline===iso(-7), 'yang sudah Done tidak digeser');
+  cek(T('dL').deadline===iso(-4), 'task telat yang TIDAK berulang tidak digeser');
+  await tunggu(1200);
+  cek(kiriman.some(k=>JSON.stringify(k).indexOf(iso(6))>-1), 'pergeserannya dikirim ke server lewat saveAll');
   cek(D.getElementById('nav').innerHTML.indexOf("APP.go('recurring')")>-1, 'menu Recurring Task ada');
   cek(W.__uji.view==='recurring', 'alamat #recurring membuka Recurring Task');
   let isi=v().textContent;
@@ -76,6 +88,18 @@ const v = () => D.getElementById('view');
   const baris=[...v().querySelectorAll('tbody tr')].find(r=>/Laporan vendor/.test(r.textContent));
   cek(baris && /1×/.test(baris.textContent), 'jumlah kejadian selesai dihitung dari rantai');
   cek(/Grand Opening/.test(baris.textContent), 'tempat menyebut project');
+  cek(/terlewat 1×/.test(baris.textContent), 'menu Recurring menyebut berapa kali terlewat');
+  // --- tombol ✓ Selesai di baris Recurring (26 Okt 2026) ---
+  const tbSel=[...baris.querySelectorAll('button')].find(b=>/Selesai/.test(b.textContent));
+  cek(!!tbSel, 'baris seri yang berjalan punya tombol ✓ Selesai');
+  if(tbSel) tbSel.click();
+  cek(T('tP1').status==='Done' && !!T('tP1').doneAt, 'tombol Selesai menandai kejadian berjalan Done');
+  cek(anak('tP1').length===1 && anak('tP1')[0].status==='To Do', 'kejadian berikutnya lahir (lahirkanUlang ikut)');
+  cek(W.__uji.view==='recurring', 'menekan tombol tidak membuka modal / pindah halaman');
+  const baris2=[...v().querySelectorAll('tbody tr')].find(r=>/Laporan vendor/.test(r.textContent));
+  cek(baris2 && /2×/.test(baris2.textContent), 'baris seri kini menghitung 2× selesai, satu baris saja');
+  W.APP.selesaiUlang('tP1');
+  cek(T('tP1').status==='Done' && anak('tP1').length===1, 'selesaiUlang pada yang sudah Done tidak membukanya lagi');
   W.APP.setRecurring('henti'); isi=v().textContent;
   cek(/Audit bulanan/.test(isi) && /Setiap bulan/.test(isi), 'tab Dihentikan memuat seri + pola lamanya');
   W.APP.lanjutkanUlang('dS');
