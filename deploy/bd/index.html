@@ -947,9 +947,19 @@ function sisaHari(iso){if(!iso)return 9999;var a=pDate(iso);a.setHours(0,0,0,0);
 function fTgl(iso){if(!iso)return '—';var d=pDate(iso);return d.getDate()+' '+BLN[d.getMonth()];}
 function fTglPanjang(iso){if(!iso)return '—';var d=pDate(iso);
   return HARI[d.getDay()]+', '+d.getDate()+' '+BULAN[d.getMonth()]+' '+d.getFullYear();}
-function fDue(iso){if(!iso)return '';var n=sisaHari(iso);
+/* Jarak ke deadline SELALU disertai tanggalnya (permintaan user 26 Okt 2026):
+   "6h lagi" saja memaksa orang menghitung sendiri tanggal berapa itu. Yang
+   lebih dari seminggu memang sudah cuma tanggal. */
+/* "Sab, 1 Nov 2026" — tanggal lengkap untuk kolom Deadline. */
+function fTglHari(iso){if(!iso)return '—';var d=pDate(iso);
+  return ['Min','Sen','Sel','Rab','Kam','Jum','Sab'][d.getDay()]+', '+d.getDate()+' '+BLN[d.getMonth()]+' '+d.getFullYear();}
+/* Jaraknya saja, tanpa tanggal — dipakai di bawah tanggal yang sudah ditulis. */
+function fJarak(iso){if(!iso)return '';var n=sisaHari(iso);
   if(n===0)return 'Hari ini'; if(n===1)return 'Besok'; if(n===-1)return 'Kemarin';
-  if(n<0)return Math.abs(n)+'h lewat'; if(n<=7)return n+'h lagi'; return fTgl(iso);}
+  return n<0?Math.abs(n)+' hari lewat':n+' hari lagi';}
+function fDue(iso){if(!iso)return '';var n=sisaHari(iso), tg=' · '+fTgl(iso);
+  if(n===0)return 'Hari ini'+tg; if(n===1)return 'Besok'+tg; if(n===-1)return 'Kemarin'+tg;
+  if(n<0)return Math.abs(n)+'h lewat'+tg; if(n<=7)return n+'h lagi'+tg; return fTgl(iso);}
 function fRp(n){n=+n||0;var s=n<0?'-':'';n=Math.abs(n);
   if(n>=1e9)return s+'Rp '+(n/1e9).toFixed(n>=1e10?1:2).replace(/\.?0+$/,'')+' M';
   if(n>=1e6)return s+'Rp '+Math.round(n/1e6)+' jt';
@@ -3077,15 +3087,21 @@ function vRecurring(){
   var l=(rArsip==='henti'?henti:aktif).slice().sort(function(a,b){ return urutDeadline(a.head,b.head); });
   if(!l.length)
     return h+'<div class="card"><div class="card-b">'+kosong(rArsip==='henti'?'Tidak ada seri yang dihentikan':'Tidak ada seri aktif','')+'</div></div>';
-  h+='<div class="tw"><table><thead><tr><th>Task</th><th>Pola</th><th>Kejadian berjalan</th><th>PIC</th><th>Tempat</th>'+
+  h+='<div class="tw"><table><thead><tr><th>Task</th><th>Pola</th><th>Deadline</th><th>Status</th><th>PIC</th><th>Tempat</th>'+
     '<th>Sudah selesai</th><th></th></tr></thead><tbody>'+
     l.map(function(x){
       var t=x.head, berjalan=!selesai(t);
       return '<tr class="clk" onclick="APP.taskModal(\''+t.id+'\')">'+
         '<td><span class="nm">'+esc(t.name)+'</span>'+(tagsOf(t).length?'<div class="mut" style="font-size:11px">'+esc(tagsOf(t).join(', '))+'</div>':'')+'</td>'+
         '<td><span class="tag">🔁 '+esc(labelUlang(x.pola)||x.pola)+'</span></td>'+
-        '<td>'+(berjalan?(t.deadline?'<span class="tag'+(lewat(t)?' overdue':'')+'">'+fDue(t.deadline)+'</span>':'<span class="mut">tanpa deadline</span>')+
-          '<div class="mut" style="font-size:11px">'+esc(t.status)+'</div>':'<span class="mut">Done'+(t.doneAt?' · '+fTgl(t.doneAt):'')+'</span>')+'</td>'+
+        /* Deadline jadi kolom SENDIRI (permintaan user 26 Okt 2026: "kolom
+           tanggalnya lebih jelas"): tanggal lengkap berhari tebal di atas, jaraknya
+           kecil di bawah. Status dipisah supaya tidak berdesakan di sel yang sama. */
+        '<td style="white-space:nowrap">'+(berjalan&&t.deadline
+          ?'<div style="font-weight:700'+(lewat(t)?';color:var(--danger)':'')+'">'+fTglHari(t.deadline)+'</div>'+
+           '<span class="tag'+(lewat(t)?' overdue':'')+'" style="margin-top:3px">'+fJarak(t.deadline)+'</span>'
+          :(berjalan?'<span class="mut">tanpa deadline</span>':'<span class="mut">'+(t.deadline?fTglHari(t.deadline):'—')+'</span>'))+'</td>'+
+        '<td>'+(berjalan?esc(t.status):'<span class="mut">Done'+(t.doneAt?' · '+fTgl(t.doneAt):'')+'</span>')+'</td>'+
         '<td>'+avStack(pics(t))+'</td>'+
         '<td>'+tempatTask(t)+'</td>'+
         '<td><span class="num">'+x.nSelesai+'×</span>'+(x.terakhir?'<div class="mut" style="font-size:11px">terakhir '+fTgl(x.terakhir)+'</div>':'')+

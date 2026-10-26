@@ -89,6 +89,12 @@ const v = () => D.getElementById('view');
   cek(baris && /1×/.test(baris.textContent), 'jumlah kejadian selesai dihitung dari rantai');
   cek(/Grand Opening/.test(baris.textContent), 'tempat menyebut project');
   cek(/terlewat 1×/.test(baris.textContent), 'menu Recurring menyebut berapa kali terlewat');
+  // --- kolom Deadline: tanggal lengkap + jaraknya (26 Okt 2026) ---
+  const dl6=new Date(); dl6.setDate(dl6.getDate()+6);
+  const teks6=['Min','Sen','Sel','Rab','Kam','Jum','Sab'][dl6.getDay()]+', '+dl6.getDate()+' ';
+  cek(baris.textContent.indexOf(teks6)>-1 && baris.textContent.indexOf(String(dl6.getFullYear()))>-1, 'kolom Deadline menulis tanggal lengkap berhari & bertahun');
+  cek(/6 hari lagi/.test(baris.textContent), 'jaraknya tetap ditulis di bawah tanggal');
+  cek(/<th>Deadline<\/th><th>Status<\/th>/.test(v().innerHTML), 'Deadline & Status dua kolom terpisah');
   // --- tombol ✓ Selesai di baris Recurring (26 Okt 2026) ---
   const tbSel=[...baris.querySelectorAll('button')].find(b=>/Selesai/.test(b.textContent));
   cek(!!tbSel, 'baris seri yang berjalan punya tombol ✓ Selesai');

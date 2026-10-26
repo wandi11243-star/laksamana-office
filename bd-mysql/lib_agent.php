@@ -156,6 +156,16 @@ function agent_orang($peopleId, $people, $roster) {
   );
 }
 
+/* "2026-11-01" -> "Min, 1 Nov 2026" — siap ditempel ke pesan WhatsApp, supaya
+   agent tidak perlu memformat sendiri (dan tidak salah zona). */
+function agent_tgl_teks($d) {
+  if (!agent_tgl_sah($d)) return '';
+  $hari = array('Min','Sen','Sel','Rab','Kam','Jum','Sab');
+  $bln  = array('Jan','Feb','Mar','Apr','Mei','Jun','Jul','Ags','Sep','Okt','Nov','Des');
+  $p = explode('-', $d);
+  $w = (int)gmdate('w', gmmktime(0, 0, 0, (int)$p[1], (int)$p[2], (int)$p[0]));
+  return $hari[$w] . ', ' . (int)$p[2] . ' ' . $bln[(int)$p[1] - 1] . ' ' . $p[0];
+}
 function agent_tgl_sah($d) { return is_string($d) && preg_match('/^\d{4}-\d{2}-\d{2}$/', $d); }
 
 /* ==================== agentTugas ====================
@@ -201,6 +211,7 @@ function agent_tugas($body) {
       'nama'      => isset($t['name']) ? $t['name'] : '',
       'deskripsi' => isset($t['desc']) ? $t['desc'] : '',
       'deadline'  => $dl,
+      'deadlineTeks' => agent_tgl_teks($dl),
       'lewatHari' => max(0, (int)round((strtotime($hariIni) - strtotime($dl)) / 86400)),
       'status'    => isset($t['status']) ? $t['status'] : '',
       'divisi'    => isset($t['div']) ? $t['div'] : '',
