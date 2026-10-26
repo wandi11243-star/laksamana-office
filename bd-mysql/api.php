@@ -18,6 +18,9 @@
  *                        merekonsiliasi dan menghapus baris yang tidak ikut
  *                        di kiriman, sementara modul lain tidak pernah
  *                        memegang state BD seutuhnya.
+ *   POST {action:"agentTugas"|"agentSelesai"|"agentCatat", agentToken, …}
+ *                        Pintu AI agent untuk reminder lewat chat — lihat
+ *                        lib_agent.php. Mati selama AGENT_TOKEN belum diisi.
  ************************************************************************/
 
 require __DIR__ . '/lib_bd_mysql.php';
@@ -78,6 +81,18 @@ try {
     try { $out = set_realisasi(isset($body['id']) ? $body['id'] : '',
                                array_key_exists('realisasi', $body) ? $body['realisasi'] : '',
                                isset($body['oleh']) ? $body['oleh'] : ''); }
+    finally { db_unlock($lock); }
+    keluar(array('ok' => true, 'data' => $out));
+
+  } else if ($action === 'agentTugas' || $action === 'agentSelesai' || $action === 'agentCatat') {
+    /* Pintu AI agent (reminder lewat chat). Tokennya SENDIRI (AGENT_TOKEN),
+       dan tertutup kalau belum disetel — penjelasannya di lib_agent.php. */
+    if ($method !== 'POST') keluar(array('ok' => false, 'error' => 'Aksi agent wajib POST (token tidak boleh di URL).'));
+    require_once __DIR__ . '/lib_agent.php';
+    agent_wajib_token($body);
+    if ($action === 'agentTugas') keluar(array('ok' => true, 'data' => agent_tugas($body)));
+    $lock = db_lock();
+    try { $out = $action === 'agentSelesai' ? agent_selesai($body) : agent_catat($body); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
 

@@ -2014,6 +2014,19 @@ function avStack(daftar){
     tampil.map(function(id){return '<span class="av">'+esc(inisial(P(id).name))+'</span>';}).join('')+
     (sisa?'<span class="av more">+'+sisa+'</span>':'')+'</span>';
 }
+/* Balasan lewat chat yang dicatat AI agent (agentSelesai / agentCatat).
+   Dibaca saja: yang menulisnya server, dan baris kosong tidak digambar. */
+function agentLogHtml(t){
+  var l=t&&Array.isArray(t.agentLog)?t.agentLog:[];
+  if(!l.length) return '';
+  return '<div class="field"><label>Balasan lewat chat</label><div style="font-size:12.5px;line-height:1.5">'+
+    l.slice().reverse().map(function(x){
+      var w=x.at?new Date(x.at):null;
+      return '<div style="padding:4px 0;border-bottom:1px solid var(--line,#eee)">'+(x.jenis==='selesai'?'✅ Ditandai selesai':'💬 Catatan')+
+        ' · <b>'+esc(x.oleh||'?')+'</b>'+(w?' · '+esc(fTgl(isoOf(w)))+' '+String(w.getHours()).padStart(2,'0')+':'+String(w.getMinutes()).padStart(2,'0'):'')+
+        (x.teks?'<div class="muted">'+esc(x.teks)+'</div>':'')+'</div>';
+    }).join('')+'</div></div>';
+}
 function taskModal(id){
   var t=id?DB.tasks.find(function(x){return x.id===id;}):null;
   if(id&&!t) return;
@@ -2031,7 +2044,7 @@ function taskModal(id){
       '<button class="x" onclick="closeModal()">'+ic('x')+'</button></div>'+
     '<div class="modal-b">'+
       '<div class="field"><label>Nama task</label><input id="m_name" value="'+esc(t.name)+'" placeholder="Apa yang harus dikerjakan?"></div>'+
-      '<div class="field"><label>Deskripsi</label><textarea id="m_desc" placeholder="Detail / catatan…">'+esc(t.desc)+'</textarea></div>'+
+      '<div class="field"><label>Deskripsi</label><textarea id="m_desc" placeholder="Detail / catatan…">'+esc(t.desc)+'</textarea></div>'+agentLogHtml(t)+
       '<div class="field"><label>Divisi</label><select id="m_div">'+
         OWNER_DIVS.map(function(d){return '<option'+(t.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
       '<div class="field"><label>PIC — boleh lebih dari satu</label>'+picPicker('m_pics',pics(t))+'</div>'+
@@ -2879,11 +2892,11 @@ function deadlineBerikut(t){
   while(n<T && aman++<400) n=langkahUlang(n,t.ulang);
   return n;
 }
-function lahirkanUlang(t){
+function lahirkanUlang(t,idTetap){
   if(!t||!t.ulang||!labelUlang(t.ulang)||!gSah(t.deadline)) return null;
   if(DB.tasks.some(function(x){return x.ulangDari===t.id;})) return null;
   var nd=deadlineBerikut(t), geser=gDiff(t.deadline,nd);
-  var b={id:uid('t'),name:t.name,desc:t.desc||'',div:t.div,status:'To Do',priority:t.priority||'Medium',
+  var b={id:idTetap||uid('t'),name:t.name,desc:t.desc||'',div:t.div,status:'To Do',priority:t.priority||'Medium',
     deadline:nd,important:!!t.important,urgent:!!t.urgent,type:t.type||'Ad-hoc',project:t.project||null,
     ulang:t.ulang,ulangDari:t.id,progress:0,dependsOn:[],
     subtasks:subs(t).map(function(x){ var o={id:uid('s'),t:x.t,done:false}; if(gSah(x.d)) o.d=gAdd(x.d,geser); return o; })};
@@ -2935,10 +2948,31 @@ function gulirUlang(){
   });
   return n;
 }
-function terapkanGulir(){
-  var n=gulirUlang();
-  if(n){ save(); setTimeout(function(){ toast('🔁 '+n+' task berulang maju ke jadwal berikutnya'); },80); }
+/* ---- penerus task yang ditutup AI AGENT (26 Okt 2026) ----
+   agentSelesai di bd-mysql/lib_agent.php menandai Done di SERVER tanpa
+   melewati segarkanProgress(), jadi kejadian berikutnya belum lahir. Server
+   cuma memasang penanda penerusTertunda; yang melahirkannya di sini, dengan
+   aturan lahirkanUlang() yang SAMA (bukan salinannya di PHP).
+   - Id penerusnya TETAP (id+'_u'): dua tab yang memungutnya bersamaan
+     menulis baris yang sama, bukan dua task kembar.
+   - Penandanya dicabut walau tidak ada yang dilahirkan (sudah punya penerus,
+     atau berulangnya keburu dihentikan) — kalau tidak ia dipungut selamanya. */
+function lahirkanTertunda(){
+  var n=0;
+  DB.tasks.slice().forEach(function(t){
+    if(!t||!t.penerusTertunda) return;
+    delete t.penerusTertunda;
+    if(selesai(t) && lahirkanUlang(t,t.id+'_u')) n++;
+  });
   return n;
+}
+function terapkanGulir(){
+  var lahir=(DB.tasks||[]).some(function(t){return t&&t.penerusTertunda;}) ? lahirkanTertunda() : -1;
+  var n=gulirUlang();
+  if(n||lahir>-1) save();
+  if(n) setTimeout(function(){ toast('🔁 '+n+' task berulang maju ke jadwal berikutnya'); },80);
+  if(lahir>0) setTimeout(function(){ toast('🔁 '+lahir+' task berulang yang diselesaikan lewat chat sudah dijadwalkan lagi'); },120);
+  return n+(lahir>0?lahir:0);
 }
 var dMode='list', dArsip='aktif';
 function dailyTasks(){ return tasksTerlihat().filter(function(t){return t.daily;}).filter(cocokPic); }

@@ -52,3 +52,9 @@ define('ENV_LABEL', 'produksi');   // dev: 'dev'
 
 // Kosongkan = terbuka. Kalau diisi, request wajib menyertakan ?token=... sama.
 define('API_TOKEN', '');
+
+/* Token AI agent (reminder task lewat WhatsApp, lihat lib_agent.php).
+   KOSONG = aksi agentTugas/agentSelesai/agentCatat DITOLAK seluruhnya.
+   Isi dengan string acak minimal 24 karakter, BEDA antara dev & produksi,
+   lalu pakai nilai yang sama di agent VPS. */
+define('AGENT_TOKEN', '');
