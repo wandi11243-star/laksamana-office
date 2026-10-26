@@ -11098,7 +11098,7 @@ async function savePayment(id,paymentId){
   const f=eventFinance(ev);
   save(); closeModal();
   toast(existing?'Pembayaran diperbarui':'Pembayaran tercatat',p.no+' · '+(f.remaining<=0?'Lunas! ⚓':'Sisa '+rp(f.remaining)),'ok');
-  curTab='finance'; go('event',id); // mendarat di tab Finance: daftar pembayaran & kwitansi ada di sana
+  pulangSesudahBayar(id); // dari Invoice & Payment tetap di sana; selain itu ke tab Finance event
 }
 function deletePayment(id,paymentId){
   if(!(can('verify_payment')||ME.role==='super_admin'))return toast('Akses ditolak','Kamu tidak punya izin menghapus pembayaran.','err');
@@ -11116,7 +11116,28 @@ function deletePayment(id,paymentId){
   logAct('event',id,'Pembayaran dihapus',(p.no||'')+' · '+p.type+' '+rp(p.amount));
   save();
   toast('Pembayaran dihapus','Sisa sekarang '+rp(eventFinance(ev).remaining),'ok');
+  pulangSesudahBayar(id);
+}
+/* Ke mana layar kembali sesudah pembayaran dicatat, diedit, atau dihapus.
+   Dari halaman Invoice & Payment (26 Oktober 2026, permintaan user: edit &
+   hapus pembayaran langsung dari kolom Aksi) orang sedang menyisir daftar —
+   melemparnya ke halaman event membuang tab, pencarian, dan halaman tabel
+   yang sedang dibuka. Dari tempat lain tetap ke tab Finance event-nya. */
+function pulangSesudahBayar(id){
+  if(location.hash.slice(1).split('/')[0]==='invoices'){ closeModal(); go('invoices'); return; }
   curTab='finance'; go('event',id);
+}
+/* Daftar pembayaran satu event dalam modal, dibuka dari kolom Aksi Invoice &
+   Payment. Isinya paymentHistoryHtml() yang SAMA dengan tab Finance — tombol
+   edit & hapusnya memanggil addPayment()/deletePayment() yang sama, jadi
+   aturan izin, nomor kwitansi, dan centang DP tetap satu tempat. */
+function invBayarModal(id){
+  const ev=S.events.find(e=>e.id===id); if(!ev)return;
+  const f=eventFinance(ev);
+  modal('<div class="modal-head"><div><h3>Pembayaran</h3><p>'+esc(clientName(ev.clientId))+' · '+esc(ev.nama)+'</p></div><div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div>'
+    +'<div class="modal-body"><div class="cell-sub">Grand Total '+rp(f.grand)+' · Terbayar '+rp(f.paid)+' · Sisa '+rp(f.remaining)+'</div>'
+    +paymentHistoryHtml(ev)+'</div>'
+    +'<div class="modal-foot"><button class="btn" onclick="closeModal()">Tutup</button></div>');
 }
 
 /* ============================================================
@@ -13413,7 +13434,12 @@ function invTabelHtml(){
 
         Yang tersisa Catat Pembayaran: dari sinilah alur pelunasan dimulai,
         dan permintaan invoice pelunasan menunggu barisnya tercatat dulu. */
-     +'<td><div class="aksi-1baris">'+(((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0)?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')+'</div></td></tr>';
+     +'<td><div class="aksi-1baris">'+(((can('verify_payment')||ME.role==='super_admin')&&f.remaining>0)?'<button class="btn sm pri" title="Catat pembayaran" onclick="addPayment(\''+e.id+'\')">'+svg(IC.money)+'</button>':'')
+       /* Edit & hapus pembayaran (26 Oktober 2026, permintaan user) — untuk angka
+          yang salah masuk. Satu tombol yang membuka daftar pembayarannya, bukan
+          dua ikon per pembayaran: satu event bisa punya beberapa pembayaran. */
+       +(((can('verify_payment')||ME.role==='super_admin')&&(e.payments||[]).length)?'<button class="btn sm" title="Edit / hapus pembayaran" onclick="invBayarModal(\''+e.id+'\')">'+svg(IC.edit)+'</button>':'')
+       +'</div></td></tr>';
   });
   h+='</tbody></table></div>'+tblPagerHtml(pInv,'invoices')+'</div>';
   return h;
