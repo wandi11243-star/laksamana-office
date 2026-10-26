@@ -89,6 +89,17 @@ const v = () => D.getElementById('view');
   cek(baris && /1×/.test(baris.textContent), 'jumlah kejadian selesai dihitung dari rantai');
   cek(/Grand Opening/.test(baris.textContent), 'tempat menyebut project');
   cek(/terlewat 1×/.test(baris.textContent), 'menu Recurring menyebut berapa kali terlewat');
+  // --- tombol ✓ Selesai di baris Recurring (26 Okt 2026) ---
+  const tbSel=[...baris.querySelectorAll('button')].find(b=>/Selesai/.test(b.textContent));
+  cek(!!tbSel, 'baris seri yang berjalan punya tombol ✓ Selesai');
+  if(tbSel) tbSel.click();
+  cek(T('tP1').status==='Done' && !!T('tP1').doneAt, 'tombol Selesai menandai kejadian berjalan Done');
+  cek(anak('tP1').length===1 && anak('tP1')[0].status==='To Do', 'kejadian berikutnya lahir (lahirkanUlang ikut)');
+  cek(W.__uji.view==='recurring', 'menekan tombol tidak membuka modal / pindah halaman');
+  const baris2=[...v().querySelectorAll('tbody tr')].find(r=>/Laporan vendor/.test(r.textContent));
+  cek(baris2 && /2×/.test(baris2.textContent), 'baris seri kini menghitung 2× selesai, satu baris saja');
+  W.APP.selesaiUlang('tP1');
+  cek(T('tP1').status==='Done' && anak('tP1').length===1, 'selesaiUlang pada yang sudah Done tidak membukanya lagi');
   W.APP.setRecurring('henti'); isi=v().textContent;
   cek(/Audit bulanan/.test(isi) && /Setiap bulan/.test(isi), 'tab Dihentikan memuat seri + pola lamanya');
   W.APP.lanjutkanUlang('dS');
