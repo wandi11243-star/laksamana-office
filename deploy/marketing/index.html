@@ -13904,7 +13904,11 @@ function invoiceMktDoc(ev,jenis,inv){
   const pen=(resmi&&Array.isArray(inv.penanda)&&inv.penanda.length)
     ? inv.penanda
     : [{nama:'',jabatan:'Direktur',ttd:''},{nama:'',jabatan:'Finance',ttd:''}];
-  const cap=resmi?(inv.cap||''):'';
+  /* CAP (stempel LUNAS) HANYA KALAU BUKTI BAYARNYA ADA (26 Oktober 2026,
+     permintaan user). Lembar bercap terbaca client sebagai tanda uangnya
+     sudah diterima; mencapnya sebelum ada satu pun bukti transfer berarti
+     menyatakan lunas untuk uang yang belum terbukti masuk. */
+  const cap=(resmi&&invAdaBukti(ev,jenis))?(inv.cap||''):'';
   h+='<div style="display:flex;justify-content:flex-end;gap:26px;margin-top:26px;font-size:12px">'
     +pen.map(function(p,i){
       return '<div style="text-align:center;min-width:180px;position:relative">'
@@ -13940,9 +13944,33 @@ async function invoiceMktPDF(evId,jenis){
     +'<h3 style="margin-top:5px">'+esc(ev.nama)+'</h3></div><div class="pill-row">'
     +'<button class="btn sm pri" onclick="printBrief()">'+svg(IC.print)+'Print / PDF</button>'
     +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div></div>'
+    /* Kenapa capnya tidak ada DIKATAKAN di layar (bukan di lembarnya — lembar
+       ini dibaca client). Tanpa itu, cap yang hilang terbaca sebagai Finance
+       lupa menempelkannya. */
+    +((inv&&inv.ada&&inv.cap&&!invAdaBukti(ev,jenis))
+      ?'<div class="tbl-note" style="margin:0 0 10px">'+svg(IC.alert)+'<span><b>Cap LUNAS tidak ditempel</b> karena '
+        +(jenis==='INV_LUNAS'?'pembayaran pelunasannya':'pembayaran DP-nya')+' belum punya bukti transfer. '
+        +'Unggah buktinya lewat Edit pembayaran di tab Finance — begitu ada, capnya muncul di lembar ini.</span></div>':'')
     +'<div class="modal-body" id="brief-body" style="background:#fff;border-radius:12px;padding:0;max-height:70vh">'
     +window._printDoc+'</div>');
   $('modal').classList.add('wide');
+}
+/* Bukti bayar untuk lembar invoice — penentu satu-satunya apakah cap LUNAS
+   boleh ditempel.
+     DP        : ada pembayaran berjenis DP yang punya bukti transfer (kalau
+                 tidak satu pun berjenis DP, pembayaran apa pun yang berbukti).
+     Pelunasan : pembayaran berjenis Pelunasan yang berbukti; kalau tidak ada
+                 baris Pelunasan, SELURUH pembayaran wajib berbukti. */
+function invAdaBukti(ev,jenis){
+  const p=(ev&&ev.payments)||[];
+  const bukti=x=>!!(x&&x.receiptUrl);
+  if(jenis==='INV_LUNAS'){
+    const pl=p.filter(x=>String(x.type||'')==='Pelunasan');
+    if(pl.length) return pl.some(bukti);
+    return p.length>0 && p.every(bukti);
+  }
+  const dp=p.filter(x=>String(x.type||'')==='DP');
+  return (dp.length?dp:p).some(bukti);
 }
 /* Argumen `invNo` DIBUANG (21 Agustus 2026). Nomornya dulu dikirim dari
    pemanggil sebagai nomor internal; sekarang satu-satunya nomor invoice
