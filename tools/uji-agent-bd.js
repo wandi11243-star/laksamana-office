@@ -51,6 +51,9 @@ cek(/`status` = :st/.test(badan('agent_tulis_task')) && /`updated_at` = :ts/.tes
 cek(/time\(\) \+ 7 \* 3600/.test(badan('agent_hari_ini')), 'hari ini dihitung WIB');
 cek(/'status'\] === 'Done'\) continue/.test(badan('agent_tugas')), 'agentTugas tidak memulangkan task yang sudah Done');
 cek(!/'pin'|PIN/.test(lib), 'tidak menyentuh PIN');
+const lbl=badan('agent_label_ulang');
+cek(lib.indexOf("'berulangTeks' => agent_label_ulang(")>-1 && /bulanan_ke/.test(lbl) && /'x:'/.test(lbl) && /'d:'/.test(lbl), 'agentTugas mengirim pola berulang dalam kata-kata (preset baru & kustom)');
+cek(lbl.indexOf('strtotime(')<0, 'hari dihitung tanpa zona server (gmmktime)');
 
 /* ---------------- 1. frontend ---------------- */
 if(!JSDOM_MOD){ console.log('LEWAT frontend (jsdom tidak ada)'); selesai(); }

@@ -808,7 +808,13 @@ node tools/uji-sync-status-bd.js      #  9 pemeriksaan
 **Putaran kedelapan (26 Okt 2026): menu Recurring Task** (`vRecurring`, view `recurring`, di bawah Daily Task). Satu baris per SERI = kepala rantai `ulangDari` (task tanpa penerus), Daily maupun project — dibaca, bukan disalin, tanpa data baru. **Hentikan** mencabut `ulang` dari kepalanya dan menyimpan polanya di `ulangBerhenti` `{u,at,by}`; **Lanjutkan** (tab Dihentikan) memulihkannya — task yang sudah Done tidak bisa dilanjutkan (tidak ada yang melahirkan kejadian berikutnya). Tombol + Task Berulang = `taskModal` dengan `_presetUlang='mingguan'`. **Maju sendiri tanpa Done (26 Okt 2026, permintaan user)**: `gulirUlang()` menggeser task berulang yang belum Done & deadline-nya < hari ini ke `deadlineBerikut()` — task yang SAMA (bukan task baru, supaya tidak menumpuk satu baris telat per periode; bukan Done, karena tidak dikerjakan). Periode baru: To Do, sub-task tak tercentang, start & deadline sub-task ikut bergeser; yang terlewat dicatat `t.terlewat=[{d,sub}]` (maks 52) dan disebut di menu Recurring. Dipanggil `terapkanGulir()` saat boot (SESUDAH `segarkanSnapshot`, supaya terkirim), sesudah `tarikServer` memasang data baru, dan tiap 60 dtk saat idle (tab yang melewati tengah malam). Done tetap melahirkan task baru seperti dulu. Baris seri yang berjalan punya tombol **✓ Selesai** (`selesaiUlang` → `toggleTask`, jalan yang sama dengan centang: `cekBolehDone` & `lahirkanUlang` ikut; tidak pernah membuka lagi yang sudah Done).
 
 ```bash
-node tools/uji-recurring-bd.js   # 30 pemeriksaan, jsdom
+node tools/uji-recurring-bd.js   # 33 pemeriksaan, jsdom
+```
+
+**Pola berulang ala Google Calendar (27 Okt 2026).** `t.ulang` TETAP satu string (lahirkanUlang, `ulangBerhenti.u`, lib_agent menyalinnya apa adanya). Preset lama tidak berubah arti; baru: `bulanan_ke` (Selasa ke-4), `bulanan_akhir` (Selasa terakhir), `tahunan` — hari/tanggalnya DIBACA dari deadline tiap dihitung. Kustom = `k/<tiap>/<hari|minggu|bulan|tahun>/<hari 0-6 csv>/<tgl|ke|akhir>/<''|d:YYYY-MM-DD|x:N>`, diisi lewat panel Kustom di modal task (`panelKustom`/`bacaKustom`, ditampilkan lewat DOM — modal tidak digambar ulang). `parseUlang()` satu-satunya pembaca; string tak sah = tidak berulang. Bulan tanpa "Selasa ke-5" dilompati. **Berakhir** (`seriBerakhir`): sampai tanggal / N kali — kejadian = rantai `ulangDari` + `terlewat`; menghentikan `lahirkanUlang` DAN `gulirUlang`. Label pilihan ikut deadline (`ulangSegar` di `onchange` m_due). lib_agent mengirim `berulangTeks` (kembar sederhana `labelUlang`, versi `2026-10-27b`).
+
+```bash
+node tools/uji-pola-ulang-bd.js   # 46 pemeriksaan, jsdom
 ```
 
 **Pintu AI agent — reminder task lewat WhatsApp (26 Okt 2026).** Agent di VPS user (opencode) mengirim reminder & memanggil `bd-mysql/lib_agent.php`: `agentTugas` (task belum Done, deadline <= hari ini WIB, + noHp PIC dari `listDivisiRoster`), `agentSelesai`, `agentCatat`. Panduan agent: `docs/agent-reminder-bd.md`.

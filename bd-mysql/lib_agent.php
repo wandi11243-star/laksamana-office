@@ -158,6 +158,38 @@ function agent_orang($peopleId, $people, $roster) {
 
 /* "2026-11-01" -> "Min, 1 Nov 2026" — siap ditempel ke pesan WhatsApp, supaya
    agent tidak perlu memformat sendiri (dan tidak salah zona). */
+/* Kata-kata untuk pola berulang (27 Okt 2026, pola ala Google Calendar).
+   KEMBAR SEDERHANA labelUlang() di deploy/bd/index.html — cukup untuk pesan
+   chat; aturan langkahnya TIDAK disalin ke sini (milik frontend). */
+function agent_label_ulang($u, $dl) {
+  $hari = array('Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu');
+  $w = agent_tgl_sah($dl) ? (int)gmdate('w', gmmktime(0, 0, 0, (int)substr($dl, 5, 2), (int)substr($dl, 8, 2), (int)substr($dl, 0, 4))) : -1;
+  $H = $w >= 0 ? $hari[$w] : '';
+  $tgl = agent_tgl_sah($dl) ? (int)substr($dl, 8, 2) : 0;
+  switch ((string)$u) {
+    case '': return '';
+    case 'harian': return 'Setiap hari';
+    case 'kerja': return 'Hari kerja (Sen-Jum)';
+    case 'mingguan': return $H !== '' ? 'Setiap minggu hari ' . $H : 'Setiap minggu';
+    case 'bulanan': return $tgl ? 'Setiap bulan tanggal ' . $tgl : 'Setiap bulan';
+    case 'bulanan_ke': return $tgl ? 'Setiap bulan, ' . $H . ' ke-' . (int)ceil($tgl / 7) : 'Setiap bulan';
+    case 'bulanan_akhir': return $H !== '' ? 'Setiap bulan, ' . $H . ' terakhir' : 'Setiap bulan';
+    case 'tahunan': return 'Setiap tahun';
+  }
+  $p = explode('/', (string)$u);
+  if ($p[0] !== 'k' || count($p) < 3) return '';
+  $n = max(1, (int)$p[1]);
+  $teks = $n > 1 ? 'Setiap ' . $n . ' ' . $p[2] : 'Setiap ' . $p[2];
+  if ($p[2] === 'minggu' && isset($p[3]) && $p[3] !== '') {
+    $nm = array();
+    foreach (explode(',', $p[3]) as $x) if (isset($hari[(int)$x])) $nm[] = $hari[(int)$x];
+    $teks .= ': ' . implode(', ', $nm);
+  }
+  $ak = isset($p[5]) ? $p[5] : '';
+  if (strpos($ak, 'd:') === 0) $teks .= ', sampai ' . agent_tgl_teks(substr($ak, 2));
+  elseif (strpos($ak, 'x:') === 0) $teks .= ', ' . (int)substr($ak, 2) . 'x saja';
+  return $teks;
+}
 function agent_tgl_teks($d) {
   if (!agent_tgl_sah($d)) return '';
   $hari = array('Min','Sen','Sel','Rab','Kam','Jum','Sab');
@@ -217,6 +249,7 @@ function agent_tugas($body) {
       'divisi'    => isset($t['div']) ? $t['div'] : '',
       'project'   => $proj ? (isset($proj['name']) ? $proj['name'] : '') : ($pid === '' && !empty($t['daily']) ? 'Daily Task' : ''),
       'berulang'  => isset($t['ulang']) ? $t['ulang'] : '',
+      'berulangTeks' => agent_label_ulang(isset($t['ulang']) ? $t['ulang'] : '', $dl),
       'terlewat'  => isset($t['terlewat']) && is_array($t['terlewat']) ? count($t['terlewat']) : 0,
       'pic'       => $picOut,
       'subtask'   => $subOut,

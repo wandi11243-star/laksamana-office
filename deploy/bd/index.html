@@ -391,6 +391,20 @@ td .mut{color:var(--muted);font-size:12.5px}
 .field textarea{resize:vertical;min-height:62px}
 .frow{display:grid;grid-template-columns:1fr 1fr;gap:12px}
 .frow3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px}
+.kustom{margin-top:8px;padding:12px;border:1px solid var(--line-soft);border-radius:10px;background:var(--ink-880);display:grid;gap:10px;font-size:13px}
+.kustom .k-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.kustom .k-row>span,.kustom .k-akhir>span{font-weight:600;min-width:86px}
+.kustom input[type=number]{width:64px}
+.kustom .k-hari{display:flex;gap:5px}
+.kustom .k-hari button{width:30px;height:30px;border-radius:50%;border:1px solid var(--line-soft);background:transparent;color:inherit;font-weight:600;cursor:pointer}
+.kustom .k-hari button.on{background:var(--gold,#A9791F);border-color:transparent;color:#fff}
+.kustom .k-akhir{display:grid;gap:6px}
+.kustom .k-akhir label{display:flex;align-items:center;gap:8px;font-weight:400}
+/* .field label & .field input dipakai seluruh form (kapital, lebar penuh) — di panel ini dibatalkan */
+.field .kustom input,.field .kustom select{width:auto}
+.field .kustom input[type=number]{width:64px}
+.field .kustom .k-akhir label{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:400;letter-spacing:0;text-transform:none;color:inherit;margin:0}
+.field .kustom input[type=radio]{width:auto;margin:0}
 .toggles{display:flex;gap:10px}
 .toggle{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;padding:11px;border-radius:10px;
   border:1px solid var(--line-hard);background:var(--ink-900);font-size:13px;color:var(--muted);transition:.15s;font-weight:600}
@@ -2073,11 +2087,11 @@ function taskModal(id){
           ['Ad-hoc','Rutin','Project'].map(function(p){return '<option'+(t.type===p?' selected':'')+'>'+p+'</option>';}).join('')+'</select></div></div>'+
       '<div class="frow3">'+
         '<div class="field"><label>Mulai (opsional)</label><input type="date" id="m_start" value="'+(t.start||'')+'"></div>'+
-        '<div class="field"><label>Deadline</label><input type="date" id="m_due" value="'+(t.deadline||'')+'"></div>'+
+        '<div class="field"><label>Deadline</label><input type="date" id="m_due" value="'+(t.deadline||'')+'" onchange="APP.ulangSegar()"></div>'+
         '<div class="field"><label>Project (opsional)</label><select id="m_proj" onchange="APP.depGambar()">'+
           opsiProject(t.project,'— tanpa project —')+'</select></div></div>'+
       '<div class="frow">'+
-        '<div class="field"><label>Berulang</label><select id="m_ulang">'+opsiUlang(t.ulang)+'</select>'+
+        '<div class="field"><label>Berulang</label><select id="m_ulang" onchange="APP.ulangUbah()">'+opsiUlang(t.ulang,t.deadline)+'</select>'+panelKustom(t.ulang,t.deadline)+
           '<div class="muted" style="font-size:11.5px;margin-top:4px">Lewat deadline tanpa Done, task-nya maju sendiri ke jadwal berikutnya (yang terlewat dicatat). Ditandai Done, kejadian berikutnya lahir sebagai task baru. Butuh deadline.</div></div>'+
         '<div class="field"><label>Daily Task</label><div class="toggles">'+
           '<button type="button" class="toggle'+(t.daily?' on':'')+'" id="tg_daily" onclick="this.classList.toggle(\'on\')"><span class="tick">'+ic('check')+'</span> Masuk Daily Task</button></div>'+
@@ -2114,13 +2128,22 @@ function simpanTask(id){
     status:g('m_status').value,priority:g('m_prio').value,type:g('m_type').value,
     start:g('m_start').value,deadline:g('m_due').value,project:g('m_proj').value||null,
     important:g('tg_imp').classList.contains('on'),urgent:g('tg_urg').classList.contains('on'),
-    ulang:g('m_ulang').value||'',daily:g('tg_daily').classList.contains('on')};
+    ulang:'',daily:g('tg_daily').classList.contains('on')};
   /* Daily Task = "project tetap" sendiri, jadi tidak boleh sekaligus milik
      project lain — dua rumah untuk satu task membuatnya muncul di dua papan
      dan selesai di salah satunya saja di mata yang membaca. */
   if(data.daily) data.project=null;
   /* Tanpa deadline tidak ada patokan "berikutnya kapan" — ditolak di sini,
      bukan diam-diam tidak pernah berulang. */
+  /* Pola berulang: preset dibaca apa adanya, Kustom dibaca dari panelnya (yang
+     juga berlaku untuk pola kustom tersimpan — panelnya terisi & bisa disunting). */
+  var vu=g('m_ulang').value||'';
+  if(vu==='__kustom'||vu.indexOf('k/')===0){
+    var hk=bacaKustom(data.deadline);
+    if(hk.err){ if(g(hk.el)) g(hk.el).focus(); toast(hk.err); return; }
+    vu=hk.u;
+  }
+  data.ulang=ulangSah(vu)?vu:'';
   if(data.ulang && !data.deadline){ g('m_due').focus(); toast('Task berulang butuh deadline sebagai patokan.'); return; }
   /* Sub-task tanpa teks dibuang: baris kosong cuma membuat hitungan x/y
      tidak pernah bisa genap. */
@@ -2870,28 +2893,127 @@ function vMyTask(){
    pilihan project, dan progress — lalu bisa diedit, ditutup, atau dihapus
    siapa pun. Field baru ikut di blob `data`, tanpa migrasi.
 
-   BERULANG = `ulang` ('harian'|'kerja'|'mingguan'|'bulanan'). Saat task
+   BERULANG = `ulang` (lihat POLA BERULANG di bawah). Saat task
    ditandai Done, kejadian berikutnya LAHIR sebagai task baru (ulangDari = id
    yang selesai), bukan task yang sama dibuka ulang: riwayat siapa
    menyelesaikan kapan tetap utuh, dan yang Done tetap Done. Penjaganya
    ulangDari — menandai Done, membuka lagi, lalu Done lagi tidak melahirkan
    kembaran. */
-var ULANG=[['','Tidak berulang'],['harian','Setiap hari'],['kerja','Hari kerja (Sen–Jum)'],['mingguan','Setiap minggu'],['bulanan','Setiap bulan']];
-function opsiUlang(sel){
-  return ULANG.map(function(u){ return '<option value="'+u[0]+'"'+((sel||'')===u[0]?' selected':'')+'>'+u[1]+'</option>'; }).join('');
+/* ---- POLA BERULANG ala Google Calendar (27 Okt 2026) ----
+   Permintaan user: "sistem berulangnya bisa di-set kaya model Google
+   Calendar". `t.ulang` TETAP satu string — bentuk itu yang sudah disalin
+   lahirkanUlang(), disimpan ulangBerhenti.u, dan dikirim lib_agent.php apa
+   adanya; mengubahnya jadi objek berarti menyentuh semua jalan itu dan
+   data lama berhenti terbaca.
+   - Preset lama ('harian','kerja','mingguan','bulanan') TIDAK berubah arti.
+   - Preset baru: 'bulanan_ke' (mis. Selasa ke-4), 'bulanan_akhir' (Selasa
+     terakhir), 'tahunan'. Hari/tanggalnya DIBACA dari deadline tiap kali
+     dihitung, jadi tidak ada angka tambahan yang bisa basi.
+   - Kustom: 'k/<tiap>/<satuan>/<hari csv>/<mode bulan>/<berakhir>'
+       satuan  hari|minggu|bulan|tahun
+       hari    0..6 (Min..Sab) untuk satuan minggu; kosong = hari deadline
+       mode    tgl|ke|akhir untuk satuan bulan
+       akhir   '' (tidak pernah) | 'd:YYYY-MM-DD' | 'x:N' (N kali)
+   String yang tidak terbaca = TIDAK berulang (parseUlang memulangkan null),
+   sama seperti nilai lama yang tidak dikenal. */
+var ULANG_PRESET={
+  harian:{tiap:1,satuan:'hari'}, kerja:{tiap:1,satuan:'minggu',hari:[1,2,3,4,5]},
+  mingguan:{tiap:1,satuan:'minggu'}, bulanan:{tiap:1,satuan:'bulan',mode:'tgl'},
+  bulanan_ke:{tiap:1,satuan:'bulan',mode:'ke'}, bulanan_akhir:{tiap:1,satuan:'bulan',mode:'akhir'},
+  tahunan:{tiap:1,satuan:'tahun'}
+};
+var ULANG_SATUAN={hari:'hari',minggu:'minggu',bulan:'bulan',tahun:'tahun'};
+var HARI3=['Min','Sen','Sel','Rab','Kam','Jum','Sab'];
+function parseUlang(u){
+  u=String(u||'');
+  var p=ULANG_PRESET[u];
+  if(p) return {tiap:p.tiap,satuan:p.satuan,hari:(p.hari||[]).slice(),mode:p.mode||'tgl',akhir:{j:''},preset:u};
+  if(u.indexOf('k/')!==0) return null;
+  var s=u.split('/'), tiap=parseInt(s[1],10), sat=s[2];
+  if(!(tiap>=1&&tiap<=99) || !ULANG_SATUAN[sat]) return null;
+  var hari=String(s[3]||'').split(',').filter(function(x){return /^[0-6]$/.test(x);}).map(Number)
+           .filter(function(x,i,a){return a.indexOf(x)===i;}).sort();
+  var mode=['tgl','ke','akhir'].indexOf(s[4])>-1?s[4]:'tgl';
+  var ak=String(s[5]||''), akhir={j:''};
+  if(/^d:\d{4}-\d{2}-\d{2}$/.test(ak)) akhir={j:'d',tgl:ak.slice(2)};
+  else if(/^x:\d+$/.test(ak) && +ak.slice(2)>=1) akhir={j:'x',kali:+ak.slice(2)};
+  return {tiap:tiap,satuan:sat,hari:hari,mode:mode,akhir:akhir,preset:''};
 }
-function labelUlang(u){ var x=ULANG.find(function(y){return y[0]===u;}); return x&&u?x[1]:''; }
-function tagUlang(t){ return t&&t.ulang&&labelUlang(t.ulang)?'<span class="tag" title="Berulang: '+esc(labelUlang(t.ulang))+'">🔁 '+esc(labelUlang(t.ulang))+'</span>':''; }
+function ulangSah(u){ return !!parseUlang(u); }
+function susunUlang(r){
+  return 'k/'+r.tiap+'/'+r.satuan+'/'+(r.satuan==='minggu'?r.hari.join(','):'')+'/'+(r.satuan==='bulan'?r.mode:'')+'/'+
+    (r.akhir.j==='d'?'d:'+r.akhir.tgl:r.akhir.j==='x'?'x:'+r.akhir.kali:'');
+}
+/* Minggu ke berapa di bulannya (1..5), dan apakah ini hari itu yang TERAKHIR. */
+function keBerapa(iso){ return Math.ceil(pDate(iso).getDate()/7); }
+function hariTerakhir(iso){ var d=pDate(iso); return d.getDate()+7>new Date(d.getFullYear(),d.getMonth()+1,0).getDate(); }
+function tambahBulan(iso,n){
+  var d=pDate(iso), tg=d.getDate(), x=new Date(d.getFullYear(),d.getMonth()+n,1);
+  x.setDate(Math.min(tg,new Date(x.getFullYear(),x.getMonth()+1,0).getDate()));   // 31 Jan -> 28/29 Feb
+  return isoOf(x);
+}
+function hariKeN(th,bl,dow,n){   // hari `dow` ke-n di bulan itu, null kalau tidak ada (ke-5)
+  var x=new Date(th,bl,1), geser=(dow-x.getDay()+7)%7, tg=1+geser+(n-1)*7;
+  return tg<=new Date(th,bl+1,0).getDate()?isoOf(new Date(th,bl,tg)):null;
+}
+function hariAkhirBulan(th,bl,dow){
+  var x=new Date(th,bl+1,0); x.setDate(x.getDate()-((x.getDay()-dow+7)%7)); return isoOf(x);
+}
 function langkahUlang(iso,u){
-  if(u==='bulanan'){
-    var d=pDate(iso), tg=d.getDate(), x=new Date(d.getFullYear(),d.getMonth()+1,1);
-    var akhir=new Date(x.getFullYear(),x.getMonth()+1,0).getDate();   // 31 Jan -> 28/29 Feb
-    x.setDate(Math.min(tg,akhir)); return isoOf(x);
+  var r=parseUlang(u); if(!r) return gAdd(iso,1);
+  var d=pDate(iso), dow=d.getDay();
+  if(r.satuan==='hari') return gAdd(iso,r.tiap);
+  if(r.satuan==='minggu'){
+    if(!r.hari.length) return gAdd(iso,7*r.tiap);
+    for(var k=dow+1;k<=6;k++) if(r.hari.indexOf(k)>-1) return gAdd(iso,k-dow);
+    return gAdd(iso,7*r.tiap-dow+r.hari[0]);   // awal minggu (Min) berikutnya + hari pertama
   }
-  if(u==='mingguan') return gAdd(iso,7);
-  var n=gAdd(iso,1);
-  if(u==='kerja') while(pDate(n).getDay()===0||pDate(n).getDay()===6) n=gAdd(n,1);
-  return n;
+  if(r.satuan==='tahun') return tambahBulan(iso,12*r.tiap);
+  if(r.mode==='tgl') return tambahBulan(iso,r.tiap);
+  var n=keBerapa(iso), aman=0, m=r.tiap;
+  while(aman++<60){
+    var x=new Date(d.getFullYear(),d.getMonth()+m,1);
+    var hasil=r.mode==='akhir'?hariAkhirBulan(x.getFullYear(),x.getMonth(),dow):hariKeN(x.getFullYear(),x.getMonth(),dow,n);
+    if(hasil) return hasil;
+    m+=r.tiap;   // bulan yang tidak punya "Selasa ke-5" dilompati, seperti Google
+  }
+  return tambahBulan(iso,r.tiap);
+}
+/* Label dibaca dari deadline-nya (iso), karena "Selasa ke-4" baru berarti
+   kalau tanggalnya diketahui. Tanpa iso jatuh ke bentuk umum. */
+function labelUlang(u,iso){
+  var r=parseUlang(u); if(!r) return '';
+  var ok=gSah(iso), d=ok?pDate(iso):null, H=ok?HARI[d.getDay()]:'';
+  var ekor=r.akhir.j==='d'?', sampai '+fTgl(r.akhir.tgl)+' '+r.akhir.tgl.slice(0,4):r.akhir.j==='x'?', '+r.akhir.kali+'× saja':'';
+  switch(r.preset){
+    case 'harian': return 'Setiap hari';
+    case 'kerja': return 'Hari kerja (Sen–Jum)';
+    case 'mingguan': return ok?'Setiap minggu hari '+H:'Setiap minggu';
+    case 'bulanan': return ok?'Setiap bulan tanggal '+d.getDate():'Setiap bulan';
+    case 'bulanan_ke': return ok?'Setiap bulan, '+H+' ke-'+keBerapa(iso):'Setiap bulan (hari ke-N)';
+    case 'bulanan_akhir': return ok?'Setiap bulan, '+H+' terakhir':'Setiap bulan (hari terakhir)';
+    case 'tahunan': return ok?'Setiap tahun '+fTgl(iso):'Setiap tahun';
+  }
+  var tiap=r.tiap>1?'Setiap '+r.tiap+' '+r.satuan:'Setiap '+r.satuan, isi='';
+  if(r.satuan==='minggu') isi=r.hari.length?': '+r.hari.map(function(x){return HARI3[x];}).join(', '):(ok?' hari '+H:'');
+  if(r.satuan==='bulan') isi=!ok?'':r.mode==='ke'?', '+H+' ke-'+keBerapa(iso):r.mode==='akhir'?', '+H+' terakhir':' tanggal '+d.getDate();
+  if(r.satuan==='tahun' && ok) isi=' '+fTgl(iso);
+  return tiap+isi+ekor;
+}
+function opsiUlang(sel,iso){
+  sel=sel||''; var ok=gSah(iso);
+  var l=[['','Tidak berulang'],['harian','Setiap hari'],['mingguan',labelUlang('mingguan',iso)],
+         ['bulanan',labelUlang('bulanan',iso)]];
+  if(!ok || keBerapa(iso)<=4 || sel==='bulanan_ke') l.push(['bulanan_ke',labelUlang('bulanan_ke',iso)]);
+  if(!ok || hariTerakhir(iso) || sel==='bulanan_akhir') l.push(['bulanan_akhir',labelUlang('bulanan_akhir',iso)]);
+  l.push(['tahunan',labelUlang('tahunan',iso)],['kerja','Hari kerja (Sen–Jum)']);
+  if(sel.indexOf('k/')===0 && ulangSah(sel)) l.push([sel,labelUlang(sel,iso)]);
+  l.push(['__kustom','Kustom…']);
+  return l.map(function(u){ return '<option value="'+esc(u[0])+'"'+(sel===u[0]?' selected':'')+'>'+esc(u[1])+'</option>'; }).join('');
+}
+function tagUlang(t){
+  var l=t&&t.ulang?labelUlang(t.ulang,t.deadline):'';
+  return l?'<span class="tag" title="Berulang: '+esc(l)+'">🔁 '+esc(l)+'</span>':'';
 }
 /* Deadline berikutnya: satu langkah dari deadline yang selesai — tapi kalau
    task-nya diselesaikan terlambat, dilompati sampai tidak lagi di masa lalu.
@@ -2902,10 +3024,96 @@ function deadlineBerikut(t){
   while(n<T && aman++<400) n=langkahUlang(n,t.ulang);
   return n;
 }
+/* Berakhir (kustom): "sampai tanggal" atau "N kali". Kejadian dihitung dari
+   rantai ulangDari DITAMBAH tanggal yang terlewat (maju sendiri tanpa Done) —
+   persis seperti Google menghitung kejadian kalender, dikerjakan atau tidak. */
+function seriBerakhir(t,nd){
+  var r=parseUlang(t&&t.ulang); if(!r||!r.akhir.j) return false;
+  if(r.akhir.j==='d') return nd>r.akhir.tgl;
+  var n=0; rantaiUlang(t).forEach(function(x){ n+=1+(Array.isArray(x.terlewat)?x.terlewat.length:0); });
+  return n>=r.akhir.kali;
+}
+/* ---- panel Kustom (bentuk dialog "Custom recurrence" Google Calendar) ----
+   Digambar SEKALI bersama modal, lalu cuma disembunyikan/ditampilkan lewat
+   DOM (ulangUbah/ulangSegar). Menggambar ulang modal tiap kali satuan diganti
+   membuang isian lain yang sedang diketik (nama, deskripsi, sub-task). Nilainya
+   dibaca dari DOM sekali, saat Simpan (bacaKustom). */
+function panelKustom(u,iso){
+  var r=parseUlang(u);
+  if(!r||r.preset){ var d0=gSah(iso)?pDate(iso).getDay():1;
+    r={tiap:1,satuan:'minggu',hari:[d0],mode:'tgl',akhir:{j:''}}; }
+  if(r.satuan==='minggu'&&!r.hari.length&&gSah(iso)) r.hari=[pDate(iso).getDay()];
+  var tampil=String(u||'').indexOf('k/')===0;
+  return '<div id="m_kustom" class="kustom"'+(tampil?'':' style="display:none"')+'>'+
+    '<div class="k-row"><span>Ulangi setiap</span>'+
+      '<input type="number" id="m_kTiap" min="1" max="99" value="'+r.tiap+'">'+
+      '<select id="m_kSatuan" onchange="APP.ulangUbah()">'+['hari','minggu','bulan','tahun'].map(function(x){
+        return '<option value="'+x+'"'+(r.satuan===x?' selected':'')+'>'+x+'</option>'; }).join('')+'</select></div>'+
+    '<div class="k-row" id="m_kHariRow"'+(r.satuan==='minggu'?'':' style="display:none"')+'><span>Pada hari</span><div class="k-hari">'+
+      ['M','S','S','R','K','J','S'].map(function(x,i){
+        return '<button type="button" class="'+(r.hari.indexOf(i)>-1?'on':'')+'" data-h="'+i+'" title="'+HARI[i]+'" onclick="this.classList.toggle(\'on\')">'+x+'</button>';
+      }).join('')+'</div></div>'+
+    '<div class="k-row" id="m_kModeRow"'+(r.satuan==='bulan'?'':' style="display:none"')+'><span>Pada</span>'+
+      '<select id="m_kMode">'+opsiModeBulan(r.mode,iso)+'</select></div>'+
+    '<div class="k-akhir"><span>Berakhir</span>'+
+      '<label><input type="radio" name="m_kAkhir" value=""'+(r.akhir.j?'':' checked')+'> Tidak pernah</label>'+
+      '<label><input type="radio" name="m_kAkhir" value="d"'+(r.akhir.j==='d'?' checked':'')+'> Pada tanggal '+
+        '<input type="date" id="m_kSampai" value="'+(r.akhir.tgl||'')+'" onfocus="APP.ulangPilihAkhir(\'d\')"></label>'+
+      '<label><input type="radio" name="m_kAkhir" value="x"'+(r.akhir.j==='x'?' checked':'')+'> Sesudah '+
+        '<input type="number" id="m_kKali" min="1" max="999" value="'+(r.akhir.kali||13)+'" onfocus="APP.ulangPilihAkhir(\'x\')"> kali</label>'+
+    '</div></div>';
+}
+function opsiModeBulan(sel,iso){
+  return [['tgl',labelUlang('bulanan',iso).replace('Setiap bulan ','')||'tanggal yang sama'],
+          ['ke',gSah(iso)?HARI[pDate(iso).getDay()]+' ke-'+keBerapa(iso):'hari ke-N'],
+          ['akhir',gSah(iso)?HARI[pDate(iso).getDay()]+' terakhir':'hari terakhir']].map(function(x){
+    return '<option value="'+x[0]+'"'+(sel===x[0]?' selected':'')+'>'+esc(x[1])+'</option>'; }).join('');
+}
+function ulangUbah(){
+  var g=function(x){return document.getElementById(x);}, v=g('m_ulang').value;
+  var kus=v==='__kustom'||v.indexOf('k/')===0;
+  g('m_kustom').style.display=kus?'':'none';
+  var sat=g('m_kSatuan').value;
+  g('m_kHariRow').style.display=sat==='minggu'?'':'none';
+  g('m_kModeRow').style.display=sat==='bulan'?'':'none';
+}
+/* Deadline diganti -> label "hari Selasa / ke-4 / terakhir" ikut berganti.
+   Pilihan yang sedang dipilih dipertahankan. */
+function ulangSegar(){
+  var g=function(x){return document.getElementById(x);}, iso=g('m_due').value, v=g('m_ulang').value;
+  g('m_ulang').innerHTML=opsiUlang(v,iso); g('m_ulang').value=v;
+  var m=g('m_kMode').value; g('m_kMode').innerHTML=opsiModeBulan(m,iso); g('m_kMode').value=m;
+}
+function ulangPilihAkhir(j){
+  var r=document.querySelector('input[name="m_kAkhir"][value="'+j+'"]'); if(r) r.checked=true;
+}
+/* Memulangkan {u} atau {err, el}. Hari minggu kosong = hari deadline (seperti
+   Google yang tidak membiarkan satu pun hari kosong). */
+function bacaKustom(deadline){
+  var g=function(x){return document.getElementById(x);};
+  var tiap=parseInt(g('m_kTiap').value,10);
+  if(!(tiap>=1&&tiap<=99)) return {err:'"Ulangi setiap" harus 1 sampai 99.',el:'m_kTiap'};
+  var sat=g('m_kSatuan').value;
+  var hari=[].slice.call(document.querySelectorAll('#m_kHariRow button.on')).map(function(b){return +b.getAttribute('data-h');}).sort();
+  if(sat==='minggu'&&!hari.length&&gSah(deadline)) hari=[pDate(deadline).getDay()];
+  var jr=document.querySelector('input[name="m_kAkhir"]:checked'), j=jr?jr.value:'', akhir={j:''};
+  if(j==='d'){
+    var tg=g('m_kSampai').value;
+    if(!gSah(tg)) return {err:'Isi tanggal berakhirnya.',el:'m_kSampai'};
+    if(gSah(deadline)&&tg<deadline) return {err:'Tanggal berakhir tidak boleh sebelum deadline.',el:'m_kSampai'};
+    akhir={j:'d',tgl:tg};
+  } else if(j==='x'){
+    var k=parseInt(g('m_kKali').value,10);
+    if(!(k>=1&&k<=999)) return {err:'Jumlah kali harus 1 sampai 999.',el:'m_kKali'};
+    akhir={j:'x',kali:k};
+  }
+  return {u:susunUlang({tiap:tiap,satuan:sat,hari:hari,mode:g('m_kMode').value,akhir:akhir})};
+}
 function lahirkanUlang(t,idTetap){
   if(!t||!t.ulang||!labelUlang(t.ulang)||!gSah(t.deadline)) return null;
   if(DB.tasks.some(function(x){return x.ulangDari===t.id;})) return null;
   var nd=deadlineBerikut(t), geser=gDiff(t.deadline,nd);
+  if(seriBerakhir(t,nd)) return null;   // kustom 'sampai'/'N kali' sudah habis
   var b={id:idTetap||uid('t'),name:t.name,desc:t.desc||'',div:t.div,status:'To Do',priority:t.priority||'Medium',
     deadline:nd,important:!!t.important,urgent:!!t.urgent,type:t.type||'Ad-hoc',project:t.project||null,
     ulang:t.ulang,ulangDari:t.id,progress:0,dependsOn:[],
@@ -2946,6 +3154,9 @@ function gulirUlang(){
     if(!t||!t.ulang||!labelUlang(t.ulang)||selesai(t)||!gSah(t.deadline)||t.deadline>=T) return;
     var nd=deadlineBerikut(t), geser=gDiff(t.deadline,nd);
     if(geser<=0) return;
+    /* Seri yang sudah habis (kustom berakhir) tidak digeser: kejadian terakhirnya
+       memang lewat, dan memajukannya berarti mengarang kejadian di luar seri. */
+    if(seriBerakhir(t,nd)) return;
     var ss=subs(t), h=ss.filter(function(x){return x.done;}).length;
     if(!Array.isArray(t.terlewat)) t.terlewat=[];
     t.terlewat.push({d:t.deadline, sub:ss.length?(h+'/'+ss.length):''});
@@ -3093,7 +3304,7 @@ function vRecurring(){
       var t=x.head, berjalan=!selesai(t);
       return '<tr class="clk" onclick="APP.taskModal(\''+t.id+'\')">'+
         '<td><span class="nm">'+esc(t.name)+'</span>'+(tagsOf(t).length?'<div class="mut" style="font-size:11px">'+esc(tagsOf(t).join(', '))+'</div>':'')+'</td>'+
-        '<td><span class="tag">🔁 '+esc(labelUlang(x.pola)||x.pola)+'</span></td>'+
+        '<td><span class="tag">🔁 '+esc(labelUlang(x.pola,t.deadline)||x.pola)+'</span></td>'+
         /* Deadline jadi kolom SENDIRI (permintaan user 26 Okt 2026: "kolom
            tanggalnya lebih jelas"): tanggal lengkap berhari tebal di atas, jaraknya
            kecil di bawah. Status dipisah supaya tidak berdesakan di sel yang sama. */
@@ -3120,7 +3331,7 @@ function vRecurring(){
 function selesaiUlang(id){
   var t=taskById(id); if(!t||selesai(t)) return;
   toggleTask(id);
-  if(selesai(t)) toast('✓ '+namaPendek(t)+' selesai'+(t.ulang&&labelUlang(t.ulang)?' — kejadian berikutnya sudah dijadwalkan':''));
+  if(selesai(t)) toast('✓ '+namaPendek(t)+' selesai'+(DB.tasks.some(function(x){return x.ulangDari===t.id;})?' — kejadian berikutnya sudah dijadwalkan':(t.ulang&&labelUlang(t.ulang)?' — seri berulangnya sudah berakhir':'')));
 }
 function hentikanUlang(id){
   var t=taskById(id); if(!t||!t.ulang) return;
@@ -3136,7 +3347,7 @@ function lanjutkanUlang(id){
   if(!labelUlang(u)) return;
   if(!t.deadline){ toast('Isi deadline task ini dulu — task berulang butuh deadline sebagai patokan.'); APP.taskModal(t.id); return; }
   t.ulang=u; delete t.ulangBerhenti;
-  save(); render(); toast('Pengulangan dilanjutkan: '+labelUlang(u));
+  save(); render(); toast('Pengulangan dilanjutkan: '+labelUlang(u,t.deadline));
 }
 
 /* ---- kartu project (bentuk Armada) ---- */
@@ -6184,6 +6395,7 @@ window.APP={
   taskUlangBaru:function(){ _presetDaily=false; _presetProject=null; _presetUlang='mingguan'; taskModal(null); },
   setRecurring:function(v){ rArsip=v; render(); },
   hentikanUlang:hentikanUlang, lanjutkanUlang:lanjutkanUlang, selesaiUlang:selesaiUlang,
+  ulangUbah:ulangUbah, ulangSegar:ulangSegar, ulangPilihAkhir:ulangPilihAkhir,
   setDaily:function(apa,nilai){ if(apa==='mode') dMode=nilai; else if(apa==='arsip') dArsip=nilai; render(); },
   tagTambah:tagTambah, tagToggle:tagToggle, tagBukaWarna:tagBukaWarna, tagSetWarna:tagSetWarna,
   subTambah:subTambah, subCentang:subCentang, subUbah:subUbah, subHapus:subHapus, subTgl:subTgl, subPic:subPic,

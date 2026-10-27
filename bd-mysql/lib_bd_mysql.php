@@ -33,7 +33,7 @@ else                                            require_once __DIR__ . '/config.
    otomatis (tidak ada di .github/workflows) — ia diunggah manual, jadi angka
    inilah satu-satunya cara memastikan yang di server memang versi terbaru:
    buka <host>/bd-api-mysql/api.php?action=ping dan cocokkan `versi`. */
-define('LIB_VERSI', '2026-10-27a');
+define('LIB_VERSI', '2026-10-27b');
 
 /* Identitas server, ikut di ping & stats.
 
