@@ -11857,6 +11857,37 @@ layar; user tidak mau ada kata "dummy"/"demo" yang terlihat).
 - **Sidebar & topbar `position:sticky`** + label teks — sebelumnya ikut
   tergulir dan tombolnya "naik" keluar layar.
 
+**Revisi 27 Oktober 2026 (malam)** — POS jadi modul Office + cetak struk:
+
+- **Kunci izin `pos`** (kartu di BRANCHES portal + `ALL_MODULE_KEYS_SEED`,
+  bab Help `panduan/pos.js`). Gerbang `<head>` POS menuntut `lm_session`
+  berkunci `pos`/`*`; PIN kasir di dalam POS tetap berlaku sesudahnya.
+  HAK AKSES TIDAK IKUT MERGE: superadmin membuka Kelola Akses sekali di tiap
+  server (syncModules), lalu mencentang POS ke orangnya.
+- **Cetak struk lewat iframe berisi dokumen sendiri** (`dokStruk`,
+  `@page size:58/80mm auto; margin:0`), bukan `@media print` halaman utama
+  (yang mencetak setinggi A4). Logo DITUNGGU termuat sebelum `print()`.
+  Printer LAN tidak bisa disapa peramban langsung — ia dipasang di Windows
+  (Add printer by IP), dan `--kiosk-printing` Chrome menghilangkan dialog.
+  Setelan `SET.printer` (lebar, salinan, otomatis, logo, kaki) di
+  Pengaturan → Printer, localStorage saja.
+- **Mode cetak TEKS jadi bawaan** (`strukTeks`, `<pre>` berkolom tetap,
+  `kolom` 42 untuk 80mm). Kasir memakai driver *Generic / Text Only*, yang
+  cuma memungut teks dari halaman — struk grafis keluar dengan judul/kaki
+  tertukar dan angka menempel. Mode `grafis` hanya rapi dengan driver
+  printer struk (POS-80 dsb).
+- **ORDER & SETELAN BERSAMA DI SERVER** (`kompas-mysql/lib_pos.php`, aksi
+  `posList`/`posSimpan`/`posSetting`, tabel `pos_order` + `pos_setting`
+  lahir sendiri). Menumpang kompas-mysql karena DB + config.php + workflow
+  sudah ada. SELURUH aksinya berpagar sesi + kunci `pos` (setelan memuat
+  PIN). Per baris, tanpa DELETE (batal = status `batal`). Penjaga bentrok:
+  klien mengirim `base` (= versi server yang ia pegang, `o._base`); server
+  menolak kalau tidak sama dan memulangkan versinya — kalau tidak, kasir
+  yang menyimpan order SESUDAH kasir lain membayarnya mengembalikannya ke
+  open. localStorage tetap jadi antrean offline (`_naik=false`); sinkron
+  tiap 15 dtk + saat online/fokus. Setelan printer TIDAK ikut ke server.
+  Order lama (sebelum sinkron) ikut terkirim sekali.
+
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
 ```

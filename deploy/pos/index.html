@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>POS Laksamana Muda</title>
 <link rel="icon" href="../assets/laksamana-mark.png">
+<!-- Gerbang Office: POS hanya untuk pemegang kunci 'pos' di Kelola Akses
+     (atau '*'). Ditaruh di <head> supaya tidak satu baris pun sempat jalan.
+     PIN kasir di dalam POS tetap berlaku sesudahnya — gerbang ini menjawab
+     "boleh membuka POS", PIN menjawab "siapa yang sedang berdiri di kasir". -->
+<script>
+(function(){try{
+  var s=JSON.parse(localStorage.getItem('lm_session')||'null');
+  var hidup=s&&s.expiry&&Date.now()<s.expiry;
+  var punya=hidup&&(s.modules||[]).some(function(m){return m==='*'||m==='pos';});
+  if(!punya)location.replace('../');
+}catch(e){location.replace('../');}})();
+</script>
 <!--
   POS Laksamana Muda — PROTOTIPE (27 Oktober 2026, permintaan user).
 
@@ -103,14 +115,21 @@ input{font:inherit}
 .searchbar .sbox span{padding:0 12px;color:#555}
 .searchbar .sbox input{flex:1;border:0;height:42px;outline:0;background:transparent}
 .pager{display:flex;align-items:center;gap:8px;white-space:nowrap}
-.cat-title{padding:4px 14px 8px;color:var(--gold2);font-weight:700;font-size:16px;display:flex;align-items:center;gap:10px}
-.cat-title button{background:none;border:0;color:var(--navy2);font-weight:600;padding:0}
+.cat-title{padding:4px 14px 8px;color:#222;font-weight:600;font-size:16px;display:flex;align-items:center;gap:10px}
+.cat-title .bc button{background:none;border:0;color:#2f7fd0;font-weight:600;padding:0;font-size:16px}
+.cat-title .bc b{color:#222}
 .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:0 12px 14px;align-content:start;min-height:420px;background:#f6f7f9;padding-top:12px}
-.tile{height:88px;background:#fff;border:0;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.14);padding:8px 10px;font-size:15px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:4px}
+.tile{height:88px;background:#fff;border:0;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.14);padding:8px 10px;font-size:15px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:4px;position:relative;overflow:hidden}
+/* ESB: kelompok = putih bergaris bawah, sub kategori = biru, menu = oranye */
+.tile.grp{font-weight:600;text-decoration:underline;text-underline-offset:4px}
+.tile.kat{background:#2f86d6;color:#fff;font-weight:600;text-transform:uppercase}
+.tile.kat.balik{background:#1f6db8}
+.tile.itm{background:#f2a51f;color:#fff;font-weight:600;text-transform:uppercase;font-size:14px;line-height:1.25}
+.tile.itm small,.tile.kat small{color:#fff;font-weight:600}
 .tile:hover{box-shadow:0 2px 7px rgba(0,0,0,.2)}
 .tile.on{background:#111;color:#fff}
-.tile small{color:var(--gold2);font-weight:600}
 .tile .cnt{font-size:12px;color:var(--mut)}
+.tile.kat .cnt{color:rgba(255,255,255,.85);text-transform:none;font-weight:400}
 .grid-empty{grid-column:1/-1;text-align:center;color:var(--mut);padding:60px 0}
 .actbar{display:flex;gap:10px}
 .actbar .btn{flex:1;height:54px}
@@ -260,18 +279,11 @@ input{font:inherit}
   .login{flex-direction:column}.login-right{width:auto;border-left:0;border-top:1px solid var(--line)}
   .kpis{grid-template-columns:repeat(2,1fr)}.top .it.hide-m{display:none}
 }
-@media print{
-  body *{visibility:hidden}
-  #cetak,#cetak *{visibility:visible}
-  #cetak{position:absolute;left:0;top:0;width:80mm}
-  #cetak .receipt{box-shadow:none;max-width:none;padding:0}
-}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <div id="modal"></div>
-<div id="cetak" style="position:absolute;left:-9999px;top:0"></div>
 
 <script src="menu-data.js"></script>
 <script src="rekap-2026.js"></script>
@@ -303,7 +315,14 @@ const USER_BAWAAN = [
   { id: 'u-gita',  nama: 'Gita',  role: 'kasir', pin: '3333', aktif: true },
   { id: 'u-faila', nama: 'Faila', role: 'kasir', pin: '4444', aktif: true }
 ];
-let SET = { users: JSON.parse(JSON.stringify(USER_BAWAAN)), menu: {}, menuBaru: [], sc: 5, pb1: 10 };
+/* mode 'teks' = struk disusun sebagai baris teks berkolom tetap (<pre>).
+   BAWAANNYA, karena ia rapi di driver APA PUN — termasuk "Generic / Text
+   Only" yang dipakai di kasir (27 Okt 2026): driver itu cuma memungut teks
+   dari halaman, jadi struk berkolom/berlogo keluar berantakan (judul &
+   kaki tertukar, kolom angka menempel). mode 'grafis' = tampilan seperti
+   pratinjau di layar, hanya rapi dengan driver printer struk (POS-80 dsb). */
+const PRINTER_BAWAAN = { lebar: 80, otomatis: false, salinan: 1, logo: true, kaki: 'Terima kasih atas kunjungan Anda', mode: 'teks', kolom: 42 };
+let SET = { users: JSON.parse(JSON.stringify(USER_BAWAAN)), menu: {}, menuBaru: [], sc: 5, pb1: 10, printer: Object.assign({}, PRINTER_BAWAAN) };
 let SET_GAGAL = false;
 function muatSet() {
   try {
@@ -314,16 +333,26 @@ function muatSet() {
       if (Array.isArray(s.menuBaru)) SET.menuBaru = s.menuBaru;
       if (isFinite(s.sc)) SET.sc = +s.sc;
       if (isFinite(s.pb1)) SET.pb1 = +s.pb1;
+      if (s.printer && typeof s.printer === 'object') SET.printer = Object.assign({}, PRINTER_BAWAAN, s.printer);
+      if (isFinite(s.ts)) SET.ts = +s.ts;
+      if (s._belum) SET._belum = true;
     }
   } catch (e) {}
 }
-function simpanSet() {
+// lokalSaja = setelan milik komputer ini (printer) — tidak dikirim ke server.
+function simpanSet(lokalSaja) {
+  if (!lokalSaja) { SET._belum = true; SET.ts = Date.now(); }
   try { localStorage.setItem(SKEY, JSON.stringify(SET)); SET_GAGAL = false; } catch (e) { SET_GAGAL = true; }
+  if (!lokalSaja) sinkronNanti();
 }
 const isAdmin = () => !!(USER && USER.role === 'admin');
 
 const BASE_MENU = (window.POS_MENU || []).slice();
-let MENU = [], KATEGORI = [];
+let MENU = [], KATEGORI = [], GRUPS = [];
+// Kelompok atas ala ESB (FOOD / BEVERAGES / OTHERS) dibaca dari kolom jenis
+// resep HPP; sub kategorinya kolom kat. Tidak ada daftar kategori kedua.
+const URUT_GRUP = ['FOOD', 'BEVERAGES', 'OTHERS'];
+function grupMenu(m) { return m.jenis === 'food' ? 'FOOD' : m.jenis === 'drink' ? 'BEVERAGES' : 'OTHERS'; }
 // Seluruh menu (aktif & tidak) sesudah selisih pengaturan diterapkan.
 function menuSemua() {
   return BASE_MENU.map(m => Object.assign({}, m, SET.menu[m.id] || {}, { asal: 'hpp' }))
@@ -334,6 +363,10 @@ function bangunMenu() {
   const k = {};
   MENU.forEach(x => { k[x.kat] = (k[x.kat] || 0) + 1; });
   KATEGORI = Object.keys(k).sort((a, b) => a.localeCompare(b)).map(n => ({ k: n, n: k[n] }));
+  const g = {};
+  MENU.forEach(x => { const gk = grupMenu(x), kk = x.kat || '(tanpa kategori)'; (g[gk] = g[gk] || {})[kk] = (g[gk][kk] || 0) + 1; });
+  GRUPS = URUT_GRUP.filter(n => g[n]).map(n => ({ k: n, kats: Object.keys(g[n]).sort((a, b) => a.localeCompare(b)).map(c => ({ k: c, n: g[n][c] })) }));
+  if (GRUP && !GRUPS.some(x => x.k === GRUP)) { GRUP = ''; KAT = ''; }
 }
 
 /* ================= UTIL ================= */
@@ -370,6 +403,117 @@ function simpan() {
   catch (e) { SIMPAN_GAGAL = true; }
 }
 
+/* ================= SINKRON KE SERVER (27 Okt 2026) =================
+   Order & setelan bersama disimpan di server (kompas-api-mysql, aksi
+   posList/posSimpan/posSetting) supaya komputer kasir lain melihat data yang
+   sama. localStorage TETAP dipakai sebagai salinan & antrean: order yang
+   belum terkirim ditandai _naik=false dan dikirim ulang begitu jaringan
+   kembali — kasir tidak boleh berhenti melayani karena WiFi putus.
+   _base = versi server yang dipegang order ini; server menolak kiriman yang
+   base-nya sudah basi (order keburu diubah di perangkat lain), dan yang
+   ditolak diganti versi server — bukan ditimpa. */
+/* SATU-SATUNYA alamat server POS. Relatif, jadi POS selalu bicara dengan
+   backend di DOMAIN YANG SAMA dengan halamannya: memindahkan folder pos/
+   bersama kompas-api-mysql/ ke domain baru tidak perlu menyunting apa pun.
+   Kalau suatu hari POS dipisah ke domain lain, ubah HANYA baris ini. */
+const API_POS = '../kompas-api-mysql/api.php';
+const SYNC = { sedang: false, gagal: '', terakhir: 0, ver: -1 };
+function sesiToken() {
+  try { const s = JSON.parse(localStorage.getItem('lm_session') || 'null'); return (s && s.token) || ''; } catch (e) { return ''; }
+}
+async function apiPos(action, extra) {
+  const r = await fetch(API_POS, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({ action: action, sesi: sesiToken() }, extra || {})) });
+  const t = await r.text();
+  let j; try { j = JSON.parse(t); } catch (e) { throw new Error('Balasan server bukan JSON (HTTP ' + r.status + ')'); }
+  return j;
+}
+function tandaiOrder(o) { o.updatedAt = Math.max(Date.now(), (+o.updatedAt || 0) + 1); o._naik = false; }
+function belumNaik() { return DB.orders.filter(o => o._naik === false).length; }
+async function kirimAntre() {
+  for (const o of DB.orders.filter(x => x._naik === false)) {
+    const kirim = Object.assign({}, o); delete kirim._naik; delete kirim._base;
+    const j = await apiPos('posSimpan', { order: kirim, base: +o._base || 0 });
+    if (j.ok) { o._naik = true; o.updatedAt = j.data.updatedAt; o._base = j.data.updatedAt; }
+    else if (j.konflik && j.server) {
+      const i = DB.orders.findIndex(x => x.id === o.id);
+      DB.orders[i] = Object.assign(j.server, { _naik: true, _base: j.server.updatedAt });
+      toast('Order ' + (o.no || '') + ' sudah diubah di perangkat lain — versi terbaru dipakai.');
+    } else throw new Error(j.error || 'Gagal menyimpan order.');
+    simpan();
+  }
+}
+async function kirimSetBersama() {
+  const j = await apiPos('posSetting', { data: { users: SET.users, menu: SET.menu, menuBaru: SET.menuBaru, sc: SET.sc, pb1: SET.pb1 } });
+  if (!j.ok) throw new Error(j.error || 'Gagal menyimpan pengaturan.');
+  SET._belum = false; SET.ts = j.data.ts; simpanSet(true);
+}
+async function tarikServer() {
+  const j = await apiPos('posList', { dari: TAHUN + '-01-01' });
+  if (!j.ok) throw new Error(j.error || 'Gagal membaca data server.');
+  const d = j.data || {};
+  let berubah = false;
+  const srv = {}; (d.orders || []).forEach(o => { srv[o.id] = o; });
+  DB.orders.forEach((o, i) => {
+    const so = srv[o.id];
+    if (so) {
+      if (o._naik !== false && (+so.updatedAt || 0) !== (+o._base || 0)) {
+        DB.orders[i] = Object.assign(so, { _naik: true, _base: so.updatedAt }); berubah = true;
+      }
+      delete srv[o.id];
+    } else if (o._naik !== false && o._naik !== true) {
+      o._naik = false;   // transaksi lama dari sebelum sinkron: ikut dikirim
+    }
+  });
+  Object.keys(srv).forEach(id => { DB.orders.push(Object.assign(srv[id], { _naik: true, _base: srv[id].updatedAt })); berubah = true; });
+  if (berubah) simpan();
+  // Setelan bersama: yang lebih baru menang; yang belum terkirim dikirim.
+  const ss = d.setting;
+  if (SET._belum || !ss) { if (SET._belum || !ss) await kirimSetBersama(); }
+  else if ((+ss.ts || 0) > (+SET.ts || 0)) {
+    if (Array.isArray(ss.users) && ss.users.length) SET.users = ss.users;
+    SET.menu = (ss.menu && typeof ss.menu === 'object' && !Array.isArray(ss.menu)) ? ss.menu : {};
+    SET.menuBaru = Array.isArray(ss.menuBaru) ? ss.menuBaru : [];
+    if (isFinite(ss.sc)) SET.sc = +ss.sc;
+    if (isFinite(ss.pb1)) SET.pb1 = +ss.pb1;
+    SET.ts = +ss.ts; simpanSet(true); bangunMenu(); berubah = true;
+    if (USER) { const u = SET.users.find(x => x.id === USER.id && x.aktif !== false); if (!u) { USER = null; VIEW = 'login'; } else { USER.nama = u.nama; USER.role = u.role; } }
+  }
+  return berubah;
+}
+async function sinkron() {
+  if (SYNC.sedang) return;
+  SYNC.sedang = true; segarBadge();
+  let berubah = false;
+  try {
+    if (belumNaik()) await kirimAntre();
+    berubah = await tarikServer();
+    if (belumNaik()) await kirimAntre();
+    SYNC.gagal = ''; SYNC.terakhir = Date.now();
+  } catch (e) { SYNC.gagal = e.message || String(e); }
+  SYNC.sedang = false;
+  segarBadge();
+  // Gambar ulang hanya di layar baca, tanpa modal terbuka, dan tidak sedang
+  // mengetik — penggambaran ulang total membuang fokus kotak isian.
+  const ae = document.activeElement;
+  if (berubah && !($('modal') && $('modal').innerHTML) && ['login', 'terbuka', 'riwayat', 'laporan'].includes(VIEW) && !(ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) render();
+}
+let _sinkT = null;
+function sinkronNanti() { clearTimeout(_sinkT); _sinkT = setTimeout(sinkron, 300); }
+function badgeTeks() {
+  const n = belumNaik();
+  if (SYNC.sedang) return '⟳ Sinkron…';
+  if (SYNC.gagal) return '⚠ Offline' + (n ? ' · ' + n + ' belum terkirim' : '');
+  if (n || SET._belum) return '⏳ ' + (n || '') + ' belum terkirim';
+  return SYNC.terakhir ? '✓ Tersinkron' : '…';
+}
+function segarBadge() {
+  const b = $('sinkBadge'); if (!b) return;
+  b.textContent = badgeTeks();
+  b.title = SYNC.gagal ? 'Server tidak terjangkau: ' + SYNC.gagal + '. Data tetap tersimpan di komputer ini dan dikirim otomatis.' : 'Data POS tersimpan di server dan terlihat di komputer kasir lain.';
+  b.style.color = SYNC.gagal ? '#ffb4a8' : '';
+}
+
 /* ================= STATE LAYAR ================= */
 let USER = null;
 let VIEW = 'login';
@@ -378,7 +522,8 @@ let LOGIN_ERR = '';
 let QS_HAL = 1;
 let CUR = null;           // order yang sedang dikerjakan
 let SEL = -1;             // baris keranjang terpilih
-let KAT = '';             // '' = daftar kategori
+let GRUP = '';            // '' = daftar kelompok (FOOD/BEVERAGES/OTHERS)
+let KAT = '';             // '' = daftar sub kategori di dalam GRUP
 let CARI = '';
 let HAL = 1;
 let CASH_IN = '';
@@ -580,6 +725,7 @@ function vSide() {
 function vTop() {
   return '<div class="top"><span class="pill"><i></i>Enable</span>' +
     '<span class="it hide-m" style="font-size:15px">POS · ' + esc(OUTLET.kode) + '</span><span class="sp"></span>' +
+    '<span class="it" id="sinkBadge" style="cursor:pointer" onclick="sinkron()">' + badgeTeks() + '</span>' +
     '<span class="it" id="jam">' + jamTeks() + '</span>' +
     '<span class="it hide-m">⌂ ' + esc(OUTLET.nama) + '</span>' +
     '<span class="it hide-m">▭ ' + esc(OUTLET.station) + '</span>' +
@@ -650,26 +796,37 @@ function go(v) {
 function menuTampil() {
   const q = CARI.trim().toLowerCase();
   if (q) return MENU.filter(x => x.nama.toLowerCase().includes(q) || (x.kode && x.kode.toLowerCase().includes(q)));
-  if (KAT) return MENU.filter(x => x.kat === KAT);
+  if (GRUP && KAT) return MENU.filter(x => grupMenu(x) === GRUP && (x.kat || '(tanpa kategori)') === KAT).sort((a, b) => a.nama.localeCompare(b.nama));
   return null;
 }
+function grupAktif() { return GRUPS.find(x => x.k === GRUP) || null; }
 function gridArea() {
-  const daftar = menuTampil();
-  const isi = daftar ? daftar : KATEGORI;
-  const nHal = Math.max(1, Math.ceil(isi.length / PER_HAL));
+  const cari = !!CARI.trim(), daftar = menuTampil(), g = grupAktif();
+  // Ubin pertama di level 2 & 3 adalah tombol kembali, seperti ESB — ia
+  // ikut di tiap halaman, jadi isi per halaman tinggal PER_HAL - 1.
+  const kepala = cari ? '' : (KAT ? '<button class="tile kat balik" onclick="pilihKat(-1)">' + esc(KAT) + '</button>'
+    : GRUP ? '<button class="tile grp" onclick="pilihGrup(-1)">' + esc(GRUP) + '</button>' : '');
+  const isi = daftar ? daftar : g ? g.kats : GRUPS;
+  const per = kepala ? PER_HAL - 1 : PER_HAL;
+  const nHal = Math.max(1, Math.ceil(isi.length / per));
   if (HAL > nHal) HAL = nHal;
-  const pot = isi.slice((HAL - 1) * PER_HAL, HAL * PER_HAL);
+  const pot = isi.slice((HAL - 1) * per, HAL * per);
   let grid;
-  if (!daftar) {
-    grid = pot.map(c => '<button class="tile" onclick="pilihKat(' + KATEGORI.indexOf(c) + ')">' + esc(c.k) + '<span class="cnt">' + c.n + ' menu</span></button>').join('');
-  } else if (!pot.length) {
-    grid = '<div class="grid-empty">Tidak ada menu yang cocok dengan “' + esc(CARI) + '”.</div>';
+  if (daftar && !pot.length) {
+    grid = '<div class="grid-empty">' + (cari ? 'Tidak ada menu yang cocok dengan “' + esc(CARI) + '”.' : 'Belum ada menu di kategori ini.') + '</div>';
+  } else if (daftar) {
+    grid = kepala + pot.map(m => '<button class="tile itm" onclick="tambah(\'' + esc(m.id) + '\')">' + esc(m.nama) + '<small>(' + fmt(m.harga) + ')</small></button>').join('');
+  } else if (g) {
+    grid = kepala + pot.map(c => '<button class="tile kat" onclick="pilihKat(' + g.kats.indexOf(c) + ')">' + esc(c.k) + '<span class="cnt">' + c.n + ' menu</span></button>').join('');
   } else {
-    grid = pot.map(m => '<button class="tile" onclick="tambah(\'' + esc(m.id) + '\')">' + esc(m.nama) + '<small>' + fmt(m.harga) + '</small></button>').join('');
+    grid = pot.map(c => '<button class="tile grp" onclick="pilihGrup(' + GRUPS.indexOf(c) + ')">' + esc(c.k) + '</button>').join('') ||
+      '<div class="grid-empty">Belum ada menu aktif berharga dari HPP.</div>';
   }
-  const judul = CARI.trim() ? 'Hasil pencarian · ' + daftar.length + ' menu'
-    : KAT ? '<button onclick="pilihKat(-1)">‹ Menu Category</button> / ' + esc(KAT) : 'Menu Category';
-  return '<div class="cat-title"><span style="flex:1">' + judul + '</span><div class="pager"><button class="btn" onclick="gantiHal(-1)" ' + (HAL <= 1 ? 'disabled' : '') + '>←</button><span>' + HAL + ' of ' + nHal + '</span><button class="btn" onclick="gantiHal(1)" ' + (HAL >= nHal ? 'disabled' : '') + '>→</button></div></div><div class="grid">' + grid + '</div>';
+  const judul = cari ? 'Hasil pencarian · ' + daftar.length + ' menu'
+    : '<span class="bc">' + (GRUP ? '<button onclick="pilihGrup(-1)">Menu Category</button> / ' +
+        (KAT ? '<button onclick="pilihKat(-1)">' + esc(GRUP) + '</button> / <b>' + esc(KAT) + '</b>' : '<b>' + esc(GRUP) + '</b>')
+      : '<b>Menu Category</b>') + '</span>';
+  return '<div class="cat-title"><span style="flex:1">' + judul + '</span><div class="pager"><span>' + HAL + ' of ' + nHal + '</span><button class="btn" onclick="gantiHal(-1)" ' + (HAL <= 1 ? 'disabled' : '') + '>←</button><button class="btn" onclick="gantiHal(1)" ' + (HAL >= nHal ? 'disabled' : '') + '>→</button></div></div><div class="grid">' + grid + '</div>';
 }
 function vOrder() {
   const h = hitung(CUR);
@@ -683,7 +840,7 @@ function vOrder() {
     '<div class="fld" style="flex:1"><label>Order Notes</label><input class="inp" placeholder="Information will be printed on checker printout" value="' + esc(CUR.notes) + '" oninput="CUR.notes=this.value"></div>' +
     '<button class="btn" title="Jumlah tamu" onclick="ubahPax()">👤 ' + CUR.pax + '</button></div>' +
     '<div class="card"><div class="searchbar"><div class="sbox"><span>🔍</span><input id="cari" placeholder="Search menu / code" value="' + esc(CARI) + '" oninput="ketikCari(this.value)"></div>' +
-    '<button class="btn" title="Muat ulang" onclick="CARI=\'\';KAT=\'\';HAL=1;render()">⟳</button></div>' +
+    '<button class="btn" title="Muat ulang" onclick="CARI=\'\';GRUP=\'\';KAT=\'\';HAL=1;render()">⟳</button></div>' +
     '<div id="gridArea">' + gridArea() + '</div></div>' +
     '<div class="actbar"><button class="btn ghost" disabled>⤧ Move to Table</button><button class="btn ghost" disabled>⇄ Move Item</button><button class="btn ghost" disabled>🖶 Checker</button></div>' +
     '<div class="actbar"><button class="btn ' + (CUR.items.length ? 'red' : 'ghost') + '" style="flex:0 0 32%" onclick="batalOrder()" ' + (CUR.items.length ? '' : 'disabled') + '>🗑 Cancel Order</button></div></div>' +
@@ -703,7 +860,8 @@ function ketikCari(v) {
   gambarGrid();
 }
 function gambarGrid() { const g = $('gridArea'); if (g) g.innerHTML = gridArea(); else render(); }
-function pilihKat(i) { KAT = i >= 0 && KATEGORI[i] ? KATEGORI[i].k : ''; CARI = ''; HAL = 1; render(); }
+function pilihGrup(i) { GRUP = i >= 0 && GRUPS[i] ? GRUPS[i].k : ''; KAT = ''; CARI = ''; HAL = 1; render(); }
+function pilihKat(i) { const g = grupAktif(); KAT = i >= 0 && g && g.kats[i] ? g.kats[i].k : ''; CARI = ''; HAL = 1; render(); }
 function gantiHal(d) { HAL += d; gambarGrid(); }
 function tambah(id) {
   const m = MENU.find(x => x.id === id); if (!m) return;
@@ -719,7 +877,12 @@ function hapusBaris(i) { CUR.items.splice(i, 1); SEL = Math.min(SEL, CUR.items.l
 function setMode(m) { CUR.mode = m; render(); }
 function batalOrder() {
   if (!confirm('Batalkan pesanan ini? Seluruh item akan dibuang.')) return;
-  if (CUR.status === 'open') { DB.orders = DB.orders.filter(o => o.id !== CUR.id); simpan(); }
+  // Order terbuka yang dibatalkan TIDAK dihapus: statusnya 'batal' dan ikut
+  // terkirim, supaya komputer kasir lain ikut melepasnya dari daftar.
+  if (CUR.status === 'open') {
+    const o = DB.orders.find(x => x.id === CUR.id);
+    if (o) { o.status = 'batal'; o.batalAt = Date.now(); o.batalOleh = USER ? USER.nama : ''; tandaiOrder(o); simpan(); sinkronNanti(); }
+  }
   CUR = orderBaru(); SEL = -1; render();
 }
 function pastikanNomor() { if (!CUR.no) CUR.no = 'S' + OUTLET.kode + Math.floor(Date.now() / 1000); }
@@ -728,8 +891,9 @@ function simpanOrder() {
   CUR.status = 'open'; CUR.tgl = hariIniIso();
   const i = DB.orders.findIndex(o => o.id === CUR.id);
   const salinan = JSON.parse(JSON.stringify(CUR));
+  tandaiOrder(salinan);
   if (i >= 0) DB.orders[i] = salinan; else DB.orders.push(salinan);
-  simpan();
+  simpan(); sinkronNanti();
   toast('Order ' + CUR.no + ' disimpan ke Quick Service List.');
   CUR = orderBaru(); SEL = -1; render();
 }
@@ -818,7 +982,7 @@ function struk(o) {
     '<div class="hr" style="margin-left:40%"></div>' + baris('<b>Grand Total</b>', '<b>' + fmt2(h.grand) + '</b>') +
     (bayar ? '<div class="hr"></div>' + bayar + baris('Change', fmt2(h.kembali)) : '') +
     (o.notes ? '<div class="hr"></div><div>Catatan: ' + esc(o.notes) + '</div>' : '') +
-    '<div class="hr"></div><div class="c muted">Terima kasih atas kunjungan Anda</div></div>';
+    (SET.printer.kaki ? '<div class="hr"></div><div class="c muted">' + esc(SET.printer.kaki) + '</div>' : '') + '</div>';
 }
 
 /* ---------- PAYMENT ---------- */
@@ -900,12 +1064,158 @@ function submitBayar() {
   CUR.status = 'paid'; CUR.paidAt = Date.now(); CUR.tgl = hariIniIso(); CUR.kasir = CUR.kasir || USER.nama;
   const i = DB.orders.findIndex(o => o.id === CUR.id);
   const salinan = JSON.parse(JSON.stringify(CUR));
+  tandaiOrder(salinan);
   if (i >= 0) DB.orders[i] = salinan; else DB.orders.push(salinan);
-  simpan();
+  simpan(); sinkronNanti();
   bukaKonfirmasi(true);
+  if (SET.printer.otomatis) cetakStruk(salinan);
 }
-function selesaiBayar() { tutupModal(); CUR = orderBaru(); SEL = -1; KAT = ''; CARI = ''; HAL = 1; VIEW = 'order'; render(); }
-function cetakStruk(o) { $('cetak').style.left = '0'; $('cetak').innerHTML = struk(o || CUR); window.print(); $('cetak').style.left = '-9999px'; }
+function selesaiBayar() { tutupModal(); CUR = orderBaru(); SEL = -1; GRUP = ''; KAT = ''; CARI = ''; HAL = 1; VIEW = 'order'; render(); }
+/* CETAK STRUK — lewat iframe tersembunyi berisi dokumen SENDIRI.
+   Peramban tidak bisa bicara langsung ke printer LAN (port 9100); yang bisa
+   adalah printer yang SUDAH DIPASANG di Windows. Jadi printer kasir LAN
+   dipasang sekali di Windows (Tambah printer -> alamat IP), dan dari sini
+   kita cukup memanggil print() atas dokumen yang ukurannya PAS kertas:
+   @page selebar 58/80mm, margin nol, tinggi mengikuti isi. Dulu struk
+   dicetak lewat @media print halaman utama — ukuran halamannya A4, jadi
+   printer thermal menerima satu "halaman" setinggi A4 (kertas terbuang)
+   dan sebagian driver memotong isinya.
+   Gambar logo DITUNGGU dulu sebelum print(): dicetak sebelum termuat, struk
+   pertama keluar tanpa logo. */
+function kolomStruk() {
+  const k = Math.round(+SET.printer.kolom || 0);
+  return k >= 24 && k <= 64 ? k : (+SET.printer.lebar === 58 ? 32 : 42);
+}
+// Struk sebagai baris teks: isi & urutannya SAMA dengan struk() — yang beda
+// cuma bentuknya. Angka di kanan, label di kiri, nama panjang dibungkus.
+function strukTeks(o, K) {
+  const h = hitung(o), t = new Date(o.paidAt || o.at);
+  const L = [];
+  const pot = (x, n) => String(x).length > n ? String(x).slice(0, n) : String(x);
+  const tengah = x => { x = pot(x, K); const sp = Math.floor((K - x.length) / 2); return ' '.repeat(sp) + x; };
+  const kr = (a, b) => { a = String(a); b = String(b); if (a.length + b.length + 1 > K) { L.push(pot(a, K)); a = ''; } return a + ' '.repeat(Math.max(1, K - a.length - b.length)) + b; };
+  const bungkus = x => { const out = []; let baris = ''; String(x).split(/\s+/).forEach(w => { if ((baris + ' ' + w).trim().length > K) { if (baris) out.push(baris); baris = w; } else baris = (baris + ' ' + w).trim(); }); if (baris) out.push(baris); return out; };
+  const garis = () => L.push('-'.repeat(K));
+  const kv = (a, b) => L.push(pot((a + '         ').slice(0, 8) + ': ' + b, K));
+  L.push(tengah('LAKSAMANA MUDA'), tengah('Coffee & Live Space'), tengah('Jl. Soekarno Hatta No. 39'));
+  garis();
+  kv('Order', o.no || '-');
+  kv('Tanggal', pad2(t.getDate()) + '-' + pad2(t.getMonth() + 1) + '-' + t.getFullYear() + ' ' + jamDari(t));
+  kv('Table', o.meja + ' - ' + o.mode);
+  kv('Pax', o.pax);
+  kv('Cashier', o.kasir);
+  garis();
+  o.items.forEach(x => {
+    bungkus(x.nama).forEach(b => L.push(b));
+    L.push(kr('  ' + x.qty + ' x ' + fmt2(x.harga), fmt2(x.harga * x.qty)));
+  });
+  garis();
+  L.push(h.qty + ' items');
+  garis();
+  L.push(kr('Subtotal', fmt2(h.sub)));
+  L.push(kr('Bill Discount', fmt2(h.disc)));
+  L.push(kr('SC ' + h.scPct + '%', fmt2(h.sc)));
+  L.push(kr('PB1 Total', fmt2(h.pb1)));
+  L.push(kr('Billing Total', fmt2(h.bill)));
+  L.push(kr('Rounding', fmt2(h.rounding)));
+  garis();
+  L.push(kr('GRAND TOTAL', fmt2(h.grand)));
+  if ((o.payments || []).length) {
+    garis();
+    o.payments.forEach(p => L.push(kr(p.method, fmt2(p.amount))));
+    L.push(kr('Change', fmt2(h.kembali)));
+  }
+  if (o.notes) { garis(); bungkus('Catatan: ' + o.notes).forEach(b => L.push(b)); }
+  if (SET.printer.kaki) { garis(); bungkus(SET.printer.kaki).forEach(b => L.push(tengah(b))); }
+  L.push('', '', '', '', '', '', '.');   // ruang sobek; titik di ujung menahan driver membuang baris kosong
+  return L.join('\n');
+}
+function dokStruk(isi) {
+  const p = SET.printer, w = +p.lebar === 58 ? 58 : 80;
+  if (p.mode !== 'grafis') {
+    // Lebar huruf Courier = 0,6 em; ukurannya dihitung supaya K kolom pas
+    // di area cetak (lebar kertas dikurangi ~4mm tepi mesin).
+    const K = kolomStruk(), em = ((w - 8) / K / 0.6).toFixed(2);
+    return '<!doctype html><html><head><meta charset="utf-8"><title>Struk</title><style>@page{size:' + w + 'mm auto;margin:0}' +
+      'html,body{margin:0;padding:0;background:#fff;color:#000}body{width:' + w + 'mm}' +
+      'pre{margin:0;padding:0 4mm;font:' + em + 'mm/1.25 "Courier New",Courier,monospace;white-space:pre;page-break-after:always}pre:last-child{page-break-after:auto}' +
+      '</style></head><body>' + isi + '</body></html>';
+  }
+  const css = '@page{size:' + w + 'mm auto;margin:0}' +
+    'html,body{margin:0;padding:0;background:#fff;color:#000}' +
+    // Huruf & susunan SAMA dengan pratinjau di layar (.receipt) — permintaan
+    // user: struk cetak "persis seperti di gambar". Hanya rapi lewat driver
+    // printer struk (POS-80 dsb); driver Generic / Text Only membuangnya.
+    'body{width:' + w + 'mm;font:' + (w === 58 ? '11px' : '12.5px') + '/1.4 "Segoe UI",Roboto,Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}b{font-weight:700}' +
+    '.receipt{padding:2mm ' + (w === 58 ? '2mm' : '3.5mm') + ' 2mm;page-break-after:always}.receipt:last-child{page-break-after:auto}' +
+    // RUANG SOBEK di kaki struk (permintaan user): elemen setinggi 22mm, bukan
+    // padding — sebagian driver memangkas tepi kosong halaman, tapi tidak
+    // memangkas isi. Titik kecil di ujungnya menahan pemangkasan itu.
+    '.sobek{height:22mm;position:relative}.sobek:after{content:".";position:absolute;bottom:0;left:0;font-size:6px}' +
+    '.receipt img{display:' + (p.logo ? 'block' : 'none') + ';width:' + (w === 58 ? '48mm' : '70mm') + ';margin:0 auto 2mm}' +
+    '.c{text-align:center}.r{display:flex;justify-content:space-between;gap:4px}.kv{display:grid;grid-template-columns:' + (w === 58 ? '15mm' : '18mm') + ' 8px 1fr}' +
+    '.hr{border-top:1px dashed #000;margin:1.5mm 0}.t{display:grid;grid-template-columns:1fr ' + (w === 58 ? '22mm' : '28mm') + ';text-align:right}.t span:first-child{padding-right:6px}.muted{color:#000}';
+  return '<!doctype html><html><head><meta charset="utf-8"><base href="' + esc(location.href) + '"><title>Struk</title><style>' + css + '</style></head><body>' + isi + '</body></html>';
+}
+/* LOGO UNTUK PRINTER THERMAL: printer thermal cuma mengenal hitam & putih,
+   dan logo aslinya EMAS MUDA di atas latar transparan — dicetak apa adanya
+   (atau sekadar di-grayscale) ia jadi abu-abu terang yang dibuang printer,
+   dan yang keluar cuma ruang kosong di kepala struk (27 Okt 2026). Jadi
+   sebelum dicetak, tiap piksel yang tidak transparan dijadikan HITAM PEKAT
+   lewat canvas. Hasilnya disimpan sekali per sesi. */
+let LOGO_CETAK = '', LOGO_DICOBA = false;  // dicoba sekali: gagal = cetak logo aslinya, bukan berputar
+function siapkanLogoCetak() {
+  LOGO_DICOBA = true;
+  if (LOGO_CETAK) return Promise.resolve(LOGO_CETAK);
+  return new Promise(res => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const W = Math.min(im.naturalWidth || 640, 640), H = Math.round(W * (im.naturalHeight || 512) / (im.naturalWidth || 512));
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const g = c.getContext('2d'); g.drawImage(im, 0, 0, W, H);
+        const px = g.getImageData(0, 0, W, H), d = px.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const gelap = d[i + 3] > 90 && (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) < 245;
+          d[i] = d[i + 1] = d[i + 2] = gelap ? 0 : 255; d[i + 3] = gelap ? 255 : 0;
+        }
+        g.putImageData(px, 0, 0);
+        LOGO_CETAK = c.toDataURL('image/png');
+      } catch (e) { LOGO_CETAK = ''; }
+      res(LOGO_CETAK);
+    };
+    im.onerror = () => res('');
+    im.src = LOGO;
+  });
+}
+function cetakStruk(o) {
+  const ord = o || CUR; if (!ord) return;
+  if (SET.printer.mode === 'grafis' && SET.printer.logo && !LOGO_DICOBA) { siapkanLogoCetak().then(() => cetakStruk(ord)); return; }
+  const n = Math.max(1, Math.min(3, +SET.printer.salinan || 1));
+  let isi = ''; for (let i = 0; i < n; i++) isi += SET.printer.mode !== 'grafis' ? '<pre>' + esc(strukTeks(ord, kolomStruk())) + '</pre>' : struk(ord).replace(/<\/div>$/, '<div class="sobek"></div></div>');
+  if (LOGO_CETAK) isi = isi.split('src="' + LOGO + '"').join('src="' + LOGO_CETAK + '"');
+  let fr = document.getElementById('frCetak');
+  if (fr) fr.remove();
+  fr = document.createElement('iframe');
+  fr.id = 'frCetak'; fr.setAttribute('aria-hidden', 'true');
+  fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  document.body.appendChild(fr);
+  const d = fr.contentWindow.document;
+  d.open(); d.write(dokStruk(isi)); d.close();
+  let sudah = false;
+  const jalan = () => {
+    if (sudah) return; sudah = true;
+    try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { toast('Gagal membuka dialog cetak.'); }
+  };
+  const tunggu = [...d.images].filter(im => !im.complete);
+  if (!tunggu.length || !SET.printer.logo || SET.printer.mode !== 'grafis') setTimeout(jalan, 50);
+  else { let sisa = tunggu.length; tunggu.forEach(im => { im.onload = im.onerror = () => { if (--sisa <= 0) jalan(); }; }); setTimeout(jalan, 2500); }
+}
+function cetakTes() {
+  const o = { no: 'TES-PRINTER', at: Date.now(), paidAt: Date.now(), meja: '-', mode: 'Dine In', pax: 1, kasir: USER ? USER.nama : '-', notes: 'Cetak tes printer',
+    items: [{ nama: 'Ice Kopi Laksamana', qty: 1, harga: 25000 }], payments: [], scPct: SET.sc, pb1Pct: SET.pb1 };
+  cetakStruk(o);
+}
 
 /* ---------- ORDER TERBUKA ---------- */
 function vTerbuka() {
@@ -1045,6 +1355,26 @@ function vSetting() {
       '<td>' + (u.aktif === false ? '<span class="chip off">Nonaktif</span>' : '<span class="chip pos">Aktif</span>') + '</td><td><button class="sbtn" onclick="editUser(\'' + esc(u.id) + '\')">✎ Ubah</button></td></tr>').join('');
     isi = '<div class="card"><div class="rowf" style="padding:12px;align-items:center"><span class="muted" style="flex:1">Admin bisa membuka Laporan & Pengaturan; Kasir hanya Order, Open Order, dan Riwayat. PIN 4–6 angka, tidak boleh sama.</span><button class="btn gold" onclick="editUser(\'\')">+ Tambah Pengguna</button></div>' +
       '<table class="tbl"><thead><tr><th>Nama</th><th>Peran</th><th>PIN</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  } else if (SET_TAB === 'printer') {
+    const p = SET.printer;
+    isi = '<div class="card" style="padding:16px;max-width:720px"><div class="frm">' +
+      '<div><label>Lebar kertas</label><select id="prLebar" class="inp"><option value="80"' + (+p.lebar !== 58 ? ' selected' : '') + '>80 mm</option><option value="58"' + (+p.lebar === 58 ? ' selected' : '') + '>58 mm</option></select></div>' +
+      '<div><label>Mode cetak</label><select id="prMode" class="inp"><option value="teks"' + (p.mode !== 'grafis' ? ' selected' : '') + '>Teks (cocok untuk semua driver)</option><option value="grafis"' + (p.mode === 'grafis' ? ' selected' : '') + '>Grafis + logo (butuh driver printer struk)</option></select></div>' +
+      '<div><label>Karakter per baris (mode teks)</label><input id="prKolom" class="inp" inputmode="numeric" value="' + kolomStruk() + '"><small class="muted">80 mm biasanya 42–48, 58 mm 32. Kecilkan kalau baris terpotong, besarkan kalau sisa kanan lebar.</small></div>' +
+      '<div><label>Jumlah salinan</label><select id="prSalin" class="inp">' + [1, 2, 3].map(n => '<option' + (+p.salinan === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></div>' +
+      '<div class="full"><label class="tog"><input id="prOto" type="checkbox"' + (p.otomatis ? ' checked' : '') + '> Cetak otomatis sesudah pembayaran di-Apply</label></div>' +
+      '<div class="full"><label class="tog"><input id="prLogo" type="checkbox"' + (p.logo ? ' checked' : '') + '> Cetak logo di kepala struk (mode grafis)</label></div>' +
+      '<div class="full"><label>Tulisan di kaki struk</label><input id="prKaki" class="inp" maxlength="80" value="' + esc(p.kaki) + '"></div>' +
+      '<div class="full"><button class="btn gold" onclick="simpanPrinter()">✓ Simpan</button> <button class="btn line" onclick="cetakTes()">🖶 Cetak Tes</button></div></div></div>' +
+      '<div class="card" style="padding:16px;max-width:720px;margin-top:14px;line-height:1.55"><b>Memakai printer kasir LAN</b>' +
+      '<ol style="margin:8px 0 0 18px;padding:0">' +
+      '<li>Pasang printernya sekali di Windows: <i>Settings → Bluetooth &amp; devices → Printers &amp; scanners → Add device → Add manually → "Add a printer using an IP address"</i>, isi alamat IP printer (tercetak di self-test printer), port 9100, lalu pilih driver printernya (Epson TM-T82/T88, Xprinter, dll — atau <i>Generic / Text Only</i>).</li>' +
+      '<li>Di driver printer (Printer properties → Preferences) pilih kertas roll <b>80 mm</b> (atau 58 mm), lalu cetak test page dari Windows untuk memastikan IP-nya benar.</li>' +
+      '<li>Tekan <b>Cetak Tes</b> di atas. Di dialog cetak Chrome pilih printer kasir itu, <i>Margins: None</i>, matikan <i>Headers and footers</i>. Chrome mengingat pilihan ini untuk cetak berikutnya.</li>' +
+      '<li>Supaya struk langsung keluar <b>tanpa dialog</b>: jadikan printer kasir printer default Windows, buka POS dari shortcut Chrome yang targetnya ditambah <code>--kiosk-printing</code> (contoh: <code>chrome.exe --kiosk-printing https://dev.laksamanamuda.id/pos/</code>), lalu nyalakan "Cetak otomatis" di atas.</li></ol>' +
+      '<div class="muted" style="margin-top:8px">Peramban tidak bisa mengirim langsung ke alamat IP printer; ia selalu lewat printer yang terpasang di Windows. Setelan di halaman ini tersimpan di komputer ini saja.</div></div>';
+  } else if (SET_TAB === 'pindah') {
+    isi = vPindah();
   } else {
     isi = '<div class="card" style="padding:16px;max-width:560px"><div class="frm">' +
       '<div><label>Service Charge (%)</label><input id="stSc" class="inp" inputmode="decimal" value="' + SET.sc + '"></div>' +
@@ -1052,9 +1382,94 @@ function vSetting() {
       '<div class="full muted">Berlaku untuk order BARU. Transaksi yang sudah dibayar tetap memakai persen saat ia dibuat.</div>' +
       '<div class="full err-txt" id="stErr"></div><div class="full"><button class="btn gold" onclick="simpanPajak()">✓ Simpan</button></div></div></div>';
   }
-  return '<div class="page"><div class="ph"><h2>Pengaturan POS</h2><div class="tabs">' + tab('menu', 'Menu') + tab('user', 'Pengguna') + tab('pajak', 'Pajak & Service') + '</div></div>' +
-    '<div class="note">Perubahan di halaman ini hanya berlaku di POS ini dan tersimpan di perangkat ini. Data HPP &amp; Resep di Office tidak diubah atau dihapus.</div>' +
+  return '<div class="page"><div class="ph"><h2>Pengaturan POS</h2><div class="tabs">' + tab('menu', 'Menu') + tab('user', 'Pengguna') + tab('pajak', 'Pajak & Service') + tab('printer', 'Printer') + tab('pindah', 'Cadangan & Pindah') + '</div></div>' +
+    '<div class="note">Perubahan di halaman ini hanya berlaku di POS. Menu, pengguna, dan pajak tersimpan di server POS (dipakai semua komputer kasir); setelan printer milik komputer ini saja. Data HPP &amp; Resep di Office tidak diubah atau dihapus.</div>' +
     (SET_GAGAL ? '<div class="note" style="border-color:#e3b0aa;background:#fbecea;color:#8a2a22">Penyimpanan di peramban ditolak — perubahan tidak akan bertahan.</div>' : '') + isi + '</div>';
+}
+/* ---------- CADANGAN & PINDAH DOMAIN ----------
+   Seluruh data POS = tabel pos_order + pos_setting di server, ditambah
+   salinan di peramban (antrean belum terkirim + setelan printer). Halaman
+   ini membuat pemindahan jadi tiga langkah yang tidak menyentuh data modul
+   lain sama sekali: unduh cadangan di domain lama, pulihkan di domain
+   baru, lalu bersihkan salinan lokal di domain lama. */
+let PINDAH = { pesan: '', galat: '', berkas: null, sibuk: false };
+function vPindah() {
+  const n = belumNaik(), b = PINDAH.berkas;
+  return '<div class="card" style="padding:16px;max-width:760px;line-height:1.55">' +
+    '<b>1. Unduh cadangan POS</b><div class="muted">Berisi SELURUH order (semua tanggal) dan setelan bersama (pengguna, menu, pajak) dari server ini. Tidak berisi data modul Office lain.</div>' +
+    (n ? '<div class="note" style="border-color:#e3b0aa;background:#fbecea;color:#8a2a22">Masih ada ' + n + ' order di komputer ini yang belum terkirim ke server — tunggu sampai tanda di kanan atas berbunyi <b>Tersinkron</b>, kalau tidak order itu tidak ikut di cadangan.</div>' : '') +
+    '<div style="margin:8px 0 16px"><button class="btn gold" onclick="unduhCadangan()" ' + (PINDAH.sibuk ? 'disabled' : '') + '>⤓ Unduh cadangan (.json)</button></div>' +
+    '<b>2. Pulihkan di server baru</b><div class="muted">Buka POS di domain baru, lalu pilih berkas cadangan tadi. <b>Hanya menambah:</b> order yang sudah ada di server ini dilewati (tidak ditimpa), dan setelan hanya dipasang kalau server ini belum punya.</div>' +
+    '<div style="margin:8px 0"><input type="file" id="pdBerkas" accept=".json,application/json" onchange="bacaCadangan(this)"></div>' +
+    (b ? '<div class="note">Berkas <b>' + esc(b.nama) + '</b>: ' + b.data.orders.length + ' order' + (b.data.setting ? ' + setelan bersama' : '') + ', dibuat ' + esc(String(b.data.dibuat || '-')) + (b.data.asal ? ' dari ' + esc(b.data.asal) : '') + '.' +
+      '<div style="margin-top:8px"><button class="btn gold" onclick="pulihkanCadangan()" ' + (PINDAH.sibuk ? 'disabled' : '') + '>⤒ Pulihkan ke server ini</button></div></div>' : '') +
+    '<div style="margin-top:16px"><b>3. Bersihkan salinan lokal di domain lama</b><div class="muted">Sesudah domain baru dipakai, tekan ini di tiap komputer kasir pada alamat LAMA supaya salinan order & setelan di peramban tidak tertinggal. Data di server tidak ikut terhapus.</div>' +
+    '<div style="margin:8px 0"><button class="btn line" onclick="bersihkanLokal()" ' + (n ? 'disabled title="Masih ada order yang belum terkirim"' : '') + '>🧹 Bersihkan data POS di komputer ini</button></div></div>' +
+    (PINDAH.galat ? '<div class="note" style="border-color:#e3b0aa;background:#fbecea;color:#8a2a22">' + esc(PINDAH.galat) + '</div>' : '') +
+    (PINDAH.pesan ? '<div class="note">' + esc(PINDAH.pesan) + '</div>' : '') +
+    '</div>' +
+    '<div class="card" style="padding:16px;max-width:760px;margin-top:14px;line-height:1.55"><b>Daftar periksa pindah domain</b><ol style="margin:8px 0 0 18px;padding:0">' +
+    '<li>Pindahkan folder <code>pos/</code> <b>bersama</b> <code>kompas-api-mysql/</code> ke domain yang sama — POS memanggil servernya lewat alamat relatif.</li>' +
+    '<li>Kalau database di domain baru sama dengan yang lama, langkah 1–2 tidak perlu: datanya sudah ada.</li>' +
+    '<li>Kalau databasenya baru: lakukan langkah 1 di domain lama, langkah 2 di domain baru. Tabelnya lahir sendiri, tidak ada SQL yang perlu dijalankan.</li>' +
+    '<li>Di domain baru: centang POS ke tiap orang di Kelola Akses (kalau database akunnya baru), kasir login ulang sekali, dan atur ulang tab Printer di tiap komputer.</li>' +
+    '<li>Terakhir, langkah 3 di domain lama pada tiap komputer kasir.</li></ol></div>';
+}
+async function unduhCadangan() {
+  PINDAH.sibuk = true; PINDAH.galat = ''; PINDAH.pesan = ''; render();
+  try {
+    const j = await apiPos('posEkspor');
+    if (!j.ok) throw new Error(j.error || 'Server menolak.');
+    const d = j.data; d.asal = location.host;
+    const blob = new Blob([JSON.stringify(d)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'cadangan-pos-' + location.host + '-' + hariIniIso() + '.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 60000);
+    PINDAH.pesan = 'Cadangan berisi ' + d.orders.length + ' order' + (d.setting ? ' + setelan bersama' : '') + ' sudah diunduh. Simpan berkasnya baik-baik — ia memuat PIN kasir.';
+  } catch (e) { PINDAH.galat = 'Gagal mengunduh cadangan: ' + (e.message || e); }
+  PINDAH.sibuk = false; render();
+}
+function bacaCadangan(inp) {
+  const f = inp.files && inp.files[0]; PINDAH.berkas = null; PINDAH.galat = ''; PINDAH.pesan = '';
+  if (!f) { render(); return; }
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const d = JSON.parse(r.result);
+      if (!d || d.format !== 'lm-pos-cadangan' || !Array.isArray(d.orders)) throw new Error('bukan berkas cadangan POS');
+      PINDAH.berkas = { nama: f.name, data: d };
+    } catch (e) { PINDAH.galat = 'Berkas tidak bisa dipakai: ' + (e.message || e); }
+    render();
+  };
+  r.readAsText(f);
+}
+async function pulihkanCadangan() {
+  const b = PINDAH.berkas; if (!b) return;
+  if (!confirm('Pulihkan ' + b.data.orders.length + ' order ke server ' + location.host + '?\n\nOrder yang sudah ada dilewati, tidak ada yang ditimpa atau dihapus.')) return;
+  PINDAH.sibuk = true; PINDAH.galat = ''; PINDAH.pesan = ''; render();
+  let baru = 0, ada = 0, tolak = 0, setOk = false;
+  try {
+    const o = b.data.orders;
+    for (let i = 0; i < Math.max(1, o.length); i += 500) {
+      const j = await apiPos('posImpor', { orders: o.slice(i, i + 500), setting: i === 0 ? b.data.setting : null });
+      if (!j.ok) throw new Error(j.error || 'Server menolak.');
+      baru += j.data.baru; ada += j.data.ada; tolak += j.data.tolak; if (j.data.setting) setOk = true;
+    }
+    PINDAH.pesan = baru + ' order baru masuk, ' + ada + ' sudah ada (dilewati)' + (tolak ? ', ' + tolak + ' tidak sah' : '') + '. Setelan bersama: ' + (setOk ? 'dipasang.' : 'server ini sudah punya, tidak ditimpa.');
+    PINDAH.berkas = null;
+    SYNC.ver = -1; await sinkron();
+  } catch (e) { PINDAH.galat = 'Pemulihan berhenti: ' + (e.message || e) + (baru ? ' — ' + baru + ' order sudah masuk; ulangi saja, yang sudah masuk akan dilewati.' : ''); }
+  PINDAH.sibuk = false; render();
+}
+function bersihkanLokal() {
+  if (belumNaik()) { toast('Masih ada order yang belum terkirim ke server.'); return; }
+  if (!confirm('Hapus salinan data POS di peramban komputer ini (' + location.host + ')?\n\nOrder & setelan di SERVER tidak ikut terhapus. Setelan printer komputer ini akan kembali ke bawaan.')) return;
+  try {
+    Object.keys(localStorage).filter(k => /^lm_pos/.test(k)).forEach(k => localStorage.removeItem(k));
+    Object.keys(sessionStorage).filter(k => /^lm_pos/.test(k)).forEach(k => sessionStorage.removeItem(k));
+  } catch (e) {}
+  location.reload();
 }
 function smDaftar() {
   const q = SM_Q.trim().toLowerCase();
@@ -1147,6 +1562,12 @@ function simpanUser(id) {
   if (USER && USER.id === id) { USER.nama = nama; USER.role = role; if (!aktif || role !== 'admin') VIEW = 'order'; }
   tutupModal(); toast('Pengguna disimpan.'); render();
 }
+function simpanPrinter() {
+  const kol = Math.round(+$('prKolom').value || 0);
+  SET.printer = { lebar: +$('prLebar').value === 58 ? 58 : 80, salinan: +$('prSalin').value || 1, otomatis: $('prOto').checked, logo: $('prLogo').checked, kaki: $('prKaki').value.trim(),
+    mode: $('prMode').value === 'grafis' ? 'grafis' : 'teks', kolom: kol >= 24 && kol <= 64 ? kol : (+$('prLebar').value === 58 ? 32 : 42) };
+  simpanSet(true); toast('Setelan printer disimpan.'); render();
+}
 function simpanPajak() {
   const sc = +String($('stSc').value).replace(',', '.'), pb = +String($('stPb').value).replace(',', '.');
   if (!isFinite(sc) || !isFinite(pb) || sc < 0 || pb < 0 || sc > 50 || pb > 50) { $('stErr').textContent = 'Isi persen 0–50.'; return; }
@@ -1171,6 +1592,10 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Enter') signIn();
 });
 setInterval(() => { const j = $('jam'); if (j) j.textContent = jamTeks(); }, 1000);
+setInterval(sinkron, 15000);
+window.addEventListener('online', sinkron);
+window.addEventListener('focus', () => { if (Date.now() - SYNC.terakhir > 5000) sinkron(); });
+sinkron();
 if (!BASE_MENU.length) document.body.insertAdjacentHTML('afterbegin', '<div class="note" style="margin:10px">Daftar menu (menu-data.js) tidak termuat. Muat ulang halaman.</div>');
 render();
 </script>
