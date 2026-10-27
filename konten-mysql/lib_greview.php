@@ -35,14 +35,15 @@
 define('GR_SCOPE', 'https://www.googleapis.com/auth/business.manage');
 define('GR_PLACES', 'https://places.googleapis.com/v1');
 define('GR_MAKS_BALAS', 4000);
-/* NOMOR RESERVASI RESMI di balasan Google Review (24 Okt 2026, permintaan user).
+/* NOMOR RESERVASI RESMI di balasan Google Review (24 Okt 2026, permintaan user;
+   diganti ke 0856-5839-2519 pada 27 Okt 2026, juga permintaan user).
    Draf AI sempat menutup balasan dengan "Reservasi meja via chat 0812-7788-3818"
    — nomor yang tidak ada di kode maupun di profil bawaan: dikarang modelnya.
    Balasan review itu PUBLIK, jadi nomor karangan berarti tamu menghubungi orang
    lain. Dua lapis: AI diberi nomornya + dilarang mengarang, DAN setiap nomor HP
    Indonesia di hasilnya diganti nomor ini (gr_nomor_resmi). Ganti nomor = ubah
    baris ini saja. */
-define('GR_NOMOR_RESERVASI', '+62 853-6523-4898');
+define('GR_NOMOR_RESERVASI', '0856-5839-2519');
 function gr_nomor_resmi($teks) {
   $teks = (string)$teks;
   if ($teks === '') return $teks;

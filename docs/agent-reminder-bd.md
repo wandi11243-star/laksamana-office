@@ -26,7 +26,7 @@ Bawaan: task **belum Done** yang deadline-nya **hari ini (WIB) atau sudah lewat*
 Opsional: `"dari":"2026-10-27","sampai":"2026-10-27"` untuk mengingatkan lebih awal (H-1).
 
 Tiap tugas berisi: `id`, `nama`, `deskripsi`, `deadline`, `deadlineTeks` (mis. "Min, 1 Nov 2026"), `lewatHari`, `status`,
-`divisi`, `project`, `berulang`, `terlewat`, `pic:[{id,nama,officeUserId,noHp}]`,
+`divisi`, `project`, `berulang` (kode mentah), `berulangTeks` (mis. "Setiap bulan, Selasa ke-4"), `terlewat`, `pic:[{id,nama,officeUserId,noHp}]`,
 `subtask:[{teks,selesai,deadline,pelaksana}]`.
 
 `noHp` sudah dalam bentuk `62812…`. Kalau `rosterTerbaca:false`, Office sedang
@@ -84,4 +84,4 @@ define('AGENT_TOKEN', 'string-acak-minimal-24-karakter');
 ```
 
 Selama belum diisi, ketiga aksi menjawab
-`Pintu agent belum dinyalakan`. Cek versi: `?action=ping` → `versi` `2026-10-27a`.
+`Pintu agent belum dinyalakan`. Cek versi: `?action=ping` → `versi` `2026-10-27b`.

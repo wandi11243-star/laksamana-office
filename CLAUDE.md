@@ -808,7 +808,13 @@ node tools/uji-sync-status-bd.js      #  9 pemeriksaan
 **Putaran kedelapan (26 Okt 2026): menu Recurring Task** (`vRecurring`, view `recurring`, di bawah Daily Task). Satu baris per SERI = kepala rantai `ulangDari` (task tanpa penerus), Daily maupun project — dibaca, bukan disalin, tanpa data baru. **Hentikan** mencabut `ulang` dari kepalanya dan menyimpan polanya di `ulangBerhenti` `{u,at,by}`; **Lanjutkan** (tab Dihentikan) memulihkannya — task yang sudah Done tidak bisa dilanjutkan (tidak ada yang melahirkan kejadian berikutnya). Tombol + Task Berulang = `taskModal` dengan `_presetUlang='mingguan'`. **Maju sendiri tanpa Done (26 Okt 2026, permintaan user)**: `gulirUlang()` menggeser task berulang yang belum Done & deadline-nya < hari ini ke `deadlineBerikut()` — task yang SAMA (bukan task baru, supaya tidak menumpuk satu baris telat per periode; bukan Done, karena tidak dikerjakan). Periode baru: To Do, sub-task tak tercentang, start & deadline sub-task ikut bergeser; yang terlewat dicatat `t.terlewat=[{d,sub}]` (maks 52) dan disebut di menu Recurring. Dipanggil `terapkanGulir()` saat boot (SESUDAH `segarkanSnapshot`, supaya terkirim), sesudah `tarikServer` memasang data baru, dan tiap 60 dtk saat idle (tab yang melewati tengah malam). Done tetap melahirkan task baru seperti dulu. Baris seri yang berjalan punya tombol **✓ Selesai** (`selesaiUlang` → `toggleTask`, jalan yang sama dengan centang: `cekBolehDone` & `lahirkanUlang` ikut; tidak pernah membuka lagi yang sudah Done).
 
 ```bash
-node tools/uji-recurring-bd.js   # 30 pemeriksaan, jsdom
+node tools/uji-recurring-bd.js   # 33 pemeriksaan, jsdom
+```
+
+**Pola berulang ala Google Calendar (27 Okt 2026).** `t.ulang` TETAP satu string (lahirkanUlang, `ulangBerhenti.u`, lib_agent menyalinnya apa adanya). Preset lama tidak berubah arti; baru: `bulanan_ke` (Selasa ke-4), `bulanan_akhir` (Selasa terakhir), `tahunan` — hari/tanggalnya DIBACA dari deadline tiap dihitung. Kustom = `k/<tiap>/<hari|minggu|bulan|tahun>/<hari 0-6 csv>/<tgl|ke|akhir>/<''|d:YYYY-MM-DD|x:N>`, diisi lewat panel Kustom di modal task (`panelKustom`/`bacaKustom`, ditampilkan lewat DOM — modal tidak digambar ulang). `parseUlang()` satu-satunya pembaca; string tak sah = tidak berulang. Bulan tanpa "Selasa ke-5" dilompati. **Berakhir** (`seriBerakhir`): sampai tanggal / N kali — kejadian = rantai `ulangDari` + `terlewat`; menghentikan `lahirkanUlang` DAN `gulirUlang`. Label pilihan ikut deadline (`ulangSegar` di `onchange` m_due). lib_agent mengirim `berulangTeks` (kembar sederhana `labelUlang`, versi `2026-10-27b`).
+
+```bash
+node tools/uji-pola-ulang-bd.js   # 46 pemeriksaan, jsdom
 ```
 
 **Pintu AI agent — reminder task lewat WhatsApp (26 Okt 2026).** Agent di VPS user (opencode) mengirim reminder & memanggil `bd-mysql/lib_agent.php`: `agentTugas` (task belum Done, deadline <= hari ini WIB, + noHp PIC dari `listDivisiRoster`), `agentSelesai`, `agentCatat`. Panduan agent: `docs/agent-reminder-bd.md`.
@@ -11795,6 +11801,61 @@ dan keduanya di DATABASE, bukan di git (lihat *HAK AKSES TIDAK IKUT MERGE*):
 
 Selama langkah 1 belum dikerjakan, kartunya **tidak muncul untuk siapa pun** —
 tanpa satu pun galat, karena memang tidak ada yang rusak.
+
+### Modul `pos`: prototipe kasir, HTML saja (27 Oktober 2026)
+
+`deploy/pos/index.html` → `dev.laksamanamuda.id/pos/`. Meniru alur ESB POS
+(login PIN → menu → metode bayar → Cash Payment → Payment Confirmation →
+Payment Submitted), logo Laksamana Muda. **Tanpa backend, tanpa SSO Office,
+tidak ada di portal** — PIN lihat revisi di bawah (sengaja TIDAK ditulis di
+layar; user tidak mau ada kata "dummy"/"demo" yang terlihat).
+
+- **Menu = resep Menu Jadi AKTIF & berharga dari HPP PRODUKSI**, disalin ke
+  `deploy/pos/menu-data.js` oleh `tools/pos-menu-dari-hpp.js` (prasmanan &
+  menu tanpa harga dilewati, jumlahnya disebut keluaran alat). Menu baru di
+  HPP baru muncul sesudah alat itu dijalankan ulang.
+- **Omset Jan–Sep 2026 = angka per tanggal dari dokumen Rekapitulasi PB1
+  Bulanan** (`REKAPITULASI PB1 BULANAN LAKSAMANA MUDA.docx` di root, TIDAK
+  di-commit), disalin ke `deploy/pos/rekap-2026.js` oleh
+  `tools/pos-rekap-dari-docx.js`. Alat itu BERHENTI kalau jumlah satu bulan
+  beda dari baris TOTAL dokumennya. Dokumen itu memuat Mei 2025–Sep 2026;
+  yang 2025 sengaja tidak diambil. Versi pertama (pagi yang sama) cuma
+  membaca 4 bulan 2025 lalu MENGARANG 2026 — Januari jadi Rp264 jt padahal
+  dokumennya Rp228.955.200. Jangan kembali ke angka karangan.
+- Tanggal yang belum ada di rekap (Oktober s/d kemarin) diperkirakan dari
+  rata-rata weekday/weekend bulan TERAKHIR di rekap, ±8% deterministik,
+  dibulatkan Rp100.000. Hari ini = transaksi POS sungguhan. Layar hanya 2026.
+- Kaki tabel pajak memakai TOTAL pajak dokumen untuk bulan yang seluruhnya
+  dari rekap (pajak harian dokumen dibulatkan per baris; Februari selisih 3).
+- **Transaksi tersimpan di localStorage peramban saja** (`lm_pos_v1`) — TIDAK
+  masuk Finance > Omset / Cashier / Analytics. Kalau suatu hari harus masuk,
+  jangan lewat `saveAll` blob kompas (lihat penjaga tulis-basi).
+- `hitung()` satu-satunya penjumlah struk: SC 5% subtotal, PB1 10% dari
+  (subtotal+SC), dibulatkan ke atas Rp100. Non-tunai dijepit ke sisa tagihan.
+
+**Revisi 27 Oktober 2026 (sore)** — lima permintaan user:
+
+- **Pengguna**: Admin (PIN 1234) + kasir Andy 1111, Tasya 2222, Gita 3333,
+  Faila 4444 (`USER_BAWAAN`). Kasir hanya Order / Open Order / Riwayat;
+  Laporan & Pengaturan admin saja, dijaga di `go()` (`HAL_ADMIN`), bukan cuma
+  dengan tidak menggambar tombolnya. Admin aktif terakhir tidak bisa dicabut.
+- **Pengaturan POS** (menu / pengguna / SC & PB1) tersimpan di localStorage
+  `lm_pos_set_v1` SAJA — tidak ada satu pun panggilan server, HPP produksi
+  tidak disentuh (permintaan user). Menu HPP disimpan sebagai SELISIH
+  (`SET.menu[id]`), jadi menjalankan ulang `pos-menu-dari-hpp.js` tetap
+  membawa menu baru. Persen SC/PB1 DISALIN ke order (`scPct`/`pb1Pct`).
+- **Pilih meja = DENAH** dari `deploy/assets/venue-layouts.js` (sumber yang
+  sama dengan Reservasi & Marketing; Lt.1 Weekday/Weekend menurut hari,
+  Jumat–Minggu = Weekend; Lt.2). Meja dengan order terbuka merah, menekannya
+  menawarkan membuka order itu.
+- **Detail transaksi per hari**: klik tanggal di Laporan → Riwayat tanggal
+  itu. Hari dari rekap tidak punya bill sungguhan, jadi `transaksiHari()`
+  MENYUSUN bill dari menu HPP, deterministik per tanggal, dan bill terakhir
+  (`diskonRp`/`scRp`/`pb1Rp`) memaksa jumlah omset & PB1 SAMA PERSIS dengan
+  rekap hari itu. Kasir di bill itu dari `KASIR_HARIAN` tetap (bukan dari
+  pengaturan) supaya riwayat tidak berubah kalau pengguna diganti nama.
+- **Sidebar & topbar `position:sticky`** + label teks — sebelumnya ikut
+  tergulir dan tombolnya "naik" keluar layar.
 
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
