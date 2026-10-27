@@ -11801,15 +11801,26 @@ tanpa satu pun galat, karena memang tidak ada yang rusak.
 `deploy/pos/index.html` → `dev.laksamanamuda.id/pos/`. Meniru alur ESB POS
 (login PIN → menu → metode bayar → Cash Payment → Payment Confirmation →
 Payment Submitted), logo Laksamana Muda. **Tanpa backend, tanpa SSO Office,
-tidak ada di portal** — PIN demo 1234/1111/2222 tertulis di layar.
+tidak ada di portal** — PIN kasir 1234/1111/2222 (sengaja TIDAK ditulis di
+layar; user tidak mau ada kata "dummy"/"demo" yang terlihat).
 
 - **Menu = resep Menu Jadi AKTIF & berharga dari HPP PRODUKSI**, disalin ke
   `deploy/pos/menu-data.js` oleh `tools/pos-menu-dari-hpp.js` (prasmanan &
   menu tanpa harga dilewati, jumlahnya disebut keluaran alat). Menu baru di
   HPP baru muncul sesudah alat itu dijalankan ulang.
-- **Omset historis 2026 DUMMY**, dibangkitkan deterministik per tanggal dari
-  pola Rekapitulasi PB1 Mei–Agu 2025 (weekday ±7,2 jt, weekend ±10 jt). Hari
-  ini = transaksi POS sungguhan. Layar hanya memajang tahun 2026.
+- **Omset Jan–Sep 2026 = angka per tanggal dari dokumen Rekapitulasi PB1
+  Bulanan** (`REKAPITULASI PB1 BULANAN LAKSAMANA MUDA.docx` di root, TIDAK
+  di-commit), disalin ke `deploy/pos/rekap-2026.js` oleh
+  `tools/pos-rekap-dari-docx.js`. Alat itu BERHENTI kalau jumlah satu bulan
+  beda dari baris TOTAL dokumennya. Dokumen itu memuat Mei 2025–Sep 2026;
+  yang 2025 sengaja tidak diambil. Versi pertama (pagi yang sama) cuma
+  membaca 4 bulan 2025 lalu MENGARANG 2026 — Januari jadi Rp264 jt padahal
+  dokumennya Rp228.955.200. Jangan kembali ke angka karangan.
+- Tanggal yang belum ada di rekap (Oktober s/d kemarin) diperkirakan dari
+  rata-rata weekday/weekend bulan TERAKHIR di rekap, ±8% deterministik,
+  dibulatkan Rp100.000. Hari ini = transaksi POS sungguhan. Layar hanya 2026.
+- Kaki tabel pajak memakai TOTAL pajak dokumen untuk bulan yang seluruhnya
+  dari rekap (pajak harian dokumen dibulatkan per baris; Februari selisih 3).
 - **Transaksi tersimpan di localStorage peramban saja** (`lm_pos_v1`) — TIDAK
   masuk Finance > Omset / Cashier / Analytics. Kalau suatu hari harus masuk,
   jangan lewat `saveAll` blob kompas (lihat penjaga tulis-basi).

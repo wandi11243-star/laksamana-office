@@ -12,9 +12,9 @@
   - MENU dari HPP & Resep PRODUKSI (resep Menu Jadi yang aktif & berharga),
     disalin ke menu-data.js oleh tools/pos-menu-dari-hpp.js. Menu baru di HPP
     baru muncul di sini sesudah alat itu dijalankan lagi.
-  - OMSET HISTORIS 2026 adalah DUMMY: dibangkitkan dari pola Rekapitulasi PB1
-    Mei–Agustus 2025 (weekday ~Rp7,2 jt, weekend ~Rp10 jt). Tidak satu pun
-    angka itu dari database.
+  - OMSET 2026 Januari–September dari Rekapitulasi PB1 Bulanan (rekap-2026.js,
+    hasil tools/pos-rekap-dari-docx.js), per tanggal apa adanya. Tanggal yang
+    belum ada di rekap diperkirakan dari bulan terakhir rekap.
   - TRANSAKSI yang dibayar di sini tersimpan di localStorage peramban ini
     saja, dan TIDAK masuk Office (Finance > Omset, Cashier, Analytics).
     Perangkat lain tidak melihatnya.
@@ -237,6 +237,7 @@ input{font:inherit}
 <div id="cetak" style="position:absolute;left:-9999px;top:0"></div>
 
 <script src="menu-data.js"></script>
+<script src="rekap-2026.js"></script>
 <script>
 "use strict";
 /* ================= KONSTANTA ================= */
@@ -247,7 +248,7 @@ const SC_PCT = 5;      // service charge, % dari subtotal sesudah diskon
 const PB1_PCT = 10;    // PB1, % dari (subtotal + service) — sama dengan Rekapitulasi PB1: pajak = 10% omset
 const TAHUN = 2026;    // permintaan user: POS ini hanya memajang tahun 2026
 const KEY = 'lm_pos_v1';
-// PIN demo. Prototipe tanpa backend — bukan akun Office.
+// PIN kasir. Prototipe tanpa backend — bukan akun Office.
 const KASIR = { '1234':'Laksamana', '1111':'Kasir Pagi', '2222':'Kasir Malam' };
 const METODE = ['CASH','QRIS','EDC BCA','EDC MANDIRI','EDC BRI','TRANSFER','GOFOOD','GRABFOOD','OTHER VOUCHER'];
 const PER_HAL = 16;
@@ -331,35 +332,48 @@ function hitung(o) {
     qty: o.items.reduce((s, x) => s + x.qty, 0) };
 }
 
-/* ================= OMSET DUMMY 2026 =================
-   Pola dari Rekapitulasi PB1 Mei–Agustus 2025: weekday rata-rata ~Rp7,15 jt
-   (rentang 5,6–9 jt), weekend (Sabtu & Minggu) ~Rp10 jt (9–12 jt).
-   Diacak DETERMINISTIK dari tanggalnya, jadi angka satu tanggal selalu sama
-   tiap halaman dibuka — angka yang berubah sendiri tiap refresh tidak bisa
-   dipakai menguji apa pun. */
-function acak(seed) { let x = seed | 0; x = Math.imul(x ^ (x >>> 16), 0x45d9f3b); x = Math.imul(x ^ (x >>> 16), 0x45d9f3b); return ((x ^ (x >>> 16)) >>> 0) / 4294967296; }
-function omsetDummy(iso) {
-  const d = new Date(iso + 'T00:00:00');
-  const n = +iso.replace(/-/g, '');
-  const we = d.getDay() === 0 || d.getDay() === 6;
-  const r = acak(n), r2 = acak(n * 7 + 3);
-  const base = we ? 9000000 + r * 3000000 : 5600000 + r * 3400000;
-  const omset = Math.round(base / 1000) * 1000 + Math.round(r2 * 999);
-  return { omset, pajak: Math.round(omset * PB1_PCT / 100), bill: Math.round(omset / (95000 + r2 * 60000)), we };
+/* ================= OMSET 2026 =================
+   Januari–September 2026 dari Rekapitulasi PB1 Bulanan (rekap-2026.js, hasil
+   tools/pos-rekap-dari-docx.js) — angka per tanggal APA ADANYA, jumlahnya
+   sudah dicocokkan dengan baris TOTAL dokumen saat alat itu dijalankan.
+   Tanggal yang belum ada di rekap (Oktober sampai kemarin) diperkirakan dari
+   bulan TERAKHIR yang ada di rekap: rata-rata weekday/weekend-nya, digeser
+   ±8% secara DETERMINISTIK per tanggal dan dibulatkan ke Rp100.000 seperti
+   rekapnya. Angka satu tanggal karena itu selalu sama tiap halaman dibuka. */
+const REKAP = window.POS_REKAP || {};
+function rekapTgl(iso) {
+  const b = REKAP[iso.slice(0, 7)]; if (!b) return null;
+  const r = b.hari.find(x => x[0] === +iso.slice(8, 10));
+  return r ? { omset: r[1], pajak: r[2], we: !!r[3] } : null;
 }
-// Omset satu tanggal: hari ini & sesudahnya dari transaksi POS sungguhan,
-// sebelumnya dummy. Dicampur di satu hari, angka dummy menenggelamkan
-// transaksi yang barusan diketik dan tidak ada yang bisa memeriksa POS-nya.
+const POLA = (() => {
+  const ks = Object.keys(REKAP).sort(); const b = ks.length ? REKAP[ks[ks.length - 1]] : null;
+  if (!b) return { wd: 5000000, we: 6000000 };
+  const wd = b.hari.filter(x => !x[3]), we = b.hari.filter(x => x[3]);
+  const avg = a => a.length ? a.reduce((s, x) => s + x[1], 0) / a.length : 0;
+  return { wd: avg(wd) || avg(b.hari), we: avg(we) || avg(b.hari) };
+})();
+function acak(seed) { let x = seed | 0; x = Math.imul(x ^ (x >>> 16), 0x45d9f3b); x = Math.imul(x ^ (x >>> 16), 0x45d9f3b); return ((x ^ (x >>> 16)) >>> 0) / 4294967296; }
+function omsetPerkiraan(iso) {
+  const d = new Date(iso + 'T00:00:00');
+  const we = d.getDay() === 0 || d.getDay() === 6;
+  const v = (we ? POLA.we : POLA.wd) * (0.92 + acak(+iso.replace(/-/g, '')) * 0.16);
+  const omset = Math.round(v / 100000) * 100000;
+  return { omset, pajak: Math.round(omset * PB1_PCT / 100), we };
+}
+// Omset satu tanggal: hari ini dari transaksi POS sungguhan, sebelumnya dari
+// rekap. Dicampur di satu hari, angka rekap menenggelamkan transaksi yang
+// barusan diketik dan tidak ada yang bisa memeriksa POS-nya.
 function omsetHari(iso) {
   const kini = hariIniIso();
   const d = new Date(iso + 'T00:00:00');
   const we = d.getDay() === 0 || d.getDay() === 6;
-  if (iso < kini) return Object.assign({ sumber: 'dummy' }, omsetDummy(iso));
+  if (iso < kini) { const r = rekapTgl(iso); return Object.assign({ sumber: r ? 'rekap' : 'kira' }, r || omsetPerkiraan(iso)); }
   if (iso > kini) return null;
   const paid = DB.orders.filter(o => o.status === 'paid' && o.tgl === iso);
   let omset = 0, pajak = 0;
   paid.forEach(o => { const t = hitung(o); omset += t.dasar + t.sc; pajak += t.pb1; });
-  return { omset, pajak, bill: paid.length, we, sumber: 'pos' };
+  return { omset, pajak, trx: paid.length, we, sumber: 'pos' };
 }
 
 /* ================= RENDER ================= */
@@ -429,8 +443,7 @@ function vLogin() {
     '<div class="pad">' + tombol + '</div>' +
     '<button class="btn-signin" onclick="signIn()">SIGN IN</button>' +
     '<div class="login-err">' + esc(LOGIN_ERR) + '</div>' +
-    '<div class="login-hint">PIN demo: 1234 · 1111 · 2222</div>' +
-    '<div class="ver">v.1.0.0-demo</div></div></div></div>';
+    '<div class="ver">v.1.0.0</div></div></div></div>';
 }
 function pinTekan(k) {
   LOGIN_ERR = '';
@@ -699,7 +712,6 @@ function vRiwayat() {
   return '<div class="page"><div class="ph"><h2>Riwayat Transaksi POS</h2><input type="date" class="inp" style="width:180px" min="' + TAHUN + '-01-01" max="' + hariIniIso() + '" value="' + RIW_TGL + '" onchange="RIW_TGL=this.value||hariIniIso();render()"></div>' +
     '<div class="kpis"><div class="kpi"><div class="l">Transaksi</div><div class="v">' + paid.length + '</div></div><div class="kpi"><div class="l">Grand Total</div><div class="v rp">Rp ' + fmt(tot) + '</div></div>' +
     '<div class="kpi"><div class="l">Rata-rata / bill</div><div class="v rp">Rp ' + fmt(paid.length ? tot / paid.length : 0) + '</div></div><div class="kpi"><div class="l">Tanggal</div><div class="v" style="font-size:17px">' + tglPanjang(RIW_TGL) + '</div></div></div>' +
-    '<div class="note">Hanya transaksi yang dibayar di POS ini, di peramban ini. Angka omset harian lain di halaman Laporan adalah dummy.</div>' +
     '<div class="card"><table class="tbl"><thead><tr><th>Jam</th><th>Order</th><th>Meja</th><th>Kasir</th><th class="num">Item</th><th>Metode</th><th class="num">Grand Total</th></tr></thead><tbody>' + rows + '</tbody></table></div></div>';
 }
 function lihatStruk(id) {
@@ -719,8 +731,15 @@ function vLaporan() {
     const r = omsetHari(iso); if (!r) break;
     baris.push(Object.assign({ iso }, r));
   }
-  const tot = baris.reduce((s, r) => s + r.omset, 0), pj = baris.reduce((s, r) => s + r.pajak, 0);
-  const nBill = baris.reduce((s, r) => s + r.bill, 0);
+  const tot = baris.reduce((s, r) => s + r.omset, 0);
+  // Bulan yang seluruh harinya dari rekap memakai TOTAL pajak dokumennya:
+  // pajak harian di dokumen dibulatkan per baris, jadi jumlahnya bisa selisih
+  // beberapa rupiah dari TOTAL yang tertulis (Februari: 3 rupiah).
+  const dok = REKAP[TAHUN + '-' + pad2(LAP_BLN + 1)];
+  const semuaRekap = baris.length === nHari && baris.every(r => r.sumber === 'rekap');
+  const pj = semuaRekap && dok && dok.totalPajak != null ? dok.totalPajak : baris.reduce((s, r) => s + r.pajak, 0);
+  const rata = a => a.length ? a.reduce((s, r) => s + r.omset, 0) / a.length : 0;
+  const rWd = rata(baris.filter(r => !r.we && r.sumber !== 'pos')), rWe = rata(baris.filter(r => r.we && r.sumber !== 'pos'));
   let ytd = 0;
   for (let m = 0; m <= blnMaks; m++) {
     const n = new Date(TAHUN, m + 1, 0).getDate();
@@ -728,17 +747,16 @@ function vLaporan() {
   }
   const maks = Math.max(1, ...baris.map(r => r.omset));
   const bars = baris.map(r => '<div class="' + (r.sumber === 'pos' ? 'today' : r.we ? 'we' : '') + '" style="height:' + Math.max(2, r.omset / maks * 100) + '%" title="' + esc(tglPanjang(r.iso)) + ': Rp ' + fmt(r.omset) + '"></div>').join('');
-  const rows = baris.map((r, i) => '<tr class="' + (r.sumber === 'pos' ? 'today' : r.we ? 'we' : '') + '"><td>' + (i + 1) + '</td><td>' + tglPanjang(r.iso) + '</td><td class="num rp">' + fmt(r.omset) + '</td><td class="num rp">' + fmt(r.pajak) + '</td><td class="num">' + r.bill + '</td><td><span class="chip ' + (r.we ? 'we' : '') + '">' + (r.we ? 'Weekend' : 'Weekday') + '</span>' + (r.sumber === 'pos' ? ' <span class="chip pos">POS hari ini</span>' : '') + '</td></tr>').join('');
+  const rows = baris.map((r, i) => '<tr class="' + (r.sumber === 'pos' ? 'today' : r.we ? 'we' : '') + '"><td>' + (i + 1) + '</td><td>' + tglPanjang(r.iso) + '</td><td class="num rp">' + fmt(r.omset) + '</td><td class="num rp">' + fmt(r.pajak) + '</td><td><span class="chip ' + (r.we ? 'we' : '') + '">' + (r.we ? 'Weekend' : 'Weekday') + '</span>' + (r.sumber === 'pos' ? ' <span class="chip pos">POS hari ini</span>' : '') + '</td></tr>').join('');
   return '<div class="page"><div class="ph"><h2>Rekapitulasi Omset & PB1 · ' + TAHUN + '</h2><select onchange="LAP_BLN=+this.value;render()">' +
     BULAN.slice(0, blnMaks + 1).map((b, i) => '<option value="' + i + '"' + (i === LAP_BLN ? ' selected' : '') + '>' + b + ' ' + TAHUN + '</option>').join('') + '</select></div>' +
     '<div class="kpis"><div class="kpi"><div class="l">Omset ' + BULAN[LAP_BLN] + '</div><div class="v rp">Rp ' + fmt(tot) + '</div><div class="f">' + baris.length + ' hari</div></div>' +
     '<div class="kpi"><div class="l">PB1 ' + BULAN[LAP_BLN] + ' (' + PB1_PCT + '%)</div><div class="v rp">Rp ' + fmt(pj) + '</div></div>' +
-    '<div class="kpi"><div class="l">Rata-rata / hari</div><div class="v rp">Rp ' + fmt(baris.length ? tot / baris.length : 0) + '</div><div class="f">' + fmt(nBill) + ' bill</div></div>' +
+    '<div class="kpi"><div class="l">Rata-rata / hari</div><div class="v rp">Rp ' + fmt(baris.length ? tot / baris.length : 0) + '</div><div class="f">weekday Rp ' + fmt(rWd) + ' · weekend Rp ' + fmt(rWe) + '</div></div>' +
     '<div class="kpi"><div class="l">Omset Jan – ' + BLN3[blnMaks] + ' ' + TAHUN + '</div><div class="v rp">Rp ' + fmt(ytd) + '</div></div></div>' +
-    '<div class="note"><b>Angka DUMMY.</b> Omset harian sebelum hari ini dibangkitkan dari pola Rekapitulasi PB1 Mei–Agustus 2025 (weekday ±Rp7,2 jt, weekend ±Rp10 jt) — bukan dari database. Baris hijau hari ini berisi transaksi POS sungguhan dari peramban ini.</div>' +
     '<div class="card"><div class="bars">' + bars + '</div></div>' +
-    '<div class="card"><table class="tbl"><thead><tr><th>No</th><th>Tanggal</th><th class="num">Omset</th><th class="num">Pajak</th><th class="num">Bill</th><th>Keterangan</th></tr></thead><tbody>' + rows +
-    '</tbody><tfoot><tr><td></td><td>Total</td><td class="num rp">' + fmt(tot) + '</td><td class="num rp">' + fmt(pj) + '</td><td class="num">' + fmt(nBill) + '</td><td></td></tr></tfoot></table></div></div>';
+    '<div class="card"><table class="tbl"><thead><tr><th>No</th><th>Tanggal</th><th class="num">Omset</th><th class="num">Pajak</th><th>Keterangan</th></tr></thead><tbody>' + rows +
+    '</tbody><tfoot><tr><td></td><td>Total</td><td class="num rp">' + fmt(tot) + '</td><td class="num rp">' + fmt(pj) + '</td><td></td></tr></tfoot></table></div></div>';
 }
 
 /* ================= BOOT ================= */
