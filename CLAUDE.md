@@ -11801,7 +11801,7 @@ tanpa satu pun galat, karena memang tidak ada yang rusak.
 `deploy/pos/index.html` → `dev.laksamanamuda.id/pos/`. Meniru alur ESB POS
 (login PIN → menu → metode bayar → Cash Payment → Payment Confirmation →
 Payment Submitted), logo Laksamana Muda. **Tanpa backend, tanpa SSO Office,
-tidak ada di portal** — PIN kasir 1234/1111/2222 (sengaja TIDAK ditulis di
+tidak ada di portal** — PIN lihat revisi di bawah (sengaja TIDAK ditulis di
 layar; user tidak mau ada kata "dummy"/"demo" yang terlihat).
 
 - **Menu = resep Menu Jadi AKTIF & berharga dari HPP PRODUKSI**, disalin ke
@@ -11826,6 +11826,30 @@ layar; user tidak mau ada kata "dummy"/"demo" yang terlihat).
   jangan lewat `saveAll` blob kompas (lihat penjaga tulis-basi).
 - `hitung()` satu-satunya penjumlah struk: SC 5% subtotal, PB1 10% dari
   (subtotal+SC), dibulatkan ke atas Rp100. Non-tunai dijepit ke sisa tagihan.
+
+**Revisi 27 Oktober 2026 (sore)** — lima permintaan user:
+
+- **Pengguna**: Admin (PIN 1234) + kasir Andy 1111, Tasya 2222, Gita 3333,
+  Faila 4444 (`USER_BAWAAN`). Kasir hanya Order / Open Order / Riwayat;
+  Laporan & Pengaturan admin saja, dijaga di `go()` (`HAL_ADMIN`), bukan cuma
+  dengan tidak menggambar tombolnya. Admin aktif terakhir tidak bisa dicabut.
+- **Pengaturan POS** (menu / pengguna / SC & PB1) tersimpan di localStorage
+  `lm_pos_set_v1` SAJA — tidak ada satu pun panggilan server, HPP produksi
+  tidak disentuh (permintaan user). Menu HPP disimpan sebagai SELISIH
+  (`SET.menu[id]`), jadi menjalankan ulang `pos-menu-dari-hpp.js` tetap
+  membawa menu baru. Persen SC/PB1 DISALIN ke order (`scPct`/`pb1Pct`).
+- **Pilih meja = DENAH** dari `deploy/assets/venue-layouts.js` (sumber yang
+  sama dengan Reservasi & Marketing; Lt.1 Weekday/Weekend menurut hari,
+  Jumat–Minggu = Weekend; Lt.2). Meja dengan order terbuka merah, menekannya
+  menawarkan membuka order itu.
+- **Detail transaksi per hari**: klik tanggal di Laporan → Riwayat tanggal
+  itu. Hari dari rekap tidak punya bill sungguhan, jadi `transaksiHari()`
+  MENYUSUN bill dari menu HPP, deterministik per tanggal, dan bill terakhir
+  (`diskonRp`/`scRp`/`pb1Rp`) memaksa jumlah omset & PB1 SAMA PERSIS dengan
+  rekap hari itu. Kasir di bill itu dari `KASIR_HARIAN` tetap (bukan dari
+  pengaturan) supaya riwayat tidak berubah kalau pengguna diganti nama.
+- **Sidebar & topbar `position:sticky`** + label teks — sebelumnya ikut
+  tergulir dan tombolnya "naik" keluar layar.
 
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
