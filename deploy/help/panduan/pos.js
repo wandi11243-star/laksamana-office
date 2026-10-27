@@ -29,7 +29,7 @@ LM_HELP_ISI('pos', {
       id: 'order', judul: 'Membuat Order & Membayar',
       isi: [
         { t:'langkah', judul:'Satu transaksi', isi:[
-          'Buka menu *Order*, pilih meja lewat denah, lalu ketuk menu yang dipesan.',
+          'Buka menu *Order* dan pilih meja lewat denah. Ketuk kelompok (*FOOD* / *BEVERAGES*), lalu sub kategori (ubin biru), lalu menunya (ubin oranye). Nama, kategori, dan harga menu diambil dari Daftar Resep di modul HPP.',
           'Tekan *Simpan* kalau tamu belum membayar — order masuk ke *Open Order*.',
           'Tekan *Bayar*, pilih metode pembayaran, isi nominalnya, lalu *Apply*.',
           'Sesudah *Payment Submitted*, tekan *Cetak Struk* (atau struk keluar sendiri kalau cetak otomatis dinyalakan).'

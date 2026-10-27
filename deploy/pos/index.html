@@ -115,14 +115,21 @@ input{font:inherit}
 .searchbar .sbox span{padding:0 12px;color:#555}
 .searchbar .sbox input{flex:1;border:0;height:42px;outline:0;background:transparent}
 .pager{display:flex;align-items:center;gap:8px;white-space:nowrap}
-.cat-title{padding:4px 14px 8px;color:var(--gold2);font-weight:700;font-size:16px;display:flex;align-items:center;gap:10px}
-.cat-title button{background:none;border:0;color:var(--navy2);font-weight:600;padding:0}
+.cat-title{padding:4px 14px 8px;color:#222;font-weight:600;font-size:16px;display:flex;align-items:center;gap:10px}
+.cat-title .bc button{background:none;border:0;color:#2f7fd0;font-weight:600;padding:0;font-size:16px}
+.cat-title .bc b{color:#222}
 .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;padding:0 12px 14px;align-content:start;min-height:420px;background:#f6f7f9;padding-top:12px}
-.tile{height:88px;background:#fff;border:0;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.14);padding:8px 10px;font-size:15px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:4px}
+.tile{height:88px;background:#fff;border:0;border-radius:4px;box-shadow:0 1px 3px rgba(0,0,0,.14);padding:8px 10px;font-size:15px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;gap:4px;position:relative;overflow:hidden}
+/* ESB: kelompok = putih bergaris bawah, sub kategori = biru, menu = oranye */
+.tile.grp{font-weight:600;text-decoration:underline;text-underline-offset:4px}
+.tile.kat{background:#2f86d6;color:#fff;font-weight:600;text-transform:uppercase}
+.tile.kat.balik{background:#1f6db8}
+.tile.itm{background:#f2a51f;color:#fff;font-weight:600;text-transform:uppercase;font-size:14px;line-height:1.25}
+.tile.itm small,.tile.kat small{color:#fff;font-weight:600}
 .tile:hover{box-shadow:0 2px 7px rgba(0,0,0,.2)}
 .tile.on{background:#111;color:#fff}
-.tile small{color:var(--gold2);font-weight:600}
 .tile .cnt{font-size:12px;color:var(--mut)}
+.tile.kat .cnt{color:rgba(255,255,255,.85);text-transform:none;font-weight:400}
 .grid-empty{grid-column:1/-1;text-align:center;color:var(--mut);padding:60px 0}
 .actbar{display:flex;gap:10px}
 .actbar .btn{flex:1;height:54px}
@@ -341,7 +348,11 @@ function simpanSet(lokalSaja) {
 const isAdmin = () => !!(USER && USER.role === 'admin');
 
 const BASE_MENU = (window.POS_MENU || []).slice();
-let MENU = [], KATEGORI = [];
+let MENU = [], KATEGORI = [], GRUPS = [];
+// Kelompok atas ala ESB (FOOD / BEVERAGES / OTHERS) dibaca dari kolom jenis
+// resep HPP; sub kategorinya kolom kat. Tidak ada daftar kategori kedua.
+const URUT_GRUP = ['FOOD', 'BEVERAGES', 'OTHERS'];
+function grupMenu(m) { return m.jenis === 'food' ? 'FOOD' : m.jenis === 'drink' ? 'BEVERAGES' : 'OTHERS'; }
 // Seluruh menu (aktif & tidak) sesudah selisih pengaturan diterapkan.
 function menuSemua() {
   return BASE_MENU.map(m => Object.assign({}, m, SET.menu[m.id] || {}, { asal: 'hpp' }))
@@ -352,6 +363,10 @@ function bangunMenu() {
   const k = {};
   MENU.forEach(x => { k[x.kat] = (k[x.kat] || 0) + 1; });
   KATEGORI = Object.keys(k).sort((a, b) => a.localeCompare(b)).map(n => ({ k: n, n: k[n] }));
+  const g = {};
+  MENU.forEach(x => { const gk = grupMenu(x), kk = x.kat || '(tanpa kategori)'; (g[gk] = g[gk] || {})[kk] = (g[gk][kk] || 0) + 1; });
+  GRUPS = URUT_GRUP.filter(n => g[n]).map(n => ({ k: n, kats: Object.keys(g[n]).sort((a, b) => a.localeCompare(b)).map(c => ({ k: c, n: g[n][c] })) }));
+  if (GRUP && !GRUPS.some(x => x.k === GRUP)) { GRUP = ''; KAT = ''; }
 }
 
 /* ================= UTIL ================= */
@@ -503,7 +518,8 @@ let LOGIN_ERR = '';
 let QS_HAL = 1;
 let CUR = null;           // order yang sedang dikerjakan
 let SEL = -1;             // baris keranjang terpilih
-let KAT = '';             // '' = daftar kategori
+let GRUP = '';            // '' = daftar kelompok (FOOD/BEVERAGES/OTHERS)
+let KAT = '';             // '' = daftar sub kategori di dalam GRUP
 let CARI = '';
 let HAL = 1;
 let CASH_IN = '';
@@ -776,26 +792,37 @@ function go(v) {
 function menuTampil() {
   const q = CARI.trim().toLowerCase();
   if (q) return MENU.filter(x => x.nama.toLowerCase().includes(q) || (x.kode && x.kode.toLowerCase().includes(q)));
-  if (KAT) return MENU.filter(x => x.kat === KAT);
+  if (GRUP && KAT) return MENU.filter(x => grupMenu(x) === GRUP && (x.kat || '(tanpa kategori)') === KAT).sort((a, b) => a.nama.localeCompare(b.nama));
   return null;
 }
+function grupAktif() { return GRUPS.find(x => x.k === GRUP) || null; }
 function gridArea() {
-  const daftar = menuTampil();
-  const isi = daftar ? daftar : KATEGORI;
-  const nHal = Math.max(1, Math.ceil(isi.length / PER_HAL));
+  const cari = !!CARI.trim(), daftar = menuTampil(), g = grupAktif();
+  // Ubin pertama di level 2 & 3 adalah tombol kembali, seperti ESB — ia
+  // ikut di tiap halaman, jadi isi per halaman tinggal PER_HAL - 1.
+  const kepala = cari ? '' : (KAT ? '<button class="tile kat balik" onclick="pilihKat(-1)">' + esc(KAT) + '</button>'
+    : GRUP ? '<button class="tile grp" onclick="pilihGrup(-1)">' + esc(GRUP) + '</button>' : '');
+  const isi = daftar ? daftar : g ? g.kats : GRUPS;
+  const per = kepala ? PER_HAL - 1 : PER_HAL;
+  const nHal = Math.max(1, Math.ceil(isi.length / per));
   if (HAL > nHal) HAL = nHal;
-  const pot = isi.slice((HAL - 1) * PER_HAL, HAL * PER_HAL);
+  const pot = isi.slice((HAL - 1) * per, HAL * per);
   let grid;
-  if (!daftar) {
-    grid = pot.map(c => '<button class="tile" onclick="pilihKat(' + KATEGORI.indexOf(c) + ')">' + esc(c.k) + '<span class="cnt">' + c.n + ' menu</span></button>').join('');
-  } else if (!pot.length) {
-    grid = '<div class="grid-empty">Tidak ada menu yang cocok dengan “' + esc(CARI) + '”.</div>';
+  if (daftar && !pot.length) {
+    grid = '<div class="grid-empty">' + (cari ? 'Tidak ada menu yang cocok dengan “' + esc(CARI) + '”.' : 'Belum ada menu di kategori ini.') + '</div>';
+  } else if (daftar) {
+    grid = kepala + pot.map(m => '<button class="tile itm" onclick="tambah(\'' + esc(m.id) + '\')">' + esc(m.nama) + '<small>(' + fmt(m.harga) + ')</small></button>').join('');
+  } else if (g) {
+    grid = kepala + pot.map(c => '<button class="tile kat" onclick="pilihKat(' + g.kats.indexOf(c) + ')">' + esc(c.k) + '<span class="cnt">' + c.n + ' menu</span></button>').join('');
   } else {
-    grid = pot.map(m => '<button class="tile" onclick="tambah(\'' + esc(m.id) + '\')">' + esc(m.nama) + '<small>' + fmt(m.harga) + '</small></button>').join('');
+    grid = pot.map(c => '<button class="tile grp" onclick="pilihGrup(' + GRUPS.indexOf(c) + ')">' + esc(c.k) + '</button>').join('') ||
+      '<div class="grid-empty">Belum ada menu aktif berharga dari HPP.</div>';
   }
-  const judul = CARI.trim() ? 'Hasil pencarian · ' + daftar.length + ' menu'
-    : KAT ? '<button onclick="pilihKat(-1)">‹ Menu Category</button> / ' + esc(KAT) : 'Menu Category';
-  return '<div class="cat-title"><span style="flex:1">' + judul + '</span><div class="pager"><button class="btn" onclick="gantiHal(-1)" ' + (HAL <= 1 ? 'disabled' : '') + '>←</button><span>' + HAL + ' of ' + nHal + '</span><button class="btn" onclick="gantiHal(1)" ' + (HAL >= nHal ? 'disabled' : '') + '>→</button></div></div><div class="grid">' + grid + '</div>';
+  const judul = cari ? 'Hasil pencarian · ' + daftar.length + ' menu'
+    : '<span class="bc">' + (GRUP ? '<button onclick="pilihGrup(-1)">Menu Category</button> / ' +
+        (KAT ? '<button onclick="pilihKat(-1)">' + esc(GRUP) + '</button> / <b>' + esc(KAT) + '</b>' : '<b>' + esc(GRUP) + '</b>')
+      : '<b>Menu Category</b>') + '</span>';
+  return '<div class="cat-title"><span style="flex:1">' + judul + '</span><div class="pager"><span>' + HAL + ' of ' + nHal + '</span><button class="btn" onclick="gantiHal(-1)" ' + (HAL <= 1 ? 'disabled' : '') + '>←</button><button class="btn" onclick="gantiHal(1)" ' + (HAL >= nHal ? 'disabled' : '') + '>→</button></div></div><div class="grid">' + grid + '</div>';
 }
 function vOrder() {
   const h = hitung(CUR);
@@ -809,7 +836,7 @@ function vOrder() {
     '<div class="fld" style="flex:1"><label>Order Notes</label><input class="inp" placeholder="Information will be printed on checker printout" value="' + esc(CUR.notes) + '" oninput="CUR.notes=this.value"></div>' +
     '<button class="btn" title="Jumlah tamu" onclick="ubahPax()">👤 ' + CUR.pax + '</button></div>' +
     '<div class="card"><div class="searchbar"><div class="sbox"><span>🔍</span><input id="cari" placeholder="Search menu / code" value="' + esc(CARI) + '" oninput="ketikCari(this.value)"></div>' +
-    '<button class="btn" title="Muat ulang" onclick="CARI=\'\';KAT=\'\';HAL=1;render()">⟳</button></div>' +
+    '<button class="btn" title="Muat ulang" onclick="CARI=\'\';GRUP=\'\';KAT=\'\';HAL=1;render()">⟳</button></div>' +
     '<div id="gridArea">' + gridArea() + '</div></div>' +
     '<div class="actbar"><button class="btn ghost" disabled>⤧ Move to Table</button><button class="btn ghost" disabled>⇄ Move Item</button><button class="btn ghost" disabled>🖶 Checker</button></div>' +
     '<div class="actbar"><button class="btn ' + (CUR.items.length ? 'red' : 'ghost') + '" style="flex:0 0 32%" onclick="batalOrder()" ' + (CUR.items.length ? '' : 'disabled') + '>🗑 Cancel Order</button></div></div>' +
@@ -829,7 +856,8 @@ function ketikCari(v) {
   gambarGrid();
 }
 function gambarGrid() { const g = $('gridArea'); if (g) g.innerHTML = gridArea(); else render(); }
-function pilihKat(i) { KAT = i >= 0 && KATEGORI[i] ? KATEGORI[i].k : ''; CARI = ''; HAL = 1; render(); }
+function pilihGrup(i) { GRUP = i >= 0 && GRUPS[i] ? GRUPS[i].k : ''; KAT = ''; CARI = ''; HAL = 1; render(); }
+function pilihKat(i) { const g = grupAktif(); KAT = i >= 0 && g && g.kats[i] ? g.kats[i].k : ''; CARI = ''; HAL = 1; render(); }
 function gantiHal(d) { HAL += d; gambarGrid(); }
 function tambah(id) {
   const m = MENU.find(x => x.id === id); if (!m) return;
@@ -1038,7 +1066,7 @@ function submitBayar() {
   bukaKonfirmasi(true);
   if (SET.printer.otomatis) cetakStruk(salinan);
 }
-function selesaiBayar() { tutupModal(); CUR = orderBaru(); SEL = -1; KAT = ''; CARI = ''; HAL = 1; VIEW = 'order'; render(); }
+function selesaiBayar() { tutupModal(); CUR = orderBaru(); SEL = -1; GRUP = ''; KAT = ''; CARI = ''; HAL = 1; VIEW = 'order'; render(); }
 /* CETAK STRUK — lewat iframe tersembunyi berisi dokumen SENDIRI.
    Peramban tidak bisa bicara langsung ke printer LAN (port 9100); yang bisa
    adalah printer yang SUDAH DIPASANG di Windows. Jadi printer kasir LAN
