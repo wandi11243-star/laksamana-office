@@ -11796,6 +11796,26 @@ dan keduanya di DATABASE, bukan di git (lihat *HAK AKSES TIDAK IKUT MERGE*):
 Selama langkah 1 belum dikerjakan, kartunya **tidak muncul untuk siapa pun** —
 tanpa satu pun galat, karena memang tidak ada yang rusak.
 
+### Modul `pos`: prototipe kasir, HTML saja (27 Oktober 2026)
+
+`deploy/pos/index.html` → `dev.laksamanamuda.id/pos/`. Meniru alur ESB POS
+(login PIN → menu → metode bayar → Cash Payment → Payment Confirmation →
+Payment Submitted), logo Laksamana Muda. **Tanpa backend, tanpa SSO Office,
+tidak ada di portal** — PIN demo 1234/1111/2222 tertulis di layar.
+
+- **Menu = resep Menu Jadi AKTIF & berharga dari HPP PRODUKSI**, disalin ke
+  `deploy/pos/menu-data.js` oleh `tools/pos-menu-dari-hpp.js` (prasmanan &
+  menu tanpa harga dilewati, jumlahnya disebut keluaran alat). Menu baru di
+  HPP baru muncul sesudah alat itu dijalankan ulang.
+- **Omset historis 2026 DUMMY**, dibangkitkan deterministik per tanggal dari
+  pola Rekapitulasi PB1 Mei–Agu 2025 (weekday ±7,2 jt, weekend ±10 jt). Hari
+  ini = transaksi POS sungguhan. Layar hanya memajang tahun 2026.
+- **Transaksi tersimpan di localStorage peramban saja** (`lm_pos_v1`) — TIDAK
+  masuk Finance > Omset / Cashier / Analytics. Kalau suatu hari harus masuk,
+  jangan lewat `saveAll` blob kompas (lihat penjaga tulis-basi).
+- `hitung()` satu-satunya penjumlah struk: SC 5% subtotal, PB1 10% dari
+  (subtotal+SC), dibulatkan ke atas Rp100. Non-tunai dijepit ke sisa tagihan.
+
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`
 
 ```
