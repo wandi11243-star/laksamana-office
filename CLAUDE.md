@@ -11855,6 +11855,20 @@ layar; user tidak mau ada kata "dummy"/"demo" yang terlihat).
   rekap hari itu. Kasir di bill itu dari `KASIR_HARIAN` tetap (bukan dari
   pengaturan) supaya riwayat tidak berubah kalau pengguna diganti nama.
 - **Sidebar & topbar `position:sticky`** + label teks — sebelumnya ikut
+
+**Revisi 27 Oktober 2026 (malam)** — POS jadi modul Office + cetak struk:
+
+- **Kunci izin ** (kartu di BRANCHES portal + ,
+  bab Help ). Gerbang  POS menuntut   berkunci /; PIN kasir di dalam POS tetap berlaku sesudahnya.
+  HAK AKSES TIDAK IKUT MERGE: superadmin membuka Kelola Akses sekali di tiap
+  server (syncModules), lalu mencentang POS ke orangnya.
+- **Cetak struk lewat iframe berisi dokumen sendiri** (,
+  ), bukan  halaman utama
+  (yang mencetak setinggi A4). Logo DITUNGGU termuat sebelum .
+  Printer LAN tidak bisa disapa peramban langsung — ia dipasang di Windows
+  (Add printer by IP), dan  Chrome menghilangkan dialog.
+  Setelan  (lebar, salinan, otomatis, logo, kaki) di
+  Pengaturan → Printer, localStorage saja.
   tergulir dan tombolnya "naik" keluar layar.
 
 ### Dua situs yang TIDAK di bawah `deploy/`: `absensi` dan `investor`

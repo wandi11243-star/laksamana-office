@@ -5,6 +5,18 @@
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>POS Laksamana Muda</title>
 <link rel="icon" href="../assets/laksamana-mark.png">
+<!-- Gerbang Office: POS hanya untuk pemegang kunci 'pos' di Kelola Akses
+     (atau '*'). Ditaruh di <head> supaya tidak satu baris pun sempat jalan.
+     PIN kasir di dalam POS tetap berlaku sesudahnya — gerbang ini menjawab
+     "boleh membuka POS", PIN menjawab "siapa yang sedang berdiri di kasir". -->
+<script>
+(function(){try{
+  var s=JSON.parse(localStorage.getItem('lm_session')||'null');
+  var hidup=s&&s.expiry&&Date.now()<s.expiry;
+  var punya=hidup&&(s.modules||[]).some(function(m){return m==='*'||m==='pos';});
+  if(!punya)location.replace('../');
+}catch(e){location.replace('../');}})();
+</script>
 <!--
   POS Laksamana Muda — PROTOTIPE (27 Oktober 2026, permintaan user).
 
@@ -260,18 +272,11 @@ input{font:inherit}
   .login{flex-direction:column}.login-right{width:auto;border-left:0;border-top:1px solid var(--line)}
   .kpis{grid-template-columns:repeat(2,1fr)}.top .it.hide-m{display:none}
 }
-@media print{
-  body *{visibility:hidden}
-  #cetak,#cetak *{visibility:visible}
-  #cetak{position:absolute;left:0;top:0;width:80mm}
-  #cetak .receipt{box-shadow:none;max-width:none;padding:0}
-}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <div id="modal"></div>
-<div id="cetak" style="position:absolute;left:-9999px;top:0"></div>
 
 <script src="menu-data.js"></script>
 <script src="rekap-2026.js"></script>
@@ -303,7 +308,8 @@ const USER_BAWAAN = [
   { id: 'u-gita',  nama: 'Gita',  role: 'kasir', pin: '3333', aktif: true },
   { id: 'u-faila', nama: 'Faila', role: 'kasir', pin: '4444', aktif: true }
 ];
-let SET = { users: JSON.parse(JSON.stringify(USER_BAWAAN)), menu: {}, menuBaru: [], sc: 5, pb1: 10 };
+const PRINTER_BAWAAN = { lebar: 80, otomatis: false, salinan: 1, logo: true, kaki: 'Terima kasih atas kunjungan Anda' };
+let SET = { users: JSON.parse(JSON.stringify(USER_BAWAAN)), menu: {}, menuBaru: [], sc: 5, pb1: 10, printer: Object.assign({}, PRINTER_BAWAAN) };
 let SET_GAGAL = false;
 function muatSet() {
   try {
@@ -314,6 +320,7 @@ function muatSet() {
       if (Array.isArray(s.menuBaru)) SET.menuBaru = s.menuBaru;
       if (isFinite(s.sc)) SET.sc = +s.sc;
       if (isFinite(s.pb1)) SET.pb1 = +s.pb1;
+      if (s.printer && typeof s.printer === 'object') SET.printer = Object.assign({}, PRINTER_BAWAAN, s.printer);
     }
   } catch (e) {}
 }
@@ -818,7 +825,7 @@ function struk(o) {
     '<div class="hr" style="margin-left:40%"></div>' + baris('<b>Grand Total</b>', '<b>' + fmt2(h.grand) + '</b>') +
     (bayar ? '<div class="hr"></div>' + bayar + baris('Change', fmt2(h.kembali)) : '') +
     (o.notes ? '<div class="hr"></div><div>Catatan: ' + esc(o.notes) + '</div>' : '') +
-    '<div class="hr"></div><div class="c muted">Terima kasih atas kunjungan Anda</div></div>';
+    (SET.printer.kaki ? '<div class="hr"></div><div class="c muted">' + esc(SET.printer.kaki) + '</div>' : '') + '</div>';
 }
 
 /* ---------- PAYMENT ---------- */
@@ -903,9 +910,57 @@ function submitBayar() {
   if (i >= 0) DB.orders[i] = salinan; else DB.orders.push(salinan);
   simpan();
   bukaKonfirmasi(true);
+  if (SET.printer.otomatis) cetakStruk(salinan);
 }
 function selesaiBayar() { tutupModal(); CUR = orderBaru(); SEL = -1; KAT = ''; CARI = ''; HAL = 1; VIEW = 'order'; render(); }
-function cetakStruk(o) { $('cetak').style.left = '0'; $('cetak').innerHTML = struk(o || CUR); window.print(); $('cetak').style.left = '-9999px'; }
+/* CETAK STRUK — lewat iframe tersembunyi berisi dokumen SENDIRI.
+   Peramban tidak bisa bicara langsung ke printer LAN (port 9100); yang bisa
+   adalah printer yang SUDAH DIPASANG di Windows. Jadi printer kasir LAN
+   dipasang sekali di Windows (Tambah printer -> alamat IP), dan dari sini
+   kita cukup memanggil print() atas dokumen yang ukurannya PAS kertas:
+   @page selebar 58/80mm, margin nol, tinggi mengikuti isi. Dulu struk
+   dicetak lewat @media print halaman utama — ukuran halamannya A4, jadi
+   printer thermal menerima satu "halaman" setinggi A4 (kertas terbuang)
+   dan sebagian driver memotong isinya.
+   Gambar logo DITUNGGU dulu sebelum print(): dicetak sebelum termuat, struk
+   pertama keluar tanpa logo. */
+function dokStruk(isi) {
+  const p = SET.printer, w = +p.lebar === 58 ? 58 : 80;
+  const css = '@page{size:' + w + 'mm auto;margin:0}' +
+    'html,body{margin:0;padding:0;background:#fff;color:#000}' +
+    'body{width:' + w + 'mm;font:' + (w === 58 ? '11px' : '12.5px') + '/1.35 "Courier New",Consolas,monospace;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
+    '.receipt{padding:2mm ' + (w === 58 ? '2mm' : '3.5mm') + ' 6mm;page-break-after:always}.receipt:last-child{page-break-after:auto}' +
+    '.receipt img{display:' + (p.logo ? 'block' : 'none') + ';width:' + (w === 58 ? '30mm' : '38mm') + ';margin:0 auto 2mm;filter:grayscale(1) contrast(1.4)}' +
+    '.c{text-align:center}.r{display:flex;justify-content:space-between;gap:4px}.kv{display:grid;grid-template-columns:auto 8px 1fr}' +
+    '.hr{border-top:1px dashed #000;margin:1.5mm 0}.t{display:grid;grid-template-columns:1fr auto;text-align:right}.t span:first-child{padding-right:6px}.muted{color:#000}';
+  return '<!doctype html><html><head><meta charset="utf-8"><base href="' + esc(location.href) + '"><title>Struk</title><style>' + css + '</style></head><body>' + isi + '</body></html>';
+}
+function cetakStruk(o) {
+  const ord = o || CUR; if (!ord) return;
+  const n = Math.max(1, Math.min(3, +SET.printer.salinan || 1));
+  let isi = ''; for (let i = 0; i < n; i++) isi += struk(ord);
+  let fr = document.getElementById('frCetak');
+  if (fr) fr.remove();
+  fr = document.createElement('iframe');
+  fr.id = 'frCetak'; fr.setAttribute('aria-hidden', 'true');
+  fr.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;visibility:hidden';
+  document.body.appendChild(fr);
+  const d = fr.contentWindow.document;
+  d.open(); d.write(dokStruk(isi)); d.close();
+  let sudah = false;
+  const jalan = () => {
+    if (sudah) return; sudah = true;
+    try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { toast('Gagal membuka dialog cetak.'); }
+  };
+  const tunggu = [...d.images].filter(im => !im.complete);
+  if (!tunggu.length || !SET.printer.logo) setTimeout(jalan, 50);
+  else { let sisa = tunggu.length; tunggu.forEach(im => { im.onload = im.onerror = () => { if (--sisa <= 0) jalan(); }; }); setTimeout(jalan, 2500); }
+}
+function cetakTes() {
+  const o = { no: 'TES-PRINTER', at: Date.now(), paidAt: Date.now(), meja: '-', mode: 'Dine In', pax: 1, kasir: USER ? USER.nama : '-', notes: 'Cetak tes printer',
+    items: [{ nama: 'Ice Kopi Laksamana', qty: 1, harga: 25000 }], payments: [], scPct: SET.sc, pb1Pct: SET.pb1 };
+  cetakStruk(o);
+}
 
 /* ---------- ORDER TERBUKA ---------- */
 function vTerbuka() {
@@ -1045,6 +1100,22 @@ function vSetting() {
       '<td>' + (u.aktif === false ? '<span class="chip off">Nonaktif</span>' : '<span class="chip pos">Aktif</span>') + '</td><td><button class="sbtn" onclick="editUser(\'' + esc(u.id) + '\')">✎ Ubah</button></td></tr>').join('');
     isi = '<div class="card"><div class="rowf" style="padding:12px;align-items:center"><span class="muted" style="flex:1">Admin bisa membuka Laporan & Pengaturan; Kasir hanya Order, Open Order, dan Riwayat. PIN 4–6 angka, tidak boleh sama.</span><button class="btn gold" onclick="editUser(\'\')">+ Tambah Pengguna</button></div>' +
       '<table class="tbl"><thead><tr><th>Nama</th><th>Peran</th><th>PIN</th><th>Status</th><th></th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+  } else if (SET_TAB === 'printer') {
+    const p = SET.printer;
+    isi = '<div class="card" style="padding:16px;max-width:720px"><div class="frm">' +
+      '<div><label>Lebar kertas</label><select id="prLebar" class="inp"><option value="80"' + (+p.lebar !== 58 ? ' selected' : '') + '>80 mm</option><option value="58"' + (+p.lebar === 58 ? ' selected' : '') + '>58 mm</option></select></div>' +
+      '<div><label>Jumlah salinan</label><select id="prSalin" class="inp">' + [1, 2, 3].map(n => '<option' + (+p.salinan === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></div>' +
+      '<div class="full"><label class="tog"><input id="prOto" type="checkbox"' + (p.otomatis ? ' checked' : '') + '> Cetak otomatis sesudah pembayaran di-Apply</label></div>' +
+      '<div class="full"><label class="tog"><input id="prLogo" type="checkbox"' + (p.logo ? ' checked' : '') + '> Cetak logo di kepala struk</label></div>' +
+      '<div class="full"><label>Tulisan di kaki struk</label><input id="prKaki" class="inp" maxlength="80" value="' + esc(p.kaki) + '"></div>' +
+      '<div class="full"><button class="btn gold" onclick="simpanPrinter()">✓ Simpan</button> <button class="btn line" onclick="cetakTes()">🖶 Cetak Tes</button></div></div></div>' +
+      '<div class="card" style="padding:16px;max-width:720px;margin-top:14px;line-height:1.55"><b>Memakai printer kasir LAN</b>' +
+      '<ol style="margin:8px 0 0 18px;padding:0">' +
+      '<li>Pasang printernya sekali di Windows: <i>Settings → Bluetooth &amp; devices → Printers &amp; scanners → Add device → Add manually → "Add a printer using an IP address"</i>, isi alamat IP printer (tercetak di self-test printer), port 9100, lalu pilih driver printernya (Epson TM-T82/T88, Xprinter, dll — atau <i>Generic / Text Only</i>).</li>' +
+      '<li>Di driver printer (Printer properties → Preferences) pilih kertas roll <b>80 mm</b> (atau 58 mm), lalu cetak test page dari Windows untuk memastikan IP-nya benar.</li>' +
+      '<li>Tekan <b>Cetak Tes</b> di atas. Di dialog cetak Chrome pilih printer kasir itu, <i>Margins: None</i>, matikan <i>Headers and footers</i>. Chrome mengingat pilihan ini untuk cetak berikutnya.</li>' +
+      '<li>Supaya struk langsung keluar <b>tanpa dialog</b>: jadikan printer kasir printer default Windows, buka POS dari shortcut Chrome yang targetnya ditambah <code>--kiosk-printing</code> (contoh: <code>chrome.exe --kiosk-printing https://dev.laksamanamuda.id/pos/</code>), lalu nyalakan "Cetak otomatis" di atas.</li></ol>' +
+      '<div class="muted" style="margin-top:8px">Peramban tidak bisa mengirim langsung ke alamat IP printer; ia selalu lewat printer yang terpasang di Windows. Setelan di halaman ini tersimpan di komputer ini saja.</div></div>';
   } else {
     isi = '<div class="card" style="padding:16px;max-width:560px"><div class="frm">' +
       '<div><label>Service Charge (%)</label><input id="stSc" class="inp" inputmode="decimal" value="' + SET.sc + '"></div>' +
@@ -1052,7 +1123,7 @@ function vSetting() {
       '<div class="full muted">Berlaku untuk order BARU. Transaksi yang sudah dibayar tetap memakai persen saat ia dibuat.</div>' +
       '<div class="full err-txt" id="stErr"></div><div class="full"><button class="btn gold" onclick="simpanPajak()">✓ Simpan</button></div></div></div>';
   }
-  return '<div class="page"><div class="ph"><h2>Pengaturan POS</h2><div class="tabs">' + tab('menu', 'Menu') + tab('user', 'Pengguna') + tab('pajak', 'Pajak & Service') + '</div></div>' +
+  return '<div class="page"><div class="ph"><h2>Pengaturan POS</h2><div class="tabs">' + tab('menu', 'Menu') + tab('user', 'Pengguna') + tab('pajak', 'Pajak & Service') + tab('printer', 'Printer') + '</div></div>' +
     '<div class="note">Perubahan di halaman ini hanya berlaku di POS ini dan tersimpan di perangkat ini. Data HPP &amp; Resep di Office tidak diubah atau dihapus.</div>' +
     (SET_GAGAL ? '<div class="note" style="border-color:#e3b0aa;background:#fbecea;color:#8a2a22">Penyimpanan di peramban ditolak — perubahan tidak akan bertahan.</div>' : '') + isi + '</div>';
 }
@@ -1146,6 +1217,10 @@ function simpanUser(id) {
   simpanSet();
   if (USER && USER.id === id) { USER.nama = nama; USER.role = role; if (!aktif || role !== 'admin') VIEW = 'order'; }
   tutupModal(); toast('Pengguna disimpan.'); render();
+}
+function simpanPrinter() {
+  SET.printer = { lebar: +$('prLebar').value === 58 ? 58 : 80, salinan: +$('prSalin').value || 1, otomatis: $('prOto').checked, logo: $('prLogo').checked, kaki: $('prKaki').value.trim() };
+  simpanSet(); toast('Setelan printer disimpan.'); render();
 }
 function simpanPajak() {
   const sc = +String($('stSc').value).replace(',', '.'), pb = +String($('stPb').value).replace(',', '.');

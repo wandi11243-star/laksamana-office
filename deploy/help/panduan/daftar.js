@@ -58,6 +58,8 @@
 
     { izin: 'reservasi', grup: 'operasional', label: 'Reservasi',
       ringkas: 'Booking meja, data tamu, DP, dan denah meja.' },
+    { izin: 'pos', grup: 'operasional', label: 'POS',
+      ringkas: 'Mesin kasir: order per meja, pembayaran, cetak struk, riwayat, dan laporan.' },
     { izin: 'cashier', grup: 'operasional', label: 'Cashier',
       ringkas: 'Setoran, dana masuk, report daily, dan performa kasir.' },
     { izin: 'service_excellent', grup: 'operasional', label: 'Service Excellent',
