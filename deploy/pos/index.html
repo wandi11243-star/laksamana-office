@@ -1116,15 +1116,48 @@ function dokStruk(isi) {
     // printer struk (POS-80 dsb); driver Generic / Text Only membuangnya.
     'body{width:' + w + 'mm;font:' + (w === 58 ? '11px' : '12.5px') + '/1.4 "Segoe UI",Roboto,Arial,sans-serif;-webkit-print-color-adjust:exact;print-color-adjust:exact}b{font-weight:700}' +
     '.receipt{padding:2mm ' + (w === 58 ? '2mm' : '3.5mm') + ' 6mm;page-break-after:always}.receipt:last-child{page-break-after:auto}' +
-    '.receipt img{display:' + (p.logo ? 'block' : 'none') + ';width:' + (w === 58 ? '30mm' : '38mm') + ';margin:0 auto 2mm;filter:grayscale(1) contrast(1.4)}' +
+    '.receipt img{display:' + (p.logo ? 'block' : 'none') + ';width:' + (w === 58 ? '30mm' : '38mm') + ';margin:0 auto 2mm}' +
     '.c{text-align:center}.r{display:flex;justify-content:space-between;gap:4px}.kv{display:grid;grid-template-columns:' + (w === 58 ? '15mm' : '18mm') + ' 8px 1fr}' +
     '.hr{border-top:1px dashed #000;margin:1.5mm 0}.t{display:grid;grid-template-columns:1fr ' + (w === 58 ? '22mm' : '28mm') + ';text-align:right}.t span:first-child{padding-right:6px}.muted{color:#000}';
   return '<!doctype html><html><head><meta charset="utf-8"><base href="' + esc(location.href) + '"><title>Struk</title><style>' + css + '</style></head><body>' + isi + '</body></html>';
 }
+/* LOGO UNTUK PRINTER THERMAL: printer thermal cuma mengenal hitam & putih,
+   dan logo aslinya EMAS MUDA di atas latar transparan — dicetak apa adanya
+   (atau sekadar di-grayscale) ia jadi abu-abu terang yang dibuang printer,
+   dan yang keluar cuma ruang kosong di kepala struk (27 Okt 2026). Jadi
+   sebelum dicetak, tiap piksel yang tidak transparan dijadikan HITAM PEKAT
+   lewat canvas. Hasilnya disimpan sekali per sesi. */
+let LOGO_CETAK = '', LOGO_DICOBA = false;  // dicoba sekali: gagal = cetak logo aslinya, bukan berputar
+function siapkanLogoCetak() {
+  LOGO_DICOBA = true;
+  if (LOGO_CETAK) return Promise.resolve(LOGO_CETAK);
+  return new Promise(res => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const W = Math.min(im.naturalWidth || 512, 512), H = Math.round(W * (im.naturalHeight || 512) / (im.naturalWidth || 512));
+        const c = document.createElement('canvas'); c.width = W; c.height = H;
+        const g = c.getContext('2d'); g.drawImage(im, 0, 0, W, H);
+        const px = g.getImageData(0, 0, W, H), d = px.data;
+        for (let i = 0; i < d.length; i += 4) {
+          const gelap = d[i + 3] > 90 && (d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11) < 245;
+          d[i] = d[i + 1] = d[i + 2] = gelap ? 0 : 255; d[i + 3] = gelap ? 255 : 0;
+        }
+        g.putImageData(px, 0, 0);
+        LOGO_CETAK = c.toDataURL('image/png');
+      } catch (e) { LOGO_CETAK = ''; }
+      res(LOGO_CETAK);
+    };
+    im.onerror = () => res('');
+    im.src = LOGO;
+  });
+}
 function cetakStruk(o) {
   const ord = o || CUR; if (!ord) return;
+  if (SET.printer.mode === 'grafis' && SET.printer.logo && !LOGO_DICOBA) { siapkanLogoCetak().then(() => cetakStruk(ord)); return; }
   const n = Math.max(1, Math.min(3, +SET.printer.salinan || 1));
   let isi = ''; for (let i = 0; i < n; i++) isi += SET.printer.mode !== 'grafis' ? '<pre>' + esc(strukTeks(ord, kolomStruk())) + '</pre>' : struk(ord);
+  if (LOGO_CETAK) isi = isi.split('src="' + LOGO + '"').join('src="' + LOGO_CETAK + '"');
   let fr = document.getElementById('frCetak');
   if (fr) fr.remove();
   fr = document.createElement('iframe');
