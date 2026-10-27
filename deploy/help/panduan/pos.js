@@ -55,9 +55,13 @@ LM_HELP_ISI('pos', {
     {
       id: 'catatan', judul: 'Yang Perlu Diketahui',
       isi: [
-        { t:'catatan', nada:'awas', judul:'Data tersimpan di komputer ini',
-          isi:'Transaksi dan pengaturan POS tersimpan di peramban komputer kasir, belum masuk ke '
-            + 'Finance, Cashier, atau Analytics. Jangan menghapus data peramban di komputer kasir.' }
+        { t:'catatan', nada:'info', judul:'Data tersinkron antar komputer kasir',
+          isi:'Order, pengguna, menu, dan persen SC/PB1 tersimpan di server, jadi terlihat di semua '
+            + 'komputer kasir. Tanda di kanan atas menyebut keadaannya: *Tersinkron*, atau *belum '
+            + 'terkirim* kalau jaringan putus — data tetap aman di komputer itu dan dikirim sendiri '
+            + 'begitu jaringan kembali. Setelan printer tetap milik masing-masing komputer.' },
+        { t:'catatan', nada:'awas', judul:'Belum masuk ke modul lain',
+          isi:'Transaksi POS belum masuk ke Finance, Cashier, atau Analytics.' }
       ]
     }
   ]

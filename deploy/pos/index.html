@@ -308,7 +308,13 @@ const USER_BAWAAN = [
   { id: 'u-gita',  nama: 'Gita',  role: 'kasir', pin: '3333', aktif: true },
   { id: 'u-faila', nama: 'Faila', role: 'kasir', pin: '4444', aktif: true }
 ];
-const PRINTER_BAWAAN = { lebar: 80, otomatis: false, salinan: 1, logo: true, kaki: 'Terima kasih atas kunjungan Anda' };
+/* mode 'teks' = struk disusun sebagai baris teks berkolom tetap (<pre>).
+   BAWAANNYA, karena ia rapi di driver APA PUN — termasuk "Generic / Text
+   Only" yang dipakai di kasir (27 Okt 2026): driver itu cuma memungut teks
+   dari halaman, jadi struk berkolom/berlogo keluar berantakan (judul &
+   kaki tertukar, kolom angka menempel). mode 'grafis' = tampilan seperti
+   pratinjau di layar, hanya rapi dengan driver printer struk (POS-80 dsb). */
+const PRINTER_BAWAAN = { lebar: 80, otomatis: false, salinan: 1, logo: true, kaki: 'Terima kasih atas kunjungan Anda', mode: 'teks', kolom: 42 };
 let SET = { users: JSON.parse(JSON.stringify(USER_BAWAAN)), menu: {}, menuBaru: [], sc: 5, pb1: 10, printer: Object.assign({}, PRINTER_BAWAAN) };
 let SET_GAGAL = false;
 function muatSet() {
@@ -321,11 +327,16 @@ function muatSet() {
       if (isFinite(s.sc)) SET.sc = +s.sc;
       if (isFinite(s.pb1)) SET.pb1 = +s.pb1;
       if (s.printer && typeof s.printer === 'object') SET.printer = Object.assign({}, PRINTER_BAWAAN, s.printer);
+      if (isFinite(s.ts)) SET.ts = +s.ts;
+      if (s._belum) SET._belum = true;
     }
   } catch (e) {}
 }
-function simpanSet() {
+// lokalSaja = setelan milik komputer ini (printer) — tidak dikirim ke server.
+function simpanSet(lokalSaja) {
+  if (!lokalSaja) { SET._belum = true; SET.ts = Date.now(); }
   try { localStorage.setItem(SKEY, JSON.stringify(SET)); SET_GAGAL = false; } catch (e) { SET_GAGAL = true; }
+  if (!lokalSaja) sinkronNanti();
 }
 const isAdmin = () => !!(USER && USER.role === 'admin');
 
@@ -375,6 +386,113 @@ function muat() {
 function simpan() {
   try { localStorage.setItem(KEY, JSON.stringify(DB)); SIMPAN_GAGAL = false; }
   catch (e) { SIMPAN_GAGAL = true; }
+}
+
+/* ================= SINKRON KE SERVER (27 Okt 2026) =================
+   Order & setelan bersama disimpan di server (kompas-api-mysql, aksi
+   posList/posSimpan/posSetting) supaya komputer kasir lain melihat data yang
+   sama. localStorage TETAP dipakai sebagai salinan & antrean: order yang
+   belum terkirim ditandai _naik=false dan dikirim ulang begitu jaringan
+   kembali — kasir tidak boleh berhenti melayani karena WiFi putus.
+   _base = versi server yang dipegang order ini; server menolak kiriman yang
+   base-nya sudah basi (order keburu diubah di perangkat lain), dan yang
+   ditolak diganti versi server — bukan ditimpa. */
+const API_POS = '../kompas-api-mysql/api.php';
+const SYNC = { sedang: false, gagal: '', terakhir: 0, ver: -1 };
+function sesiToken() {
+  try { const s = JSON.parse(localStorage.getItem('lm_session') || 'null'); return (s && s.token) || ''; } catch (e) { return ''; }
+}
+async function apiPos(action, extra) {
+  const r = await fetch(API_POS, { method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.assign({ action: action, sesi: sesiToken() }, extra || {})) });
+  const t = await r.text();
+  let j; try { j = JSON.parse(t); } catch (e) { throw new Error('Balasan server bukan JSON (HTTP ' + r.status + ')'); }
+  return j;
+}
+function tandaiOrder(o) { o.updatedAt = Math.max(Date.now(), (+o.updatedAt || 0) + 1); o._naik = false; }
+function belumNaik() { return DB.orders.filter(o => o._naik === false).length; }
+async function kirimAntre() {
+  for (const o of DB.orders.filter(x => x._naik === false)) {
+    const kirim = Object.assign({}, o); delete kirim._naik; delete kirim._base;
+    const j = await apiPos('posSimpan', { order: kirim, base: +o._base || 0 });
+    if (j.ok) { o._naik = true; o.updatedAt = j.data.updatedAt; o._base = j.data.updatedAt; }
+    else if (j.konflik && j.server) {
+      const i = DB.orders.findIndex(x => x.id === o.id);
+      DB.orders[i] = Object.assign(j.server, { _naik: true, _base: j.server.updatedAt });
+      toast('Order ' + (o.no || '') + ' sudah diubah di perangkat lain — versi terbaru dipakai.');
+    } else throw new Error(j.error || 'Gagal menyimpan order.');
+    simpan();
+  }
+}
+async function kirimSetBersama() {
+  const j = await apiPos('posSetting', { data: { users: SET.users, menu: SET.menu, menuBaru: SET.menuBaru, sc: SET.sc, pb1: SET.pb1 } });
+  if (!j.ok) throw new Error(j.error || 'Gagal menyimpan pengaturan.');
+  SET._belum = false; SET.ts = j.data.ts; simpanSet(true);
+}
+async function tarikServer() {
+  const j = await apiPos('posList', { dari: TAHUN + '-01-01' });
+  if (!j.ok) throw new Error(j.error || 'Gagal membaca data server.');
+  const d = j.data || {};
+  let berubah = false;
+  const srv = {}; (d.orders || []).forEach(o => { srv[o.id] = o; });
+  DB.orders.forEach((o, i) => {
+    const so = srv[o.id];
+    if (so) {
+      if (o._naik !== false && (+so.updatedAt || 0) !== (+o._base || 0)) {
+        DB.orders[i] = Object.assign(so, { _naik: true, _base: so.updatedAt }); berubah = true;
+      }
+      delete srv[o.id];
+    } else if (o._naik !== false && o._naik !== true) {
+      o._naik = false;   // transaksi lama dari sebelum sinkron: ikut dikirim
+    }
+  });
+  Object.keys(srv).forEach(id => { DB.orders.push(Object.assign(srv[id], { _naik: true, _base: srv[id].updatedAt })); berubah = true; });
+  if (berubah) simpan();
+  // Setelan bersama: yang lebih baru menang; yang belum terkirim dikirim.
+  const ss = d.setting;
+  if (SET._belum || !ss) { if (SET._belum || !ss) await kirimSetBersama(); }
+  else if ((+ss.ts || 0) > (+SET.ts || 0)) {
+    if (Array.isArray(ss.users) && ss.users.length) SET.users = ss.users;
+    SET.menu = (ss.menu && typeof ss.menu === 'object' && !Array.isArray(ss.menu)) ? ss.menu : {};
+    SET.menuBaru = Array.isArray(ss.menuBaru) ? ss.menuBaru : [];
+    if (isFinite(ss.sc)) SET.sc = +ss.sc;
+    if (isFinite(ss.pb1)) SET.pb1 = +ss.pb1;
+    SET.ts = +ss.ts; simpanSet(true); bangunMenu(); berubah = true;
+    if (USER) { const u = SET.users.find(x => x.id === USER.id && x.aktif !== false); if (!u) { USER = null; VIEW = 'login'; } else { USER.nama = u.nama; USER.role = u.role; } }
+  }
+  return berubah;
+}
+async function sinkron() {
+  if (SYNC.sedang) return;
+  SYNC.sedang = true; segarBadge();
+  let berubah = false;
+  try {
+    if (belumNaik()) await kirimAntre();
+    berubah = await tarikServer();
+    if (belumNaik()) await kirimAntre();
+    SYNC.gagal = ''; SYNC.terakhir = Date.now();
+  } catch (e) { SYNC.gagal = e.message || String(e); }
+  SYNC.sedang = false;
+  segarBadge();
+  // Gambar ulang hanya di layar baca, tanpa modal terbuka, dan tidak sedang
+  // mengetik — penggambaran ulang total membuang fokus kotak isian.
+  const ae = document.activeElement;
+  if (berubah && !($('modal') && $('modal').innerHTML) && ['login', 'terbuka', 'riwayat', 'laporan'].includes(VIEW) && !(ae && /INPUT|TEXTAREA|SELECT/.test(ae.tagName))) render();
+}
+let _sinkT = null;
+function sinkronNanti() { clearTimeout(_sinkT); _sinkT = setTimeout(sinkron, 300); }
+function badgeTeks() {
+  const n = belumNaik();
+  if (SYNC.sedang) return '⟳ Sinkron…';
+  if (SYNC.gagal) return '⚠ Offline' + (n ? ' · ' + n + ' belum terkirim' : '');
+  if (n || SET._belum) return '⏳ ' + (n || '') + ' belum terkirim';
+  return SYNC.terakhir ? '✓ Tersinkron' : '…';
+}
+function segarBadge() {
+  const b = $('sinkBadge'); if (!b) return;
+  b.textContent = badgeTeks();
+  b.title = SYNC.gagal ? 'Server tidak terjangkau: ' + SYNC.gagal + '. Data tetap tersimpan di komputer ini dan dikirim otomatis.' : 'Data POS tersimpan di server dan terlihat di komputer kasir lain.';
+  b.style.color = SYNC.gagal ? '#ffb4a8' : '';
 }
 
 /* ================= STATE LAYAR ================= */
@@ -587,6 +705,7 @@ function vSide() {
 function vTop() {
   return '<div class="top"><span class="pill"><i></i>Enable</span>' +
     '<span class="it hide-m" style="font-size:15px">POS · ' + esc(OUTLET.kode) + '</span><span class="sp"></span>' +
+    '<span class="it" id="sinkBadge" style="cursor:pointer" onclick="sinkron()">' + badgeTeks() + '</span>' +
     '<span class="it" id="jam">' + jamTeks() + '</span>' +
     '<span class="it hide-m">⌂ ' + esc(OUTLET.nama) + '</span>' +
     '<span class="it hide-m">▭ ' + esc(OUTLET.station) + '</span>' +
@@ -726,7 +845,12 @@ function hapusBaris(i) { CUR.items.splice(i, 1); SEL = Math.min(SEL, CUR.items.l
 function setMode(m) { CUR.mode = m; render(); }
 function batalOrder() {
   if (!confirm('Batalkan pesanan ini? Seluruh item akan dibuang.')) return;
-  if (CUR.status === 'open') { DB.orders = DB.orders.filter(o => o.id !== CUR.id); simpan(); }
+  // Order terbuka yang dibatalkan TIDAK dihapus: statusnya 'batal' dan ikut
+  // terkirim, supaya komputer kasir lain ikut melepasnya dari daftar.
+  if (CUR.status === 'open') {
+    const o = DB.orders.find(x => x.id === CUR.id);
+    if (o) { o.status = 'batal'; o.batalAt = Date.now(); o.batalOleh = USER ? USER.nama : ''; tandaiOrder(o); simpan(); sinkronNanti(); }
+  }
   CUR = orderBaru(); SEL = -1; render();
 }
 function pastikanNomor() { if (!CUR.no) CUR.no = 'S' + OUTLET.kode + Math.floor(Date.now() / 1000); }
@@ -735,8 +859,9 @@ function simpanOrder() {
   CUR.status = 'open'; CUR.tgl = hariIniIso();
   const i = DB.orders.findIndex(o => o.id === CUR.id);
   const salinan = JSON.parse(JSON.stringify(CUR));
+  tandaiOrder(salinan);
   if (i >= 0) DB.orders[i] = salinan; else DB.orders.push(salinan);
-  simpan();
+  simpan(); sinkronNanti();
   toast('Order ' + CUR.no + ' disimpan ke Quick Service List.');
   CUR = orderBaru(); SEL = -1; render();
 }
@@ -907,8 +1032,9 @@ function submitBayar() {
   CUR.status = 'paid'; CUR.paidAt = Date.now(); CUR.tgl = hariIniIso(); CUR.kasir = CUR.kasir || USER.nama;
   const i = DB.orders.findIndex(o => o.id === CUR.id);
   const salinan = JSON.parse(JSON.stringify(CUR));
+  tandaiOrder(salinan);
   if (i >= 0) DB.orders[i] = salinan; else DB.orders.push(salinan);
-  simpan();
+  simpan(); sinkronNanti();
   bukaKonfirmasi(true);
   if (SET.printer.otomatis) cetakStruk(salinan);
 }
@@ -924,8 +1050,65 @@ function selesaiBayar() { tutupModal(); CUR = orderBaru(); SEL = -1; KAT = ''; C
    dan sebagian driver memotong isinya.
    Gambar logo DITUNGGU dulu sebelum print(): dicetak sebelum termuat, struk
    pertama keluar tanpa logo. */
+function kolomStruk() {
+  const k = Math.round(+SET.printer.kolom || 0);
+  return k >= 24 && k <= 64 ? k : (+SET.printer.lebar === 58 ? 32 : 42);
+}
+// Struk sebagai baris teks: isi & urutannya SAMA dengan struk() — yang beda
+// cuma bentuknya. Angka di kanan, label di kiri, nama panjang dibungkus.
+function strukTeks(o, K) {
+  const h = hitung(o), t = new Date(o.paidAt || o.at);
+  const L = [];
+  const pot = (x, n) => String(x).length > n ? String(x).slice(0, n) : String(x);
+  const tengah = x => { x = pot(x, K); const sp = Math.floor((K - x.length) / 2); return ' '.repeat(sp) + x; };
+  const kr = (a, b) => { a = String(a); b = String(b); if (a.length + b.length + 1 > K) { L.push(pot(a, K)); a = ''; } return a + ' '.repeat(Math.max(1, K - a.length - b.length)) + b; };
+  const bungkus = x => { const out = []; let baris = ''; String(x).split(/\s+/).forEach(w => { if ((baris + ' ' + w).trim().length > K) { if (baris) out.push(baris); baris = w; } else baris = (baris + ' ' + w).trim(); }); if (baris) out.push(baris); return out; };
+  const garis = () => L.push('-'.repeat(K));
+  const kv = (a, b) => L.push(pot((a + '         ').slice(0, 8) + ': ' + b, K));
+  L.push(tengah('LAKSAMANA MUDA'), tengah('Coffee & Live Space'), tengah('Jl. Soekarno Hatta No. 39'));
+  garis();
+  kv('Order', o.no || '-');
+  kv('Tanggal', pad2(t.getDate()) + '-' + pad2(t.getMonth() + 1) + '-' + t.getFullYear() + ' ' + jamDari(t));
+  kv('Table', o.meja + ' - ' + o.mode);
+  kv('Pax', o.pax);
+  kv('Cashier', o.kasir);
+  garis();
+  o.items.forEach(x => {
+    bungkus(x.nama).forEach(b => L.push(b));
+    L.push(kr('  ' + x.qty + ' x ' + fmt2(x.harga), fmt2(x.harga * x.qty)));
+  });
+  garis();
+  L.push(h.qty + ' items');
+  garis();
+  L.push(kr('Subtotal', fmt2(h.sub)));
+  L.push(kr('Bill Discount', fmt2(h.disc)));
+  L.push(kr('SC ' + h.scPct + '%', fmt2(h.sc)));
+  L.push(kr('PB1 Total', fmt2(h.pb1)));
+  L.push(kr('Billing Total', fmt2(h.bill)));
+  L.push(kr('Rounding', fmt2(h.rounding)));
+  garis();
+  L.push(kr('GRAND TOTAL', fmt2(h.grand)));
+  if ((o.payments || []).length) {
+    garis();
+    o.payments.forEach(p => L.push(kr(p.method, fmt2(p.amount))));
+    L.push(kr('Change', fmt2(h.kembali)));
+  }
+  if (o.notes) { garis(); bungkus('Catatan: ' + o.notes).forEach(b => L.push(b)); }
+  if (SET.printer.kaki) { garis(); bungkus(SET.printer.kaki).forEach(b => L.push(tengah(b))); }
+  L.push('', '', '');
+  return L.join('\n');
+}
 function dokStruk(isi) {
   const p = SET.printer, w = +p.lebar === 58 ? 58 : 80;
+  if (p.mode !== 'grafis') {
+    // Lebar huruf Courier = 0,6 em; ukurannya dihitung supaya K kolom pas
+    // di area cetak (lebar kertas dikurangi ~4mm tepi mesin).
+    const K = kolomStruk(), em = ((w - 8) / K / 0.6).toFixed(2);
+    return '<!doctype html><html><head><meta charset="utf-8"><title>Struk</title><style>@page{size:' + w + 'mm auto;margin:0}' +
+      'html,body{margin:0;padding:0;background:#fff;color:#000}body{width:' + w + 'mm}' +
+      'pre{margin:0;padding:0 4mm;font:' + em + 'mm/1.25 "Courier New",Courier,monospace;white-space:pre;page-break-after:always}pre:last-child{page-break-after:auto}' +
+      '</style></head><body>' + isi + '</body></html>';
+  }
   const css = '@page{size:' + w + 'mm auto;margin:0}' +
     'html,body{margin:0;padding:0;background:#fff;color:#000}' +
     'body{width:' + w + 'mm;font:' + (w === 58 ? '11px' : '12.5px') + '/1.35 "Courier New",Consolas,monospace;-webkit-print-color-adjust:exact;print-color-adjust:exact}' +
@@ -938,7 +1121,7 @@ function dokStruk(isi) {
 function cetakStruk(o) {
   const ord = o || CUR; if (!ord) return;
   const n = Math.max(1, Math.min(3, +SET.printer.salinan || 1));
-  let isi = ''; for (let i = 0; i < n; i++) isi += struk(ord);
+  let isi = ''; for (let i = 0; i < n; i++) isi += SET.printer.mode !== 'grafis' ? '<pre>' + esc(strukTeks(ord, kolomStruk())) + '</pre>' : struk(ord);
   let fr = document.getElementById('frCetak');
   if (fr) fr.remove();
   fr = document.createElement('iframe');
@@ -953,7 +1136,7 @@ function cetakStruk(o) {
     try { fr.contentWindow.focus(); fr.contentWindow.print(); } catch (e) { toast('Gagal membuka dialog cetak.'); }
   };
   const tunggu = [...d.images].filter(im => !im.complete);
-  if (!tunggu.length || !SET.printer.logo) setTimeout(jalan, 50);
+  if (!tunggu.length || !SET.printer.logo || SET.printer.mode !== 'grafis') setTimeout(jalan, 50);
   else { let sisa = tunggu.length; tunggu.forEach(im => { im.onload = im.onerror = () => { if (--sisa <= 0) jalan(); }; }); setTimeout(jalan, 2500); }
 }
 function cetakTes() {
@@ -1104,9 +1287,11 @@ function vSetting() {
     const p = SET.printer;
     isi = '<div class="card" style="padding:16px;max-width:720px"><div class="frm">' +
       '<div><label>Lebar kertas</label><select id="prLebar" class="inp"><option value="80"' + (+p.lebar !== 58 ? ' selected' : '') + '>80 mm</option><option value="58"' + (+p.lebar === 58 ? ' selected' : '') + '>58 mm</option></select></div>' +
+      '<div><label>Mode cetak</label><select id="prMode" class="inp"><option value="teks"' + (p.mode !== 'grafis' ? ' selected' : '') + '>Teks (cocok untuk semua driver)</option><option value="grafis"' + (p.mode === 'grafis' ? ' selected' : '') + '>Grafis + logo (butuh driver printer struk)</option></select></div>' +
+      '<div><label>Karakter per baris (mode teks)</label><input id="prKolom" class="inp" inputmode="numeric" value="' + kolomStruk() + '"><small class="muted">80 mm biasanya 42–48, 58 mm 32. Kecilkan kalau baris terpotong, besarkan kalau sisa kanan lebar.</small></div>' +
       '<div><label>Jumlah salinan</label><select id="prSalin" class="inp">' + [1, 2, 3].map(n => '<option' + (+p.salinan === n ? ' selected' : '') + '>' + n + '</option>').join('') + '</select></div>' +
       '<div class="full"><label class="tog"><input id="prOto" type="checkbox"' + (p.otomatis ? ' checked' : '') + '> Cetak otomatis sesudah pembayaran di-Apply</label></div>' +
-      '<div class="full"><label class="tog"><input id="prLogo" type="checkbox"' + (p.logo ? ' checked' : '') + '> Cetak logo di kepala struk</label></div>' +
+      '<div class="full"><label class="tog"><input id="prLogo" type="checkbox"' + (p.logo ? ' checked' : '') + '> Cetak logo di kepala struk (mode grafis)</label></div>' +
       '<div class="full"><label>Tulisan di kaki struk</label><input id="prKaki" class="inp" maxlength="80" value="' + esc(p.kaki) + '"></div>' +
       '<div class="full"><button class="btn gold" onclick="simpanPrinter()">✓ Simpan</button> <button class="btn line" onclick="cetakTes()">🖶 Cetak Tes</button></div></div></div>' +
       '<div class="card" style="padding:16px;max-width:720px;margin-top:14px;line-height:1.55"><b>Memakai printer kasir LAN</b>' +
@@ -1219,8 +1404,10 @@ function simpanUser(id) {
   tutupModal(); toast('Pengguna disimpan.'); render();
 }
 function simpanPrinter() {
-  SET.printer = { lebar: +$('prLebar').value === 58 ? 58 : 80, salinan: +$('prSalin').value || 1, otomatis: $('prOto').checked, logo: $('prLogo').checked, kaki: $('prKaki').value.trim() };
-  simpanSet(); toast('Setelan printer disimpan.'); render();
+  const kol = Math.round(+$('prKolom').value || 0);
+  SET.printer = { lebar: +$('prLebar').value === 58 ? 58 : 80, salinan: +$('prSalin').value || 1, otomatis: $('prOto').checked, logo: $('prLogo').checked, kaki: $('prKaki').value.trim(),
+    mode: $('prMode').value === 'grafis' ? 'grafis' : 'teks', kolom: kol >= 24 && kol <= 64 ? kol : (+$('prLebar').value === 58 ? 32 : 42) };
+  simpanSet(true); toast('Setelan printer disimpan.'); render();
 }
 function simpanPajak() {
   const sc = +String($('stSc').value).replace(',', '.'), pb = +String($('stPb').value).replace(',', '.');
@@ -1246,6 +1433,10 @@ document.addEventListener('keydown', e => {
   else if (e.key === 'Enter') signIn();
 });
 setInterval(() => { const j = $('jam'); if (j) j.textContent = jamTeks(); }, 1000);
+setInterval(sinkron, 15000);
+window.addEventListener('online', sinkron);
+window.addEventListener('focus', () => { if (Date.now() - SYNC.terakhir > 5000) sinkron(); });
+sinkron();
 if (!BASE_MENU.length) document.body.insertAdjacentHTML('afterbegin', '<div class="note" style="margin:10px">Daftar menu (menu-data.js) tidak termuat. Muat ulang halaman.</div>');
 render();
 </script>

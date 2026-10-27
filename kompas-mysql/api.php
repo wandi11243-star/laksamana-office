@@ -373,6 +373,27 @@ try {
                                                      isset($body['alasan']) ? $body['alasan'] : '', $nama);
     keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
   }
+  /* ---- POS (27 Oktober 2026) — order & setelan bersama antar perangkat.
+     SELURUHNYA berpagar sesi + kunci 'pos', termasuk MEMBACA: setelan yang
+     dipulangkan memuat PIN kasir. Rinciannya di lib_pos.php. */
+  else if ($action === 'posList' || $action === 'posSimpan' || $action === 'posSetting') {
+    require_once __DIR__ . '/lib_sesi.php';
+    require_once __DIR__ . '/lib_pos.php';
+    $u = sesi_user($body);
+    if (!$u) sesi_tolak_tak_dikenal();
+    if (!sesi_punya_modul($u, 'pos')) sesi_tolak_tanpa_modul('POS');
+    $nama = isset($u['name']) ? $u['name'] : '';
+    if ($action === 'posList') {
+      keluar(array('ok' => true, 'data' => pos_list(isset($body['dari']) ? $body['dari'] : '')));
+    } else if ($action === 'posSimpan') {
+      $r = pos_simpan(isset($body['order']) ? $body['order'] : null,
+                      isset($body['base']) ? (int)$body['base'] : 0, $nama);
+      keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
+    } else {
+      $r = pos_setting_simpan(isset($body['data']) ? $body['data'] : null, $nama);
+      keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
+    }
+  }
   else keluar(array('ok' => false, 'error' => 'Aksi tidak dikenal: ' . $action));
 } catch (Throwable $e) {
   keluar(array('ok' => false, 'error' => $e->getMessage()));
