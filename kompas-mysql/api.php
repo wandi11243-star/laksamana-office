@@ -376,7 +376,7 @@ try {
   /* ---- POS (27 Oktober 2026) — order & setelan bersama antar perangkat.
      SELURUHNYA berpagar sesi + kunci 'pos', termasuk MEMBACA: setelan yang
      dipulangkan memuat PIN kasir. Rinciannya di lib_pos.php. */
-  else if ($action === 'posList' || $action === 'posSimpan' || $action === 'posSetting') {
+  else if ($action === 'posList' || $action === 'posSimpan' || $action === 'posSetting' || $action === 'posEkspor' || $action === 'posImpor') {
     require_once __DIR__ . '/lib_sesi.php';
     require_once __DIR__ . '/lib_pos.php';
     $u = sesi_user($body);
@@ -385,6 +385,12 @@ try {
     $nama = isset($u['name']) ? $u['name'] : '';
     if ($action === 'posList') {
       keluar(array('ok' => true, 'data' => pos_list(isset($body['dari']) ? $body['dari'] : '')));
+    } else if ($action === 'posEkspor') {
+      keluar(array('ok' => true, 'data' => pos_ekspor()));
+    } else if ($action === 'posImpor') {
+      $r = pos_impor(isset($body['orders']) ? $body['orders'] : null,
+                     isset($body['setting']) ? $body['setting'] : null, $nama);
+      keluar($r['ok'] ? array('ok' => true, 'data' => $r) : $r);
     } else if ($action === 'posSimpan') {
       $r = pos_simpan(isset($body['order']) ? $body['order'] : null,
                       isset($body['base']) ? (int)$body['base'] : 0, $nama);

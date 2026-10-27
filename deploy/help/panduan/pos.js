@@ -60,6 +60,11 @@ LM_HELP_ISI('pos', {
             + 'komputer kasir. Tanda di kanan atas menyebut keadaannya: *Tersinkron*, atau *belum '
             + 'terkirim* kalau jaringan putus — data tetap aman di komputer itu dan dikirim sendiri '
             + 'begitu jaringan kembali. Setelan printer tetap milik masing-masing komputer.' },
+        { t:'langkah', judul:'Pindah domain / server', isi:[
+          'Di domain lama buka *Pengaturan → Cadangan & Pindah* dan tekan *Unduh cadangan* (tunggu dulu sampai tandanya *Tersinkron*).',
+          'Di domain baru buka halaman yang sama, pilih berkas cadangan itu, lalu *Pulihkan ke server ini* — order yang sudah ada dilewati, tidak ditimpa.',
+          'Di tiap komputer kasir pada alamat lama tekan *Bersihkan data POS di komputer ini*, lalu atur ulang tab Printer di alamat baru.'
+        ] },
         { t:'catatan', nada:'awas', judul:'Belum masuk ke modul lain',
           isi:'Transaksi POS belum masuk ke Finance, Cashier, atau Analytics.' }
       ]

@@ -168,3 +168,82 @@ function pos_setting_simpan($d, $nama) {
   $st->execute(array(':dt' => json_encode($simpan, JSON_UNESCAPED_UNICODE), ':ts' => $ts, ':ol' => mb_potong_pos($nama)));
   return array('ok' => true, 'ts' => $ts);
 }
+
+/* ---------------------------------------------------------------------
+   PINDAH SERVER / DOMAIN (27 Okt 2026, permintaan user: "suatu saat mau
+   pindahin, tolong dibuat gampang — data lain jangan terganggu, data tak
+   penting jangan ikut nyangkut").
+
+   SELURUH data POS hanya ada di DUA tabel ini: pos_order & pos_setting.
+   Tidak ada satu pun tabel/blob modul lain yang disentuh POS, jadi
+   memindahkannya cukup memindahkan dua tabel itu — lewat berkas cadangan
+   (posEkspor di server lama, posImpor di server baru), atau ekspor
+   phpMyAdmin kedua tabel itu saja.
+
+   IMPOR HANYA MENAMBAH. Order yang id-nya sudah ada di server tujuan
+   DILEWATI, bukan ditimpa; setelan hanya dipasang kalau server tujuan
+   belum punya. Impor yang bisa menimpa berarti cadangan lama yang
+   kebetulan diunggah ulang mengembalikan order lunas jadi "open".
+   --------------------------------------------------------------------- */
+function pos_ekspor() {
+  pos_pastikan();
+  $pdo = db();
+  $orders = array();
+  foreach ($pdo->query('SELECT `data`, `updated_at` FROM `pos_order` ORDER BY `updated_at`')->fetchAll() as $r) {
+    $o = json_decode($r['data'], true);
+    if (!is_array($o)) continue;
+    $o['updatedAt'] = (int)$r['updated_at'];
+    $orders[] = $o;
+  }
+  $set = null;
+  $row = $pdo->query('SELECT `data`, `updated_at` FROM `pos_setting` WHERE `id` = 1')->fetch();
+  if ($row) { $s = json_decode($row['data'], true); if (is_array($s)) { $s['ts'] = (int)$row['updated_at']; $set = $s; } }
+  return array('format' => 'lm-pos-cadangan', 'versi' => 1, 'dibuat' => date('c'),
+               'orders' => $orders, 'setting' => $set);
+}
+
+function pos_impor($orders, $setting, $nama) {
+  if (!is_array($orders)) $orders = array();
+  if (count($orders) > 2000) return array('ok' => false, 'error' => 'Kirim paling banyak 2000 order per permintaan.');
+  pos_pastikan();
+  $pdo = db();
+  $baru = 0; $ada = 0; $tolak = 0;
+  $cek = $pdo->prepare('SELECT 1 FROM `pos_order` WHERE `id` = :id');
+  $ins = $pdo->prepare('INSERT INTO `pos_order` (`id`,`tgl`,`status`,`data`,`updated_at`,`oleh`)
+                        VALUES (:id,:tgl,:st,:dt,:ua,:ol)');
+  $pdo->beginTransaction();
+  try {
+    foreach ($orders as $o) {
+      if (!is_array($o)) { $tolak++; continue; }
+      $id = isset($o['id']) ? trim((string)$o['id']) : '';
+      $status = isset($o['status']) ? (string)$o['status'] : '';
+      if ($id === '' || strlen($id) > 40 || !preg_match('/^[A-Za-z0-9_.-]+$/', $id)
+          || !in_array($status, array('open', 'paid', 'batal'), true)
+          || !isset($o['items']) || !is_array($o['items'])) { $tolak++; continue; }
+      $cek->execute(array(':id' => $id));
+      if ($cek->fetch()) { $ada++; continue; }
+      unset($o['_naik'], $o['_base']);
+      $ua = isset($o['updatedAt']) ? (int)$o['updatedAt'] : 0;
+      if ($ua <= 0) $ua = (int)round(microtime(true) * 1000);
+      $o['updatedAt'] = $ua;
+      $ins->execute(array(':id' => $id, ':tgl' => pos_tgl_sah(isset($o['tgl']) ? $o['tgl'] : ''),
+                          ':st' => $status, ':dt' => json_encode($o, JSON_UNESCAPED_UNICODE),
+                          ':ua' => $ua, ':ol' => mb_potong_pos($nama)));
+      $baru++;
+    }
+    $pdo->commit();
+  } catch (Exception $e) {
+    if ($pdo->inTransaction()) $pdo->rollBack();
+    throw $e;
+  }
+  $setDipasang = false;
+  if (is_array($setting)) {
+    $row = $pdo->query('SELECT 1 FROM `pos_setting` WHERE `id` = 1')->fetch();
+    if (!$row) {
+      $r = pos_setting_simpan($setting, $nama);
+      if (!$r['ok']) return array('ok' => false, 'error' => 'Order masuk (' . $baru . '), tapi setelan ditolak: ' . $r['error'], 'baru' => $baru, 'ada' => $ada, 'tolak' => $tolak);
+      $setDipasang = true;
+    }
+  }
+  return array('ok' => true, 'baru' => $baru, 'ada' => $ada, 'tolak' => $tolak, 'setting' => $setDipasang);
+}
