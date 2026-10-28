@@ -65,7 +65,13 @@
        cap           data URI cap perusahaan, dibubuhkan di penanda PERTAMA
        logo          data URI logo untuk kop
        kop           penimpa sebagian KOP_BAWAAN (opsional)
-       sumber        disebut di kaki lembar: "reservasi" / "marketing" */
+       sumber        disebut di kaki lembar: "reservasi" / "marketing"
+       materai       true = Finance memutuskan lembar ini BERMATERAI (28 Okt
+                     2026). Kotak materai digambar di kolom tanda tangan
+                     pertama, gambar tanda tangan & cap TIDAK dibubuhkan, dan
+                     kalimat "sah tanpa tanda tangan basah" diganti — lembar
+                     polos yang menyebut dirinya sah tanpa tanda tangan basah
+                     membantah kotak materainya sendiri. */
   function html(d){
     d = d || {};
     var kop = {}; var k;
@@ -75,6 +81,7 @@
     var lunas = !!d.lunas;
     var resmi = !!d.resmi;
     var total = Number(d.total) || 0;
+    var materai = !!d.materai;
     /* Tanpa penanda tangan resmi, jatuh ke SATU blok berisi nama bawaan di
        kop — bukan blok kosong. Tata letak bagian bawah lembar jadi tidak
        melompat antara versi bertanda tangan dan yang belum. */
@@ -117,7 +124,8 @@
 '  .ttd-grup{text-align:right;font-size:12.5px}\n' +
 '  .ttd-baris{display:flex;gap:20px;justify-content:flex-end;align-items:flex-end}\n' +
 '  .ttd-baris .ttd{min-width:150px}\n' +
-'  .ttd .sp{height:58px}\n' +
+'  .ttd .sp{height:' + (materai ? 96 : 58) + 'px}\n' +
+'  .materai{position:absolute;left:4px;top:8px;width:74px;height:74px;border:1.5px dashed #8a8170;border-radius:4px;color:#8a8170;font-size:9.5px;line-height:1.25;display:flex;align-items:center;justify-content:center;text-align:center;letter-spacing:.5px}\n' +
 '  .ttd .nm{border-top:1px solid #1d1a15;padding-top:5px;font-weight:700;display:inline-block;min-width:170px}\n' +
 '  .catatan{margin-top:20px;font-size:11px;color:#5c574d;border-top:1px dashed #D9CDB2;padding-top:9px}\n' +
 '  @page{size:A4;margin:12mm}\n' +
@@ -166,8 +174,9 @@
              Satu cap untuk satu lembar, bukan satu per orang. */
           return '<div class="ttd">' +
             '<div class="sp" style="position:relative">' +
-              ((d.cap && i === 0) ? '<img src="' + esc(d.cap) + '" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-38%) rotate(-8deg);height:96px;opacity:.85">' : "") +
-              (p.ttd ? '<img src="' + esc(p.ttd) + '" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-46%);height:64px">' : "") +
+              ((materai && i === 0) ? '<div class="materai">MATERAI<br>10.000</div>' : "") +
+              ((!materai && d.cap && i === 0) ? '<img src="' + esc(d.cap) + '" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-38%) rotate(-8deg);height:96px;opacity:.85">' : "") +
+              ((!materai && p.ttd) ? '<img src="' + esc(p.ttd) + '" alt="" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-46%);height:64px">' : "") +
             '</div>' +
             '<div class="nm">' + esc(p.nama || "") + '</div>' +
             '<div style="color:#5c574d;font-size:11.5px">' + esc(p.jabatan || "") + '</div>' +
@@ -179,7 +188,9 @@
 '  <div class="catatan">' + (lunas
       ? "Pembayaran reservasi ini telah <b>LUNAS</b>. Mohon simpan kwitansi ini sebagai bukti pembayaran."
       : "DP ini akan <b>memotong total tagihan</b> saat tamu datang. Mohon simpan kwitansi ini sebagai bukti pembayaran.") + '\n' +
-'    <br>Dokumen ini dicetak dari sistem Laksamana Muda dan sah tanpa tanda tangan basah.</div>\n' +
+'    <br>' + (materai
+      ? "Dokumen ini sah setelah ditandatangani basah di atas materai dan dibubuhi cap perusahaan."
+      : "Dokumen ini dicetak dari sistem Laksamana Muda dan sah tanpa tanda tangan basah.") + '</div>\n' +
 '  <div class="noprint"><button onclick="window.print()">🖨️ Simpan sebagai PDF / Cetak</button></div>\n' +
 '</body></html>';
   }

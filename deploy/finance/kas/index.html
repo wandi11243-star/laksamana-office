@@ -41,6 +41,11 @@
      assets/xlsx-baca.js DICABUT 21 September 2026 bersama jalur unggah
      mutasi bank — panel ini tidak memakainya untuk apa pun yang lain. -->
 <script src="../../assets/cocok-bri.js"></script>
+<!-- Lembar kwitansi & invoice. SUMBER TUNGGAL, dipakai bersama modul
+     Reservasi & Marketing — Finance memakainya untuk MELIHAT dokumen yang ia
+     terbitkan (tombol Lihat PDF di halaman Invoice & Kwitansi). -->
+<script src="../../assets/kwitansi-sheet.js"></script>
+<script src="../../assets/invoice-sheet.js"></script>
 <style>
 /* ===== TEMA OFFICE LAKSAMANA (emas di atas krem/putih, tanpa hitam) ===== */
 :root{
@@ -6446,6 +6451,36 @@ let INV=null, INV_SET={}, INV_PEN=[], INV_ERR='', INV_SIBUK=false, INV_TAB='antr
    sistem modal, dan menambahkannya untuk satu dialog berarti satu mekanisme
    baru yang harus ikut dirawat seluruh halaman. */
 let INV_PILIH=null;
+/* Kwitansi: `INV_PILIH.materai` = null (BELUM dijawab) / true / false.
+   Null sengaja dibedakan dari false — permintaan user: Finance DITANYAI dulu,
+   bukan diberi jawaban bawaan yang bisa terlewat dibaca. Tombol terbitkan
+   ditahan sampai salah satunya dipilih. */
+function invPerluTanyaMaterai(x){ return invJenis(x)==='KWITANSI'; }
+function invMateraiTanya(x){
+  if(!invPerluTanyaMaterai(x)) return '';
+  const m=INV_PILIH?INV_PILIH.materai:null;
+  const pil=function(nilai,teks){
+    const on=m===nilai;
+    return '<label style="display:flex;gap:6px;align-items:center;border:1.5px solid '+(on?'var(--gold,#C9A227)':'var(--line)')+
+      ';border-radius:10px;padding:7px 12px;cursor:pointer;font-size:12.5px">'+
+      '<input type="radio" name="inv_materai" '+(on?'checked':'')+' onchange="invSetMaterai('+nilai+')"> '+teks+'</label>';
+  };
+  return '<div style="margin:12px 0 4px;padding-top:10px;border-top:1px dashed var(--line)">'+
+    '<b style="font-size:13px">Kwitansi ini perlu materai?</b>'+
+    '<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">'+
+      pil(false,'Tidak — terbit bertanda tangan &amp; cap digital')+
+      pil(true,'Ya — cetak polos untuk materai')+'</div>'+
+    (m===true
+      ? '<div class="muted" style="font-size:11.5px;margin-top:6px">Lembar keluar dengan <b>kotak materai</b> dan kolom tanda tangan '+
+        '<b>kosong</b> — tanpa gambar tanda tangan &amp; cap. Nama penanda tangan yang dicentang tetap tercetak di bawah garisnya, '+
+        'untuk ditandatangani basah di atas materai.</div>'
+      : m===null ? '<div class="muted" style="font-size:11.5px;margin-top:6px">Pilih salah satu dulu sebelum menerbitkan.</div>' : '')+
+  '</div>';
+}
+function invSetMaterai(v){ if(INV_PILIH){ INV_PILIH.materai=!!v; render(); } }
+function invMateraiBelum(x){
+  return invPerluTanyaMaterai(x) && !(INV_PILIH && INV_PILIH.id===x.id && typeof INV_PILIH.materai==='boolean');
+}
 
 /* ---- LENCANA ANTREAN DI MENU (21 Agustus 2026) ----
    Permintaan invoice datang dari modul lain (Reservasi, Marketing) dan tidak
@@ -6707,12 +6742,17 @@ function invBarisHTML(x, mode){
     '<td>'+(mode==='riwayat'
         ? invChipStatus(x.status)+
           (x.no?'<div class="mono" style="font-size:11.5px">'+esc(x.no)+'</div>':'')+
+          (x.status==='DIBUAT'&&x.materai?'<div><span class="chip warn" title="Dicetak polos: tanpa tanda tangan &amp; cap digital">📜 Bermaterai</span></div>':'')+
+          (x.ubah&&(x.ubah.kepada||x.ubah.up||(x.ubah.ket||[]).some(function(k){return k&&k.teks;}))
+            ?'<div class="muted" style="font-size:11px">✎ isi diubah Marketing'+(x.ubah.oleh?' ('+esc(x.ubah.oleh)+')':'')+'</div>':'')+
           (x.catatan?'<div class="muted" style="font-size:11.5px">'+esc(x.catatan)+'</div>':'')+
           '<div class="muted" style="font-size:11px">'+esc(x.putusOleh||'—')+' · '+invWaktu(x.putusAt)+'</div>'
         : invChipStatus(x.status))+'</td>'+
     '<td style="text-align:right;white-space:nowrap">'+
       (x.status==='DIBUAT'
-        ? '<button class="btn btn-ghost btn-xs" onclick="invBatal(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+
+        ? '<button class="btn btn-primary btn-xs" onclick="invLihatPDF(\''+x.id+'\')" '+
+            'title="Lihat lembar yang diterbitkan — sama dengan yang dicetak modul peminta">📄 Lihat PDF</button> '+
+          '<button class="btn btn-ghost btn-xs" onclick="invBatal(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+
             ' title="Kembalikan ke antrean. Nomor invoice yang sudah terbit TIDAK dipakai ulang.">↩ Batalkan</button>'
         : '<button class="btn btn-primary btn-xs" onclick="invBukaPilih(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>🧾 '+
             (invAdalahInvoice(x)?'Terbitkan Invoice':'Buat Kwitansi')+'</button> '+
@@ -6753,8 +6793,9 @@ function invPanelPilih(x){
   if(!aktif.length){
     return '<div class="notice warn" style="margin:10px 0">⚠ <div>Belum ada penanda tangan yang terdaftar. '+
       'Tambahkan dulu di tab <b>Pengaturan</b>, atau terbitkan tanpa tanda tangan.'+
+      invMateraiTanya(x)+
       '<div style="margin-top:8px">'+
-        '<button class="btn btn-primary btn-xs" data-aks="ubah" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>Terbitkan tanpa tanda tangan</button> '+
+        '<button class="btn btn-primary btn-xs" data-aks="ubah" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK||invMateraiBelum(x)?'disabled':'')+'>Terbitkan tanpa tanda tangan</button> '+
         '<button class="btn btn-ghost btn-xs" onclick="INV_PILIH=null;render()">Batal</button>'+
       '</div></div></div>';
   }
@@ -6774,8 +6815,9 @@ function invPanelPilih(x){
       }).join('')+
     '</div>'+
     (pilih.length?'':'<div class="muted" style="font-size:11.5px;margin-top:10px">Tidak ada yang dicentang — lembarnya terbit <b>tanpa tanda tangan</b>.</div>')+
+    invMateraiTanya(x)+
     '<div style="margin-top:12px">'+
-      '<button class="btn btn-primary btn-sm" data-aks="ubah" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK?'disabled':'')+'>✓ Terbitkan '+
+      '<button class="btn btn-primary btn-sm" data-aks="ubah" onclick="invBuat(\''+x.id+'\')" '+(INV_SIBUK||invMateraiBelum(x)?'disabled':'')+'>✓ Terbitkan '+
         (invAdalahInvoice(x)?'Invoice':'Kwitansi')+'</button> '+
       '<button class="btn btn-ghost btn-sm" onclick="INV_PILIH=null;render()">Batal</button>'+
     '</div></div>';
@@ -6796,7 +6838,7 @@ function invBukaPilih(id){
      dinonaktifkan tidak boleh diam-diam ikut tercentang, karena kotaknya
      memang tidak digambar dan orangnya tidak akan pernah melihatnya. */
   const aktif=INV_PEN.filter(function(p){return p.aktif!==false;}).map(function(p){return p.id;});
-  INV_PILIH={id:id, ids:bawaan.filter(function(i){return aktif.indexOf(i)>-1;})};
+  INV_PILIH={id:id, ids:bawaan.filter(function(i){return aktif.indexOf(i)>-1;}), materai:null};
   render();
 }
 function invTogglePenanda(pid){
@@ -7075,6 +7117,11 @@ function invBuat(id){
         'Kwitansi yang terbit adalah pengakuan perusahaan bahwa uangnya sudah diterima.';
     }
   }
+  /* Gerbang KEDUA untuk pertanyaan materai — tombolnya memang sudah mati,
+     tapi fungsi ini global dan bisa dipanggil dari console. */
+  if(invMateraiBelum(x)){ alert('Pilih dulu apakah kwitansi ini perlu materai.'); return; }
+  const materai=invPerluTanyaMaterai(x) && INV_PILIH.materai===true;
+  if(materai) peringatan+='\n\n📜 BERMATERAI: lembar dicetak POLOS — ada kotak materai, tanda tangan & cap TIDAK dibubuhkan.';
   const ids=(INV_PILIH&&INV_PILIH.id===id)?INV_PILIH.ids.slice():[];
   const namaPen=ids.map(function(i){
     const p=INV_PEN.find(function(v){return v.id===i;}); return p?p.nama:'';
@@ -7098,7 +7145,7 @@ function invBuat(id){
   /* `penanda` dikirim eksplisit walau kosong. Kalau field-nya dihilangkan saat
      tak ada yang dicentang, server jatuh ke daftar bawaan — jadi "sengaja
      tanpa tanda tangan" berubah diam-diam jadi "ditandatangani bawaan". */
-  invKirim('invPutus', {id:id, aksi:'buat', penanda:ids}, 'Kwitansi diterbitkan');
+  invKirim('invPutus', {id:id, aksi:'buat', penanda:ids, materai:materai}, 'Kwitansi diterbitkan');
 }
 function invTolak(id){
   const x=(INV||[]).find(function(v){return v.id===id;}); if(!x) return;
@@ -7120,6 +7167,103 @@ function invBatal(id){
     'Nomor invoice yang sudah terbit TIDAK dilepas — kalau lembarnya sempat dikirim ke tamu, '+
     'nomornya sudah beredar dan tidak boleh dipakai dokumen lain.')) return;
   invKirim('invPutus', {id:id, aksi:'batal'}, 'Dikembalikan ke antrean');
+}
+/* ---- LIHAT PDF DOKUMEN YANG SUDAH TERBIT (28 Oktober 2026) ----
+   Permintaan user: Finance yang menerbitkan bisa melihat hasil lembarnya.
+   Digambar dengan berkas lembar yang SAMA dengan modul peminta
+   (assets/kwitansi-sheet.js & assets/invoice-sheet.js), diisi dari
+   `ringkas` — keadaan saat permintaannya diajukan — plus nomor, tanda
+   tangan, cap, materai, dan ubahan Marketing dari invBerkas.
+
+   BEDA YANG DISADARI, dan dikatakan di lembarnya sendiri lewat kaki:
+   modul Marketing menggambar dari event yang HIDUP, jadi kalau rinciannya
+   diubah sesudah invoice terbit, lembar di sana bisa berbeda dari yang di
+   sini. Yang di sini adalah yang DISETUJUI Finance. Kwitansi juga tidak
+   membawa kategori reservasi & No. HP tamu (tidak ikut di ringkasan), jadi
+   baris keterangannya lebih umum daripada lembar dari modul Reservasi.
+
+   Jendelanya dibuka SINKRON sebelum satu pun await — kalau sesudah, peramban
+   memblokirnya sebagai popup dan yang terlihat cuma tidak terjadi apa-apa. */
+function invTglIsoHariIni(){ return new Date(Date.now()+7*3600*1000).toISOString().slice(0,10); }
+function invTotalsRingkas(x){
+  const g=invRing(x), tot=[{label:'Subtotal',nilai:Number(g.sub)||0}];
+  if(Number(g.disc)) tot.push({label:'Diskon',nilai:-Number(g.disc)});
+  if(Number(g.service)) tot.push({label:'Service charge',nilai:Number(g.service)});
+  if(Number(g.tax)) tot.push({label:'PB1'+(g.taxPct?' '+g.taxPct+'%':''),nilai:Number(g.tax)});
+  tot.push({label:'Grand Total',nilai:Number(g.grand)||0,tebal:true});
+  if(invJenis(x)==='INV_LUNAS'){
+    const bayar=Array.isArray(g.bayar)?g.bayar:[];
+    let dpJml=0;
+    bayar.filter(function(p){return String(p.jenis||'')==='DP';}).forEach(function(p){
+      dpJml+=Number(p.nominal)||0;
+      tot.push({label:'Dikurangi pembayaran DP'+(p.tanggal?' · '+fmtTgl(String(p.tanggal).slice(0,10)):''),nilai:-(Number(p.nominal)||0)});
+    });
+    /* Sisa praBayar yang bukan baris DP = DP lewat centang + pembayaran lain.
+       Ringkasan tidak memisahkan keduanya, jadi digabung satu baris. */
+    const sisaPra=invPraBayar(x)-dpJml;
+    if(sisaPra>0) tot.push({label:'Dikurangi DP & pembayaran lain yang sudah diterima',nilai:-sisaPra});
+    tot.push({label:'SISA PEMBAYARAN',nilai:invNilaiPokok(x),tebal:true});
+  } else {
+    tot.push({label:'DP yang ditagih',nilai:invNilaiPokok(x),tebal:true});
+    if(Number(g.paid)>0) tot.push({label:'Sudah diterima',nilai:Number(g.paid)});
+  }
+  return tot;
+}
+function invLihatPDF(id){
+  const x=(INV||[]).find(function(v){return v.id===id;}); if(!x) return;
+  const invo=invAdalahInvoice(x);
+  if(invo ? !window.LMInvoice : !window.LMKwitansi){
+    alert('Lembar '+invKataDok(x)+' tidak termuat (assets/'+(invo?'invoice':'kwitansi')+'-sheet.js). Muat ulang halamannya.');
+    return;
+  }
+  const w=window.open('','_blank','width=900,height=1000');
+  if(!w){ alert('Popup diblokir — izinkan popup untuk melihat PDF.'); return; }
+  w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Menyiapkan '+invKataDok(x)+'…</title></head>'+
+    '<body style="font:14px \'Segoe UI\',Arial,sans-serif;color:#5c574d;padding:40px">⏳ Menyiapkan '+invKataDok(x)+'…</body></html>');
+  w.document.close();
+  const logo=new URL('../../assets/laksamana-muda.png', location.href).href;
+  kkApi('invBerkas',{resId:x.resId}).then(function(b){
+    if(!b||!b.ada) throw new Error('Dokumen ini belum berstatus terbit di server — segarkan halamannya.');
+    const g=invRing(x);
+    let isi;
+    if(invo){
+      const u=b.ubah||{};
+      const bayar=Array.isArray(g.bayar)?g.bayar:[];
+      isi=window.LMInvoice.halaman({
+        logo:logo, no:b.no, resmi:true, lunas:invJenis(x)==='INV_LUNAS',
+        tanggalTerbit:invTglIsoHariIni(),
+        kepada:String(u.kepada||'').trim()||g.perusahaan||g.client||'',
+        up:String(u.up||'').trim()||g.picClient||g.client||'',
+        acara:g.event||'', tanggalAcara:g.tanggal||'', jenisAcara:g.jenisAcara||'', pax:g.pax||'',
+        items:(Array.isArray(g.items)?g.items:[]).map(function(it){return {desc:it.desc||'',qty:it.qty,harga:it.harga};}),
+        ket:u.ket||[],
+        totals:invTotalsRingkas(x),
+        penanda:b.penanda, cap:window.LMInvoice.adaBukti(bayar,invJenis(x))?(b.cap||''):'',
+        kaki:'Salinan Finance (data saat disetujui) · dilihat '+fmtTgl(invTglIsoHariIni())+' oleh '+((CURRENT_USER&&CURRENT_USER.name)||'')
+      });
+    } else {
+      const dp=Array.isArray(g.dp)?g.dp:[];
+      isi=window.LMKwitansi.html({
+        no:b.no, resmi:true, lunas:!!g.lunas, nama:g.nama||'', hp:'',
+        metode:(dp[0]&&(dp[0].metode||dp[0].bank))||'',
+        tanggalTerbit:fmtTgl(invTglIsoHariIni()),
+        keterangan:String(x.resId||'').indexOf('vip-')===0?'Reservasi VIP':'Reservasi',
+        subKeterangan:fmtTgl(g.tanggal)+' · '+(g.jam||'-')+' WIB'+(g.meja?' · Meja '+g.meja:''),
+        pax:g.pax||'', total:Number(g.dpTotal)||0,
+        penanda:(Array.isArray(b.penanda)&&b.penanda.length)?b.penanda:null,
+        cap:b.cap||'', materai:!!b.materai, logo:logo
+      });
+    }
+    w.document.open(); w.document.write(isi); w.document.close();
+  }).catch(function(e){
+    try{
+      w.document.open();
+      w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Gagal</title></head>'+
+        '<body style="font:14px \'Segoe UI\',Arial,sans-serif;color:#5c574d;padding:40px;line-height:1.7">'+
+        '<b style="color:#1d1a15;font-size:16px">Lembar gagal disiapkan</b><br>'+esc(e.message||String(e))+'</body></html>');
+      w.document.close();
+    }catch(z){}
+  });
 }
 function invSimpanSetting(){
   const mkt=document.getElementById('inv_prefix_mkt');

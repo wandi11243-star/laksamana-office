@@ -186,6 +186,11 @@ try {
       require_once __DIR__ . '/lib_invoice.php';
       keluar(array('ok' => true, 'data' => inv_putus($body)));
 
+    /* Marketing mengubah Kepada / U.P / Keterangan lembar invoice resminya. */
+    case 'invUbah':
+      require_once __DIR__ . '/lib_invoice.php';
+      keluar(array('ok' => true, 'data' => inv_ubah($body)));
+
     /* Matriks hak akses sub-menu per kru. Dibacanya ikut getAll (satu
        permintaan, bukan dua — halaman mana pun butuh matriksnya sejak render
        pertama untuk tahu menu apa yang boleh tampil). */
