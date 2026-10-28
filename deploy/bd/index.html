@@ -520,6 +520,7 @@ input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums
 .twarna .sw.on{box-shadow:0 0 0 2px var(--ink-700)}
 .tagbaru{display:flex;gap:8px;align-items:center}.tagbaru input{flex:1}
 .tag.untuk{font-weight:600}
+.tag.review{background:var(--info-bg);color:var(--info);font-weight:600}
 .picchip{display:inline-flex;align-items:center;gap:7px;padding:5px 12px 5px 5px;border-radius:999px;
   border:1px solid var(--line-hard);background:var(--ink-900);font-size:12.5px;font-weight:600;
   color:var(--muted);transition:.15s}
@@ -1026,6 +1027,10 @@ const ICON={
   projects:'<rect x="3" y="3.5" width="7" height="7" rx="1.5"/><rect x="14" y="3.5" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
   handoff:'<path d="M4 12h11M11 8l4 4-4 4"/><path d="M20 5v14"/>',
   routine:'<path d="M21 12a9 9 0 1 1-3-6.7"/><path d="M21 4v4h-4"/>',
+  /* Daily Task punya ikonnya sendiri (28 Okt 2026, permintaan user) — dulu
+     memakai 'routine' yang sama dengan Recurring Task, dan dua menu
+     bersebelahan dengan ikon kembar terbaca sebagai satu halaman. */
+  daily:'<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.2M12 19.3v2.2M4.6 4.6l1.6 1.6M17.8 17.8l1.6 1.6M2.5 12h2.2M19.3 12h2.2M4.6 19.4l1.6-1.6M17.8 6.2l1.6-1.6"/>',
   cart:'<path d="M6 6h15l-1.5 9h-12z"/><circle cx="9" cy="20" r="1.4"/><circle cx="18" cy="20" r="1.4"/><path d="M6 6 5 3H3"/>',
   truck:'<path d="M10 17h4V5H2v12h3"/><path d="M20 17h2v-3.34a4 4 0 0 0-1.17-2.83L19 9h-5v8h1"/><circle cx="7.5" cy="17.5" r="2.5"/><circle cx="17.5" cy="17.5" r="2.5"/>',
   cal:'<rect x="3" y="4.5" width="18" height="16" rx="2"/><path d="M3 9h18M8 2.5v4M16 2.5v4"/>',
@@ -1518,16 +1523,21 @@ function dalamLingkup(o,l){
   if(!l) return true;
   return pics(o).some(function(id){ return l.indexOf(id)>-1; });
 }
-function tasksTerlihat(){
-  var l=lingkup();
-  if(!l) return DB.tasks;
-  return DB.tasks.filter(function(t){ return dalamLingkup(t,l); });
-}
-function projectsTerlihat(){
-  var l=lingkup();
-  if(!l) return DB.projects;
-  return DB.projects.filter(function(p){ return dalamLingkup(p,l); });
-}
+/* SELURUH task & project TERLIHAT oleh siapa pun yang boleh membuka modul
+   ini (28 Oktober 2026, keluhan user: "user lain malah tidak bisa lihat task
+   lain, hanya saya sendiri"). Sampai tanggal itu kedua fungsi ini menyaring
+   ke "saya + anak buah" menurut hierarki Kru — dan karena hampir tidak ada
+   kru yang punya `boss` terisi, tiap orang cuma melihat task-nya sendiri,
+   sementara admin modul melihat semuanya. Pilihan "Semua" di penyaring pun
+   tidak menolong, karena halaman-halaman yang memakai fungsi ini sudah
+   terpotong lebih dulu.
+
+   Hierarki tetap ada sebagai alat FOKUS lewat penyaring Lingkup (Tim saya /
+   Ditugaskan ke saya) — bukan pagar. Yang menjaga pintu modul ini adalah izin
+   Office. Kalau suatu hari harus benar-benar dirahasiakan per tim, yang perlu
+   diubah di sini DAN di getAll server (yang memang memulangkan semuanya). */
+function tasksTerlihat(){ return DB.tasks; }
+function projectsTerlihat(){ return DB.projects; }
 function catIniAku(){ return AKU?AKU.id:('office:'+((sesi()||{}).userId||'?')); }
 
 /* "Keluar" = kembali ke portal Office. Sesi Office sengaja TIDAK dihapus:
@@ -1569,7 +1579,7 @@ const NAV=[
   {sec:'Workspace',items:[
     {id:'dashboard',l:'Dashboard',i:'dashboard'},
     {id:'mytask',   l:'My Task',  i:'check'},
-    {id:'daily',    l:'Daily Task', i:'routine'},
+    {id:'daily',    l:'Daily Task', i:'daily'},
     {id:'recurring',l:'Recurring Task', i:'routine'},
     {id:'projects', l:'Projects', i:'projects'},
     {id:'calendar', l:'Calendar', i:'cal'}]},
@@ -1704,7 +1714,7 @@ function taskRow(t,o){
         (o.noQuad?'':'<span class="tag q-'+q.k+'">'+q.l+'</span>')+
         (o.hideDiv?'':tagDiv(t.div))+
         (pr&&!o.hideProj?'<span class="tag proj">'+esc(pr.name)+'</span>':'')+
-        avStack(pics(t))+tagHtml(t)+tagSubDep(t)+
+        avStack(pics(t))+tagHtml(t)+tagReview(t)+tagSubDep(t)+
         (t.type&&t.type!=='Ad-hoc'?'<span class="tag">'+esc(t.type)+'</span>':'')+
         tagDeadline(t)+
       '</div>'+subDaftarHtml(t)+'</div>'+
@@ -1876,7 +1886,7 @@ function filterPic(label){
     '</div>';
 }
 
-var taskMode='matrix', fDiv='', fProj='', fType='', fScope='tim';
+var taskMode='matrix', fDiv='', fProj='', fType='', fScope='semua';
 function vTasks(){
   var base=saringLingkup(DB.tasks,fScope).filter(cocokPic);
   base=base.filter(function(t){
@@ -1898,7 +1908,7 @@ function vTasks(){
       DB.projects.map(function(p){return '<option value="'+p.id+'"'+(fProj===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('')+'</select>'+
     '<select onchange="APP.filter(\'type\',this.value)"><option value="">Semua tipe</option>'+
       ['Rutin','Project','Ad-hoc'].map(function(x){return '<option'+(fType===x?' selected':'')+'>'+x+'</option>';}).join('')+'</select>'+
-    filterPic()+((fPics.length||fDiv||fProj||fType||fScope!=='tim')?'<button class="btn sm" onclick="APP.filter(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
+    filterPic()+((fPics.length||fDiv||fProj||fType||fScope!=='semua')?'<button class="btn sm" onclick="APP.filter(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
   '</div>';
 
   if(taskMode==='matrix') h+=matrixHtml(base);
@@ -2072,6 +2082,8 @@ function taskModal(id){
       '<div class="field"><label>Divisi</label><select id="m_div">'+
         OWNER_DIVS.map(function(d){return '<option'+(t.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
       '<div class="field"><label>PIC — boleh lebih dari satu</label>'+picPicker('m_pics',pics(t))+'</div>'+
+      '<div class="field"><label>Review oleh — tag siapa yang memeriksa (opsional)</label>'+picPicker('m_rev',reviewers(t))+
+        '<div class="muted" style="font-size:11.5px;margin-top:4px">Begitu statusnya <b>Review</b>, task ini muncul di My Task orang yang ditag.</div></div>'+
       '<div class="field"><label>Tag — task ini untuk siapa (boleh lebih dari satu)</label>'+
         '<div class="tagpick" id="m_tags"></div><div id="m_tagWarna"></div>'+
         '<div class="tagbaru"><input id="m_tagBaru" list="m_tagList" placeholder="Pilih / ketik tag baru, lalu Enter…" '+
@@ -2171,6 +2183,7 @@ function simpanTask(id){
      dilepas dari task. SEBELUM segarkanProgress: kejadian berikutnya dari
      task berulang menyalin PIC-nya, dan harus menyalin yang baru diisi. */
   setPics(t,bacaPic('m_pics'));
+  t.reviewers=bacaPic('m_rev');
   segarkanProgress(t);
   save(); closeModal(); render(); toast(id?'Task diperbarui':'Task ditambahkan');
 }
@@ -2425,6 +2438,20 @@ function subPic(i,v){ if(_subDraft[i]) _subDraft[i].p=v||''; }
 /* Siapa saja yang mengerjakan task ini: PIC-nya DAN yang di-assign sub-task.
    Dipakai My Task dan penyaring Assign di Projects → Task, supaya orang yang
    cuma kebagian satu sub-task tetap menemukan pekerjaannya. */
+/* REVIEWER (28 Okt 2026, permintaan user: "di task bisa dimasukin review oleh
+   siapa, bisa ditag"). Disimpan `reviewers` [id kru] di baris task — ikut di
+   blob data, tanpa migrasi. Reviewer BUKAN pelaksana: ia tidak ikut di
+   penyaring Assign, tapi task yang berstatus Review masuk My Task-nya. */
+function reviewers(t){ return (t&&Array.isArray(t.reviewers)) ? t.reviewers.filter(function(id){return !!id;}) : []; }
+function menungguReviewSaya(t){
+  return !!(AKU && t && t.status==='Review' && reviewers(t).indexOf(AKU.id)>-1);
+}
+function tagReview(t){
+  var r=reviewers(t); if(!r.length) return '';
+  var nama=r.map(function(id){return P(id).name;});
+  return '<span class="tag review" title="Direview oleh '+esc(nama.join(', '))+'">👁 Review: '+
+    esc(nama.map(function(n){return String(n).split(' ')[0];}).join(', '))+'</span>';
+}
 function pelaksana(t){
   var a=pics(t).slice();
   subs(t).forEach(function(x){ if(x&&x.p&&a.indexOf(x.p)<0) a.push(x.p); });
@@ -2484,7 +2511,7 @@ function fieldSubDep(t){
 
    Bukan pengganti halaman Tasks — matriks Eisenhower tetap di sana. Board
    menjawab "sampai mana", Tasks menjawab "mana yang duluan". */
-var bProj='', bScope='tim', _dragBoard=null, _bSeret=0, _bFokus=null;
+var bProj='', bScope='semua', _dragBoard=null, _bSeret=0, _bFokus=null;
 function boardTasks(){
   return saringLingkup(DB.tasks,bScope).filter(cocokPic).filter(function(t){
     if(!bProj) return true;
@@ -2570,7 +2597,7 @@ function boardCard(t,tampilProj){
     '<span class="kt2'+(selesai(t)?' done':'')+'">'+esc(t.name)+'</span>'+
     (hal.length?'<span class="kwait">🔒 Menunggu: '+esc(hal.map(function(x){return x.name;}).join(', '))+'</span>':'')+
     '<span class="kmeta">'+(pr?'<span class="tag proj">'+esc(pr.name)+'</span>':'')+
-      avStack(pics(t))+tagHtml(t)+tagSubDep(t,true)+tagUlang(t)+
+      avStack(pics(t))+tagHtml(t)+tagReview(t)+tagSubDep(t,true)+tagUlang(t)+
       tagDeadline(t)+'</span>'+
     subDaftarHtml(t)+
     (subHitung(t).n?bar(t.progress||0,selesai(t)):'')+
@@ -2814,7 +2841,7 @@ function taskTreeRow(t,o){
       '<div class="t-name'+(selesai(t)?' done':'')+'">'+esc(t.name)+'</div>'+
       '<div class="t-meta"><span class="tag st-'+String(t.status||'To Do').replace(/\s+/g,'').toLowerCase()+'">'+esc(t.status||'To Do')+'</span>'+
         (pr?'<span class="tag proj">'+esc(pr.name)+'</span>':'')+
-        (o.proj&&t.daily?'<span class="tag proj">Daily</span>':'')+tagUlang(t)+tagHtml(t)+
+        (o.proj&&t.daily?'<span class="tag proj">Daily</span>':'')+tagUlang(t)+tagHtml(t)+tagReview(t)+
         (h.n?'<span class="tag'+(h.d===h.n?' ok':'')+'">☑ '+h.d+'/'+h.n+' sub-task</span>':'')+
         (hal.length?'<span class="tag lock" title="Menunggu">🔒 Menunggu '+esc(hal.map(function(x){return x.name;}).join(', '))+'</span>':'')+
         (t.start?'<span class="tag">mulai '+fTgl(t.start)+'</span>':'')+
@@ -2842,7 +2869,9 @@ function taskTreeRow(t,o){
 var myMode='list', myArsip='aktif';
 function tugasSaya(){
   var vt=tasksTerlihat();
-  return AKU ? vt.filter(function(t){ return pelaksana(t).indexOf(AKU.id)>-1; }) : vt;
+  /* Task yang menunggu review SAYA ikut masuk, walau saya bukan PIC-nya —
+     kalau tidak, tag reviewer tidak sampai ke orang yang ditag. */
+  return AKU ? vt.filter(function(t){ return pelaksana(t).indexOf(AKU.id)>-1 || menungguReviewSaya(t); }) : vt;
 }
 function vMyTask(){
   var semua=tugasSaya(), T=todayISO();
@@ -2864,11 +2893,14 @@ function vMyTask(){
     return h;
   }
   var kunci=function(t){return penghalang(t).length>0;};
+  var reviewSaja=function(t){ return menungguReviewSaya(t) && !(AKU && pelaksana(t).indexOf(AKU.id)>-1); };
+  var bukaKerja=buka.filter(function(t){ return !reviewSaja(t); });
   var grp=[
-    ['Lewat deadline','danger',buka.filter(lewat)],
-    ['7 hari ke depan','warn',buka.filter(function(t){return !lewat(t)&&!kunci(t)&&t.deadline&&sisaHari(t.deadline)<=7;})],
-    ['Berikutnya','',buka.filter(function(t){return !lewat(t)&&!kunci(t)&&(!t.deadline||sisaHari(t.deadline)>7);})],
-    ['Menunggu task lain','violet',buka.filter(function(t){return !lewat(t)&&kunci(t);})]
+    ['Menunggu review kamu','info',buka.filter(menungguReviewSaya)],
+    ['Lewat deadline','danger',bukaKerja.filter(lewat)],
+    ['7 hari ke depan','warn',bukaKerja.filter(function(t){return !lewat(t)&&!kunci(t)&&t.deadline&&sisaHari(t.deadline)<=7;})],
+    ['Berikutnya','',bukaKerja.filter(function(t){return !lewat(t)&&!kunci(t)&&(!t.deadline||sisaHari(t.deadline)>7);})],
+    ['Menunggu task lain','violet',bukaKerja.filter(function(t){return !lewat(t)&&kunci(t);})]
   ];
   var proyek=projectsTerlihat().filter(function(p){ return AKU&&pics(p).indexOf(AKU.id)>-1&&!projBeres(p); });
   var baru=semua.filter(selesai).sort(function(a,b){ return (a.doneAt||'')<(b.doneAt||'')?1:-1; }).slice(0,6);
@@ -3427,7 +3459,7 @@ var pidAktif=null;
    Bawaannya tetap KANBAN — permintaan user 6 Okt 2026 ("buka project langsung
    dalam bentuk board") belum pernah dicabut. */
 var pdMode='kanban', pdArsip='aktif';
-var pScope='tim', pDiv='', pView='kartu', pSt='aktif', pTaskArsip='aktif', pTaskQ='';
+var pScope='semua', pDiv='', pView='kartu', pSt='aktif', pTaskArsip='aktif', pTaskQ='';
 function vProjects(){
   /* Di tampilan Task penyaring PIC berarti ASSIGN TASK, bukan PIC project:
      yang dicari "pekerjaan siapa", dan task di project orang lain yang
@@ -3452,7 +3484,7 @@ function vProjects(){
     segLingkup(pScope,'APP.filterProj(\'scope\',this.value)')+
     '<select onchange="APP.filterProj(\'div\',this.value)"><option value="">Semua divisi</option>'+
       OWNER_DIVS.map(function(d){return '<option'+(pDiv===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select>'+
-    (pView==='task'?filterPic('Assign'):filterPic())+((fPics.length||pDiv||pScope!=='tim')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
+    (pView==='task'?filterPic('Assign'):filterPic())+((fPics.length||pDiv||pScope!=='semua')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
     (pView==='timeline'?zoomSeg():'')+
     (pView==='task'?'':'<span class="muted" style="font-size:12px;margin-left:auto">'+tampil.length+' dari '+DB.projects.length+' project</span>')+
   '</div>';
@@ -6073,7 +6105,7 @@ function vCalendar(){
       '<select onchange="APP.filterProj(\'div\',this.value)"><option value="">Semua divisi</option>'+
         OWNER_DIVS.map(function(d){return '<option'+(pDiv===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select>'+
       filterPic()+
-      ((fPics.length||pDiv||pScope!=='tim')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
+      ((fPics.length||pDiv||pScope!=='semua')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
     '</div>'+
     '<div class="card"><div class="card-b">'+
       '<div class="cal">'+['Sen','Sel','Rab','Kam','Jum','Sab','Min'].map(function(x){
@@ -6416,7 +6448,7 @@ window.APP={
   dragTask:dragTask, dropTask:dropTask,
   setTaskMode:function(m){taskMode=m;render();},
   filter:function(apa,nilai){
-    if(apa==='reset'){fDiv='';fProj='';fType='';fScope='tim';fPics=[];}
+    if(apa==='reset'){fDiv='';fProj='';fType='';fScope='semua';fPics=[];}
     else if(apa==='div')fDiv=nilai; else if(apa==='proj')fProj=nilai;
     else if(apa==='type')fType=nilai; else if(apa==='scope')fScope=nilai;
     render();
@@ -6438,7 +6470,7 @@ window.APP={
   pTaskCari:function(v){ pTaskQ=v||''; pTaskSegarkan(); },
   pTaskArsip:function(v){ pTaskArsip=v; pTaskSegarkan(); },
   filterProj:function(apa,nilai){
-    if(apa==='reset'){ pScope='tim'; pDiv=''; fPics=[]; }
+    if(apa==='reset'){ pScope='semua'; pDiv=''; fPics=[]; }
     else if(apa==='scope') pScope=nilai;
     else if(apa==='div')   pDiv=nilai;
     else if(apa==='view')  pView=nilai;

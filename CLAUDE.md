@@ -827,6 +827,15 @@ node tools/uji-pola-ulang-bd.js   # 46 pemeriksaan, jsdom
 node tools/uji-agent-bd.js   # 30 pemeriksaan, jsdom + kontrak PHP
 ```
 
+**Putaran kesembilan (28 Okt 2026): semua kru melihat semua task, Review oleh, ikon Daily.**
+- **`tasksTerlihat()`/`projectsTerlihat()` memulangkan SELURUHNYA.** Dulu disaring ke "saya + anak buah" (`boss` di Kru), dan karena hampir tidak ada yang punya `boss`, kru non-admin cuma melihat task-nya sendiri (keluhan user). Penyaring Lingkup bawaannya **Semua** (`fScope`/`bScope`/`pScope`, juga Reset); Tim saya / Ditugaskan ke saya tetap ada sebagai alat fokus. Uji WAJIB login non-admin — dari akun admin bug-nya tidak terlihat.
+- **Review oleh** = `t.reviewers` [id kru] (picker `m_rev`, blob task, tanpa migrasi). Bukan pelaksana; task berstatus **Review** masuk My Task reviewer di kelompok "Menunggu review kamu" (sekali, tidak dobel). Tanda `👁 Review:` di daftar/kanban/pohon.
+- Ikon menu Daily Task `daily` (matahari), Recurring tetap `routine`.
+
+```bash
+node tools/uji-review-bd.js   # 24 pemeriksaan, jsdom (sesi NON-admin)
+```
+
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)
 
 Keluhan user: PR-11 (berikut PO "Pelunasan DJ") hilang dari Purchasing.
