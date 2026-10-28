@@ -887,6 +887,58 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function $() {  }
 function esc() {  }
 
@@ -909,6 +961,16 @@ function sisaHari() { pDate(); }
 
 function fTgl() { pDate(); }
 function fTglPanjang() { pDate(); }
+
+
+
+
+
+function fTglHari() { pDate(); }
+
+
+function fJarak() { sisaHari(); }
+
 
 function fDue() { sisaHari(); fTgl(); }
 
@@ -958,6 +1020,10 @@ function bacaRp() {  }
 
 
 function bacaRpEl() {  }
+
+
+
+
 
 
 
@@ -1166,6 +1232,15 @@ function normalize() {  }
 
 
 
+
+
+
+
+
+
+
+
+
 function pics() {  }
 function punyaPic() { pics(); }
 
@@ -1188,6 +1263,14 @@ function tiapBaris() {  }
 
 
 function capPerubahan() { tiapBaris(); sig(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -1234,7 +1317,7 @@ function setSync() { $(); }
 
 
 function save() { setSync(); }
-function kirim() { setSync(); capPerubahan(); kenaliBaris(); apiPost(); segarkanSnapshot(); toast(); $(); apiGet(); normalize(); kenali(); cetakIdentitas(); render(); }
+function kirim() { setSync(); capPerubahan(); kenaliBaris(); apiPost(); segarkanSnapshot(); toast(); }
 
 
 
@@ -1244,6 +1327,26 @@ function kirim() { setSync(); capPerubahan(); kenaliBaris(); apiPost(); segarkan
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tarikServer() { $(); apiGet(); normalize(); segarkanSnapshot(); terapkanGulir(); kenali(); cetakIdentitas(); render(); }
 
 
 
@@ -1416,20 +1519,25 @@ function lingkup() { adminModul(); bawahan(); }
 
 
 
-function dalamLingkup() { pics(); }
-
-
-
-function tasksTerlihat() { lingkup(); dalamLingkup(); }
+function dalamLingkup() { pics(); Lingkup(); }
 
 
 
 
-function projectsTerlihat() { lingkup(); dalamLingkup(); }
 
 
 
 
+
+
+
+
+
+
+
+
+function tasksTerlihat() {  }
+function projectsTerlihat() {  }
 function catIniAku() { sesi(); $(); }
 
 
@@ -1460,6 +1568,8 @@ function kuadran() {  }
 
 function selesai() {  }
 function lewat() { selesai(); sisaHari(); bacaAlamat(); }
+
+
 
 
 
@@ -1591,7 +1701,7 @@ function bar() {  }
 function stat() { esc(); }
 
 
-function taskRow() { kuadran(); lewat(); selesai(); dragTask(); toggleTask(); ic(); taskModal(); esc(); tagDiv(); avStack(); pics(); tagSubDep(); tagDeadline(); subDaftarHtml(); hapusTask(); }
+function taskRow() { kuadran(); lewat(); selesai(); dragTask(); toggleTask(); ic(); taskModal(); esc(); tagDiv(); avStack(); pics(); tagHtml(); tagReview(); tagSubDep(); tagDeadline(); subDaftarHtml(); hapusTask(); }
 
 
 
@@ -1938,7 +2048,29 @@ function avStack() { esc(); P(); inisial(); }
 
 
 
-function taskModal() { todayISO(); subs(); uid(); deps(); taskById(); showModal(); ic(); esc(); picPicker(); pics(); depGambar(); opsiProject(); opsiUlang(); qprev(); fieldSubDep(); hapusTask(); simpanTask(); subGambar(); }
+
+
+function agentLogHtml() { esc(); fTgl(); isoOf(); }
+
+
+
+
+
+
+
+
+
+
+function taskModal() { todayISO(); subs(); uid(); deps(); taskById(); tagsOf(); showModal(); ic(); esc(); agentLogHtml(); picPicker(); pics(); reviewers(); tagTambah(); ulangSegar(); depGambar(); opsiProject(); ulangUbah(); opsiUlang(); panelKustom(); qprev(); fieldSubDep(); hapusTask(); simpanTask(); subGambar(); tagGambar(); }
+
+
+
+
+
+
+
+
+
 
 
 
@@ -1997,7 +2129,24 @@ function qprev() { $(); kuadran(); }
 
 
 function simpanTask() {  }
-function g() { toast(); taskById(); cekBolehDone(); uid(); setPics(); bacaPic(); segarkanProgress(); save(); render(); }
+function g() { toast(); bacaKustom(); ulangSah(); taskById(); tagTambah(); cekBolehDone(); uid(); setPics(); bacaPic(); segarkanProgress(); save(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
@@ -2082,7 +2231,7 @@ function cekBolehDone() { deps(); selesai(); toast(); namaPendek(); }
 
 
 
-function subDaftarHtml() { subs(); subLangsung(); esc(); }
+function subDaftarHtml() { subs(); subLangsung(); esc(); subPicTag(); }
 
 
 
@@ -2141,7 +2290,116 @@ function tagSubDep() { subHitung(); selesai(); penghalang(); subBuka(); esc(); s
 
 
 
-function subGambar() { subHitung(); subCentang(); esc(); subUbah(); subTgl(); subHapus(); ic(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kunciTag() {  }
+function warnaSah() {  }
+
+
+
+function warnaTag() { kunciTag(); warnaSah(); }
+
+
+
+
+
+
+
+
+function warnaAcak() { semuaTag(); warnaTag(); }
+
+
+
+
+
+
+function gayaTag() {  }
+
+
+
+function tagsOf() {  }
+function samaTag() {  }
+function semuaTag() { tagsOf(); }
+
+
+
+
+function tagGambar() { semuaTag(); samaTag(); }
+
+
+
+function on() { samaTag(); warnaTag(); esc(); gayaTag(); tagToggle(); tagBukaWarna(); tagSetWarna(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tagBukaWarna() { samaTag(); tagGambar(); }
+function tagSetWarna() { kunciTag(); tagGambar(); }
+function tagToggle() { samaTag(); tagGambar(); }
+
+
+
+
+function tagTambah() { semuaTag(); samaTag(); warnaSah(); kunciTag(); warnaAcak(); tagGambar(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tagHtml() { tagsOf(); gayaTag(); warnaTag(); esc(); }
+
+
+
+
+function subGambar() { subHitung(); subCentang(); esc(); subUbah(); subTgl(); subPicSelect(); subHapus(); ic(); }
+
 
 
 
@@ -2162,7 +2420,48 @@ function subTambah() { uid(); subGambar(); }
 function subCentang() { subGambar(); }
 function subUbah() {  }
 function subTgl() {  }
-function subHapus() { subGambar(); }
+function subHapus() { subGambar(); p(); kruTersedia(); }
+
+
+
+
+
+
+function subPicSelect() { subPic(); kruTersedia(); esc(); }
+
+
+
+
+
+
+function subPic() {  }
+
+
+
+
+
+
+
+function reviewers() {  }
+function menungguReviewSaya() { reviewers(); }
+
+
+function tagReview() { reviewers(); P(); esc(); }
+
+
+
+
+
+function pelaksana() { pics(); subs(); }
+
+
+
+
+function subPicTag() { P(); esc(); inisial(); }
+
+
+
+
 
 function depGambar() { menungguTransitif(); selesai(); depCentang(); esc(); }
 
@@ -2249,7 +2548,23 @@ function segArsip() { selesai(); }
 
 
 
-function kanbanHtml() { dropBoard(); boardCard(); esc(); boardTambah(); }
+
+
+
+
+
+
+
+function kanbanUrut() {  }
+function geser() { urutDeadline(); }
+
+
+
+
+
+
+
+function kanbanHtml() { kanbanUrut(); dropBoard(); boardCard(); esc(); boardTambah(); }
 
 
 
@@ -2289,7 +2604,7 @@ function vBoard() { boardTasks(); saringArsip(); head(); bukaProject(); ic(); ta
 
 
 
-function boardCard() { selesai(); penghalang(); lewat(); dragBoard(); klikBoard(); esc(); avStack(); pics(); tagSubDep(); tagUlang(); tagDeadline(); subDaftarHtml(); subHitung(); bar(); }
+function boardCard() { selesai(); penghalang(); lewat(); dragBoard(); klikBoard(); esc(); avStack(); pics(); tagHtml(); tagReview(); tagSubDep(); tagUlang(); tagDeadline(); subDaftarHtml(); subHitung(); bar(); }
 
 
 
@@ -2531,7 +2846,7 @@ function vTimeline() { projectsTerlihat(); projBeres(); head(); ic(); esc(); zoo
 
 
 
-function taskTreeRow() { subs(); subHitung(); selesai(); penghalang(); ic(); toggleTask(); taskModal(); esc(); tagUlang(); fTgl(); avStack(); pics(); tagDeadline(); bar(); gSah(); sisaHari(); subLangsung(); fDue(); }
+function taskTreeRow() { subs(); subHitung(); selesai(); penghalang(); ic(); toggleTask(); taskModal(); esc(); tagUlang(); tagHtml(); tagReview(); fTgl(); avStack(); pics(); tagDeadline(); bar(); gSah(); sisaHari(); subLangsung(); fDue(); }
 
 
 
@@ -2568,7 +2883,9 @@ function taskTreeRow() { subs(); subHitung(); selesai(); penghalang(); ic(); tog
 
 
 
-function tugasSaya() { tasksTerlihat(); pics(); }
+function tugasSaya() { tasksTerlihat(); pelaksana(); menungguReviewSaya(); }
+
+
 
 
 
@@ -2591,7 +2908,8 @@ function vMyTask() { tugasSaya(); todayISO(); selesai(); head(); taskModal(); ic
 
 
 
-function kunci() { penghalang(); lewat(); sisaHari(); projectsTerlihat(); pics(); projBeres(); taskTreeRow(); kosong(); }
+function kunci() { penghalang(); }
+function reviewSaja() { menungguReviewSaya(); pelaksana(); lewat(); kunci(); sisaHari(); projectsTerlihat(); pics(); projBeres(); taskTreeRow(); kosong(); lahirkanUlang(); }
 
 
 
@@ -2628,19 +2946,120 @@ function kunci() { penghalang(); lewat(); sisaHari(); projectsTerlihat(); pics()
 
 
 
-function opsiUlang() {  }
 
 
-function labelUlang() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function parseUlang() {  }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function ulangSah() { parseUlang(); }
+function susunUlang() {  }
+
+
+
+
+function keBerapa() { pDate(); }
+function hariTerakhir() { pDate(); }
+function tambahBulan() { pDate(); isoOf(); }
+
+
+
+
+function hariKeN() { isoOf(); }
+
+
+
+function hariAkhirBulan() { isoOf(); }
+
+
+function langkahUlang() { parseUlang(); gAdd(); pDate(); tambahBulan(); keBerapa(); hariAkhirBulan(); hariKeN(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function labelUlang() { parseUlang(); gSah(); pDate(); fTgl(); keBerapa(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function opsiUlang() { gSah(); labelUlang(); keBerapa(); hariTerakhir(); ulangSah(); esc(); }
+
+
+
+
+
+
+
+
+
+
 function tagUlang() { labelUlang(); esc(); }
-function langkahUlang() { pDate(); isoOf(); gAdd(); }
-
-
-
-
-
-
-
 
 
 
@@ -2653,13 +3072,170 @@ function deadlineBerikut() { todayISO(); langkahUlang(); }
 
 
 
-function lahirkanUlang() { labelUlang(); gSah(); deadlineBerikut(); gDiff(); uid(); subs(); gAdd(); setPics(); pics(); }
+
+
+
+function seriBerakhir() { parseUlang(); rantaiUlang(); }
 
 
 
 
 
 
+
+
+
+
+function panelKustom() { parseUlang(); gSah(); pDate(); ulangUbah(); opsiModeBulan(); ulangPilihAkhir(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function opsiModeBulan() { labelUlang(); gSah(); pDate(); keBerapa(); esc(); }
+
+
+
+
+
+function ulangUbah() { g(); }
+
+
+
+
+
+
+
+
+
+function ulangSegar() { g(); opsiUlang(); opsiModeBulan(); }
+
+
+
+
+function ulangPilihAkhir() {  }
+
+
+
+
+function bacaKustom() { g(); gSah(); pDate(); susunUlang(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function lahirkanUlang() { labelUlang(); gSah(); deadlineBerikut(); gDiff(); seriBerakhir(); uid(); subs(); gAdd(); tagsOf(); setPics(); pics(); lewat(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gulirUlang() { todayISO(); labelUlang(); selesai(); gSah(); deadlineBerikut(); gDiff(); seriBerakhir(); subs(); gAdd(); segarkanProgress(); lahirkanUlang(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function lahirkanTertunda() { selesai(); lahirkanUlang(); }
+
+
+
+
+
+
+
+
+function terapkanGulir() { lahirkanTertunda(); gulirUlang(); save(); toast(); }
 
 
 
@@ -2702,6 +3278,117 @@ function vDaily() { dailyTasks(); todayISO(); selesai(); head(); taskModal(); ic
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function rantaiUlang() { taskById(); }
+
+
+
+
+function seriUlang() { tasksTerlihat(); rantaiUlang(); labelUlang(); cocokPic(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tempatTask() { esc(); }
+
+
+
+
+function vRecurring() { seriUlang(); todayISO(); selesai(); lewat(); head(); ic(); stat(); filterPic(); kosong(); urutDeadline(); taskModal(); esc(); tagsOf(); labelUlang(); fTglHari(); fJarak(); fTgl(); avStack(); pics(); tempatTask(); toggleTask(); cekBolehDone(); lahirkanUlang(); selesaiUlang(); hentikanUlang(); lanjutkanUlang(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function selesaiUlang() { taskById(); selesai(); toggleTask(); toast(); namaPendek(); labelUlang(); }
+
+
+
+
+function hentikanUlang() { taskById(); sesi(); save(); render(); toast(); }
+
+
+
+
+
+
+function lanjutkanUlang() { taskById(); selesai(); rantaiUlang(); labelUlang(); toast(); taskModal(); save(); render(); }
 
 
 
@@ -2789,7 +3476,7 @@ function projProgress() { projTasks(); }
 
 
 
-function vProjects() { saringLingkup(); projBeres(); head(); projModal(); ic(); segLingkup(); esc(); filterPic(); zoomSeg(); ganttHtml(); projSehat(); dropProj(); kosong(); }
+function vProjects() { saringLingkup(); projBeres(); head(); projModal(); ic(); segLingkup(); esc(); filterPic(); zoomSeg(); projTaskHtml(); ganttHtml(); projSehat(); dropProj(); kosong(); pelaksana(); }
 
 
 
@@ -2846,6 +3533,54 @@ function vProjects() { saringLingkup(); projBeres(); head(); projModal(); ic(); 
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function projTaskData() { tasksTerlihat(); pelaksana(); subs(); saringArsip(); }
+
+
+
+
+
+
+
+function projTaskHtml() { esc(); projTaskIsi(); }
+
+
+
+
+
+function projTaskIsi() { projTaskData(); segArsip(); kosong(); esc(); P(); bukaProject(); taskTreeRow(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function pTaskSegarkan() { render(); saringLingkup(); projBeres(); projTaskIsi(); }
 
 
 
@@ -5605,7 +6340,27 @@ function hapusOrang() { punyaPic(); toast(); P(); save(); kenali(); render(); }
 
 
 
-function cari() { bukaProject(); taskModal(); poModal(); $(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function cariSorot() { esc(); }
+
+
+
+
+function cariHitung() {  }
+
+function cocok() { projectsTerlihat(); projBeres(); tasksTerlihat(); subs(); tagsOf(); pelaksana(); P(); selesai(); fTgl(); }
 
 
 
@@ -5621,7 +6376,64 @@ function cari() { bukaProject(); taskModal(); poModal(); $(); }
 
 
 
-function showModal() { $(); taskModal(); render(); vPromo(); barisRequest(); nomoriBarisReq(); ic(); adminModul(); toast(); approverSets(); uid(); save(); }
+
+
+
+
+
+function cariGambar() { cariHitung(); cariPilih(); cariSorot(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function cari() { cariGambar(); }
+
+
+
+function cariPilih() { cariTutup(); bukaProject(); taskModal(); poModal(); }
+
+
+
+
+
+
+function cariTutup() { cariPilih(); $(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function showModal() { $(); taskModal(); render(); pTaskSegarkan(); vPromo(); barisRequest(); nomoriBarisReq(); ic(); adminModul(); toast(); approverSets(); uid(); save(); }
+
+
+
+
+
+
+
+
 
 
 
@@ -5865,4 +6677,4 @@ function cetakIdentitas() { sesi(); $(); inisial(); }
 
 
 
-function layarGagal() { $(); cetakIdentitas(); esc(); ic(); kenali(); sinkronRoster(); apiGet(); normalize(); segarkanSnapshot(); bacaAlamat(); render(); }
+function layarGagal() { $(); cetakIdentitas(); esc(); ic(); kenali(); sinkronRoster(); apiGet(); normalize(); segarkanSnapshot(); terapkanGulir(); bacaAlamat(); render(); }
