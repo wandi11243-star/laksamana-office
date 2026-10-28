@@ -10482,6 +10482,36 @@ KELEWAT JAUH (mengunci manajer, dan mengunci unduhan yang sudah terbit).
 > sesudah diverifikasi. Yang benar diuji ADA-TIDAKNYA TOMBOL yang memanggil
 > `mintaKwitansi(` — bukan ada-tidaknya katanya.
 
+### Invoice & Kwitansi: ubahan Marketing, materai, Lihat PDF (28 Okt 2026)
+
+Tiga permintaan user. **Lembar invoice pindah ke `deploy/assets/invoice-sheet.js`**
+(`window.LMInvoice`), dipakai Marketing DAN panel Finance — pola `kwitansi-sheet.js`.
+Marketing memetakan dari event HIDUP, Finance dari `ringkas` (keadaan saat
+disetujui); kalau rincian event diubah sesudah terbit, keduanya bisa beda dan
+kaki lembar Finance menyebut dirinya "salinan Finance".
+
+- **Marketing mengubah Kepada / U.P / Keterangan** di modal invoice resmi
+  (tombol *Ubah…*, izin `bolehMintaInvoice()`). Label "PIC" → **U.P**,
+  "Deskripsi" → **Keterangan**. Ubahan DISIMPAN DI FINANCE (`invUbah` →
+  kolom `inv_kwitansi.ubah`, JSON), bukan di state Marketing; `ringkas` &
+  angka tidak disentuh. Keterangan per baris disimpan `{asal, teks}` dan
+  dicocokkan lewat `asal` (`terapkanKet`) — menempel per posisi saja membuat
+  keterangan pindah baris kalau rincian disusun ulang. Kosong = bawaan.
+- **Materai: Finance DITANYA saat menerbitkan KWITANSI** (`INV_PILIH.materai`
+  null/true/false, tombol ditahan sampai dijawab + gerbang kedua di
+  `invBuat`). Invoice tidak ditanya. Bermaterai = lembar polos: kotak materai,
+  nama penanda tangan tetap, **gambar ttd & cap dikosongkan DI SERVER**
+  (`inv_berkas`, satu tempat untuk tiga pencetak), dan kalimat "sah tanpa
+  tanda tangan basah" diganti. Kolom `materai` & `ubah` lahir lewat
+  `inv_pastikan_kolom`.
+- **Finance → tombol 📄 Lihat PDF** di baris yang sudah terbit (`invLihatPDF`),
+  jendela dibuka sinkron sebelum await. Aturan cap-hanya-kalau-berbukti pindah
+  ke `LMInvoice.adaBukti` (Marketing mendelegasikan).
+
+```bash
+node tools/uji-invoice-revisi.js   # 72 pemeriksaan, jsdom + php-parser
+```
+
 ### Analytics: peringatan "resep menunjuk dirinya sendiri" (16 Sep 2026)
 
 Ditanyakan user: *"ini maksudnya apa?"* Jawabannya diukur atas resep

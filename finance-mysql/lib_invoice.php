@@ -118,6 +118,23 @@ function inv_pastikan_tabel() {
      Reservasi) tetap terbaca persis seperti sebelumnya. */
   inv_pastikan_kolom('inv_kwitansi', 'jenis', "`jenis` VARCHAR(24) NOT NULL DEFAULT 'KWITANSI'");
 
+  /* MATERAI (28 Oktober 2026, permintaan user). Finance yang menerbitkan
+     kwitansi ditanya dulu apakah lembarnya perlu materai. Kalau ya, kolom
+     tanda tangan TETAP ada di lembar, tapi gambar tanda tangan & cap TIDAK
+     dibubuhkan — lembarnya dicetak polos untuk ditandatangani basah di atas
+     materai. Disimpan per baris, dan ditegakkan di inv_berkas() (SATU
+     tempat), bukan di tiap layar yang mencetak: ada tiga pencetak (Reservasi,
+     Marketing VIP, Finance), dan yang lupa memeriksanya akan menempel tanda
+     tangan digital di atas kotak materai tanpa satu pun galat. */
+  inv_pastikan_kolom('inv_kwitansi', 'materai', '`materai` TINYINT(1) NOT NULL DEFAULT 0');
+
+  /* UBAHAN MARKETING atas lembar invoice yang sudah terbit (28 Oktober 2026):
+     Kepada, U.P, dan Keterangan tiap baris tagihan. JSON di kolom SENDIRI,
+     bukan menimpa `ringkas`: ringkas adalah keadaan saat permintaan disetujui
+     dan sengaja tidak pernah ditimpa sesudah DIBUAT (lihat inv_minta). Yang
+     diubah di sini cuma TEKS di kepala & kolom keterangan, bukan angka. */
+  inv_pastikan_kolom('inv_kwitansi', 'ubah', '`ubah` TEXT NULL');
+
   inv_migrasi_penanda_tunggal();
 }
 
@@ -368,7 +385,60 @@ function inv_baris($row) {
     'catatan'   => $row['catatan'] === null ? '' : $row['catatan'],
     'putusOleh' => $row['putus_oleh'],
     'putusAt'   => (int)$row['putus_at'],
+    /* isset() untuk alasan yang sama dengan `jenis` di atas. */
+    'materai'   => isset($row['materai']) ? (int)$row['materai'] === 1 : false,
+    'ubah'      => inv_ubah_urai(isset($row['ubah']) ? $row['ubah'] : null),
   );
+}
+function inv_ubah_urai($teks) {
+  if ($teks === null || $teks === '') return null;
+  $d = json_decode($teks, true);
+  return is_array($d) ? $d : null;
+}
+function inv_potong($v, $n) {
+  $v = trim((string)$v);
+  /* function_exists: fungsi mbstring yang tidak terpasang mematikan SELURUH
+     endpoint folder ini, bukan cuma aksi ini. */
+  return function_exists('mb_substr') ? mb_substr($v, 0, $n, 'UTF-8') : substr($v, 0, $n);
+}
+
+/* Marketing mengubah Kepada / U.P / Keterangan di lembar invoice resminya.
+   Hanya untuk dokumen INVOICE — kwitansi tamu tidak punya kolom-kolom itu.
+   String kosong = kembali ke isi bawaan (diambil dari data client/event),
+   jadi menghapus ubahan cukup dengan mengosongkan kotaknya.
+
+   `ket` = [{asal, teks}] sejajar dengan baris tagihan. `asal` (teks bawaan
+   baris itu) ikut disimpan supaya ubahan tidak menempel ke baris yang salah
+   kalau urutan rincian di Marketing berubah sesudahnya. */
+function inv_ubah($in) {
+  inv_pastikan_tabel();
+  if (!is_array($in) || empty($in['resId'])) throw new Exception('resId kosong');
+  $q = db()->prepare('SELECT * FROM `inv_kwitansi` WHERE `res_id`=:r');
+  $q->execute(array(':r' => (string)$in['resId']));
+  $row = $q->fetch();
+  if (!$row) throw new Exception('invoice belum pernah diminta');
+  $jns = isset($row['jenis']) && $row['jenis'] !== '' ? $row['jenis'] : 'KWITANSI';
+  if (!inv_jenis_invoice($jns)) throw new Exception('hanya lembar invoice yang bisa diubah dari Marketing');
+  $u = isset($in['ubah']) && is_array($in['ubah']) ? $in['ubah'] : array();
+  $ket = array();
+  if (isset($u['ket']) && is_array($u['ket'])) {
+    foreach (array_slice($u['ket'], 0, 300) as $k) {
+      if (!is_array($k)) continue;
+      $ket[] = array('asal' => inv_potong(isset($k['asal']) ? $k['asal'] : '', 500),
+                     'teks' => inv_potong(isset($k['teks']) ? $k['teks'] : '', 500));
+    }
+  }
+  $data = array(
+    'kepada' => inv_potong(isset($u['kepada']) ? $u['kepada'] : '', 200),
+    'up'     => inv_potong(isset($u['up']) ? $u['up'] : '', 200),
+    'ket'    => $ket,
+    'oleh'   => inv_potong(isset($in['oleh']) ? $in['oleh'] : '', 120),
+    'at'     => inv_ms(),
+  );
+  $w = db()->prepare('UPDATE `inv_kwitansi` SET `ubah`=:u WHERE `id`=:i');
+  $w->execute(array(':u' => json_encode($data, JSON_UNESCAPED_UNICODE), ':i' => $row['id']));
+  $q->execute(array(':r' => (string)$in['resId']));
+  return inv_baris($q->fetch());
 }
 
 /* Dipanggil modul Reservasi saat kru menekan "Request Kwitansi".
@@ -500,10 +570,11 @@ function inv_putus($in) {
     $no = $row['no_invoice'] !== '' ? $row['no_invoice'] : inv_nomor_berikut($jns);
     $pen = json_encode(inv_snapshot_penanda(array_key_exists('penanda', $in) ? $in['penanda'] : null, $jns),
                        JSON_UNESCAPED_UNICODE);
+    $mat = !empty($in['materai']) ? 1 : 0;
     $u = $pdo->prepare('UPDATE `inv_kwitansi`
                         SET `status`=\'DIBUAT\', `no_invoice`=:n, `catatan`=:c, `penanda`=:p,
-                            `putus_oleh`=:o, `putus_at`=:t WHERE `id`=:i');
-    $u->execute(array(':n' => $no, ':c' => $catatan, ':p' => $pen,
+                            `materai`=:m, `putus_oleh`=:o, `putus_at`=:t WHERE `id`=:i');
+    $u->execute(array(':n' => $no, ':c' => $catatan, ':p' => $pen, ':m' => $mat,
                       ':o' => $oleh, ':t' => inv_ms(), ':i' => $id));
   } else if ($aksi === 'tolak') {
     if ($catatan === '') throw new Exception('alasan penolakan wajib diisi');
@@ -583,12 +654,16 @@ function inv_berkas($resId) {
   $peta = array();
   foreach (inv_penanda_daftar(true) as $p) $peta[$p['id']] = $p;
   $penanda = array();
+  /* Bermaterai = dicetak POLOS: nama & jabatan tetap, gambar tanda tangan &
+     cap tidak dikirim sama sekali. Dikosongkan DI SINI supaya tidak satu pun
+     pencetak bisa lupa. */
+  $polos = !empty($baris['materai']);
   foreach ($baris['penanda'] as $p) {
     $pid = isset($p['id']) ? $p['id'] : '';
     $penanda[] = array(
       'nama'    => isset($p['nama']) ? $p['nama'] : '',
       'jabatan' => isset($p['jabatan']) ? $p['jabatan'] : '',
-      'ttd'     => isset($peta[$pid]) ? $peta[$pid]['ttd'] : '',
+      'ttd'     => ($polos || !isset($peta[$pid])) ? '' : $peta[$pid]['ttd'],
     );
   }
   return array(
@@ -597,7 +672,9 @@ function inv_berkas($resId) {
     'no'        => $row['no_invoice'],
     'putusOleh' => $row['putus_oleh'],
     'putusAt'   => (int)$row['putus_at'],
-    'cap'       => $set['cap'],
+    'cap'       => $polos ? '' : $set['cap'],
     'penanda'   => $penanda,
+    'materai'   => $polos,
+    'ubah'      => $baris['ubah'],
   );
 }

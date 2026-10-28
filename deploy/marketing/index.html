@@ -7,6 +7,7 @@
 <!-- Lembar kwitansi. Berkas BERSAMA dengan modul Reservasi — satu lembar,
      dua modul yang mencetaknya. Lihat catatan di dalam berkasnya. -->
 <script src="../assets/kwitansi-sheet.js"></script>
+<script src="../assets/invoice-sheet.js"></script>
 <!-- Rumus modal HPP & Resep, DIBANGKITKAN dari modul HPP (tools/gen-hpp-mesin.js).
      Dipakai Menu Kalkulator untuk modal/profit/COGS di tampilan admin. -->
 <script src="../assets/hpp-mesin.js"></script>
@@ -13797,80 +13798,45 @@ async function mintaInvoiceMkt(evId,jenis){
    Nomor, tanda tangan, dan cap TIDAK disimpan di sini — semuanya diambil
    segar dari Finance tepat sebelum dicetak (invBerkas). Menyalinnya ke state
    Marketing berarti lembar yang dicetak minggu depan masih membawa tanda
-   tangan orang yang jabatannya sudah berganti, dan tidak ada yang tahu. */
-const INV_KOP = {
-  pt:'PT. LAKSAMANA MUDA BERSATU',
-  alamat:'Jl. Soekarno - Hatta No. 39, Labuh Baru Tim, Kec. Payung Sekaki,<br>Kota Pekanbaru, Riau 28282',
-  bank:'UOB | PT. Laksamana Muda Bersatu',
-  rek:'319-303-3588'
-};
-/* Nilai negatif ditulis "- Rp x", bukan "Rp -x". Baris pengurang di kaki
-   invoice dibaca client, dan tanda minus yang terselip di tengah angka mudah
-   terbaca sebagai bagian dari nominalnya. */
-function invBarisTotal(label,nilai,tebal){
-  const n=Number(nilai)||0;
-  const teks=(n<0?'- '+rp(-n):rp(n));
-  return '<tr><td colspan="3" style="padding:6px 12px;text-align:right;'
-    +(tebal?'font-weight:700;':'color:#555;')+'font-size:12px">'+label+'</td>'
-    +'<td style="padding:6px 12px;text-align:right;font-family:ui-monospace,monospace;'
-    +(tebal?'font-weight:700;font-size:13px;':'font-size:12px;')+'white-space:nowrap">'+teks+'</td></tr>';
+   tangan orang yang jabatannya sudah berganti, dan tidak ada yang tahu.
+
+   SEJAK 28 OKTOBER 2026 LEMBARNYA DIGAMBAR deploy/assets/invoice-sheet.js
+   (window.LMInvoice), berkas yang SAMA yang dipakai panel Finance untuk
+   melihat invoice yang ia terbitkan. Yang tinggal di sini cuma PEMETAAN
+   event -> data datar, termasuk baris-baris pengurang pelunasan yang memang
+   hanya bisa dihitung dari event yang hidup. */
+/* Kepala lembar: Kepada & U.P bawaan dari Database Client, ditimpa ubahan
+   Marketing yang tersimpan di Finance (inv.ubah). Satu tempat, dipakai
+   lembar DAN form ubahnya — kalau keduanya menghitung bawaan sendiri, kotak
+   form bisa berisi teks yang berbeda dari yang tercetak. */
+function invKepalaMkt(ev,inv){
+  const c=S.clients.find(x=>x.id===ev.clientId)||{nama:'—',perusahaan:'',pic:''};
+  const u=(inv&&inv.ubah)||{};
+  const bawaanKepada=c.perusahaan||c.nama||'';
+  const bawaanUp=c.pic||c.nama||'';
+  return {
+    bawaanKepada:bawaanKepada, bawaanUp:bawaanUp,
+    kepada:String(u.kepada||'').trim()||bawaanKepada,
+    up:String(u.up||'').trim()||bawaanUp
+  };
+}
+/* Baris tagihan dalam bentuk yang dipakai lembar bersama. */
+function invItemsMkt(ev){
+  return ((ev.detail&&ev.detail.rincianItem)||[])
+    .filter(r=>(r.jenis||'bayar')==='bayar')
+    .map(r=>({desc:String(r.desc||''), qty:(+r.jumlah||0)||1, harga:+r.harga||0}));
 }
 function invoiceMktDoc(ev,jenis,inv){
   const f=eventFinance(ev);
-  const c=S.clients.find(x=>x.id===ev.clientId)||{nama:'—',perusahaan:'',pic:'',hp:''};
   const lunas=jenis==='INV_LUNAS';
-  const logo=window.LM_LOGO||'';
   const resmi=!!(inv&&inv.ada);
-  /* Tidak ada lagi nomor cadangan dari Marketing. Lembar yang belum
-     diterbitkan Finance memang belum bernomor, dan mencetak nomor karangan di
-     tempat itu persis kesalahan yang membuat penomoran internal dibuang. */
-  const noDok=resmi&&inv.no?inv.no:'—';
-  const items=((ev.detail&&ev.detail.rincianItem)||[]).filter(r=>(r.jenis||'bayar')==='bayar');
+  const kp=invKepalaMkt(ev,inv);
   const dpBayar=(ev.payments||[]).filter(p=>String(p.type||'')==='DP');
-
-  let h='<div style="display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #F7BB0E;padding-bottom:16px;margin-bottom:20px">'
-    +'<div style="display:flex;gap:12px;align-items:center">'
-      +(logo?'<img src="'+logo+'" alt="" style="width:46px;height:46px;object-fit:contain;flex:none">':'')
-      +'<div><div style="font-family:Georgia,serif;font-size:20px;font-weight:700;color:#0C1826">'+INV_KOP.pt+'</div>'
-      +'<div style="font-size:10px;letter-spacing:.2em;color:#C8940A">LAKSAMANA MUDA COFFEE &amp; LIVE SPACE</div>'
-      +'<div style="font-size:10.5px;color:#666;margin-top:4px;line-height:1.5">'+INV_KOP.alamat+'</div></div></div>'
-    +'<div style="text-align:right"><div style="font-size:11px;letter-spacing:.15em;color:#C8940A;font-weight:700">'
-      +(lunas?'INVOICE PELUNASAN':'INVOICE DOWN PAYMENT')+'</div>'
-      +'<div style="font-size:18px;font-family:Georgia,serif;font-weight:700;margin-top:4px">'+esc(noDok)+'</div>'
-      +'<div style="font-size:11.5px;color:#555;margin-top:2px">'+fmtDateLong(today())+'</div>'
-      +(resmi?'':'<div style="font-size:10px;color:#C0392B;margin-top:4px;font-weight:700">BELUM DITERBITKAN FINANCE</div>')
-    +'</div></div>';
-
-  h+='<div style="background:#F6F4EE;border-radius:10px;padding:14px 18px;margin-bottom:18px;display:grid;grid-template-columns:1fr 1fr;gap:6px 24px;font-size:12.5px">'
-    +'<div><b>Kepada</b>: '+esc(c.perusahaan||c.nama)+'</div><div><b>PIC</b>: '+esc(c.pic||c.nama)+'</div>'
-    +'<div><b>Acara</b>: '+esc(ev.nama)+'</div><div><b>Tanggal acara</b>: '+(ev.tanggal?fmtDateLong(ev.tanggal):'—')+'</div>'
-    +'<div><b>Jenis</b>: '+esc(ev.jenis||'—')+'</div><div><b>Estimasi</b>: '+(ev.pax||'—')+' pax</div></div>';
-
-  h+='<table style="width:100%;border-collapse:collapse;margin-bottom:6px">'
-    +'<thead><tr style="background:#F2EFE7">'
-      +'<th style="text-align:left;padding:8px 12px;font-size:11px;border-bottom:1px solid #e5e2da">Deskripsi</th>'
-      +'<th style="text-align:right;padding:8px 12px;font-size:11px;border-bottom:1px solid #e5e2da;width:60px">Qty</th>'
-      +'<th style="text-align:right;padding:8px 12px;font-size:11px;border-bottom:1px solid #e5e2da;width:120px">Harga</th>'
-      +'<th style="text-align:right;padding:8px 12px;font-size:11px;border-bottom:1px solid #e5e2da;width:130px">Jumlah</th>'
-    +'</tr></thead><tbody>';
-  if(items.length){
-    items.forEach(function(r,i){
-      const qty=(+r.jumlah||0)||1, harga=+r.harga||0;
-      h+='<tr style="background:'+(i%2?'#fff':'#faf9f5')+'">'
-        +'<td style="padding:7px 12px;font-size:12px;border-bottom:1px solid #efece5">'+esc(r.desc||'—')+'</td>'
-        +'<td style="padding:7px 12px;font-size:12px;text-align:right;border-bottom:1px solid #efece5">'+qty+'</td>'
-        +'<td style="padding:7px 12px;font-size:12px;text-align:right;font-family:ui-monospace,monospace;border-bottom:1px solid #efece5">'+rp(harga)+'</td>'
-        +'<td style="padding:7px 12px;font-size:12px;text-align:right;font-family:ui-monospace,monospace;border-bottom:1px solid #efece5">'+rp(qty*harga)+'</td></tr>';
-    });
-  } else {
-    h+='<tr><td colspan="4" style="padding:12px;font-size:12px;color:#888;text-align:center">Rincian tagihan belum diisi di tab Finance.</td></tr>';
-  }
-  h+='</tbody><tfoot>';
-  h+=invBarisTotal('Subtotal',f.sub);
-  if(f.disc) h+=invBarisTotal('Diskon',-f.disc);
-  if(f.svcOn&&f.service) h+=invBarisTotal('Service charge',f.service);
-  if(f.tax) h+=invBarisTotal('PB1 '+f.taxPct+'%'+(f.taxInc?' (termasuk harga)':''),f.tax);
-  h+=invBarisTotal('Grand Total',f.grand,true);
+  const tot=[{label:'Subtotal',nilai:f.sub}];
+  if(f.disc) tot.push({label:'Diskon',nilai:-f.disc});
+  if(f.svcOn&&f.service) tot.push({label:'Service charge',nilai:f.service});
+  if(f.tax) tot.push({label:'PB1 '+f.taxPct+'%'+(f.taxInc?' (termasuk harga)':''),nilai:f.tax});
+  tot.push({label:'Grand Total',nilai:f.grand,tebal:true});
   /* INILAH BEDA KEDUA LEMBAR, dan satu-satunya alasan invoice pelunasan ada
      sebagai jenis tersendiri: yang ditagih bukan grand total lagi, melainkan
      sisanya — lengkap dengan berapa yang sudah masuk, supaya client tidak
@@ -13878,55 +13844,37 @@ function invoiceMktDoc(ev,jenis,inv){
   if(lunas){
     const pra=mktPraPelunasan(ev);
     dpBayar.forEach(function(p){
-      h+=invBarisTotal('Dikurangi pembayaran '+esc(p.type)+(p.at?' &middot; '+fmtDate(p.at):''),-(+p.amount||0));
+      tot.push({label:'Dikurangi pembayaran '+p.type+(p.at?' · '+fmtDate(p.at):''),nilai:-(+p.amount||0)});
     });
     /* DP yang cuma ditandai lewat centang "DP sudah dibayar" tetap muncul
        sebagai baris pengurang. Kalau dilewati, client melihat lembar yang
-       menagih lebih besar daripada yang ia tahu masih kurang — dan yang
-       menjelaskannya nanti tetap marketing yang mengirim lembar itu. */
-    if(pra.dpCentang>0) h+=invBarisTotal('Dikurangi DP yang sudah diterima',-pra.dpCentang);
-    if(pra.lain>0) h+=invBarisTotal('Dikurangi pembayaran lain yang sudah diterima',-pra.lain);
-    h+=invBarisTotal('SISA PEMBAYARAN',pra.tagih,true);
+       menagih lebih besar daripada yang ia tahu masih kurang. */
+    if(pra.dpCentang>0) tot.push({label:'Dikurangi DP yang sudah diterima',nilai:-pra.dpCentang});
+    if(pra.lain>0) tot.push({label:'Dikurangi pembayaran lain yang sudah diterima',nilai:-pra.lain});
+    tot.push({label:'SISA PEMBAYARAN',nilai:pra.tagih,tebal:true});
   } else {
-    h+=invBarisTotal(dpLabel(f)+' yang ditagih',f.dp,true);
-    if(f.paid>0) h+=invBarisTotal('Sudah diterima',f.paid);
+    tot.push({label:dpLabel(f)+' yang ditagih',nilai:f.dp,tebal:true});
+    if(f.paid>0) tot.push({label:'Sudah diterima',nilai:f.paid});
   }
-  h+='</tfoot></table>';
-
-  h+='<div style="background:#FBF3D8;border-radius:10px;padding:12px 18px;margin-top:16px;font-size:12px;line-height:1.7">'
-    +'<b>Pembayaran ditujukan ke</b><br>'+esc(INV_KOP.bank)+' &middot; No. Rek <b>'+esc(INV_KOP.rek)+'</b>'
-    +'<br><span style="color:#666">Mohon cantumkan nomor invoice '+esc(noDok)+' pada berita transfer.</span></div>';
-
-  /* Dua kolom tanda tangan — Direktur & Finance. Siapa persisnya ditentukan
-     Finance per lembar; kalau lembarnya belum resmi (atau sengaja terbit tanpa
-     tanda tangan), yang digambar GARIS TANDA TANGAN dengan jabatan bawaan.
-     Kotak kosong tanpa garis terbaca seperti gambar yang gagal termuat. */
-  const pen=(resmi&&Array.isArray(inv.penanda)&&inv.penanda.length)
-    ? inv.penanda
-    : [{nama:'',jabatan:'Direktur',ttd:''},{nama:'',jabatan:'Finance',ttd:''}];
   /* CAP (stempel LUNAS) HANYA KALAU BUKTI BAYARNYA ADA (26 Oktober 2026,
      permintaan user). Lembar bercap terbaca client sebagai tanda uangnya
      sudah diterima; mencapnya sebelum ada satu pun bukti transfer berarti
      menyatakan lunas untuk uang yang belum terbukti masuk. */
   const cap=(resmi&&invAdaBukti(ev,jenis))?(inv.cap||''):'';
-  h+='<div style="display:flex;justify-content:flex-end;gap:26px;margin-top:26px;font-size:12px">'
-    +pen.map(function(p,i){
-      return '<div style="text-align:center;min-width:180px;position:relative">'
-        +'<div style="color:#666">Hormat kami,</div>'
-        +(i===0&&cap?'<img src="'+esc(cap)+'" alt="" style="position:absolute;left:50%;top:14px;transform:translateX(-50%) rotate(-12deg);height:86px;opacity:.85">':'')
-        +(p.ttd?'<img src="'+esc(p.ttd)+'" alt="" style="height:56px;margin:4px 0;position:relative">'
-               :'<div style="height:56px"></div><div style="border-bottom:1px solid #bbb;margin:0 12px 5px"></div>')
-        +'<div style="font-weight:700;position:relative">'+esc(p.nama||'(...................)')+'</div>'
-        +'<div style="color:#666;position:relative">'+esc(p.jabatan||'')+'</div></div>';
-    }).join('')
-  +'</div>';
-
-  h+='<div style="margin-top:26px;padding-top:12px;border-top:1px solid #eee;font-size:10px;color:#aaa;display:flex;justify-content:space-between">'
-    +'<span>'+INV_KOP.pt+' &middot; @laksamanamuda.id</span>'
-    +'<span>Dicetak '+fmtDateLong(today())+' oleh '+esc(ME.name)+'</span></div>';
-
-  return '<div class="doc" style="max-width:800px;margin:0 auto;padding:34px 40px;font-family:Inter,sans-serif;color:#1a1a1a">'+h+'</div>';
+  return window.LMInvoice.html({
+    logo:window.LM_LOGO||'', no:resmi?inv.no:'', resmi:resmi, lunas:lunas,
+    tanggalTerbit:today(),
+    kepada:kp.kepada, up:kp.up,
+    acara:ev.nama, tanggalAcara:ev.tanggal||'', jenisAcara:ev.jenis||'', pax:ev.pax||'',
+    items:invItemsMkt(ev), ket:(inv&&inv.ubah&&inv.ubah.ket)||[],
+    totals:tot,
+    penanda:resmi?inv.penanda:null, cap:cap,
+    kaki:'Dicetak '+fmtDateLong(today())+' oleh '+((ME&&ME.name)||'')
+  });
 }
+/* Lembar terakhir yang dibuka, supaya form ubah & tombol simpannya tidak
+   perlu menarik invBerkas lagi. */
+let INV_LIHAT=null;   // {evId, jenis, inv}
 async function invoiceMktPDF(evId,jenis){
   const ev=S.events.find(e=>e.id===evId); if(!ev) return;
   let inv=null;
@@ -13939,9 +13887,56 @@ async function invoiceMktPDF(evId,jenis){
        yang sedang berhadapan dengan client tidak punya apa-apa di tangan. */
     toast('Modul Finance tak terjangkau','Lembarnya dicetak tanpa nomor resmi & tanda tangan.','err');
   }
+  if(!window.LMInvoice){
+    return toast('Lembar invoice tidak termuat','Berkas assets/invoice-sheet.js belum ikut ter-deploy. Muat ulang halamannya.','err');
+  }
+  INV_LIHAT={evId:evId,jenis:jenis,inv:inv};
+  invGambarLihat(false);
+}
+/* Modal pratinjau + (opsional) form ubah. `ubah`=true membuka formnya.
+   Form hanya untuk lembar yang SUDAH resmi: ubahannya disimpan di baris
+   Finance, dan lembar yang belum diterbitkan memang belum punya baris
+   berstatus DIBUAT untuk ditulisi. */
+function invGambarLihat(ubah){
+  const L=INV_LIHAT; if(!L) return;
+  const ev=S.events.find(e=>e.id===L.evId); if(!ev) return;
+  const inv=L.inv, jenis=L.jenis;
+  const resmi=!!(inv&&inv.ada);
+  const bolehUbah=resmi&&bolehMintaInvoice();
   window._printDoc=invoiceMktDoc(ev,jenis,inv);
+  let form='';
+  if(ubah&&bolehUbah){
+    const kp=invKepalaMkt(ev,inv);
+    const items=window.LMInvoice.terapkanKet(invItemsMkt(ev),(inv.ubah&&inv.ubah.ket)||[]);
+    form='<div class="card" style="margin:0 0 12px;padding:14px">'
+      +'<b style="font-size:13px">Ubah isi lembar invoice</b>'
+      +'<div class="cell-sub" style="margin:3px 0 10px">Yang bisa diubah cuma <b>teks</b> — Kepada, U.P, dan Keterangan tiap baris. '
+        +'Angka tetap dari rincian event. Kosongkan kotak untuk kembali ke isi bawaan. '
+        +'Ubahan disimpan di Finance, jadi lembar yang dilihat Finance ikut berubah.</div>'
+      +'<div class="form-grid">'
+        +'<div><label>Kepada</label><input id="invu_kepada" value="'+esc(String((inv.ubah&&inv.ubah.kepada)||''))+'" placeholder="'+esc(kp.bawaanKepada)+'"></div>'
+        +'<div><label>U.P</label><input id="invu_up" value="'+esc(String((inv.ubah&&inv.ubah.up)||''))+'" placeholder="'+esc(kp.bawaanUp)+'"></div>'
+      +'</div>'
+      +(items.length
+        ? '<div style="margin-top:10px"><label>Keterangan per baris</label>'
+          +items.map(function(it,i){
+            return '<div style="display:flex;gap:8px;align-items:flex-start;margin-top:6px">'
+              +'<span class="cell-sub mono" style="min-width:22px;margin:8px 0 0">'+(i+1)+'.</span>'
+              +'<textarea id="invu_ket_'+i+'" rows="1" style="flex:1;min-height:36px" placeholder="'+esc(it.desc)+'">'
+                +esc(it.diubah?it.ket:'')+'</textarea>'
+              +'<span class="cell-sub mono" style="min-width:110px;text-align:right;margin:8px 0 0">'+rp(it.qty*it.harga)+'</span></div>';
+          }).join('')+'</div>'
+        : '')
+      +'<div style="margin-top:12px;display:flex;gap:8px">'
+        +'<button class="btn sm pri" id="invu_simpan" onclick="invSimpanUbah()">Simpan perubahan</button>'
+        +'<button class="btn sm" onclick="invGambarLihat(false)">Batal</button></div>'
+      +((inv.ubah&&inv.ubah.oleh)?'<div class="cell-sub" style="margin:8px 0 0">Terakhir diubah '+esc(inv.ubah.oleh)
+        +(inv.ubah.at?' · '+fmtDate(new Date(+inv.ubah.at).toISOString().slice(0,10)):'')+'</div>':'')
+      +'</div>';
+  }
   modal('<div class="modal-head wide" style="display:flex"><div><div class="eyebrow">Invoice Resmi</div>'
     +'<h3 style="margin-top:5px">'+esc(ev.nama)+'</h3></div><div class="pill-row">'
+    +(bolehUbah&&!ubah?'<button class="btn sm" onclick="invGambarLihat(true)">'+svg(IC.edit||IC.invoice)+'Ubah Kepada / U.P / Keterangan</button>':'')
     +'<button class="btn sm pri" onclick="printBrief()">'+svg(IC.print)+'Print / PDF</button>'
     +'<div class="x" onclick="closeModal()">'+svg(IC.x)+'</div></div></div>'
     /* Kenapa capnya tidak ada DIKATAKAN di layar (bukan di lembarnya — lembar
@@ -13951,9 +13946,37 @@ async function invoiceMktPDF(evId,jenis){
       ?'<div class="tbl-note" style="margin:0 0 10px">'+svg(IC.alert)+'<span><b>Cap LUNAS tidak ditempel</b> karena '
         +(jenis==='INV_LUNAS'?'pembayaran pelunasannya':'pembayaran DP-nya')+' belum punya bukti transfer. '
         +'Unggah buktinya lewat Edit pembayaran di tab Finance — begitu ada, capnya muncul di lembar ini.</span></div>':'')
+    +form
     +'<div class="modal-body" id="brief-body" style="background:#fff;border-radius:12px;padding:0;max-height:70vh">'
     +window._printDoc+'</div>');
   $('modal').classList.add('wide');
+}
+/* Dikirim ke Finance (invUbah), bukan disimpan di state Marketing: lembar
+   yang sama dilihat Finance dari ringkasan miliknya, dan dua tempat yang
+   menyimpan "Kepada" untuk satu nomor invoice pasti berselisih suatu hari. */
+async function invSimpanUbah(){
+  const L=INV_LIHAT; if(!L||!(L.inv&&L.inv.ada)) return;
+  if(!bolehMintaInvoice()) return toast('Akses ditolak','Kamu tidak punya izin mengubah invoice.','err');
+  const ev=S.events.find(e=>e.id===L.evId); if(!ev) return;
+  const val=id=>{ const el=document.getElementById(id); return el?String(el.value||'').trim():''; };
+  const items=invItemsMkt(ev);
+  const ubah={
+    kepada:val('invu_kepada'), up:val('invu_up'),
+    ket:items.map((it,i)=>({asal:it.desc, teks:val('invu_ket_'+i)}))
+  };
+  const btn=document.getElementById('invu_simpan'); if(btn) btn.disabled=true;
+  try{
+    const baris=await invFetchFin('invUbah',{resId:invResId(ev.id,L.jenis),ubah:ubah,oleh:(ME&&ME.name)||''});
+    L.inv=Object.assign({},L.inv,{ubah:baris&&baris.ubah});
+    MKT_INV[invResId(ev.id,L.jenis)]=baris;
+    logAct('event',ev.id,'Ubah isi invoice '+(L.jenis==='INV_LUNAS'?'pelunasan':'DP'),(L.inv.no||'')+' · Kepada/U.P/Keterangan');
+    save();
+    toast('Invoice diperbarui ✓','Lembar di Finance ikut berubah.','ok');
+    invGambarLihat(false);
+  }catch(e){
+    if(btn) btn.disabled=false;
+    toast('Gagal menyimpan',(e.message||String(e)),'err');
+  }
 }
 /* Bukti bayar untuk lembar invoice — penentu satu-satunya apakah cap LUNAS
    boleh ditempel.
@@ -13961,16 +13984,13 @@ async function invoiceMktPDF(evId,jenis){
                  tidak satu pun berjenis DP, pembayaran apa pun yang berbukti).
      Pelunasan : pembayaran berjenis Pelunasan yang berbukti; kalau tidak ada
                  baris Pelunasan, SELURUH pembayaran wajib berbukti. */
+/* Aturannya sendiri PINDAH ke assets/invoice-sheet.js (LMInvoice.adaBukti,
+   28 Okt 2026) — Finance memakai aturan yang sama saat melihat lembarnya.
+   Lembar yang tidak termuat = tanpa cap: sisi yang aman. */
 function invAdaBukti(ev,jenis){
-  const p=(ev&&ev.payments)||[];
-  const bukti=x=>!!(x&&x.receiptUrl);
-  if(jenis==='INV_LUNAS'){
-    const pl=p.filter(x=>String(x.type||'')==='Pelunasan');
-    if(pl.length) return pl.some(bukti);
-    return p.length>0 && p.every(bukti);
-  }
-  const dp=p.filter(x=>String(x.type||'')==='DP');
-  return (dp.length?dp:p).some(bukti);
+  if(!window.LMInvoice) return false;
+  const p=((ev&&ev.payments)||[]).map(x=>({jenis:String(x.type||''), adaBukti:!!(x&&x.receiptUrl)}));
+  return window.LMInvoice.adaBukti(p,jenis);
 }
 /* Argumen `invNo` DIBUANG (21 Agustus 2026). Nomornya dulu dikirim dari
    pemanggil sebagai nomor internal; sekarang satu-satunya nomor invoice
@@ -17041,6 +17061,7 @@ function vipKwitansiData(v, inv){
     total: vipDpTotal(v),
     penanda: (inv&&Array.isArray(inv.penanda)&&inv.penanda.length)?inv.penanda:null,
     cap: (inv&&inv.cap)||'',
+    materai: !!(inv&&inv.materai),
     logo: window.LM_LOGO||window.__LOGO__||''
   };
 }
