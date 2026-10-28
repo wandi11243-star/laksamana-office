@@ -2548,10 +2548,26 @@ function segArsip(mode,aksi,list){
    "+ Tambah kartu" (null = tanpa project). Di mode Aktif kolom Done TETAP
    ada sebagai tempat menjatuhkan kartu — tanpa itu tidak ada cara
    menyelesaikan task dari papan — tapi isinya diringkas jadi jumlah arsip. */
+/* KARTU YANG DIGESER MENDARAT DI PALING BAWAH kolom tujuannya (28 Okt 2026,
+   permintaan user). Kolom tetap diurut menurut deadline, tapi kartu yang
+   baru diseret ke kolom itu (t.pindahKe = {st, at}) berdiri SESUDAH seluruh
+   kartu lain, berurutan menurut waktu digeser — yang terakhir digeser paling
+   bawah. Penandanya menyebut KOLOMNYA: status yang kemudian diubah lewat
+   modal/centang membuat penanda lama tidak berlaku lagi di kolom baru, jadi
+   kartu itu kembali ke urutan deadline biasa. */
+function kanbanUrut(st){
+  var geser=function(t){ return !!(t.pindahKe && t.pindahKe.st===st); };
+  return function(a,b){
+    var ga=geser(a), gb=geser(b);
+    if(ga!==gb) return ga?1:-1;
+    if(ga&&gb) return (a.pindahKe.at||0)-(b.pindahKe.at||0);
+    return urutDeadline(a,b);
+  };
+}
 function kanbanHtml(base,proj,tampilProj,arsip){
   var kolom=arsip==='arsip'?['Done']:STATUS_FLOW;
   return '<div class="kanban board">'+kolom.map(function(st){
-    var l=base.filter(function(t){return (t.status||'To Do')===st;}).sort(urutDeadline);
+    var l=base.filter(function(t){return (t.status||'To Do')===st;}).sort(kanbanUrut(st));
     var sembunyi=(st==='Done'&&arsip==='aktif');
     var tampil=sembunyi?[]:l;
     return '<div class="kcol"><div class="kcol-h"><span class="kt">'+st+'</span><span class="kc num">'+l.length+'</span></div>'+
@@ -2615,7 +2631,7 @@ function dropBoard(e,st){
   var t=taskById(_dragBoard); _dragBoard=null;
   if(!t || t.status===st) return;
   if(st==='Done' && !cekBolehDone(t)) { render(); return; }
-  var dulu=t.status; t.status=st; segarkanProgress(t);
+  var dulu=t.status; t.status=st; t.pindahKe={st:st,at:Date.now()}; segarkanProgress(t);
   save(); render(); toast(namaPendek(t)+': '+dulu+' → '+st);
 }
 function boardTambah(inp,st,proj){

@@ -2548,7 +2548,23 @@ function segArsip() { selesai(); }
 
 
 
-function kanbanHtml() { dropBoard(); boardCard(); esc(); boardTambah(); }
+
+
+
+
+
+
+
+function kanbanUrut() {  }
+function geser() { urutDeadline(); }
+
+
+
+
+
+
+
+function kanbanHtml() { kanbanUrut(); dropBoard(); boardCard(); esc(); boardTambah(); }
 
 
 

@@ -831,9 +831,10 @@ node tools/uji-agent-bd.js   # 30 pemeriksaan, jsdom + kontrak PHP
 - **`tasksTerlihat()`/`projectsTerlihat()` memulangkan SELURUHNYA.** Dulu disaring ke "saya + anak buah" (`boss` di Kru), dan karena hampir tidak ada yang punya `boss`, kru non-admin cuma melihat task-nya sendiri (keluhan user). Penyaring Lingkup bawaannya **Semua** (`fScope`/`bScope`/`pScope`, juga Reset); Tim saya / Ditugaskan ke saya tetap ada sebagai alat fokus. Uji WAJIB login non-admin — dari akun admin bug-nya tidak terlihat.
 - **Review oleh** = `t.reviewers` [id kru] (picker `m_rev`, blob task, tanpa migrasi). Bukan pelaksana; task berstatus **Review** masuk My Task reviewer di kelompok "Menunggu review kamu" (sekali, tidak dobel). Tanda `👁 Review:` di daftar/kanban/pohon.
 - Ikon menu Daily Task `daily` (matahari), Recurring tetap `routine`.
+- **Kartu kanban yang DIGESER mendarat di paling bawah** kolom tujuannya: `dropBoard` mencatat `t.pindahKe={st,at}`, dan `kanbanUrut(st)` menaruh kartu bertanda kolom itu SESUDAH yang lain (urut waktu geser); sisanya tetap urut deadline. Penandanya menyebut kolom, jadi status yang diubah lewat modal/centang tidak membawa posisi "bawah" ke kolom baru.
 
 ```bash
-node tools/uji-review-bd.js   # 24 pemeriksaan, jsdom (sesi NON-admin)
+node tools/uji-review-bd.js   # 29 pemeriksaan, jsdom (sesi NON-admin)
 ```
 
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)

@@ -120,6 +120,32 @@ const buka = async nama => { W.location.hash='#'+nama; W.dispatchEvent(new W.Has
   W.APP.simpanTask('tW'); await tunggu(300);
   cek(JSON.stringify(T('tW').reviewers)==='[]', 'tag reviewer bisa dilepas lagi');
 
+  console.log('\n== 4. kartu yang digeser mendarat di paling bawah ==');
+  W.__uji.ev(`DB.tasks.push(
+    {id:'k1',name:'Kartu A',div:'Business Development',pics:['p2'],status:'Doing',deadline:'${iso(30)}'},
+    {id:'k2',name:'Kartu B',div:'Business Development',pics:['p2'],status:'Doing',deadline:'${iso(40)}'},
+    {id:'k3',name:'Kartu Geser',div:'Business Development',pics:['p2'],status:'To Do',deadline:'${iso(1)}'},
+    {id:'k4',name:'Kartu Geser Dua',div:'Business Development',pics:['p2'],status:'To Do',deadline:'${iso(0)}'})`);
+  const urutDoing = () => {
+    const box=D.createElement('div');
+    box.innerHTML=W.__uji.ev("kanbanHtml(DB.tasks.filter(t=>/^k/.test(t.id)),null,false,'aktif')");
+    const kol=[...box.querySelectorAll('.kcol')].find(c=>/Doing/.test(c.querySelector('.kt').textContent));
+    return [...kol.querySelectorAll('.kt2')].map(x=>x.textContent);
+  };
+  cek(urutDoing().join('|')==='Kartu A|Kartu B', 'sebelum digeser: kolom urut deadline');
+  const geser = async id => { W.__uji.ev("_dragBoard='"+id+"'"); W.APP.dropBoard({preventDefault(){}},'Doing'); await tunggu(20); };
+  await geser('k3');
+  cek(urutDoing().join('|')==='Kartu A|Kartu B|Kartu Geser', 'kartu yang digeser di paling bawah walau deadline-nya paling dekat', urutDoing().join('|'));
+  await tunggu(5);
+  await geser('k4');
+  cek(urutDoing().join('|')==='Kartu A|Kartu B|Kartu Geser|Kartu Geser Dua', 'yang terakhir digeser paling bawah', urutDoing().join('|'));
+  cek(T('k3').pindahKe && T('k3').pindahKe.st==='Doing', 'penanda geser tersimpan di task (ikut ke server)');
+  W.__uji.ev("DB.tasks.find(t=>t.id==='k3').status='To Do'");
+  const box=D.createElement('div');
+  box.innerHTML=W.__uji.ev("kanbanHtml(DB.tasks.filter(t=>/^k/.test(t.id)),null,false,'aktif')");
+  const todo=[...box.querySelectorAll('.kcol')].find(c=>/To Do/.test(c.querySelector('.kt').textContent));
+  cek(/Kartu Geser/.test(todo.textContent), 'status diubah lewat jalan lain: penanda lama tidak berlaku di kolom baru');
+
   console.log('\n== 3. ikon Daily vs Recurring ==');
   const svgMenu = id => { const a=D.querySelector('[data-v="'+id+'"],[data-view="'+id+'"],[onclick*="\''+id+'\'"]'); const s=a&&a.querySelector('svg'); return s?s.innerHTML:null; };
   const iDaily=svgMenu('daily'), iRec=svgMenu('recurring');
