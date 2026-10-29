@@ -1007,9 +1007,14 @@ akan tertimpa.
 node tools/uji-campaign.js   # 236 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
-**Periode & fokus analisa AI (29 Okt 2026)** — Riset Tren DAN Insight otomatis
-punya pilihan periode data (7/30/90 hari/rentang/semua waktu, bawaan 30) +
-fokus kategori konten. Dikirim `dari`/`sampai`/`fokus`; `cg_rentang_bukti()`
+**Periode & fokus analisa AI (29 Okt 2026)** — **Content Planning (Bank Konten)**
+DAN Insight otomatis punya pilihan periode data (7/30/90 hari/rentang/semua
+waktu, bawaan 30) + fokus kategori konten. **Riset Tren cuma fokus** — kolom
+periodenya dicabut hari yang sama atas permintaan user (yang diminta memang
+Content Planning). Di Content Planning `dari`/`sampai` = rentang RENCANA, jadi
+periode data dikirim `dataDari`/`dataSampai` dan fokus sebagai `pilar`; pilar
+ide sekarang `cg_pilar_daftar()` (dulu `cg_kategori()` = kategori pola insight,
+bukan jenis konten). Riset & insight mengirim `dari`/`sampai`/`fokus`; `cg_rentang_bukti()`
 menolak tanggal tak sah, `cg_bukti_post($pdo,$n,$dari,$sampai)` menyaring
 `tayang_at` per hari WIB. Fokus = **pilar konten** — BERKAS KEMBAR TIGA:
 `PILLARS` planning, `KONTEN_PILAR` analytics, `cg_pilar_daftar()` php (dijaga

@@ -345,28 +345,38 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     w.fetch = (u, i) => JSON.parse(i.body).action === 'campaignRiset'
       ? Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: true, data: { id: 'rx', hasil: {}, model: 'm' } })) })
       : asli(u, i);
-    cek('riset: bawaan periode 30 hari menyala', !!d.querySelector('[data-a="pf-r"][data-k="riset"][data-v="30"].on'));
+    cek('riset: kolom periode sudah dicabut (pindah ke Content Planning)', !d.querySelector('[data-a="pf-r"][data-k="riset"]') && !/Periode data yang dibaca AI/.test(d.getElementById('app').innerHTML.split('Riwayat riset')[0]));
     cek('riset: pilihan fokus = pilar Content Planning (F&B, Entertainment, Promosi)',
       !!d.querySelector('[data-a="pf-fokus"][data-k="riset"][data-v="Product & Menu"]') && !!d.querySelector('[data-a="pf-fokus"][data-v="Entertainment"]') && /Promosi/.test(d.getElementById('app').innerHTML));
     d.getElementById('r-topik').value = 'Weekend';
-    klik(d, '[data-a="pf-r"][data-k="riset"][data-v="7"]'); await tunggu(20);
-    cek('riset: menekan periode tidak membuang topik yang diketik', d.getElementById('r-topik').value === 'Weekend');
     klik(d, '[data-a="pf-fokus"][data-k="riset"][data-v="Entertainment"]'); await tunggu(20);
+    cek('riset: menekan fokus tidak membuang topik yang diketik', d.getElementById('r-topik').value === 'Weekend');
     klik(d, '[data-a="pf-fokus"][data-k="riset"][data-v="Promotion"]'); await tunggu(20);
     klik(d, '[data-a="pf-fokus"][data-k="riset"][data-v="Promotion"]'); await tunggu(20);
     cek('riset: fokus bisa dilepas lagi', !d.querySelector('[data-a="pf-fokus"][data-v="Promotion"].on') && !!d.querySelector('[data-a="pf-fokus"][data-v="Entertainment"].on'));
-    const sebelum = srv.log.length;
     let kirim = null;
     w.fetch = (u, i) => { const b = JSON.parse(i.body); if (b.action === 'campaignRiset') kirim = b.data; return asli(u, i); };
     klik(d, '[data-a="riset-jalan"]'); await tunggu(40);
-    cek('riset: dikirim dari (hari ini-6) s/d hari ini + fokus', kirim && kirim.dari === mundur(7) && kirim.sampai === kini && JSON.stringify(kirim.fokus) === '["Entertainment"]', JSON.stringify(kirim));
-    void sebelum;
-    /* Rentang khusus tanpa tanggal DITAHAN, bukan dikirim sebagai semua waktu. */
-    kirim = null;
-    klik(d, '[data-a="pf-r"][data-k="riset"][data-v="khusus"]'); await tunggu(20);
-    d.getElementById('r-topik').value = 'Weekend';
-    klik(d, '[data-a="riset-jalan"]'); await tunggu(20);
-    cek('riset: rentang khusus kosong ditahan', kirim === null);
+    cek('riset: dikirim semua waktu + fokus', kirim && kirim.dari === '' && kirim.sampai === '' && JSON.stringify(kirim.fokus) === '["Entertainment"]', JSON.stringify(kirim));
+
+    /* Content Planning (Bank Konten): periode data + fokus pilar. */
+    const bk = await buka({ hash: '#bank' });
+    let kb = null; const asliB = bk.w.fetch;
+    bk.w.fetch = (u, i) => { const x = JSON.parse(i.body); if (x.action === 'campaignBankGenerate') kb = x.data; return asliB(u, i); };
+    cek('planning: ada pilihan periode data (bawaan 30 hari) & fokus pilar', !!bk.d.querySelector('[data-a="pf-r"][data-k="bank"][data-v="30"].on') && !!bk.d.querySelector('[data-a="pf-fokus"][data-k="bank"][data-v="Promotion"]'));
+    bk.d.getElementById('b-fokus').value = 'target anak muda';
+    const dariRencana = bk.d.getElementById('b-dari').value;
+    klik(bk.d, '[data-a="pf-r"][data-k="bank"][data-v="90"]'); await tunggu(20);
+    klik(bk.d, '[data-a="pf-fokus"][data-k="bank"][data-v="Product & Menu"]'); await tunggu(20);
+    cek('planning: menekan periode/fokus tidak membuang isian', bk.d.getElementById('b-fokus').value === 'target anak muda' && bk.d.getElementById('b-dari').value === dariRencana);
+    klik(bk.d, '[data-a="bank-jalan"]'); await tunggu(60);
+    cek('planning: periode data dikirim TERPISAH dari rentang rencana', kb && kb.dari === dariRencana && kb.dataDari === mundur(90) && kb.dataSampai === kini && JSON.stringify(kb.pilar) === '["Product & Menu"]' && kb.fokus === 'target anak muda', JSON.stringify(kb));
+    kb = null;
+    klik(bk.d, '[data-a="pf-r"][data-k="bank"][data-v="khusus"]'); await tunggu(20);
+    klik(bk.d, '[data-a="bank-jalan"]'); await tunggu(20);
+    cek('planning: rentang data khusus kosong ditahan', kb === null);
+    const bg = PHP_LIB.slice(PHP_LIB.indexOf('function cg_bank_generate('), PHP_LIB.indexOf('function cg_bank_generate(') + 4000);
+    cek('php: planning memakai periode data & pilar konten', bg.includes("cg_bukti_post($pdo, 20, $dDari, $dSampai)") && bg.includes('$kategori = cg_pilar_daftar();') && bg.includes('Buat ide HANYA untuk pilar'));
 
     const b2 = await buka();
     let kirim2 = null; const asli2 = b2.w.fetch;

@@ -382,8 +382,11 @@ var ST = {
   usulan: null, usulanJalan: false,
   /* Periode & fokus analisa AI (29 Okt 2026). Satu objek per kartu: riset dan
      insight otomatis boleh dibaca dari periode yang berbeda. */
-  risetPer: { r: '30', dari: '', sampai: '', fokus: [] },
+  /* Riset Tren TANPA pilihan periode (dicabut 29 Okt 2026, permintaan user —
+     periodenya pindah ke Content Planning). Fokus kategori tetap. */
+  risetPer: { r: 'semua', dari: '', sampai: '', fokus: [] },
   usulanPer: { r: '30', dari: '', sampai: '', fokus: [] },
+  bankPer: { r: '30', dari: '', sampai: '', fokus: [] },
   iklanPe: '30', iklanSrv: {}, iklanSibuk: '', iklanSync: false, iklanLabel: '', iklanNilai: '', iklanStatus: '', iklanUrut: 'spend', iklanQ: '', iklanRows: [],
   tumbuhHari: 30, tumbuhPlat: 'instagram', tumbuhSrv: {}, tumbuhSibuk: '',
   iklanTampil: 'iklan', iklanBukaPost: '', iklanMed: {},
@@ -1040,7 +1043,7 @@ function rentangPer(o){
 /* Kendali periode + fokus, dipakai kartu Riset Tren DAN Insight otomatis.
    Yang dikirim ke server rentang tanggalnya, bukan kata "30" — server tidak
    perlu menghitung ulang "hari ini" dengan jamnya sendiri. */
-function periodeFokusHtml(k, o){
+function periodeFokusHtml(k, o, tanpaPeriode){
   var seg = '<div class="seg">' + [['7','7 hari'],['30','30 hari'],['90','90 hari'],['khusus','Rentang…'],['semua','Semua waktu']].map(function(x){
     return '<button type="button" class="' + (o.r === x[0] ? 'on' : '') + '" data-a="pf-r" data-k="' + k + '" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>';
   var tgl = o.r === 'khusus'
@@ -1050,7 +1053,8 @@ function periodeFokusHtml(k, o){
     : '';
   var chip = KONTEN_PILAR.map(function(p){
     return '<button type="button" class="' + (o.fokus.indexOf(p) >= 0 ? 'on' : '') + '" data-a="pf-fokus" data-k="' + k + '" data-v="' + esc(p) + '">' + esc(PILAR_LABEL[p] || p) + '</button>'; }).join('');
-  return '<div class="field full"><label>Periode data yang dibaca AI</label><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">' + seg + tgl + '</div></div>'
+  return (tanpaPeriode ? '' : '<div class="field full"><label>Periode data yang dibaca AI</label><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">' + seg + tgl + '</div>'
+    + '<div class="bantu">Postingan brand dari periode ini yang dipakai AI sebagai dasar.</div></div>')
     + '<div class="field full"><label>Fokus kategori konten (opsional, boleh lebih dari satu)</label><div class="seg" style="flex-wrap:wrap">' + chip + '</div>'
     + '<div class="bantu">' + (o.fokus.length ? 'AI hanya menganalisa konten ' + esc(o.fokus.map(function(p){ return PILAR_LABEL[p] || p; }).join(', ')) + '.' : 'Tidak ada yang dipilih = semua kategori.')
     + ' Kategori diambil dari pilar konten di Content Planning; postingan yang belum tercatat di sana dinilai AI dari judulnya.</div></div>';
@@ -1068,6 +1072,11 @@ function teksMeta(m){
 }
 /* Isian riset dibaca dari DOM sebelum render: render() total, dan menekan
    satu tombol periode tidak boleh menghapus topik yang sedang diketik. */
+function simpanIsiBank(){
+  if (!document.getElementById('b-dari')) return;
+  ST.bankIsi = { dari: nilai('b-dari'), sampai: nilai('b-sampai'), platform: nilai('b-plat'), jumlah: nilai('b-jml'), fokus: nilai('b-fokus') };
+}
+function perDariKunci(k){ return k === 'riset' ? ST.risetPer : k === 'bank' ? ST.bankPer : ST.usulanPer; }
 function simpanIsiRiset(){
   if (!document.getElementById('r-topik')) return;
   ST.risetIsi = { topik: nilai('r-topik'), platform: nilai('r-plat'), catatan: nilai('r-cat') };
@@ -1082,7 +1091,7 @@ function vRiset(){
   h += '<div class="form">'
     + '<div class="field"><label>Topik riset *</label><input id="r-topik" value="' + esc(RI.topik || '') + '" placeholder="Contoh: konten malam minggu & live music"></div>'
     + '<div class="field"><label>Platform</label><select id="r-plat">' + ['TikTok, Instagram','TikTok','Instagram','YouTube'].map(function(p){ return '<option' + (RI.platform === p ? ' selected' : '') + '>' + p + '</option>'; }).join('') + '</select></div>'
-    + periodeFokusHtml('riset', ST.risetPer)
+    + periodeFokusHtml('riset', ST.risetPer, true)
     + '<div class="field full"><label>Catatan tambahan (opsional)</label><input id="r-cat" value="' + esc(RI.catatan || '') + '" placeholder="Contoh: target anak muda 18–28, ada promo voucher TikTok bulan ini"></div>'
     + '</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-primary" data-a="riset-jalan"' + (siap && !ST.risetJalan ? '' : ' disabled') + '>'
     + (ST.risetJalan ? 'Menganalisa…' : '⚡ Jalankan riset') + '</button></div>';
@@ -1159,7 +1168,8 @@ function vBank(){
     + '<div class="field"><label>Sampai tanggal *</label><input id="b-sampai" type="date" value="' + esc(BI.sampai || tglPlus(14)) + '"></div>'
     + '<div class="field"><label>Platform</label><select id="b-plat">' + ['TikTok, Instagram','TikTok','Instagram','YouTube'].map(function(p){ return '<option' + (BI.platform === p ? ' selected' : '') + '>' + p + '</option>'; }).join('') + '</select></div>'
     + '<div class="field"><label>Jumlah konten</label><select id="b-jml">' + [5, 8, 10, 14, 20].map(function(n){ return '<option' + (+(BI.jumlah || 10) === n ? ' selected' : '') + '>' + n + '</option>'; }).join('') + '</select></div>'
-    + '<div class="field full"><label>Fokus / catatan (opsional)</label><input id="b-fokus" value="' + esc(BI.fokus || '') + '" placeholder="Contoh: promo weekend, live music Jumat–Sabtu, target anak muda"></div>'
+    + periodeFokusHtml('bank', ST.bankPer)
+    + '<div class="field full"><label>Catatan tambahan (opsional)</label><input id="b-fokus" value="' + esc(BI.fokus || '') + '" placeholder="Contoh: promo weekend, live music Jumat–Sabtu, target anak muda"></div>'
     + '</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-primary" data-a="bank-jalan"' + (siap && !ST.bankJalan ? '' : ' disabled') + '>'
     + (ST.bankJalan ? 'Menyusun…' : '⚡ Buat content planning') + '</button></div>';
   if (ST.bankGalat && !ST.bankJalan) h += '<div class="pita err" style="margin-top:14px"><b>Gagal membuat planning:</b> ' + esc(ST.bankGalat) + '</div>';
@@ -2196,8 +2206,9 @@ document.addEventListener('click', function(ev){
     return;
   }
   if (a === 'pf-r' || a === 'pf-fokus') {
-    var po = el.getAttribute('data-k') === 'riset' ? ST.risetPer : ST.usulanPer;
+    var po = perDariKunci(el.getAttribute('data-k'));
     if (el.getAttribute('data-k') === 'riset') simpanIsiRiset();
+    if (el.getAttribute('data-k') === 'bank') simpanIsiBank();
     if (a === 'pf-r') po.r = v;
     else { var fi = po.fokus.indexOf(v); if (fi >= 0) po.fokus.splice(fi, 1); else po.fokus.push(v); }
     render(); return;
@@ -2445,6 +2456,9 @@ document.addEventListener('click', function(ev){
     var bd = { dari: nilai('b-dari'), sampai: nilai('b-sampai'), platform: nilai('b-plat'), jumlah: nilai('b-jml'), fokus: nilai('b-fokus') };
     if (!/^\d{4}-\d{2}-\d{2}$/.test(bd.dari) || !/^\d{4}-\d{2}-\d{2}$/.test(bd.sampai)) { ST.bankIsi = bd; ST.bankGalat = 'Rentang tanggal wajib diisi.'; render(); return; }
     if (bd.sampai < bd.dari) { ST.bankIsi = bd; ST.bankGalat = 'Tanggal akhir tidak boleh sebelum tanggal awal.'; render(); return; }
+    var bp = kirimPer(ST.bankPer);
+    if (!bp) { toast('Isi tanggal mulai dan akhir periode datanya dulu.', true); return; }
+    bd.dataDari = bp.dari; bd.dataSampai = bp.sampai; bd.pilar = bp.fokus;
     ST.bankIsi = bd; ST.bankGalat = ''; ST.bankHasil = null; ST.bankJalan = true; render();
     api('campaignBankGenerate', bd).then(function(r){ ST.bankHasil = r; ST.bankSt = 'IDE'; toast(r.jumlah + ' ide masuk ke Bank Konten.'); return muat(); })
       .catch(function(e){ ST.bankGalat = e.message || 'Gagal tanpa keterangan'; toast(e.message, true); }).then(function(){ ST.bankJalan = false; render(); });
@@ -2511,8 +2525,9 @@ document.addEventListener('change', function(ev){
   var el = ev.target; if (el.getAttribute('data-a') === 'ins-kat') { ST.insKat = el.value; render(); }
   if (el.getAttribute('data-a') === 'top-dari') { ST.topDari = el.value; ST.topHal = 1; render(); }
   if (el.getAttribute('data-a') === 'pf-dari' || el.getAttribute('data-a') === 'pf-sampai') {
-    var pk = el.getAttribute('data-k'), pp = pk === 'riset' ? ST.risetPer : ST.usulanPer;
+    var pk = el.getAttribute('data-k'), pp = perDariKunci(pk);
     if (pk === 'riset') simpanIsiRiset();
+    if (pk === 'bank') simpanIsiBank();
     pp[el.getAttribute('data-a') === 'pf-dari' ? 'dari' : 'sampai'] = el.value; render();
   }
   if (el.getAttribute('data-a') === 'top-sampai') { ST.topSampai = el.value; ST.topHal = 1; render(); }
