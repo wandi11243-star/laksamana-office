@@ -1007,6 +1007,17 @@ akan tertimpa.
 node tools/uji-campaign.js   # 236 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
+**Periode & fokus analisa AI (29 Okt 2026)** — Riset Tren DAN Insight otomatis
+punya pilihan periode data (7/30/90 hari/rentang/semua waktu, bawaan 30) +
+fokus kategori konten. Dikirim `dari`/`sampai`/`fokus`; `cg_rentang_bukti()`
+menolak tanggal tak sah, `cg_bukti_post($pdo,$n,$dari,$sampai)` menyaring
+`tayang_at` per hari WIB. Fokus = **pilar konten** — BERKAS KEMBAR TIGA:
+`PILLARS` planning, `KONTEN_PILAR` analytics, `cg_pilar_daftar()` php (dijaga
+uji). Postingan TikTok/IG dapat pilar lewat tautan yang dicatat di Content
+Planning (`cg_peta_pilar`), sisanya dinilai AI dari judul — fokus TIDAK
+menyaring keras (kalau iya, data TikTok/IG yang tanpa pilar habis). Riset
+menyimpan `hasil._meta` {dari,sampai,fokus,nBukti}, disebut di riwayat.
+
 **Bank Konten (14 Okt 2026)** — menu `bank`, tabel `cg_bank` (lahir di
 `cg_pastikan`), aksi `campaignBankGenerate/Simpan/Arsip`. AI "Buat content
 planning" (rentang ≤2 bulan, 3–20 ide) membaca profil + insight aktif +
@@ -1048,6 +1059,19 @@ Halaman Iklan: Top iklan (termurah per jenis hasil), cari/saring/urut lokal
 Saklar Per iklan / Per postingan: iklan dikelompokkan per postingan IG
 (ig_media, lalu kode tautan; materi non-IG berdiri sendiri), "Diiklankan Nx",
 biaya & hasil gabungan, views organik dari cg_post (`post` di cg_ads_baca).
+
+**KELOLA IKLAN (29 Okt 2026)** — tombol **⚙ Kelola** di tabel Iklan (per iklan
+& per postingan) dan di tiap Saran AI. Panelnya membaca keadaan LANGSUNG dari
+Meta (`campaignAdsInfo`: iklan + adset + kampanye + budget), lalu
+`campaignAdsUbah` menjeda/melanjutkan tiap tingkat atau mengubah budget yang
+SUDAH ADA (harian/total, di adset atau kampanye). Penjaga: **admin modul
+saja**; `account_id` dibaca dari Meta dan wajib ada di `ads_akun` Pengaturan;
+id wajib angka (bukan `act_`); budget > 5× sekarang ditolak (salah ketik nol);
+`cg_ads_faktor()` IDR tanpa sen (faktor 1, lainnya 100 — salah = budget 100×).
+Tiap perubahan dicatat `cg_ads_log` (lahir sendiri, tanpa hapus). Token WAJIB
+punya `ads_management` + akun iklan "Kelola kampanye" di Pengguna Sistem;
+tanpa itu galat (#200) diterjemahkan jadi petunjuk membuat token baru.
+Membuat iklan baru tetap di Ads Manager.
 
 **PERTUMBUHAN (14 Okt 2026)** — menu `tumbuh`, aksi `campaignTumbuh`, tabel
 `cg_harian` (platform+tgl WIB; upsert `COALESCE` — kolom NULL tidak menimpa) dan

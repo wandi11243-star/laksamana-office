@@ -1017,20 +1017,88 @@ function cg_ai_tanya($pdo, $system, $prompt, $maks = 6000) {
 /* Ringkasan postingan terbaik yang diberikan ke AI sebagai bukti. TANPA itu
    AI cuma mengarang dari pengetahuan umumnya — dengan itu ia membaca pola
    dari konten brand ini sendiri. */
-function cg_bukti_post($pdo, $n = 25) {
+/* Kategori konten (pilar) = BERKAS KEMBAR PILLARS di deploy/konten/planning/
+   dan KONTEN_PILAR di deploy/konten/analytics/. Dipakai sebagai FOKUS analisa
+   (29 Okt 2026, permintaan user: FNB, Entertainment, Promosi, ...). Nilai di
+   luar daftar dibuang, bukan ditebak. */
+function cg_pilar_daftar() {
+  return array('Product & Menu','Promotion','Event','Entertainment','Education','Lifestyle','BTS','Corporate','Community','Information');
+}
+function cg_fokus_rapikan($f) {
+  $out = array(); if (!is_array($f)) return $out;
+  $sah = cg_pilar_daftar();
+  foreach ($f as $x) if (is_string($x) && in_array($x, $sah, true) && !in_array($x, $out, true)) $out[] = $x;
+  return $out;
+}
+/* Rentang data yang dibaca AI. Kosong = semua waktu (perilaku lama). Tanggal
+   tidak sah DITOLAK, bukan diabaikan: diabaikan, analisa "7 hari terakhir"
+   diam-diam membaca seluruh riwayat dan tetap terlihat wajar. */
+function cg_rentang_bukti($d) {
+  $dari = isset($d['dari']) ? trim((string)$d['dari']) : '';
+  $sampai = isset($d['sampai']) ? trim((string)$d['sampai']) : '';
+  if ($dari === '' && $sampai === '') return array('', '');
+  $a = cg_tgl_sah($dari); $b = cg_tgl_sah($sampai);
+  if ($a === null || $b === null) throw new Exception('Rentang tanggal tidak sah.');
+  if ($a > $b) throw new Exception('Tanggal mulai lebih besar dari tanggal akhir.');
+  return array($a, $b);
+}
+/* Tautan dibakukan untuk dicocokkan: tanpa query/hash/garis miring ekor. */
+function cg_url_kunci($u) {
+  $u = strtolower(trim((string)$u));
+  $u = preg_replace('/[?#].*$/', '', $u);
+  return rtrim($u, '/');
+}
+/* Peta tautan -> pilar dari baris konten modul Konten. Postingan TikTok/IG
+   tidak punya pilar sendiri; yang tautannya dicatat di Content Planning
+   kebagian pilarnya, sisanya kosong (AI menilainya dari judul). */
+function cg_peta_pilar($pdo) {
+  $peta = array();
+  try { $rows = $pdo->query('SELECT data FROM content')->fetchAll(); } catch (Throwable $e) { return $peta; }
+  foreach ($rows as $row) {
+    $c = json_decode((string)$row['data'], true);
+    if (!is_array($c) || empty($c['pillar'])) continue;
+    $u = isset($c['publishRecord']['url']) && is_string($c['publishRecord']['url']) ? cg_url_kunci($c['publishRecord']['url']) : '';
+    if ($u !== '') $peta[$u] = (string)$c['pillar'];
+  }
+  return $peta;
+}
+function cg_bukti_post($pdo, $n = 25, $dari = '', $sampai = '') {
   cg_pastikan($pdo);
   $baris = array();
-  foreach ($pdo->query('SELECT platform, judul, url, tayang_at, views, likes, comments, shares FROM cg_post WHERE hilang=0 ORDER BY views DESC LIMIT ' . (int)$n)->fetchAll() as $p) {
+  $where = 'hilang=0'; $arg = array();
+  if ($dari !== '') {
+    /* Hari WIB: 00:00 WIB = 17:00 UTC hari sebelumnya. */
+    $where .= ' AND tayang_at >= :a AND tayang_at < :b';
+    $arg[':a'] = (strtotime($dari . ' 00:00:00 UTC') - 7 * 3600) * 1000;
+    $arg[':b'] = (strtotime($sampai . ' 00:00:00 UTC') + 86400 - 7 * 3600) * 1000;
+  }
+  $pilar = cg_peta_pilar($pdo);
+  $q = $pdo->prepare('SELECT platform, judul, url, tayang_at, views, likes, comments, shares FROM cg_post WHERE ' . $where . ' ORDER BY views DESC LIMIT ' . (int)$n);
+  $q->execute($arg);
+  foreach ($q->fetchAll() as $p) {
+    $uk = cg_url_kunci($p['url']);
     $baris[] = array('platform' => $p['platform'], 'judul' => cg_potong($p['judul'], 220), 'url' => $p['url'],
       'tanggal' => $p['tayang_at'] ? gmdate('Y-m-d', (int)($p['tayang_at'] / 1000) + 7 * 3600) : '',
+      'pilar' => isset($pilar[$uk]) ? $pilar[$uk] : '',
       'views' => (int)$p['views'], 'likes' => (int)$p['likes'], 'comments' => (int)$p['comments'], 'shares' => (int)$p['shares']);
   }
   foreach (cg_konten_perf($pdo) as $k) {
     if (count($baris) >= $n * 2) break;
+    $tk = substr((string)$k['tanggal'], 0, 10);
+    if ($dari !== '' && ($tk === '' || $tk < $dari || $tk > $sampai)) continue;
     $baris[] = array('platform' => $k['platform'], 'judul' => cg_potong($k['judul'], 220), 'url' => $k['url'], 'tanggal' => $k['tanggal'],
+      'pilar' => $k['pillar'],
       'views' => (int)$k['views'], 'likes' => (int)$k['likes'], 'comments' => (int)$k['comments'], 'shares' => (int)$k['shares']);
   }
   return $baris;
+}
+/* Kalimat periode + fokus untuk prompt, satu tempat untuk riset & insight. */
+function cg_prompt_fokus($dari, $sampai, $fokus) {
+  $t = '';
+  if ($dari !== '') $t .= "Periode data: $dari s/d $sampai (hanya postingan yang tayang di rentang ini).\n";
+  if ($fokus) $t .= 'FOKUS analisa HANYA pada konten kategori: ' . implode(', ', $fokus)
+    . '. Kolom "pilar" di data menyebut kategori postingan yang sudah diketahui; yang kosong nilai sendiri dari judul/caption-nya, dan abaikan yang jelas bukan kategori fokus.' . "\n";
+  return $t;
 }
 
 function cg_riset_jalankan($pdo, $d, $nama) {
@@ -1040,7 +1108,9 @@ function cg_riset_jalankan($pdo, $d, $nama) {
   $platform = cg_potong(isset($d['platform']) ? $d['platform'] : 'TikTok, Instagram', 40);
   $catatan = cg_potong(isset($d['catatan']) ? $d['catatan'] : '', 1500);
   $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
-  $bukti = cg_bukti_post($pdo, 20);
+  list($dari, $sampai) = cg_rentang_bukti($d);
+  $fokus = cg_fokus_rapikan(isset($d['fokus']) ? $d['fokus'] : array());
+  $bukti = cg_bukti_post($pdo, 20, $dari, $sampai);
   $hariIni = gmdate('Y-m-d', time() + 7 * 3600);
 
   $system = 'Kamu ahli strategi konten media sosial untuk bisnis F&B di Indonesia. Jawab dalam Bahasa Indonesia. '
@@ -1049,6 +1119,7 @@ function cg_riset_jalankan($pdo, $d, $nama) {
     . 'Balas HANYA dengan satu objek JSON, tanpa teks lain.';
   $prompt = "Tanggal hari ini: $hariIni.\nProfil brand: $profil\nTopik riset: $topik\nPlatform: $platform\n"
     . ($catatan !== '' ? "Catatan tambahan: $catatan\n" : '')
+    . cg_prompt_fokus($dari, $sampai, $fokus)
     . "\nData postingan brand ini (diurut dari views terbanyak):\n" . json_encode($bukti, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
     . "\n\nBuat riset dengan bentuk JSON persis berikut:\n"
     . '{"ringkasan":"2-3 kalimat","pola":[{"temuan":"pola dari data postingan brand di atas","bukti":"judul/tautan postingan yang jadi buktinya","aksi":"yang sebaiknya dilakukan"}],'
@@ -1061,6 +1132,10 @@ function cg_riset_jalankan($pdo, $d, $nama) {
   /* Sambungan BARU sesudah menunggu AI — tanpa ini INSERT di bawah gagal
      "MySQL server has gone away" (lihat db()). Sudah kejadian 14 Okt 2026. */
   $pdo = db(true);
+  /* Periode & fokus ikut tersimpan supaya riwayat riset menyebut data apa
+     yang dibacanya — dua riset bertopik sama dari periode berbeda terbaca
+     sama persis tanpa ini. */
+  if (is_array($r['hasil'])) $r['hasil']['_meta'] = array('dari' => $dari, 'sampai' => $sampai, 'fokus' => $fokus, 'nBukti' => count($bukti));
   $id = cg_uid('rst');
   $q = $pdo->prepare('INSERT INTO cg_riset (id, jenis, topik, platform, catatan, hasil, model, oleh, at) VALUES (:id, :je, :to, :pl, :ca, :ha, :mo, :by, :at)');
   $q->execute(array(':id' => $id, ':je' => 'tren', ':to' => $topik, ':pl' => $platform, ':ca' => $catatan,
@@ -1072,14 +1147,17 @@ function cg_riset_jalankan($pdo, $d, $nama) {
    tidak ada yang tersimpan sampai orang menekan Simpan di layar. Insight yang
    lahir sendiri tanpa dibaca siapa pun adalah tebakan mesin yang menyamar
    jadi temuan tim. */
-function cg_insight_ai($pdo) {
-  $bukti = cg_bukti_post($pdo, 30);
+function cg_insight_ai($pdo, $d = array()) {
+  list($dari, $sampai) = cg_rentang_bukti($d);
+  $fokus = cg_fokus_rapikan(isset($d['fokus']) ? $d['fokus'] : array());
+  $bukti = cg_bukti_post($pdo, 30, $dari, $sampai);
+  if (!$bukti && $dari !== '') throw new Exception("Tidak ada postingan yang tayang $dari s/d $sampai. Pilih rentang yang lebih panjang.");
   if (!$bukti) throw new Exception('Belum ada postingan yang bisa dianalisa. Hubungkan & sinkronkan akun TikTok, atau isi Input Performa di modul Konten.');
   $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
   $kategori = cg_kategori($pdo);
   $system = 'Kamu analis konten media sosial. Jawab dalam Bahasa Indonesia. Analisa HANYA dari data yang diberikan; '
     . 'jangan mengarang angka atau tautan. Balas HANYA dengan satu objek JSON.';
-  $prompt = "Profil brand: $profil\nPostingan (diurut views):\n" . json_encode($bukti, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+  $prompt = "Profil brand: $profil\n" . cg_prompt_fokus($dari, $sampai, $fokus) . "Postingan (diurut views):\n" . json_encode($bukti, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
     . "\n\nTemukan 4-6 pola yang membuat postingan teratas lebih berhasil daripada yang bawah (hook, topik, format, waktu tayang, ajakan). Bentuk JSON:\n"
     . '{"insight":[{"platform":"TikTok|Instagram|YouTube","kategori":"' . implode('|', $kategori) . '",'
     . '"temuan":"","url":"tautan PERSIS dari data di atas yang paling mewakili","tglTayang":"YYYY-MM-DD dari data","metrik":"angka dari data","aksi":""}]}';
@@ -1843,6 +1921,142 @@ function cg_ads_sync($pdo) {
   }
 }
 
+/* ==================== KELOLA IKLAN (29 Okt 2026) ====================
+   Permintaan user: dari saran AI "langsung klik, lanjutkan / setting Ads".
+   Yang bisa diubah dari sini SENGAJA sempit: status (jeda / lanjutkan) di
+   tingkat iklan, set iklan, kampanye — dan budget yang SUDAH ADA di set
+   iklan atau kampanye. Membuat iklan baru tetap di Ads Manager.
+
+   - Token wajib punya ads_management; tanpa itu Meta menolak dengan kode 200
+     dan pesannya diterjemahkan supaya yang membacanya tahu harus membuat
+     token baru, bukan mencari bug.
+   - Objek yang diubah DIPERIKSA milik akun iklan yang disetel di Pengaturan
+     (account_id dibaca dari Meta, bukan dari kiriman layar). Tanpa itu satu
+     token yang punya akses ke beberapa akun bisa dipakai mengubah iklan
+     bisnis lain lewat id yang diketik di console.
+   - Tiap perubahan DICATAT di cg_ads_log (siapa, kapan, sebelum, sesudah).
+     Perubahan uang tanpa jejak tidak bisa diaudit. Log tidak pernah dihapus. */
+function cg_ads_log_pastikan($pdo) {
+  $pdo->exec("CREATE TABLE IF NOT EXISTS cg_ads_log (
+    id VARCHAR(40) NOT NULL PRIMARY KEY,
+    at BIGINT NOT NULL,
+    oleh VARCHAR(120) NOT NULL DEFAULT '',
+    tingkat VARCHAR(12) NOT NULL DEFAULT '',
+    obj_id VARCHAR(40) NOT NULL DEFAULT '',
+    nama VARCHAR(255) NOT NULL DEFAULT '',
+    aksi VARCHAR(40) NOT NULL DEFAULT '',
+    sebelum VARCHAR(120) NOT NULL DEFAULT '',
+    sesudah VARCHAR(120) NOT NULL DEFAULT '',
+    KEY idx_obj (obj_id), KEY idx_at (at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+/* Satuan budget Meta = satuan TERKECIL mata uang. Mata uang tanpa sen
+   (termasuk IDR) dikali 1, sisanya 100. Salah di sini = budget seratus kali
+   lipat, jadi daftarnya ditulis eksplisit. */
+function cg_ads_faktor($cur) {
+  $tanpaSen = array('CLP','COP','CRC','HUF','ISK','IDR','JPY','KRW','PYG','TWD','VND');
+  return in_array(strtoupper((string)$cur), $tanpaSen, true) ? 1 : 100;
+}
+function cg_ads_galat_teks($pesan) {
+  $p = (string)$pesan;
+  if (preg_match('/ads_management|\(#200\)|permission/i', $p))
+    return 'Token iklan belum punya izin ads_management. Buat token baru di Business Manager → Pengguna Sistem (centang ads_management + ads_read, akun iklan "Kelola kampanye"), lalu tempel di Pengaturan → Iklan Meta. Pesan Meta: ' . $p;
+  return 'Meta Ads menolak: ' . $p;
+}
+function cg_ads_obj($tok, $id, $fields) {
+  if (!preg_match('/^(act_)?\d{5,25}$/', (string)$id)) throw new Exception('ID iklan tidak sah.');
+  $r = cg_http('GET', CG_FB_GRAPH . '/' . $id . '?' . http_build_query(array('fields' => $fields, 'access_token' => $tok)), array(), null, 30);
+  if (!$r['data'] || isset($r['data']['error'])) throw new Exception(cg_ads_galat_teks(isset($r['data']['error']['message']) ? $r['data']['error']['message'] : $r['mentah']));
+  return $r['data'];
+}
+function cg_ads_cek_akun($pdo, $akunId) {
+  $a = preg_replace('/^act_/i', '', (string)$akunId);
+  if (!in_array($a, cg_ads_akun($pdo), true)) throw new Exception('Iklan ini bukan milik akun iklan yang disetel di Pengaturan.');
+  return $a;
+}
+function cg_ads_info($pdo, $d) {
+  $tok = cg_ads_token($pdo);
+  if ($tok === '') throw new Exception('Token iklan belum diisi di Pengaturan.');
+  $id = isset($d['adId']) ? (string)$d['adId'] : '';
+  if (!ctype_digit($id)) throw new Exception('ID iklan tidak sah.');
+  $x = cg_ads_obj($tok, $id, 'id,name,status,effective_status,account_id,adset{id,name,status,effective_status,daily_budget,lifetime_budget,end_time},campaign{id,name,status,effective_status,daily_budget,lifetime_budget}');
+  $akun = cg_ads_cek_akun($pdo, isset($x['account_id']) ? $x['account_id'] : '');
+  $acc = cg_ads_obj($tok, 'act_' . $akun, 'currency');
+  $cur = isset($acc['currency']) ? (string)$acc['currency'] : 'IDR';
+  $f = cg_ads_faktor($cur);
+  $bentuk = function ($o, $tingkat) use ($f) {
+    if (!is_array($o)) return null;
+    $db = isset($o['daily_budget']) ? (int)$o['daily_budget'] : 0;
+    $lb = isset($o['lifetime_budget']) ? (int)$o['lifetime_budget'] : 0;
+    return array('tingkat' => $tingkat, 'id' => (string)$o['id'], 'nama' => isset($o['name']) ? (string)$o['name'] : '',
+      'status' => isset($o['status']) ? (string)$o['status'] : '', 'efektif' => isset($o['effective_status']) ? (string)$o['effective_status'] : '',
+      'budgetJenis' => $db > 0 ? 'harian' : ($lb > 0 ? 'total' : ''), 'budget' => $db > 0 ? $db / $f : ($lb > 0 ? $lb / $f : 0),
+      'selesai' => isset($o['end_time']) ? (string)$o['end_time'] : '');
+  };
+  cg_ads_log_pastikan($pdo);
+  $ids = array((string)$x['id']);
+  if (isset($x['adset']['id'])) $ids[] = (string)$x['adset']['id'];
+  if (isset($x['campaign']['id'])) $ids[] = (string)$x['campaign']['id'];
+  $ph = implode(',', array_fill(0, count($ids), '?'));
+  $q = $pdo->prepare("SELECT at, oleh, tingkat, nama, aksi, sebelum, sesudah FROM cg_ads_log WHERE obj_id IN ($ph) ORDER BY at DESC LIMIT 20");
+  $q->execute($ids);
+  return array('mataUang' => $cur, 'iklan' => $bentuk($x, 'iklan'),
+    'adset' => $bentuk(isset($x['adset']) ? $x['adset'] : null, 'adset'),
+    'kampanye' => $bentuk(isset($x['campaign']) ? $x['campaign'] : null, 'kampanye'),
+    'log' => $q->fetchAll());
+}
+function cg_ads_ubah($pdo, $d, $nama) {
+  $tok = cg_ads_token($pdo);
+  if ($tok === '') throw new Exception('Token iklan belum diisi di Pengaturan.');
+  $tingkat = isset($d['tingkat']) ? (string)$d['tingkat'] : '';
+  if (!in_array($tingkat, array('iklan', 'adset', 'kampanye'), true)) throw new Exception('Tingkat tidak dikenal.');
+  $id = isset($d['id']) ? (string)$d['id'] : '';
+  if (!ctype_digit($id)) throw new Exception('ID iklan tidak sah.');
+  /* Keadaan SEKARANG dibaca dari Meta, bukan dipercaya dari layar: yang
+     dicatat sebagai "sebelum" harus angka yang benar-benar diganti. */
+  $o = cg_ads_obj($tok, $id, $tingkat === 'iklan' ? 'id,name,status,account_id' : 'id,name,status,account_id,daily_budget,lifetime_budget');
+  $akun = cg_ads_cek_akun($pdo, isset($o['account_id']) ? $o['account_id'] : '');
+  $kirim = array(); $aksi = ''; $sebelum = ''; $sesudah = '';
+  if (isset($d['status'])) {
+    $st = (string)$d['status'];
+    if (!in_array($st, array('ACTIVE', 'PAUSED'), true)) throw new Exception('Status hanya boleh ACTIVE atau PAUSED.');
+    $kirim['status'] = $st; $aksi = $st === 'PAUSED' ? 'jeda' : 'lanjutkan';
+    $sebelum = (string)(isset($o['status']) ? $o['status'] : ''); $sesudah = $st;
+  } elseif (isset($d['budget'])) {
+    if ($tingkat === 'iklan') throw new Exception('Budget diatur di set iklan atau kampanye, bukan di iklan.');
+    $acc = cg_ads_obj($tok, 'act_' . $akun, 'currency');
+    $f = cg_ads_faktor(isset($acc['currency']) ? $acc['currency'] : 'IDR');
+    $db = isset($o['daily_budget']) ? (int)$o['daily_budget'] : 0;
+    $lb = isset($o['lifetime_budget']) ? (int)$o['lifetime_budget'] : 0;
+    $kolom = $db > 0 ? 'daily_budget' : ($lb > 0 ? 'lifetime_budget' : '');
+    if ($kolom === '') throw new Exception('Budget-nya tidak diatur di tingkat ini — ubah di tingkat ' . ($tingkat === 'adset' ? 'kampanye' : 'set iklan') . '.');
+    $lama = ($db > 0 ? $db : $lb) / $f;
+    $baru = (float)$d['budget'];
+    if (!is_finite($baru) || $baru <= 0 || floor($baru) != $baru) throw new Exception('Budget harus angka bulat lebih dari nol.');
+    /* Salah ketik satu nol = budget sepuluh kali lipat dan uang yang langsung
+       terpakai. Lompatan sebesar itu dikerjakan di Ads Manager, bukan dari sini. */
+    if ($lama > 0 && $baru > $lama * 5) throw new Exception('Budget baru lebih dari 5× budget sekarang (' . number_format($lama, 0, ',', '.') . '). Kalau memang begitu, ubah langsung di Ads Manager.');
+    $kirim[$kolom] = (int)round($baru * $f);
+    $aksi = $kolom === 'daily_budget' ? 'budget harian' : 'budget total';
+    $sebelum = (string)$lama; $sesudah = (string)$baru;
+  } else throw new Exception('Tidak ada yang diubah.');
+  $kirim['access_token'] = $tok;
+  $r = cg_http('POST', CG_FB_GRAPH . '/' . $id, array('Content-Type: application/x-www-form-urlencoded'), http_build_query($kirim), 30);
+  if (!$r['data'] || isset($r['data']['error']) || empty($r['data']['success']))
+    throw new Exception(cg_ads_galat_teks(isset($r['data']['error']['message']) ? $r['data']['error']['message'] : $r['mentah']));
+  cg_ads_log_pastikan($pdo);
+  $q = $pdo->prepare('INSERT INTO cg_ads_log (id, at, oleh, tingkat, obj_id, nama, aksi, sebelum, sesudah) VALUES (:id, :at, :by, :ti, :ob, :nm, :ak, :sb, :sd)');
+  $q->execute(array(':id' => cg_uid('adl'), ':at' => cg_now_ms(), ':by' => cg_potong($nama, 120), ':ti' => $tingkat, ':ob' => $id,
+    ':nm' => cg_potong(isset($o['name']) ? $o['name'] : '', 255), ':ak' => $aksi, ':sb' => cg_potong($sebelum, 120), ':sd' => cg_potong($sesudah, 120)));
+  /* Status iklan di tabel sinkron ikut disegarkan supaya daftar tidak
+     menyebut "Aktif" untuk iklan yang barusan dijeda sampai sinkron berikutnya. */
+  if ($tingkat === 'iklan' && isset($kirim['status'])) {
+    $u = $pdo->prepare('UPDATE cg_iklan SET status = :s WHERE ad_id = :a');
+    $u->execute(array(':s' => $kirim['status'], ':a' => $id));
+  }
+  return array('ok' => true, 'aksi' => $aksi, 'sebelum' => $sebelum, 'sesudah' => $sesudah);
+}
+
 function cg_ig_kode($url) {
   return preg_match('#instagram.com/(?:[^/]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)#', (string)$url, $m) ? $m[1] : '';
 }
@@ -1992,7 +2206,7 @@ function cg_aksi($action, $body) {
     case 'campaignInsightArsip': return cg_insight_arsip($pdo, isset($d['id']) ? $d['id'] : '', !empty($d['arsip']), $nama);
     case 'campaignJadwalSimpan': return cg_jadwal_simpan($pdo, $d, $nama);
     case 'campaignRiset':        return cg_riset_jalankan($pdo, $d, $nama);
-    case 'campaignInsightAI':    return cg_insight_ai($pdo);
+    case 'campaignInsightAI':    return cg_insight_ai($pdo, $d);
     case 'campaignBankGenerate': return cg_bank_generate($pdo, $d, $nama);
     case 'campaignBankSimpan':   return cg_bank_simpan($pdo, $d, $nama);
     case 'campaignBankHapus':    return cg_bank_hapus($pdo, isset($d['id']) ? $d['id'] : '');
@@ -2007,6 +2221,11 @@ function cg_aksi($action, $body) {
     case 'campaignAdsSync':      return cg_ads_sync($pdo);
     case 'campaignAds':          return cg_ads_baca($pdo, $d);
     case 'campaignAdsAI':        return cg_ads_ai($pdo, $d);
+    case 'campaignAdsInfo':      return cg_ads_info($pdo, $d);
+    /* Mengubah iklan = mengubah uang yang keluar: admin modul saja. */
+    case 'campaignAdsUbah':
+      if (!sesi_admin_modul($u, 'campaign')) sesi_tolak_tak_berhak('Mengubah iklan hanya untuk admin modul Campaign.');
+      return cg_ads_ubah($pdo, $d, $nama);
     case 'campaignTumbuh':       return cg_tumbuh($pdo, $d);
     /* Google Review — lihat lib_greview.php. */
     case 'campaignGoogle':       return gr_baca($pdo);
