@@ -138,6 +138,17 @@ function buatServer(opsi) {
     else if (b.action === 'campaignTumbuh') data = tumbuhUji(b.data.hari);
     else if (b.action === 'campaignAdsAI') data = { ringkasan: 'Ringkasan iklan uji', model: 'm', lanjutkan: [{ ad_id: 'a1', nama: 'Iklan murah', alasan: 'Biaya per chat Rp5.000', saran: 'Naikkan budget 20%' }],
       perbaiki: [], hentikan: [{ ad_id: 'a4', nama: 'Iklan mahal', alasan: 'Rp30.000 per chat', saran: '' }], saranUmum: ['Uji hook baru'] };
+    else if (b.action === 'campaignAdsInfo') data = { mataUang: 'IDR',
+      iklan: { tingkat: 'iklan', id: b.data.adId, nama: 'Iklan murah', status: S._adStatus || 'ACTIVE', efektif: 'ACTIVE', budgetJenis: '', budget: 0 },
+      adset: { tingkat: 'adset', id: '9001', nama: 'Set A', status: 'ACTIVE', efektif: 'ACTIVE', budgetJenis: 'harian', budget: S._budget || 100000 },
+      kampanye: { tingkat: 'kampanye', id: '9002', nama: 'Kampanye A', status: 'ACTIVE', efektif: 'ACTIVE', budgetJenis: '', budget: 0 }, log: S._adsLog || [] };
+    else if (b.action === 'campaignAdsUbah') {
+      if (!opsi || !opsi.admin) return Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: false, error: 'Mengubah iklan hanya untuk admin modul Campaign.' })) });
+      if (b.data.status) S._adStatus = b.data.status;
+      if (b.data.budget) S._budget = b.data.budget;
+      S._adsLog = (S._adsLog || []).concat([{ at: Date.now(), oleh: 'Uji', tingkat: b.data.tingkat, nama: 'x', aksi: b.data.status ? 'jeda' : 'budget harian', sebelum: '100000', sesudah: String(b.data.budget || '') }]);
+      data = { ok: true };
+    }
     else data = { ok: true };
     return Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: true, data })) });
   }
@@ -368,6 +379,49 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('php: bukti disaring tayang_at hari WIB', bp.includes('tayang_at >= :a AND tayang_at < :b') && bp.includes('- 7 * 3600) * 1000'));
     cek('php: riset & insight memakai rentang + fokus', /cg_riset_jalankan[\s\S]*?cg_rentang_bukti\(\$d\)[\s\S]*?cg_prompt_fokus/.test(PHP_LIB) && /function cg_insight_ai\(\$pdo, \$d = array\(\)\)[\s\S]*?cg_rentang_bukti/.test(PHP_LIB) && PHP_LIB.includes("return cg_insight_ai($pdo, $d);"));
     cek('php: fokus di luar daftar dibuang', PHP_LIB.includes('in_array($x, $sah, true)'));
+  }
+
+  console.log('\n== Kelola iklan Meta (29 Okt 2026) ==');
+  {
+    const b = await buka({ hash: '#iklan', admin: true });
+    await tunggu(60);
+    b.srv.S.setting.adsSiap = true; b.srv.S.setting.adsAkun = '123'; b.srv.S.setting.adsSyncAt = Date.now();
+    await b.w.__cg.muat(); b.w.__cg.render(); await tunggu(60);
+    cek('tabel iklan punya tombol Kelola', !!b.d.querySelector('[data-a="ads-kelola"][data-v="a1"]'));
+    klik(b.d, '[data-a="ads-kelola"][data-v="a1"]'); await tunggu(40);
+    const m = () => b.d.getElementById('modal').innerHTML;
+    cek('panel membaca keadaan langsung dari Meta (campaignAdsInfo)', b.srv.log.some(x => x.action === 'campaignAdsInfo' && x.data.adId === 'a1') && /Set A/.test(m()) && /Kampanye A/.test(m()));
+    cek('budget harian set iklan tampil + kotak ubah', /Budget harian/.test(m()) && !!b.d.getElementById('ads-bud-adset'));
+    let tanya = '';
+    b.w.confirm = q => { tanya = q; return false; };
+    klik(b.d, '[data-a="ads-status"][data-t="iklan"]'); await tunggu(30);
+    cek('jeda ditanya dulu, dan batal = tidak terkirim', /Jeda iklan "Iklan murah"/.test(tanya) && !b.srv.log.some(x => x.action === 'campaignAdsUbah'));
+    b.w.confirm = q => { tanya = q; return true; };
+    klik(b.d, '[data-a="ads-status"][data-t="iklan"]'); await tunggu(60);
+    const u1 = b.srv.log.filter(x => x.action === 'campaignAdsUbah').pop();
+    cek('jeda mengirim status PAUSED ke tingkat iklan', u1 && u1.data.tingkat === 'iklan' && u1.data.status === 'PAUSED' && u1.data.id === 'a1', JSON.stringify(u1 && u1.data));
+    cek('sesudah jeda panel dimuat ulang & tombol jadi Lanjutkan', !!b.d.querySelector('[data-a="ads-status"][data-t="iklan"][data-v="ACTIVE"]'));
+    klik(b.d, '[data-a="ads-bud-geser"][data-t="adset"][data-v="1.2"]');
+    cek('+20% mengisi kotak budget', b.d.getElementById('ads-bud-adset').value === '120000');
+    klik(b.d, '[data-a="ads-budget"][data-t="adset"]'); await tunggu(60);
+    const u2 = b.srv.log.filter(x => x.action === 'campaignAdsUbah').pop();
+    cek('budget dikirim ke set iklan, konfirmasi menyebut sebelum → sesudah', u2 && u2.data.budget === 120000 && u2.data.tingkat === 'adset' && /Rp100\.000\s+→\s+Rp120\.000/.test(tanya), tanya);
+    cek('riwayat perubahan tampil di panel', /Riwayat perubahan dari Office/.test(m()));
+
+    const nb = await buka({ hash: '#iklan' });
+    await tunggu(60);
+    nb.srv.S.setting.adsSiap = true; nb.srv.S.setting.adsAkun = '123'; nb.srv.S.setting.adsSyncAt = Date.now();
+    await nb.w.__cg.muat(); nb.w.__cg.render(); await tunggu(60);
+    klik(nb.d, '[data-a="ads-kelola"][data-v="a1"]'); await tunggu(40);
+    cek('bukan admin: tombol jeda & budget tidak digambar', !nb.d.querySelector('[data-a="ads-status"]') && !nb.d.getElementById('ads-bud-adset') && /Hanya admin modul/.test(nb.d.getElementById('modal').innerHTML));
+
+    const kel = PHP_LIB.slice(PHP_LIB.indexOf('function cg_ads_info('), PHP_LIB.indexOf('function cg_ig_kode('));
+    cek('php: ubah iklan khusus admin modul', /case 'campaignAdsUbah':\s*if \(!sesi_admin_modul\(\$u, 'campaign'\)\)/.test(PHP_LIB));
+    cek('php: akun iklan diperiksa dari Meta, bukan dari kiriman', (kel.match(/cg_ads_cek_akun\(/g) || []).length === 2);
+    cek('php: status hanya ACTIVE/PAUSED, budget dibatasi 5x', kel.includes("array('ACTIVE', 'PAUSED')") && kel.includes('$lama * 5'));
+    cek('php: IDR tanpa sen (faktor 1)', PHP_LIB.includes("'IDR'") && PHP_LIB.includes('return in_array(strtoupper((string)$cur), $tanpaSen, true) ? 1 : 100;'));
+    cek('php: tiap perubahan dicatat di cg_ads_log', kel.includes('INSERT INTO cg_ads_log'));
+    cek('php: id yang diubah wajib angka (bukan act_)', kel.includes("if (!ctype_digit($id)) throw new Exception('ID iklan tidak sah.');"));
   }
 
   console.log('\n== Riset ==');

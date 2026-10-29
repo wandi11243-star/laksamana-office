@@ -1921,6 +1921,142 @@ function cg_ads_sync($pdo) {
   }
 }
 
+/* ==================== KELOLA IKLAN (29 Okt 2026) ====================
+   Permintaan user: dari saran AI "langsung klik, lanjutkan / setting Ads".
+   Yang bisa diubah dari sini SENGAJA sempit: status (jeda / lanjutkan) di
+   tingkat iklan, set iklan, kampanye — dan budget yang SUDAH ADA di set
+   iklan atau kampanye. Membuat iklan baru tetap di Ads Manager.
+
+   - Token wajib punya ads_management; tanpa itu Meta menolak dengan kode 200
+     dan pesannya diterjemahkan supaya yang membacanya tahu harus membuat
+     token baru, bukan mencari bug.
+   - Objek yang diubah DIPERIKSA milik akun iklan yang disetel di Pengaturan
+     (account_id dibaca dari Meta, bukan dari kiriman layar). Tanpa itu satu
+     token yang punya akses ke beberapa akun bisa dipakai mengubah iklan
+     bisnis lain lewat id yang diketik di console.
+   - Tiap perubahan DICATAT di cg_ads_log (siapa, kapan, sebelum, sesudah).
+     Perubahan uang tanpa jejak tidak bisa diaudit. Log tidak pernah dihapus. */
+function cg_ads_log_pastikan($pdo) {
+  $pdo->exec("CREATE TABLE IF NOT EXISTS cg_ads_log (
+    id VARCHAR(40) NOT NULL PRIMARY KEY,
+    at BIGINT NOT NULL,
+    oleh VARCHAR(120) NOT NULL DEFAULT '',
+    tingkat VARCHAR(12) NOT NULL DEFAULT '',
+    obj_id VARCHAR(40) NOT NULL DEFAULT '',
+    nama VARCHAR(255) NOT NULL DEFAULT '',
+    aksi VARCHAR(40) NOT NULL DEFAULT '',
+    sebelum VARCHAR(120) NOT NULL DEFAULT '',
+    sesudah VARCHAR(120) NOT NULL DEFAULT '',
+    KEY idx_obj (obj_id), KEY idx_at (at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+/* Satuan budget Meta = satuan TERKECIL mata uang. Mata uang tanpa sen
+   (termasuk IDR) dikali 1, sisanya 100. Salah di sini = budget seratus kali
+   lipat, jadi daftarnya ditulis eksplisit. */
+function cg_ads_faktor($cur) {
+  $tanpaSen = array('CLP','COP','CRC','HUF','ISK','IDR','JPY','KRW','PYG','TWD','VND');
+  return in_array(strtoupper((string)$cur), $tanpaSen, true) ? 1 : 100;
+}
+function cg_ads_galat_teks($pesan) {
+  $p = (string)$pesan;
+  if (preg_match('/ads_management|\(#200\)|permission/i', $p))
+    return 'Token iklan belum punya izin ads_management. Buat token baru di Business Manager → Pengguna Sistem (centang ads_management + ads_read, akun iklan "Kelola kampanye"), lalu tempel di Pengaturan → Iklan Meta. Pesan Meta: ' . $p;
+  return 'Meta Ads menolak: ' . $p;
+}
+function cg_ads_obj($tok, $id, $fields) {
+  if (!preg_match('/^(act_)?\d{5,25}$/', (string)$id)) throw new Exception('ID iklan tidak sah.');
+  $r = cg_http('GET', CG_FB_GRAPH . '/' . $id . '?' . http_build_query(array('fields' => $fields, 'access_token' => $tok)), array(), null, 30);
+  if (!$r['data'] || isset($r['data']['error'])) throw new Exception(cg_ads_galat_teks(isset($r['data']['error']['message']) ? $r['data']['error']['message'] : $r['mentah']));
+  return $r['data'];
+}
+function cg_ads_cek_akun($pdo, $akunId) {
+  $a = preg_replace('/^act_/i', '', (string)$akunId);
+  if (!in_array($a, cg_ads_akun($pdo), true)) throw new Exception('Iklan ini bukan milik akun iklan yang disetel di Pengaturan.');
+  return $a;
+}
+function cg_ads_info($pdo, $d) {
+  $tok = cg_ads_token($pdo);
+  if ($tok === '') throw new Exception('Token iklan belum diisi di Pengaturan.');
+  $id = isset($d['adId']) ? (string)$d['adId'] : '';
+  if (!ctype_digit($id)) throw new Exception('ID iklan tidak sah.');
+  $x = cg_ads_obj($tok, $id, 'id,name,status,effective_status,account_id,adset{id,name,status,effective_status,daily_budget,lifetime_budget,end_time},campaign{id,name,status,effective_status,daily_budget,lifetime_budget}');
+  $akun = cg_ads_cek_akun($pdo, isset($x['account_id']) ? $x['account_id'] : '');
+  $acc = cg_ads_obj($tok, 'act_' . $akun, 'currency');
+  $cur = isset($acc['currency']) ? (string)$acc['currency'] : 'IDR';
+  $f = cg_ads_faktor($cur);
+  $bentuk = function ($o, $tingkat) use ($f) {
+    if (!is_array($o)) return null;
+    $db = isset($o['daily_budget']) ? (int)$o['daily_budget'] : 0;
+    $lb = isset($o['lifetime_budget']) ? (int)$o['lifetime_budget'] : 0;
+    return array('tingkat' => $tingkat, 'id' => (string)$o['id'], 'nama' => isset($o['name']) ? (string)$o['name'] : '',
+      'status' => isset($o['status']) ? (string)$o['status'] : '', 'efektif' => isset($o['effective_status']) ? (string)$o['effective_status'] : '',
+      'budgetJenis' => $db > 0 ? 'harian' : ($lb > 0 ? 'total' : ''), 'budget' => $db > 0 ? $db / $f : ($lb > 0 ? $lb / $f : 0),
+      'selesai' => isset($o['end_time']) ? (string)$o['end_time'] : '');
+  };
+  cg_ads_log_pastikan($pdo);
+  $ids = array((string)$x['id']);
+  if (isset($x['adset']['id'])) $ids[] = (string)$x['adset']['id'];
+  if (isset($x['campaign']['id'])) $ids[] = (string)$x['campaign']['id'];
+  $ph = implode(',', array_fill(0, count($ids), '?'));
+  $q = $pdo->prepare("SELECT at, oleh, tingkat, nama, aksi, sebelum, sesudah FROM cg_ads_log WHERE obj_id IN ($ph) ORDER BY at DESC LIMIT 20");
+  $q->execute($ids);
+  return array('mataUang' => $cur, 'iklan' => $bentuk($x, 'iklan'),
+    'adset' => $bentuk(isset($x['adset']) ? $x['adset'] : null, 'adset'),
+    'kampanye' => $bentuk(isset($x['campaign']) ? $x['campaign'] : null, 'kampanye'),
+    'log' => $q->fetchAll());
+}
+function cg_ads_ubah($pdo, $d, $nama) {
+  $tok = cg_ads_token($pdo);
+  if ($tok === '') throw new Exception('Token iklan belum diisi di Pengaturan.');
+  $tingkat = isset($d['tingkat']) ? (string)$d['tingkat'] : '';
+  if (!in_array($tingkat, array('iklan', 'adset', 'kampanye'), true)) throw new Exception('Tingkat tidak dikenal.');
+  $id = isset($d['id']) ? (string)$d['id'] : '';
+  if (!ctype_digit($id)) throw new Exception('ID iklan tidak sah.');
+  /* Keadaan SEKARANG dibaca dari Meta, bukan dipercaya dari layar: yang
+     dicatat sebagai "sebelum" harus angka yang benar-benar diganti. */
+  $o = cg_ads_obj($tok, $id, $tingkat === 'iklan' ? 'id,name,status,account_id' : 'id,name,status,account_id,daily_budget,lifetime_budget');
+  $akun = cg_ads_cek_akun($pdo, isset($o['account_id']) ? $o['account_id'] : '');
+  $kirim = array(); $aksi = ''; $sebelum = ''; $sesudah = '';
+  if (isset($d['status'])) {
+    $st = (string)$d['status'];
+    if (!in_array($st, array('ACTIVE', 'PAUSED'), true)) throw new Exception('Status hanya boleh ACTIVE atau PAUSED.');
+    $kirim['status'] = $st; $aksi = $st === 'PAUSED' ? 'jeda' : 'lanjutkan';
+    $sebelum = (string)(isset($o['status']) ? $o['status'] : ''); $sesudah = $st;
+  } elseif (isset($d['budget'])) {
+    if ($tingkat === 'iklan') throw new Exception('Budget diatur di set iklan atau kampanye, bukan di iklan.');
+    $acc = cg_ads_obj($tok, 'act_' . $akun, 'currency');
+    $f = cg_ads_faktor(isset($acc['currency']) ? $acc['currency'] : 'IDR');
+    $db = isset($o['daily_budget']) ? (int)$o['daily_budget'] : 0;
+    $lb = isset($o['lifetime_budget']) ? (int)$o['lifetime_budget'] : 0;
+    $kolom = $db > 0 ? 'daily_budget' : ($lb > 0 ? 'lifetime_budget' : '');
+    if ($kolom === '') throw new Exception('Budget-nya tidak diatur di tingkat ini — ubah di tingkat ' . ($tingkat === 'adset' ? 'kampanye' : 'set iklan') . '.');
+    $lama = ($db > 0 ? $db : $lb) / $f;
+    $baru = (float)$d['budget'];
+    if (!is_finite($baru) || $baru <= 0 || floor($baru) != $baru) throw new Exception('Budget harus angka bulat lebih dari nol.');
+    /* Salah ketik satu nol = budget sepuluh kali lipat dan uang yang langsung
+       terpakai. Lompatan sebesar itu dikerjakan di Ads Manager, bukan dari sini. */
+    if ($lama > 0 && $baru > $lama * 5) throw new Exception('Budget baru lebih dari 5× budget sekarang (' . number_format($lama, 0, ',', '.') . '). Kalau memang begitu, ubah langsung di Ads Manager.');
+    $kirim[$kolom] = (int)round($baru * $f);
+    $aksi = $kolom === 'daily_budget' ? 'budget harian' : 'budget total';
+    $sebelum = (string)$lama; $sesudah = (string)$baru;
+  } else throw new Exception('Tidak ada yang diubah.');
+  $kirim['access_token'] = $tok;
+  $r = cg_http('POST', CG_FB_GRAPH . '/' . $id, array('Content-Type: application/x-www-form-urlencoded'), http_build_query($kirim), 30);
+  if (!$r['data'] || isset($r['data']['error']) || empty($r['data']['success']))
+    throw new Exception(cg_ads_galat_teks(isset($r['data']['error']['message']) ? $r['data']['error']['message'] : $r['mentah']));
+  cg_ads_log_pastikan($pdo);
+  $q = $pdo->prepare('INSERT INTO cg_ads_log (id, at, oleh, tingkat, obj_id, nama, aksi, sebelum, sesudah) VALUES (:id, :at, :by, :ti, :ob, :nm, :ak, :sb, :sd)');
+  $q->execute(array(':id' => cg_uid('adl'), ':at' => cg_now_ms(), ':by' => cg_potong($nama, 120), ':ti' => $tingkat, ':ob' => $id,
+    ':nm' => cg_potong(isset($o['name']) ? $o['name'] : '', 255), ':ak' => $aksi, ':sb' => cg_potong($sebelum, 120), ':sd' => cg_potong($sesudah, 120)));
+  /* Status iklan di tabel sinkron ikut disegarkan supaya daftar tidak
+     menyebut "Aktif" untuk iklan yang barusan dijeda sampai sinkron berikutnya. */
+  if ($tingkat === 'iklan' && isset($kirim['status'])) {
+    $u = $pdo->prepare('UPDATE cg_iklan SET status = :s WHERE ad_id = :a');
+    $u->execute(array(':s' => $kirim['status'], ':a' => $id));
+  }
+  return array('ok' => true, 'aksi' => $aksi, 'sebelum' => $sebelum, 'sesudah' => $sesudah);
+}
+
 function cg_ig_kode($url) {
   return preg_match('#instagram.com/(?:[^/]+/)?(?:p|reel|reels|tv)/([A-Za-z0-9_-]+)#', (string)$url, $m) ? $m[1] : '';
 }
@@ -2085,6 +2221,11 @@ function cg_aksi($action, $body) {
     case 'campaignAdsSync':      return cg_ads_sync($pdo);
     case 'campaignAds':          return cg_ads_baca($pdo, $d);
     case 'campaignAdsAI':        return cg_ads_ai($pdo, $d);
+    case 'campaignAdsInfo':      return cg_ads_info($pdo, $d);
+    /* Mengubah iklan = mengubah uang yang keluar: admin modul saja. */
+    case 'campaignAdsUbah':
+      if (!sesi_admin_modul($u, 'campaign')) sesi_tolak_tak_berhak('Mengubah iklan hanya untuk admin modul Campaign.');
+      return cg_ads_ubah($pdo, $d, $nama);
     case 'campaignTumbuh':       return cg_tumbuh($pdo, $d);
     /* Google Review — lihat lib_greview.php. */
     case 'campaignGoogle':       return gr_baca($pdo);

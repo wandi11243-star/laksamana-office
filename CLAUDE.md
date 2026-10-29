@@ -1060,6 +1060,19 @@ Saklar Per iklan / Per postingan: iklan dikelompokkan per postingan IG
 (ig_media, lalu kode tautan; materi non-IG berdiri sendiri), "Diiklankan Nx",
 biaya & hasil gabungan, views organik dari cg_post (`post` di cg_ads_baca).
 
+**KELOLA IKLAN (29 Okt 2026)** — tombol **⚙ Kelola** di tabel Iklan (per iklan
+& per postingan) dan di tiap Saran AI. Panelnya membaca keadaan LANGSUNG dari
+Meta (`campaignAdsInfo`: iklan + adset + kampanye + budget), lalu
+`campaignAdsUbah` menjeda/melanjutkan tiap tingkat atau mengubah budget yang
+SUDAH ADA (harian/total, di adset atau kampanye). Penjaga: **admin modul
+saja**; `account_id` dibaca dari Meta dan wajib ada di `ads_akun` Pengaturan;
+id wajib angka (bukan `act_`); budget > 5× sekarang ditolak (salah ketik nol);
+`cg_ads_faktor()` IDR tanpa sen (faktor 1, lainnya 100 — salah = budget 100×).
+Tiap perubahan dicatat `cg_ads_log` (lahir sendiri, tanpa hapus). Token WAJIB
+punya `ads_management` + akun iklan "Kelola kampanye" di Pengguna Sistem;
+tanpa itu galat (#200) diterjemahkan jadi petunjuk membuat token baru.
+Membuat iklan baru tetap di Ads Manager.
+
 **PERTUMBUHAN (14 Okt 2026)** — menu `tumbuh`, aksi `campaignTumbuh`, tabel
 `cg_harian` (platform+tgl WIB; upsert `COALESCE` — kolom NULL tidak menimpa) dan
 `cg_iklan_harian` (Ads insights time_increment=1, level akun, 90 hari).
