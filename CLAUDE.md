@@ -1007,6 +1007,17 @@ akan tertimpa.
 node tools/uji-campaign.js   # 236 pemeriksaan, jsdom + server tiruan HIDUP + php-parser
 ```
 
+**Periode & fokus analisa AI (29 Okt 2026)** — Riset Tren DAN Insight otomatis
+punya pilihan periode data (7/30/90 hari/rentang/semua waktu, bawaan 30) +
+fokus kategori konten. Dikirim `dari`/`sampai`/`fokus`; `cg_rentang_bukti()`
+menolak tanggal tak sah, `cg_bukti_post($pdo,$n,$dari,$sampai)` menyaring
+`tayang_at` per hari WIB. Fokus = **pilar konten** — BERKAS KEMBAR TIGA:
+`PILLARS` planning, `KONTEN_PILAR` analytics, `cg_pilar_daftar()` php (dijaga
+uji). Postingan TikTok/IG dapat pilar lewat tautan yang dicatat di Content
+Planning (`cg_peta_pilar`), sisanya dinilai AI dari judul — fokus TIDAK
+menyaring keras (kalau iya, data TikTok/IG yang tanpa pilar habis). Riset
+menyimpan `hasil._meta` {dari,sampai,fokus,nBukti}, disebut di riwayat.
+
 **Bank Konten (14 Okt 2026)** — menu `bank`, tabel `cg_bank` (lahir di
 `cg_pastikan`), aksi `campaignBankGenerate/Simpan/Arsip`. AI "Buat content
 planning" (rentang ≤2 bulan, 3–20 ide) membaca profil + insight aktif +

@@ -319,6 +319,57 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('geser bulan menggambar bulan berikutnya', d.getElementById('app').innerHTML.indexOf(BLN[dpn.getUTCMonth()] + ' ' + dpn.getUTCFullYear()) > -1);
   }
 
+  console.log('\n== Periode & fokus analisa AI (29 Okt 2026) ==');
+  {
+    const kini = new Date(Date.now() + 7 * 3600e3).toISOString().slice(0, 10);
+    const mundur = n => new Date(Date.now() + 7 * 3600e3 - (n - 1) * 864e5).toISOString().slice(0, 10);
+    const { w, d, srv } = await buka({ hash: '#riset' });
+    const asli = w.fetch;
+    w.fetch = (u, i) => JSON.parse(i.body).action === 'campaignRiset'
+      ? Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: true, data: { id: 'rx', hasil: {}, model: 'm' } })) })
+      : asli(u, i);
+    cek('riset: bawaan periode 30 hari menyala', !!d.querySelector('[data-a="pf-r"][data-k="riset"][data-v="30"].on'));
+    cek('riset: pilihan fokus = pilar Content Planning (F&B, Entertainment, Promosi)',
+      !!d.querySelector('[data-a="pf-fokus"][data-k="riset"][data-v="Product & Menu"]') && !!d.querySelector('[data-a="pf-fokus"][data-v="Entertainment"]') && /Promosi/.test(d.getElementById('app').innerHTML));
+    d.getElementById('r-topik').value = 'Weekend';
+    klik(d, '[data-a="pf-r"][data-k="riset"][data-v="7"]'); await tunggu(20);
+    cek('riset: menekan periode tidak membuang topik yang diketik', d.getElementById('r-topik').value === 'Weekend');
+    klik(d, '[data-a="pf-fokus"][data-k="riset"][data-v="Entertainment"]'); await tunggu(20);
+    klik(d, '[data-a="pf-fokus"][data-k="riset"][data-v="Promotion"]'); await tunggu(20);
+    klik(d, '[data-a="pf-fokus"][data-k="riset"][data-v="Promotion"]'); await tunggu(20);
+    cek('riset: fokus bisa dilepas lagi', !d.querySelector('[data-a="pf-fokus"][data-v="Promotion"].on') && !!d.querySelector('[data-a="pf-fokus"][data-v="Entertainment"].on'));
+    const sebelum = srv.log.length;
+    let kirim = null;
+    w.fetch = (u, i) => { const b = JSON.parse(i.body); if (b.action === 'campaignRiset') kirim = b.data; return asli(u, i); };
+    klik(d, '[data-a="riset-jalan"]'); await tunggu(40);
+    cek('riset: dikirim dari (hari ini-6) s/d hari ini + fokus', kirim && kirim.dari === mundur(7) && kirim.sampai === kini && JSON.stringify(kirim.fokus) === '["Entertainment"]', JSON.stringify(kirim));
+    void sebelum;
+    /* Rentang khusus tanpa tanggal DITAHAN, bukan dikirim sebagai semua waktu. */
+    kirim = null;
+    klik(d, '[data-a="pf-r"][data-k="riset"][data-v="khusus"]'); await tunggu(20);
+    d.getElementById('r-topik').value = 'Weekend';
+    klik(d, '[data-a="riset-jalan"]'); await tunggu(20);
+    cek('riset: rentang khusus kosong ditahan', kirim === null);
+
+    const b2 = await buka();
+    let kirim2 = null; const asli2 = b2.w.fetch;
+    b2.w.fetch = (u, i) => { const b = JSON.parse(i.body); if (b.action === 'campaignInsightAI') kirim2 = b.data; return asli2(u, i); };
+    klik(b2.d, '[data-a="pf-r"][data-k="usulan"][data-v="90"]'); await tunggu(20);
+    klik(b2.d, '[data-a="pf-fokus"][data-k="usulan"][data-v="Product & Menu"]'); await tunggu(20);
+    klik(b2.d, '[data-a="usulan"]'); await tunggu(40);
+    cek('insight otomatis: periode 90 hari + fokus F&B ikut terkirim', kirim2 && kirim2.dari === mundur(90) && kirim2.sampai === kini && kirim2.fokus[0] === 'Product & Menu', JSON.stringify(kirim2));
+
+    const HTMLK = fs.readFileSync(path.join(__dirname, '../deploy/konten/analytics/index.html'), 'utf8');
+    const HTMLP = fs.readFileSync(path.join(__dirname, '../deploy/konten/planning/index.html'), 'utf8');
+    const ambil = (src, re) => { const m = src.match(re); return m ? m[1].replace(/\s/g, '') : ''; };
+    const pPlan = ambil(HTMLP, /const PILLARS=\[([^\]]*)\]/), pAn = ambil(HTMLK, /var KONTEN_PILAR = \[([^\]]*)\]/), pPhp = ambil(PHP_LIB, /function cg_pilar_daftar\(\) \{\s*return array\(([^)]*)\)/);
+    cek('pilar: berkas kembar planning = analytics = php', pPlan && pPlan === pAn && pAn === pPhp, [pPlan, pAn, pPhp].join(' | '));
+    const bp = PHP_LIB.slice(PHP_LIB.indexOf('function cg_bukti_post('), PHP_LIB.indexOf('function cg_prompt_fokus('));
+    cek('php: bukti disaring tayang_at hari WIB', bp.includes('tayang_at >= :a AND tayang_at < :b') && bp.includes('- 7 * 3600) * 1000'));
+    cek('php: riset & insight memakai rentang + fokus', /cg_riset_jalankan[\s\S]*?cg_rentang_bukti\(\$d\)[\s\S]*?cg_prompt_fokus/.test(PHP_LIB) && /function cg_insight_ai\(\$pdo, \$d = array\(\)\)[\s\S]*?cg_rentang_bukti/.test(PHP_LIB) && PHP_LIB.includes("return cg_insight_ai($pdo, $d);"));
+    cek('php: fokus di luar daftar dibuang', PHP_LIB.includes('in_array($x, $sah, true)'));
+  }
+
   console.log('\n== Riset ==');
   {
     const { d } = await buka({ hash: '#riset' });

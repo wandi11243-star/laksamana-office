@@ -1017,20 +1017,88 @@ function cg_ai_tanya($pdo, $system, $prompt, $maks = 6000) {
 /* Ringkasan postingan terbaik yang diberikan ke AI sebagai bukti. TANPA itu
    AI cuma mengarang dari pengetahuan umumnya — dengan itu ia membaca pola
    dari konten brand ini sendiri. */
-function cg_bukti_post($pdo, $n = 25) {
+/* Kategori konten (pilar) = BERKAS KEMBAR PILLARS di deploy/konten/planning/
+   dan KONTEN_PILAR di deploy/konten/analytics/. Dipakai sebagai FOKUS analisa
+   (29 Okt 2026, permintaan user: FNB, Entertainment, Promosi, ...). Nilai di
+   luar daftar dibuang, bukan ditebak. */
+function cg_pilar_daftar() {
+  return array('Product & Menu','Promotion','Event','Entertainment','Education','Lifestyle','BTS','Corporate','Community','Information');
+}
+function cg_fokus_rapikan($f) {
+  $out = array(); if (!is_array($f)) return $out;
+  $sah = cg_pilar_daftar();
+  foreach ($f as $x) if (is_string($x) && in_array($x, $sah, true) && !in_array($x, $out, true)) $out[] = $x;
+  return $out;
+}
+/* Rentang data yang dibaca AI. Kosong = semua waktu (perilaku lama). Tanggal
+   tidak sah DITOLAK, bukan diabaikan: diabaikan, analisa "7 hari terakhir"
+   diam-diam membaca seluruh riwayat dan tetap terlihat wajar. */
+function cg_rentang_bukti($d) {
+  $dari = isset($d['dari']) ? trim((string)$d['dari']) : '';
+  $sampai = isset($d['sampai']) ? trim((string)$d['sampai']) : '';
+  if ($dari === '' && $sampai === '') return array('', '');
+  $a = cg_tgl_sah($dari); $b = cg_tgl_sah($sampai);
+  if ($a === null || $b === null) throw new Exception('Rentang tanggal tidak sah.');
+  if ($a > $b) throw new Exception('Tanggal mulai lebih besar dari tanggal akhir.');
+  return array($a, $b);
+}
+/* Tautan dibakukan untuk dicocokkan: tanpa query/hash/garis miring ekor. */
+function cg_url_kunci($u) {
+  $u = strtolower(trim((string)$u));
+  $u = preg_replace('/[?#].*$/', '', $u);
+  return rtrim($u, '/');
+}
+/* Peta tautan -> pilar dari baris konten modul Konten. Postingan TikTok/IG
+   tidak punya pilar sendiri; yang tautannya dicatat di Content Planning
+   kebagian pilarnya, sisanya kosong (AI menilainya dari judul). */
+function cg_peta_pilar($pdo) {
+  $peta = array();
+  try { $rows = $pdo->query('SELECT data FROM content')->fetchAll(); } catch (Throwable $e) { return $peta; }
+  foreach ($rows as $row) {
+    $c = json_decode((string)$row['data'], true);
+    if (!is_array($c) || empty($c['pillar'])) continue;
+    $u = isset($c['publishRecord']['url']) && is_string($c['publishRecord']['url']) ? cg_url_kunci($c['publishRecord']['url']) : '';
+    if ($u !== '') $peta[$u] = (string)$c['pillar'];
+  }
+  return $peta;
+}
+function cg_bukti_post($pdo, $n = 25, $dari = '', $sampai = '') {
   cg_pastikan($pdo);
   $baris = array();
-  foreach ($pdo->query('SELECT platform, judul, url, tayang_at, views, likes, comments, shares FROM cg_post WHERE hilang=0 ORDER BY views DESC LIMIT ' . (int)$n)->fetchAll() as $p) {
+  $where = 'hilang=0'; $arg = array();
+  if ($dari !== '') {
+    /* Hari WIB: 00:00 WIB = 17:00 UTC hari sebelumnya. */
+    $where .= ' AND tayang_at >= :a AND tayang_at < :b';
+    $arg[':a'] = (strtotime($dari . ' 00:00:00 UTC') - 7 * 3600) * 1000;
+    $arg[':b'] = (strtotime($sampai . ' 00:00:00 UTC') + 86400 - 7 * 3600) * 1000;
+  }
+  $pilar = cg_peta_pilar($pdo);
+  $q = $pdo->prepare('SELECT platform, judul, url, tayang_at, views, likes, comments, shares FROM cg_post WHERE ' . $where . ' ORDER BY views DESC LIMIT ' . (int)$n);
+  $q->execute($arg);
+  foreach ($q->fetchAll() as $p) {
+    $uk = cg_url_kunci($p['url']);
     $baris[] = array('platform' => $p['platform'], 'judul' => cg_potong($p['judul'], 220), 'url' => $p['url'],
       'tanggal' => $p['tayang_at'] ? gmdate('Y-m-d', (int)($p['tayang_at'] / 1000) + 7 * 3600) : '',
+      'pilar' => isset($pilar[$uk]) ? $pilar[$uk] : '',
       'views' => (int)$p['views'], 'likes' => (int)$p['likes'], 'comments' => (int)$p['comments'], 'shares' => (int)$p['shares']);
   }
   foreach (cg_konten_perf($pdo) as $k) {
     if (count($baris) >= $n * 2) break;
+    $tk = substr((string)$k['tanggal'], 0, 10);
+    if ($dari !== '' && ($tk === '' || $tk < $dari || $tk > $sampai)) continue;
     $baris[] = array('platform' => $k['platform'], 'judul' => cg_potong($k['judul'], 220), 'url' => $k['url'], 'tanggal' => $k['tanggal'],
+      'pilar' => $k['pillar'],
       'views' => (int)$k['views'], 'likes' => (int)$k['likes'], 'comments' => (int)$k['comments'], 'shares' => (int)$k['shares']);
   }
   return $baris;
+}
+/* Kalimat periode + fokus untuk prompt, satu tempat untuk riset & insight. */
+function cg_prompt_fokus($dari, $sampai, $fokus) {
+  $t = '';
+  if ($dari !== '') $t .= "Periode data: $dari s/d $sampai (hanya postingan yang tayang di rentang ini).\n";
+  if ($fokus) $t .= 'FOKUS analisa HANYA pada konten kategori: ' . implode(', ', $fokus)
+    . '. Kolom "pilar" di data menyebut kategori postingan yang sudah diketahui; yang kosong nilai sendiri dari judul/caption-nya, dan abaikan yang jelas bukan kategori fokus.' . "\n";
+  return $t;
 }
 
 function cg_riset_jalankan($pdo, $d, $nama) {
@@ -1040,7 +1108,9 @@ function cg_riset_jalankan($pdo, $d, $nama) {
   $platform = cg_potong(isset($d['platform']) ? $d['platform'] : 'TikTok, Instagram', 40);
   $catatan = cg_potong(isset($d['catatan']) ? $d['catatan'] : '', 1500);
   $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
-  $bukti = cg_bukti_post($pdo, 20);
+  list($dari, $sampai) = cg_rentang_bukti($d);
+  $fokus = cg_fokus_rapikan(isset($d['fokus']) ? $d['fokus'] : array());
+  $bukti = cg_bukti_post($pdo, 20, $dari, $sampai);
   $hariIni = gmdate('Y-m-d', time() + 7 * 3600);
 
   $system = 'Kamu ahli strategi konten media sosial untuk bisnis F&B di Indonesia. Jawab dalam Bahasa Indonesia. '
@@ -1049,6 +1119,7 @@ function cg_riset_jalankan($pdo, $d, $nama) {
     . 'Balas HANYA dengan satu objek JSON, tanpa teks lain.';
   $prompt = "Tanggal hari ini: $hariIni.\nProfil brand: $profil\nTopik riset: $topik\nPlatform: $platform\n"
     . ($catatan !== '' ? "Catatan tambahan: $catatan\n" : '')
+    . cg_prompt_fokus($dari, $sampai, $fokus)
     . "\nData postingan brand ini (diurut dari views terbanyak):\n" . json_encode($bukti, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
     . "\n\nBuat riset dengan bentuk JSON persis berikut:\n"
     . '{"ringkasan":"2-3 kalimat","pola":[{"temuan":"pola dari data postingan brand di atas","bukti":"judul/tautan postingan yang jadi buktinya","aksi":"yang sebaiknya dilakukan"}],'
@@ -1061,6 +1132,10 @@ function cg_riset_jalankan($pdo, $d, $nama) {
   /* Sambungan BARU sesudah menunggu AI — tanpa ini INSERT di bawah gagal
      "MySQL server has gone away" (lihat db()). Sudah kejadian 14 Okt 2026. */
   $pdo = db(true);
+  /* Periode & fokus ikut tersimpan supaya riwayat riset menyebut data apa
+     yang dibacanya — dua riset bertopik sama dari periode berbeda terbaca
+     sama persis tanpa ini. */
+  if (is_array($r['hasil'])) $r['hasil']['_meta'] = array('dari' => $dari, 'sampai' => $sampai, 'fokus' => $fokus, 'nBukti' => count($bukti));
   $id = cg_uid('rst');
   $q = $pdo->prepare('INSERT INTO cg_riset (id, jenis, topik, platform, catatan, hasil, model, oleh, at) VALUES (:id, :je, :to, :pl, :ca, :ha, :mo, :by, :at)');
   $q->execute(array(':id' => $id, ':je' => 'tren', ':to' => $topik, ':pl' => $platform, ':ca' => $catatan,
@@ -1072,14 +1147,17 @@ function cg_riset_jalankan($pdo, $d, $nama) {
    tidak ada yang tersimpan sampai orang menekan Simpan di layar. Insight yang
    lahir sendiri tanpa dibaca siapa pun adalah tebakan mesin yang menyamar
    jadi temuan tim. */
-function cg_insight_ai($pdo) {
-  $bukti = cg_bukti_post($pdo, 30);
+function cg_insight_ai($pdo, $d = array()) {
+  list($dari, $sampai) = cg_rentang_bukti($d);
+  $fokus = cg_fokus_rapikan(isset($d['fokus']) ? $d['fokus'] : array());
+  $bukti = cg_bukti_post($pdo, 30, $dari, $sampai);
+  if (!$bukti && $dari !== '') throw new Exception("Tidak ada postingan yang tayang $dari s/d $sampai. Pilih rentang yang lebih panjang.");
   if (!$bukti) throw new Exception('Belum ada postingan yang bisa dianalisa. Hubungkan & sinkronkan akun TikTok, atau isi Input Performa di modul Konten.');
   $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
   $kategori = cg_kategori($pdo);
   $system = 'Kamu analis konten media sosial. Jawab dalam Bahasa Indonesia. Analisa HANYA dari data yang diberikan; '
     . 'jangan mengarang angka atau tautan. Balas HANYA dengan satu objek JSON.';
-  $prompt = "Profil brand: $profil\nPostingan (diurut views):\n" . json_encode($bukti, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
+  $prompt = "Profil brand: $profil\n" . cg_prompt_fokus($dari, $sampai, $fokus) . "Postingan (diurut views):\n" . json_encode($bukti, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
     . "\n\nTemukan 4-6 pola yang membuat postingan teratas lebih berhasil daripada yang bawah (hook, topik, format, waktu tayang, ajakan). Bentuk JSON:\n"
     . '{"insight":[{"platform":"TikTok|Instagram|YouTube","kategori":"' . implode('|', $kategori) . '",'
     . '"temuan":"","url":"tautan PERSIS dari data di atas yang paling mewakili","tglTayang":"YYYY-MM-DD dari data","metrik":"angka dari data","aksi":""}]}';
@@ -1992,7 +2070,7 @@ function cg_aksi($action, $body) {
     case 'campaignInsightArsip': return cg_insight_arsip($pdo, isset($d['id']) ? $d['id'] : '', !empty($d['arsip']), $nama);
     case 'campaignJadwalSimpan': return cg_jadwal_simpan($pdo, $d, $nama);
     case 'campaignRiset':        return cg_riset_jalankan($pdo, $d, $nama);
-    case 'campaignInsightAI':    return cg_insight_ai($pdo);
+    case 'campaignInsightAI':    return cg_insight_ai($pdo, $d);
     case 'campaignBankGenerate': return cg_bank_generate($pdo, $d, $nama);
     case 'campaignBankSimpan':   return cg_bank_simpan($pdo, $d, $nama);
     case 'campaignBankHapus':    return cg_bank_hapus($pdo, isset($d['id']) ? $d['id'] : '');

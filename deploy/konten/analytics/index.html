@@ -380,6 +380,10 @@ var ST = {
   kalBulan: null, kalPilih: null,
   risetPilih: null, risetJalan: false, risetMulai: 0, risetGalat: '', risetIsi: null,
   usulan: null, usulanJalan: false,
+  /* Periode & fokus analisa AI (29 Okt 2026). Satu objek per kartu: riset dan
+     insight otomatis boleh dibaca dari periode yang berbeda. */
+  risetPer: { r: '30', dari: '', sampai: '', fokus: [] },
+  usulanPer: { r: '30', dari: '', sampai: '', fokus: [] },
   iklanPe: '30', iklanSrv: {}, iklanSibuk: '', iklanSync: false, iklanLabel: '', iklanNilai: '', iklanStatus: '', iklanUrut: 'spend', iklanQ: '', iklanRows: [],
   tumbuhHari: 30, tumbuhPlat: 'instagram', tumbuhSrv: {}, tumbuhSibuk: '',
   iklanTampil: 'iklan', iklanBukaPost: '', iklanMed: {},
@@ -807,7 +811,8 @@ function kartuUsulan(){
   var h = '<div class="kartu"><div class="kepala"><div><h2>Insight otomatis (AI)</h2>'
     + '<div class="sub">AI membaca konten terpopuler di atas lalu mengusulkan pola yang membuatnya berhasil. Usulan tidak tersimpan sampai kamu menekan Simpan.</div></div>'
     + '<div class="r"><button class="btn btn-primary btn-sm" data-a="usulan"' + (siap && !ST.usulanJalan ? '' : ' disabled') + '>'
-    + (ST.usulanJalan ? 'Menganalisa…' : 'Temukan insight') + '</button></div></div>';
+    + (ST.usulanJalan ? 'Menganalisa…' : 'Temukan insight') + '</button></div></div>'
+    + '<div class="form" style="margin-bottom:10px">' + periodeFokusHtml('usulan', ST.usulanPer) + '</div>';
   if (!siap) h += '<div class="pita warn">API key penyedia AI yang dipilih belum diisi. ' + (admin() ? 'Isi di Pengaturan.' : 'Minta admin modul Campaign mengisinya.') + '</div>';
   if (ST.usulanJalan) h += '<div class="agen"><div class="putar"></div><div>AI sedang membaca postingan… biasanya 20–60 detik.</div></div>';
   if (ST.usulan && ST.usulan.length) {
@@ -1018,6 +1023,55 @@ function simpanJadwal(){
 }
 
 /* ===================== RISET ===================== */
+/* Kategori konten = BERKAS KEMBAR PILLARS di deploy/konten/planning/ dan
+   cg_pilar_daftar() di konten-mysql/lib_campaign.php. Diukur atas produksi
+   29 Okt 2026: Product & Menu 38, Entertainment 31, Promotion 14, Community 4,
+   Event 3 dari 93 konten. Beda satu huruf dengan server = fokusnya dibuang
+   diam-diam (server menolak nilai di luar daftar). */
+var KONTEN_PILAR = ['Product & Menu','Promotion','Event','Entertainment','Education','Lifestyle','BTS','Corporate','Community','Information'];
+var PILAR_LABEL = { 'Product & Menu': 'F&B (Product & Menu)', 'Promotion': 'Promosi', 'Information': 'Informasi' };
+function rentangPer(o){
+  var kini = hariIni();
+  var mundur = function(n){ var d = new Date(kini + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - (n - 1)); return d.toISOString().slice(0,10); };
+  if (o.r === '7' || o.r === '30' || o.r === '90') return { dari: mundur(+o.r), sampai: kini };
+  if (o.r === 'khusus') return { dari: o.dari, sampai: o.sampai };
+  return { dari: '', sampai: '' };
+}
+/* Kendali periode + fokus, dipakai kartu Riset Tren DAN Insight otomatis.
+   Yang dikirim ke server rentang tanggalnya, bukan kata "30" — server tidak
+   perlu menghitung ulang "hari ini" dengan jamnya sendiri. */
+function periodeFokusHtml(k, o){
+  var seg = '<div class="seg">' + [['7','7 hari'],['30','30 hari'],['90','90 hari'],['khusus','Rentang…'],['semua','Semua waktu']].map(function(x){
+    return '<button type="button" class="' + (o.r === x[0] ? 'on' : '') + '" data-a="pf-r" data-k="' + k + '" data-v="' + x[0] + '">' + x[1] + '</button>'; }).join('') + '</div>';
+  var tgl = o.r === 'khusus'
+    ? ' <span style="display:inline-flex;gap:6px;align-items:center;font-size:12.5px;color:var(--k-txt-3)">'
+      + '<input type="date" data-a="pf-dari" data-k="' + k + '" value="' + esc(o.dari) + '" style="padding:5px 8px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit"> s/d '
+      + '<input type="date" data-a="pf-sampai" data-k="' + k + '" value="' + esc(o.sampai) + '" style="padding:5px 8px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit"></span>'
+    : '';
+  var chip = KONTEN_PILAR.map(function(p){
+    return '<button type="button" class="' + (o.fokus.indexOf(p) >= 0 ? 'on' : '') + '" data-a="pf-fokus" data-k="' + k + '" data-v="' + esc(p) + '">' + esc(PILAR_LABEL[p] || p) + '</button>'; }).join('');
+  return '<div class="field full"><label>Periode data yang dibaca AI</label><div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center">' + seg + tgl + '</div></div>'
+    + '<div class="field full"><label>Fokus kategori konten (opsional, boleh lebih dari satu)</label><div class="seg" style="flex-wrap:wrap">' + chip + '</div>'
+    + '<div class="bantu">' + (o.fokus.length ? 'AI hanya menganalisa konten ' + esc(o.fokus.map(function(p){ return PILAR_LABEL[p] || p; }).join(', ')) + '.' : 'Tidak ada yang dipilih = semua kategori.')
+    + ' Kategori diambil dari pilar konten di Content Planning; postingan yang belum tercatat di sana dinilai AI dari judulnya.</div></div>';
+}
+function kirimPer(o){
+  var r = rentangPer(o);
+  if (o.r === 'khusus' && (!r.dari || !r.sampai)) return null;
+  return { dari: r.dari, sampai: r.sampai, fokus: o.fokus.slice() };
+}
+function teksMeta(m){
+  if (!m) return '';
+  return (m.dari ? ' · data ' + fmtTgl(m.dari) + '–' + fmtTgl(m.sampai) : ' · semua waktu')
+    + (m.fokus && m.fokus.length ? ' · fokus ' + m.fokus.map(function(p){ return PILAR_LABEL[p] || p; }).join(', ') : '')
+    + (m.nBukti != null ? ' · ' + m.nBukti + ' postingan dibaca' : '');
+}
+/* Isian riset dibaca dari DOM sebelum render: render() total, dan menekan
+   satu tombol periode tidak boleh menghapus topik yang sedang diketik. */
+function simpanIsiRiset(){
+  if (!document.getElementById('r-topik')) return;
+  ST.risetIsi = { topik: nilai('r-topik'), platform: nilai('r-plat'), catatan: nilai('r-cat') };
+}
 function vRiset(){
   var RI = ST.risetIsi || {};
   var siap = D.setting && D.setting.aiSiap;
@@ -1028,7 +1082,8 @@ function vRiset(){
   h += '<div class="form">'
     + '<div class="field"><label>Topik riset *</label><input id="r-topik" value="' + esc(RI.topik || '') + '" placeholder="Contoh: konten malam minggu & live music"></div>'
     + '<div class="field"><label>Platform</label><select id="r-plat">' + ['TikTok, Instagram','TikTok','Instagram','YouTube'].map(function(p){ return '<option' + (RI.platform === p ? ' selected' : '') + '>' + p + '</option>'; }).join('') + '</select></div>'
-    + '<div class="field full"><label>Catatan / fokus (opsional)</label><input id="r-cat" value="' + esc(RI.catatan || '') + '" placeholder="Contoh: target anak muda 18–28, ada promo voucher TikTok bulan ini"></div>'
+    + periodeFokusHtml('riset', ST.risetPer)
+    + '<div class="field full"><label>Catatan tambahan (opsional)</label><input id="r-cat" value="' + esc(RI.catatan || '') + '" placeholder="Contoh: target anak muda 18–28, ada promo voucher TikTok bulan ini"></div>'
     + '</div><div style="display:flex;justify-content:flex-end"><button class="btn btn-primary" data-a="riset-jalan"' + (siap && !ST.risetJalan ? '' : ' disabled') + '>'
     + (ST.risetJalan ? 'Menganalisa…' : '⚡ Jalankan riset') + '</button></div>';
   /* Galat riset MENETAP di layar sampai riset berikutnya dijalankan (14 Okt
@@ -1052,7 +1107,7 @@ function daftarTeks(arr){ return (arr || []).map(function(x){ return '<li>' + es
 function hasilRiset(r){
   var x = r.hasil || {};
   var h = '<div class="kartu"><div class="kepala"><div><h2>Hasil riset: ' + esc(r.topik) + '</h2>'
-    + '<div class="sub">' + esc(r.platform) + ' · oleh ' + esc(r.oleh || '—') + ' · ' + esc(fmtWaktu(r.at)) + ' · model ' + esc(r.model) + '</div></div></div>'
+    + '<div class="sub">' + esc(r.platform) + ' · oleh ' + esc(r.oleh || '—') + ' · ' + esc(fmtWaktu(r.at)) + ' · model ' + esc(r.model) + esc(teksMeta(x._meta)) + '</div></div></div>'
     + '<div class="pita warn"><b>Estimasi AI, bukan data pasar.</b> Pola di bawah dibaca dari postingan brand ini; tren dan ide adalah perkiraan AI.</div>'
     + (x.ringkasan ? '<p style="font-size:14px;color:var(--ink);margin-bottom:14px">' + esc(x.ringkasan) + '</p>' : '');
   if ((x.pola || []).length) {
@@ -1987,9 +2042,18 @@ document.addEventListener('click', function(ev){
       .catch(function(e){ toast(e.message, true); }).then(render);
     return;
   }
+  if (a === 'pf-r' || a === 'pf-fokus') {
+    var po = el.getAttribute('data-k') === 'riset' ? ST.risetPer : ST.usulanPer;
+    if (el.getAttribute('data-k') === 'riset') simpanIsiRiset();
+    if (a === 'pf-r') po.r = v;
+    else { var fi = po.fokus.indexOf(v); if (fi >= 0) po.fokus.splice(fi, 1); else po.fokus.push(v); }
+    render(); return;
+  }
   if (a === 'usulan') {
+    var pu = kirimPer(ST.usulanPer);
+    if (!pu) { toast('Isi tanggal mulai dan akhir rentangnya dulu.', true); return; }
     ST.usulanJalan = true; ST.usulan = null; render();
-    api('campaignInsightAI').then(function(r){ ST.usulan = r.usulan || []; }).catch(function(e){ toast(e.message, true); })
+    api('campaignInsightAI', pu).then(function(r){ ST.usulan = r.usulan || []; }).catch(function(e){ toast(e.message, true); })
       .then(function(){ ST.usulanJalan = false; render(); });
     return;
   }
@@ -2150,6 +2214,9 @@ document.addEventListener('click', function(ev){
   if (a === 'riset-jalan') {
     var d = { topik: nilai('r-topik'), platform: nilai('r-plat'), catatan: nilai('r-cat') };
     if (!d.topik) { toast('Isi topik risetnya dulu.', true); return; }
+    var pr = kirimPer(ST.risetPer);
+    if (!pr) { toast('Isi tanggal mulai dan akhir rentangnya dulu.', true); return; }
+    d.dari = pr.dari; d.sampai = pr.sampai; d.fokus = pr.fokus;
     /* Isian disimpan di luar DOM: render() total, dan topik yang hilang
        sesudah riset gagal berarti mengetik ulang untuk mencoba lagi. */
     ST.risetIsi = d; ST.risetGalat = ''; ST.risetJalan = true; render();
@@ -2267,6 +2334,11 @@ document.addEventListener('input', function(ev){
 document.addEventListener('change', function(ev){
   var el = ev.target; if (el.getAttribute('data-a') === 'ins-kat') { ST.insKat = el.value; render(); }
   if (el.getAttribute('data-a') === 'top-dari') { ST.topDari = el.value; ST.topHal = 1; render(); }
+  if (el.getAttribute('data-a') === 'pf-dari' || el.getAttribute('data-a') === 'pf-sampai') {
+    var pk = el.getAttribute('data-k'), pp = pk === 'riset' ? ST.risetPer : ST.usulanPer;
+    if (pk === 'riset') simpanIsiRiset();
+    pp[el.getAttribute('data-a') === 'pf-dari' ? 'dari' : 'sampai'] = el.value; render();
+  }
   if (el.getAttribute('data-a') === 'top-sampai') { ST.topSampai = el.value; ST.topHal = 1; render(); }
   if (el.getAttribute('data-a') === 'iklan-urut') { ST.iklanUrut = el.value; var wu = document.getElementById('iklan-daftar'); if (wu) wu.innerHTML = tabelIklanHtml(ST.iklanRows); }
 });
