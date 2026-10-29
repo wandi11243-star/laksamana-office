@@ -142,7 +142,8 @@ function buatServer(opsi) {
       akun: [{ id: '123', nama: 'Akun Laksamana', mataUang: 'IDR', status: 1, totalBelanja: 9000000, tagihan: 0, batas: 10000000, sisaBatas: 1000000, bulanIni: 2500000, hariIni: 45000 }],
       kampanye: [
         { id: 'c1', akun: '123', nama: 'Kampanye Buat Acara', objective: 'OUTCOME_ENGAGEMENT', budgetHarian: 30000, budgetTotal: 0, budgetDi: 'kampanye', mulai: geser(-9), selesai: '', hariIni: 25000, bulanIni: 300000, sejakMulai: 270000, iklanAktif: 1, adId: 'a1' },
-        { id: 'c2', akun: '123', nama: 'Kampanye Live Music', objective: 'MESSAGES', budgetHarian: 50000, budgetTotal: 0, budgetDi: 'set iklan', mulai: geser(-3), selesai: geser(7), hariIni: 20000, bulanIni: 150000, sejakMulai: 150000, iklanAktif: 2, adId: 'a2' }] };
+        { id: 'c2', akun: '123', nama: 'Kampanye Live Music', objective: 'MESSAGES', budgetHarian: 50000, budgetTotal: 0, budgetDi: 'set iklan', mulai: geser(-3), selesai: geser(7), hariIni: 20000, bulanIni: 150000, sejakMulai: 150000, iklanAktif: 2, adId: 'a2' },
+        { id: 'c3', akun: '123', nama: 'Kampanye Sudah Lewat', objective: 'MESSAGES', budgetHarian: 20000, budgetTotal: 0, budgetDi: 'kampanye', mulai: geser(-20), selesai: geser(-2), hariIni: 0, bulanIni: 80000, sejakMulai: 360000, iklanAktif: 1, adId: 'a3' }] };
     else if (b.action === 'campaignAdsInfo') data = { mataUang: 'IDR',
       iklan: { tingkat: 'iklan', id: b.data.adId, nama: 'Iklan murah', status: S._adStatus || 'ACTIVE', efektif: 'ACTIVE', budgetJenis: '', budget: 0 },
       adset: { tingkat: 'adset', id: '9001', nama: 'Set A', status: 'ACTIVE', efektif: 'ACTIVE', budgetJenis: 'harian', budget: S._budget || 100000 },
@@ -405,6 +406,7 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('per kampanye: tanggal berhenti + sisa hari', kartuK('Kampanye Live Music').includes('7 hari lagi'));
     cek('per kampanye: budget per hari + perkiraan total sampai selesai', kartuK('Kampanye Live Music').includes('Rp50.000 per hari') && kartuK('Kampanye Live Music').includes('±Rp550.000 untuk 11 hari'));
     cek('per kampanye: sudah terpakai sejak mulai + persen + sisa', kartuK('Kampanye Live Music').includes('Rp150.000</b> <span') && kartuK('Kampanye Live Music').includes('27% dari perkiraan total') && kartuK('Kampanye Live Music').includes('sisa ±Rp400.000'));
+    cek('kampanye yang tanggal berhentinya sudah lewat disembunyikan', !potJ.includes('Kampanye Sudah Lewat') && !potJ.includes('data-v="a3"'));
     cek('per kampanye: tombol Atur iklan (iklan pertamanya)', potJ.includes('data-a="ads-kelola" data-v="a2"'));
     const nJ = b.srv.log.filter(x => x.action === 'campaignAdsJalan').length;
     klik(b.d, '[data-a="iklan-jalan-muat"]'); await tunggu(40);
