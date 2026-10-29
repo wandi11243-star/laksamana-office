@@ -1263,6 +1263,76 @@ function nilaiIklan(baris){
 }
 var NILAI_LBL = { works: 'Works', wajar: 'Wajar', tidak: 'Tidak works', kecil: 'Data belum cukup' };
 var IKLAN_STATUS = { ACTIVE: 'Aktif', PAUSED: 'Dijeda', CAMPAIGN_PAUSED: 'Kampanye dijeda', ADSET_PAUSED: 'Set iklan dijeda', ARCHIVED: 'Diarsipkan', DELETED: 'Dihapus', DISAPPROVED: 'Ditolak', PENDING_REVIEW: 'Ditinjau', WITH_ISSUES: 'Bermasalah' };
+/* SEDANG BERJALAN: kampanye aktif + uang, dibaca langsung dari Meta.
+   Dimuat sekali per kunjungan halaman (tombol Muat ulang untuk menyegarkan);
+   galatnya ikut dicatat supaya render -> muat -> render tidak berputar. */
+function muatJalanIklan(paksa){
+  if (!paksa && (ST.iklanJalan || ST.iklanJalanSibuk)) return;
+  ST.iklanJalanSibuk = true; if (paksa) { ST.iklanJalan = null; render(); }
+  api('campaignAdsJalan').then(function(d){ ST.iklanJalan = { data: d }; })
+    .catch(function(e){ ST.iklanJalan = { galat: e.message }; })
+    .then(function(){ ST.iklanJalanSibuk = false; if (VIEW === 'iklan') render(); });
+}
+var IKLAN_TUJUAN = { OUTCOME_ENGAGEMENT: 'Interaksi', OUTCOME_AWARENESS: 'Awareness', OUTCOME_TRAFFIC: 'Traffic', OUTCOME_LEADS: 'Prospek', OUTCOME_SALES: 'Penjualan', OUTCOME_APP_PROMOTION: 'Aplikasi', MESSAGES: 'Pesan', LINK_CLICKS: 'Klik tautan', POST_ENGAGEMENT: 'Interaksi', REACH: 'Jangkauan', VIDEO_VIEWS: 'Video views' };
+/* Selisih hari antara dua tanggal YYYY-MM-DD (UTC, jadi zona peramban tidak
+   menggeser apa pun). */
+function selisihHari(a, b){ return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 864e5); }
+/* Ditulis untuk DIBACA SEKALI LIHAT (revisi user 29 Okt 2026: "buat lebih
+   gampang dimengerti"): satu kartu per kampanye yang menjawab empat
+   pertanyaan — sudah jalan berapa lama, berhenti kapan, budget yang diset,
+   dan biaya yang sudah keluar. */
+function kartuJalanIklan(){
+  var J = ST.iklanJalan;
+  if (!J) muatJalanIklan(false);
+  var h = '<div class="kartu"><div class="kepala"><div><h2>Iklan yang sedang jalan</h2><div class="sub">Dibaca langsung dari Meta Ads'
+    + (J && J.data ? ' pukul ' + esc(fmtWaktu(J.data.at).split(' ').pop()) : '') + '. Tekan ⚙ Atur iklan untuk menjeda atau mengubah budget.</div></div>'
+    + '<div class="r"><button class="btn btn-ghost btn-sm" data-a="iklan-jalan-muat"' + (ST.iklanJalanSibuk ? ' disabled' : '') + '>↻ Muat ulang</button></div></div>';
+  if (!J) return h + '<div class="kosong">Membaca dari Meta Ads…</div></div>';
+  if (J.galat) return h + '<div class="pita err">Tidak bisa membaca dari Meta Ads: ' + esc(J.galat) + '</div></div>';
+  var D2 = J.data, K = D2.kampanye || [], kini = hariIni();
+  var hariI = 0, bulanI = 0, sisaBatas = null;
+  (D2.akun || []).forEach(function(x){ hariI += num(x.hariIni); bulanI += num(x.bulanIni); if (x.sisaBatas != null) sisaBatas = (sisaBatas || 0) + num(x.sisaBatas); });
+  /* Ringkasan atas: tiga angka, kalimat biasa. */
+  h += '<div class="grid g3" style="margin:4px 0 16px">'
+    + '<div class="stat"><div class="l">Iklan yang jalan sekarang</div><div class="v">' + K.length + '</div><div class="f">' + (K.length ? 'kampanye aktif' : 'tidak ada yang tayang') + '</div></div>'
+    + '<div class="stat"><div class="l">Uang keluar hari ini</div><div class="v" style="font-size:20px">' + rupiah(hariI) + '</div><div class="f">semua iklan · bisa tertunda beberapa jam</div></div>'
+    + '<div class="stat"><div class="l">Uang keluar bulan ini</div><div class="v" style="font-size:20px">' + rupiah(bulanI) + '</div><div class="f">termasuk iklan yang sudah berhenti</div></div>'
+    + '</div>';
+  if (sisaBatas != null) h += '<div class="pita info" style="margin-bottom:14px">Akun iklan punya <b>batas belanja</b>: tinggal <b>' + rupiah(sisaBatas) + '</b> lagi sebelum semua iklan berhenti sendiri.</div>';
+  (D2.akun || []).forEach(function(x){ if (x.status !== 1) h += '<div class="pita err" style="margin-bottom:14px">Akun iklan ' + esc(x.nama || x.id) + ' sedang tidak aktif di Meta (status ' + x.status + ') — iklan tidak akan tayang.</div>'; });
+  if (!K.length) return h + '<div class="kosong">Tidak ada iklan yang sedang jalan.</div></div>';
+  var urut = K.slice().sort(function(x, y){ return num(y.hariIni) - num(x.hariIni) || num(y.sejakMulai) - num(x.sejakMulai); });
+  h += '<div class="grid g2">' + urut.map(function(c){
+    var lama = c.mulai ? selisihHari(c.mulai, kini) + 1 : null;
+    var sisaHari = c.selesai ? selisihHari(kini, c.selesai) : null;
+    var totalHari = (c.mulai && c.selesai) ? selisihHari(c.mulai, c.selesai) + 1 : null;
+    /* Rencana total: budget total apa adanya; budget harian dikali jumlah
+       hari kalau tanggal selesainya ada (perkiraan — Meta boleh sedikit
+       melebihi budget harian di satu hari). */
+    var rencana = c.budgetTotal ? num(c.budgetTotal) : (c.budgetHarian && totalHari ? num(c.budgetHarian) * totalHari : 0);
+    var pakai = num(c.sejakMulai);
+    var persen = rencana ? Math.min(100, Math.round(pakai / rencana * 100)) : 0;
+    var baris = function(ikon, label, isi){ return '<div style="display:flex;gap:10px;padding:7px 0;border-top:1px solid var(--line)"><span style="width:22px">' + ikon + '</span><span style="width:120px;color:var(--muted);font-size:12.5px">' + label + '</span><span style="flex:1;font-size:13.5px;color:var(--ink)">' + isi + '</span></div>'; };
+    return '<div class="ins">'
+      + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:8px">'
+      + '<div><b style="color:var(--ink);font-size:14px">' + esc(c.nama || '(tanpa nama)') + '</b>'
+      + '<div style="font-size:11.5px;color:var(--muted)"><span class="nilai works">● Sedang jalan</span> · tujuan ' + esc(IKLAN_TUJUAN[c.objective] || c.objective || '—') + '</div></div>'
+      + tombolKelolaIklan(c.adId, '⚙ Atur iklan') + '</div>'
+      + baris('📅', 'Sudah jalan', lama != null ? '<b>' + lama + ' hari</b> <span style="color:var(--muted)">(mulai ' + esc(fmtTgl(c.mulai)) + ')</span>' : '—')
+      + baris('⏹', 'Berhenti', c.selesai
+          ? '<b>' + esc(fmtTgl(c.selesai)) + '</b> <span style="color:var(--muted)">(' + (sisaHari > 0 ? sisaHari + ' hari lagi' : sisaHari === 0 ? 'hari ini' : 'sudah lewat') + ')</span>'
+          : '<b>Tidak ada tanggal berhenti</b> <span style="color:var(--muted)">— jalan terus sampai dijeda</span>')
+      + baris('💰', 'Budget diset', c.budgetTotal
+          ? '<b>' + rupiah(c.budgetTotal) + '</b> untuk seluruh periode'
+          : c.budgetHarian ? '<b>' + rupiah(c.budgetHarian) + ' per hari</b>' + (totalHari ? ' <span style="color:var(--muted)">→ ±' + rupiah(rencana) + ' untuk ' + totalHari + ' hari</span>' : '') : '—')
+      + baris('🧾', 'Sudah terpakai', '<b>' + rupiah(pakai) + '</b> <span style="color:var(--muted)">sejak mulai</span>'
+          + (rencana ? '<div style="margin-top:6px;height:8px;border-radius:8px;background:#f1efec;overflow:hidden"><div style="height:100%;width:' + persen + '%;background:var(--gold,#b8862b)"></div></div>'
+            + '<div style="font-size:12px;color:var(--muted);margin-top:3px">' + persen + '% dari ' + (c.budgetTotal ? 'budget' : 'perkiraan total') + ' · sisa ±' + rupiah(Math.max(0, rencana - pakai)) + '</div>' : ''))
+      + '<div style="font-size:12px;color:var(--muted);margin-top:6px">Hari ini ' + rupiah(c.hariIni) + ' · bulan ini ' + rupiah(c.bulanIni) + '</div>'
+      + '</div>';
+  }).join('') + '</div>';
+  return h + '</div>';
+}
 function muatIklan(){
   var k = ST.iklanPe;
   if (ST.iklanSrv[k] || ST.iklanSibuk === k) return;
@@ -1314,7 +1384,7 @@ function vIklan(){
   var cara = '<div class="pita info" style="margin-top:12px"><b>Cara menilai:</b> tiap iklan dibandingkan dengan <b>median biaya per hasil</b> iklan lain yang hasilnya sejenis pada periode yang sama. '
     + '<b>Works</b> = ≥20% lebih murah, <b>Tidak works</b> = ≥30% lebih mahal atau belum menghasilkan apa pun, <b>Data belum cukup</b> = biayanya di bawah ' + rupiah(IKLAN_MIN) + '. '
     + 'Hasil dipilih menurut tujuan kampanye (chat, klik tautan, jangkauan, video views, lead, pembelian).</div>';
-  return kepala + kartu + kartuTopIklan(semua) + kartuSaranIklan()
+  return kepala + kartuJalanIklan() + kartu + kartuTopIklan(semua) + kartuSaranIklan()
     + '<div class="kartu"><h2>Daftar iklan</h2>' + hasilRingkas + saringIklanHtml(lbls)
     + '<div id="iklan-daftar">' + tabelIklanHtml(semua) + '</div>' + cara + '</div>';
 }
@@ -1378,11 +1448,12 @@ function kartuSaranIklan(){
    panel dibuka (campaignAdsInfo), bukan dari tabel sinkron yang bisa basi
    berjam-jam — tombol "Lanjutkan" untuk iklan yang sebenarnya sudah jalan
    menyesatkan. Mengubah = admin modul saja (dijaga server). */
-function tombolKelolaIklan(adId){
+function tombolKelolaIklan(adId, label){
   if (!adId) return '';
-  return '<button class="btn btn-ghost btn-sm" data-a="ads-kelola" data-v="' + esc(adId) + '" title="Jeda / lanjutkan / ubah budget">⚙ Kelola</button>';
+  return '<button class="btn btn-ghost btn-sm" data-a="ads-kelola" data-v="' + esc(adId) + '" title="Jeda / lanjutkan / ubah budget">' + (label || '⚙ Kelola') + '</button>';
 }
 var ADS_TINGKAT = { kampanye: 'Kampanye', adset: 'Set iklan', iklan: 'Iklan' };
+var ADS_KET = { kampanye: 'payung paling atas — jeda di sini = semua iklan di dalamnya ikut berhenti', adset: 'target penonton & jadwal tayang', iklan: 'materinya (postingan yang dipromosikan)' };
 function bukaKelolaIklan(adId){
   MODAL_DATA = { adsId: adId, info: null };
   bukaModal('<h3>Kelola iklan</h3><div class="agen"><div class="putar"></div><div>Membaca keadaan iklan dari Meta…</div></div>');
@@ -1401,13 +1472,13 @@ function gambarKelolaIklan(){
     var jalan = o.status === 'ACTIVE';
     var efek = o.efektif && o.efektif !== o.status ? ' <span style="font-size:11.5px;color:var(--muted)">(' + esc(IKLAN_STATUS[o.efektif] || o.efektif) + ')</span>' : '';
     var h = '<div class="ins" style="margin-bottom:10px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
-      + '<div style="flex:1;min-width:200px"><div style="font-size:11.5px;color:var(--muted)">' + ADS_TINGKAT[t] + '</div><b style="color:var(--ink)">' + esc(o.nama || o.id) + '</b></div>'
+      + '<div style="flex:1;min-width:200px"><div style="font-size:11.5px;color:var(--muted)"><b>' + ADS_TINGKAT[t] + '</b> — ' + ADS_KET[t] + '</div><b style="color:var(--ink)">' + esc(o.nama || o.id) + '</b></div>'
       + '<div><span class="nilai ' + (jalan ? 'works' : 'tidak') + '">' + esc(IKLAN_STATUS[o.status] || o.status) + '</span>' + efek + '</div>'
       + (boleh ? '<button class="btn ' + (jalan ? 'btn-ghost' : 'btn-primary') + ' btn-sm" data-a="ads-status" data-t="' + t + '" data-v="' + (jalan ? 'PAUSED' : 'ACTIVE') + '">' + (jalan ? '⏸ Jeda' : '▶ Lanjutkan') + '</button>' : '')
       + '</div>';
     if (o.budgetJenis) {
       h += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:13px">'
-        + '<span>Budget ' + o.budgetJenis + ': <b>' + rupiah(o.budget) + '</b></span>';
+        + '<span>' + (o.budgetJenis === 'harian' ? 'Budget per hari' : 'Budget total') + ': <b>' + rupiah(o.budget) + '</b></span>';
       if (boleh) h += '<input id="ads-bud-' + t + '" type="number" min="1" step="1000" value="' + Math.round(num(o.budget)) + '" style="width:140px;padding:5px 8px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit">'
         + '<button class="btn btn-ghost btn-sm" data-a="ads-bud-geser" data-t="' + t + '" data-v="0.8">−20%</button>'
         + '<button class="btn btn-ghost btn-sm" data-a="ads-bud-geser" data-t="' + t + '" data-v="1.2">+20%</button>'
@@ -1434,6 +1505,7 @@ function ubahIklan(t, isi, tanya){
   var adId = MODAL_DATA.adsId;
   api('campaignAdsUbah', Object.assign({ tingkat: t, id: I[t].id }, isi)).then(function(){
     toast('Tersimpan di Meta Ads.');
+    ST.iklanJalan = null; muatJalanIklan(false);
     if (t === 'iklan' && isi.status) (ST.iklanRows || []).forEach(function(r){ if (r.ad_id === adId) r.status = isi.status; });
     if (t === 'iklan' && isi.status) { var w = document.getElementById('iklan-daftar'); if (w) w.innerHTML = tabelIklanHtml(ST.iklanRows); }
     return bukaKelolaIklan(adId);
@@ -2138,6 +2210,7 @@ document.addEventListener('click', function(ev){
   if (a === 'ig-sync') { igSync(false); return; }
   if (a === 'iklan-pe') { ST.iklanPe = v; render(); return; }
   if (a === 'ads-kelola') { bukaKelolaIklan(v); return; }
+  if (a === 'iklan-jalan-muat') { muatJalanIklan(true); return; }
   if (a === 'ads-status') {
     var ot = el.getAttribute('data-t'), oo = MODAL_DATA && MODAL_DATA.info && MODAL_DATA.info[ot]; if (!oo) return;
     ubahIklan(ot, { status: v }, (v === 'PAUSED' ? 'Jeda ' : 'Lanjutkan ') + ADS_TINGKAT[ot].toLowerCase() + ' "' + (oo.nama || oo.id) + '"?'
