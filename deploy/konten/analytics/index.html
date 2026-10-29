@@ -1274,43 +1274,63 @@ function muatJalanIklan(paksa){
     .then(function(){ ST.iklanJalanSibuk = false; if (VIEW === 'iklan') render(); });
 }
 var IKLAN_TUJUAN = { OUTCOME_ENGAGEMENT: 'Interaksi', OUTCOME_AWARENESS: 'Awareness', OUTCOME_TRAFFIC: 'Traffic', OUTCOME_LEADS: 'Prospek', OUTCOME_SALES: 'Penjualan', OUTCOME_APP_PROMOTION: 'Aplikasi', MESSAGES: 'Pesan', LINK_CLICKS: 'Klik tautan', POST_ENGAGEMENT: 'Interaksi', REACH: 'Jangkauan', VIDEO_VIEWS: 'Video views' };
+/* Selisih hari antara dua tanggal YYYY-MM-DD (UTC, jadi zona peramban tidak
+   menggeser apa pun). */
+function selisihHari(a, b){ return Math.round((Date.parse(b + 'T00:00:00Z') - Date.parse(a + 'T00:00:00Z')) / 864e5); }
+/* Ditulis untuk DIBACA SEKALI LIHAT (revisi user 29 Okt 2026: "buat lebih
+   gampang dimengerti"): satu kartu per kampanye yang menjawab empat
+   pertanyaan — sudah jalan berapa lama, berhenti kapan, budget yang diset,
+   dan biaya yang sudah keluar. */
 function kartuJalanIklan(){
   var J = ST.iklanJalan;
   if (!J) muatJalanIklan(false);
-  var h = '<div class="kartu"><div class="kepala"><div><h2>Sedang berjalan sekarang</h2><div class="sub">Kampanye yang aktif saat ini dan uang yang terpakai — dibaca langsung dari Meta Ads'
-    + (J && J.data ? ' pukul ' + esc(fmtWaktu(J.data.at).split(' ').pop()) : '') + '.</div></div>'
+  var h = '<div class="kartu"><div class="kepala"><div><h2>Iklan yang sedang jalan</h2><div class="sub">Dibaca langsung dari Meta Ads'
+    + (J && J.data ? ' pukul ' + esc(fmtWaktu(J.data.at).split(' ').pop()) : '') + '. Tekan ⚙ Atur iklan untuk menjeda atau mengubah budget.</div></div>'
     + '<div class="r"><button class="btn btn-ghost btn-sm" data-a="iklan-jalan-muat"' + (ST.iklanJalanSibuk ? ' disabled' : '') + '>↻ Muat ulang</button></div></div>';
   if (!J) return h + '<div class="kosong">Membaca dari Meta Ads…</div></div>';
   if (J.galat) return h + '<div class="pita err">Tidak bisa membaca dari Meta Ads: ' + esc(J.galat) + '</div></div>';
-  var D2 = J.data, K = D2.kampanye || [];
-  var sum = function(k){ return K.reduce(function(a, c){ return a + num(c[k]); }, 0); };
-  var akunH = sum('hariIni'), akunB = 0, akunHari = 0;
-  (D2.akun || []).forEach(function(a){ akunB += num(a.bulanIni); akunHari += num(a.hariIni); });
-  h += '<div class="grid g4" style="margin:4px 0 14px">'
-    + '<div class="stat"><div class="l">Kampanye aktif</div><div class="v">' + K.length + '</div><div class="f">' + sum('iklanAktif') + ' iklan aktif di dalamnya</div></div>'
-    + '<div class="stat"><div class="l">Budget harian berjalan</div><div class="v" style="font-size:20px">' + rupiah(sum('budgetHarian')) + '</div><div class="f">jumlah budget harian kampanye aktif'
-      + (sum('budgetTotal') ? ' · + ' + rupiah(sum('budgetTotal')) + ' budget total' : '') + '</div></div>'
-    + '<div class="stat"><div class="l">Terpakai hari ini</div><div class="v" style="font-size:20px">' + rupiah(akunHari || akunH) + '</div><div class="f">seluruh akun iklan</div></div>'
-    + '<div class="stat"><div class="l">Terpakai bulan ini</div><div class="v" style="font-size:20px">' + rupiah(akunB) + '</div><div class="f">termasuk kampanye yang sudah berhenti</div></div>'
+  var D2 = J.data, K = D2.kampanye || [], kini = hariIni();
+  var hariI = 0, bulanI = 0, sisaBatas = null;
+  (D2.akun || []).forEach(function(x){ hariI += num(x.hariIni); bulanI += num(x.bulanIni); if (x.sisaBatas != null) sisaBatas = (sisaBatas || 0) + num(x.sisaBatas); });
+  /* Ringkasan atas: tiga angka, kalimat biasa. */
+  h += '<div class="grid g3" style="margin:4px 0 16px">'
+    + '<div class="stat"><div class="l">Iklan yang jalan sekarang</div><div class="v">' + K.length + '</div><div class="f">' + (K.length ? 'kampanye aktif' : 'tidak ada yang tayang') + '</div></div>'
+    + '<div class="stat"><div class="l">Uang keluar hari ini</div><div class="v" style="font-size:20px">' + rupiah(hariI) + '</div><div class="f">semua iklan · bisa tertunda beberapa jam</div></div>'
+    + '<div class="stat"><div class="l">Uang keluar bulan ini</div><div class="v" style="font-size:20px">' + rupiah(bulanI) + '</div><div class="f">termasuk iklan yang sudah berhenti</div></div>'
     + '</div>';
-  (D2.akun || []).forEach(function(a){
-    h += '<div class="sub" style="margin:-4px 0 12px">Akun <b>' + esc(a.nama || a.id) + '</b>' + (a.status !== 1 ? ' <span class="nilai tidak">status akun ' + a.status + ' (bukan aktif)</span>' : '')
-      + ' · total belanja sepanjang waktu ' + rupiah(a.totalBelanja)
-      + (a.batas ? ' · batas belanja akun ' + rupiah(a.batas) + ', <b>sisa ' + rupiah(a.sisaBatas) + '</b> sebelum iklan berhenti sendiri' : ' · tidak ada batas belanja akun')
-      + (a.tagihan ? ' · tagihan berjalan ' + rupiah(a.tagihan) : '') + '</div>';
-  });
-  if (!K.length) return h + '<div class="kosong">Tidak ada kampanye yang sedang aktif.</div></div>';
-  h += '<div style="overflow-x:auto"><table class="tbl-ik"><thead><tr><th>Kampanye</th><th>Tujuan</th><th class="n">Budget</th><th class="n">Hari ini</th><th class="n">Bulan ini</th><th>Jadwal</th><th></th></tr></thead><tbody>'
-    + K.slice().sort(function(x, y){ return num(y.hariIni) - num(x.hariIni) || num(y.budgetHarian) - num(x.budgetHarian); }).map(function(c){
-      var bud = c.budgetHarian ? rupiah(c.budgetHarian) + '<div style="font-size:11px;color:var(--muted)">per hari · di ' + esc(c.budgetDi) + '</div>'
-        : c.budgetTotal ? rupiah(c.budgetTotal) + '<div style="font-size:11px;color:var(--muted)">total · di ' + esc(c.budgetDi) + '</div>' : '—';
-      return '<tr><td><b style="color:var(--ink)">' + esc(c.nama || c.id) + '</b><div style="font-size:11px;color:var(--muted)">' + c.iklanAktif + ' iklan aktif</div></td>'
-        + '<td>' + esc(IKLAN_TUJUAN[c.objective] || c.objective || '—') + '</td>'
-        + '<td class="n">' + bud + '</td><td class="n">' + rupiah(c.hariIni) + '</td><td class="n">' + rupiah(c.bulanIni) + '</td>'
-        + '<td style="white-space:nowrap;font-size:12px">' + (c.mulai ? esc(fmtTgl(c.mulai)) : '') + (c.selesai ? ' – ' + esc(fmtTgl(c.selesai)) : ' – tanpa akhir') + '</td>'
-        + '<td>' + tombolKelolaIklan(c.adId) + '</td></tr>';
-    }).join('') + '</tbody></table></div>'
-    + '<div style="font-size:11.5px;color:var(--muted-2);margin-top:8px">Angka hari ini dari Meta bisa tertunda beberapa jam. ⚙ Kelola membuka kampanye itu untuk dijeda atau diubah budget-nya.</div>';
+  if (sisaBatas != null) h += '<div class="pita info" style="margin-bottom:14px">Akun iklan punya <b>batas belanja</b>: tinggal <b>' + rupiah(sisaBatas) + '</b> lagi sebelum semua iklan berhenti sendiri.</div>';
+  (D2.akun || []).forEach(function(x){ if (x.status !== 1) h += '<div class="pita err" style="margin-bottom:14px">Akun iklan ' + esc(x.nama || x.id) + ' sedang tidak aktif di Meta (status ' + x.status + ') — iklan tidak akan tayang.</div>'; });
+  if (!K.length) return h + '<div class="kosong">Tidak ada iklan yang sedang jalan.</div></div>';
+  var urut = K.slice().sort(function(x, y){ return num(y.hariIni) - num(x.hariIni) || num(y.sejakMulai) - num(x.sejakMulai); });
+  h += '<div class="grid g2">' + urut.map(function(c){
+    var lama = c.mulai ? selisihHari(c.mulai, kini) + 1 : null;
+    var sisaHari = c.selesai ? selisihHari(kini, c.selesai) : null;
+    var totalHari = (c.mulai && c.selesai) ? selisihHari(c.mulai, c.selesai) + 1 : null;
+    /* Rencana total: budget total apa adanya; budget harian dikali jumlah
+       hari kalau tanggal selesainya ada (perkiraan — Meta boleh sedikit
+       melebihi budget harian di satu hari). */
+    var rencana = c.budgetTotal ? num(c.budgetTotal) : (c.budgetHarian && totalHari ? num(c.budgetHarian) * totalHari : 0);
+    var pakai = num(c.sejakMulai);
+    var persen = rencana ? Math.min(100, Math.round(pakai / rencana * 100)) : 0;
+    var baris = function(ikon, label, isi){ return '<div style="display:flex;gap:10px;padding:7px 0;border-top:1px solid var(--line)"><span style="width:22px">' + ikon + '</span><span style="width:120px;color:var(--muted);font-size:12.5px">' + label + '</span><span style="flex:1;font-size:13.5px;color:var(--ink)">' + isi + '</span></div>'; };
+    return '<div class="ins">'
+      + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:8px">'
+      + '<div><b style="color:var(--ink);font-size:14px">' + esc(c.nama || '(tanpa nama)') + '</b>'
+      + '<div style="font-size:11.5px;color:var(--muted)"><span class="nilai works">● Sedang jalan</span> · tujuan ' + esc(IKLAN_TUJUAN[c.objective] || c.objective || '—') + '</div></div>'
+      + tombolKelolaIklan(c.adId, '⚙ Atur iklan') + '</div>'
+      + baris('📅', 'Sudah jalan', lama != null ? '<b>' + lama + ' hari</b> <span style="color:var(--muted)">(mulai ' + esc(fmtTgl(c.mulai)) + ')</span>' : '—')
+      + baris('⏹', 'Berhenti', c.selesai
+          ? '<b>' + esc(fmtTgl(c.selesai)) + '</b> <span style="color:var(--muted)">(' + (sisaHari > 0 ? sisaHari + ' hari lagi' : sisaHari === 0 ? 'hari ini' : 'sudah lewat') + ')</span>'
+          : '<b>Tidak ada tanggal berhenti</b> <span style="color:var(--muted)">— jalan terus sampai dijeda</span>')
+      + baris('💰', 'Budget diset', c.budgetTotal
+          ? '<b>' + rupiah(c.budgetTotal) + '</b> untuk seluruh periode'
+          : c.budgetHarian ? '<b>' + rupiah(c.budgetHarian) + ' per hari</b>' + (totalHari ? ' <span style="color:var(--muted)">→ ±' + rupiah(rencana) + ' untuk ' + totalHari + ' hari</span>' : '') : '—')
+      + baris('🧾', 'Sudah terpakai', '<b>' + rupiah(pakai) + '</b> <span style="color:var(--muted)">sejak mulai</span>'
+          + (rencana ? '<div style="margin-top:6px;height:8px;border-radius:8px;background:#f1efec;overflow:hidden"><div style="height:100%;width:' + persen + '%;background:var(--gold,#b8862b)"></div></div>'
+            + '<div style="font-size:12px;color:var(--muted);margin-top:3px">' + persen + '% dari ' + (c.budgetTotal ? 'budget' : 'perkiraan total') + ' · sisa ±' + rupiah(Math.max(0, rencana - pakai)) + '</div>' : ''))
+      + '<div style="font-size:12px;color:var(--muted);margin-top:6px">Hari ini ' + rupiah(c.hariIni) + ' · bulan ini ' + rupiah(c.bulanIni) + '</div>'
+      + '</div>';
+  }).join('') + '</div>';
   return h + '</div>';
 }
 function muatIklan(){
@@ -1428,11 +1448,12 @@ function kartuSaranIklan(){
    panel dibuka (campaignAdsInfo), bukan dari tabel sinkron yang bisa basi
    berjam-jam — tombol "Lanjutkan" untuk iklan yang sebenarnya sudah jalan
    menyesatkan. Mengubah = admin modul saja (dijaga server). */
-function tombolKelolaIklan(adId){
+function tombolKelolaIklan(adId, label){
   if (!adId) return '';
-  return '<button class="btn btn-ghost btn-sm" data-a="ads-kelola" data-v="' + esc(adId) + '" title="Jeda / lanjutkan / ubah budget">⚙ Kelola</button>';
+  return '<button class="btn btn-ghost btn-sm" data-a="ads-kelola" data-v="' + esc(adId) + '" title="Jeda / lanjutkan / ubah budget">' + (label || '⚙ Kelola') + '</button>';
 }
 var ADS_TINGKAT = { kampanye: 'Kampanye', adset: 'Set iklan', iklan: 'Iklan' };
+var ADS_KET = { kampanye: 'payung paling atas — jeda di sini = semua iklan di dalamnya ikut berhenti', adset: 'target penonton & jadwal tayang', iklan: 'materinya (postingan yang dipromosikan)' };
 function bukaKelolaIklan(adId){
   MODAL_DATA = { adsId: adId, info: null };
   bukaModal('<h3>Kelola iklan</h3><div class="agen"><div class="putar"></div><div>Membaca keadaan iklan dari Meta…</div></div>');
@@ -1451,13 +1472,13 @@ function gambarKelolaIklan(){
     var jalan = o.status === 'ACTIVE';
     var efek = o.efektif && o.efektif !== o.status ? ' <span style="font-size:11.5px;color:var(--muted)">(' + esc(IKLAN_STATUS[o.efektif] || o.efektif) + ')</span>' : '';
     var h = '<div class="ins" style="margin-bottom:10px"><div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">'
-      + '<div style="flex:1;min-width:200px"><div style="font-size:11.5px;color:var(--muted)">' + ADS_TINGKAT[t] + '</div><b style="color:var(--ink)">' + esc(o.nama || o.id) + '</b></div>'
+      + '<div style="flex:1;min-width:200px"><div style="font-size:11.5px;color:var(--muted)"><b>' + ADS_TINGKAT[t] + '</b> — ' + ADS_KET[t] + '</div><b style="color:var(--ink)">' + esc(o.nama || o.id) + '</b></div>'
       + '<div><span class="nilai ' + (jalan ? 'works' : 'tidak') + '">' + esc(IKLAN_STATUS[o.status] || o.status) + '</span>' + efek + '</div>'
       + (boleh ? '<button class="btn ' + (jalan ? 'btn-ghost' : 'btn-primary') + ' btn-sm" data-a="ads-status" data-t="' + t + '" data-v="' + (jalan ? 'PAUSED' : 'ACTIVE') + '">' + (jalan ? '⏸ Jeda' : '▶ Lanjutkan') + '</button>' : '')
       + '</div>';
     if (o.budgetJenis) {
       h += '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px;font-size:13px">'
-        + '<span>Budget ' + o.budgetJenis + ': <b>' + rupiah(o.budget) + '</b></span>';
+        + '<span>' + (o.budgetJenis === 'harian' ? 'Budget per hari' : 'Budget total') + ': <b>' + rupiah(o.budget) + '</b></span>';
       if (boleh) h += '<input id="ads-bud-' + t + '" type="number" min="1" step="1000" value="' + Math.round(num(o.budget)) + '" style="width:140px;padding:5px 8px;border:1px solid var(--k-line-hard);border-radius:8px;font:inherit">'
         + '<button class="btn btn-ghost btn-sm" data-a="ads-bud-geser" data-t="' + t + '" data-v="0.8">−20%</button>'
         + '<button class="btn btn-ghost btn-sm" data-a="ads-bud-geser" data-t="' + t + '" data-v="1.2">+20%</button>'
