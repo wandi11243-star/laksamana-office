@@ -138,6 +138,11 @@ function buatServer(opsi) {
     else if (b.action === 'campaignTumbuh') data = tumbuhUji(b.data.hari);
     else if (b.action === 'campaignAdsAI') data = { ringkasan: 'Ringkasan iklan uji', model: 'm', lanjutkan: [{ ad_id: 'a1', nama: 'Iklan murah', alasan: 'Biaya per chat Rp5.000', saran: 'Naikkan budget 20%' }],
       perbaiki: [], hentikan: [{ ad_id: 'a4', nama: 'Iklan mahal', alasan: 'Rp30.000 per chat', saran: '' }], saranUmum: ['Uji hook baru'] };
+    else if (b.action === 'campaignAdsJalan') data = { at: Date.now(),
+      akun: [{ id: '123', nama: 'Akun Laksamana', mataUang: 'IDR', status: 1, totalBelanja: 9000000, tagihan: 0, batas: 10000000, sisaBatas: 1000000, bulanIni: 2500000, hariIni: 45000 }],
+      kampanye: [
+        { id: 'c1', akun: '123', nama: 'Kampanye Buat Acara', objective: 'OUTCOME_ENGAGEMENT', budgetHarian: 30000, budgetTotal: 0, budgetDi: 'kampanye', mulai: '2026-10-20', selesai: '', hariIni: 25000, bulanIni: 300000, iklanAktif: 1, adId: 'a1' },
+        { id: 'c2', akun: '123', nama: 'Kampanye Live Music', objective: 'MESSAGES', budgetHarian: 50000, budgetTotal: 0, budgetDi: 'set iklan', mulai: '2026-10-25', selesai: '2026-11-05', hariIni: 20000, bulanIni: 150000, iklanAktif: 2, adId: 'a2' }] };
     else if (b.action === 'campaignAdsInfo') data = { mataUang: 'IDR',
       iklan: { tingkat: 'iklan', id: b.data.adId, nama: 'Iklan murah', status: S._adStatus || 'ACTIVE', efektif: 'ACTIVE', budgetJenis: '', budget: 0 },
       adset: { tingkat: 'adset', id: '9001', nama: 'Set A', status: 'ACTIVE', efektif: 'ACTIVE', budgetJenis: 'harian', budget: S._budget || 100000 },
@@ -388,6 +393,17 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     b.srv.S.setting.adsSiap = true; b.srv.S.setting.adsAkun = '123'; b.srv.S.setting.adsSyncAt = Date.now();
     await b.w.__cg.muat(); b.w.__cg.render(); await tunggu(60);
     cek('tabel iklan punya tombol Kelola', !!b.d.querySelector('[data-a="ads-kelola"][data-v="a1"]'));
+    const jl = b.d.getElementById('app').innerHTML;
+    const potJ = jl.slice(jl.indexOf('Sedang berjalan sekarang'), jl.indexOf('Daftar iklan'));
+    cek('kartu Sedang berjalan: diminta langsung ke Meta (campaignAdsJalan)', b.srv.log.some(x => x.action === 'campaignAdsJalan') && potJ.length > 0);
+    cek('kartu Sedang berjalan: jumlah kampanye & budget harian dijumlah', /Kampanye aktif<\/div><div class="v">2</.test(potJ) && potJ.includes('Rp80.000'), potJ.slice(0, 600));
+    cek('kartu Sedang berjalan: terpakai hari ini & bulan ini dari akun', potJ.includes('Rp45.000') && potJ.includes('Rp2.500.000'));
+    cek('kartu Sedang berjalan: sisa batas belanja akun disebut', potJ.includes('sisa Rp1.000.000'));
+    cek('kartu Sedang berjalan: tiap kampanye punya Kelola (iklan pertamanya)', potJ.includes('data-a="ads-kelola" data-v="a2"'));
+    const nJ = b.srv.log.filter(x => x.action === 'campaignAdsJalan').length;
+    klik(b.d, '[data-a="iklan-jalan-muat"]'); await tunggu(40);
+    cek('Muat ulang menarik lagi dari Meta', b.srv.log.filter(x => x.action === 'campaignAdsJalan').length === nJ + 1);
+    cek('php: aksi campaignAdsJalan terdaftar & membaca kampanye ACTIVE', PHP_LIB.includes("case 'campaignAdsJalan':") && PHP_LIB.includes("'effective_status' => json_encode(array('ACTIVE'))"));
     klik(b.d, '[data-a="ads-kelola"][data-v="a1"]'); await tunggu(40);
     const m = () => b.d.getElementById('modal').innerHTML;
     cek('panel membaca keadaan langsung dari Meta (campaignAdsInfo)', b.srv.log.some(x => x.action === 'campaignAdsInfo' && x.data.adId === 'a1') && /Set A/.test(m()) && /Kampanye A/.test(m()));

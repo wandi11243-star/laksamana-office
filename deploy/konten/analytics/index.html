@@ -1263,6 +1263,56 @@ function nilaiIklan(baris){
 }
 var NILAI_LBL = { works: 'Works', wajar: 'Wajar', tidak: 'Tidak works', kecil: 'Data belum cukup' };
 var IKLAN_STATUS = { ACTIVE: 'Aktif', PAUSED: 'Dijeda', CAMPAIGN_PAUSED: 'Kampanye dijeda', ADSET_PAUSED: 'Set iklan dijeda', ARCHIVED: 'Diarsipkan', DELETED: 'Dihapus', DISAPPROVED: 'Ditolak', PENDING_REVIEW: 'Ditinjau', WITH_ISSUES: 'Bermasalah' };
+/* SEDANG BERJALAN: kampanye aktif + uang, dibaca langsung dari Meta.
+   Dimuat sekali per kunjungan halaman (tombol Muat ulang untuk menyegarkan);
+   galatnya ikut dicatat supaya render -> muat -> render tidak berputar. */
+function muatJalanIklan(paksa){
+  if (!paksa && (ST.iklanJalan || ST.iklanJalanSibuk)) return;
+  ST.iklanJalanSibuk = true; if (paksa) { ST.iklanJalan = null; render(); }
+  api('campaignAdsJalan').then(function(d){ ST.iklanJalan = { data: d }; })
+    .catch(function(e){ ST.iklanJalan = { galat: e.message }; })
+    .then(function(){ ST.iklanJalanSibuk = false; if (VIEW === 'iklan') render(); });
+}
+var IKLAN_TUJUAN = { OUTCOME_ENGAGEMENT: 'Interaksi', OUTCOME_AWARENESS: 'Awareness', OUTCOME_TRAFFIC: 'Traffic', OUTCOME_LEADS: 'Prospek', OUTCOME_SALES: 'Penjualan', OUTCOME_APP_PROMOTION: 'Aplikasi', MESSAGES: 'Pesan', LINK_CLICKS: 'Klik tautan', POST_ENGAGEMENT: 'Interaksi', REACH: 'Jangkauan', VIDEO_VIEWS: 'Video views' };
+function kartuJalanIklan(){
+  var J = ST.iklanJalan;
+  if (!J) muatJalanIklan(false);
+  var h = '<div class="kartu"><div class="kepala"><div><h2>Sedang berjalan sekarang</h2><div class="sub">Kampanye yang aktif saat ini dan uang yang terpakai — dibaca langsung dari Meta Ads'
+    + (J && J.data ? ' pukul ' + esc(fmtWaktu(J.data.at).split(' ').pop()) : '') + '.</div></div>'
+    + '<div class="r"><button class="btn btn-ghost btn-sm" data-a="iklan-jalan-muat"' + (ST.iklanJalanSibuk ? ' disabled' : '') + '>↻ Muat ulang</button></div></div>';
+  if (!J) return h + '<div class="kosong">Membaca dari Meta Ads…</div></div>';
+  if (J.galat) return h + '<div class="pita err">Tidak bisa membaca dari Meta Ads: ' + esc(J.galat) + '</div></div>';
+  var D2 = J.data, K = D2.kampanye || [];
+  var sum = function(k){ return K.reduce(function(a, c){ return a + num(c[k]); }, 0); };
+  var akunH = sum('hariIni'), akunB = 0, akunHari = 0;
+  (D2.akun || []).forEach(function(a){ akunB += num(a.bulanIni); akunHari += num(a.hariIni); });
+  h += '<div class="grid g4" style="margin:4px 0 14px">'
+    + '<div class="stat"><div class="l">Kampanye aktif</div><div class="v">' + K.length + '</div><div class="f">' + sum('iklanAktif') + ' iklan aktif di dalamnya</div></div>'
+    + '<div class="stat"><div class="l">Budget harian berjalan</div><div class="v" style="font-size:20px">' + rupiah(sum('budgetHarian')) + '</div><div class="f">jumlah budget harian kampanye aktif'
+      + (sum('budgetTotal') ? ' · + ' + rupiah(sum('budgetTotal')) + ' budget total' : '') + '</div></div>'
+    + '<div class="stat"><div class="l">Terpakai hari ini</div><div class="v" style="font-size:20px">' + rupiah(akunHari || akunH) + '</div><div class="f">seluruh akun iklan</div></div>'
+    + '<div class="stat"><div class="l">Terpakai bulan ini</div><div class="v" style="font-size:20px">' + rupiah(akunB) + '</div><div class="f">termasuk kampanye yang sudah berhenti</div></div>'
+    + '</div>';
+  (D2.akun || []).forEach(function(a){
+    h += '<div class="sub" style="margin:-4px 0 12px">Akun <b>' + esc(a.nama || a.id) + '</b>' + (a.status !== 1 ? ' <span class="nilai tidak">status akun ' + a.status + ' (bukan aktif)</span>' : '')
+      + ' · total belanja sepanjang waktu ' + rupiah(a.totalBelanja)
+      + (a.batas ? ' · batas belanja akun ' + rupiah(a.batas) + ', <b>sisa ' + rupiah(a.sisaBatas) + '</b> sebelum iklan berhenti sendiri' : ' · tidak ada batas belanja akun')
+      + (a.tagihan ? ' · tagihan berjalan ' + rupiah(a.tagihan) : '') + '</div>';
+  });
+  if (!K.length) return h + '<div class="kosong">Tidak ada kampanye yang sedang aktif.</div></div>';
+  h += '<div style="overflow-x:auto"><table class="tbl-ik"><thead><tr><th>Kampanye</th><th>Tujuan</th><th class="n">Budget</th><th class="n">Hari ini</th><th class="n">Bulan ini</th><th>Jadwal</th><th></th></tr></thead><tbody>'
+    + K.slice().sort(function(x, y){ return num(y.hariIni) - num(x.hariIni) || num(y.budgetHarian) - num(x.budgetHarian); }).map(function(c){
+      var bud = c.budgetHarian ? rupiah(c.budgetHarian) + '<div style="font-size:11px;color:var(--muted)">per hari · di ' + esc(c.budgetDi) + '</div>'
+        : c.budgetTotal ? rupiah(c.budgetTotal) + '<div style="font-size:11px;color:var(--muted)">total · di ' + esc(c.budgetDi) + '</div>' : '—';
+      return '<tr><td><b style="color:var(--ink)">' + esc(c.nama || c.id) + '</b><div style="font-size:11px;color:var(--muted)">' + c.iklanAktif + ' iklan aktif</div></td>'
+        + '<td>' + esc(IKLAN_TUJUAN[c.objective] || c.objective || '—') + '</td>'
+        + '<td class="n">' + bud + '</td><td class="n">' + rupiah(c.hariIni) + '</td><td class="n">' + rupiah(c.bulanIni) + '</td>'
+        + '<td style="white-space:nowrap;font-size:12px">' + (c.mulai ? esc(fmtTgl(c.mulai)) : '') + (c.selesai ? ' – ' + esc(fmtTgl(c.selesai)) : ' – tanpa akhir') + '</td>'
+        + '<td>' + tombolKelolaIklan(c.adId) + '</td></tr>';
+    }).join('') + '</tbody></table></div>'
+    + '<div style="font-size:11.5px;color:var(--muted-2);margin-top:8px">Angka hari ini dari Meta bisa tertunda beberapa jam. ⚙ Kelola membuka kampanye itu untuk dijeda atau diubah budget-nya.</div>';
+  return h + '</div>';
+}
 function muatIklan(){
   var k = ST.iklanPe;
   if (ST.iklanSrv[k] || ST.iklanSibuk === k) return;
@@ -1314,7 +1364,7 @@ function vIklan(){
   var cara = '<div class="pita info" style="margin-top:12px"><b>Cara menilai:</b> tiap iklan dibandingkan dengan <b>median biaya per hasil</b> iklan lain yang hasilnya sejenis pada periode yang sama. '
     + '<b>Works</b> = ≥20% lebih murah, <b>Tidak works</b> = ≥30% lebih mahal atau belum menghasilkan apa pun, <b>Data belum cukup</b> = biayanya di bawah ' + rupiah(IKLAN_MIN) + '. '
     + 'Hasil dipilih menurut tujuan kampanye (chat, klik tautan, jangkauan, video views, lead, pembelian).</div>';
-  return kepala + kartu + kartuTopIklan(semua) + kartuSaranIklan()
+  return kepala + kartuJalanIklan() + kartu + kartuTopIklan(semua) + kartuSaranIklan()
     + '<div class="kartu"><h2>Daftar iklan</h2>' + hasilRingkas + saringIklanHtml(lbls)
     + '<div id="iklan-daftar">' + tabelIklanHtml(semua) + '</div>' + cara + '</div>';
 }
@@ -1434,6 +1484,7 @@ function ubahIklan(t, isi, tanya){
   var adId = MODAL_DATA.adsId;
   api('campaignAdsUbah', Object.assign({ tingkat: t, id: I[t].id }, isi)).then(function(){
     toast('Tersimpan di Meta Ads.');
+    ST.iklanJalan = null; muatJalanIklan(false);
     if (t === 'iklan' && isi.status) (ST.iklanRows || []).forEach(function(r){ if (r.ad_id === adId) r.status = isi.status; });
     if (t === 'iklan' && isi.status) { var w = document.getElementById('iklan-daftar'); if (w) w.innerHTML = tabelIklanHtml(ST.iklanRows); }
     return bukaKelolaIklan(adId);
@@ -2138,6 +2189,7 @@ document.addEventListener('click', function(ev){
   if (a === 'ig-sync') { igSync(false); return; }
   if (a === 'iklan-pe') { ST.iklanPe = v; render(); return; }
   if (a === 'ads-kelola') { bukaKelolaIklan(v); return; }
+  if (a === 'iklan-jalan-muat') { muatJalanIklan(true); return; }
   if (a === 'ads-status') {
     var ot = el.getAttribute('data-t'), oo = MODAL_DATA && MODAL_DATA.info && MODAL_DATA.info[ot]; if (!oo) return;
     ubahIklan(ot, { status: v }, (v === 'PAUSED' ? 'Jeda ' : 'Lanjutkan ') + ADS_TINGKAT[ot].toLowerCase() + ' "' + (oo.nama || oo.id) + '"?'
