@@ -890,12 +890,18 @@ function cg_bank_generate($pdo, $d, $nama) {
   $platform = cg_potong(isset($d['platform']) ? $d['platform'] : 'TikTok, Instagram', 40);
   $fokus = cg_potong(isset($d['fokus']) ? $d['fokus'] : '', 1500);
   $profil = cg_set_baca($pdo, 'profil', CG_PROFIL_BAWAAN);
-  $kategori = cg_kategori($pdo);
+  /* Pilar ide = kategori konten Content Planning (F&B, Promosi, Entertainment,
+     ...), bukan kategori pola insight (hook, format) — yang terakhir bukan
+     jenis konten (29 Okt 2026). Periode data & fokus kategori dikirim sebagai
+     dataDari/dataSampai/pilar: dari/sampai di sini rentang RENCANA. */
+  $kategori = cg_pilar_daftar();
+  list($dDari, $dSampai) = cg_rentang_bukti(array('dari' => isset($d['dataDari']) ? $d['dataDari'] : '', 'sampai' => isset($d['dataSampai']) ? $d['dataSampai'] : ''));
+  $pilarFokus = cg_fokus_rapikan(isset($d['pilar']) ? $d['pilar'] : array());
   $insight = array();
   foreach ($pdo->query('SELECT platform, kategori, temuan, aksi FROM cg_insight WHERE arsip=0 ORDER BY dibuat_at DESC LIMIT 30')->fetchAll() as $i) {
     $insight[] = array('platform' => $i['platform'], 'kategori' => $i['kategori'], 'temuan' => cg_potong($i['temuan'], 300), 'aksi' => cg_potong($i['aksi'], 300));
   }
-  $bukti = cg_bukti_post($pdo, 20);
+  $bukti = cg_bukti_post($pdo, 20, $dDari, $dSampai);
   $platPilih = cg_plat_bank($platform, 'TikTok');
 
   $system = 'Kamu ahli strategi konten media sosial untuk bisnis F&B di Indonesia. Jawab dalam Bahasa Indonesia. '
@@ -910,6 +916,8 @@ Jumlah konten: $jumlah
 " : '')
     . "Pilar konten yang dipakai tim: " . implode(', ', $kategori) . "
 "
+    . ($pilarFokus ? 'Buat ide HANYA untuk pilar: ' . implode(', ', $pilarFokus) . ". Isi field pilar dengan salah satunya.\n" : '')
+    . ($dDari !== '' ? "Postingan brand di bawah hanya yang tayang $dDari s/d $dSampai.\n" : '')
     . "
 Insight tim yang masih berlaku (pakai sebagai dasar):
 " . json_encode($insight, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
