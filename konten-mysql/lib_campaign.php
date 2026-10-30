@@ -2048,11 +2048,17 @@ function cg_ads_jalan($pdo) {
     }
     $url = CG_FB_GRAPH . '/act_' . $akun . '/campaigns?' . http_build_query(array(
       'fields' => 'id,name,status,effective_status,objective,daily_budget,lifetime_budget,start_time,stop_time,adsets.limit(50){id,name,effective_status,daily_budget,lifetime_budget,start_time,end_time},ads.limit(50){id,effective_status}',
-      'effective_status' => json_encode(array('ACTIVE')), 'limit' => 100, 'access_token' => $tok));
+      'effective_status' => json_encode(array('ACTIVE', 'PAUSED')), 'limit' => 100, 'access_token' => $tok));
     for ($h = 0; $url !== '' && $h < 5; $h++) {
       $d = cg_ads_get($url);
       foreach ((isset($d['data']) ? $d['data'] : array()) as $c) {
         $id = (string)$c['id'];
+        /* Kampanye yang DIJEDA ikut dibaca untuk daftar "iklan terakhir" (permintaan
+           user 30 Okt 2026, buat direview). Set iklannya berstatus CAMPAIGN_PAUSED,
+           jadi untuk kampanye yang tidak aktif budget & tanggal dihitung dari
+           SELURUH set — kalau tetap cuma yang ACTIVE, keduanya selalu kosong. */
+        $stKamp = isset($c['effective_status']) ? (string)$c['effective_status'] : '';
+        $setDihitung = function($s) use ($stKamp) { return $stKamp !== 'ACTIVE' || (isset($s['effective_status']) ? $s['effective_status'] : '') === 'ACTIVE'; };
         $db = isset($c['daily_budget']) ? (int)$c['daily_budget'] / $f : 0;
         $lb = isset($c['lifetime_budget']) ? (int)$c['lifetime_budget'] / $f : 0;
         $sumber = 'kampanye';
@@ -2061,7 +2067,7 @@ function cg_ads_jalan($pdo) {
         if ($db == 0 && $lb == 0) {
           $sumber = 'set iklan';
           foreach ((isset($c['adsets']['data']) ? $c['adsets']['data'] : array()) as $s) {
-            if ((isset($s['effective_status']) ? $s['effective_status'] : '') !== 'ACTIVE') continue;
+            if (!$setDihitung($s)) continue;
             $db += isset($s['daily_budget']) ? (int)$s['daily_budget'] / $f : 0;
             $lb += isset($s['lifetime_budget']) ? (int)$s['lifetime_budget'] / $f : 0;
           }
@@ -2076,7 +2082,7 @@ function cg_ads_jalan($pdo) {
         foreach ((isset($c['adsets']['data']) ? $c['adsets']['data'] : array()) as $s) {
           $sm = isset($s['start_time']) ? substr((string)$s['start_time'], 0, 10) : '';
           if ($sm !== '' && ($mulai === '' || $sm < $mulai)) $mulai = $sm;
-          if ((isset($s['effective_status']) ? $s['effective_status'] : '') !== 'ACTIVE') continue;
+          if (!$setDihitung($s)) continue;
           $se = isset($s['end_time']) ? substr((string)$s['end_time'], 0, 10) : '';
           if ($se === '') $adaTanpaAkhir = true; elseif ($se > $setSelesai) $setSelesai = $se;
         }
@@ -2088,7 +2094,7 @@ function cg_ads_jalan($pdo) {
         }
         $out['kampanye'][] = array('id' => $id, 'akun' => $akun, 'nama' => isset($c['name']) ? (string)$c['name'] : '',
           'objective' => isset($c['objective']) ? (string)$c['objective'] : '', 'budgetHarian' => $db, 'budgetTotal' => $lb, 'budgetDi' => $sumber,
-          'mulai' => $mulai, 'selesai' => $selesai,
+          'mulai' => $mulai, 'selesai' => $selesai, 'status' => $stKamp,
           'sejakMulai' => isset($belanja['maximum'][$id]) ? $belanja['maximum'][$id] : 0,
           'hariIni' => isset($belanja['today'][$id]) ? $belanja['today'][$id] : 0, 'bulanIni' => isset($belanja['this_month'][$id]) ? $belanja['this_month'][$id] : 0,
           'iklanAktif' => $iklanAktif, 'adId' => $adPertama);
