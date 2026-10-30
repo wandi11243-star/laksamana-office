@@ -837,6 +837,17 @@ node tools/uji-agent-bd.js   # 30 pemeriksaan, jsdom + kontrak PHP
 node tools/uji-review-bd.js   # 29 pemeriksaan, jsdom (sesi NON-admin)
 ```
 
+**Putaran kesepuluh (30 Okt 2026): bentuk LM Agenda** (`Laksamana_Muda_Agenda.html` di root, rujukan konsep — font & warna tetap palet modul).
+- **Dashboard** = sapaan + pita yang menuntut tindakan (undangan, review, lewat deadline) + fokus hari ini + tiga kolom **Hari ini / Besok / Lusa** (agenda untukku, tenggat `tugasSaya`, milestone project-ku) + kartu Belum ada deadline / Menunggu respons / Project berjalan. Kartu stat & "Prioritas teratas" lama dicabut.
+- **Calendar** punya keadaan SENDIRI `CAL` {mode,date,scope,off} — tidak lagi meminjam `pScope/pDiv/fPics` Projects. Lingkup saya / seluruh tim / `d:<divisi>` / `u:<id>`; mode Hari & Minggu = grid jam (`gridJam`, lajur untuk yang bertindih), divisi × Minggu = baris per kru (`mingguOrang`), Bulan = kotak tanggal (deadline task tetap bisa diseret, `dropCal`), Daftar = 14 hari. Chip penyaring per jenis (`JENIS_KAL`). `calItems`/`calRef`/`geserBulan` dicabut.
+- **Agenda** sekarang boleh punya `start`/`end` (jam), `lokasi`, `ket`, `owner`, `peserta` [id], `undang` {id:{at,ubah}}, `resp` {id:{s,at}} — ikut di blob, tanpa migrasi. Agenda lama (tanpa owner & peserta) = agenda tim, terlihat & bisa disunting semua. Yang berpemilik hanya disunting pemilik/admin (`agBisaUbah`). Tanggal/jam bergeser → jawaban peserta dibuang & diundang ulang.
+- **Menu Undangan & Notifikasi** (`vInbox`, view `inbox`): Perlu respons (undangan dijawab Hadir/Mungkin/Tidak `jawabAgenda`; task Review → `setujuiReview` = Done lewat `cekBolehDone`+`segarkanProgress`, `kembalikanReview` = Doing + catatan) · Notifikasi · Undangan saya. Badge sidebar = `jumlahInbox()`.
+- **Notifikasi DIHITUNG dari data** (`notifSaya`), bukan tabel: undangan, jawaban peserta, `t.tugasOleh`/`t.reviewOleh` (dicatat `catatPenugasan` saat PIC/reviewer BARU ditambah di modal), `t.reviewAt` (dipasang/dibuang di `segarkanProgress`), `t.reviewHasil`. Tanda dibaca di **localStorage per akun** (`bd_notif_baca:<id>`) — tidak ikut pindah perangkat, dan itu dikatakan di layar.
+
+```bash
+node tools/uji-agenda-inbox-bd.js   # 54 pemeriksaan, jsdom + server tiruan HIDUP (sesi non-admin)
+```
+
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)
 
 Keluhan user: PR-11 (berikut PO "Pelunasan DJ") hilang dari Purchasing.
