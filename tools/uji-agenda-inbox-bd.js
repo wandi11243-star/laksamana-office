@@ -280,5 +280,41 @@ async function simpanServer(){ await tunggu(1100); }
   cek(!D.getElementById('a_start'), 'tarik tidak menyala di luar halaman Calendar');
   ev("view='calendar'");
 
+  /* ---------- task berjam ala Google Calendar ---------- */
+  ev("DB.tasks.push({id:'tJam',name:'Telepon vendor sound',div:'Business Development',pics:['p2'],status:'To Do',deadline:'"+iso(1)+"',jam:'09:30',updatedAt:Date.now()})");
+  W.APP.calSet({scope:'saya',mode:'hari',date:iso(1)}); await tunggu(20);
+  const kolT=()=>view().querySelector('.vg-c[data-date="'+iso(1)+'"]');
+  const bT=()=>view().querySelector('.blk.tugas[data-tk="tJam"]');
+  cek(!!bT() && /09:30/.test(teks(bT())) && !!bT().querySelector('.tcek'), 'task berjam digambar di grid jam, berlingkaran centang', bT()&&teks(bT()));
+  cek(!!bT() && !bT().querySelector('.rz'), 'task tidak punya pegangan durasi (satu titik waktu)');
+  const chT=view().querySelector('.vg-a .kchip[data-tk="tBesok"]');
+  cek(!!chT && !chT.getAttribute('draggable'), 'task tanpa jam ada di baris "tanpa jam" dan bisa ditarik ke jam');
+  await tarik(bT(),kolT(),yDari(kolT(),'09:40'),yDari(kolT(),'13:40'));
+  let tJ=ev("DB.tasks.find(function(x){return x.id==='tJam'})");
+  cek(tJ.jam==='13:30' && tJ.deadline===iso(1), 'digeser → jam deadline jadi 13:30', tJ.deadline+' '+tJ.jam);
+  cek(!D.getElementById('overlay').classList.contains('show'), 'melepas task tidak ikut membuka modalnya');
+  await simpanServer();
+  cek((SERVER.tasks.find(x=>x.id==='tJam')||{}).jam==='13:30', 'jam task tersimpan ke server');
+  const chT2=view().querySelector('.vg-a .kchip[data-tk="tBesok"]');
+  if(chT2){ await tarik(chT2,kolT(),0,yDari(kolT(),'15:00'));
+    const tB=ev("DB.tasks.find(function(x){return x.id==='tBesok'})");
+    cek(tB.jam==='15:00', 'task tanpa jam ditarik ke 15:00 → diberi jam', tB.jam); }
+  W.APP.taskModal('tJam'); await tunggu(20);
+  cek(D.getElementById('m_jam') && D.getElementById('m_jam').value==='13:30', 'form task menampilkan jam deadline');
+  D.getElementById('m_jam').value='08:15'; W.APP.simpanTask('tJam'); await tunggu(20);
+  cek(ev("DB.tasks.find(function(x){return x.id==='tJam'}).jam")==='08:15', 'jam bisa diubah lewat form');
+  W.APP.taskModal('tJam'); await tunggu(20);
+  D.getElementById('m_jam').value=''; W.APP.simpanTask('tJam'); await tunggu(20);
+  cek(ev("DB.tasks.find(function(x){return x.id==='tJam'}).jam")==='', 'jam dikosongkan → task sepanjang hari lagi');
+  W.APP.taskModal('tJam'); await tunggu(20);
+  D.getElementById('m_jam').value='11:00'; D.getElementById('m_due').value=''; W.APP.simpanTask('tJam'); await tunggu(20);
+  cek(ev("DB.tasks.find(function(x){return x.id==='tJam'}).jam")==='', 'tanpa deadline, jamnya tidak disimpan');
+  ev("var x=DB.tasks.find(function(x){return x.id==='tJam'}); x.deadline='"+iso(1)+"'; x.jam='10:00'"); W.APP.calSet({mode:'hari',date:iso(1)}); await tunggu(20);
+  bT().querySelector('.tcek').click(); await tunggu(20);
+  cek(ev("selesai(DB.tasks.find(function(x){return x.id==='tJam'}))"), 'lingkaran centang di blok menandai task selesai');
+  cek(!D.getElementById('overlay').classList.contains('show'), 'mencentang tidak membuka modal task');
+  const bu=ev("lahirkanUlang({id:'tUl',name:'Rapat mingguan',div:'Business Development',pics:['p2'],status:'Done',deadline:'"+iso(0)+"',jam:'07:00',ulang:'mingguan'})");
+  cek(bu && bu.jam==='07:00', 'kejadian berikutnya task berulang membawa jamnya', bu&&bu.jam);
+
   selesai();
 })().catch(e=>{ console.log('GAGAL uji melempar: '+e.stack); gagal++; selesai(); });

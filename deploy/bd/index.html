@@ -920,6 +920,13 @@ input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums
 .blk.hantu{pointer-events:none;z-index:4;border-style:dashed;border-left-style:solid;background:var(--gold-glow);box-shadow:var(--shadow)}
 .vg-c{cursor:cell}
 body.geser-cal,body.geser-cal *{cursor:grabbing!important;user-select:none!important}
+
+/* task berjam di grid (ala Google Calendar) */
+.dl-jam{display:flex;gap:6px}.dl-jam input[type=date]{flex:1;min-width:0}.dl-jam input[type=time]{width:108px;flex:none}
+.blk.tugas{display:flex;align-items:center;gap:6px;padding:2px 6px;background:var(--danger-bg);border-color:transparent}
+.blk.tugas b{font-size:11px}
+.blk .tcek{flex:none;width:13px;height:13px;border-radius:50%;border:2px solid var(--jc);background:#fff;cursor:pointer}
+.blk .tcek:hover{background:var(--jc)}
 </style>
 </head>
 <body>
@@ -1926,7 +1933,7 @@ function vDashboard(){
 
   h+='<div class="days3">'+hari.map(function(d,i){
     var ag=agendaHari(d,AKU?AKU.id:null);
-    var due=aktif.filter(function(t){return t.deadline===d;}).sort(urutDeadline);
+    var due=aktif.filter(function(t){return t.deadline===d;}).sort(function(a,b){ return (a.jam||'99')<(b.jam||'99')?-1:(a.jam||'99')>(b.jam||'99')?1:urutDeadline(a,b); });
     var ms=milestoneHari(d,AKU?AKU.id:null);
     return '<div class="dcol'+(i===0?' td':'')+'"><div class="hd"><h3>'+LABEL_HARI_DEKAT[i]+'</h3>'+
         '<span class="mut" style="font-size:12px">'+esc(fTglHari(d))+'</span><span class="grow"></span>'+
@@ -2236,7 +2243,8 @@ function taskModal(id){
           ['Ad-hoc','Rutin','Project'].map(function(p){return '<option'+(t.type===p?' selected':'')+'>'+p+'</option>';}).join('')+'</select></div></div>'+
       '<div class="frow3">'+
         '<div class="field"><label>Mulai (opsional)</label><input type="date" id="m_start" value="'+(t.start||'')+'"></div>'+
-        '<div class="field"><label>Deadline</label><input type="date" id="m_due" value="'+(t.deadline||'')+'" onchange="APP.ulangSegar()"></div>'+
+        '<div class="field"><label>Deadline · jam (opsional)</label><div class="dl-jam"><input type="date" id="m_due" value="'+(t.deadline||'')+'" onchange="APP.ulangSegar()">'+
+          '<input type="time" id="m_jam" value="'+esc(t.jam||'')+'" title="Kosong = sepanjang hari, seperti task di Google Calendar"></div></div>'+
         '<div class="field"><label>Project (opsional)</label><select id="m_proj" onchange="APP.depGambar()">'+
           opsiProject(t.project,'— tanpa project —')+'</select></div></div>'+
       '<div class="frow">'+
@@ -2275,7 +2283,7 @@ function simpanTask(id){
     g('m_start').focus(); toast('Tanggal mulai tidak boleh sesudah deadline.'); return; }
   var data={name:nama,desc:g('m_desc').value.trim(),div:g('m_div').value,
     status:g('m_status').value,priority:g('m_prio').value,type:g('m_type').value,
-    start:g('m_start').value,deadline:g('m_due').value,project:g('m_proj').value||null,
+    start:g('m_start').value,deadline:g('m_due').value,jam:g('m_due').value?g('m_jam').value:'',project:g('m_proj').value||null,
     important:g('tg_imp').classList.contains('on'),urgent:g('tg_urg').classList.contains('on'),
     ulang:'',daily:g('tg_daily').classList.contains('on')};
   /* Daily Task = "project tetap" sendiri, jadi tidak boleh sekaligus milik
@@ -2417,7 +2425,7 @@ function tagDeadline(t){
     return '<span class="tag ok" title="'+esc(ket+(t.deadline?' · deadline '+fTgl(t.deadline):''))+'">✓ '+
       (t.deadline?fTgl(t.deadline):ket)+'</span>';
   }
-  return t.deadline?'<span class="tag'+(lewat(t)?' overdue':'')+'">'+fDue(t.deadline)+'</span>':'';
+  return t.deadline?'<span class="tag'+(lewat(t)?' overdue':'')+'">'+fDue(t.deadline)+(t.jam?' · '+esc(t.jam):'')+'</span>':'';
 }
 function tagSubDep(t,tanpaKunci){
   var h=subHitung(t), hal=selesai(t)?[]:penghalang(t);
@@ -3312,6 +3320,7 @@ function lahirkanUlang(t,idTetap){
   if(t.daily) b.daily=true;
   if(tagsOf(t).length) b.tags=tagsOf(t).slice();
   if(gSah(t.start)) b.start=gAdd(t.start,geser);
+  if(t.jam) b.jam=t.jam;
   setPics(b,pics(t));
   DB.tasks.push(b);
   return b;
@@ -6236,7 +6245,7 @@ function itAgenda(e){
     '<div class="mt">'+meta.join(' · ')+'</div></div></div>';
 }
 function itTask(t){
-  return '<div class="it" style="--jc:var(--danger)" onclick="APP.taskModal(\''+t.id+'\')"><div class="tm">◆</div><div class="grow">'+
+  return '<div class="it" style="--jc:var(--danger)" onclick="APP.taskModal(\''+t.id+'\')"><div class="tm">'+(t.jam?esc(t.jam):'◆')+'</div><div class="grow">'+
     '<div class="ti">'+esc(t.name)+'</div><div class="mt"><span class="tag">'+esc(t.status)+'</span>'+(lewat(t)?' · <span class="tag overdue">lewat</span>':'')+'</div></div></div>';
 }
 function itTelat(t){
@@ -6385,6 +6394,21 @@ function undangUlang(e,peserta,now){
   e.undang=e.undang||{}; e.resp=e.resp||{};
   peserta.forEach(function(p){ e.undang[p]={at:now,ubah:1}; delete e.resp[p]; });
 }
+/* Task berjam ala Google Calendar (30 Okt 2026): task punya SATU titik
+   waktu (deadline + jam opsional), bukan rentang — digambar 30 menit di grid
+   dan tidak bisa diubah durasinya. Tanpa jam = sepanjang hari (baris
+   "tanpa jam"). Menggeser mengubah tanggal deadline DAN jamnya; mulai yang
+   jadi sesudah deadline ikut dimundurkan, aturan yang sama dengan simpanTask. */
+function geserTaskJam(id,date,jam){
+  var t=DB.tasks.find(function(x){return x.id===id;}); if(!t || !date || !jam) return false;
+  if(t.deadline===date && (t.jam||'')===jam) return false;
+  var lama=fTgl(t.deadline)+(t.jam?' '+t.jam:'');
+  t.deadline=date; t.jam=jam;
+  if(t.start && t.start>date) t.start=date;
+  save(); render();
+  toast(t.name+': '+lama+' → '+fTgl(date)+' '+jam);
+  return true;
+}
 function jamDariMenit(m){ return pad(Math.floor(m/60))+':'+pad(m%60); }
 
 /* Pindah / ubah durasi agenda dari kalender (30 Okt 2026, permintaan user:
@@ -6454,9 +6478,14 @@ function gcSelesai(){
 function pasangGeserCal(){
   document.addEventListener('pointerdown',function(ev){
     if(ev.button!==0 || view!=='calendar') return;
-    var t=ev.target, blk=t.closest&&t.closest('[data-ag]');
+    var t=ev.target, blk=t.closest&&t.closest('[data-ag],[data-tk]');
     var kol=t.closest&&t.closest('.vg-c');
-    if(blk){
+    if(blk && blk.dataset.tk){
+      var tk=DB.tasks.find(function(x){return x.id===blk.dataset.tk;}); if(!tk) return;
+      var tb=blk.classList.contains('blk'), ts=tb?+blk.dataset.s:540;
+      GC={mode:'pindah',tk:tk.id,judul:tk.name,el:blk,kol:kol,s:ts,en:ts+30,
+          off:(tb&&kol)?gcMenit(kol,ev.clientY)-ts:0,x:ev.clientX,y:ev.clientY,jalan:false};
+    }else if(blk){
       var e=DB.agenda.find(function(x){return x.id===blk.dataset.ag;}); if(!e) return;
       var bk=blk.classList.contains('blk');
       var s=bk?+blk.dataset.s:540, en=bk?+blk.dataset.en:600;
@@ -6491,6 +6520,7 @@ function pasangGeserCal(){
     if(!h) return;
     var tgl=h.kol.dataset.date, st=jamDariMenit(h.s), en=jamDariMenit(Math.min(h.en,1439));
     if(g.mode==='baru') agendaModal(null,tgl,{start:st,end:en});
+    else if(g.tk) geserTaskJam(g.tk,tgl,st);
     else geserAgenda(g.id,tgl,st,en);
   });
   document.addEventListener('pointercancel',function(){ if(GC) gcSelesai(); });
@@ -6697,7 +6727,9 @@ function kalItems(from,to){
     if(!dalam(t.deadline) || selesai(t)) return;
     if(u && pelaksana(t).indexOf(u)<0 && !(u===(AKU&&AKU.id)&&menungguReviewSaya(t))) return;
     if(!masukDiv(t.div)) return;
-    out.push({date:t.deadline,k:'deadline',title:t.name,id:t.id,geser:true,buka:'t:'+t.id,orang:pelaksana(t)});
+    var sj=menit(t.jam);
+    out.push({date:t.deadline,k:'deadline',title:t.name,id:t.id,tk:t.id,geser:true,buka:'t:'+t.id,orang:pelaksana(t),
+      s:sj,en:sj===null?null:sj+30,jam:t.jam||''});
   });
   DB.projects.forEach(function(p){
     if(u && !punyaPic(p,u)) return;
@@ -6734,8 +6766,8 @@ function calBuka(b){
 }
 function chipKal(x){
   var j=JENIS_KAL[x.k];
-  return '<span class="kchip'+(x.pend?' pend':'')+(x.tolak?' tolak':'')+(x.geser?' geser':'')+(x.ag&&x.ubah?' tarik':'')+'" style="--jc:'+j.c+'" '+
-    (x.ag&&x.ubah?'data-ag="'+esc(x.ag)+'" ':'')+
+  return '<span class="kchip'+(x.pend?' pend':'')+(x.tolak?' tolak':'')+(x.geser?' geser':'')+(x.ag&&x.ubah||x.grid&&x.tk?' tarik':'')+'" style="--jc:'+j.c+'" '+
+    (x.ag&&x.ubah?'data-ag="'+esc(x.ag)+'" ':'')+(x.grid&&x.tk?'data-tk="'+esc(x.tk)+'" ':'')+
     (x.geser?'draggable="true" ondragstart="APP.dragCal(event,\''+x.id+'\')" ondragend="this.classList.remove(\'dragging\')" ':'')+
     'onclick="event.stopPropagation();APP.calBuka(\''+esc(x.buka)+'\')" title="'+esc(j.l+' — '+(x.jam?x.jam+' ':'')+x.title)+'">'+
     (x.k==='deadline'?'◆ ':'')+(x.jam?esc(x.jam.split('–')[0])+' ':'')+esc(x.title)+'</span>';
@@ -6768,7 +6800,8 @@ function gridJam(hari,items){
     return '<div class="'+(d===t0?'td':'')+'" onclick="APP.calSet({mode:\'hari\',date:\''+d+'\'})">'+labelHariPendek(d)+' <span class="dn">'+pDate(d).getDate()+'</span></div>';
   }).join('')+'</div>';
   h+='<div class="vg-a" style="grid-template-columns:'+kol+'"><div class="vg-al">tanpa jam</div>'+hari.map(function(d){
-    return '<div>'+items.filter(function(x){return x.date===d && x.s==null;}).map(chipKal).join('')+'</div>';
+    return '<div>'+items.filter(function(x){return x.date===d && x.s==null;}).map(function(x){
+      return chipKal(x.tk?Object.assign({},x,{geser:false,grid:1}):x); }).join('')+'</div>';
   }).join('')+'</div>';
   h+='<div class="vg-b" style="grid-template-columns:'+kol+'"><div class="vg-t">'+
     Array.apply(null,{length:h1-h0}).map(function(_,i){ return '<div style="height:'+hh+'px">'+pad(h0+i)+':00</div>'; }).join('')+'</div>';
@@ -6777,6 +6810,10 @@ function gridJam(hari,items){
       var x=L.it, j=JENIS_KAL[x.k];
       var s=Math.max(x.s,h0*60), en=Math.min(x.en,h1*60); if(en<=s) return '';
       var top=(s-h0*60)/60*hh, tg=Math.max(22,(en-s)/60*hh-2), w=100/L.n;
+      if(x.tk) return '<div class="blk tugas tarik" style="--jc:'+j.c+';top:'+top+'px;height:'+tg+'px;left:calc('+(w*L.l)+'% + 2px);width:calc('+w+'% - 4px)" '+
+        'data-tk="'+esc(x.tk)+'" data-s="'+x.s+'" data-en="'+x.en+'" onclick="APP.calBuka(\''+esc(x.buka)+'\')" title="'+esc('Task · '+x.jam+' '+x.title+' — geser untuk pindah jam/hari')+'">'+
+        '<span class="tcek" title="Tandai selesai" onpointerdown="event.stopPropagation()" onclick="event.stopPropagation();APP.toggleTask(\''+esc(x.tk)+'\')"></span>'+
+        '<b>'+esc(x.jam)+' '+esc(x.title)+'</b></div>';
       var gs=x.ag&&x.ubah;
       return '<div class="blk'+(x.pend?' pend':'')+(x.tolak?' tolak':'')+(gs?' tarik':'')+'" style="--jc:'+j.c+';top:'+top+'px;height:'+tg+'px;left:calc('+(w*L.l)+'% + 2px);width:calc('+w+'% - 4px)" '+
         (gs?'data-ag="'+esc(x.ag)+'" data-s="'+x.s+'" data-en="'+x.en+'" ':'')+
