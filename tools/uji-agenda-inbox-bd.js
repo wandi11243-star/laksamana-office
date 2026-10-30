@@ -230,5 +230,55 @@ async function simpanServer(){ await tunggu(1100); }
   const d1=new Date(); d1.setMonth(d1.getMonth()+1,1);
   cek(ev('CAL.date').slice(0,7)===d1.getFullYear()+'-'+String(d1.getMonth()+1).padStart(2,'0'), 'panah berikutnya di mode Bulan maju satu bulan');
 
+  /* ---------- geser agenda di grid jam ---------- */
+  /* jsdom tidak punya tata letak: kolom dipatok top=0, dan elementFromPoint
+     memulangkan kolom yang sedang diuji. Yang diuji perhitungan jam &
+     penyimpanannya, bukan geometri peramban. */
+  let KOLUJI=null;
+  D.elementFromPoint=()=>KOLUJI;
+  const yDari=(kol,hm)=>{ const [a,b]=hm.split(':').map(Number); return ((a*60+b)-(+kol.dataset.h0)*60)/60*(+kol.dataset.hh); };
+  const tekan=(el,tipe,y,tgt)=>{ const e=new W.MouseEvent(tipe,{bubbles:true,cancelable:true,clientX:50,clientY:y,button:0}); Object.defineProperty(e,'pointerType',{value:'mouse'}); (tgt||el).dispatchEvent(e); };
+  const tarik=async(asal,kol,y0,y1,tgt)=>{ KOLUJI=kol; tekan(asal,'pointerdown',y0,tgt); tekan(D,'pointermove',y0+8); tekan(D,'pointermove',y1); tekan(D,'pointerup',y1);
+    /* Peramban mengirim klik ke elemen yang ADA di bawah kursor saat dilepas — sesudah render ulang itu blok BARU, bukan yang lama (sudah lepas dari DOM). */
+    const di=(asal.dataset&&asal.dataset.ag&&view().querySelector('[data-ag="'+asal.dataset.ag+'"]'))||kol; tekan(di,'click',y1); await tunggu(20); };
+  ev("DB.agenda.push({id:'aGeser',title:'Review desain',date:'"+iso(1)+"',start:'10:00',end:'11:00',type:'Meeting',div:'Business Development',owner:'p2',peserta:['p1'],undang:{p1:{at:1}},resp:{p1:{s:'terima',at:2}},updatedAt:Date.now()})");
+  W.APP.calSet({scope:'saya',mode:'hari',date:iso(1)}); await tunggu(20);
+  const kolG=()=>view().querySelector('.vg-c[data-date="'+iso(1)+'"]');
+  const blkG=()=>view().querySelector('.blk[data-ag="aGeser"]');
+  cek(!!kolG() && !!blkG(), 'agenda milikku di grid jam bisa digeser (data-ag)');
+  const kirimSblm=kiriman.length;
+  await tarik(blkG(),kolG(),yDari(kolG(),'10:15'),yDari(kolG(),'14:15'));
+  let aG=ev("DB.agenda.find(function(x){return x.id==='aGeser'})");
+  cek(aG.start==='14:00' && aG.end==='15:00', 'digeser 4 jam → 14:00–15:00, durasi tetap', aG.start+'–'+aG.end);
+  cek(!D.getElementById('overlay').classList.contains('show'), 'melepas blok tidak ikut membuka detail (klik sesudah tarik dibuang)');
+  cek(!aG.resp.p1 && aG.undang.p1 && aG.undang.p1.ubah===1, 'jadwal bergeser → peserta diminta menjawab ulang');
+  await simpanServer();
+  cek(kiriman.length>kirimSblm && (SERVER.agenda.find(x=>x.id==='aGeser')||{}).start==='14:00', 'jam baru tersimpan ke server');
+  await tarik(blkG(),kolG(),yDari(kolG(),'14:55'),yDari(kolG(),'16:30'),blkG().querySelector('.rz'));
+  aG=ev("DB.agenda.find(function(x){return x.id==='aGeser'})");
+  cek(aG.start==='14:00' && aG.end==='16:30', 'tarik tepi bawah → jam selesai jadi 16:30', aG.start+'–'+aG.end);
+  await tarik(blkG(),kolG(),yDari(kolG(),'16:00'),yDari(kolG(),'13:50'),blkG().querySelector('.rz'));
+  aG=ev("DB.agenda.find(function(x){return x.id==='aGeser'})");
+  cek(aG.end==='14:15', 'durasi tidak bisa lebih pendek dari 15 menit / sebelum mulai', aG.end);
+  await tarik(kolG(),kolG(),yDari(kolG(),'09:00'),yDari(kolG(),'10:30'));
+  cek(D.getElementById('a_start') && D.getElementById('a_start').value==='09:00' && D.getElementById('a_end').value==='10:30', 'tarik di slot kosong → form agenda baru berjam 09:00–10:30',
+    D.getElementById('a_start')&&D.getElementById('a_start').value+'–'+D.getElementById('a_end').value);
+  cek(D.getElementById('a_date') && D.getElementById('a_date').value===iso(1), 'tanggalnya kolom yang ditarik');
+  ev('closeModal()');
+  W.APP.calSet({scope:'semua',mode:'hari',date:iso(0)}); await tunggu(20);
+  cek(!view().querySelector('.blk[data-ag="aUndang"]') && !view().querySelector('.blk[data-ag="aLain"]'), 'agenda orang lain TIDAK bisa digeser');
+  const kol0=view().querySelector('.vg-c[data-date="'+iso(0)+'"]'), chip=view().querySelector('.vg-a .kchip[data-ag="aTim"]');
+  cek(!!chip, 'agenda tanpa jam (agenda tim) bisa ditarik ke grid');
+  if(chip){ await tarik(chip,kol0,0,yDari(kol0,'13:00'));
+    const aT=ev("DB.agenda.find(function(x){return x.id==='aTim'})");
+    cek(aT.start==='13:00' && aT.end==='14:00', 'ditarik ke jam 13:00 → diberi jam 13:00–14:00', aT.start+'–'+aT.end); }
+  const kol1=view().querySelector('.vg-c[data-date="'+iso(0)+'"]');
+  ev("view='dashboard'"); await tarik(kol1,kol1,yDari(kol1,'09:00'),yDari(kol1,'11:00'));
+  ev("view='calendar'");
+  const aU0=JSON.stringify(ev("DB.agenda.find(function(x){return x.id==='aUndang'})"));
+  cek(ev("geserAgenda('aUndang','"+iso(0)+"','16:00','17:00')")===false && JSON.stringify(ev("DB.agenda.find(function(x){return x.id==='aUndang'})"))===aU0, 'geserAgenda menolak agenda milik orang lain walau dipanggil langsung');
+  cek(!D.getElementById('a_start'), 'tarik tidak menyala di luar halaman Calendar');
+  ev("view='calendar'");
+
   selesai();
 })().catch(e=>{ console.log('GAGAL uji melempar: '+e.stack); gagal++; selesai(); });

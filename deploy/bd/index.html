@@ -909,6 +909,17 @@ input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums
 .nt .nwkt{font-size:11px;color:var(--muted);margin-top:2px}
 .nt .ndot{width:8px;height:8px;border-radius:50%;background:var(--gold);flex:none;margin-top:8px}
 @media(max-width:720px){.agd{grid-template-columns:1fr}}
+
+/* geser agenda di grid jam (30 Okt 2026) */
+.blk.tarik{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+.blk .rz{position:absolute;left:0;right:0;bottom:0;height:7px;cursor:ns-resize}
+.blk .rz::after{content:"";position:absolute;left:50%;bottom:2px;width:18px;height:3px;margin-left:-9px;border-radius:2px;background:var(--line-hard);opacity:0;transition:.12s}
+.blk.tarik:hover .rz::after{opacity:1}
+.kchip.tarik{cursor:grab;touch-action:none;user-select:none;-webkit-user-select:none}
+.blk.asal,.kchip.asal{opacity:.35}
+.blk.hantu{pointer-events:none;z-index:4;border-style:dashed;border-left-style:solid;background:var(--gold-glow);box-shadow:var(--shadow)}
+.vg-c{cursor:cell}
+body.geser-cal,body.geser-cal *{cursor:grabbing!important;user-select:none!important}
 </style>
 </head>
 <body>
@@ -6299,12 +6310,13 @@ function jawabAgenda(id,s,dariModal){
   toast('Jawaban terkirim: '+RESP_L[s]+' — '+e.title);
 }
 
-function agendaModal(id,tgl){
+function agendaModal(id,tgl,jam){
   var e=id?DB.agenda.find(function(x){return x.id===id;}):null;
   var baru=!e;
   if(e && !agBisaUbah(e)){ toast('Hanya penyelenggara yang bisa mengubah agenda ini.'); return; }
   if(!e) e={title:'',date:tgl||todayISO(),start:'',end:'',type:'Meeting',lokasi:'',ket:'',peserta:[],
            div:(AKU&&OWNER_DIVS.indexOf(AKU.div)>-1)?AKU.div:'Business Development'};
+  if(baru && jam){ e.start=jam.start||''; e.end=jam.end||''; }
   var divs=OWNER_DIVS.slice(); if(e.div&&divs.indexOf(e.div)<0) divs.push(e.div);
   showModal(
     '<div class="modal-h"><h3>'+(baru?'Agenda Baru':'Edit Agenda')+'</h3>'+
@@ -6353,8 +6365,8 @@ function simpanAgenda(id){
     e.undang=e.undang||{}; e.resp=e.resp||{};
     data.peserta.forEach(function(p){
       if(lama.indexOf(p)<0) e.undang[p]={at:now};
-      else if(geser){ e.undang[p]={at:now,ubah:1}; delete e.resp[p]; }
     });
+    if(geser) undangUlang(e,lama.filter(function(p){return data.peserta.indexOf(p)>-1;}),now);
   }else{
     e=Object.assign({id:uid('a'),owner:AKU?AKU.id:'',undang:{},resp:{}},data);
     data.peserta.forEach(function(p){ e.undang[p]={at:now}; });
@@ -6365,6 +6377,125 @@ function simpanAgenda(id){
   save(); closeModal(); render();
   toast((id?'Agenda diperbarui':'Agenda ditambahkan')+(e.peserta.length?' · '+e.peserta.length+' peserta diundang':''));
 }
+/* Jadwal yang bergeser membatalkan jawaban lama — SATU tempat, dipakai
+   modal edit DAN geser di kalender. Dua aturan untuk satu hal akan
+   menyimpang, dan yang menyimpang di sini peserta yang "hadir" jam 10
+   padahal acaranya sudah pindah jam 14. */
+function undangUlang(e,peserta,now){
+  e.undang=e.undang||{}; e.resp=e.resp||{};
+  peserta.forEach(function(p){ e.undang[p]={at:now,ubah:1}; delete e.resp[p]; });
+}
+function jamDariMenit(m){ return pad(Math.floor(m/60))+':'+pad(m%60); }
+
+/* Pindah / ubah durasi agenda dari kalender (30 Okt 2026, permintaan user:
+   "setting jam-nya bisa lewat calendarnya, tinggal digeser"). Penjaganya
+   SAMA dengan modal edit: hanya penyelenggara/admin, selesai > mulai, dan
+   peserta diminta menjawab ulang. */
+function geserAgenda(id,date,start,end){
+  var e=DB.agenda.find(function(x){return x.id===id;}); if(!e) return false;
+  if(!agBisaUbah(e)){ toast('Hanya penyelenggara yang bisa mengubah agenda ini.'); return false; }
+  if(!date || !start || !end || end<=start){ toast('Jam selesai harus sesudah jam mulai.'); return false; }
+  if(e.date===date && (e.start||'')===start && (e.end||'')===end) return false;
+  e.date=date; e.start=start; e.end=end;
+  var ps=agPeserta(e); undangUlang(e,ps,Date.now());
+  save(); render();
+  toast('Agenda dipindah ke '+fTglHari(date)+' · '+start+'–'+end+(ps.length?' · '+ps.length+' peserta diminta menjawab ulang':''));
+  return true;
+}
+
+/* Interaksi tarik di grid jam. Dipasang SEKALI di document, bukan per render:
+   render di modul ini TOTAL, jadi penangan yang menempel di elemen ikut
+   hilang tiap kali halaman digambar ulang.
+   - tarik di slot kosong   -> agenda baru dengan jam itu
+   - tarik blok agenda      -> pindah jam / hari (kolom lain)
+   - tarik tepi bawah blok  -> ubah jam selesai
+   - tarik chip "tanpa jam" -> diberi jam (durasi 1 jam)
+   Diputuskan per 15 menit. Gerakan < 4px = klik biasa (membuka detail). */
+var GC=null, GC_SNAP=15;
+function gcKolom(x,y){
+  var el=document.elementFromPoint?document.elementFromPoint(x,y):null;
+  return el&&el.closest?el.closest('.vg-c'):null;
+}
+function gcMenit(kol,y){
+  var b=kol.getBoundingClientRect(), h0=+kol.dataset.h0, hh=+kol.dataset.hh;
+  var m=h0*60+(y-b.top)/hh*60;
+  return Math.max(0,Math.min(1440,Math.round(m/GC_SNAP)*GC_SNAP));
+}
+function gcHantu(kol,s,en,teks){
+  var g=document.getElementById('gcHantu');
+  if(!g){ g=document.createElement('div'); g.id='gcHantu'; g.className='blk hantu'; }
+  if(g.parentNode!==kol) kol.appendChild(g);
+  var h0=+kol.dataset.h0, hh=+kol.dataset.hh;
+  g.style.cssText='--jc:var(--gold);left:2px;width:calc(100% - 4px);top:'+((s-h0*60)/60*hh)+'px;height:'+Math.max(18,(en-s)/60*hh-2)+'px';
+  g.innerHTML='<div class="bt">'+jamDariMenit(s)+'–'+jamDariMenit(Math.min(en,1439))+'</div><b>'+esc(teks||'')+'</b>';
+}
+function gcHitung(ev){
+  var kol=gcKolom(ev.clientX,ev.clientY);
+  if(GC.mode==='baru'){
+    kol=GC.kol; var m=gcMenit(kol,ev.clientY), a=Math.min(GC.m0,m), b=Math.max(GC.m0,m);
+    if(b-a<GC_SNAP) b=a+GC_SNAP;
+    return {kol:kol,s:a,en:Math.min(b,1440)};
+  }
+  if(!kol) return null;
+  if(GC.mode==='durasi'){
+    kol=GC.kol; var e2=Math.max(GC.s+GC_SNAP,gcMenit(kol,ev.clientY));
+    return {kol:kol,s:GC.s,en:Math.min(e2,1440)};
+  }
+  var dur=GC.en-GC.s, s=gcMenit(kol,ev.clientY)-GC.off;
+  s=Math.max(0,Math.min(1440-dur,Math.round(s/GC_SNAP)*GC_SNAP));
+  return {kol:kol,s:s,en:s+dur};
+}
+function gcSelesai(){
+  var g=document.getElementById('gcHantu'); if(g&&g.parentNode) g.parentNode.removeChild(g);
+  if(GC&&GC.el) GC.el.classList.remove('asal');
+  document.body.classList.remove('geser-cal');
+  GC=null;
+}
+function pasangGeserCal(){
+  document.addEventListener('pointerdown',function(ev){
+    if(ev.button!==0 || view!=='calendar') return;
+    var t=ev.target, blk=t.closest&&t.closest('[data-ag]');
+    var kol=t.closest&&t.closest('.vg-c');
+    if(blk){
+      var e=DB.agenda.find(function(x){return x.id===blk.dataset.ag;}); if(!e) return;
+      var bk=blk.classList.contains('blk');
+      var s=bk?+blk.dataset.s:540, en=bk?+blk.dataset.en:600;
+      GC={mode:(bk&&t.classList.contains('rz'))?'durasi':'pindah',id:e.id,judul:e.title,el:blk,kol:kol,s:s,en:en,
+          off:(bk&&kol)?gcMenit(kol,ev.clientY)-s:0,x:ev.clientX,y:ev.clientY,jalan:false};
+    }else if(kol && ev.pointerType!=='touch' && t===kol){
+      /* Di layar sentuh menarik slot kosong = menggulir; membuat agenda di
+         sana tetap lewat ketuk dua kali. */
+      GC={mode:'baru',kol:kol,m0:gcMenit(kol,ev.clientY),x:ev.clientX,y:ev.clientY,jalan:false}; ev.preventDefault();
+    }else return;
+  });
+  document.addEventListener('pointermove',function(ev){
+    if(!GC) return;
+    if(!GC.jalan){
+      if(Math.abs(ev.clientX-GC.x)+Math.abs(ev.clientY-GC.y)<4) return;
+      GC.jalan=true; if(GC.el) GC.el.classList.add('asal'); document.body.classList.add('geser-cal');
+    }
+    ev.preventDefault();
+    var h=gcHitung(ev); GC.hasil=h;
+    var g=document.getElementById('gcHantu');
+    if(!h){ if(g&&g.parentNode) g.parentNode.removeChild(g); return; }
+    gcHantu(h.kol,h.s,h.en,GC.mode==='baru'?'Agenda baru':GC.judul);
+  });
+  document.addEventListener('pointerup',function(ev){
+    if(!GC) return;
+    var g=GC; if(!g.jalan){ GC=null; return; }
+    var h=gcHitung(ev)||g.hasil; gcSelesai();
+    /* Klik yang menyusul tarikan dibuang — kalau tidak, melepas blok ikut
+       membuka modal detailnya. */
+    var tahan=function(e2){ e2.stopPropagation(); e2.preventDefault(); document.removeEventListener('click',tahan,true); };
+    document.addEventListener('click',tahan,true); setTimeout(function(){ document.removeEventListener('click',tahan,true); },0);
+    if(!h) return;
+    var tgl=h.kol.dataset.date, st=jamDariMenit(h.s), en=jamDariMenit(Math.min(h.en,1439));
+    if(g.mode==='baru') agendaModal(null,tgl,{start:st,end:en});
+    else geserAgenda(g.id,tgl,st,en);
+  });
+  document.addEventListener('pointercancel',function(){ if(GC) gcSelesai(); });
+}
+pasangGeserCal();
 function hapusAgenda(id){
   if(!confirm('Hapus agenda ini? Undangan ke pesertanya ikut hilang.')) return;
   DB.agenda=DB.agenda.filter(function(e){return e.id!==id;});
@@ -6589,7 +6720,7 @@ function kalItems(from,to){
     var s=menit(e.start), en=menit(e.end);
     if(s!==null && (en===null||en<=s)) en=s+60;
     var r=AKU&&e.owner!==AKU.id&&agPeserta(e).indexOf(AKU.id)>-1?agResp(e,AKU.id):'';
-    out.push({date:e.date,k:k,title:e.title,buka:'ag:'+e.id,s:s,en:en,jam:e.start?agJam(e):'',
+    out.push({date:e.date,k:k,title:e.title,buka:'ag:'+e.id,ag:e.id,ubah:agBisaUbah(e),s:s,en:en,jam:e.start?agJam(e):'',
       orang:agTim(e)?null:[e.owner].concat(agPeserta(e)).filter(Boolean),pend:r==='pending',tolak:r==='tolak'});
   });
   return out.filter(function(x){ return !CAL.off[x.k]; });
@@ -6603,7 +6734,8 @@ function calBuka(b){
 }
 function chipKal(x){
   var j=JENIS_KAL[x.k];
-  return '<span class="kchip'+(x.pend?' pend':'')+(x.tolak?' tolak':'')+(x.geser?' geser':'')+'" style="--jc:'+j.c+'" '+
+  return '<span class="kchip'+(x.pend?' pend':'')+(x.tolak?' tolak':'')+(x.geser?' geser':'')+(x.ag&&x.ubah?' tarik':'')+'" style="--jc:'+j.c+'" '+
+    (x.ag&&x.ubah?'data-ag="'+esc(x.ag)+'" ':'')+
     (x.geser?'draggable="true" ondragstart="APP.dragCal(event,\''+x.id+'\')" ondragend="this.classList.remove(\'dragging\')" ':'')+
     'onclick="event.stopPropagation();APP.calBuka(\''+esc(x.buka)+'\')" title="'+esc(j.l+' — '+(x.jam?x.jam+' ':'')+x.title)+'">'+
     (x.k==='deadline'?'◆ ':'')+(x.jam?esc(x.jam.split('–')[0])+' ':'')+esc(x.title)+'</span>';
@@ -6645,11 +6777,14 @@ function gridJam(hari,items){
       var x=L.it, j=JENIS_KAL[x.k];
       var s=Math.max(x.s,h0*60), en=Math.min(x.en,h1*60); if(en<=s) return '';
       var top=(s-h0*60)/60*hh, tg=Math.max(22,(en-s)/60*hh-2), w=100/L.n;
-      return '<div class="blk'+(x.pend?' pend':'')+(x.tolak?' tolak':'')+'" style="--jc:'+j.c+';top:'+top+'px;height:'+tg+'px;left:calc('+(w*L.l)+'% + 2px);width:calc('+w+'% - 4px)" '+
-        'onclick="APP.calBuka(\''+esc(x.buka)+'\')" title="'+esc(x.jam+' '+x.title)+'"><div class="bt">'+esc(x.jam)+'</div><b>'+esc(x.title)+'</b></div>';
+      var gs=x.ag&&x.ubah;
+      return '<div class="blk'+(x.pend?' pend':'')+(x.tolak?' tolak':'')+(gs?' tarik':'')+'" style="--jc:'+j.c+';top:'+top+'px;height:'+tg+'px;left:calc('+(w*L.l)+'% + 2px);width:calc('+w+'% - 4px)" '+
+        (gs?'data-ag="'+esc(x.ag)+'" data-s="'+x.s+'" data-en="'+x.en+'" ':'')+
+        'onclick="APP.calBuka(\''+esc(x.buka)+'\')" title="'+esc(x.jam+' '+x.title+(gs?' — geser untuk pindah jam, tarik tepi bawah untuk ubah durasi':''))+'"><div class="bt">'+esc(x.jam)+'</div><b>'+esc(x.title)+'</b>'+
+        (gs?'<span class="rz"></span>':'')+'</div>';
     }).join('');
     if(d===t0){ var nw=new Date(), m=nw.getHours()*60+nw.getMinutes(); if(m>=h0*60&&m<=h1*60) bl+='<div class="nowh" style="top:'+((m-h0*60)/60*hh)+'px"></div>'; }
-    h+='<div class="vg-c" style="height:'+((h1-h0)*hh)+'px;--hh:'+hh+'px" ondblclick="APP.agendaModal(null,\''+d+'\')">'+bl+'</div>';
+    h+='<div class="vg-c" data-date="'+d+'" data-h0="'+h0+'" data-hh="'+hh+'" style="height:'+((h1-h0)*hh)+'px;--hh:'+hh+'px" ondblclick="APP.agendaModal(null,\''+d+'\')">'+bl+'</div>';
   });
   return h+'</div></div>';
 }
@@ -7218,7 +7353,7 @@ window.APP={
   agendaBuka:agendaBuka, jawabAgenda:jawabAgenda,
   setujuiReview:setujuiReview, kembalikanReview:kembalikanReview,
   bukaNotif:bukaNotif, bacaSemua:bacaSemua, inboxSet:function(t){ inboxTab=t; render(); },
-  calSet:calSet, calNav:calNav, calToggle:calToggle, calBuka:calBuka,
+  calSet:calSet, calNav:calNav, calToggle:calToggle, calBuka:calBuka, geserAgenda:geserAgenda,
   dragCal:dragCal, dropCal:dropCal,
   orangModal:orangModal, simpanOrang:simpanOrang, hapusOrang:hapusOrang,
   segarkanKru:function(){
