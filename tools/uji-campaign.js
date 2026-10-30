@@ -143,7 +143,8 @@ function buatServer(opsi) {
       kampanye: [
         { id: 'c1', akun: '123', nama: 'Kampanye Buat Acara', objective: 'OUTCOME_ENGAGEMENT', budgetHarian: 30000, budgetTotal: 0, budgetDi: 'kampanye', mulai: geser(-9), selesai: '', hariIni: 25000, bulanIni: 300000, sejakMulai: 270000, iklanAktif: 1, adId: 'a1' },
         { id: 'c2', akun: '123', nama: 'Kampanye Live Music', objective: 'MESSAGES', budgetHarian: 50000, budgetTotal: 0, budgetDi: 'set iklan', mulai: geser(-3), selesai: geser(7), hariIni: 20000, bulanIni: 150000, sejakMulai: 150000, iklanAktif: 2, adId: 'a2' },
-        { id: 'c3', akun: '123', nama: 'Kampanye Sudah Lewat', objective: 'MESSAGES', budgetHarian: 20000, budgetTotal: 0, budgetDi: 'kampanye', mulai: geser(-20), selesai: geser(-2), hariIni: 0, bulanIni: 80000, sejakMulai: 360000, iklanAktif: 1, adId: 'a3' }] };
+        { id: 'c3', akun: '123', nama: 'Kampanye Sudah Lewat', objective: 'MESSAGES', budgetHarian: 20000, budgetTotal: 0, budgetDi: 'kampanye', mulai: geser(-20), selesai: geser(-2), hariIni: 0, bulanIni: 80000, sejakMulai: 360000, iklanAktif: 1, adId: 'a3' },
+        { id: 'c4', akun: '123', nama: 'Kampanye Dijeda', objective: 'MESSAGES', status: 'PAUSED', budgetHarian: 40000, budgetTotal: 0, budgetDi: 'set iklan', mulai: geser(-1), selesai: '', hariIni: 0, bulanIni: 40000, sejakMulai: 40000, iklanAktif: 0, adId: 'a5' }] };
     else if (b.action === 'campaignAdsInfo') data = { mataUang: 'IDR',
       iklan: { tingkat: 'iklan', id: b.data.adId, nama: 'Iklan murah', status: S._adStatus || 'ACTIVE', efektif: 'ACTIVE', budgetJenis: '', budget: 0 },
       adset: { tingkat: 'adset', id: '9001', nama: 'Set A', status: 'ACTIVE', efektif: 'ACTIVE', budgetJenis: 'harian', budget: S._budget || 100000 },
@@ -405,7 +406,8 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     await b.w.__cg.muat(); b.w.__cg.render(); await tunggu(60);
     cek('tabel iklan punya tombol Kelola', !!b.d.querySelector('[data-a="ads-kelola"][data-v="a1"]'));
     const jl = b.d.getElementById('app').innerHTML;
-    const potJ = jl.slice(jl.indexOf('Iklan yang sedang jalan'), jl.indexOf('Daftar iklan'));
+    const potJ = jl.slice(jl.indexOf('Iklan yang sedang jalan'), jl.indexOf('5 iklan terakhir'));
+    const potT = jl.slice(jl.indexOf('5 iklan terakhir'), jl.indexOf('Daftar iklan'));
     const kartuK = nm => { const i = potJ.indexOf(nm); return i < 0 ? '' : potJ.slice(i, potJ.indexOf('<div class="ins">', i + 1) < 0 ? undefined : potJ.indexOf('<div class="ins">', i + 1)); };
     cek('kartu iklan jalan: diminta langsung ke Meta (campaignAdsJalan)', b.srv.log.some(x => x.action === 'campaignAdsJalan') && potJ.length > 0);
     cek('kartu iklan jalan: jumlah kampanye aktif', /Iklan yang jalan sekarang<\/div><div class="v">2</.test(potJ));
@@ -418,11 +420,15 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('per kampanye: sudah terpakai sejak mulai + persen + sisa', kartuK('Kampanye Live Music').includes('Rp150.000</b> <span') && kartuK('Kampanye Live Music').includes('27% dari perkiraan total') && kartuK('Kampanye Live Music').includes('sisa ±Rp400.000'));
     cek('yang terbaru mulai tampil paling atas', potJ.indexOf('Kampanye Live Music') > -1 && potJ.indexOf('Kampanye Live Music') < potJ.indexOf('Kampanye Buat Acara'));
     cek('kampanye yang tanggal berhentinya sudah lewat disembunyikan', !potJ.includes('Kampanye Sudah Lewat') && !potJ.includes('data-v="a3"'));
+    cek('yang dijeda tidak masuk "sedang jalan"', !potJ.includes('Kampanye Dijeda') && potJ.includes('<div class="v">2</div>'));
+    cek('5 iklan terakhir: yang lewat & yang dijeda tampil, tetap bisa diatur', potT.includes('Kampanye Sudah Lewat') && potT.includes('Kampanye Dijeda') && potT.includes('data-a="ads-kelola" data-v="a3"') && potT.includes('data-a="ads-kelola" data-v="a5"'));
+    cek('5 iklan terakhir: label berhenti vs dijeda + lama jalan sampai tanggal berhenti', potT.includes('Sudah berhenti') && potT.includes('⏸ Dijeda') && potT.includes('Jalan selama') && potT.includes('<b>19 hari</b>'));
+    cek('5 iklan terakhir: yang paling baru di atas', potT.indexOf('Kampanye Dijeda') < potT.indexOf('Kampanye Sudah Lewat'));
     cek('per kampanye: tombol Atur iklan (iklan pertamanya)', potJ.includes('data-a="ads-kelola" data-v="a2"'));
     const nJ = b.srv.log.filter(x => x.action === 'campaignAdsJalan').length;
     klik(b.d, '[data-a="iklan-jalan-muat"]'); await tunggu(40);
     cek('Muat ulang menarik lagi dari Meta', b.srv.log.filter(x => x.action === 'campaignAdsJalan').length === nJ + 1);
-    cek('php: aksi campaignAdsJalan terdaftar & membaca kampanye ACTIVE', PHP_LIB.includes("case 'campaignAdsJalan':") && PHP_LIB.includes("'effective_status' => json_encode(array('ACTIVE'))") && PHP_LIB.includes("'maximum' => array()") && PHP_LIB.includes('start_time,end_time'));
+    cek('php: aksi campaignAdsJalan terdaftar & membaca kampanye ACTIVE', PHP_LIB.includes("case 'campaignAdsJalan':") && PHP_LIB.includes("'effective_status' => json_encode(array('ACTIVE', 'PAUSED'))") && PHP_LIB.includes("'status' => $stKamp") && PHP_LIB.includes('if (!$setDihitung($s)) continue;') && PHP_LIB.includes("'maximum' => array()") && PHP_LIB.includes('start_time,end_time'));
     klik(b.d, '[data-a="ads-kelola"][data-v="a1"]'); await tunggu(40);
     const m = () => b.d.getElementById('modal').innerHTML;
     cek('panel membaca keadaan langsung dari Meta (campaignAdsInfo)', b.srv.log.some(x => x.action === 'campaignAdsInfo' && x.data.adId === 'a1') && /Set A/.test(m()) && /Kampanye A/.test(m()));

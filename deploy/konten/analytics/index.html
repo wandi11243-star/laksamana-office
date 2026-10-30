@@ -1304,7 +1304,17 @@ function kartuJalanIklan(){
      2026): Meta masih menyebutnya "aktif" sampai statusnya diperbarui, tapi
      iklannya sudah tidak tayang. Hitungan "Iklan yang jalan sekarang" ikut
      memakai daftar yang sama, supaya angka dan kartunya cocok. */
-  var K = (D2.kampanye || []).filter(function(c){ return !(c.selesai && c.selesai < kini); });
+  var masihJalan = function(c){ return (!c.status || c.status === 'ACTIVE') && !(c.selesai && c.selesai < kini); };
+  var K = (D2.kampanye || []).filter(masihJalan);
+  /* 5 IKLAN TERAKHIR (permintaan user 30 Okt 2026, buat direview): yang sudah
+     lewat tanggal berhentinya ATAU dijeda, diurut dari yang paling baru
+     berakhir. Kampanye dijeda tidak punya tanggal berhenti, jadi tanggal
+     mulainya yang dipakai sebagai urutan. Server lama tidak memulangkan
+     status & tidak membaca yang dijeda — daftarnya cuma memuat yang lewat. */
+  var akhirnya = function(c){ return c.selesai && c.selesai < kini ? c.selesai : (c.mulai || ''); };
+  var T = (D2.kampanye || []).filter(function(c){ return !masihJalan(c); })
+    .sort(function(x, y){ var a = akhirnya(x), b = akhirnya(y); return a === b ? num(y.sejakMulai) - num(x.sejakMulai) : (b < a ? -1 : 1); })
+    .slice(0, 5);
   var hariI = 0, bulanI = 0, sisaBatas = null;
   (D2.akun || []).forEach(function(x){ hariI += num(x.hariIni); bulanI += num(x.bulanIni); if (x.sisaBatas != null) sisaBatas = (sisaBatas || 0) + num(x.sisaBatas); });
   /* Ringkasan atas: tiga angka, kalimat biasa. */
@@ -1315,7 +1325,7 @@ function kartuJalanIklan(){
     + '</div>';
   if (sisaBatas != null) h += '<div class="pita info" style="margin-bottom:14px">Akun iklan punya <b>batas belanja</b>: tinggal <b>' + rupiah(sisaBatas) + '</b> lagi sebelum semua iklan berhenti sendiri.</div>';
   (D2.akun || []).forEach(function(x){ if (x.status !== 1) h += '<div class="pita err" style="margin-bottom:14px">Akun iklan ' + esc(x.nama || x.id) + ' sedang tidak aktif di Meta (status ' + x.status + ') — iklan tidak akan tayang.</div>'; });
-  if (!K.length) return h + '<div class="kosong">Tidak ada iklan yang sedang jalan.</div></div>';
+  if (!K.length) h += '<div class="kosong">Tidak ada iklan yang sedang jalan.</div>';
   /* Yang TERBARU mulai di paling atas (permintaan user 29 Okt 2026). Tanggal
      mulai kosong ditaruh paling bawah; yang mulainya sama dipisah belanja
      hari ini supaya urutannya tidak berubah-ubah tiap muat ulang. */
@@ -1324,8 +1334,16 @@ function kartuJalanIklan(){
     if (mx !== my) return mx === '' ? 1 : my === '' ? -1 : (my < mx ? -1 : 1);
     return num(y.hariIni) - num(x.hariIni) || String(x.nama).localeCompare(String(y.nama));
   });
-  h += '<div class="grid g2">' + urut.map(function(c){
-    var lama = c.mulai ? selisihHari(c.mulai, kini) + 1 : null;
+  if (K.length) h += '<div class="grid g2">' + urut.map(function(c){ return kartuKampanye(c, kini, true); }).join('') + '</div>';
+  h += '<h3 style="margin:22px 0 4px;font-size:15px;color:var(--ink)">5 iklan terakhir</h3><div class="sub" style="margin-bottom:12px">Yang sudah berhenti atau dijeda, dari yang paling baru — buat direview: berapa lama jalan, budgetnya, dan berapa yang terpakai.</div>';
+  h += T.length ? '<div class="grid g2">' + T.map(function(c){ return kartuKampanye(c, kini, false); }).join('') + '</div>' : '<div class="kosong">Belum ada iklan yang sudah berhenti.</div>';
+  return h + '</div>';
+}
+/* Satu kartu kampanye, dipakai daftar "sedang jalan" DAN "5 terakhir" — dua
+   penggambar untuk kartu yang sama pasti menyimpang. */
+function kartuKampanye(c, kini, jalan){
+    var lewat = !jalan && c.selesai && c.selesai < kini;
+    var lama = c.mulai ? selisihHari(c.mulai, lewat ? c.selesai : kini) + 1 : null;
     var sisaHari = c.selesai ? selisihHari(kini, c.selesai) : null;
     var totalHari = (c.mulai && c.selesai) ? selisihHari(c.mulai, c.selesai) + 1 : null;
     /* Rencana total: budget total apa adanya; budget harian dikali jumlah
@@ -1338,9 +1356,9 @@ function kartuJalanIklan(){
     return '<div class="ins">'
       + '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;margin-bottom:8px">'
       + '<div><b style="color:var(--ink);font-size:14px">' + esc(c.nama || '(tanpa nama)') + '</b>'
-      + '<div style="font-size:11.5px;color:var(--muted)"><span class="nilai works">● Sedang jalan</span> · tujuan ' + esc(IKLAN_TUJUAN[c.objective] || c.objective || '—') + '</div></div>'
+      + '<div style="font-size:11.5px;color:var(--muted)">' + (jalan ? '<span class="nilai works">● Sedang jalan</span>' : '<span class="nilai kecil">' + (c.status && c.status !== 'ACTIVE' ? '⏸ ' + esc(IKLAN_STATUS[c.status] || c.status) : '⏹ Sudah berhenti') + '</span>') + ' · tujuan ' + esc(IKLAN_TUJUAN[c.objective] || c.objective || '—') + '</div></div>'
       + tombolKelolaIklan(c.adId, '⚙ Atur iklan') + '</div>'
-      + baris('📅', 'Sudah jalan', lama != null ? '<b>' + lama + ' hari</b> <span style="color:var(--muted)">(mulai ' + esc(fmtTgl(c.mulai)) + ')</span>' : '—')
+      + baris('📅', jalan ? 'Sudah jalan' : 'Jalan selama', lama != null ? '<b>' + lama + ' hari</b> <span style="color:var(--muted)">(mulai ' + esc(fmtTgl(c.mulai)) + ')</span>' : '—')
       + baris('⏹', 'Berhenti', c.selesai
           ? '<b>' + esc(fmtTgl(c.selesai)) + '</b> <span style="color:var(--muted)">(' + (sisaHari > 0 ? sisaHari + ' hari lagi' : sisaHari === 0 ? 'hari ini' : 'sudah lewat') + ')</span>'
           : '<b>Tidak ada tanggal berhenti</b> <span style="color:var(--muted)">— jalan terus sampai dijeda</span>')
@@ -1350,10 +1368,8 @@ function kartuJalanIklan(){
       + baris('🧾', 'Sudah terpakai', '<b>' + rupiah(pakai) + '</b> <span style="color:var(--muted)">sejak mulai</span>'
           + (rencana ? '<div style="margin-top:6px;height:8px;border-radius:8px;background:#f1efec;overflow:hidden"><div style="height:100%;width:' + persen + '%;background:var(--gold,#b8862b)"></div></div>'
             + '<div style="font-size:12px;color:var(--muted);margin-top:3px">' + persen + '% dari ' + (c.budgetTotal ? 'budget' : 'perkiraan total') + ' · sisa ±' + rupiah(Math.max(0, rencana - pakai)) + '</div>' : ''))
-      + '<div style="font-size:12px;color:var(--muted);margin-top:6px">Hari ini ' + rupiah(c.hariIni) + ' · bulan ini ' + rupiah(c.bulanIni) + '</div>'
+      + (jalan ? '<div style="font-size:12px;color:var(--muted);margin-top:6px">Hari ini ' + rupiah(c.hariIni) + ' · bulan ini ' + rupiah(c.bulanIni) + '</div>' : '')
       + '</div>';
-  }).join('') + '</div>';
-  return h + '</div>';
 }
 function muatIklan(){
   var k = ST.iklanPe;
