@@ -847,7 +847,16 @@ node tools/uji-review-bd.js   # 29 pemeriksaan, jsdom (sesi NON-admin)
 - **Notifikasi DIHITUNG dari data** (`notifSaya`), bukan tabel: undangan, jawaban peserta, `t.tugasOleh`/`t.reviewOleh` (dicatat `catatPenugasan` saat PIC/reviewer BARU ditambah di modal), `t.reviewAt` (dipasang/dibuang di `segarkanProgress`), `t.reviewHasil`. Tanda dibaca di **localStorage per akun** (`bd_notif_baca:<id>`) — tidak ikut pindah perangkat, dan itu dikatakan di layar.
 
 ```bash
-node tools/uji-agenda-inbox-bd.js   # 54 pemeriksaan, jsdom + server tiruan HIDUP (sesi non-admin)
+node tools/uji-agenda-inbox-bd.js   # 88 pemeriksaan, jsdom + server tiruan HIDUP (sesi non-admin)
+```
+
+**Kategori Calendar disederhanakan jadi lima (30 Okt 2026, permintaan user):** Deadline Task · Meeting · **Event · Marketing · Reservasi**. Seluruh agenda (jenis Meeting/Vendor/Internal/Deadline) = chip Meeting; jenisnya tetap tersimpan. **Milestone & PO dicabut dari kalender** (masih di Projects/Purchasing & kolom hari dashboard).
+- Tiga sumber terakhir DIBACA dari modulnya, **hanya yang deal — konsep Radar** (`ST_MKT_JALAN`/`ST_EVT_JALAN`): Marketing Deal/Confirmed/Event Done + VIP tak batal; Event Approval/Upcoming/Event Done; Reservasi Confirmed/Datang, baris id `vip-…` dibuang (sudah tampil di Marketing).
+- Lewat endpoint SEMPIT baru **`agendaRentang`** (`agenda_rentang()` di marketing-mysql & event-mysql, HANYA MEMBACA, tanpa angka uang, rentang ≤100 hari) — bukan getAll. Reservasi lewat `getAll?dari=&sampai=` berjendela. `muatLuar()` per rentang (bulan ±1), ditandai sebelum fetch supaya render tidak berputar.
+- Reservasi = SATU chip per hari (booking & pax), klik = daftar; event berjam = blok di grid. Read-only, klik membuka detail + tautan modul asal. Tampil di lingkup mana pun (milik venue). Modul yang mati DIKATAKAN di pita.
+
+```bash
+node tools/uji-kal-luar-bd.js   # 31 pemeriksaan, jsdom + kontrak PHP (php-parser)
 ```
 
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)

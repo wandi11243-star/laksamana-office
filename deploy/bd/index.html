@@ -6692,15 +6692,140 @@ function jumlahInbox(){ return AKU ? undanganTertunda().length+reviewTertunda().
    Hanya DEADLINE TASK yang boleh diseret (di mode Bulan), aturan yang sama
    seperti dulu: milestone, PO, dan agenda punya konsekuensi di luar kalender
    dan diubah lewat modalnya masing-masing, bukan satu tarikan tangan. */
+/* KATEGORI DISEDERHANAKAN (30 Okt 2026, permintaan user) jadi lima:
+   Deadline Task · Meeting · Event · Marketing · Reservasi.
+   - Seluruh AGENDA (apa pun jenis yang dipilih di formnya — Meeting, Vendor,
+     Internal, Deadline) masuk satu chip Meeting. Jenisnya tetap tersimpan di
+     agenda dan tetap tertulis di detailnya; yang disatukan cuma kategori
+     kalendernya.
+   - Milestone project & PO TIDAK lagi digambar di kalender (masih ada di
+     halaman Projects/Purchasing dan di kolom Hari ini/Besok/Lusa dashboard).
+   - Event / Marketing / Reservasi DIBACA dari modulnya masing-masing, hanya
+     yang sudah PASTI JALAN — konsep yang sama dengan modul Radar (lihat
+     muatLuar). Read-only: diubah di modul asalnya. */
 var JENIS_KAL={
-  deadline:{l:'Deadline task',c:'var(--danger)'},
-  milestone:{l:'Milestone',c:'var(--violet)'},
-  po:{l:'PO',c:'var(--teal)'},
+  deadline:{l:'Deadline Task',c:'var(--danger)'},
   Meeting:{l:'Meeting',c:'var(--gold)'},
-  Vendor:{l:'Vendor',c:'var(--info)'},
-  Internal:{l:'Internal',c:'var(--navy)'},
-  Deadline:{l:'Agenda deadline',c:'var(--warn)'}
+  evt:{l:'Event',c:'var(--violet)'},
+  mkt:{l:'Marketing',c:'var(--teal)'},
+  rsv:{l:'Reservasi',c:'var(--info)'}
 };
+/* ---------- ACARA DARI MODUL LAIN (Event / Marketing / Reservasi) ----------
+   Ditarik per RENTANG yang sedang dilihat (dibulatkan ke bulan, ±1 bulan),
+   sekali per rentang. Lewat endpoint SEMPIT agendaRentang di marketing-api &
+   event-api — bukan getAll, yang memulangkan seluruh CRM / pipeline / foto
+   ke layar yang dibuka seluruh kru. Reservasi memakai getAll BERJENDELA
+   (?dari=&sampai=) yang memang sudah ada di backend-nya.
+
+   Yang dianggap "deal" sama dengan Radar:
+     Marketing : Deal / Confirmed / Event Done, + Reservasi VIP yang tidak batal
+     Event     : Approval / Upcoming / Event Done (+ Today / Finished)
+     Reservasi : Confirmed / Datang. Baris ber-id 'vip-…' (salinan Reservasi
+                 VIP dari Marketing) dibuang — ia sudah tampil di Marketing,
+                 dan tampil dua kali membuat satu booking terbaca dua.
+   Reservasi digambar SATU chip per hari (jumlah booking & pax), seperti sel
+   kalender Radar: sepuluh blok 2 jam yang bertindih di grid tidak terbaca.
+
+   Modul yang tidak menjawab DIKATAKAN (pita), bukan didiamkan: kalender yang
+   diam-diam kehilangan satu sumber terbaca sebagai "tidak ada acara". */
+var LUAR={key:'',sibuk:false,mkt:null,evt:null,rsv:null,gagal:[]};
+var LUAR_SRC={
+  mkt:{nama:'Marketing',url:'../marketing-api-mysql/api.php',href:'../marketing/'},
+  evt:{nama:'Event',url:'../event-api-mysql/api.php',href:'../event/'},
+  rsv:{nama:'Reservasi',url:'../reservasi-api-mysql/api.php',href:'../reservasi/'}
+};
+function luarRentang(from,to){
+  var a=pDate(from), b=pDate(to);
+  return {dari:isoOf(new Date(a.getFullYear(),a.getMonth()-1,1)), sampai:isoOf(new Date(b.getFullYear(),b.getMonth()+2,0))};
+}
+function luarAmbil(id,q){
+  return fetch(LUAR_SRC[id].url+'?'+q+'&_='+Date.now(),{cache:'no-store'})
+    .then(function(x){ if(!x.ok) throw new Error('HTTP '+x.status); return x.json(); })
+    .then(function(j){ if(!j||!j.ok) throw new Error((j&&j.error)||'ditolak'); return j.data||{}; });
+}
+function muatLuar(from,to,paksa){
+  var w=luarRentang(from,to), key=w.dari+'|'+w.sampai;
+  if(!paksa && (LUAR.key===key || LUAR.sibuk)) return;
+  /* Ditandai SEBELUM permintaan berangkat: render() sesudah datanya datang
+     memanggil vCalendar lagi, dan tanpa penanda ini keduanya saling memanggil
+     tanpa henti. */
+  LUAR.key=key; LUAR.sibuk=true;
+  var q='dari='+w.dari+'&sampai='+w.sampai, gagal=[];
+  var tugas=[['mkt','action=agendaRentang&'+q],['evt','action=agendaRentang&'+q],['rsv','action=getAll&'+q]];
+  Promise.all(tugas.map(function(t){
+    return luarAmbil(t[0],t[1]).then(function(d){ LUAR[t[0]]=d; },
+      function(e){ LUAR[t[0]]=null; gagal.push(LUAR_SRC[t[0]].nama+' ('+(e&&e.message||'gagal')+')'); });
+  })).then(function(){
+    LUAR.gagal=gagal; LUAR.sibuk=false;
+    if(view==='calendar') render();
+  });
+}
+function jamLuar(j){ var m=String(j||'').trim().replace('.',':').match(/^(\d{1,2}):(\d{2})/); return m?pad(+m[1])+':'+m[2]:''; }
+function resDeal(r){ return /confirm|datang/i.test(String((r&&r.status)||'')); }
+function luarItems(from,to){
+  var out=[], dalam=function(d){ return d && d>=from && d<=to; };
+  var blok=function(o,jam,akhir){
+    var s=menit(jamLuar(jam)), en=menit(jamLuar(akhir));
+    if(s!==null && (en===null||en<=s)) en=s+120;
+    o.s=s; o.en=s===null?null:en; o.jam=s===null?'':jamLuar(jam)+(jamLuar(akhir)?'–'+jamLuar(akhir):'');
+    o.orang=null; return o;
+  };
+  var M=LUAR.mkt||{};
+  (M.events||[]).forEach(function(e){
+    for(var d=e.tanggal; d && d<=(e.selesai||e.tanggal) && d<=to; d=tambahHari(d,1)){
+      if(d<from) continue;
+      out.push(blok({date:d,k:'mkt',title:e.nama||'(tanpa nama)',buka:'lx:mkt:'+e.id},e.jam,e.jamAkhir));
+    }
+  });
+  (M.vip||[]).forEach(function(v){
+    if(!dalam(v.tanggal)) return;
+    out.push(blok({date:v.tanggal,k:'mkt',title:'VIP · '+(v.nama||'(tanpa nama)'),buka:'lx:vip:'+v.id},v.jam,v.jamAkhir));
+  });
+  ((LUAR.evt||{}).events||[]).forEach(function(e){
+    if(!dalam(e.tanggal)) return;
+    out.push(blok({date:e.tanggal,k:'evt',title:e.nama||'(tanpa judul)',buka:'lx:evt:'+e.id},e.jam,e.jamAkhir));
+  });
+  var perHari={};
+  luarRes().forEach(function(x){ if(dalam(x.date)) (perHari[x.date]=perHari[x.date]||[]).push(x); });
+  Object.keys(perHari).forEach(function(d){
+    var l=perHari[d], pax=l.reduce(function(a,x){return a+(+x.pax||0);},0);
+    out.push({date:d,k:'rsv',title:'Reservasi · '+l.length+' booking'+(pax?' · '+pax+' pax':''),buka:'lx:rsv:'+d,s:null,en:null,jam:'',orang:null});
+  });
+  return out;
+}
+function luarRes(){
+  return (((LUAR.rsv||{}).reservations)||[]).filter(function(x){
+    return x && x.date && resDeal(x) && String(x.id||'').indexOf('vip-')!==0;
+  });
+}
+function luarBuka(src,id){
+  var baris=function(l,v){ return v?'<div><span class="flabel">'+esc(l)+'</span>'+esc(v)+'</div>':''; };
+  var kaki=function(k){ return '<div class="modal-f"><div class="mut" style="font-size:12px">Dibaca dari modul '+esc(LUAR_SRC[k].nama)+' — diubah di sana.</div>'+
+    '<div style="display:flex;gap:10px"><button class="btn" onclick="closeModal()">Tutup</button><a class="btn pri" href="'+LUAR_SRC[k].href+'" target="_blank" rel="noopener">Buka modul '+esc(LUAR_SRC[k].nama)+'</a></div></div>'; };
+  var kepala=function(t){ return '<div class="modal-h"><h3>'+esc(t)+'</h3><button class="x" onclick="closeModal()">'+ic('x')+'</button></div>'; };
+  if(src==='rsv'){
+    var l=luarRes().filter(function(x){return x.date===id;}).sort(function(a,b){return String(a.time||'').localeCompare(String(b.time||''));});
+    return showModal(kepala('Reservasi · '+fTglHari(id))+'<div class="modal-b">'+
+      (l.length?'<div class="tw"><table><thead><tr><th>Jam</th><th>Nama</th><th>Pax</th><th>Meja</th><th>Status</th></tr></thead><tbody>'+
+        l.map(function(x){ return '<tr><td>'+esc(jamLuar(x.time)||'—')+'</td><td>'+esc(x.name||'—')+'</td><td>'+esc(x.pax||'—')+'</td><td>'+
+          esc(Array.isArray(x.table)?x.table.join(', '):(x.table||'—'))+'</td><td>'+esc(x.status||'')+'</td></tr>'; }).join('')+'</tbody></table></div>'
+        :kosong('Tidak ada reservasi deal','Yang dihitung hanya Confirmed & Datang.'))+'</div>'+kaki('rsv'),760);
+  }
+  var x=null, k=src;
+  if(src==='mkt') x=((LUAR.mkt||{}).events||[]).find(function(e){return e.id===id;});
+  else if(src==='vip'){ k='mkt'; x=((LUAR.mkt||{}).vip||[]).find(function(e){return e.id===id;}); }
+  else if(src==='evt') x=((LUAR.evt||{}).events||[]).find(function(e){return e.id===id;});
+  if(!x) return toast('Data acara ini sudah tidak ada — muat ulang kalender.');
+  var tgl=fTglHari(x.tanggal)+(x.selesai&&x.selesai!==x.tanggal?' – '+fTglHari(x.selesai):'');
+  var jam=jamLuar(x.jam)+(jamLuar(x.jamAkhir)?'–'+jamLuar(x.jamAkhir):'');
+  var pax=src==='vip'?((x.paxMin&&x.paxMax&&x.paxMax!==x.paxMin)?x.paxMin+'–'+x.paxMax+' orang':((x.paxMax||x.paxMin)?(x.paxMax||x.paxMin)+' orang':'')):(x.pax?x.pax+' orang':'');
+  showModal(kepala((src==='vip'?'Reservasi VIP · ':'')+(x.nama||'(tanpa nama)'))+'<div class="modal-b"><div class="agd">'+
+    baris('Sumber',src==='vip'?'Marketing · Reservasi VIP':LUAR_SRC[k].nama)+
+    baris('Tanggal',tgl)+baris('Jam',jam||'belum diisi')+
+    baris(src==='vip'?'Meja':'Tempat',src==='vip'?(x.meja||[]).join(', '):x.tempat)+
+    baris('Jumlah orang',pax)+baris('Jenis',x.jenis)+baris('Status',x.status)+
+    '</div></div>'+kaki(k));
+}
 var CAL={mode:'minggu',date:null,scope:'saya',off:{}};
 function calScope(){
   if(CAL.scope==='saya' && !AKU) CAL.scope='semua';
@@ -6731,30 +6856,21 @@ function kalItems(from,to){
     out.push({date:t.deadline,k:'deadline',title:t.name,id:t.id,tk:t.id,geser:true,buka:'t:'+t.id,orang:pelaksana(t),
       s:sj,en:sj===null?null:sj+30,jam:t.jam||''});
   });
-  DB.projects.forEach(function(p){
-    if(u && !punyaPic(p,u)) return;
-    if(!masukDiv(p.div)) return;
-    (p.milestones||[]).forEach(function(ms){
-      if(dalam(ms.date)) out.push({date:ms.date,k:'milestone',title:ms.t+' · '+p.name,buka:'p:'+p.id,orang:pics(p)});
-    });
-  });
-  DB.po.forEach(function(p){
-    if(poBeres(p) || !dalam(p.needBy)) return;
-    if(u && p.pic!==u) return;
-    if(!masukDiv(p.div)) return;
-    out.push({date:p.needBy,k:'po',title:'PO: '+p.item,buka:'po:'+p.id,orang:p.pic?[p.pic]:[]});
-  });
   DB.agenda.forEach(function(e){
     if(!dalam(e.date)) return;
     if(u && !agUntuk(e,u)) return;
     if(sc.t==='d' && e.div!==sc.id && !agPeserta(e).some(function(id){return P(id).div===sc.id;})) return;
-    var k=JENIS_KAL[e.type]?e.type:'Meeting';
+    var k='Meeting';
     var s=menit(e.start), en=menit(e.end);
     if(s!==null && (en===null||en<=s)) en=s+60;
     var r=AKU&&e.owner!==AKU.id&&agPeserta(e).indexOf(AKU.id)>-1?agResp(e,AKU.id):'';
     out.push({date:e.date,k:k,title:e.title,buka:'ag:'+e.id,ag:e.id,ubah:agBisaUbah(e),s:s,en:en,jam:e.start?agJam(e):'',
       orang:agTim(e)?null:[e.owner].concat(agPeserta(e)).filter(Boolean),pend:r==='pending',tolak:r==='tolak'});
   });
+  /* Acara Event/Marketing/Reservasi milik VENUE, bukan orang — jadi tampil di
+     lingkup mana pun (seperti Radar yang dibuka semua orang). Yang tidak mau
+     melihatnya mematikan chip-nya. */
+  out=out.concat(luarItems(from,to));
   return out.filter(function(x){ return !CAL.off[x.k]; });
 }
 function calBuka(b){
@@ -6763,6 +6879,7 @@ function calBuka(b){
   else if(j==='ag') agendaBuka(id);
   else if(j==='p') bukaProject(id);
   else if(j==='po') go('purchasing');
+  else if(j==='lx'){ var q=id.split(':'); luarBuka(q.shift(),q.join(':')); }
 }
 function chipKal(x){
   var j=JENIS_KAL[x.k];
@@ -6834,7 +6951,7 @@ function mingguOrang(div,hari,items){
   var orang=kruAktif().filter(function(p){return p.div===div;}).sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
   var h='<div class="tw"><table class="kalorang"><thead><tr><th style="width:170px">Kru</th>'+hari.map(function(d){
     return '<th class="'+(d===t0?'td':'')+'">'+labelHariPendek(d)+' '+pDate(d).getDate()+'</th>'; }).join('')+'</tr></thead><tbody>';
-  h+='<tr class="bersama"><td><b>Bersama / tim</b><div class="mut" style="font-size:11px">milestone, PO & agenda tim</div></td>'+hari.map(function(d){
+  h+='<tr class="bersama"><td><b>Bersama / tim</b><div class="mut" style="font-size:11px">agenda tim, event, marketing & reservasi</div></td>'+hari.map(function(d){
     return '<td>'+items.filter(function(x){return x.date===d && (!x.orang||!x.orang.length);}).map(chipKal).join('')+'</td>'; }).join('')+'</tr>';
   orang.forEach(function(p){
     h+='<tr><td><b class="clk" onclick="APP.calSet({scope:\'u:'+p.id+'\'})">'+esc(p.name)+'</b><div class="mut" style="font-size:11px">'+esc(p.role||'')+'</div></td>'+hari.map(function(d){
@@ -6882,6 +6999,7 @@ function vCalendar(){
   else if(c.mode==='minggu'){ from=senin(c.date); to=tambahHari(from,6); label=fTgl(from)+' – '+fTgl(to)+' '+to.slice(0,4); }
   else if(c.mode==='bulan'){ var y=+c.date.slice(0,4),m=+c.date.slice(5,7)-1; from=senin(isoOf(new Date(y,m,1))); to=tambahHari(from,41); label=BULAN[m]+' '+y; }
   else { from=c.date; to=tambahHari(c.date,13); label=fTgl(from)+' – '+fTgl(to); }
+  muatLuar(from,to);
   var items=kalItems(from,to);
   var orang=kruAktif().filter(function(p){return !AKU||p.id!==AKU.id;}).sort(function(a,b){return String(a.name).localeCompare(String(b.name));});
   var sel='<select onchange="APP.calSet({scope:this.value})">'+
@@ -6900,6 +7018,9 @@ function vCalendar(){
     '<span class="dlab">'+esc(label)+'</span></div>';
   h+='<div class="fchips">'+Object.keys(JENIS_KAL).map(function(k){
     return '<span class="fchip'+(c.off[k]?' off':'')+'" style="--jc:'+JENIS_KAL[k].c+'" onclick="APP.calToggle(\''+k+'\')">'+esc(JENIS_KAL[k].l)+'</span>'; }).join('')+'</div>';
+  if(LUAR.sibuk) h+='<div class="mut" style="font-size:12px;margin:-4px 0 10px">Memuat acara dari modul Event, Marketing & Reservasi…</div>';
+  else if(LUAR.gagal.length) h+='<div class="notice warn">Belum bisa membaca: <b>'+esc(LUAR.gagal.join(', '))+'</b>. Acaranya tidak tampil di kalender ini — bukan berarti tidak ada. '+
+    '<button class="btn sm" onclick="APP.muatLuarUlang()">Coba lagi</button></div>';
   if(sc.t==='u'){ var o=P(sc.id); h+='<div class="banner"><span class="mini-av">'+esc(inisial(o.name))+'</span><div class="grow"><b>'+esc(o.name)+'</b>'+
     (o.role?' · '+esc(o.role):'')+(o.div?' · '+esc(o.div):'')+'</div><button class="btn sm" onclick="APP.calSet({scope:\''+(AKU?'saya':'semua')+'\'})">Kembali ke kalenderku</button></div>'; }
   var badan;
@@ -7390,7 +7511,8 @@ window.APP={
   agendaBuka:agendaBuka, jawabAgenda:jawabAgenda,
   setujuiReview:setujuiReview, kembalikanReview:kembalikanReview,
   bukaNotif:bukaNotif, bacaSemua:bacaSemua, inboxSet:function(t){ inboxTab=t; render(); },
-  calSet:calSet, calNav:calNav, calToggle:calToggle, calBuka:calBuka, geserAgenda:geserAgenda,
+  calSet:calSet, calNav:calNav, calToggle:calToggle, calBuka:calBuka,
+  muatLuarUlang:function(){ LUAR.key=''; LUAR.sibuk=false; render(); }, geserAgenda:geserAgenda,
   dragCal:dragCal, dropCal:dropCal,
   orangModal:orangModal, simpanOrang:simpanOrang, hapusOrang:hapusOrang,
   segarkanKru:function(){
