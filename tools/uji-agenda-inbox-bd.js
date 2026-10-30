@@ -37,6 +37,7 @@ const SEED = {
   tasks:[
     {id:'tBesok',name:'Kirim proposal sponsor',div:'Business Development',pics:['p2'],status:'To Do',deadline:iso(1),updatedAt:now},
     {id:'tLewat',name:'Rekap vendor',div:'Business Development',pics:['p2'],status:'Doing',deadline:iso(-3),updatedAt:now},
+    {id:'tLewat2',name:'Kontrak venue',div:'Business Development',pics:['p2'],status:'To Do',deadline:iso(-6),updatedAt:now},
     {id:'tTanpa',name:'Riset kompetitor',div:'Business Development',pics:['p2'],status:'To Do',deadline:'',updatedAt:now},
     {id:'tR',name:'Desain booth',div:'Business Development',pics:['p1'],status:'Review',reviewers:['p2'],deadline:iso(4),updatedAt:now},
     {id:'tR2',name:'Brief talent',div:'Business Development',pics:['p1'],status:'Review',reviewers:['p2'],reviewAt:now-5000,deadline:iso(5),updatedAt:now},
@@ -98,11 +99,21 @@ async function simpanServer(){ await tunggu(1100); }
   cek(/Kirim proposal sponsor/.test(teks(kol[1])) && !/Task milik Budi/.test(teks(kol[1])), 'Besok memuat tenggat task-ku saja');
   cek(/Sync mingguan/.test(teks(kol[1])), 'agenda yang kuselenggarakan ikut di kolom harinya');
   cek(/Soft launch/.test(teks(kol[2])), 'milestone project-ku di kolom Lusa');
-  const pita=teks(view().querySelector('.banner.warn'))+teks(view().querySelector('.banner.bad'));
+  const pita=teks(view().querySelector('.banner.warn'));
   cek(/1\s*undangan/.test(pita), 'pita undangan menyebut jumlahnya', pita);
-  cek(/1\s*task lewat deadline/.test(pita), 'pita task lewat deadline menyebut jumlahnya');
+  const odc=view().querySelector('.od-card'), odIt=odc?[...odc.querySelectorAll('.od-list .it')]:[];
+  cek(!!odc && !view().querySelector('.banner.bad'), 'task lewat deadline digelar sebagai kartu, bukan pita');
+  cek(odIt.length===2, 'kartu memuat KEDUA task yang lewat deadline', odIt.length);
+  cek(odIt.length===2 && /Kontrak venue/.test(teks(odIt[0])) && /telat 6 hari/.test(teks(odIt[0])), 'yang paling lama terlambat di atas, berikut berapa harinya', odIt.map(teks).join(' | '));
+  cek(!/Task milik Budi/.test(teks(odc)), 'kartunya hanya memuat task-ku');
+  const lihat=odc&&[...odc.querySelectorAll('button')].find(b=>/Lihat semua/.test(b.textContent));
+  cek(!!lihat, 'ada tombol "Lihat semua di My Task"');
+  if(lihat){ lihat.click(); await tunggu(30); cek(ev('view')==='mytask', 'tombolnya membuka My Task', ev('view')); }
+  ev('OD_MAKS=1'); W.APP.go('dashboard'); await tunggu(30);
+  cek(/\+1 task lain lewat deadline/.test(teks(view().querySelector('.od-card'))), 'yang terpotong disebut jumlahnya');
+  ev('OD_MAKS=8'); W.APP.go('dashboard'); await tunggu(30);
   cek(/2\s*task menunggu review/.test(teks(view())), 'pita review menyebut 2 task');
-  cek(!!D.getElementById('fokusInp'), 'kotak "Fokus utama hari ini" tetap ada');
+  cek(!D.getElementById('fokusInp') && !/Fokus utama/.test(teks(view())), 'kotak "Fokus utama hari ini" sudah dicabut');
   const side=teks(view().querySelector('.side3'));
   cek(/Riset kompetitor/.test(side), 'kartu "Belum ada deadline" memuat task tanpa deadline');
   cek(/Menunggu respons/.test(side) && /Meeting vendor dekor/.test(side) && /Desain booth/.test(side), 'kartu "Menunggu respons" memuat undangan & review');

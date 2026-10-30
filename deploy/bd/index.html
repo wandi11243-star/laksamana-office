@@ -808,12 +808,13 @@ input.rp-in{padding-left:36px;text-align:right;font-variant-numeric:tabular-nums
 .banner.warn{background:var(--warn-bg);color:var(--warn);border-color:rgba(138,100,18,.22)}
 .banner.bad{background:var(--danger-bg);color:var(--danger);border-color:rgba(185,58,34,.22)}
 .banner .mini-av{flex:none}
-.fokus-bar{display:flex;gap:12px;align-items:center;flex-wrap:wrap;background:#fff;border:1px solid var(--line-soft);
-  border-radius:var(--radius);box-shadow:var(--shadow);padding:10px 14px;margin:6px 0 14px}
-.fokus-bar .fk-l{flex:none;font-family:var(--mono);font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--gold-deep)}
-.fokus-bar input{flex:1;min-width:200px;background:var(--ink-900);border:1px solid var(--line-hard);border-radius:10px;
-  padding:9px 12px;outline:none;font-size:14.5px;font-weight:600;color:var(--gold-deep)}
-.fokus-bar input:focus{border-color:var(--gold);background:#fff}
+.od-card{border-color:rgba(185,58,34,.28);margin-bottom:16px}
+.od-card .card-h h3{display:flex;align-items:center;gap:7px;color:var(--danger)}
+.od-card .card-h h3 svg{width:16px;height:16px}
+.od-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:0 10px}
+.od-list .it .tm{min-width:48px}
+.od-more{padding:0 16px 12px;font-size:12px;color:var(--muted)}
+.od-more a{color:var(--gold-deep);font-weight:600;cursor:pointer}
 .days3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px;margin-bottom:16px}
 .dcol{background:#fff;border:1px solid var(--line-soft);border-radius:var(--radius);box-shadow:var(--shadow);min-width:0}
 .dcol.td{border-color:var(--gold);box-shadow:0 0 0 1px var(--gold),var(--shadow)}
@@ -1772,7 +1773,6 @@ function render(){
     if(gs&&gs.k===g1.getAttribute('data-key')){ g1.scrollLeft=gs.l; g1.scrollTop=gs.t; }
     else g1.scrollLeft=Math.max(0,(+g1.getAttribute('data-todayx')||0)-200);
   }
-  if(view==='dashboard') pasangFokus();
   if(view==='board'||view==='projectDetail'||view==='mytask'||view==='daily') pasangBoard();
 }
 /* ---- alamat halaman (#tasks, #purchasing, …) ----
@@ -1879,16 +1879,13 @@ function pitaDaftar(){
    seluruh perusahaan — Calendar punya pemilih lingkup untuk melihat lebih
    luas. Akun yang belum tercocokkan ke daftar kru melihat semuanya (pola yang
    sama dengan tugasSaya), dan itu dikatakan pitaDaftar(). */
-var LABEL_HARI_DEKAT=['Hari ini','Besok','Lusa'];
+var LABEL_HARI_DEKAT=['Hari ini','Besok','Lusa'], OD_MAKS=8;
 function vDashboard(){
   var t0=todayISO(), hari=[t0,inDays(1),inDays(2)];
   var saya=tugasSaya(), aktif=saya.filter(function(t){return !selesai(t);});
   var od=aktif.filter(lewat);
   var undangan=undanganTertunda(), review=reviewTertunda();
   var nama=AKU?AKU.name:((sesi()||{}).name||'');
-
-  var f=DB.focus[catIniAku()]||{};
-  var teksFokus=(f.tgl===t0)?(f.teks||''):'';
 
   var h='<div class="hello"><div class="grow"><div class="lbl-u">'+esc(fTglPanjang(t0))+'</div>'+
       '<h2>Halo, '+esc(String(nama||'kru').split(' ')[0])+'</h2></div>'+
@@ -1901,12 +1898,20 @@ function vDashboard(){
     '<button class="btn sm" onclick="APP.go(\'inbox\')">Lihat</button></div>';
   if(review.length) h+='<div class="banner">'+ic('eye')+'<div class="grow"><b>'+review.length+'</b> task menunggu review kamu.</div>'+
     '<button class="btn sm" onclick="APP.go(\'inbox\')">Review</button></div>';
-  if(od.length) h+='<div class="banner bad">'+ic('clock')+'<div class="grow"><b>'+od.length+'</b> task lewat deadline: '+
-      od.slice(0,2).map(function(t){return esc(t.name);}).join('; ')+(od.length>2?' …':'')+'</div>'+
-    '<button class="btn sm" onclick="APP.go(\'mytask\')">My Task</button></div>';
-
-  h+='<div class="fokus-bar"><span class="fk-l">★ Fokus utama hari ini</span>'+
-    '<input id="fokusInp" value="'+esc(teksFokus)+'" placeholder="Apa satu hal terpenting hari ini?"></div>';
+  /* Task lewat deadline DIGELAR di sini, bukan cuma dihitung di pita
+     (30 Okt 2026, permintaan user): yang terlambat harus terbaca tanpa pindah
+     halaman. Paling lama terlambat di atas; dipotong OD_MAKS dan sisanya
+     disebut jumlahnya berikut tombol ke My Task. "Fokus utama hari ini"
+     dicabut di permintaan yang sama — DB.focus tetap tersimpan, cuma tidak
+     digambar lagi. */
+  if(od.length){
+    var odU=od.slice().sort(function(a,b){return String(a.deadline).localeCompare(String(b.deadline));});
+    h+='<div class="card od-card"><div class="card-h"><h3>'+ic('clock')+' Lewat deadline</h3>'+pill(od.length+'','p-bad')+
+        '<span class="grow"></span><button class="btn sm" onclick="APP.go(\'mytask\')">Lihat semua di My Task '+ic('chevR',13)+'</button></div>'+
+      '<div class="card-b tight od-list">'+odU.slice(0,OD_MAKS).map(itTelat).join('')+'</div>'+
+      (od.length>OD_MAKS?'<div class="od-more">+'+(od.length-OD_MAKS)+' task lain lewat deadline — <a onclick="APP.go(\'mytask\')">lihat semua di My Task</a></div>':'')+
+    '</div>';
+  }
 
   h+='<div class="days3">'+hari.map(function(d,i){
     var ag=agendaHari(d,AKU?AKU.id:null);
@@ -1943,16 +1948,6 @@ function vDashboard(){
       (jalan.length?jalan.slice(0,4).map(projMini).join(''):'<div class="mini-empty" style="padding:14px 4px">Belum ada project berjalan.</div>')+'</div></div>'+
   '</div>';
   return h;
-}
-function pasangFokus(){
-  var el=$('#fokusInp'); if(!el) return;
-  el.addEventListener('input',function(){
-    /* Fokus disimpan BERSAMA TANGGALNYA, bukan sebagai satu teks abadi.
-       Tanpa tanggal, catatan "kirim proposal sponsor" masih menempel di layar
-       tiga minggu kemudian dan berhenti berarti apa pun. */
-    DB.focus[catIniAku()]={teks:el.value,tgl:todayISO()};
-    save();
-  });
 }
 function projMini(p){
   var pg=projProgress(p), hh=PROJ_HEALTH[p.health]||PROJ_HEALTH['on-track'], dl=sisaHari(p.end);
@@ -6232,6 +6227,12 @@ function itAgenda(e){
 function itTask(t){
   return '<div class="it" style="--jc:var(--danger)" onclick="APP.taskModal(\''+t.id+'\')"><div class="tm">◆</div><div class="grow">'+
     '<div class="ti">'+esc(t.name)+'</div><div class="mt"><span class="tag">'+esc(t.status)+'</span>'+(lewat(t)?' · <span class="tag overdue">lewat</span>':'')+'</div></div></div>';
+}
+function itTelat(t){
+  var n=-sisaHari(t.deadline), pr=t.project?(DB.projects.find(function(p){return p.id===t.project;})||{}).name:(t.daily?'Daily':'');
+  return '<div class="it" style="--jc:var(--danger)" onclick="APP.taskModal(\''+t.id+'\')"><div class="tm">'+esc(fTgl(t.deadline))+'</div><div class="grow">'+
+    '<div class="ti">'+esc(t.name)+'</div><div class="mt"><span class="tag overdue">telat '+n+' hari</span><span class="tag">'+esc(t.status)+'</span>'+
+    (pr?' · '+esc(pr):'')+'</div></div></div>';
 }
 function itMilestone(x){
   return '<div class="it" style="--jc:var(--violet)" onclick="APP.bukaProject(\''+x.p.id+'\')"><div class="tm">◇</div><div class="grow">'+
