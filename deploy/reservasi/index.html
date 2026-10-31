@@ -1505,8 +1505,36 @@ function dpRekeningSel(r){
    suatu hari tidak punya QRIS sama sekali, jatuh ke pilihan pertama — bukan
    ke kosong: kotak tanpa pilihan terbaca sebagai daftar yang gagal dimuat. */
 function dpMethodDefault(){
-  const list=(STATE.master&&STATE.master.dpMethods)||[];
+  const list=dpMetodeManual();
   return list.find(v=>/qris/i.test(String(v))) || list[0] || "";
+}
+/* ===== METODE OTOMATIS: Xendit (31 Oktober 2026, permintaan user) =====
+   DP yang dibayar tamu lewat tautan Xendit dari AI Agent tercatat dengan
+   metode "Xendit" — yang menuliskannya AGENT-nya, bukan kru. Karena itu
+   pilihan ini TIDAK ditawarkan di input manual (form reservasi & Tambah DP):
+   "Xendit" yang dipilih tangan berarti DP tanpa transaksi Xendit di
+   baliknya, dan yang mencocokkannya ke dashboard Xendit tidak akan pernah
+   menemukannya.
+
+   Nilai yang SUDAH tersimpan Xendit tetap digambar & tetap terpilih saat
+   reservasinya disunting (opsiDpMetode). Kalau dibuang dari kotak pilihan,
+   menyimpan form mengganti metodenya ke pilihan pertama tanpa satu pun
+   tanda — DP Xendit diam-diam berubah jadi QRIS. Disaring di sini, bukan di
+   daftar master: kalau suatu hari ada yang menambahkan "Xendit" ke Master
+   Data, ia tetap tidak muncul di input manual. */
+const DP_METODE_OTOMATIS=/^\s*xendit\b/i;
+function dpMetodeOtomatis(v){ return DP_METODE_OTOMATIS.test(String(v||"")); }
+function dpMetodeManual(){
+  return ((STATE.master&&STATE.master.dpMethods)||[]).filter(v=>!dpMetodeOtomatis(v));
+}
+function opsiDpMetode(sel){
+  const list=dpMetodeManual(), cur=String(sel||"");
+  const out=list.map(v=>`<option ${v===cur?"selected":""}>${esc(v)}</option>`);
+  if(cur && !list.includes(cur)){
+    const lbl=dpMetodeOtomatis(cur)?" (otomatis dari AI Agent)":" (lama)";
+    out.unshift(`<option value="${esc(cur)}" selected>${esc(cur)}${lbl}</option>`);
+  }
+  return out.join("");
 }
 // Verifikasi jalan PER TRANSFER, bukan per reservasi: DP 1 bisa sudah diverifikasi
 // sementara DP 2 masih menunggu bukti dicek.
@@ -4445,7 +4473,7 @@ function renderInput(editId){
        </div>
        <div class="field" id="dpMethodWrap">
          <label>Metode / Tujuan Pembayaran</label>
-         <select name="dpMethod">${opt(m.dpMethods, r?.dpMethod || dpMethodDefault())}</select>
+         <select name="dpMethod">${opsiDpMetode(r?.dpMethod || dpMethodDefault())}</select>
          <div class="hint">Bawaannya <b>${esc(dpMethodDefault()||"-")}</b>. Ganti kalau uangnya masuk ke rekening lain —
            inilah yang dipakai mencocokkan DP dengan mutasi bank.</div>
        </div>
@@ -8058,7 +8086,7 @@ function openAddDp(resId){
      <div class="field"><label>Nominal DP <span class="req">*</span></label>
        <input id="ndp_amount" inputmode="numeric" placeholder="mis. 300.000" oninput="fmtRupiahInput(this)"></div>
      <div class="field"><label>Metode / Tujuan Transfer</label>
-       <select id="ndp_method">${(m.dpMethods||[]).map(v=>`<option${v===dpMethodDefault()?" selected":""}>${esc(v)}</option>`).join("")}</select>
+       <select id="ndp_method">${dpMetodeManual().map(v=>`<option${v===dpMethodDefault()?" selected":""}>${esc(v)}</option>`).join("")}</select>
        <div class="hint">Bawaannya <b>${esc(dpMethodDefault()||"-")}</b> — ganti kalau uangnya masuk ke rekening lain.</div></div>
      <div class="field"><label>Upload Bukti Transfer (foto/pdf) <span class="req">*</span></label>
        <input type="file" accept="image/*,application/pdf" onchange="fileToData(this,'ndpProof')">
