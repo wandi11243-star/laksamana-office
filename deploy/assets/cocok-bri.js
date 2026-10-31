@@ -333,7 +333,12 @@
          aset ini pasti menyimpang begitu ada metode baru — lalu kotak
          pilihannya menawarkan metode yang tidak dikenal modul itu. */
       CB.metode = ((j.data && j.data.master && j.data.master.dpMethods) || [])
-        .map(v => String(v || '')).filter(Boolean);
+        .map(v => String(v || '')).filter(Boolean)
+        /* "Xendit" ditulis AI Agent untuk DP yang dibayar lewat tautan Xendit,
+           bukan dipilih tangan — aturan yang sama dengan input manual di
+           modul Reservasi (opsiDpMetode). DP yang SUDAH Xendit tetap
+           tergambar di kotaknya, ditandai. */
+        .filter(v => !/^\s*xendit\b/i.test(v));
     } catch (e) { CB.dps = []; CB.metode = []; CB.dpErr = (e && e.message) || String(e); }
     CB.opsi.gambarUlang();
   }
@@ -1213,7 +1218,7 @@
         + '<select class="cb-in" id="cb-met-' + CB_ESC(dp.dpId) + '">'
         + (dp.metode ? '' : '<option value="">&mdash; belum ada metode &mdash;</option>')
         + pilihan.map(m => '<option value="' + CB_ESC(m) + '"' + (m === dp.metode ? ' selected' : '') + '>'
-            + CB_ESC(m) + (m === dp.metode && !ada ? ' (lama)' : '') + '</option>').join('')
+            + CB_ESC(m) + (m === dp.metode && !ada ? (/^\s*xendit\b/i.test(m) ? ' (otomatis dari AI Agent)' : ' (lama)') : '') + '</option>').join('')
         + '</select>'
         + '<button class="cb-btn cb-btn-utama" ' + (CB.sibuk ? 'disabled' : '')
         + ' onclick="cbUbahMetode(\'' + CB_ESC(dp.dpId) + '\')">'

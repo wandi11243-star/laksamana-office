@@ -1685,6 +1685,81 @@ function vip_hari($pdo, $tgl) {
   }
   return $out;
 }
+/* ---------- AGENDA SATU RENTANG — dibaca Calendar modul BD (30 Okt 2026) ----------
+   Event yang sudah PASTI JALAN (Deal / Confirmed / Event Done — daftar yang
+   sama dengan ST_MKT_JALAN di deploy/radar) plus Reservasi VIP yang tidak
+   dibatalkan, untuk satu rentang tanggal. HANYA MEMBACA.
+
+   Sengaja sempit, jangan diarahkan ke getAll: getAll memulangkan seluruh CRM,
+   pipeline, invoice, dan foto Request Design (megabyte) ke layar yang cuma
+   butuh judul, tanggal, jam, dan tempat. Nilai rupiah TIDAK ikut — kalender
+   BD dibuka seluruh kru.
+
+   Acara lintas hari: tanggalSelesai ada di blob data, jadi diambil jendela
+   60 hari ke belakang lewat idx_ev_tanggal lalu disaring di PHP — aturan yang
+   sama dengan events_hari(). */
+function agenda_rentang($dari, $sampai) {
+  if (!tanggal_valid($dari) || !tanggal_valid($sampai)) throw new Exception('rentang tidak sah');
+  if ($sampai < $dari) { $t = $dari; $dari = $sampai; $sampai = $t; }
+  if ((strtotime($sampai) - strtotime($dari)) > 100 * 86400) throw new Exception('rentang terlalu panjang (maks 100 hari)');
+  $pdo = db();
+  $batas = date('Y-m-d', strtotime($dari . ' 00:00:00 -60 days'));
+  $st = $pdo->prepare(
+    "SELECT id, nama, tanggal, status, pax, data FROM events
+      WHERE status IN ('Deal', 'Confirmed', 'Event Done')
+        AND tanggal >= :batas AND tanggal <= :sampai
+      ORDER BY tanggal, nama");
+  $st->execute(array(':batas' => $batas, ':sampai' => $sampai));
+  $ev = array();
+  foreach ($st->fetchAll() as $r) {
+    $d = json_decode((string)$r['data'], true);
+    if (!is_array($d)) $d = array();
+    $det = isset($d['detail']) && is_array($d['detail']) ? $d['detail'] : array();
+    $mulai = (string)$r['tanggal'];
+    $selesai = isset($d['tanggalSelesai']) ? (string)$d['tanggalSelesai'] : '';
+    $akhir = ($selesai !== '' && $selesai > $mulai) ? $selesai : $mulai;
+    if ($akhir < $dari) continue;
+    $ev[] = array(
+      'id'       => $r['id'],
+      'nama'     => $r['nama'],
+      'tanggal'  => $mulai,
+      'selesai'  => $akhir,
+      'status'   => $r['status'],
+      'pax'      => (int)$r['pax'],
+      'jam'      => isset($det['tamuDatang']) ? (string)$det['tamuDatang'] : '',
+      'jamAkhir' => isset($det['selesai']) ? (string)$det['selesai'] : '',
+      'tempat'   => isset($det['area']) ? (string)$det['area'] : '',
+      'jenis'    => isset($d['jenis']) ? (string)$d['jenis'] : '',
+    );
+  }
+  /* VIP tersimpan sebagai satu baris JSON di settings ('extra:vip') — lihat
+     vip_hari(). Yang dibatalkan (batalAt) dan berstatus batal/no-show tidak
+     ikut, aturan yang sama dengan agPasti() di Radar. */
+  $vq = $pdo->prepare('SELECT v FROM settings WHERE k = :k');
+  $vq->execute(array(':k' => 'extra:vip'));
+  $semua = json_decode((string)$vq->fetchColumn(), true);
+  $vip = array();
+  if (is_array($semua)) foreach ($semua as $v) {
+    if (!is_array($v) || !empty($v['batalAt'])) continue;
+    $tg = tanggal_valid(isset($v['tanggal']) ? $v['tanggal'] : '');
+    if ($tg === null || $tg < $dari || $tg > $sampai) continue;
+    $sts = isset($v['status']) ? (string)$v['status'] : '';
+    if (preg_match('/cancel|batal|no.?show/i', $sts)) continue;
+    $vip[] = array(
+      'id'       => isset($v['id']) ? $v['id'] : '',
+      'nama'     => isset($v['nama']) ? $v['nama'] : '',
+      'tanggal'  => $tg,
+      'status'   => $sts,
+      'jam'      => isset($v['jamMulai']) ? (string)$v['jamMulai'] : '',
+      'jamAkhir' => isset($v['jamSelesai']) ? (string)$v['jamSelesai'] : '',
+      'paxMin'   => (int)(isset($v['paxMin']) ? $v['paxMin'] : 0),
+      'paxMax'   => (int)(isset($v['paxMax']) ? $v['paxMax'] : 0),
+      'meja'     => isset($v['meja']) && is_array($v['meja']) ? array_values($v['meja']) : array(),
+      'jenis'    => isset($v['jenis']) ? (string)$v['jenis'] : '',
+    );
+  }
+  return array('events' => $ev, 'vip' => $vip);
+}
 /* {id => <kolom>} untuk sekumpulan id. Placeholder-nya POSISIONAL (`?`):
    EMULATE_PREPARES mati, jadi penanda bernama yang dipakai berulang akan
    gagal dengan HY093 tanpa menyebut kolom apa pun. */

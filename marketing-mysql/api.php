@@ -86,6 +86,13 @@ try {
     // Breakdown Sumber. Sengaja sempit; jangan diarahkan ke getAll.
     keluar(array('ok' => true, 'data' => events_hari(isset($_GET['tgl']) ? $_GET['tgl'] : '')));
 
+  } else if ($action === 'agendaRentang') {
+    // Acara pasti-jalan + Reservasi VIP satu rentang — dibaca Calendar modul BD.
+    // Sengaja sempit dan HANYA MEMBACA; jangan diarahkan ke getAll.
+    keluar(array('ok' => true, 'data' => agenda_rentang(
+      isset($_GET['dari'])   ? $_GET['dari']   : '',
+      isset($_GET['sampai']) ? $_GET['sampai'] : '')));
+
   } else if ($action === 'dpMasuk') {
     // Pembayaran event pada satu RENTANG tanggal — dibaca halaman Dana Masuk
     // modul Reservasi (tab "DP Event"). Sengaja sempit; jangan diarahkan ke

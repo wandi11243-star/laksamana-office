@@ -65,6 +65,12 @@ try {
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
 
+  } else if ($action === 'agendaRentang') {
+    // Acara pasti-jalan satu rentang — dibaca Calendar modul BD. HANYA MEMBACA.
+    keluar(array('ok' => true, 'data' => agenda_rentang(
+      isset($_GET['dari'])   ? $_GET['dari']   : '',
+      isset($_GET['sampai']) ? $_GET['sampai'] : '')));
+
   } else if ($action === 'eventsHari') {
     // Event satu tanggal (yang belum jadi dibuang) — dibaca Finance > Omset >
     // Breakdown Sumber. Sengaja sempit; jangan diarahkan ke getAll.

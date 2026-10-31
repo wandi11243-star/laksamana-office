@@ -614,6 +614,42 @@ function events_hari($tgl) {
   return array('events' => $out);
 }
 
+/* ---------- AGENDA SATU RENTANG — dibaca Calendar modul BD (30 Okt 2026) ----------
+   Acara yang sudah PASTI JALAN — status Approval / Upcoming / Event Done
+   (+ Today / Finished, nama lama), daftar yang sama dengan ST_EVT_JALAN di
+   deploy/radar. HANYA MEMBACA. Kolom start/end_datetime sudah WIB (lihat
+   catatan normalisasi di atas), jadi tanggal & jam dipotong apa adanya. */
+function agenda_rentang($dari, $sampai) {
+  if (!tanggal_valid($dari) || !tanggal_valid($sampai)) throw new Exception('rentang tidak sah');
+  if ($sampai < $dari) { $t = $dari; $dari = $sampai; $sampai = $t; }
+  if ((strtotime($sampai) - strtotime($dari)) > 100 * 86400) throw new Exception('rentang terlalu panjang (maks 100 hari)');
+  $pdo = db();
+  $st = $pdo->prepare(
+    "SELECT id, title, status, venue, category, capacity, start_datetime, end_datetime
+       FROM events
+      WHERE start_datetime >= :dari AND start_datetime < :akhir
+        AND status IN ('Approval', 'Upcoming', 'Event Done', 'Today', 'Finished')
+      ORDER BY start_datetime, title");
+  $st->execute(array(':dari' => $dari . ' 00:00:00',
+                     ':akhir' => date('Y-m-d', strtotime($sampai . ' 00:00:00 +1 day')) . ' 00:00:00'));
+  $out = array();
+  foreach ($st->fetchAll() as $r) {
+    $m = (string)$r['start_datetime']; $e = (string)$r['end_datetime'];
+    $out[] = array(
+      'id'       => $r['id'],
+      'nama'     => $r['title'],
+      'status'   => $r['status'],
+      'tempat'   => (string)$r['venue'],
+      'jenis'    => (string)$r['category'],
+      'pax'      => (int)$r['capacity'],
+      'tanggal'  => substr($m, 0, 10),
+      'jam'      => substr($m, 11, 5),
+      'jamAkhir' => ($e !== '' && substr($e, 0, 10) === substr($m, 0, 10)) ? substr($e, 11, 5) : '',
+    );
+  }
+  return array('events' => $out);
+}
+
 /* ==================== DIAGNOSTIK ==================== */
 function stats() {
   $pdo = db();
