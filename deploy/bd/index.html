@@ -3836,7 +3836,10 @@ function toggleMilestone(pid,i){
 function projModal(id){
   var p=id?DB.projects.find(function(x){return x.id===id;}):null;
   var baru=!p;
-  if(!p) p={name:'',type:'Internal',stage:'To Do',div:'Business Development',pics:AKU?[AKU.id]:[],
+  /* Divisi project BARU mengikuti divisi yang sudah diatur untuk akun yang
+     login (Pengaturan → Kru), sama dengan task baru — dulu dipatok Business
+     Development, jadi kru Project/Purchasing harus menggantinya tiap kali. */
+  if(!p) p={name:'',type:'Internal',stage:'To Do',div:(AKU&&AKU.div)||'Business Development',pics:AKU?[AKU.id]:[],
     start:todayISO(),end:inDays(30),budget:0,spent:0,health:'on-track',desc:'',milestones:[]};
   var ms=(p.milestones||[]);
   showModal(
@@ -3847,7 +3850,11 @@ function projModal(id){
       '<div class="field"><label>Deskripsi</label><textarea id="p_desc">'+esc(p.desc)+'</textarea></div>'+
       '<div class="frow3">'+
         '<div class="field"><label>Divisi</label><select id="p_div">'+
-          OWNER_DIVS.map(function(d){return '<option'+(p.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
+          /* Pilihannya divisi yang dipakai kru (calDivisi), dan divisi tersimpan
+             yang sudah tidak ada di daftar tetap digambar — kalau tidak, membuka
+             project lama diam-diam mengganti divisinya ke pilihan pertama. */
+          (function(){ var a=calDivisi(); if(p.div&&a.indexOf(p.div)<0) a.push(p.div); return a; })()
+            .map(function(d){return '<option'+(p.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
         '<div class="field"><label>Tipe</label><input id="p_type" value="'+esc(p.type)+'"></div>'+
         '<div class="field"><label>Stage</label><select id="p_stage">'+
           PROJ_STAGES.map(function(s){return '<option'+(p.stage===s?' selected':'')+'>'+s+'</option>';}).join('')+'</select></div></div>'+
@@ -6745,7 +6752,13 @@ function luarAmbil(id,q){
 }
 function muatLuar(from,to,paksa){
   var w=luarRentang(from,to), key=w.dari+'|'+w.sampai;
-  if(!paksa && (LUAR.key===key || LUAR.sibuk)) return;
+  if(LUAR.sibuk && !paksa) return;
+  /* Jendela yang SUDAH dimuat (bulan ±1) dipakai selama masih mencakup
+     rentang layar. Dibandingkan kuncinya saja, tampilan 14 hari yang baru
+     menyeberang ke bulan berikutnya menarik ulang ketiga modul untuk data
+     yang sebenarnya sudah ada di tangan (ketahuan 31 Okt 2026). */
+  var k=String(LUAR.key||'').split('|');
+  if(!paksa && LUAR.key && k[0]<=from && k[1]>=to) return;
   /* Ditandai SEBELUM permintaan berangkat: render() sesudah datanya datang
      memanggil vCalendar lagi, dan tanpa penanda ini keduanya saling memanggil
      tanpa henti. */
