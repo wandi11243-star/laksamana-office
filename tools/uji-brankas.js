@@ -156,7 +156,12 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
        sudah diketahui, mengandalkan jaring itu berarti membiarkan uangnya
        tidak masuk saldo bank mana pun sampai ada yang menyetelnya. */
     cek('TikTok Go dipetakan ke UOB', pmap.tiktokgo === 'uob', pmap.tiktokgo);
-    cek('tidak ada metode tanpa tujuan', w.petaBelum().length === 0,
+    /* XENDIT (31 Okt 2026) SENGAJA belum punya tujuan bawaan: rekening
+       settlement-nya belum diketahui, dan menebaknya berarti menaruh uang di
+       bank yang tidak pernah menerimanya. Ia satu-satunya yang boleh
+       menggantung — begitu tujuannya diketahui, isi MAP_BAWAAN dan
+       kembalikan asersi ini ke "tidak ada sama sekali". */
+    cek('hanya Xendit yang belum punya tujuan', w.petaBelum().map(g => g.k).join(',') === 'xendit',
         w.petaBelum().map(g => g.n).join(','));
     cek('BCA masuk 0', s.bca.masuk === 0, String(s.bca.masuk));
     /* error_kasir 9.999.999 ada di Report Daily tapi BUKAN uang yang masuk
@@ -182,8 +187,11 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
     /* Sejak QR Order/Gofood/Grabfood dipetakan ke UOB (27 Agu 2026), tidak ada
        lagi metode yang menggantung — jadi pita peringatannya justru TIDAK boleh
        muncul. Yang diuji sekarang kebalikannya. */
-    cek('saldo: tidak ada metode yang menggantung', v.indexOf('belum punya tujuan bank') < 0, v.slice(0, 900));
-    cek('saldo: tidak ada label "belum dipetakan"', v.indexOf('belum dipetakan') < 0);
+    /* Xendit belum dipetakan (lihat di atas), jadi pitanya MUNCUL — dan
+       yang disebut cuma Xendit. */
+    const pita = v.slice(v.indexOf('belum punya tujuan bank'), v.indexOf('belum punya tujuan bank') + 400);
+    cek('saldo: pita metode menggantung menyebut Xendit', v.indexOf('1 metode pembayaran belum punya tujuan bank') > -1 && pita.indexOf('Xendit') > -1, v.slice(0, 900));
+    cek('saldo: pita tidak menyebut metode yang sudah dipetakan', pita.indexOf('Gofood') < 0 && pita.indexOf('TikTok Go') < 0);
     cek('saldo: menyebut QR Order/Gofood/Grabfood',
         v.indexOf('QR Order') > -1 && v.indexOf('Gofood') > -1 && v.indexOf('Grabfood') > -1);
     cek('saldo: memperingatkan setoran tak dikenal', v.indexOf('tujuannya tidak dikenali') > -1);
@@ -750,7 +758,7 @@ const teks = el => (el ? (el.textContent || '').replace(/\s+/g, ' ').trim() : ''
         v.slice(Math.max(0, v.indexOf('TikTok Go') - 40), v.indexOf('TikTok Go') + 260));
     /* Jaring pengamannya: metode yang tidak punya tujuan DILAPORKAN. Kalau
        TikTok Go terlewat di MAP_BAWAAN, di sinilah ia muncul. */
-    cek('tidak ada metode yang menggantung tanpa rekening', w.petaBelum().length === 0,
+    cek('TikTok Go tidak menggantung tanpa rekening', !w.petaBelum().some(g => g.k === 'tiktokgo'),
         w.petaBelum().map(g => g.n).join(','));
     dom.window.close();
   }
