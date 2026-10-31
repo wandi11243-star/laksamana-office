@@ -1586,7 +1586,7 @@ function terapkanRoster(members){
     }
     if(!p){
       DB.people.push({id:uid('u'),officeUserId:m.id,name:m.name||'(tanpa nama)',
-        ket:m.keterangan||'',role:'',div:'',boss:'',active:m.active!==false});
+        ket:m.keterangan||'',role:'',div:divDariKet(m.keterangan),boss:'',active:m.active!==false});
       berubah=true; return;
     }
     /* Nama, keaktifan, dan KETERANGAN milik Office — di sini cuma disalin,
@@ -1598,6 +1598,11 @@ function terapkanRoster(members){
     if(p.name!==m.name && m.name){ p.name=m.name; berubah=true; }
     var ketBaru=m.keterangan||'';
     if(String(p.ket||'')!==ketBaru){ p.ket=ketBaru; berubah=true; }
+    /* Divisi ikut Office kalau Tim-nya menyebut satu. Kalau belum, divisi
+       lama yang dulu diatur di Kru BD DIBIARKAN — mengosongkannya sebelum
+       Kelola User diisi membuat seluruh kru mendadak tanpa divisi. */
+    var divBaru=divDariKet(ketBaru);
+    if(divBaru && p.div!==divBaru){ p.div=divBaru; berubah=true; }
     var aktif=m.active!==false;
     if(!!p.active!==aktif){ p.active=aktif; berubah=true; }
     if(p.tanpaAkses){ delete p.tanpaAkses; berubah=true; }
@@ -1636,6 +1641,19 @@ function kenali(){
 function adminModul(){
   var a=(sesi()||{}).adminModules||[];
   return a.indexOf('*')>-1 || a.indexOf('bd')>-1;
+}
+/* Divisi kru DIBACA dari Tim/Keterangan di Office → Kelola User (31 Okt 2026,
+   permintaan user), tidak lagi diatur di Kru BD. Dicocokkan KATA UTUH, sama
+   dengan aturan Tim di modul lain — "Projector" bukan Project. "BD" ikut
+   dikenali sebagai Business Development karena begitulah orang menulisnya.
+   Keterangan yang tidak menyebut divisi apa pun memulangkan ''. */
+function divDariKet(ket){
+  var k=' '+String(ket||'').toLowerCase().replace(/[^a-z]+/g,' ')+' ';
+  for(var i=0;i<OWNER_DIVS.length;i++){
+    if(k.indexOf(' '+OWNER_DIVS[i].toLowerCase()+' ')>-1) return OWNER_DIVS[i];
+  }
+  if(k.indexOf(' bd ')>-1) return 'Business Development';
+  return '';
 }
 function P(id){return DB.people.find(function(p){return p.id===id;})||{id:'',name:'—',role:'',div:''};}
 function bawahan(id){
@@ -1881,8 +1899,7 @@ function pitaDaftar(){
       '<button class="btn sm" onclick="APP.segarkanKru()">Segarkan</button></div>';
   if(!AKU.div)
     return '<div class="notice">Divisi kamu belum diatur, jadi task barumu akan jatuh ke divisi bawaan. '+
-      'Atur di <b>Kru BD</b> — sekalian isi atasanmu, karena itu yang menentukan siapa melihat task siapa.'+
-      '<button class="btn sm" onclick="APP.go(\'tim\')">Buka Kru BD</button></div>';
+      'Divisi diatur di <b>Office → Kelola User</b>: centang Tim Business Development / Project / Purchasing di akunmu, lalu tekan Segarkan di Kru BD.</div>';
   return '';
 }
 /* ============ DASHBOARD (bentuk LM Agenda, 30 Okt 2026) ============
@@ -7074,8 +7091,9 @@ function vTim(){
   h+='<div class="notice">Daftar ini datang dari <b>database account</b> — isinya '+
     'persis pemegang hak akses modul <code>bd</code>. Menambah/menghapus orang dilakukan di '+
     '<b>Kelola Akses</b> di Office, bukan di sini. Yang diatur di halaman ini hanya '+
-    '<b>jabatan, divisi, dan atasan</b>, karena tiga hal itu tidak dikenal Office — '+
-    'padahal atasanlah yang menentukan siapa melihat task siapa.</div>';
+    '<b>jabatan dan atasan</b>, karena keduanya tidak dikenal Office — '+
+    'padahal atasanlah yang menentukan siapa melihat task siapa. <b>Divisi</b> dibaca dari Tim di '+
+    '<b>Office → Kelola User</b> (Business Development / Project / Purchasing).</div>';
 
   if(!DB.people.length) return h+'<div class="card"><div class="card-b">'+
     kosong('Belum ada kru dengan akses modul ini',
@@ -7136,9 +7154,11 @@ function orangModal(id){
         'Yang di bawah ini milik BD OS.</div>'+
       '<div class="frow">'+
         '<div class="field"><label>Jabatan</label><input id="k_role" value="'+esc(p.role)+'" placeholder="mis. BD Manager"></div>'+
-        '<div class="field"><label>Divisi</label><select id="k_div">'+
-          '<option value=""'+(p.div?'':' selected')+'>— belum diatur —</option>'+
-          OWNER_DIVS.map(function(d){return '<option'+(p.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div></div>'+
+        /* Divisi TIDAK lagi diatur di sini (31 Okt 2026) — sumbernya Tim di
+           Office → Kelola User, dibaca lewat divDariKet() saat sinkron. */
+        '<div class="field"><label>Divisi</label><div style="padding:8px 0">'+(p.div?tagDiv(p.div):'<span class="mut">belum diatur</span>')+'</div>'+
+          '<div style="font-size:11px;color:var(--muted)">Diatur di <b>Office → Kelola User</b> (Tim)'+
+          (p.div&&!divDariKet(p.ket)?' — yang tampil sisa pengaturan lama, Tim di Office belum menyebut divisi':'')+'.</div></div></div>'+
       '<div class="field"><label>Atasan langsung</label><select id="k_boss"><option value="">— tidak ada (puncak) —</option>'+
         DB.people.filter(function(x){return x.id!==id;}).map(function(x){
           return '<option value="'+x.id+'"'+(p.boss===x.id?' selected':'')+'>'+esc(x.name)+'</option>';}).join('')+'</select>'+
@@ -7171,10 +7191,9 @@ function simpanOrang(id){
       jalan=nx?nx.boss:'';
     }
   }
-  // Hanya tiga field milik BD OS yang ditulis. name/active/tanpaAkses sengaja
+  // Hanya jabatan & atasan yang ditulis (divisi ikut Office sejak 31 Okt 2026). name/active/tanpaAkses sengaja
   // tidak disentuh — pemiliknya database account.
   orang.role=g('k_role').value.trim();
-  orang.div =g('k_div').value;
   orang.boss=boss;
   save(); closeModal(); kenali(); render(); toast('Data kru diperbarui');
 }
