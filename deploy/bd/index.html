@@ -1014,6 +1014,14 @@ const API_URL = "../bd-api-mysql/api.php";
    menugaskan mereka lewat modul ini — mereka punya modulnya sendiri; yang
    dicatat di sini cuma permintaannya dan sampai mana jalannya. */
 const OWNER_DIVS = ["Business Development","Project","Purchasing"];
+/* TIM_OFFICE = SALINAN nama Tim di Office → Kelola User (TIM_PILIHAN di
+   deploy/index.html), URUTANNYA IKUT — "Admin Purchasing / Finance" harus
+   dicoba sebelum Purchasing & Finance. Dipakai divDariKet() untuk membaca
+   divisi kru (1 Nov 2026, permintaan user: pilihan divisi project mengikuti
+   Tim di Kelola User). Kalau di portal ditambah Tim baru, tambahkan juga di
+   sini — yang tertinggal tidak melempar, kru itu cuma terbaca tanpa divisi. */
+const TIM_OFFICE = ["Kitchen","Bar","Floor","Marketing","Event","Kasir","Office","CEO","CFO","Host",
+  "Business Development","Project","Admin Purchasing / Finance","Purchasing","HRD","Finance","Media","IT"];
 const COORD_DIVS = ["Kitchen","Bar","Marketing","Finance","Event","Floor","HR"];
 const DIV_COLOR = {"Business Development":"#A9791F","Project":"#6748B0","Purchasing":"#0C6B64",
   "Kitchen":"#B93A22","Bar":"#6748B0","Marketing":"#8A6412","Finance":"#2367AE",
@@ -1586,7 +1594,7 @@ function terapkanRoster(members){
     }
     if(!p){
       DB.people.push({id:uid('u'),officeUserId:m.id,name:m.name||'(tanpa nama)',
-        ket:m.keterangan||'',role:'',div:'',boss:'',active:m.active!==false});
+        ket:m.keterangan||'',role:'',div:divDariKet(m.keterangan),boss:'',active:m.active!==false});
       berubah=true; return;
     }
     /* Nama, keaktifan, dan KETERANGAN milik Office — di sini cuma disalin,
@@ -1598,6 +1606,11 @@ function terapkanRoster(members){
     if(p.name!==m.name && m.name){ p.name=m.name; berubah=true; }
     var ketBaru=m.keterangan||'';
     if(String(p.ket||'')!==ketBaru){ p.ket=ketBaru; berubah=true; }
+    /* Divisi ikut Office kalau Tim-nya menyebut satu. Kalau belum, divisi
+       lama yang dulu diatur di Kru BD DIBIARKAN — mengosongkannya sebelum
+       Kelola User diisi membuat seluruh kru mendadak tanpa divisi. */
+    var divBaru=divDariKet(ketBaru);
+    if(divBaru && p.div!==divBaru){ p.div=divBaru; berubah=true; }
     var aktif=m.active!==false;
     if(!!p.active!==aktif){ p.active=aktif; berubah=true; }
     if(p.tanpaAkses){ delete p.tanpaAkses; berubah=true; }
@@ -1636,6 +1649,20 @@ function kenali(){
 function adminModul(){
   var a=(sesi()||{}).adminModules||[];
   return a.indexOf('*')>-1 || a.indexOf('bd')>-1;
+}
+/* Divisi kru DIBACA dari Tim/Keterangan di Office → Kelola User (31 Okt 2026,
+   permintaan user), tidak lagi diatur di Kru BD. Dicocokkan KATA UTUH, sama
+   dengan aturan Tim di modul lain — "Projector" bukan Project. "BD" ikut
+   dikenali sebagai Business Development karena begitulah orang menulisnya.
+   Keterangan yang tidak menyebut divisi apa pun memulangkan ''. */
+function divDariKet(ket){
+  var k=' '+String(ket||'').toLowerCase().replace(/[^a-z]+/g,' ')+' ';
+  for(var i=0;i<TIM_OFFICE.length;i++){
+    var t=' '+TIM_OFFICE[i].toLowerCase().replace(/[^a-z]+/g,' ').trim()+' ';
+    if(k.indexOf(t)>-1) return TIM_OFFICE[i];
+  }
+  if(k.indexOf(' bd ')>-1) return 'Business Development';
+  return '';
 }
 function P(id){return DB.people.find(function(p){return p.id===id;})||{id:'',name:'—',role:'',div:''};}
 function bawahan(id){
@@ -1881,8 +1908,7 @@ function pitaDaftar(){
       '<button class="btn sm" onclick="APP.segarkanKru()">Segarkan</button></div>';
   if(!AKU.div)
     return '<div class="notice">Divisi kamu belum diatur, jadi task barumu akan jatuh ke divisi bawaan. '+
-      'Atur di <b>Kru BD</b> — sekalian isi atasanmu, karena itu yang menentukan siapa melihat task siapa.'+
-      '<button class="btn sm" onclick="APP.go(\'tim\')">Buka Kru BD</button></div>';
+      'Divisi diatur di <b>Office → Kelola User</b>: centang Tim di akunmu, lalu tekan Segarkan di Kru BD.</div>';
   return '';
 }
 /* ============ DASHBOARD (bentuk LM Agenda, 30 Okt 2026) ============
@@ -2047,7 +2073,7 @@ function vTasks(){
   h+='<div class="filters"><span class="flabel">'+ic('matrix',14)+' Filter</span>'+
     segLingkup(fScope,'APP.filter(\'scope\',this.value)')+
     '<select onchange="APP.filter(\'div\',this.value)"><option value="">Semua divisi</option>'+
-      OWNER_DIVS.map(function(d){return '<option'+(fDiv===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select>'+
+      opsiDivisi(fDiv)+'</select>'+
     '<select onchange="APP.filter(\'proj\',this.value)"><option value="">Semua project</option>'+
       DB.projects.map(function(p){return '<option value="'+p.id+'"'+(fProj===p.id?' selected':'')+'>'+esc(p.name)+'</option>';}).join('')+'</select>'+
     '<select onchange="APP.filter(\'type\',this.value)"><option value="">Semua tipe</option>'+
@@ -2095,11 +2121,12 @@ function daftarPanel(list,judul){
 function perDivisiHtml(base){
   var g={};
   base.filter(function(t){return !selesai(t);}).forEach(function(t){(g[t.div]=g[t.div]||[]).push(t);});
-  var urut=OWNER_DIVS.filter(function(d){return g[d];});
+  var urut=calDivisi().filter(function(d){return g[d];});
+  Object.keys(g).forEach(function(d){ if(d && urut.indexOf(d)<0) urut.push(d); });
   if(!urut.length) return '<div class="card"><div class="card-b">'+kosong('Belum ada task aktif','')+'</div></div>';
   return urut.map(function(d){
     return '<div class="card" style="margin-bottom:16px"><div class="card-h">'+
-      '<h3><span class="dot" style="background:'+DIV_COLOR[d]+'"></span>'+esc(d)+'</h3>'+
+      '<h3><span class="dot" style="background:'+(DIV_COLOR[d]||'#999')+'"></span>'+esc(d)+'</h3>'+
       '<span class="tagn">'+g[d].length+' task</span></div>'+
       '<div class="card-b tight">'+g[d].map(function(t){return taskRow(t,{hideDiv:true});}).join('')+'</div></div>';
   }).join('');
@@ -2991,7 +3018,7 @@ function vTimeline(){
       '<div class="seg"><button class="'+(tlSt==='aktif'?'on':'')+'" onclick="APP.filterTl(\'st\',\'aktif\')">Aktif</button>'+
       '<button class="'+(tlSt==='semua'?'on':'')+'" onclick="APP.filterTl(\'st\',\'semua\')">Semua</button></div>'+
       '<select onchange="APP.filterTl(\'div\',this.value)"><option value="">Semua divisi</option>'+
-        OWNER_DIVS.map(function(d){return '<option'+(tlDiv===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select>'+
+        opsiDivisi(tlDiv)+'</select>'+
       zoomSeg()+filterPic()+'</div>'+
     ganttHtml(list);
 }
@@ -3651,7 +3678,7 @@ function vProjects(){
     }).join('')+'</div>'+
     segLingkup(pScope,'APP.filterProj(\'scope\',this.value)')+
     '<select onchange="APP.filterProj(\'div\',this.value)"><option value="">Semua divisi</option>'+
-      OWNER_DIVS.map(function(d){return '<option'+(pDiv===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select>'+
+      opsiDivisi(pDiv)+'</select>'+
     (pView==='task'?filterPic('Assign'):filterPic())+((fPics.length||pDiv||pScope!=='semua')?'<button class="btn sm" onclick="APP.filterProj(\'reset\')">'+ic('x',12)+'Reset</button>':'')+
     (pView==='timeline'?zoomSeg():'')+
     (pView==='task'?'':'<span class="muted" style="font-size:12px;margin-left:auto">'+tampil.length+' dari '+DB.projects.length+' project</span>')+
@@ -6845,10 +6872,22 @@ function calScope(){
   var p=CAL.scope.split(':');
   return {t:p[0],id:p.slice(1).join(':')};
 }
+/* Divisi = tiga divisi inti modul ini + divisi yang dipakai kru (dibaca dari
+   Tim di Kelola User), urut seperti daftar Tim Office supaya pilihannya tidak
+   berpindah-pindah tiap ada kru baru. Divisi lama di luar daftar ditaruh di
+   belakang, tidak dibuang. */
 function calDivisi(){
-  var a=OWNER_DIVS.slice();
-  DB.people.forEach(function(p){ if(p.div && a.indexOf(p.div)<0) a.push(p.div); });
+  var pakai={}; OWNER_DIVS.forEach(function(d){pakai[d]=1;});
+  DB.people.forEach(function(p){ if(p.div && p.active!==false) pakai[p.div]=1; });
+  var a=TIM_OFFICE.filter(function(d){return pakai[d];});
+  Object.keys(pakai).forEach(function(d){ if(a.indexOf(d)<0) a.push(d); });
   return a;
+}
+/* Pilihan penyaring divisi: calDivisi() + nilai yang sedang dipilih (kalau
+   kru terakhirnya pindah Tim, saringannya tetap terlihat & bisa dilepas). */
+function opsiDivisi(kini){
+  var a=calDivisi(); if(kini&&a.indexOf(kini)<0) a.push(kini);
+  return a.map(function(d){return '<option'+(kini===d?' selected':'')+'>'+esc(d)+'</option>';}).join('');
 }
 function kruAktif(){ return DB.people.filter(function(p){return p.active!==false && !p.tanpaAkses;}); }
 /* Siapa yang dihitung untuk lingkup ini. null = tidak disaring orang. */
@@ -7074,8 +7113,9 @@ function vTim(){
   h+='<div class="notice">Daftar ini datang dari <b>database account</b> — isinya '+
     'persis pemegang hak akses modul <code>bd</code>. Menambah/menghapus orang dilakukan di '+
     '<b>Kelola Akses</b> di Office, bukan di sini. Yang diatur di halaman ini hanya '+
-    '<b>jabatan, divisi, dan atasan</b>, karena tiga hal itu tidak dikenal Office — '+
-    'padahal atasanlah yang menentukan siapa melihat task siapa.</div>';
+    '<b>jabatan dan atasan</b>, karena keduanya tidak dikenal Office — '+
+    'padahal atasanlah yang menentukan siapa melihat task siapa. <b>Divisi</b> dibaca dari Tim di '+
+    '<b>Office → Kelola User</b>.</div>';
 
   if(!DB.people.length) return h+'<div class="card"><div class="card-b">'+
     kosong('Belum ada kru dengan akses modul ini',
@@ -7136,9 +7176,11 @@ function orangModal(id){
         'Yang di bawah ini milik BD OS.</div>'+
       '<div class="frow">'+
         '<div class="field"><label>Jabatan</label><input id="k_role" value="'+esc(p.role)+'" placeholder="mis. BD Manager"></div>'+
-        '<div class="field"><label>Divisi</label><select id="k_div">'+
-          '<option value=""'+(p.div?'':' selected')+'>— belum diatur —</option>'+
-          OWNER_DIVS.map(function(d){return '<option'+(p.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div></div>'+
+        /* Divisi TIDAK lagi diatur di sini (31 Okt 2026) — sumbernya Tim di
+           Office → Kelola User, dibaca lewat divDariKet() saat sinkron. */
+        '<div class="field"><label>Divisi</label><div style="padding:8px 0">'+(p.div?tagDiv(p.div):'<span class="mut">belum diatur</span>')+'</div>'+
+          '<div style="font-size:11px;color:var(--muted)">Diatur di <b>Office → Kelola User</b> (Tim)'+
+          (p.div&&!divDariKet(p.ket)?' — yang tampil sisa pengaturan lama, Tim di Office belum menyebut divisi':'')+'.</div></div></div>'+
       '<div class="field"><label>Atasan langsung</label><select id="k_boss"><option value="">— tidak ada (puncak) —</option>'+
         DB.people.filter(function(x){return x.id!==id;}).map(function(x){
           return '<option value="'+x.id+'"'+(p.boss===x.id?' selected':'')+'>'+esc(x.name)+'</option>';}).join('')+'</select>'+
@@ -7171,10 +7213,9 @@ function simpanOrang(id){
       jalan=nx?nx.boss:'';
     }
   }
-  // Hanya tiga field milik BD OS yang ditulis. name/active/tanpaAkses sengaja
+  // Hanya jabatan & atasan yang ditulis (divisi ikut Office sejak 31 Okt 2026). name/active/tanpaAkses sengaja
   // tidak disentuh — pemiliknya database account.
   orang.role=g('k_role').value.trim();
-  orang.div =g('k_div').value;
   orang.boss=boss;
   save(); closeModal(); kenali(); render(); toast('Data kru diperbarui');
 }

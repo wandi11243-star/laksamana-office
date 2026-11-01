@@ -939,6 +939,149 @@
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 function $() {  }
 function esc() {  }
 
@@ -1020,6 +1163,9 @@ function bacaRp() {  }
 
 
 function bacaRpEl() {  }
+
+
+
 
 
 
@@ -1431,7 +1577,12 @@ function ambilRoster() {  }
 
 
 
-function terapkanRoster() { uid(); }
+function terapkanRoster() { uid(); divDariKet(); }
+
+
+
+
+
 
 
 
@@ -1496,6 +1647,20 @@ function kenali() { sesi(); }
 
 
 function adminModul() { sesi(); }
+
+
+
+
+
+
+
+
+function divDariKet() {  }
+
+
+
+
+
 
 
 
@@ -1620,7 +1785,11 @@ function lewat() { selesai(); sisaHari(); bacaAlamat(); }
 
 
 
-function renderNav() { tugasSaya(); $(); go(); ic(); }
+
+
+
+
+function renderNav() { tugasSaya(); $(); jumlahInbox(); go(); ic(); }
 
 
 
@@ -1632,8 +1801,8 @@ function renderNav() { tugasSaya(); $(); go(); ic(); }
 
 
 
-function render() { renderNav(); $(); pasangFokus(); pasangBoard(); }
 
+function render() { renderNav(); $(); pasangBoard(); }
 
 
 
@@ -1725,7 +1894,7 @@ function taskRow() { kuadran(); lewat(); selesai(); dragTask(); toggleTask(); ic
 
 
 
-function pitaDaftar() { esc(); go(); }
+function pitaDaftar() { esc(); }
 
 
 
@@ -1743,7 +1912,6 @@ function pitaDaftar() { esc(); go(); }
 
 
 
-function vDashboard() { tasksTerlihat(); selesai(); projectsTerlihat(); penghalang(); todayISO(); kuadran(); lewat(); catIniAku(); head(); taskModal(); ic(); pitaDaftar(); stat(); fRp(); esc(); go(); taskRow(); kosong(); pill(); fTglPanjang(); tagDiv(); }
 
 
 
@@ -1756,6 +1924,7 @@ function vDashboard() { tasksTerlihat(); selesai(); projectsTerlihat(); penghala
 
 
 
+function vDashboard() { todayISO(); inDays(); tugasSaya(); selesai(); undanganTertunda(); reviewTertunda(); sesi(); esc(); fTglPanjang(); taskModal(); ic(); agendaModal(); pitaDaftar(); go(); pill(); agendaHari(); urutDeadline(); milestoneHari(); fTglHari(); itUndangan(); itReview(); projectsTerlihat(); punyaPic(); }
 
 
 
@@ -1813,7 +1982,8 @@ function vDashboard() { tasksTerlihat(); selesai(); projectsTerlihat(); penghala
 
 
 
-function pasangFokus() { $(); catIniAku(); todayISO(); save(); }
+
+
 
 
 
@@ -1887,7 +2057,7 @@ function filterPic() { ic(); esc(); inisial(); }
 
 
 
-function vTasks() { saringLingkup(); head(); taskModal(); ic(); segLingkup(); esc(); filterPic(); matrixHtml(); daftarPanel(); selesai(); todayISO(); lewat(); sisaHari(); perDivisiHtml(); }
+function vTasks() { saringLingkup(); head(); taskModal(); ic(); segLingkup(); opsiDivisi(); esc(); filterPic(); matrixHtml(); daftarPanel(); selesai(); todayISO(); lewat(); sisaHari(); perDivisiHtml(); }
 
 
 
@@ -1948,7 +2118,8 @@ function daftarPanel() { esc(); taskRow(); kosong(); }
 
 
 
-function perDivisiHtml() { selesai(); kosong(); esc(); taskRow(); }
+function perDivisiHtml() { selesai(); calDivisi(); kosong(); esc(); taskRow(); }
+
 
 
 
@@ -2121,6 +2292,7 @@ function taskModal() { todayISO(); subs(); uid(); deps(); taskById(); tagsOf(); 
 
 
 
+
 function qprev() { $(); kuadran(); }
 
 
@@ -2129,7 +2301,9 @@ function qprev() { $(); kuadran(); }
 
 
 function simpanTask() {  }
-function g() { toast(); bacaKustom(); ulangSah(); taskById(); tagTambah(); cekBolehDone(); uid(); setPics(); bacaPic(); segarkanProgress(); save(); render(); }
+function g() { toast(); bacaKustom(); ulangSah(); taskById(); tagTambah(); cekBolehDone(); uid(); setPics(); pics(); reviewers(); bacaPic(); catatPenugasan(); segarkanProgress(); save(); render(); }
+
+
 
 
 
@@ -2248,6 +2422,10 @@ function subLangsung() { taskById(); subs(); segarkanProgress(); save(); render(
 
 
 function segarkanProgress() { selesai(); todayISO(); lahirkanUlang(); toast(); namaPendek(); fTgl(); subHitung(); }
+
+
+
+
 
 
 
@@ -2828,7 +3006,7 @@ function zoomSeg() {  }
 
 
 
-function vTimeline() { projectsTerlihat(); projBeres(); head(); ic(); esc(); zoomSeg(); filterPic(); ganttHtml(); }
+function vTimeline() { projectsTerlihat(); projBeres(); head(); ic(); opsiDivisi(); zoomSeg(); filterPic(); ganttHtml(); }
 
 
 
@@ -3196,6 +3374,7 @@ function lahirkanUlang() { labelUlang(); gSah(); deadlineBerikut(); gDiff(); ser
 
 
 
+
 function gulirUlang() { todayISO(); labelUlang(); selesai(); gSah(); deadlineBerikut(); gDiff(); seriBerakhir(); subs(); gAdd(); segarkanProgress(); lahirkanUlang(); }
 
 
@@ -3476,7 +3655,7 @@ function projProgress() { projTasks(); }
 
 
 
-function vProjects() { saringLingkup(); projBeres(); head(); projModal(); ic(); segLingkup(); esc(); filterPic(); zoomSeg(); projTaskHtml(); ganttHtml(); projSehat(); dropProj(); kosong(); pelaksana(); }
+function vProjects() { saringLingkup(); projBeres(); head(); projModal(); ic(); segLingkup(); opsiDivisi(); filterPic(); zoomSeg(); projTaskHtml(); ganttHtml(); projSehat(); dropProj(); kosong(); pelaksana(); }
 
 
 
@@ -3681,7 +3860,14 @@ function toggleMilestone() { save(); render(); }
 
 
 
-function projModal() { todayISO(); inDays(); showModal(); ic(); esc(); picPicker(); pics(); rpInput(); hapusProj(); simpanProj(); }
+function projModal() { todayISO(); inDays(); showModal(); ic(); esc(); calDivisi(); picPicker(); pics(); rpInput(); hapusProj(); simpanProj(); }
+
+
+
+
+
+
+
 
 
 
@@ -5787,7 +5973,7 @@ function setujuPr() { penyetujuPr(); bolehSetuju(); toast(); alasanTakBolehSetuj
 
 
 
-function prModal() { showModal(); esc(); ic(); penyetujuPr(); simpanPr(); }
+function prModal() { showModal(); esc(); ic(); penyetujuPr(); kaki(); simpanPr(); }
 
 
 
@@ -6015,53 +6201,6 @@ function hapusPo() { save(); render(); toast(); }
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-function calItems() { saringLingkup(); selesai(); poBeres(); }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 function dragCal() {  }
 
 
@@ -6092,7 +6231,6 @@ function dropCal() { save(); render(); toast(); fTgl(); }
 
 
 
-function vCalendar() { calItems(); calCell(); head(); ic(); agendaModal(); segLingkup(); esc(); filterPic(); }
 
 
 
@@ -6107,9 +6245,18 @@ function vCalendar() { calItems(); calCell(); head(); ic(); agendaModal(); segLi
 
 
 
+function agPeserta() {  }
+function agTim() { agPeserta(); }
+function agUntuk() { agTim(); agPeserta(); }
+function agResp() {  }
+function agJam() {  }
+function agBisaUbah() { adminModul(); }
+function menit() {  }
+function agendaHari() { agUntuk(); }
 
 
 
+function milestoneHari() { punyaPic(); }
 
 
 
@@ -6117,8 +6264,10 @@ function vCalendar() { calItems(); calCell(); head(); ic(); agendaModal(); segLi
 
 
 
+function warnaAg() {  }
 
 
+function itAgenda() { agPeserta(); agResp(); esc(); P(); warnaAg(); agendaBuka(); }
 
 
 
@@ -6129,18 +6278,21 @@ function vCalendar() { calItems(); calCell(); head(); ic(); agendaModal(); segLi
 
 
 
+function itTask() { taskModal(); esc(); lewat(); }
 
 
 
+function itTelat() { sisaHari(); taskModal(); esc(); fTgl(); }
 
 
 
-function calCell() { isoOf(); todayISO(); dropCal(); dragCal(); klikCal(); esc(); }
 
 
+function itMilestone() { bukaProject(); esc(); }
 
 
 
+function itUndangan() { warnaAg(); agendaBuka(); esc(); fTglHari(); P(); jawabAgenda(); }
 
 
 
@@ -6148,6 +6300,7 @@ function calCell() { isoOf(); todayISO(); dropCal(); dragCal(); klikCal(); esc()
 
 
 
+function itReview() { taskModal(); esc(); pics(); P(); fTgl(); setujuiReview(); ic(); kembalikanReview(); }
 
 
 
@@ -6158,14 +6311,16 @@ function calCell() { isoOf(); todayISO(); dropCal(); dragCal(); klikCal(); esc()
 
 
 
-function agendaModal() { todayISO(); showModal(); ic(); esc(); hapusAgenda(); simpanAgenda(); }
+function undanganTertunda() { todayISO(); agPeserta(); agResp(); }
 
 
 
 
 
 
+function reviewTertunda() {  }
 
+function agendaBuka() { agPeserta(); agResp(); showModal(); esc(); ic(); fTglHari(); agJam(); warnaAg(); tagDiv(); P(); inisial(); jawabAgenda(); agBisaUbah(); agendaModal(); }
 
 
 
@@ -6181,7 +6336,222 @@ function agendaModal() { todayISO(); showModal(); ic(); esc(); hapusAgenda(); si
 
 
 
-function simpanAgenda() { g(); toast(); uid(); save(); render(); }
+
+
+
+
+
+
+
+
+
+function jawabAgenda() { agPeserta(); save(); agendaBuka(); render(); toast(); }
+
+
+
+
+
+
+
+function agendaModal() { agBisaUbah(); toast(); todayISO(); showModal(); ic(); esc(); picPicker(); agPeserta(); hapusAgenda(); simpanAgenda(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function simpanAgenda() { g(); toast(); bacaPic(); agPeserta(); undangUlang(); uid(); save(); render(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function undangUlang() {  }
+
+
+
+
+
+
+
+
+function geserTaskJam() { fTgl(); save(); render(); toast(); }
+
+
+
+
+
+
+
+
+
+function jamDariMenit() { pad(); }
+
+
+
+
+
+function geserAgenda() { agBisaUbah(); toast(); agPeserta(); undangUlang(); save(); render(); fTglHari(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gcKolom() {  }
+
+
+
+function gcMenit() {  }
+
+
+
+
+function gcHantu() { jamDariMenit(); esc(); }
+
+
+
+
+
+
+
+function gcHitung() { gcKolom(); gcMenit(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function gcSelesai() {  }
+
+
+
+
+
+function pasangGeserCal() { gcMenit(); gcHitung(); gcHantu(); gcSelesai(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function tahan() { jamDariMenit(); agendaModal(); geserTaskJam(); geserAgenda(); gcSelesai(); pasangGeserCal(); }
+
+
 
 
 
@@ -6195,6 +6565,540 @@ function hapusAgenda() { save(); render(); toast(); }
 
 
 
+
+
+
+
+
+
+
+function setujuiReview() { taskById(); menungguReviewSaya(); cekBolehDone(); segarkanProgress(); save(); render(); toast(); namaPendek(); }
+
+
+
+
+
+function kembalikanReview() { taskById(); menungguReviewSaya(); segarkanProgress(); save(); render(); toast(); namaPendek(); }
+
+
+
+
+
+
+
+
+
+function catatPenugasan() { pics(); reviewers(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function notifSaya() {  }
+
+
+function nm() { P(); agPeserta(); esc(); fTglHari(); agJam(); pics(); fTgl(); reviewers(); menungguReviewSaya(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function kunciBaca() { catIniAku(); }
+function bacaState() { kunciBaca(); }
+function tulisBaca() { kunciBaca(); }
+
+
+
+function sudahDibaca() { bacaState(); }
+function jumlahBelumDibaca() { bacaState(); notifSaya(); sudahDibaca(); }
+function bukaNotif() { notifSaya(); bacaState(); tulisBaca(); render(); agendaBuka(); taskById(); taskModal(); }
+
+
+
+
+
+
+
+function bacaSemua() { bacaState(); tulisBaca(); render(); toast(); }
+
+
+
+function vInbox() { undanganTertunda(); reviewTertunda(); notifSaya(); bacaState(); sudahDibaca(); head(); bacaSemua(); ic(); pill(); kosong(); bukaNotif(); esc(); fWaktuMs(); todayISO(); agPeserta(); inDays(); agResp(); agendaBuka(); fTglHari(); agJam(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function fWaktuMs() { isoOf(); pad(); sisaHari(); fTglHari(); }
+
+
+
+
+
+function jumlahInbox() { undanganTertunda(); reviewTertunda(); jumlahBelumDibaca(); lingkup(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function luarRentang() { pDate(); isoOf(); }
+
+
+
+function luarAmbil() {  }
+
+
+
+
+function muatLuar() { luarRentang(); render(); luarAmbil(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function jamLuar() { pad(); }
+function resDeal() {  }
+function luarItems() {  }
+
+function blok() { menit(); jamLuar(); tambahHari(); dalam(); luarRes(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function luarRes() { resDeal(); }
+
+
+
+
+function luarBuka() { esc(); }
+
+function kaki() { esc(); }
+
+function kepala() { esc(); ic(); luarRes(); showModal(); fTglHari(); jamLuar(); kosong(); kaki(); toast(); baris(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function calScope() {  }
+
+
+
+
+
+
+
+
+function calDivisi() {  }
+
+
+
+
+
+
+
+
+function opsiDivisi() { calDivisi(); esc(); }
+
+
+
+function kruAktif() {  }
+
+function calOrang() {  }
+
+
+
+
+function kalItems() { calScope(); calOrang(); }
+
+function dalam() {  }
+function masukDiv() { tasksTerlihat(); dalam(); selesai(); pelaksana(); menungguReviewSaya(); menit(); agUntuk(); agPeserta(); P(); agResp(); agBisaUbah(); agJam(); agTim(); luarItems(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function calBuka() { klikCal(); agendaBuka(); bukaProject(); go(); luarBuka(); }
+
+
+
+
+
+
+
+function chipKal() { esc(); dragCal(); calBuka(); }
+
+
+
+
+
+
+
+function senin() { pDate(); isoOf(); }
+function tambahHari() { pDate(); isoOf(); }
+function labelHariPendek() { pDate(); }
+
+
+
+function lajur() {  }
+
+
+function tutup() {  }
+
+
+
+
+
+
+
+
+
+function gridJam() { todayISO(); calSet(); labelHariPendek(); pDate(); chipKal(); pad(); lajur(); esc(); calBuka(); toggleTask(); agendaModal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function mingguOrang() { todayISO(); kruAktif(); labelHariPendek(); pDate(); calSet(); esc(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+function bulanGrid() { todayISO(); senin(); isoOf(); tambahHari(); pDate(); dropCal(); agendaModal(); calSet(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function daftarKal() { tambahHari(); sisaHari(); esc(); fTglHari(); calBuka(); P(); kosong(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function vCalendar() { todayISO(); calScope(); fTglHari(); senin(); tambahHari(); fTgl(); isoOf(); muatLuar(); kalItems(); kruAktif(); calSet(); calDivisi(); esc(); head(); agendaModal(); ic(); calNav(); calToggle(); P(); inisial(); gridJam(); mingguOrang(); bulanGrid(); daftarKal(); }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+function calSet() { render(); }
+function calNav() { pDate(); todayISO(); isoOf(); render(); }
+
+
+
+
+
+
+
+function calToggle() { render(); }
 
 
 
@@ -6256,7 +7160,10 @@ function vTim() { head(); ic(); kosong(); punyaPic(); selesai(); lewat(); pill()
 
 
 
-function orangModal() { showModal(); esc(); ic(); simpanOrang(); }
+
+function orangModal() { showModal(); esc(); ic(); divDariKet(); tagDiv(); simpanOrang(); }
+
+
 
 
 
@@ -6291,7 +7198,6 @@ function orangModal() { showModal(); esc(); ic(); simpanOrang(); }
 
 
 function simpanOrang() { g(); bawahan(); toast(); save(); kenali(); render(); }
-
 
 
 
@@ -6645,6 +7551,9 @@ function showModal() { $(); taskModal(); render(); pTaskSegarkan(); vPromo(); ba
 
 
 function pulih() { render(); toast(); sinkronRoster(); cetakIdentitas(); }
+
+
+
 
 
 
