@@ -3592,8 +3592,22 @@ function potonganBaris(r){
   const ids=Array.isArray(r.shift)?r.shift.filter(Boolean):[];
   const dw=Math.max(0,num(r.dw));
   const pembagi=ids.length;
-  if(total<=0||pembagi<=0) return {per:0,ids:[],dw,pembagi,total:Math.max(total,0)};
-  return {per:Math.round(total/pembagi),ids,dw,pembagi,total};
+  if(total<=0||pembagi<=0) return {per:0,ids:[],dw,pembagi,total:Math.max(total,0),nom:{},manual:false};
+  /* NOMINAL PER KASIR BOLEH DIISI SENDIRI (2 Nov 2026, permintaan user: "tidak
+     mesti harus bagi 2"). r.shiftNom = {kasirId: rupiah}. Dipakai HANYA kalau
+     tiap kasir yang dicentang punya angkanya DAN jumlahnya sama persis dengan
+     total potongan — selain itu jatuh ke bagi rata. Jumlah yang meleset
+     berarti sebagian omset dipotong dua kali atau tidak dipotong sama sekali,
+     tanpa satu pun galat. BERKAS KEMBAR di finance/omset, finance/kas, cashier. */
+  const per=Math.round(total/pembagi);
+  const nom={}; ids.forEach(id=>{ nom[id]=per; });
+  let manual=false;
+  const raw=(r.shiftNom&&typeof r.shiftNom==='object')?r.shiftNom:null;
+  if(raw && ids.every(id=>raw[id]!=null && num(raw[id])>=0)){
+    const jml=ids.reduce((s,id)=>s+num(raw[id]),0);
+    if(Math.abs(jml-total)<1){ ids.forEach(id=>{ nom[id]=num(raw[id]); }); manual=true; }
+  }
+  return {per,ids,dw,pembagi,total,nom,manual};
 }
 /* Total potongan yang ditanggung satu kasir tetap dari seluruh event pada satu
    hari. Dipakai apa adanya oleh Performa Kasir, Ranking, dan Analytics. */
@@ -3607,7 +3621,7 @@ function potonganHari(d,kasirId){
   let s=0;
   (d.bd?.marketing||[]).forEach(r=>{
     const b=potonganBaris(r);
-    if(b.ids.indexOf(kasirId)>-1) s+=b.per;
+    if(b.ids.indexOf(kasirId)>-1) s+=(b.nom[kasirId]!=null?b.nom[kasirId]:b.per);
   });
   return s;
 }
