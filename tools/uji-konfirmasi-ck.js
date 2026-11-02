@@ -302,6 +302,31 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
   cek('mutasi kiriman memakai tanggal yang dipilih', kirimBody && kirimBody.tanggal === '2026-09-10',
       JSON.stringify(kirimBody));
 
+  /* ================= 2b. UBAH KIRIMAN (2 Nov 2026) ================= */
+  console.log('\n== Ubah kiriman di riwayat ==');
+  w.eval("riwayatKiriman = [{ id:'CKK1', tanggal:'2026-09-08', item:'Ayam Fillet', arah:'masuk', qty:8, qtyInput:8, unitInput:'Kg', sebab:'kiriman', status:'', ref:'', tim:'', pic:'Wandi', waktu:'', catatan:'awal', packIsi:0, packSatuan:'Kg', diubahOleh:'', diubahAt:'', nUbah:0 }]; renderRiwayatKiriman();");
+  const tombolUbah = d.querySelector('[onclick^="bukaUbahKiriman("]');
+  cek('baris riwayat punya tombol ubah', !!tombolUbah);
+  if (tombolUbah) {
+    tombolUbah.click(); await tunggu(50);
+    cek('modal ubah terbuka', d.getElementById('ubah-kiriman-modal').classList.contains('modal-active'));
+    cek('modal terisi angka lama', d.getElementById('ubk-qty').value === '8' && d.getElementById('ubk-tgl').value === '2026-09-08');
+    cek('satuan ditawarkan termasuk Gram', [...d.getElementById('ubk-unit').options].some(o => o.value === 'Gram'));
+    d.getElementById('ubk-qty').value = '500';
+    d.getElementById('ubk-unit').value = 'Gram';
+    jejak.body.length = 0;
+    await w.simpanUbahKiriman(); await tunggu(80);
+    const ub = jejak.body.map(b => { try { return JSON.parse(b); } catch (e) { return {}; } }).find(b => b.action === 'kirim');
+    cek('kiriman diubah lewat id yang sama', ub && ub.id === 'CKK1' && ub.qtyInput === 500 && ub.unitInput === 'Gram' && ub.item === 'Ayam Fillet',
+        JSON.stringify(ub));
+  }
+  w.eval("riwayatKiriman = [{ id:'CKK1', tanggal:'2026-09-08', item:'Ayam Fillet', arah:'masuk', qty:0.5, qtyInput:500, unitInput:'Gram', sebab:'kiriman', status:'', ref:'', tim:'', pic:'Wandi', waktu:'', catatan:'', packIsi:0, packSatuan:'Kg', diubahOleh:'Wandi', diubahAt:'2026-11-02 10:00:00', nUbah:2 }]; renderRiwayatKiriman();");
+  cek('jejak ubah tampil di baris', d.getElementById('kirim-riwayat-wrap').textContent.indexOf('diubah Wandi') > -1);
+  const SRCPHP = fs.readFileSync(path.join(ROOT, 'stock-mysql/lib_stock_ck.php'), 'utf8');
+  cek('php: ubah kiriman menolak ganti barang & baris bukan kiriman',
+      SRCPHP.indexOf("barang kiriman tidak bisa diganti") > -1 && SRCPHP.indexOf("baris ini bukan kiriman") > -1);
+  cek('php: nilai lama disimpan di data.diubah', SRCPHP.indexOf("$rec->diubah = array_slice($jejak, -20);") > -1);
+
   /* ================= 3. kontrak sumber ================= */
   console.log('\n== Kontrak sumber ==');
   const SRC = fs.readFileSync(path.join(ROOT, 'deploy/stock/ordering/index.html'), 'utf8');
