@@ -3089,8 +3089,22 @@ function potonganBaris(r){
   const ids=Array.isArray(r.shift)?r.shift.filter(Boolean):[];
   const dw=Math.max(0,num(r.dw));
   const pembagi=ids.length;
-  if(total<=0||pembagi<=0) return {per:0,ids:[],dw,pembagi,total:Math.max(total,0)};
-  return {per:Math.round(total/pembagi),ids,dw,pembagi,total};
+  if(total<=0||pembagi<=0) return {per:0,ids:[],dw,pembagi,total:Math.max(total,0),nom:{},manual:false};
+  /* NOMINAL PER KASIR BOLEH DIISI SENDIRI (2 Nov 2026, permintaan user: "tidak
+     mesti harus bagi 2"). r.shiftNom = {kasirId: rupiah}. Dipakai HANYA kalau
+     tiap kasir yang dicentang punya angkanya DAN jumlahnya sama persis dengan
+     total potongan — selain itu jatuh ke bagi rata. Jumlah yang meleset
+     berarti sebagian omset dipotong dua kali atau tidak dipotong sama sekali,
+     tanpa satu pun galat. BERKAS KEMBAR di finance/omset, finance/kas, cashier. */
+  const per=Math.round(total/pembagi);
+  const nom={}; ids.forEach(id=>{ nom[id]=per; });
+  let manual=false;
+  const raw=(r.shiftNom&&typeof r.shiftNom==='object')?r.shiftNom:null;
+  if(raw && ids.every(id=>raw[id]!=null && num(raw[id])>=0)){
+    const jml=ids.reduce((s,id)=>s+num(raw[id]),0);
+    if(Math.abs(jml-total)<1){ ids.forEach(id=>{ nom[id]=num(raw[id]); }); manual=true; }
+  }
+  return {per,ids,dw,pembagi,total,nom,manual};
 }
 /* Total potongan yang ditanggung satu kasir tetap dari seluruh event pada satu
    hari. Dipakai apa adanya oleh Performa Kasir, Ranking, dan Analytics. */
@@ -3104,7 +3118,7 @@ function potonganHari(d,kasirId){
   let s=0;
   (d.bd?.marketing||[]).forEach(r=>{
     const b=potonganBaris(r);
-    if(b.ids.indexOf(kasirId)>-1) s+=b.per;
+    if(b.ids.indexOf(kasirId)>-1) s+=(b.nom[kasirId]!=null?b.nom[kasirId]:b.per);
   });
   return s;
 }
@@ -3187,6 +3201,12 @@ function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
   let pilih=new Set((Array.isArray(row.shift)?row.shift.filter(Boolean):[]).filter(id=>sah.has(id)));
   // Yang dipotong kolom OMSET saja — tax & service marketing tidak ikut.
   const potong=potongKasir(row);
+  /* NOMINAL MANUAL (2 Nov 2026). nomManual hidup di luar DOM: kotak nominal
+     digambar ulang tiap centang berubah, dan angka yang sedang diketik tidak
+     boleh ikut hilang. Lihat potonganBaris() untuk aturan pemakaiannya. */
+  const awal=potonganBaris(row);
+  let manual=!!awal.manual;
+  const nomManual={}; if(manual) Object.keys(awal.nom).forEach(id=>{ nomManual[id]=awal.nom[id]; });
 
   const ovl=document.createElement('div');
   ovl.className='ovl';
@@ -3204,7 +3224,12 @@ function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
             <label class="kschip${pilih.has(k.id)?' on':''}" data-id="${esc(k.id)}"><input type="checkbox" ${pilih.has(k.id)?'checked':''}> ${esc(k.name)}</label>`).join('')}</div>`
           :`<div class="empty" style="padding:16px 10px">Tidak ada kasir yang bisa dibebani — semua kasir dicentang OFF (libur) hari ini, atau belum ada kasir terdaftar.</div>`}
         </div>
-        <div class="notice info" id="bh_prev" style="margin-top:18px"></div>
+        <div style="display:flex;gap:6px;margin-top:16px" id="bh_mode">
+          <button type="button" class="btn btn-ghost" data-mode="rata">Bagi rata</button>
+          <button type="button" class="btn btn-ghost" data-mode="manual">Atur nominal per kasir</button>
+        </div>
+        <div id="bh_nom" style="margin-top:10px"></div>
+        <div class="notice info" id="bh_prev" style="margin-top:14px"></div>
       </div>
       <div class="mdl-f">
         <button class="btn btn-ghost" id="bh_batal">Batal</button>
@@ -3213,10 +3238,46 @@ function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
     </div>`;
   document.body.appendChild(ovl);
 
+  const namaKasir=id=>{ const k=kasir.find(x=>x.id===id); return k?k.name:id; };
+  const urutPilih=()=>kasir.map(k=>k.id).filter(id=>pilih.has(id));
+  const jumlahManual=()=>urutPilih().reduce((s,id)=>s+num(nomManual[id]),0);
+  const gambarNom=()=>{
+    ovl.querySelectorAll('#bh_mode button').forEach(b=>{
+      const on=(b.dataset.mode==='manual')===manual;
+      b.className='btn '+(on?'btn-primary':'btn-ghost');
+    });
+    const wrap=ovl.querySelector('#bh_nom');
+    if(!manual||!pilih.size){ wrap.innerHTML=''; return; }
+    wrap.innerHTML=urutPilih().map(id=>`
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:6px">
+        <div style="flex:1;font-size:13px;font-weight:600">${esc(namaKasir(id))}</div>
+        <input class="rp bh_nominal" data-id="${esc(id)}" inputmode="numeric" value="${fmtRpInput(String(nomManual[id]||0))}" style="width:160px;text-align:right">
+      </div>`).join('');
+    wrap.querySelectorAll('.bh_nominal').forEach(inp=>inp.addEventListener('input',()=>{
+      nomManual[inp.dataset.id]=num(inp.value); prev();
+    }));
+  };
+  ovl.querySelectorAll('#bh_mode button').forEach(b=>b.addEventListener('click',()=>{
+    manual=b.dataset.mode==='manual';
+    // Pertama kali pindah ke manual: mulai dari bagi rata, bukan nol.
+    if(manual){ const per=pilih.size?Math.round(potong/pilih.size):0; urutPilih().forEach(id=>{ if(nomManual[id]==null) nomManual[id]=per; }); }
+    gambarNom(); prev();
+  }));
   const prev=()=>{
     const pembagi=pilih.size;
     const per=pembagi>0?Math.round(potong/pembagi):0;
     const box=ovl.querySelector('#bh_prev');
+    const ok=ovl.querySelector('#bh_ok');
+    if(manual && pembagi>0){
+      const jml=jumlahManual(), sisa=potong-jml;
+      ok.disabled=Math.abs(sisa)>=1;
+      box.className='notice '+(Math.abs(sisa)<1?'info':'warn');
+      box.innerHTML=Math.abs(sisa)<1
+        ? `<div>Nominal per kasir pas: total ${fmtRp(jml)} = potongan ${fmtRp(potong)}. Nominal itu pindah jadi realisasi <b>${esc(labelEvent||'event ini')}</b>.</div>`
+        : `<div>⚠ Jumlah nominal ${fmtRp(jml)} ${sisa>0?'kurang':'lebih'} <b>${fmtRp(Math.abs(sisa))}</b> dari potongan ${fmtRp(potong)}. Jumlahnya harus sama persis — kalau tidak, sebagian omset terhitung dua kali atau tidak dipotong sama sekali.</div>`;
+      return;
+    }
+    ok.disabled=false;
     box.className='notice '+(pembagi>0?'info':'warn');
     /* Isinya DIBUNGKUS satu elemen blok. `.notice` itu display:flex, jadi
        tiap potongan teks dan tiap penebalan di dalamnya menjadi flex item
@@ -3238,7 +3299,8 @@ function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
       const cb=c.querySelector('input');
       if(cb.checked) pilih.add(c.dataset.id); else pilih.delete(c.dataset.id);
       c.classList.toggle('on',cb.checked);
-      prev();
+      if(cb.checked && manual && nomManual[c.dataset.id]==null) nomManual[c.dataset.id]=0;
+      gambarNom(); prev();
     },0);
   }));
   const tutup=()=>{ try{document.body.removeChild(ovl);}catch(_){} };
@@ -3246,9 +3308,13 @@ function modalBagiHasil(row, labelEvent, simpan, kasirAktif){
   ovl.addEventListener('click',e=>{ if(e.target===ovl) tutup(); });
   ovl.querySelector('#bh_ok').onclick=()=>{
     row.shift=[...pilih];   // row.dw dibiarkan apa adanya — lihat catatan di atas
+    if(manual && pilih.size){
+      if(Math.abs(potong-jumlahManual())>=1){ prev(); return; }   // penjaga kedua: tombol bisa dihidupkan dari devtools
+      const m={}; urutPilih().forEach(id=>{ m[id]=num(nomManual[id]); }); row.shiftNom=m;
+    } else delete row.shiftNom;
     tutup(); if(simpan) simpan();
   };
-  prev();
+  gambarNom(); prev();
   // Fokus otomatis ke centang kasir pertama: itu satu-satunya isian di modal ini.
   setTimeout(()=>{ const c=ovl.querySelector('.kschip input'); if(c) c.focus(); },30);
 }
@@ -3870,7 +3936,14 @@ function viewBreakdown(){
     // ditandai merah, itu keadaan normal saat baris baru ditambahkan.
     const isi = b.pembagi<=0
       ? `<b>Atur kasir shift</b>${belum?'potongan belum dibebankan':'belum ditentukan'}`
-      : `<b>−${fmtRp(b.per)} / kasir</b>${b.ids.length} kasir shift${b.dw?` · ${b.dw} DW`:''}`;
+      : (b.manual
+          ? `<b>−${fmtRp(b.total)} dibagi manual</b>${b.ids.length} kasir shift${b.dw?` · ${b.dw} DW`:''}`
+          : `<b>−${fmtRp(b.per)} / kasir</b>${b.ids.length} kasir shift${b.dw?` · ${b.dw} DW`:''}`
+            /* Nominal manual tersimpan tapi tidak dipakai lagi (omset diubah
+               sesudahnya, atau kasirnya diganti) — DIKATAKAN, kalau tidak
+               pembagian yang diatur orang berubah jadi bagi rata diam-diam. */
+            +(r.shiftNom&&typeof r.shiftNom==='object'&&Object.keys(r.shiftNom).length
+              ?'<span style="display:block;color:var(--bad,#b3261e);font-weight:700">nominal manual tidak cocok lagi — dibagi rata, atur ulang</span>':''));
     return `<button type="button" class="bhbtn ${key}bagi${belum?' kosong':''}" data-i="${i}" title="Atur kasir yang kena shift event ini — merekalah yang dipotong">${isi}</button>`;
   }
   /* Nominal omset diubah → besar potongan per kasir ikut berubah, jadi tombolnya
@@ -3929,7 +4002,7 @@ function viewBreakdown(){
       /* TANPA id tombol: modalnya sudah tertutup saat callback ini jalan, jadi
          bh_ok tidak ada lagi di DOM. Pitanya saja yang menunggu. */
       simpanTunggu('bd_info',null,
-        `<div class="notice ok"><div>✓ Shift <b>${esc(row.eventName||'event tanpa nama')}</b> tersimpan di server — ${b.pembagi>0?`${fmtRp(b.per)} dipotong dari masing-masing ${b.ids.length} kasir shift`:'belum ada kasir yang dibebani'}.</div></div>`,
+        `<div class="notice ok"><div>✓ Shift <b>${esc(row.eventName||'event tanpa nama')}</b> tersimpan di server — ${b.pembagi>0?(b.manual?`${fmtRp(b.total)} dibagi manual ke ${b.ids.length} kasir shift`:`${fmtRp(b.per)} dipotong dari masing-masing ${b.ids.length} kasir shift`):'belum ada kasir yang dibebani'}.</div></div>`,
         ()=>{ clearTimeout(bagiInfoTimer);
           bagiInfoTimer=setTimeout(()=>{ const x=document.getElementById('bd_info'); if(x) x.innerHTML=''; },6000); });
     }, kasirAktif());
@@ -4240,7 +4313,7 @@ function viewBreakdown(){
     // — omsetnya ada, cuma tidak ada yang mengakuinya sebagai kasir.
     if(!rows.length && !num(state.so.amount)) return '';
     // Hanya baris MARKETING — event tidak memotong kasir lagi (lihat porsiPic).
-    const pot=id=>state.mk.reduce((s,r)=>{const b=potonganBaris(r);return s+(b.ids.indexOf(id)>-1?b.per:0);},0);
+    const pot=id=>state.mk.reduce((s,r)=>{const b=potonganBaris(r);return s+(b.ids.indexOf(id)>-1?(b.nom[id]!=null?b.nom[id]:b.per):0);},0);
     /* Open Bill: dibaca dari `state`, bukan dari d.bd — yang sedang diketik
        belum tersimpan, dan kartu ini justru dipakai untuk memeriksa sebelum
        menyimpan. Kolomnya TIDAK ikut menambah/mengurangi Realisasi; ia
