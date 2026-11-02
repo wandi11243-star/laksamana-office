@@ -98,6 +98,10 @@ function pur_ck_produk($pdo, $gudang = 'ck') {
       'packSatuan' => isset($d->packSatuan) ? (string)$d->packSatuan : '',
       'kategori'   => isset($d->kategori) ? (string)$d->kategori : '',
       'satuan'     => isset($d->satuan) && is_array($d->satuan) ? $d->satuan : [],
+      // Ukuran satuan dari Purchasing ("1 Dus = 50 Botol"), dipakai
+      // pur_ck_faktor_satuan() untuk form Kirim.
+      'satuanDasar'=> isset($d->satuanDasar) && is_string($d->satuanDasar) ? trim($d->satuanDasar) : '',
+      'isi'        => isset($d->isi) && (is_object($d->isi) || is_array($d->isi)) ? (array)$d->isi : [],
       // Barang ini juga disimpan di outlet, jadi bisa dikirim BALIK ke CK
       // (retur sisa, titipan stok berlebih). Barang yang cuma ada di CK
       // tidak pernah dipegang outlet, jadi tidak ada yang bisa dikirimnya.
@@ -136,13 +140,29 @@ function pur_ck_kunci_satuan($u) {
   if (in_array($s, ['ml','mililiter'], true)) return 'ml';
   return $s;
 }
-function pur_ck_faktor_satuan($unit, $packIsi, $packSatuan) {
-  $u = pur_ck_kunci_satuan($unit);
-  $d = pur_ck_kunci_satuan($packSatuan);
-  if ($u === 'pack' && (float)$packIsi > 0) return (float)$packIsi;
-  if ($d === '' || $u === $d) return 1.0;
+function pur_ck_faktor_metrik($a, $b) {
+  if ($a === $b) return 1.0;
   $m = ['kg' => ['g', 1000], 'g' => ['kg', 0.001], 'l' => ['ml', 1000], 'ml' => ['l', 0.001]];
-  if (isset($m[$u]) && $m[$u][0] === $d) return (float)$m[$u][1];
+  return (isset($m[$a]) && $m[$a][0] === $b) ? (float)$m[$a][1] : null;
+}
+function pur_ck_faktor_satuan($unit, $p) {
+  $u = pur_ck_kunci_satuan($unit);
+  $d = pur_ck_kunci_satuan($p->packSatuan ?? '');
+  if ($u === 'pack' && (float)($p->packIsi ?? 0) > 0) return (float)$p->packIsi;
+  if ($d === '' || $u === $d) return 1.0;
+  $mt = pur_ck_faktor_metrik($u, $d);
+  if ($mt !== null) return $mt;
+  // Ukuran dari Purchasing, lewat satuan dasarnya ke satuan stok gudang.
+  $sd = pur_ck_kunci_satuan($p->satuanDasar ?? '');
+  if ($sd !== '') {
+    $keDasar = pur_ck_faktor_metrik($sd, $d);
+    if ($keDasar !== null) {
+      if ($u === $sd) return $keDasar;
+      foreach ((array)($p->isi ?? []) as $k => $v) {
+        if (pur_ck_kunci_satuan($k) === $u && (float)$v > 0) return (float)$v * $keDasar;
+      }
+    }
+  }
   return null;
 }
 
@@ -534,7 +554,7 @@ function pur_ck_kiriman_simpan($pdo, $b, $gudang = 'ck') {
 
   $unitInput = trim((string)($b->unitInput ?? ''));
   if ($unitInput === '') $unitInput = $p->packSatuan !== '' ? $p->packSatuan : 'Pcs';
-  $faktor = pur_ck_faktor_satuan($unitInput, $p->packIsi, $p->packSatuan);
+  $faktor = pur_ck_faktor_satuan($unitInput, $p);
   if ($faktor === null) {
     return ['status' => 'error', 'message' => 'satuan ' . $unitInput . ' tidak bisa dikonversi ke satuan dasar ' . ($p->packSatuan !== '' ? $p->packSatuan : 'barang ini')];
   }

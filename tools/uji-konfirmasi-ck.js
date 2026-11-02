@@ -237,11 +237,20 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
      dikonversi ke satuan dasar ditampilkan disabled. Ayam Fillet berdasar Kg. */
   const selK = d.getElementById('kirim-row-unit-' + idKir[0]);
   const opsiK = [...selK.options];
-  cek('form kirim menampilkan seluruh satuan', opsiK.length >= 15, 'dapat ' + opsiK.length);
-  const opsiG = opsiK.find(o => o.value === 'Gram');
-  cek('Gram bisa dipilih untuk barang berdasar Kg', opsiG && !opsiG.disabled);
-  const opsiD = opsiK.find(o => o.value === 'Dus');
-  cek('Dus tampil tapi disabled (belum ada ukurannya)', opsiD && opsiD.disabled);
+  cek('Gram ditawarkan untuk barang berdasar Kg', opsiK.some(o => o.value === 'Gram'));
+  cek('satuan tanpa ukuran (Dus) TIDAK ditawarkan', !opsiK.some(o => o.value === 'Dus'),
+      opsiK.map(o => o.value).join(','));
+  /* Pilihan mengikuti SATUAN BAHAN Purchasing, persis Form Order Belanja. */
+  w.eval("globalProductInfo['Botol Chubby'] = { sumber:'both', packIsi:0, packSatuan:'Botol', satuan:['Dus','Botol'], satuanDasar:'Botol', isi:{Dus:50} };");
+  w.eval('addKirimRow();');
+  const idBc = [...d.querySelectorAll('[id^="kirim-row-item-"]')].map(el => el.id.replace('kirim-row-item-', '')).pop();
+  isi(d, 'kirim-row-item-' + idBc, 'Botol Chubby');
+  w.eval('onPilihBarangKirim(' + idBc + ')');
+  const opsiBc = [...d.getElementById('kirim-row-unit-' + idBc).options].map(o => o.textContent);
+  cek('pilihan = satuan bahan + ukurannya ("Dus (50 Botol)", "Botol")',
+      opsiBc.length === 2 && opsiBc[0] === 'Dus (50 Botol)' && opsiBc[1] === 'Botol', JSON.stringify(opsiBc));
+  cek('2 Dus -> 100 Botol', w.eval("ckKeDasarKirim(2,'Dus',globalProductInfo['Botol Chubby'])") === 100);
+  d.getElementById('kirim-row-item-' + idBc).closest('[id^="kirim-row-"]') && w.eval('document.getElementById("kirim-rows-wrapper").lastElementChild.remove()');
   cek('konversi 500 Gram -> 0.5 Kg', Math.abs(w.eval("ckKeDasarKirim(500,'Gram',{packIsi:0,packSatuan:'Kg'})") - 0.5) < 1e-9);
   cek('konversi 2 Kg -> 2000 Gram', w.eval("ckKeDasarKirim(2,'Kg',{packIsi:0,packSatuan:'gr'})") === 2000);
   cek('Pack memakai isi pack', w.eval("ckKeDasarKirim(3,'Pack',{packIsi:5,packSatuan:'Pcs'})") === 15);

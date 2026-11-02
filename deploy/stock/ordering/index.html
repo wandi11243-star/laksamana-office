@@ -2434,13 +2434,32 @@
             if (['ml','mililiter'].includes(s)) return 'ml';
             return s;
         }
+        /* Revisi hari yang sama (permintaan user): pilihannya mengikuti
+           SATUAN BAHAN di Purchasing, persis Form Order Belanja — "Dus (50
+           Botol)". Ukuran itu (p.satuanDasar + p.isi) ikut dipakai
+           mengkonversi, lewat satuan dasar Purchasing ke satuan stok gudang. */
+        function ckFaktorMetrik(a, b) {
+            if (a === b) return 1;
+            const M = { kg:['g',1000], g:['kg',0.001], l:['ml',1000], ml:['l',0.001] };
+            return (M[a] && M[a][0] === b) ? M[a][1] : null;
+        }
         function ckFaktorSatuan(unit, p) {
             const u = ckKunciSatuan(unit);
             const d = ckKunciSatuan(p && p.packSatuan);
             if (u === 'pack' && p && p.packIsi > 0) return p.packIsi;
             if (!d || u === d) return 1;
-            const M = { kg:['g',1000], g:['kg',0.001], l:['ml',1000], ml:['l',0.001] };
-            if (M[u] && M[u][0] === d) return M[u][1];
+            const m = ckFaktorMetrik(u, d);
+            if (m != null) return m;
+            const sd = ckKunciSatuan(p && p.satuanDasar);
+            const isi = (p && p.isi && typeof p.isi === 'object') ? p.isi : {};
+            if (sd) {
+                const keDasar = ckFaktorMetrik(sd, d);
+                if (keDasar != null) {
+                    if (u === sd) return keDasar;
+                    const k = Object.keys(isi).find(x => ckKunciSatuan(x) === u);
+                    if (k && Number(isi[k]) > 0) return Number(isi[k]) * keDasar;
+                }
+            }
             return null;
         }
         function ckKeDasarKirim(qty, unit, p) {
@@ -3278,24 +3297,27 @@
                Pack pecahan di sini sah — outlet memang bisa mengembalikan sisa
                setengah pack, dan menolaknya berarti menyuruh barang yang nyata
                ada tidak usah dicatat. */
-            /* Sejak 2 Nov 2026 SELURUH satuan ditampilkan (permintaan user),
-               bukan cuma Pack. Yang tidak bisa dikonversi ke satuan dasar
-               barangnya digambar disabled — lihat ckFaktorSatuan(). */
+            /* Pilihannya = SATUAN BAHAN di Purchasing berikut ukurannya
+               (opsiSatuanItem, sama dengan Form Order Belanja: "Dus (50 Botol)"),
+               ditambah Pack & satuan stok gudangnya. Yang tidak bisa dikonversi
+               ke satuan stok tidak ditawarkan: tersimpan apa adanya, "2 Dus"
+               akan menambah stok 2 Botol tanpa satu pun galat. */
             const dasar = (p && p.packSatuan) || 'Pcs';
-            const semua = [];
-            const tambah = x => { if (x && !semua.some(y => ckKunciSatuan(y) === ckKunciSatuan(x))) semua.push(x); };
-            if (perPack) tambah('Pack');
+            const opsi = [];
+            const tambah = (v, t) => {
+                if (!v || opsi.some(o => ckKunciSatuan(o.v) === ckKunciSatuan(v))) return;
+                if (p && ckFaktorSatuan(v, p) == null) return;
+                opsi.push({ v: v, t: t || v });
+            };
+            if (p) opsiSatuanItem(selI.value.trim() in globalProductInfo ? selI.value.trim()
+                : (Object.keys(globalProductInfo).find(k => k.toLowerCase() === selI.value.trim().toLowerCase()) || ''))
+                .forEach(o => tambah(o.v, o.t));
+            if (perPack) tambah('Pack', 'Pack (' + ckNum(p.packIsi) + ' ' + dasar + ')');
             tambah(dasar);
-            SATUAN_TERSEDIA.forEach(tambah);
             const sebelum = selU.value;
-            selU.innerHTML = semua.map(u => {
-                const f = p ? ckFaktorSatuan(u, p) : 1;
-                const ket = f == null ? ' — belum ada ukurannya' : (f !== 1 ? ' (= ' + ckNum(f) + ' ' + dasar + ')' : '');
-                return '<option value="' + escHtmlCK(u) + '"' + (f == null ? ' disabled' : '') + '>' + escHtmlCK(u + ket) + '</option>';
-            }).join('');
-            const bawaan = perPack ? 'Pack' : dasar;
-            selU.value = (sebelum && p && ckFaktorSatuan(sebelum, p) != null && semua.includes(sebelum)) ? sebelum : bawaan;
-            selU.title = 'Satuan yang tidak bisa dipilih belum punya ukuran terhadap satuan dasar barang ini (' + dasar + ').';
+            selU.innerHTML = opsi.map(o => '<option value="' + escHtmlCK(o.v) + '">' + escHtmlCK(o.t) + '</option>').join('');
+            selU.value = opsi.some(o => o.v === sebelum) ? sebelum : (opsi[0] ? opsi[0].v : dasar);
+            selU.title = '';
             refreshBarisKirim(id);
         }
 
