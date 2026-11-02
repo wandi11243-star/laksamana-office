@@ -322,6 +322,12 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
   }
   w.eval("riwayatKiriman = [{ id:'CKK1', tanggal:'2026-09-08', item:'Ayam Fillet', arah:'masuk', qty:0.5, qtyInput:500, unitInput:'Gram', sebab:'kiriman', status:'', ref:'', tim:'', pic:'Wandi', waktu:'', catatan:'', packIsi:0, packSatuan:'Kg', diubahOleh:'Wandi', diubahAt:'2026-11-02 10:00:00', nUbah:2 }]; renderRiwayatKiriman();");
   cek('jejak ubah tampil di baris', d.getElementById('kirim-riwayat-wrap').textContent.indexOf('diubah Wandi') > -1);
+  // Angka stok BASI (satuan stok diganti sesudah kiriman dicatat): simpan tanpa ubah isian tetap dikirim.
+  w.eval("riwayatKiriman = [{ id:'CKK2', tanggal:'2026-09-08', item:'Ayam Fillet', arah:'masuk', qty:0.083, qtyInput:1, unitInput:'Kg', sebab:'kiriman', status:'', ref:'', tim:'', pic:'Wandi', waktu:'', catatan:'', packIsi:0, packSatuan:'Dus', diubahOleh:'', diubahAt:'', nUbah:0 }]; renderRiwayatKiriman();");
+  w.eval("bukaUbahKiriman('CKK2')"); await tunggu(30);
+  cek('modal menyebut stok tercatat basi', /0.083 Dus/.test(d.getElementById('ubk-info').textContent) && /1 Kg/.test(d.getElementById('ubk-info').textContent), d.getElementById('ubk-info').textContent);
+  jejak.body.length = 0; await w.simpanUbahKiriman(); await tunggu(80);
+  cek('angka basi tetap boleh disimpan tanpa mengubah isian', jejak.body.some(b => b.indexOf('CKK2') > -1));
   const SRCPHP = fs.readFileSync(path.join(ROOT, 'stock-mysql/lib_stock_ck.php'), 'utf8');
   cek('php: ubah kiriman menolak ganti barang & baris bukan kiriman',
       SRCPHP.indexOf("barang kiriman tidak bisa diganti") > -1 && SRCPHP.indexOf("baris ini bukan kiriman") > -1);
