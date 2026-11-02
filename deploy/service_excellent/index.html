@@ -8042,7 +8042,7 @@ function openReviewForm(resId, rvId){
      <div class="form-grid">
        <div class="field"><label>Nama Tamu <span class="req">*</span></label><input id="rv_name" value="${esc(name)}" placeholder="Nama tamu"></div>
        <div class="field"><label>No. WhatsApp</label><input id="rv_phone" inputmode="numeric" value="${esc(displayPhone(phone))}" placeholder="08xxxx"></div>
-       <div class="field"><label>Nama Akun Google (reviewer) <span class="req">*</span></label><input id="rv_reviewer" value="${esc(rv?.reviewerName||"")}" placeholder="Nama yang tampil di review"></div>
+       <div class="field"><label>Nama Akun Google (reviewer) <span class="req">*</span></label><input id="rv_reviewer" value="${esc(rv?.reviewerName||"")}" placeholder="Nama yang tampil di review — bukan email"></div>
        <!-- No. meja/bill OPSIONAL — pengunci tambahan ke tamu hari itu, tapi
             tidak diwajibkan. -->
        <div class="field"><label>No. Meja / Bill <span class="muted" style="font-weight:400">(opsional)</span></label>
@@ -8212,10 +8212,25 @@ function rvgCocokDengan(rv, list, dari){
   const tgl=String(rv.date||"");
   if(tgl && tgl<dari) return {jenis:"luar"};
   const kandidat=(list||[]).filter(g=>!tgl || rvgWib(g.waktu_ms)>=rvgGeser(tgl,-RVG_TOLERANSI));
-  const sama=kandidat.filter(g=>rvgNorm(g.penulis)===nama);
-  const tok=nama.split(" ").filter(w=>w.length>=3);
+  /* Kru sering mengisi kolom ini dengan EMAIL Gmail tamu ("darelfauzi15@gmail.com"),
+     bukan nama yang tampil di ulasan (2 Nov 2026). Google tidak pernah
+     memperlihatkan email penulis ulasan, jadi email tidak akan pernah sama
+     persis dengan apa pun — yang bisa dilakukan mencari nama penulis di
+     bagian depan emailnya ("Darel Fauzi" -> "darelfauzi"). Hasilnya selalu
+     "mirip", tidak pernah "cocok": nama pendek yang kebetulan termuat di
+     email orang lain mungkin saja. */
+  const email=/@/.test(String(rv.reviewerName||""));
+  const lokal=email?String(rv.reviewerName).split("@")[0].toLowerCase().normalize("NFKD").replace(/[^a-z]+/g,""):"";
+  const sama=email?[]:kandidat.filter(g=>rvgNorm(g.penulis)===nama);
+  const tok=email?[]:nama.split(" ").filter(w=>w.length>=3);
   const mirip=sama.length?[]:kandidat.filter(g=>{
     const p=rvgNorm(g.penulis); if(!p) return false;
+    if(email){
+      const rapat=p.replace(/ /g,"");
+      const kata=p.split(" ").filter(w=>w.length>=3);
+      return lokal.length>=4 && ((rapat.length>=5 && lokal.indexOf(rapat)>-1)
+        || (kata.length>=2 && kata.every(w=>lokal.indexOf(w)>-1)));
+    }
     const pt=p.split(" ");
     return tok.length && tok.every(w=>pt.some(x=>x===w || (w.length>=4 && x.startsWith(w))));
   });
@@ -8233,7 +8248,10 @@ function rvgCocokDengan(rv, list, dari){
    saveState() hanya dipanggil kalau memang ada — simpan tanpa perubahan
    cuma menaikkan versi dan membuat tab kru lain bentrok. */
 function rvgTerapkan(data, dari){
-  const lemah=!(data.sumber||[]).includes("bp");
+  // "gbp" = nilai yang ditulis gr_sync() di konten-mysql/lib_greview.php. Sempat "bp",
+  // yang tidak pernah ada — jadi "data hanya Places API" SELALU tampil walau
+  // Business Profile tersambung (keluhan user 2 Nov 2026).
+  const lemah=!(data.sumber||[]).includes("gbp");
   const at=Date.now(), by=(SESSION&&SESSION.name)||"";
   let n=0;
   reviews().forEach(rv=>{
@@ -8266,7 +8284,7 @@ function rvgSel(rv){
   const kapan=c.at?`<div class="muted" style="font-size:10.5px">dicek ${esc(new Date(c.at).toLocaleString("id-ID",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}))}${c.by?" · "+esc(c.by):""}</div>`:"";
   if(c.jenis==="tanpaNama") return '<span class="muted" style="font-size:11.5px">nama akun kosong</span>'+kapan;
   if(c.jenis==="luar") return `<span class="muted" style="font-size:11.5px">klaim &gt; ${RVG_HARI} hari — cek manual</span>`+kapan;
-  if(c.jenis==="tidak") return `<span style="font-size:11.5px;color:var(--urgent,#C2691F)">⚪ tidak ditemukan</span>${c.lemah?'<div class="muted" style="font-size:10.5px">data hanya Places API</div>':""}`+kapan;
+  if(c.jenis==="tidak") return `<span style="font-size:11.5px;color:var(--urgent,#C2691F)">⚪ tidak ditemukan</span>${/@/.test(String(rv.reviewerName||""))?'<div class="muted" style="font-size:10.5px">yang diisi email — Google hanya menampilkan nama akun</div>':""}${c.lemah?'<div class="muted" style="font-size:10.5px">data hanya Places API</div>':""}`+kapan;
   const bintang="★".repeat(Math.max(0,Math.min(5,Number(c.rating)||0)));
   const dipakai=rvgDipakai(rv, c.id);
   const beda=rv.rating && c.rating && Number(rv.rating)!==Number(c.rating);
