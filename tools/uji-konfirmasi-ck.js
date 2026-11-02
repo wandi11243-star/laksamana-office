@@ -328,6 +328,13 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
   cek('modal menyebut stok tercatat basi', /0.083 Dus/.test(d.getElementById('ubk-info').textContent) && /1 Kg/.test(d.getElementById('ubk-info').textContent), d.getElementById('ubk-info').textContent);
   jejak.body.length = 0; await w.simpanUbahKiriman(); await tunggu(80);
   cek('angka basi tetap boleh disimpan tanpa mengubah isian', jejak.body.some(b => b.indexOf('CKK2') > -1));
+  // Sisa stok ditulis per satuan beli, bukan satuan kecil (2 Nov 2026).
+  w.eval("globalProductInfo['Syrup X'] = { sumber:'both', packIsi:0, packSatuan:'ML', satuan:['ML','Botol'], satuanDasar:'ML', isi:{Botol:760} };");
+  const tampil = w.eval("ckPackUtamaOrder(3040, globalProductInfo['Syrup X'], '')");
+  cek('stok 3040 ML ditulis 4 Botol', /4 Botol/.test(tampil) && /3040 ML/.test(tampil), tampil);
+  w.eval("globalProductInfo['Lemon X'] = { sumber:'both', packIsi:0, packSatuan:'Gram', satuan:['Gram','Kg','Pcs'], satuanDasar:'Gram', isi:{Pcs:750} };");
+  cek('satuan beli terkecil yang dipilih (Pcs 750 g, bukan Kg)', w.eval("ckSatuanTampil(globalProductInfo['Lemon X']).u") === 'Pcs');
+  cek('barang tanpa ukuran tetap satuan stoknya', w.eval("ckSatuanTampil({packIsi:0,packSatuan:'Pcs',satuan:['Pcs']})") === null);
   const SRCPHP = fs.readFileSync(path.join(ROOT, 'stock-mysql/lib_stock_ck.php'), 'utf8');
   cek('php: ubah kiriman menolak ganti barang & baris bukan kiriman',
       SRCPHP.indexOf("barang kiriman tidak bisa diganti") > -1 && SRCPHP.indexOf("baris ini bukan kiriman") > -1);

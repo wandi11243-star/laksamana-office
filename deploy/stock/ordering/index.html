@@ -2727,7 +2727,31 @@
            sama persis dengan tabel Stok Item di Purchasing. Kru yang sama
            membaca kedua layar itu; menuliskannya dengan urutan berbeda memaksa
            ia menerjemahkan ulang tiap kali berpindah. */
+        /* SATUAN TAMPIL stok (permintaan user 2 Nov 2026: "per pcs / per botol,
+           jangan satuan kecil"). Barang yang stoknya disimpan dalam satuan kecil
+           (ML, Gram) ditulis dalam satuan beli TERKECIL yang lebih besar dari
+           satuan stoknya — ukuran dari Purchasing: 3.040 ML -> 4 Botol.
+           Yang disimpan tidak berubah; ini cuma cara menuliskannya. Barang
+           ber-pack tetap ditulis per Pack (aturan lama). */
+        function ckSatuanTampil(p) {
+            if (!p || p.packIsi > 0) return null;
+            const calon = [];
+            (Array.isArray(p.satuan) ? p.satuan : []).forEach(u => calon.push(u));
+            Object.keys((p.isi && typeof p.isi === 'object') ? p.isi : {}).forEach(u => calon.push(u));
+            if (p.satuanDasar) calon.push(p.satuanDasar);
+            let pilih = null;
+            calon.forEach(u => {
+                const f = ckFaktorSatuan(u, p);
+                if (f != null && f > 1.0001 && (!pilih || f < pilih.f)) pilih = { u: u, f: f };
+            });
+            return pilih;
+        }
         function ckPackUtamaOrder(qtyDasar, p, kelas) {
+            const st = ckSatuanTampil(p);
+            if (st) {
+                return `<div class="${kelas || ''}">${ckNum(qtyDasar / st.f)} ${escHtmlCK(st.u)}</div>`
+                     + `<div class="text-[10px] text-slate-400 font-semibold leading-tight">${ckNum(qtyDasar)} ${p.packSatuan || ''}</div>`;
+            }
             const utama = `<div class="${kelas || ''}">${ckTeksPack(qtyDasar, p)}</div>`;
             if (!p || !(p.packIsi > 0)) return utama;
             return utama + `<div class="text-[10px] text-slate-400 font-semibold leading-tight">${ckNum(qtyDasar)} ${p.packSatuan || ''}</div>`;
@@ -2767,7 +2791,8 @@
                 return `<tr class="border-b border-slate-100">
                     <td class="py-2.5 pr-2">
                         <div class="font-bold text-slate-800">${n}</div>
-                        <div class="text-[10px] text-slate-400">${p && p.packIsi > 0 ? `1 Pack = ${ckNum(p.packIsi)} ${p.packSatuan || ''}` : ((p && p.packSatuan) || '')}</div>
+                        <div class="text-[10px] text-slate-400">${p && p.packIsi > 0 ? `1 Pack = ${ckNum(p.packIsi)} ${p.packSatuan || ''}`
+                            : (ckSatuanTampil(p) ? `1 ${escHtmlCK(ckSatuanTampil(p).u)} = ${ckNum(ckSatuanTampil(p).f)} ${p.packSatuan || ''}` : ((p && p.packSatuan) || ''))}</div>
                     </td>
                     <td class="py-2.5 pl-2 text-right whitespace-nowrap">
                         ${tahu
