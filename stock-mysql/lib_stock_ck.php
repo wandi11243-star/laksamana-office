@@ -121,6 +121,31 @@ function pur_ck_ke_dasar($qty, $unit, $packIsi, $packSatuan) {
   return $qty;
 }
 
+/* Satuan bebas di form KIRIM (2 Nov 2026). BERKAS KEMBAR ckFaktorSatuan()
+   di deploy/stock/ordering — kalau berbeda, angka yang dibaca kru di
+   rekap bukan angka yang masuk saldo. null = tidak bisa dikonversi, dan
+   kiriman seperti itu DITOLAK: disimpan apa adanya, "2 Kg" untuk barang
+   berdasar Gram menambah stok 2 Gram tanpa satu pun galat.
+   Sengaja TIDAK menggantikan pur_ck_ke_dasar(): jalur sinkron order ikut
+   memakainya, dan mengubah aturannya di sana mengubah baris lama. */
+function pur_ck_kunci_satuan($u) {
+  $s = strtolower(trim((string)$u));
+  if (in_array($s, ['kg','kilo','kilogram'], true)) return 'kg';
+  if (in_array($s, ['gram','gr','g','grm'], true)) return 'g';
+  if (in_array($s, ['liter','l','ltr','lt'], true)) return 'l';
+  if (in_array($s, ['ml','mililiter'], true)) return 'ml';
+  return $s;
+}
+function pur_ck_faktor_satuan($unit, $packIsi, $packSatuan) {
+  $u = pur_ck_kunci_satuan($unit);
+  $d = pur_ck_kunci_satuan($packSatuan);
+  if ($u === 'pack' && (float)$packIsi > 0) return (float)$packIsi;
+  if ($d === '' || $u === $d) return 1.0;
+  $m = ['kg' => ['g', 1000], 'g' => ['kg', 0.001], 'l' => ['ml', 1000], 'ml' => ['l', 0.001]];
+  if (isset($m[$u]) && $m[$u][0] === $d) return (float)$m[$u][1];
+  return null;
+}
+
 /* ---------------------------------------------------------------------
    SALDO per barang. Dihitung di SQL, bukan di PHP: daftar mutasi tumbuh
    terus dan tidak ada gunanya mengirim setahun penuh ke browser hanya
@@ -509,7 +534,16 @@ function pur_ck_kiriman_simpan($pdo, $b, $gudang = 'ck') {
 
   $unitInput = trim((string)($b->unitInput ?? ''));
   if ($unitInput === '') $unitInput = $p->packSatuan !== '' ? $p->packSatuan : 'Pcs';
-  $qty = pur_ck_ke_dasar($qtyInput, $unitInput, $p->packIsi, $p->packSatuan);
+  $faktor = pur_ck_faktor_satuan($unitInput, $p->packIsi, $p->packSatuan);
+  if ($faktor === null) {
+    return ['status' => 'error', 'message' => 'satuan ' . $unitInput . ' tidak bisa dikonversi ke satuan dasar ' . ($p->packSatuan !== '' ? $p->packSatuan : 'barang ini')];
+  }
+  $qty = $qtyInput * $faktor;
+
+  $tglKirim = trim((string)($b->tanggal ?? ''));
+  if ($tglKirim !== '' && (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $tglKirim) || !checkdate((int)substr($tglKirim,5,2), (int)substr($tglKirim,8,2), (int)substr($tglKirim,0,4)))) {
+    return ['status' => 'error', 'message' => 'tanggal kirim tidak sah'];
+  }
 
   $rec = (object)[
     'catatan'    => trim((string)($b->catatan ?? '')),
