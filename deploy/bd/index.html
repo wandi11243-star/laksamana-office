@@ -1664,6 +1664,21 @@ function divDariKet(ket){
   if(k.indexOf(' bd ')>-1) return 'Business Development';
   return '';
 }
+/* SELURUH Tim seseorang, bukan cuma yang pertama (2 Nov 2026): kru yang Tim-nya
+   "Kasir, Office" harus ikut saat divisi Office diundang. Tim yang sudah cocok
+   DIBUANG dari teksnya sebelum lanjut, jadi "Admin Purchasing / Finance" tidak
+   ikut terbaca sebagai Purchasing dan Finance — urutan TIM_OFFICE memang
+   menaruh yang panjang lebih dulu. p.div tetap divisi UTAMA (yang pertama). */
+function timDariKet(ket){
+  var k=' '+String(ket||'').toLowerCase().replace(/[^a-z]+/g,' ')+' ', out=[];
+  for(var i=0;i<TIM_OFFICE.length;i++){
+    var t=' '+TIM_OFFICE[i].toLowerCase().replace(/[^a-z]+/g,' ').trim()+' ';
+    if(k.indexOf(t)>-1){ out.push(TIM_OFFICE[i]); k=k.split(t).join(' '); }
+  }
+  if(k.indexOf(' bd ')>-1 && out.indexOf('Business Development')<0) out.push('Business Development');
+  return out;
+}
+function timOrang(p){ var a=timDariKet(p&&p.ket); if(p&&p.div&&a.indexOf(p.div)<0) a.unshift(p.div); return a; }
 function P(id){return DB.people.find(function(p){return p.id===id;})||{id:'',name:'—',role:'',div:''};}
 function bawahan(id){
   var out=[];
@@ -2197,7 +2212,7 @@ function picPicker(wadah,terpilih){
     'beri akses lewat Office → Kelola Akses.</div>';
   return '<div class="picpick" id="'+wadah+'">'+pilih.map(function(p){
     var on=terpilih.indexOf(p.id)>-1;
-    return '<button type="button" class="picchip'+(on?' on':'')+'" data-id="'+esc(p.id)+'" data-div="'+esc(p.div||'')+'" '+
+    return '<button type="button" class="picchip'+(on?' on':'')+'" data-id="'+esc(p.id)+'" data-tims="|'+esc(timOrang(p).join('|'))+'|" '+
       'onclick="APP.togglePic(this)"><span class="av">'+esc(inisial(p.name))+'</span>'+esc(p.name)+
       (p.tanpaAkses?' <span class="tag" style="margin-left:3px">dicabut</span>':'')+'</button>';
   }).join('')+'</div>';
@@ -6397,7 +6412,7 @@ function agendaModal(id,tgl,jam){
       '<button class="btn pri" onclick="APP.simpanAgenda(\''+(id||'')+'\')">'+ic('check')+'Simpan</button></div></div>','wide');
 }
 /* Undang satu divisi sekaligus (2 Nov 2026, permintaan user). Divisi orang
-   dibaca dari p.div = Tim di Office → Kelola User. Tombolnya MENCENTANG
+   dibaca dari SELURUH Tim di Office → Kelola User (timOrang). Tombolnya MENCENTANG
    chip di pemilih yang sama, bukan menyimpan "divisi X" sebagai peserta:
    yang diundang tetap orang per orang, jadi kru yang pindah divisi kelak
    tidak diam-diam ikut/keluar dari agenda lama, dan chip satu per satu
@@ -6405,7 +6420,7 @@ function agendaModal(id,tgl,jam){
    tercentang = lepas semua. Hanya kru yang punya akses modul ini — yang lain
    memang tidak bisa melihat undangannya. */
 function undangDivisiHtml(wadah,terpilih){
-  var g={}; kruTersedia(terpilih).forEach(function(p){ if(p.div){ (g[p.div]=g[p.div]||0); g[p.div]++; } });
+  var g={}; kruTersedia(terpilih).forEach(function(p){ timOrang(p).forEach(function(d){ g[d]=(g[d]||0)+1; }); });
   var urut=calDivisi().filter(function(d){return g[d];});
   Object.keys(g).forEach(function(d){ if(urut.indexOf(d)<0) urut.push(d); });
   if(!urut.length) return '';
@@ -6418,7 +6433,7 @@ function undangDivisiHtml(wadah,terpilih){
 }
 function undangDivisi(btn){
   var wadah=btn.getAttribute('data-wadah'), div=btn.getAttribute('data-undiv');
-  var chip=[].slice.call(document.querySelectorAll('#'+wadah+' .picchip')).filter(function(el){ return el.getAttribute('data-div')===div; });
+  var chip=[].slice.call(document.querySelectorAll('#'+wadah+' .picchip')).filter(function(el){ return (el.getAttribute('data-tims')||'').indexOf('|'+div+'|')>-1; });
   if(!chip.length) return;
   var semua=chip.every(function(el){ return el.classList.contains('on'); });
   chip.forEach(function(el){ el.classList.toggle('on',!semua); });
