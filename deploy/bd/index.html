@@ -2197,7 +2197,7 @@ function picPicker(wadah,terpilih){
     'beri akses lewat Office → Kelola Akses.</div>';
   return '<div class="picpick" id="'+wadah+'">'+pilih.map(function(p){
     var on=terpilih.indexOf(p.id)>-1;
-    return '<button type="button" class="picchip'+(on?' on':'')+'" data-id="'+esc(p.id)+'" '+
+    return '<button type="button" class="picchip'+(on?' on':'')+'" data-id="'+esc(p.id)+'" data-div="'+esc(p.div||'')+'" '+
       'onclick="APP.togglePic(this)"><span class="av">'+esc(inisial(p.name))+'</span>'+esc(p.name)+
       (p.tanpaAkses?' <span class="tag" style="margin-left:3px">dicabut</span>':'')+'</button>';
   }).join('')+'</div>';
@@ -6362,9 +6362,14 @@ function agendaModal(id,tgl,jam){
   var baru=!e;
   if(e && !agBisaUbah(e)){ toast('Hanya penyelenggara yang bisa mengubah agenda ini.'); return; }
   if(!e) e={title:'',date:tgl||todayISO(),start:'',end:'',type:'Meeting',lokasi:'',ket:'',peserta:[],
-           div:(AKU&&OWNER_DIVS.indexOf(AKU.div)>-1)?AKU.div:'Business Development'};
+           div:(AKU&&AKU.div)?AKU.div:'Business Development'};
   if(baru && jam){ e.start=jam.start||''; e.end=jam.end||''; }
-  var divs=OWNER_DIVS.slice(); if(e.div&&divs.indexOf(e.div)<0) divs.push(e.div);
+  /* Divisi agenda = seluruh Tim di Office → Kelola User, sama dengan form
+     project (2 Nov 2026, permintaan user). Yang dipakai kru di atas; divisi
+     tersimpan yang tidak ada di daftar tetap digambar supaya membuka agenda
+     lama tidak diam-diam mengganti divisinya. */
+  var divs=calDivisi(); TIM_OFFICE.forEach(function(d){ if(divs.indexOf(d)<0) divs.push(d); });
+  if(e.div&&divs.indexOf(e.div)<0) divs.push(e.div);
   showModal(
     '<div class="modal-h"><h3>'+(baru?'Agenda Baru':'Edit Agenda')+'</h3>'+
       '<button class="x" onclick="closeModal()">'+ic('x')+'</button></div>'+
@@ -6380,7 +6385,8 @@ function agendaModal(id,tgl,jam){
         '<div class="field"><label>Divisi</label><select id="a_div">'+
           divs.map(function(d){return '<option'+(e.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
         '<div class="field"><label>Lokasi / link</label><input id="a_lok" value="'+esc(e.lokasi||'')+'" placeholder="mis. Ruang meeting lt.2"></div></div>'+
-      '<div class="field"><label>Undang peserta — mereka dapat notifikasi & bisa menjawab hadir / tidak</label>'+picPicker('a_pes',agPeserta(e))+'</div>'+
+      '<div class="field"><label>Undang peserta — mereka dapat notifikasi & bisa menjawab hadir / tidak</label>'+
+        undangDivisiHtml('a_pes',agPeserta(e))+picPicker('a_pes',agPeserta(e))+'</div>'+
       '<div class="field"><label>Catatan</label><textarea id="a_ket" placeholder="Agenda rapat, yang perlu disiapkan…">'+esc(e.ket||'')+'</textarea></div>'+
       '<div class="notice" style="margin:0">Agenda tanpa peserta adalah agenda <b>tim</b> — terlihat semua kru tanpa undangan. '+
         'Mengubah tanggal atau jam membuat peserta diminta menjawab ulang. '+
@@ -6389,6 +6395,34 @@ function agendaModal(id,tgl,jam){
     '<div class="modal-f"><div>'+(baru?'':'<button class="btn bad sm" onclick="APP.hapusAgenda(\''+id+'\')">'+ic('trash')+'Hapus</button>')+'</div>'+
       '<div style="display:flex;gap:10px"><button class="btn" onclick="closeModal()">Batal</button>'+
       '<button class="btn pri" onclick="APP.simpanAgenda(\''+(id||'')+'\')">'+ic('check')+'Simpan</button></div></div>','wide');
+}
+/* Undang satu divisi sekaligus (2 Nov 2026, permintaan user). Divisi orang
+   dibaca dari p.div = Tim di Office → Kelola User. Tombolnya MENCENTANG
+   chip di pemilih yang sama, bukan menyimpan "divisi X" sebagai peserta:
+   yang diundang tetap orang per orang, jadi kru yang pindah divisi kelak
+   tidak diam-diam ikut/keluar dari agenda lama, dan chip satu per satu
+   masih bisa dilepas sesudahnya. Tekan lagi saat seluruh divisinya sudah
+   tercentang = lepas semua. Hanya kru yang punya akses modul ini — yang lain
+   memang tidak bisa melihat undangannya. */
+function undangDivisiHtml(wadah,terpilih){
+  var g={}; kruTersedia(terpilih).forEach(function(p){ if(p.div){ (g[p.div]=g[p.div]||0); g[p.div]++; } });
+  var urut=calDivisi().filter(function(d){return g[d];});
+  Object.keys(g).forEach(function(d){ if(urut.indexOf(d)<0) urut.push(d); });
+  if(!urut.length) return '';
+  return '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:0 0 8px">'+
+    '<span class="muted" style="font-size:12px">Undang per divisi:</span>'+
+    urut.map(function(d){
+      return '<button type="button" class="btn sm" data-undiv="'+esc(d)+'" data-wadah="'+esc(wadah)+'" onclick="APP.undangDivisi(this)">'+
+        esc(d)+' <span class="muted">('+g[d]+')</span></button>';
+    }).join('')+'</div>';
+}
+function undangDivisi(btn){
+  var wadah=btn.getAttribute('data-wadah'), div=btn.getAttribute('data-undiv');
+  var chip=[].slice.call(document.querySelectorAll('#'+wadah+' .picchip')).filter(function(el){ return el.getAttribute('data-div')===div; });
+  if(!chip.length) return;
+  var semua=chip.every(function(el){ return el.classList.contains('on'); });
+  chip.forEach(function(el){ el.classList.toggle('on',!semua); });
+  toast((semua?'Dilepas: ':'Diundang: ')+chip.length+' orang dari '+div);
 }
 function simpanAgenda(id){
   var g=function(x){return document.getElementById(x).value;};
@@ -7381,6 +7415,7 @@ window.APP={
   },
   projModal:projModal, simpanProj:simpanProj, hapusProj:hapusProj,
   togglePic:function(el){ el.classList.toggle('on'); },
+  undangDivisi:undangDivisi,
   /* Pemformat rupiah sambil mengetik. Posisi kursor dijaga dengan MENGHITUNG
      DIGIT sebelum kursor, bukan menyimpan indeksnya: menyisipkan satu titik
      pemisah menggeser semua indeks di belakangnya, dan kursor yang melompat
