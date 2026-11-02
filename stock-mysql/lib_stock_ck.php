@@ -153,17 +153,21 @@ function pur_ck_faktor_satuan($unit, $p) {
   $mt = pur_ck_faktor_metrik($u, $d);
   if ($mt !== null) return $mt;
   // Ukuran dari Purchasing, lewat satuan dasarnya ke satuan stok gudang.
+  // Keduanya diukur dalam satuan dasar Purchasing lalu dibagi — satuan
+  // stok bisa yang BESAR (Dus) sementara Purchasing mengukur per Botol.
   $sd = pur_ck_kunci_satuan($p->satuanDasar ?? '');
-  if ($sd !== '') {
-    $keDasar = pur_ck_faktor_metrik($sd, $d);
-    if ($keDasar !== null) {
-      if ($u === $sd) return $keDasar;
-      foreach ((array)($p->isi ?? []) as $k => $v) {
-        if (pur_ck_kunci_satuan($k) === $u && (float)$v > 0) return (float)$v * $keDasar;
-      }
+  $isi = (array)($p->isi ?? []);
+  $nilai = function ($x) use ($sd, $isi) {
+    if ($sd === '') return null;
+    if ($x === $sd) return 1.0;
+    foreach ($isi as $k => $v) {
+      if (pur_ck_kunci_satuan($k) === $x && (float)$v > 0) return (float)$v;
     }
-  }
-  return null;
+    return pur_ck_faktor_metrik($x, $sd);
+  };
+  $vu = $nilai($u);
+  $vd = $nilai($d);
+  return ($vu !== null && $vd !== null && $vd > 0) ? $vu / $vd : null;
 }
 
 /* ---------------------------------------------------------------------
