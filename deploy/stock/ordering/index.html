@@ -980,6 +980,32 @@
     <!-- Rekap konfirmasi Central Kitchen (minta & kirim) — lihat catatan di
          bukaKonfirmasiCK(). z-[65]: DI ATAS modal rekap belanja (60) tapi DI
          BAWAH modal duplikat (70), yang memang harus menang atas segalanya. -->
+    <!-- Ubah Kiriman (riwayat) — lihat bukaUbahKiriman(). -->
+    <div id="ubah-kiriman-modal" class="fixed inset-0 bg-slate-900/70 z-[65] flex items-center justify-center backdrop-blur-sm transition-opacity opacity-0 pointer-events-none">
+        <div class="bg-white rounded-3xl shadow-2xl p-6 max-w-md w-full mx-4 transform scale-95 opacity-0 transition-all duration-300 flex flex-col max-h-[90vh]" id="ubah-kiriman-modal-content">
+            <div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
+                <h3 class="text-lg font-black text-slate-800 flex items-center gap-2"><i class="fa-solid fa-pen text-teal-600"></i> Ubah Kiriman</h3>
+                <button type="button" onclick="closeModal('ubah-kiriman-modal')" class="text-slate-400 hover:text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            </div>
+            <div class="text-sm font-bold text-slate-800 mb-1" id="ubk-item"></div>
+            <p class="text-[11px] text-slate-500 mb-3">Barangnya tidak bisa diganti — kalau salah barang, betulkan lewat mutasi Penyesuaian. Stok dihitung ulang dari angka baru, dan angka lama tetap tercatat di riwayat baris ini.</p>
+            <div class="grid grid-cols-2 gap-3">
+                <label class="col-span-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tanggal Kirim
+                    <input type="date" id="ubk-tgl" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-800"></label>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Jumlah
+                    <input type="number" id="ubk-qty" min="0" step="any" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-black text-slate-800"></label>
+                <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Satuan
+                    <select id="ubk-unit" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-800 bg-white"></select></label>
+                <label class="col-span-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Catatan
+                    <input type="text" id="ubk-note" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm normal-case tracking-normal text-slate-800"></label>
+            </div>
+            <div class="flex gap-2 mt-5">
+                <button type="button" onclick="closeModal('ubah-kiriman-modal')" class="flex-1 border border-slate-200 rounded-xl py-2.5 text-sm font-bold text-slate-600">Batal</button>
+                <button type="button" id="btn-ubk-simpan" onclick="simpanUbahKiriman()" class="flex-1 bg-teal-600 text-white rounded-xl py-2.5 text-sm font-black flex items-center justify-center gap-2"><i class="fa-solid fa-floppy-disk"></i> Simpan Perubahan</button>
+            </div>
+        </div>
+    </div>
+
     <div id="ck-konfirmasi-modal" class="fixed inset-0 bg-slate-900/70 z-[65] flex items-center justify-center backdrop-blur-sm transition-opacity opacity-0 pointer-events-none">
         <div class="bg-white rounded-3xl shadow-2xl p-6 max-w-md w-full mx-4 transform scale-95 opacity-0 transition-all duration-300 flex flex-col max-h-[90vh]" id="ck-konfirmasi-modal-content">
             <div class="flex items-center justify-between mb-3 border-b border-slate-100 pb-3">
@@ -3287,6 +3313,26 @@
             refreshBarisKirim(id);
         }
 
+        /* SATU penyusun pilihan satuan untuk form Kirim DAN modal ubah riwayat
+           (Ubah Kiriman, 2 Nov 2026) — dua penyusun akan menyimpang, dan yang
+           menyimpang di sini satuan yang tercatat beda dari yang bisa dipilih. */
+        function opsiSatuanKirim(namaKetik, p) {
+            const dasar = (p && p.packSatuan) || 'Pcs';
+            const opsi = [];
+            const tambah = (v, t) => {
+                if (!v || opsi.some(o => ckKunciSatuan(o.v) === ckKunciSatuan(v))) return;
+                if (p && ckFaktorSatuan(v, p) == null) return;
+                opsi.push({ v: v, t: t || v });
+            };
+            const n = String(namaKetik || '').trim();
+            if (p) opsiSatuanItem(n in globalProductInfo ? n
+                : (Object.keys(globalProductInfo).find(k => k.toLowerCase() === n.toLowerCase()) || ''))
+                .forEach(o => tambah(o.v, o.t));
+            if (p && p.packIsi > 0) tambah('Pack', 'Pack (' + ckNum(p.packIsi) + ' ' + dasar + ')');
+            tambah(dasar);
+            return opsi;
+        }
+
         function onPilihBarangKirim(id) {
             const selI = document.getElementById(`kirim-row-item-${id}`);
             const selU = document.getElementById(`kirim-row-unit-${id}`);
@@ -3309,17 +3355,7 @@
                ke satuan stok tidak ditawarkan: tersimpan apa adanya, "2 Dus"
                akan menambah stok 2 Botol tanpa satu pun galat. */
             const dasar = (p && p.packSatuan) || 'Pcs';
-            const opsi = [];
-            const tambah = (v, t) => {
-                if (!v || opsi.some(o => ckKunciSatuan(o.v) === ckKunciSatuan(v))) return;
-                if (p && ckFaktorSatuan(v, p) == null) return;
-                opsi.push({ v: v, t: t || v });
-            };
-            if (p) opsiSatuanItem(selI.value.trim() in globalProductInfo ? selI.value.trim()
-                : (Object.keys(globalProductInfo).find(k => k.toLowerCase() === selI.value.trim().toLowerCase()) || ''))
-                .forEach(o => tambah(o.v, o.t));
-            if (perPack) tambah('Pack', 'Pack (' + ckNum(p.packIsi) + ' ' + dasar + ')');
-            tambah(dasar);
+            const opsi = opsiSatuanKirim(selI.value, p);
             const sebelum = selU.value;
             selU.innerHTML = opsi.map(o => '<option value="' + escHtmlCK(o.v) + '">' + escHtmlCK(o.t) + '</option>').join('');
             selU.value = opsi.some(o => o.v === sebelum) ? sebelum : (opsi[0] ? opsi[0].v : dasar);
@@ -3565,6 +3601,69 @@
             return `${hari[d.getDay()]}, ${d.getDate()} ${bulan[d.getMonth()]} ${d.getFullYear()}`;
         }
 
+        /* ===== UBAH KIRIMAN (permintaan user 2 Nov 2026) =====
+           Yang bisa diubah: tanggal, jumlah, satuan, catatan. BARANGNYA tidak —
+           salah barang dibetulkan dengan mutasi Penyesuaian, karena memindah
+           baris ke barang lain diam-diam menggeser saldo dua barang sekaligus.
+           Nilai sebelum tiap ubahan disimpan server di riwayat barisnya. */
+        let UBAH_KIRIM = null;
+        function bukaUbahKiriman(id) {
+            if (!wajibUbah(GUDANG === 'bar' ? 'gb' : 'ck')) return;
+            const m = riwayatKiriman.find(x => x.id === id);
+            if (!m) return;
+            const p = infoGudangItem(m.item);
+            if (!p) return showToast("Barang Tidak Dikenali", m.item + " sudah bukan barang " + gdInfo().nama + ".", "danger");
+            UBAH_KIRIM = m;
+            document.getElementById('ubk-item').textContent = m.item;
+            document.getElementById('ubk-tgl').value = m.tanggal;
+            document.getElementById('ubk-tgl').max = isoLokal(new Date());
+            document.getElementById('ubk-qty').value = m.qtyInput;
+            const opsi = opsiSatuanKirim(m.item, p);
+            if (!opsi.some(o => o.v === m.unitInput)) opsi.unshift({ v: m.unitInput, t: m.unitInput + ' (lama)' });
+            const sel = document.getElementById('ubk-unit');
+            sel.innerHTML = opsi.map(o => '<option value="' + escHtmlCK(o.v) + '">' + escHtmlCK(o.t) + '</option>').join('');
+            sel.value = m.unitInput;
+            document.getElementById('ubk-note').value = m.catatan || '';
+            const btn = document.getElementById('btn-ubk-simpan');
+            btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Simpan Perubahan';
+            openModal('ubah-kiriman-modal');
+        }
+        async function simpanUbahKiriman() {
+            const m = UBAH_KIRIM;
+            if (!m || !wajibUbah(GUDANG === 'bar' ? 'gb' : 'ck')) return;
+            const tgl = document.getElementById('ubk-tgl').value;
+            const qty = parseFloat(document.getElementById('ubk-qty').value) || 0;
+            const unit = document.getElementById('ubk-unit').value;
+            const note = document.getElementById('ubk-note').value.trim();
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(tgl)) return showToast("Tanggal Kosong", "Isi tanggal kirimnya.", "warning");
+            if (tgl > isoLokal(new Date())) return showToast("Tanggal Belum Terjadi", "Tanggal kirim tidak boleh di masa depan.", "warning");
+            if (qty <= 0) return showToast("Jumlah Kosong", "Jumlah harus lebih dari 0.", "warning");
+            if (ckFaktorSatuan(unit, infoGudangItem(m.item)) == null) return showToast("Satuan Tidak Bisa Dihitung", "Pilih satuan lain.", "danger");
+            if (tgl === m.tanggal && qty === m.qtyInput && unit === m.unitInput && note === (m.catatan || '')) {
+                closeModal('ubah-kiriman-modal');
+                return showToast("Tidak Ada Perubahan", "Kiriman ini tidak diubah.", "info");
+            }
+            const btn = document.getElementById('btn-ubk-simpan');
+            btn.disabled = true; btn.innerHTML = '<i class="fa-solid fa-spinner animate-spin"></i> Menyimpan...';
+            let j = null;
+            try {
+                const res = await fetch(ckUrlG(), {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+                    body: JSON.stringify({ action: 'kirim', id: m.id, tanggal: tgl, item: m.item, qtyInput: qty, unitInput: unit,
+                                           catatan: note, oleh: document.getElementById('batch-pic-name').value || '' })
+                });
+                j = await res.json().catch(() => null);
+            } catch (e) { console.error(e); }
+            btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Simpan Perubahan';
+            if (!j || j.status !== 'success') {
+                return showToast("Gagal Menyimpan", (j && j.message) || "Pastikan internet stabil & coba lagi.", "danger");
+            }
+            closeModal('ubah-kiriman-modal');
+            showToast("Kiriman Diubah", "Stok " + gdInfo().nama + " sudah disesuaikan.", "success");
+            muatRiwayatKiriman();
+        }
+
         function barisRiwayatKiriman(m) {
             /* Baris peninggalan aturan lama masih bisa berstatus 'pending'
                (kiriman yang dulu belum sempat dikonfirmasi). Sejak langkah
@@ -3587,12 +3686,15 @@
                     <div class="text-[13px] font-bold text-slate-800 truncate">${m.item}</div>
                     ${meta ? `<div class="text-[10px] text-slate-500 mt-0.5">${meta}</div>` : ''}
                     ${m.catatan ? `<div class="text-[10px] text-slate-400 mt-0.5 truncate">${m.catatan}</div>` : ''}
+                    ${m.diubahOleh ? `<div class="text-[10px] font-semibold text-amber-600 mt-0.5">✎ diubah ${escHtmlCK(m.diubahOleh)}${m.diubahAt ? ' · ' + escHtmlCK(String(m.diubahAt).slice(0,16)) : ''}${m.nUbah > 1 ? ' (' + m.nUbah + '×)' : ''}</div>` : ''}
                     ${beda ? `<div class="text-[10px] font-bold text-rose-600 mt-0.5">Masuk stok ${ckNum(m.qty)} ${m.packSatuan} dari ${ckNum(dikirimDasar)} ${m.packSatuan} yang dikirim</div>` : ''}
                 </div>
                 <div class="shrink-0 text-right">
                     <div class="text-[13px] font-black text-slate-800">${ckNum(m.qtyInput)} ${m.unitInput}</div>
                     <div class="text-[9px] font-black uppercase tracking-wider text-emerald-600">Masuk Stok</div>
                 </div>
+                ${(!m.ref && bolehUbahTab(GUDANG === 'bar' ? 'gb' : 'ck')) ? `<button type="button" onclick="bukaUbahKiriman('${escHtmlCK(m.id)}')" title="Ubah kiriman ini"
+                    class="shrink-0 w-8 h-8 rounded-lg border border-slate-200 text-slate-500 hover:text-teal-700 hover:border-teal-300 flex items-center justify-center"><i class="fa-solid fa-pen text-[11px]"></i></button>` : ''}
             </div>`;
         }
 

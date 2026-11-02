@@ -287,6 +287,11 @@ function pur_ck_mutasi_ambil($pdo, $gudang = 'ck') {
       // walau masternya sudah diubah sejak itu.
       'packIsi'    => isset($d->packIsi) ? (float)$d->packIsi : 0,
       'packSatuan' => isset($d->packSatuan) ? (string)$d->packSatuan : '',
+      // Jejak ubah kiriman (lihat pur_ck_kiriman_simpan): yang terakhir saja
+      // + jumlahnya; isinya tetap utuh di kolom data.
+      'diubahOleh' => (isset($d->diubah) && is_array($d->diubah) && $d->diubah) ? ((string)(end($d->diubah)->oleh ?? '') ?: '(tanpa nama)') : '',
+      'diubahAt'   => (isset($d->diubah) && is_array($d->diubah) && $d->diubah) ? (string)(end($d->diubah)->at ?? '') : '',
+      'nUbah'      => (isset($d->diubah) && is_array($d->diubah)) ? count($d->diubah) : 0,
     ];
   }
   return $out;
@@ -574,6 +579,43 @@ function pur_ck_kiriman_simpan($pdo, $b, $gudang = 'ck') {
     'packIsi'    => $p->packIsi,
     'packSatuan' => $p->packSatuan,
   ];
+
+  /* UBAH KIRIMAN (2 Nov 2026, permintaan user). id terisi = menyunting baris
+     kiriman yang sudah ada: tanggal, jumlah, satuan, catatan. Barangnya,
+     tim, dan pic pengirim TIDAK diubah. Nilai sebelum tiap ubahan disimpan
+     di data.diubah (20 terakhir) — angka stok yang bergeser tanpa jejak
+     tidak bisa diperiksa siapa pun. */
+  $idUbah = trim((string)($b->id ?? ''));
+  if ($idUbah !== '') {
+    $st = $pdo->prepare("SELECT `item`,`tanggal`,`qty`,`qty_input`,`unit_input`,`sebab`,`ref`,`gudang`,`data`
+                           FROM `ck_stock` WHERE `id`=?");
+    $st->execute([$idUbah]);
+    $lama = $st->fetch();
+    if (!$lama) return ['status' => 'error', 'message' => 'kiriman tidak ditemukan'];
+    if ((string)$lama['gudang'] !== $gudang) return ['status' => 'error', 'message' => 'kiriman ini milik ' . pur_ck_nama_gudang($lama['gudang'])];
+    if ((string)$lama['sebab'] !== 'kiriman') return ['status' => 'error', 'message' => 'baris ini bukan kiriman'];
+    if ((string)($lama['ref'] ?? '') !== '') return ['status' => 'error', 'message' => 'mutasi dari pengajuan hanya berubah lewat check-in'];
+    if (strcasecmp((string)$lama['item'], $item) !== 0) return ['status' => 'error', 'message' => 'barang kiriman tidak bisa diganti'];
+
+    $dLama = pur_data_obj($lama['data']);
+    $jejak = isset($dLama->diubah) && is_array($dLama->diubah) ? $dLama->diubah : [];
+    $jejak[] = [
+      'at'      => date('Y-m-d H:i:s'),
+      'oleh'    => trim((string)($b->oleh ?? '')),
+      'sebelum' => [
+        'tanggal'   => $lama['tanggal'],
+        'qtyInput'  => (float)$lama['qty_input'],
+        'unitInput' => $lama['unit_input'],
+        'qty'       => (float)$lama['qty'],
+        'catatan'   => isset($dLama->catatan) ? (string)$dLama->catatan : '',
+      ],
+    ];
+    $rec->diubah = array_slice($jejak, -20);
+    $tglU = trim((string)($b->tanggal ?? '')) ?: $lama['tanggal'];
+    $pdo->prepare("UPDATE `ck_stock` SET `tanggal`=?,`qty`=?,`qty_input`=?,`unit_input`=?,`data`=? WHERE `id`=?")
+        ->execute([$tglU, $qty, $qtyInput, $unitInput, json_encode($rec, JSON_UNESCAPED_UNICODE), $idUbah]);
+    return ['status' => 'success', 'id' => $idUbah];
+  }
 
   $id = pur_uid($gudang === 'bar' ? 'GBK' : 'CKK');
   // status '' = mutasi biasa yang LANGSUNG dihitung ke saldo. Kolomnya tetap
