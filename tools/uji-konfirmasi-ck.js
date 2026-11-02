@@ -250,6 +250,14 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
   cek('pilihan = satuan bahan + ukurannya ("Dus (50 Botol)", "Botol")',
       opsiBc.length === 2 && opsiBc[0] === 'Dus (50 Botol)' && opsiBc[1] === 'Botol', JSON.stringify(opsiBc));
   cek('2 Dus -> 100 Botol', w.eval("ckKeDasarKirim(2,'Dus',globalProductInfo['Botol Chubby'])") === 100);
+  /* Bentuk PRODUKSI (2 Nov 2026): stok Gudang Bar per DUS, Purchasing
+     mengukur per Botol. Botol wajib tetap ditawarkan, = 0,02 Dus. */
+  w.eval("globalProductInfo['Botol Chubby'] = { sumber:'both', packIsi:0, packSatuan:'Dus', satuan:['Dus','Botol'], satuanDasar:'Botol', isi:{Dus:50} };");
+  w.eval('onPilihBarangKirim(' + idBc + ')');
+  const opsiBc2 = [...d.getElementById('kirim-row-unit-' + idBc).options].map(o => o.value);
+  cek('stok per Dus: Botol tetap ditawarkan', opsiBc2.includes('Botol') && opsiBc2.includes('Dus'), JSON.stringify(opsiBc2));
+  cek('stok per Dus: 25 Botol -> 0.5 Dus', Math.abs(w.eval("ckKeDasarKirim(25,'Botol',globalProductInfo['Botol Chubby'])") - 0.5) < 1e-9);
+  cek('stok per Dus: 2 Dus -> 2 Dus', w.eval("ckKeDasarKirim(2,'Dus',globalProductInfo['Botol Chubby'])") === 2);
   d.getElementById('kirim-row-item-' + idBc).closest('[id^="kirim-row-"]') && w.eval('document.getElementById("kirim-rows-wrapper").lastElementChild.remove()');
   cek('konversi 500 Gram -> 0.5 Kg', Math.abs(w.eval("ckKeDasarKirim(500,'Gram',{packIsi:0,packSatuan:'Kg'})") - 0.5) < 1e-9);
   cek('konversi 2 Kg -> 2000 Gram', w.eval("ckKeDasarKirim(2,'Kg',{packIsi:0,packSatuan:'gr'})") === 2000);
