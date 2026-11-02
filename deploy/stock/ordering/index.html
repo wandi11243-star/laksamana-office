@@ -989,13 +989,14 @@
             </div>
             <div class="text-sm font-bold text-slate-800 mb-1" id="ubk-item"></div>
             <p class="text-[11px] text-slate-500 mb-3">Barangnya tidak bisa diganti — kalau salah barang, betulkan lewat mutasi Penyesuaian. Stok dihitung ulang dari angka baru, dan angka lama tetap tercatat di riwayat baris ini.</p>
+            <div id="ubk-info" class="hidden mb-3 text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-xl px-3 py-2 leading-relaxed"></div>
             <div class="grid grid-cols-2 gap-3">
                 <label class="col-span-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Tanggal Kirim
                     <input type="date" id="ubk-tgl" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-800"></label>
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Jumlah
-                    <input type="number" id="ubk-qty" min="0" step="any" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-black text-slate-800"></label>
+                    <input type="number" id="ubk-qty" min="0" step="any" oninput="ubkSegarInfo()" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-black text-slate-800"></label>
                 <label class="text-[10px] font-black text-slate-400 uppercase tracking-widest">Satuan
-                    <select id="ubk-unit" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-800 bg-white"></select></label>
+                    <select id="ubk-unit" onchange="ubkSegarInfo()" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm font-semibold normal-case tracking-normal text-slate-800 bg-white"></select></label>
                 <label class="col-span-2 text-[10px] font-black text-slate-400 uppercase tracking-widest">Catatan
                     <input type="text" id="ubk-note" class="mt-1 w-full border border-slate-200 rounded-xl px-3 py-2 text-sm normal-case tracking-normal text-slate-800"></label>
             </div>
@@ -3624,9 +3625,31 @@
             sel.innerHTML = opsi.map(o => '<option value="' + escHtmlCK(o.v) + '">' + escHtmlCK(o.t) + '</option>').join('');
             sel.value = m.unitInput;
             document.getElementById('ubk-note').value = m.catatan || '';
+            ubkSegarInfo();
             const btn = document.getElementById('btn-ubk-simpan');
             btn.disabled = false; btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Simpan Perubahan';
             openModal('ubah-kiriman-modal');
+        }
+        function ubkBasi(m, qty, unit) {
+            const p = infoGudangItem(m.item);
+            if (!p) return false;
+            const satuanSama = ckKunciSatuan(m.packSatuan || '') === ckKunciSatuan(p.packSatuan || '');
+            const baru = ckKeDasarKirim(qty, unit, p);
+            return !satuanSama || Math.abs(baru - (Number(m.qty) || 0)) > 0.0001;
+        }
+        // Pita di modal: stok yang tercatat vs yang akan tercatat, kalau beda.
+        function ubkSegarInfo() {
+            const m = UBAH_KIRIM, box = document.getElementById('ubk-info');
+            if (!m || !box) return;
+            const p = infoGudangItem(m.item);
+            const qty = parseFloat(document.getElementById('ubk-qty').value) || 0;
+            const unit = document.getElementById('ubk-unit').value;
+            if (!p || !ubkBasi(m, qty, unit)) { box.classList.add('hidden'); box.innerHTML = ''; return; }
+            box.classList.remove('hidden');
+            box.innerHTML = 'Tercatat di stok: <b>' + escHtmlCK(ckNum(m.qty) + ' ' + (m.packSatuan || '')) + '</b> → akan jadi <b>'
+                + escHtmlCK(ckNum(ckKeDasarKirim(qty, unit, p)) + ' ' + (p.packSatuan || '')) + '</b>'
+                + ((ckKunciSatuan(m.packSatuan || '') !== ckKunciSatuan(p.packSatuan || ''))
+                    ? '. Satuan stok barang ini sudah diganti di Purchasing sejak kiriman dicatat — tekan Simpan untuk menghitung ulang.' : '.');
         }
         async function simpanUbahKiriman() {
             const m = UBAH_KIRIM;
@@ -3639,7 +3662,14 @@
             if (tgl > isoLokal(new Date())) return showToast("Tanggal Belum Terjadi", "Tanggal kirim tidak boleh di masa depan.", "warning");
             if (qty <= 0) return showToast("Jumlah Kosong", "Jumlah harus lebih dari 0.", "warning");
             if (ckFaktorSatuan(unit, infoGudangItem(m.item)) == null) return showToast("Satuan Tidak Bisa Dihitung", "Pilih satuan lain.", "danger");
-            if (tgl === m.tanggal && qty === m.qtyInput && unit === m.unitInput && note === (m.catatan || '')) {
+            /* Isian sama TAPI angka stoknya basi (satuan stok barang diganti di
+               Purchasing sesudah kiriman ini dicatat — Lemon Tea Powder, 2 Nov
+               2026: tercatat 0,083 Dus, satuan stoknya kini Gram) BUKAN "tidak
+               ada perubahan": menyimpannya menghitung ulang stok dengan ukuran
+               sekarang. Tanpa ini satu-satunya jalan membetulkannya mengarang
+               perubahan catatan. */
+            const basi = ubkBasi(m, qty, unit);
+            if (!basi && tgl === m.tanggal && qty === m.qtyInput && unit === m.unitInput && note === (m.catatan || '')) {
                 closeModal('ubah-kiriman-modal');
                 return showToast("Tidak Ada Perubahan", "Kiriman ini tidak diubah.", "info");
             }
