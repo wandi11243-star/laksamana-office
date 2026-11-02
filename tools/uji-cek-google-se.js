@@ -57,11 +57,11 @@ ok(M.rvgNorm('  Budi  SANTOSO!! ') === 'budi santoso', 'nama dinormalkan');
 
   // ---- tarik ----
   jawabFetch = { ok: true, data: { review: [
-    { id: 'g1', sumber: 'bp', penulis: 'Budi Santoso', rating: 4, waktu_ms: ms('2026-10-11'), teks: 'Tempatnya enak', url: 'https://g/1' },
-    { id: 'g2', sumber: 'bp', penulis: 'Rina Wijaya Kusuma', rating: 5, waktu_ms: ms('2026-10-12') },
-    { id: 'g3', sumber: 'bp', penulis: 'Andi Lama', rating: 5, waktu_ms: ms('2026-10-10') },
-    { id: 'g4', sumber: 'bp', penulis: 'Siti', rating: 3, waktu_ms: ms('2026-10-05') }
-  ], sumber: ['bp'], syncAt: 1761000000000 } };
+    { id: 'g1', sumber: 'gbp', penulis: 'Budi Santoso', rating: 4, waktu_ms: ms('2026-10-11'), teks: 'Tempatnya enak', url: 'https://g/1' },
+    { id: 'g2', sumber: 'gbp', penulis: 'Rina Wijaya Kusuma', rating: 5, waktu_ms: ms('2026-10-12') },
+    { id: 'g3', sumber: 'gbp', penulis: 'Andi Lama', rating: 5, waktu_ms: ms('2026-10-10') },
+    { id: 'g4', sumber: 'gbp', penulis: 'Siti', rating: 3, waktu_ms: ms('2026-10-05') }
+  ], sumber: ['gbp'], syncAt: 1761000000000 } };
   const p = M.rvgCek();
   ok(POST.length === 1 && POST[0][1].action === 'campaignGoogleCocok' && POST[0][1].sesi === 'TOK', 'memanggil campaignGoogleCocok membawa token sesi');
   ok(POST[0][1].data.dari === '2026-09-25' && POST[0][1].data.sampai === '2026-10-25', 'jendela tarik: 30 hari terakhir s.d. hari ini');
@@ -80,6 +80,14 @@ ok(M.rvgNorm('  Budi  SANTOSO!! ') === 'budi santoso', 'nama dinormalkan');
   ok(rvLama.googleCek.id === 'gLama', 'klaim di luar 30 hari TIDAK menimpa hasil cocok lamanya');
   ok(!rvSah.googleCek, 'klaim yang sudah terverifikasi tidak disentuh');
   ok(M.rvgCocokDengan({ reviewerName: 'X', date: '2026-08-01' }, [], '2026-09-25').jenis === 'luar', 'klaim lebih tua dari jendela -> luar');
+  // Kolom diisi EMAIL (2 Nov 2026): dicari nama penulis di bagian depan email, hasilnya 'mirip'.
+  const GL=[{id:'g1',penulis:'Darel Fauzi',rating:5,waktu_ms:ms('2026-10-18'),teks:'',url:''},{id:'g2',penulis:'Abel',rating:5,waktu_ms:ms('2026-10-18')}];
+  // Kontrak: nilai sumber Business Profile = yang benar-benar ditulis gr_sync(). Sempat 'bp' di layar & di tiruan ini, jadi 'data hanya Places API' selalu tampil.
+  { const PHPG=fs.readFileSync(path.join(ROOT,'konten-mysql/lib_greview.php'),'utf8'); ok(PHPG.indexOf("'sumber' => 'gbp'")>-1 && SRC.indexOf('.includes("gbp")')>-1, 'sumber Business Profile sama dengan yang ditulis PHP (gbp)'); }
+  ok(M.rvgCocokDengan({ reviewerName: 'darelfauzi15@gmail.com', date: '2026-10-18' }, GL, '2026-09-25').jenis === 'mirip', 'email darelfauzi15@ -> mirip dengan Darel Fauzi');
+  ok(M.rvgCocokDengan({ reviewerName: 'abelsibarani87@gmail.com', date: '2026-10-18' }, GL, '2026-09-25').jenis === 'tidak', 'nama satu kata pendek (Abel) tidak dicocokkan ke email — terlalu longgar');
+  ok(M.rvgCocokDengan({ reviewerName: 'Darel Fauzi', date: '2026-10-18' }, GL, '2026-09-25').jenis === 'cocok', 'nama biasa tetap cocok');
+  ok(/Google hanya menampilkan nama akun/.test(M.rvgSel({status:'diklaim',reviewerName:'a@b.com',googleCek:{jenis:'tidak',at:1}})), 'tidak ditemukan untuk email: sebabnya disebut');
 
   // ---- tampilan dari data tersimpan (simulasi refresh: memori kosong) ----
   M.RVG = { memuat: false, galat: '' };
