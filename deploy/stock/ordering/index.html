@@ -387,6 +387,14 @@
                         <!-- Kalender bersama yang sama dengan form belanja (pasangKalender). -->
                         <div data-kal="ck-arrival-date"></div>
                     </div>
+                    <!-- Tanggal KIRIM (permintaan user 2 Nov 2026): barang yang
+                         dikirim kemarin tapi baru dicatat hari ini harus masuk
+                         buku stok di tanggal kirimnya, bukan tanggal dicatat.
+                         Bawaannya HARI INI. -->
+                    <div id="ck-kirim-tgl-wrap" class="hidden">
+                        <label class="block text-[10px] font-black text-slate-300 uppercase tracking-widest mb-1.5">🗓️ Tgl Kirim</label>
+                        <div data-kal="ck-kirim-date"></div>
+                    </div>
                 </div>
             </div>
 
@@ -986,7 +994,7 @@
 
             <div class="flex gap-4 mb-3 text-xs font-bold bg-slate-50 p-3 rounded-xl border border-slate-100">
                 <div class="flex-1 text-slate-600"><span class="block text-[9px] uppercase text-slate-400">PIC</span><span id="ck-konfirmasi-pic" class="text-teal-700"></span></div>
-                <div class="flex-1 text-slate-600 hidden" id="ck-konfirmasi-tgl-box"><span class="block text-[9px] uppercase text-slate-400">Dibutuhkan</span><span id="ck-konfirmasi-tgl" class="text-teal-700"></span></div>
+                <div class="flex-1 text-slate-600 hidden" id="ck-konfirmasi-tgl-box"><span id="ck-konfirmasi-tgl-label" class="block text-[9px] uppercase text-slate-400">Dibutuhkan</span><span id="ck-konfirmasi-tgl" class="text-teal-700"></span></div>
             </div>
 
             <div class="flex items-center justify-between mb-2">
@@ -2409,6 +2417,36 @@
             if (String(unit || '').toLowerCase() === 'pack' && p && p.packIsi > 0) return n * p.packIsi;
             return n;
         }
+        /* SATUAN BEBAS DI FORM KIRIM (permintaan user 2 Nov 2026: "bisa show
+           semua jenis satuan"). Saldo gudang disimpan dalam SATUAN DASAR barang,
+           jadi satuan yang dipilih wajib bisa dikonversi ke sana — "2 Kg" untuk
+           barang berdasar Gram yang disimpan apa adanya menambah stok 2 Gram,
+           seribu kali lebih kecil, tanpa satu pun galat.
+           Yang bisa dikonversi: satuan dasarnya sendiri, Pack (kalau isi packnya
+           diatur), dan pasangan metrik Kg<->Gram, Liter<->ML. Sisanya TETAP
+           ditampilkan tapi tidak bisa dipilih, dan sebabnya disebut.
+           BERKAS KEMBAR pur_ck_faktor_satuan() di stock-mysql/lib_stock_ck.php. */
+        function ckKunciSatuan(u) {
+            const s = String(u || '').trim().toLowerCase();
+            if (['kg','kilo','kilogram'].includes(s)) return 'kg';
+            if (['gram','gr','g','grm'].includes(s)) return 'g';
+            if (['liter','l','ltr','lt'].includes(s)) return 'l';
+            if (['ml','mililiter'].includes(s)) return 'ml';
+            return s;
+        }
+        function ckFaktorSatuan(unit, p) {
+            const u = ckKunciSatuan(unit);
+            const d = ckKunciSatuan(p && p.packSatuan);
+            if (u === 'pack' && p && p.packIsi > 0) return p.packIsi;
+            if (!d || u === d) return 1;
+            const M = { kg:['g',1000], g:['kg',0.001], l:['ml',1000], ml:['l',0.001] };
+            if (M[u] && M[u][0] === d) return M[u][1];
+            return null;
+        }
+        function ckKeDasarKirim(qty, unit, p) {
+            const f = ckFaktorSatuan(unit, p);
+            return (parseFloat(qty) || 0) * (f == null ? 1 : f);
+        }
         function ckNum(n) {
             const v = Math.round((parseFloat(n) || 0) * 1000) / 1000;
             return String(v);
@@ -2609,6 +2647,7 @@
             document.getElementById('ck-judul').textContent = j[0];
             document.getElementById('ck-pic-label').textContent = j[1];
             document.getElementById('ck-tgl-wrap').classList.toggle('hidden', v !== 'minta');
+            document.getElementById('ck-kirim-tgl-wrap').classList.toggle('hidden', v !== 'kirim');
 
             // Peringatan "master CK kosong" hanya relevan di form Minta —
             // form Kirim punya sebab kosongnya sendiri (belum ada barang yang
@@ -2712,6 +2751,8 @@
                 const b = new Date(); b.setDate(b.getDate() + 1);
                 setNilaiKalender('ck-arrival-date', isoLokal(b), false);
             }
+            const inpK = document.getElementById('ck-kirim-date');
+            if (inpK && !inpK.value) setNilaiKalender('ck-kirim-date', isoLokal(new Date()), false);
 
             const wrap = document.getElementById('ck-rows-wrapper');
             if (wrap && !wrap.children.length) { for (let i = 0; i < 2; i++) addCKRow(); }
@@ -3020,8 +3061,9 @@
                dan ditentukan server-side (isoLokal), jadi memajang kotak kosong
                di sana cuma membuat orang mencari isian yang tidak pernah ada. */
             const boxTgl = document.getElementById('ck-konfirmasi-tgl-box');
-            if (minta) {
+            if (k.tgl) {
                 boxTgl.classList.remove('hidden');
+                document.getElementById('ck-konfirmasi-tgl-label').textContent = minta ? 'Dibutuhkan' : 'Tanggal Kirim';
                 const dObj = new Date(k.tgl);
                 document.getElementById('ck-konfirmasi-tgl').textContent =
                     isNaN(dObj) ? k.tgl : dObj.toLocaleDateString('id-ID', { weekday:'short', day:'numeric', month:'short' });
@@ -3072,7 +3114,7 @@
             const k = CK_KONFIRM;
             if (!k) return tutupKonfirmasiCK();
             if (k.mode === 'minta') lanjutCKOrder(k.pesanan, k.tgl, k.pic);
-            else lanjutKirimCK(k.daftar, k.pic);
+            else lanjutKirimCK(k.daftar, k.pic, k.tgl);
         }
 
         /* Rekap pengajuan CK yang masih aktif untuk tanggal itu, lalu cocokkan
@@ -3236,10 +3278,24 @@
                Pack pecahan di sini sah — outlet memang bisa mengembalikan sisa
                setengah pack, dan menolaknya berarti menyuruh barang yang nyata
                ada tidak usah dicatat. */
-            const opsi = perPack ? ['Pack'] : (p && p.packSatuan ? [p.packSatuan] : []);
+            /* Sejak 2 Nov 2026 SELURUH satuan ditampilkan (permintaan user),
+               bukan cuma Pack. Yang tidak bisa dikonversi ke satuan dasar
+               barangnya digambar disabled — lihat ckFaktorSatuan(). */
+            const dasar = (p && p.packSatuan) || 'Pcs';
+            const semua = [];
+            const tambah = x => { if (x && !semua.some(y => ckKunciSatuan(y) === ckKunciSatuan(x))) semua.push(x); };
+            if (perPack) tambah('Pack');
+            tambah(dasar);
+            SATUAN_TERSEDIA.forEach(tambah);
             const sebelum = selU.value;
-            selU.innerHTML = optSatuanCK(opsi.length ? opsi : ['Pcs']);
-            if (opsi.includes(sebelum)) selU.value = sebelum;
+            selU.innerHTML = semua.map(u => {
+                const f = p ? ckFaktorSatuan(u, p) : 1;
+                const ket = f == null ? ' — belum ada ukurannya' : (f !== 1 ? ' (= ' + ckNum(f) + ' ' + dasar + ')' : '');
+                return '<option value="' + escHtmlCK(u) + '"' + (f == null ? ' disabled' : '') + '>' + escHtmlCK(u + ket) + '</option>';
+            }).join('');
+            const bawaan = perPack ? 'Pack' : dasar;
+            selU.value = (sebelum && p && ckFaktorSatuan(sebelum, p) != null && semua.includes(sebelum)) ? sebelum : bawaan;
+            selU.title = 'Satuan yang tidak bisa dipilih belum punya ukuran terhadap satuan dasar barang ini (' + dasar + ').';
             refreshBarisKirim(id);
         }
 
@@ -3288,6 +3344,7 @@
             // Lihat catatan yang sama di submitCKOrder — barangnya diketik,
             // jadi salah ketik harus ditolak sebelum menjadi mutasi stok.
             const takDikenal = [];
+            const satuanSalah = [];
             document.querySelectorAll('[id^="kirim-row-item-"]').forEach(el => {
                 const id = el.id.replace('kirim-row-item-', '');
                 const nama = el.value.trim();
@@ -3297,6 +3354,7 @@
                 if (!nama && qty <= 0) return;
                 if (!nama || qty <= 0) { adaBarisRusak = true; return; }
                 if (!infoGudangItem(nama)) { takDikenal.push(nama); return; }
+                if (ckFaktorSatuan(unit, infoGudangItem(nama)) == null) { satuanSalah.push(nama + ' (' + unit + ')'); return; }
                 daftar.push({ item: nama, qtyInput: qty, unitInput: unit, catatan: note.trim() });
             });
 
@@ -3304,17 +3362,23 @@
                 return showToast("Barang Tidak Dikenali",
                     `${takDikenal.join(', ')} bukan barang ${gdInfo().nama} — pilih dari daftar saran saat mengetik.`, "danger");
             }
+            if (satuanSalah.length) {
+                return showToast("Satuan Tidak Bisa Dihitung",
+                    satuanSalah.join(', ') + ' — satuan ini belum punya ukuran terhadap satuan dasar barangnya. Pilih satuan lain.', "danger");
+            }
             if (adaBarisRusak) return showToast("Baris Belum Lengkap", "Ada baris yang barangnya atau jumlahnya belum diisi.", "warning");
             if (!daftar.length) return showToast("Belum Ada Barang", "Pilih minimal satu barang.", "warning");
 
-            CK_KONFIRM = { mode:'kirim', daftar: daftar, pic: pic };
+            const tglKirim = (document.getElementById('ck-kirim-date') || {}).value || isoLokal(new Date());
+            if (tglKirim > isoLokal(new Date())) return showToast("Tanggal Belum Terjadi", "Tanggal kirim tidak boleh di masa depan — stok tidak bisa bertambah untuk barang yang belum dikirim.", "warning");
+            CK_KONFIRM = { mode:'kirim', daftar: daftar, pic: pic, tgl: tglKirim };
             bukaKonfirmasiCK();
         }
 
         /* Bagian KIRIM yang sesungguhnya. Dipisah dari submitKirimCK() supaya
            rekap konfirmasi berdiri di antara keduanya — lihat catatan di
            bukaKonfirmasiCK(). */
-        async function lanjutKirimCK(daftar, pic) {
+        async function lanjutKirimCK(daftar, pic, tglKirim) {
             /* Yang dikunci tombol DI MODAL, bukan tombol di form: modal menutupi
                formnya, jadi tombol form tidak bisa ditekan dua kali — tapi tombol
                modal bisa, dan tiap tekan mengirim seluruh daftarnya lagi. */
@@ -3325,7 +3389,7 @@
                 btn.innerHTML = `<i class="fa-solid fa-spinner animate-spin"></i> Mencatat ${daftar.length} barang...`;
             }
 
-            const tgl = isoLokal(new Date());
+            const tgl = tglKirim || isoLokal(new Date());
             const tim = timSaatIni();
             let sukses = 0;
             let pesanGagal = '';
@@ -3361,6 +3425,7 @@
                 showToast(sukses === daftar.length ? "Kiriman Tercatat" : "Sebagian Tercatat", pesan,
                           sukses === daftar.length ? "success" : "warning");
                 buangDraf('kirim', true);         // sudah tercatat — drafnya tidak berlaku lagi
+                setNilaiKalender('ck-kirim-date', isoLokal(new Date()), false);
                 document.getElementById('kirim-rows-wrapper').innerHTML = '';
                 for (let i = 0; i < 2; i++) addKirimRow();
                 updateKirimSummary();
@@ -3482,7 +3547,7 @@
             // Selisih antara yang dikirim dan yang tercatat ditulis
             // terang-terangan: itu satu-satunya cara pengirim tahu bahwa
             // yang masuk stok tidak sebanyak yang dia kirim.
-            const dikirimDasar = ckKeDasar(m.qtyInput, m.unitInput, { packIsi: m.packIsi, packSatuan: m.packSatuan });
+            const dikirimDasar = ckKeDasarKirim(m.qtyInput, m.unitInput, { packIsi: m.packIsi, packSatuan: m.packSatuan });
             const beda = Math.abs(dikirimDasar - m.qty) > 0.0001;
             // Tanggal TIDAK diulang di sini: ia sudah jadi judul kelompoknya.
             const meta = [m.tim, m.pic].filter(Boolean).join(' · ');

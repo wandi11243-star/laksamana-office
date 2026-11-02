@@ -62,7 +62,7 @@ function buka() {
     const t = String((e && e.detail && e.detail.stack) || (e && e.message) || e);
     if (!/Not implemented|Could not parse CSS|is not defined/.test(t)) console.log('  !! ' + t.split('\n')[0]);
   });
-  const jejak = { url: [] };
+  const jejak = { url: [], body: [] };
   const dom = new JSDOM(html, { virtualConsole: vc, runScripts: 'dangerously',
     url: 'https://dev.laksamanamuda.id/stock/ordering/',
     beforeParse(w) {
@@ -71,6 +71,7 @@ function buka() {
         modules:['ordering'], adminModules:[], token:'t', expiry: Date.now() + 86400000 }));
       w.fetch = (url, opt) => {
         jejak.url.push(String(url));
+        if (opt && opt.body) jejak.body.push(String(opt.body));
         const j = JSON.stringify({ status:'success', created:1, merged:0, mutasi:[], data:[], orders:[] });
         return Promise.resolve({ ok:true, status:200,
           json:() => Promise.resolve(JSON.parse(j)), text:() => Promise.resolve(j) });
@@ -221,6 +222,7 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
 
   /* ================= 2. KIRIM KE CK ================= */
   console.log('\n== Kirim ke CK ==');
+  w.eval("setSubCKOrder('kirim')"); await tunggu(100);
   w.eval('document.getElementById("kirim-rows-wrapper").innerHTML = ""; addKirimRow();');
   const idKir = [...d.querySelectorAll('[id^="kirim-row-item-"]')].map(el => el.id.replace('kirim-row-item-', ''));
   cek('baris form kirim tergambar', idKir.length === 1, 'dapat ' + idKir.length);
@@ -230,6 +232,25 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
   idKir.forEach(id => w.eval('onPilihBarangKirim(' + id + ')'));
   const satuanK = d.getElementById('kirim-row-unit-' + idKir[0]).value;
   isi(d, 'batch-pic-name', 'Wandi');
+
+  /* SATUAN BEBAS (2 Nov 2026): seluruh satuan tampil, yang tak bisa
+     dikonversi ke satuan dasar ditampilkan disabled. Ayam Fillet berdasar Kg. */
+  const selK = d.getElementById('kirim-row-unit-' + idKir[0]);
+  const opsiK = [...selK.options];
+  cek('form kirim menampilkan seluruh satuan', opsiK.length >= 15, 'dapat ' + opsiK.length);
+  const opsiG = opsiK.find(o => o.value === 'Gram');
+  cek('Gram bisa dipilih untuk barang berdasar Kg', opsiG && !opsiG.disabled);
+  const opsiD = opsiK.find(o => o.value === 'Dus');
+  cek('Dus tampil tapi disabled (belum ada ukurannya)', opsiD && opsiD.disabled);
+  cek('konversi 500 Gram -> 0.5 Kg', Math.abs(w.eval("ckKeDasarKirim(500,'Gram',{packIsi:0,packSatuan:'Kg'})") - 0.5) < 1e-9);
+  cek('konversi 2 Kg -> 2000 Gram', w.eval("ckKeDasarKirim(2,'Kg',{packIsi:0,packSatuan:'gr'})") === 2000);
+  cek('Pack memakai isi pack', w.eval("ckKeDasarKirim(3,'Pack',{packIsi:5,packSatuan:'Pcs'})") === 15);
+  cek('satuan tanpa ukuran = null', w.eval("ckFaktorSatuan('Dus',{packIsi:0,packSatuan:'Kg'})") === null);
+
+  /* TANGGAL KIRIM bisa disetel (2 Nov 2026). */
+  cek('kotak tanggal kirim tampil di sub-tab kirim',
+      d.getElementById('ck-kirim-tgl-wrap').className.indexOf('hidden') < 0);
+  w.eval("setNilaiKalender('ck-kirim-date', '2026-09-10', false);");
 
   jejak.url.length = 0;
   w.submitKirimCK(); await tunggu(80);
@@ -251,13 +272,18 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
       d.getElementById('ck-konfirmasi-sub').textContent);
   /* Tanggal disembunyikan di jalur kirim: tanggalnya hari ini dan tidak
      diketik siapa pun, jadi kotak kosong cuma membuat orang mencarinya. */
-  cek('kotak tanggal disembunyikan di jalur kirim',
-      d.getElementById('ck-konfirmasi-tgl-box').className.indexOf('hidden') > -1);
+  cek('rekap kiriman menampilkan tanggal kirim',
+      d.getElementById('ck-konfirmasi-tgl-box').className.indexOf('hidden') < 0
+      && d.getElementById('ck-konfirmasi-tgl-label').textContent === 'Tanggal Kirim');
 
+  jejak.body.length = 0;
   w.lanjutKonfirmasiCK(); await tunggu(450);
   cek('sesudah dikonfirmasi barulah mutasi dicatat',
       jejak.url.some(u => u.indexOf('ck.php') > -1),
       'dapat: ' + JSON.stringify(jejak.url));
+  const kirimBody = jejak.body.map(b => { try { return JSON.parse(b); } catch (e) { return {}; } }).find(b => b.action === 'kirim');
+  cek('mutasi kiriman memakai tanggal yang dipilih', kirimBody && kirimBody.tanggal === '2026-09-10',
+      JSON.stringify(kirimBody));
 
   /* ================= 3. kontrak sumber ================= */
   console.log('\n== Kontrak sumber ==');
