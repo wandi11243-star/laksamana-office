@@ -346,6 +346,36 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
   w.eval("globalProductInfo['Pack X'] = { sumber:'ck', packIsi:500, packSatuan:'Gram', satuan:['Pack','Gram'], satuanDasar:'', isi:{}, satuanTampil:'Gram' };");
   const tP = w.eval("ckPackUtamaOrder(1500, globalProductInfo['Pack X'], '')");
   cek('barang dipack bisa dipaksa satuan dasar', /1500 Gram/.test(tP) && !/Pack/.test(tP), tP);
+
+  /* FORM MINTA = satuan FORM KIRIM (3 Nov 2026), bawaannya Satuan Tampilan. */
+  w.eval("globalProductInfo['Lemon X'].satuanTampil = 'Kg';");
+  w.eval('addCKRow();');
+  const idM = [...d.querySelectorAll('[id^="ck-row-item-"]')].map(el => el.id.replace('ck-row-item-', '')).pop();
+  isi(d, 'ck-row-item-' + idM, 'Lemon X');
+  w.eval('onPilihBarangCK(' + idM + ')');
+  const opsiM = [...d.getElementById('ck-row-unit-' + idM).options].map(o => o.value);
+  w.eval('addKirimRow();');
+  const idK2 = [...d.querySelectorAll('[id^="kirim-row-item-"]')].map(el => el.id.replace('kirim-row-item-', '')).pop();
+  isi(d, 'kirim-row-item-' + idK2, 'Lemon X');
+  w.eval('onPilihBarangKirim(' + idK2 + ')');
+  const opsiK2 = [...d.getElementById('kirim-row-unit-' + idK2).options].map(o => o.value);
+  cek('minta menawarkan satuan yang sama dengan kirim', JSON.stringify(opsiM) === JSON.stringify(opsiK2) && opsiM.includes('Kg'),
+      JSON.stringify(opsiM) + ' vs ' + JSON.stringify(opsiK2));
+  cek('minta: bawaan = satuan tampilan (Kg)', d.getElementById('ck-row-unit-' + idM).value === 'Kg', d.getElementById('ck-row-unit-' + idM).value);
+  cek('kirim: bawaan = satuan tampilan (Kg)', d.getElementById('kirim-row-unit-' + idK2).value === 'Kg', d.getElementById('kirim-row-unit-' + idK2).value);
+  cek('minta 2 Kg dihitung 2000 Gram', w.eval("ckKeDasar(2,'Kg',globalProductInfo['Lemon X'])") === 2000);
+  cek('pilihan yang diubah orang bertahan saat baris disegarkan', (() => {
+      d.getElementById('ck-row-unit-' + idM).value = 'Gram'; w.eval('onPilihBarangCK(' + idM + ')');
+      return d.getElementById('ck-row-unit-' + idM).value === 'Gram'; })());
+  cek('chip sisa memakai satuan tampilan', /Kg/.test(w.eval("ckTeksPack(7000, globalProductInfo['Lemon X'])")), w.eval("ckTeksPack(7000, globalProductInfo['Lemon X'])"));
+  isi(d, 'ck-row-item-' + idM, 'Pack X');
+  w.eval('onPilihBarangCK(' + idM + ')');
+  const opsiPX = [...d.getElementById('ck-row-unit-' + idM).options].map(o => o.value);
+  cek('minta: barang dipack tetap Pack saja', JSON.stringify(opsiPX) === '["Pack"]', JSON.stringify(opsiPX));
+  w.eval('document.getElementById("ck-rows-wrapper").lastElementChild.remove(); document.getElementById("kirim-rows-wrapper").lastElementChild.remove();');
+  const SRCCK = fs.readFileSync(path.join(ROOT, 'stock-mysql/lib_stock_ck.php'), 'utf8');
+  cek('php: sinkron order memakai faktor satuan', SRCCK.indexOf('pur_ck_ke_dasar($qtyInput, $unit, $p->packIsi, $p->packSatuan, $p)') > -1
+      && SRCCK.indexOf('$f = pur_ck_faktor_satuan($unit, $p);') > -1);
   const SRCPUR = fs.readFileSync(path.join(ROOT, 'deploy/stock/purchasing/index.html'), 'utf8');
   cek('purchasing mengirim satuanTampil', SRCPUR.indexOf("satuanTampil: adaDiCKProd ?") > -1);
   cek('php: satuanTampil disimpan & dipulangkan',

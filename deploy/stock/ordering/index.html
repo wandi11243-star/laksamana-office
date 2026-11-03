@@ -2442,7 +2442,12 @@
         function ckKeDasar(qty, unit, p) {
             const n = parseFloat(qty) || 0;
             if (String(unit || '').toLowerCase() === 'pack' && p && p.packIsi > 0) return n * p.packIsi;
-            return n;
+            /* Sejak form Minta menawarkan satuan yang sama dengan form Kirim
+               (3 Nov 2026), "2 Kg" untuk barang berdasar Gram harus dihitung
+               2000. Yang tidak bisa dikonversi tetap diambil apa adanya —
+               aturan lama, persis pur_ck_ke_dasar(). */
+            const f = p ? ckFaktorSatuan(unit, p) : null;
+            return f == null ? n : n * f;
         }
         /* SATUAN BEBAS DI FORM KIRIM (permintaan user 2 Nov 2026: "bisa show
            semua jenis satuan"). Saldo gudang disimpan dalam SATUAN DASAR barang,
@@ -2513,6 +2518,11 @@
            dasar, ini semata cara menuliskannya. Barang curah tetap memakai
            satuan dasar — di sana justru Pack yang tidak berarti. */
         function ckTeksPack(qtyDasar, p) {
+            /* Satuan Tampilan Stok (Atur Produk) berlaku juga di chip sisa &
+               saran ketikan, supaya form Minta/Kirim menyebut sisa dalam
+               satuan yang sama dengan tab Stok. */
+            const st = (typeof ckSatuanTampil === 'function') ? ckSatuanTampil(p) : null;
+            if (st) return `${ckNum(qtyDasar / st.f)} ${st.u}`;
             if (p && p.packIsi > 0) return `${ckNum(qtyDasar / p.packIsi)} Pack`;
             return `${ckNum(qtyDasar)} ${(p && p.packSatuan) || ''}`.trim();
         }
@@ -2940,10 +2950,17 @@
             if (!selI || !selU) return;
             const p = infoGudangItem(selI.value);
             const perPack = !!(p && p.packIsi > 0);
-            const opsi = perPack ? ['Pack'] : (p && p.packSatuan ? [p.packSatuan] : []);
+            /* 3 Nov 2026 (permintaan user): pilihan satuan SAMA dengan form
+               Kirim — satuan bahan di Purchasing yang bisa dikonversi, mis.
+               Kg untuk barang berdasar Gram. Barang DIPACK tetap Pack saja:
+               aturan pack utuh 31 Juli 2026 tidak dicabut. */
+            const opsi = perPack ? [{ v: 'Pack', t: 'Pack' }]
+                : (p ? opsiSatuanKirim(selI.value, p) : [{ v: 'Pcs', t: 'Pcs' }]);
             const sebelum = selU.value;
-            selU.innerHTML = optSatuanCK(opsi.length ? opsi : ['Pcs']);
-            if (opsi.includes(sebelum)) selU.value = sebelum;
+            selU.innerHTML = opsi.map(o => '<option value="' + escHtmlCK(o.v) + '">' + escHtmlCK(o.t) + '</option>').join('');
+            const sama = selU.dataset.item === selI.value;
+            selU.value = (sama && opsi.some(o => o.v === sebelum)) ? sebelum : (satuanBawaanCK(opsi, p) || (opsi[0] ? opsi[0].v : 'Pcs'));
+            selU.dataset.item = selI.value;
             selU.title = perPack
                 ? 'Barang ini dipack — pengambilan dari ' + gdInfo().singkat + ' hanya bisa dalam pack utuh.'
                 : '';
@@ -3042,6 +3059,7 @@
                 const p = infoGudangItem(nama);
                 if (!p) { takDikenal.push(nama); return; }
                 if (p.packIsi > 0 && !Number.isInteger(qty)) { pecahan.push(nama); return; }
+                if (ckFaktorSatuan(unit, p) == null) { takDikenal.push(nama + ' (satuan ' + unit + ' tidak bisa dihitung)'); return; }
                 pesanan.push({ item: nama, qty: qty, unit: unit, note: note.trim() || '-', tglDatang: tgl, pic: pic });
             });
 
@@ -3379,6 +3397,15 @@
             return opsi;
         }
 
+        /* Satuan yang dipilih SENDIRI saat baris berganti barang: satuan
+           tampilan stoknya (Atur Produk) kalau ada di daftar, lalu satuan
+           dasar. Dipakai form Minta DAN Kirim supaya keduanya sama. */
+        function satuanBawaanCK(opsi, p) {
+            const st = ckSatuanTampil(p);
+            const cari = u => opsi.find(o => ckKunciSatuan(o.v) === ckKunciSatuan(u));
+            const o = (st && cari(st.u)) || (p && p.packIsi > 0 && cari('Pack')) || (p && cari(p.packSatuan)) || opsi[0];
+            return o ? o.v : '';
+        }
         function onPilihBarangKirim(id) {
             const selI = document.getElementById(`kirim-row-item-${id}`);
             const selU = document.getElementById(`kirim-row-unit-${id}`);
@@ -3404,7 +3431,11 @@
             const opsi = opsiSatuanKirim(selI.value, p);
             const sebelum = selU.value;
             selU.innerHTML = opsi.map(o => '<option value="' + escHtmlCK(o.v) + '">' + escHtmlCK(o.t) + '</option>').join('');
-            selU.value = opsi.some(o => o.v === sebelum) ? sebelum : (opsi[0] ? opsi[0].v : dasar);
+            /* Pilihan lama dipertahankan HANYA kalau barangnya sama — ganti
+               barang berarti satuan bawaan barang baru. */
+            const sama = selU.dataset.item === selI.value;
+            selU.value = (sama && opsi.some(o => o.v === sebelum)) ? sebelum : (satuanBawaanCK(opsi, p) || dasar);
+            selU.dataset.item = selI.value;
             selU.title = '';
             refreshBarisKirim(id);
         }

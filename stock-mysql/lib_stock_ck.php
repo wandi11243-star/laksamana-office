@@ -120,10 +120,20 @@ function pur_ck_produk($pdo, $gudang = 'ck') {
    diisi admin, dan orang yang mencatat produksi tidak punya cara
    memperbaikinya sendiri. Diambil apa adanya paling buruk menghasilkan
    saldo yang perlu dikoreksi; ditolak berarti catatannya hilang. */
-function pur_ck_ke_dasar($qty, $unit, $packIsi, $packSatuan) {
+function pur_ck_ke_dasar($qty, $unit, $packIsi, $packSatuan, $p = null) {
   $qty = (float)$qty;
   $unit = trim((string)$unit);
   if (strcasecmp($unit, 'Pack') === 0 && (float)$packIsi > 0) return $qty * (float)$packIsi;
+  /* 3 Nov 2026: form Minta menawarkan satuan yang sama dengan form Kirim
+     (mis. Kg untuk barang berdasar Gram). Kalau data barangnya diberikan
+     dan satuannya bisa dikonversi, dikonversi; selain itu aturan lama —
+     diambil apa adanya. Baris lama bersatuan Pack / satuan dasar memberi
+     angka yang SAMA persis, jadi sinkron ulang tidak menggeser saldo.
+     BERKAS KEMBAR ckKeDasar() di deploy/stock/ordering. */
+  if ($p !== null) {
+    $f = pur_ck_faktor_satuan($unit, $p);
+    if ($f !== null) return $qty * $f;
+  }
   return $qty;
 }
 
@@ -493,7 +503,7 @@ function pur_ck_sinkron_order($pdo, $rowIndexes) {
 
     $qtyInput = (float)$o['qty'];
     $unit     = (string)$o['unit'];
-    $qty      = pur_ck_ke_dasar($qtyInput, $unit, $p->packIsi, $p->packSatuan);
+    $qty      = pur_ck_ke_dasar($qtyInput, $unit, $p->packIsi, $p->packSatuan, $p);
     $rec = (object)['catatan' => 'Pengajuan ' . $ref, 'packIsi' => $p->packIsi, 'packSatuan' => $p->packSatuan];
 
     /* INSERT ... ON DUPLICATE KEY UPDATE, bukan SELECT-lalu-INSERT: dua
