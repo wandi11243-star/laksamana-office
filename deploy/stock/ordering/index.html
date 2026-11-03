@@ -2979,31 +2979,16 @@
             const selU = document.getElementById(`ck-row-unit-${id}`);
             if (!selI || !selU) return;
             const p = infoGudangItem(selI.value);
-            const perPack = !!(p && p.packIsi > 0);
-            /* 3 Nov 2026 (permintaan user): pilihan satuan SAMA dengan form
-               Kirim — satuan bahan di Purchasing yang bisa dikonversi, mis.
-               Kg untuk barang berdasar Gram. Barang DIPACK tetap Pack saja:
-               aturan pack utuh 31 Juli 2026 tidak dicabut. */
-            const opsi = perPack ? [{ v: 'Pack', t: 'Pack' }]
-                : (p ? opsiSatuanKirim(selI.value, p) : [{ v: 'Pcs', t: 'Pcs' }]);
+            /* 3 Nov 2026 (permintaan user, kedua kali: "samain aja"): pilihan
+               satuan PERSIS form Kirim, termasuk barang dipack. Aturan pack
+               utuh (31 Juli 2026) tinggal berlaku saat satuannya Pack. */
+            const opsi = p ? opsiSatuanKirim(selI.value, p) : [{ v: 'Pcs', t: 'Pcs' }];
             const sebelum = selU.value;
             selU.innerHTML = opsi.map(o => '<option value="' + escHtmlCK(o.v) + '">' + escHtmlCK(o.t) + '</option>').join('');
             const sama = selU.dataset.item === selI.value;
             selU.value = (sama && opsi.some(o => o.v === sebelum)) ? sebelum : (satuanBawaanCK(opsi, p) || (opsi[0] ? opsi[0].v : 'Pcs'));
             selU.dataset.item = selI.value;
-            selU.title = perPack
-                ? 'Barang ini dipack — pengambilan dari ' + gdInfo().singkat + ' hanya bisa dalam pack utuh.'
-                : '';
-
-            /* step & min ikut diubah, bukan cuma divalidasi saat kirim: panah
-               naik-turun dan tombol +/- harus bergerak per 1 pack, dan angka
-               pecahan sebaiknya tidak pernah sempat muncul di layar. */
-            const inp = document.getElementById(`ck-row-qty-${id}`);
-            if (inp) {
-                inp.step = perPack ? '1' : 'any';
-                inp.min = '0';
-                if (perPack) inp.value = Math.max(0, Math.round(parseFloat(inp.value) || 0));
-            }
+            selU.title = '';
             refreshBarisCK(id);
         }
 
@@ -3032,8 +3017,12 @@
                user), tapi penandanya tidak boleh ikut hilang: pecahan tetap
                ditolak saat kirim, dan tanda ini yang membuat penolakan itu
                tidak datang mendadak setelah sepuluh baris lain diisi. */
+            /* Pack utuh hanya kalau satuannya Pack. step ikut diatur di sini
+               (bukan cuma saat barang dipilih) karena satuannya bisa diganti. */
+            const satuanPack = p.packIsi > 0 && String(unit).toLowerCase() === 'pack';
+            if (inpQty) { inpQty.step = satuanPack ? '1' : 'any'; inpQty.min = '0'; }
             if (inpQty) {
-                const pecah = p.packIsi > 0 && !Number.isInteger(qty);
+                const pecah = satuanPack && !Number.isInteger(qty);
                 inpQty.classList.toggle('border-rose-400', pecah);
                 inpQty.classList.toggle('text-rose-600', pecah);
                 inpQty.classList.toggle('border-slate-200', !pecah);
@@ -3088,7 +3077,7 @@
                 // atau ditempel langsung tetap lolos ke pesanan.
                 const p = infoGudangItem(nama);
                 if (!p) { takDikenal.push(nama); return; }
-                if (p.packIsi > 0 && !Number.isInteger(qty)) { pecahan.push(nama); return; }
+                if (p.packIsi > 0 && String(unit).toLowerCase() === 'pack' && !Number.isInteger(qty)) { pecahan.push(nama); return; }
                 if (ckFaktorSatuan(unit, p) == null) { takDikenal.push(nama + ' (satuan ' + unit + ' tidak bisa dihitung)'); return; }
                 pesanan.push({ item: nama, qty: qty, unit: unit, note: note.trim() || '-', tglDatang: tgl, pic: pic });
             });

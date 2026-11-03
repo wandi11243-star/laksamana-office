@@ -371,7 +371,8 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
   isi(d, 'ck-row-item-' + idM, 'Pack X');
   w.eval('onPilihBarangCK(' + idM + ')');
   const opsiPX = [...d.getElementById('ck-row-unit-' + idM).options].map(o => o.value);
-  cek('minta: barang dipack tetap Pack saja', JSON.stringify(opsiPX) === '["Pack"]', JSON.stringify(opsiPX));
+  cek('minta: barang dipack menawarkan Pack DAN satuan lain (sama dgn kirim)', opsiPX.includes('Pack') && opsiPX.includes('Gram'), JSON.stringify(opsiPX));
+  cek('minta: bawaan barang dipack = satuan tampilannya (Gram)', d.getElementById('ck-row-unit-' + idM).value === 'Gram', d.getElementById('ck-row-unit-' + idM).value);
   w.eval('document.getElementById("ck-rows-wrapper").lastElementChild.remove(); document.getElementById("kirim-rows-wrapper").lastElementChild.remove();');
   const SRCCK = fs.readFileSync(path.join(ROOT, 'stock-mysql/lib_stock_ck.php'), 'utf8');
   cek('php: sinkron order memakai faktor satuan', SRCCK.indexOf('pur_ck_ke_dasar($qtyInput, $unit, $p->packIsi, $p->packSatuan, $p)') > -1
