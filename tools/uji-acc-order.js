@@ -86,7 +86,12 @@ function buka(jawabBatch) {
   cek('accList memakai sesi Office', jejak.url.some(u => /action=accList&sesi=TOK/.test(u)));
   cek('lencana menu = 1', d.getElementById('acc-badge').textContent === '1' && !d.getElementById('acc-badge').classList.contains('hidden'));
   const panel = d.getElementById('acc-panel');
-  cek('panel tampil', !panel.classList.contains('hidden'));
+  cek('menu ACC Order tampil untuk head', !d.getElementById('tab-acc').classList.contains('hidden'));
+  cek('panel di halaman sendiri, BUKAN di form order', !!panel.closest('#view-acc') && !d.querySelector('#view-order #acc-panel'));
+  w.eval("switchTab('acc')");
+  cek('halaman ACC terbuka, form order tersembunyi', !d.getElementById('view-acc').classList.contains('hidden')
+      && d.getElementById('view-order').classList.contains('hidden'));
+  cek('menu ACC Order aktif & tetap terlihat', /bg-indigo-50/.test(d.getElementById('tab-acc').className) && !d.getElementById('tab-acc').classList.contains('hidden'));
   cek('panel menyebut pemohon & divisi', /Budi Bar/.test(panel.textContent) && /Bar/.test(panel.textContent));
   cek('pengajuan saya: ditolak + alasannya', /Ditolak/.test(panel.textContent) && /stok masih ada/.test(panel.textContent));
 
