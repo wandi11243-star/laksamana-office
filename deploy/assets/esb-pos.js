@@ -57,7 +57,14 @@
           if (r && r.ok) return r.data;
           e = new Error((r && r.error) || 'balasan tidak dikenal');
           if (/token|sesi|akses|modul/i.test(e.message)) break;
+          /* 429 / Cloudflare 1015 = ESB sedang membatasi permintaan (3 Nov
+             2026). TIDAK dicoba ulang — tiap percobaan selama diblokir ikut
+             dihitung dan memperpanjang blokirnya. Yang menolong cuma menunggu. */
+          if ((r && r.limit) || /HTTP 429|1015/.test(e.message))
+            throw Object.assign(new Error('Halaman ' + page + ': ' + e.message
+              + ' Tunggu 15–30 menit tanpa menarik apa pun dari ESB, lalu coba sekali lagi.'), { limit: true });
         } catch (x) {
+          if (x && x.limit) throw x;
           e = (x instanceof TypeError)
             ? new Error('koneksi ke server Office terputus (bukan dari ESB). Periksa internet lalu coba lagi.') : x;
         }
