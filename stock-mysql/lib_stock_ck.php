@@ -102,6 +102,8 @@ function pur_ck_produk($pdo, $gudang = 'ck') {
       // pur_ck_faktor_satuan() untuk form Kirim.
       'satuanDasar'=> isset($d->satuanDasar) && is_string($d->satuanDasar) ? trim($d->satuanDasar) : '',
       'isi'        => isset($d->isi) && (is_object($d->isi) || is_array($d->isi)) ? (array)$d->isi : [],
+      // Satuan untuk MENULIS sisa stok di Ordering (Atur Produk). '' = otomatis.
+      'satuanTampil'=> isset($d->satuanTampil) && is_string($d->satuanTampil) ? trim($d->satuanTampil) : '',
       // Barang ini juga disimpan di outlet, jadi bisa dikirim BALIK ke CK
       // (retur sisa, titipan stok berlebih). Barang yang cuma ada di CK
       // tidak pernah dipegang outlet, jadi tidak ada yang bisa dikirimnya.

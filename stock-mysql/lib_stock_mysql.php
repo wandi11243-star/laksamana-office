@@ -962,7 +962,7 @@ function pur_products_ambil($pdo) {
    hpp.php), jadi menyisipkan di tengah akan menggeser SETIAP argumen
    sesudahnya — kategori terbaca sebagai area, packIsi sebagai diOutlet — tanpa
    satu pun galat, karena semuanya sama-sama boleh null. */
-function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null, $caraBeli = null, $sumber = null, $packIsi = null, $packSatuan = null, $diOutlet = null, $satuanDasar = null, $isi = null, $aktif = null) {
+function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $satuan = null, $kategori = null, $area = null, $caraBeli = null, $sumber = null, $packIsi = null, $packSatuan = null, $diOutlet = null, $satuanDasar = null, $isi = null, $aktif = null, $satuanTampil = null) {
   $nama = trim((string)$nama);
   if ($nama === '') return ['status' => 'error', 'message' => 'nama produk kosong'];
 
@@ -991,10 +991,11 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   $diOutletLama = false;
   $satuanDasarLama = '';
   $aktifLama = true;
+  $satuanTampilLama = '';
   $isiLama = (object)[];
   if ($satuan === null || $kategori === null || $area === null || $caraBeli === null
       || $sumber === null || $packIsi === null || $packSatuan === null || $diOutlet === null
-      || $satuanDasar === null || $isi === null || $aktif === null) {
+      || $satuanDasar === null || $isi === null || $aktif === null || $satuanTampil === null) {
     $st = $pdo->prepare("SELECT `data` FROM `products` WHERE `nama`=?");
     $st->execute([$namaLama !== '' ? $namaLama : $nama]);
     $row = $st->fetch();
@@ -1015,6 +1016,7 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
       if (is_object($lama) && isset($lama->satuanDasar) && is_string($lama->satuanDasar)) $satuanDasarLama = $lama->satuanDasar;
       if (is_object($lama) && isset($lama->isi)) $isiLama = pur_isi_normal($lama->isi);
       if (is_object($lama) && isset($lama->aktif)) $aktifLama = (bool)$lama->aktif;
+      if (is_object($lama) && isset($lama->satuanTampil) && is_string($lama->satuanTampil)) $satuanTampilLama = $lama->satuanTampil;
     }
   }
   if ($satuan === null)     $satuan = $satuanLama;
@@ -1028,6 +1030,12 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
   if ($satuanDasar === null) $satuanDasar = $satuanDasarLama;
   if ($isi === null)         $isi = $isiLama;
   if ($aktif === null)       $aktif = $aktifLama;
+  if ($satuanTampil === null) $satuanTampil = $satuanTampilLama;
+  /* satuanTampil (3 Nov 2026): satuan yang dipakai MENULIS sisa stok CK /
+     Gudang Bar di layar Ordering. '' = otomatis. Cuma cara menuliskannya —
+     saldo tetap disimpan dalam packSatuan. Satuan yang tidak bisa dikonversi
+     tidak ditolak di sini; layar Ordering jatuh ke otomatis untuknya. */
+  $satuanTampil = trim((string)$satuanTampil);
 
   if (is_string($satuan)) {
     $satuan = array_values(array_filter(array_map('trim', explode(',', $satuan)), fn($s) => $s !== ''));
@@ -1144,7 +1152,7 @@ function pur_product_simpan($pdo, $nama, $utama, $cadangan, $namaLama = '', $sat
                   'kategori' => $kategori, 'area' => $area, 'caraBeli' => $caraBeli,
                   'sumber' => $sumber, 'packIsi' => $packIsi, 'packSatuan' => $packSatuan,
                   'diOutlet' => $diOutlet, 'satuanDasar' => $satuanDasar, 'isi' => $isi,
-                  'aktif' => (bool)$aktif];
+                  'aktif' => (bool)$aktif, 'satuanTampil' => $adaDiCK ? $satuanTampil : ''];
 
   $pdo->beginTransaction();
   try {

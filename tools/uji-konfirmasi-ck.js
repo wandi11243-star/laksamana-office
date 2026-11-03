@@ -335,6 +335,23 @@ const isi = (d, id, v) => { const el = d.getElementById(id); if (el) el.value = 
   w.eval("globalProductInfo['Lemon X'] = { sumber:'both', packIsi:0, packSatuan:'Gram', satuan:['Gram','Kg','Pcs'], satuanDasar:'Gram', isi:{Pcs:750} };");
   cek('satuan beli terkecil yang dipilih (Pcs 750 g, bukan Kg)', w.eval("ckSatuanTampil(globalProductInfo['Lemon X']).u") === 'Pcs');
   cek('barang tanpa ukuran tetap satuan stoknya', w.eval("ckSatuanTampil({packIsi:0,packSatuan:'Pcs',satuan:['Pcs']})") === null);
+  // Satuan Tampilan Stok dari Purchasing (3 Nov 2026) menang atas otomatis.
+  w.eval("globalProductInfo['Lemon X'].satuanTampil = 'Kg';");
+  cek('setelan Kg dipakai: 1500 Gram -> 1.5 Kg', /1[.,]5 Kg/.test(w.eval("ckPackUtamaOrder(1500, globalProductInfo['Lemon X'], '')")), w.eval("ckPackUtamaOrder(1500, globalProductInfo['Lemon X'], '')"));
+  w.eval("globalProductInfo['Lemon X'].satuanTampil = 'Gram';");
+  const tG = w.eval("ckPackUtamaOrder(1500, globalProductInfo['Lemon X'], '')");
+  cek('setelan satuan dasar: satu baris saja', /1500 Gram/.test(tG) && (tG.match(/Gram/g) || []).length === 1, tG);
+  w.eval("globalProductInfo['Lemon X'].satuanTampil = 'Dus';");
+  cek('satuan tanpa ukuran jatuh ke otomatis', w.eval("ckSatuanTampil(globalProductInfo['Lemon X']).u") === 'Pcs');
+  w.eval("globalProductInfo['Pack X'] = { sumber:'ck', packIsi:500, packSatuan:'Gram', satuan:['Pack','Gram'], satuanDasar:'', isi:{}, satuanTampil:'Gram' };");
+  const tP = w.eval("ckPackUtamaOrder(1500, globalProductInfo['Pack X'], '')");
+  cek('barang dipack bisa dipaksa satuan dasar', /1500 Gram/.test(tP) && !/Pack/.test(tP), tP);
+  const SRCPUR = fs.readFileSync(path.join(ROOT, 'deploy/stock/purchasing/index.html'), 'utf8');
+  cek('purchasing mengirim satuanTampil', SRCPUR.indexOf("satuanTampil: adaDiCKProd ?") > -1);
+  cek('php: satuanTampil disimpan & dipulangkan',
+      fs.readFileSync(path.join(ROOT, 'stock-mysql/lib_stock_mysql.php'), 'utf8').indexOf("'satuanTampil' => $adaDiCK ?") > -1
+      && fs.readFileSync(path.join(ROOT, 'stock-mysql/lib_stock_ck.php'), 'utf8').indexOf("'satuanTampil'=>") > -1
+      && fs.readFileSync(path.join(ROOT, 'stock-mysql/items.php'), 'utf8').indexOf('$b->satuanTampil ?? null') > -1);
   const SRCPHP = fs.readFileSync(path.join(ROOT, 'stock-mysql/lib_stock_ck.php'), 'utf8');
   cek('php: ubah kiriman menolak ganti barang & baris bukan kiriman',
       SRCPHP.indexOf("barang kiriman tidak bisa diganti") > -1 && SRCPHP.indexOf("baris ini bukan kiriman") > -1);
