@@ -548,6 +548,45 @@ function pur_orders_update_kedatangan($pdo, $updates) {
   }
 }
 
+/* TERIMA SELURUH BATCH SEKETIKA — dipakai pengambilan Gudang Bar (3 Nov
+   2026), yang tidak lewat Check-in Penerimaan. Tiap baris batch itu:
+   kedatangan 'Datang', jumlah aktual = qty yang diminta, status 'Arsip'
+   (tidak ada yang perlu diteruskan Purchasing ke vendor mana pun).
+   Diterapkan ke SELURUH baris batch, bukan cuma yang baru: baris yang
+   digabung menaikkan qty, dan sinkron stok harus membaca angka terbarunya.
+   Kegagalan sinkron stok TIDAK menggagalkan pengajuannya — sama dengan
+   jalur updateKedatangan: barisnya sudah tersimpan, dan selisih stok bisa
+   dikoreksi lewat Penyesuaian. */
+function pur_orders_terima_batch($pdo, $batchId) {
+  $batchId = trim((string)$batchId);
+  if ($batchId === '') return ['diterima' => 0];
+  $st = $pdo->prepare("SELECT `row_index`, `qty` FROM `orders` WHERE `batch_id` = ?");
+  $st->execute([$batchId]);
+  $baris = $st->fetchAll();
+  if (!$baris) return ['diterima' => 0];
+  $upd = $pdo->prepare(
+    "UPDATE `orders`
+        SET `kedatangan` = 'Datang', `status` = 'Arsip',
+            `data` = JSON_SET(IF(JSON_VALID(`data`), `data`, '{}'),
+                       '$.kedatangan', 'Datang', '$.catatan', ?, '$.status', 'Arsip')
+      WHERE `row_index` = ?");
+  $rows = [];
+  foreach ($baris as $r) {
+    $q = (float)$r['qty'];
+    $upd->execute([(string)(floor($q) == $q ? (int)$q : $q), (int)$r['row_index']]);
+    $rows[] = (int)$r['row_index'];
+  }
+  $hasil = ['diterima' => count($rows)];
+  try {
+    require_once __DIR__ . '/lib_stock_ck.php';
+    $hasil['ck'] = pur_ck_sinkron_order($pdo, $rows);
+  } catch (Throwable $e) {
+    error_log('[stock/orders] sinkron Gudang Bar gagal: ' . $e->getMessage());
+    $hasil['ck'] = ['error' => 'sinkron stok Gudang Bar gagal'];
+  }
+  return $hasil;
+}
+
 /* JADWAL PENJEMPUTAN. Payload: {action:'updateTglJemput', updates:[{rowIndex, tglJemput}]}
    Dipakai Monitor Order sebelum mengarsipkan order dari vendor yang ditandai
    "tidak bisa dijemput hari yang sama".

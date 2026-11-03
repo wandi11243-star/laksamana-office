@@ -152,8 +152,23 @@ function buka(jawabBatch) {
     cek('sintaks PHP sah (orders.php + lib_stock_acc.php)', true);
   } catch (e) { cek('sintaks PHP sah', false, e.message); }
   const iAcc = ORD.indexOf("if ($a === 'batchOrder' && !empty($b->accHead))");
-  const iBatch = ORD.indexOf("if ($a === 'batchOrder') pur_json(pur_orders_batch(");
+  const iBatch = ORD.indexOf("if ($a === 'batchOrder') {");
   cek('cabang ACC berdiri SEBELUM batchOrder biasa', iAcc > -1 && iBatch > iAcc);
+
+  /* Gudang Bar tanpa Check-in (3 Nov 2026): batch "Gudang Bar" langsung
+     diterima server + stok dipotong lewat pintu sinkron yang sama. */
+  console.log('\n== Gudang Bar tanpa Check-in ==');
+  const MYS = fs.readFileSync(path.join(ROOT, 'stock-mysql/lib_stock_mysql.php'), 'utf8');
+  const CKL = fs.readFileSync(path.join(ROOT, 'stock-mysql/lib_stock_ck.php'), 'utf8');
+  const cabBatch = ORD.slice(iBatch, iBatch + 1500);
+  cek('batch Gudang Bar langsung diterima', /=== 'gudang bar'/.test(cabBatch) && /pur_orders_terima_batch\(\$pdo/.test(cabBatch));
+  const fT = MYS.slice(MYS.indexOf('function pur_orders_terima_batch'), MYS.indexOf('function pur_orders_terima_batch') + 2200);
+  cek('terima batch: Datang + Arsip', /`kedatangan` = 'Datang', `status` = 'Arsip'/.test(fT));
+  cek('terima batch: stok lewat pur_ck_sinkron_order', /pur_ck_sinkron_order\(\$pdo, \$rows\)/.test(fT));
+  cek('terima batch: gagal stok tidak menggagalkan', /catch \(Throwable/.test(fT));
+  cek('mutasi pengambilan mencatat batchId', /'batchId' => \(string\)\(\$o\['batch_id'\]/.test(CKL) && /'batchId'    => isset\(\$d->batchId\)/.test(CKL));
+  cek('Check-in menyaring batch Gudang Bar yang sudah Datang', SRC.includes("filteredRecords.filter(o => !(dariFormGudang(o) === 'bar' && o.kedatangan === 'Datang'))"));
+  cek('Riwayat Gudang Bar memuat pengambilan per batch', SRC.includes("(GUDANG === 'bar' && m.sebab === 'pengajuan')") && SRC.includes('function kartuBatchAmbil('));
   cek('head divisinya sendiri tidak perlu ACC', LIB.indexOf('if (array_intersect($div, pur_acc_head_akun($u))) return [];') > -1);
   cek('divisi tanpa head langsung masuk', LIB.indexOf('return array_keys($adaHead);') > -1);
   cek('yang meng-ACC wajib head divisi itu / admin modul', LIB.indexOf("if (!pur_acc_admin($u) && !array_intersect($x['divisi'], pur_acc_head_akun($u)))") > -1);

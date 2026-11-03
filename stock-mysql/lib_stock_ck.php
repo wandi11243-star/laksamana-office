@@ -304,6 +304,7 @@ function pur_ck_mutasi_ambil($pdo, $gudang = 'ck') {
       'diubahOleh' => (isset($d->diubah) && is_array($d->diubah) && $d->diubah) ? ((string)(end($d->diubah)->oleh ?? '') ?: '(tanpa nama)') : '',
       'diubahAt'   => (isset($d->diubah) && is_array($d->diubah) && $d->diubah) ? (string)(end($d->diubah)->at ?? '') : '',
       'nUbah'      => (isset($d->diubah) && is_array($d->diubah)) ? count($d->diubah) : 0,
+      'batchId'    => isset($d->batchId) ? (string)$d->batchId : '',
     ];
   }
   return $out;
@@ -455,7 +456,7 @@ function pur_ck_sinkron_order($pdo, $rowIndexes) {
 
   $isi = implode(',', array_fill(0, count($rows), '?'));
   $st = $pdo->prepare("SELECT `nomor_order`,`row_index`,`item`,`qty`,`unit`,`tgl_datang`,
-                              `kedatangan`,`tim`,`pic`,`batch_name`
+                              `kedatangan`,`tim`,`pic`,`batch_name`,`batch_id`
                          FROM `orders` WHERE `row_index` IN ($isi)");
   $st->execute($rows);
 
@@ -504,7 +505,10 @@ function pur_ck_sinkron_order($pdo, $rowIndexes) {
     $qtyInput = (float)$o['qty'];
     $unit     = (string)$o['unit'];
     $qty      = pur_ck_ke_dasar($qtyInput, $unit, $p->packIsi, $p->packSatuan, $p);
-    $rec = (object)['catatan' => 'Pengajuan ' . $ref, 'packIsi' => $p->packIsi, 'packSatuan' => $p->packSatuan];
+    /* batchId ikut dicatat (3 Nov 2026) supaya Riwayat Gudang Bar bisa
+       mengelompokkan pengambilan per batch, bukan per baris lepas. */
+    $rec = (object)['catatan' => 'Pengajuan ' . $ref, 'packIsi' => $p->packIsi, 'packSatuan' => $p->packSatuan,
+                    'batchId' => (string)($o['batch_id'] ?? '')];
 
     /* INSERT ... ON DUPLICATE KEY UPDATE, bukan SELECT-lalu-INSERT: dua
        orang bisa menyimpan check-in PO yang sama pada detik yang sama, dan
