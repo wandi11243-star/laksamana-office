@@ -8082,18 +8082,37 @@ function esbBulanSinkron() {
 async function esbTarikRentang(dari, sampai, label) {
   const sesi = esbSesiToken();
   const semua = [];
+  /* PENANDA BERHENTI BERSAMA (3 Nov 2026). Tiga pekerja menarik halaman
+     bersamaan; begitu SATU gagal, Promise.all memang langsung menolak — tapi
+     dua pekerja lain TETAP BERJALAN menarik sisa halaman, masing-masing
+     dengan tiga percobaan. Saat ESB sedang membatasi (HTTP 429 / Cloudflare
+     1015), itu ratusan permintaan tambahan yang tidak ditunggu siapa pun dan
+     justru MEMPERPANJANG blokirnya — layar sudah menulis galat, sementara di
+     belakangnya server terus menembak. */
+  let henti = null;
   const ambil = async page => {
     /* Satu halaman yang gagal dicoba ulang dua kali. Lebih dari itu
        BERHENTI — melompatinya berarti menyimpan bulan yang bolong satu
        halaman (~20 bill) dengan angka yang tetap terlihat wajar. */
     let e = null;
     for (let c = 0; c < 3; c++) {
+      if (henti) throw henti;
       try {
         const r = await postJson(API_AN, { action:'esbHalaman', sesi, dari, sampai, page });
         if (r && r.ok && r.data) return r.data;
         e = new Error((r && r.error) || 'balasan kosong');
         if (/token|sesi|akses/i.test(e.message)) break;
+        /* 429 TIDAK dicoba ulang: tiap percobaan selama diblokir ikut
+           dihitung ESB. Yang menolong cuma menunggu. */
+        if (r && r.limit || /HTTP 429|1015/.test(e.message)) {
+          henti = new Error(e.message + ' Tunggu minimal 15–30 menit tanpa menarik apa pun dari ESB '
+            + '(termasuk Per hari di sini, dan tombol ESB di Cashier / Finance), lalu coba sekali lagi.');
+          throw henti;
+        }
       } catch (x) {
+        /* Penanda berhenti yang dilempar di atas jatuh ke sini juga — ia
+           harus lewat, bukan dicoba ulang. */
+        if (henti) throw henti;
         /* "Failed to fetch" = peramban tidak mendapat jawaban APA PUN dari
            server Office — koneksinya terputus sebelum sampai ke ESB. Ditulis
            apa adanya, ia dibaca sebagai ESB yang gagal (20 Oktober 2026:
@@ -8106,7 +8125,8 @@ async function esbTarikRentang(dari, sampai, label) {
       }
       await new Promise(s => setTimeout(s, 800 * (c + 1)));
     }
-    throw new Error('Halaman ' + page + ': ' + (e && e.message || e));
+    henti = henti || new Error('Halaman ' + page + ': ' + (e && e.message || e));
+    throw henti;
   };
   esbLapor(label + ': menarik halaman 1…');
   const p1 = await ambil(1);

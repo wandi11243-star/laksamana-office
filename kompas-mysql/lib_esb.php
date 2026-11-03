@@ -115,6 +115,19 @@ function esb_halaman($dari, $sampai, $page) {
   if ($kode === 401 || $kode === 403)
     return array('ok' => false, 'error' => 'Token ESB ditolak (HTTP ' . $kode . '). '
       . 'Token di config.php salah atau sudah kedaluwarsa — ganti dengan yang berlaku di Postman.');
+  /* 429 = ESB (Cloudflare, "error code: 1015") MEMBATASI PERMINTAAN dari IP
+     server ini (3 Nov 2026). Dibedakan dari galat lain karena jalan keluarnya
+     MENUNGGU — dan peramban wajib BERHENTI menembak: tiap percobaan selama
+     diblokir ikut dihitung dan memperpanjang blokirnya. `limit` adalah
+     penanda yang dibaca peramban; Retry-After dipulangkan kalau ESB
+     menyebutnya. */
+  if ($kode === 429) {
+    $ra = isset($hdr['retry-after']) ? trim($hdr['retry-after']) : '';
+    return array('ok' => false, 'limit' => true, 'retryAfter' => $ra,
+      'error' => 'ESB sedang membatasi permintaan dari server Office (HTTP 429'
+        . (stripos((string)$jawab, '1015') !== false ? ', Cloudflare 1015' : '') . ')'
+        . ($ra !== '' ? '. ESB minta menunggu ' . $ra . ' detik' : '') . '.');
+  }
   if ($kode >= 400 || !is_array($d)) {
     $pesan = (is_array($d) && isset($d['message'])) ? (string)$d['message'] : substr((string)$jawab, 0, 200);
     return array('ok' => false, 'error' => 'ESB menjawab HTTP ' . $kode . ': ' . $pesan);

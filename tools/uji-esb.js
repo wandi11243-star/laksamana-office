@@ -227,6 +227,35 @@ const SEPT_SETENGAH = { '2026-09': { ringkas:{ bill:1, grand:1 }, hari:{}, esb:{
     cek('Oktober tersimpan', !!w.eval('AN.data.laporan["2026-10"]'));
   }
 
+  console.log('\n== 4b. ESB membatasi (429 / Cloudflare 1015): BERHENTI, tidak menembak ulang ==');
+  {
+    /* Oktober 40 halaman, halaman 5 kena 429. Sebelum 3 Nov 2026 dua pekerja
+       lain tetap menarik sisa halaman (tiap halaman 3x) sesudah layar sudah
+       menulis galat — dan itu yang memperpanjang blokir ESB. */
+    const { dom, panggilan } = domAnalytics({ esb: b => b.page === 5
+      ? { ok:false, limit:true, error:'ESB sedang membatasi permintaan dari server Office (HTTP 429, Cloudflare 1015).' }
+      : { ok:true, data:{ bills: b.page === 1 ? [BILL_OKT] : [], page:b.page, pageCount:40 } } });
+    const w = dom.window; await siap(w);
+    await w.anSinkronEsb();
+    await tunggu(3000);
+    const esbP = panggilan.filter(p => p.body && p.body.action === 'esbHalaman');
+    const hal5 = esbP.filter(p => p.body.page === 5).length;
+    cek('halaman yang kena 429 TIDAK dicoba ulang', hal5 === 1, hal5);
+    cek('pekerja lain berhenti (bukan 40 halaman)', esbP.length <= 8, esbP.length);
+    cek('tidak ada yang disimpan', !panggilan.some(p => p.body && p.body.action === 'analyticsSave'));
+    cek('pesannya menyuruh menunggu', /Tunggu minimal 15/.test(w.document.body.innerHTML));
+  }
+
+  console.log('\n== 4c. esb-pos.js (Cashier/Finance): 429 tidak dicoba ulang ==');
+  {
+    const W = {}; new Function('window', fs.readFileSync(path.join(ROOT, 'deploy/assets/esb-pos.js'), 'utf8'))(W);
+    let n = 0, galat = null;
+    try { await W.esbPos.tarikHari('2026-10-05', async () => { n++; return { ok:false, limit:true, error:'ESB menjawab HTTP 429: error code: 1015' }; }); }
+    catch (e) { galat = e; }
+    cek('satu permintaan saja', n === 1, n);
+    cek('melempar dengan saran menunggu', galat && /Tunggu 15/.test(galat.message), galat && galat.message);
+  }
+
   console.log('\n== 5. Satu halaman gagal: bulan lalu tetap, bulan ini tidak disimpan bolong ==');
   {
     const { dom, panggilan } = domAnalytics({ laporan: SEPT_SETENGAH, esb: b => b.dari === '2026-10-01' && b.page === 1
