@@ -178,8 +178,8 @@
                  accGambar(). innerHTML tombol ini TIDAK ditulis ulang switchTab,
                  jadi lencananya aman di sini. -->
             <button id="tab-acc" onclick="switchTab('acc')" class="hidden nav-item w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold text-left mb-1 transition-all text-slate-500 hover:bg-slate-100">
-                <i class="fa-solid fa-user-check w-5 text-center"></i> ACC Order
-                <span id="acc-badge" class="hidden ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-rose-600 text-white text-[10px] font-black items-center justify-center" title="Order menunggu ACC kamu"></span>
+                <i class="fa-solid fa-user-check w-5 text-center"></i> Approval Order
+                <span id="acc-badge" class="hidden ml-auto min-w-[20px] h-5 px-1.5 rounded-full bg-rose-600 text-white text-[10px] font-black items-center justify-center" title="Order menunggu approval kamu"></span>
             </button>
             <!-- Central Kitchen: form pengajuan TERPISAH dari Form Order
                  Belanja. Bentuknya mirip, tapi datanya beda — yang di sini
@@ -870,8 +870,8 @@
         <div id="view-acc" class="hidden space-y-5">
             <div class="rounded-2xl p-5 text-white shadow-md space-y-1" style="background:linear-gradient(120deg,#5C440F,#A9791F)">
                 <span class="text-[9px] font-bold tracking-widest text-amber-200 uppercase block">Persetujuan Head</span>
-                <h2 class="text-lg font-black brand-font">ACC Order Belanja</h2>
-                <p class="text-xs text-amber-100">Order anggota Kitchen/Bar/Floor baru diteruskan ke Purchasing sesudah di-ACC head divisinya.</p>
+                <h2 class="text-lg font-black brand-font">Approval Order Belanja</h2>
+                <p class="text-xs text-amber-100">Order anggota Kitchen/Bar/Floor baru diteruskan ke Purchasing sesudah disetujui head divisinya.</p>
             </div>
             <div id="acc-panel"></div>
         </div>
@@ -4999,7 +4999,7 @@
            Jadwal Shift → Pengaturan → Head Divisi.
            Penjaganya di SERVER (lib_stock_acc.php); layar ini cuma menampilkan
            apa yang dipulangkan accList untuk sesi yang sedang login. */
-        let ACC = { head: [], admin: false, menunggu: [], milik: [], gagal: '' };
+        let ACC = { head: [], admin: false, menunggu: [], riwayat: [], milik: [], gagal: '' };
         let accTimer = null;
         function accSesi() {
             try { return (JSON.parse(localStorage.getItem('lm_session')) || {}).token || ''; } catch (e) { return ''; }
@@ -5014,65 +5014,112 @@
                 const res = await fetch(`${url}?action=accList&sesi=${encodeURIComponent(sesi)}&t=${Date.now()}`);
                 const d = await res.json();
                 if (!d || d.status !== 'success') { ACC.gagal = (d && d.message) || 'ditolak server'; }
-                else ACC = { head: d.head || [], admin: !!d.admin, menunggu: d.menunggu || [], milik: d.milik || [], gagal: '' };
+                else ACC = { head: d.head || [], admin: !!d.admin, menunggu: d.menunggu || [], riwayat: d.riwayat || [], milik: d.milik || [], gagal: '' };
             } catch (e) { ACC.gagal = 'tidak terhubung'; }
             accGambar();
             if (!accTimer) accTimer = setInterval(() => { if (!document.hidden) accMuat(); }, 60000);
         }
+        /* Halaman Approval Order punya tiga tab (3 Nov 2026, permintaan user:
+           "bisa dilihat riwayat approvalnya"): Menunggu (head/admin), Riwayat
+           (yang sudah diputuskan di divisinya), dan Pengajuan Saya. Tab
+           hidup di luar DOM (ACC_TAB) — halaman ini digambar ulang tiap
+           muat 60 detik. Kata "ACC" sengaja tidak dipakai di layar. */
+        let ACC_TAB = '', ACC_TAB_DIPILIH = false;
+        function accTab(t) { ACC_TAB = t; ACC_TAB_DIPILIH = true; accGambar(); }
         function accGambar() {
             const badge = document.getElementById('acc-badge');
             const n = ACC.menunggu.length;
             if (badge) { badge.textContent = n; badge.classList.toggle('hidden', !n); badge.classList.toggle('inline-flex', !!n); }
-            const relevan = ACC.head.length > 0 || ACC.admin || ACC.milik.length > 0;
+            const bolehPutus = ACC.head.length > 0 || ACC.admin;
+            const relevan = bolehPutus || ACC.milik.length > 0;
             ['tab-acc', 'tab-acc-m'].forEach(id => { const b = document.getElementById(id); if (b) b.classList.toggle('hidden', !relevan); });
             const box = document.getElementById('acc-panel');
             if (!box) return;
-            const milikAktif = ACC.milik.filter(x => x.status === 'menunggu' || Date.now() - new Date(String(x.putusAt || x.waktu).replace(' ', 'T')).getTime() < 3 * 86400000);
-            if (!n && !milikAktif.length) {
-                box.innerHTML = `<div class="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">
-                    ${ACC.gagal ? 'Daftar ACC tidak terbaca (' + accEsc(ACC.gagal) + ').' : 'Tidak ada order yang menunggu ACC.'}</div>`;
-                return;
-            }
+
+            const tabs = [];
+            if (bolehPutus) tabs.push(['menunggu', 'Menunggu Approval', n], ['riwayat', 'Riwayat Approval', ACC.riwayat.length]);
+            tabs.push(['milik', 'Pengajuan Saya', ACC.milik.length]);
+            /* Tab yang belum PERNAH dipilih orangnya ikut tab pertama — kalau
+               tidak, render saat boot (sebelum daftar head termuat) mengunci
+               head di Pengajuan Saya, bukan di Menunggu Approval. */
+            if (!ACC_TAB_DIPILIH || !tabs.some(t => t[0] === ACC_TAB)) ACC_TAB = tabs[0][0];
+
             const tglTeks = t => { const d = new Date(String(t || '').replace(' ', 'T')); return isNaN(d) ? (t || '') : d.toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short' }); };
+            const jamTeks = t => String(t || '').slice(11, 16);
+            const STAT = { menunggu: ['bg-amber-100 text-amber-800', 'Menunggu approval'], diproses: ['bg-amber-100 text-amber-800', 'Diproses'],
+                           disetujui: ['bg-emerald-100 text-emerald-800', 'Disetujui'], ditolak: ['bg-rose-100 text-rose-700', 'Ditolak'],
+                           dibatalkan: ['bg-slate-100 text-slate-500', 'Ditarik pemohon'] };
+            const chip = x => { const s = STAT[x.status] || ['bg-slate-100 text-slate-500', x.status]; return `<span class="px-2 py-0.5 rounded-full text-[10px] font-black ${s[0]}">${s[1]}</span>`; };
+
             const kartuTunggu = x => `
                 <div class="rounded-xl border border-amber-200 bg-white p-3 space-y-2">
                     <div class="flex flex-wrap items-center justify-between gap-2">
                         <div class="text-xs"><b class="text-slate-800">${accEsc(x.pemohon)}</b>
-                            <span class="text-slate-400">· ${x.divisi.map(accNamaDiv).join('/')} · datang ${accEsc(tglTeks(x.tglDatang))} · diajukan ${accEsc(String(x.waktu).slice(11, 16))}</span></div>
+                            <span class="text-slate-400">· ${x.divisi.map(accNamaDiv).join('/')} · datang ${accEsc(tglTeks(x.tglDatang))} · diajukan ${accEsc(tglTeks(x.waktu))} ${accEsc(jamTeks(x.waktu))}</span></div>
                         <div class="flex gap-2">
                             <button type="button" onclick="accPutus('${x.id}','tolak')" class="px-3 py-1.5 rounded-lg text-[11px] font-bold border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100">Tolak</button>
-                            <button type="button" onclick="accPutus('${x.id}','setuju')" class="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white">✓ ACC</button>
+                            <button type="button" onclick="accPutus('${x.id}','setuju')" class="px-3 py-1.5 rounded-lg text-[11px] font-bold bg-emerald-600 hover:bg-emerald-700 text-white">✓ Setujui</button>
                         </div>
                     </div>
                     <div class="divide-y divide-slate-100">${x.orders.map((o, i) => `
                         <div class="flex items-center gap-2 py-1.5 text-xs">
                             <span class="flex-1 min-w-0 truncate font-bold text-slate-700">${accEsc(o.item)}${o.note && o.note !== '-' ? ` <span class="font-normal text-slate-400">— ${accEsc(o.note)}</span>` : ''}</span>
-                            <input type="number" min="0" step="any" id="acc-q-${x.id}-${i}" value="${accEsc(o.qty)}" class="w-20 border border-slate-200 rounded-lg text-center font-black py-1" title="Ubah jumlah sebelum ACC; 0 = barang ini tidak dipesan">
+                            <input type="number" min="0" step="any" id="acc-q-${x.id}-${i}" value="${accEsc(o.qty)}" class="w-20 border border-slate-200 rounded-lg text-center font-black py-1" title="Ubah jumlah sebelum disetujui; 0 = barang ini tidak dipesan">
                             <span class="w-14 text-slate-500 font-semibold">${accEsc(o.unit)}</span>
                         </div>`).join('')}</div>
                 </div>`;
-            const STAT = { menunggu: ['bg-amber-100 text-amber-800', 'Menunggu ACC'], diproses: ['bg-amber-100 text-amber-800', 'Diproses'],
-                           disetujui: ['bg-emerald-100 text-emerald-800', 'Di-ACC'], ditolak: ['bg-rose-100 text-rose-700', 'Ditolak'],
-                           dibatalkan: ['bg-slate-100 text-slate-500', 'Dibatalkan'] };
-            const barisMilik = x => { const s = STAT[x.status] || ['bg-slate-100 text-slate-500', x.status]; return `
-                <div class="flex flex-wrap items-center gap-2 py-2 text-xs border-b border-slate-100 last:border-0">
-                    <span class="px-2 py-0.5 rounded-full text-[10px] font-black ${s[0]}">${s[1]}</span>
-                    <span class="font-semibold text-slate-700">${x.orders.length} barang · datang ${accEsc(tglTeks(x.tglDatang))}</span>
-                    <span class="text-slate-400 truncate">${accEsc(x.orders.map(o => o.item).join(', '))}</span>
-                    ${x.putusOleh && x.status !== 'menunggu' ? `<span class="text-slate-500">oleh ${accEsc(x.putusOleh)}</span>` : ''}
-                    ${x.status === 'ditolak' && x.alasan ? `<span class="text-rose-600 font-semibold">— ${accEsc(x.alasan)}</span>` : ''}
-                    ${x.status === 'menunggu' ? `<button type="button" onclick="accBatal('${x.id}')" class="ml-auto text-[11px] font-bold text-slate-500 hover:text-rose-600">Tarik</button>` : ''}
-                </div>`; };
-            box.innerHTML = `
-                <div class="rounded-2xl border border-amber-200 bg-amber-50/60 p-4 space-y-3">
-                    ${n ? `<div class="flex items-center gap-2 text-sm font-black text-amber-900"><i class="fa-solid fa-bell"></i> ${n} order menunggu ACC kamu
-                        <span class="text-[11px] font-semibold text-amber-700">— belum diteruskan ke Purchasing sampai di-ACC.</span></div>
-                        <div class="space-y-2">${ACC.menunggu.map(kartuTunggu).join('')}</div>` : ''}
-                    ${milikAktif.length ? `<div>
-                        <div class="text-[11px] font-black uppercase tracking-wider text-amber-800 mb-1">Pengajuan saya</div>
-                        <div class="rounded-xl bg-white border border-amber-100 px-3">${milikAktif.map(barisMilik).join('')}</div>
-                    </div>` : ''}
+
+            /* Satu kartu riwayat. Jumlah yang DIUBAH saat disetujui ditulis
+               "5 → 3" — tanpa itu pemohon tidak tahu kenapa barang yang datang
+               lebih sedikit dari yang ia minta. */
+            const kartuRiwayat = (x, punyaSendiri) => {
+                const disetujui = Array.isArray(x.ordersAcc) ? x.ordersAcc : null;
+                const brs = x.orders.map(o => {
+                    let akhir = null;
+                    if (x.status === 'disetujui' && disetujui) {
+                        const a = disetujui.find(z => z.item === o.item && z.unit === o.unit);
+                        akhir = a ? Number(a.qty) : 0;
+                    }
+                    const berubah = akhir !== null && akhir !== Number(o.qty);
+                    return `<div class="flex items-center gap-2 py-1 text-xs">
+                        <span class="flex-1 min-w-0 truncate ${akhir === 0 ? 'line-through text-slate-400' : 'text-slate-700'} font-semibold">${accEsc(o.item)}</span>
+                        <span class="font-black ${berubah ? 'text-amber-700' : 'text-slate-600'}">${berubah ? `${accEsc(o.qty)} → ${accEsc(akhir)}` : accEsc(o.qty)} ${accEsc(o.unit)}</span>
+                    </div>`;
+                }).join('');
+                return `<div class="rounded-xl border border-slate-200 bg-white p-3 space-y-1.5">
+                    <div class="flex flex-wrap items-center gap-2 text-xs">
+                        ${chip(x)}
+                        ${punyaSendiri ? '' : `<b class="text-slate-800">${accEsc(x.pemohon)}</b> <span class="text-slate-400">· ${x.divisi.map(accNamaDiv).join('/')}</span>`}
+                        <span class="text-slate-400">· datang ${accEsc(tglTeks(x.tglDatang))} · diajukan ${accEsc(tglTeks(x.waktu))} ${accEsc(jamTeks(x.waktu))}</span>
+                        ${x.status === 'menunggu' && punyaSendiri ? `<button type="button" onclick="accBatal('${x.id}')" class="ml-auto text-[11px] font-bold text-slate-500 hover:text-rose-600">Tarik</button>` : ''}
+                    </div>
+                    ${x.putusOleh && x.status !== 'menunggu' ? `<div class="text-[11px] text-slate-500">${x.status === 'dibatalkan' ? 'Ditarik' : 'Diputuskan'} oleh <b>${accEsc(x.putusOleh)}</b> · ${accEsc(tglTeks(x.putusAt))} ${accEsc(jamTeks(x.putusAt))}</div>` : ''}
+                    ${x.status === 'ditolak' && x.alasan ? `<div class="text-[11px] font-semibold text-rose-600">Alasan: ${accEsc(x.alasan)}</div>` : ''}
+                    <div class="divide-y divide-slate-100 border-t border-slate-100 pt-1">${brs}</div>
                 </div>`;
+            };
+
+            let isi = '';
+            if (ACC.gagal && !ACC.menunggu.length && !ACC.riwayat.length && !ACC.milik.length) {
+                isi = `<div class="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">Daftar approval tidak terbaca (${accEsc(ACC.gagal)}).</div>`;
+            } else if (ACC_TAB === 'menunggu') {
+                isi = n ? `<div class="text-[11px] font-semibold text-amber-800">Belum diteruskan ke Purchasing sampai disetujui.</div>
+                           <div class="space-y-2">${ACC.menunggu.map(kartuTunggu).join('')}</div>`
+                        : `<div class="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">Tidak ada order yang menunggu approval.</div>`;
+            } else if (ACC_TAB === 'riwayat') {
+                isi = ACC.riwayat.length ? `<div class="text-[11px] text-slate-500">Yang sudah diputuskan di divisimu, 60 hari terakhir.</div>
+                           <div class="space-y-2">${ACC.riwayat.map(x => kartuRiwayat(x, false)).join('')}</div>`
+                        : `<div class="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">Belum ada riwayat approval 60 hari terakhir.</div>`;
+            } else {
+                isi = ACC.milik.length ? `<div class="space-y-2">${ACC.milik.map(x => kartuRiwayat(x, true)).join('')}</div>`
+                        : `<div class="rounded-2xl border border-slate-200 bg-white p-6 text-center text-sm text-slate-500">Belum ada pengajuan.</div>`;
+            }
+            box.innerHTML = `
+                <div class="flex flex-wrap gap-1 border-b border-slate-200 mb-3">${tabs.map(t => `
+                    <button type="button" onclick="accTab('${t[0]}')" class="px-3 py-2 text-sm font-bold border-b-2 ${ACC_TAB === t[0] ? 'border-indigo-600 text-indigo-700' : 'border-transparent text-slate-500 hover:text-slate-800'}">
+                        ${t[1]}${t[2] ? ` <span class="ml-1 px-1.5 rounded-full text-[10px] ${t[0] === 'menunggu' ? 'bg-rose-600 text-white' : 'bg-slate-100 text-slate-500'}">${t[2]}</span>` : ''}
+                    </button>`).join('')}</div>
+                <div class="space-y-2">${isi}</div>`;
         }
         async function accKirim(payload) {
             const res = await fetch(state.appScriptUrlHistory, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' },
@@ -5096,10 +5143,10 @@
                         return { qty: el ? (parseFloat(el.value) || 0) : o.qty };
                     });
                     const ubah = x.orders.filter((o, i) => Number(o.qty) !== orders[i].qty).length;
-                    if (!confirm(`ACC ${orders.filter(o => o.qty > 0).length} barang dari ${x.pemohon}${ubah ? ` (${ubah} jumlah diubah)` : ''}? Order langsung diteruskan ke Purchasing.`)) return;
+                    if (!confirm(`Setujui ${orders.filter(o => o.qty > 0).length} barang dari ${x.pemohon}${ubah ? ` (${ubah} jumlah diubah)` : ''}? Order langsung diteruskan ke Purchasing.`)) return;
                     const d = await accKirim({ action: 'accPutus', id: id, keputusan: 'setuju', orders: orders });
-                    catatLog("order_acc_setuju", `ACC order ${x.pemohon} (${x.orders.length} barang, tgl ${x.tglDatang})`, { accId: id, batchId: d.batchId });
-                    showToast("Di-ACC", `Order ${x.pemohon} diteruskan ke Purchasing.`, "success");
+                    catatLog("order_acc_setuju", `Approval order ${x.pemohon} (${x.orders.length} barang, tgl ${x.tglDatang})`, { accId: id, batchId: d.batchId });
+                    showToast("Disetujui", `Order ${x.pemohon} diteruskan ke Purchasing.`, "success");
                 }
             } catch (e) { showToast("Gagal", e.message, "danger"); }
             accMuat();
@@ -5414,11 +5461,11 @@
 
             if (menungguAcc) {
                 catatLog("order_acc_ajukan",
-                    `Order belanja ${tglDatang} menunggu ACC head (${(menungguAcc.divisi || []).join('/')}): `
+                    `Order belanja ${tglDatang} menunggu approval head (${(menungguAcc.divisi || []).join('/')}): `
                     + submittedOrders.map(o => `${o.item} ${o.qty} ${o.unit}`).join(', '),
                     { accId: menungguAcc.accId, tglDatang: tglDatang });
-                showToast("Menunggu ACC Head",
-                    `${menungguAcc.jumlah} barang dikirim ke head ${(menungguAcc.divisi || []).map(accNamaDiv).join('/')} untuk di-ACC. Belum diteruskan ke Purchasing.`, "success");
+                showToast("Menunggu Approval Head",
+                    `${menungguAcc.jumlah} barang dikirim ke head ${(menungguAcc.divisi || []).map(accNamaDiv).join('/')} untuk disetujui. Belum diteruskan ke Purchasing.`, "success");
                 buangDraf('belanja', true);
                 document.getElementById('batch-rows-wrapper').innerHTML = '';
                 for (let i = 0; i < 3; i++) addNewBatchRow();

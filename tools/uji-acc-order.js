@@ -32,7 +32,11 @@ const ACCLIST = {
                orders: [{ item: 'Lemon', qty: 5, unit: 'Kg', note: '-' }, { item: 'Gula', qty: 2, unit: 'Kg', note: '-' }] }],
   milik: [{ id: 'ACC-0', waktu: '2026-11-03 09:00:00', pemohonId: 'u1', pemohon: 'Wandi', divisi: ['bar'],
             tglDatang: '2026-11-04', status: 'ditolak', putusOleh: 'Arif', putusAt: new Date().toISOString().slice(0, 19).replace('T', ' '),
-            alasan: 'stok masih ada', orders: [{ item: 'Susu', qty: 3, unit: 'Liter' }] }]
+            alasan: 'stok masih ada', orders: [{ item: 'Susu', qty: 3, unit: 'Liter' }] }],
+  riwayat: [{ id: 'ACC-R', waktu: '2026-11-02 08:00:00', pemohonId: 'u7', pemohon: 'Sari Bar', divisi: ['bar'],
+            tglDatang: '2026-11-03', status: 'disetujui', putusOleh: 'Arif', putusAt: '2026-11-02 09:30:00', alasan: '',
+            orders: [{ item: 'Jeruk', qty: 5, unit: 'Kg' }, { item: 'Es Batu', qty: 2, unit: 'Pack' }],
+            ordersAcc: [{ item: 'Jeruk', qty: 3, unit: 'Kg' }] }]
 };
 
 function buka(jawabBatch) {
@@ -92,8 +96,17 @@ function buka(jawabBatch) {
   cek('halaman ACC terbuka, form order tersembunyi', !d.getElementById('view-acc').classList.contains('hidden')
       && d.getElementById('view-order').classList.contains('hidden'));
   cek('menu ACC Order aktif & tetap terlihat', /bg-indigo-50/.test(d.getElementById('tab-acc').className) && !d.getElementById('tab-acc').classList.contains('hidden'));
-  cek('panel menyebut pemohon & divisi', /Budi Bar/.test(panel.textContent) && /Bar/.test(panel.textContent));
+  cek('panel menyebut pemohon & divisi', /Budi Bar/.test(panel.textContent) && /Bar/.test(panel.textContent), panel.textContent.replace(/s+/g,' ').slice(0,300));
+  cek('nama menu Approval Order, tanpa kata ACC', /Approval Order/.test(d.getElementById('tab-acc').textContent) && !/ACC/.test(d.getElementById('view-acc').textContent));
+  cek('tombol Setujui, bukan ACC', /Setujui/.test(panel.textContent));
+  cek('tab Riwayat Approval ada untuk head', /Riwayat Approval/.test(panel.textContent));
+  w.eval("accTab('riwayat')");
+  cek('riwayat: pemohon, oleh siapa, status', /Sari Bar/.test(panel.textContent) && /Arif/.test(panel.textContent) && /Disetujui/.test(panel.textContent));
+  cek('riwayat: jumlah diubah ditulis 5 → 3', /5 → 3/.test(panel.textContent), panel.textContent.replace(/s+/g,' ').slice(0,300));
+  cek('riwayat: barang yang dibuang dicoret', !!panel.querySelector('.line-through') && /Es Batu/.test(panel.querySelector('.line-through').textContent));
+  w.eval("accTab('milik')");
   cek('pengajuan saya: ditolak + alasannya', /Ditolak/.test(panel.textContent) && /stok masih ada/.test(panel.textContent));
+  w.eval("accTab('menunggu')");
 
   w.eval("switchTab('checkin'); switchTab('order')");
   cek('lencana bertahan sesudah pindah tab', d.getElementById('acc-badge') && d.getElementById('acc-badge').textContent === '1');
@@ -122,7 +135,7 @@ function buka(jawabBatch) {
   const bO = jejak.body.map(x => JSON.parse(x)).find(b => b.action === 'batchOrder');
   cek('batchOrder meminta ACC head + membawa sesi', bO && bO.accHead === true && bO.sesi === 'TOK');
   const tt = w.eval('JSON.stringify(window.__toast||[])');
-  cek('balasan menunggu ACC disebut, bukan "gagal"', /Menunggu ACC Head/.test(tt) && !/Pengiriman Gagal/.test(tt), tt);
+  cek('balasan menunggu ACC disebut, bukan "gagal"', /Menunggu Approval Head/.test(tt) && !/Pengiriman Gagal/.test(tt), tt);
 
   console.log('\n== Form CK TIDAK ikut tertahan ==');
   const SRC = fs.readFileSync(path.join(ROOT, 'deploy/stock/ordering/index.html'), 'utf8');

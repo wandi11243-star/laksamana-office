@@ -161,7 +161,10 @@ function pur_acc_baris($r) {
           'tglDatang' => $r['tgl_datang'], 'status' => $r['status'], 'putusOleh' => $r['putus_oleh'],
           'putusAt' => $r['putus_at'], 'alasan' => (string)($r['alasan'] ?? ''),
           'orders' => $d['orders'] ?? [], 'batchId' => $d['batchId'] ?? '', 'batchName' => $d['batchName'] ?? '',
-          'hasil' => $d['hasil'] ?? null];
+          'hasil' => $d['hasil'] ?? null,
+          // Jumlah yang benar-benar disetujui (head boleh mengubahnya) —
+          // dipakai Riwayat Approval untuk menulis "5 → 3".
+          'ordersAcc' => $d['ordersAcc'] ?? null];
 }
 
 /* Daftar untuk pemanggil: yang menunggu ACC-nya + pengajuannya sendiri. */
@@ -171,16 +174,22 @@ function pur_acc_daftar($pdo, $u) {
   $head = pur_acc_head_akun($u);
   $admin = pur_acc_admin($u);
   $rows = $pdo->query("SELECT * FROM `order_acc`
-                       WHERE `status` IN ('menunggu','diproses') OR `waktu` >= DATE_SUB(NOW(), INTERVAL 14 DAY)
-                       ORDER BY `waktu` DESC LIMIT 400")->fetchAll();
-  $tunggu = []; $milik = [];
+                       WHERE `status` IN ('menunggu','diproses') OR `waktu` >= DATE_SUB(NOW(), INTERVAL 60 DAY)
+                       ORDER BY `waktu` DESC LIMIT 600")->fetchAll();
+  $tunggu = []; $milik = []; $riwayat = [];
   foreach ($rows as $r) {
     $x = pur_acc_baris($r);
-    if ($x['status'] === 'menunggu' && ($admin || array_intersect($x['divisi'], $head))) $tunggu[] = $x;
+    $diDivisiku = $admin || array_intersect($x['divisi'], $head);
+    if ($x['status'] === 'menunggu' && $diDivisiku) $tunggu[] = $x;
+    // RIWAYAT APPROVAL (3 Nov 2026): yang sudah diputuskan di divisi yang
+    // di-head pemanggil (admin modul: semua divisi).
+    if ($x['status'] !== 'menunggu' && $x['status'] !== 'diproses' && $diDivisiku) $riwayat[] = $x;
     if ($x['pemohonId'] !== '' && $x['pemohonId'] === (string)($u['id'] ?? '')) $milik[] = $x;
   }
+  // Riwayat diurut menurut WAKTU DIPUTUSKAN, terbaru di atas.
+  usort($riwayat, function ($a, $b) { return strcmp((string)$b['putusAt'], (string)$a['putusAt']); });
   return ['status' => 'success', 'head' => $head, 'admin' => $admin,
-          'menunggu' => $tunggu, 'milik' => array_slice($milik, 0, 30)];
+          'menunggu' => $tunggu, 'riwayat' => array_slice($riwayat, 0, 200), 'milik' => array_slice($milik, 0, 50)];
 }
 
 /* ACC / tolak. Penjaga di SERVER: head divisi pengajuan itu, atau admin
@@ -196,7 +205,7 @@ function pur_acc_putus($pdo, $u, $b) {
   if (!$r) return ['status' => 'error', 'message' => 'Pengajuan tidak ditemukan.'];
   $x = pur_acc_baris($r);
   if (!pur_acc_admin($u) && !array_intersect($x['divisi'], pur_acc_head_akun($u))) {
-    return ['status' => 'error', 'message' => 'Hanya head divisi ' . implode('/', $x['divisi']) . ' yang bisa meng-ACC pengajuan ini.'];
+    return ['status' => 'error', 'message' => 'Hanya head divisi ' . implode('/', $x['divisi']) . ' yang bisa menyetujui pengajuan ini.'];
   }
   if ($x['status'] !== 'menunggu') return ['status' => 'error', 'message' => 'Pengajuan ini sudah diputuskan (' . $x['status'] . ').'];
   $nama = (string)($u['name'] ?? '');
