@@ -1286,6 +1286,18 @@ function normalize(s){
      meloloskannya — dan DB.focus[id]=… yang menempel sebagai properti array
      dibuang diam-diam oleh JSON.stringify saat menyimpan. */
   if(!s.focus||typeof s.focus!=='object'||Array.isArray(s.focus)) s.focus={};
+  /* JAWABAN AGENDA TIDAK PERNAH TERSIMPAN (keluhan user 3 Nov 2026: "tekan
+     hadir tidak berfungsi"). Agenda yang belum punya jawaban pulang dari
+     server dengan resp:[] — PHP menulis map kosong sebagai array — lalu
+     e.resp[id]=… menempel sebagai properti array dan DIBUANG JSON.stringify:
+     barisnya bahkan tidak terbaca berubah, jadi tidak pernah terkirim.
+     Jebakan yang sama persis dengan DB.focus di atas. */
+  s.agenda.forEach(function(e){
+    if(!e) return;
+    ['resp','undang','pesertaNama'].forEach(function(k){
+      if(e[k]!==undefined && (!e[k]||typeof e[k]!=='object'||Array.isArray(e[k]))) e[k]={};
+    });
+  });
 
   /* Susunan penanda tangan PR. SENGAJA TIDAK masuk KOLEKSI: koleksi dipetakan
      ke tabel sendiri dan direkonsiliasi saat saveAll, sementara ini disimpan
@@ -1627,6 +1639,7 @@ function terapkanRoster(members){
 function sinkronRoster(diam){
   return ambilRoster().then(function(members){
     ROSTER=members; ROSTER_PESAN='';
+    ambilOfficeSemua();
     if(terapkanRoster(members)) save();
     kenali();
     return true;
@@ -1635,6 +1648,38 @@ function sinkronRoster(diam){
     if(!diam) toast('Daftar kru gagal disegarkan: '+ROSTER_PESAN);
     return false;
   });
+}
+
+/* SELURUH user Office (listDivisiRoster), dipakai HANYA untuk mengundang
+   peserta agenda yang tidak punya akses Task Management (3 Nov 2026,
+   permintaan user: agenda untuk Tim Kitchen tanpa memberi mereka akses).
+   Mereka disimpan sebagai peserta ber-id 'o:<officeUserId>' + namanya di
+   e.pesertaNama — BUKAN dimasukkan ke DB.people, supaya tidak muncul sebagai
+   pilihan PIC task. Mereka tidak bisa membuka modul ini, jadi tidak bisa
+   menjawab; layarnya mengatakan itu. Gagal dimuat = cuma kru ber-akses yang
+   bisa diundang, seperti sebelumnya. */
+var OFFICE_SEMUA=null;
+function ambilOfficeSemua(){
+  return fetch(ACCOUNT_API,{method:'POST',redirect:'follow',
+      headers:{'Content-Type':'text/plain;charset=utf-8'},
+      body:JSON.stringify({action:'listDivisiRoster'})})
+    .then(function(r){return r.text();})
+    .then(function(t){ var j=null; try{ j=JSON.parse(t); }catch(e){}
+      if(j&&j.ok&&Array.isArray(j.members)) OFFICE_SEMUA=j.members; })
+    .catch(function(){});
+}
+function idLuar(id){ return String(id||'').indexOf('o:')===0; }
+// Orang Office yang TIDAK punya baris kru aktif di modul ini.
+function orangLuar(){
+  if(!Array.isArray(OFFICE_SEMUA)) return [];
+  var punya={}; DB.people.forEach(function(p){ if(p.officeUserId && p.active!==false && !p.tanpaAkses) punya[p.officeUserId]=1; });
+  return OFFICE_SEMUA.filter(function(m){ return m && m.id && m.active!==false && !punya[m.id]; })
+    .map(function(m){ return {id:'o:'+m.id, name:m.name||'(tanpa nama)', ket:m.keterangan||'', div:divDariKet(m.keterangan), luar:true}; });
+}
+function namaLuar(id){
+  var o=orangLuar().find(function(x){return x.id===id;}); if(o) return o.name;
+  for(var i=0;i<DB.agenda.length;i++){ var n=DB.agenda[i].pesertaNama; if(n&&n[id]) return n[id]; }
+  return '(orang Office)';
 }
 
 function kenali(){
@@ -1679,7 +1724,9 @@ function timDariKet(ket){
   return out;
 }
 function timOrang(p){ var a=timDariKet(p&&p.ket); if(p&&p.div&&a.indexOf(p.div)<0) a.unshift(p.div); return a; }
-function P(id){return DB.people.find(function(p){return p.id===id;})||{id:'',name:'—',role:'',div:''};}
+function P(id){
+  if(idLuar(id)) return {id:id,name:namaLuar(id),role:'',div:'',luar:true};
+  return DB.people.find(function(p){return p.id===id;})||{id:'',name:'—',role:'',div:''};}
 function bawahan(id){
   var out=[];
   DB.people.forEach(function(p){ if(p.boss===id){ out.push(p.id); out=out.concat(bawahan(p.id)); } });
@@ -2216,6 +2263,21 @@ function picPicker(wadah,terpilih){
       'onclick="APP.togglePic(this)"><span class="av">'+esc(inisial(p.name))+'</span>'+esc(p.name)+
       (p.tanpaAkses?' <span class="tag" style="margin-left:3px">dicabut</span>':'')+'</button>';
   }).join('')+'</div>';
+}
+function pesertaPicker(wadah,terpilih){
+  var h=picPicker(wadah,terpilih);
+  var luar=orangLuar();
+  // Peserta luar yang sudah tersimpan tetap digambar walau roster Office gagal dimuat.
+  terpilih.filter(idLuar).forEach(function(id){ if(!luar.some(function(o){return o.id===id;})) luar.push({id:id,name:namaLuar(id),ket:'',luar:true}); });
+  if(!luar.length) return h;
+  var chips=luar.map(function(p){
+    var on=terpilih.indexOf(p.id)>-1;
+    return '<button type="button" class="picchip'+(on?' on':'')+'" data-id="'+esc(p.id)+'" data-nama="'+esc(p.name)+'" data-tims="|'+esc(timOrang(p).join('|'))+'|" '+
+      'onclick="APP.togglePic(this)" title="Tidak punya akses Task Management — diundang, tapi tidak bisa menjawab dari modul ini">'+
+      '<span class="av">'+esc(inisial(p.name))+'</span>'+esc(p.name)+' <span class="tag" style="margin-left:3px">tanpa akses</span></button>';
+  }).join('');
+  if(h.indexOf('<div class="picpick" id="'+wadah+'">')<0) return '<div class="picpick" id="'+wadah+'">'+chips+'</div>';
+  return h.replace(/<\/div>$/, chips+'</div>');
 }
 function bacaPic(wadah){
   var out=[];
@@ -6268,12 +6330,12 @@ function dropCal(e,iso){
    sebelumnya. Menjadikannya milik orang tertentu berarti menebak siapa yang
    membuatnya. */
 var AG_JENIS=['Meeting','Vendor','Internal','Deadline'];
-var RESP_L={pending:'Belum dijawab',terima:'Hadir',tentatif:'Mungkin',tolak:'Tidak hadir'};
+var RESP_L={pending:'Belum dijawab',terima:'Hadir',tentatif:'Mungkin',tolak:'Tidak hadir',luar:'tanpa akses — tidak bisa menjawab'};
 var RESP_KATA={terima:'menerima',tentatif:'menjawab "mungkin" untuk',tolak:'menolak'};
 function agPeserta(e){ return (e&&Array.isArray(e.peserta)) ? e.peserta.filter(function(x){return !!x;}) : []; }
 function agTim(e){ return !e.owner && !agPeserta(e).length; }
 function agUntuk(e,id){ if(!id || agTim(e)) return true; return e.owner===id || agPeserta(e).indexOf(id)>-1; }
-function agResp(e,id){ var r=e&&e.resp&&e.resp[id]; return (r&&r.s)||'pending'; }
+function agResp(e,id){ if(idLuar(id)) return 'luar'; var r=e&&e.resp&&e.resp[id]; return (r&&r.s)||'pending'; }
 function agJam(e){ return e.start ? e.start+(e.end?'–'+e.end:'') : 'Sepanjang hari'; }
 function agBisaUbah(e){ return !e || !e.owner || !AKU || e.owner===AKU.id || adminModul(); }
 function menit(hm){ var p=String(hm||'').split(':'); return p.length<2?null:(+p[0])*60+(+p[1]); }
@@ -6373,7 +6435,8 @@ function agendaBuka(id){
 function jawabAgenda(id,s,dariModal){
   var e=DB.agenda.find(function(x){return x.id===id;});
   if(!e||!AKU||agPeserta(e).indexOf(AKU.id)<0||!RESP_L[s]) return;
-  e.resp=e.resp||{}; e.resp[AKU.id]={s:s,at:Date.now()};
+  if(!e.resp||typeof e.resp!=='object'||Array.isArray(e.resp)) e.resp={};
+  e.resp[AKU.id]={s:s,at:Date.now()};
   save(); if(dariModal) agendaBuka(id); render();
   toast('Jawaban terkirim: '+RESP_L[s]+' — '+e.title);
 }
@@ -6407,7 +6470,7 @@ function agendaModal(id,tgl,jam){
           divs.map(function(d){return '<option'+(e.div===d?' selected':'')+'>'+esc(d)+'</option>';}).join('')+'</select></div>'+
         '<div class="field"><label>Lokasi / link</label><input id="a_lok" value="'+esc(e.lokasi||'')+'" placeholder="mis. Ruang meeting lt.2"></div></div>'+
       '<div class="field"><label>Undang peserta — mereka dapat notifikasi & bisa menjawab hadir / tidak</label>'+
-        undangDivisiHtml('a_pes',agPeserta(e))+picPicker('a_pes',agPeserta(e))+'</div>'+
+        undangDivisiHtml('a_pes',agPeserta(e))+pesertaPicker('a_pes',agPeserta(e))+'</div>'+
       '<div class="field"><label>Catatan</label><textarea id="a_ket" placeholder="Agenda rapat, yang perlu disiapkan…">'+esc(e.ket||'')+'</textarea></div>'+
       '<div class="notice" style="margin:0">Agenda tanpa peserta adalah agenda <b>tim</b> — terlihat semua kru tanpa undangan. '+
         'Mengubah tanggal atau jam membuat peserta diminta menjawab ulang. '+
@@ -6426,7 +6489,9 @@ function agendaModal(id,tgl,jam){
    tercentang = lepas semua. Hanya kru yang punya akses modul ini — yang lain
    memang tidak bisa melihat undangannya. */
 function undangDivisiHtml(wadah,terpilih){
-  var g={}; kruTersedia(terpilih).forEach(function(p){ timOrang(p).forEach(function(d){ g[d]=(g[d]||0)+1; }); });
+  var g={}, gl={};
+  kruTersedia(terpilih).forEach(function(p){ timOrang(p).forEach(function(d){ g[d]=(g[d]||0)+1; }); });
+  orangLuar().forEach(function(p){ timOrang(p).forEach(function(d){ g[d]=(g[d]||0)+1; gl[d]=(gl[d]||0)+1; }); });
   /* SELURUH Tim Office digambar (2 Nov 2026, permintaan user), bukan cuma
      yang sudah ada kru-nya. Yang belum punya satu pun kru ber-akses modul
      ini digambar MATI berikut sebabnya — tombol yang hilang terbaca sebagai
@@ -6441,8 +6506,9 @@ function undangDivisiHtml(wadah,terpilih){
         'title="Belum ada kru Tim '+esc(d)+' yang punya akses Task Management — beri akses lewat Office → Kelola Akses, lalu Kru BD → Segarkan.">'+
         esc(d)+' <span class="muted">(0)</span></button>';
       return '<button type="button" class="btn sm" data-undiv="'+esc(d)+'" data-wadah="'+esc(wadah)+'" onclick="APP.undangDivisi(this)">'+
-        esc(d)+' <span class="muted">('+g[d]+')</span></button>';
+        esc(d)+' <span class="muted">('+g[d]+(gl[d]?' · '+gl[d]+' tanpa akses':'')+')</span></button>';
     }).join('')+'</div>'+
+    (urut.some(function(d){return gl[d];})?'<div class="muted" style="font-size:11.5px;margin:-4px 0 8px">Yang bertanda <b>tanpa akses</b> tetap diundang dan agendanya tercatat, tapi mereka tidak bisa membuka Task Management untuk menjawab hadir / tidak.</div>':'')+
     (urut.some(function(d){return !g[d];})?'<div class="muted" style="font-size:11.5px;margin:-4px 0 8px">Divisi bertanda (0) belum punya kru dengan akses Task Management — '+
       'yang bisa diundang hanya yang bisa membuka modul ini. Beri akses lewat Office → Kelola Akses, lalu Kru BD → Segarkan.</div>':'');
 }
@@ -6464,6 +6530,10 @@ function simpanAgenda(id){
   if(st && en && en<=st){ toast('Jam selesai harus sesudah jam mulai.'); return; }
   var data={title:judul,date:g('a_date'),start:st,end:st?en:'',type:g('a_type'),div:g('a_div'),
             lokasi:g('a_lok').trim(),ket:g('a_ket').trim(),peserta:bacaPic('a_pes')};
+  /* Nama peserta tanpa akses ikut disimpan di agendanya — daftar Office belum
+     tentu termuat waktu agenda ini dibuka lagi. */
+  data.pesertaNama={};
+  document.querySelectorAll('#a_pes .picchip.on[data-nama]').forEach(function(el){ data.pesertaNama[el.getAttribute('data-id')]=el.getAttribute('data-nama'); });
   var now=Date.now(), e;
   if(id){
     e=DB.agenda.find(function(x){return x.id===id;}); if(!e) return;
