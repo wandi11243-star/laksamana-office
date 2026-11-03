@@ -1355,6 +1355,24 @@
                             Yang <b>CK &amp; Outlet</b> muncul di form <b>Kirim ke CK</b> pada modul Ordering, sehingga outlet bisa mengembalikan sisanya.
                         </span>
                     </div>
+
+                    <!-- SATUAN TAMPILAN STOK (3 Nov 2026, permintaan user): satuan
+                         yang dipakai MENULIS sisa stok di Ordering → Stok CK /
+                         Stok Gudang Bar. Cuma cara menulisnya — saldo tetap
+                         disimpan dalam satuan dasar di atas. Pilihannya disusun
+                         ulang tiap kotaknya dibuka, dari satuan & ukuran yang
+                         sedang diisi di form ini. -->
+                    <div class="mt-3 pt-3 border-t border-amber-200">
+                        <label class="block text-xs font-bold text-amber-800 uppercase tracking-wider mb-1.5">Satuan Tampilan Stok</label>
+                        <select id="prod-satuan-tampil" onfocus="isiPilihanSatuanTampil()" class="w-full border border-amber-200 rounded-xl px-3 py-2 text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-amber-400 bg-white">
+                            <option value="">Otomatis</option>
+                        </select>
+                        <span class="text-[10px] text-amber-700 mt-1.5 block leading-relaxed">
+                            Satuan untuk menulis <b>sisa stok</b> barang ini di Ordering (Stok CK &amp; Stok Gudang Bar), mis. <b>Botol</b> atau <b>Dus</b>.
+                            <b>Otomatis</b> = Pack untuk barang dipack, selain itu satuan beli terkecil yang lebih besar dari satuan dasar.
+                            Satuannya harus punya ukuran (bagian <b>Ukuran Satuan</b>), kalau tidak layar memakai Otomatis.
+                        </span>
+                    </div>
                 </div>
 
                 <div id="prod-vendor-wrap">
@@ -7172,6 +7190,32 @@
             syncSatuanDasarLabel();
         }
 
+        /* Pilihan Satuan Tampilan Stok disusun dari keadaan form SEKARANG:
+           satuan dasar, Pack (kalau dipack), dan satuan yang dicentang /
+           punya ukuran. Disusun ulang tiap kotaknya dibuka, karena satuan
+           yang dicentang bisa berubah sesudah form dibuka. Nilai tersimpan
+           yang tidak lagi ada di daftar TETAP digambar, ditandai (lama) —
+           dibuang, menyimpan form ini diam-diam mengubahnya ke Otomatis. */
+        function isiPilihanSatuanTampil(nilai) {
+            const sel = document.getElementById('prod-satuan-tampil');
+            if (!sel) return;
+            const kini = nilai !== undefined ? String(nilai || '') : sel.value;
+            const dasar = (document.getElementById('prod-pack-satuan') || {}).value || '';
+            const dipack = (document.getElementById('prod-dipack') || {}).value === '1';
+            const daftar = [];
+            const tambah = u => { u = String(u || '').trim(); if (u && !daftar.some(x => x.toLowerCase() === u.toLowerCase())) daftar.push(u); };
+            if (dipack) tambah('Pack');
+            satuanTercentang().forEach(tambah);
+            Object.keys(ukuranNilai || {}).forEach(k => { const c = satuanTercentang().find(u => u.toLowerCase() === k); if (c) tambah(c); });
+            if (ukuranDasar) tambah(ukuranDasar);
+            tambah(dasar);
+            const esc = s => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
+            let h = '<option value="">Otomatis</option>' + daftar.map(u =>
+                `<option value="${esc(u)}">${esc(u)}${dasar && u.toLowerCase() === dasar.toLowerCase() ? ' (satuan dasar)' : ''}</option>`).join('');
+            if (kini && !daftar.some(u => u === kini)) h += `<option value="${esc(kini)}">${esc(kini)} (lama)</option>`;
+            sel.innerHTML = h;
+            sel.value = kini;
+        }
         function syncSatuanDasarLabel() {
             const sel = document.getElementById('prod-pack-satuan');
             const lbl = document.getElementById('prod-pack-isi-satuan');
@@ -7307,7 +7351,7 @@
             }
 
             try {
-                const result = await sendPostRequest({ action: 'addProduct', productName: name, primaryVendor: primary, backupVendors: backups, units: units, kategori: kategori, area: area, caraBeli: caraBeli, oldProductName: editKey, sumber: sumber, packIsi: packIsi, packSatuan: packSatuan, diOutlet: diOutlet, satuanDasar: ukuran.satuanDasar, isi: ukuran.isi, aktif: document.getElementById('prod-aktif').checked }, 'items');
+                const result = await sendPostRequest({ action: 'addProduct', productName: name, primaryVendor: primary, backupVendors: backups, units: units, kategori: kategori, area: area, caraBeli: caraBeli, oldProductName: editKey, sumber: sumber, packIsi: packIsi, packSatuan: packSatuan, diOutlet: diOutlet, satuanDasar: ukuran.satuanDasar, isi: ukuran.isi, aktif: document.getElementById('prod-aktif').checked, satuanTampil: adaDiCKProd ? (document.getElementById('prod-satuan-tampil').value || '') : '' }, 'items');
                 if (result && result.status === 'success') {
                     showToast("Berhasil Disinkronkan", `Aturan "${name}" berhasil tersimpan langsung di Google Sheet.`, "success");
                     catatLog(editKey ? "bahan_ubah" : "bahan_tambah",
@@ -7667,6 +7711,7 @@
             pasangUkuran(null);            // bahan baru: belum ada ukuran satuan
             document.getElementById('prod-carabeli').value = '';
             document.getElementById('prod-pack-isi').value = '';
+            isiPilihanSatuanTampil('');
             // setSumberProduk() dipanggil BELAKANGAN karena ia yang menyusun
             // daftar satuan dasar dan menentukan blok mana yang tampak.
             setSumberProduk('');
@@ -7732,6 +7777,7 @@
             // Barang lama tidak punya penanda dipack/curah tersendiri —
             // disimpulkan dari packIsi, satu-satunya sumber yang memang ada.
             setDipackProduk(!!(mapping.packIsi > 0));
+            isiPilihanSatuanTampil(mapping.satuanTampil || '');
             // 'both' selalu ada di outlet; setSumberProduk sudah memaksanya, jadi
             // jangan ditimpa nilai lama yang mungkin tersimpan false.
             if (mapping.sumber !== 'both' && mapping.sumber !== 'bar') setLokasiCK(!!mapping.diOutlet);
