@@ -20,6 +20,7 @@
  * `?t=<timestamp>` ke URL ini — tanda tanya dobel akan merusaknya.
  */
 require __DIR__ . '/_boot.php';
+require_once __DIR__ . '/lib_stock_acc.php';   // ACC head order belanja (3 Nov 2026)
 
 try {
   if ($metode === 'GET') {
@@ -29,6 +30,8 @@ try {
     // Endpoint sendiri, bukan diturunkan frontend dari GET orders penuh:
     // pengelompokan + syarat "belum ada yang datang" jauh lebih murah di SQL
     // daripada mengirim 682 baris lalu menyaringnya di HP kru dapur.
+    // Pengajuan menunggu ACC head (milik pemanggil + yang harus ia ACC).
+    if ($aksiUrl === 'accList') pur_json(pur_acc_daftar(pur_pdo(), pur_whoami(pur_token_sesi(null))));
     if ($aksiUrl === 'batches') pur_json(pur_orders_batches(pur_pdo(),
                                           trim((string)($_GET['tim'] ?? '')),
                                           trim((string)($_GET['tgl'] ?? ''))));
@@ -42,7 +45,18 @@ try {
     $pdo = pur_pdo();
     $a = $b->action ?? '';
     // $b dikirim utuh sebagai meta: batchId (kosong = batch baru), batchName, tim.
+    /* ACC HEAD (3 Nov 2026): order belanja dari ANGGOTA divisi yang punya
+       head ditahan di order_acc sampai head-nya meng-ACC. Hanya form belanja
+       yang meminta (accHead:true) — form CK/Gudang Bar lewat batchOrder yang
+       sama dan TIDAK ikut tertahan. Lihat lib_stock_acc.php. */
+    if ($a === 'batchOrder' && !empty($b->accHead)) {
+      $u = pur_whoami(pur_token_sesi($b));
+      $div = pur_acc_perlu($u);
+      if ($div) pur_json(pur_acc_simpan($pdo, $u, $div, $b));
+    }
     if ($a === 'batchOrder') pur_json(pur_orders_batch($pdo, $b->orders ?? [], $b));
+    if ($a === 'accPutus')   pur_json(pur_acc_putus($pdo, pur_whoami(pur_token_sesi($b)), $b));
+    if ($a === 'accBatal')   pur_json(pur_acc_batal($pdo, pur_whoami(pur_token_sesi($b)), $b));
     if ($a === 'import')     pur_json(pur_orders_import($pdo, $b->orders ?? []));  // alat migrasi, idempoten
     if ($a === 'archive')    pur_json(pur_orders_arsip($pdo, $b, 'Arsip'));
     if ($a === 'unarchive')  pur_json(pur_orders_arsip($pdo, $b, 'Aktif'));
