@@ -3569,12 +3569,15 @@
             const tim = timSaatIni();
             let sukses = 0;
             let pesanGagal = '';
+            /* Satu kali Catat Kiriman = satu batch (4 Nov 2026), supaya
+               riwayatnya terbaca per kiriman, bukan per barang lepas. */
+            const batchKirim = (GUDANG === 'bar' ? 'GBM' : 'CKM') + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
             try {
                 for (const d of daftar) {
                     const res = await fetch(ckUrlG(), {
                         method: 'POST',
                         headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-                        body: JSON.stringify(Object.assign({ action: 'kirim', tanggal: tgl, tim, pic }, d))
+                        body: JSON.stringify(Object.assign({ action: 'kirim', tanggal: tgl, tim, pic, batchId: batchKirim }, d))
                     });
                     const j = await res.json().catch(() => null);
                     if (j && j.status === 'success') sukses++;
@@ -3685,7 +3688,10 @@
                 const kirim = isi.filter(m => m.sebab === 'kiriman');
                 const ambil = isi.filter(m => m.sebab === 'pengajuan');
                 const kb = ambil.length ? kartuBatchAmbil(ambil) : { n: 0, html: '' };
-                const ket = [kb.n ? kb.n + ' batch pengambilan' : '', kirim.length ? kirim.length + ' kiriman' : '']
+                // Gudang Bar: kiriman juga per batch. CK tetap per barang.
+                const km = (GUDANG === 'bar' && kirim.length) ? kartuBatchMasuk(kirim) : null;
+                const ket = [kb.n ? kb.n + ' batch pengambilan' : '',
+                             km ? km.n + ' batch masuk' : (kirim.length ? kirim.length + ' kiriman' : '')]
                     .filter(Boolean).join(' · ');
                 return `<div class="space-y-2">
                     <div class="flex items-baseline justify-between gap-2 pt-2">
@@ -3693,7 +3699,7 @@
                         <span class="text-[10px] font-bold text-slate-400 whitespace-nowrap">${ket}</span>
                     </div>
                     ${kb.html}
-                    ${kirim.map(barisRiwayatKiriman).join('')}
+                    ${km ? km.html : kirim.map(barisRiwayatKiriman).join('')}
                 </div>`;
             }).join('') + (maxHal > 1 ? `
                 <div class="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-slate-200">
@@ -3850,6 +3856,66 @@
             return { n: kunci.length, html: html };
         }
 
+        /* Selisih kiriman vs yang masuk stok. Satuan seperti Dus hanya bisa
+           dikonversi lewat info barang dari Purchasing (isi per satuan) —
+           dulu cuma packIsi/packSatuan yang dipakai, jadi "3 Dus" dihitung
+           3 Botol dan baris yang BENAR ditandai selisih merah (keluhan user
+           4 Nov 2026). Satuan yang tidak bisa dikonversi = tidak dinilai,
+           bukan dianggap selisih. */
+        function bedaKiriman(m) {
+            const p = Object.assign({}, infoGudangItem(m.item) || {}, { packIsi: m.packIsi, packSatuan: m.packSatuan });
+            const f = ckFaktorSatuan(m.unitInput, p);
+            if (f == null) return { dikirimDasar: m.qty, beda: false };
+            const dikirimDasar = (parseFloat(m.qtyInput) || 0) * f;
+            return { dikirimDasar: dikirimDasar, beda: Math.abs(dikirimDasar - m.qty) > 0.0001 };
+        }
+
+        /* Kiriman Gudang Bar per BATCH (4 Nov 2026, permintaan user: "batch
+           masuk juga ada"). Kiriman lama tanpa batchId dikelompokkan per
+           PIC + menit kirim. Tombol ubah tetap per barang. */
+        function kartuBatchMasuk(daftar) {
+            const grup = {};
+            daftar.forEach(m => {
+                const k = m.batchId || ('~' + (m.pic || '') + '|' + String(m.waktu || '').slice(0, 16));
+                (grup[k] = grup[k] || []).push(m);
+            });
+            const kunci = Object.keys(grup).sort((a, b) => String(grup[b][0].waktu || '').localeCompare(String(grup[a][0].waktu || '')));
+            const bolehUbah = bolehUbahTab(GUDANG === 'bar' ? 'gb' : 'ck');
+            const html = kunci.map(k => {
+                const isi = grup[k];
+                const m0 = isi[0];
+                const meta = [m0.tim, m0.pic, String(m0.waktu || '').slice(11, 16)].filter(Boolean).join(' · ');
+                return `<div class="bg-white border border-emerald-200 rounded-xl px-4 py-3 space-y-1.5">
+                    <div class="flex items-center gap-2">
+                        <span class="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-sm bg-emerald-50"><i class="fa-solid fa-truck-ramp-box text-emerald-600 text-[13px]"></i></span>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-[13px] font-bold text-slate-800">Batch Masuk</div>
+                            ${meta ? `<div class="text-[10px] text-slate-500 mt-0.5">${escHtmlCK(meta)}</div>` : ''}
+                        </div>
+                        <div class="shrink-0 text-right">
+                            <div class="text-[11px] font-black text-slate-700">${isi.length} barang</div>
+                            <div class="text-[9px] font-black uppercase tracking-wider text-emerald-600">Masuk Stok</div>
+                        </div>
+                    </div>
+                    <div class="divide-y divide-slate-100 border-t border-slate-100 pt-1">${isi.map(m => {
+                        const { dikirimDasar, beda } = bedaKiriman(m);
+                        return `<div class="flex items-center gap-2 py-1.5 text-xs">
+                            <div class="flex-1 min-w-0">
+                                <div class="truncate font-semibold text-slate-700">${escHtmlCK(m.item)}</div>
+                                ${m.catatan ? `<div class="text-[10px] text-slate-400 truncate">${escHtmlCK(m.catatan)}</div>` : ''}
+                                ${m.diubahOleh ? `<div class="text-[10px] font-semibold text-amber-600">✎ diubah ${escHtmlCK(m.diubahOleh)}${m.nUbah > 1 ? ' (' + m.nUbah + '×)' : ''}</div>` : ''}
+                                ${beda ? `<div class="text-[10px] font-bold text-rose-600">Masuk stok ${ckNum(m.qty)} ${escHtmlCK(m.packSatuan)} dari ${ckNum(dikirimDasar)} ${escHtmlCK(m.packSatuan)} yang dikirim</div>` : ''}
+                            </div>
+                            <span class="font-black text-slate-600 whitespace-nowrap">${ckNum(m.qtyInput)} ${escHtmlCK(m.unitInput)}</span>
+                            ${(!m.ref && bolehUbah) ? `<button type="button" onclick="bukaUbahKiriman('${escHtmlCK(m.id)}')" title="Ubah kiriman ini"
+                                class="shrink-0 w-7 h-7 rounded-lg border border-slate-200 text-slate-500 hover:text-teal-700 hover:border-teal-300 flex items-center justify-center"><i class="fa-solid fa-pen text-[10px]"></i></button>` : ''}
+                        </div>`;
+                    }).join('')}</div>
+                </div>`;
+            }).join('');
+            return { n: kunci.length, html: html };
+        }
+
         function barisRiwayatKiriman(m) {
             /* Baris peninggalan aturan lama masih bisa berstatus 'pending'
                (kiriman yang dulu belum sempat dikonfirmasi). Sejak langkah
@@ -3860,8 +3926,7 @@
             // Selisih antara yang dikirim dan yang tercatat ditulis
             // terang-terangan: itu satu-satunya cara pengirim tahu bahwa
             // yang masuk stok tidak sebanyak yang dia kirim.
-            const dikirimDasar = ckKeDasarKirim(m.qtyInput, m.unitInput, { packIsi: m.packIsi, packSatuan: m.packSatuan });
-            const beda = Math.abs(dikirimDasar - m.qty) > 0.0001;
+            const { dikirimDasar, beda } = bedaKiriman(m);
             // Tanggal TIDAK diulang di sini: ia sudah jadi judul kelompoknya.
             const meta = [m.tim, m.pic].filter(Boolean).join(' · ');
             return `<div class="bg-white border ${beda ? 'border-rose-200' : 'border-slate-200'} rounded-xl px-4 py-3 flex items-center gap-3">
