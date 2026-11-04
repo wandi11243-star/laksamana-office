@@ -595,6 +595,11 @@ function pur_ck_kiriman_simpan($pdo, $b, $gudang = 'ck') {
     'packIsi'    => $p->packIsi,
     'packSatuan' => $p->packSatuan,
   ];
+  /* batchId kiriman (4 Nov 2026): satu kali Catat Kiriman = satu batch,
+     supaya riwayatnya bisa dikelompokkan seperti batch pengambilan.
+     Dibuat browser per pengiriman; disaring ke karakter aman saja. */
+  $bid = preg_replace('/[^A-Za-z0-9_-]/', '', (string)($b->batchId ?? ''));
+  if ($bid !== '') $rec->batchId = substr($bid, 0, 40);
 
   /* UBAH KIRIMAN (2 Nov 2026, permintaan user). id terisi = menyunting baris
      kiriman yang sudah ada: tanggal, jumlah, satuan, catatan. Barangnya,
@@ -627,6 +632,9 @@ function pur_ck_kiriman_simpan($pdo, $b, $gudang = 'ck') {
       ],
     ];
     $rec->diubah = array_slice($jejak, -20);
+    // batchId LAMA dipertahankan: ubahan tidak boleh mengeluarkan baris
+    // dari batch kirimannya.
+    if (isset($dLama->batchId)) $rec->batchId = (string)$dLama->batchId; else unset($rec->batchId);
     $tglU = trim((string)($b->tanggal ?? '')) ?: $lama['tanggal'];
     $pdo->prepare("UPDATE `ck_stock` SET `tanggal`=?,`qty`=?,`qty_input`=?,`unit_input`=?,`data`=? WHERE `id`=?")
         ->execute([$tglU, $qty, $qtyInput, $unitInput, json_encode($rec, JSON_UNESCAPED_UNICODE), $idUbah]);
