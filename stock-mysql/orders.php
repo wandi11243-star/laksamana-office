@@ -54,7 +54,23 @@ try {
       $div = pur_acc_perlu($u);
       if ($div) pur_json(pur_acc_simpan($pdo, $u, $div, $b));
     }
-    if ($a === 'batchOrder') pur_json(pur_orders_batch($pdo, $b->orders ?? [], $b));
+    if ($a === 'batchOrder') {
+      $hasil = pur_orders_batch($pdo, $b->orders ?? [], $b);
+      /* GUDANG BAR TANPA CHECK-IN (permintaan user 3 Nov 2026: "ga perlu
+         masuk ke checkin penerimaan"). Gudang Bar dipegang tim bar sendiri,
+         jadi yang diminta sama dengan yang diambil: barisnya langsung
+         ditandai Datang (jumlah aktual = jumlah diminta) + Arsip, dan stok
+         Gudang Bar langsung berkurang lewat pur_ck_sinkron_order() — pintu
+         yang SAMA dengan check-in, supaya aturan stoknya tetap satu.
+         Batch-nya TETAP lahir: itulah riwayatnya. Penandanya batch_name,
+         sama dengan yang dibaca sinkron & dariFormGudang(). */
+      if (($hasil['status'] ?? '') === 'success'
+          && strtolower(trim((string)($hasil['batchName'] ?? ''))) === 'gudang bar'
+          && ($hasil['batchId'] ?? '') !== '') {
+        $hasil['langsung'] = pur_orders_terima_batch($pdo, (string)$hasil['batchId']);
+      }
+      pur_json($hasil);
+    }
     if ($a === 'accPutus')   pur_json(pur_acc_putus($pdo, pur_whoami(pur_token_sesi($b)), $b));
     if ($a === 'accBatal')   pur_json(pur_acc_batal($pdo, pur_whoami(pur_token_sesi($b)), $b));
     if ($a === 'import')     pur_json(pur_orders_import($pdo, $b->orders ?? []));  // alat migrasi, idempoten

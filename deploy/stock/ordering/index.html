@@ -2733,8 +2733,12 @@
                 stok:    ['Stok ' + gdInfo().nama + ' Sekarang', '👤 PIC'],
                 minta:   ['Pengajuan ke ' + gdInfo().nama, '👤 PIC (Pemohon)'],
                 kirim:   ['Kirim Barang ke ' + gdInfo().nama, '👤 PIC (Pengirim)'],
-                riwayat: ['Riwayat Kiriman ke ' + gdInfo().nama, '👤 PIC']
+                riwayat: [GUDANG === 'bar' ? 'Riwayat Batch ' + gdInfo().nama : 'Riwayat Kiriman ke ' + gdInfo().nama, '👤 PIC']
             };
+            /* Gudang Bar: riwayatnya memuat batch pengambilan DAN kiriman
+               (3 Nov 2026), jadi namanya bukan "Riwayat Kiriman" lagi. */
+            const btnRw = document.getElementById('subcko-riwayat');
+            if (btnRw) btnRw.textContent = GUDANG === 'bar' ? '🧾 Riwayat Batch' : '🧾 Riwayat Kiriman';
             const j = JUDUL[v] || JUDUL.minta;
             document.getElementById('ck-judul').textContent = j[0];
             document.getElementById('ck-pic-label').textContent = j[1];
@@ -3187,7 +3191,9 @@
                satu kalimat untuk keduanya membuat yang salah membuka tab tidak
                punya satu pun tanda bahwa ia sedang di form yang keliru. */
             document.getElementById('ck-konfirmasi-sub').textContent = minta
-                ? 'Dapur akan menyiapkan barang di bawah ini. Pastikan jumlahnya benar — permintaan yang sudah terkirim tidak bisa dibatalkan sendiri.'
+                ? (GUDANG === 'bar'
+                    ? 'Stok Gudang Bar LANGSUNG BERKURANG sebanyak daftar di bawah — tidak lewat Check-in Penerimaan. Pastikan jumlahnya benar.'
+                    : 'Dapur akan menyiapkan barang di bawah ini. Pastikan jumlahnya benar — permintaan yang sudah terkirim tidak bisa dibatalkan sendiri.')
                 : 'Stok ' + gdInfo().nama + ' akan BERTAMBAH sebanyak daftar di bawah. Pastikan jumlahnya benar — mutasi yang sudah tercatat harus dibetulkan manual.';
             document.getElementById('ck-konfirmasi-pic').textContent = k.pic || '—';
 
@@ -3311,6 +3317,16 @@
                 const bagian = [];
                 if (dibuat) bagian.push(`${dibuat} barang baru`);
                 if (digabung) bagian.push(`${digabung} barang digabung`);
+                /* Gudang Bar tidak lewat Check-in (3 Nov 2026): server langsung
+                   menandainya diterima dan memotong stoknya. Kalimatnya harus
+                   mengatakan itu — "akan menyiapkannya" menyuruh menunggu. */
+                if (GUDANG === 'bar') {
+                    const gagalStok = data.langsung && data.langsung.ck && data.langsung.ck.error;
+                    showToast(gagalStok ? "Tercatat, Stok Belum Terpotong" : "Pengambilan Tercatat",
+                        gagalStok ? 'Batch tercatat, tapi stok Gudang Bar gagal dipotong — betulkan lewat Penyesuaian.'
+                                  : `${bagian.join(' & ') || 'Barang'} tercatat & stok Gudang Bar langsung berkurang. Riwayatnya di tab Riwayat Batch.`,
+                        gagalStok ? "warning" : "success");
+                } else
                 showToast("Pengajuan Terkirim", `${bagian.join(' & ') || 'Pengajuan'} tercatat. ${gdInfo().nama} akan menyiapkannya.`, "success");
                 catatLog("ck_ajukan",
                     `Pengajuan ${gdInfo().nama} ${tgl}: ${pesanan.length} barang — ${pesanan.map(p => `${p.item} ${p.qty} ${p.unit}`).join(', ')}`,
@@ -3606,7 +3622,10 @@
                 const res = await fetch(ckUrlG() + '&t=' + Date.now());
                 if (!res.ok) throw new Error('HTTP ' + res.status);
                 const d = await res.json();
-                riwayatKiriman = (Array.isArray(d.mutasi) ? d.mutasi : []).filter(m => m.sebab === 'kiriman');
+                /* Gudang Bar: pengambilan (mutasi 'pengajuan') ikut di riwayat,
+                   dikelompokkan per batch — permintaan user 3 Nov 2026. */
+                riwayatKiriman = (Array.isArray(d.mutasi) ? d.mutasi : [])
+                    .filter(m => m.sebab === 'kiriman' || (GUDANG === 'bar' && m.sebab === 'pengajuan'));
             } catch (e) {
                 console.error(e);
                 wrap.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl py-12 text-center">
@@ -3640,8 +3659,8 @@
                 riwayatHal = 1;
                 wrap.innerHTML = `<div class="bg-white border border-slate-200 rounded-2xl py-16 text-center">
                     <div class="mx-auto w-16 h-16 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 mb-4"><i class="fa-solid fa-truck-fast text-xl"></i></div>
-                    <h3 class="font-bold text-slate-800">Belum Ada Kiriman</h3>
-                    <p class="text-slate-500 text-sm mt-1">Kiriman ke ${gdInfo().nama} akan muncul di sini.</p>
+                    <h3 class="font-bold text-slate-800">${GUDANG === 'bar' ? 'Belum Ada Riwayat' : 'Belum Ada Kiriman'}</h3>
+                    <p class="text-slate-500 text-sm mt-1">${GUDANG === 'bar' ? 'Pengambilan dan kiriman Gudang Bar akan muncul di sini.' : 'Kiriman ke ' + gdInfo().nama + ' akan muncul di sini.'}</p>
                 </div>`;
                 return;
             }
@@ -3663,13 +3682,18 @@
 
             wrap.innerHTML = tglHalaman.map(t => {
                 const isi = perTgl[t];
-                const jml = isi.length;
+                const kirim = isi.filter(m => m.sebab === 'kiriman');
+                const ambil = isi.filter(m => m.sebab === 'pengajuan');
+                const kb = ambil.length ? kartuBatchAmbil(ambil) : { n: 0, html: '' };
+                const ket = [kb.n ? kb.n + ' batch pengambilan' : '', kirim.length ? kirim.length + ' kiriman' : '']
+                    .filter(Boolean).join(' · ');
                 return `<div class="space-y-2">
                     <div class="flex items-baseline justify-between gap-2 pt-2">
                         <h4 class="text-xs font-black text-slate-700">${t === '(tanpa tanggal)' ? t : fmtTglRiwayat(t)}</h4>
-                        <span class="text-[10px] font-bold text-slate-400 whitespace-nowrap">${jml} kiriman</span>
+                        <span class="text-[10px] font-bold text-slate-400 whitespace-nowrap">${ket}</span>
                     </div>
-                    ${isi.map(barisRiwayatKiriman).join('')}
+                    ${kb.html}
+                    ${kirim.map(barisRiwayatKiriman).join('')}
                 </div>`;
             }).join('') + (maxHal > 1 ? `
                 <div class="flex items-center justify-between gap-2 mt-4 pt-3 border-t border-slate-200">
@@ -3787,6 +3811,43 @@
             closeModal('ubah-kiriman-modal');
             showToast("Kiriman Diubah", "Stok " + gdInfo().nama + " sudah disesuaikan.", "success");
             muatRiwayatKiriman();
+        }
+
+        /* Pengambilan Gudang Bar per BATCH (3 Nov 2026): satu kartu = satu kali
+           Minta, berisi seluruh barangnya. batchId dicatat server sejak
+           tanggal itu; baris lama tanpa batchId dikelompokkan per PIC + jam
+           supaya tidak tercecer jadi baris lepas. */
+        function kartuBatchAmbil(daftar) {
+            const grup = {};
+            daftar.forEach(m => {
+                const k = m.batchId || ('~' + (m.pic || '') + '|' + String(m.waktu || '').slice(0, 16));
+                (grup[k] = grup[k] || []).push(m);
+            });
+            const kunci = Object.keys(grup).sort((a, b) => String(grup[b][0].waktu || '').localeCompare(String(grup[a][0].waktu || '')));
+            const html = kunci.map(k => {
+                const isi = grup[k];
+                const m0 = isi[0];
+                const meta = [m0.tim, m0.pic, String(m0.waktu || '').slice(11, 16)].filter(Boolean).join(' · ');
+                return `<div class="bg-white border border-violet-200 rounded-xl px-4 py-3 space-y-1.5">
+                    <div class="flex items-center gap-2">
+                        <span class="shrink-0 w-8 h-8 rounded-lg flex items-center justify-center text-sm bg-violet-50"><i class="fa-solid fa-box-open text-violet-600 text-[13px]"></i></span>
+                        <div class="min-w-0 flex-1">
+                            <div class="text-[13px] font-bold text-slate-800">Batch Pengambilan${m0.batchId ? ' <span class="font-mono text-[10px] text-slate-400">' + escHtmlCK(m0.batchId) + '</span>' : ''}</div>
+                            ${meta ? `<div class="text-[10px] text-slate-500 mt-0.5">${escHtmlCK(meta)}</div>` : ''}
+                        </div>
+                        <div class="shrink-0 text-right">
+                            <div class="text-[11px] font-black text-slate-700">${isi.length} barang</div>
+                            <div class="text-[9px] font-black uppercase tracking-wider text-violet-600">Keluar Stok</div>
+                        </div>
+                    </div>
+                    <div class="divide-y divide-slate-100 border-t border-slate-100 pt-1">${isi.map(m => `
+                        <div class="flex items-center gap-2 py-1 text-xs">
+                            <span class="flex-1 min-w-0 truncate font-semibold text-slate-700">${escHtmlCK(m.item)}</span>
+                            <span class="font-black text-slate-600">${ckNum(m.qtyInput)} ${escHtmlCK(m.unitInput)}</span>
+                        </div>`).join('')}</div>
+                </div>`;
+            }).join('');
+            return { n: kunci.length, html: html };
         }
 
         function barisRiwayatKiriman(m) {
@@ -5704,7 +5765,12 @@
                     return d !== 0 ? d : (a.rowIndex || 0) - (b.rowIndex || 0);
                 });
 
-                checkinAllRecords = filteredRecords;
+                /* Pengambilan Gudang Bar tidak masuk Check-in (3 Nov 2026) —
+                   server menerimanya seketika. Yang DISARING cuma yang sudah
+                   Datang: batch Gudang Bar lama yang masih menunggu tetap
+                   tampil, kalau tidak ia tidak bisa diselesaikan dari mana pun
+                   dan stoknya tidak pernah terpotong. */
+                checkinAllRecords = filteredRecords.filter(o => !(dariFormGudang(o) === 'bar' && o.kedatangan === 'Datang'));
                 checkinCurrentDate = labelDate;
                 renderPoCards();
             } catch (err) {
