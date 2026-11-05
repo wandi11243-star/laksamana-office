@@ -96,7 +96,7 @@ function pos_simpan($o, $base, $nama) {
   if ($id === '' || strlen($id) > 40 || !preg_match('/^[A-Za-z0-9_.-]+$/', $id))
     return array('ok' => false, 'error' => 'Id order tidak sah.');
   $status = isset($o['status']) ? (string)$o['status'] : '';
-  if (!in_array($status, array('open', 'paid', 'batal'), true))
+  if (!in_array($status, array('open', 'paid', 'batal', 'void'), true))
     return array('ok' => false, 'error' => 'Status order tidak sah: ' . $status);
   if (!isset($o['items']) || !is_array($o['items']))
     return array('ok' => false, 'error' => 'Daftar item tidak terbaca.');
@@ -218,7 +218,7 @@ function pos_impor($orders, $setting, $nama) {
       $id = isset($o['id']) ? trim((string)$o['id']) : '';
       $status = isset($o['status']) ? (string)$o['status'] : '';
       if ($id === '' || strlen($id) > 40 || !preg_match('/^[A-Za-z0-9_.-]+$/', $id)
-          || !in_array($status, array('open', 'paid', 'batal'), true)
+          || !in_array($status, array('open', 'paid', 'batal', 'void'), true)
           || !isset($o['items']) || !is_array($o['items'])) { $tolak++; continue; }
       $cek->execute(array(':id' => $id));
       if ($cek->fetch()) { $ada++; continue; }
