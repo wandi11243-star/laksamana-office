@@ -269,6 +269,9 @@ input{font:inherit}
 .tog{display:inline-flex;align-items:center;gap:6px;cursor:pointer}
 .sbtn{height:32px;padding:0 12px;border:1px solid var(--line);background:#fff;border-radius:3px;font-size:13px}
 .sbtn:hover{background:var(--soft)}
+.tbl tr.void td{color:#9aa1ad;text-decoration:line-through}
+.tbl tr.void td .chip{text-decoration:none}
+.voidban{background:#f3d9d6;color:#8a2a22;padding:10px 12px;border-radius:3px;margin-bottom:12px}
 .chip.off{background:#f3d9d6;color:#8a2a22}
 .chip.ubah{background:#e6ddf7;color:#4a3390}
 .pg{display:flex;justify-content:flex-end;align-items:center;gap:8px;padding:10px 12px;color:var(--mut);font-size:13px}
@@ -592,7 +595,18 @@ function omsetPerkiraan(iso) {
 // Omset satu tanggal: hari ini dari transaksi POS sungguhan, sebelumnya dari
 // rekap. Dicampur di satu hari, angka rekap menenggelamkan transaksi yang
 // barusan diketik dan tidak ada yang bisa memeriksa POS-nya.
+// Transaksi yang di-VOID tidak ikut omset. Bill hari rekap yang di-void
+// disimpan sebagai salinannya di DB.orders (asal 'rekap', status 'void'),
+// jadi omset rekap hari itu dikurangi nilai bill tersebut. Bill POS
+// sungguhan cukup berganti status — penyaring 'paid' sudah membuangnya.
+function voidHari(iso) { return DB.orders.filter(o => o.status === 'void' && o.tgl === iso); }
 function omsetHari(iso) {
+  const r = omsetDasar(iso); if (!r || r.sumber === 'pos') return r;
+  const v = voidHari(iso).filter(o => o.asal === 'rekap'); if (!v.length) return r;
+  let om = 0, pj = 0; v.forEach(o => { const t = hitung(o); om += t.dasar + t.sc; pj += t.pb1; });
+  return Object.assign({}, r, { omset: r.omset - om, pajak: r.pajak - pj });
+}
+function omsetDasar(iso) {
   const kini = hariIniIso();
   const d = new Date(iso + 'T00:00:00');
   const we = d.getDay() === 0 || d.getDay() === 6;
@@ -632,8 +646,14 @@ function rng(seed) {
 const KASIR_HARIAN = ['Andy', 'Tasya', 'Gita', 'Faila'];
 const METODE_BOBOT = [['QRIS', 34], ['Cash', 22], ['EDC BCA', 12], ['EDC MANDIRI', 8], ['EDC BRI', 6], ['TRANSFER', 4], ['GOFOOD', 7], ['GRABFOOD', 7]];
 const TRX_CACHE = {};
+// Yang di-void TIDAK ikut daftar ini (dipakai hitungan Laporan); Riwayat
+// menggambarnya terpisah lewat voidHari().
 function transaksiHari(iso) {
-  const r = omsetHari(iso); if (!r) return [];
+  const div = new Set(voidHari(iso).map(o => o.id));
+  return transaksiSemua(iso).filter(o => !div.has(o.id));
+}
+function transaksiSemua(iso) {
+  const r = omsetDasar(iso); if (!r) return [];
   const asli = DB.orders.filter(o => o.status === 'paid' && o.tgl === iso);
   if (r.sumber === 'pos' || asli.length) return asli.slice().sort((a, b) => a.paidAt - b.paidAt);
   if (TRX_CACHE[iso]) return TRX_CACHE[iso];
@@ -1241,22 +1261,26 @@ function vRiwayat() {
   const kini = hariIniIso();
   if (RIW_TGL > kini) RIW_TGL = kini;
   if (RIW_TGL < TAHUN + '-01-01') RIW_TGL = TAHUN + '-01-01';
-  const semua = transaksiHari(RIW_TGL);
+  // Yang di-void TETAP digambar (dicoret, di urutan jamnya) supaya jejaknya
+  // terlihat, tapi tidak ikut satu pun angka di kartu & kaki tabel.
+  const semua = transaksiHari(RIW_TGL).concat(voidHari(RIW_TGL)).sort((a, b) => (a.paidAt || 0) - (b.paidAt || 0));
   const mtdOf = o => (o.payments || []).map(p => p.method).join(', ');
   const tampil = semua.filter(o => (!RIW_KASIR || o.kasir === RIW_KASIR) && (!RIW_MTD || (o.payments || []).some(p => p.method === RIW_MTD)));
+  const sah = tampil.filter(o => o.status !== 'void'), nVoid = tampil.length - sah.length;
   let omset = 0, pb1 = 0, grand = 0, pax = 0;
-  tampil.forEach(o => { const h = hitung(o); omset += h.omset; pb1 += h.pb1; grand += h.grand; pax += +o.pax || 0; });
+  sah.forEach(o => { const h = hitung(o); omset += h.omset; pb1 += h.pb1; grand += h.grand; pax += +o.pax || 0; });
   const nHal = Math.max(1, Math.ceil(tampil.length / RIW_PER));
   if (RIW_HAL > nHal) RIW_HAL = nHal;
   const pot = tampil.slice((RIW_HAL - 1) * RIW_PER, RIW_HAL * RIW_PER);
   const rows = pot.length ? pot.map((o, i) => {
     const h = hitung(o);
-    return '<tr class="klik" onclick="lihatStruk(\'' + o.id + '\')"><td class="muted">' + ((RIW_HAL - 1) * RIW_PER + i + 1) + '</td><td>' + jamDari(o.paidAt) + '</td><td>' + esc(o.no) + '</td><td>' + esc(o.meja) + '</td><td>' + esc(o.kasir) + '</td><td class="num">' + h.qty + '</td><td>' + esc(mtdOf(o)) + '</td>' +
+    const vd = o.status === 'void';
+    return '<tr class="klik' + (vd ? ' void' : '') + '" onclick="lihatStruk(\'' + o.id + '\')"' + (vd ? ' title="VOID — ' + esc(o.voidAlasan || '') + '"' : '') + '><td class="muted">' + ((RIW_HAL - 1) * RIW_PER + i + 1) + '</td><td>' + jamDari(o.paidAt) + '</td><td>' + esc(o.no) + (vd ? ' <span class="chip off">VOID</span>' : '') + '</td><td>' + esc(o.meja) + '</td><td>' + esc(o.kasir) + '</td><td class="num">' + h.qty + '</td><td>' + esc(mtdOf(o)) + '</td>' +
       '<td class="num rp">' + fmt(h.omset) + '</td><td class="num rp">' + fmt(h.pb1) + '</td><td class="num rp">' + fmt(h.grand) + '</td></tr>';
   }).join('') : '<tr><td colspan="10" class="muted" style="text-align:center;padding:40px">' + (semua.length ? 'Tidak ada transaksi yang cocok dengan saringan.' : 'Belum ada transaksi pada tanggal ini.') + '</td></tr>';
   // Ringkasan per metode bayar (dari seluruh transaksi hari itu).
   const perM = {};
-  semua.forEach(o => (o.payments || []).forEach(p => { const k = p.method; perM[k] = perM[k] || { n: 0, v: 0 }; perM[k].n++; perM[k].v += Math.min(p.amount, hitung(o).grand); }));
+  semua.filter(o => o.status !== 'void').forEach(o => (o.payments || []).forEach(p => { const k = p.method; perM[k] = perM[k] || { n: 0, v: 0 }; perM[k].n++; perM[k].v += Math.min(p.amount, hitung(o).grand); }));
   const kasirs = [...new Set(semua.map(o => o.kasir))].sort();
   const geser = d => { const t = new Date(RIW_TGL + 'T00:00:00'); t.setDate(t.getDate() + d); return isoLokal(t); };
   const prev = geser(-1), next = geser(1);
@@ -1264,16 +1288,16 @@ function vRiwayat() {
     '<button class="btn" onclick="riwTgl(\'' + prev + '\')" ' + (prev < TAHUN + '-01-01' ? 'disabled' : '') + '>‹</button>' +
     '<input type="date" class="inp" style="width:180px" min="' + TAHUN + '-01-01" max="' + kini + '" value="' + RIW_TGL + '" onchange="riwTgl(this.value||hariIniIso())">' +
     '<button class="btn" onclick="riwTgl(\'' + next + '\')" ' + (next > kini ? 'disabled' : '') + '>›</button></div>' +
-    '<div class="kpis"><div class="kpi"><div class="l">Transaksi</div><div class="v">' + tampil.length + '</div><div class="f">' + pax + ' pax' + (tampil.length !== semua.length ? ' · dari ' + semua.length + ' sehari' : '') + '</div></div>' +
+    '<div class="kpis"><div class="kpi"><div class="l">Transaksi</div><div class="v">' + sah.length + '</div><div class="f">' + pax + ' pax' + (nVoid ? ' · ' + nVoid + ' void tidak dihitung' : '') + (tampil.length !== semua.length ? ' · dari ' + semua.length + ' sehari' : '') + '</div></div>' +
     '<div class="kpi"><div class="l">Omset (sebelum PB1)</div><div class="v rp">Rp ' + fmt(omset) + '</div></div>' +
     '<div class="kpi"><div class="l">PB1</div><div class="v rp">Rp ' + fmt(pb1) + '</div></div>' +
-    '<div class="kpi"><div class="l">Rata-rata / bill</div><div class="v rp">Rp ' + fmt(tampil.length ? grand / tampil.length : 0) + '</div><div class="f">grand total Rp ' + fmt(grand) + '</div></div></div>' +
+    '<div class="kpi"><div class="l">Rata-rata / bill</div><div class="v rp">Rp ' + fmt(sah.length ? grand / sah.length : 0) + '</div><div class="f">grand total Rp ' + fmt(grand) + '</div></div></div>' +
     (Object.keys(perM).length ? '<div class="card" style="padding:10px 12px;display:flex;gap:8px;flex-wrap:wrap">' + Object.keys(perM).sort((a, b) => perM[b].v - perM[a].v).map(k => '<span class="chip">' + esc(k) + ' · ' + perM[k].n + ' trx · Rp ' + fmt(perM[k].v) + '</span>').join('') + '</div>' : '') +
     '<div class="card"><div class="rowf" style="padding:10px 12px;align-items:center"><span class="muted" style="flex:1">Klik baris untuk melihat struk & item.</span>' +
     '<select class="inp" style="width:170px" onchange="RIW_KASIR=this.value;RIW_HAL=1;render()"><option value="">Semua kasir</option>' + kasirs.map(k => '<option' + (k === RIW_KASIR ? ' selected' : '') + '>' + esc(k) + '</option>').join('') + '</select>' +
     '<select class="inp" style="width:170px" onchange="RIW_MTD=this.value;RIW_HAL=1;render()"><option value="">Semua metode</option>' + Object.keys(perM).sort().map(k => '<option' + (k === RIW_MTD ? ' selected' : '') + '>' + esc(k) + '</option>').join('') + '</select></div>' +
     '<table class="tbl"><thead><tr><th>#</th><th>Jam</th><th>Order</th><th>Meja</th><th>Kasir</th><th class="num">Item</th><th>Metode</th><th class="num">Omset</th><th class="num">PB1</th><th class="num">Grand Total</th></tr></thead><tbody>' + rows + '</tbody>' +
-    (tampil.length ? '<tfoot><tr><td></td><td colspan="6">Total ' + tampil.length + ' transaksi</td><td class="num rp">' + fmt(omset) + '</td><td class="num rp">' + fmt(pb1) + '</td><td class="num rp">' + fmt(grand) + '</td></tr></tfoot>' : '') + '</table>' +
+    (tampil.length ? '<tfoot><tr><td></td><td colspan="6">Total ' + sah.length + ' transaksi' + (nVoid ? ' <span class="muted">(' + nVoid + ' void tidak dihitung)</span>' : '') + '</td><td class="num rp">' + fmt(omset) + '</td><td class="num rp">' + fmt(pb1) + '</td><td class="num rp">' + fmt(grand) + '</td></tr></tfoot>' : '') + '</table>' +
     (nHal > 1 ? '<div class="pg"><span>' + ((RIW_HAL - 1) * RIW_PER + 1) + '–' + Math.min(RIW_HAL * RIW_PER, tampil.length) + ' dari ' + tampil.length + '</span><button onclick="RIW_HAL--;render()" ' + (RIW_HAL <= 1 ? 'disabled' : '') + '>‹</button><span>' + RIW_HAL + ' / ' + nHal + '</span><button onclick="RIW_HAL++;render()" ' + (RIW_HAL >= nHal ? 'disabled' : '') + '>›</button></div>' : '') +
     '</div></div>';
 }
@@ -1283,14 +1307,53 @@ function lihatStruk(id) {
   const o = cariOrder(id); if (!o) return;
   const h = hitung(o);
   const items = o.items.map(x => '<tr><td>' + esc(x.nama) + '</td><td class="num">' + x.qty + '</td><td class="num rp">' + fmt(x.harga) + '</td><td class="num rp">' + fmt(x.harga * x.qty) + '</td></tr>').join('');
-  modal('<div class="modal"><div class="mh">Transaksi ' + esc(o.no) + '</div><div class="mb"><div style="display:flex;gap:16px;flex-wrap:wrap">' +
+  const vd = o.status === 'void';
+  modal('<div class="modal"><div class="mh">Transaksi ' + esc(o.no) + (vd ? ' · VOID' : '') + '</div><div class="mb">' +
+    (vd ? '<div class="voidban"><b>Transaksi ini sudah di-VOID</b> — tidak dihitung di omset. ' + esc(tglJamVoid(o.voidAt)) + ' oleh ' + esc(o.voidOleh || '-') + (o.voidSetuju && o.voidSetuju !== o.voidOleh ? ' (disetujui ' + esc(o.voidSetuju) + ')' : '') + '. Alasan: ' + esc(o.voidAlasan || '-') + '</div>' : '') +
+    '<div style="display:flex;gap:16px;flex-wrap:wrap">' +
     '<div style="flex:1.2;min-width:300px"><table class="ptbl"><thead><tr><th>Item</th><th class="num">Qty</th><th class="num">Harga</th><th class="num">Jumlah</th></tr></thead><tbody>' + items + '</tbody></table>' +
     '<div class="lines" style="padding:10px 0"><div><span>Jam</span><span>' + jamDari(o.paidAt) + ' · ' + esc(o.tgl || '') + '</span></div><div><span>Meja / Mode</span><span>' + esc(o.meja) + ' · ' + esc(o.mode) + '</span></div>' +
     '<div><span>Pax · Kasir</span><span>' + o.pax + ' · ' + esc(o.kasir) + '</span></div><div><span>Subtotal</span><span class="rp">' + fmt(h.sub) + '</span></div>' + (h.disc ? '<div><span>Diskon</span><span class="rp">-' + fmt(h.disc) + '</span></div>' : '') +
     '<div><span>SC ' + h.scPct + '%</span><span class="rp">' + fmt(h.sc) + '</span></div><div><span>PB1</span><span class="rp">' + fmt(h.pb1) + '</span></div><div><b>Grand Total</b><b class="rp">' + fmt(h.grand) + '</b></div>' +
     (o.payments || []).map(p => '<div><span>' + esc(p.method) + '</span><span class="rp">' + fmt(p.amount) + '</span></div>').join('') + (h.kembali ? '<div><span>Kembalian</span><span class="rp">' + fmt(h.kembali) + '</span></div>' : '') + '</div></div>' +
     '<div style="flex:1;min-width:280px;background:#d5d9e0;padding:12px;border-radius:3px">' + struk(o) + '</div></div></div>' +
-    '<div class="mf"><button class="btn line" onclick="cetakStruk(cariOrder(\'' + o.id + '\'))">🖶 Cetak</button><button class="btn ghost" onclick="tutupModal()">Tutup</button></div></div>');
+    '<div class="mf">' + (vd ? '' : '<button class="btn red" style="margin-right:auto" onclick="formVoid(\'' + o.id + '\')">⊘ Void</button>') + '<button class="btn line" onclick="cetakStruk(cariOrder(\'' + o.id + '\'))">🖶 Cetak</button><button class="btn ghost" onclick="tutupModal()">Tutup</button></div></div>');
+}
+/* ---------- VOID TRANSAKSI (5 Nov 2026) ----------
+   Transaksi lunas yang batal dibatalkan lewat VOID, bukan dihapus: statusnya
+   jadi 'void', jejaknya (siapa, kapan, alasan) tetap tersimpan, dan ia
+   berhenti dihitung di omset, PB1, dan jumlah transaksi. Alasan wajib.
+   Kasir butuh PIN Admin — void adalah uang yang keluar dari laporan. */
+function tglJamVoid(t) { if (!t) return ''; return isoLokal(new Date(t)) + ' ' + jamDari(t); }
+function formVoid(id) {
+  const o = cariOrder(id); if (!o || o.status === 'void') return;
+  const h = hitung(o);
+  modal('<div class="modal sm"><div class="mh">Void Transaksi ' + esc(o.no) + '</div><div class="mb"><div class="frm">' +
+    '<div class="full">Grand total <b class="rp">Rp ' + fmt(h.grand) + '</b> · ' + esc(o.tgl || '') + ' ' + jamDari(o.paidAt) + ' · kasir ' + esc(o.kasir || '-') + '.<br><span class="muted">Sesudah di-void transaksi ini tidak dihitung di omset &amp; PB1, tapi tetap tercatat di Riwayat.</span></div>' +
+    '<div class="full"><label>Alasan void (wajib)</label><input id="vdAlasan" class="inp" maxlength="160" placeholder="mis. salah input menu, tamu batal"></div>' +
+    (isAdmin() ? '' : '<div class="full"><label>PIN Admin (persetujuan)</label><input id="vdPin" class="inp" type="password" inputmode="numeric" maxlength="6"></div>') +
+    '<div class="full err-txt" id="vdErr"></div></div></div><div class="mf"><button class="btn ghost" onclick="lihatStruk(\'' + esc(id) + '\')">Batal</button><button class="btn red" onclick="simpanVoid(\'' + esc(id) + '\')">⊘ Void Transaksi</button></div></div>');
+  setTimeout(() => { const e = $('vdAlasan'); if (e) e.focus(); }, 30);
+}
+function simpanVoid(id) {
+  const o = cariOrder(id); if (!o || o.status === 'void') return tutupModal();
+  const alasan = $('vdAlasan').value.trim();
+  let setuju = isAdmin() ? USER.nama : '';
+  let err = alasan.length < 3 ? 'Alasan void wajib diisi.' : '';
+  if (!err && !isAdmin()) {
+    const pin = (($('vdPin') || {}).value || '').trim();
+    const a = SET.users.find(u => u.role === 'admin' && u.aktif !== false && String(u.pin) === pin);
+    if (!a) err = 'PIN Admin salah.'; else setuju = a.nama;
+  }
+  if (err) { $('vdErr').textContent = err; return; }
+  let x = DB.orders.find(y => y.id === id);
+  // Bill hari rekap tidak tersimpan di DB — salinannya disimpan supaya void
+  // ikut terkirim ke server dan mengurangi omset rekap hari itu.
+  if (!x) { x = JSON.parse(JSON.stringify(o)); x.asal = 'rekap'; DB.orders.push(x); }
+  Object.assign(x, { status: 'void', voidAt: Date.now(), voidOleh: USER ? USER.nama : '', voidSetuju: setuju, voidAlasan: alasan });
+  tandaiOrder(x); simpan(); sinkronNanti();
+  toast('Transaksi ' + (x.no || '') + ' di-void.');
+  tutupModal(); render();
 }
 
 /* ---------- LAPORAN 2026 ---------- */
@@ -1322,7 +1385,7 @@ function vLaporan() {
   }
   const maks = Math.max(1, ...baris.map(r => r.omset));
   const bars = baris.map(r => '<div class="' + (r.sumber === 'pos' ? 'today' : r.we ? 'we' : '') + '" style="height:' + Math.max(2, r.omset / maks * 100) + '%" title="' + esc(tglPanjang(r.iso)) + ': Rp ' + fmt(r.omset) + '"></div>').join('');
-  const rows = baris.map((r, i) => '<tr class="klik ' + (r.sumber === 'pos' ? 'today' : r.we ? 'we' : '') + '" title="Lihat detail transaksi" onclick="lihatHari(\'' + r.iso + '\')"><td>' + (i + 1) + '</td><td>' + tglPanjang(r.iso) + ' <span class="muted">›</span></td><td class="num">' + transaksiHari(r.iso).length + '</td><td class="num rp">' + fmt(r.omset) + '</td><td class="num rp">' + fmt(r.pajak) + '</td><td><span class="chip ' + (r.we ? 'we' : '') + '">' + (r.we ? 'Weekend' : 'Weekday') + '</span>' + (r.sumber === 'pos' ? ' <span class="chip pos">POS hari ini</span>' : '') + '</td></tr>').join('');
+  const rows = baris.map((r, i) => '<tr class="klik ' + (r.sumber === 'pos' ? 'today' : r.we ? 'we' : '') + '" title="Lihat detail transaksi" onclick="lihatHari(\'' + r.iso + '\')"><td>' + (i + 1) + '</td><td>' + tglPanjang(r.iso) + ' <span class="muted">›</span></td><td class="num">' + transaksiHari(r.iso).length + '</td><td class="num rp">' + fmt(r.omset) + '</td><td class="num rp">' + fmt(r.pajak) + '</td><td><span class="chip ' + (r.we ? 'we' : '') + '">' + (r.we ? 'Weekend' : 'Weekday') + '</span>' + (r.sumber === 'pos' ? ' <span class="chip pos">POS hari ini</span>' : '') + (voidHari(r.iso).length ? ' <span class="chip off">' + voidHari(r.iso).length + ' void</span>' : '') + '</td></tr>').join('');
   return '<div class="page"><div class="ph"><h2>Rekapitulasi Omset & PB1 · ' + TAHUN + '</h2><select onchange="LAP_BLN=+this.value;render()">' +
     BULAN.slice(0, blnMaks + 1).map((b, i) => '<option value="' + i + '"' + (i === LAP_BLN ? ' selected' : '') + '>' + b + ' ' + TAHUN + '</option>').join('') + '</select></div>' +
     '<div class="kpis"><div class="kpi"><div class="l">Omset ' + BULAN[LAP_BLN] + '</div><div class="v rp">Rp ' + fmt(tot) + '</div><div class="f">' + baris.length + ' hari</div></div>' +
