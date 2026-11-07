@@ -3339,6 +3339,21 @@ langsung seperti dulu ("yang sudah berlalu biarlah berlalu").
 node tools/uji-sync-kasir.js   # 32 pemeriksaan, jsdom (omset + kas + cashier)
 ```
 
+**Simpan & Sync Breakdown di-REBASE saat konflik (7 Nov 2026).** Keluhan:
+popup "Sync BELUM tersimpan … diubah orang lain" sering muncul padahal tidak
+ada yang menyentuh breakdown. Sebabnya penjaga `baseTs` per BLOB, dan kasir
+menyimpan blob yang sama sepanjang hari dari modul Cashier. `simpanHariRebase()`
+menarik getAll terbaru, memastikan `sidikBd()` hari itu di server = basis kita,
+menempelkan HANYA perubahan hari itu, lalu kirim ulang (maks 3x). Ditolak kalau
+breakdown hari itu memang diubah orang lain, atau halaman masih punya suntingan
+lain yang belum naik. **getAll-nya tidak lewat `apiGet()`** — itu memasang
+BASE_TS seketika, dan BASE_TS baru tanpa DB baru = blob lama lolos penjaga.
+Pesan konflik (`pesanGagalBd`) tidak lagi menjanjikan percobaan ulang otomatis.
+
+```bash
+node tools/uji-rebase-breakdown.js   # 15 pemeriksaan, jsdom + server tiruan HIDUP
+```
+
 Lima mutasi dicoba, kelimanya tertangkap: kas membaca `d.bd` hidup, nominal
 nol tidak menahan, hari belum di-sync tidak disebut, penjaga klik paksa
 dicabut. **Uji jsdom panel Kas WAJIB menyisipkan `performa-bonus.js` inline**

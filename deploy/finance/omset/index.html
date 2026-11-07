@@ -1115,6 +1115,76 @@ function simpanTunggu(idBox, idTombol, pesanOk, sesudah){
       +'</span></div></div>';
   });
 }
+/* ---- SIMPAN SATU HARI BREAKDOWN, DENGAN REBASE SAAT KONFLIK (7 Nov 2026)
+   Keluhan user: popup "Sync BELUM tersimpan … diubah orang lain" SERING
+   muncul di Breakdown Sumber, padahal tidak ada yang menyentuh breakdown itu.
+
+   Sebabnya penjaga tulis-basi (baseTs) bekerja per BLOB, bukan per hari: blob
+   omset dipakai bersama modul Cashier dan endpoint sempit (simpanRekap,
+   setoran), dan kasir menyimpan Report Daily / stock / piutang sepanjang
+   hari. Satu simpan kasir di sela-sela membuat tab Breakdown yang terbuka
+   basi, dan Simpan/Sync berikutnya ditolak — untuk hari yang sama sekali
+   tidak diubah siapa pun.
+
+   Penolakannya BENAR (menyimpan blob basi menghapus kerja kasir tadi), jadi
+   penjaganya tidak dilonggarkan. Yang dikerjakan: tarik blob TERBARU, pastikan
+   breakdown hari itu di server masih SAMA dengan yang kita pegang
+   (basisSidik), tempelkan HANYA perubahan hari itu (terapkan), lalu kirim lagi
+   dengan versi baru. Kerja kasir ikut terbawa utuh karena kita menulis di
+   atas salinan server, bukan salinan lama.
+
+   TIGA syarat yang menahan rebase ini menimpa apa pun:
+   - kotorSebelum: halaman masih punya suntingan LAIN yang belum naik.
+     Mengganti DB dengan salinan server akan membuangnya — jadi ditolak saja.
+   - breakdown hari itu di server BERBEDA dari basis kita: ada orang lain yang
+     benar-benar mengubahnya. Itu konflik sungguhan, dilaporkan (bdBerubah).
+   - BASE_TS baru dipasang HANYA sesudah DB ikut diganti. Memasangnya tanpa
+     mengganti DB berarti simpan berikutnya mengirim blob lama dengan versi
+     baru — lolos penjaga dan menghapus kerja orang. Karena itu getAll di sini
+     tidak lewat apiGet(), yang memasang BASE_TS seketika. */
+function simpanHariRebase(tgl, basisSidik, terapkan, kotorSebelum){
+  return kirimSekarang().catch(err=>{
+    if(!(err&&err.konflik) || kotorSebelum) throw err;
+    return rebase(1);
+    function rebase(ke){
+      return fetchTimeout(API_URL+'?action=getAll&t='+Date.now(),{method:'GET',redirect:'follow'})
+        .then(r=>r.json()).catch(()=>{ throw err; })
+        .then(j=>{
+          if(!j||!j.ok||!j.data) throw err;
+          const segar=normalizeDB(j.data);
+          const hari=segar.daily.find(x=>x.date===tgl);
+          if(!hari || sidikBd(hari.bd)!==basisSidik){
+            const e=new Error('Breakdown '+dateLabel(tgl)+' sudah diubah orang lain di server sejak halaman ini dibuka.');
+            e.konflik=true; e.bdBerubah=true; e.oleh=err.oleh; throw e;
+          }
+          terapkan(hari);
+          DB=segar; BASE_TS=+j.ts||0; DIRTY=true;
+          try{ localStorage.setItem(CACHE_KEY,JSON.stringify(DB)); localStorage.setItem(TS_KEY,String(BASE_TS)); }catch(e){}
+          return kirimSekarang().catch(e2=>{
+            if(e2&&e2.konflik&&!e2.bdBerubah&&ke<3) return rebase(ke+1);   // kasir menyimpan lagi di sela-sela
+            /* DB sudah diganti salinan server: layar yang masih memegang objek
+               hari LAMA harus digambar ulang, kalau tidak suntingan berikutnya
+               menempel ke objek yang tidak ada lagi di DB dan hilang diam-diam.
+               Perubahan kita sudah ditempel ke DB baru, jadi tidak ada yang hilang. */
+            try{ render(); }catch(_){}
+            throw e2;
+          });
+        });
+    }
+  });
+}
+/* Pesan gagal untuk tombol Simpan/Sync Breakdown. KONFLIK tidak dicoba ulang
+   otomatis (lihat kirim()), jadi kalimat "dicoba lagi otomatis" cuma benar
+   untuk galat jaringan — dulu dipakai untuk keduanya dan menyuruh orang
+   menunggu penanda Tersimpan yang tidak akan pernah datang. */
+function pesanGagalBd(judul, err){
+  const sebab=(err&&err.message)||'penyebab tidak diketahui';
+  if(err&&err.konflik) return judul+'\n\n'+sebab
+    +(err.oleh?'\nTerakhir disimpan oleh: '+err.oleh:'')
+    +'\n\nPengiriman TIDAK dicoba ulang untuk kasus ini. Muat ulang halaman (F5), periksa breakdown tanggal itu, lalu tekan tombolnya lagi.';
+  return judul+'\n\n'+sebab
+    +'\n\nIsianmu masih ada di layar dan di salinan lokal peramban ini, dan pengiriman dicoba lagi otomatis. JANGAN tutup halaman sampai penanda di pojok berbunyi Tersimpan.';
+}
 /* Perubahan yang belum sampai ke server TIDAK boleh hilang diam-diam saat
    tabnya ditutup. Peramban hanya menampilkan dialog bawaannya sendiri — teksnya
    tidak bisa diatur — tapi yang penting bukan kalimatnya, melainkan bahwa
@@ -4400,16 +4470,17 @@ function viewBreakdown(){
         'Realisasi kasir yang dibekukan:'].concat(baris.length?baris:['  (tidak ada kasir yang masuk)'],
         off?['  '+off+' kasir OFF']:[],['',
         'Sesudah ini Performa Kasir memakai angka di atas untuk hari ini. Mengubah breakdown nanti TIDAK mengubah Performa Kasir sampai di-sync ulang.']).join('\n'))) return;
-      d.bdSync={at:Date.now(), by:(CURRENT_USER&&CURRENT_USER.name)||'', sidik:sidikBd(d.bd), kasir:snap};
+      const kotorSebelum=DIRTY||SAVING;
+      const sinkron={at:Date.now(), by:(CURRENT_USER&&CURRENT_USER.name)||'', sidik:sidikBd(d.bd), kasir:snap};
+      d.bdSync=sinkron;
       save();
       btn.disabled=true; btn.textContent='Menyimpan…';
-      kirimSekarang().then(()=>{
+      simpanHariRebase(bdDate, sinkron.sidik, hari=>{ hari.bdSync=sinkron; }, kotorSebelum).then(()=>{
         alert('✓ Breakdown '+dateLabel(bdDate)+' sudah di-sync ke Performa Kasir.');
         render();
       },err=>{
         btn.disabled=false; btn.textContent='📤 Sync ke Performa Kasir';
-        alert('⚠ Sync BELUM tersimpan di server.\n\n'+(err&&err.message||'penyebab tidak diketahui')
-          +'\n\nPengiriman dicoba lagi otomatis. JANGAN tutup halaman sampai penanda di pojok berbunyi Tersimpan.');
+        alert(pesanGagalBd('⚠ Sync BELUM tersimpan di server.', err));
       });
     };
   }
@@ -4511,6 +4582,7 @@ function viewBreakdown(){
       // Di SINI-lah pembuangan baris otomatis mengikat: state.abaikan yang
       // ditulis, bukan d.bd.abaikan. Sebelum tombol ini ditekan, baris yang
       // dibuang hanya hilang dari layar dan akan kembali kalau di-refresh.
+      const kotorSebelum=DIRTY||SAVING, basisBd=sidikBd(d.bd);
       d.bd={marketing:state.mk,event:state.ev,kasir:state.ks,self:state.so,abaikan:state.abaikan};d.bdValid=true;
       /* SIAPA YANG MENYIMPAN BREAKDOWN (7 September 2026, permintaan user).
 
@@ -4534,14 +4606,13 @@ function viewBreakdown(){
          sama sekali — itulah yang membuat gagal simpan tidak pernah terlihat.
          Saat gagal, layarnya sengaja DIBIARKAN apa adanya: isian yang barusan
          diketik masih di sana, dan percobaan ulang otomatis masih berjalan. */
-      kirimSekarang().then(()=>{
+      const bdBaru=d.bd, logBaru=d.bdLog;
+      simpanHariRebase(bdDate, basisBd, hari=>{ hari.bd=bdBaru; hari.bdValid=true; hari.bdLog=logBaru; }, kotorSebelum).then(()=>{
         alert('✓ Breakdown '+dateLabel(bdDate)+' TERSIMPAN di server.');
         render();
       },err=>{
         btn.disabled=false; btn.textContent='Simpan Breakdown';
-        alert('⚠ BELUM tersimpan di server.\n\n'+(err&&err.message||'penyebab tidak diketahui')
-          +'\n\nIsianmu masih ada di layar dan di salinan lokal peramban ini, dan pengiriman akan dicoba lagi otomatis. '
-          +'JANGAN tutup halaman sampai penanda di pojok berbunyi Tersimpan.');
+        alert(pesanGagalBd('⚠ BELUM tersimpan di server.', err));
       });
     };
   }
