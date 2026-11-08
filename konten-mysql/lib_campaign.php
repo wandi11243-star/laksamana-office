@@ -121,7 +121,11 @@ define('CG_PROFIL_BAWAAN', 'Laksamana Muda: coffee shop, resto, dan venue nongkr
 define('CG_TIKTOK_SCOPE', 'user.info.basic,user.info.profile,user.info.stats,video.list');
 /* Instagram API dengan login bisnis Instagram (14 Okt 2026). Scope WAJIB sama
    dengan izin yang ditambahkan di kasus penggunaan app Meta. */
-define('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights');
+/* instagram_business_content_publish (8 Nov 2026): posting dari Kalender.
+   Token yang dibuat SEBELUM tanggal ini tidak membawanya — orangnya harus
+   menekan Hubungkan lagi, dan layar mengatakannya (cg_ig_bisa_posting). */
+define('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights,instagram_business_content_publish');
+define('CG_IG_IZIN_POSTING', 'instagram_business_content_publish');
 define('CG_IG_GRAPH', 'https://graph.instagram.com/v23.0');
 /* Meta Marketing API (iklan), 14 Okt 2026. */
 define('CG_FB_GRAPH', 'https://graph.facebook.com/v23.0');
@@ -341,6 +345,25 @@ function cg_pastikan($pdo) {
   if (!cg_kolom_ada($pdo, 'cg_post', 'reach')) $pdo->exec('ALTER TABLE cg_post ADD COLUMN reach BIGINT NULL');
   if (!cg_kolom_ada($pdo, 'cg_post', 'saves')) $pdo->exec('ALTER TABLE cg_post ADD COLUMN saves BIGINT NULL');
   if (!cg_kolom_ada($pdo, 'cg_post', 'insight_at')) $pdo->exec('ALTER TABLE cg_post ADD COLUMN insight_at BIGINT NOT NULL DEFAULT 0');
+  /* POSTING INSTAGRAM DARI KALENDER (8 Nov 2026). Lewat ALTER, bukan CREATE
+     TABLE — cg_jadwal sudah berisi di produksi.
+     - media          JSON daftar key berkas (cg_media_dir), urutan = urutan carousel
+     - otomatis       1 = diposting sendiri saat jamnya tiba
+     - ig_media_id    TERISI = sudah diposting. Penjaga posting ganda.
+     - posting_mulai  klaim sedang-memposting (lihat cg_ig_posting)
+     - posting_galat  sebab gagal terakhir; jadwal bergalat TIDAK dicoba ulang otomatis */
+  $kolomJadwal = array(
+    'media'          => 'TEXT NULL',
+    'otomatis'       => 'TINYINT(1) NOT NULL DEFAULT 0',
+    'ig_media_id'    => "VARCHAR(60) NOT NULL DEFAULT ''",
+    'posting_mulai'  => 'BIGINT NOT NULL DEFAULT 0',
+    'posting_galat'  => 'TEXT NULL',
+    'diposting_oleh' => "VARCHAR(120) NOT NULL DEFAULT ''",
+    'diposting_at'   => 'BIGINT NOT NULL DEFAULT 0',
+  );
+  foreach ($kolomJadwal as $k => $def) {
+    if (!cg_kolom_ada($pdo, 'cg_jadwal', $k)) $pdo->exec('ALTER TABLE cg_jadwal ADD COLUMN `' . $k . '` ' . $def);
+  }
   $sudah = true;
 }
 
@@ -766,9 +789,34 @@ function cg_jadwal_simpan($pdo, $d, $nama) {
   /* TAYANG tanpa tautan tidak bisa diperiksa siapa pun, dan tautan itulah
      yang nanti dipakai menarik angkanya jadi insight. */
   if ($status === 'TAYANG' && $tautan === '') throw new Exception('Tandai Tayang butuh tautan postingannya.');
+  $plat = cg_potong(isset($d['platform']) ? $d['platform'] : '', 20);
+  /* Foto untuk diposting ke Instagram. Hanya key yang lahir dari
+     cg_media_unggah() yang diterima — key karangan bisa menunjuk berkas lain. */
+  $media = array();
+  if (isset($d['media']) && is_array($d['media'])) {
+    foreach ($d['media'] as $k) {
+      $k = (string)$k;
+      if (!cg_media_key_sah($k)) throw new Exception('Berkas foto tidak dikenal. Unggah ulang fotonya.');
+      if (!in_array($k, $media, true)) $media[] = $k;
+    }
+  }
+  if (count($media) > 10) throw new Exception('Instagram menerima paling banyak 10 foto per postingan.');
+  $otomatis = !empty($d['otomatis']) ? 1 : 0;
+  if ($otomatis) {
+    if (!cg_plat_ig($plat)) throw new Exception('Posting otomatis baru tersedia untuk Instagram.');
+    if (!$media) throw new Exception('Posting otomatis butuh minimal satu foto.');
+    if ($jam === '') throw new Exception('Posting otomatis butuh jam tayang.');
+    if ($status !== 'TERJADWAL') throw new Exception('Posting otomatis hanya untuk jadwal berstatus Terjadwal.');
+  }
+  /* preg_match_all /u, bukan mb_strlen: fungsi mbstring yang tidak terpasang
+     mematikan aksi ini di hosting yang belum memasangnya. */
+  if (cg_plat_ig($plat) && $media && preg_match_all('/./su', (string)(isset($d['caption']) ? $d['caption'] : '')) > 2200)
+    throw new Exception('Caption Instagram paling panjang 2.200 karakter.');
   $now = cg_now_ms();
   $nilai = array(
-    ':pl' => cg_potong(isset($d['platform']) ? $d['platform'] : '', 20),
+    ':pl' => $plat,
+    ':md' => json_encode($media),
+    ':ot' => $otomatis,
     ':ju' => $judul,
     ':ca' => cg_potong(isset($d['caption']) ? $d['caption'] : '', 5000),
     ':tg' => $tgl,
@@ -781,13 +829,15 @@ function cg_jadwal_simpan($pdo, $d, $nama) {
   );
   $id = isset($d['id']) ? trim((string)$d['id']) : '';
   if ($id !== '') {
-    $q = $pdo->prepare('UPDATE cg_jadwal SET platform=:pl, judul=:ju, caption=:ca, tanggal=:tg, jam=:jm, status=:st, insight_id=:ii, pic=:pc, tautan=:ta, catatan=:ct, diubah_oleh=:by, diubah_at=:at WHERE id=:id');
+    /* posting_galat dikosongkan: orangnya sudah menyunting jadwal yang gagal,
+       jadi posting otomatis boleh mencobanya lagi. */
+    $q = $pdo->prepare("UPDATE cg_jadwal SET platform=:pl, media=:md, otomatis=:ot, posting_galat='', judul=:ju, caption=:ca, tanggal=:tg, jam=:jm, status=:st, insight_id=:ii, pic=:pc, tautan=:ta, catatan=:ct, diubah_oleh=:by, diubah_at=:at WHERE id=:id");
     $q->execute($nilai + array(':by' => $nama, ':at' => $now, ':id' => $id));
     if ($q->rowCount() === 0) throw new Exception('Jadwal yang disunting tidak ditemukan.');
     return array('id' => $id);
   }
   $id = cg_uid('jdw');
-  $q = $pdo->prepare('INSERT INTO cg_jadwal (id, platform, judul, caption, tanggal, jam, status, insight_id, pic, tautan, catatan, dibuat_oleh, dibuat_at) VALUES (:id, :pl, :ju, :ca, :tg, :jm, :st, :ii, :pc, :ta, :ct, :by, :at)');
+  $q = $pdo->prepare('INSERT INTO cg_jadwal (id, platform, media, otomatis, judul, caption, tanggal, jam, status, insight_id, pic, tautan, catatan, dibuat_oleh, dibuat_at) VALUES (:id, :pl, :md, :ot, :ju, :ca, :tg, :jm, :st, :ii, :pc, :ta, :ct, :by, :at)');
   $q->execute($nilai + array(':id' => $id, ':by' => $nama, ':at' => $now));
   /* Dijadwalkan dari Bank Konten: idenya ditandai TERJADWAL berikut id
      jadwalnya, supaya ide yang sama tidak dijadwalkan dua kali tanpa tanda. */
@@ -797,6 +847,217 @@ function cg_jadwal_simpan($pdo, $d, $nama) {
     $q->execute(array(':j' => $id, ':by' => $nama, ':at' => $now, ':id' => $bankId));
   }
   return array('id' => $id);
+}
+
+/* ==================== POSTING INSTAGRAM (8 Nov 2026) ====================
+   Content Publishing API Instagram (login bisnis Instagram, izin
+   instagram_business_content_publish). Alurnya dua langkah:
+     1. POST /{ig}/media        image_url + caption      -> container
+        (carousel: tiap foto container is_carousel_item, lalu container
+        CAROUSEL berisi children)
+     2. POST /{ig}/media_publish creation_id              -> id postingan
+
+   FOTONYA HARUS PUNYA ALAMAT PUBLIK — Instagram MENGAMBILNYA sendiri dari
+   URL, bukan menerima unggahan. Karena itu berkasnya disimpan di folder
+   SENDIRI (cg_media_dir), bukan di folder bukti transfer: gc_receipts() di
+   lib_konten_mysql.php membuang berkas di sana yang tidak disebut tabel
+   content/assets/bank, dan foto jadwal tidak pernah disebut di sana — ia
+   akan terhapus satu jam sesudah diunggah, tanpa satu pun galat.
+
+   Disajikan lewat api.php?action=campaignMedia TANPA sesi (Instagram tidak
+   punya sesi Office). Penjaganya nama berkas acak 128-bit.
+
+   HANYA JPEG: Content Publishing API menolak PNG/WebP. Peramban yang
+   mengubahnya jadi JPEG sebelum mengunggah (kecilkanJpeg). */
+function cg_media_dir() {
+  $dir = receipt_dir() . '/cg_media';
+  if (!is_dir($dir) && !@mkdir($dir, 0775, true)) throw new Exception('Folder foto jadwal tidak bisa dibuat. Cek izin tulis hosting.');
+  return $dir;
+}
+function cg_media_key_sah($k) { return is_string($k) && preg_match('/^cgm_[0-9a-f]{32}\.jpg$/', $k) === 1; }
+function cg_media_url($k) {
+  $host = isset($_SERVER['SERVER_NAME']) ? $_SERVER['SERVER_NAME'] : '';
+  return 'https://' . $host . '/konten-api-mysql/api.php?action=campaignMedia&key=' . rawurlencode($k);
+}
+/* Batas rasio foto feed Instagram: 4:5 (tegak) sampai 1,91:1 (melebar).
+   Di luar itu wadahnya DITOLAK Instagram saat diposting — jadi ditolak di
+   sini, saat orangnya masih memegang fotonya, bukan di jam tayang. */
+function cg_media_unggah($d) {
+  $b64 = isset($d['dataBase64']) ? (string)$d['dataBase64'] : '';
+  $bin = base64_decode(preg_replace('#^data:[^,]+,#', '', $b64), true);
+  if ($bin === false || $bin === '') throw new Exception('Berkas foto kosong atau rusak.');
+  if (strlen($bin) > 8 * 1024 * 1024) throw new Exception('Foto melebihi 8 MB.');
+  if (substr($bin, 0, 3) !== "\xFF\xD8\xFF") throw new Exception('Instagram hanya menerima foto JPEG.');
+  $uk = function_exists('getimagesizefromstring') ? @getimagesizefromstring($bin) : false;
+  if (is_array($uk) && $uk[0] > 0 && $uk[1] > 0) {
+    $r = $uk[0] / $uk[1];
+    if ($r < 0.8 - 0.005 || $r > 1.91 + 0.005)
+      throw new Exception('Rasio foto ' . $uk[0] . '×' . $uk[1] . ' di luar batas Instagram (4:5 tegak sampai 1,91:1 melebar). Potong dulu fotonya.');
+  }
+  $key = 'cgm_' . bin2hex(random_bytes(16)) . '.jpg';
+  if (file_put_contents(cg_media_dir() . '/' . $key, $bin) === false) throw new Exception('Foto gagal disimpan (cek izin folder).');
+  return array('key' => $key, 'url' => cg_media_url($key));
+}
+function cg_media_sajikan($k) {
+  if (!cg_media_key_sah($k)) { http_response_code(404); exit; }
+  $p = cg_media_dir() . '/' . $k;
+  if (!is_file($p)) { http_response_code(404); exit; }
+  header_remove('Content-Type');
+  header('Content-Type: image/jpeg');
+  header('Content-Length: ' . filesize($p));
+  header('Cache-Control: public, max-age=604800');
+  readfile($p);
+  exit;
+}
+
+function cg_plat_ig($p) { return stripos((string)$p, 'insta') !== false || strtolower(trim((string)$p)) === 'ig'; }
+function cg_ig_bisa_posting($pdo) {
+  $q = $pdo->prepare('SELECT scope FROM cg_akun WHERE platform = :p');
+  $q->execute(array(':p' => 'instagram'));
+  return strpos((string)$q->fetchColumn(), CG_IG_IZIN_POSTING) !== false;
+}
+
+/* Tunggu wadah siap. Foto biasanya langsung FINISHED; yang ERROR/EXPIRED
+   ditolak dengan sebabnya. */
+function cg_ig_tunggu_wadah($tok, $cid) {
+  for ($i = 0; $i < 12; $i++) {
+    $r = cg_http('GET', CG_IG_GRAPH . '/' . rawurlencode($cid) . '?' . http_build_query(array('fields' => 'status_code,status', 'access_token' => $tok)), array(), null, 20);
+    $s = isset($r['data']['status_code']) ? (string)$r['data']['status_code'] : '';
+    if ($s === 'FINISHED' || $s === 'PUBLISHED') return;
+    if ($s === 'ERROR' || $s === 'EXPIRED')
+      throw new Exception('Instagram gagal memproses fotonya (' . $s . (isset($r['data']['status']) ? ': ' . $r['data']['status'] : '') . ').');
+    sleep(2);
+  }
+  throw new Exception('Instagram belum selesai memproses fotonya. Coba posting lagi beberapa menit lagi.');
+}
+function cg_ig_wadah($tok, $igId, $isi) {
+  $r = cg_http('POST', CG_IG_GRAPH . '/' . rawurlencode($igId) . '/media', array('Content-Type: application/x-www-form-urlencoded'),
+    http_build_query($isi + array('access_token' => $tok)), 60);
+  if (!$r['data'] || empty($r['data']['id'])) {
+    $g = cg_ig_galat($r, 'Instagram menolak foto');
+    /* Sebab tersering: Instagram tidak bisa MENGAMBIL fotonya dari server
+       kita (WAF hosting, alamat salah). Dikatakan, bukan cuma diteruskan. */
+    if (stripos($g, 'media') !== false && (stripos($g, 'fetch') !== false || stripos($g, 'download') !== false || stripos($g, 'uri') !== false))
+      $g .= ' — Instagram tidak bisa mengambil fotonya dari server Office. Kemungkinan diblokir firewall hosting (Monarx); minta Rumahweb mengecualikan /konten-api-mysql/api.php?action=campaignMedia.';
+    throw new Exception($g);
+  }
+  return (string)$r['data']['id'];
+}
+
+/* Memposting SATU jadwal. Dipanggil tombol "Posting sekarang" DAN posting
+   otomatis — satu jalur, supaya penjaganya sama. */
+function cg_ig_posting($pdo, $id, $nama) {
+  cg_pastikan($pdo);
+  @set_time_limit(150);
+  $q = $pdo->prepare('SELECT * FROM cg_jadwal WHERE id = :id');
+  $q->execute(array(':id' => (string)$id));
+  $j = $q->fetch();
+  if (!$j) throw new Exception('Jadwal tidak ditemukan.');
+  if ((string)$j['ig_media_id'] !== '') throw new Exception('Jadwal ini sudah diposting ke Instagram.');
+  if (!cg_plat_ig($j['platform'])) throw new Exception('Platform jadwal ini bukan Instagram.');
+  if ($j['status'] === 'BATAL') throw new Exception('Jadwal ini dibatalkan.');
+  if ($j['status'] === 'TAYANG') throw new Exception('Jadwal ini sudah ditandai Tayang.');
+  $media = json_decode((string)$j['media'], true);
+  $media = is_array($media) ? array_values(array_filter($media, 'cg_media_key_sah')) : array();
+  if (!$media) throw new Exception('Belum ada foto untuk diposting. Sunting jadwalnya dan unggah fotonya.');
+  foreach ($media as $k) if (!is_file(cg_media_dir() . '/' . $k)) throw new Exception('Salah satu foto jadwal ini tidak ada lagi di server. Unggah ulang fotonya.');
+  if (!cg_ig_bisa_posting($pdo)) throw new Exception('Izin posting Instagram belum diberikan. Buka Insight → Akun terhubung, tekan Hubungkan Instagram lagi, dan izinkan "publish content".');
+  $tok = cg_ig_token($pdo);
+
+  /* KLAIM. Dua tab (atau tombol + posting otomatis) yang memposting jadwal
+     yang sama = DUA postingan di Instagram, dan itu tidak bisa ditarik dari
+     sini. Klaim berlaku 10 menit; yang kedua ditolak. */
+  $now = cg_now_ms();
+  $k = $pdo->prepare("UPDATE cg_jadwal SET posting_mulai=:n WHERE id=:id AND ig_media_id='' AND posting_mulai < :batas");
+  $k->execute(array(':n' => $now, ':id' => $j['id'], ':batas' => $now - 10 * 60000));
+  if ($k->rowCount() === 0) throw new Exception('Jadwal ini sedang diposting (atau baru saja gagal di tengah publikasi). Tunggu 10 menit, lalu periksa akun Instagram-nya dulu sebelum mencoba lagi.');
+
+  $tahap = 'siap';
+  try {
+    $u = cg_http('GET', CG_IG_GRAPH . '/me?' . http_build_query(array('fields' => 'user_id', 'access_token' => $tok)), array(), null, 20);
+    $igId = isset($u['data']['user_id']) ? (string)$u['data']['user_id'] : '';
+    if ($igId === '') throw new Exception(cg_ig_galat($u, 'Akun Instagram tidak terbaca'));
+    $cap = (string)$j['caption'];
+    if (count($media) === 1) {
+      $wadah = cg_ig_wadah($tok, $igId, array('image_url' => cg_media_url($media[0]), 'caption' => $cap));
+    } else {
+      $anak = array();
+      foreach ($media as $m) {
+        $c = cg_ig_wadah($tok, $igId, array('image_url' => cg_media_url($m), 'is_carousel_item' => 'true'));
+        cg_ig_tunggu_wadah($tok, $c);
+        $anak[] = $c;
+      }
+      $wadah = cg_ig_wadah($tok, $igId, array('media_type' => 'CAROUSEL', 'children' => implode(',', $anak), 'caption' => $cap));
+    }
+    cg_ig_tunggu_wadah($tok, $wadah);
+
+    /* Sejak titik ini permintaannya bisa saja SUDAH diproses Instagram walau
+       balasannya tidak sampai — klaimnya karena itu TIDAK dilepas kalau gagal
+       di tahap ini (lihat catch). */
+    $tahap = 'publish';
+    $p = cg_http('POST', CG_IG_GRAPH . '/' . rawurlencode($igId) . '/media_publish', array('Content-Type: application/x-www-form-urlencoded'),
+      http_build_query(array('creation_id' => $wadah, 'access_token' => $tok)), 60);
+    if (!$p['data'] || empty($p['data']['id'])) throw new Exception(cg_ig_galat($p, 'Instagram menolak publikasi'));
+    $mediaId = (string)$p['data']['id'];
+
+    /* Dicatat SEGERA — tautan diambil sesudahnya, dan kegagalan mengambil
+       tautan tidak boleh membuat postingan yang sudah tayang terbaca belum. */
+    $pdo = db(true);
+    $s = $pdo->prepare("UPDATE cg_jadwal SET ig_media_id=:mi, status='TAYANG', otomatis=0, posting_mulai=0, posting_galat='', diposting_oleh=:by, diposting_at=:at WHERE id=:id");
+    $s->execute(array(':mi' => $mediaId, ':by' => $nama, ':at' => cg_now_ms(), ':id' => $j['id']));
+    $tautan = '';
+    try {
+      $pl = cg_http('GET', CG_IG_GRAPH . '/' . rawurlencode($mediaId) . '?' . http_build_query(array('fields' => 'permalink', 'access_token' => $tok)), array(), null, 20);
+      $tautan = isset($pl['data']['permalink']) ? (string)$pl['data']['permalink'] : '';
+    } catch (Exception $e) { $tautan = ''; }
+    if ($tautan !== '') {
+      $t = $pdo->prepare('UPDATE cg_jadwal SET tautan=:t WHERE id=:id');
+      $t->execute(array(':t' => cg_potong($tautan, 600), ':id' => $j['id']));
+    }
+    return array('id' => $j['id'], 'mediaId' => $mediaId, 'tautan' => $tautan);
+  } catch (Exception $e) {
+    $pdo = db(true);
+    $pesan = $e->getMessage();
+    if ($tahap === 'publish') $pesan .= ' (Publikasi mungkin sudah sampai ke Instagram — periksa akunnya dulu sebelum mencoba lagi.)';
+    $g = $pdo->prepare('UPDATE cg_jadwal SET posting_galat=:g' . ($tahap === 'publish' ? '' : ', posting_mulai=0') . ' WHERE id=:id');
+    $g->execute(array(':g' => cg_potong($pesan, 1000), ':id' => $j['id']));
+    throw new Exception($pesan);
+  }
+}
+
+/* POSTING OTOMATIS. Bukan cron — hosting ini tidak punya penjadwal yang bisa
+   diandalkan — jadi ia dipicu (1) halaman Analytics yang terbuka (tiap 5
+   menit) dan (2) campaign-posting.php yang boleh dipanggil penjadwal luar
+   (cron-job.org) dengan CG_POSTING_KUNCI.
+
+   - Jadwal yang jamnya lewat > 24 jam TIDAK diposting: promo yang tayang
+     tiga hari terlambat lebih buruk daripada yang tidak tayang. Ditandai
+     galat supaya terlihat.
+   - Jadwal bergalat tidak dicoba ulang sendiri — Instagram yang menolak
+     karena foto/caption akan menolak lagi tiap 5 menit. Menyuntingnya
+     mengosongkan galatnya. */
+function cg_ig_posting_jatuh_tempo($pdo, $nama) {
+  cg_pastikan($pdo);
+  $kini = gmdate('Y-m-d H:i', time() + 7 * 3600);
+  $kemarin = gmdate('Y-m-d H:i', time() + 7 * 3600 - 86400);
+  $rows = $pdo->query("SELECT id, tanggal, jam FROM cg_jadwal WHERE otomatis=1 AND ig_media_id='' AND status='TERJADWAL'
+    AND (posting_galat IS NULL OR posting_galat='') AND tanggal <= CURDATE() + INTERVAL 1 DAY ORDER BY tanggal, jam LIMIT 50")->fetchAll();
+  $hasil = array('diposting' => array(), 'gagal' => array(), 'terlewat' => 0);
+  foreach ($rows as $r) {
+    $saat = (string)$r['tanggal'] . ' ' . (string)$r['jam'];
+    if ($r['jam'] === '' || $saat > $kini) continue;
+    if ($saat < $kemarin) {
+      $g = $pdo->prepare("UPDATE cg_jadwal SET posting_galat=:g WHERE id=:id");
+      $g->execute(array(':g' => 'Waktu tayangnya sudah lewat lebih dari 24 jam saat posting otomatis berjalan, jadi tidak diposting. Posting manual atau ganti jadwalnya.', ':id' => $r['id']));
+      $hasil['terlewat']++;
+      continue;
+    }
+    if (count($hasil['diposting']) + count($hasil['gagal']) >= 3) break;   /* batas waktu PHP */
+    try { $hasil['diposting'][] = cg_ig_posting($pdo, $r['id'], $nama); }
+    catch (Exception $e) { $hasil['gagal'][] = array('id' => $r['id'], 'galat' => $e->getMessage()); }
+    $pdo = db(true);
+  }
+  return $hasil;
 }
 
 /* ==================== BANK KONTEN ==================== */
@@ -2310,6 +2571,9 @@ function cg_aksi($action, $body) {
     case 'campaignInsightSimpan': return cg_insight_simpan($pdo, $d, $nama);
     case 'campaignInsightArsip': return cg_insight_arsip($pdo, isset($d['id']) ? $d['id'] : '', !empty($d['arsip']), $nama);
     case 'campaignJadwalSimpan': return cg_jadwal_simpan($pdo, $d, $nama);
+    case 'campaignMediaUnggah':  return cg_media_unggah($d);
+    case 'campaignIgPosting':    return cg_ig_posting($pdo, isset($d['id']) ? $d['id'] : '', $nama);
+    case 'campaignIgPostingJatuhTempo': return cg_ig_posting_jatuh_tempo($pdo, '(otomatis) ' . $nama);
     case 'campaignRiset':        return cg_riset_jalankan($pdo, $d, $nama);
     case 'campaignInsightAI':    return cg_insight_ai($pdo, $d);
     case 'campaignBankGenerate': return cg_bank_generate($pdo, $d, $nama);

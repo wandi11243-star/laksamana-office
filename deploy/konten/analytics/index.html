@@ -247,6 +247,16 @@ h1,h2,h3,h4{font-family:var(--k-serif);font-weight:700;letter-spacing:-.02em;lin
 .jd.s-TAYANG{border-left-color:var(--ok)}
 .jd.telat{border-left-color:var(--danger)}
 .jd .cap{font-size:12.5px;color:var(--muted);margin-top:6px;white-space:pre-wrap;max-height:84px;overflow:hidden}
+/* Foto jadwal Instagram (8 Nov 2026) */
+.ig-foto{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.ig-foto .fo{position:relative;width:76px;height:76px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--surface-2,#f4f3f1)}
+.ig-foto .fo img{width:100%;height:100%;object-fit:cover;display:block}
+.ig-foto .fo .no{position:absolute;left:4px;top:4px;background:rgba(0,0,0,.6);color:#fff;font-size:10.5px;border-radius:4px;padding:0 5px}
+.ig-foto .fo button{position:absolute;right:3px;top:3px;width:20px;height:20px;border-radius:50%;border:0;background:rgba(0,0,0,.6);color:#fff;font-size:12px;line-height:20px;cursor:pointer;padding:0}
+.ig-foto .tambah{width:76px;height:76px;border-radius:8px;border:1.5px dashed var(--line);display:flex;align-items:center;justify-content:center;font-size:24px;color:var(--muted);cursor:pointer}
+.jd .fotos{display:flex;gap:4px;margin-top:8px}
+.jd .fotos img{width:44px;height:44px;object-fit:cover;border-radius:6px;border:1px solid var(--line)}
+.chip-oto{display:inline-block;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;background:var(--info-bg);color:var(--info);margin-left:6px}
 
 /* Modal */
 .modal{position:fixed;top:0;right:0;bottom:0;left:0;background:rgba(20,16,8,.42);display:flex;align-items:flex-start;justify-content:center;
@@ -953,8 +963,21 @@ function vKalender(){
   /* POSTING OTOMATIS BELUM AKTIF, dan itu dikatakan di tempat yang paling
      sering dibuka. Kalender yang diam-diam tidak memposting apa pun akan
      dipercaya sampai satu jadwal promo terlewat. */
-  h += '<div class="pita info"><b>Posting otomatis belum aktif.</b> TikTok mewajibkan audit aplikasi untuk Content Posting API, jadi untuk sekarang kalender ini jadi pengingat: '
-    + 'saat jamnya tiba, salin caption-nya, posting dari HP, lalu tandai <b>Tayang</b> berikut tautannya.</div>';
+  /* Sejak 8 Nov 2026 Instagram BISA diposting dari sini; TikTok belum
+     (Content Posting API-nya menuntut audit aplikasi). Pitanya membedakan
+     keduanya — dan menyebut kalau izin Instagram-nya belum ada, karena itu
+     satu-satunya sebab tombol Posting tidak muncul yang bisa dibereskan
+     orangnya sendiri. */
+  var igA = akun('instagram');
+  h += '<div class="pita info">'
+    + (igBisaPosting()
+      ? '<b>Instagram bisa diposting dari sini.</b> Unggah fotonya di jadwal, lalu tekan <b>Posting sekarang</b> — atau centang <b>Posting otomatis</b> supaya terposting sendiri saat jamnya tiba. '
+      : igA && igA.terhubung
+        ? '<b>Izin posting Instagram belum diberikan.</b> Buka <b>Insight → Akun terhubung</b>, tekan <b>Hubungkan</b> Instagram lagi, dan izinkan "publish content". '
+        : '<b>Instagram bisa diposting dari sini</b> setelah akunnya dihubungkan di <b>Insight → Akun terhubung</b>. ')
+    + 'TikTok & YouTube masih jadi pengingat: saat jamnya tiba, salin caption-nya, posting dari HP, lalu tandai <b>Tayang</b> berikut tautannya.'
+    + (igBisaPosting() ? '<br><span style="color:var(--muted)">Posting otomatis berjalan selama halaman ini terbuka di salah satu perangkat (dicek tiap 5 menit). Jadwal yang lewat lebih dari 24 jam tidak diposting.</span>' : '')
+    + '</div>';
   if (telat.length) {
     h += '<div class="kartu" style="border-color:#E7BDB8"><h2>Sudah waktunya diposting (' + telat.length + ')</h2><div class="sub">Terjadwal tapi belum ditandai tayang.</div>'
       + '<div class="grid g2">' + telat.map(kartuJadwal).join('') + '</div></div>';
@@ -976,16 +999,38 @@ function vKalender(){
   return h + '</div>';
 }
 
+/* ---------- Posting Instagram (8 Nov 2026) ---------- */
+function igMediaUrl(k){ return API + '?action=campaignMedia&key=' + encodeURIComponent(k); }
+function jadwalMedia(j){
+  if (Array.isArray(j.media)) return j.media;
+  try { var m = JSON.parse(j.media || '[]'); return Array.isArray(m) ? m : []; } catch(e){ return []; }
+}
+function igBisaPosting(){
+  var a = akun('instagram');
+  return !!(a && a.terhubung && String(a.scope || '').indexOf('instagram_business_content_publish') > -1);
+}
+function isIg(p){ return platNorm(p) === 'Instagram'; }
+function bisaDiposting(j){
+  return isIg(j.platform) && !j.ig_media_id && j.status !== 'BATAL' && j.status !== 'TAYANG' && jadwalMedia(j).length > 0;
+}
+
 function kartuJadwal(j){
   var idx = (D.jadwal || []).indexOf(j);
   var telat = jadwalTelat().indexOf(j) > -1;
+  var foto = jadwalMedia(j);
   return '<div class="jd s-' + j.status + (telat ? ' telat' : '') + '"><div class="kepala" style="align-items:center">' + chipPlat(j.platform)
     + '<span class="st st-' + j.status + '">' + STATUS_LBL[j.status] + '</span>'
+    + (+j.otomatis === 1 && !j.ig_media_id ? '<span class="chip-oto" title="Diposting sendiri saat jamnya tiba">Otomatis</span>' : '')
     + '<div class="r" style="font-size:12px;color:var(--muted)">' + fmtTgl(j.tanggal) + (j.jam ? ' · ' + esc(j.jam) : '') + '</div></div>'
     + '<b style="display:block;margin-top:8px;color:var(--ink)">' + esc(j.judul) + '</b>'
     + (j.caption ? '<div class="cap">' + esc(j.caption) + '</div>' : '')
+    + (foto.length ? '<div class="fotos">' + foto.slice(0, 5).map(function(k){ return '<img src="' + esc(igMediaUrl(k)) + '" alt="" loading="lazy">'; }).join('')
+      + (foto.length > 5 ? '<span style="font-size:11.5px;color:var(--muted);align-self:center">+' + (foto.length - 5) + '</span>' : '') + '</div>' : '')
     + (j.pic ? '<div style="font-size:12px;color:var(--muted-2);margin-top:4px">PIC: ' + esc(j.pic) + '</div>' : '')
+    + (j.ig_media_id ? '<div style="font-size:12px;color:var(--ok);margin-top:4px">✓ Diposting ke Instagram' + (j.diposting_oleh ? ' oleh ' + esc(j.diposting_oleh) : '') + (+j.diposting_at ? ' · ' + esc(fmtWaktu(+j.diposting_at)) : '') + '</div>' : '')
+    + (j.posting_galat && !j.ig_media_id ? '<div class="pita err" style="margin:8px 0 0;font-size:12px"><b>Posting gagal:</b> ' + esc(j.posting_galat) + '</div>' : '')
     + '<div class="kaki" style="display:flex;gap:6px;margin-top:10px;flex-wrap:wrap">'
+    + (bisaDiposting(j) && igBisaPosting() ? '<button class="btn btn-primary btn-sm" data-a="jdw-posting" data-i="' + idx + '">Posting sekarang</button>' : '')
     + (j.caption ? '<button class="btn btn-ghost btn-sm" data-a="jdw-salin" data-i="' + idx + '">Salin caption</button>' : '')
     + (j.tautan ? '<a class="btn btn-ghost btn-sm" href="' + esc(j.tautan) + '" target="_blank" rel="noopener">↗ Postingan</a>' : '')
     + '<span style="margin-left:auto"></span><button class="btn btn-ghost btn-sm" data-a="jdw-ubah" data-i="' + idx + '">Sunting</button></div></div>';
@@ -1009,14 +1054,97 @@ function formJadwal(awal){
     + '<div class="field"><label>Tautan postingan (wajib kalau Tayang)</label><input id="j-tautan" value="' + esc(awal.tautan || '') + '" placeholder="https://…"></div>'
     + '<div class="field full"><label>Dari insight</label><select id="j-ins">' + opsiIns + '</select></div>'
     + '<div class="field full"><label>Catatan</label><input id="j-cat" value="' + esc(awal.catatan || '') + '"></div>'
+    + '<div class="field full" id="j-ig" style="display:none"></div>'
     + '</div><div id="j-galat"></div>'
     + '<div class="kaki"><button class="btn btn-ghost" data-a="tutup">Batal</button><button class="btn btn-primary" data-a="jdw-simpan">Simpan jadwal</button></div>');
-  MODAL_DATA = { id: awal.id || '', bankId: awal.bankId || '' };
+  /* Daftar foto & centang otomatis hidup di MODAL_DATA, bukan di DOM: blok
+     fotonya digambar ulang tiap unggah/hapus, dan centang yang cuma ada di
+     DOM ikut hilang. */
+  MODAL_DATA = { id: awal.id || '', bankId: awal.bankId || '', media: (awal.media || []).slice(), otomatis: !!awal.otomatis, unggah: 0, sudahPost: !!awal.sudahPost };
+  gambarIgForm();
+}
+/* Blok foto Instagram di form jadwal. Digambar ke wadahnya sendiri (#j-ig)
+   supaya judul & caption yang sedang diketik tidak ikut dibuat ulang. */
+function gambarIgForm(){
+  var w = document.getElementById('j-ig'); if (!w || !MODAL_DATA) return;
+  var ig = isIg(nilai('j-plat'));
+  w.style.display = ig ? '' : 'none';
+  if (!ig) return;
+  var M = MODAL_DATA;
+  if (M.sudahPost) { w.innerHTML = '<label>Foto Instagram</label><div class="pita ok" style="margin:0">Jadwal ini sudah diposting ke Instagram — fotonya tidak bisa diganti dari sini.</div>'; return; }
+  var foto = M.media.map(function(k, n){
+    return '<div class="fo"><img src="' + esc(igMediaUrl(k)) + '" alt=""><span class="no">' + (n + 1) + '</span>'
+      + '<button type="button" data-a="jdw-foto-hapus" data-i="' + n + '" title="Buang foto ini">×</button></div>';
+  }).join('');
+  var tambah = M.media.length + M.unggah < 10 ? '<label class="tambah" title="Tambah foto">+<input type="file" accept="image/*" multiple data-a="jdw-foto" style="display:none"></label>' : '';
+  var sedang = M.unggah ? '<div class="fo" style="display:flex;align-items:center;justify-content:center;font-size:11px;color:var(--muted)">Mengunggah ' + M.unggah + '…</div>' : '';
+  w.innerHTML = '<label>Foto untuk Instagram ' + (M.media.length > 1 ? '(carousel, ' + M.media.length + ' foto)' : '') + '</label>'
+    + '<div class="ig-foto">' + foto + sedang + tambah + '</div>'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:6px">Maks. 10 foto (lebih dari satu = carousel, urutan sesuai nomor). Rasio harus antara 4:5 (tegak) dan 1,91:1 (melebar). Video/Reels belum didukung — posting dari HP.</div>'
+    + '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-weight:600;cursor:pointer"><input type="checkbox" data-a="jdw-oto"' + (M.otomatis ? ' checked' : '') + ' style="width:auto">'
+    + 'Posting otomatis saat jam tayang tiba</label>'
+    + '<div style="font-size:12px;color:var(--muted);margin-top:2px">Butuh status <b>Terjadwal</b>, jam tayang, dan minimal satu foto.' + (igBisaPosting() ? '' : ' <b style="color:var(--danger)">Izin posting Instagram belum diberikan — hubungkan ulang akunnya di Insight.</b>') + '</div>';
+}
+
+/* JPEG, maks. lebar 1440 px (batas Instagram). Kanvas diisi PUTIH dulu:
+   JPEG tidak punya transparansi, jadi bagian PNG yang bening tersimpan
+   HITAM tanpa ini. Rasio diperiksa di sini, saat orangnya masih memegang
+   fotonya — bukan ditolak Instagram di jam tayang. */
+function kecilkanJpeg(file){
+  return new Promise(function(ok, gagal){
+    if (!/^image\//.test(file.type)) { gagal(new Error(file.name + ' bukan gambar.')); return; }
+    var url = URL.createObjectURL(file), img = new Image();
+    img.onload = function(){
+      URL.revokeObjectURL(url);
+      var w = img.naturalWidth, h = img.naturalHeight, r = w / h;
+      if (!w || !h) { gagal(new Error(file.name + ' tidak terbaca.')); return; }
+      if (r < 0.795 || r > 1.915) { gagal(new Error(file.name + ': rasio ' + w + '×' + h + ' di luar batas Instagram (4:5 tegak sampai 1,91:1 melebar). Potong dulu fotonya.')); return; }
+      var s = Math.min(1, 1440 / w), cw = Math.round(w * s), ch = Math.round(h * s);
+      var c = document.createElement('canvas'); c.width = cw; c.height = ch;
+      var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, cw, ch); x.drawImage(img, 0, 0, cw, ch);
+      var q = 0.9, d = c.toDataURL('image/jpeg', q);
+      while (d.length > 7e6 && q > 0.5) { q -= 0.1; d = c.toDataURL('image/jpeg', q); }
+      ok(d);
+    };
+    img.onerror = function(){ URL.revokeObjectURL(url); gagal(new Error(file.name + ' tidak bisa dibaca sebagai gambar.')); };
+    img.src = url;
+  });
+}
+function unggahFotoJadwal(files){
+  var M = MODAL_DATA; if (!M) return;
+  var daftar = Array.prototype.slice.call(files || []).slice(0, Math.max(0, 10 - M.media.length - M.unggah));
+  if (!daftar.length) return;
+  var g = document.getElementById('j-galat'); if (g) g.innerHTML = '';
+  /* Satu per satu, berurutan: urutan carousel = urutan foto dipilih. */
+  M.unggah += daftar.length; gambarIgForm();
+  var rantai = Promise.resolve(), galat = [];
+  daftar.forEach(function(f){
+    rantai = rantai.then(function(){
+      return kecilkanJpeg(f).then(function(d){ return api('campaignMediaUnggah', { dataBase64: d }); })
+        .then(function(r){ if (MODAL_DATA === M) M.media.push(r.key); })
+        .catch(function(e){ galat.push(e.message); })
+        .then(function(){ M.unggah--; if (MODAL_DATA === M) gambarIgForm(); });
+    });
+  });
+  rantai.then(function(){
+    if (galat.length && MODAL_DATA === M) { var g2 = document.getElementById('j-galat'); if (g2) g2.innerHTML = '<div class="pita err">' + galat.map(esc).join('<br>') + '</div>'; }
+  });
 }
 function simpanJadwal(){
   var d = { id: MODAL_DATA.id, bankId: MODAL_DATA.bankId || '', platform: nilai('j-plat'), status: nilai('j-st'), judul: nilai('j-judul'), caption: document.getElementById('j-cap').value,
     tanggal: nilai('j-tgl'), jam: nilai('j-jam'), pic: nilai('j-pic'), tautan: nilai('j-tautan'), insightId: nilai('j-ins'), catatan: nilai('j-cat') };
+  var M = MODAL_DATA;
+  /* Foto hanya ikut kalau platformnya Instagram — platform yang diganti ke
+     TikTok sesudah fotonya diunggah tidak boleh menyisakan posting otomatis. */
+  d.media = isIg(d.platform) ? M.media.slice() : [];
+  d.otomatis = isIg(d.platform) && !M.sudahPost && M.otomatis;
+  if (M.unggah) { document.getElementById('j-galat').innerHTML = '<div class="pita err">Tunggu fotonya selesai diunggah.</div>'; return; }
   var kurang = [];
+  if (d.otomatis) {
+    if (d.status !== 'TERJADWAL') kurang.push('status harus Terjadwal untuk posting otomatis');
+    if (!d.jam) kurang.push('jam tayang (posting otomatis)');
+    if (!d.media.length) kurang.push('minimal satu foto (posting otomatis)');
+  }
   if (!d.judul) kurang.push('Judul');
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d.tanggal)) kurang.push('Tanggal');
   if (d.tautan && !/^https:\/\/\S+$/i.test(d.tautan)) kurang.push('Tautan harus https://');
@@ -2405,8 +2533,22 @@ document.addEventListener('click', function(ev){
   if (a === 'kal-hari') { ST.kalBulan = null; ST.kalPilih = hariIni(); render(); return; }
   if (a === 'kal-pilih') { ST.kalPilih = v; render(); return; }
   if (a === 'jdw-baru') { formJadwal({ tanggal: v || ST.kalPilih || hariIni() }); return; }
-  if (a === 'jdw-ubah') { var j = D.jadwal[i]; formJadwal({ id: j.id, platform: j.platform, status: j.status, judul: j.judul, caption: j.caption, tanggal: j.tanggal, jam: j.jam, pic: j.pic, tautan: j.tautan, insightId: j.insight_id, catatan: j.catatan }); return; }
+  if (a === 'jdw-ubah') { var j = D.jadwal[i]; formJadwal({ id: j.id, platform: j.platform, status: j.status, judul: j.judul, caption: j.caption, tanggal: j.tanggal, jam: j.jam, pic: j.pic, tautan: j.tautan, insightId: j.insight_id, catatan: j.catatan,
+    media: jadwalMedia(j), otomatis: +j.otomatis === 1, sudahPost: !!j.ig_media_id }); return; }
   if (a === 'jdw-simpan') { simpanJadwal(); return; }
+  if (a === 'jdw-foto-hapus') { if (MODAL_DATA) { MODAL_DATA.media.splice(i, 1); gambarIgForm(); } return; }
+  if (a === 'jdw-posting') {
+    var jp = D.jadwal[i];
+    /* Ditanya dulu, dan pertanyaannya menyebut jumlah fotonya: postingan
+       yang sudah tayang tidak bisa ditarik dari sini. */
+    if (!confirm('Posting "' + jp.judul + '" ke Instagram sekarang? (' + jadwalMedia(jp).length + ' foto)\n\nPostingan yang sudah tayang tidak bisa ditarik dari sini — hapus lewat aplikasi Instagram kalau perlu.')) return;
+    el.disabled = true; el.textContent = 'Memposting…';
+    api('campaignIgPosting', { id: jp.id }).then(function(r){
+      toast('Terposting ke Instagram.' + (r.tautan ? '' : ' Tautannya belum terbaca — muncul di sinkron berikutnya.'));
+    }).catch(function(e){ toast(e.message, true); })
+      .then(function(){ return muat(); }).then(render);
+    return;
+  }
   if (a === 'jdw-salin') {
     var cap = D.jadwal[i].caption || '';
     (navigator.clipboard ? navigator.clipboard.writeText(cap) : Promise.reject()).then(function(){ toast('Caption disalin.'); })
@@ -2526,6 +2668,36 @@ document.addEventListener('change', function(ev){
   if (a === 'gr-tempat') { ST.grTempat = el.value; ST.grBatas = 30; render(); }
   if (a === 'gr-tandai') { ST.grTandai[el.getAttribute('data-v')] = el.checked; }
 });
+/* POSTING OTOMATIS. Server yang memutuskan dan memposting
+   (cg_ig_posting_jatuh_tempo, berklaim — dua tab yang memicunya bersamaan
+   tidak memposting dua kali). Layar cuma memicunya, dan hanya kalau memang
+   ada jadwal yang jatuh tempo: tanpa itu tiap tab menembak server tiap 5
+   menit untuk jawaban yang selalu kosong. */
+var POSTING_JALAN = false;
+function postingJatuhTempo(){
+  if (POSTING_JALAN || !D || !igBisaPosting()) return;
+  var kini = hariIni() + ' ' + jamKini();
+  var ada = (D.jadwal || []).some(function(j){
+    return +j.otomatis === 1 && !j.ig_media_id && j.status === 'TERJADWAL' && !j.posting_galat && j.jam && (j.tanggal + ' ' + j.jam) <= kini;
+  });
+  if (!ada) return;
+  POSTING_JALAN = true;
+  api('campaignIgPostingJatuhTempo').then(function(r){
+    var n = (r.diposting || []).length, g = (r.gagal || []).length;
+    if (n) toast(n + ' jadwal terposting otomatis ke Instagram.');
+    if (g) toast(g + ' jadwal gagal diposting otomatis — lihat Kalender.', true);
+    if (r.terlewat) toast(r.terlewat + ' jadwal otomatis terlewat lebih dari 24 jam dan tidak diposting.', true);
+    if (n || g || r.terlewat) return muat().then(render);
+  }).catch(function(){}).then(function(){ POSTING_JALAN = false; });
+}
+
+/* Form jadwal: foto Instagram, centang otomatis, dan platform yang diganti. */
+document.addEventListener('change', function(ev){
+  var el = ev.target, a = el.getAttribute && el.getAttribute('data-a');
+  if (a === 'jdw-foto') { var fs = el.files; unggahFotoJadwal(fs); el.value = ''; return; }
+  if (a === 'jdw-oto' && MODAL_DATA) { MODAL_DATA.otomatis = el.checked; return; }
+  if (el.id === 'j-plat' && MODAL_DATA) gambarIgForm();
+});
 var TOP_CARI_T = null;
 document.addEventListener('input', function(ev){
   var el = ev.target; if (el.getAttribute('data-a') !== 'top-cari') return;
@@ -2584,6 +2756,8 @@ muat().then(function(){
   if (tt && tt.terhubung && (Date.now() - num(tt.sync_at)) > 6 * 3600e3) tiktokSync(true);
   var ig = akun('instagram');
   if (ig && ig.terhubung && (Date.now() - num(ig.sync_at)) > 6 * 3600e3) igSync(true);
+  postingJatuhTempo();
+  setInterval(function(){ if (!document.hidden) postingJatuhTempo(); }, 5 * 60e3);
   var st = D && D.setting;
   if (st && st.adsSiap && (Date.now() - num(st.adsSyncAt)) > 6 * 3600e3) iklanSinkron(true);
   /* Google Review: waktu sinkron terakhirnya hidup di cg_setting dan cuma

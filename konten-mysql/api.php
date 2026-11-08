@@ -38,6 +38,16 @@ $action = $method === 'POST'
   ? (isset($body['action']) ? $body['action'] : '')
   : (isset($_GET['action']) ? $_GET['action'] : 'getAll');
 
+/* Foto jadwal Instagram (8 Nov 2026). DI ATAS penjaga API_TOKEN dan TANPA
+   sesi: yang mengambilnya server Instagram saat memposting, dan ia tidak
+   punya token maupun sesi Office. Penjaganya nama berkas acak 128-bit —
+   lihat cg_media_unggah(). */
+if ($method === 'GET' && $action === 'campaignMedia') {
+  require_once __DIR__ . '/lib_campaign.php';
+  try { cg_media_sajikan(isset($_GET['key']) ? (string)$_GET['key'] : ''); }
+  catch (Throwable $e) { http_response_code(500); exit; }
+}
+
 if (defined('API_TOKEN') && API_TOKEN !== '') {
   $tok = isset($_GET['token']) ? $_GET['token'] : (isset($body['token']) ? $body['token'] : '');
   if (!hash_equals(API_TOKEN, (string)$tok)) keluar(array('ok' => false, 'error' => 'token salah'));

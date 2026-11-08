@@ -27,5 +27,10 @@ define('DB_CHARSET', 'utf8mb4');
 // foto reservasi & bukti transfer marketing.
 define('DATA_DIR', '/home/lakk5493/konten-db');
 
+// Kunci campaign-posting.php (pemicu posting otomatis Instagram dari penjadwal
+// luar, mis. cron-job.org). Minimal 24 karakter acak. Kosong = alamat itu tertutup;
+// posting otomatis tetap jalan selama halaman Konten Analytics terbuka.
+// define('CG_POSTING_KUNCI', '');
+
 // Kosongkan = terbuka. Kalau diisi, request wajib menyertakan ?token=... sama.
 define('API_TOKEN', '');

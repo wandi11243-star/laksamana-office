@@ -311,7 +311,7 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     const { w, d, srv } = await buka({ hash: '#kalender' });
     const app = d.getElementById('app').innerHTML;
     cek('halaman Kalender tergambar', /Kalender konten/.test(app));
-    cek('posting otomatis belum aktif DIKATAKAN', /Posting otomatis belum aktif/.test(app));
+    cek('pita kalender mengatakan TikTok/YouTube masih pengingat (Instagram bisa diposting)', /TikTok &amp; YouTube masih jadi pengingat|TikTok & YouTube masih jadi pengingat/.test(app));
     cek('jadwal kemarin masuk "Sudah waktunya diposting"', /Sudah waktunya diposting \(1\)/.test(app));
     const sel = d.querySelectorAll('.kal .sel').length;
     cek('kalender 5 atau 6 minggu penuh', sel === 35 || sel === 42, sel);
@@ -747,7 +747,7 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('OAuth Instagram: state sekali pakai', ig.includes("hash_equals((string)$st['s'], (string)$state)") && ig.includes("cg_set_tulis($pdo, 'ig_state', '')"));
     cek('token pendek ditukar jadi token 60 hari', ig.includes("'grant_type' => 'ig_exchange_token'"));
     cek('token diperbarui sebelum habis (ig_refresh_token)', ig.includes("'grant_type' => 'ig_refresh_token'"));
-    cek('scope = izin yang ditambahkan di app', /define\('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights'\)/.test(PHP_LIB));
+    cek('scope = izin yang ditambahkan di app (termasuk publish)', PHP_LIB.indexOf("define('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights,instagram_business_content_publish')") > -1);
     cek('insight per postingan bergilir 30 per sinkron', ig.includes('ORDER BY insight_at ASC, tayang_at DESC LIMIT 30') && ig.includes('/insights?'));
     cek('riwayat SELURUH postingan dari cursor tersimpan (4 halaman per sinkron)', ig.includes('for ($h = 0; !$selesai && $h < 4; $h++)') && ig.includes("cg_set_tulis($pdo, 'ig_bf_after', $c)"));
     cek('postingan lama disegarkan likes & komentarnya', ig.includes("UPDATE cg_post SET likes=:li, comments=:cm"));

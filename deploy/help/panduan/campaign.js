@@ -26,9 +26,45 @@ LM_HELP_ISI('campaign', {
             ['Iklan','Performa iklan Facebook & Instagram dari Meta Ads: biaya, jangkauan, hasil, dan penilaian works / tidak works.'],
             ['Pengaturan','Profil brand, API key AI, kunci TikTok & Instagram. Hanya untuk admin modul.']
           ] },
-        { t:'catatan', nada:'info', judul:'Posting otomatis belum aktif',
-          isi:'TikTok mewajibkan audit aplikasi untuk memposting lewat API. Sampai itu selesai, kalender '
-            + 'jadi pengingat: salin caption, posting dari HP, lalu tandai *Tayang* berikut tautannya.' }
+        { t:'catatan', nada:'info', judul:'Yang bisa diposting dari sini: Instagram (foto & carousel)',
+          isi:'Jadwal Instagram bisa diposting langsung dari Kalender. TikTok & YouTube masih jadi pengingat: '
+            + 'salin caption, posting dari HP, lalu tandai *Tayang* berikut tautannya. Video/Reels Instagram juga '
+            + 'masih diposting dari HP.' }
+      ]
+    },
+
+    {
+      id: 'posting-ig', judul: 'Memposting ke Instagram dari Kalender',
+      isi: [
+        { t:'langkah', judul:'Sekali saja: beri izin posting', isi:[
+          'Buka menu *Insight* → kartu *Akun terhubung*, lalu tekan *Hubungkan* pada Instagram — walau akunnya sudah terhubung.',
+          'Di layar Instagram, izinkan seluruh izin yang diminta, termasuk *publish content*.',
+          'Kalau izinnya belum ada, Kalender menulis *Izin posting Instagram belum diberikan* dan tombol *Posting sekarang* tidak muncul.'
+        ] },
+        { t:'langkah', judul:'Posting sekarang', isi:[
+          'Buka *Kalender*, tekan *+ Jadwalkan konten* (atau *Sunting* pada jadwal yang sudah ada), pilih platform *Instagram*.',
+          'Tekan kotak *+* untuk mengunggah foto. Satu foto = postingan biasa; dua sampai sepuluh foto = carousel, urutannya sesuai nomor.',
+          'Isi caption (maks. 2.200 karakter), lalu *Simpan jadwal*.',
+          'Di kartu jadwalnya tekan *Posting sekarang*, lalu konfirmasi. Sesudah terposting, statusnya jadi *Tayang* dan tautannya terisi sendiri.'
+        ] },
+        { t:'langkah', judul:'Posting otomatis saat jamnya tiba', isi:[
+          'Di form jadwal Instagram, centang *Posting otomatis saat jam tayang tiba*.',
+          'Syaratnya: status *Terjadwal*, jam tayang terisi, dan minimal satu foto.',
+          'Kartu jadwalnya bertanda *Otomatis*. Saat jamnya tiba, jadwal itu diposting sendiri.'
+        ] },
+        { t:'tabel', kepala:['Aturan','Kenapa'], baris:[
+          ['Rasio foto antara 4:5 (tegak) dan 1,91:1 (melebar)','Di luar itu Instagram menolaknya. Foto ditolak saat diunggah, bukan di jam tayang.'],
+          ['Foto diubah jadi JPEG, lebar maks. 1.440 px','Instagram hanya menerima JPEG lewat API.'],
+          ['Posting otomatis berjalan selama halaman Konten Analytics terbuka di salah satu perangkat (dicek tiap 5 menit)','Hosting tidak punya penjadwal sendiri. Admin bisa memasang penjadwal luar — lihat catatan di bawah.'],
+          ['Jadwal yang lewat lebih dari 24 jam tidak diposting otomatis','Promo yang tayang terlambat berhari-hari lebih buruk daripada tidak tayang. Kartunya menyebut sebabnya.'],
+          ['Jadwal yang gagal tidak dicoba ulang sendiri','Sebabnya ditulis merah di kartunya. Sunting jadwalnya (mis. ganti foto), lalu simpan — percobaan otomatis jalan lagi.']
+        ] },
+        { t:'catatan', nada:'awas', judul:'Postingan tidak bisa ditarik dari sini',
+          isi:'Sekali terposting, hapus atau sunting postingannya lewat aplikasi Instagram. Kalau posting gagal dengan pesan '
+            + '*Publikasi mungkin sudah sampai ke Instagram*, periksa akunnya dulu sebelum mencoba lagi supaya tidak dobel.' },
+        { t:'catatan', nada:'info', judul:'Untuk admin: penjadwal luar (opsional)',
+          isi:'Supaya posting otomatis jalan walau tidak ada yang membuka halaman, isi *CG_POSTING_KUNCI* (minimal 24 karakter acak) '
+            + 'di config.php backend Konten, lalu daftarkan alamat *konten-api-mysql/campaign-posting.php?kunci=…* di cron-job.org setiap 5 menit.' }
       ]
     },
 

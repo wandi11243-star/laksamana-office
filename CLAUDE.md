@@ -1007,9 +1007,34 @@ akan tertimpa.
 - **Konten terpopuler juga membaca `c.perf` modul Konten** (Input Performa) —
   satu-satunya sumber Instagram & YouTube. Tautan yang sama dengan postingan
   TikTok tidak digambar dua kali.
-- **AUTO POSTING BELUM ADA, dan itu dikatakan di layar Kalender.** Content
-  Posting API TikTok menuntut audit aplikasi. Kalender jadi pengingat; status
-  `TAYANG` wajib tautan (layar DAN server).
+- **AUTO POSTING TIKTOK BELUM ADA** (Content Posting API menuntut audit
+  aplikasi); Kalender jadi pengingat untuk TikTok/YouTube. Status `TAYANG`
+  wajib tautan (layar DAN server).
+- **POSTING INSTAGRAM ADA sejak 8 Nov 2026** (foto & carousel, BUKAN
+  video/Reels). Scope `instagram_business_content_publish` ditambahkan ke
+  `CG_IG_SCOPE` — token lama tidak membawanya, jadi akunnya WAJIB
+  dihubungkan ulang di dev & produksi (`cg_ig_bisa_posting` membaca
+  `cg_akun.scope`). Kolom baru `cg_jadwal` lewat ALTER: `media` (JSON key),
+  `otomatis`, `ig_media_id` (terisi = sudah diposting), `posting_mulai`
+  (klaim 10 mnt), `posting_galat`, `diposting_oleh/at`.
+  - **Foto di `receipt_dir()/cg_media`, BUKAN `receipts/`** — `gc_receipts()`
+    membuang berkas yang tidak disebut tabel content/assets/bank.
+  - Disajikan `api.php?action=campaignMedia&key=` **di atas penjaga
+    API_TOKEN dan tanpa sesi** (Instagram yang mengambilnya); key acak 128-bit.
+    Kalau Instagram gagal mengambil foto, curigai Monarx.
+  - Hanya JPEG; rasio 4:5–1,91:1 ditolak saat unggah (layar `kecilkanJpeg` +
+    server). Lebar maks. 1440, kanvas diisi putih dulu.
+  - `cg_ig_posting()` satu jalur untuk tombol & otomatis: klaim sebelum
+    memanggil IG, `ig_media_id` dicatat SEGERA sesudah `media_publish`, gagal
+    di tahap publish TIDAK melepas klaim (bisa saja sudah tayang).
+  - Otomatis dipicu halaman terbuka (tiap 5 mnt, hanya kalau ada yang jatuh
+    tempo) + `campaign-posting.php?kunci=` untuk penjadwal luar
+    (`CG_POSTING_KUNCI` ≥24 karakter di config, kosong = tertutup). Lewat
+    >24 jam tidak diposting; yang bergalat tidak dicoba ulang sampai disunting.
+
+```bash
+node tools/uji-posting-ig.js   # 47 pemeriksaan, jsdom + kontrak PHP
+```
 - **AI = Meta Model API (Muse Spark), SATU-SATUNYA penyedia** (`cg_ai_tanya`,
   model dari daftar tertutup, bisa diganti di Pengaturan). **Anthropic DICABUT
   14 Okt 2026** (permintaan user); key `ai_key`/`ai_model`/`ai_penyedia` lama
