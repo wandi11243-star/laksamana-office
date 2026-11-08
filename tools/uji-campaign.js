@@ -747,7 +747,7 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('OAuth Instagram: state sekali pakai', ig.includes("hash_equals((string)$st['s'], (string)$state)") && ig.includes("cg_set_tulis($pdo, 'ig_state', '')"));
     cek('token pendek ditukar jadi token 60 hari', ig.includes("'grant_type' => 'ig_exchange_token'"));
     cek('token diperbarui sebelum habis (ig_refresh_token)', ig.includes("'grant_type' => 'ig_refresh_token'"));
-    cek('scope = izin yang ditambahkan di app (termasuk publish)', PHP_LIB.indexOf("define('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights,instagram_business_content_publish')") > -1);
+    cek('scope = izin yang ditambahkan di app (termasuk publish & komentar)', PHP_LIB.indexOf("define('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights,instagram_business_content_publish,instagram_business_manage_comments')") > -1);
     cek('insight per postingan bergilir 30 per sinkron', ig.includes('ORDER BY insight_at ASC, tayang_at DESC LIMIT 30') && ig.includes('/insights?'));
     cek('riwayat SELURUH postingan dari cursor tersimpan (4 halaman per sinkron)', ig.includes('for ($h = 0; !$selesai && $h < 4; $h++)') && ig.includes("cg_set_tulis($pdo, 'ig_bf_after', $c)"));
     cek('postingan lama disegarkan likes & komentarnya', ig.includes("UPDATE cg_post SET likes=:li, comments=:cm"));
@@ -843,7 +843,8 @@ function klik(d, sel) { const el = d.querySelector(sel); if (!el) throw new Erro
     cek('campaignGet TIDAK memulangkan API key', !/'ai_key'|cg_ai_key\(\$pdo\)\s*[,)]/.test(baca.replace(/cg_ai_key\(\$pdo\) !== ''/g, '')));
     const tanpaKomentar = PHP_LIB.replace(/\/\*[\s\S]*?\*\//g, '');
     /* Satu-satunya DELETE: hapus permanen ide Bank Konten, dan HANYA yang ARSIP. */
-    const del = tanpaKomentar.match(/\bDELETE\b[^"']*/gi) || [];
+    /* cg_http('DELETE', ...) = permintaan HTTP ke Instagram (hapus komentar, 8 Nov 2026), bukan SQL — dibuang sebelum dihitung. */
+    const del = tanpaKomentar.split("cg_http('DELETE'").join('').match(/\bDELETE\b[^"']*/gi) || [];
     cek('DELETE hanya satu: ide Bank Konten berstatus ARSIP', del.length === 1 && tanpaKomentar.includes("DELETE FROM cg_bank WHERE id=:id AND status='ARSIP'"), del.join(' | '));
     cek('tabel lahir lewat CREATE TABLE IF NOT EXISTS', /CREATE TABLE IF NOT EXISTS cg_insight/.test(PHP_LIB) && /CREATE TABLE IF NOT EXISTS cg_jadwal/.test(PHP_LIB));
     cek('api.php meneruskan aksi campaign ke cg_aksi', /strpos\(\$action, 'campaign'\) === 0[\s\S]{0,400}cg_aksi\(\$action, \$body\)/.test(PHP_API));

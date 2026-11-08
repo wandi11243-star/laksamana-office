@@ -34,6 +34,29 @@ LM_HELP_ISI('campaign', {
     },
 
     {
+      id: 'komentar-ig', judul: 'Mengelola Komentar Instagram',
+      isi: [
+        { t:'langkah', judul:'Sekali saja: beri izin kelola komentar', isi:[
+          'Buka *Insight* → kartu *Akun terhubung*, tekan *Hubungkan* pada Instagram, lalu izinkan seluruh izin yang diminta (termasuk *manage comments*).',
+          'Tanpa izin itu, menu *Komentar IG* menulis *Izin kelola komentar belum diberikan*.'
+        ] },
+        { t:'langkah', judul:'Membalas komentar', isi:[
+          'Buka menu *Komentar IG*. Bawaannya tab *Belum dibalas*: komentar orang lain yang belum punya balasan dari akun brand.',
+          'Tekan *Balas* di bawah komentarnya, tulis balasan, lalu *Kirim balasan*. Balasannya tayang di Instagram atas nama akun brand.',
+          'Kalau gagal terkirim, tulisan balasan tetap tersimpan di kotaknya — tinggal tekan kirim lagi.'
+        ] },
+        { t:'tabel', kepala:['Tombol','Akibatnya'], baris:[
+          ['Sembunyikan','Komentar tidak terlihat orang lain (penulisnya tetap melihatnya). Bisa ditampilkan lagi kapan saja.'],
+          ['Hapus','Komentar hilang permanen dari Instagram. Ditanya dulu, dan tidak bisa dikembalikan.'],
+          ['Tutup kolom komentar','Orang tidak bisa berkomentar di postingan itu sampai dibuka lagi. Komentar lama tetap ada.']
+        ] },
+        { t:'catatan', nada:'info', judul:'Postingan mana saja yang tampil',
+          isi:'12 postingan terbaru yang punya komentar. Daftar postingannya ikut sinkron Instagram tiap 6 jam, jadi postingan yang '
+            + 'baru dapat komentar pertama bisa belum muncul — tekan *Sinkronkan* di Insight. Isi komentarnya selalu dibaca langsung dari Instagram.' }
+      ]
+    },
+
+    {
       id: 'posting-ig', judul: 'Memposting ke Instagram dari Kalender',
       isi: [
         { t:'langkah', judul:'Sekali saja: beri izin posting', isi:[

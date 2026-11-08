@@ -29,6 +29,22 @@ function wib(dMenit) { return new Date(Date.now() + 7 * 3600e3 + (dMenit || 0) *
 const KUNCI = 'cgm_' + 'a'.repeat(32) + '.jpg';
 const KUNCI2 = 'cgm_' + 'b'.repeat(32) + '.jpg';
 
+/* Dua postingan: P1 punya komentar yang SUDAH dibalas akun kita, komentar
+   yang BELUM, dan satu yang disembunyikan; P2 kolom komentarnya ditutup. */
+function komentarTiruan(satu) {
+  const P1 = { id: '1790001', judul: 'Reel kopi', url: 'https://www.instagram.com/p/K1/', cover: '', tayang_at: Date.now(), aktif: true, jumlah: 3, galat: '',
+    komentar: [
+      { id: '1800001', teks: 'Jam buka berapa kak?', waktu: Date.now(), user: 'tamu_a', suka: 1, sembunyi: false, balasan: [] },
+      { id: '1800002', teks: 'Mantap!', waktu: Date.now() - 6e4, user: 'tamu_b', suka: 0, sembunyi: false,
+        balasan: [{ id: '1800099', teks: 'Terima kasih!', waktu: Date.now(), user: 'laksamanamuda.id', suka: 0, sembunyi: false }] },
+      { id: '1800003', teks: 'spam spam', waktu: Date.now() - 12e4, user: 'spammer', suka: 0, sembunyi: true, balasan: [] }
+    ] };
+  const P2 = { id: '1790002', judul: 'Foto menu', url: '', cover: '', tayang_at: Date.now(), aktif: false, jumlah: 1, galat: '',
+    komentar: [{ id: '1800004', teks: 'Harga?', waktu: Date.now(), user: 'tamu_c', suka: 0, sembunyi: false, balasan: [] }] };
+  const posts = satu ? [P1, P2].filter(p => p.id === satu) : [P1, P2];
+  return { posts, saya: 'laksamanamuda.id', at: Date.now() };
+}
+
 function buatServer(opsi) {
   opsi = opsi || {};
   const lalu = wib(-30), nanti = wib(240);
@@ -49,7 +65,7 @@ function buatServer(opsi) {
         media: '[]', otomatis: '0', ig_media_id: '', posting_galat: '', insight_id: '', pic: '', tautan: '', catatan: '' }
     ],
     akun: [{ platform: 'instagram', nama: 'laksamanamuda.id', terhubung: true, sync_at: Date.now(), sync_galat: '',
-      scope: opsi.tanpaIzin ? 'instagram_business_basic,instagram_business_manage_insights' : 'instagram_business_basic,instagram_business_manage_insights,instagram_business_content_publish' }],
+      scope: opsi.tanpaIzin ? 'instagram_business_basic,instagram_business_manage_insights' : 'instagram_business_basic,instagram_business_manage_insights,instagram_business_content_publish' + (opsi.tanpaKomentar ? '' : ',instagram_business_manage_comments') }],
     setting: { kategori: [], ai: [], profil: '' },
     boleh: { admin: false }
   };
@@ -66,6 +82,11 @@ function buatServer(opsi) {
       data = { id: j.id, mediaId: '222', tautan: 'https://www.instagram.com/p/B/' };
     } else if (b.action === 'campaignMediaUnggah') data = { key: KUNCI2 };
     else if (b.action === 'campaignJadwalSimpan') data = { id: b.data.id || 'baru' };
+    else if (b.action === 'campaignIgKomentar') data = komentarTiruan(b.data.media);
+    else if (/^campaignIgKomentar(Balas|Sembunyi|Hapus|Aktif)$/.test(b.action)) {
+      if (opsi.tolakKomentar) return Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: false, error: 'Instagram menolak balasan' })) });
+      data = { ok: true };
+    }
     else data = {};
     return Promise.resolve({ text: () => Promise.resolve(JSON.stringify({ ok: true, data })) });
   }
@@ -76,7 +97,7 @@ async function buka(opsi) {
   const srv = buatServer(opsi);
   let ditanya = 0;
   const dom = new JSDOM(HTML, {
-    url: 'https://dev.laksamanamuda.id/konten/analytics/#kalender',
+    url: 'https://dev.laksamanamuda.id/konten/analytics/#' + ((opsi && opsi.hash) || 'kalender'),
     runScripts: 'dangerously', pretendToBeVisual: true,
     beforeParse(w) {
       w.localStorage.setItem('lm_session', JSON.stringify({ name: 'Uji', token: 'tok', expiry: Date.now() + 3600e3, modules: ['campaign'] }));
@@ -179,6 +200,64 @@ const kartuDari = (d, judul) => [...d.querySelectorAll('.jd')].find(k => k.textC
     cek('jadwal yang sudah diposting: blok foto mengatakannya, tanpa tombol tambah', /sudah diposting ke Instagram/.test(d.getElementById('j-ig').textContent) && !d.querySelector('[data-a="jdw-foto"]'));
   }
 
+  console.log('\n== Komentar Instagram ==');
+  {
+    const { d, srv } = await buka({ tanpaKomentar: true, hash: 'komentar' });
+    cek('menu Komentar IG ada di sidebar', !!d.querySelector('#nav [data-v="komentar"]'));
+    cek('tanpa izin komentar: menyuruh hubungkan ulang, TIDAK menembak server', /Izin kelola komentar belum diberikan/.test(d.getElementById('app').textContent)
+      && srv.log.filter(b => b.action === 'campaignIgKomentar').length === 0);
+  }
+  {
+    const { w, d, srv } = await buka({ tanpaOtomatis: true, hash: 'komentar' });
+    await tunggu(40);
+    const app = () => d.getElementById('app');
+    cek('daftar komentar dimuat dari server (campaignIgKomentar)', srv.log.some(b => b.action === 'campaignIgKomentar'));
+    cek('bawaan "Belum dibalas": komentar tanpa balasan kita tampil', /Jam buka berapa kak\?/.test(app().textContent) && /Harga\?/.test(app().textContent));
+    cek('bawaan "Belum dibalas": yang sudah kita balas TIDAK tampil', !/Mantap!/.test(app().textContent));
+    klik(d, d.querySelector('[data-a="km-filter"][data-v="semua"]')); await tunggu(10);
+    cek('tab Semua memuat yang sudah dibalas + balasan kita bertanda "kita"', /Mantap!/.test(app().textContent) && /Terima kasih!/.test(app().textContent) && !!d.querySelector('.tag-saya'));
+    cek('komentar tersembunyi ditandai', !!d.querySelector('.km.sbn .tag-sbn'));
+    cek('postingan yang kolom komentarnya ditutup menawarkan "Buka kolom komentar"', !!d.querySelector('[data-a="km-aktif"][data-v="1790002"][data-s="1"]'));
+    klik(d, d.querySelector('[data-a="km-filter"][data-v="sembunyi"]')); await tunggu(10);
+    cek('tab Disembunyikan hanya memuat yang disembunyikan', /spam spam/.test(app().textContent) && !/Jam buka/.test(app().textContent));
+
+    /* Balas: draf diketik, dikirim, lalu postingannya dimuat ulang */
+    klik(d, d.querySelector('[data-a="km-filter"][data-v="belum"]')); await tunggu(10);
+    klik(d, d.querySelector('[data-a="km-balas"][data-v="1800001"]')); await tunggu(10);
+    const ta = d.querySelector('textarea[data-a="km-draf"]');
+    cek('Balas membuka kotak balasan', !!ta);
+    klik(d, d.querySelector('[data-a="km-kirim"]')); await tunggu(20);
+    cek('balasan kosong DITAHAN', srv.log.filter(b => b.action === 'campaignIgKomentarBalas').length === 0);
+    const ta2 = d.querySelector('textarea[data-a="km-draf"]');
+    ta2.value = 'Buka jam 10 pagi kak'; ta2.dispatchEvent(new w.Event('input', { bubbles: true }));
+    klik(d, d.querySelector('[data-a="km-kirim"]')); await tunggu(60);
+    const bl = srv.log.filter(b => b.action === 'campaignIgKomentarBalas');
+    cek('balasan dikirim sekali dengan id komentar & teksnya', bl.length === 1 && bl[0].data.id === '1800001' && bl[0].data.pesan === 'Buka jam 10 pagi kak');
+    const muatUlang = srv.log.filter(b => b.action === 'campaignIgKomentar');
+    cek('sesudah membalas, HANYA postingan itu yang dimuat ulang', muatUlang[muatUlang.length - 1].data.media === '1790001');
+    cek('kotak balasan tertutup sesudah terkirim', !d.querySelector('textarea[data-a="km-draf"]'));
+
+    /* Hapus: ditanya, dan kalau ditolak tidak dikirim */
+    w.confirm = () => false;
+    klik(d, d.querySelector('[data-a="km-hapus"][data-v="1800004"]')); await tunggu(20);
+    cek('hapus yang DITOLAK di konfirmasi tidak dikirim', srv.log.filter(b => b.action === 'campaignIgKomentarHapus').length === 0);
+    w.confirm = () => true;
+    klik(d, d.querySelector('[data-a="km-hapus"][data-v="1800004"]')); await tunggu(40);
+    cek('hapus yang disetujui dikirim dengan id-nya', srv.log.filter(b => b.action === 'campaignIgKomentarHapus' && b.data.id === '1800004').length === 1);
+    klik(d, d.querySelector('[data-a="km-sembunyi"][data-v="1800001"]')); await tunggu(40);
+    cek('sembunyikan mengirim sembunyi=true', srv.log.some(b => b.action === 'campaignIgKomentarSembunyi' && b.data.id === '1800001' && b.data.sembunyi === true));
+  }
+  {
+    const { w, d, srv } = await buka({ tanpaOtomatis: true, hash: 'komentar', tolakKomentar: true });
+    await tunggu(40);
+    klik(d, d.querySelector('[data-a="km-balas"][data-v="1800001"]')); await tunggu(10);
+    const ta = d.querySelector('textarea[data-a="km-draf"]');
+    ta.value = 'Draf penting'; ta.dispatchEvent(new w.Event('input', { bubbles: true }));
+    klik(d, d.querySelector('[data-a="km-kirim"]')); await tunggu(60);
+    const ta2 = d.querySelector('textarea[data-a="km-draf"]');
+    cek('balasan yang DITOLAK: kotak tetap terbuka dan drafnya utuh', ta2 && ta2.value === 'Draf penting');
+  }
+
   console.log('\n== Kontrak PHP ==');
   {
     let P = null;
@@ -216,7 +295,14 @@ const kartuDari = (d, judul) => [...d.querySelectorAll('.jd')].find(k => k.textC
     cek('simpan jadwal tidak memakai mb_strlen', sj.indexOf('mb_strlen(') < 0);
     cek('kolom jadwal lahir lewat ALTER (bukan migrasi)', /'ig_media_id'\s*=>/.test(LIB) && /ALTER TABLE cg_jadwal ADD COLUMN/.test(LIB));
     cek('pemicu luar TERTUTUP kalau kuncinya kosong/pendek', /strlen\(\$kunci\) < 24/.test(PEMICU) && /hash_equals/.test(PEMICU));
-    ['campaignMediaUnggah', 'campaignIgPosting', 'campaignIgPostingJatuhTempo'].forEach(a => cek('aksi ' + a + ' terdaftar di cg_aksi', LIB.indexOf("case '" + a + "'") > -1));
+    cek('scope Instagram meminta instagram_business_manage_comments', /define\('CG_IG_SCOPE', '[^']*instagram_business_manage_comments/.test(LIB));
+    const ko = badan('cg_ig_komentar');
+    cek('komentar dibaca dari Instagram, TIDAK disalin ke tabel', !/INSERT|UPDATE cg_|DELETE FROM/.test(ko) && !/INSERT|DELETE FROM/.test(badan('cg_ig_komentar_ubah')));
+    cek('komentar memeriksa izin manage_comments', /cg_ig_tok_komentar\(\$pdo\)/.test(ko) && /cg_ig_tok_komentar\(\$pdo\)/.test(badan('cg_ig_komentar_ubah')));
+    cek('id komentar/postingan divalidasi angka sebelum menyusun alamat API', /cg_ig_id_sah\(\$id\)/.test(badan('cg_ig_komentar_ubah')) && /cg_ig_id_sah\(\$satu\)/.test(ko));
+    cek('satu postingan yang gagal tidak mengosongkan seluruh daftar', /catch \(Exception \$e\) \{ \$x\['galat'\]/.test(ko));
+    ['campaignIgKomentar', 'campaignIgKomentarBalas', 'campaignIgKomentarSembunyi', 'campaignIgKomentarHapus', 'campaignIgKomentarAktif',
+     'campaignMediaUnggah', 'campaignIgPosting', 'campaignIgPostingJatuhTempo'].forEach(a => cek('aksi ' + a + ' terdaftar di cg_aksi', LIB.indexOf("case '" + a + "'") > -1));
   }
 
   console.log('\n====================================================');

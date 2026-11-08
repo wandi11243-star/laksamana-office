@@ -1032,8 +1032,18 @@ akan tertimpa.
     (`CG_POSTING_KUNCI` ≥24 karakter di config, kosong = tertutup). Lewat
     >24 jam tidak diposting; yang bergalat tidak dicoba ulang sampai disunting.
 
+- **KOMENTAR INSTAGRAM (8 Nov 2026)**, menu `komentar` (Komentar IG):
+  scope `instagram_business_manage_comments` (hubungkan ulang). Aksi
+  `campaignIgKomentar` (12 postingan terbaru ber-komentar dari `cg_post`, atau
+  satu lewat `media`) + `…Balas/Sembunyi/Hapus/Aktif`. **Dibaca langsung dari
+  Instagram, TIDAK disalin ke tabel** — salinan akan memajang komentar yang
+  sudah dihapus di aplikasi. Id divalidasi angka (`cg_ig_id_sah`). Draf
+  balasan di `ST.komDraf` (di luar DOM); gagal kirim = draf utuh. Sesudah
+  aksi yang dimuat ulang cuma postingan itu. `cg_http('DELETE'` di sini HTTP
+  ke Instagram, bukan SQL — uji "DELETE hanya satu" membuangnya dulu.
+
 ```bash
-node tools/uji-posting-ig.js   # 47 pemeriksaan, jsdom + kontrak PHP
+node tools/uji-posting-ig.js   # 75 pemeriksaan, jsdom + kontrak PHP
 ```
 - **AI = Meta Model API (Muse Spark), SATU-SATUNYA penyedia** (`cg_ai_tanya`,
   model dari daftar tertutup, bisa diganti di Pengaturan). **Anthropic DICABUT

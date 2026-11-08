@@ -124,8 +124,12 @@ define('CG_TIKTOK_SCOPE', 'user.info.basic,user.info.profile,user.info.stats,vid
 /* instagram_business_content_publish (8 Nov 2026): posting dari Kalender.
    Token yang dibuat SEBELUM tanggal ini tidak membawanya — orangnya harus
    menekan Hubungkan lagi, dan layar mengatakannya (cg_ig_bisa_posting). */
-define('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights,instagram_business_content_publish');
+define('CG_IG_SCOPE', 'instagram_business_basic,instagram_business_manage_insights,instagram_business_content_publish,instagram_business_manage_comments');
 define('CG_IG_IZIN_POSTING', 'instagram_business_content_publish');
+/* Kelola komentar (8 Nov 2026): baca, balas, sembunyikan, hapus komentar &
+   nyala/matikan komentar per postingan. Sama seperti izin posting, token
+   lama tidak membawanya — hubungkan ulang. */
+define('CG_IG_IZIN_KOMENTAR', 'instagram_business_manage_comments');
 define('CG_IG_GRAPH', 'https://graph.instagram.com/v23.0');
 /* Meta Marketing API (iklan), 14 Okt 2026. */
 define('CG_FB_GRAPH', 'https://graph.facebook.com/v23.0');
@@ -1058,6 +1062,112 @@ function cg_ig_posting_jatuh_tempo($pdo, $nama) {
     $pdo = db(true);
   }
   return $hasil;
+}
+
+/* ==================== KOMENTAR INSTAGRAM (8 Nov 2026) ====================
+   DIBACA LANGSUNG dari Instagram tiap kali, TIDAK disalin ke database:
+   komentar bisa dihapus/disembunyikan dari aplikasi Instagram kapan saja,
+   dan salinan di sini akan memajang komentar yang sudah tidak ada — lalu
+   tombol Balas di bawahnya gagal dengan galat yang tidak bisa dijelaskan.
+
+   Tidak ada satu pun DELETE ke database Office di sini. Satu-satunya hapus
+   adalah komentar di Instagram, lewat tombolnya, dan layar menanyakannya
+   dulu. */
+function cg_ig_bisa_komentar($pdo) {
+  $q = $pdo->prepare('SELECT scope FROM cg_akun WHERE platform = :p');
+  $q->execute(array(':p' => 'instagram'));
+  return strpos((string)$q->fetchColumn(), CG_IG_IZIN_KOMENTAR) !== false;
+}
+function cg_ig_tok_komentar($pdo) {
+  if (!cg_ig_bisa_komentar($pdo)) throw new Exception('Izin kelola komentar Instagram belum diberikan. Buka Insight → Akun terhubung, tekan Hubungkan Instagram lagi, dan izinkan "manage comments".');
+  return cg_ig_token($pdo);
+}
+/* id komentar & postingan Instagram = deret angka. Yang lain ditolak sebelum
+   dipakai menyusun alamat API. */
+function cg_ig_id_sah($id) { return is_string($id) && preg_match('/^\d{5,30}$/', $id) === 1; }
+
+function cg_ig_komentar_satu($tok, $mediaId) {
+  $f = 'id,text,timestamp,username,like_count,hidden,replies{id,text,timestamp,username,like_count,hidden}';
+  $r = cg_http('GET', CG_IG_GRAPH . '/' . rawurlencode($mediaId) . '/comments?' . http_build_query(array('fields' => $f, 'limit' => 50, 'access_token' => $tok)), array(), null, 25);
+  if (!$r['data'] || !isset($r['data']['data'])) throw new Exception(cg_ig_galat($r, 'Komentar tidak terbaca'));
+  $rapi = function($c) {
+    return array('id' => (string)$c['id'], 'teks' => (string)(isset($c['text']) ? $c['text'] : ''),
+      'waktu' => isset($c['timestamp']) ? strtotime((string)$c['timestamp']) * 1000 : 0,
+      'user' => (string)(isset($c['username']) ? $c['username'] : ''), 'suka' => (int)(isset($c['like_count']) ? $c['like_count'] : 0),
+      'sembunyi' => !empty($c['hidden']));
+  };
+  $out = array();
+  foreach ($r['data']['data'] as $c) {
+    if (!isset($c['id'])) continue;
+    $k = $rapi($c);
+    $k['balasan'] = array();
+    if (isset($c['replies']['data']) && is_array($c['replies']['data'])) {
+      foreach ($c['replies']['data'] as $b) if (isset($b['id'])) $k['balasan'][] = $rapi($b);
+      usort($k['balasan'], function($a, $b) { return $a['waktu'] - $b['waktu']; });
+    }
+    $out[] = $k;
+  }
+  usort($out, function($a, $b) { return $b['waktu'] - $a['waktu']; });
+  $m = cg_http('GET', CG_IG_GRAPH . '/' . rawurlencode($mediaId) . '?' . http_build_query(array('fields' => 'is_comment_enabled,comments_count', 'access_token' => $tok)), array(), null, 20);
+  return array('komentar' => $out,
+    'aktif' => isset($m['data']['is_comment_enabled']) ? (bool)$m['data']['is_comment_enabled'] : null,
+    'jumlah' => isset($m['data']['comments_count']) ? (int)$m['data']['comments_count'] : count($out));
+}
+
+/* Daftar: postingan terbaru yang PUNYA komentar (dari cg_post, sinkron 6
+   jam), maks. 12, atau satu postingan kalau `media` disebut. Yang gagal per
+   postingan dilaporkan di postingan itu — satu postingan yang ditolak tidak
+   boleh mengosongkan seluruh halaman. */
+function cg_ig_komentar($pdo, $d) {
+  cg_pastikan($pdo);
+  @set_time_limit(120);
+  $tok = cg_ig_tok_komentar($pdo);
+  $satu = isset($d['media']) ? (string)$d['media'] : '';
+  if ($satu !== '') {
+    if (!cg_ig_id_sah($satu)) throw new Exception('Postingan tidak dikenal.');
+    $q = $pdo->prepare("SELECT post_id, judul, url, cover, tayang_at, comments FROM cg_post WHERE platform='instagram' AND post_id=:id");
+    $q->execute(array(':id' => $satu));
+    $daftar = $q->fetchAll();
+    if (!$daftar) $daftar = array(array('post_id' => $satu, 'judul' => '', 'url' => '', 'cover' => '', 'tayang_at' => 0, 'comments' => 0));
+  } else {
+    $daftar = $pdo->query("SELECT post_id, judul, url, cover, tayang_at, comments FROM cg_post WHERE platform='instagram' AND hilang=0 AND comments > 0 ORDER BY tayang_at DESC LIMIT 12")->fetchAll();
+  }
+  $pu = $pdo->query("SELECT profil_url FROM cg_akun WHERE platform='instagram'")->fetchColumn();
+  $saya = preg_match('#instagram\.com/([^/?]+)#', (string)$pu, $mm) ? rawurldecode($mm[1]) : '';
+  $posts = array();
+  foreach ($daftar as $p) {
+    $x = array('id' => (string)$p['post_id'], 'judul' => cg_potong((string)$p['judul'], 300), 'url' => (string)$p['url'],
+      'cover' => (string)$p['cover'], 'tayang_at' => (int)$p['tayang_at'], 'komentar' => array(), 'aktif' => null, 'jumlah' => (int)$p['comments'], 'galat' => '');
+    try { $x = array_merge($x, cg_ig_komentar_satu($tok, $x['id'])); }
+    catch (Exception $e) { $x['galat'] = $e->getMessage(); }
+    $posts[] = $x;
+  }
+  return array('posts' => $posts, 'saya' => $saya, 'at' => cg_now_ms());
+}
+
+function cg_ig_komentar_ubah($pdo, $d, $aksi) {
+  cg_pastikan($pdo);
+  $tok = cg_ig_tok_komentar($pdo);
+  $id = isset($d['id']) ? (string)$d['id'] : '';
+  if (!cg_ig_id_sah($id)) throw new Exception('Komentar/postingan tidak dikenal.');
+  $hdr = array('Content-Type: application/x-www-form-urlencoded');
+  if ($aksi === 'balas') {
+    $pesan = trim((string)(isset($d['pesan']) ? $d['pesan'] : ''));
+    if ($pesan === '') throw new Exception('Balasan masih kosong.');
+    if (preg_match_all('/./su', $pesan) > 2200) throw new Exception('Balasan paling panjang 2.200 karakter.');
+    $r = cg_http('POST', CG_IG_GRAPH . '/' . rawurlencode($id) . '/replies', $hdr, http_build_query(array('message' => $pesan, 'access_token' => $tok)), 30);
+    if (!$r['data'] || empty($r['data']['id'])) throw new Exception(cg_ig_galat($r, 'Instagram menolak balasan'));
+    return array('id' => (string)$r['data']['id']);
+  }
+  if ($aksi === 'sembunyi') {
+    $r = cg_http('POST', CG_IG_GRAPH . '/' . rawurlencode($id), $hdr, http_build_query(array('hide' => !empty($d['sembunyi']) ? 'true' : 'false', 'access_token' => $tok)), 30);
+  } else if ($aksi === 'hapus') {
+    $r = cg_http('DELETE', CG_IG_GRAPH . '/' . rawurlencode($id) . '?' . http_build_query(array('access_token' => $tok)), array(), null, 30);
+  } else if ($aksi === 'aktif') {
+    $r = cg_http('POST', CG_IG_GRAPH . '/' . rawurlencode($id), $hdr, http_build_query(array('comment_enabled' => !empty($d['aktif']) ? 'true' : 'false', 'access_token' => $tok)), 30);
+  } else throw new Exception('Aksi komentar tidak dikenal.');
+  if (!$r['data'] || empty($r['data']['success'])) throw new Exception(cg_ig_galat($r, 'Instagram menolak perubahan'));
+  return array('ok' => true);
 }
 
 /* ==================== BANK KONTEN ==================== */
@@ -2574,6 +2684,11 @@ function cg_aksi($action, $body) {
     case 'campaignMediaUnggah':  return cg_media_unggah($d);
     case 'campaignIgPosting':    return cg_ig_posting($pdo, isset($d['id']) ? $d['id'] : '', $nama);
     case 'campaignIgPostingJatuhTempo': return cg_ig_posting_jatuh_tempo($pdo, '(otomatis) ' . $nama);
+    case 'campaignIgKomentar':   return cg_ig_komentar($pdo, $d);
+    case 'campaignIgKomentarBalas':    return cg_ig_komentar_ubah($pdo, $d, 'balas');
+    case 'campaignIgKomentarSembunyi': return cg_ig_komentar_ubah($pdo, $d, 'sembunyi');
+    case 'campaignIgKomentarHapus':    return cg_ig_komentar_ubah($pdo, $d, 'hapus');
+    case 'campaignIgKomentarAktif':    return cg_ig_komentar_ubah($pdo, $d, 'aktif');
     case 'campaignRiset':        return cg_riset_jalankan($pdo, $d, $nama);
     case 'campaignInsightAI':    return cg_insight_ai($pdo, $d);
     case 'campaignBankGenerate': return cg_bank_generate($pdo, $d, $nama);
