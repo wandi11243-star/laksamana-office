@@ -18,6 +18,9 @@
  *                        merekonsiliasi dan menghapus baris yang tidak ikut
  *                        di kiriman, sementara modul lain tidak pernah
  *                        memegang state BD seutuhnya.
+ *   POST {action:"lampiranUnggah", dataBase64, fileName, mimeType}
+ *                                       -> {ok,data:{key,name,mime,size}}   lampiran sub-task
+ *   GET  ?action=lampiran&key=bdf_…[&name=]  -> berkasnya (bukan JSON), 404 kalau tidak ada
  *   POST {action:"agentTugas"|"agentSelesai"|"agentCatat", agentToken, …}
  *                        Pintu AI agent untuk reminder lewat chat — lihat
  *                        lib_agent.php. Mati selama AGENT_TOKEN belum diisi.
@@ -95,6 +98,20 @@ try {
     try { $out = $action === 'agentSelesai' ? agent_selesai($body) : agent_catat($body); }
     finally { db_unlock($lock); }
     keluar(array('ok' => true, 'data' => $out));
+
+  } else if ($action === 'lampiranUnggah') {
+    /* Lampiran sub-task (17 Nov 2026) — lihat lib_bd_lampiran.php. Berkasnya
+       ke disk, yang dipulangkan rujukannya; frontend menaruhnya di
+       subtasks[].files lalu menyimpan task seperti biasa lewat saveAll. */
+    if ($method !== 'POST') keluar(array('ok' => false, 'error' => 'Unggah lampiran wajib POST.'));
+    require_once __DIR__ . '/lib_bd_lampiran.php';
+    // Frontend lama mengirim {action, data:{…}} lewat _post(); pemanggil lain boleh polos.
+    keluar(array('ok' => true, 'data' => lampiran_unggah(isset($body['data']) && is_array($body['data']) ? $body['data'] : $body)));
+
+  } else if ($action === 'lampiran') {
+    // GET ?action=lampiran&key=bdf_…&name=… — berkasnya apa adanya (bukan JSON).
+    require_once __DIR__ . '/lib_bd_lampiran.php';
+    lampiran_kirim(isset($_GET['key']) ? (string)$_GET['key'] : '', isset($_GET['name']) ? (string)$_GET['name'] : '');
 
   } else if ($action === 'saveAll') {
     $lock = db_lock();

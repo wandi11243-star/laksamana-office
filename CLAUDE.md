@@ -859,6 +859,16 @@ node tools/uji-agenda-inbox-bd.js   # 88 pemeriksaan, jsdom + server tiruan HIDU
 node tools/uji-kal-luar-bd.js   # 31 pemeriksaan, jsdom + kontrak PHP (php-parser)
 ```
 
+**Putaran kesebelas (17 Nov 2026): catatan & lampiran sub-task** — permintaan user, di Office lama DAN laksamana-office-vue dengan data yang SAMA. Sub-task membawa `note` (teks) dan `files` `[{key,name,mime,size}]` di blob task, tanpa migrasi. Di modal: tombol 📎 per baris sub-task membuka kotak catatan + lampiran (`subKotakLampiran`); di pohon task (`taskTreeRow`) catatan & lampiran tampil di bawah sub-task, di dropdown kartu cuma penanda 📝/📎.
+- **`simpanTask` DULU MENYUSUN ULANG sub-task jadi `{id,t,done,d?,p?}`** — field yang tidak dikenalnya (termasuk catatan/lampiran yang diisi dari Office baru) lenyap tiap task disimpan di sini. Sekarang `note`/`files` dibawa; `punya` (sub-task tersimpan sudah membawanya) membuat catatan yang dikosongkan / lampiran terakhir yang dihapus tetap TERKIRIM.
+- **Berkasnya di DISK, bukan di blob** (getAll ikut tiap polling): `bd-mysql/lib_bd_lampiran.php`, aksi `lampiranUnggah` (POST, isi di `data`) & `lampiran` (GET `?key=&name=`, berkasnya langsung — dipakai `<img>`/tautan). Kunci `bdf_<16 hex>.<ext>`, gambar/PDF/Office/TXT/CSV maks 8 MB, folder `bd-db/lampiran/` di SAMPING `bd-api-mysql/` (di luar sinkron FTP, dikunci .htaccess) atau konstanta `BD_DATA_DIR` di config.php. Yatim (tak dirujuk task mana pun, dibaca dari DB) dibuang sejam sesudah diunggah, saat ada unggahan lain.
+- **ATURANNYA KEMBAR dengan laksamana-api (`BdFiles.php`)** — kunci, jenis, batas, jeda. Supaya lampiran dari kedua Office saling terbuka, KEDUA backend harus menunjuk folder yang SAMA (`BD_DATA_DIR` di sini + env `BD_DATA_DIR` di Laravel), dev ke folder dev, produksi ke produksi — **jangan disilang**: pembersihannya membaca database situsnya sendiri.
+- Unggah seketika saat dipilih; `_lampUnggah` menahan Simpan sampai selesai. Task berulang (`lahirkanUlang`): catatan ikut, lampiran tidak.
+
+```bash
+node tools/uji-lampiran-sub-bd.js   # 36 pemeriksaan, jsdom + server tiruan HIDUP + kontrak PHP
+```
+
 ### BD OS: saveAll hanya menghapus baris yang PERNAH DILIHAT tab itu (24 Sep 2026)
 
 Keluhan user: PR-11 (berikut PO "Pelunasan DJ") hilang dari Purchasing.

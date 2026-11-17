@@ -316,6 +316,24 @@ td .mut{color:var(--muted);font-size:12.5px}
 .subrow .subt.done{text-decoration:line-through;color:var(--muted)}
 .subadd{display:flex;gap:8px;margin-top:6px}
 .subadd input{flex:1}
+/* Catatan & lampiran sub-task (17 Nov 2026) */
+.iconbtn.sublamp{font-size:12px;white-space:nowrap;flex:none;color:var(--muted)}
+.iconbtn.sublamp.ada{color:var(--gold-deep)}
+.iconbtn.sublamp.on{background:var(--ink-900)}
+.sublampbox{margin:4px 0 8px 24px;padding:8px 10px;border:1px solid var(--line-soft);border-radius:10px;background:var(--ink-900);display:flex;flex-direction:column;gap:8px}
+.field .sublampbox textarea{width:100%;min-height:52px;resize:vertical;font-size:13px;background:#fff}
+.lampw{display:flex;flex-wrap:wrap;gap:6px}
+.lampc{display:inline-flex;align-items:center;gap:4px;max-width:100%;border:1px solid var(--line-soft);border-radius:8px;background:#fff;padding:3px 4px 3px 3px}
+.lampc a{display:inline-flex;align-items:center;gap:6px;min-width:0;color:inherit;text-decoration:none}
+.lampc img{width:30px;height:30px;object-fit:cover;border-radius:6px;flex:none}
+.lampc .lampi{width:30px;height:30px;border-radius:6px;display:inline-grid;place-items:center;background:var(--gold-bg,#F3E7C9);color:var(--gold-deep);flex:none}
+.lampc .lampn{display:flex;flex-direction:column;min-width:0;font-size:12px;font-weight:600;max-width:170px}
+.lampc .lampn,.lampc .lampn small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lampc .lampn small{font-weight:400;font-size:10.5px;color:var(--muted)}
+.lampbtn{position:relative;align-self:flex-start;cursor:pointer}
+.lampbtn input[type=file]{position:absolute;inset:0;opacity:0;cursor:pointer;width:100%}
+.sublampinfo{margin-top:4px;display:flex;flex-direction:column;gap:5px}
+.sublampinfo .subnote{font-size:12px;color:var(--muted);white-space:pre-line}
 .deprow{display:flex;align-items:center;gap:8px;font-size:13px;padding:4px 2px;cursor:pointer}
 .deprow span.done{text-decoration:line-through;color:var(--muted)}
 .deprow .tag{margin-left:auto}
@@ -1188,7 +1206,8 @@ const ICON={
   chevL:'<path d="M15 18l-6-6 6-6"/>', chevR:'<path d="M9 18l6-6-6-6"/>',
   gantt:'<path d="M4 5v14M4 7h8M8 12h10M6 17h7"/>',
   refresh:'<path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/>',
-  tag:'<path d="M20.6 13.4 12 22l-9-9V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.4"/>'
+  tag:'<path d="M20.6 13.4 12 22l-9-9V3h10l7.6 7.6a2 2 0 0 1 0 2.8Z"/><circle cx="7.5" cy="7.5" r="1.4"/>',
+  file:'<path d="M14 3H6a1 1 0 0 0-1 1v16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1V8Z"/><path d="M14 3v5h5"/>'
 };
 function ic(n,w){return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" '+
   'stroke-linecap="round" stroke-linejoin="round"'+(w?' style="width:'+w+'px;height:'+w+'px"':'')+'>'+(ICON[n]||'')+'</svg>';}
@@ -2318,7 +2337,11 @@ function taskModal(id){
     important:true,urgent:false,type:_presetProject?'Project':'Ad-hoc',project:_presetProject||null,
     daily:_presetDaily,ulang:_presetUlang||''};
   _modalTaskId=baru?null:t.id;
-  _subDraft=subs(t).map(function(x){return {id:x.id||uid('s'),t:String(x.t||''),done:!!x.done,d:x.d||'',p:x.p||''};});
+  /* note & files (17 Nov 2026) ikut di draf; `punya` = sub-task tersimpan
+     memang sudah membawanya, jadi catatan yang dikosongkan / lampiran
+     terakhir yang dihapus tetap terkirim (lihat simpanTask). */
+  _subDraft=subs(t).map(function(x){return {id:x.id||uid('s'),t:String(x.t||''),done:!!x.done,d:x.d||'',p:x.p||'',
+    note:String(x.note||''),files:Array.isArray(x.files)?x.files.slice():[],punya:('note' in x)||('files' in x),buka:false};});
   _depDraft=deps(t).filter(function(d){return d!==t.id && taskById(d);});
   _tagDraft=tagsOf(t).slice(); _tagSesi=[]; _warnaDraft={}; _warnaBuka='';
   /* Divisi task = daftar yang SAMA dengan form agenda & project: yang dipakai
@@ -2387,6 +2410,9 @@ function simpanTask(id){
   var g=function(x){return document.getElementById(x);};
   var nama=g('m_name').value.trim();
   if(!nama){ g('m_name').focus(); toast('Nama task wajib diisi.'); return; }
+  /* Lampiran yang masih diunggah belum punya rujukan — disimpan sekarang,
+     sub-task-nya kehilangan berkas itu tanpa satu pun tanda. */
+  if(_lampUnggah>0){ toast('Lampiran masih diunggah — tunggu sebentar lalu simpan lagi.'); return; }
   /* Mulai sesudah deadline membuat batang Timeline terbalik — ditolak di
      sini, bukan digambar diam-diam sebagai belah ketupat. */
   if(g('m_start').value&&g('m_due').value&&g('m_start').value>g('m_due').value){
@@ -2414,7 +2440,13 @@ function simpanTask(id){
   if(data.ulang && !data.deadline){ g('m_due').focus(); toast('Task berulang butuh deadline sebagai patokan.'); return; }
   /* Sub-task tanpa teks dibuang: baris kosong cuma membuat hitungan x/y
      tidak pernah bisa genap. */
-  data.subtasks=_subDraft.map(function(x){var o={id:x.id,t:String(x.t||'').trim(),done:!!x.done}; if(x.d) o.d=x.d; if(x.p) o.p=x.p; return o;})
+  /* note & files (17 Nov 2026): DIBAWA, bukan dibuang. Sampai tanggal ini
+     baris ini menyusun ulang sub-task tanpa field yang tidak dikenalnya, jadi
+     catatan/lampiran yang diisi dari Office baru lenyap begitu task disimpan
+     di sini. Field lain yang tidak dikenal tetap tidak ikut — itu sengaja. */
+  data.subtasks=_subDraft.map(function(x){var o={id:x.id,t:String(x.t||'').trim(),done:!!x.done}; if(x.d) o.d=x.d; if(x.p) o.p=x.p;
+                  var nt=String(x.note||'').trim(), fl=Array.isArray(x.files)?x.files:[];
+                  if(nt||x.punya) o.note=nt; if(fl.length||x.punya) o.files=fl; return o;})
                 .filter(function(x){return x.t;});
   data.dependsOn=_depDraft.filter(function(d){return d!==id && taskById(d);});
   /* Tag yang masih tertinggal di kotak ketik ikut — orang sering menekan
@@ -2492,7 +2524,10 @@ function subDaftarHtml(t){
   if(!SUB_BUKA[t.id] || !subs(t).length) return '';
   return '<div class="subdrop" onclick="event.stopPropagation()" ondragstart="event.preventDefault()">'+subs(t).map(function(x,i){
     return '<label class="subdi"><input type="checkbox"'+(x.done?' checked':'')+
-      ' onchange="APP.subLangsung(\''+t.id+'\','+i+',this.checked)"><span class="'+(x.done?'done':'')+'">'+esc(x.t)+'</span>'+subPicTag(x)+'</label>';
+      ' onchange="APP.subLangsung(\''+t.id+'\','+i+',this.checked)"><span class="'+(x.done?'done':'')+'">'+esc(x.t)+'</span>'+
+      (String(x.note||'').trim()?'<span class="tag" title="'+esc(x.note)+'">📝</span>':'')+
+      ((x.files||[]).length?'<span class="tag" title="'+esc(x.files.map(function(f){return f.name;}).join(', '))+'">📎'+x.files.length+'</span>':'')+
+      subPicTag(x)+'</label>';
   }).join('')+'</div>';
 }
 function subBuka(id){ SUB_BUKA[id]=!SUB_BUKA[id]; render(); }
@@ -2669,13 +2704,110 @@ function subGambar(){
       '<input class="subt'+(s.done?' done':'')+'" value="'+esc(s.t)+'" oninput="APP.subUbah('+i+',this.value)">'+
       '<input type="date" class="subd" title="Deadline sub-task (opsional)" value="'+esc(s.d||'')+'" onchange="APP.subTgl('+i+',this.value)">'+
       subPicSelect(s.p,i)+
-      '<button type="button" class="iconbtn" title="Hapus sub-task" onclick="APP.subHapus('+i+')">'+ic('x',13)+'</button></div>';
+      subTombolLampiran(s,i)+
+      '<button type="button" class="iconbtn" title="Hapus sub-task" onclick="APP.subHapus('+i+')">'+ic('x',13)+'</button></div>'+
+      (s.buka?subKotakLampiran(s,i):'');
   }).join(''):'<div class="muted" style="font-size:12.5px;padding:4px 2px">Belum ada sub-task.</div>';
+}
+
+/* ============ CATATAN & LAMPIRAN SUB-TASK (17 Nov 2026) ============
+   Permintaan user: sub-task bisa diberi keterangan dan lampiran berkas/
+   gambar — di Office lama DAN Office baru, dengan data yang sama:
+   subtasks[].note (teks) dan subtasks[].files [{key,name,mime,size}].
+   Berkasnya di disk lewat bd-api-mysql (lib_bd_lampiran.php), yang di task
+   cuma rujukannya. Diunggah SEKETIKA saat dipilih; rujukannya masuk ke draf
+   dan baru ke task saat Simpan (Batal tidak menyimpan apa pun — berkas yang
+   tidak pernah dirujuk dibersihkan server sejam kemudian). */
+var LAMP_MAKS=8*1024*1024;
+var LAMP_EXT=['jpg','jpeg','png','webp','gif','heic','pdf','doc','docx','xls','xlsx','ppt','pptx','txt','csv'];
+var LAMP_TERIMA='image/*,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt,.csv';
+var _lampUnggah=0;   // unggahan yang belum selesai — simpanTask menunggunya
+function lampiranUrl(f){
+  return API_URL+(API_URL.indexOf('?')>-1?'&':'?')+'action=lampiran&key='+encodeURIComponent(f.key)+'&name='+encodeURIComponent(f.name||'');
+}
+function lampiranGambar(f){ return /^image\//.test(String(f&&f.mime||'')); }
+function lampiranUkuran(n){
+  n=+n||0; if(n<=0) return '';
+  return n<1048576?Math.max(1,Math.round(n/1024))+' KB':(n/1048576).toFixed(1).replace('.',',')+' MB';
+}
+/* Satu lampiran: gambar kecil untuk foto, ikon untuk berkas lain. Klik membuka
+   di tab baru. `hapus` = tombol ✕ (hanya di modal). */
+function lampiranChip(f,hapus){
+  var url=lampiranUrl(f);
+  return '<span class="lampc">'+
+    '<a href="'+esc(url)+'" target="_blank" rel="noopener" title="Buka '+esc(f.name||'')+'" onclick="event.stopPropagation()">'+
+      (lampiranGambar(f)?'<img src="'+esc(url)+'" alt="" loading="lazy">':'<span class="lampi">'+ic('file',14)+'</span>')+
+      '<span class="lampn">'+esc(f.name||f.key)+'<small>'+esc(lampiranUkuran(f.size))+'</small></span></a>'+
+    (hapus?'<button type="button" class="iconbtn" title="Hapus lampiran" onclick="'+hapus+'">'+ic('x',12)+'</button>':'')+
+  '</span>';
+}
+function subTombolLampiran(s,i){
+  var n=(s.files||[]).length, ada=n||String(s.note||'').trim();
+  return '<button type="button" class="iconbtn sublamp'+(ada?' ada':'')+(s.buka?' on':'')+'" title="Catatan & lampiran" '+
+    'onclick="APP.subBukaLampiran('+i+')">'+(n?'📎'+n:(String(s.note||'').trim()?'📝':'＋📎'))+'</button>';
+}
+function subKotakLampiran(s,i){
+  return '<div class="sublampbox">'+
+    '<textarea rows="2" placeholder="Catatan / keterangan sub-task ini…" oninput="APP.subCatatan('+i+',this.value)">'+esc(s.note||'')+'</textarea>'+
+    ((s.files||[]).length?'<div class="lampw">'+s.files.map(function(f,j){
+      return lampiranChip(f,'APP.subLampiranHapus('+i+','+j+')');
+    }).join('')+'</div>':'')+
+    '<label class="btn sm lampbtn">'+(s.unggah?'Mengunggah…':'📎 Lampirkan berkas / foto')+
+      '<input type="file" multiple accept="'+LAMP_TERIMA+'" onchange="APP.subLampirkan('+i+',this)"></label>'+
+    '<span class="muted" style="font-size:11.5px">Gambar, PDF, Word, Excel, PowerPoint, TXT/CSV · maks 8 MB</span>'+
+  '</div>';
+}
+/* Di daftar (pohon task): catatan + lampiran di bawah nama sub-task, baca saja. */
+function subInfoLampiran(s){
+  var nt=String(s.note||'').trim(), fl=Array.isArray(s.files)?s.files:[];
+  if(!nt&&!fl.length) return '';
+  return '<div class="sublampinfo">'+(nt?'<div class="subnote">'+esc(nt)+'</div>':'')+
+    (fl.length?'<div class="lampw">'+fl.map(function(f){ return lampiranChip(f,''); }).join('')+'</div>':'')+'</div>';
+}
+function subBukaLampiran(i){ if(_subDraft[i]){ _subDraft[i].buka=!_subDraft[i].buka; subGambar(); } }
+// Mengetik catatan TIDAK menggambar ulang — kotaknya akan dibuat ulang dan cuma huruf pertama yang masuk.
+function subCatatan(i,v){ if(_subDraft[i]) _subDraft[i].note=v; }
+function subLampiranHapus(i,j){
+  var s=_subDraft[i]; if(!s||!s.files) return;
+  s.files.splice(j,1); subGambar();
+}
+function lampiranTolak(f){
+  var ext=String(f.name||'').split('.').pop().toLowerCase();
+  if(!/^image\//.test(f.type||'') && LAMP_EXT.indexOf(ext)<0) return f.name+': jenis berkas tidak didukung. Pakai gambar, PDF, Word, Excel, PowerPoint, TXT atau CSV.';
+  if(f.size>LAMP_MAKS) return f.name+': lebih dari 8 MB.';
+  return '';
+}
+function bacaDataUrl(f){
+  return new Promise(function(ok,gagal){
+    var fr=new FileReader();
+    fr.onload=function(){ ok(String(fr.result)); };
+    fr.onerror=function(){ gagal(new Error('Berkas gagal dibaca.')); };
+    fr.readAsDataURL(f);
+  });
+}
+function subLampirkan(i,inp){
+  var s=_subDraft[i]; if(!s) return;
+  var daftar=Array.prototype.slice.call(inp.files||[]); inp.value='';
+  daftar.forEach(function(f){
+    var salah=lampiranTolak(f); if(salah){ toast(salah); return; }
+    _lampUnggah++; s.unggah=(s.unggah||0)+1; subGambar();
+    bacaDataUrl(f).then(function(isi){
+      return apiPost('lampiranUnggah',{dataBase64:isi,fileName:f.name,mimeType:f.type||''});
+    }).then(function(r){
+      if(!r||!r.key) throw new Error('Server tidak memulangkan kunci berkas.');
+      if(!s.files) s.files=[];
+      s.files.push({key:r.key,name:r.name,mime:r.mime,size:r.size});
+    }).catch(function(e){
+      toast('Gagal mengunggah '+f.name+': '+e.message);
+    }).then(function(){
+      _lampUnggah=Math.max(0,_lampUnggah-1); s.unggah=Math.max(0,(s.unggah||1)-1); subGambar();
+    });
+  });
 }
 function subTambah(){
   var inp=document.getElementById('m_subBaru'); if(!inp) return;
   var v=inp.value.trim(); if(!v){ inp.focus(); return; }
-  _subDraft.push({id:uid('s'),t:v,done:false});
+  _subDraft.push({id:uid('s'),t:v,done:false,note:'',files:[],punya:false,buka:false});
   inp.value=''; subGambar(); inp.focus();
 }
 function subCentang(i,on){ if(_subDraft[i]){ _subDraft[i].done=!!on; subGambar(); } }
@@ -3131,7 +3263,7 @@ function taskTreeRow(t,o){
     var lw=!s.done&&gSah(s.d)&&sisaHari(s.d)<0;
     return '<div class="tr2 sub"><span class="caret-x"></span>'+
       '<label class="subcek"><input type="checkbox"'+(s.done?' checked':'')+' onchange="APP.subLangsung(\''+t.id+'\','+i+',this.checked)"></label>'+
-      '<div class="tr2-m"><div class="t-name'+(s.done?' done':'')+'">'+esc(s.t)+'</div></div>'+
+      '<div class="tr2-m"><div class="t-name'+(s.done?' done':'')+'">'+esc(s.t)+'</div>'+subInfoLampiran(s)+'</div>'+
       '<div class="tr2-pic">'+(s.p?avStack([s.p]):'')+'</div>'+
       '<div class="tr2-dl">'+(gSah(s.d)?'<span class="tag'+(s.done?' ok':lw?' overdue':'')+'">'+(s.done?'✓ '+fTgl(s.d):fDue(s.d))+'</span>':'')+'</div>'+
       '<div class="tr2-pr"></div></div>';
@@ -3426,7 +3558,10 @@ function lahirkanUlang(t,idTetap){
   var b={id:idTetap||uid('t'),name:t.name,desc:t.desc||'',div:t.div,status:'To Do',priority:t.priority||'Medium',
     deadline:nd,important:!!t.important,urgent:!!t.urgent,type:t.type||'Ad-hoc',project:t.project||null,
     ulang:t.ulang,ulangDari:t.id,progress:0,dependsOn:[],
-    subtasks:subs(t).map(function(x){ var o={id:uid('s'),t:x.t,done:false}; if(gSah(x.d)) o.d=gAdd(x.d,geser); return o; })};
+    /* Catatan sub-task ikut ke kejadian berikutnya (cara mengerjakan langkah
+       itu); lampirannya TIDAK — itu bukti kejadian yang sudah ditutup. */
+    subtasks:subs(t).map(function(x){ var o={id:uid('s'),t:x.t,done:false}; if(gSah(x.d)) o.d=gAdd(x.d,geser);
+      if(String(x.note||'').trim()) o.note=String(x.note); return o; })};
   if(t.daily) b.daily=true;
   if(tagsOf(t).length) b.tags=tagsOf(t).slice();
   if(gSah(t.start)) b.start=gAdd(t.start,geser);
@@ -7491,6 +7626,7 @@ window.APP={
   setDaily:function(apa,nilai){ if(apa==='mode') dMode=nilai; else if(apa==='arsip') dArsip=nilai; render(); },
   tagTambah:tagTambah, tagToggle:tagToggle, tagBukaWarna:tagBukaWarna, tagSetWarna:tagSetWarna,
   subTambah:subTambah, subCentang:subCentang, subUbah:subUbah, subHapus:subHapus, subTgl:subTgl, subPic:subPic,
+  subBukaLampiran:subBukaLampiran, subCatatan:subCatatan, subLampirkan:subLampirkan, subLampiranHapus:subLampiranHapus,
   cariPilih:cariPilih, cariTutup:cariTutup,
   gZoom:function(z){ gZoom=z; render(); },
   gx:function(id){ GX[id]=!GX[id]; render(); },
